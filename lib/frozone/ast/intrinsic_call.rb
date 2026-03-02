@@ -13,8 +13,8 @@ module Frozone
         "intrinsic[#{@method.name}](#{@arg_nodes.map(&:to_s).join(', ')})"
       end
 
-      def execute(context)
-        args = @arg_nodes.map { |arg_node| arg_node.execute(context) }
+      def evaluate(context)
+        args = @arg_nodes.map { |arg_node| arg_node.evaluate(context) }
 
         @method.call(*args)
       end

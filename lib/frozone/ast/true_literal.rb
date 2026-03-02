@@ -10,7 +10,7 @@ module Frozone
 
       def to_s = "true"
 
-      def execute(_) = Vm::TrueObject::TRUE
+      def evaluate(_) = Vm::TrueObject::TRUE
     end
   end
 end

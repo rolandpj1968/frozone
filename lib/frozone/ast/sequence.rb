@@ -9,11 +9,11 @@ module Frozone
         "seq(#{@nodes.map(&:to_s).join('; ')})"
       end
 
-      def execute(context)
+      def evaluate(context)
         result = nil
 
         @nodes.each do |node|
-          result = node.execute(context)
+          result = node.evaluate(context)
         end
 
         result

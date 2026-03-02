@@ -19,7 +19,7 @@ module Frozone
         "class(#{@name}, locals: #{@locals} body: #{@ast})"
       end
 
-      def execute(context)
+      def evaluate(context)
         # 1. find or create the class defn and constant
         class_constant = Vm::ModuleObject.lookup_constant(@name, context.scopes)
         puts "previous constant '#{@name}' #{class_constant}/#{class_constant.class}"
@@ -41,7 +41,7 @@ module Frozone
         begin
           # $ ruby -e 'v = class C; 3; end; puts v'
           # 3
-          @ast.execute(context)
+          @ast.evaluate(context)
         ensure
           context.pop_frame
           context.scopes.pop

@@ -40,11 +40,11 @@ module Frozone
 
         scripts = @options[:scripts]
 
-        # if -e is present then ruby DOES NOT execute an ARGV file
+        # if -e is present then ruby DOES NOT evaluate an ARGV file
         # Note: ruby -e 'ARGV.each {|f| load f}' file1.rb file2.rb file3.rb
         program =
           if scripts.empty?
-            # if -e is absent then ruby executes the FIRST file only
+            # if -e is absent then ruby evaluates the FIRST file only
             file = @options[:argv][0]
             file.nil? ? "" : File.read(file)
           else
@@ -55,7 +55,7 @@ module Frozone
             scripts.join("\n")
           end
 
-        result = execute(program)
+        result = evaluate(program)
 
         puts
         puts "result: #{result}"
@@ -72,7 +72,7 @@ module Frozone
 
       private
 
-      def execute_file(path) = execute(File.read(path))
+      def evaluate_file(path) = evaluate(File.read(path))
 
       # TODO - the most recent docs as of time of writing
       #   https://docs.ruby-lang.org/en/4.0/
@@ -83,11 +83,11 @@ module Frozone
         core_path = "./lib/core/#{version}" # TODO - work out frozone dir
 
         # TODO - read list from manifest somewhere...
-        execute_file("#{core_path}/basic_object.rb")
-        execute_file("#{core_path}/integer.rb")
+        evaluate_file("#{core_path}/basic_object.rb")
+        evaluate_file("#{core_path}/integer.rb")
       end
 
-      def execute(script)
+      def evaluate(script)
         #puts "Executing: '#{script}'"
 
         ast = Parser.new(script).ast
@@ -108,7 +108,7 @@ module Frozone
         context.push_frame(frame)
         context.push_scope(top_level_scope)
         
-        ast.execute(context)
+        ast.evaluate(context)
       end
     end
   end

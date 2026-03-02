@@ -14,7 +14,7 @@ module Frozone
       def to_s = "local(#{@local})"
 
       # TODO depth
-      def execute(context) = context.frame.get_local(@local)
+      def evaluate(context) = context.frame.get_local(@local)
     end
   end
 end

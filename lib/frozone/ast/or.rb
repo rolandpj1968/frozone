@@ -10,11 +10,11 @@ module Frozone
         "or(#{@left_node}, #{@right_node})"
       end
 
-      def execute(context)
-        left_value = @left_node.execute(context)
+      def evaluate(context)
+        left_value = @left_node.evaluate(context)
         return left_value if left_value.truthy?
 
-        @right_node.execute(context)
+        @right_node.evaluate(context)
       end
     end
   end

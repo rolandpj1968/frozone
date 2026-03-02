@@ -13,7 +13,7 @@ module Frozone
 
       def to_s = "sym(#{@value})"
 
-      def execute(_) = @value
+      def evaluate(_) = @value
 
       # TODO - thread-safety
       SymbolLiterals = {}

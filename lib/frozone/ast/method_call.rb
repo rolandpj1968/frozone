@@ -12,19 +12,19 @@ module Frozone
         "call(#{@name}, #{@receiver_node || '_'}, #{@arg_nodes.map(&:to_s).join(', ')})"
       end
 
-      def execute(context)
-        #puts "          RPJ = MethodCall#execute method :#{@name} receiver #{@receiver_node}"
+      def evaluate(context)
+        #puts "          RPJ = MethodCall#evaluate method :#{@name} receiver #{@receiver_node}"
         receiver =
           if @receiver_node.nil?
             context.frame.the_self
           else
-            @receiver_node.execute(context)
+            @receiver_node.evaluate(context)
           end
       
-        args = @arg_nodes.map { |arg_node| arg_node.execute(context) }
+        args = @arg_nodes.map { |arg_node| arg_node.evaluate(context) }
 
         method = receiver.lookup_method(@name)
-        #puts "          RPJ = MethodCall#execute method :#{@name} receiver #{receiver.class}"
+        #puts "          RPJ = MethodCall#evaluate method :#{@name} receiver #{receiver.class}"
         #puts "          RPJ =    method found is #{method}"
 
         # TODO - this is a runtime exception, not an assert
@@ -43,7 +43,7 @@ module Frozone
 
         context.push_frame(new_frame)
         begin
-          method.ast.execute(context)
+          method.ast.evaluate(context)
         ensure
           context.pop_frame
         end

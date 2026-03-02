@@ -10,7 +10,7 @@ module Frozone
 
       def to_s = "nil"
 
-      def execute(_) = Vm::NilObject::NIL
+      def evaluate(_) = Vm::NilObject::NIL
     end
   end
 end

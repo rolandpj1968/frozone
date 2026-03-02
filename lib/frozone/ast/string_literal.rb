@@ -14,7 +14,7 @@ module Frozone
 
       def to_s = "str(#{value})"
 
-      def execute(_) = @value.dup
+      def evaluate(_) = @value.dup
 
       # TODO - share with symbols
       # TODO - thread-safety

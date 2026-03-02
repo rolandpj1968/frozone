@@ -12,7 +12,7 @@ module Frozone
 
       def to_s = "con(#{@name})"
 
-      def execute(context) = Vm::ModuleObject.lookup_constant(@name, context.scopes)
+      def evaluate(context) = Vm::ModuleObject.lookup_constant(@name, context.scopes)
     end
   end
 end

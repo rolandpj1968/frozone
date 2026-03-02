@@ -12,7 +12,7 @@ module Frozone
 
       def to_s = "con=(#{@name}, #{@ast})"
 
-      def execute(context) = context.scopes.last.set_constant(@name, @ast.execute(context))
+      def evaluate(context) = context.scopes.last.set_constant(@name, @ast.evaluate(context))
     end
   end
 end

@@ -19,7 +19,7 @@ module Frozone
         @ast = ast
       end
 
-      def execute(context)
+      def evaluate(context)
         context.scopes.last.set_method(
           @name,
           Vm::Method.new(

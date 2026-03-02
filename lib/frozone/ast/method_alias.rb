@@ -12,7 +12,7 @@ module Frozone
         "alias(#{@new_name}, #{old_name})"
       end
 
-      def execute(context)
+      def evaluate(context)
         #clazz = context.frame.the_self
         clazz = context.scopes.last
         # TODO - what about eigenclass? Can you alias in instance methods?
