@@ -133,7 +133,7 @@ module Frozone
               required.name
             end
           end
-          #raise "not sure what locals_body_index is - expecting same as params count" unless prism_node.locals_body_index == params.length - not present in ruby 3.4.1
+          #raise "not sure what locals_body_index is - expecting same as params count" unless prism_node.locals_body_index == params.length - not present in ruby 4.0.1
 
           body_ast =
             # Prism curiosity for empty method defs

@@ -18,7 +18,7 @@ module Frozone
       def run
         load_core
 
-        Core::OBJECT_CLASS.set_constant(:RUBY_VERSION, Ast::StringLiteral.from('3.4.1'))
+        Core::OBJECT_CLASS.set_constant(:RUBY_VERSION, Ast::StringLiteral.from('4.0.1'))
 
         # Core::INTEGER_CLASS.set_method(
         #   :+,
@@ -75,8 +75,8 @@ module Frozone
       def execute_file(path) = execute(File.read(path))
 
       # TODO - the most recent docs as of time of writing
-      #   https://docs.ruby-lang.org/en/3.4/
-      FROZONE_CORE_VERSION = "3.4"
+      #   https://docs.ruby-lang.org/en/4.0/
+      FROZONE_CORE_VERSION = "4.0"
       def load_core
         version = FROZONE_CORE_VERSION
         puts Dir.pwd
