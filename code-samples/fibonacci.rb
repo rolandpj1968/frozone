@@ -15,5 +15,5 @@ N = 30
 # }
 # puts result
 
-# rurububy (for now)
+# frozone (for now)
 fibonacci(N)
