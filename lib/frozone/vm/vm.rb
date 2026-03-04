@@ -55,7 +55,7 @@ module Frozone
             scripts.join("\n")
           end
 
-        result = evaluate(program)
+        result = evaluate(program, dump_ast = true)
 
         puts
         puts "result: #{result.to_s}"
@@ -87,10 +87,15 @@ module Frozone
         evaluate_file("#{core_path}/integer.rb")
       end
 
-      def evaluate(script)
+      def evaluate(script, dump_ast = false)
         #puts "Executing: '#{script}'"
 
-        ast = Parser.new(script).ast
+        ast = Parser.new(script, dump_ast).ast
+
+        if dump_ast
+          puts
+          puts ast
+        end
 
         # puts
         # puts "AST root isa #{ast.class}"

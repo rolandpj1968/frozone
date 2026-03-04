@@ -5,7 +5,7 @@ module Frozone
   module Vm
     class ArrayObject < ObjectObject
       def initialize(elements)
-        raise "ArrayObject must have an Array elements" unless elements.class.equal?(Array)
+        raise "ArrayObject must have an Array elements" unless elements.is_a?(Array)
 
         super(Core::ARRAY_CLASS)
 

@@ -6,7 +6,7 @@ module Frozone
   module Ast
     class ClassDef
       def initialize(name, locals, ast)
-        raise "class name must be a Symbol" unless name.class.equal?(Symbol)
+        raise "class name must be a Symbol" unless name.is_a?(Symbol)
         @name = name
 
         raise "class defn with locals not yet supported" unless locals.empty?
@@ -22,15 +22,15 @@ module Frozone
       def evaluate(context)
         # 1. find or create the class defn and constant
         class_constant = Vm::ModuleObject.lookup_constant(@name, context.scopes)
-        puts "previous constant '#{@name}' #{class_constant}/#{class_constant.class}"
-        unless class_constant.nil? or class_constant.class.equal?(Vm::ClassObject)
+        #puts "previous constant '#{@name}' #{class_constant}/#{class_constant.class}"
+        unless class_constant.nil? or class_constant.is_a?(Vm::ClassObject)
           # TODO this is a real runtime error, not an assert
           raise "previous defn of #{@name} was not a class"
         end
         if class_constant.nil?
           # TODO namespace and superclass
           class_constant = Vm::ClassObject.new(@name, nil, nil)
-          puts "adding class '#{@name}' constant to scope #{context.scopes.last}"
+          #puts "adding class '#{@name}' constant to scope #{context.scopes.last}"
           context.scopes.last.set_constant(@name, class_constant)
         end
 

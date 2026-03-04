@@ -4,8 +4,8 @@ module Frozone
     # TODO - specialize 0 depth
     class LocalVariableRead
       def initialize(local, depth)
-        raise "local must be a Symbol" unless local.class.equal?(Symbol)
-        raise "depth must be an Integer" unless depth.class.equal?(Integer)
+        raise "local must be a Symbol" unless local.is_a?(Symbol)
+        raise "depth must be an Integer" unless depth.is_a?(Integer)
 
         @local = local
         @depth = depth

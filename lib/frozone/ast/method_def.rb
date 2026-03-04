@@ -1,37 +1,36 @@
+require_relative "../utils"
 require_relative '../vm/method'
 require_relative '../vm/symbol_object'
 
 module Frozone
   module Ast
     class MethodDef
-      def initialize(name, params, locals, ast)
-        raise "class name must be a Symbol" unless name.class.equal?(Symbol)
-        @name = name
+      include Utils
 
-        # TODO - must be an array of Symbols
-        raise "params must be an array of Symbols" unless params.class.equal?(Array)
-        @params = params
+      attr_reader :name, :required_params, :optional_params, :rest_param, :post_params, :locals, :ast
 
-        # TODO - must be an array of Symbols
-        raise "locals must be an array of Symbols" unless locals.class.equal?(Array)
-        @locals = locals
+      def initialize(name, required_params, optional_params, rest_param, post_params, locals, ast)
+        @name = check_type("name", name, Symbol)
+        @required_params = check_array_type("required_params", required_params, Symbol)
+        @locals = check_array_type("locals", locals, Symbol)
 
         @ast = ast
       end
 
       def evaluate(context)
         context.scopes.last.set_method(
-          @name,
+          name,
           Vm::Method.new(
             context.scopes,
-            @name,
-            @params,
-            @locals,
-            @ast
+            name,
+            required_params,
+            optional_params,
+            rest_param,
+            post_params,
+            locals,
+            ast
           )
         )
-        # Ruby seems to generate the method name
-        #   ruby -e 'a = def m = 3; puts a; puts a.class' -> m, Symbol
         Vm::SymbolObject.from(@name)
       end
     end

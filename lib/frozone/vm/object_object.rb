@@ -2,7 +2,7 @@ module Frozone
   module Vm
     class ObjectObject
       def initialize(class_object)
-        unless class_object.class.equal?(ClassObject) || (class_object.nil? && Core.class_class.nil?)
+        unless class_object.is_a?(ClassObject) || (class_object.nil? && Core.class_class.nil?)
           raise "ObjectObject class_object must be a ClassObject"
         end
         @class_object = class_object
@@ -13,7 +13,7 @@ module Frozone
       #def class_object = @class_object
 
       def create_singleton_class
-        if @eigenclass.equal?(@class_object)
+        if @eige.is_a?(@class_object)
           # TODO - the namespace is probs the same as for this Object? Will affect constant lookup order etc.
           @eigenclass = ClassObject.new(name = nil, namespace = nil, class_object)
         end

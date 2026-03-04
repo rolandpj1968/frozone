@@ -4,7 +4,7 @@ module Frozone
   module Ast
     class SymbolLiteral
       def initialize(value)
-        raise "value must be a Vm::SymbolObject" unless value.class.equal?(Vm::SymbolObject)
+        raise "value must be a Vm::SymbolObject" unless value.is_a?(Vm::SymbolObject)
         @value = value
       end
 

@@ -5,7 +5,7 @@ module Frozone
   module Vm
     class StringObject < ObjectObject
       def initialize(value)
-        raise "StringObject must have an String value" unless value.class.equal?(String)
+        raise "StringObject must have an String value" unless value.is_a?(String)
 
         super(Core::STRING_CLASS)
 

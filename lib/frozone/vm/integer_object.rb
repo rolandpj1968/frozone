@@ -5,7 +5,7 @@ module Frozone
   module Vm
     class IntegerObject < ObjectObject
       def initialize(value)
-        raise "IntegerObject must have an Integer value" unless value.class.equal?(Integer)
+        raise "IntegerObject must have an Integer value" unless value.is_a?(Integer)
 
         super(Core::INTEGER_CLASS)
 
@@ -18,7 +18,7 @@ module Frozone
 
       class << self
         def check(v)
-          raise 'Intrinsic requires IntegerObject' unless v.class.equal?(IntegerObject)
+          raise 'Intrinsic requires IntegerObject' unless v.is_a?(IntegerObject)
           v
         end
 

@@ -12,7 +12,7 @@ module Frozone
         def basic_object__equal_equal_(v1, v2) = bool_object_for(v1.equal?(v2))
 
         # Integer
-        def is_int(v) = v.class.equal?(IntegerObject)
+        def is_int(v) = v.is_a?(IntegerObject)
 
         def check_int_bin_args(op) = ("raise 'BUG: Integer #{op} intrinsic called with non-Integer values' unless is_int(v1) and is_int(v2)" if StrictTypes)
 

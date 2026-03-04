@@ -7,7 +7,7 @@ module Frozone
       def initialize(name, namespace, superclass)
         super(name, namespace, Core.class_class)
 
-        raise "superclass must be a ClassObject" unless superclass.nil? or superclass.class.equal?(ClassObject)
+        raise "superclass must be a ClassObject" unless superclass.nil? or superclass.is_a?(ClassObject)
 
         @superclass = superclass
         @prepends = nil
@@ -16,9 +16,9 @@ module Frozone
 
       def to_s = "class(#{@name})"
 
-      # class "Class" circular depenency band-aid - see core.rb too
+      # class "Class" circular dependency bootstrap band-aid - see core.rb too
       def patch_class_object
-        @class_object = Core.class_class
+        @superclass = Core.class_class
       end
 
       def prepend_module(mod)
@@ -39,7 +39,7 @@ module Frozone
 
       # TODO - private/public
       def lookup_method(name)
-        raise "name must be a Symbol" unless name.class.equal?(Symbol)
+        raise "name must be a Symbol" unless name.is_a?(Symbol)
 
         # 1. Prepended modules
         unless @prepends.nil?

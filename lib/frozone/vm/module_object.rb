@@ -9,9 +9,9 @@ module Frozone
       def initialize(name, namespace, class_object = Core::MODULE_CLASS)
         super(class_object)
 
-        raise "class/module name must be a symbol" unless name.class.equal?(Symbol)
+        raise "class/module name must be a symbol" unless name.is_a?(Symbol)
         @name = name
-        raise "class/module namespace must be a module" unless namespace.nil? or namespace.class.equal?(Core.MODULE_CLASS) or namespace.class.equal?(Core.CLASS_CLASS)
+        raise "class/module namespace must be a module" unless namespace.nil? or namespace.is_a?(Core.MODULE_CLASS) or namespace.is_a?(Core.CLASS_CLASS)
         @namespace = namespace
         @methods = {}
         @constants = {}
@@ -22,25 +22,25 @@ module Frozone
       def to_s = "module #{@name}"
 
       def set_method(name, method)
-        raise "method must be an Method" unless method.class.equal?(Method)
+        raise "method must be an Method" unless method.is_a?(Method)
         # TODO thread safety
         @methods[name] = method
       end
 
       def get_method(name)
-        raise "name must be a Symbol" unless name.class.equal?(Symbol)
+        raise "name must be a Symbol" unless name.is_a?(Symbol)
 
         @methods[name]
       end
       
       def set_constant(name, value)
-        raise "name must be a Symbol" unless name.class.equal?(Symbol)
+        raise "name must be a Symbol" unless name.is_a?(Symbol)
 
         @constants[name] = value
       end
 
       def get_constant(name)
-        raise "name must be a Symbol" unless name.class.equal?(Symbol)
+        raise "name must be a Symbol" unless name.is_a?(Symbol)
 
         @constants[name]
       end
@@ -54,7 +54,7 @@ module Frozone
 
         # 2. Class hierarchy look-up
         class_or_module = scopes.last
-        if class_or_module.class.equal?(ClassObject)
+        if class_or_module.is_a?(ClassObject)
           constant = class_or_module.lookup_constant(name)
           return constant unless constant.nil?
         end

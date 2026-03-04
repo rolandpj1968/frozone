@@ -5,7 +5,7 @@ module Frozone
   module Vm
     class SymbolObject < ObjectObject
       def initialize(value)
-        raise "SymbolObject must have an Symbol value" unless value.class.equal?(Symbol)
+        raise "SymbolObject must have an Symbol value" unless value.is_a?(Symbol)
 
         super(Core::SYMBOL_CLASS)
 
@@ -22,7 +22,7 @@ module Frozone
       SymbolObjects = {}
 
       def self.from(value)
-        raise "SymbolObject must have an Symbol value" unless value.class.equal?(Symbol)
+        raise "SymbolObject must have an Symbol value" unless value.is_a?(Symbol)
 
         SymbolObjects[value] ||= new(value)
       end

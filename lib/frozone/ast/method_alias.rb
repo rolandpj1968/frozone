@@ -2,8 +2,8 @@ module Frozone
   module Ast
     class MethodAlias
       def initialize(new_name, old_name)
-        raise "new_name must be a Symbol" unless new_name.class.equal?(Symbol)
-        raise "old_name must be a Symbol" unless old_name.class.equal?(Symbol)
+        raise "new_name must be a Symbol" unless new_name.is_a?(Symbol)
+        raise "old_name must be a Symbol" unless old_name.is_a?(Symbol)
         @new_name = new_name
         @old_name = old_name
       end

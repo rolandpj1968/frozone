@@ -5,7 +5,7 @@ module Frozone
     # TODO - dedup with hash
     class ConstantRead
       def initialize(name)
-        raise "name must be a Symbol" unless name.class.equal?(Symbol)
+        raise "name must be a Symbol" unless name.is_a?(Symbol)
 
         @name = name
       end

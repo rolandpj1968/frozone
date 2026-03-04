@@ -1,37 +1,28 @@
+require_relative "../utils"
+
 module Frozone
   module Vm
     class Method
-      # TODO - default params, keyword params, block param
-      def initialize(scopes, name, params, locals, ast)
-        # TODO - array of class/modules
-        raise "scopes must be an array of ClassObjects/ModuleObjects" unless scopes.class.equal?(Array)
-        raise "name must be a Symbol" unless name.class.equal?(Symbol)
-        # TODO - array of symbols
-        raise "params must be an array of Symbols" unless params.class.equal?(Array)
-        # TODO - array of symbols
-        raise "locals must be an array of Symbols" unless locals.class.equal?(Array)
+      include Utils
 
-        @scopes = Method.unique_scopes(scopes)
-        @name = name
-        @params = params
-        @locals = locals
+      attr_reader :scopes, :name, :required_params, :optional_params, :rest_param, :post_params, :locals, :ast
+
+      # TODO - default params, keyword params, block param
+      def initialize(scopes, name, required_params, optional_params, rest_param, post_params, locals, ast)
+        @scopes = Method.unique_scopes(check_array_type("scopes", scopes, ModuleObject))
+        @name = check_type("name", name, Symbol)
+        @required_params = check_array_type("required_params", required_params, Symbol)
+        @locals = check_array_type("locals", locals, Symbol)
+
         @ast = ast
       end
 
-      def scopes = @scopes
-
-      def params = @params
-
-      def locals = @locals
-
-      def ast = @ast
-
-      def to_s = "method(#{scopes.map(&:to_s)}, :#{@name}, #{@params} -> #{@ast})"
+      # TODO
+      def to_s = "method(#{scopes.map(&:to_s)}, :#{name}, #{required_params} -> #{ast})"
 
       def alias_as(name)
-        raise "name must be a Symbol" unless name.class.equal?(Symbol)
         # TODO - default params, keyword params, block param - same same
-        Method.new(scopes, name, params, locals, ast)
+        Method.new(scopes, name, required_params, optional_params, rest_param, post_params, locals, ast)
       end
 
       # TODO - thread-safety

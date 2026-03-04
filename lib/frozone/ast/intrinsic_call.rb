@@ -23,7 +23,7 @@ module Frozone
       Methods = {}
 
       def self.method_for(method_name)
-        raise 'IntrinsicCall method_name must be a Symbol' unless method_name.class.equal?(Symbol)
+        raise 'IntrinsicCall method_name must be a Symbol' unless method_name.is_a?(Symbol)
         Methods[method_name] ||= ::Frozone::Vm::Intrinsics.method(method_name)
       end
     end

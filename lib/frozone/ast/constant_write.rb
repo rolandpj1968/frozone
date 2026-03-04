@@ -4,7 +4,7 @@ module Frozone
   module Ast
     class ConstantWrite
       def initialize(name, ast)
-        raise "name must be a Symbol" unless name.class.equal?(Symbol)
+        raise "name must be a Symbol" unless name.is_a?(Symbol)
 
         @name = name
         @ast = ast

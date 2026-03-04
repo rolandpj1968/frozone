@@ -10,7 +10,7 @@ module Frozone
       end
 
       def push_frame(frame)
-        raise "frame must be a Frame" unless frame.class.equal?(Frame)
+        raise "frame must be a Frame" unless frame.is_a?(Frame)
 
         @frames.push(frame)
       end
@@ -22,7 +22,7 @@ module Frozone
       def frame = @frames.last
 
       def push_scope(scope)
-        unless scope.class.equal?(ClassObject) || scope.class.equal?(ModuleObject)
+        unless scope.is_a?(ClassObject) || scope.is_a?(ModuleObject)
           raise "scope must be a ClassObject or ModuleObject"
         end
 

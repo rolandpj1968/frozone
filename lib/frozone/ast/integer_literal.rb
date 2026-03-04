@@ -4,7 +4,7 @@ module Frozone
   module Ast
     class IntegerLiteral
       def initialize(value)
-        raise "IntegerLiteral value must be an IntegerObject" unless value.class.equal?(::Frozone::Vm::IntegerObject)
+        raise "IntegerLiteral value must be an IntegerObject" unless value.is_a?(::Frozone::Vm::IntegerObject)
         @value = value
       end
 
@@ -19,7 +19,7 @@ module Frozone
       IntegerLiterals = {}
 
       def self.from(value)
-        raise "IntegerLiteral value must be an Integer not #{value.class}" unless value.class.equal?(Integer)
+        raise "IntegerLiteral value must be an Integer not #{value.class}" unless value.is_a?(Integer)
 
         IntegerLiterals[value] ||= new(::Frozone::Vm::IntegerObject.new(value))
       end
