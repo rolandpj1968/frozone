@@ -48,6 +48,10 @@ module Frozone
         when Prism::SymbolNode
           Ast::SymbolLiteral.from(prism_node.unescaped)
 
+        when Prism::ArrayNode
+          puts "Hallo RPJ"
+          Ast::ArrayLiteral.new(prism_node.elements.map { |e| transform(e) })
+          
         when Prism::OrNode
           Ast::Or.new(transform(prism_node.left), transform(prism_node.right))
 
