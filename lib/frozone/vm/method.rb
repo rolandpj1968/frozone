@@ -22,43 +22,48 @@ module Frozone
         @body = check_type("body", body, Ast::Node)
       end
 
-      def min_params_allowed = @required_params.length + @post_params.length
-
-      def max_params_allowed
-        return nil unless @rest_param.nil?
-
-        min_params_allowed + @optional_params.length
-      end
-
       # TODO - default params, keyword params, block params
-      def invoke(context, receiver, params)
-        min_params_expected = min_params_allowed
-        max_params_expected = max_params_allowed
+      def invoke(context, receiver, args)
+        min_args_expected = @required_params.length + @post_params.length
+        max_args_expected = @rest_param ? nil : (min_args_expected + @optional_params.length)
 
-        if params.length < min_params_expected || (max_params_expected && max_params_expected < params.length)
-          # TODO - this is a runtime ArgumentError, not an intrinsic error
-          expecting = "#{min_params_expected}"
-          if max_params_expected.nil?
+        if args.length < min_args_expected || (max_args_expected && max_args_expected < args.length)
+          expecting = "#{min_args_expected}"
+          if max_args_expected.nil?
             expecting += "+"
-          elsif min_params_expected != max_params_expected
-            expecting += "..#{max_params_expected}"
+          elsif min_args_expected != max_args_expected
+            expecting += "..#{max_args_expected}"
           end
 
-          raise "wrong number of arguments (given #{params.length} expecting #{expecting})"
+          # TODO - this is a runtime ArgumentError, not an intrinsic error
+          raise "wrong number of arguments (given #{args.length} expecting #{expecting})"
         end
 
         new_frame = Frame.new(receiver, @locals, @scopes)
 
         @required_params.length.times do |i|
-          new_frame.set_local(@required_params[i], params[i])
+          new_frame.set_local(@required_params[i], args[i])
         end
 
         @post_params.length.times do |i|
-          new_frame.set_local(@post_params[i], params[i - @post_params.length])
+          new_frame.set_local(@post_params[i], args[i - @post_params.length])
+        end
+
+        unless @optional_params.empty?
+          n_args_left = args.length - min_args_expected
+          @optional_params.length.times do |i|
+            value =
+              if i < n_args_left
+                args[@required_params.length + i]
+              else
+                @optional_params[i][1].evaluate(context)
+              end
+            new_frame.set_local(@optional_params[i][0], value)
+          end
         end
 
         unless @rest_param.nil?
-          new_frame.set_local(@rest_param, ArrayObject.new(params[@required_params.length .. -@post_params.length - 1]))
+          new_frame.set_local(@rest_param, ArrayObject.new(args[@required_params.length + @optional_params.length .. -@post_params.length - 1]))
         end
 
         context.push_frame(new_frame)
