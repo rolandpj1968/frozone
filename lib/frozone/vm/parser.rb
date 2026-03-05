@@ -51,7 +51,6 @@ module Frozone
           Ast::SymbolLiteral.from(prism_node.unescaped)
 
         when Prism::ArrayNode
-          puts "Hallo RPJ"
           Ast::ArrayLiteral.new(prism_node.elements.map { |e| transform(e) })
           
         when Prism::OrNode
@@ -122,18 +121,26 @@ module Frozone
           raise "singleton/receiver method defs not supported yet" unless prism_node.receiver.nil?
 
           required_params = []
+          rest_param = nil
+          post_params = []
           unless prism_node.parameters.nil?
             raise "Prism::DefNode is not a Prism::ParametersNode" unless prism_node.parameters.is_a?(Prism::ParametersNode)
             parameters = prism_node.parameters
             raise "optional params not yet supported" unless parameters.optionals.empty?
-            raise "*rest params not yet supported" unless parameters.rest.nil?
-            raise "posts params not yet supported" unless parameters.posts.empty?
             raise "keyword params not yet supported" unless parameters.keywords.empty?
             raise "**keyword_rest params not yet supported" unless parameters.keyword_rest.nil?
             raise "block param not yet supported" unless parameters.block.nil?
             required_params = parameters.requireds.map do |required|
               raise "required parameter is not a Prism::RequiredParameterNode" unless required.is_a?(Prism::RequiredParameterNode)
               required.name
+            end
+            unless parameters.rest.nil?
+              raise "rest parameter is not a Prism::RestParameterNode" unless parameters.rest.is_a?(Prism::RestParameterNode)
+              rest_param = parameters.rest.name
+            end
+            post_params = parameters.posts.map do |post|
+              raise "post parameter is not a Prism::RequiredParameterNode" unless post.is_a?(Prism::RequiredParameterNode)
+              post.name
             end
           end
           #raise "not sure what locals_body_index is - expecting same as params count" unless prism_node.locals_body_index == params.length - not present in ruby 4.0.1
@@ -144,7 +151,7 @@ module Frozone
             else
               transform(prism_node.body)
             end
-          Ast::MethodDef.new(prism_node.name, required_params, optional_params = nil, rest_param = nil, post_params = nil, prism_node.locals, body_ast)
+          Ast::MethodDef.new(prism_node.name, required_params, optional_params = [], rest_param, post_params, prism_node.locals, body_ast)
 
         when Prism::AliasMethodNode
           raise "new_name #{prism_node.new_name.class} must be a Prism::SymbolNode" unless prism_node.new_name.is_a?(Prism::SymbolNode)

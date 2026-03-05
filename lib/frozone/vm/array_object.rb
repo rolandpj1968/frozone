@@ -12,7 +12,7 @@ module Frozone
         @elements = elements
       end
 
-      def to_s = @elements.map { |e| e.to_s } # wrong
+      def to_s = "[#{@elements.join(', ')}]"
     end
   end
 end

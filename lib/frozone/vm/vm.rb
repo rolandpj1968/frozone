@@ -58,7 +58,7 @@ module Frozone
         result = evaluate(program, dump_ast = true)
 
         puts
-        puts "result: #{result.to_s}"
+        puts "result: #{result}"
 
         puts
         puts "Strings: #{Ast::StringLiteral::StringLiterals.transform_values(&:to_s)}"
