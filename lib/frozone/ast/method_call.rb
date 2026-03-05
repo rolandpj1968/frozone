@@ -1,15 +1,16 @@
+require_relative 'node'
+
 module Frozone
   module Ast
-    class MethodCall
-      def initialize(name, receiver_node, arg_nodes)
-        raise "name must be a Symbol" unless name.is_a?(Symbol)
-        @name = name
-        @receiver_node = receiver_node # nil if no explicit receiver
-        @arg_nodes = arg_nodes
+    class MethodCall < Node
+      def initialize(name, receiver_node, param_nodes)
+        @name = check_type("name", name, Symbol)
+        @receiver_node = check_nil_or_type("receiver_node", receiver_node, Node)
+        @param_nodes = check_array_type("param_nodes", param_nodes, Node)
       end
 
       def to_s
-        "call(#{@name}, #{@receiver_node || '_'}, #{@arg_nodes.map(&:to_s).join(', ')})"
+        "call(#{@name}, #{@receiver_node || '_'}, #{@param_nodes.map(&:to_s).join(', ')})"
       end
 
       def evaluate(context)
@@ -21,7 +22,7 @@ module Frozone
             @receiver_node.evaluate(context)
           end
       
-        args = @arg_nodes.map { |arg_node| arg_node.evaluate(context) }
+        params = @param_nodes.map { |p| p.evaluate(context) }
 
         method = receiver.lookup_method(@name)
         #puts "          RPJ = MethodCall#evaluate method :#{@name} receiver #{receiver.class}"
@@ -36,10 +37,10 @@ module Frozone
         required_params = method.required_params
 
         # TODO - this is a runtime error, not an intrinsic error
-        raise "wrong number of arguments (given #{args.length} expecting #{required_params.length})" if args.length != required_params.length
+        raise "wrong number of parameters (given #{params.length} expecting #{required_params.length})" if params.length != required_params.length
 
         required_params.length.times do |i|
-          new_frame.set_local(required_params[i], args[i])
+          new_frame.set_local(required_params[i], params[i])
         end
 
         context.push_frame(new_frame)

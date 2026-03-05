@@ -1,6 +1,8 @@
+require_relative 'node'
+
 module Frozone
   module Ast
-    class SelfLiteral
+    class SelfLiteral < Node
       SELF = SelfLiteral.new
 
       # Global singleton

@@ -1,11 +1,11 @@
+require_relative 'node'
+
 module Frozone
   module Ast
-    class MethodAlias
+    class MethodAlias < Node
       def initialize(new_name, old_name)
-        raise "new_name must be a Symbol" unless new_name.is_a?(Symbol)
-        raise "old_name must be a Symbol" unless old_name.is_a?(Symbol)
-        @new_name = new_name
-        @old_name = old_name
+        @new_name = check_type("new_name", new_name, Symbol)
+        @old_name = check_type("old_name", old_name, Symbol)
       end
 
       def to_s
@@ -15,7 +15,7 @@ module Frozone
       def evaluate(context)
         #clazz = context.frame.the_self
         clazz = context.scopes.last
-        # TODO - what about eigenclass? Can you alias in instance methods?
+        # TODO - what about eigenclass? Can you alias instance methods?
         method = clazz.lookup_method(@old_name)
         # TODO this is a runtime error, not an assert
         # TODO fully-qualified class name

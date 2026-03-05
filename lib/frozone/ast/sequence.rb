@@ -1,8 +1,10 @@
+require_relative 'node'
+
 module Frozone
   module Ast
-    class Sequence
+    class Sequence < Node
       def initialize(nodes)
-        @nodes = nodes
+        @nodes = check_array_type("nodes", nodes, Node)
       end
 
       def to_s
@@ -10,11 +12,9 @@ module Frozone
       end
 
       def evaluate(context)
-        result = nil
+        result = Vm::NilObject::NIL
 
-        @nodes.each do |node|
-          result = node.evaluate(context)
-        end
+        @nodes.each { |n| result = n.evaluate(context) }
 
         result
       end

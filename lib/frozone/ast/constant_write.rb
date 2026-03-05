@@ -1,18 +1,18 @@
+require_relative 'node'
 require_relative '../vm/module_object'
 
 module Frozone
   module Ast
-    class ConstantWrite
-      def initialize(name, ast)
-        raise "name must be a Symbol" unless name.is_a?(Symbol)
-
-        @name = name
-        @ast = ast
+    class ConstantWrite < Node
+      def initialize(name, value_node)
+        @name = check_type("name", name, Symbol)
+        @value_node = check_type("value_node", value_node, Node)
       end
 
-      def to_s = "con=(#{@name}, #{@ast})"
+      def to_s = "con=(#{@name}, #{@value_node})"
 
-      def evaluate(context) = context.scopes.last.set_constant(@name, @ast.evaluate(context))
+      # TODO - not sure this is right; compare to natalie
+      def evaluate(context) = context.scopes.last.set_constant(@name, @value_node.evaluate(context))
     end
   end
 end

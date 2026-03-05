@@ -1,13 +1,11 @@
+require_relative 'node'
 require_relative '../vm/module_object'
 
 module Frozone
   module Ast
-    # TODO - dedup with hash
-    class ConstantRead
+    class ConstantRead < Node
       def initialize(name)
-        raise "name must be a Symbol" unless name.is_a?(Symbol)
-
-        @name = name
+        @name = check_type("name", name, Symbol)
       end
 
       def to_s = "con(#{@name})"

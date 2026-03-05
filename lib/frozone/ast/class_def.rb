@@ -1,22 +1,22 @@
+require_relative 'node'
 require_relative "../vm/core"
 require_relative '../vm/module_object'
 require_relative '../vm/nil_object'
 
 module Frozone
   module Ast
-    class ClassDef
-      def initialize(name, locals, ast)
-        raise "class name must be a Symbol" unless name.is_a?(Symbol)
-        @name = name
+    class ClassDef < Node
+      def initialize(name, locals, body)
+        @name = check_type("name", name, Symbol)
 
         raise "class defn with locals not yet supported" unless locals.empty?
-        @locals = locals
+        @locals = check_array_type("locals", locals, Symbol)
 
-        @ast = ast
+        @body = check_type("body", body, Node)
       end
 
       def to_s
-        "class(#{@name}, locals: #{@locals} body: #{@ast})"
+        "class(#{@name}, locals: #{@locals} body: #{@body})"
       end
 
       def evaluate(context)
@@ -39,9 +39,7 @@ module Frozone
         context.push_frame(new_frame)
 
         begin
-          # $ ruby -e 'v = class C; 3; end; puts v'
-          # 3
-          @ast.evaluate(context)
+          @body.evaluate(context)
         ensure
           context.pop_frame
           context.scopes.pop

@@ -1,8 +1,9 @@
+require_relative 'node'
 require_relative '../vm/string_object'
 
 module Frozone
   module Ast
-    class StringLiteral
+    class StringLiteral < Node
       attr_reader :value
 
       def initialize(value)
@@ -21,8 +22,6 @@ module Frozone
       StringLiterals = {}
 
       def self.from(value)
-        raise "StringLiteral value must be an String not #{value.class}" unless value.is_a?(String)
-
         # TODO - handle locale encoding
         StringLiterals[value] ||= new(Vm::StringObject.new(value))
       end

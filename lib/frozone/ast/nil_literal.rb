@@ -1,8 +1,9 @@
+require_relative 'node'
 require_relative '../vm/nil_object'
 
 module Frozone
   module Ast
-    class NilLiteral
+    class NilLiteral < Node
       NIL = NilLiteral.new
 
       # Global singleton

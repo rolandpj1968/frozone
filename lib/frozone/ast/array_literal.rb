@@ -1,18 +1,16 @@
+require_relative 'node'
 require_relative '../vm/array_object'
 
 module Frozone
   module Ast
-    class ArrayLiteral
-      attr_reader :elements
-
-      def initialize(elements)
-        raise "ArrayLiteral elements must be an Array not #{elements.class}" unless elements.is_a?(Array)
-        @elements = elements
+    class ArrayLiteral < Node
+      def initialize(element_nodes)
+        @element_nodes = check_array_type("element_nodes", element_nodes, Node)
       end
 
-      def to_s = "arr()"
+      def to_s = "arr(TODO)"
 
-      def evaluate(context) = Vm::ArrayObject.new(elements.map { |e| e.evaluate(context) })
+      def evaluate(context) = Vm::ArrayObject.new(@element_nodes.map { |e| e.evaluate(context) })
     end
   end
 end

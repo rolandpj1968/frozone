@@ -1,10 +1,12 @@
+require_relative 'node'
+
 module Frozone
   module Ast
-    class If
+    class If < Node
       def initialize(pred_node, then_node, else_node)
-        @pred_node = pred_node
-        @then_node = then_node
-        @else_node = else_node
+        @pred_node = check_type("pred_node", pred_node, Node)
+        @then_node = check_type("then_node", then_node, Node)
+        @else_node = check_nil_or_type("else_node", else_node, Node)
       end
 
       def to_s

@@ -1,8 +1,9 @@
+require_relative 'node'
 require_relative '../vm/false_object'
 
 module Frozone
   module Ast
-    class FalseLiteral
+    class FalseLiteral < Node
       FALSE = FalseLiteral.new
 
       # Global singleton

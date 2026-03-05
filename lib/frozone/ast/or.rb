@@ -1,9 +1,11 @@
+require_relative 'node'
+
 module Frozone
   module Ast
-    class Or
+    class Or < Node
       def initialize(left_node, right_node)
-        @left_node = left_node
-        @right_node = right_node
+        @left_node = check_type("left_node", left_node, Node)
+        @right_node = check_type("right_node", right_node, Node)
       end
 
       def to_s

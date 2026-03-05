@@ -1,8 +1,9 @@
+require_relative 'node'
 require_relative '../vm/true_object'
 
 module Frozone
   module Ast
-    class TrueLiteral
+    class TrueLiteral < Node
       TRUE = TrueLiteral.new
 
       # Global singleton

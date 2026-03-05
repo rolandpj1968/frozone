@@ -1,11 +1,11 @@
+require_relative 'node'
 require_relative '../vm/integer_object'
 
 module Frozone
   module Ast
-    class IntegerLiteral
+    class IntegerLiteral < Node
       def initialize(value)
-        raise "IntegerLiteral value must be an IntegerObject" unless value.is_a?(::Frozone::Vm::IntegerObject)
-        @value = value
+        @value = check_type("value", value, Vm::IntegerObject)
       end
 
       # Only via IntegerLiteral.from
@@ -19,9 +19,7 @@ module Frozone
       IntegerLiterals = {}
 
       def self.from(value)
-        raise "IntegerLiteral value must be an Integer not #{value.class}" unless value.is_a?(Integer)
-
-        IntegerLiterals[value] ||= new(::Frozone::Vm::IntegerObject.new(value))
+        IntegerLiterals[value] ||= new(Vm::IntegerObject.new(value))
       end
     end
   end
