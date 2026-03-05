@@ -13,6 +13,7 @@ module Frozone
       #def class_object = @class_object
 
       def create_singleton_class
+        # TODO - this is bollocks
         if @eige.is_a?(@class_object)
           # TODO - the namespace is probs the same as for this Object? Will affect constant lookup order etc.
           @eigenclass = ClassObject.new(name = nil, namespace = nil, class_object)

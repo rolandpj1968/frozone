@@ -31,24 +31,7 @@ module Frozone
         # TODO - this is a runtime exception, not an assert
         raise "method :#{@name} not found - not yet doing missing_method" if method.nil?
 
-        # TODO - mode this into Method#call
-        new_frame = Vm::Frame.new(receiver, method.locals, method.scopes)
-
-        required_params = method.required_params
-
-        # TODO - this is a runtime error, not an intrinsic error
-        raise "wrong number of parameters (given #{params.length} expecting #{required_params.length})" if params.length != required_params.length
-
-        required_params.length.times do |i|
-          new_frame.set_local(required_params[i], params[i])
-        end
-
-        context.push_frame(new_frame)
-        begin
-          method.ast.evaluate(context)
-        ensure
-          context.pop_frame
-        end
+        method.invoke(context, receiver, params)
       end
     end
   end
