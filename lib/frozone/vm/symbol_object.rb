@@ -12,6 +12,8 @@ module Frozone
         @value = value
       end
 
+      def raw = @value
+
       # Only via SymbolObject.from since Symbol's are globally unique in ruby
       private_class_method :new
 
