@@ -9,21 +9,25 @@ module Frozone
       include Utils
 
       # TODO - default params, keyword params, block param
-      def initialize(scopes, name, required_params, optional_params, rest_param, post_params, locals, body)
+      def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, locals, body)
         @scopes = self.class.unique_scopes(check_array_type("scopes", scopes, ModuleObject))
         @name = check_type("name", name, Symbol)
+
         @required_params = check_array_type("required_params", required_params, Symbol)
         @optional_params = check_array_of_pairs_of_types("optional_params", optional_params, Symbol, Ast::Node)
         @rest_param = check_nil_or_type("rest_param", rest_param, Symbol)
         @post_params = check_array_type("post_params", post_params, Symbol)
         raise "post_params but no rest_param" if rest_param.nil? && post_params.any?
-        @locals = check_array_type("locals", locals, Symbol)
 
+        @required_kw_params = check_array_type("required_kw_params", required_kw_params, Symbol)
+        @optional_kw_params = check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, Symbol, Ast::Node)
+
+        @locals = check_array_type("locals", locals, Symbol)
         @body = check_type("body", body, Ast::Node)
       end
 
       # TODO - default params, keyword params, block params
-      def invoke(context, receiver, args)
+      def invoke(context, receiver, args, kw_args)
         min_args_expected = @required_params.length + @post_params.length
         max_args_expected = @rest_param ? nil : (min_args_expected + @optional_params.length)
 
@@ -66,6 +70,20 @@ module Frozone
           new_frame.set_local(@rest_param, ArrayObject.new(args[@required_params.length + @optional_params.length .. -@post_params.length - 1]))
         end
 
+        @required_kw_params.each do |kw|
+          new_frame.set_local(kw, kw_args.delete(kw)) if kw_args.key?(kw)
+        end
+
+        @optional_kw_params.each do |kw, value_node|
+          value = 
+            if kw_args.key?(kw)
+              kw_args.delete(kw)
+            else
+              value_node.evaluate(context)
+            end
+          new_frame.set_local(kw, value)
+        end
+
         context.push_frame(new_frame)
         begin
           @body.evaluate(context)
@@ -79,7 +97,7 @@ module Frozone
 
       def alias_as(name)
         # TODO - default params, keyword params, block param - same same
-        Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @locals, @body)
+        Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @locals, @body)
       end
 
       # TODO - thread-safety
