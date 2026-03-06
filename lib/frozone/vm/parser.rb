@@ -87,9 +87,27 @@ module Frozone
             Ast::IntrinsicCall.new(prism_node.name, prism_node.arguments.arguments.map { |pn| transform(pn) })
           else
             receiver_node = prism_node.receiver.nil? ? nil : transform(prism_node.receiver)
-            args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |pn| transform(pn) }
+            arg_nodes = []
+            kw_args = {}
+            unless prism_node.arguments.nil?
+              prism_node.arguments.arguments.each do |argument|
+                # Prism parses this a bit weirdly - keyword args appear as a Prism::KeywordHashNode in the general arguments array
+                case argument
+                when Prism::KeywordHashNode
+                  kw_args = argument.elements.to_h do |kw_arg|
+                    raise "Keyword argument is not a Prism::AssocNode" unless kw_arg.is_a?(Prism::AssocNode)
+                    # TODO - this is a runtime error"
+                    raise "syntax errors found" if kw_arg.value.is_a?(Prism::MissingNode)
 
-            Ast::MethodCall.new(prism_node.name, receiver_node, args)
+                    [transform(kw_arg.key), transform(kw_arg.value)]
+                  end
+                else
+                  arg_nodes << transform(argument)
+                end
+              end
+            end
+
+            Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args)
           end
 
         when Prism::ClassNode
@@ -124,10 +142,11 @@ module Frozone
           optional_params = []
           rest_param = nil
           post_params = []
+          required_kw_params = []
+          optional_kw_params = []
           unless prism_node.parameters.nil?
-            raise "Prism::DefNode is not a Prism::ParametersNode" unless prism_node.parameters.is_a?(Prism::ParametersNode)
+            raise "Prism::DefNode.parameters is not a Prism::ParametersNode" unless prism_node.parameters.is_a?(Prism::ParametersNode)
             parameters = prism_node.parameters
-            raise "keyword params not yet supported" unless parameters.keywords.empty?
             raise "**keyword_rest params not yet supported" unless parameters.keyword_rest.nil?
             raise "block param not yet supported" unless parameters.block.nil?
             required_params = parameters.requireds.map do |required|
@@ -146,6 +165,16 @@ module Frozone
               raise "post parameter is not a Prism::RequiredParameterNode" unless post.is_a?(Prism::RequiredParameterNode)
               post.name
             end
+            prism_node.parameters.keywords.each do |kw|
+              case kw
+              when Prism::RequiredKeywordParameterNode
+                required_kw_params << kw.name
+              when Prism::OptionalKeywordParameterNode
+                optional_kw_params << [kw.name, transform(kw.value)]
+              else
+                raise "kw parameter is neither a Prism::RequiredKeywordParameterNode or a Prism::OptionalKeywordParameterNode"
+              end
+            end
           end
           #raise "not sure what locals_body_index is - expecting same as params count" unless prism_node.locals_body_index == params.length - not present in ruby 4.0.1
 
@@ -155,7 +184,7 @@ module Frozone
             else
               transform(prism_node.body)
             end
-          Ast::MethodDef.new(prism_node.name, required_params, optional_params, rest_param, post_params, prism_node.locals, body_ast)
+          Ast::MethodDef.new(prism_node.name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, prism_node.locals, body_ast)
 
         when Prism::AliasMethodNode
           raise "new_name #{prism_node.new_name.class} must be a Prism::SymbolNode" unless prism_node.new_name.is_a?(Prism::SymbolNode)

@@ -24,8 +24,16 @@ module Frozone
 
     def check_array_of_pairs_of_types(name, value, element_type_1, element_type_2)
       check_type(name, value, Array)
-      value.each do |o|
-        raise "#{name} must be an array of [#{element_type_1}, #{element_type_2}] pairs" unless o.is_a?(Array) && o.length == 2 && o[0].is_a?(element_type_1) && o[1].is_a?(element_type_2)
+      value.each do |e|
+        raise "#{name} must be an array of [#{element_type_1}, #{element_type_2}] pairs" unless e.is_a?(Array) && e.length == 2 && e[0].is_a?(element_type_1) && e[1].is_a?(element_type_2)
+      end
+      value
+    end
+
+    def check_hash_of_types(name, value, key_type, value_type)
+      check_type(name, value, Hash)
+      value.each do |e|
+        raise "#{name} must be an hash of #{key_type} => #{value_type} pairs" unless e.is_a?(Array) && e.length == 2 && e[0].is_a?(key_type) && e[1].is_a?(value_type)
       end
       value
     end
