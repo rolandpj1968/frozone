@@ -6,14 +6,10 @@ module Frozone
     class ClassObject < ModuleObject
       include Utils
 
-      attr_reader :superclass, :prepends, :modules
-
       def initialize(name, namespace, superclass)
         super(name, namespace, Core.class_class)
 
         @superclass = check_nil_or_type("superclass", superclass, ClassObject)
-        @prepends = nil
-        @modules = nil
       end
 
       def to_s = "class(#{@name})"
@@ -25,12 +21,12 @@ module Frozone
 
       def prepend_module(mod)
         @prepends ||= []
-        prepends << mod
+        @prepends << mod
       end
 
       def add_module(mod)
         @modules ||= []
-        modules << mod
+        @modules << mod
       end
 
       # TODO - private/public
@@ -38,8 +34,8 @@ module Frozone
         raise "name must be a Symbol" unless name.is_a?(Symbol)
 
         # 1. Prepended modules
-        unless prepends.nil?
-          prepends.each do |mod|
+        unless @prepends.nil?
+          @prepends.each do |mod|
             method = mod.get_method(name)
             return method unless method.nil?
           end
@@ -50,8 +46,8 @@ module Frozone
         return method unless method.nil?
 
         # 3. Module methods
-        unless modules.nil?
-          modules.each do |mod|
+        unless @modules.nil?
+          @modules.each do |mod|
             method = mod.get_method(name)
             return method unless method.nil?
           end
@@ -71,9 +67,9 @@ module Frozone
       # Note that full constant lookup starts with the lexical scopes in ModuleObject.lookup_constant.
       def lookup_constant(name)
         # 1. Prepended modules
-        unless prepends.nil?
+        unless @prepends.nil?
           # TODO check forwards or reverse order here - I _think_ it's forwards which is counter-intuituve
-          prepends.each do |mod|
+          @prepends.each do |mod|
             constant = mod.get_constant(name)
             return constant unless constant.nil?
           end
@@ -84,8 +80,8 @@ module Frozone
         return constant unless constant.nil?
 
         # 3. Module constants
-        unless modules.nil?
-          modules.each do |mod|
+        unless @modules.nil?
+          @modules.each do |mod|
             constant = mod.get_constant(name)
             return constant unless constant.nil?
           end

@@ -5,17 +5,15 @@ require_relative '../ast'
 module Frozone
   module Vm
     class Parser
-      attr_reader :text, :dump_ast
-
       def initialize(text, dump_ast = false)
         @text = text
         @dump_ast = dump_ast
       end
 
       def ast
-        program_node = Prism.parse(text).value
+        program_node = Prism.parse(@text).value
 
-        puts program_node.inspect if dump_ast
+        puts program_node.inspect if @dump_ast
 
         raise "Unexpected Prism.parse value type #{value.class} expecting Prism::ProgramNode" unless program_node.is_a?(Prism::ProgramNode)
 

@@ -4,8 +4,6 @@ require_relative '../vm/string_object'
 module Frozone
   module Ast
     class StringLiteral < Node
-      attr_reader :value
-
       def initialize(value)
         @value = value
       end
@@ -13,7 +11,7 @@ module Frozone
       # Only via StringLiteral.from to dedup
       private_class_method :new
 
-      def to_s = "str(#{value})"
+      def to_s = "str(#{@value})"
 
       def evaluate(_) = @value.dup
 

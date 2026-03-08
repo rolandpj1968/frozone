@@ -12,6 +12,17 @@ module Frozone
         @value = value.freeze
       end
 
+
+      def raw = @value
+
+      #
+      # For Hash emulation using "native" Hash
+      #
+      # TODO work out how to do this properly - we need to call :hash, :eql? properly, but don't have the context
+      #
+      def hash = raw.hash
+      def eql?(v) = v.is_a?(StringObject) && raw.eql?(v.raw)
+
       def to_s = @value
     end
   end

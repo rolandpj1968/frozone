@@ -84,6 +84,7 @@ module Frozone
 
         # TODO - read list from manifest somewhere...
         evaluate_file("#{core_path}/basic_object.rb")
+        evaluate_file("#{core_path}/object.rb")
         evaluate_file("#{core_path}/integer.rb")
       end
 

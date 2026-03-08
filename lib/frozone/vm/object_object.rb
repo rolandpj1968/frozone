@@ -13,6 +13,7 @@ module Frozone
       #def class_object = @class_object
 
       def create_singleton_class
+        raise "bollocks"
         # TODO - this is bollocks
         if @eige.is_a?(@class_object)
           # TODO - the namespace is probs the same as for this Object? Will affect constant lookup order etc.
@@ -33,6 +34,14 @@ module Frozone
       def truthy?
         !equal?(FalseObject::FALSE) && !equal?(NilObject::NIL)
       end
+
+      #
+      # For Hash emulation using "native" Hash
+      #
+      # TODO work out how to do this properly - we need to call :hash, :eql? properly, but don't have the context
+      #
+      # def hash = self.send(:hash)
+      # def eql?(v) = self.send(:eql?(v))
     end
   end
 end
