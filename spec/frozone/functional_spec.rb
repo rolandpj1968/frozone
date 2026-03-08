@@ -219,6 +219,26 @@ RSpec.describe "Frozone VM functional" do
     end
   end
 
+  # ── Local variables ──────────────────────────────────────────────────────────
+
+  describe 'local variable write and read' do
+    it 'assigns and reads back an integer' do
+      expect(run_ruby("x = 42\nx")).to vm_int(42)
+    end
+
+    it 'reassigns a local variable' do
+      expect(run_ruby("x = 1\nx = 2\nx")).to vm_int(2)
+    end
+
+    it 'assignment expression returns the assigned value' do
+      expect(run_ruby("x = 7")).to vm_int(7)
+    end
+
+    it 'uses locals across multiple statements' do
+      expect(run_ruby("a = 3\nb = 4\na + b")).to vm_int(7)
+    end
+  end
+
   # ── Constants ────────────────────────────────────────────────────────────────
 
   describe 'constant write and read' do
