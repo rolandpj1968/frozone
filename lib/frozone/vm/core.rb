@@ -44,6 +44,8 @@ module Frozone
       OBJECT_CLASS.set_constant(:BasicObject, BASIC_OBJECT_CLASS)
       OBJECT_CLASS.set_constant(:Kernel, KERNEL_MODULE)
       OBJECT_CLASS.set_constant(:Object, OBJECT_CLASS)
+      OBJECT_CLASS.set_constant(:Module, MODULE_CLASS)
+      OBJECT_CLASS.set_constant(:Class, CLASS_CLASS)
 
       NIL_CLASS_CLASS = ClassObject.new(:NilClass, nil, OBJECT_CLASS)
       OBJECT_CLASS.set_constant(:NilClass, NIL_CLASS_CLASS)

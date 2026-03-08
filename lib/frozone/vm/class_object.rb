@@ -1,5 +1,6 @@
 require_relative '../utils'
 require_relative 'module_object'
+require_relative 'object_object'
 
 module Frozone
   module Vm
@@ -27,6 +28,13 @@ module Frozone
       def add_module(mod)
         @modules ||= []
         @modules << mod
+      end
+
+      # TODO &block
+      def new_instance(context, args, kwargs)
+        o = ObjectObject.new(self)
+        o.lookup_instance_method(:initialize).invoke(context, o, args, kwargs)
+        o
       end
 
       # TODO - private/public

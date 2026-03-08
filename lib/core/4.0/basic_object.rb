@@ -1,4 +1,8 @@
 class BasicObject
+  # TODO private
+  def initialize
+  end
+
   def __id__ = Intrinsics.basic_object___id__(self)
 
   def ! = false.equal?(self) || nil.equal?(self)

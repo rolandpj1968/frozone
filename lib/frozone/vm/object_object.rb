@@ -27,7 +27,7 @@ module Frozone
         @eigenclass.set_method(name, unbound_method)
       end
 
-      def lookup_method(name)
+      def lookup_instance_method(name)
         @eigenclass.lookup_method(name)
       end
 

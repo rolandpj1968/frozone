@@ -11,6 +11,9 @@ module Frozone
 
         def basic_object__equal_equal_(_, v1, v2) = bool_object_for(v1.equal?(v2))
 
+        # Class
+        def class_new(context, klass, args, kwargs) = klass.new_instance(context, args.raw, kwargs.raw)
+
         # Integer
         def integer_hash(_, v) = IntegerObject.new(v.raw.hash)
 

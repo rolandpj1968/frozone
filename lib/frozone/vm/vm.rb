@@ -41,7 +41,7 @@ module Frozone
             scripts.join("\n")
           end
 
-        result = eval_snippet(program)
+        result = eval_snippet(program, dump_ast = false) # TODO use cmd-line debug flag to dump AST
 
         puts "result: #{result}"
       end
@@ -50,14 +50,15 @@ module Frozone
       # Idempotent: safe to call multiple times (methods are simply redefined).
       def load_core
         core_path = File.expand_path("../../core/#{FROZONE_CORE_VERSION}", __dir__)
+        evaluate_file("#{core_path}/class.rb")
         evaluate_file("#{core_path}/basic_object.rb")
         evaluate_file("#{core_path}/object.rb")
         evaluate_file("#{core_path}/integer.rb")
       end
 
       # Evaluate a Ruby snippet and return the resulting VM object.
-      def eval_snippet(code)
-        evaluate(code)
+      def eval_snippet(code, dump_ast = false)
+        evaluate(code, dump_ast)
       end
 
       private

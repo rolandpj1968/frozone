@@ -27,9 +27,7 @@ module Frozone
 
         kw_args = @kw_arg_nodes.to_h { |kw_node, value_node| [kw_node.evaluate(context), value_node.evaluate(context)] }
 
-        method = receiver.lookup_method(@name)
-        #puts "          RPJ = MethodCall#evaluate method :#{@name} receiver #{receiver.class}"
-        #puts "          RPJ =    method found is #{method}"
+        method = receiver.lookup_instance_method(@name)
 
         # TODO - this is a runtime exception, not an assert
         raise "method :#{@name} not found - not yet doing missing_method" if method.nil?

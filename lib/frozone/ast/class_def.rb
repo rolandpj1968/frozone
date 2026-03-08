@@ -28,8 +28,8 @@ module Frozone
           raise "previous defn of #{@name} was not a class"
         end
         if class_constant.nil?
-          # TODO namespace and superclass
-          class_constant = Vm::ClassObject.new(@name, nil, nil)
+          # TODO namespace and (real) superclass
+          class_constant = Vm::ClassObject.new(@name, nil, Vm::Core::OBJECT_CLASS)
           #puts "adding class '#{@name}' constant to scope #{context.scopes.last}"
           context.scopes.last.set_constant(@name, class_constant)
         end
