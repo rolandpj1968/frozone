@@ -11,7 +11,11 @@ require_relative 'nil_object'
 module Frozone
   module Vm
     class Vm
-      def initialize(options)
+      # TODO - the most recent docs as of time of writing
+      #   https://docs.ruby-lang.org/en/4.0/
+      FROZONE_CORE_VERSION = "4.0"
+
+      def initialize(options = {})
         @options = options
       end
 
@@ -19,24 +23,6 @@ module Frozone
         load_core
 
         Core::OBJECT_CLASS.set_constant(:RUBY_VERSION, Ast::StringLiteral.from('4.0.1'))
-
-        # Core::INTEGER_CLASS.set_method(
-        #   :+,
-        #   Method.new(
-        #     [Core::INTEGER_CLASS], # scopes
-        #     :+,
-        #     [:v],
-        #     [:v],
-        #     Ast::IntrinsicCall.new(
-        #       '::Frozone::Vm::IntegerObject',
-        #       :add,
-        #       [
-        #         Ast::SelfLiteral::SELF,
-        #         Ast::LocalVariableRead.new(:v, 3)
-        #       ]
-        #     )
-        #   )
-        # )
 
         scripts = @options[:scripts]
 
@@ -55,42 +41,30 @@ module Frozone
             scripts.join("\n")
           end
 
-        result = evaluate(program, dump_ast = true)
+        result = eval_snippet(program)
 
-        puts
         puts "result: #{result}"
+      end
 
-        puts
-        puts "Strings: #{Ast::StringLiteral::StringLiterals.transform_values(&:to_s)}"
-        puts
-        puts "Symbols: #{Ast::SymbolLiteral::SymbolLiterals.transform_values(&:to_s)}"
-        puts
-        puts "Integers: #{Ast::IntegerLiteral::IntegerLiterals.transform_values(&:to_s)}"
-        puts
-        puts "Intrinsics: #{Ast::IntrinsicCall::Methods.transform_values(&:to_s)}"
+      # Load the standard library into the shared class hierarchy.
+      # Idempotent: safe to call multiple times (methods are simply redefined).
+      def load_core
+        core_path = File.expand_path("../../core/#{FROZONE_CORE_VERSION}", __dir__)
+        evaluate_file("#{core_path}/basic_object.rb")
+        evaluate_file("#{core_path}/object.rb")
+        evaluate_file("#{core_path}/integer.rb")
+      end
+
+      # Evaluate a Ruby snippet and return the resulting VM object.
+      def eval_snippet(code)
+        evaluate(code)
       end
 
       private
 
       def evaluate_file(path) = evaluate(File.read(path))
 
-      # TODO - the most recent docs as of time of writing
-      #   https://docs.ruby-lang.org/en/4.0/
-      FROZONE_CORE_VERSION = "4.0"
-      def load_core
-        version = FROZONE_CORE_VERSION
-        puts Dir.pwd
-        core_path = "./lib/core/#{version}" # TODO - work out frozone dir
-
-        # TODO - read list from manifest somewhere...
-        evaluate_file("#{core_path}/basic_object.rb")
-        evaluate_file("#{core_path}/object.rb")
-        evaluate_file("#{core_path}/integer.rb")
-      end
-
       def evaluate(script, dump_ast = false)
-        #puts "Executing: '#{script}'"
-
         ast = Parser.new(script, dump_ast).ast
 
         if dump_ast
@@ -98,13 +72,6 @@ module Frozone
           puts ast
         end
 
-        # puts
-        # puts "AST root isa #{ast.class}"
-        # puts
-        # puts "AST: #{ast}"
-
-        # TODO - top-level object, locals, etc.
-        # Note: top-level object and state are shared for all scripts
         top_level_scope = Core::OBJECT_CLASS
         top_level_object = ObjectObject.new(Core::OBJECT_CLASS)
 
@@ -113,7 +80,7 @@ module Frozone
         frame = Frame.new(top_level_object, [], [top_level_scope])
         context.push_frame(frame)
         context.push_scope(top_level_scope)
-        
+
         ast.evaluate(context)
       end
     end
