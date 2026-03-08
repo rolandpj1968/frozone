@@ -50,7 +50,14 @@ module Frozone
 
         when Prism::ArrayNode
           Ast::ArrayLiteral.new(prism_node.elements.map { |e| transform(e) })
-          
+
+        when Prism::HashNode
+          kv_nodes = prism_node.elements.map do |kv|
+            raise "Hash literal element is not a Prism::AssocNode" unless kv.is_a?(Prism::AssocNode)
+            [transform(kv.key), transform(kv.value)]
+          end
+          Ast::HashLiteral.new(kv_nodes)
+
         when Prism::OrNode
           Ast::Or.new(transform(prism_node.left), transform(prism_node.right))
 

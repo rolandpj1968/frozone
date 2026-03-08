@@ -8,6 +8,7 @@ require_relative 'ast/float_literal'
 require_relative 'ast/string_literal'
 require_relative 'ast/symbol_literal'
 require_relative 'ast/array_literal'
+require_relative 'ast/hash_literal'
 
 require_relative 'ast/or'
 
