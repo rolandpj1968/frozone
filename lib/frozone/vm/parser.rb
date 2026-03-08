@@ -86,6 +86,12 @@ module Frozone
         when Prism::LocalVariableWriteNode
           Ast::LocalVariableWrite.new(sym(prism_node.name), prism_node.depth, transform(prism_node.value))
 
+        when Prism::InstanceVariableReadNode
+          Ast::InstanceVariableRead.new(sym(prism_node.name))
+
+        when Prism::InstanceVariableWriteNode
+          Ast::InstanceVariableWrite.new(sym(prism_node.name), transform(prism_node.value))
+
         when Prism::ConstantReadNode
           Ast::ConstantRead.new(sym(prism_node.name))
 

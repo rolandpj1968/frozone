@@ -239,6 +239,58 @@ RSpec.describe "Frozone VM functional" do
     end
   end
 
+  # ── Instance variables ───────────────────────────────────────────────────────
+
+  describe 'instance variable write and read' do
+    it 'reads an unset ivar as nil' do
+      expect(run_ruby("@x")).to vm_nil
+    end
+
+    it 'assigns and reads back an ivar' do
+      expect(run_ruby("@x = 42\n@x")).to vm_int(42)
+    end
+
+    it 'assignment expression returns the assigned value' do
+      expect(run_ruby("@x = 7")).to vm_int(7)
+    end
+
+    it 'ivars persist across method calls on the same object' do
+      code = <<~RUBY
+        class FuncTestIvar
+          def store(v)
+            @val = v
+          end
+          def fetch
+            @val
+          end
+        end
+        obj = FuncTestIvar.new
+        obj.store(99)
+        obj.fetch
+      RUBY
+      expect(run_ruby(code)).to vm_int(99)
+    end
+
+    it 'ivars are per-object' do
+      code = <<~RUBY
+        class FuncTestIvarPerObj
+          def store(v)
+            @val = v
+          end
+          def fetch
+            @val
+          end
+        end
+        a = FuncTestIvarPerObj.new
+        b = FuncTestIvarPerObj.new
+        a.store(1)
+        b.store(2)
+        a.fetch
+      RUBY
+      expect(run_ruby(code)).to vm_int(1)
+    end
+  end
+
   # ── Constants ────────────────────────────────────────────────────────────────
 
   describe 'constant write and read' do

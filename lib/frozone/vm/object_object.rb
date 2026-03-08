@@ -31,6 +31,14 @@ module Frozone
         @eigenclass.lookup_method(name)
       end
 
+      def get_ivar(name)
+        @instance_variables.fetch(name, NilObject::NIL)
+      end
+
+      def set_ivar(name, value)
+        @instance_variables[name] = value
+      end
+
       def truthy?
         !equal?(FalseObject::FALSE) && !equal?(NilObject::NIL)
       end
