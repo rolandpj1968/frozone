@@ -17,7 +17,7 @@ module Frozone
       def evaluate(context)
         args = @param_nodes.map { |p| p.evaluate(context) }
 
-        @method.call(*args)
+        @method.call(context, *args)
       end
 
       # TODO - thread safety
