@@ -19,7 +19,7 @@ module Frozone
         method = clazz.lookup_method(@old_name)
         # TODO this is a runtime error, not an assert
         # TODO fully-qualified class name
-        raise "undefined method '#{old_name}' for class '#{clazz.name}' (NameError) e.g." if method.nil?
+        raise "undefined method '#{@old_name}' for class '#{clazz.name}' (NameError)" if method.nil?
         clazz.set_method(@new_name, method.alias_as(@new_name))
         Vm::SymbolObject.from(@new_name) # TODO check empirically
       end

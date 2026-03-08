@@ -54,8 +54,8 @@ module Frozone
         end
 
         # 4. Superclass
-        unless superclass.nil?
-          method = superclass.lookup_method(name)
+        unless @superclass.nil?
+          method = @superclass.lookup_method(name)
           return method unless method.nil?
         end
 
@@ -88,8 +88,8 @@ module Frozone
         end
 
         # 4. Superclass
-        unless superclass.nil?
-          constant = superclass.get_constant(name)
+        unless @superclass.nil?
+          constant = @superclass.get_constant(name)
           return constant unless constant.nil?
         end
 
