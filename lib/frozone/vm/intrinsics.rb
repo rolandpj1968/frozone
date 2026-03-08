@@ -11,6 +11,12 @@ module Frozone
 
         def basic_object__equal_equal_(_, v1, v2) = bool_object_for(v1.equal?(v2))
 
+        def basic_object_method_missing(context, receiver, name, args, kwargs)
+          raise "BasicObject#method_missing name must be a SymbolObject" unless name.is_a?(SymbolObject)
+          class_name = receiver.class_object.name.raw
+          raise "undefined method '#{name.raw}' for an instance of #{class_name}"
+        end
+
         def basic_object___send__(context, receiver, name, args, kwargs)
           raise "BasicObject#__send__ name must be a SymbolObject" unless name.is_a?(SymbolObject)
           receiver.dispatch(context, name, args.raw, kwargs.raw)

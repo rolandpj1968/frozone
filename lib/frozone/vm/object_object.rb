@@ -10,7 +10,7 @@ module Frozone
         @eigenclass = class_object # promoted to singleton class at first singleton method def
       end
 
-      #def class_object = @class_object
+      def class_object = @class_object
 
       def create_singleton_class
         raise "bollocks"
@@ -32,12 +32,14 @@ module Frozone
       end
 
       # Shared dispatch: look up and invoke a method on self by SymbolObject name.
-      # Raises if the method is not found (missing_method is not yet implemented).
+      # Falls back to method_missing if the method is not found.
       def dispatch(context, name, args, kw_args)
         method = lookup_instance_method(name)
-        # TODO - this is a runtime exception, not an assert
-        raise "method :#{name.raw} not found - not yet doing missing_method" if method.nil?
-        method.invoke(context, self, args, kw_args)
+        return method.invoke(context, self, args, kw_args) unless method.nil?
+
+        mm = lookup_instance_method(SymbolObject.from(:method_missing))
+        raise "BUG: method_missing not defined on #{@class_object.name.raw}" if mm.nil?
+        mm.invoke(context, self, [name] + args, kw_args)
       end
 
       def get_ivar(name)

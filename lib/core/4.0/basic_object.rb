@@ -13,6 +13,10 @@ class BasicObject
 
   def !=(v) = !(self == v)
 
+  def method_missing(name, *args, **kwargs)
+    Intrinsics.basic_object_method_missing(self, name, args, kwargs)
+  end
+
   def __send__(name, *args, **kwargs) = Intrinsics.basic_object___send__(self, name, args, kwargs)
 
   # TODO

@@ -84,6 +84,26 @@ RSpec.describe Frozone::Vm::Intrinsics do
     end
   end
 
+  describe '.basic_object_method_missing' do
+    let(:klass) { Frozone::Vm::Core::OBJECT_CLASS }
+    let(:obj)   { Frozone::Vm::ObjectObject.new(klass) }
+    let(:real_ctx) { make_context(the_self: obj) }
+    let(:empty_args)   { Frozone::Vm::ArrayObject.new([]) }
+    let(:empty_kwargs) { Frozone::Vm::HashObject.new({}) }
+
+    it 'raises with the method name and class name in the message' do
+      expect {
+        described_class.basic_object_method_missing(real_ctx, obj, sym(:no_such), empty_args, empty_kwargs)
+      }.to raise_error(RuntimeError, /undefined method 'no_such' for an instance of Object/)
+    end
+
+    it 'raises when name is not a SymbolObject' do
+      expect {
+        described_class.basic_object_method_missing(real_ctx, obj, :no_such, empty_args, empty_kwargs)
+      }.to raise_error(RuntimeError, /SymbolObject/)
+    end
+  end
+
   describe '.basic_object___send__' do
     let(:klass) { Frozone::Vm::Core::OBJECT_CLASS }
     let(:obj)   { Frozone::Vm::ObjectObject.new(klass) }
@@ -123,7 +143,7 @@ RSpec.describe Frozone::Vm::Intrinsics do
       expect {
         described_class.basic_object___send__(real_ctx, obj, sym(:no_such_method_zz),
           Frozone::Vm::ArrayObject.new([]), Frozone::Vm::HashObject.new({}))
-      }.to raise_error(RuntimeError, /not found/)
+      }.to raise_error(RuntimeError, /undefined method/)
     end
   end
 

@@ -460,6 +460,47 @@ RSpec.describe "Frozone VM functional" do
     end
   end
 
+  # ── method_missing ───────────────────────────────────────────────────────────
+
+  describe 'method_missing' do
+    it 'raises with the Ruby-style error message for a missing method on self' do
+      expect { run_ruby("no_such_method_zz") }.to raise_error(RuntimeError, /undefined method 'no_such_method_zz' for an instance of Object/)
+    end
+
+    it 'raises with the receiver class name for an explicit receiver' do
+      code = <<~RUBY
+        class FuncTestMM
+        end
+        FuncTestMM.new.no_such_method_zz
+      RUBY
+      expect { run_ruby(code) }.to raise_error(RuntimeError, /undefined method 'no_such_method_zz' for an instance of FuncTestMM/)
+    end
+
+    it 'can be overridden to handle missing methods' do
+      code = <<~RUBY
+        class FuncTestMMOverride
+          def method_missing(name, *args, **kwargs)
+            42
+          end
+        end
+        FuncTestMMOverride.new.anything_goes
+      RUBY
+      expect(run_ruby(code)).to vm_int(42)
+    end
+
+    it 'passes the method name and args to the override' do
+      code = <<~RUBY
+        class FuncTestMMArgs
+          def method_missing(name, *args, **kwargs)
+            args
+          end
+        end
+        FuncTestMMArgs.new.foo(1, 2, 3)
+      RUBY
+      expect(run_ruby(code)).to vm_array([1, 2, 3])
+    end
+  end
+
   # ── __send__ and send ────────────────────────────────────────────────────────
 
   describe '__send__ and send' do
