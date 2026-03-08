@@ -5,7 +5,7 @@ require_relative '../vm/symbol_object'
 module Frozone
   module Ast
     class MethodDef < Node
-      def initialize(name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, locals, body)
+      def initialize(name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, locals, body)
         @name = check_type("name", name, Symbol)
 
         @required_params = check_array_type("required_params", required_params, Symbol)
@@ -16,10 +16,11 @@ module Frozone
 
         @required_kw_params =
           check_array_type("required_kw_params", required_kw_params, Symbol).
-            map { |s| SymbolObject.from(s) }
+            map { |s| Vm::SymbolObject.from(s) }
         @optional_kw_params =
           check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, Symbol, Ast::Node).
-            map { |s, n| [SymbolObject.from(s), n] }
+            map { |s, n| [Vm::SymbolObject.from(s), n] }
+        @kw_rest_param = check_nil_or_type("kw_rest_param", kw_rest_param, Symbol)
 
         @locals = check_array_type("locals", locals, Symbol)
         @body = check_type("body", body, Node)
@@ -37,6 +38,7 @@ module Frozone
             @post_params,
             @required_kw_params,
             @optional_kw_params,
+            @kw_rest_param,
             @locals,
             @body
           )

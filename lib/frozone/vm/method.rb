@@ -9,8 +9,7 @@ module Frozone
     class Method
       include Utils
 
-      # TODO - default params, keyword params, block param
-      def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, locals, body)
+      def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, locals, body)
         @scopes = self.class.unique_scopes(check_array_type("scopes", scopes, ModuleObject))
         @name = check_type("name", name, Symbol)
 
@@ -22,6 +21,7 @@ module Frozone
 
         @required_kw_params = check_array_type("required_kw_params", required_kw_params, SymbolObject)
         @optional_kw_params = check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, SymbolObject, Ast::Node)
+        @kw_rest_param = check_nil_or_type("kw_rest_param", kw_rest_param, Symbol)
 
         @locals = check_array_type("locals", locals, Symbol)
         @body = check_type("body", body, Ast::Node)
@@ -85,6 +85,15 @@ module Frozone
             end
           new_frame.set_local(kw.raw, value)
         end
+
+        if @kw_rest_param.nil?
+          unless kw_args.empty?
+            # TODO - this is a real runtime error
+            raise "unknown keyword#{kw_args.length == 1 ? "" : "s"}: #{kw_args.keys.map(&:to_s).join(', ')}"
+          end
+        else
+          new_frame.set_local(@kw_rest_param, HashObject.new(kw_args.dup))
+        end
       end
 
       # TODO - default params, keyword params, block params
@@ -107,8 +116,7 @@ module Frozone
       def to_s = "method(#{@scopes.map(&:to_s)}, :#{@name}, #{@required_params} -> #{@body})"
 
       def alias_as(name)
-        # TODO - default params, keyword params, block param - same same
-        Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @locals, @body)
+        Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @locals, @body)
       end
 
       # TODO - thread-safety

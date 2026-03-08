@@ -149,10 +149,10 @@ module Frozone
           post_params = []
           required_kw_params = []
           optional_kw_params = []
+          kw_rest_param = nil
           unless prism_node.parameters.nil?
             raise "Prism::DefNode.parameters is not a Prism::ParametersNode" unless prism_node.parameters.is_a?(Prism::ParametersNode)
             parameters = prism_node.parameters
-            raise "**keyword_rest params not yet supported" unless parameters.keyword_rest.nil?
             raise "block param not yet supported" unless parameters.block.nil?
             required_params = parameters.requireds.map do |required|
               raise "required parameter is not a Prism::RequiredParameterNode" unless required.is_a?(Prism::RequiredParameterNode)
@@ -180,6 +180,10 @@ module Frozone
                 raise "kw parameter is neither a Prism::RequiredKeywordParameterNode or a Prism::OptionalKeywordParameterNode"
               end
             end
+            unless parameters.keyword_rest.nil?
+              raise "keyword_rest parameter is not a Prism::KeywordRestParameterNode" unless parameters.keyword_rest.is_a?(Prism::KeywordRestParameterNode)
+              kw_rest_param = parameters.keyword_rest.name
+            end
           end
           #raise "not sure what locals_body_index is - expecting same as params count" unless prism_node.locals_body_index == params.length - not present in ruby 4.0.1
 
@@ -189,7 +193,7 @@ module Frozone
             else
               transform(prism_node.body)
             end
-          Ast::MethodDef.new(prism_node.name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, prism_node.locals, body_ast)
+          Ast::MethodDef.new(prism_node.name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, prism_node.locals, body_ast)
 
         when Prism::AliasMethodNode
           raise "new_name #{prism_node.new_name.class} must be a Prism::SymbolNode" unless prism_node.new_name.is_a?(Prism::SymbolNode)
