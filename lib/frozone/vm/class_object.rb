@@ -16,7 +16,7 @@ module Frozone
 
       # class "Class" circular dependency bootstrap band-aid - see core.rb too
       def patch_class_object
-        @superclass = Core.class_class
+        @class_object = Core.class_class
       end
 
       def prepend_module(mod)
