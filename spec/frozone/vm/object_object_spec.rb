@@ -41,25 +41,25 @@ RSpec.describe Frozone::Vm::ObjectObject do
 
   describe '#lookup_instance_method' do
     it 'finds a method defined on the class' do
-      test_class = Frozone::Vm::ClassObject.new(:TestLookup, nil, klass)
+      test_class = Frozone::Vm::ClassObject.new(sym(:TestLookup), nil, klass)
       m = make_method(test_class, :greet)
-      test_class.set_method(:greet, m)
+      test_class.set_method(sym(:greet), m)
       obj = described_class.new(test_class)
-      expect(obj.lookup_instance_method(:greet)).to equal(m)
+      expect(obj.lookup_instance_method(sym(:greet))).to equal(m)
     end
 
     it 'returns nil for an undefined method' do
       obj = described_class.new(klass)
-      expect(obj.lookup_instance_method(:totally_nonexistent_zz)).to be_nil
+      expect(obj.lookup_instance_method(sym(:totally_nonexistent_zz))).to be_nil
     end
 
     it 'finds a method inherited from a superclass' do
-      parent_class = Frozone::Vm::ClassObject.new(:ParentLookup, nil, klass)
-      child_class  = Frozone::Vm::ClassObject.new(:ChildLookup, nil, parent_class)
+      parent_class = Frozone::Vm::ClassObject.new(sym(:ParentLookup), nil, klass)
+      child_class  = Frozone::Vm::ClassObject.new(sym(:ChildLookup), nil, parent_class)
       m = make_method(parent_class, :inherited)
-      parent_class.set_method(:inherited, m)
+      parent_class.set_method(sym(:inherited), m)
       obj = described_class.new(child_class)
-      expect(obj.lookup_instance_method(:inherited)).to equal(m)
+      expect(obj.lookup_instance_method(sym(:inherited))).to equal(m)
     end
   end
 end

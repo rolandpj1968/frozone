@@ -42,76 +42,86 @@ RSpec.describe Frozone::Ast::IntrinsicCall do
 end
 
 RSpec.describe Frozone::Ast::MethodCall do
-  let(:klass)    { Frozone::Vm::ClassObject.new(:MCTestClass, nil, Frozone::Vm::Core::OBJECT_CLASS) }
+  let(:klass)    { Frozone::Vm::ClassObject.new(sym(:MCTestClass), nil, Frozone::Vm::Core::OBJECT_CLASS) }
   let(:receiver_obj) { Frozone::Vm::ObjectObject.new(klass) }
 
   describe '#initialize' do
-    it 'accepts name, nil receiver, arg_nodes, and kw_arg_nodes' do
-      expect { described_class.new(:foo, nil, [], {}) }.not_to raise_error
+    it 'accepts SymbolObject name, nil receiver, arg_nodes, and kw_arg_nodes' do
+      expect { described_class.new(sym(:foo), nil, [], {}) }.not_to raise_error
     end
 
-    it 'raises when name is not a Symbol' do
+    it 'raises when name is a raw Symbol' do
+      expect { described_class.new(:foo, nil, [], {}) }.to raise_error(RuntimeError)
+    end
+
+    it 'raises when name is a String' do
       expect { described_class.new("foo", nil, [], {}) }.to raise_error(RuntimeError)
     end
 
     it 'raises when arg_nodes contains a non-Node' do
-      expect { described_class.new(:foo, nil, ["bad"], {}) }.to raise_error(RuntimeError)
+      expect { described_class.new(sym(:foo), nil, ["bad"], {}) }.to raise_error(RuntimeError)
     end
   end
 
   describe '#evaluate' do
     it 'calls a method on an explicit receiver' do
       m = make_method(klass, :answer, body: Frozone::Ast::IntegerLiteral.from(42))
-      klass.set_method(:answer, m)
+      klass.set_method(sym(:answer), m)
       receiver_node = Frozone::Ast::SelfLiteral::SELF
       ctx = make_context(the_self: receiver_obj, scopes: [klass])
-      node = described_class.new(:answer, receiver_node, [], {})
+      node = described_class.new(sym(:answer), receiver_node, [], {})
       expect(node.evaluate(ctx).raw).to eq(42)
     end
 
     it 'calls a method on implicit self when receiver_node is nil' do
       m = make_method(klass, :ping, body: Frozone::Ast::IntegerLiteral.from(1))
-      klass.set_method(:ping, m)
+      klass.set_method(sym(:ping), m)
       ctx = make_context(the_self: receiver_obj, scopes: [klass])
-      node = described_class.new(:ping, nil, [], {})
+      node = described_class.new(sym(:ping), nil, [], {})
       expect(node.evaluate(ctx).raw).to eq(1)
     end
 
     it 'passes arguments to the method' do
-      m = make_method(klass, :echo, body: Frozone::Ast::LocalVariableRead.new(:x, 0),
+      m = make_method(klass, :echo, body: Frozone::Ast::LocalVariableRead.new(sym(:x), 0),
                       required_params: [:x])
-      klass.set_method(:echo, m)
+      klass.set_method(sym(:echo), m)
       ctx = make_context(the_self: receiver_obj, scopes: [klass])
-      node = described_class.new(:echo, nil, [Frozone::Ast::IntegerLiteral.from(7)], {})
+      node = described_class.new(sym(:echo), nil, [Frozone::Ast::IntegerLiteral.from(7)], {})
       expect(node.evaluate(ctx).raw).to eq(7)
     end
 
     it 'raises when method is not found' do
       ctx = make_context(the_self: receiver_obj, scopes: [klass])
-      node = described_class.new(:no_such_method_zz, nil, [], {})
+      node = described_class.new(sym(:no_such_method_zz), nil, [], {})
       expect { node.evaluate(ctx) }.to raise_error(RuntimeError, /not found/)
     end
   end
 
   describe '#to_s' do
     it 'includes the method name' do
-      expect(described_class.new(:foo, nil, [], {}).to_s).to include("foo")
+      expect(described_class.new(sym(:foo), nil, [], {}).to_s).to include("foo")
     end
   end
 end
 
 RSpec.describe Frozone::Ast::MethodDef do
-  let(:scope) { Frozone::Vm::ClassObject.new(:MDScope, nil, Frozone::Vm::Core::OBJECT_CLASS) }
+  let(:scope) { Frozone::Vm::ClassObject.new(sym(:MDScope), nil, Frozone::Vm::Core::OBJECT_CLASS) }
   let(:ctx)   { make_context(scopes: [scope]) }
 
   describe '#initialize' do
-    it 'accepts a valid method definition' do
+    it 'accepts a valid method definition with SymbolObject name' do
       expect {
-        described_class.new(:foo, [], [], nil, [], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
+        described_class.new(sym(:foo), [], [], nil, [], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
       }.not_to raise_error
     end
 
-    it 'raises when name is not a Symbol' do
+    it 'raises when name is a raw Symbol' do
+      expect {
+        described_class.new(:foo, [], [], nil, [], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
+      }.to raise_error(RuntimeError)
+    end
+
+    it 'raises when name is a String' do
       expect {
         described_class.new("foo", [], [], nil, [], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
       }.to raise_error(RuntimeError)
@@ -120,14 +130,14 @@ RSpec.describe Frozone::Ast::MethodDef do
 
   describe '#evaluate' do
     it 'defines a method on the current scope' do
-      node = described_class.new(:my_method, [], [], nil, [], [], [], nil, [],
+      node = described_class.new(sym(:my_method), [], [], nil, [], [], [], nil, [],
                                  Frozone::Ast::IntegerLiteral.from(99))
       node.evaluate(ctx)
-      expect(scope.get_method(:my_method)).to be_a(Frozone::Vm::Method)
+      expect(scope.get_method(sym(:my_method))).to be_a(Frozone::Vm::Method)
     end
 
     it 'returns a SymbolObject naming the method' do
-      node = described_class.new(:defined_method, [], [], nil, [], [], [], nil, [],
+      node = described_class.new(sym(:defined_method), [], [], nil, [], [], [], nil, [],
                                  Frozone::Ast::NilLiteral::NIL)
       result = node.evaluate(ctx)
       expect(result).to be_a(Frozone::Vm::SymbolObject)
@@ -135,10 +145,10 @@ RSpec.describe Frozone::Ast::MethodDef do
     end
 
     it 'defined method is callable and returns its body result' do
-      node = described_class.new(:calc, [], [], nil, [], [], [], nil, [],
+      node = described_class.new(sym(:calc), [], [], nil, [], [], [], nil, [],
                                  Frozone::Ast::IntegerLiteral.from(7))
       node.evaluate(ctx)
-      method = scope.get_method(:calc)
+      method = scope.get_method(sym(:calc))
       receiver = Frozone::Vm::ObjectObject.new(scope)
       result = method.invoke(ctx, receiver, [], {})
       expect(result.raw).to eq(7)
@@ -147,101 +157,109 @@ RSpec.describe Frozone::Ast::MethodDef do
 end
 
 RSpec.describe Frozone::Ast::MethodAlias do
-  let(:scope) { Frozone::Vm::ClassObject.new(:MAScope, nil, Frozone::Vm::Core::OBJECT_CLASS) }
+  let(:scope) { Frozone::Vm::ClassObject.new(sym(:MAScope), nil, Frozone::Vm::Core::OBJECT_CLASS) }
   let(:ctx)   { make_context(scopes: [scope]) }
 
   before do
     original = make_method(scope, :original, body: Frozone::Ast::IntegerLiteral.from(42))
-    scope.set_method(:original, original)
+    scope.set_method(sym(:original), original)
   end
 
   describe '#initialize' do
-    it 'accepts two symbol names' do
-      expect { described_class.new(:new_name, :old_name) }.not_to raise_error
+    it 'accepts two SymbolObject names' do
+      expect { described_class.new(sym(:new_name), sym(:old_name)) }.not_to raise_error
     end
 
-    it 'raises when new_name is not a Symbol' do
-      expect { described_class.new("new", :old) }.to raise_error(RuntimeError)
+    it 'raises when new_name is a raw Symbol' do
+      expect { described_class.new(:new, sym(:old)) }.to raise_error(RuntimeError)
     end
 
-    it 'raises when old_name is not a Symbol' do
-      expect { described_class.new(:new, "old") }.to raise_error(RuntimeError)
+    it 'raises when old_name is a raw Symbol' do
+      expect { described_class.new(sym(:new), :old) }.to raise_error(RuntimeError)
+    end
+
+    it 'raises when new_name is a String' do
+      expect { described_class.new("new", sym(:old)) }.to raise_error(RuntimeError)
     end
   end
 
   describe '#evaluate' do
     it 'creates an alias so the new name calls the same body' do
-      described_class.new(:alias_method, :original).evaluate(ctx)
-      aliased = scope.get_method(:alias_method)
+      described_class.new(sym(:alias_method), sym(:original)).evaluate(ctx)
+      aliased = scope.get_method(sym(:alias_method))
       expect(aliased).not_to be_nil
       receiver = Frozone::Vm::ObjectObject.new(scope)
       expect(aliased.invoke(ctx, receiver, [], {}).raw).to eq(42)
     end
 
     it 'returns a SymbolObject of the new name' do
-      result = described_class.new(:another_alias, :original).evaluate(ctx)
+      result = described_class.new(sym(:another_alias), sym(:original)).evaluate(ctx)
       expect(result).to be_a(Frozone::Vm::SymbolObject)
       expect(result.raw).to eq(:another_alias)
     end
 
     it 'raises when the original method does not exist' do
-      node = described_class.new(:new_name, :no_such_method_zz)
+      node = described_class.new(sym(:new_name), sym(:no_such_method_zz))
       expect { node.evaluate(ctx) }.to raise_error(RuntimeError, /undefined method/)
     end
   end
 end
 
 RSpec.describe Frozone::Ast::ClassDef do
-  let(:outer_scope) { Frozone::Vm::ClassObject.new(:CDOuter, nil, Frozone::Vm::Core::OBJECT_CLASS) }
+  let(:outer_scope) { Frozone::Vm::ClassObject.new(sym(:CDOuter), nil, Frozone::Vm::Core::OBJECT_CLASS) }
   let(:ctx)         { make_context(scopes: [outer_scope]) }
 
   describe '#initialize' do
-    it 'accepts a symbol name, empty locals, and a body Node' do
-      expect { described_class.new(:MyClass, [], Frozone::Ast::NilLiteral::NIL) }.not_to raise_error
+    it 'accepts a SymbolObject name, empty locals, and a body Node' do
+      expect { described_class.new(sym(:MyClass), [], Frozone::Ast::NilLiteral::NIL) }.not_to raise_error
     end
 
-    it 'raises when name is not a Symbol' do
+    it 'raises when name is a raw Symbol' do
+      expect { described_class.new(:MyClass, [], Frozone::Ast::NilLiteral::NIL) }.to raise_error(RuntimeError)
+    end
+
+    it 'raises when name is a String' do
       expect { described_class.new("Bad", [], Frozone::Ast::NilLiteral::NIL) }.to raise_error(RuntimeError)
     end
 
     it 'raises when body is not a Node' do
-      expect { described_class.new(:MyClass, [], "bad") }.to raise_error(RuntimeError)
+      expect { described_class.new(sym(:MyClass), [], "bad") }.to raise_error(RuntimeError)
     end
   end
 
   describe '#evaluate' do
     it 'creates a new ClassObject constant in the current scope' do
-      described_class.new(:NewClass, [], Frozone::Ast::NilLiteral::NIL).evaluate(ctx)
-      expect(outer_scope.get_constant(:NewClass)).to be_a(Frozone::Vm::ClassObject)
+      described_class.new(sym(:NewClass), [], Frozone::Ast::NilLiteral::NIL).evaluate(ctx)
+      expect(outer_scope.get_constant(sym(:NewClass))).to be_a(Frozone::Vm::ClassObject)
     end
 
     it 'finds an existing class on re-evaluation instead of creating a new one' do
-      node = described_class.new(:ExistingClass, [], Frozone::Ast::NilLiteral::NIL)
+      node = described_class.new(sym(:ExistingClass), [], Frozone::Ast::NilLiteral::NIL)
       node.evaluate(ctx)
-      first_class = outer_scope.get_constant(:ExistingClass)
+      first_class = outer_scope.get_constant(sym(:ExistingClass))
       node.evaluate(ctx)
-      second_class = outer_scope.get_constant(:ExistingClass)
+      second_class = outer_scope.get_constant(sym(:ExistingClass))
       expect(second_class).to equal(first_class)
     end
 
     it 'evaluates the body within the class scope' do
       # body defines a method on the class
-      method_def_node = described_class::new(  # using ClassDef to wrap MethodDef test
-        :BodyTestClass,
+      method_def_node = described_class.new(
+        sym(:BodyTestClass),
         [],
-        Frozone::Ast::MethodDef.new(:inner_method, [], [], nil, [], [], [], nil, [],
+        Frozone::Ast::MethodDef.new(sym(:inner_method), [], [], nil, [], [], [], nil, [],
                                     Frozone::Ast::IntegerLiteral.from(55))
       )
       method_def_node.evaluate(ctx)
-      klass = outer_scope.get_constant(:BodyTestClass)
-      expect(klass.get_method(:inner_method)).to be_a(Frozone::Vm::Method)
+      klass = outer_scope.get_constant(sym(:BodyTestClass))
+      expect(klass.get_method(sym(:inner_method))).to be_a(Frozone::Vm::Method)
     end
 
     it 'raises when the constant names a non-class' do
-      outer_scope.set_constant(:NotAClass, Frozone::Vm::IntegerObject.new(1))
+      outer_scope.set_constant(sym(:NotAClass), Frozone::Vm::IntegerObject.new(1))
       ctx2 = make_context(scopes: [outer_scope])
       expect {
-        described_class.new(:NotAClass, [], Frozone::Ast::NilLiteral::NIL).evaluate(ctx2)
+        described_class.new(sym(:NotAClass), [], Frozone::Ast::NilLiteral::NIL).evaluate(ctx2)
       }.to raise_error(RuntimeError, /not a class/)
     end
   end

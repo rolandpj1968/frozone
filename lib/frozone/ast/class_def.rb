@@ -2,35 +2,36 @@ require_relative 'node'
 require_relative "../vm/core"
 require_relative '../vm/module_object'
 require_relative '../vm/nil_object'
+require_relative '../vm/symbol_object'
 
 module Frozone
   module Ast
     class ClassDef < Node
       def initialize(name, locals, body)
-        @name = check_type("name", name, Symbol)
+        @name = check_type("name", name, Vm::SymbolObject)
 
         raise "class defn with locals not yet supported" unless locals.empty?
-        @locals = check_array_type("locals", locals, Symbol)
+        @locals = check_array_type("locals", locals, Vm::SymbolObject)
 
         @body = check_type("body", body, Node)
       end
 
       def to_s
-        "class(#{@name}, locals: #{@locals} body: #{@body})"
+        "class(#{@name.raw}, locals: #{@locals} body: #{@body})"
       end
 
       def evaluate(context)
         # 1. find or create the class defn and constant
         class_constant = Vm::ModuleObject.lookup_constant(@name, context.scopes)
-        #puts "previous constant '#{@name}' #{class_constant}/#{class_constant.class}"
+        #puts "previous constant '#{@name.raw}' #{class_constant}/#{class_constant.class}"
         unless class_constant.nil? or class_constant.is_a?(Vm::ClassObject)
           # TODO this is a real runtime error, not an assert
-          raise "previous defn of #{@name} was not a class"
+          raise "previous defn of #{@name.raw} was not a class"
         end
         if class_constant.nil?
           # TODO namespace and (real) superclass
           class_constant = Vm::ClassObject.new(@name, nil, Vm::Core::OBJECT_CLASS)
-          #puts "adding class '#{@name}' constant to scope #{context.scopes.last}"
+          #puts "adding class '#{@name.raw}' constant to scope #{context.scopes.last}"
           context.scopes.last.set_constant(@name, class_constant)
         end
 

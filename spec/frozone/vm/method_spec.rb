@@ -6,8 +6,7 @@ RSpec.describe Frozone::Vm::Method do
   let(:ctx)      { make_context }
 
   def int(n) = Frozone::Vm::IntegerObject.new(n)
-  def sym(s) = Frozone::Vm::SymbolObject.from(s)
-  def local(name) = Frozone::Ast::LocalVariableRead.new(name, 0)
+  def local(name) = Frozone::Ast::LocalVariableRead.new(sym(name), 0)
   def lit(n) = Frozone::Ast::IntegerLiteral.from(n)
 
   describe '#initialize' do
@@ -17,19 +16,25 @@ RSpec.describe Frozone::Vm::Method do
 
     it 'raises when scopes is not an array of ModuleObjects' do
       expect {
-        described_class.new(["bad"], :test, [], [], nil, [], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
+        described_class.new(["bad"], sym(:test), [], [], nil, [], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
       }.to raise_error(RuntimeError)
     end
 
-    it 'raises when name is not a Symbol' do
+    it 'raises when name is not a SymbolObject' do
       expect {
         described_class.new([klass], "not_symbol", [], [], nil, [], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
       }.to raise_error(RuntimeError)
     end
 
+    it 'raises when name is a raw Symbol' do
+      expect {
+        described_class.new([klass], :test, [], [], nil, [], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
+      }.to raise_error(RuntimeError)
+    end
+
     it 'raises when post_params are given without a rest_param' do
       expect {
-        described_class.new([klass], :test, [], [], nil, [:post], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
+        described_class.new([klass], sym(:test), [], [], nil, [sym(:post)], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
       }.to raise_error(RuntimeError, /post_params/)
     end
   end
@@ -164,14 +169,14 @@ RSpec.describe Frozone::Vm::Method do
   describe '#alias_as' do
     it 'returns a new Method object' do
       m = make_method(klass, :original)
-      aliased = m.alias_as(:aliased)
+      aliased = m.alias_as(sym(:aliased))
       expect(aliased).to be_a(described_class)
       expect(aliased).not_to equal(m)
     end
 
     it 'the aliased method evaluates to the same body result' do
       m = make_method(klass, :original, body: lit(42))
-      aliased = m.alias_as(:aliased)
+      aliased = m.alias_as(sym(:aliased))
       expect(aliased.invoke(ctx, receiver, [], {}).raw).to eq(42)
     end
   end

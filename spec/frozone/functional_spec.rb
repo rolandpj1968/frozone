@@ -243,7 +243,7 @@ RSpec.describe "Frozone VM functional" do
       code = "class FuncTestReopenClass; end\nclass FuncTestReopenClass; end\nFuncTestReopenClass"
       result = run_ruby(code)
       expect(result).to be_a(Frozone::Vm::ClassObject)
-      expect(result.name).to eq(:FuncTestReopenClass)
+      expect(result.name).to eq(sym(:FuncTestReopenClass))
     end
   end
 
@@ -363,7 +363,7 @@ RSpec.describe "Frozone VM functional" do
       result = run_ruby(code)
       expect(result).to be_a(Frozone::Vm::ObjectObject)
       expect(result.instance_variable_get(:@class_object)).to be_a(Frozone::Vm::ClassObject)
-      expect(result.instance_variable_get(:@class_object).name).to eq(:FuncTestNewBasic)
+      expect(result.instance_variable_get(:@class_object).name).to eq(sym(:FuncTestNewBasic))
     end
 
     it 'calls initialize with arguments without raising' do
@@ -402,7 +402,7 @@ RSpec.describe "Frozone VM functional" do
       RUBY
       result = run_ruby(code)
       expect(result).to be_a(Frozone::Vm::ClassObject)
-      expect(result.lookup_method(:double)).to be_a(Frozone::Vm::Method)
+      expect(result.lookup_method(sym(:double))).to be_a(Frozone::Vm::Method)
     end
   end
 end

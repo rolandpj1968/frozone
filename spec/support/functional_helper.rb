@@ -52,7 +52,7 @@ module FunctionalTestHelpers
 
   def vm_class(name)
     satisfy("be ClassObject(:#{name})") { |r|
-      r.is_a?(Frozone::Vm::ClassObject) && r.name == name
+      r.is_a?(Frozone::Vm::ClassObject) && r.name == Frozone::Vm::SymbolObject.from(name)
     }
   end
 end

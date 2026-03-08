@@ -13,7 +13,7 @@ module Frozone
         @superclass = check_nil_or_type("superclass", superclass, ClassObject)
       end
 
-      def to_s = "class(#{@name})"
+      def to_s = "class(#{@name.raw})"
 
       # class "Class" circular dependency bootstrap band-aid - see core.rb too
       def patch_class_object
@@ -33,13 +33,13 @@ module Frozone
       # TODO &block
       def new_instance(context, args, kwargs)
         o = ObjectObject.new(self)
-        o.lookup_instance_method(:initialize).invoke(context, o, args, kwargs)
+        o.lookup_instance_method(SymbolObject.from(:initialize)).invoke(context, o, args, kwargs)
         o
       end
 
       # TODO - private/public
       def lookup_method(name)
-        raise "name must be a Symbol" unless name.is_a?(Symbol)
+        raise "name must be a SymbolObject" unless name.is_a?(SymbolObject)
 
         # 1. Prepended modules
         unless @prepends.nil?
