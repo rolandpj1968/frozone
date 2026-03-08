@@ -16,7 +16,6 @@ module Frozone
       end
 
       def evaluate(context)
-        #puts "          RPJ = MethodCall#evaluate method :#{@name.raw} receiver #{@receiver_node}"
         receiver =
           if @receiver_node.nil?
             context.frame.the_self
@@ -25,15 +24,9 @@ module Frozone
           end
 
         args = @arg_nodes.map { |p| p.evaluate(context) }
-
         kw_args = @kw_arg_nodes.to_h { |kw_node, value_node| [kw_node.evaluate(context), value_node.evaluate(context)] }
 
-        method = receiver.lookup_instance_method(@name)
-
-        # TODO - this is a runtime exception, not an assert
-        raise "method :#{@name.raw} not found - not yet doing missing_method" if method.nil?
-
-        method.invoke(context, receiver, args, kw_args)
+        receiver.dispatch(context, @name, args, kw_args)
       end
     end
   end

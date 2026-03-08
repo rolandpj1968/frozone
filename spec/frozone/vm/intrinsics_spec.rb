@@ -84,6 +84,49 @@ RSpec.describe Frozone::Vm::Intrinsics do
     end
   end
 
+  describe '.basic_object___send__' do
+    let(:klass) { Frozone::Vm::Core::OBJECT_CLASS }
+    let(:obj)   { Frozone::Vm::ObjectObject.new(klass) }
+    let(:real_ctx) { make_context(the_self: obj) }
+
+    it 'dispatches a method by SymbolObject name' do
+      m = make_method(klass, :greet, body: Frozone::Ast::IntegerLiteral.from(42))
+      klass.set_method(sym(:greet), m)
+      result = described_class.basic_object___send__(
+        real_ctx, obj, sym(:greet),
+        Frozone::Vm::ArrayObject.new([]),
+        Frozone::Vm::HashObject.new({})
+      )
+      expect(result.raw).to eq(42)
+    end
+
+    it 'passes positional args through' do
+      m = make_method(klass, :echo, body: Frozone::Ast::LocalVariableRead.new(sym(:x), 0),
+                      required_params: [:x])
+      klass.set_method(sym(:echo), m)
+      result = described_class.basic_object___send__(
+        real_ctx, obj, sym(:echo),
+        Frozone::Vm::ArrayObject.new([Frozone::Vm::IntegerObject.new(7)]),
+        Frozone::Vm::HashObject.new({})
+      )
+      expect(result.raw).to eq(7)
+    end
+
+    it 'raises when name is not a SymbolObject' do
+      expect {
+        described_class.basic_object___send__(real_ctx, obj, :greet,
+          Frozone::Vm::ArrayObject.new([]), Frozone::Vm::HashObject.new({}))
+      }.to raise_error(RuntimeError, /SymbolObject/)
+    end
+
+    it 'raises when method is not found' do
+      expect {
+        described_class.basic_object___send__(real_ctx, obj, sym(:no_such_method_zz),
+          Frozone::Vm::ArrayObject.new([]), Frozone::Vm::HashObject.new({}))
+      }.to raise_error(RuntimeError, /not found/)
+    end
+  end
+
   describe '.basic_object___id__' do
     it 'returns an IntegerObject' do
       expect(described_class.basic_object___id__(ctx, i3)).to be_a(Frozone::Vm::IntegerObject)

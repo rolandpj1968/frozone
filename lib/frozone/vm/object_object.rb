@@ -31,6 +31,15 @@ module Frozone
         @eigenclass.lookup_method(name)
       end
 
+      # Shared dispatch: look up and invoke a method on self by SymbolObject name.
+      # Raises if the method is not found (missing_method is not yet implemented).
+      def dispatch(context, name, args, kw_args)
+        method = lookup_instance_method(name)
+        # TODO - this is a runtime exception, not an assert
+        raise "method :#{name.raw} not found - not yet doing missing_method" if method.nil?
+        method.invoke(context, self, args, kw_args)
+      end
+
       def get_ivar(name)
         @instance_variables.fetch(name, NilObject::NIL)
       end

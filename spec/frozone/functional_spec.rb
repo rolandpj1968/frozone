@@ -460,6 +460,38 @@ RSpec.describe "Frozone VM functional" do
     end
   end
 
+  # ── __send__ and send ────────────────────────────────────────────────────────
+
+  describe '__send__ and send' do
+    it '__send__ dispatches a no-arg method' do
+      expect(run_ruby("def ft_greet; 42; end\nself.__send__(:ft_greet)")).to vm_int(42)
+    end
+
+    it '__send__ passes positional arguments' do
+      expect(run_ruby("def ft_add(a, b); a + b; end\nself.__send__(:ft_add, 3, 4)")).to vm_int(7)
+    end
+
+    it '__send__ dispatches on an explicit receiver' do
+      code = <<~RUBY
+        class FuncTestSend
+          def value
+            99
+          end
+        end
+        FuncTestSend.new.__send__(:value)
+      RUBY
+      expect(run_ruby(code)).to vm_int(99)
+    end
+
+    it 'send forwards to __send__' do
+      expect(run_ruby("def ft_ping; 1; end\nself.send(:ft_ping)")).to vm_int(1)
+    end
+
+    it 'send passes arguments' do
+      expect(run_ruby("def ft_mul(a, b); a + b; end\nself.send(:ft_mul, 5, 6)")).to vm_int(11)
+    end
+  end
+
   # ── Methods defined inside a class ───────────────────────────────────────────
 
   describe 'class with methods (called via top-level alias)' do

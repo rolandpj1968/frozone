@@ -33,7 +33,7 @@ module Frozone
       # TODO &block
       def new_instance(context, args, kwargs)
         o = ObjectObject.new(self)
-        o.lookup_instance_method(SymbolObject.from(:initialize)).invoke(context, o, args, kwargs)
+        o.dispatch(context, SymbolObject.from(:initialize), args, kwargs)
         o
       end
 

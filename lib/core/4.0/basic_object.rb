@@ -13,8 +13,9 @@ class BasicObject
 
   def !=(v) = !(self == v)
 
+  def __send__(name, *args, **kwargs) = Intrinsics.basic_object___send__(self, name, args, kwargs)
+
   # TODO
-  # __send__
   # instance_eval
   # instance_exec
 end
