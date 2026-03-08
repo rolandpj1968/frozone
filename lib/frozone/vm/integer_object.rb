@@ -23,21 +23,6 @@ module Frozone
       #
       def hash = raw.hash
       def eql?(v) = v.is_a?(IntegerObject) && raw.eql?(v.raw)
-
-      class << self
-        def check(v)
-          raise 'Intrinsic requires IntegerObject' unless v.is_a?(IntegerObject)
-          v
-        end
-
-        #
-        # Intrinsics
-        #
-
-        def add(v1, v2)
-          new(check(v1).value + check(v2).value)
-        end
-      end
     end
   end
 end

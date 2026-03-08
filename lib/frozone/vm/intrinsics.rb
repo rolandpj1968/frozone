@@ -7,12 +7,12 @@ module Frozone
         def bool_object_for(bool) = bool ? TrueObject::TRUE : FalseObject::FALSE
 
         # BasicObject
-        def basic_object___id__(_, v) = v.__id__
+        def basic_object___id__(_, v) = IntegerObject.new(v.__id__)
 
         def basic_object__equal_equal_(_, v1, v2) = bool_object_for(v1.equal?(v2))
 
         # Integer
-        def integer_hash(_, v) = v.raw.hash
+        def integer_hash(_, v) = IntegerObject.new(v.raw.hash)
 
         # Integer generated methods
         def is_int(v) = v.is_a?(IntegerObject)
