@@ -84,6 +84,42 @@ RSpec.describe Frozone::Vm::Intrinsics do
     end
   end
 
+  describe '.basic_object___id__' do
+    it 'returns an IntegerObject' do
+      expect(described_class.basic_object___id__(ctx, i3)).to be_a(Frozone::Vm::IntegerObject)
+    end
+
+    it 'returns the same value for the same object' do
+      result1 = described_class.basic_object___id__(ctx, i3)
+      result2 = described_class.basic_object___id__(ctx, i3)
+      expect(result1.raw).to eq(result2.raw)
+    end
+
+    it 'returns different values for different objects' do
+      a = Frozone::Vm::IntegerObject.new(1)
+      b = Frozone::Vm::IntegerObject.new(1)
+      expect(described_class.basic_object___id__(ctx, a).raw).not_to eq(
+        described_class.basic_object___id__(ctx, b).raw
+      )
+    end
+  end
+
+  describe '.integer_hash' do
+    it 'returns an IntegerObject' do
+      expect(described_class.integer_hash(ctx, i3)).to be_a(Frozone::Vm::IntegerObject)
+    end
+
+    it 'returns the same hash for equal integer values' do
+      a = Frozone::Vm::IntegerObject.new(42)
+      b = Frozone::Vm::IntegerObject.new(42)
+      expect(described_class.integer_hash(ctx, a).raw).to eq(described_class.integer_hash(ctx, b).raw)
+    end
+
+    it 'returns the Ruby integer hash value' do
+      expect(described_class.integer_hash(ctx, i5).raw).to eq(5.hash)
+    end
+  end
+
   describe '.bool_object_for' do
     it 'returns TrueObject::TRUE for true' do
       expect(described_class.bool_object_for(true)).to equal(Frozone::Vm::TrueObject::TRUE)

@@ -351,6 +351,43 @@ RSpec.describe "Frozone VM functional" do
     end
   end
 
+  # ── Class#new ────────────────────────────────────────────────────────────────
+
+  describe 'Class#new' do
+    it 'creates an instance of the class' do
+      code = <<~RUBY
+        class FuncTestNewBasic
+        end
+        FuncTestNewBasic.new
+      RUBY
+      result = run_ruby(code)
+      expect(result).to be_a(Frozone::Vm::ObjectObject)
+      expect(result.instance_variable_get(:@class_object)).to be_a(Frozone::Vm::ClassObject)
+      expect(result.instance_variable_get(:@class_object).name).to eq(:FuncTestNewBasic)
+    end
+
+    it 'calls initialize with arguments without raising' do
+      code = <<~RUBY
+        class FuncTestNewWithInit
+          def initialize(x)
+          end
+        end
+        FuncTestNewWithInit.new(7)
+      RUBY
+      result = run_ruby(code)
+      expect(result).to be_a(Frozone::Vm::ObjectObject)
+    end
+
+    it 'each call returns a distinct object (__id__ differs)' do
+      code = <<~RUBY
+        class FuncTestNewDistinct
+        end
+        FuncTestNewDistinct.new.__id__ != FuncTestNewDistinct.new.__id__
+      RUBY
+      expect(run_ruby(code)).to vm_true
+    end
+  end
+
   # ── Methods defined inside a class ───────────────────────────────────────────
 
   describe 'class with methods (called via top-level alias)' do
