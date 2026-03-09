@@ -32,31 +32,27 @@ module Frozone
       OBJECT_CLASS.set_constant(:Class, CLASS_CLASS)
       OBJECT_CLASS.set_constant(:Object, OBJECT_CLASS)
 
+      def self.define_class(name, superclass)
+        klass = ClassObject.new(name, nil, superclass)
+        OBJECT_CLASS.set_constant(name, klass)
+        klass
+      end
+
       # Trivial singleton classes — simpler to define here than bootstrap from hierarchy.rb
-      NIL_CLASS_CLASS   = ClassObject.new(:NilClass,   nil, OBJECT_CLASS)
-      TRUE_CLASS_CLASS  = ClassObject.new(:TrueClass,  nil, OBJECT_CLASS)
-      FALSE_CLASS_CLASS = ClassObject.new(:FalseClass, nil, OBJECT_CLASS)
-      OBJECT_CLASS.set_constant(:NilClass,   NIL_CLASS_CLASS)
-      OBJECT_CLASS.set_constant(:TrueClass,  TRUE_CLASS_CLASS)
-      OBJECT_CLASS.set_constant(:FalseClass, FALSE_CLASS_CLASS)
+      NIL_CLASS_CLASS   = define_class(:NilClass,   OBJECT_CLASS)
+      TRUE_CLASS_CLASS  = define_class(:TrueClass,  OBJECT_CLASS)
+      FALSE_CLASS_CLASS = define_class(:FalseClass, OBJECT_CLASS)
 
       # Needed before any parsing happens (SymbolObject instances are created by the parser)
-      SYMBOL_CLASS = ClassObject.new(:Symbol, nil, OBJECT_CLASS)
-      OBJECT_CLASS.set_constant(:Symbol, SYMBOL_CLASS)
+      SYMBOL_CLASS = define_class(:Symbol, OBJECT_CLASS)
 
       # Defined here so VM objects can reference them as constants; hierarchy.rb adds module includes
-      NUMERIC_CLASS = ClassObject.new(:Numeric,  nil, OBJECT_CLASS)
-      INTEGER_CLASS = ClassObject.new(:Integer,  nil, NUMERIC_CLASS)
-      FLOAT_CLASS   = ClassObject.new(:Float,    nil, NUMERIC_CLASS)
-      STRING_CLASS  = ClassObject.new(:String,   nil, OBJECT_CLASS)
-      ARRAY_CLASS   = ClassObject.new(:Array,    nil, OBJECT_CLASS)
-      HASH_CLASS    = ClassObject.new(:Hash,     nil, OBJECT_CLASS)
-      OBJECT_CLASS.set_constant(:Numeric,  NUMERIC_CLASS)
-      OBJECT_CLASS.set_constant(:Integer,  INTEGER_CLASS)
-      OBJECT_CLASS.set_constant(:Float,    FLOAT_CLASS)
-      OBJECT_CLASS.set_constant(:String,   STRING_CLASS)
-      OBJECT_CLASS.set_constant(:Array,    ARRAY_CLASS)
-      OBJECT_CLASS.set_constant(:Hash,     HASH_CLASS)
+      NUMERIC_CLASS = define_class(:Numeric, OBJECT_CLASS)
+      INTEGER_CLASS = define_class(:Integer, NUMERIC_CLASS)
+      FLOAT_CLASS   = define_class(:Float,   NUMERIC_CLASS)
+      STRING_CLASS  = define_class(:String,  OBJECT_CLASS)
+      ARRAY_CLASS   = define_class(:Array,   OBJECT_CLASS)
+      HASH_CLASS    = define_class(:Hash,    OBJECT_CLASS)
     end
   end
 end
