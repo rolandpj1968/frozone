@@ -1,4 +1,5 @@
 require_relative 'node'
+require_relative '../vm/frozone_exception'
 require_relative '../vm/intrinsics'
 
 module Frozone

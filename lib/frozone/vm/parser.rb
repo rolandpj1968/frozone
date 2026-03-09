@@ -306,6 +306,28 @@ module Frozone
         when Prism::RedoNode
           Ast::Redo.new
 
+        when Prism::BeginNode
+          body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
+          rescue_clauses = []
+          rc = prism_node.rescue_clause
+          while rc
+            exc_nodes = rc.exceptions.map { |e| transform(e) }
+            var_name, var_depth =
+              if rc.reference.nil?
+                [nil, nil]
+              elsif rc.reference.is_a?(Prism::LocalVariableTargetNode)
+                [rc.reference.name, rc.reference.depth]
+              else
+                raise "Unsupported rescue reference type: #{rc.reference.class}"
+              end
+            rc_body = rc.statements.nil? ? Ast::NilLiteral::NIL : transform(rc.statements)
+            rescue_clauses << Ast::RescueClause.new(exc_nodes, var_name, var_depth, rc_body)
+            rc = rc.consequent
+          end
+          else_node   = prism_node.else_clause.nil?   ? nil : transform(prism_node.else_clause)
+          ensure_node = prism_node.ensure_clause.nil? ? nil : transform(prism_node.ensure_clause.statements)
+          Ast::BeginRescue.new(body, rescue_clauses, else_node, ensure_node)
+
         when Prism::AliasMethodNode
           raise "new_name #{prism_node.new_name.class} must be a Prism::SymbolNode" unless prism_node.new_name.is_a?(Prism::SymbolNode)
           raise "old_name #{prism_node.old_name.class} must be a Prism::SymbolNode" unless prism_node.old_name.is_a?(Prism::SymbolNode)

@@ -50,7 +50,7 @@ module Frozone
 
         def kernel_raise(_, _receiver, msg)
           message = msg.is_a?(NilObject) ? 'RuntimeError' : msg.dispatch(Fiber[:context], :to_s, [], {}).raw
-          raise message
+          raise FrozoneException.new(msg, message)
         end
 
         def kernel_p(_, _receiver, args)

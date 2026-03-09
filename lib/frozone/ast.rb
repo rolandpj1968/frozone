@@ -37,6 +37,7 @@ require_relative 'ast/yield'
 require_relative 'ast/return'
 require_relative 'ast/next'
 require_relative 'ast/redo'
+require_relative 'ast/begin_rescue'
 
 require_relative 'ast/class_def'
 require_relative 'ast/module_def'

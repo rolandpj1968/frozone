@@ -1073,6 +1073,90 @@ RSpec.describe "Frozone VM functional" do
 
   # ── Blocks and yield ────────────────────────────────────────────────────────
 
+  describe 'begin/rescue/ensure' do
+    it 'rescue catches a raised exception' do
+      expect(run_ruby(<<~RUBY)).to vm_string("caught")
+        begin
+          raise "oops"
+        rescue => e
+          "caught"
+        end
+      RUBY
+    end
+
+    it 'rescue variable holds the exception object' do
+      expect(run_ruby(<<~RUBY)).to vm_string("oops")
+        begin
+          raise "oops"
+        rescue => e
+          e
+        end
+      RUBY
+    end
+
+    it 'rescue does not trigger when no exception is raised' do
+      expect(run_ruby(<<~RUBY)).to vm_int(1)
+        begin
+          1
+        rescue => e
+          2
+        end
+      RUBY
+    end
+
+    it 'else runs when no exception is raised' do
+      expect(run_ruby(<<~RUBY)).to vm_int(2)
+        begin
+          1
+        rescue => e
+          3
+        else
+          2
+        end
+      RUBY
+    end
+
+    it 'ensure always runs' do
+      expect(run_ruby(<<~RUBY)).to vm_int(10)
+        x = 0
+        begin
+          x = 1
+          raise "oops"
+        rescue => e
+          x = 2
+        ensure
+          x = 10
+        end
+        x
+      RUBY
+    end
+
+    it 'ensure runs even without rescue' do
+      expect(run_ruby(<<~RUBY)).to vm_int(10)
+        x = 0
+        begin
+          x = 1
+        ensure
+          x = 10
+        end
+        x
+      RUBY
+    end
+
+    it 'return/next/redo are not caught by rescue' do
+      expect(run_ruby(<<~RUBY)).to vm_int(42)
+        def foo
+          begin
+            return 42
+          rescue => e
+            0
+          end
+        end
+        foo
+      RUBY
+    end
+  end
+
   describe 'blocks and yield' do
     it 'yield passes a value to the block' do
       expect(run_ruby(<<~RUBY)).to vm_int(7)
