@@ -4,7 +4,7 @@ module Frozone
   module Vm
     class ProcObject < ObjectObject
       def initialize(block_object, lambda: false)
-        super(Core.proc_class)
+        super(Core::OBJECT_CLASS.get_constant(:Proc))
         @block_object = block_object
         @lambda = lambda
       end

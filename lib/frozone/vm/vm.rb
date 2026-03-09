@@ -55,8 +55,6 @@ module Frozone
         evaluate_file("#{core_path}/module.rb")
         evaluate_file(File.expand_path("hierarchy.rb", __dir__))
         ObjectObject.end_bootstrap!
-        # Wire up Core.proc_class after hierarchy.rb has defined Proc
-        Core.init_proc_class
         evaluate_file("#{core_path}/class.rb")
         evaluate_file("#{core_path}/basic_object.rb")
         evaluate_file("#{core_path}/object.rb")
