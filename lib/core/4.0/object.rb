@@ -3,6 +3,10 @@ class Object
 
   def object_id = __id__
 
+  def ! = Intrinsics.object_not(self)
+  def !=(other) = !(self == other)
+  def ===(other) = self == other
+
   def nil? = false
 
   def class = Intrinsics.object_class(self)
@@ -22,4 +26,5 @@ class Object
   def puts(*args) = Intrinsics.kernel_puts(self, args)
   def print(*args) = Intrinsics.kernel_print(self, args)
   def p(*args) = Intrinsics.kernel_p(self, args)
+  def raise(msg = nil) = Intrinsics.kernel_raise(self, msg)
 end

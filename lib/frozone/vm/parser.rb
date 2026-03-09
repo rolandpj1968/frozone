@@ -87,6 +87,35 @@ module Frozone
           body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
           Ast::Until.new(transform(prism_node.predicate), body)
 
+        when Prism::UnlessNode
+          # unless cond; body; else alt; end  ==  if cond; alt; else body; end
+          body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
+          alt  = prism_node.consequent.nil? ? Ast::NilLiteral::NIL : transform(prism_node.consequent)
+          Ast::If.new(transform(prism_node.predicate), alt, body)
+
+        when Prism::CaseNode
+          subject_node = prism_node.predicate.nil? ? nil : transform(prism_node.predicate)
+          whens = prism_node.conditions.map do |w|
+            raise "case condition is not a WhenNode" unless w.is_a?(Prism::WhenNode)
+            body = w.statements.nil? ? Ast::NilLiteral::NIL : transform(w.statements)
+            Ast::Case::When.new(w.conditions.map { |c| transform(c) }, body)
+          end
+          else_node = prism_node.consequent.nil? ? nil : transform(prism_node.consequent)
+          Ast::Case.new(subject_node, whens, else_node)
+
+        when Prism::InterpolatedStringNode
+          parts = prism_node.parts.map do |part|
+            case part
+            when Prism::StringNode
+              Ast::StringLiteral.from(part.unescaped)
+            when Prism::EmbeddedStatementsNode
+              transform(part.statements)
+            else
+              raise "Unexpected interpolated string part type #{part.class}"
+            end
+          end
+          Ast::InterpolatedString.new(parts)
+
         when Prism::ElseNode
           transform(prism_node.statements)
 

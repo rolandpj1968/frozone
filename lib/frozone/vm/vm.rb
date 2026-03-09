@@ -56,6 +56,7 @@ module Frozone
         evaluate_file("#{core_path}/class.rb")
         evaluate_file("#{core_path}/basic_object.rb")
         evaluate_file("#{core_path}/object.rb")
+        evaluate_file("#{core_path}/comparable.rb")
         evaluate_file("#{core_path}/nil_class.rb")
         evaluate_file("#{core_path}/true_class.rb")
         evaluate_file("#{core_path}/false_class.rb")

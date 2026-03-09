@@ -719,6 +719,20 @@ RSpec.describe "Frozone VM functional" do
     end
   end
 
+  describe 'unless' do
+    it 'skips body when condition is true' do
+      expect(run_ruby("unless true; 1; end")).to vm_nil
+    end
+
+    it 'executes body when condition is false' do
+      expect(run_ruby("unless false; 42; end")).to vm_int(42)
+    end
+
+    it 'executes else when condition is true' do
+      expect(run_ruby("unless true; 1; else; 2; end")).to vm_int(2)
+    end
+  end
+
   describe 'until loop' do
     it 'executes body until condition is true' do
       expect(run_ruby("x = 0\nuntil x >= 3\n  x = x + 1\nend\nx")).to vm_int(3)
@@ -730,6 +744,102 @@ RSpec.describe "Frozone VM functional" do
 
     it 'returns nil' do
       expect(run_ruby("until true; end")).to vm_nil
+    end
+  end
+
+  # ── case/when ────────────────────────────────────────────────────────────────
+
+  describe 'case/when' do
+    it 'matches first matching when' do
+      expect(run_ruby("case 2; when 1 then 10; when 2 then 20; when 3 then 30; end")).to vm_int(20)
+    end
+
+    it 'returns nil when no match and no else' do
+      expect(run_ruby("case 9; when 1 then 10; end")).to vm_nil
+    end
+
+    it 'executes else when no when matches' do
+      expect(run_ruby("case 9; when 1 then 10; else 99; end")).to vm_int(99)
+    end
+
+    it 'matches class with ===' do
+      expect(run_ruby("case 42; when Integer then :int; when String then :str; end")).to vm_symbol(:int)
+    end
+
+    it 'matches multiple conditions in one when' do
+      expect(run_ruby("case 2; when 1, 2 then :yes; end")).to vm_symbol(:yes)
+    end
+
+    it 'works without a subject' do
+      expect(run_ruby("x = 5; case; when x < 3 then :low; when x < 7 then :mid; else :high; end")).to vm_symbol(:mid)
+    end
+  end
+
+  # ── String interpolation ─────────────────────────────────────────────────────
+
+  describe 'string interpolation' do
+    it 'interpolates a variable' do
+      expect(run_ruby('x = 42; "value is #{x}"')).to vm_string("value is 42")
+    end
+
+    it 'interpolates an expression' do
+      expect(run_ruby('"result: #{1 + 2}"')).to vm_string("result: 3")
+    end
+
+    it 'calls to_s on non-string values' do
+      expect(run_ruby('"#{nil}"')).to vm_string("")
+    end
+  end
+
+  # ── not / ! ──────────────────────────────────────────────────────────────────
+
+  describe '! operator' do
+    it '!true is false' do
+      expect(run_ruby('!true')).to vm_false
+    end
+
+    it '!false is true' do
+      expect(run_ruby('!false')).to vm_true
+    end
+
+    it '!nil is true' do
+      expect(run_ruby('!nil')).to vm_true
+    end
+
+    it '!value is false for truthy values' do
+      expect(run_ruby('!42')).to vm_false
+    end
+
+    it '!= works' do
+      expect(run_ruby('1 != 2')).to vm_true
+    end
+  end
+
+  # ── Comparable ───────────────────────────────────────────────────────────────
+
+  describe 'Comparable' do
+    it 'Integer <=> returns -1, 0, 1' do
+      expect(run_ruby('1 <=> 2')).to vm_int(-1)
+      expect(run_ruby('2 <=> 2')).to vm_int(0)
+      expect(run_ruby('3 <=> 2')).to vm_int(1)
+    end
+
+    it 'String <=> compares lexicographically' do
+      expect(run_ruby('"a" <=> "b"')).to vm_int(-1)
+      expect(run_ruby('"b" <=> "b"')).to vm_int(0)
+    end
+
+    it 'Integer between? works' do
+      expect(run_ruby('3.between?(1, 5)')).to vm_true
+      expect(run_ruby('7.between?(1, 5)')).to vm_false
+    end
+  end
+
+  # ── raise ─────────────────────────────────────────────────────────────────────
+
+  describe 'raise' do
+    it 'raises a Ruby exception with the given message' do
+      expect { run_ruby('raise "boom"') }.to raise_error("boom")
     end
   end
 

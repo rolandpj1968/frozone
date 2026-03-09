@@ -6,6 +6,9 @@ class String
   def to_i = Intrinsics.string_to_i(self)
   def inspect = Intrinsics.string_inspect(self)
 
+  def <=>(v) = Intrinsics.string_spaceship(self, v)
+  def ==(v) = Intrinsics.string_eql(self, v)
+
   def hash = Intrinsics.string_hash(self)
   def eql?(v) = Intrinsics.string_eql(self, v)
 end

@@ -12,6 +12,8 @@ require_relative 'ast/hash_literal'
 
 require_relative 'ast/and'
 require_relative 'ast/or'
+require_relative 'ast/case'
+require_relative 'ast/interpolated_string'
 
 require_relative 'ast/sequence'
 

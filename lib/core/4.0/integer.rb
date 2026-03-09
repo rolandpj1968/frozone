@@ -25,6 +25,8 @@ class Integer
   def to_s = Intrinsics.integer_to_s(self)
   def inspect = to_s
 
+  def <=>(v) = Intrinsics.integer_spaceship(self, v)
+
   def hash = Intrinsics.integer_hash(self)
   def eql?(v) = Intrinsics.integer_eql(self, v)
 end

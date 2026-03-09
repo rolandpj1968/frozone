@@ -22,6 +22,8 @@ module Frozone
 
         def object_instance_of(_, v, klass) = bool_object_for(v.class_object.equal?(klass))
 
+        def object_not(_, v) = bool_object_for(!v.truthy?)
+
         def object_respond_to(_, v, name)
           raise "respond_to? name must be a SymbolObject" unless name.is_a?(SymbolObject)
           bool_object_for(!v.class_object.lookup_method(name.raw).nil?)
@@ -44,6 +46,11 @@ module Frozone
         def kernel_print(_, _receiver, args)
           args.raw.each { |a| $stdout.print(a.dispatch(Fiber[:context], :to_s, [], {}).raw) }
           NilObject::NIL
+        end
+
+        def kernel_raise(_, _receiver, msg)
+          message = msg.is_a?(NilObject) ? 'RuntimeError' : msg.dispatch(Fiber[:context], :to_s, [], {}).raw
+          raise message
         end
 
         def kernel_p(_, _receiver, args)
@@ -87,6 +94,11 @@ module Frozone
         def class_new(context, klass, args, kwargs) = klass.new_instance(context, args.raw, kwargs.raw)
 
         # Integer
+        def integer_spaceship(_, v1, v2)
+          return NilObject::NIL unless v2.is_a?(IntegerObject)
+          IntegerObject.new(v1.raw <=> v2.raw)
+        end
+
         def integer_hash(_, v) = IntegerObject.new(v.raw.hash)
 
         def integer_eql(_, v1, v2) = bool_object_for(v2.is_a?(IntegerObject) && v1.raw == v2.raw)
@@ -113,6 +125,11 @@ module Frozone
         def string_to_s(_, v) = v
         def string_to_i(_, v) = IntegerObject.new(v.raw.to_i)
         def string_inspect(_, v) = StringObject.new(v.raw.inspect)
+
+        def string_spaceship(_, v1, v2)
+          return NilObject::NIL unless v2.is_a?(StringObject)
+          IntegerObject.new(v1.raw <=> v2.raw)
+        end
 
         def string_hash(_, v) = IntegerObject.new(v.raw.hash)
 
