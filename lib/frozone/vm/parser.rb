@@ -58,6 +58,9 @@ module Frozone
           end
           Ast::HashLiteral.new(kv_nodes)
 
+        when Prism::AndNode
+          Ast::And.new(transform(prism_node.left), transform(prism_node.right))
+
         when Prism::OrNode
           Ast::Or.new(transform(prism_node.left), transform(prism_node.right))
 

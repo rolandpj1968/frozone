@@ -197,6 +197,28 @@ RSpec.describe "Frozone VM functional" do
     end
   end
 
+  describe '&& (and)' do
+    it 'returns the right value when both sides are truthy' do
+      expect(run_ruby('1 && 2')).to vm_int(2)
+    end
+
+    it 'returns the left value when left is nil' do
+      expect(run_ruby('nil && 42')).to vm_nil
+    end
+
+    it 'returns the left value when left is false' do
+      expect(run_ruby('false && 42')).to vm_false
+    end
+
+    it 'returns false when both sides are false' do
+      expect(run_ruby('false && false')).to vm_false
+    end
+
+    it 'does not evaluate the right side when left is falsy' do
+      expect(run_ruby('nil && (1 / 0)')).to vm_nil
+    end
+  end
+
   describe '|| (or)' do
     it 'returns the left value when it is truthy' do
       expect(run_ruby('1 || 2')).to vm_int(1)

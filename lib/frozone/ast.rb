@@ -10,6 +10,7 @@ require_relative 'ast/symbol_literal'
 require_relative 'ast/array_literal'
 require_relative 'ast/hash_literal'
 
+require_relative 'ast/and'
 require_relative 'ast/or'
 
 require_relative 'ast/sequence'
