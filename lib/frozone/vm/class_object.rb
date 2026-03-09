@@ -14,6 +14,8 @@ module Frozone
       end
 
       def superclass = @superclass
+      def prepends = @prepends || []
+      def modules = @modules || []
 
       def to_s = "class(#{@name})"
 

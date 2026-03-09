@@ -13,6 +13,8 @@ module Frozone
           c = v.class_object
           until c.nil?
             return TrueObject::TRUE if c.equal?(klass)
+            return TrueObject::TRUE if c.prepends.any? { |m| m.equal?(klass) }
+            return TrueObject::TRUE if c.modules.any? { |m| m.equal?(klass) }
             c = c.superclass
           end
           FalseObject::FALSE

@@ -340,6 +340,17 @@ RSpec.describe "Frozone VM functional" do
       expect(result.name).to eq(:FuncTestReopenClass)
     end
 
+    it 'class defined inside reopened Object is accessible as a top-level constant' do
+      # Object is the global root, so classes defined inside it are top-level
+      expect(run_ruby("class Object; class FuncTestInObject; end; end\nFuncTestInObject")).to vm_class(:FuncTestInObject)
+    end
+
+    it 'class defined inside reopened Object has nil namespace (same as top-level)' do
+      run_ruby("class Object; class FuncTestInObjectNs; end; end")
+      klass = Frozone::Vm::Core::OBJECT_CLASS.get_constant(:FuncTestInObjectNs)
+      expect(klass.instance_variable_get(:@namespace)).to be_nil
+    end
+
     it 'top-level class has nil namespace' do
       run_ruby("class FuncTestTopNs; end")
       klass = Frozone::Vm::Core::OBJECT_CLASS.get_constant(:FuncTestTopNs)
@@ -757,6 +768,14 @@ RSpec.describe "Frozone VM functional" do
 
     it 'is_a? false for unrelated class' do
       expect(run_ruby('42.is_a?(String)')).to vm_false
+    end
+
+    it 'is_a? true for directly included module' do
+      expect(run_ruby('"hi".is_a?(Comparable)')).to vm_true
+    end
+
+    it 'is_a? true for module included in superclass' do
+      expect(run_ruby('42.is_a?(Comparable)')).to vm_true
     end
 
     it 'kind_of? is alias for is_a?' do
