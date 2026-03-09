@@ -29,4 +29,8 @@ class Integer
 
   def hash = Intrinsics.integer_hash(self)
   def eql?(v) = Intrinsics.integer_eql(self, v)
+
+  def times;   i = 0;    while i < self; yield i; i += 1; end; self; end
+  def upto(n); i = self; while i <= n;   yield i; i += 1; end; self; end
+  def downto(n); i = self; while i >= n; yield i; i -= 1; end; self; end
 end

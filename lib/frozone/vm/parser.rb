@@ -22,6 +22,23 @@ module Frozone
 
       private
 
+      def parse_block(prism_block_node)
+        params = []
+        unless prism_block_node.parameters.nil?
+          bp = prism_block_node.parameters
+          unless bp.parameters.nil?
+            raise "block parameters is not a Prism::ParametersNode" unless bp.parameters.is_a?(Prism::ParametersNode)
+            # TODO: optional/rest/keyword block params
+            params = bp.parameters.requireds.map do |required|
+              raise "block required parameter is not a Prism::RequiredParameterNode" unless required.is_a?(Prism::RequiredParameterNode)
+              required.name
+            end
+          end
+        end
+        body = prism_block_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_block_node.body)
+        Ast::Block.new(params, prism_block_node.locals, body)
+      end
+
       def parse_method_params(prism_node)
         required_params = []
         optional_params = []
@@ -171,6 +188,12 @@ module Frozone
         when Prism::LocalVariableWriteNode
           Ast::LocalVariableWrite.new(prism_node.name, prism_node.depth, transform(prism_node.value))
 
+        when Prism::LocalVariableOperatorWriteNode
+          # i += rhs  →  i = i.op(rhs)
+          read = Ast::LocalVariableRead.new(prism_node.name, prism_node.depth)
+          rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
+          Ast::LocalVariableWrite.new(prism_node.name, prism_node.depth, rhs)
+
         when Prism::InstanceVariableReadNode
           Ast::InstanceVariableRead.new(prism_node.name)
 
@@ -209,7 +232,14 @@ module Frozone
               end
             end
 
-            Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args)
+            block_node =
+              case prism_node.block
+              when nil then nil
+              when Prism::BlockNode then parse_block(prism_node.block)
+              else raise "Unsupported block type: #{prism_node.block.class}"
+              end
+
+            Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args, block_node)
           end
 
         when Prism::ModuleNode
@@ -255,6 +285,19 @@ module Frozone
 
           receiver_node = prism_node.receiver.nil? ? nil : transform(prism_node.receiver)
           Ast::MethodDef.new(prism_node.name, receiver_node, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, prism_node.locals, body_ast)
+
+        when Prism::ReturnNode
+          value_node =
+            if prism_node.arguments.nil? || prism_node.arguments.arguments.empty?
+              nil
+            else
+              transform(prism_node.arguments.arguments.first)
+            end
+          Ast::Return.new(value_node)
+
+        when Prism::YieldNode
+          arg_nodes = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
+          Ast::Yield.new(arg_nodes)
 
         when Prism::AliasMethodNode
           raise "new_name #{prism_node.new_name.class} must be a Prism::SymbolNode" unless prism_node.new_name.is_a?(Prism::SymbolNode)

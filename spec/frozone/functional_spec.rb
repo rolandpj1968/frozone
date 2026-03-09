@@ -1070,4 +1070,125 @@ RSpec.describe "Frozone VM functional" do
       RUBY
     end
   end
+
+  # ── Blocks and yield ────────────────────────────────────────────────────────
+
+  describe 'blocks and yield' do
+    it 'yield passes a value to the block' do
+      expect(run_ruby(<<~RUBY)).to vm_int(7)
+        def call_block
+          yield 7
+        end
+        call_block { |x| x }
+      RUBY
+    end
+
+    it 'block closes over enclosing local variable' do
+      expect(run_ruby(<<~RUBY)).to vm_int(10)
+        x = 10
+        def run
+          yield
+        end
+        run { x }
+      RUBY
+    end
+
+    it 'block can write to enclosing local variable' do
+      expect(run_ruby(<<~RUBY)).to vm_int(42)
+        result = 0
+        def run
+          yield
+        end
+        run { result = 42 }
+        result
+      RUBY
+    end
+
+    it 'yield inside a block yields to the enclosing method block' do
+      expect(run_ruby(<<~RUBY)).to vm_int(5)
+        def foo
+          n = 0
+          [1].each { n = yield 5 }
+          n
+        end
+        foo { |x| x }
+      RUBY
+    end
+
+    it 'Integer#times yields indices' do
+      expect(run_ruby(<<~RUBY)).to vm_int(10)
+        sum = 0
+        5.times { |i| sum = sum + i }
+        sum
+      RUBY
+    end
+
+    it 'Integer#upto' do
+      expect(run_ruby(<<~RUBY)).to vm_int(6)
+        sum = 0
+        1.upto(3) { |i| sum = sum + i }
+        sum
+      RUBY
+    end
+
+    it 'Integer#downto' do
+      expect(run_ruby(<<~RUBY)).to vm_int(6)
+        sum = 0
+        3.downto(1) { |i| sum = sum + i }
+        sum
+      RUBY
+    end
+
+    it 'Array#each iterates elements' do
+      expect(run_ruby(<<~RUBY)).to vm_int(6)
+        sum = 0
+        [1, 2, 3].each { |x| sum = sum + x }
+        sum
+      RUBY
+    end
+
+    it 'Array#map transforms elements' do
+      expect(run_ruby(<<~RUBY)).to vm_array([2, 4, 6])
+        [1, 2, 3].map { |x| x * 2 }
+      RUBY
+    end
+
+    it 'Array#select filters elements' do
+      expect(run_ruby(<<~RUBY)).to vm_array([2, 4])
+        [1, 2, 3, 4, 5].select { |x| x % 2 == 0 }
+      RUBY
+    end
+
+    it 'Array#reject filters elements' do
+      expect(run_ruby(<<~RUBY)).to vm_array([1, 3, 5])
+        [1, 2, 3, 4, 5].reject { |x| x % 2 == 0 }
+      RUBY
+    end
+
+    it 'Array#any?' do
+      expect(run_ruby('[1, 2, 3].any? { |x| x > 2 }')).to vm_true
+      expect(run_ruby('[1, 2, 3].any? { |x| x > 5 }')).to vm_false
+    end
+
+    it 'Array#all?' do
+      expect(run_ruby('[2, 4, 6].all? { |x| x % 2 == 0 }')).to vm_true
+      expect(run_ruby('[1, 2, 3].all? { |x| x % 2 == 0 }')).to vm_false
+    end
+
+    it 'Array#reduce sums elements' do
+      expect(run_ruby('[1, 2, 3, 4].reduce(0) { |acc, x| acc + x }')).to vm_int(10)
+    end
+
+    it 'return exits the enclosing method even from inside a block' do
+      expect(run_ruby(<<~RUBY)).to vm_int(1)
+        def first_positive(arr)
+          arr.each do |x|
+            return x if x > 0
+          end
+          nil
+        end
+        first_positive([-1, -2, 1, 2])
+      RUBY
+    end
+  end
 end

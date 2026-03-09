@@ -97,17 +97,20 @@ module Frozone
         end
       end
 
-      # TODO - default params, keyword params, block params
-      def invoke(context, receiver, args, kw_args)
+      def invoke(context, receiver, args, kw_args, block = nil)
         new_frame = Frame.new(receiver, @locals, @scopes)
+        new_frame.block = block
+        new_frame.method_frame = new_frame
 
         populate_params(context, new_frame, args)
-
         populate_kw_params(context, new_frame, kw_args)
 
         context.push_frame(new_frame)
         begin
           @body.evaluate(context)
+        rescue Ast::ReturnException => e
+          raise e unless e.method_frame.equal?(new_frame)
+          e.value
         ensure
           context.pop_frame
         end

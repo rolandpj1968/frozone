@@ -32,6 +32,9 @@ require_relative 'ast/constant_write'
 
 require_relative 'ast/intrinsic_call'
 require_relative 'ast/method_call'
+require_relative 'ast/block'
+require_relative 'ast/yield'
+require_relative 'ast/return'
 
 require_relative 'ast/class_def'
 require_relative 'ast/module_def'

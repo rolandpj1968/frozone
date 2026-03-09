@@ -11,10 +11,9 @@ module Frozone
 
       def to_s = "local=(#{@name}, #{@depth}, #{@value_node})"
 
-      # TODO depth
       def evaluate(context)
         value = @value_node.evaluate(context)
-        context.frame.set_local(@name, value)
+        context.frame.frame_at_depth(@depth).set_local(@name, value)
         value
       end
     end

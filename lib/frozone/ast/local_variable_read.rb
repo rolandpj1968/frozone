@@ -10,8 +10,7 @@ module Frozone
 
       def to_s = "local(#{@name}, #{@depth})"
 
-      # TODO depth
-      def evaluate(context) = context.frame.get_local(@name)
+      def evaluate(context) = context.frame.frame_at_depth(@depth).get_local(@name)
     end
   end
 end
