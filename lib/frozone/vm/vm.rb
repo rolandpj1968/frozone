@@ -77,6 +77,7 @@ module Frozone
         top_level_object = ObjectObject.new(Core::OBJECT_CLASS)
 
         context = Context.new
+        Fiber[:context] = context
 
         frame = Frame.new(top_level_object, [], [top_level_scope])
         context.push_frame(frame)

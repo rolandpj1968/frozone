@@ -28,6 +28,9 @@ module Frozone
       end
 
       def lookup_instance_method(name)
+        if @eigenclass.nil?
+          p self
+        end
         @eigenclass.lookup_method(name)
       end
 

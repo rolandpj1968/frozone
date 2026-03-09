@@ -4,25 +4,33 @@ require_relative 'object_object'
 module Frozone
   module Vm
     class HashObject < ObjectObject
+      # Wrapper to call the real #hash and #eql? methods on Frozone objects
+      class KeyWrapper
+        def initialize(key)
+          @key = key
+        end
+
+        def unwrap = @key
+
+        def hash = @key.dispatch(Fiber[:context], :hash, [], {}).raw
+        def eql?(v) = @key.dispatch(Fiber[:context], :eql?, [v], {})
+      end
+
       def initialize(elements)
         raise "HashObject must have an Hash elements" unless elements.is_a?(Hash)
 
         super(Core::HASH_CLASS)
 
-        @elements = elements
+        @elements = elements.to_h { |k, v| [wrap(k), v] }
       end
 
       def raw = @elements
 
-      #
-      # For Hash emulation using "native" Hash
-      #
-      # TODO work out how to do this properly - we need to call :hash, :eql? properly, but don't have the context
-      #
-      def hash = raw.hash
-      def eql?(v) = v.is_a?(HashObject) && raw.eql?(v.raw)
+      def to_s = "{#{@elements.map { |k, v| "#{k.unwrap} => #{v}"}.join(', ')}}"
 
-      def to_s = "{#{@elements.map { |k, v| "#{k} => #{v}"}.join(', ')}}"
+      private
+
+      def wrap(key) = KeyWrapper.new(key)
     end
   end
 end

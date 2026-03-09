@@ -15,14 +15,6 @@ module Frozone
       def to_s = "[#{@elements.join(', ')}]"
 
       def raw = @elements
-
-      #
-      # For Hash emulation using "native" Hash
-      #
-      # TODO work out how to do this properly - we need to call :hash, :eql? properly, but don't have the context
-      #
-      def hash = raw.hash
-      def eql?(v) = v.is_a?(ArrayObject) && raw.eql?(v.raw)
     end
   end
 end
