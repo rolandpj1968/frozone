@@ -6,9 +6,8 @@ class Module
   def attr_writer(*names)  = Intrinsics.module_attr_writer(self, names)
   def attr_accessor(*names) = Intrinsics.module_attr_accessor(self, names)
 
-  # Visibility — no-op for now (all methods are effectively public)
-  def public(*names)    = nil
-  def private(*names)   = nil
-  def protected(*names) = nil
+  def public(*names)    = Intrinsics.module_set_public(self, names)
+  def private(*names)   = Intrinsics.module_set_private(self, names)
+  def protected(*names) = Intrinsics.module_set_protected(self, names)
   def module_function(*names) = nil
 end

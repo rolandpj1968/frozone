@@ -16,8 +16,9 @@ module Frozone
       end
 
       def evaluate(context)
+        implicit_receiver = @receiver_node.nil?
         receiver =
-          if @receiver_node.nil?
+          if implicit_receiver
             context.frame.the_self
           else
             @receiver_node.evaluate(context)
@@ -27,7 +28,7 @@ module Frozone
         kw_args = @kw_arg_nodes.to_h { |kw_node, value_node| [kw_node.evaluate(context).raw, value_node.evaluate(context)] }
         block = @block_node&.evaluate(context)
 
-        receiver.dispatch(context, @name, args, kw_args, block)
+        receiver.dispatch(context, @name, args, kw_args, block, private_ok: implicit_receiver)
       end
     end
   end

@@ -25,7 +25,10 @@ module Frozone
 
         @locals = check_array_type("locals", locals, Symbol)
         @body = check_type("body", body, Ast::Node)
+        @visibility = :public
       end
+
+      attr_accessor :visibility
 
       def populate_params(context, new_frame, args)
         min_args_expected = @required_params.length + @post_params.length

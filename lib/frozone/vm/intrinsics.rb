@@ -121,6 +121,29 @@ module Frozone
           NilObject::NIL
         end
 
+        def module_set_public(context, receiver, names)    = module_set_visibility(context, receiver, names, :public)
+        def module_set_private(context, receiver, names)   = module_set_visibility(context, receiver, names, :private)
+        def module_set_protected(context, receiver, names) = module_set_visibility(context, receiver, names, :protected)
+
+        private
+
+        def module_set_visibility(_, receiver, names, vis)
+          raise "module_set_visibility: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
+          if names.raw.empty?
+            receiver.current_visibility = vis
+          else
+            names.raw.each do |name_obj|
+              name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+              m = receiver.get_method(name)
+              raise "undefined method '#{name}' for class '#{receiver.name}'" if m.nil?
+              m.visibility = vis
+            end
+          end
+          NilObject::NIL
+        end
+
+        public
+
         # Kernel require/load
         def kernel_require(_, _receiver, path_obj)
           path = path_obj.raw

@@ -25,7 +25,7 @@ module Frozone
       # TODO &block
       def new_instance(context, args, kwargs)
         o = ObjectObject.new(self)
-        o.dispatch(context, :initialize, args, kwargs)
+        o.dispatch(context, :initialize, args, kwargs, nil, private_ok: true)
         o
       end
 

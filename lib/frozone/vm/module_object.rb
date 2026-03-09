@@ -15,7 +15,10 @@ module Frozone
         @namespace = namespace
         @methods = {}
         @constants = {}
+        @current_visibility = :public
       end
+
+      attr_accessor :current_visibility
 
       def name = @name
 

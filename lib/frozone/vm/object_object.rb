@@ -32,9 +32,23 @@ module Frozone
 
       # Shared dispatch: look up and invoke a method on self by Symbol name.
       # Falls back to method_missing if the method is not found.
-      def dispatch(context, name, args, kw_args, block = nil)
+      # private_ok: true when called with implicit receiver (no explicit receiver in source)
+      def dispatch(context, name, args, kw_args, block = nil, private_ok: false)
         method = lookup_instance_method(name)
-        return method.invoke(context, self, args, kw_args, block) unless method.nil?
+        unless method.nil?
+          case method.visibility
+          when :private
+            unless private_ok
+              raise FrozoneException.new(NilObject::NIL, "private method '#{name}' called for an instance of #{@class_object.name}")
+            end
+          when :protected
+            caller_class = context&.frame&.the_self&.class_object
+            unless subclass_of?(caller_class, @class_object)
+              raise FrozoneException.new(NilObject::NIL, "protected method '#{name}' called for an instance of #{@class_object.name}")
+            end
+          end
+          return method.invoke(context, self, args, kw_args, block)
+        end
 
         mm = lookup_instance_method(:method_missing)
         raise "BUG: method_missing not defined on #{@class_object.name}" if mm.nil?
@@ -42,6 +56,20 @@ module Frozone
       end
 
       def inspect = "#<#{self.class.name}>"
+
+      private
+
+      # Is klass the same as or a subclass of ancestor?
+      def subclass_of?(klass, ancestor)
+        c = klass
+        while c
+          return true if c.equal?(ancestor)
+          c = c.is_a?(ClassObject) ? c.superclass : nil
+        end
+        false
+      end
+
+      public
 
       def get_ivar(name)
         @instance_variables.fetch(name, NilObject::NIL)

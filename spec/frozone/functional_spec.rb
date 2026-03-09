@@ -1434,17 +1434,60 @@ RSpec.describe "Frozone VM functional" do
     end
   end
 
-  # ── Method visibility (no-ops) ───────────────────────────────────────────────
+  # ── Method visibility ────────────────────────────────────────────────────────
 
   describe 'method visibility' do
-    it 'private :name does not raise' do
+    it 'private method is callable with implicit receiver' do
       expect(run_ruby(<<~RUBY)).to vm_int(42)
-        class VisibilityTest
+        class VisPrivTest
+          private
+          def secret; 42; end
+          public
+          def go; secret; end
+        end
+        VisPrivTest.new.go
+      RUBY
+    end
+
+    it 'private method raises when called with explicit receiver' do
+      expect { run_ruby(<<~RUBY) }.to raise_error(/private method 'secret'/)
+        class VisPrivExplicitTest
+          private
+          def secret; 42; end
+        end
+        VisPrivExplicitTest.new.secret
+      RUBY
+    end
+
+    it 'private :name marks a specific method private' do
+      expect(run_ruby(<<~RUBY)).to vm_int(42)
+        class VisPrivNameTest
           def secret; 42; end
           private :secret
           def go; secret; end
         end
-        VisibilityTest.new.go
+        VisPrivNameTest.new.go
+      RUBY
+    end
+
+    it 'protected method is callable from same class' do
+      expect(run_ruby(<<~RUBY)).to vm_int(10)
+        class VisProtTest
+          def initialize(v); @v = v; end
+          def +(other); self.class.new(value + other.value); end
+          def to_i; @v; end
+          protected
+          def value; @v; end
+        end
+        (VisProtTest.new(3) + VisProtTest.new(7)).to_i
+      RUBY
+    end
+
+    it 'initialize is always private' do
+      expect { run_ruby(<<~RUBY) }.to raise_error(/private method 'initialize'/)
+        class VisInitTest
+        end
+        VisInitTest.new.initialize
       RUBY
     end
   end
