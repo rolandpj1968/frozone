@@ -136,21 +136,21 @@ module Frozone
           unless prism_node.constant_path.name.is_a?(Symbol) and prism_node.constant_path.name.equal?(prism_node.name)
             raise "Prism or RPJ or both are confused"
           end
-          unless prism_node.superclass.nil?
-            raise "class inheritance not yet implemented"
-          end
           # TODO - disappointing that we need to use upcase here
           unless prism_node.name.length > 0 && prism_node.name[0].upcase == prism_node.name[0]
             # TODO - this is a real runtime error
             raise "class name '#{prism_node.name} is not a valid constant name"
           end
-          body_ast =
-            if prism_node.body.nil?
-              Ast::NilLiteral::NIL
+          superclass_node =
+            if prism_node.superclass.nil?
+              nil
+            elsif prism_node.superclass.is_a?(Prism::ConstantReadNode)
+              Ast::ConstantRead.new(prism_node.superclass.name)
             else
-              transform(prism_node.body)
+              raise "class superclass must be a simple constant name (e.g. class B < A)"
             end
-          Ast::ClassDef.new(prism_node.name, prism_node.locals, body_ast)
+          body_ast = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
+          Ast::ClassDef.new(prism_node.name, prism_node.locals, superclass_node, body_ast)
 
         when Prism::DefNode
           raise "singleton/receiver method defs not supported yet" unless prism_node.receiver.nil?

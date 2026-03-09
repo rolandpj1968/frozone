@@ -196,27 +196,27 @@ RSpec.describe Frozone::Ast::ClassDef do
   let(:ctx)         { make_context(scopes: [outer_scope]) }
 
   describe '#initialize' do
-    it 'accepts a symbol name, empty locals, and a body Node' do
-      expect { described_class.new(:MyClass, [], Frozone::Ast::NilLiteral::NIL) }.not_to raise_error
+    it 'accepts a symbol name, empty locals, optional superclass node, and a body Node' do
+      expect { described_class.new(:MyClass, [], nil, Frozone::Ast::NilLiteral::NIL) }.not_to raise_error
     end
 
     it 'raises when name is not a Symbol' do
-      expect { described_class.new("Bad", [], Frozone::Ast::NilLiteral::NIL) }.to raise_error(RuntimeError)
+      expect { described_class.new("Bad", [], nil, Frozone::Ast::NilLiteral::NIL) }.to raise_error(RuntimeError)
     end
 
     it 'raises when body is not a Node' do
-      expect { described_class.new(:MyClass, [], "bad") }.to raise_error(RuntimeError)
+      expect { described_class.new(:MyClass, [], nil, "bad") }.to raise_error(RuntimeError)
     end
   end
 
   describe '#evaluate' do
     it 'creates a new ClassObject constant in the current scope' do
-      described_class.new(:NewClass, [], Frozone::Ast::NilLiteral::NIL).evaluate(ctx)
+      described_class.new(:NewClass, [], nil, Frozone::Ast::NilLiteral::NIL).evaluate(ctx)
       expect(outer_scope.get_constant(:NewClass)).to be_a(Frozone::Vm::ClassObject)
     end
 
     it 'finds an existing class on re-evaluation instead of creating a new one' do
-      node = described_class.new(:ExistingClass, [], Frozone::Ast::NilLiteral::NIL)
+      node = described_class.new(:ExistingClass, [], nil, Frozone::Ast::NilLiteral::NIL)
       node.evaluate(ctx)
       first_class = outer_scope.get_constant(:ExistingClass)
       node.evaluate(ctx)
@@ -229,6 +229,7 @@ RSpec.describe Frozone::Ast::ClassDef do
       method_def_node = described_class::new(  # using ClassDef to wrap MethodDef test
         :BodyTestClass,
         [],
+        nil,
         Frozone::Ast::MethodDef.new(:inner_method, [], [], nil, [], [], [], nil, [],
                                     Frozone::Ast::IntegerLiteral.from(55))
       )
@@ -241,8 +242,22 @@ RSpec.describe Frozone::Ast::ClassDef do
       outer_scope.set_constant(:NotAClass, Frozone::Vm::IntegerObject.new(1))
       ctx2 = make_context(scopes: [outer_scope])
       expect {
-        described_class.new(:NotAClass, [], Frozone::Ast::NilLiteral::NIL).evaluate(ctx2)
+        described_class.new(:NotAClass, [], nil, Frozone::Ast::NilLiteral::NIL).evaluate(ctx2)
       }.to raise_error(RuntimeError, /not a class/)
+    end
+
+    it 'sets namespace to nil when enclosing scope is OBJECT_CLASS' do
+      object_scope = Frozone::Vm::Core::OBJECT_CLASS
+      ctx_top = make_context(scopes: [object_scope])
+      described_class.new(:TopLevelClass, [], nil, Frozone::Ast::NilLiteral::NIL).evaluate(ctx_top)
+      klass = object_scope.get_constant(:TopLevelClass)
+      expect(klass.instance_variable_get(:@namespace)).to be_nil
+    end
+
+    it 'sets namespace to enclosing scope when nested inside a class' do
+      described_class.new(:NestedClass, [], nil, Frozone::Ast::NilLiteral::NIL).evaluate(ctx)
+      klass = outer_scope.get_constant(:NestedClass)
+      expect(klass.instance_variable_get(:@namespace)).to equal(outer_scope)
     end
   end
 end

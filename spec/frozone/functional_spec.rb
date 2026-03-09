@@ -339,6 +339,69 @@ RSpec.describe "Frozone VM functional" do
       expect(result).to be_a(Frozone::Vm::ClassObject)
       expect(result.name).to eq(:FuncTestReopenClass)
     end
+
+    it 'top-level class has nil namespace' do
+      run_ruby("class FuncTestTopNs; end")
+      klass = Frozone::Vm::Core::OBJECT_CLASS.get_constant(:FuncTestTopNs)
+      expect(klass.instance_variable_get(:@namespace)).to be_nil
+    end
+
+    it 'nested class has enclosing class as namespace' do
+      run_ruby("class FuncTestOuter; class FuncTestInner; end; end")
+      outer = Frozone::Vm::Core::OBJECT_CLASS.get_constant(:FuncTestOuter)
+      inner = outer.get_constant(:FuncTestInner)
+      expect(inner.instance_variable_get(:@namespace)).to equal(outer)
+    end
+  end
+
+  describe 'class inheritance' do
+    it 'subclass inherits methods from superclass' do
+      code = <<~RUBY
+        class FuncTestAnimal
+          def speak
+            42
+          end
+        end
+        class FuncTestDog < FuncTestAnimal
+        end
+        FuncTestDog.new.speak
+      RUBY
+      expect(run_ruby(code)).to vm_int(42)
+    end
+
+    it 'subclass can override superclass methods' do
+      code = <<~RUBY
+        class FuncTestBase
+          def value
+            1
+          end
+        end
+        class FuncTestSub < FuncTestBase
+          def value
+            2
+          end
+        end
+        FuncTestSub.new.value
+      RUBY
+      expect(run_ruby(code)).to vm_int(2)
+    end
+
+    it 'superclass method still works after override in subclass' do
+      code = <<~RUBY
+        class FuncTestBaseOnly
+          def value
+            99
+          end
+        end
+        class FuncTestSubOnly < FuncTestBaseOnly
+          def value
+            0
+          end
+        end
+        FuncTestBaseOnly.new.value
+      RUBY
+      expect(run_ruby(code)).to vm_int(99)
+    end
   end
 
   # ── Method definitions and calls ─────────────────────────────────────────────

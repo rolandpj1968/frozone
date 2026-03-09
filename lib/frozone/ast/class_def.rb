@@ -6,12 +6,13 @@ require_relative '../vm/nil_object'
 module Frozone
   module Ast
     class ClassDef < Node
-      def initialize(name, locals, body)
+      def initialize(name, locals, superclass_node, body)
         @name = check_type("name", name, Symbol)
 
         raise "class defn with locals not yet supported" unless locals.empty?
         @locals = check_array_type("locals", locals, Symbol)
 
+        @superclass_node = check_nil_or_type("superclass_node", superclass_node, Node)
         @body = check_type("body", body, Node)
       end
 
@@ -20,17 +21,19 @@ module Frozone
       end
 
       def evaluate(context)
+        # Namespace is the innermost enclosing class/module, except at top level where
+        # scopes.last is OBJECT_CLASS acting as a container, not a real nesting namespace.
+        namespace = context.scopes.last.equal?(Vm::Core::OBJECT_CLASS) ? nil : context.scopes.last
+
         # 1. find or create the class defn and constant
         class_constant = Vm::ModuleObject.lookup_constant(@name, context.scopes)
-        #puts "previous constant '#{@name}' #{class_constant}/#{class_constant.class}"
         unless class_constant.nil? or class_constant.is_a?(Vm::ClassObject)
           # TODO this is a real runtime error, not an assert
           raise "previous defn of #{@name} was not a class"
         end
         if class_constant.nil?
-          # TODO namespace and (real) superclass
-          class_constant = Vm::ClassObject.new(@name, nil, Vm::Core::OBJECT_CLASS)
-          #puts "adding class '#{@name}' constant to scope #{context.scopes.last}"
+          superclass = @superclass_node ? @superclass_node.evaluate(context) : Vm::Core::OBJECT_CLASS
+          class_constant = Vm::ClassObject.new(@name, namespace, superclass)
           context.scopes.last.set_constant(@name, class_constant)
         end
 

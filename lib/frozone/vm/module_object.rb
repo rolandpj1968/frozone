@@ -11,7 +11,7 @@ module Frozone
 
         raise "class/module name must be a symbol" unless name.is_a?(Symbol)
         @name = name
-        raise "class/module namespace must be a module" unless namespace.nil? or namespace.is_a?(Core.MODULE_CLASS) or namespace.is_a?(Core.CLASS_CLASS)
+        raise "class/module namespace must be a module" unless namespace.nil? or namespace.is_a?(ModuleObject)
         @namespace = namespace
         @methods = {}
         @constants = {}
