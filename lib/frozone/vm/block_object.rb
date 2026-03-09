@@ -24,7 +24,15 @@ module Frozone
 
         context.push_frame(new_frame)
         begin
-          @body.evaluate(context)
+          loop do
+            begin
+              return @body.evaluate(context)
+            rescue Ast::RedoException
+              # redo: re-run body with same args
+            end
+          end
+        rescue Ast::NextException => e
+          e.value
         ensure
           context.pop_frame
         end

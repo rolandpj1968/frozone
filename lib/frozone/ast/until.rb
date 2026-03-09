@@ -14,7 +14,13 @@ module Frozone
 
       def evaluate(context)
         until @condition_node.evaluate(context).truthy?
-          @body_node.evaluate(context)
+          begin
+            @body_node.evaluate(context)
+          rescue NextException
+            next
+          rescue RedoException
+            redo
+          end
         end
         Vm::NilObject::NIL
       end

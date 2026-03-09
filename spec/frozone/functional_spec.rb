@@ -1179,6 +1179,55 @@ RSpec.describe "Frozone VM functional" do
       expect(run_ruby('[1, 2, 3, 4].reduce(0) { |acc, x| acc + x }')).to vm_int(10)
     end
 
+    it 'next skips the rest of a block body' do
+      expect(run_ruby(<<~RUBY)).to vm_array([1, 3])
+        result = []
+        [1, 2, 3].each { |x| next if x == 2; result << x }
+        result
+      RUBY
+    end
+
+    it 'next value becomes the block return value' do
+      expect(run_ruby('[1, 2, 3].map { |x| next 0 if x == 2; x }')).to vm_array([1, 0, 3])
+    end
+
+    it 'next skips the rest of a while body' do
+      expect(run_ruby(<<~RUBY)).to vm_int(8)
+        sum = 0
+        i = 0
+        while i < 4
+          i += 1
+          next if i == 2
+          sum += i
+        end
+        sum
+      RUBY
+    end
+
+    it 'redo re-executes the block body' do
+      expect(run_ruby(<<~RUBY)).to vm_int(3)
+        attempts = 0
+        [42].each do |x|
+          attempts += 1
+          redo if attempts < 3
+        end
+        attempts
+      RUBY
+    end
+
+    it 'redo re-executes the while body without re-checking condition' do
+      expect(run_ruby(<<~RUBY)).to vm_int(3)
+        count = 0
+        i = 0
+        while i < 1
+          count += 1
+          i += 1 if count >= 3
+          redo if count < 3
+        end
+        count
+      RUBY
+    end
+
     it 'return exits the enclosing method even from inside a block' do
       expect(run_ruby(<<~RUBY)).to vm_int(1)
         def first_positive(arr)
