@@ -533,6 +533,62 @@ RSpec.describe "Frozone VM functional" do
     end
   end
 
+  # ── Custom hash and eql? ─────────────────────────────────────────────────────
+
+  describe 'custom hash and eql? as hash keys' do
+    let(:point_class) { <<~RUBY }
+      class Point
+        def initialize(x, y)
+          @x = x
+          @y = y
+        end
+        def x = @x
+        def y = @y
+        def hash = @x.hash + @y.hash
+        def eql?(other)
+          if @x == other.x
+            @y == other.y
+          else
+            false
+          end
+        end
+      end
+    RUBY
+
+    it 'looks up a user-defined object key by value equality' do
+      result = run_ruby(<<~RUBY)
+        #{point_class}
+        p1 = Point.new(1, 2)
+        p2 = Point.new(1, 2)
+        h = { p1 => :found }
+        h[p2]
+      RUBY
+      expect(result).to vm_symbol(:found)
+    end
+
+    it 'returns nil for a non-matching key' do
+      result = run_ruby(<<~RUBY)
+        #{point_class}
+        p1 = Point.new(1, 2)
+        p2 = Point.new(3, 4)
+        h = { p1 => :found }
+        h[p2]
+      RUBY
+      expect(result).to vm_nil
+    end
+
+    it 'distinct objects with same hash but different eql? do not collide' do
+      result = run_ruby(<<~RUBY)
+        #{point_class}
+        p1 = Point.new(1, 2)
+        p2 = Point.new(2, 1)
+        h = { p1 => :first, p2 => :second }
+        h[Point.new(2, 1)]
+      RUBY
+      expect(result).to vm_symbol(:second)
+    end
+  end
+
   # ── Methods defined inside a class ───────────────────────────────────────────
 
   describe 'class with methods (called via top-level alias)' do

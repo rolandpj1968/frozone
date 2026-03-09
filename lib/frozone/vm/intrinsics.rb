@@ -69,6 +69,11 @@ module Frozone
           IntegerObject.new(hash_val)
         end
 
+        def hash_index(context, h, key)
+          value = h[key]
+          value.nil? ? NilObject::NIL : value
+        end
+
         def hash_eql(context, v1, v2)
           return bool_object_for(false) unless v2.is_a?(HashObject)
           return bool_object_for(false) unless v1.raw.length == v2.raw.length
