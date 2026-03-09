@@ -1,0 +1,9 @@
+  A few things worth noting for next time:
+  - new on classes is the obvious next capability gap — once that's working, functional tests can properly scope methods inside classes
+  rather than polluting Core::OBJECT_CLASS
+  - The hash/__id__ intrinsics return raw Ruby integers rather than VM IntegerObjects — worth fixing
+  - *, /, % for Integer are the next arithmetic operators to add to lib/core/4.0/integer.rb
+  - Local variable assignment (x = 5) has no AST node yet
+
+  The test infrastructure is now solid enough that any new feature can be driven by functional tests first. See you next time!
+  
