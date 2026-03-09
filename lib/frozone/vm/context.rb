@@ -34,6 +34,7 @@ module Frozone
       end
 
       def scopes = @scopes
+      def top_level? = @scopes.length == 1
     end
   end
 end
