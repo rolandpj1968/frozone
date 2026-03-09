@@ -54,6 +54,10 @@ module Frozone
         evaluate_file("#{core_path}/basic_object.rb")
         evaluate_file("#{core_path}/object.rb")
         evaluate_file("#{core_path}/integer.rb")
+        evaluate_file("#{core_path}/string.rb")
+        evaluate_file("#{core_path}/symbol.rb")
+        evaluate_file("#{core_path}/array.rb")
+        evaluate_file("#{core_path}/hash.rb")
       end
 
       # Evaluate a Ruby snippet and return the resulting VM object.

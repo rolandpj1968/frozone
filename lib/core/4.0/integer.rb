@@ -12,4 +12,5 @@ class Integer
   def - (v) = Intrinsics.integer__minus_(self, v)
 
   def hash = Intrinsics.integer_hash(self)
+  def eql?(v) = Intrinsics.integer_eql(self, v)
 end

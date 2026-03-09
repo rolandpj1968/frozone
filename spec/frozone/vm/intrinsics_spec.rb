@@ -183,6 +183,139 @@ RSpec.describe Frozone::Vm::Intrinsics do
     end
   end
 
+  describe '.integer_eql' do
+    it 'returns TRUE for equal integer values' do
+      expect(described_class.integer_eql(ctx, i3, Frozone::Vm::IntegerObject.new(3))).to equal(Frozone::Vm::TrueObject::TRUE)
+    end
+
+    it 'returns FALSE for different integer values' do
+      expect(described_class.integer_eql(ctx, i3, i5)).to equal(Frozone::Vm::FalseObject::FALSE)
+    end
+
+    it 'returns FALSE when compared to a non-IntegerObject' do
+      expect(described_class.integer_eql(ctx, i3, Frozone::Vm::StringObject.new("3"))).to equal(Frozone::Vm::FalseObject::FALSE)
+    end
+  end
+
+  describe '.string_hash' do
+    it 'returns equal hashes for equal string values' do
+      a = Frozone::Vm::StringObject.new("hello")
+      b = Frozone::Vm::StringObject.new("hello")
+      expect(described_class.string_hash(ctx, a).raw).to eq(described_class.string_hash(ctx, b).raw)
+    end
+
+    it 'returns the Ruby string hash value' do
+      expect(described_class.string_hash(ctx, Frozone::Vm::StringObject.new("abc")).raw).to eq("abc".hash)
+    end
+  end
+
+  describe '.string_eql' do
+    let(:s_abc) { Frozone::Vm::StringObject.new("abc") }
+
+    it 'returns TRUE for equal string values' do
+      expect(described_class.string_eql(ctx, s_abc, Frozone::Vm::StringObject.new("abc"))).to equal(Frozone::Vm::TrueObject::TRUE)
+    end
+
+    it 'returns FALSE for different string values' do
+      expect(described_class.string_eql(ctx, s_abc, Frozone::Vm::StringObject.new("def"))).to equal(Frozone::Vm::FalseObject::FALSE)
+    end
+
+    it 'returns FALSE when compared to a non-StringObject' do
+      expect(described_class.string_eql(ctx, s_abc, i3)).to equal(Frozone::Vm::FalseObject::FALSE)
+    end
+  end
+
+  describe '.symbol_hash' do
+    it 'returns equal hashes for the same symbol' do
+      a = Frozone::Vm::SymbolObject.from(:foo)
+      b = Frozone::Vm::SymbolObject.from(:foo)
+      expect(described_class.symbol_hash(ctx, a).raw).to eq(described_class.symbol_hash(ctx, b).raw)
+    end
+
+    it 'returns the Ruby symbol hash value' do
+      expect(described_class.symbol_hash(ctx, Frozone::Vm::SymbolObject.from(:bar)).raw).to eq(:bar.hash)
+    end
+  end
+
+  describe '.symbol_eql' do
+    it 'returns TRUE for the same symbol' do
+      expect(described_class.symbol_eql(ctx, Frozone::Vm::SymbolObject.from(:x), Frozone::Vm::SymbolObject.from(:x))).to equal(Frozone::Vm::TrueObject::TRUE)
+    end
+
+    it 'returns FALSE for different symbols' do
+      expect(described_class.symbol_eql(ctx, Frozone::Vm::SymbolObject.from(:x), Frozone::Vm::SymbolObject.from(:y))).to equal(Frozone::Vm::FalseObject::FALSE)
+    end
+
+    it 'returns FALSE when compared to a non-SymbolObject' do
+      expect(described_class.symbol_eql(ctx, Frozone::Vm::SymbolObject.from(:x), i3)).to equal(Frozone::Vm::FalseObject::FALSE)
+    end
+  end
+
+  describe '.array_hash and .array_eql' do
+    let(:real_ctx) { make_context }
+    let(:i1) { Frozone::Vm::IntegerObject.new(1) }
+    let(:i2) { Frozone::Vm::IntegerObject.new(2) }
+
+    it 'array_hash returns equal values for equal arrays' do
+      a = Frozone::Vm::ArrayObject.new([i1, i2])
+      b = Frozone::Vm::ArrayObject.new([Frozone::Vm::IntegerObject.new(1), Frozone::Vm::IntegerObject.new(2)])
+      expect(described_class.array_hash(real_ctx, a).raw).to eq(described_class.array_hash(real_ctx, b).raw)
+    end
+
+    it 'array_eql returns TRUE for arrays with equal elements' do
+      a = Frozone::Vm::ArrayObject.new([i1, i2])
+      b = Frozone::Vm::ArrayObject.new([Frozone::Vm::IntegerObject.new(1), Frozone::Vm::IntegerObject.new(2)])
+      expect(described_class.array_eql(real_ctx, a, b)).to equal(Frozone::Vm::TrueObject::TRUE)
+    end
+
+    it 'array_eql returns FALSE for arrays with different elements' do
+      a = Frozone::Vm::ArrayObject.new([i1])
+      b = Frozone::Vm::ArrayObject.new([i2])
+      expect(described_class.array_eql(real_ctx, a, b)).to equal(Frozone::Vm::FalseObject::FALSE)
+    end
+
+    it 'array_eql returns FALSE when compared to a non-ArrayObject' do
+      a = Frozone::Vm::ArrayObject.new([])
+      expect(described_class.array_eql(real_ctx, a, Frozone::Vm::HashObject.new({}))).to equal(Frozone::Vm::FalseObject::FALSE)
+    end
+  end
+
+  describe '.hash_hash and .hash_eql' do
+    let(:real_ctx) { make_context }
+    let(:k) { Frozone::Vm::SymbolObject.from(:key) }
+    let(:v1) { Frozone::Vm::IntegerObject.new(1) }
+    let(:v2) { Frozone::Vm::IntegerObject.new(2) }
+
+    it 'hash_hash returns equal values for equal hashes' do
+      h1 = Frozone::Vm::HashObject.new({ k => v1 })
+      h2 = Frozone::Vm::HashObject.new({ Frozone::Vm::SymbolObject.from(:key) => Frozone::Vm::IntegerObject.new(1) })
+      expect(described_class.hash_hash(real_ctx, h1).raw).to eq(described_class.hash_hash(real_ctx, h2).raw)
+    end
+
+    it 'hash_eql returns TRUE for hashes with equal key-value pairs' do
+      h1 = Frozone::Vm::HashObject.new({ k => v1 })
+      h2 = Frozone::Vm::HashObject.new({ Frozone::Vm::SymbolObject.from(:key) => Frozone::Vm::IntegerObject.new(1) })
+      expect(described_class.hash_eql(real_ctx, h1, h2)).to equal(Frozone::Vm::TrueObject::TRUE)
+    end
+
+    it 'hash_eql returns FALSE for hashes with different values' do
+      h1 = Frozone::Vm::HashObject.new({ k => v1 })
+      h2 = Frozone::Vm::HashObject.new({ k => v2 })
+      expect(described_class.hash_eql(real_ctx, h1, h2)).to equal(Frozone::Vm::FalseObject::FALSE)
+    end
+
+    it 'hash_eql returns FALSE for hashes with different keys' do
+      h1 = Frozone::Vm::HashObject.new({ k => v1 })
+      h2 = Frozone::Vm::HashObject.new({ Frozone::Vm::SymbolObject.from(:other) => v1 })
+      expect(described_class.hash_eql(real_ctx, h1, h2)).to equal(Frozone::Vm::FalseObject::FALSE)
+    end
+
+    it 'hash_eql returns FALSE when compared to a non-HashObject' do
+      h = Frozone::Vm::HashObject.new({})
+      expect(described_class.hash_eql(real_ctx, h, Frozone::Vm::ArrayObject.new([]))).to equal(Frozone::Vm::FalseObject::FALSE)
+    end
+  end
+
   describe '.bool_object_for' do
     it 'returns TrueObject::TRUE for true' do
       expect(described_class.bool_object_for(true)).to equal(Frozone::Vm::TrueObject::TRUE)
