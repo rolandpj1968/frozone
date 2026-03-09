@@ -125,6 +125,11 @@ module Frozone
         def module_set_private(context, receiver, names)   = module_set_visibility(context, receiver, names, :private)
         def module_set_protected(context, receiver, names) = module_set_visibility(context, receiver, names, :protected)
 
+        # Top-level 'main' proxy: delegate to Object
+        def toplevel_public(context, _, names)    = module_set_visibility(context, Core::OBJECT_CLASS, names, :public)
+        def toplevel_private(context, _, names)   = module_set_visibility(context, Core::OBJECT_CLASS, names, :private)
+        def toplevel_protected(context, _, names) = module_set_visibility(context, Core::OBJECT_CLASS, names, :protected)
+
         private
 
         def module_set_visibility(_, receiver, names, vis)

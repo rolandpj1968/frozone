@@ -71,6 +71,15 @@ module Frozone
         init_globals
       end
 
+      # Attach 'main' proxy singleton methods for private/public/protected → Object
+      def setup_main(main_obj)
+        { private: :toplevel_private, public: :toplevel_public, protected: :toplevel_protected }.each do |name, intrinsic|
+          body = Ast::IntrinsicCall.new(intrinsic, [Ast::SelfLiteral::SELF, Ast::LocalVariableRead.new(:names, 0)])
+          m = Method.new([Core::OBJECT_CLASS], name, [], [], :names, [], [], [], nil, [:names], body)
+          main_obj.define_singleton_method(name, m)
+        end
+      end
+
       def init_globals
         GLOBALS[:"$LOAD_PATH"]       = ArrayObject.new([])
         GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new([])
@@ -105,6 +114,7 @@ module Frozone
 
         top_level_scope = Core::OBJECT_CLASS
         top_level_object = ObjectObject.new(Core::OBJECT_CLASS)
+        setup_main(top_level_object)
 
         context = Context.new
         Fiber[:context] = context

@@ -1504,5 +1504,21 @@ RSpec.describe "Frozone VM functional" do
         self.top_level_explicit_xyz
       RUBY
     end
+
+    it 'top-level public makes a method callable with explicit receiver' do
+      expect(run_ruby(<<~RUBY)).to vm_int(7)
+        def toplevel_pub_xyz; 7; end
+        public :toplevel_pub_xyz
+        self.toplevel_pub_xyz
+      RUBY
+    end
+
+    it 'top-level private with no args sets default visibility' do
+      expect { run_ruby(<<~RUBY) }.to raise_error(/private method 'toplevel_priv_noarg_xyz'/)
+        private
+        def toplevel_priv_noarg_xyz; 7; end
+        self.toplevel_priv_noarg_xyz
+      RUBY
+    end
   end
 end
