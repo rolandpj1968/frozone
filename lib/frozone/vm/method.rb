@@ -92,7 +92,8 @@ module Frozone
             raise "unknown keyword#{kw_args.length == 1 ? "" : "s"}: #{kw_args.keys.map(&:to_s).join(', ')}"
           end
         else
-          new_frame.set_local(@kw_rest_param, HashObject.new(kw_args.dup))
+          kw_rest = kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k }
+          new_frame.set_local(@kw_rest_param, HashObject.new(kw_rest))
         end
       end
 

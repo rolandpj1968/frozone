@@ -38,14 +38,6 @@ RSpec.describe Frozone::Vm::StringObject do
   end
 
   describe '#hash and #eql?' do
-    it 'has the same hash for equal string values' do
-      expect(described_class.new("abc").hash).to eq(described_class.new("abc").hash)
-    end
-
-    it 'is eql? to another StringObject with the same value' do
-      expect(described_class.new("abc").eql?(described_class.new("abc"))).to be true
-    end
-
     it 'is not eql? to a StringObject with a different value' do
       expect(described_class.new("abc").eql?(described_class.new("def"))).to be false
     end

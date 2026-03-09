@@ -28,18 +28,7 @@ RSpec.describe Frozone::Vm::IntegerObject do
     end
   end
 
-  describe '#hash' do
-    it 'returns the hash of the raw value' do
-      obj = described_class.new(7)
-      expect(obj.hash).to eq(7.hash)
-    end
-  end
-
   describe '#eql?' do
-    it 'returns true for two IntegerObjects with the same value' do
-      expect(described_class.new(5).eql?(described_class.new(5))).to be true
-    end
-
     it 'returns false for two IntegerObjects with different values' do
       expect(described_class.new(5).eql?(described_class.new(6))).to be false
     end

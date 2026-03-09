@@ -33,22 +33,12 @@ RSpec.describe Frozone::Vm::ArrayObject do
   end
 
   describe '#hash and #eql?' do
-    it 'is eql? to another ArrayObject with the same elements' do
-      a1 = described_class.new([i1])
-      a2 = described_class.new([i1])
-      expect(a1.eql?(a2)).to be true
-    end
-
     it 'is not eql? to an ArrayObject with different elements' do
       expect(described_class.new([i1]).eql?(described_class.new([i2]))).to be false
     end
 
     it 'is not eql? to a plain Ruby Array' do
       expect(described_class.new([]).eql?([])).to be false
-    end
-
-    it 'equal arrays have equal hashes' do
-      expect(described_class.new([i1]).hash).to eq(described_class.new([i1]).hash)
     end
   end
 

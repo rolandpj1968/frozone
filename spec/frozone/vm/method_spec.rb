@@ -145,12 +145,13 @@ RSpec.describe Frozone::Vm::Method do
     context 'with kw_rest parameter' do
       let(:m) { make_method(klass, :kw_rest, body: local(:opts), kw_rest_param: :opts) }
 
-      it 'captures remaining kw args in a HashObject' do
-        k1 = sym(:a)
-        k2 = sym(:b)
-        result = m.invoke(ctx, receiver, [], { k1 => int(1), k2 => int(2) })
+      it 'captures remaining kw args in a HashObject with SymbolObject keys' do
+        result = m.invoke(ctx, receiver, [], { sym(:a) => int(1), sym(:b) => int(2) })
         expect(result).to be_a(Frozone::Vm::HashObject)
-        expect(result.raw.keys).to contain_exactly(k1, k2)
+        expect(result.raw.keys).to contain_exactly(
+          Frozone::Vm::SymbolObject.from(:a),
+          Frozone::Vm::SymbolObject.from(:b)
+        )
       end
 
       it 'is an empty HashObject when no kw args given' do
