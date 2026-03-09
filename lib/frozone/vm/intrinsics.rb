@@ -72,7 +72,7 @@ module Frozone
         def basic_object___send__(context, receiver, name, args, kwargs)
           raise "BasicObject#__send__ name must be a SymbolObject" unless name.is_a?(SymbolObject)
           raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
-          receiver.dispatch(context, name.raw, args.raw, raw_kwargs)
+          receiver.dispatch(context, name.raw, args.raw, raw_kwargs, nil, private_ok: true)
         end
 
         # Module

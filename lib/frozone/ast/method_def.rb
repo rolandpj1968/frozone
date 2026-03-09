@@ -39,7 +39,7 @@ module Frozone
         )
         if @receiver_node.nil?
           scope = context.scopes.last
-          method.visibility = @name == :initialize ? :private : scope.current_visibility
+          method.visibility = (@name == :initialize || context.scopes.length == 1) ? :private : scope.current_visibility
           scope.set_method(@name, method)
         else
           @receiver_node.evaluate(context).define_singleton_method(@name, method)

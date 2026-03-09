@@ -1490,5 +1490,19 @@ RSpec.describe "Frozone VM functional" do
         VisInitTest.new.initialize
       RUBY
     end
+
+    it 'top-level def is private on Object, callable implicitly' do
+      expect(run_ruby(<<~RUBY)).to vm_int(42)
+        def top_level_secret_xyz; 42; end
+        top_level_secret_xyz
+      RUBY
+    end
+
+    it 'top-level def raises when called with explicit receiver' do
+      expect { run_ruby(<<~RUBY) }.to raise_error(/private method 'top_level_explicit_xyz'/)
+        def top_level_explicit_xyz; 42; end
+        self.top_level_explicit_xyz
+      RUBY
+    end
   end
 end
