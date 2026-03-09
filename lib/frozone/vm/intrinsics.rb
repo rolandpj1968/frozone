@@ -90,6 +90,104 @@ module Frozone
           receiver
         end
 
+        def module_attr_reader(_, receiver, names)
+          raise "attr_reader: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
+          names.raw.each do |name_obj|
+            name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+            ivar = :"@#{name}"
+            body = Ast::InstanceVariableRead.new(ivar)
+            m = Method.new([receiver], name, [], [], nil, [], [], [], nil, [], body)
+            receiver.set_method(name, m)
+          end
+          NilObject::NIL
+        end
+
+        def module_attr_writer(_, receiver, names)
+          raise "attr_writer: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
+          names.raw.each do |name_obj|
+            name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+            setter = :"#{name}="
+            ivar = :"@#{name}"
+            body = Ast::InstanceVariableWrite.new(ivar, Ast::LocalVariableRead.new(:value, 0))
+            m = Method.new([receiver], setter, [:value], [], nil, [], [], [], nil, [], body)
+            receiver.set_method(setter, m)
+          end
+          NilObject::NIL
+        end
+
+        def module_attr_accessor(context, receiver, names)
+          module_attr_reader(context, receiver, names)
+          module_attr_writer(context, receiver, names)
+          NilObject::NIL
+        end
+
+        # Kernel require/load
+        def kernel_require(_, _receiver, path_obj)
+          path = path_obj.raw
+          loaded = GLOBALS[:"$LOADED_FEATURES"]
+          loaded_paths = loaded.raw.map(&:raw)
+          return FalseObject::FALSE if loaded_paths.include?(path)
+          full_path = resolve_load_path(path)
+          return FalseObject::FALSE if full_path.nil?
+          loaded.push(StringObject.new(full_path))
+          Fiber[:vm_evaluate].call(full_path)
+          TrueObject::TRUE
+        end
+
+        def kernel_require_relative(_, _receiver, path_obj)
+          rel = path_obj.raw
+          current = Fiber[:current_file]
+          raise "require_relative called outside of a file" if current.nil?
+          full_path = File.expand_path(rel, File.dirname(current))
+          full_path += '.rb' unless full_path.end_with?('.rb')
+          loaded = GLOBALS[:"$LOADED_FEATURES"]
+          loaded_paths = loaded.raw.map(&:raw)
+          return FalseObject::FALSE if loaded_paths.include?(full_path)
+          loaded.push(StringObject.new(full_path))
+          Fiber[:vm_evaluate].call(full_path)
+          TrueObject::TRUE
+        end
+
+        def kernel_load(_, _receiver, path_obj)
+          path = path_obj.raw
+          full_path = File.exist?(path) ? path : resolve_load_path(path)
+          raise "cannot load such file -- #{path}" if full_path.nil?
+          Fiber[:vm_evaluate].call(full_path)
+          TrueObject::TRUE
+        end
+
+        def kernel_proc(context, _receiver)
+          block = context.frame.block
+          raise "proc called without a block" if block.nil?
+          ProcObject.new(block)
+        end
+
+        def kernel_lambda(context, _receiver)
+          block = context.frame.block
+          raise "lambda called without a block" if block.nil?
+          ProcObject.new(block, lambda: true)
+        end
+
+        def proc_call(context, proc_obj, args)
+          raise "proc_call: receiver must be a ProcObject" unless proc_obj.is_a?(ProcObject)
+          proc_obj.call(context, args.raw)
+        end
+
+        private
+
+        def resolve_load_path(path)
+          path_rb = path.end_with?('.rb') ? path : "#{path}.rb"
+          return path_rb if File.exist?(path_rb)
+          load_path = GLOBALS[:"$LOAD_PATH"]
+          load_path&.raw&.each do |dir_obj|
+            full = File.join(dir_obj.raw, path_rb)
+            return full if File.exist?(full)
+          end
+          nil
+        end
+
+        public
+
         # Class
         def class_new(context, klass, args, kwargs) = klass.new_instance(context, args.raw, kwargs.raw)
 

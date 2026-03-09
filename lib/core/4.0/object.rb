@@ -27,4 +27,11 @@ class Object
   def print(*args) = Intrinsics.kernel_print(self, args)
   def p(*args) = Intrinsics.kernel_p(self, args)
   def raise(msg = nil) = Intrinsics.kernel_raise(self, msg)
+
+  def require(path)          = Intrinsics.kernel_require(self, path)
+  def require_relative(path) = Intrinsics.kernel_require_relative(self, path)
+  def load(path)             = Intrinsics.kernel_load(self, path)
+
+  def proc   = Intrinsics.kernel_proc(self)
+  def lambda = Intrinsics.kernel_lambda(self)
 end

@@ -22,6 +22,56 @@ module Frozone
 
       private
 
+      def parse_lambda(prism_node)
+        params = []
+        locals = prism_node.locals
+        unless prism_node.parameters.nil?
+          bp = prism_node.parameters
+          unless bp.parameters.nil?
+            raise "lambda parameters is not a Prism::ParametersNode" unless bp.parameters.is_a?(Prism::ParametersNode)
+            # TODO: optional/rest/keyword lambda params
+            params = bp.parameters.requireds.map do |required|
+              raise "lambda required parameter is not a Prism::RequiredParameterNode" unless required.is_a?(Prism::RequiredParameterNode)
+              required.name
+            end
+          end
+        end
+        body = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
+        [params, locals, body]
+      end
+
+      def parse_multi_write_target(target)
+        case target
+        when Prism::LocalVariableTargetNode
+          [:local, target.name, target.depth]
+        when Prism::InstanceVariableTargetNode
+          [:ivar, target.name]
+        when Prism::ConstantTargetNode
+          [:const, target.name]
+        when Prism::SplatNode
+          if target.expression.nil?
+            [:splat_nil]
+          elsif target.expression.is_a?(Prism::LocalVariableTargetNode)
+            [:local_splat, target.expression.name, target.expression.depth]
+          elsif target.expression.is_a?(Prism::InstanceVariableTargetNode)
+            [:ivar_splat, target.expression.name]
+          else
+            raise "Unsupported splat target type: #{target.expression.class}"
+          end
+        else
+          raise "Unsupported multi-write target type: #{target.class}"
+        end
+      end
+
+      def parse_multi_write(prism_node)
+        targets = prism_node.lefts.map { |t| parse_multi_write_target(t) }
+        unless prism_node.rest.nil?
+          targets << parse_multi_write_target(prism_node.rest)
+        end
+        targets += prism_node.rights.map { |t| parse_multi_write_target(t) }
+        Ast::MultipleAssignment.new(targets, transform(prism_node.value))
+      end
+
       def parse_block(prism_block_node)
         params = []
         unless prism_block_node.parameters.nil?
@@ -200,6 +250,12 @@ module Frozone
         when Prism::InstanceVariableWriteNode
           Ast::InstanceVariableWrite.new(prism_node.name, transform(prism_node.value))
 
+        when Prism::GlobalVariableReadNode
+          Ast::GlobalVariableRead.new(prism_node.name)
+
+        when Prism::GlobalVariableWriteNode
+          Ast::GlobalVariableWrite.new(prism_node.name, transform(prism_node.value))
+
         when Prism::ConstantReadNode
           Ast::ConstantRead.new(prism_node.name)
 
@@ -295,9 +351,16 @@ module Frozone
             end
           Ast::Return.new(value_node)
 
+        when Prism::LambdaNode
+          params, locals, body = parse_lambda(prism_node)
+          Ast::Lambda.new(params, locals, body)
+
         when Prism::YieldNode
           arg_nodes = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
           Ast::Yield.new(arg_nodes)
+
+        when Prism::MultiWriteNode
+          parse_multi_write(prism_node)
 
         when Prism::NextNode
           value_node = prism_node.arguments.nil? || prism_node.arguments.arguments.empty? ? nil : transform(prism_node.arguments.arguments.first)

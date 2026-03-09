@@ -36,3 +36,6 @@ end
 
 class Float < Numeric
 end
+
+class Proc < Object
+end

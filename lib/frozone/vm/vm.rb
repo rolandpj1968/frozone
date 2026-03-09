@@ -1,4 +1,6 @@
 require_relative 'core'
+require_relative 'globals'
+require_relative 'proc_object'
 
 require_relative 'parser'
 
@@ -53,6 +55,8 @@ module Frozone
         evaluate_file("#{core_path}/module.rb")
         evaluate_file(File.expand_path("hierarchy.rb", __dir__))
         ObjectObject.end_bootstrap!
+        # Wire up Core.proc_class after hierarchy.rb has defined Proc
+        Core.init_proc_class
         evaluate_file("#{core_path}/class.rb")
         evaluate_file("#{core_path}/basic_object.rb")
         evaluate_file("#{core_path}/object.rb")
@@ -65,6 +69,16 @@ module Frozone
         evaluate_file("#{core_path}/symbol.rb")
         evaluate_file("#{core_path}/array.rb")
         evaluate_file("#{core_path}/hash.rb")
+        evaluate_file("#{core_path}/proc.rb")
+        init_globals
+      end
+
+      def init_globals
+        GLOBALS[:"$LOAD_PATH"]       = ArrayObject.new([])
+        GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new([])
+        GLOBALS[:"$stdout"]          = ObjectObject.new(Core::OBJECT_CLASS) # placeholder
+        GLOBALS[:"$0"]               = StringObject.new($0.to_s)
+        GLOBALS[:"$PROGRAM_NAME"]    = GLOBALS[:"$0"]
       end
 
       # Evaluate a Ruby snippet and return the resulting VM object.
@@ -74,7 +88,15 @@ module Frozone
 
       private
 
-      def evaluate_file(path) = evaluate(File.read(path))
+      def evaluate_file(path)
+        prev_file = Fiber[:current_file]
+        Fiber[:current_file] = File.expand_path(path)
+        begin
+          evaluate(File.read(path))
+        ensure
+          Fiber[:current_file] = prev_file
+        end
+      end
 
       def evaluate(script, dump_ast = false)
         ast = Parser.new(script, dump_ast).ast
@@ -89,6 +111,7 @@ module Frozone
 
         context = Context.new
         Fiber[:context] = context
+        Fiber[:vm_evaluate] = method(:evaluate_file)
 
         frame = Frame.new(top_level_object, [], [top_level_scope])
         context.push_frame(frame)

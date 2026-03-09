@@ -27,17 +27,22 @@ require_relative 'ast/local_variable_write'
 require_relative 'ast/instance_variable_read'
 require_relative 'ast/instance_variable_write'
 
+require_relative 'ast/global_variable_read'
+require_relative 'ast/global_variable_write'
+
 require_relative 'ast/constant_read'
 require_relative 'ast/constant_write'
 
 require_relative 'ast/intrinsic_call'
 require_relative 'ast/method_call'
 require_relative 'ast/block'
+require_relative 'ast/lambda'
 require_relative 'ast/yield'
 require_relative 'ast/return'
 require_relative 'ast/next'
 require_relative 'ast/redo'
 require_relative 'ast/begin_rescue'
+require_relative 'ast/multiple_assignment'
 
 require_relative 'ast/class_def'
 require_relative 'ast/module_def'

@@ -1324,4 +1324,128 @@ RSpec.describe "Frozone VM functional" do
       RUBY
     end
   end
+
+  # ── Global variables ────────────────────────────────────────────────────────
+
+  describe 'global variables' do
+    it 'assigns and reads a global variable' do
+      expect(run_ruby('$x = 42; $x')).to vm_int(42)
+    end
+
+    it 'unset global variable returns nil' do
+      expect(run_ruby('$undefined_global_xyz')).to vm_nil
+    end
+
+    it '$LOADED_FEATURES is an array' do
+      result = run_ruby('$LOADED_FEATURES')
+      expect(result).to be_a(Frozone::Vm::ArrayObject)
+    end
+  end
+
+  # ── attr_reader / attr_writer / attr_accessor ────────────────────────────────
+
+  describe 'attr_reader' do
+    it 'generates a reader method' do
+      expect(run_ruby(<<~RUBY)).to vm_int(42)
+        class AttrReaderTest
+          attr_reader :x
+          def initialize(v)
+            @x = v
+          end
+        end
+        AttrReaderTest.new(42).x
+      RUBY
+    end
+  end
+
+  describe 'attr_writer' do
+    it 'generates a writer method' do
+      expect(run_ruby(<<~RUBY)).to vm_int(99)
+        class AttrWriterTest
+          attr_writer :x
+          attr_reader :x
+          def initialize; @x = 0; end
+        end
+        f = AttrWriterTest.new
+        f.x = 99
+        f.x
+      RUBY
+    end
+  end
+
+  describe 'attr_accessor' do
+    it 'generates reader and writer' do
+      expect(run_ruby(<<~RUBY)).to vm_string("hello")
+        class AttrAccessorTest
+          attr_accessor :name
+          def initialize(n); @name = n; end
+        end
+        f = AttrAccessorTest.new("world")
+        f.name = "hello"
+        f.name
+      RUBY
+    end
+  end
+
+  # ── Multiple assignment ──────────────────────────────────────────────────────
+
+  describe 'multiple assignment' do
+    it 'assigns multiple locals from array' do
+      expect(run_ruby('a, b = [1, 2]; a + b')).to vm_int(3)
+    end
+
+    it 'assigns from shorter array (extras become nil)' do
+      expect(run_ruby('a, b, c = [1, 2]; c')).to vm_nil
+    end
+
+    it 'splat captures middle elements' do
+      expect(run_ruby('a, *b, c = [1, 2, 3, 4]; b')).to vm_array([2, 3])
+    end
+
+    it 'assigns from non-array RHS (wraps in array)' do
+      expect(run_ruby('a, b = 42; a')).to vm_int(42)
+    end
+  end
+
+  # ── Proc / Lambda ────────────────────────────────────────────────────────────
+
+  describe 'proc' do
+    it 'creates a callable Proc' do
+      expect(run_ruby(<<~RUBY)).to vm_int(10)
+        double = proc { |x| x * 2 }
+        double.call(5)
+      RUBY
+    end
+  end
+
+  describe 'lambda' do
+    it 'creates a callable lambda via -> syntax' do
+      expect(run_ruby(<<~RUBY)).to vm_int(9)
+        square = ->(x) { x * x }
+        square.call(3)
+      RUBY
+    end
+
+    it 'creates a callable lambda via lambda method' do
+      expect(run_ruby(<<~RUBY)).to vm_int(6)
+        triple = lambda { |x| x * 3 }
+        triple.call(2)
+      RUBY
+    end
+  end
+
+  # ── Method visibility (no-ops) ───────────────────────────────────────────────
+
+  describe 'method visibility' do
+    it 'private :name does not raise' do
+      expect(run_ruby(<<~RUBY)).to vm_int(42)
+        class VisibilityTest
+          def secret; 42; end
+          private :secret
+          def go; secret; end
+        end
+        VisibilityTest.new.go
+      RUBY
+    end
+  end
 end
