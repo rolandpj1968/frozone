@@ -13,6 +13,8 @@ module Frozone
         @superclass = check_nil_or_type("superclass", superclass, ClassObject)
       end
 
+      def superclass = @superclass
+
       def to_s = "class(#{@name})"
 
       # class "Class" circular dependency bootstrap band-aid - see core.rb too

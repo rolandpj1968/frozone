@@ -31,6 +31,13 @@ module Frozone
       # VM-correct key lookup via KeyWrapper dispatch (requires Fiber[:context]).
       def [](key) = @elements[wrap(key)]
 
+      def []=(key, value)
+        @elements[wrap(key)] = value
+      end
+
+      def size = @elements.size
+      def key?(key) = @elements.key?(wrap(key))
+
       def to_s = "{#{@elements.map { |k, v| "#{k.unwrap} => #{v}"}.join(', ')}}"
 
       private

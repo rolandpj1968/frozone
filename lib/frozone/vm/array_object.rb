@@ -12,6 +12,15 @@ module Frozone
         @elements = elements
       end
 
+      def [](index) = @elements[index]
+
+      def []=(index, value)
+        @elements[index] = value
+      end
+
+      def push(value) = @elements.push(value)
+      def length = @elements.length
+
       def to_s = "[#{@elements.join(', ')}]"
 
       def raw = @elements
