@@ -691,4 +691,172 @@ RSpec.describe "Frozone VM functional" do
       expect(result.lookup_method(:double)).to be_a(Frozone::Vm::Method)
     end
   end
+
+  # ── while / until ────────────────────────────────────────────────────────────
+
+  describe 'while loop' do
+    it 'executes body while condition is true' do
+      expect(run_ruby("x = 0\nwhile x < 3\n  x = x + 1\nend\nx")).to vm_int(3)
+    end
+
+    it 'skips body when condition is initially false' do
+      expect(run_ruby("x = 5\nwhile x < 0\n  x = x - 1\nend\nx")).to vm_int(5)
+    end
+
+    it 'returns nil' do
+      expect(run_ruby("while false; end")).to vm_nil
+    end
+  end
+
+  describe 'until loop' do
+    it 'executes body until condition is true' do
+      expect(run_ruby("x = 0\nuntil x >= 3\n  x = x + 1\nend\nx")).to vm_int(3)
+    end
+
+    it 'skips body when condition is initially true' do
+      expect(run_ruby("x = 5\nuntil x > 0\n  x = x + 1\nend\nx")).to vm_int(5)
+    end
+
+    it 'returns nil' do
+      expect(run_ruby("until true; end")).to vm_nil
+    end
+  end
+
+  # ── Integer arithmetic ───────────────────────────────────────────────────────
+
+  describe 'Integer arithmetic' do
+    it 'multiplies' do expect(run_ruby('3 * 4')).to vm_int(12) end
+    it 'divides'    do expect(run_ruby('10 / 3')).to vm_int(3) end
+    it 'modulo'     do expect(run_ruby('10 % 3')).to vm_int(1) end
+    it 'power'      do expect(run_ruby('2 ** 8')).to vm_int(256) end
+    it 'unary minus' do expect(run_ruby('-7')).to vm_int(-7) end
+    it 'abs positive' do expect(run_ruby('5.abs')).to vm_int(5) end
+    it 'abs negative' do expect(run_ruby('-5.abs')).to vm_int(5) end
+    it 'zero? true'   do expect(run_ruby('0.zero?')).to vm_true end
+    it 'zero? false'  do expect(run_ruby('1.zero?')).to vm_false end
+    it 'positive?'    do expect(run_ruby('3.positive?')).to vm_true end
+    it 'negative?'    do expect(run_ruby('(-1).negative?')).to vm_true end
+    it 'to_i'         do expect(run_ruby('42.to_i')).to vm_int(42) end
+    it 'to_s'         do expect(run_ruby('42.to_s')).to vm_string('42') end
+    it 'inspect'      do expect(run_ruby('42.inspect')).to vm_string('42') end
+  end
+
+  # ── Object predicates ────────────────────────────────────────────────────────
+
+  describe 'Object predicates' do
+    it 'nil? is false for non-nil' do expect(run_ruby('42.nil?')).to vm_false end
+    it 'nil? is true for nil'     do expect(run_ruby('nil.nil?')).to vm_true end
+
+    it 'is_a? true for own class' do
+      expect(run_ruby('42.is_a?(Integer)')).to vm_true
+    end
+
+    it 'is_a? true for superclass' do
+      expect(run_ruby('42.is_a?(Object)')).to vm_true
+    end
+
+    it 'is_a? false for unrelated class' do
+      expect(run_ruby('42.is_a?(String)')).to vm_false
+    end
+
+    it 'kind_of? is alias for is_a?' do
+      expect(run_ruby('"hi".kind_of?(String)')).to vm_true
+    end
+
+    it 'instance_of? true for exact class' do
+      expect(run_ruby('42.instance_of?(Integer)')).to vm_true
+    end
+
+    it 'instance_of? false for superclass' do
+      expect(run_ruby('42.instance_of?(Object)')).to vm_false
+    end
+
+    it 'class returns the class object' do
+      expect(run_ruby('42.class')).to vm_class(:Integer)
+    end
+
+    it 'respond_to? true for existing method' do
+      expect(run_ruby('42.respond_to?(:to_s)')).to vm_true
+    end
+
+    it 'respond_to? false for missing method' do
+      expect(run_ruby('42.respond_to?(:no_such_method)')).to vm_false
+    end
+  end
+
+  # ── to_s / inspect ───────────────────────────────────────────────────────────
+
+  describe 'to_s and inspect' do
+    it 'nil.to_s'     do expect(run_ruby('nil.to_s')).to vm_string('') end
+    it 'nil.inspect'  do expect(run_ruby('nil.inspect')).to vm_string('nil') end
+    it 'true.to_s'    do expect(run_ruby('true.to_s')).to vm_string('true') end
+    it 'false.to_s'   do expect(run_ruby('false.to_s')).to vm_string('false') end
+    it 'string.to_s'  do expect(run_ruby('"hi".to_s')).to vm_string('hi') end
+    it 'symbol.to_s'  do expect(run_ruby(':foo.to_s')).to vm_string('foo') end
+    it 'symbol.inspect' do expect(run_ruby(':foo.inspect')).to vm_string(':foo') end
+    it 'string.inspect' do expect(run_ruby('"hi".inspect')).to vm_string('"hi"') end
+  end
+
+  # ── String methods ───────────────────────────────────────────────────────────
+
+  describe 'String methods' do
+    it 'concatenation' do expect(run_ruby('"foo" + "bar"')).to vm_string('foobar') end
+    it 'length'        do expect(run_ruby('"hello".length')).to vm_int(5) end
+    it 'size alias'    do expect(run_ruby('"hello".size')).to vm_int(5) end
+    it 'to_i'          do expect(run_ruby('"42".to_i')).to vm_int(42) end
+  end
+
+  # ── Array methods ────────────────────────────────────────────────────────────
+
+  describe 'Array methods' do
+    it '[]'       do expect(run_ruby('[10, 20, 30][1]')).to vm_int(20) end
+    it '[]='      do expect(run_ruby('a = [1, 2, 3]; a[0] = 99; a[0]')).to vm_int(99) end
+    it 'push'     do expect(run_ruby('a = [1, 2]; a.push(3); a[2]')).to vm_int(3) end
+    it '<<'       do expect(run_ruby('a = [1, 2]; a << 3; a[2]')).to vm_int(3) end
+    it 'length'   do expect(run_ruby('[1, 2, 3].length')).to vm_int(3) end
+    it 'size'     do expect(run_ruby('[1, 2, 3].size')).to vm_int(3) end
+    it 'first'    do expect(run_ruby('[10, 20, 30].first')).to vm_int(10) end
+    it 'last'     do expect(run_ruby('[10, 20, 30].last')).to vm_int(30) end
+    it 'to_s'     do expect(run_ruby('[1, 2, 3].to_s')).to vm_string('[1, 2, 3]') end
+  end
+
+  # ── Hash methods ─────────────────────────────────────────────────────────────
+
+  describe 'Hash methods' do
+    it '[]='     do expect(run_ruby('h = {}; h[:a] = 1; h[:a]')).to vm_int(1) end
+    it 'size'    do expect(run_ruby('{a: 1, b: 2}.size')).to vm_int(2) end
+    it 'length'  do expect(run_ruby('{a: 1, b: 2}.length')).to vm_int(2) end
+    it 'key? true'  do expect(run_ruby('h = {a: 1}; h.key?(:a)')).to vm_true end
+    it 'key? false' do expect(run_ruby('h = {a: 1}; h.key?(:b)')).to vm_false end
+    it 'has_key?'   do expect(run_ruby('h = {a: 1}; h.has_key?(:a)')).to vm_true end
+    it 'include?'   do expect(run_ruby('h = {a: 1}; h.include?(:a)')).to vm_true end
+  end
+
+  # ── Kernel output ────────────────────────────────────────────────────────────
+
+  describe 'puts / print / p' do
+    it 'puts returns nil' do
+      expect(run_ruby('puts 42')).to vm_nil
+    end
+
+    it 'print returns nil' do
+      expect(run_ruby('print 42')).to vm_nil
+    end
+
+    it 'p with one arg returns the arg' do
+      expect(run_ruby('p 42')).to vm_int(42)
+    end
+
+    it 'puts outputs to stdout' do
+      expect { run_ruby('puts 42') }.to output("42\n").to_stdout
+    end
+
+    it 'print outputs without newline' do
+      expect { run_ruby('print "hi"') }.to output("hi").to_stdout
+    end
+
+    it 'p outputs inspect form' do
+      expect { run_ruby('p :foo') }.to output(":foo\n").to_stdout
+    end
+  end
 end
