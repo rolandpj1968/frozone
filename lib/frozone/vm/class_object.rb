@@ -8,8 +8,7 @@ module Frozone
       include Utils
 
       def initialize(name, namespace, superclass)
-        super(name, namespace, Core.class_class)
-
+        super(name, namespace, defined?(Core::CLASS_CLASS) ? Core::CLASS_CLASS : nil)
         @superclass = check_nil_or_type("superclass", superclass, ClassObject)
       end
 
@@ -19,9 +18,10 @@ module Frozone
 
       def to_s = "class(#{@name})"
 
-      # class "Class" circular dependency bootstrap band-aid - see core.rb too
+      # Called after CLASS_CLASS is defined to wire up the class pointer on bootstrap ClassObjects
       def patch_class_object
-        @class_object = Core.class_class
+        @class_object = Core::CLASS_CLASS
+        @eigenclass   = Core::CLASS_CLASS
       end
 
       def prepend_module(mod)

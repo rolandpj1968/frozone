@@ -137,6 +137,16 @@ module Frozone
             Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args)
           end
 
+        when Prism::ModuleNode
+          unless prism_node.constant_path.is_a?(Prism::ConstantReadNode)
+            raise "module defs with nested namespaced paths are not yet implemented"
+          end
+          unless prism_node.constant_path.name.is_a?(Symbol) and prism_node.constant_path.name.equal?(prism_node.name)
+            raise "Prism or RPJ or both are confused"
+          end
+          body_ast = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
+          Ast::ModuleDef.new(prism_node.name, prism_node.locals, body_ast)
+
         when Prism::ClassNode
           # Prism seems a bit weird - it successfully parses class defns where the class name can be an arbitrary expression
           #   prehaps looking to the future?

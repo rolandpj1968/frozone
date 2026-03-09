@@ -68,6 +68,14 @@ module Frozone
           receiver.dispatch(context, name.raw, args.raw, raw_kwargs)
         end
 
+        # Module
+        def module_include(_, receiver, mod)
+          raise "module_include: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
+          raise "module_include: mod must be a ModuleObject" unless mod.is_a?(ModuleObject)
+          receiver.add_module(mod)
+          receiver
+        end
+
         # Class
         def class_new(context, klass, args, kwargs) = klass.new_instance(context, args.raw, kwargs.raw)
 

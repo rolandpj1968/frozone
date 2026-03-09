@@ -38,7 +38,7 @@ module Frozone
         end
 
         context.scopes << class_constant
-        new_frame = Vm::Frame.new(context.frame.the_self, @locals, context.scopes)
+        new_frame = Vm::Frame.new(class_constant, @locals, context.scopes)
         context.push_frame(new_frame)
 
         begin

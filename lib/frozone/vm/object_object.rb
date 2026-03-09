@@ -1,8 +1,12 @@
 module Frozone
   module Vm
     class ObjectObject
+      @@bootstrapping = true
+
+      def self.end_bootstrap! = @@bootstrapping = false
+
       def initialize(class_object)
-        unless class_object.is_a?(ClassObject) || (class_object.nil? && Core.class_class.nil?)
+        unless @@bootstrapping || class_object.is_a?(ClassObject)
           raise "ObjectObject class_object must be a ClassObject"
         end
         @class_object = class_object

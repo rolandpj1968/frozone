@@ -50,6 +50,9 @@ module Frozone
       # Idempotent: safe to call multiple times (methods are simply redefined).
       def load_core
         core_path = File.expand_path("../../core/#{FROZONE_CORE_VERSION}", __dir__)
+        evaluate_file("#{core_path}/module.rb")
+        evaluate_file(File.expand_path("hierarchy.rb", __dir__))
+        ObjectObject.end_bootstrap!
         evaluate_file("#{core_path}/class.rb")
         evaluate_file("#{core_path}/basic_object.rb")
         evaluate_file("#{core_path}/object.rb")
