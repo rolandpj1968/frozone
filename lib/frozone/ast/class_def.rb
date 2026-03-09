@@ -39,6 +39,7 @@ module Frozone
         end
 
         context.scopes << class_constant
+        prev_visibility = class_constant.current_visibility
         class_constant.current_visibility = :public
         new_frame = Vm::Frame.new(class_constant, @locals, context.scopes)
         context.push_frame(new_frame)
@@ -48,6 +49,7 @@ module Frozone
         ensure
           context.pop_frame
           context.scopes.pop
+          class_constant.current_visibility = prev_visibility
         end
       end
     end

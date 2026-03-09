@@ -114,6 +114,7 @@ module Frozone
 
         top_level_scope = Core::OBJECT_CLASS
         top_level_object = ObjectObject.new(Core::OBJECT_CLASS)
+        Core::OBJECT_CLASS.current_visibility = :private
         setup_main(top_level_object)
 
         context = Context.new

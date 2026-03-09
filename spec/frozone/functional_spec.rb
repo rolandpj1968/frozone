@@ -1520,5 +1520,23 @@ RSpec.describe "Frozone VM functional" do
         self.toplevel_priv_noarg_xyz
       RUBY
     end
+
+    it 'reopening class Object uses public visibility inside body' do
+      expect(run_ruby(<<~RUBY)).to vm_symbol(:we_can_see_it)
+        class Object
+          def public_method_on_object_reopen_xyz = :we_can_see_it
+        end
+        self.public_method_on_object_reopen_xyz
+      RUBY
+    end
+
+    it 'top-level visibility is restored after reopening class Object' do
+      expect { run_ruby(<<~RUBY) }.to raise_error(/private method 'after_reopen_xyz'/)
+        private
+        class Object; end
+        def after_reopen_xyz; end
+        self.after_reopen_xyz
+      RUBY
+    end
   end
 end
