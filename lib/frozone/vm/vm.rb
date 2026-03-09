@@ -87,12 +87,11 @@ module Frozone
       private
 
       def evaluate_file(path)
-        prev_file = Fiber[:current_file]
-        Fiber[:current_file] = File.expand_path(path)
+        (Fiber[:file_stack] ||= []) << File.expand_path(path)
         begin
           evaluate(File.read(path))
         ensure
-          Fiber[:current_file] = prev_file
+          Fiber[:file_stack].pop
         end
       end
 

@@ -136,9 +136,9 @@ module Frozone
 
         def kernel_require_relative(_, _receiver, path_obj)
           rel = path_obj.raw
-          current = Fiber[:current_file]
-          raise "require_relative called outside of a file" if current.nil?
-          full_path = File.expand_path(rel, File.dirname(current))
+          stack = Fiber[:file_stack]
+          raise "require_relative called outside of a file" if stack.nil? || stack.empty?
+          full_path = File.expand_path(rel, File.dirname(stack.last))
           full_path += '.rb' unless full_path.end_with?('.rb')
           loaded = GLOBALS[:"$LOADED_FEATURES"]
           loaded_paths = loaded.raw.map(&:raw)
