@@ -1530,6 +1530,16 @@ RSpec.describe "Frozone VM functional" do
       RUBY
     end
 
+    it 'reopening a class always starts with public visibility even if closed with private active' do
+      expect(run_ruby(<<~RUBY)).to vm_int(1)
+        class ReopenVisTest; private; end
+        class ReopenVisTest
+          def visible; 1; end
+        end
+        ReopenVisTest.new.visible
+      RUBY
+    end
+
     it 'top-level visibility is restored after reopening class Object' do
       expect { run_ruby(<<~RUBY) }.to raise_error(/private method 'after_reopen_xyz'/)
         private
@@ -1537,6 +1547,108 @@ RSpec.describe "Frozone VM functional" do
         def after_reopen_xyz; end
         self.after_reopen_xyz
       RUBY
+    end
+  end
+
+  # ── break ────────────────────────────────────────────────────────────────────
+
+  describe 'break' do
+    it 'exits a while loop' do
+      expect(run_ruby('i = 0; while true; i += 1; break if i == 3; end; i')).to vm_int(3)
+    end
+
+    it 'returns break value from iterator' do
+      expect(run_ruby('[1,2,3].each { |x| break x * 10 if x == 2 }')).to vm_int(20)
+    end
+  end
+
+  # ── ||= and &&= ──────────────────────────────────────────────────────────────
+
+  describe '||= and &&=' do
+    it 'x ||= assigns when nil' do
+      expect(run_ruby('x = nil; x ||= 42; x')).to vm_int(42)
+    end
+
+    it 'x ||= skips when truthy' do
+      expect(run_ruby('x = 1; x ||= 42; x')).to vm_int(1)
+    end
+
+    it 'x &&= assigns when truthy' do
+      expect(run_ruby('x = 5; x &&= x + 1; x')).to vm_int(6)
+    end
+
+    it 'x &&= skips when nil' do
+      expect(run_ruby('x = nil; x &&= 42; x')).to vm_nil
+    end
+  end
+
+  # ── A::B constant path ────────────────────────────────────────────────────────
+
+  describe 'A::B constant path' do
+    it 'reads a nested constant' do
+      expect(run_ruby('module CPTest; X = 42; end; CPTest::X')).to vm_int(42)
+    end
+  end
+
+  # ── class variables ───────────────────────────────────────────────────────────
+
+  describe 'class variables' do
+    it 'stores and reads @@var' do
+      expect(run_ruby(<<~RUBY)).to vm_int(99)
+        class CVTest
+          @@x = 99
+          def x; @@x; end
+        end
+        CVTest.new.x
+      RUBY
+    end
+
+    it 'shares @@var across instances' do
+      expect(run_ruby(<<~RUBY)).to vm_int(2)
+        class CVCountTest
+          @@count = 0
+          def initialize; @@count += 1; end
+          def count; @@count; end
+        end
+        CVCountTest.new; CVCountTest.new.count
+      RUBY
+    end
+  end
+
+  # ── &block parameter ──────────────────────────────────────────────────────────
+
+  describe '&block parameter' do
+    it 'captures block as proc' do
+      expect(run_ruby(<<~RUBY)).to vm_int(10)
+        def call_it(&block)
+          block.call(10)
+        end
+        call_it { |x| x }
+      RUBY
+    end
+  end
+
+  # ── Range ─────────────────────────────────────────────────────────────────────
+
+  describe 'Range' do
+    it 'creates an inclusive range' do
+      expect(run_ruby('r = 1..5; r.include?(3)')).to vm_true
+    end
+
+    it 'creates an exclusive range' do
+      expect(run_ruby('r = 1...5; r.include?(5)')).to vm_false
+    end
+
+    it 'iterates with each' do
+      expect(run_ruby('s = 0; (1..4).each { |i| s += i }; s')).to vm_int(10)
+    end
+
+    it 'converts to array' do
+      expect(run_ruby('(1..3).to_a')).to vm_array([1, 2, 3])
+    end
+
+    it 'size' do
+      expect(run_ruby('(1..5).size')).to vm_int(5)
     end
   end
 end

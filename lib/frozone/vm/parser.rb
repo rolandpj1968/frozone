@@ -100,7 +100,7 @@ module Frozone
         unless prism_node.parameters.nil?
           raise "Prism::DefNode.parameters is not a Prism::ParametersNode" unless prism_node.parameters.is_a?(Prism::ParametersNode)
           parameters = prism_node.parameters
-          raise "block param not yet supported" unless parameters.block.nil?
+          block_param = parameters.block.nil? ? nil : parameters.block.name
           required_params = parameters.requireds.map do |required|
             raise "required parameter is not a Prism::RequiredParameterNode" unless required.is_a?(Prism::RequiredParameterNode)
             required.name
@@ -132,7 +132,7 @@ module Frozone
             kw_rest_param = parameters.keyword_rest.name
           end
         end
-        [required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param]
+        [required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param]
       end
 
       def transform(prism_node)
@@ -335,12 +335,12 @@ module Frozone
 
         when Prism::DefNode
           required_params, optional_params, rest_param, post_params,
-            required_kw_params, optional_kw_params, kw_rest_param = parse_method_params(prism_node)
+            required_kw_params, optional_kw_params, kw_rest_param, block_param = parse_method_params(prism_node)
 
           body_ast = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
 
           receiver_node = prism_node.receiver.nil? ? nil : transform(prism_node.receiver)
-          Ast::MethodDef.new(prism_node.name, receiver_node, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, prism_node.locals, body_ast)
+          Ast::MethodDef.new(prism_node.name, receiver_node, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, prism_node.locals, body_ast)
 
         when Prism::ReturnNode
           value_node =
@@ -395,6 +395,123 @@ module Frozone
           raise "new_name #{prism_node.new_name.class} must be a Prism::SymbolNode" unless prism_node.new_name.is_a?(Prism::SymbolNode)
           raise "old_name #{prism_node.old_name.class} must be a Prism::SymbolNode" unless prism_node.old_name.is_a?(Prism::SymbolNode)
           Ast::MethodAlias.new(prism_node.new_name.unescaped.to_sym, prism_node.old_name.unescaped.to_sym)
+
+        when Prism::BreakNode
+          value_node = prism_node.arguments.nil? || prism_node.arguments.arguments.empty? ? nil : transform(prism_node.arguments.arguments.first)
+          Ast::Break.new(value_node)
+
+        when Prism::LocalVariableOrWriteNode
+          read  = Ast::LocalVariableRead.new(prism_node.name, prism_node.depth)
+          write = Ast::LocalVariableWrite.new(prism_node.name, prism_node.depth, transform(prism_node.value))
+          Ast::Or.new(read, write)
+
+        when Prism::LocalVariableAndWriteNode
+          read  = Ast::LocalVariableRead.new(prism_node.name, prism_node.depth)
+          write = Ast::LocalVariableWrite.new(prism_node.name, prism_node.depth, transform(prism_node.value))
+          Ast::And.new(read, write)
+
+        when Prism::InstanceVariableOrWriteNode
+          read  = Ast::InstanceVariableRead.new(prism_node.name)
+          write = Ast::InstanceVariableWrite.new(prism_node.name, transform(prism_node.value))
+          Ast::Or.new(read, write)
+
+        when Prism::InstanceVariableAndWriteNode
+          read  = Ast::InstanceVariableRead.new(prism_node.name)
+          write = Ast::InstanceVariableWrite.new(prism_node.name, transform(prism_node.value))
+          Ast::And.new(read, write)
+
+        when Prism::GlobalVariableOrWriteNode
+          read  = Ast::GlobalVariableRead.new(prism_node.name)
+          write = Ast::GlobalVariableWrite.new(prism_node.name, transform(prism_node.value))
+          Ast::Or.new(read, write)
+
+        when Prism::GlobalVariableAndWriteNode
+          read  = Ast::GlobalVariableRead.new(prism_node.name)
+          write = Ast::GlobalVariableWrite.new(prism_node.name, transform(prism_node.value))
+          Ast::And.new(read, write)
+
+        when Prism::ConstantOrWriteNode
+          read  = Ast::ConstantRead.new(prism_node.name)
+          write = Ast::ConstantWrite.new(prism_node.name, transform(prism_node.value))
+          Ast::Or.new(read, write)
+
+        when Prism::ConstantAndWriteNode
+          read  = Ast::ConstantRead.new(prism_node.name)
+          write = Ast::ConstantWrite.new(prism_node.name, transform(prism_node.value))
+          Ast::And.new(read, write)
+
+        when Prism::ConstantPathNode
+          parent_node = transform(prism_node.parent)
+          Ast::ConstantPath.new(parent_node, prism_node.child.name)
+
+        when Prism::ConstantPathWriteNode
+          parent_node = transform(prism_node.target.parent)
+          Ast::ConstantPathWrite.new(parent_node, prism_node.target.child.name, transform(prism_node.value))
+
+        when Prism::ConstantPathOrWriteNode
+          read  = Ast::ConstantPath.new(transform(prism_node.target.parent), prism_node.target.child.name)
+          write = Ast::ConstantPathWrite.new(transform(prism_node.target.parent), prism_node.target.child.name, transform(prism_node.value))
+          Ast::Or.new(read, write)
+
+        when Prism::ClassVariableReadNode
+          Ast::ClassVariableRead.new(prism_node.name)
+
+        when Prism::ClassVariableWriteNode
+          Ast::ClassVariableWrite.new(prism_node.name, transform(prism_node.value))
+
+        when Prism::ClassVariableOperatorWriteNode
+          read = Ast::ClassVariableRead.new(prism_node.name)
+          rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
+          Ast::ClassVariableWrite.new(prism_node.name, rhs)
+
+        when Prism::ClassVariableOrWriteNode
+          read  = Ast::ClassVariableRead.new(prism_node.name)
+          write = Ast::ClassVariableWrite.new(prism_node.name, transform(prism_node.value))
+          Ast::Or.new(read, write)
+
+        when Prism::ClassVariableAndWriteNode
+          read  = Ast::ClassVariableRead.new(prism_node.name)
+          write = Ast::ClassVariableWrite.new(prism_node.name, transform(prism_node.value))
+          Ast::And.new(read, write)
+
+        when Prism::IndexOperatorWriteNode
+          receiver_node = transform(prism_node.receiver)
+          index_args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
+          val_node = transform(prism_node.value)
+          read = Ast::MethodCall.new(:[], receiver_node, index_args, {})
+          rhs  = Ast::MethodCall.new(prism_node.operator, read, [val_node], {})
+          Ast::MethodCall.new(:[]=, receiver_node, index_args + [rhs], {})
+
+        when Prism::IndexOrWriteNode
+          receiver_node = transform(prism_node.receiver)
+          index_args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
+          val_node = transform(prism_node.value)
+          read  = Ast::MethodCall.new(:[], receiver_node, index_args, {})
+          write = Ast::MethodCall.new(:[]=, receiver_node, index_args + [val_node], {})
+          Ast::Or.new(read, write)
+
+        when Prism::IndexAndWriteNode
+          receiver_node = transform(prism_node.receiver)
+          index_args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
+          val_node = transform(prism_node.value)
+          read  = Ast::MethodCall.new(:[], receiver_node, index_args, {})
+          write = Ast::MethodCall.new(:[]=, receiver_node, index_args + [val_node], {})
+          Ast::And.new(read, write)
+
+        when Prism::InterpolatedSymbolNode
+          parts = prism_node.parts.map do |part|
+            case part
+            when Prism::StringNode           then Ast::StringLiteral.from(part.unescaped)
+            when Prism::EmbeddedStatementsNode then transform(part.statements)
+            else raise "Unexpected interpolated symbol part type #{part.class}"
+            end
+          end
+          Ast::MethodCall.new(:to_sym, Ast::InterpolatedString.new(parts), [], {})
+
+        when Prism::RangeNode
+          begin_node = prism_node.left.nil? ? nil : transform(prism_node.left)
+          end_node   = prism_node.right.nil? ? nil : transform(prism_node.right)
+          Ast::RangeLiteral.new(begin_node, end_node, prism_node.exclude_end?)
 
         else
           raise "Unexpected Prism node type #{prism_node.class}"

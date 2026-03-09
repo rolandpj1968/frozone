@@ -19,13 +19,13 @@ module VmTestHelpers
   # Build a minimal Method object. Body defaults to NilLiteral (returns NIL).
   def make_method(scope, name, body: nil, required_params: [], optional_params: [],
                   rest_param: nil, post_params: [], required_kw_params: [],
-                  optional_kw_params: [], kw_rest_param: nil, locals: [])
+                  optional_kw_params: [], kw_rest_param: nil, block_param: nil, locals: [])
     body ||= Frozone::Ast::NilLiteral::NIL
     Frozone::Vm::Method.new(
       [scope], name,
       required_params, optional_params, rest_param, post_params,
       required_kw_params, optional_kw_params, kw_rest_param,
-      locals, body
+      block_param, locals, body
     )
   end
 end

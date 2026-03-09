@@ -33,6 +33,9 @@ module Frozone
           end
         rescue Ast::NextException => e
           e.value
+        rescue Ast::BreakException => e
+          e.from_block = true
+          raise
         ensure
           context.pop_frame
         end

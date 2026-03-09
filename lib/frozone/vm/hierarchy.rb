@@ -39,3 +39,6 @@ end
 
 class Proc < Object
 end
+
+class Range < Object
+end

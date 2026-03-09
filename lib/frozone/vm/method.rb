@@ -3,13 +3,14 @@ require_relative '../ast/node'
 require_relative 'frame'
 require_relative 'array_object'
 require_relative 'symbol_object'
+require_relative 'proc_object'
 
 module Frozone
   module Vm
     class Method
       include Utils
 
-      def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, locals, body)
+      def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body)
         @scopes = self.class.unique_scopes(check_array_type("scopes", scopes, ModuleObject))
         @name = check_type("name", name, Symbol)
 
@@ -22,6 +23,8 @@ module Frozone
         @required_kw_params = check_array_type("required_kw_params", required_kw_params, Symbol)
         @optional_kw_params = check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, Symbol, Ast::Node)
         @kw_rest_param = check_nil_or_type("kw_rest_param", kw_rest_param, Symbol)
+
+        @block_param = check_nil_or_type("block_param", block_param, Symbol)
 
         @locals = check_array_type("locals", locals, Symbol)
         @body = check_type("body", body, Ast::Node)
@@ -108,11 +111,18 @@ module Frozone
         populate_params(context, new_frame, args)
         populate_kw_params(context, new_frame, kw_args)
 
+        if @block_param
+          proc_obj = block ? ProcObject.new(block) : NilObject::NIL
+          new_frame.set_local(@block_param, proc_obj)
+        end
+
         context.push_frame(new_frame)
         begin
           @body.evaluate(context)
         rescue Ast::ReturnException => e
           raise e unless e.method_frame.equal?(new_frame)
+          e.value
+        rescue Ast::BreakException => e
           e.value
         ensure
           context.pop_frame
@@ -123,7 +133,7 @@ module Frozone
       def to_s = "method(#{@scopes.map(&:to_s)}, :#{@name}, #{@required_params} -> #{@body})"
 
       def alias_as(name)
-        Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @locals, @body)
+        Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
       end
 
       # TODO - thread-safety

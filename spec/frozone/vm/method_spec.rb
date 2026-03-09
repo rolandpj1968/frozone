@@ -17,19 +17,19 @@ RSpec.describe Frozone::Vm::Method do
 
     it 'raises when scopes is not an array of ModuleObjects' do
       expect {
-        described_class.new(["bad"], :test, [], [], nil, [], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
+        described_class.new(["bad"], :test, [], [], nil, [], [], [], nil, nil, [], Frozone::Ast::NilLiteral::NIL)
       }.to raise_error(RuntimeError)
     end
 
     it 'raises when name is not a Symbol' do
       expect {
-        described_class.new([klass], "not_symbol", [], [], nil, [], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
+        described_class.new([klass], "not_symbol", [], [], nil, [], [], [], nil, nil, [], Frozone::Ast::NilLiteral::NIL)
       }.to raise_error(RuntimeError)
     end
 
     it 'raises when post_params are given without a rest_param' do
       expect {
-        described_class.new([klass], :test, [], [], nil, [:post], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
+        described_class.new([klass], :test, [], [], nil, [:post], [], [], nil, nil, [], Frozone::Ast::NilLiteral::NIL)
       }.to raise_error(RuntimeError, /post_params/)
     end
   end

@@ -42,7 +42,7 @@ module Frozone
 
     class BeginRescue < Node
       # Control-flow exceptions must never be intercepted by user rescue clauses.
-      CONTROL_FLOW = [ReturnException, NextException, RedoException].freeze
+      CONTROL_FLOW = [ReturnException, NextException, RedoException, BreakException].freeze
 
       def initialize(body, rescue_clauses, else_node, ensure_node)
         @body           = check_type("body", body, Node)

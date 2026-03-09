@@ -107,27 +107,27 @@ RSpec.describe Frozone::Ast::MethodDef do
   describe '#initialize' do
     it 'accepts a valid method definition' do
       expect {
-        described_class.new(:foo, nil, [], [], nil, [], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
+        described_class.new(:foo, nil, [], [], nil, [], [], [], nil, nil, [], Frozone::Ast::NilLiteral::NIL)
       }.not_to raise_error
     end
 
     it 'raises when name is not a Symbol' do
       expect {
-        described_class.new("foo", nil, [], [], nil, [], [], [], nil, [], Frozone::Ast::NilLiteral::NIL)
+        described_class.new("foo", nil, [], [], nil, [], [], [], nil, nil, [], Frozone::Ast::NilLiteral::NIL)
       }.to raise_error(RuntimeError)
     end
   end
 
   describe '#evaluate' do
     it 'defines a method on the current scope' do
-      node = described_class.new(:my_method, nil, [], [], nil, [], [], [], nil, [],
+      node = described_class.new(:my_method, nil, [], [], nil, [], [], [], nil, nil, [],
                                  Frozone::Ast::IntegerLiteral.from(99))
       node.evaluate(ctx)
       expect(scope.get_method(:my_method)).to be_a(Frozone::Vm::Method)
     end
 
     it 'returns a SymbolObject naming the method' do
-      node = described_class.new(:defined_method, nil, [], [], nil, [], [], [], nil, [],
+      node = described_class.new(:defined_method, nil, [], [], nil, [], [], [], nil, nil, [],
                                  Frozone::Ast::NilLiteral::NIL)
       result = node.evaluate(ctx)
       expect(result).to be_a(Frozone::Vm::SymbolObject)
@@ -135,7 +135,7 @@ RSpec.describe Frozone::Ast::MethodDef do
     end
 
     it 'defined method is callable and returns its body result' do
-      node = described_class.new(:calc, nil, [], [], nil, [], [], [], nil, [],
+      node = described_class.new(:calc, nil, [], [], nil, [], [], [], nil, nil, [],
                                  Frozone::Ast::IntegerLiteral.from(7))
       node.evaluate(ctx)
       method = scope.get_method(:calc)
@@ -230,7 +230,7 @@ RSpec.describe Frozone::Ast::ClassDef do
         :BodyTestClass,
         [],
         nil,
-        Frozone::Ast::MethodDef.new(:inner_method, nil, [], [], nil, [], [], [], nil, [],
+        Frozone::Ast::MethodDef.new(:inner_method, nil, [], [], nil, [], [], [], nil, nil, [],
                                     Frozone::Ast::IntegerLiteral.from(55))
       )
       method_def_node.evaluate(ctx)

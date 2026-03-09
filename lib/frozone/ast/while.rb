@@ -20,6 +20,9 @@ module Frozone
             next
           rescue RedoException
             redo
+          rescue BreakException => e
+            raise if e.from_block
+            return e.value
           end
         end
         Vm::NilObject::NIL

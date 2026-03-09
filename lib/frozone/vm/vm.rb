@@ -9,6 +9,7 @@ require_relative 'frame'
 require_relative 'method'
 
 require_relative 'nil_object'
+require_relative 'range_object'
 
 module Frozone
   module Vm
@@ -68,6 +69,7 @@ module Frozone
         evaluate_file("#{core_path}/array.rb")
         evaluate_file("#{core_path}/hash.rb")
         evaluate_file("#{core_path}/proc.rb")
+        evaluate_file("#{core_path}/range.rb")
         init_globals
       end
 
@@ -75,7 +77,7 @@ module Frozone
       def setup_main(main_obj)
         { private: :toplevel_private, public: :toplevel_public, protected: :toplevel_protected }.each do |name, intrinsic|
           body = Ast::IntrinsicCall.new(intrinsic, [Ast::SelfLiteral::SELF, Ast::LocalVariableRead.new(:names, 0)])
-          m = Method.new([Core::OBJECT_CLASS], name, [], [], :names, [], [], [], nil, [:names], body)
+          m = Method.new([Core::OBJECT_CLASS], name, [], [], :names, [], [], [], nil, nil, [:names], body)
           main_obj.define_singleton_method(name, m)
         end
       end

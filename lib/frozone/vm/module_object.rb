@@ -15,6 +15,7 @@ module Frozone
         @namespace = namespace
         @methods = {}
         @constants = {}
+        @class_variables = {}
         @current_visibility = :public
       end
 
@@ -49,6 +50,32 @@ module Frozone
         @methods[name]
       end
       
+      attr_reader :class_variables
+
+      def get_class_var(name)
+        # walk superclass chain
+        c = self
+        while c
+          return c.class_variables[name] if c.class_variables.key?(name)
+          c = c.is_a?(ClassObject) ? c.superclass : nil
+        end
+        nil
+      end
+
+      def set_class_var(name, value)
+        # write to the class that owns it, or this class if new
+        c = self
+        while c
+          if c.class_variables.key?(name)
+            c.class_variables[name] = value
+            return value
+          end
+          c = c.is_a?(ClassObject) ? c.superclass : nil
+        end
+        self.class_variables[name] = value
+        value
+      end
+
       def set_constant(name, value)
         raise "name must be a Symbol" unless name.is_a?(Symbol)
 

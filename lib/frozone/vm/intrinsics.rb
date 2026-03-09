@@ -96,7 +96,7 @@ module Frozone
             name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
             ivar = :"@#{name}"
             body = Ast::InstanceVariableRead.new(ivar)
-            m = Method.new([receiver], name, [], [], nil, [], [], [], nil, [], body)
+            m = Method.new([receiver], name, [], [], nil, [], [], [], nil, nil, [], body)
             receiver.set_method(name, m)
           end
           NilObject::NIL
@@ -109,7 +109,7 @@ module Frozone
             setter = :"#{name}="
             ivar = :"@#{name}"
             body = Ast::InstanceVariableWrite.new(ivar, Ast::LocalVariableRead.new(:value, 0))
-            m = Method.new([receiver], setter, [:value], [], nil, [], [], [], nil, [], body)
+            m = Method.new([receiver], setter, [:value], [], nil, [], [], [], nil, nil, [], body)
             receiver.set_method(setter, m)
           end
           NilObject::NIL
@@ -304,6 +304,57 @@ module Frozone
           return bool_object_for(false) unless v1.raw.length == v2.raw.length
           result = v1.raw.zip(v2.raw).all? { |a, b| a.dispatch(context, :eql?, [b], {}).truthy? }
           bool_object_for(result)
+        end
+
+        # Range
+        def range_each(context, range, block)
+          raise "Range#each requires a block" if block.nil? || block.is_a?(NilObject)
+          raise "Range#each only supports Integer ranges" unless range.begin_val.is_a?(IntegerObject)
+          b = range.begin_val.raw
+          e = range.end_val.is_a?(NilObject) ? nil : range.end_val.raw
+          i = b
+          while e.nil? || (range.exclusive? ? i < e : i <= e)
+            block.call(context, [IntegerObject.new(i)])
+            i += 1
+          end
+          range
+        end
+
+        def range_to_a(context, range)
+          raise "Range#to_a only supports Integer ranges" unless range.begin_val.is_a?(IntegerObject)
+          b = range.begin_val.raw
+          e = range.end_val.is_a?(NilObject) ? nil : range.end_val.raw
+          return ArrayObject.new([]) if e.nil?
+          arr = (range.exclusive? ? b...e : b..e).map { |i| IntegerObject.new(i) }
+          ArrayObject.new(arr)
+        end
+
+        def range_include(context, range, val)
+          b = range.begin_val
+          e = range.end_val
+          return FalseObject::FALSE if b.is_a?(NilObject) && e.is_a?(NilObject)
+          above_begin = b.is_a?(NilObject) || b.dispatch(context, :<=, [val], {}).truthy?
+          end_op      = range.exclusive? ? :< : :<=
+          below_end   = e.is_a?(NilObject) || val.dispatch(context, end_op, [e], {}).truthy?
+          bool_object_for(above_begin && below_end)
+        end
+
+        def range_size(context, range)
+          return NilObject::NIL unless range.begin_val.is_a?(IntegerObject) && range.end_val.is_a?(IntegerObject)
+          b = range.begin_val.raw
+          e = range.end_val.raw
+          size = range.exclusive? ? [e - b, 0].max : [e - b + 1, 0].max
+          IntegerObject.new(size)
+        end
+
+        def range_begin(_, range) = range.begin_val
+        def range_end(_, range)   = range.end_val
+        def range_exclude_end(_, range) = bool_object_for(range.exclusive?)
+
+        def range_to_s(context, range)
+          b = range.begin_val.dispatch(context, :inspect, [], {}).raw
+          e = range.end_val.dispatch(context, :inspect, [], {}).raw
+          StringObject.new("#{b}#{range.exclusive? ? '...' : '..'}#{e}")
         end
 
         # Hash
