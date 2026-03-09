@@ -14,12 +14,8 @@ module Frozone
         @post_params = check_array_type("post_params", post_params, Symbol)
         raise "post_params but no rest_param" if rest_param.nil? && post_params.any?
 
-        @required_kw_params =
-          check_array_type("required_kw_params", required_kw_params, Symbol).
-            map { |s| Vm::SymbolObject.from(s) }
-        @optional_kw_params =
-          check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, Symbol, Ast::Node).
-            map { |s, n| [Vm::SymbolObject.from(s), n] }
+        @required_kw_params = check_array_type("required_kw_params", required_kw_params, Symbol)
+        @optional_kw_params = check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, Symbol, Ast::Node)
         @kw_rest_param = check_nil_or_type("kw_rest_param", kw_rest_param, Symbol)
 
         @locals = check_array_type("locals", locals, Symbol)

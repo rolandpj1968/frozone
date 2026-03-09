@@ -6,12 +6,8 @@ RSpec.describe Frozone::Ast::InstanceVariableRead do
   let(:ctx)   { make_context(the_self: obj) }
 
   describe '#initialize' do
-    it 'accepts a SymbolObject name' do
-      expect { described_class.new(sym(:@x)) }.not_to raise_error
-    end
-
-    it 'raises when name is a raw Symbol' do
-      expect { described_class.new(:@x) }.to raise_error(RuntimeError)
+    it 'accepts a Symbol name' do
+      expect { described_class.new(:@x) }.not_to raise_error
     end
 
     it 'raises when name is a String' do
@@ -52,16 +48,12 @@ RSpec.describe Frozone::Ast::InstanceVariableWrite do
   let(:ctx)   { make_context(the_self: obj) }
 
   describe '#initialize' do
-    it 'accepts a SymbolObject name and value Node' do
-      expect { described_class.new(sym(:@x), Frozone::Ast::NilLiteral::NIL) }.not_to raise_error
-    end
-
-    it 'raises when name is a raw Symbol' do
-      expect { described_class.new(:@x, Frozone::Ast::NilLiteral::NIL) }.to raise_error(RuntimeError)
+    it 'accepts a Symbol name and value Node' do
+      expect { described_class.new(:@x, Frozone::Ast::NilLiteral::NIL) }.not_to raise_error
     end
 
     it 'raises when value_node is not a Node' do
-      expect { described_class.new(sym(:@x), "bad") }.to raise_error(RuntimeError)
+      expect { described_class.new(:@x, "bad") }.to raise_error(RuntimeError)
     end
   end
 

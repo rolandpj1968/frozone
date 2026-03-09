@@ -2,6 +2,8 @@
 require_relative '../../lib/frozone/vm/vm'
 
 module VmTestHelpers
+  def sym(s) = s
+
   # Build a minimal evaluation context with one frame and the given scope chain.
   # Defaults to [OBJECT_CLASS] as the scope chain.
   def make_context(the_self: nil, locals: [], scopes: nil)

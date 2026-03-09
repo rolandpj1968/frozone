@@ -31,14 +31,14 @@ module Frozone
         @eigenclass.lookup_method(name)
       end
 
-      # Shared dispatch: look up and invoke a method on self by SymbolObject name.
+      # Shared dispatch: look up and invoke a method on self by Symbol name.
       # Falls back to method_missing if the method is not found.
       def dispatch(context, name, args, kw_args)
         method = lookup_instance_method(name)
         return method.invoke(context, self, args, kw_args) unless method.nil?
 
-        mm = lookup_instance_method(SymbolObject.from(:method_missing))
-        raise "BUG: method_missing not defined on #{@class_object.name.raw}" if mm.nil?
+        mm = lookup_instance_method(:method_missing)
+        raise "BUG: method_missing not defined on #{@class_object.name}" if mm.nil?
         mm.invoke(context, self, [name] + args, kw_args)
       end
 

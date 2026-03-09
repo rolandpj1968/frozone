@@ -93,14 +93,14 @@ RSpec.describe Frozone::Vm::Intrinsics do
 
     it 'raises with the method name and class name in the message' do
       expect {
-        described_class.basic_object_method_missing(real_ctx, obj, sym(:no_such), empty_args, empty_kwargs)
+        described_class.basic_object_method_missing(real_ctx, obj, :no_such, empty_args, empty_kwargs)
       }.to raise_error(RuntimeError, /undefined method 'no_such' for an instance of Object/)
     end
 
-    it 'raises when name is not a SymbolObject' do
+    it 'raises when name is not a Symbol' do
       expect {
-        described_class.basic_object_method_missing(real_ctx, obj, :no_such, empty_args, empty_kwargs)
-      }.to raise_error(RuntimeError, /SymbolObject/)
+        described_class.basic_object_method_missing(real_ctx, obj, "no_such", empty_args, empty_kwargs)
+      }.to raise_error(RuntimeError, /must be a Symbol/)
     end
   end
 
@@ -111,9 +111,9 @@ RSpec.describe Frozone::Vm::Intrinsics do
 
     it 'dispatches a method by SymbolObject name' do
       m = make_method(klass, :greet, body: Frozone::Ast::IntegerLiteral.from(42))
-      klass.set_method(sym(:greet), m)
+      klass.set_method(:greet, m)
       result = described_class.basic_object___send__(
-        real_ctx, obj, sym(:greet),
+        real_ctx, obj, Frozone::Vm::SymbolObject.from(:greet),
         Frozone::Vm::ArrayObject.new([]),
         Frozone::Vm::HashObject.new({})
       )
@@ -121,11 +121,11 @@ RSpec.describe Frozone::Vm::Intrinsics do
     end
 
     it 'passes positional args through' do
-      m = make_method(klass, :echo, body: Frozone::Ast::LocalVariableRead.new(sym(:x), 0),
+      m = make_method(klass, :echo, body: Frozone::Ast::LocalVariableRead.new(:x, 0),
                       required_params: [:x])
-      klass.set_method(sym(:echo), m)
+      klass.set_method(:echo, m)
       result = described_class.basic_object___send__(
-        real_ctx, obj, sym(:echo),
+        real_ctx, obj, Frozone::Vm::SymbolObject.from(:echo),
         Frozone::Vm::ArrayObject.new([Frozone::Vm::IntegerObject.new(7)]),
         Frozone::Vm::HashObject.new({})
       )
@@ -141,7 +141,7 @@ RSpec.describe Frozone::Vm::Intrinsics do
 
     it 'raises when method is not found' do
       expect {
-        described_class.basic_object___send__(real_ctx, obj, sym(:no_such_method_zz),
+        described_class.basic_object___send__(real_ctx, obj, Frozone::Vm::SymbolObject.from(:no_such_method_zz),
           Frozone::Vm::ArrayObject.new([]), Frozone::Vm::HashObject.new({}))
       }.to raise_error(RuntimeError, /undefined method/)
     end

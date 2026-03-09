@@ -23,7 +23,7 @@ module Frozone
           end
 
         args = @arg_nodes.map { |p| p.evaluate(context) }
-        kw_args = @kw_arg_nodes.to_h { |kw_node, value_node| [kw_node.evaluate(context), value_node.evaluate(context)] }
+        kw_args = @kw_arg_nodes.to_h { |kw_node, value_node| [kw_node.evaluate(context).raw, value_node.evaluate(context)] }
 
         receiver.dispatch(context, @name, args, kw_args)
       end

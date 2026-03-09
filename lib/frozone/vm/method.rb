@@ -19,8 +19,8 @@ module Frozone
         @post_params = check_array_type("post_params", post_params, Symbol)
         raise "post_params but no rest_param" if rest_param.nil? && post_params.any?
 
-        @required_kw_params = check_array_type("required_kw_params", required_kw_params, SymbolObject)
-        @optional_kw_params = check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, SymbolObject, Ast::Node)
+        @required_kw_params = check_array_type("required_kw_params", required_kw_params, Symbol)
+        @optional_kw_params = check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, Symbol, Ast::Node)
         @kw_rest_param = check_nil_or_type("kw_rest_param", kw_rest_param, Symbol)
 
         @locals = check_array_type("locals", locals, Symbol)
@@ -72,18 +72,18 @@ module Frozone
       def populate_kw_params(context, new_frame, kw_args)
         @required_kw_params.each do |kw|
           # TODO - this is a real runtime error
-          raise "missing keyword: #{kw.raw.inspect}" unless kw_args.key?(kw)
-          new_frame.set_local(kw.raw, kw_args.delete(kw))
+          raise "missing keyword: #{kw.inspect}" unless kw_args.key?(kw)
+          new_frame.set_local(kw, kw_args.delete(kw))
         end
 
         @optional_kw_params.each do |kw, value_node|
-          value = 
+          value =
             if kw_args.key?(kw)
               kw_args.delete(kw)
             else
               value_node.evaluate(context)
             end
-          new_frame.set_local(kw.raw, value)
+          new_frame.set_local(kw, value)
         end
 
         if @kw_rest_param.nil?

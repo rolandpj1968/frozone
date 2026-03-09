@@ -6,7 +6,7 @@ RSpec.describe Frozone::Vm::Method do
   let(:ctx)      { make_context }
 
   def int(n) = Frozone::Vm::IntegerObject.new(n)
-  def sym(s) = Frozone::Vm::SymbolObject.from(s)
+  def sym(s) = s
   def local(name) = Frozone::Ast::LocalVariableRead.new(name, 0)
   def lit(n) = Frozone::Ast::IntegerLiteral.from(n)
 
