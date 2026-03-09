@@ -77,6 +77,16 @@ module Frozone
             prism_node.consequent.nil? ? nil : transform(prism_node.consequent)
           )
 
+        when Prism::WhileNode
+          raise "begin..end while not yet supported" if prism_node.begin_modifier?
+          body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
+          Ast::While.new(transform(prism_node.predicate), body)
+
+        when Prism::UntilNode
+          raise "begin..end until not yet supported" if prism_node.begin_modifier?
+          body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
+          Ast::Until.new(transform(prism_node.predicate), body)
+
         when Prism::ElseNode
           transform(prism_node.statements)
 
