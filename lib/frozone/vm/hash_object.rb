@@ -5,7 +5,7 @@ module Frozone
   module Vm
     class HashObject < ObjectObject
       # Wrapper to call the real #hash and #eql? methods on Frozone objects.
-      # Used by the wrapped_elements hash for VM-correct key lookup.
+      # Keys are always stored wrapped so mutations stay consistent.
       class KeyWrapper
         def initialize(key)
           @key = key
@@ -22,24 +22,20 @@ module Frozone
 
         super(Core::HASH_CLASS)
 
-        @elements = elements
+        @elements = elements.to_h { |k, v| [wrap(k), v] }
       end
 
-      # Returns the underlying Hash with original VM-object keys.
-      def raw = @elements
+      # Returns a Hash with the original VM-object keys (unwrapped).
+      def raw = @elements.transform_keys(&:unwrap)
 
-      # VM-correct key lookup using KeyWrapper dispatch (requires Fiber[:context]).
-      def [](key) = wrapped_elements[wrap(key)]
+      # VM-correct key lookup via KeyWrapper dispatch (requires Fiber[:context]).
+      def [](key) = @elements[wrap(key)]
 
-      def to_s = "{#{@elements.map { |k, v| "#{k} => #{v}"}.join(', ')}}"
+      def to_s = "{#{@elements.map { |k, v| "#{k.unwrap} => #{v}"}.join(', ')}}"
 
       private
 
       def wrap(key) = KeyWrapper.new(key)
-
-      def wrapped_elements
-        @wrapped_elements ||= @elements.to_h { |k, v| [wrap(k), v] }
-      end
     end
   end
 end
