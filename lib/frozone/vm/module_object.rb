@@ -21,6 +21,19 @@ module Frozone
 
       def to_s = "module #{@name}"
 
+      def prepends = @prepends || []
+      def modules  = @modules  || []
+
+      def prepend_module(mod)
+        @prepends ||= []
+        @prepends << mod
+      end
+
+      def add_module(mod)
+        @modules ||= []
+        @modules << mod
+      end
+
       def set_method(name, method)
         raise "method must be an Method" unless method.is_a?(Method)
         # TODO thread safety

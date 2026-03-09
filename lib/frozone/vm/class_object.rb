@@ -13,8 +13,6 @@ module Frozone
       end
 
       def superclass = @superclass
-      def prepends = @prepends || []
-      def modules = @modules || []
 
       def to_s = "class(#{@name})"
 
@@ -22,16 +20,6 @@ module Frozone
       def patch_class_object
         @class_object = Core::CLASS_CLASS
         @eigenclass   = Core::CLASS_CLASS
-      end
-
-      def prepend_module(mod)
-        @prepends ||= []
-        @prepends << mod
-      end
-
-      def add_module(mod)
-        @modules ||= []
-        @modules << mod
       end
 
       # TODO &block

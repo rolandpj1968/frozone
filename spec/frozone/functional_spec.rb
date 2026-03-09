@@ -778,6 +778,29 @@ RSpec.describe "Frozone VM functional" do
       expect(run_ruby('42.is_a?(Comparable)')).to vm_true
     end
 
+    it 'is_a? true for prepended module' do
+      expect(run_ruby(<<~RUBY)).to vm_true
+        module M; end
+        class C
+          prepend M
+        end
+        C.new.is_a?(M)
+      RUBY
+    end
+
+    it 'prepended module method takes priority over class method' do
+      expect(run_ruby(<<~RUBY)).to vm_int(1)
+        module M
+          def foo = 1
+        end
+        class C
+          prepend M
+          def foo = 2
+        end
+        C.new.foo
+      RUBY
+    end
+
     it 'kind_of? is alias for is_a?' do
       expect(run_ruby('"hi".kind_of?(String)')).to vm_true
     end

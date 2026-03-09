@@ -76,6 +76,13 @@ module Frozone
           receiver
         end
 
+        def module_prepend(_, receiver, mod)
+          raise "module_prepend: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
+          raise "module_prepend: mod must be a ModuleObject" unless mod.is_a?(ModuleObject)
+          receiver.prepend_module(mod)
+          receiver
+        end
+
         # Class
         def class_new(context, klass, args, kwargs) = klass.new_instance(context, args.raw, kwargs.raw)
 
