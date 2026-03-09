@@ -11,15 +11,15 @@ require_relative 'class_object'
 module Frozone
   module Vm
     module Core
-      BASIC_OBJECT_CLASS = ClassObject.new(SymbolObject.from(:BasicObject), nil, nil)
+      BASIC_OBJECT_CLASS = ClassObject.new(:BasicObject, nil, nil)
       # empirically:
       #  $ ruby -e "puts BasicObject.constants"
       #  BasicObject
-      BASIC_OBJECT_CLASS.set_constant(SymbolObject.from(:BasicObject), BASIC_OBJECT_CLASS)
+      BASIC_OBJECT_CLASS.set_constant(:BasicObject, BASIC_OBJECT_CLASS)
 
-      MODULE_CLASS = ClassObject.new(SymbolObject.from(:Module), nil, BASIC_OBJECT_CLASS)
+      MODULE_CLASS = ClassObject.new(:Module, nil, BASIC_OBJECT_CLASS)
 
-      CLASS_CLASS = ClassObject.new(SymbolObject.from(:Class), nil, MODULE_CLASS)
+      CLASS_CLASS = ClassObject.new(:Class, nil, MODULE_CLASS)
 
       def self.class_class = CLASS_CLASS
 
@@ -37,59 +37,56 @@ module Frozone
     module Core
       # TODO - parse these from source code
 
-      KERNEL_MODULE = ModuleObject.new(SymbolObject.from(:Kernel), nil)
+      KERNEL_MODULE = ModuleObject.new(:Kernel, nil)
 
-      OBJECT_CLASS = ClassObject.new(SymbolObject.from(:Object), nil, BASIC_OBJECT_CLASS)
+      OBJECT_CLASS = ClassObject.new(:Object, nil, BASIC_OBJECT_CLASS)
       OBJECT_CLASS.add_module(KERNEL_MODULE)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:BasicObject), BASIC_OBJECT_CLASS)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:Kernel), KERNEL_MODULE)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:Object), OBJECT_CLASS)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:Module), MODULE_CLASS)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:Class), CLASS_CLASS)
+      OBJECT_CLASS.set_constant(:BasicObject, BASIC_OBJECT_CLASS)
+      OBJECT_CLASS.set_constant(:Kernel, KERNEL_MODULE)
+      OBJECT_CLASS.set_constant(:Object, OBJECT_CLASS)
+      OBJECT_CLASS.set_constant(:Module, MODULE_CLASS)
+      OBJECT_CLASS.set_constant(:Class, CLASS_CLASS)
 
-      NIL_CLASS_CLASS = ClassObject.new(SymbolObject.from(:NilClass), nil, OBJECT_CLASS)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:NilClass), NIL_CLASS_CLASS)
+      NIL_CLASS_CLASS = ClassObject.new(:NilClass, nil, OBJECT_CLASS)
+      OBJECT_CLASS.set_constant(:NilClass, NIL_CLASS_CLASS)
 
-      TRUE_CLASS_CLASS = ClassObject.new(SymbolObject.from(:TrueClass), nil, OBJECT_CLASS)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:TrueClass), TRUE_CLASS_CLASS)
+      TRUE_CLASS_CLASS = ClassObject.new(:TrueClass, nil, OBJECT_CLASS)
+      OBJECT_CLASS.set_constant(:TrueClass, TRUE_CLASS_CLASS)
 
-      FALSE_CLASS_CLASS = ClassObject.new(SymbolObject.from(:FalseClass), nil, OBJECT_CLASS)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:FalseClass), FALSE_CLASS_CLASS)
+      FALSE_CLASS_CLASS = ClassObject.new(:FalseClass, nil, OBJECT_CLASS)
+      OBJECT_CLASS.set_constant(:FalseClass, FALSE_CLASS_CLASS)
 
-      COMPARABLE_MODULE = ModuleObject.new(SymbolObject.from(:Comparable), nil)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:Comparable), COMPARABLE_MODULE)
+      COMPARABLE_MODULE = ModuleObject.new(:Comparable, nil)
+      OBJECT_CLASS.set_constant(:Comparable, COMPARABLE_MODULE)
 
-      STRING_CLASS = ClassObject.new(SymbolObject.from(:String), nil, OBJECT_CLASS)
+      STRING_CLASS = ClassObject.new(:String, nil, OBJECT_CLASS)
       STRING_CLASS.add_module(COMPARABLE_MODULE)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:String), STRING_CLASS)
+      OBJECT_CLASS.set_constant(:String, STRING_CLASS)
 
-      SYMBOL_CLASS = ClassObject.new(SymbolObject.from(:Symbol), nil, OBJECT_CLASS)
+      SYMBOL_CLASS = ClassObject.new(:Symbol, nil, OBJECT_CLASS)
       SYMBOL_CLASS.add_module(COMPARABLE_MODULE)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:Symbol), SYMBOL_CLASS)
+      OBJECT_CLASS.set_constant(:Symbol, SYMBOL_CLASS)
 
-      # Patch all SymbolObjects created during bootstrap with the now-available SYMBOL_CLASS.
-      SymbolObject.bootstrap!(SYMBOL_CLASS)
+      ENUMERABLE_MODULE = ModuleObject.new(:Enumerable, nil)
+      OBJECT_CLASS.set_constant(:Enumerable, ENUMERABLE_MODULE)
 
-      ENUMERABLE_MODULE = ModuleObject.new(SymbolObject.from(:Enumerable), nil)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:Enumerable), ENUMERABLE_MODULE)
-
-      ARRAY_CLASS = ClassObject.new(SymbolObject.from(:Array), nil, OBJECT_CLASS)
+      ARRAY_CLASS = ClassObject.new(:Array, nil, OBJECT_CLASS)
       ARRAY_CLASS.add_module(ENUMERABLE_MODULE)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:Array), ARRAY_CLASS)
+      OBJECT_CLASS.set_constant(:Array, ARRAY_CLASS)
 
-      HASH_CLASS = ClassObject.new(SymbolObject.from(:Hash), nil, OBJECT_CLASS)
+      HASH_CLASS = ClassObject.new(:Hash, nil, OBJECT_CLASS)
       HASH_CLASS.add_module(ENUMERABLE_MODULE)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:Hash), HASH_CLASS)
+      OBJECT_CLASS.set_constant(:Hash, HASH_CLASS)
 
-      NUMERIC_CLASS = ClassObject.new(SymbolObject.from(:Numeric), nil, OBJECT_CLASS)
+      NUMERIC_CLASS = ClassObject.new(:Numeric, nil, OBJECT_CLASS)
       NUMERIC_CLASS.add_module(COMPARABLE_MODULE)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:Numeric), NUMERIC_CLASS)
+      OBJECT_CLASS.set_constant(:Symbol, SYMBOL_CLASS)
 
-      INTEGER_CLASS = ClassObject.new(SymbolObject.from(:Integer), nil, NUMERIC_CLASS)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:Integer), INTEGER_CLASS)
+      INTEGER_CLASS = ClassObject.new(:Integer, nil, NUMERIC_CLASS)
+      OBJECT_CLASS.set_constant(:Integer, INTEGER_CLASS)
 
-      FLOAT_CLASS = ClassObject.new(SymbolObject.from(:Float), nil, NUMERIC_CLASS)
-      OBJECT_CLASS.set_constant(SymbolObject.from(:Float), FLOAT_CLASS)
+      FLOAT_CLASS = ClassObject.new(:Float, nil, NUMERIC_CLASS)
+      OBJECT_CLASS.set_constant(:Float, FLOAT_CLASS)
     end
   end
 end

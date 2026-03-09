@@ -11,19 +11,19 @@ module Frozone
 
       def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, locals, body)
         @scopes = self.class.unique_scopes(check_array_type("scopes", scopes, ModuleObject))
-        @name = check_type("name", name, SymbolObject)
+        @name = check_type("name", name, Symbol)
 
-        @required_params = check_array_type("required_params", required_params, SymbolObject)
-        @optional_params = check_array_of_pairs_of_types("optional_params", optional_params, SymbolObject, Ast::Node)
-        @rest_param = check_nil_or_type("rest_param", rest_param, SymbolObject)
-        @post_params = check_array_type("post_params", post_params, SymbolObject)
+        @required_params = check_array_type("required_params", required_params, Symbol)
+        @optional_params = check_array_of_pairs_of_types("optional_params", optional_params, Symbol, Ast::Node)
+        @rest_param = check_nil_or_type("rest_param", rest_param, Symbol)
+        @post_params = check_array_type("post_params", post_params, Symbol)
         raise "post_params but no rest_param" if rest_param.nil? && post_params.any?
 
         @required_kw_params = check_array_type("required_kw_params", required_kw_params, SymbolObject)
         @optional_kw_params = check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, SymbolObject, Ast::Node)
-        @kw_rest_param = check_nil_or_type("kw_rest_param", kw_rest_param, SymbolObject)
+        @kw_rest_param = check_nil_or_type("kw_rest_param", kw_rest_param, Symbol)
 
-        @locals = check_array_type("locals", locals, SymbolObject)
+        @locals = check_array_type("locals", locals, Symbol)
         @body = check_type("body", body, Ast::Node)
       end
 
@@ -73,17 +73,17 @@ module Frozone
         @required_kw_params.each do |kw|
           # TODO - this is a real runtime error
           raise "missing keyword: #{kw.raw.inspect}" unless kw_args.key?(kw)
-          new_frame.set_local(kw, kw_args.delete(kw))
+          new_frame.set_local(kw.raw, kw_args.delete(kw))
         end
 
         @optional_kw_params.each do |kw, value_node|
-          value =
+          value = 
             if kw_args.key?(kw)
               kw_args.delete(kw)
             else
               value_node.evaluate(context)
             end
-          new_frame.set_local(kw, value)
+          new_frame.set_local(kw.raw, value)
         end
 
         if @kw_rest_param.nil?
@@ -113,7 +113,7 @@ module Frozone
       end
 
       # TODO
-      def to_s = "method(#{@scopes.map(&:to_s)}, :#{@name.raw}, #{@required_params} -> #{@body})"
+      def to_s = "method(#{@scopes.map(&:to_s)}, :#{@name}, #{@required_params} -> #{@body})"
 
       def alias_as(name)
         Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @locals, @body)

@@ -1,7 +1,6 @@
 require 'prism'
 
 require_relative '../ast'
-require_relative 'symbol_object'
 
 module Frozone
   module Vm
@@ -22,8 +21,6 @@ module Frozone
       end
 
       private
-
-      def sym(raw_symbol) = SymbolObject.from(raw_symbol)
 
       def transform(prism_node)
         case prism_node
@@ -81,7 +78,7 @@ module Frozone
           transform(prism_node.statements)
 
         when Prism::LocalVariableReadNode
-          Ast::LocalVariableRead.new(sym(prism_node.name), prism_node.depth)
+          Ast::LocalVariableRead.new(prism_node.name, prism_node.depth)
 
         when Prism::LocalVariableWriteNode
           Ast::LocalVariableWrite.new(sym(prism_node.name), prism_node.depth, transform(prism_node.value))
@@ -93,10 +90,10 @@ module Frozone
           Ast::InstanceVariableWrite.new(sym(prism_node.name), transform(prism_node.value))
 
         when Prism::ConstantReadNode
-          Ast::ConstantRead.new(sym(prism_node.name))
+          Ast::ConstantRead.new(prism_node.name)
 
         when Prism::ConstantWriteNode
-          Ast::ConstantWrite.new(sym(prism_node.name), transform(prism_node.value))
+          Ast::ConstantWrite.new(prism_node.name, transform(prism_node.value))
 
         when Prism::CallNode
           # TODO - only when parsing core files
@@ -124,7 +121,7 @@ module Frozone
               end
             end
 
-            Ast::MethodCall.new(sym(prism_node.name), receiver_node, arg_nodes, kw_args)
+            Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args)
           end
 
         when Prism::ClassNode
@@ -150,7 +147,7 @@ module Frozone
             else
               transform(prism_node.body)
             end
-          Ast::ClassDef.new(sym(prism_node.name), prism_node.locals.map { |s| sym(s) }, body_ast)
+          Ast::ClassDef.new(prism_node.name, prism_node.locals, body_ast)
 
         when Prism::DefNode
           raise "singleton/receiver method defs not supported yet" unless prism_node.receiver.nil?
@@ -168,33 +165,33 @@ module Frozone
             raise "block param not yet supported" unless parameters.block.nil?
             required_params = parameters.requireds.map do |required|
               raise "required parameter is not a Prism::RequiredParameterNode" unless required.is_a?(Prism::RequiredParameterNode)
-              sym(required.name)
+              required.name
             end
             optional_params = parameters.optionals.map do |optional|
               raise "optional parameter is not a Prism::OptionalParameterNode" unless optional.is_a?(Prism::OptionalParameterNode)
-              [sym(optional.name), transform(optional.value)]
+              [optional.name, transform(optional.value)]
             end
             unless parameters.rest.nil?
               raise "rest parameter is not a Prism::RestParameterNode" unless parameters.rest.is_a?(Prism::RestParameterNode)
-              rest_param = sym(parameters.rest.name)
+              rest_param = parameters.rest.name
             end
             post_params = parameters.posts.map do |post|
               raise "post parameter is not a Prism::RequiredParameterNode" unless post.is_a?(Prism::RequiredParameterNode)
-              sym(post.name)
+              post.name
             end
             prism_node.parameters.keywords.each do |kw|
               case kw
               when Prism::RequiredKeywordParameterNode
-                required_kw_params << sym(kw.name)
+                required_kw_params << kw.name
               when Prism::OptionalKeywordParameterNode
-                optional_kw_params << [sym(kw.name), transform(kw.value)]
+                optional_kw_params << [kw.name, transform(kw.value)]
               else
                 raise "kw parameter is neither a Prism::RequiredKeywordParameterNode or a Prism::OptionalKeywordParameterNode"
               end
             end
             unless parameters.keyword_rest.nil?
               raise "keyword_rest parameter is not a Prism::KeywordRestParameterNode" unless parameters.keyword_rest.is_a?(Prism::KeywordRestParameterNode)
-              kw_rest_param = sym(parameters.keyword_rest.name)
+              kw_rest_param = parameters.keyword_rest.name
             end
           end
           #raise "not sure what locals_body_index is - expecting same as params count" unless prism_node.locals_body_index == params.length - not present in ruby 4.0.1
@@ -205,12 +202,12 @@ module Frozone
             else
               transform(prism_node.body)
             end
-          Ast::MethodDef.new(sym(prism_node.name), required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, prism_node.locals.map { |s| sym(s) }, body_ast)
+          Ast::MethodDef.new(prism_node.name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, prism_node.locals, body_ast)
 
         when Prism::AliasMethodNode
           raise "new_name #{prism_node.new_name.class} must be a Prism::SymbolNode" unless prism_node.new_name.is_a?(Prism::SymbolNode)
           raise "old_name #{prism_node.old_name.class} must be a Prism::SymbolNode" unless prism_node.old_name.is_a?(Prism::SymbolNode)
-          Ast::MethodAlias.new(sym(prism_node.new_name.unescaped.to_sym), sym(prism_node.old_name.unescaped.to_sym))
+          Ast::MethodAlias.new(prism_node.new_name.unescaped.to_sym, prism_node.old_name.unescaped.to_sym)
 
         else
           raise "Unexpected Prism node type #{prism_node.class}"

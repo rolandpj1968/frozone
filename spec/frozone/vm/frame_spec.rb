@@ -6,14 +6,14 @@ RSpec.describe Frozone::Vm::Frame do
 
   describe '#initialize' do
     it 'initializes declared locals to NilObject::NIL' do
-      frame = described_class.new(top_level_object, [sym(:x), sym(:y)], [scope])
-      expect(frame.get_local(sym(:x))).to equal(Frozone::Vm::NilObject::NIL)
-      expect(frame.get_local(sym(:y))).to equal(Frozone::Vm::NilObject::NIL)
+      frame = described_class.new(top_level_object, [:x, :y], [scope])
+      expect(frame.get_local(:x)).to equal(Frozone::Vm::NilObject::NIL)
+      expect(frame.get_local(:y)).to equal(Frozone::Vm::NilObject::NIL)
     end
 
     it 'returns nil for undeclared locals' do
       frame = described_class.new(top_level_object, [], [scope])
-      expect(frame.get_local(sym(:z))).to be_nil
+      expect(frame.get_local(:z)).to be_nil
     end
   end
 
@@ -26,24 +26,24 @@ RSpec.describe Frozone::Vm::Frame do
 
   describe '#set_local / #get_local' do
     it 'stores and retrieves a local variable' do
-      frame = described_class.new(top_level_object, [sym(:n)], [scope])
+      frame = described_class.new(top_level_object, [:n], [scope])
       val = Frozone::Vm::IntegerObject.new(42)
-      frame.set_local(sym(:n), val)
-      expect(frame.get_local(sym(:n))).to equal(val)
+      frame.set_local(:n, val)
+      expect(frame.get_local(:n)).to equal(val)
     end
 
     it 'can set an undeclared local' do
       frame = described_class.new(top_level_object, [], [scope])
       val = Frozone::Vm::IntegerObject.new(1)
-      frame.set_local(sym(:dynamic), val)
-      expect(frame.get_local(sym(:dynamic))).to equal(val)
+      frame.set_local(:dynamic, val)
+      expect(frame.get_local(:dynamic)).to equal(val)
     end
 
     it 'overwrites a previously set value' do
-      frame = described_class.new(top_level_object, [sym(:x)], [scope])
-      frame.set_local(sym(:x), Frozone::Vm::IntegerObject.new(1))
-      frame.set_local(sym(:x), Frozone::Vm::IntegerObject.new(2))
-      expect(frame.get_local(sym(:x)).raw).to eq(2)
+      frame = described_class.new(top_level_object, [:x], [scope])
+      frame.set_local(:x, Frozone::Vm::IntegerObject.new(1))
+      frame.set_local(:x, Frozone::Vm::IntegerObject.new(2))
+      expect(frame.get_local(:x).raw).to eq(2)
     end
   end
 

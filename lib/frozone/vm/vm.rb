@@ -22,7 +22,7 @@ module Frozone
       def run
         load_core
 
-        Core::OBJECT_CLASS.set_constant(SymbolObject.from(:RUBY_VERSION), Ast::StringLiteral.from('4.0.1'))
+        Core::OBJECT_CLASS.set_constant(:RUBY_VERSION, Ast::StringLiteral.from('4.0.1'))
 
         scripts = @options[:scripts]
 

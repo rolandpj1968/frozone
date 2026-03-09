@@ -1,18 +1,17 @@
 require_relative 'node'
-require_relative '../vm/symbol_object'
 
 module Frozone
   module Ast
     class MethodCall < Node
       def initialize(name, receiver_node, arg_nodes, kw_arg_nodes)
-        @name = check_type("name", name, Vm::SymbolObject)
+        @name = check_type("name", name, Symbol)
         @receiver_node = check_nil_or_type("receiver_node", receiver_node, Node)
         @arg_nodes = check_array_type("arg_nodes", arg_nodes, Node)
         @kw_arg_nodes = check_hash_of_types("kw_arg_nodes", kw_arg_nodes, Node, Node)
       end
 
       def to_s
-        "call(#{@name.raw}, #{@receiver_node || '_'}, #{@arg_nodes.map(&:to_s).join(', ')})"
+        "call(#{@name}, #{@receiver_node || '_'}, #{@arg_nodes.map(&:to_s).join(', ')})"
       end
 
       def evaluate(context)
