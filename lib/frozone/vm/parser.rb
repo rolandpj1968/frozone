@@ -22,6 +22,52 @@ module Frozone
 
       private
 
+      def parse_method_params(prism_node)
+        required_params = []
+        optional_params = []
+        rest_param = nil
+        post_params = []
+        required_kw_params = []
+        optional_kw_params = []
+        kw_rest_param = nil
+        unless prism_node.parameters.nil?
+          raise "Prism::DefNode.parameters is not a Prism::ParametersNode" unless prism_node.parameters.is_a?(Prism::ParametersNode)
+          parameters = prism_node.parameters
+          raise "block param not yet supported" unless parameters.block.nil?
+          required_params = parameters.requireds.map do |required|
+            raise "required parameter is not a Prism::RequiredParameterNode" unless required.is_a?(Prism::RequiredParameterNode)
+            required.name
+          end
+          optional_params = parameters.optionals.map do |optional|
+            raise "optional parameter is not a Prism::OptionalParameterNode" unless optional.is_a?(Prism::OptionalParameterNode)
+            [optional.name, transform(optional.value)]
+          end
+          unless parameters.rest.nil?
+            raise "rest parameter is not a Prism::RestParameterNode" unless parameters.rest.is_a?(Prism::RestParameterNode)
+            rest_param = parameters.rest.name
+          end
+          post_params = parameters.posts.map do |post|
+            raise "post parameter is not a Prism::RequiredParameterNode" unless post.is_a?(Prism::RequiredParameterNode)
+            post.name
+          end
+          prism_node.parameters.keywords.each do |kw|
+            case kw
+            when Prism::RequiredKeywordParameterNode
+              required_kw_params << kw.name
+            when Prism::OptionalKeywordParameterNode
+              optional_kw_params << [kw.name, transform(kw.value)]
+            else
+              raise "kw parameter is neither a Prism::RequiredKeywordParameterNode or a Prism::OptionalKeywordParameterNode"
+            end
+          end
+          unless parameters.keyword_rest.nil?
+            raise "keyword_rest parameter is not a Prism::KeywordRestParameterNode" unless parameters.keyword_rest.is_a?(Prism::KeywordRestParameterNode)
+            kw_rest_param = parameters.keyword_rest.name
+          end
+        end
+        [required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param]
+      end
+
       def transform(prism_node)
         case prism_node
         when Prism::NilNode
@@ -202,59 +248,13 @@ module Frozone
           Ast::ClassDef.new(prism_node.name, prism_node.locals, superclass_node, body_ast)
 
         when Prism::DefNode
-          raise "singleton/receiver method defs not supported yet" unless prism_node.receiver.nil?
+          required_params, optional_params, rest_param, post_params,
+            required_kw_params, optional_kw_params, kw_rest_param = parse_method_params(prism_node)
 
-          required_params = []
-          optional_params = []
-          rest_param = nil
-          post_params = []
-          required_kw_params = []
-          optional_kw_params = []
-          kw_rest_param = nil
-          unless prism_node.parameters.nil?
-            raise "Prism::DefNode.parameters is not a Prism::ParametersNode" unless prism_node.parameters.is_a?(Prism::ParametersNode)
-            parameters = prism_node.parameters
-            raise "block param not yet supported" unless parameters.block.nil?
-            required_params = parameters.requireds.map do |required|
-              raise "required parameter is not a Prism::RequiredParameterNode" unless required.is_a?(Prism::RequiredParameterNode)
-              required.name
-            end
-            optional_params = parameters.optionals.map do |optional|
-              raise "optional parameter is not a Prism::OptionalParameterNode" unless optional.is_a?(Prism::OptionalParameterNode)
-              [optional.name, transform(optional.value)]
-            end
-            unless parameters.rest.nil?
-              raise "rest parameter is not a Prism::RestParameterNode" unless parameters.rest.is_a?(Prism::RestParameterNode)
-              rest_param = parameters.rest.name
-            end
-            post_params = parameters.posts.map do |post|
-              raise "post parameter is not a Prism::RequiredParameterNode" unless post.is_a?(Prism::RequiredParameterNode)
-              post.name
-            end
-            prism_node.parameters.keywords.each do |kw|
-              case kw
-              when Prism::RequiredKeywordParameterNode
-                required_kw_params << kw.name
-              when Prism::OptionalKeywordParameterNode
-                optional_kw_params << [kw.name, transform(kw.value)]
-              else
-                raise "kw parameter is neither a Prism::RequiredKeywordParameterNode or a Prism::OptionalKeywordParameterNode"
-              end
-            end
-            unless parameters.keyword_rest.nil?
-              raise "keyword_rest parameter is not a Prism::KeywordRestParameterNode" unless parameters.keyword_rest.is_a?(Prism::KeywordRestParameterNode)
-              kw_rest_param = parameters.keyword_rest.name
-            end
-          end
-          #raise "not sure what locals_body_index is - expecting same as params count" unless prism_node.locals_body_index == params.length - not present in ruby 4.0.1
+          body_ast = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
 
-          body_ast =
-            if prism_node.body.nil?
-              Ast::NilLiteral::NIL
-            else
-              transform(prism_node.body)
-            end
-          Ast::MethodDef.new(prism_node.name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, prism_node.locals, body_ast)
+          receiver_node = prism_node.receiver.nil? ? nil : transform(prism_node.receiver)
+          Ast::MethodDef.new(prism_node.name, receiver_node, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, prism_node.locals, body_ast)
 
         when Prism::AliasMethodNode
           raise "new_name #{prism_node.new_name.class} must be a Prism::SymbolNode" unless prism_node.new_name.is_a?(Prism::SymbolNode)

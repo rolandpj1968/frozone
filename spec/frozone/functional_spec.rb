@@ -1011,4 +1011,63 @@ RSpec.describe "Frozone VM functional" do
       expect { run_ruby('p :foo') }.to output(":foo\n").to_stdout
     end
   end
+
+  # ── Singleton / class methods ────────────────────────────────────────────────
+
+  describe 'singleton methods' do
+    it 'defines a singleton method on an object and calls it' do
+      expect(run_ruby(<<~RUBY)).to vm_int(42)
+        o = Object.new
+        def o.answer = 42
+        o.answer
+      RUBY
+    end
+
+    it 'singleton method does not affect other instances' do
+      expect(run_ruby(<<~RUBY)).to vm_true
+        a = Object.new
+        b = Object.new
+        def a.greet = 1
+        b.respond_to?(:greet) == false
+      RUBY
+    end
+
+    it 'defines a class method via def self.foo' do
+      expect(run_ruby(<<~RUBY)).to vm_int(7)
+        class Foo
+          def self.bar = 7
+        end
+        Foo.bar
+      RUBY
+    end
+
+    it 'class method with arguments' do
+      expect(run_ruby(<<~RUBY)).to vm_int(3)
+        class Calc
+          def self.add(a, b) = a + b
+        end
+        Calc.add(1, 2)
+      RUBY
+    end
+
+    it 'class method can access constants' do
+      expect(run_ruby(<<~RUBY)).to vm_string("hello")
+        class Greeter
+          GREETING = "hello"
+          def self.greet = GREETING
+        end
+        Greeter.greet
+      RUBY
+    end
+
+    it 'instance method and class method coexist' do
+      expect(run_ruby(<<~RUBY)).to vm_int(10)
+        class Counter
+          def self.zero = 0
+          def value = 10
+        end
+        Counter.zero + Counter.new.value
+      RUBY
+    end
+  end
 end

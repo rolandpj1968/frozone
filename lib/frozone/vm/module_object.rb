@@ -9,7 +9,7 @@ module Frozone
       def initialize(name, namespace, class_object = Core::MODULE_CLASS)
         super(class_object)
 
-        raise "class/module name must be a symbol" unless name.is_a?(Symbol)
+        raise "class/module name must be a Symbol or nil" unless name.nil? || name.is_a?(Symbol)
         @name = name
         raise "class/module namespace must be a module" unless namespace.nil? or namespace.is_a?(ModuleObject)
         @namespace = namespace

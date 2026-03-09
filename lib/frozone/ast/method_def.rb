@@ -5,8 +5,9 @@ require_relative '../vm/symbol_object'
 module Frozone
   module Ast
     class MethodDef < Node
-      def initialize(name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, locals, body)
+      def initialize(name, receiver_node, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, locals, body)
         @name = check_type("name", name, Symbol)
+        @receiver_node = check_nil_or_type("receiver_node", receiver_node, Node)
 
         @required_params = check_array_type("required_params", required_params, Symbol)
         @optional_params = check_array_of_pairs_of_types("optional_params", optional_params, Symbol, Ast::Node)
@@ -23,22 +24,24 @@ module Frozone
       end
 
       def evaluate(context)
-        context.scopes.last.set_method(
+        method = Vm::Method.new(
+          context.frame.scopes,
           @name,
-          Vm::Method.new(
-            context.scopes,
-            @name,
-            @required_params,
-            @optional_params,
-            @rest_param,
-            @post_params,
-            @required_kw_params,
-            @optional_kw_params,
-            @kw_rest_param,
-            @locals,
-            @body
-          )
+          @required_params,
+          @optional_params,
+          @rest_param,
+          @post_params,
+          @required_kw_params,
+          @optional_kw_params,
+          @kw_rest_param,
+          @locals,
+          @body
         )
+        if @receiver_node.nil?
+          context.scopes.last.set_method(@name, method)
+        else
+          @receiver_node.evaluate(context).define_singleton_method(@name, method)
+        end
         Vm::SymbolObject.from(@name)
       end
     end
