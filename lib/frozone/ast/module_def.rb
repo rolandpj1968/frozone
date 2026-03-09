@@ -22,7 +22,8 @@ module Frozone
       def evaluate(context)
         namespace = context.scopes.last.equal?(Vm::Core::OBJECT_CLASS) ? nil : context.scopes.last
 
-        module_constant = Vm::ModuleObject.lookup_constant(@name, context.scopes)
+        # MRI only looks in the immediate enclosing class/module, not outer nesting or superclass chain.
+        module_constant = context.scopes.last.get_constant(@name)
         unless module_constant.nil? || module_constant.is_a?(Vm::ModuleObject)
           raise "previous defn of #{@name} was not a module"
         end

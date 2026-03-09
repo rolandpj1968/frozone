@@ -26,7 +26,8 @@ module Frozone
         namespace = context.scopes.last.equal?(Vm::Core::OBJECT_CLASS) ? nil : context.scopes.last
 
         # 1. find or create the class defn and constant
-        class_constant = Vm::ModuleObject.lookup_constant(@name, context.scopes)
+        # MRI only looks in the immediate enclosing class/module, not outer nesting or superclass chain.
+        class_constant = context.scopes.last.get_constant(@name)
         unless class_constant.nil? or class_constant.is_a?(Vm::ClassObject)
           # TODO this is a real runtime error, not an assert
           raise "previous defn of #{@name} was not a class"
