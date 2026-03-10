@@ -94,7 +94,7 @@ RSpec.describe Frozone::Vm::Intrinsics do
     it 'raises with the method name and class name in the message' do
       expect {
         described_class.basic_object_method_missing(real_ctx, obj, :no_such, empty_args, empty_kwargs)
-      }.to raise_error(RuntimeError, /undefined method 'no_such' for an instance of Object/)
+      }.to raise_error(Frozone::Vm::FrozoneException, /undefined method 'no_such' for an instance of Object/)
     end
 
     it 'raises when name is not a Symbol' do
@@ -143,7 +143,7 @@ RSpec.describe Frozone::Vm::Intrinsics do
       expect {
         described_class.basic_object___send__(real_ctx, obj, Frozone::Vm::SymbolObject.from(:no_such_method_zz),
           Frozone::Vm::ArrayObject.new([]), Frozone::Vm::HashObject.new({}))
-      }.to raise_error(RuntimeError, /undefined method/)
+      }.to raise_error(Frozone::Vm::FrozoneException, /undefined method/)
     end
   end
 

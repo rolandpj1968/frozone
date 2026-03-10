@@ -89,7 +89,7 @@ RSpec.describe Frozone::Ast::MethodCall do
     it 'raises when method is not found' do
       ctx = make_context(the_self: receiver_obj, scopes: [klass])
       node = described_class.new(:no_such_method_zz, nil, [], {})
-      expect { node.evaluate(ctx) }.to raise_error(RuntimeError, /undefined method/)
+      expect { node.evaluate(ctx) }.to raise_error(Frozone::Vm::FrozoneException, /undefined method/)
     end
   end
 
