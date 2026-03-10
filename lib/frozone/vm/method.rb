@@ -4,6 +4,7 @@ require_relative 'frame'
 require_relative 'array_object'
 require_relative 'symbol_object'
 require_relative 'proc_object'
+require_relative 'frozone_exception'
 
 module Frozone
   module Vm
@@ -45,8 +46,7 @@ module Frozone
             expecting += "..#{max_args_expected}"
           end
 
-          # TODO - this is a runtime ArgumentError, not an intrinsic error
-          raise "wrong number of arguments (given #{args.length} expecting #{expecting})"
+          raise FrozoneException.make(:ArgumentError, "wrong number of arguments for #{@name} (given #{args.length} expecting #{expecting})")
         end
 
         @required_params.length.times do |i|
@@ -77,8 +77,7 @@ module Frozone
 
       def populate_kw_params(context, new_frame, kw_args)
         @required_kw_params.each do |kw|
-          # TODO - this is a real runtime error
-          raise "missing keyword: #{kw.inspect}" unless kw_args.key?(kw)
+          raise FrozoneException.make(:ArgumentError, "missing keyword: #{kw}") unless kw_args.key?(kw)
           new_frame.set_local(kw, kw_args.delete(kw))
         end
 
@@ -94,8 +93,7 @@ module Frozone
 
         if @kw_rest_param.nil?
           unless kw_args.empty?
-            # TODO - this is a real runtime error
-            raise "unknown keyword#{kw_args.length == 1 ? "" : "s"}: #{kw_args.keys.map(&:to_s).join(', ')}"
+            raise FrozoneException.make(:ArgumentError, "unknown keyword#{kw_args.length == 1 ? "" : "s"}: #{kw_args.keys.map(&:to_s).join(', ')}")
           end
         else
           kw_rest = kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k }
@@ -103,10 +101,16 @@ module Frozone
         end
       end
 
+      def name = @name
+      def scopes = @scopes
+
       def invoke(context, receiver, args, kw_args, block = nil)
         new_frame = Frame.new(receiver, @locals, @scopes)
         new_frame.block = block
         new_frame.method_frame = new_frame
+        new_frame.current_method = self
+        new_frame.method_args = args
+        new_frame.method_kwargs = kw_args
 
         populate_params(context, new_frame, args)
         populate_kw_params(context, new_frame, kw_args)

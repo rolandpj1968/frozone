@@ -11,6 +11,12 @@ module Frozone
         @vm_object = vm_object
         super(message)
       end
+
+      def self.make(class_name, message)
+        exc_class = Core::OBJECT_CLASS.get_constant(class_name)
+        exc_obj = exc_class ? ObjectObject.new(exc_class) : NilObject::NIL
+        new(exc_obj, message)
+      end
     end
   end
 end

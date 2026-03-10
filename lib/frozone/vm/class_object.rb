@@ -29,6 +29,26 @@ module Frozone
         o
       end
 
+      def ancestors_list
+        result = []
+        @prepends.each { |mod| result << mod } unless @prepends.nil?
+        result << self
+        @modules.each { |mod| result << mod } unless @modules.nil?
+        result.concat(@superclass.ancestors_list) unless @superclass.nil?
+        result
+      end
+
+      def lookup_method_after(name, origin)
+        ancs = ancestors_list
+        idx = ancs.index { |a| a.equal?(origin) }
+        return nil if idx.nil?
+        ancs[(idx + 1)..].each do |ancestor|
+          m = ancestor.get_method(name)
+          return m unless m.nil?
+        end
+        nil
+      end
+
       # TODO - private/public
       def lookup_method(name)
         raise "name must be a Symbol" unless name.is_a?(Symbol)

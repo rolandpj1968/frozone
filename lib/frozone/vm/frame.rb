@@ -18,6 +18,7 @@ module Frozone
       def block = @block
       def block=(b); @block = b; end
       attr_accessor :method_frame
+      attr_accessor :current_method, :method_args, :method_kwargs
 
       def get_local(local) = @locals[local]
 
@@ -25,10 +26,10 @@ module Frozone
         @locals[local] = value
       end
 
-      def frame_at_depth(depth)
+      def frame_at_depth(depth, original_depth = depth)
         return self if depth == 0
-        raise "no enclosing frame at depth #{depth}" if @parent_frame.nil?
-        @parent_frame.frame_at_depth(depth - 1)
+        raise "no enclosing frame at depth #{original_depth}" if @parent_frame.nil?
+        @parent_frame.frame_at_depth(depth - 1, original_depth)
       end
     end
   end
