@@ -1,8 +1,7 @@
 begin
   RubyVM::YJIT.enable
-  puts "RubyVM::YJIT.enabled? #{RubyVM::YJIT.enabled?}"
 rescue NameError
-  puts "RubyVM::YJIT not available"
+  # YJIT not available, no-op
 end
 
 
@@ -15,9 +14,6 @@ options = {
   scripts: [],
 }
 
-puts "ARGV:"
-puts ARGV
-
 OptionParser.new do |opts|
   opts.banner = "Usage: frozone.rb [options]"
 
@@ -29,9 +25,6 @@ OptionParser.new do |opts|
     options[:scripts] << v
   end
 end.order!
-
-puts "ARGV:"
-puts ARGV
 
 options[:argv] = ARGV
 
