@@ -1,4 +1,5 @@
 require_relative 'node'
+require_relative '../vm/frozone_exception'
 
 module Frozone
   module Ast
@@ -14,7 +15,7 @@ module Frozone
         parent = @parent_node.evaluate(context)
         raise "#{@parent_node}::#{@name}: parent is not a module" unless parent.is_a?(Vm::ModuleObject)
         c = parent.get_constant(@name)
-        raise "uninitialized constant #{@parent_node}::#{@name}" if c.nil?
+        raise Vm::FrozoneException.make(:NameError, "uninitialized constant #{@parent_node}::#{@name}") if c.nil?
         c
       end
     end

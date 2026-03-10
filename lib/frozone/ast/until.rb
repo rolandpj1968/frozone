@@ -3,9 +3,10 @@ require_relative 'node'
 module Frozone
   module Ast
     class Until < Node
-      def initialize(condition_node, body_node)
+      def initialize(condition_node, body_node, begin_modifier: false)
         @condition_node = check_type("condition_node", condition_node, Node)
         @body_node = check_type("body_node", body_node, Node)
+        @begin_modifier = begin_modifier
       end
 
       def to_s
@@ -13,7 +14,9 @@ module Frozone
       end
 
       def evaluate(context)
-        until @condition_node.evaluate(context).truthy?
+        first = @begin_modifier
+        until !first && @condition_node.evaluate(context).truthy?
+          first = false
           begin
             @body_node.evaluate(context)
           rescue NextException

@@ -1,5 +1,6 @@
 require_relative 'node'
 require_relative '../vm/module_object'
+require_relative '../vm/frozone_exception'
 
 module Frozone
   module Ast
@@ -10,7 +11,11 @@ module Frozone
 
       def to_s = "con(#{@name})"
 
-      def evaluate(context) = Vm::ModuleObject.lookup_constant(@name, context.frame.scopes)
+      def evaluate(context)
+        val = Vm::ModuleObject.lookup_constant(@name, context.frame.scopes)
+        raise Vm::FrozoneException.make(:NameError, "uninitialized constant #{@name}") if val.nil?
+        val
+      end
     end
   end
 end

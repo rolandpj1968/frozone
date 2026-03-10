@@ -16,7 +16,9 @@ module Frozone
       end
 
       def evaluate(context)
-        args = @param_nodes.map { |p| p.evaluate(context) }
+        args = @param_nodes.flat_map do |p|
+          p.is_a?(SplatArg) ? p.evaluate(context).raw : p.evaluate(context)
+        end
 
         @method.call(context, *args)
       end

@@ -17,8 +17,11 @@ module Frozone
 
         raise "Unexpected Prism.parse value type #{value.class} expecting Prism::ProgramNode" unless program_node.is_a?(Prism::ProgramNode)
 
+        @top_level_locals = program_node.locals
         transform(program_node.statements)
       end
+
+      def top_level_locals = @top_level_locals || []
 
       private
 
@@ -58,6 +61,11 @@ module Frozone
           else
             raise "Unsupported splat target type: #{target.expression.class}"
           end
+        when Prism::GlobalVariableTargetNode
+          [:gvar, target.name]
+        when Prism::IndexTargetNode
+          index_nodes = target.arguments.nil? ? [] : target.arguments.arguments.map { |a| transform(a) }
+          [:index, transform(target.receiver), index_nodes]
         else
           raise "Unsupported multi-write target type: #{target.class}"
         end
@@ -80,8 +88,15 @@ module Frozone
             raise "block parameters is not a Prism::ParametersNode" unless bp.parameters.is_a?(Prism::ParametersNode)
             # TODO: optional/rest/keyword block params
             params = bp.parameters.requireds.map do |required|
-              raise "block required parameter is not a Prism::RequiredParameterNode" unless required.is_a?(Prism::RequiredParameterNode)
-              required.name
+              case required
+              when Prism::RequiredParameterNode
+                required.name
+              when Prism::MultiTargetNode
+                # Destructuring block param like |(a, b)| — use anonymous name for now
+                :_
+              else
+                raise "block required parameter is not a Prism::RequiredParameterNode (got #{required.class})"
+              end
             end
           end
         end
@@ -161,13 +176,40 @@ module Frozone
         when Prism::SymbolNode
           Ast::SymbolLiteral.from(prism_node.unescaped)
 
+        when Prism::RegularExpressionNode
+          flags = 0
+          flags |= Regexp::IGNORECASE if prism_node.ignore_case?
+          flags |= Regexp::MULTILINE  if prism_node.multi_line?
+          flags |= Regexp::EXTENDED   if prism_node.extended?
+          Ast::RegexpLiteral.new(prism_node.unescaped, flags)
+
+        when Prism::InterpolatedRegularExpressionNode
+          flags = 0
+          flags |= Regexp::IGNORECASE if prism_node.ignore_case?
+          flags |= Regexp::MULTILINE  if prism_node.multi_line?
+          flags |= Regexp::EXTENDED   if prism_node.extended?
+          parts = prism_node.parts.map do |part|
+            case part
+            when Prism::StringNode            then Ast::StringLiteral.from(part.unescaped)
+            when Prism::EmbeddedStatementsNode then transform(part.statements)
+            else raise "Unexpected interpolated regexp part: #{part.class}"
+            end
+          end
+          Ast::InterpolatedRegexpLiteral.new(parts, flags)
+
         when Prism::ArrayNode
           Ast::ArrayLiteral.new(prism_node.elements.map { |e| transform(e) })
 
+        when Prism::SplatNode
+          Ast::SplatArg.new(prism_node.expression.nil? ? nil : transform(prism_node.expression))
+
         when Prism::HashNode
           kv_nodes = prism_node.elements.map do |kv|
-            raise "Hash literal element is not a Prism::AssocNode" unless kv.is_a?(Prism::AssocNode)
-            [transform(kv.key), transform(kv.value)]
+            case kv
+            when Prism::AssocNode then [transform(kv.key), transform(kv.value)]
+            when Prism::AssocSplatNode then [nil, transform(kv.value)]
+            else raise "Hash literal element is not a Prism::AssocNode: #{kv.class}"
+            end
           end
           Ast::HashLiteral.new(kv_nodes)
 
@@ -191,14 +233,12 @@ module Frozone
           )
 
         when Prism::WhileNode
-          raise "begin..end while not yet supported" if prism_node.begin_modifier?
           body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
-          Ast::While.new(transform(prism_node.predicate), body)
+          Ast::While.new(transform(prism_node.predicate), body, begin_modifier: prism_node.begin_modifier?)
 
         when Prism::UntilNode
-          raise "begin..end until not yet supported" if prism_node.begin_modifier?
           body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
-          Ast::Until.new(transform(prism_node.predicate), body)
+          Ast::Until.new(transform(prism_node.predicate), body, begin_modifier: prism_node.begin_modifier?)
 
         when Prism::UnlessNode
           # unless cond; body; else alt; end  ==  if cond; alt; else body; end
@@ -223,6 +263,10 @@ module Frozone
               Ast::StringLiteral.from(part.unescaped)
             when Prism::EmbeddedStatementsNode
               transform(part.statements)
+            when Prism::EmbeddedVariableNode
+              transform(part.variable)
+            when Prism::InterpolatedStringNode
+              transform(part)
             else
               raise "Unexpected interpolated string part type #{part.class}"
             end
@@ -243,6 +287,21 @@ module Frozone
           read = Ast::LocalVariableRead.new(prism_node.name, prism_node.depth)
           rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
           Ast::LocalVariableWrite.new(prism_node.name, prism_node.depth, rhs)
+
+        when Prism::InstanceVariableOperatorWriteNode
+          read = Ast::InstanceVariableRead.new(prism_node.name)
+          rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
+          Ast::InstanceVariableWrite.new(prism_node.name, rhs)
+
+        when Prism::GlobalVariableOperatorWriteNode
+          read = Ast::GlobalVariableRead.new(prism_node.name)
+          rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
+          Ast::GlobalVariableWrite.new(prism_node.name, rhs)
+
+        when Prism::ConstantOperatorWriteNode
+          read = Ast::ConstantRead.new(prism_node.name)
+          rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
+          Ast::ConstantWrite.new(prism_node.name, rhs)
 
         when Prism::InstanceVariableReadNode
           Ast::InstanceVariableRead.new(prism_node.name)
@@ -265,23 +324,41 @@ module Frozone
         when Prism::CallNode
           # TODO - only when parsing core files
           if prism_node.receiver.is_a?(Prism::ConstantReadNode) && prism_node.receiver.name.equal?(:Intrinsics)
-            Ast::IntrinsicCall.new(prism_node.name, prism_node.arguments.arguments.map { |pn| transform(pn) })
+            arg_pnodes = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments
+            Ast::IntrinsicCall.new(prism_node.name, arg_pnodes.map { |pn| transform(pn) })
           else
             receiver_node = prism_node.receiver.nil? ? nil : transform(prism_node.receiver)
             arg_nodes = []
             kw_args = {}
+            kw_splats = []
             unless prism_node.arguments.nil?
               prism_node.arguments.arguments.each do |argument|
                 # Prism parses this a bit weirdly - keyword args appear as a Prism::KeywordHashNode in the general arguments array
                 case argument
                 when Prism::KeywordHashNode
-                  kw_args = argument.elements.to_h do |kw_arg|
-                    raise "Keyword argument is not a Prism::AssocNode" unless kw_arg.is_a?(Prism::AssocNode)
-                    # TODO - this is a runtime error"
-                    raise "syntax errors found" if kw_arg.value.is_a?(Prism::MissingNode)
-
-                    [transform(kw_arg.key), transform(kw_arg.value)]
+                  # If any AssocNode uses => (hash-rocket), treat the whole node as a positional hash literal
+                  has_hash_rocket = argument.elements.any? { |e| e.is_a?(Prism::AssocNode) && !e.operator_loc.nil? }
+                  if has_hash_rocket
+                    pairs = argument.elements.map do |kw_arg|
+                      raise "Unexpected KeywordHashNode element: #{kw_arg.class}" unless kw_arg.is_a?(Prism::AssocNode)
+                      [transform(kw_arg.key), transform(kw_arg.value)]
+                    end
+                    arg_nodes << Ast::HashLiteral.new(pairs)
+                  else
+                    argument.elements.each do |kw_arg|
+                      case kw_arg
+                      when Prism::AssocNode
+                        raise "syntax errors found" if kw_arg.value.is_a?(Prism::MissingNode)
+                        kw_args[transform(kw_arg.key)] = transform(kw_arg.value)
+                      when Prism::AssocSplatNode
+                        kw_splats << transform(kw_arg.value)
+                      else
+                        raise "Unexpected KeywordHashNode element: #{kw_arg.class}"
+                      end
+                    end
                   end
+                when Prism::SplatNode
+                  arg_nodes << Ast::SplatArg.new(argument.expression.nil? ? nil : transform(argument.expression))
                 else
                   arg_nodes << transform(argument)
                 end
@@ -292,46 +369,56 @@ module Frozone
               case prism_node.block
               when nil then nil
               when Prism::BlockNode then parse_block(prism_node.block)
+              when Prism::BlockArgumentNode then Ast::BlockArg.new(transform(prism_node.block.expression))
               else raise "Unsupported block type: #{prism_node.block.class}"
               end
 
-            Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args, block_node)
+            Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args, block_node, kw_splat_nodes: kw_splats)
           end
 
         when Prism::ModuleNode
-          unless prism_node.constant_path.is_a?(Prism::ConstantReadNode)
-            raise "module defs with nested namespaced paths are not yet implemented"
-          end
-          unless prism_node.constant_path.name.is_a?(Symbol) and prism_node.constant_path.name.equal?(prism_node.name)
-            raise "Prism or RPJ or both are confused"
+          namespace_node = nil
+          if prism_node.constant_path.is_a?(Prism::ConstantPathNode)
+            # module A::B — namespace_node evaluates to A
+            namespace_node = transform(prism_node.constant_path.parent)
+          elsif !prism_node.constant_path.is_a?(Prism::ConstantReadNode)
+            raise "unexpected module name type: #{prism_node.constant_path.class}"
           end
           body_ast = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
-          Ast::ModuleDef.new(prism_node.name, prism_node.locals, body_ast)
+          Ast::ModuleDef.new(prism_node.name, prism_node.locals, body_ast, namespace_node: namespace_node)
 
         when Prism::ClassNode
           # Prism seems a bit weird - it successfully parses class defns where the class name can be an arbitrary expression
           #   prehaps looking to the future?
-          unless prism_node.constant_path.is_a?(Prism::ConstantReadNode)
-            raise "class defs with nested namespaced paths are not yet implemented"
-          end
-          unless prism_node.constant_path.name.is_a?(Symbol) and prism_node.constant_path.name.equal?(prism_node.name)
-            raise "Prism or RPJ or both are confused"
+          namespace_node = nil
+          if prism_node.constant_path.is_a?(Prism::ConstantPathNode)
+            # class A::B — namespace_node evaluates to A
+            namespace_node = transform(prism_node.constant_path.parent)
+          elsif !prism_node.constant_path.is_a?(Prism::ConstantReadNode)
+            raise "unexpected class name type: #{prism_node.constant_path.class}"
           end
           # TODO - disappointing that we need to use upcase here
           unless prism_node.name.length > 0 && prism_node.name[0].upcase == prism_node.name[0]
             # TODO - this is a real runtime error
-            raise "class name '#{prism_node.name} is not a valid constant name"
+            raise "class name '#{prism_node.name}' is not a valid constant name"
           end
           superclass_node =
             if prism_node.superclass.nil?
               nil
             elsif prism_node.superclass.is_a?(Prism::ConstantReadNode)
               Ast::ConstantRead.new(prism_node.superclass.name)
+            elsif prism_node.superclass.is_a?(Prism::ConstantPathNode)
+              transform(prism_node.superclass)
             else
-              raise "class superclass must be a simple constant name (e.g. class B < A)"
+              raise "class superclass must be a constant (e.g. class B < A or class B < A::C)"
             end
           body_ast = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
-          Ast::ClassDef.new(prism_node.name, prism_node.locals, superclass_node, body_ast)
+          Ast::ClassDef.new(prism_node.name, prism_node.locals, superclass_node, body_ast, namespace_node: namespace_node)
+
+        when Prism::SingletonClassNode
+          expression_node = transform(prism_node.expression)
+          body_ast = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
+          Ast::SingletonClassDef.new(expression_node, prism_node.locals, body_ast)
 
         when Prism::DefNode
           required_params, optional_params, rest_param, post_params,
@@ -369,27 +456,51 @@ module Frozone
         when Prism::RedoNode
           Ast::Redo.new
 
+        when Prism::RetryNode
+          Ast::Retry.new
+
+        when Prism::DefinedNode
+          if prism_node.value.is_a?(Prism::ConstantReadNode)
+            Ast::DefinedConstant.new(prism_node.value.name)
+          else
+            # Conservative stub: returns nil for non-constant expressions
+            Ast::NilLiteral::NIL
+          end
+
         when Prism::BeginNode
           body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
           rescue_clauses = []
           rc = prism_node.rescue_clause
           while rc
             exc_nodes = rc.exceptions.map { |e| transform(e) }
-            var_name, var_depth =
-              if rc.reference.nil?
-                [nil, nil]
-              elsif rc.reference.is_a?(Prism::LocalVariableTargetNode)
-                [rc.reference.name, rc.reference.depth]
-              else
-                raise "Unsupported rescue reference type: #{rc.reference.class}"
-              end
+            var_name = nil
+            var_depth = nil
+            assign_node = nil
+            if rc.reference.nil?
+              # no-op
+            elsif rc.reference.is_a?(Prism::LocalVariableTargetNode)
+              var_name  = rc.reference.name
+              var_depth = rc.reference.depth
+            elsif rc.reference.is_a?(Prism::InstanceVariableTargetNode)
+              assign_node = Ast::InstanceVariableWrite.new(rc.reference.name, Ast::NilLiteral::NIL)
+            elsif rc.reference.is_a?(Prism::GlobalVariableTargetNode)
+              assign_node = Ast::GlobalVariableWrite.new(rc.reference.name, Ast::NilLiteral::NIL)
+            else
+              raise "Unsupported rescue reference type: #{rc.reference.class}"
+            end
             rc_body = rc.statements.nil? ? Ast::NilLiteral::NIL : transform(rc.statements)
-            rescue_clauses << Ast::RescueClause.new(exc_nodes, var_name, var_depth, rc_body)
+            rescue_clauses << Ast::RescueClause.new(exc_nodes, var_name, var_depth, rc_body, assign_node: assign_node)
             rc = rc.consequent
           end
           else_node   = prism_node.else_clause.nil?   ? nil : transform(prism_node.else_clause)
           ensure_node = prism_node.ensure_clause.nil? ? nil : transform(prism_node.ensure_clause.statements)
           Ast::BeginRescue.new(body, rescue_clauses, else_node, ensure_node)
+
+        when Prism::RescueModifierNode
+          # expr rescue fallback  →  begin; expr; rescue StandardError; fallback; end
+          body = transform(prism_node.expression)
+          fallback = transform(prism_node.rescue_expression)
+          Ast::BeginRescue.new(body, [Ast::RescueClause.new([], nil, nil, fallback)], nil, nil)
 
         when Prism::AliasMethodNode
           raise "new_name #{prism_node.new_name.class} must be a Prism::SymbolNode" unless prism_node.new_name.is_a?(Prism::SymbolNode)
@@ -399,6 +510,19 @@ module Frozone
         when Prism::BreakNode
           value_node = prism_node.arguments.nil? || prism_node.arguments.arguments.empty? ? nil : transform(prism_node.arguments.arguments.first)
           Ast::Break.new(value_node)
+
+        when Prism::XStringNode, Prism::InterpolatedXStringNode
+          # Backtick command execution — not supported; return empty string stub
+          Ast::StringLiteral.from("")
+
+        when Prism::SuperNode
+          arg_nodes = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
+          block_node = prism_node.block.nil? ? nil : transform(prism_node.block)
+          Ast::Super.new(arg_nodes, block_node, forwarding: false)
+
+        when Prism::ForwardingSuperNode
+          block_node = prism_node.block.nil? ? nil : transform(prism_node.block)
+          Ast::Super.new([], block_node, forwarding: true)
 
         when Prism::LocalVariableOrWriteNode
           read  = Ast::LocalVariableRead.new(prism_node.name, prism_node.depth)
@@ -441,8 +565,13 @@ module Frozone
           Ast::And.new(read, write)
 
         when Prism::ConstantPathNode
-          parent_node = transform(prism_node.parent)
-          Ast::ConstantPath.new(parent_node, prism_node.child.name)
+          if prism_node.parent.nil?
+            # ::Foo — absolute constant path from root (OBJECT_CLASS)
+            Ast::ConstantRead.new(prism_node.child.name)
+          else
+            parent_node = transform(prism_node.parent)
+            Ast::ConstantPath.new(parent_node, prism_node.child.name)
+          end
 
         when Prism::ConstantPathWriteNode
           parent_node = transform(prism_node.target.parent)
@@ -512,6 +641,29 @@ module Frozone
           begin_node = prism_node.left.nil? ? nil : transform(prism_node.left)
           end_node   = prism_node.right.nil? ? nil : transform(prism_node.right)
           Ast::RangeLiteral.new(begin_node, end_node, prism_node.exclude_end?)
+
+        when Prism::SourceFileNode
+          Ast::StringLiteral.from(prism_node.filepath)
+
+        when Prism::SourceLineNode
+          Ast::IntegerLiteral.from(prism_node.location.start_line)
+
+        when Prism::BackReferenceReadNode
+          Ast::GlobalVariableRead.new(prism_node.name)
+
+        when Prism::NumberedReferenceReadNode
+          Ast::GlobalVariableRead.new(:"$#{prism_node.number}")
+
+        when Prism::KeywordHashNode
+          # KeywordHashNode used as a value expression (e.g. in yield args, array literals)
+          pairs = prism_node.elements.map do |assoc|
+            case assoc
+            when Prism::AssocNode then [transform(assoc.key), transform(assoc.value)]
+            when Prism::AssocSplatNode then [nil, transform(assoc.value)]
+            else raise "Unexpected KeywordHashNode element: #{assoc.class}"
+            end
+          end
+          Ast::HashLiteral.new(pairs)
 
         else
           raise "Unexpected Prism node type #{prism_node.class}"

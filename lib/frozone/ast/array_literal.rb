@@ -10,7 +10,12 @@ module Frozone
 
       def to_s = "arr(TODO)"
 
-      def evaluate(context) = Vm::ArrayObject.new(@element_nodes.map { |e| e.evaluate(context) })
+      def evaluate(context)
+        elements = @element_nodes.flat_map do |e|
+          e.is_a?(SplatArg) ? e.evaluate(context).raw : e.evaluate(context)
+        end
+        Vm::ArrayObject.new(elements)
+      end
     end
   end
 end

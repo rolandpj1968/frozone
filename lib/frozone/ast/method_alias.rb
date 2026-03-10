@@ -16,7 +16,7 @@ module Frozone
         #clazz = context.frame.the_self
         clazz = context.scopes.last
         # TODO - what about eigenclass? Can you alias instance methods?
-        method = clazz.lookup_method(@old_name)
+        method = clazz.is_a?(Vm::ClassObject) ? clazz.lookup_method(@old_name) : clazz.get_method(@old_name)
         # TODO this is a runtime error, not an assert
         # TODO fully-qualified class name
         raise "undefined method '#{@old_name}' for class '#{clazz.name}' (NameError)" if method.nil?

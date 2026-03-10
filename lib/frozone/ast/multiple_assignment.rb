@@ -62,6 +62,12 @@ module Frozone
           context.frame.the_self.set_ivar(target[1], value)
         when :const
           context.scopes.last.set_constant(target[1], value)
+        when :gvar
+          Vm::GLOBALS[target[1]] = value
+        when :index
+          receiver = target[1].evaluate(context)
+          index_args = target[2].map { |n| n.evaluate(context) }
+          receiver.dispatch(context, :[]=, index_args + [value], {})
         end
       end
     end

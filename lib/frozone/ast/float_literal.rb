@@ -1,4 +1,5 @@
 require_relative 'node'
+require_relative '../vm/float_object'
 
 module Frozone
   module Ast
@@ -9,10 +10,9 @@ module Frozone
 
       def to_s = "float(#{@value})"
 
-      def self.from(value)
-        # TODO dedup; Vm::FloatObject
-        new(value)
-      end
+      def self.from(value) = new(value)
+
+      def evaluate(_context) = Vm::FloatObject.new(@value)
     end
   end
 end
