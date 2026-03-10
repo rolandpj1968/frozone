@@ -10,7 +10,8 @@ module Frozone
       end
 
       def lambda? = @lambda
-      def call(context, args) = @block_object.invoke(context, args)
+      def call(context, args, receiver: nil) = @block_object.invoke(context, args, receiver: receiver)
+      def invoke(context, args, receiver: nil) = @block_object.invoke(context, args, receiver: receiver)
     end
   end
 end

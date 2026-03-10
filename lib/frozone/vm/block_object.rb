@@ -8,9 +8,9 @@ module Frozone
         @enclosing_frame = enclosing_frame
       end
 
-      def invoke(context, args)
+      def invoke(context, args, receiver: nil)
         new_frame = Frame.new(
-          @enclosing_frame.the_self,
+          receiver || @enclosing_frame.the_self,
           @locals,
           @enclosing_frame.scopes,
           @enclosing_frame
