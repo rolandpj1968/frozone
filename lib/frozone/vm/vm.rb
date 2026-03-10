@@ -11,6 +11,7 @@ require_relative 'method'
 require_relative 'nil_object'
 require_relative 'range_object'
 require_relative 'float_object'
+require_relative 'time_object'
 require_relative 'regexp_object'
 
 module Frozone
@@ -39,22 +40,20 @@ module Frozone
 
         # if -e is present then ruby DOES NOT evaluate an ARGV file
         # Note: ruby -e 'ARGV.each {|f| load f}' file1.rb file2.rb file3.rb
-        program =
+        result =
           if scripts.empty?
             # if -e is absent then ruby evaluates the FIRST file only
             file = @options[:argv][0]
-            file.nil? ? "" : File.read(file)
+            file.nil? ? eval_snippet("") : evaluate_file(File.expand_path(file))
           else
             # if multiple -e scripts are present, ruby simply joins them with \n, and parses together
             #   ruby -e 'puts 3; class A' -e 'end; puts 4'
             #   ruby -e 'puts "ha' -e 'llo"'
             #   ruby -e 'puts 3' -e '@%@#$%@'
-            scripts.join("\n")
+            eval_snippet(scripts.join("\n"))
           end
 
-        result = eval_snippet(program, dump_ast = false) # TODO use cmd-line debug flag to dump AST
-
-        puts "result: #{result}"
+        # puts "result: #{result}"  # debug
       end
 
       # Load the standard library into the shared class hierarchy.
@@ -78,6 +77,7 @@ module Frozone
         evaluate_file("#{core_path}/hash.rb")
         evaluate_file("#{core_path}/proc.rb")
         evaluate_file("#{core_path}/range.rb")
+        evaluate_file("#{core_path}/exception.rb")
         init_globals
       end
 
@@ -108,16 +108,17 @@ module Frozone
       private
 
       def evaluate_file(path)
-        (Fiber[:file_stack] ||= []) << File.expand_path(path)
+        full_path = File.expand_path(path)
+        (Fiber[:file_stack] ||= []) << full_path
         begin
-          evaluate(File.read(path))
+          evaluate(File.read(full_path), false, filepath: full_path)
         ensure
           Fiber[:file_stack].pop
         end
       end
 
-      def evaluate(script, dump_ast = false)
-        parser = Parser.new(script, dump_ast)
+      def evaluate(script, dump_ast = false, filepath: nil)
+        parser = Parser.new(script, dump_ast, filepath: filepath)
         ast = parser.ast
 
         if dump_ast
