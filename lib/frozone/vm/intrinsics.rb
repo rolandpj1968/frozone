@@ -24,6 +24,30 @@ module Frozone
 
         def object_not(_, v) = bool_object_for(!v.truthy?)
 
+        def object_ivar_get(_, v, name)
+          ivar = name.is_a?(SymbolObject) ? :"@#{name.raw.to_s.delete_prefix('@')}" : name.raw.to_sym
+          ivar = :"@#{ivar.to_s.delete_prefix('@')}"
+          v.get_ivar(ivar)
+        end
+
+        def object_ivar_set(_, v, name, value)
+          ivar = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
+          ivar = :"@#{ivar.to_s.delete_prefix('@')}"
+          v.set_ivar(ivar, value)
+          value
+        end
+
+        def object_ivar_defined(_, v, name)
+          ivar = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
+          ivar = :"@#{ivar.to_s.delete_prefix('@')}"
+          bool_object_for(v.get_ivar(ivar) != NilObject::NIL)
+        end
+
+        def object_ivar_names(_, v)
+          names = v.instance_variable_get(:@instance_variables)&.keys || []
+          ArrayObject.new(names.map { |k| SymbolObject.from(k) })
+        end
+
         def object_respond_to(_, v, name)
           raise "respond_to? name must be a SymbolObject" unless name.is_a?(SymbolObject)
           bool_object_for(!v.class_object.lookup_method(name.raw).nil?)
@@ -48,9 +72,28 @@ module Frozone
           NilObject::NIL
         end
 
-        def kernel_raise(_, _receiver, msg)
-          message = msg.is_a?(NilObject) ? 'RuntimeError' : msg.dispatch(Fiber[:context], :to_s, [], {}).raw
-          raise FrozoneException.new(msg, message)
+        def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = nil, _backtrace = nil)
+          if msg.is_a?(NilObject)
+            # bare `raise` re-raises current exception or raises RuntimeError
+            raise FrozoneException.make(:RuntimeError, "RuntimeError")
+          elsif msg.is_a?(ClassObject) || msg.is_a?(ModuleObject)
+            # raise SomeClass, "message"
+            msg_str = message_arg ? message_arg.dispatch(context, :to_s, [], {}).raw : msg.name.to_s
+            exc_obj = ObjectObject.new(msg)
+            exc_obj.set_ivar(:@message, StringObject.new(msg_str))
+            raise FrozoneException.new(exc_obj, msg_str)
+          elsif msg.is_a?(StringObject)
+            raise FrozoneException.make(:RuntimeError, msg.raw)
+          else
+            # raise exception_object (must respond to message)
+            begin
+              msg_str = msg.dispatch(context, :message, [], {})
+              msg_str = msg_str.is_a?(StringObject) ? msg_str.raw : msg.to_s
+            rescue
+              msg_str = "exception"
+            end
+            raise FrozoneException.new(msg, msg_str)
+          end
         end
 
         def kernel_p(_, _receiver, args)
@@ -77,7 +120,7 @@ module Frozone
         def basic_object_method_missing(context, receiver, name, args, kwargs)
           raise "BasicObject#method_missing name must be a Symbol" unless name.is_a?(Symbol)
           class_name = receiver.class_object.name
-          raise "undefined method '#{name}' for an instance of #{class_name}"
+          raise FrozoneException.make(:NoMethodError, "undefined method '#{name}' for an instance of #{class_name}")
         end
 
         def basic_object___send__(context, receiver, name, args, kwargs)
@@ -99,6 +142,13 @@ module Frozone
           raise "module_prepend: mod must be a ModuleObject" unless mod.is_a?(ModuleObject)
           receiver.prepend_module(mod)
           receiver
+        end
+
+        def object_instance_eval(context, receiver, block)
+          return NilObject::NIL if block.nil? || block.is_a?(NilObject)
+          return block.invoke(context, [], receiver: receiver) if block.is_a?(ProcObject)
+          return block.invoke(context, [], receiver: receiver) if block.is_a?(BlockObject)
+          NilObject::NIL
         end
 
         def object_extend(_, receiver, mod)
@@ -244,14 +294,41 @@ module Frozone
         # Kernel require/load
         def kernel_require(_, _receiver, path_obj)
           path = path_obj.raw
-          loaded = GLOBALS[:"$LOADED_FEATURES"]
-          loaded_paths = loaded.raw.map(&:raw)
-          return FalseObject::FALSE if loaded_paths.include?(path)
           full_path = resolve_load_path(path)
           raise FrozoneException.make(:LoadError, "cannot load such file -- #{path}") if full_path.nil?
+          loaded = GLOBALS[:"$LOADED_FEATURES"]
+          loaded_paths = loaded.raw.map(&:raw)
+          return FalseObject::FALSE if loaded_paths.include?(full_path)
           loaded.push(StringObject.new(full_path))
           Fiber[:vm_evaluate].call(full_path)
           TrueObject::TRUE
+        end
+
+        def kernel_integer(context, _receiver, val, base)
+          return val if val.is_a?(IntegerObject)
+          if val.is_a?(StringObject)
+            return IntegerObject.new(Integer(val.raw, base.raw))
+          end
+          # Object with to_int or to_i
+          if val.class_object.lookup_method(:to_int)
+            return val.dispatch(context, :to_int, [], {})
+          end
+          val.dispatch(context, :to_i, [], {})
+        end
+
+        def kernel_float(_, _receiver, val)
+          FloatObject.new(val.is_a?(FloatObject) ? val.raw : Float(val.raw))
+        end
+
+        def kernel_array(_, _receiver, val)
+          return val if val.is_a?(ArrayObject)
+          return NilObject::NIL.equal?(val) ? ArrayObject.new([]) : ArrayObject.new([val])
+        end
+
+        def kernel_dir(_, _receiver)
+          stack = Fiber[:file_stack]
+          return NilObject::NIL if stack.nil? || stack.empty?
+          StringObject.new(File.dirname(stack.last))
         end
 
         def kernel_require_relative(_, _receiver, path_obj)
@@ -370,6 +447,16 @@ module Frozone
         def process_pid(_) = IntegerObject.new(Process.pid)
         def process_euid(_) = IntegerObject.new(Process.euid)
 
+        # Time
+        def time_now(_) = TimeObject.new(Time.now)
+        def time_minus(_, t, other)
+          other.is_a?(TimeObject) ? FloatObject.new(t.raw - other.raw) : TimeObject.new(t.raw - other.raw)
+        end
+        def time_plus(_, t, secs) = TimeObject.new(t.raw + secs.raw)
+        def time_to_f(_, t) = FloatObject.new(t.raw.to_f)
+        def time_to_i(_, t) = IntegerObject.new(t.raw.to_i)
+        def time_to_s(_, t) = StringObject.new(t.raw.to_s)
+
         # Regexp
         def regexp_match(_, receiver, str)
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
@@ -462,6 +549,10 @@ module Frozone
         end
         def string_concat(_, v1, v2)      = StringObject.new(v1.raw + v2.raw)
         def string_multiply(_, v, n)      = StringObject.new(v.raw * n.raw)
+        def string_format(_, v, args)
+          raw_args = args.is_a?(ArrayObject) ? args.raw.map(&:raw) : args.raw
+          StringObject.new(v.raw % raw_args)
+        end
         def string_encode(_, v, enc = nil) = v
         def string_encoding(_, v)         = StringObject.new(v.raw.encoding.name)
         def string_freeze(_, v)           = v
@@ -633,6 +724,11 @@ module Frozone
           v1
         end
 
+        def array_replace(_, v, other)
+          v.raw.replace(other.raw)
+          v
+        end
+
         def array_delete(_, v, elem)
           removed = v.raw.reject! { |e| e.equal?(elem) || (e.respond_to?(:raw) && elem.respond_to?(:raw) && e.raw == elem.raw) }
           removed.nil? ? NilObject::NIL : elem
@@ -788,6 +884,10 @@ module Frozone
             pair2 && val1.dispatch(context, :eql?, [pair2[1]], {}).truthy?
           end
           bool_object_for(result)
+        end
+
+        def hash_new(_, default = nil)
+          HashObject.new({})  # TODO: support default value
         end
 
         def hash_each(context, h, block)
