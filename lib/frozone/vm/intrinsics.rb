@@ -620,8 +620,22 @@ module Frozone
         end
 
         def array_index_write(_, v, i, val)
-          raise "Array#[]= index must be an Integer" unless i.is_a?(IntegerObject)
-          v[i.raw] = val
+          if i.is_a?(IntegerObject)
+            v.raw[i.raw] = val
+          elsif i.is_a?(RangeObject)
+            replacement = val.is_a?(ArrayObject) ? val.raw : [val]
+            v.raw[i.raw] = replacement
+          else
+            raise "Array#[]= index must be an Integer or Range"
+          end
+          val
+        end
+
+        def array_slice_write(_, v, start, length, val)
+          raise "Array#[]= start must be an Integer" unless start.is_a?(IntegerObject)
+          raise "Array#[]= length must be an Integer" unless length.is_a?(IntegerObject)
+          replacement = val.is_a?(ArrayObject) ? val.raw : [val]
+          v.raw[start.raw, length.raw] = replacement
           val
         end
 
@@ -898,6 +912,16 @@ module Frozone
         def hash_index(context, h, key)
           value = h[key]
           value.nil? ? NilObject::NIL : value
+        end
+
+        def hash_eq(context, v1, v2)
+          return bool_object_for(false) unless v2.is_a?(HashObject)
+          return bool_object_for(false) unless v1.raw.length == v2.raw.length
+          result = v1.raw.all? do |k1, val1|
+            pair2 = v2.raw.find { |k2, _| k1.dispatch(context, :==, [k2], {}).truthy? }
+            pair2 && val1.dispatch(context, :==, [pair2[1]], {}).truthy?
+          end
+          bool_object_for(result)
         end
 
         def hash_eql(context, v1, v2)

@@ -514,6 +514,10 @@ module Frozone
           fallback = transform(prism_node.rescue_expression)
           Ast::BeginRescue.new(body, [Ast::RescueClause.new([], nil, nil, fallback)], nil, nil)
 
+        when Prism::AliasGlobalVariableNode
+          # alias $new $old — stub as nil (Frozone uses a flat globals hash)
+          Ast::NilLiteral::NIL
+
         when Prism::AliasMethodNode
           raise "new_name #{prism_node.new_name.class} must be a Prism::SymbolNode" unless prism_node.new_name.is_a?(Prism::SymbolNode)
           raise "old_name #{prism_node.old_name.class} must be a Prism::SymbolNode" unless prism_node.old_name.is_a?(Prism::SymbolNode)

@@ -1,6 +1,12 @@
 class Array
   def [](i, len = nil) = Intrinsics.array_index(self, i, len)
-  def []=(i, v) = Intrinsics.array_index_write(self, i, v)
+  def []=(i, len_or_val, val = :__unset__)
+    if val.equal?(:__unset__)
+      Intrinsics.array_index_write(self, i, len_or_val)
+    else
+      Intrinsics.array_slice_write(self, i, len_or_val, val)
+    end
+  end
   def push(*vals); vals.each { |v| Intrinsics.array_push(self, v) }; self; end
   alias append push
   def <<(v); Intrinsics.array_push(self, v); self; end
