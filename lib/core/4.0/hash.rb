@@ -1,4 +1,5 @@
 class Hash
+  def self.new(default = nil) = Intrinsics.hash_new(default)
   def [](key) = Intrinsics.hash_index(self, key)
   def []=(key, value) = Intrinsics.hash_index_write(self, key, value)
   def size = Intrinsics.hash_size(self)

@@ -1,9 +1,11 @@
 class Array
   def [](i, len = nil) = Intrinsics.array_index(self, i, len)
   def []=(i, v) = Intrinsics.array_index_write(self, i, v)
-  def push(v) = Intrinsics.array_push(self, v)
-  alias << push
+  def push(*vals); vals.each { |v| Intrinsics.array_push(self, v) }; self; end
+  alias append push
+  def <<(v); Intrinsics.array_push(self, v); self; end
   def concat(other) = Intrinsics.array_concat(self, other)
+  def replace(other) = Intrinsics.array_replace(self, other)
   def length = Intrinsics.array_length(self)
   alias size length
   def count(&block) = Intrinsics.array_count(self, block)
@@ -72,6 +74,9 @@ class Array
   alias filter select
   alias find_all select
   def reject(&block);    r = []; each { |x| r << x unless (block ? block.call(x) : yield(x)) }; r; end
+  def reject!(&block);   n = length; r = reject(&block); replace(r); n == length ? nil : self; end
+  def select!(&block);   n = length; r = select(&block); replace(r); n == length ? nil : self; end
+  alias filter! select!
 
   def flat_map(&block) = Intrinsics.array_flat_map(self, block)
   alias collect_concat flat_map

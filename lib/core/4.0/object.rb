@@ -18,7 +18,13 @@ class Object
 
   def respond_to?(name) = Intrinsics.object_respond_to(self, name)
 
+  def instance_variable_get(name) = Intrinsics.object_ivar_get(self, name)
+  def instance_variable_set(name, value) = Intrinsics.object_ivar_set(self, name, value)
+  def instance_variable_defined?(name) = Intrinsics.object_ivar_defined(self, name)
+  def instance_variables = Intrinsics.object_ivar_names(self)
+
   def extend(mod) = Intrinsics.object_extend(self, mod)
+  def instance_eval(&block) = Intrinsics.object_instance_eval(self, block)
 
   def freeze = self
   def frozen? = false
@@ -42,14 +48,23 @@ class Object
   def puts(*args) = Intrinsics.kernel_puts(self, args)
   def print(*args) = Intrinsics.kernel_print(self, args)
   def p(*args) = Intrinsics.kernel_p(self, args)
-  def raise(msg = nil) = Intrinsics.kernel_raise(self, msg)
+  def raise(msg = nil, message = nil, backtrace = nil) = Intrinsics.kernel_raise(self, msg, message, backtrace)
 
   def require(path)          = Intrinsics.kernel_require(self, path)
   def require_relative(path) = Intrinsics.kernel_require_relative(self, path)
   def load(path)             = Intrinsics.kernel_load(self, path)
+  def __dir__                = Intrinsics.kernel_dir(self)
 
   def proc   = Intrinsics.kernel_proc(self)
   def lambda = Intrinsics.kernel_lambda(self)
+
+  def sprintf(fmt, *args) = fmt % args
+  def format(fmt, *args) = fmt % args
+
+  def Integer(val, base = 10) = Intrinsics.kernel_integer(self, val, base)
+  def Float(val)              = Intrinsics.kernel_float(self, val)
+  def String(val)             = val.to_s
+  def Array(val)              = Intrinsics.kernel_array(self, val)
 
   def at_exit(&block) = nil  # stub: at_exit blocks not executed in frozone
   def abort(msg = nil) = Intrinsics.kernel_abort(self, msg)
