@@ -12,6 +12,7 @@ class Array
   def empty? = Intrinsics.array_empty(self)
   def first = self[0]
   def last = self[self.length - 1]
+  def ==(other) = Intrinsics.array_eq(self, other)
   def to_s = Intrinsics.array_to_s(self)
   alias inspect to_s
   def to_a = Intrinsics.array_to_a(self)

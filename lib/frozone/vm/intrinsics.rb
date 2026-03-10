@@ -625,6 +625,13 @@ module Frozone
           IntegerObject.new(hash_val)
         end
 
+        def array_eq(context, v1, v2)
+          return bool_object_for(false) unless v2.is_a?(ArrayObject)
+          return bool_object_for(false) unless v1.raw.length == v2.raw.length
+          result = v1.raw.zip(v2.raw).all? { |a, b| a.dispatch(context, :==, [b], {}).truthy? }
+          bool_object_for(result)
+        end
+
         def array_eql(context, v1, v2)
           return bool_object_for(false) unless v2.is_a?(ArrayObject)
           return bool_object_for(false) unless v1.raw.length == v2.raw.length
