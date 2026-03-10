@@ -42,6 +42,7 @@ class Object
 
   def to_s = Intrinsics.object_to_s(self)
   def inspect = to_s
+  def pretty_inspect = inspect
 
   alias send __send__
 
@@ -65,6 +66,15 @@ class Object
   def Float(val)              = Intrinsics.kernel_float(self, val)
   def String(val)             = val.to_s
   def Array(val)              = Intrinsics.kernel_array(self, val)
+
+  def loop(&block)
+    raise LocalJumpError, "no block given" unless block
+    while true
+      block.call
+    end
+  rescue StopIteration => e
+    e.result
+  end
 
   def at_exit(&block) = nil  # stub: at_exit blocks not executed in frozone
   def abort(msg = nil) = Intrinsics.kernel_abort(self, msg)
