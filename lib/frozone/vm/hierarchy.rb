@@ -91,6 +91,9 @@ end
 class Exception < Object
 end
 
+class SystemExit < Exception
+end
+
 class ScriptError < Exception
 end
 
@@ -167,4 +170,27 @@ class TypeError < StandardError
 end
 
 class ZeroDivisionError < StandardError
+end
+
+class Time < Object
+  def self.now = Intrinsics.time_now
+  def -(other) = Intrinsics.time_minus(self, other)
+  def +(other) = Intrinsics.time_plus(self, other)
+  def to_f = Intrinsics.time_to_f(self)
+  def to_i = Intrinsics.time_to_i(self)
+  def to_s = Intrinsics.time_to_s(self)
+end
+
+class Thread < Object
+  def self.report_on_exception=(val) = nil  # stub
+  def self.report_on_exception = false       # stub
+end
+
+class STDOUT < IO
+end
+
+class STDERR < IO
+end
+
+class STDIN < IO
 end
