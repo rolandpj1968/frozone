@@ -6,12 +6,12 @@ require_relative '../vm/nil_object'
 module Frozone
   module Ast
     class ModuleDef < Node
-      def initialize(name, locals, body)
+      def initialize(name, locals, body, namespace_node: nil)
         @name = check_type("name", name, Symbol)
 
-        raise "module defn with locals not yet supported" unless locals.empty?
         @locals = check_array_type("locals", locals, Symbol)
 
+        @namespace_node = check_nil_or_type("namespace_node", namespace_node, Node)
         @body = check_type("body", body, Node)
       end
 
@@ -20,16 +20,31 @@ module Frozone
       end
 
       def evaluate(context)
-        namespace = context.scopes.last.equal?(Vm::Core::OBJECT_CLASS) ? nil : context.scopes.last
+        if @namespace_node
+          # Namespaced module: module A::B — define B inside A
+          # The namespace A is NOT pushed onto the lexical scope stack; only B is.
+          container = @namespace_node.evaluate(context)
+          namespace = container.is_a?(Vm::ModuleObject) ? container : nil
+          module_constant = container.get_constant(@name)
+          unless module_constant.nil? || module_constant.is_a?(Vm::ModuleObject)
+            raise "previous defn of #{@name} was not a module"
+          end
+          if module_constant.nil?
+            module_constant = Vm::ModuleObject.new(@name, namespace)
+            container.set_constant(@name, module_constant)
+          end
+        else
+          namespace = context.scopes.last.equal?(Vm::Core::OBJECT_CLASS) ? nil : context.scopes.last
 
-        # MRI only looks in the immediate enclosing class/module, not outer nesting or superclass chain.
-        module_constant = context.scopes.last.get_constant(@name)
-        unless module_constant.nil? || module_constant.is_a?(Vm::ModuleObject)
-          raise "previous defn of #{@name} was not a module"
-        end
-        if module_constant.nil?
-          module_constant = Vm::ModuleObject.new(@name, namespace)
-          context.scopes.last.set_constant(@name, module_constant)
+          # MRI only looks in the immediate enclosing class/module, not outer nesting or superclass chain.
+          module_constant = context.scopes.last.get_constant(@name)
+          unless module_constant.nil? || module_constant.is_a?(Vm::ModuleObject)
+            raise "previous defn of #{@name} was not a module"
+          end
+          if module_constant.nil?
+            module_constant = Vm::ModuleObject.new(@name, namespace)
+            context.scopes.last.set_constant(@name, module_constant)
+          end
         end
 
         context.scopes << module_constant
