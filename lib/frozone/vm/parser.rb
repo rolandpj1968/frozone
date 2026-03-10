@@ -423,16 +423,7 @@ module Frozone
             # TODO - this is a real runtime error
             raise "class name '#{prism_node.name}' is not a valid constant name"
           end
-          superclass_node =
-            if prism_node.superclass.nil?
-              nil
-            elsif prism_node.superclass.is_a?(Prism::ConstantReadNode)
-              Ast::ConstantRead.new(prism_node.superclass.name)
-            elsif prism_node.superclass.is_a?(Prism::ConstantPathNode)
-              transform(prism_node.superclass)
-            else
-              raise "class superclass must be a constant (e.g. class B < A or class B < A::C)"
-            end
+          superclass_node = prism_node.superclass.nil? ? nil : transform(prism_node.superclass)
           body_ast = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
           Ast::ClassDef.new(prism_node.name, prism_node.locals, superclass_node, body_ast, namespace_node: namespace_node)
 
