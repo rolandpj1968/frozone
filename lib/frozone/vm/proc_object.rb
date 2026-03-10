@@ -1,4 +1,5 @@
 require_relative 'object_object'
+require_relative '../ast/return'
 
 module Frozone
   module Vm
@@ -10,8 +11,20 @@ module Frozone
       end
 
       def lambda? = @lambda
-      def call(context, args, receiver: nil) = @block_object.invoke(context, args, receiver: receiver)
-      def invoke(context, args, receiver: nil) = @block_object.invoke(context, args, receiver: receiver)
+
+      def call(context, args, receiver: nil)
+        if @lambda
+          begin
+            @block_object.invoke(context, args, receiver: receiver)
+          rescue Ast::ReturnException => e
+            e.value  # `return` in a lambda exits the lambda
+          end
+        else
+          @block_object.invoke(context, args, receiver: receiver)
+        end
+      end
+
+      def invoke(context, args, receiver: nil) = call(context, args, receiver: receiver)
     end
   end
 end
