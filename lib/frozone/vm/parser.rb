@@ -5,13 +5,15 @@ require_relative '../ast'
 module Frozone
   module Vm
     class Parser
-      def initialize(text, dump_ast = false)
+      def initialize(text, dump_ast = false, filepath: nil)
         @text = text
         @dump_ast = dump_ast
+        @filepath = filepath
       end
 
       def ast
-        program_node = Prism.parse(@text).value
+        parse_opts = @filepath ? { filepath: @filepath } : {}
+        program_node = Prism.parse(@text, **parse_opts).value
 
         puts program_node.inspect if @dump_ast
 
@@ -152,6 +154,9 @@ module Frozone
 
       def transform(prism_node)
         case prism_node
+        when nil
+          Ast::NilLiteral::NIL
+
         when Prism::NilNode
           Ast::NilLiteral::NIL
 
@@ -517,11 +522,21 @@ module Frozone
 
         when Prism::SuperNode
           arg_nodes = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
-          block_node = prism_node.block.nil? ? nil : transform(prism_node.block)
+          block_node = case prism_node.block
+                       when nil then nil
+                       when Prism::BlockNode then parse_block(prism_node.block)
+                       when Prism::BlockArgumentNode then Ast::BlockArg.new(transform(prism_node.block.expression))
+                       else raise "Unsupported super block type: #{prism_node.block.class}"
+                       end
           Ast::Super.new(arg_nodes, block_node, forwarding: false)
 
         when Prism::ForwardingSuperNode
-          block_node = prism_node.block.nil? ? nil : transform(prism_node.block)
+          block_node = case prism_node.block
+                       when nil then nil
+                       when Prism::BlockNode then parse_block(prism_node.block)
+                       when Prism::BlockArgumentNode then Ast::BlockArg.new(transform(prism_node.block.expression))
+                       else raise "Unsupported super block type: #{prism_node.block.class}"
+                       end
           Ast::Super.new([], block_node, forwarding: true)
 
         when Prism::LocalVariableOrWriteNode
@@ -665,8 +680,12 @@ module Frozone
           end
           Ast::HashLiteral.new(pairs)
 
+        when Prism::FlipFlopNode
+          # Flip-flop not implemented; evaluates to false
+          Ast::FalseLiteral::FALSE
+
         else
-          raise "Unexpected Prism node type #{prism_node.class}"
+          raise FrozoneException.make(:NotImplementedError, "Unsupported Ruby feature: #{prism_node.class.name.split('::').last.sub('Node', '')}")
         end
       end
     end
