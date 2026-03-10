@@ -101,6 +101,16 @@ module Frozone
           args.raw.length == 1 ? args.raw.first : args
         end
 
+        def kernel_loop(context, _receiver, block)
+          return NilObject::NIL if block.nil? || block.is_a?(NilObject)
+          loop do
+            block.invoke(context, [])
+          rescue Ast::BreakException => e
+            return e.value
+          end
+          NilObject::NIL
+        end
+
         def kernel_abort(_, _receiver, msg)
           m = msg.is_a?(NilObject) ? nil : msg.dispatch(Fiber[:context], :to_s, [], {}).raw
           $stderr.puts(m) if m
@@ -164,6 +174,13 @@ module Frozone
           raise FrozoneException.make(:NameError, "undefined method '#{old_name}'") if method.nil?
           receiver.set_method(new_name, method.alias_as(new_name))
           receiver
+        end
+
+        def module_define_method(_, receiver, name_obj, block)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          block_obj = block.is_a?(ProcObject) ? block.block_object : block
+          receiver.set_method(name, DefinedMethod.new(name, block_obj))
+          SymbolObject.from(name)
         end
 
         def module_name(_, receiver)

@@ -19,13 +19,21 @@ module Frozone
 
         @whens.each do |w|
           w.condition_nodes.each do |cond_node|
-            cond_val = cond_node.evaluate(context)
-            matched =
-              if subject.nil?
-                cond_val.truthy?
-              else
-                cond_val.dispatch(context, :===, [subject], {}).truthy?
+            # Splat in when: expand to individual values
+            if cond_node.is_a?(SplatArg)
+              arr = cond_node.evaluate(context)
+              matched = arr.raw.any? do |elem|
+                subject.nil? ? elem.truthy? : elem.dispatch(context, :===, [subject], {}).truthy?
               end
+            else
+              cond_val = cond_node.evaluate(context)
+              matched =
+                if subject.nil?
+                  cond_val.truthy?
+                else
+                  cond_val.dispatch(context, :===, [subject], {}).truthy?
+                end
+            end
             return w.body_node.evaluate(context) if matched
           end
         end

@@ -149,5 +149,21 @@ module Frozone
         UniqueScopes[scopes] ||= scopes.dup.freeze
       end
     end
+
+    # A method created by define_method that delegates to a captured block
+    class DefinedMethod
+      attr_reader :name
+
+      def initialize(name, block_obj)
+        @name = name
+        @block_obj = block_obj
+      end
+
+      def invoke(context, receiver, args, kwargs, block: nil)
+        @block_obj.invoke(context, args, receiver: receiver)
+      end
+
+      def alias_as(name) = DefinedMethod.new(name, @block_obj)
+    end
   end
 end

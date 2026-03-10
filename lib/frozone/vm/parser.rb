@@ -56,18 +56,34 @@ module Frozone
         when Prism::SplatNode
           if target.expression.nil?
             [:splat_nil]
-          elsif target.expression.is_a?(Prism::LocalVariableTargetNode)
-            [:local_splat, target.expression.name, target.expression.depth]
-          elsif target.expression.is_a?(Prism::InstanceVariableTargetNode)
-            [:ivar_splat, target.expression.name]
           else
-            raise "Unsupported splat target type: #{target.expression.class}"
+            # Delegate to the inner target but mark as splat for collection
+            inner = parse_multi_write_target(target.expression)
+            [:"#{inner[0]}_splat", *inner[1..]]
           end
         when Prism::GlobalVariableTargetNode
           [:gvar, target.name]
         when Prism::IndexTargetNode
           index_nodes = target.arguments.nil? ? [] : target.arguments.arguments.map { |a| transform(a) }
           [:index, transform(target.receiver), index_nodes]
+        when Prism::CallTargetNode
+          # obj.method= in multi-write: a.foo, b = 1, 2 (target.name already has '=')
+          [:call, transform(target.receiver), target.name]
+        when Prism::ClassVariableTargetNode
+          [:cvar, target.name]
+        when Prism::ConstantPathTargetNode
+          # A::B in multi-write
+          parent_node = transform(target.parent)
+          [:const_path, parent_node, target.child.name]
+        when Prism::ImplicitRestNode
+          # Implicit * with no variable: a, *, b = arr
+          [:splat_nil]
+        when Prism::MultiTargetNode
+          # Nested destructuring: (a, b), c = arr
+          sub_targets = target.lefts.map { |t| parse_multi_write_target(t) }
+          sub_targets << parse_multi_write_target(target.rest) unless target.rest.nil?
+          sub_targets += target.rights.map { |t| parse_multi_write_target(t) }
+          [:nested, sub_targets]
         else
           raise "Unsupported multi-write target type: #{target.class}"
         end
@@ -679,6 +695,13 @@ module Frozone
             end
           end
           Ast::HashLiteral.new(pairs)
+
+        when Prism::ConstantPathOperatorWriteNode
+          parent_node = transform(prism_node.target.parent)
+          child_name  = prism_node.target.child.name
+          read  = Ast::ConstantPath.new(parent_node, child_name)
+          rhs   = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
+          Ast::ConstantPathWrite.new(parent_node, child_name, rhs)
 
         when Prism::CallOrWriteNode
           receiver_node = prism_node.receiver ? transform(prism_node.receiver) : nil

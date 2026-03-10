@@ -16,7 +16,7 @@ class Object
 
   def instance_of?(klass) = Intrinsics.object_instance_of(self, klass)
 
-  def respond_to?(name) = Intrinsics.object_respond_to(self, name)
+  def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name)
 
   def instance_variable_get(name) = Intrinsics.object_ivar_get(self, name)
   def instance_variable_set(name, value) = Intrinsics.object_ivar_set(self, name, value)
@@ -67,14 +67,7 @@ class Object
   def String(val)             = val.to_s
   def Array(val)              = Intrinsics.kernel_array(self, val)
 
-  def loop(&block)
-    raise LocalJumpError, "no block given" unless block
-    while true
-      block.call
-    end
-  rescue StopIteration => e
-    e.result
-  end
+  def loop(&block) = Intrinsics.kernel_loop(self, block)
 
   def at_exit(&block) = nil  # stub: at_exit blocks not executed in frozone
   def abort(msg = nil) = Intrinsics.kernel_abort(self, msg)

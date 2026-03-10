@@ -60,14 +60,31 @@ module Frozone
           context.frame.frame_at_depth(target[2]).set_local(target[1], value)
         when :ivar, :ivar_splat
           context.frame.the_self.set_ivar(target[1], value)
-        when :const
+        when :const, :const_splat
           context.scopes.last.set_constant(target[1], value)
-        when :gvar
+        when :gvar, :gvar_splat
           Vm::GLOBALS[target[1]] = value
+        when :cvar_splat
+          context.scopes.last.set_class_variable(target[1], value)
         when :index
           receiver = target[1].evaluate(context)
           index_args = target[2].map { |n| n.evaluate(context) }
           receiver.dispatch(context, :[]=, index_args + [value], {})
+        when :call
+          receiver = target[1].evaluate(context)
+          receiver.dispatch(context, target[2], [value], {})
+        when :const_path
+          parent = target[1].evaluate(context)
+          parent.set_constant(target[2], value)
+        when :cvar
+          context.scopes.last.set_class_variable(target[1], value)
+        when :nested
+          # Recursive destructuring: (a, b) = value
+          sub_values = value.is_a?(Vm::ArrayObject) ? value.raw.dup : [value]
+          sub_targets = target[1]
+          sub_targets.each_with_index do |st, i|
+            assign(context, st, sub_values.fetch(i, Vm::NilObject::NIL))
+          end
         end
       end
     end
