@@ -32,9 +32,17 @@ module Frozone
         Core::OBJECT_CLASS.set_constant(:RUBY_PLATFORM, StringObject.new(RUBY_PLATFORM))
         Core::OBJECT_CLASS.set_constant(:RUBY_ENGINE, StringObject.new('frozone'))
         Core::OBJECT_CLASS.set_constant(:RUBY_ENGINE_VERSION, StringObject.new('4.0.1'))
+        Core::OBJECT_CLASS.set_constant(:RUBY_PATCHLEVEL, IntegerObject.new(-1))
+        Core::OBJECT_CLASS.set_constant(:RUBY_REVISION, StringObject.new('0'))
+        Core::OBJECT_CLASS.set_constant(:RUBY_RELEASE_DATE, StringObject.new('2025-01-01'))
+        Core::OBJECT_CLASS.set_constant(:RUBY_DESCRIPTION, StringObject.new("frozone 4.0.1 (#{RUBY_PLATFORM})"))
+        Core::OBJECT_CLASS.set_constant(:RUBY_COPYRIGHT, StringObject.new('frozone - Copyright (C) 2024 frozone'))
 
         env_hash = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
         Core::OBJECT_CLASS.set_constant(:ENV, env_hash)
+
+        script_argv = @options[:argv][1..] || []
+        Core::OBJECT_CLASS.set_constant(:ARGV, ArrayObject.new(script_argv.map { |a| StringObject.new(a) }))
 
         scripts = @options[:scripts]
 
@@ -78,6 +86,7 @@ module Frozone
         evaluate_file("#{core_path}/proc.rb")
         evaluate_file("#{core_path}/range.rb")
         evaluate_file("#{core_path}/exception.rb")
+        evaluate_file("#{core_path}/pp.rb")
         init_globals
       end
 
@@ -94,7 +103,10 @@ module Frozone
         gem_paths = Gem::Specification.flat_map(&:full_require_paths).select { |p| File.directory?(p) }
         all_load_paths = ($LOAD_PATH + gem_paths).uniq
         GLOBALS[:"$LOAD_PATH"]       = ArrayObject.new(all_load_paths.map { |p| StringObject.new(p) })
-        GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new([])
+        # Pre-stub pp.rb: Frozone provides pretty_inspect/pp directly in core,
+        # so pp.rb must not be loaded (it uses default-param tricks Frozone can't handle).
+        pp_path = $LOAD_PATH.map { |d| File.join(d, 'pp.rb') }.find { |f| File.exist?(f) } || 'pp.rb'
+        GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new([StringObject.new(pp_path)])
         GLOBALS[:"$stdout"]          = ObjectObject.new(Core::OBJECT_CLASS) # placeholder
         GLOBALS[:"$0"]               = StringObject.new($0.to_s)
         GLOBALS[:"$PROGRAM_NAME"]    = GLOBALS[:"$0"]
