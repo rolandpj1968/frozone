@@ -1,6 +1,7 @@
 class String
   def +(v) = Intrinsics.string_plus(self, v)
   def *(n) = Intrinsics.string_multiply(self, n)
+  def %(args) = Intrinsics.string_format(self, args)
   def <<(v) = Intrinsics.string_concat(self, v)
   def length = Intrinsics.string_length(self)
   alias size length
