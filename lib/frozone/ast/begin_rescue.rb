@@ -4,12 +4,13 @@ module Frozone
   module Ast
     # A single rescue clause: rescue ExcClass, ... => var; body
     class RescueClause
-      attr_reader :exception_nodes, :var_name, :var_depth, :body
+      attr_reader :exception_nodes, :var_name, :var_depth, :assign_node, :body
 
-      def initialize(exception_nodes, var_name, var_depth, body)
+      def initialize(exception_nodes, var_name, var_depth, body, assign_node: nil)
         @exception_nodes = exception_nodes  # Array<Node> — empty means catch-all
-        @var_name  = var_name               # Symbol or nil
-        @var_depth = var_depth              # Integer or nil
+        @var_name    = var_name             # Symbol or nil (for local var target)
+        @var_depth   = var_depth            # Integer or nil
+        @assign_node = assign_node          # Node or nil (for ivar/gvar targets)
         @body = body
       end
 
@@ -42,7 +43,7 @@ module Frozone
 
     class BeginRescue < Node
       # Control-flow exceptions must never be intercepted by user rescue clauses.
-      CONTROL_FLOW = [ReturnException, NextException, RedoException, BreakException].freeze
+      CONTROL_FLOW = [ReturnException, NextException, RedoException, BreakException, RetryException].freeze
 
       def initialize(body, rescue_clauses, else_node, ensure_node)
         @body           = check_type("body", body, Node)
@@ -54,23 +55,35 @@ module Frozone
       def evaluate(context)
         rescued = false
         result  = nil
+        retry_requested = false
 
-        begin
-          result = @body.evaluate(context)
-        rescue => e
-          raise if CONTROL_FLOW.any? { |k| e.is_a?(k) }
+        loop do
+          retry_requested = false
+          rescued = false
+          begin
+            result = @body.evaluate(context)
+          rescue => e
+            raise if CONTROL_FLOW.any? { |k| e.is_a?(k) }
 
-          clause = @rescue_clauses.find { |c| c.matches?(e, context) }
-          raise unless clause
+            clause = @rescue_clauses.find { |c| c.matches?(e, context) }
+            raise unless clause
 
-          rescued = true
-          if clause.var_name
+            rescued = true
             vm_val = e.is_a?(Vm::FrozoneException) ? e.vm_object : Vm::StringObject.new(e.message)
-            context.frame.frame_at_depth(clause.var_depth).set_local(clause.var_name, vm_val)
+            if clause.var_name
+              context.frame.frame_at_depth(clause.var_depth).set_local(clause.var_name, vm_val)
+            elsif clause.assign_node
+              clause.assign_node.store(context, vm_val)
+            end
+            begin
+              result = clause.body.evaluate(context)
+            rescue RetryException
+              retry_requested = true
+            end
+          ensure
+            @ensure_node&.evaluate(context)
           end
-          result = clause.body.evaluate(context)
-        ensure
-          @ensure_node&.evaluate(context)
+          break unless retry_requested
         end
 
         !rescued && @else_node ? @else_node.evaluate(context) : result

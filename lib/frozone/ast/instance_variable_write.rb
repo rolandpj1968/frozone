@@ -12,6 +12,10 @@ module Frozone
 
       def evaluate(context)
         value = @value_node.evaluate(context)
+        store(context, value)
+      end
+
+      def store(context, value)
         context.frame.the_self.set_ivar(@name, value)
         value
       end

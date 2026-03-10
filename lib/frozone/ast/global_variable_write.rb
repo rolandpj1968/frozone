@@ -13,6 +13,10 @@ module Frozone
 
       def evaluate(context)
         value = @value_node.evaluate(context)
+        store(context, value)
+      end
+
+      def store(context, value)
         Vm::GLOBALS[@name] = value
         value
       end
