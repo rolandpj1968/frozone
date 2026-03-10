@@ -15,6 +15,7 @@ module Frozone
       def self.make(class_name, message)
         exc_class = Core::OBJECT_CLASS.get_constant(class_name)
         exc_obj = exc_class ? ObjectObject.new(exc_class) : NilObject::NIL
+        exc_obj.set_ivar(:@message, StringObject.new(message)) unless exc_obj.is_a?(NilObject)
         new(exc_obj, message)
       end
     end
