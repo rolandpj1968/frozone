@@ -5,4 +5,5 @@ gem 'profile'
 
 group :test do
   gem 'rspec'
+  gem 'mspec'
 end
