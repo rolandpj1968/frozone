@@ -10,6 +10,8 @@ require_relative 'method'
 
 require_relative 'nil_object'
 require_relative 'range_object'
+require_relative 'float_object'
+require_relative 'regexp_object'
 
 module Frozone
   module Vm
@@ -25,7 +27,13 @@ module Frozone
       def run
         load_core
 
-        Core::OBJECT_CLASS.set_constant(:RUBY_VERSION, Ast::StringLiteral.from('4.0.1'))
+        Core::OBJECT_CLASS.set_constant(:RUBY_VERSION, StringObject.new('4.0.1'))
+        Core::OBJECT_CLASS.set_constant(:RUBY_PLATFORM, StringObject.new(RUBY_PLATFORM))
+        Core::OBJECT_CLASS.set_constant(:RUBY_ENGINE, StringObject.new('frozone'))
+        Core::OBJECT_CLASS.set_constant(:RUBY_ENGINE_VERSION, StringObject.new('4.0.1'))
+
+        env_hash = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
+        Core::OBJECT_CLASS.set_constant(:ENV, env_hash)
 
         scripts = @options[:scripts]
 
@@ -83,7 +91,9 @@ module Frozone
       end
 
       def init_globals
-        GLOBALS[:"$LOAD_PATH"]       = ArrayObject.new([])
+        gem_paths = Gem::Specification.flat_map(&:full_require_paths).select { |p| File.directory?(p) }
+        all_load_paths = ($LOAD_PATH + gem_paths).uniq
+        GLOBALS[:"$LOAD_PATH"]       = ArrayObject.new(all_load_paths.map { |p| StringObject.new(p) })
         GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new([])
         GLOBALS[:"$stdout"]          = ObjectObject.new(Core::OBJECT_CLASS) # placeholder
         GLOBALS[:"$0"]               = StringObject.new($0.to_s)
@@ -107,7 +117,8 @@ module Frozone
       end
 
       def evaluate(script, dump_ast = false)
-        ast = Parser.new(script, dump_ast).ast
+        parser = Parser.new(script, dump_ast)
+        ast = parser.ast
 
         if dump_ast
           puts
@@ -123,7 +134,7 @@ module Frozone
         Fiber[:context] = context
         Fiber[:vm_evaluate] = method(:evaluate_file)
 
-        frame = Frame.new(top_level_object, [], [top_level_scope])
+        frame = Frame.new(top_level_object, parser.top_level_locals, [top_level_scope])
         context.push_frame(frame)
         context.push_scope(top_level_scope)
 
