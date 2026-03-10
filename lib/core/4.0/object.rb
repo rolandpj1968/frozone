@@ -18,6 +18,22 @@ class Object
 
   def respond_to?(name) = Intrinsics.object_respond_to(self, name)
 
+  def extend(mod) = Intrinsics.object_extend(self, mod)
+
+  def freeze = self
+  def frozen? = false
+  def dup = self
+  def clone = self
+  def tap(&block) = self
+  def then(&block) = block ? block.call(self) : self
+  alias yield_self then
+
+  def methods(include_super = true) = []
+  def public_methods(include_super = true) = []
+  def private_methods(include_super = true) = []
+  def protected_methods(include_super = true) = []
+  def singleton_methods(include_super = true) = []
+
   def to_s = Intrinsics.object_to_s(self)
   def inspect = to_s
 
@@ -34,4 +50,11 @@ class Object
 
   def proc   = Intrinsics.kernel_proc(self)
   def lambda = Intrinsics.kernel_lambda(self)
+
+  def at_exit(&block) = nil  # stub: at_exit blocks not executed in frozone
+  def abort(msg = nil) = Intrinsics.kernel_abort(self, msg)
+  def exit(code = 0) = Intrinsics.kernel_exit(self, code)
+  def exit!(code = 1) = Intrinsics.kernel_exit(self, code)
+  def sleep(secs = nil) = nil
+  def system(*args) = false
 end

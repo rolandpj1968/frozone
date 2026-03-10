@@ -37,6 +37,7 @@ module Frozone
 
       def size = @elements.size
       def key?(key) = @elements.key?(wrap(key))
+      def delete(key) = @elements.delete(wrap(key))
 
       def to_s = "{#{@elements.map { |k, v| "#{k.unwrap} => #{v}"}.join(', ')}}"
 

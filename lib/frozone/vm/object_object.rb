@@ -18,7 +18,24 @@ module Frozone
 
       def create_singleton_class
         return unless @eigenclass.equal?(@class_object)
-        @eigenclass = ClassObject.new(nil, nil, @class_object)
+        # For ClassObjects, singleton class inherits from the superclass's singleton class
+        sc_superclass =
+          if is_a?(ClassObject) && respond_to?(:superclass) && superclass
+            superclass.singleton_class
+          else
+            @class_object
+          end
+        @eigenclass = ClassObject.new(nil, nil, sc_superclass)
+      end
+
+      def singleton_class
+        create_singleton_class
+        @eigenclass
+      end
+
+      # Returns a method defined directly on the eigenclass (if distinct from class_object).
+      def eigenclass_method(name)
+        @eigenclass.equal?(@class_object) ? nil : @eigenclass.get_method(name)
       end
 
       def define_singleton_method(name, unbound_method)
@@ -27,7 +44,18 @@ module Frozone
       end
 
       def lookup_instance_method(name)
-        @eigenclass.lookup_method(name)
+        method = @eigenclass.lookup_method(name)
+        return method unless method.nil?
+        # For ClassObjects, also walk superclass eigenclasses for inherited class methods
+        if is_a?(ClassObject) && respond_to?(:superclass)
+          c = superclass
+          while c
+            m = c.eigenclass_method(name)
+            return m unless m.nil?
+            c = c.respond_to?(:superclass) ? c.superclass : nil
+          end
+        end
+        nil
       end
 
       # Shared dispatch: look up and invoke a method on self by Symbol name.

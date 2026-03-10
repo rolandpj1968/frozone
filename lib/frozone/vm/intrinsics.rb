@@ -58,6 +58,17 @@ module Frozone
           args.raw.length == 1 ? args.raw.first : args
         end
 
+        def kernel_abort(_, _receiver, msg)
+          m = msg.is_a?(NilObject) ? nil : msg.dispatch(Fiber[:context], :to_s, [], {}).raw
+          $stderr.puts(m) if m
+          exit(1)
+        end
+
+        def kernel_exit(_, _receiver, code)
+          c = code.is_a?(TrueObject) ? 0 : code.is_a?(FalseObject) ? 1 : code.is_a?(IntegerObject) ? code.raw : 0
+          exit(c)
+        end
+
         # BasicObject
         def basic_object___id__(_, v) = IntegerObject.new(v.__id__)
 
@@ -88,6 +99,87 @@ module Frozone
           raise "module_prepend: mod must be a ModuleObject" unless mod.is_a?(ModuleObject)
           receiver.prepend_module(mod)
           receiver
+        end
+
+        def object_extend(_, receiver, mod)
+          raise "extend: mod must be a ModuleObject" unless mod.is_a?(ModuleObject)
+          receiver.singleton_class.add_module(mod)
+          receiver
+        end
+
+        def module_alias_method(_, receiver, new_name_obj, old_name_obj)
+          new_name = new_name_obj.is_a?(SymbolObject) ? new_name_obj.raw : new_name_obj.raw.to_sym
+          old_name = old_name_obj.is_a?(SymbolObject) ? old_name_obj.raw : old_name_obj.raw.to_sym
+          method = receiver.is_a?(ClassObject) ? receiver.lookup_method(old_name) : receiver.get_method(old_name)
+          raise FrozoneException.make(:NameError, "undefined method '#{old_name}'") if method.nil?
+          receiver.set_method(new_name, method.alias_as(new_name))
+          receiver
+        end
+
+        def module_name(_, receiver)
+          receiver.name ? StringObject.new(receiver.name.to_s) : NilObject::NIL
+        end
+
+        def module_const_defined(_, receiver, name_obj, _inherit = TrueObject::TRUE)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          !receiver.get_constant(name).nil? ? TrueObject::TRUE : FalseObject::FALSE
+        end
+
+        def module_const_get(_, receiver, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          c = receiver.get_constant(name)
+          raise "uninitialized constant #{receiver.name}::#{name}" if c.nil?
+          c
+        end
+
+        def module_eval(context, receiver, block)
+          return NilObject::NIL if block.nil? || block.is_a?(NilObject)
+          block.invoke(context, [], receiver: receiver)
+        end
+
+        def module_ancestors(_, receiver)
+          result = []
+          walk = lambda do |mod|
+            mod.prepends.each { |m| walk.call(m) }
+            result << mod
+            mod.modules.each { |m| walk.call(m) }
+            if mod.is_a?(ClassObject) && mod.superclass
+              walk.call(mod.superclass)
+            end
+          end
+          walk.call(receiver)
+          ArrayObject.new(result)
+        end
+
+        def module_instance_methods(_, receiver, include_super_obj = TrueObject::TRUE)
+          include_super = include_super_obj.truthy?
+          seen = {}
+          result = []
+          collect = lambda do |mod|
+            mod.instance_variable_get(:@methods).each do |name, m|
+              next if seen[name]
+              seen[name] = true
+              result << SymbolObject.from(name) if m.visibility == :public || m.visibility == :protected
+            end
+          end
+          if include_super
+            walk = lambda do |mod|
+              mod.prepends.each { |m| walk.call(m) }
+              collect.call(mod)
+              mod.modules.each { |m| walk.call(m) }
+              walk.call(mod.superclass) if mod.is_a?(ClassObject) && mod.superclass
+            end
+            walk.call(receiver)
+          else
+            collect.call(receiver)
+          end
+          ArrayObject.new(result)
+        end
+
+        def module_method_defined(_, receiver, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          m = receiver.get_method(name)
+          m && (m.visibility == :public || m.visibility == :protected) ? TrueObject::TRUE : FalseObject::FALSE
         end
 
         def module_attr_reader(_, receiver, names)
@@ -156,7 +248,7 @@ module Frozone
           loaded_paths = loaded.raw.map(&:raw)
           return FalseObject::FALSE if loaded_paths.include?(path)
           full_path = resolve_load_path(path)
-          return FalseObject::FALSE if full_path.nil?
+          raise FrozoneException.make(:LoadError, "cannot load such file -- #{path}") if full_path.nil?
           loaded.push(StringObject.new(full_path))
           Fiber[:vm_evaluate].call(full_path)
           TrueObject::TRUE
@@ -241,6 +333,50 @@ module Frozone
 
         def def_integer_bin_op(name, op) = eval "def integer_#{name}(_, v1, v2); #{check_integer_bin_args(op)}; IntegerObject.new(v1.raw #{op} v2.raw); end"
 
+        # File / Dir
+        def file_join(_, parts)
+          strs = parts.raw.flat_map { |p| p.is_a?(ArrayObject) ? p.raw.map(&:raw) : p.raw }
+          StringObject.new(File.join(*strs))
+        end
+        def file_dirname(_, path) = StringObject.new(File.dirname(path.raw))
+        def file_basename(_, path, suffix = nil)
+          result = suffix.nil? || suffix.is_a?(NilObject) ? File.basename(path.raw) : File.basename(path.raw, suffix.raw)
+          StringObject.new(result)
+        end
+        def file_expand_path(_, path, base = nil)
+          result = base.nil? || base.is_a?(NilObject) ? File.expand_path(path.raw) : File.expand_path(path.raw, base.raw)
+          StringObject.new(result)
+        end
+        def file_exist(_, path) = bool_object_for(File.exist?(path.raw))
+        def file_directory(_, path) = bool_object_for(File.directory?(path.raw))
+        def file_file(_, path) = bool_object_for(File.file?(path.raw))
+        def file_readable(_, path) = bool_object_for(File.readable?(path.raw))
+        def file_executable(_, path) = bool_object_for(File.executable?(path.raw))
+        def file_writable(_, path) = bool_object_for(File.writable?(path.raw))
+        def file_size(_, path)
+          s = File.size?(path.raw)
+          s ? IntegerObject.new(s) : NilObject::NIL
+        end
+        def file_read(_, path) = StringObject.new(File.read(path.raw))
+        def file_split(_, path)
+          parts = File.split(path.raw)
+          ArrayObject.new(parts.map { |p| StringObject.new(p) })
+        end
+        def dir_pwd(_) = StringObject.new(Dir.pwd)
+        def dir_home(_) = StringObject.new(Dir.home)
+        def dir_glob(_, pattern)
+          ArrayObject.new(Dir.glob(pattern.raw).map { |p| StringObject.new(p) })
+        end
+        def process_pid(_) = IntegerObject.new(Process.pid)
+        def process_euid(_) = IntegerObject.new(Process.euid)
+
+        # Regexp
+        def regexp_match(_, receiver, str)
+          s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
+          m = receiver.raw.match(s)
+          m ? IntegerObject.new(m.begin(0)) : NilObject::NIL
+        end
+
         # String
         def string_plus(_, v1, v2)
           raise "String#+ requires a String argument" unless v2.is_a?(StringObject)
@@ -261,6 +397,90 @@ module Frozone
 
         def string_eql(_, v1, v2) = bool_object_for(v2.is_a?(StringObject) && v1.raw == v2.raw)
 
+        def string_start_with(_, v, *args) = bool_object_for(v.raw.start_with?(*args.map(&:raw)))
+        def string_end_with(_, v, *args)   = bool_object_for(v.raw.end_with?(*args.map(&:raw)))
+        def string_include(_, v, s)        = bool_object_for(v.raw.include?(s.raw))
+        def string_empty(_, v)             = bool_object_for(v.raw.empty?)
+        def string_strip(_, v)             = StringObject.new(v.raw.strip)
+        def string_lstrip(_, v)            = StringObject.new(v.raw.lstrip)
+        def string_rstrip(_, v)            = StringObject.new(v.raw.rstrip)
+        def string_chomp(_, v, sep = nil)
+          sep.nil? || sep.is_a?(NilObject) ? StringObject.new(v.raw.chomp) : StringObject.new(v.raw.chomp(sep.raw))
+        end
+        def string_chop(_, v)              = StringObject.new(v.raw.chop)
+        def string_upcase(_, v)            = StringObject.new(v.raw.upcase)
+        def string_downcase(_, v)          = StringObject.new(v.raw.downcase)
+        def string_capitalize(_, v)        = StringObject.new(v.raw.capitalize)
+        def string_reverse(_, v)           = StringObject.new(v.raw.reverse)
+        def string_chars(_, v)             = ArrayObject.new(v.raw.chars.map { |c| StringObject.new(c) })
+        def string_bytes(_, v)             = ArrayObject.new(v.raw.bytes.map { |b| IntegerObject.new(b) })
+        def string_split(_, v, sep = nil, limit = nil)
+          sep = nil if sep.is_a?(NilObject)
+          limit = nil if limit.is_a?(NilObject)
+          parts = if sep.nil?
+            v.raw.split
+          elsif limit.nil?
+            v.raw.split(sep.is_a?(StringObject) ? sep.raw : sep.raw)
+          else
+            v.raw.split(sep.is_a?(StringObject) ? sep.raw : sep.raw, limit.raw)
+          end
+          ArrayObject.new(parts.map { |p| StringObject.new(p) })
+        end
+        def string_gsub(_, v, pattern, replacement = nil)
+          pat = pattern.is_a?(StringObject) ? pattern.raw : pattern.raw
+          if replacement.nil? || replacement.is_a?(NilObject)
+            NilObject::NIL
+          else
+            StringObject.new(v.raw.gsub(pat, replacement.raw))
+          end
+        end
+        def string_sub(_, v, pattern, replacement)
+          pat = pattern.is_a?(StringObject) ? pattern.raw : pattern.raw
+          StringObject.new(v.raw.sub(pat, replacement.raw))
+        end
+        def string_tr(_, v, from, to) = StringObject.new(v.raw.tr(from.raw, to.raw))
+        def string_squeeze(_, v, *args)
+          args.empty? ? StringObject.new(v.raw.squeeze) : StringObject.new(v.raw.squeeze(*args.map(&:raw)))
+        end
+        def string_count(_, v, *args) = IntegerObject.new(v.raw.count(*args.map(&:raw)))
+        def string_delete(_, v, *args) = StringObject.new(v.raw.delete(*args.map(&:raw)))
+        def string_slice(_, v, idx, len = nil)
+          result = len.nil? ? v.raw[idx.raw] : v.raw[idx.raw, len.raw]
+          result.nil? ? NilObject::NIL : StringObject.new(result)
+        end
+        def string_index(_, v, sub, offset = nil)
+          result = offset.nil? ? v.raw.index(sub.raw) : v.raw.index(sub.raw, offset.raw)
+          result.nil? ? NilObject::NIL : IntegerObject.new(result)
+        end
+        def string_rindex(_, v, sub, offset = nil)
+          result = offset.nil? ? v.raw.rindex(sub.raw) : v.raw.rindex(sub.raw, offset.raw)
+          result.nil? ? NilObject::NIL : IntegerObject.new(result)
+        end
+        def string_replace(_, v, other)
+          return v if other.is_a?(NilObject)
+          StringObject.new(other.raw)
+        end
+        def string_concat(_, v1, v2)      = StringObject.new(v1.raw + v2.raw)
+        def string_multiply(_, v, n)      = StringObject.new(v.raw * n.raw)
+        def string_encode(_, v, enc = nil) = v
+        def string_encoding(_, v)         = StringObject.new(v.raw.encoding.name)
+        def string_freeze(_, v)           = v
+        def string_frozen(_, v)           = bool_object_for(false)
+        def string_dup(_, v)              = StringObject.new(v.raw.dup)
+        def string_to_sym(_, v)           = SymbolObject.from(v.raw.to_sym)
+        def string_to_f(_, v)             = FloatObject.new(v.raw.to_f)
+        def string_to_r(_, v)             = NilObject::NIL  # stub
+        def string_match(_, v, pattern)
+          pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
+          m = pat.match(v.raw)
+          m ? IntegerObject.new(m.begin(0)) : NilObject::NIL
+        end
+        def string_scan(_, v, pattern)
+          pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
+          results = v.raw.scan(pat)
+          ArrayObject.new(results.map { |r| r.is_a?(Array) ? ArrayObject.new(r.map { |s| StringObject.new(s) }) : StringObject.new(r) })
+        end
+
         # Symbol
         def symbol_to_s(_, v) = StringObject.new(v.raw.to_s)
         def symbol_inspect(_, v) = StringObject.new(v.raw.inspect)
@@ -270,10 +490,25 @@ module Frozone
         def symbol_eql(_, v1, v2) = bool_object_for(v2.is_a?(SymbolObject) && v1.raw == v2.raw)
 
         # Array
-        def array_index(_, v, i)
-          raise "Array#[] index must be an Integer" unless i.is_a?(IntegerObject)
-          element = v[i.raw]
-          element.nil? ? NilObject::NIL : element
+        def array_index(_, v, i, len = nil)
+          len = nil if len.is_a?(NilObject)
+          if len.nil?
+            if i.is_a?(RangeObject)
+              b = i.begin_val.is_a?(IntegerObject) ? i.begin_val.raw : nil
+              e = i.end_val.is_a?(IntegerObject) ? i.end_val.raw : nil
+              ruby_range = i.exclusive? ? (b...e) : (b..e)
+              result = v.raw[ruby_range]
+              result.nil? ? NilObject::NIL : ArrayObject.new(result)
+            elsif i.is_a?(IntegerObject)
+              element = v[i.raw]
+              element.nil? ? NilObject::NIL : element
+            else
+              raise "Array#[] index must be an Integer or Range (got #{i.class})"
+            end
+          else
+            result = v.raw[i.raw, len.raw]
+            result.nil? ? NilObject::NIL : ArrayObject.new(result)
+          end
         end
 
         def array_index_write(_, v, i, val)
@@ -304,6 +539,174 @@ module Frozone
           return bool_object_for(false) unless v1.raw.length == v2.raw.length
           result = v1.raw.zip(v2.raw).all? { |a, b| a.dispatch(context, :eql?, [b], {}).truthy? }
           bool_object_for(result)
+        end
+
+        def array_intersection(_, v1, v2)
+          r1 = v1.raw; r2 = v2.raw
+          ArrayObject.new(r1 & r2)
+        end
+
+        def array_union(_, v1, v2)
+          ArrayObject.new(v1.raw | v2.raw)
+        end
+
+        def array_difference(_, v1, v2)
+          ArrayObject.new(v1.raw - v2.raw)
+        end
+
+        def array_plus(_, v1, v2)
+          ArrayObject.new(v1.raw + v2.raw)
+        end
+
+        def array_multiply(_, v, n)
+          n.is_a?(IntegerObject) ? ArrayObject.new(v.raw * n.raw) : StringObject.new(v.raw.map { |e| e.dispatch(Fiber[:context], :to_s, [], {}).raw }.join(n.raw))
+        end
+
+        def array_flatten(_, v, depth = nil)
+          depth = nil if depth.is_a?(NilObject)
+          result = depth.nil? ? v.raw.flatten : v.raw.flatten(depth.raw)
+          ArrayObject.new(result.map { |e| e.is_a?(ArrayObject) ? e : e })
+        end
+
+        def array_compact(_, v)
+          ArrayObject.new(v.raw.reject { |e| e.is_a?(NilObject) })
+        end
+
+        def array_uniq(_, v)
+          seen = {}
+          result = []
+          v.raw.each { |e| (seen[e.__id__] = result << e) unless seen[e.__id__] }
+          ArrayObject.new(result)
+        end
+
+        def array_sort(context, v)
+          ArrayObject.new(v.raw.sort { |a, b| a.dispatch(context, :<=>, [b], {}).raw })
+        end
+
+        def array_sort_by(context, v, block)
+          ArrayObject.new(v.raw.sort_by { |e| block.invoke(context, [e]) })
+        end
+
+        def array_min(context, v)
+          v.raw.empty? ? NilObject::NIL : v.raw.min { |a, b| a.dispatch(context, :<=>, [b], {}).raw }
+        end
+
+        def array_max(context, v)
+          v.raw.empty? ? NilObject::NIL : v.raw.max { |a, b| a.dispatch(context, :<=>, [b], {}).raw }
+        end
+
+        def array_sum(context, v, initial = nil)
+          initial = initial.nil? || initial.is_a?(NilObject) ? IntegerObject.new(0) : initial
+          v.raw.reduce(initial) { |acc, e| acc.dispatch(context, :+, [e], {}) }
+        end
+
+        def array_join(_, v, sep = nil)
+          sep = sep.nil? || sep.is_a?(NilObject) ? '' : sep.raw
+          StringObject.new(v.raw.map { |e| e.dispatch(Fiber[:context], :to_s, [], {}).raw }.join(sep))
+        end
+
+        def array_include(_, v, elem)
+          bool_object_for(v.raw.any? { |e| e.equal?(elem) || (e.respond_to?(:raw) && elem.respond_to?(:raw) && e.raw == elem.raw) })
+        end
+
+        def array_empty(_, v) = bool_object_for(v.raw.empty?)
+
+        def array_reverse(_, v) = ArrayObject.new(v.raw.reverse)
+
+        def array_pop(_, v)
+          val = v.raw.pop
+          val.nil? ? NilObject::NIL : val
+        end
+
+        def array_shift(_, v)
+          val = v.raw.shift
+          val.nil? ? NilObject::NIL : val
+        end
+
+        def array_unshift(_, v, *elems)
+          elems.each { |e| v.raw.unshift(e) }
+          v
+        end
+
+        def array_concat(_, v1, v2)
+          v2.raw.each { |e| v1.raw << e }
+          v1
+        end
+
+        def array_delete(_, v, elem)
+          removed = v.raw.reject! { |e| e.equal?(elem) || (e.respond_to?(:raw) && elem.respond_to?(:raw) && e.raw == elem.raw) }
+          removed.nil? ? NilObject::NIL : elem
+        end
+
+        def array_delete_if(context, v, block)
+          v.raw.reject! { |e| block.invoke(context, [e]).truthy? }
+          v
+        end
+
+        def array_index_of(_, v, elem)
+          idx = v.raw.index { |e| e.equal?(elem) || (e.respond_to?(:raw) && elem.respond_to?(:raw) && e.raw == elem.raw) }
+          idx.nil? ? NilObject::NIL : IntegerObject.new(idx)
+        end
+
+        def array_count(context, v, block = nil)
+          return IntegerObject.new(v.raw.size) if block.nil? || block.is_a?(NilObject)
+          IntegerObject.new(v.raw.count { |e| block.invoke(context, [e]).truthy? })
+        end
+
+        def array_each_with_object(context, v, obj, block)
+          v.raw.each { |e| block.invoke(context, [e, obj]) }
+          obj
+        end
+
+        def array_flat_map(context, v, block)
+          ArrayObject.new(v.raw.flat_map { |e| r = block.invoke(context, [e]); r.is_a?(ArrayObject) ? r.raw : [r] })
+        end
+
+        def array_zip(_, v, *others)
+          result = v.raw.zip(*others.map { |o| o.is_a?(ArrayObject) ? o.raw : o.raw })
+          ArrayObject.new(result.map { |r| ArrayObject.new(r.map { |e| e.nil? ? NilObject::NIL : e }) })
+        end
+
+        def array_take(_, v, n) = ArrayObject.new(v.raw.take(n.raw))
+        def array_drop(_, v, n) = ArrayObject.new(v.raw.drop(n.raw))
+
+        def array_rotate(_, v, n = nil)
+          n = n.nil? || n.is_a?(NilObject) ? 1 : n.raw
+          ArrayObject.new(v.raw.rotate(n))
+        end
+
+        def array_sample(_, v) = v.raw.empty? ? NilObject::NIL : v.raw.sample
+        def array_shuffle(_, v) = ArrayObject.new(v.raw.shuffle)
+        def array_dup(_, v) = ArrayObject.new(v.raw.dup)
+        def array_freeze(_, v) = v
+        def array_frozen(_, v) = bool_object_for(false)
+        def array_to_a(_, v) = v
+        def array_to_h(context, v, block = nil)
+          result = HashObject.new
+          v.raw.each do |e|
+            if block && !block.is_a?(NilObject)
+              pair = block.invoke(context, [e])
+              result[pair.raw[0]] = pair.raw[1]
+            elsif e.is_a?(ArrayObject)
+              result[e.raw[0]] = e.raw[1]
+            end
+          end
+          result
+        end
+
+        def array_combination(context, v, n, block = nil)
+          combos = v.raw.combination(n.raw).map { |c| ArrayObject.new(c) }
+          return ArrayObject.new(combos) if block.nil? || block.is_a?(NilObject)
+          combos.each { |c| block.invoke(context, [c]) }
+          v
+        end
+
+        def array_permutation(context, v, n = nil, block = nil)
+          n = n.nil? || n.is_a?(NilObject) ? v.raw.length : n.raw
+          perms = v.raw.permutation(n).map { |p| ArrayObject.new(p) }
+          return ArrayObject.new(perms) if block.nil? || block.is_a?(NilObject)
+          perms.each { |p| block.invoke(context, [p]) }
+          v
         end
 
         # Range
@@ -385,6 +788,104 @@ module Frozone
             pair2 && val1.dispatch(context, :eql?, [pair2[1]], {}).truthy?
           end
           bool_object_for(result)
+        end
+
+        def hash_each(context, h, block)
+          h.raw.each { |k, v| block.invoke(context, [k, v]) }
+          h
+        end
+
+        def hash_each_pair(context, h, block)
+          h.raw.each { |k, v| block.invoke(context, [k, v]) }
+          h
+        end
+
+        def hash_each_key(context, h, block)
+          h.raw.each { |k, _v| block.invoke(context, [k]) }
+          h
+        end
+
+        def hash_each_value(context, h, block)
+          h.raw.each { |_k, v| block.invoke(context, [v]) }
+          h
+        end
+
+        def hash_keys(_, h) = ArrayObject.new(h.raw.keys)
+        def hash_values(_, h) = ArrayObject.new(h.raw.values)
+        def hash_to_a(_, h) = ArrayObject.new(h.raw.map { |k, v| ArrayObject.new([k, v]) })
+        def hash_empty(_, h) = bool_object_for(h.raw.empty?)
+
+        def hash_merge(_, h1, h2)
+          result = h1.raw.merge(h2.raw)
+          new_h = HashObject.new
+          result.each { |k, v| new_h[k] = v }
+          new_h
+        end
+
+        def hash_update(_, h1, h2)
+          h2.raw.each { |k, v| h1[k] = v }
+          h1
+        end
+
+        def hash_delete(_, h, key)
+          val = h[key]
+          h.delete(key)
+          val.nil? ? NilObject::NIL : val
+        end
+
+        def hash_fetch(context, h, key, default_val = nil)
+          val = h[key]
+          return val unless val.nil?
+          return default_val unless default_val.nil?
+          raise FrozoneException.make(:KeyError, "key not found")
+        end
+
+        def hash_select(context, h, block)
+          new_h = HashObject.new
+          h.raw.each { |k, v| new_h[k] = v if block.invoke(context, [k, v]).truthy? }
+          new_h
+        end
+
+        def hash_reject(context, h, block)
+          new_h = HashObject.new
+          h.raw.each { |k, v| new_h[k] = v unless block.invoke(context, [k, v]).truthy? }
+          new_h
+        end
+
+        def hash_map(context, h, block)
+          ArrayObject.new(h.raw.map { |k, v| block.invoke(context, [k, v]) })
+        end
+
+        def hash_any(context, h, block)
+          bool_object_for(h.raw.any? { |k, v| block.invoke(context, [k, v]).truthy? })
+        end
+
+        def hash_all(context, h, block)
+          bool_object_for(h.raw.all? { |k, v| block.invoke(context, [k, v]).truthy? })
+        end
+
+        def hash_none(context, h, block)
+          bool_object_for(h.raw.none? { |k, v| block.invoke(context, [k, v]).truthy? })
+        end
+
+        def hash_to_s(_, h)
+          pairs = h.raw.map { |k, v| "#{k.dispatch(Fiber[:context], :inspect, [], {}).raw}=>#{v.dispatch(Fiber[:context], :inspect, [], {}).raw}" }
+          StringObject.new("{#{pairs.join(', ')}}")
+        end
+
+        def hash_value(_, h, v) = bool_object_for(h.raw.any? { |_k, val| val.equal?(v) })
+
+        def hash_freeze(_, h) = h
+        def hash_frozen(_, h) = bool_object_for(false)
+        def hash_dup(_, h)
+          new_h = HashObject.new
+          h.raw.each { |k, v| new_h[k] = v }
+          new_h
+        end
+
+        def hash_count(context, h, block = nil)
+          return IntegerObject.new(h.raw.size) if block.nil?
+          IntegerObject.new(h.raw.count { |k, v| block.invoke(context, [k, v]).truthy? })
         end
       end
 
