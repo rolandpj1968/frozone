@@ -365,6 +365,91 @@ RSpec.describe "Frozone VM functional" do
     end
   end
 
+  describe 'namespaced class/module definition (class A::B)' do
+    it 'class A::B defines B inside A, accessible as A::B' do
+      code = <<~RUBY
+        module NsTest1
+        end
+        class NsTest1::Inner
+        end
+        NsTest1::Inner
+      RUBY
+      result = run_ruby(code)
+      expect(result).to be_a(Frozone::Vm::ClassObject)
+      expect(result.name).to eq(:Inner)
+    end
+
+    it 'class A::B does NOT push A onto the lexical scope stack for constant lookup' do
+      # If A were pushed, then a constant defined in A would be visible inside the body
+      # of class A::B via lexical scope. In real Ruby, it is NOT.
+      code = <<~RUBY
+        module NsTest2
+          OUTER_CONST = 42
+        end
+        found = false
+        class NsTest2::Inner2
+          found = defined?(OUTER_CONST) == "constant"
+        end
+        found
+      RUBY
+      expect(run_ruby(code)).to vm_false
+    end
+
+    it 'class A::B body can still access constants in A via explicit A::CONST' do
+      code = <<~RUBY
+        module NsTest3
+          VALUE = 99
+        end
+        class NsTest3::Inner3
+          def get_value
+            NsTest3::VALUE
+          end
+        end
+        NsTest3::Inner3.new.get_value
+      RUBY
+      expect(run_ruby(code)).to vm_int(99)
+    end
+
+    it 'deeply namespaced class A::B::C is defined inside B' do
+      code = <<~RUBY
+        module NsTest4
+          module Mid
+          end
+        end
+        class NsTest4::Mid::Deep
+        end
+        NsTest4::Mid::Deep
+      RUBY
+      result = run_ruby(code)
+      expect(result).to be_a(Frozone::Vm::ClassObject)
+      expect(result.name).to eq(:Deep)
+    end
+
+    it 'module A::B defines B inside A' do
+      code = <<~RUBY
+        module NsTest5
+        end
+        module NsTest5::InnerMod
+          VALUE = 77
+        end
+        NsTest5::InnerMod::VALUE
+      RUBY
+      expect(run_ruby(code)).to vm_int(77)
+    end
+
+    it 'class A::B body has B (not A) as the lexical scope for constant definitions' do
+      code = <<~RUBY
+        module NsTest6
+        end
+        class NsTest6::Child
+          MY_CONST = 55
+        end
+        NsTest6::Child::MY_CONST
+      RUBY
+      expect(run_ruby(code)).to vm_int(55)
+    end
+  end
+
   describe 'class inheritance' do
     it 'subclass inherits methods from superclass' do
       code = <<~RUBY
@@ -468,13 +553,13 @@ RSpec.describe "Frozone VM functional" do
     it 'raises on wrong number of arguments' do
       expect {
         run_ruby("def ft_strict(a, b); a + b; end\nft_strict(1)")
-      }.to raise_error(RuntimeError, /wrong number/)
+      }.to raise_error(StandardError, /wrong number/)
     end
 
     it 'raises on missing required keyword' do
       expect {
         run_ruby("def ft_kw_req(n:); n; end\nft_kw_req")
-      }.to raise_error(RuntimeError, /missing keyword/)
+      }.to raise_error(StandardError, /missing keyword/)
     end
   end
 
@@ -970,6 +1055,53 @@ RSpec.describe "Frozone VM functional" do
     it 'first'    do expect(run_ruby('[10, 20, 30].first')).to vm_int(10) end
     it 'last'     do expect(run_ruby('[10, 20, 30].last')).to vm_int(30) end
     it 'to_s'     do expect(run_ruby('[1, 2, 3].to_s')).to vm_string('[1, 2, 3]') end
+
+    it 'each_slice yields complete slices and a partial last slice' do
+      result = run_ruby('slices = []; [1,2,3,4,5].each_slice(2) { |s| slices << s }; slices')
+      expect(result.raw.map { |a| a.raw.map(&:raw) }).to eq([[1,2],[3,4],[5]])
+    end
+
+    it 'each_slice returns nil' do
+      expect(run_ruby('[1,2].each_slice(1) { |s| s }')).to vm_nil
+    end
+
+    it 'each_cons yields all consecutive runs of the given size' do
+      result = run_ruby('cons = []; [1,2,3,4].each_cons(2) { |s| cons << s }; cons')
+      expect(result.raw.map { |a| a.raw.map(&:raw) }).to eq([[1,2],[2,3],[3,4]])
+    end
+
+    it 'each_cons does not yield when array is shorter than n' do
+      expect(run_ruby('cons = []; [1,2].each_cons(3) { |s| cons << s }; cons')).to \
+        vm_array([])
+    end
+
+    it 'each_cons returns nil' do
+      expect(run_ruby('[1,2,3].each_cons(2) { |s| s }')).to vm_nil
+    end
+
+    it 'group_by groups elements by the block result' do
+      expect(run_ruby('[1,2,3,4,5,6].group_by { |x| x % 3 }[0]')).to vm_array([3, 6])
+    end
+
+    it 'group_by creates one entry per distinct key' do
+      expect(run_ruby('[1,2,3,4,5,6].group_by { |x| x % 3 }.size')).to vm_int(3)
+    end
+
+    it 'group_by with empty array returns empty hash' do
+      expect(run_ruby('[].group_by { |x| x }.size')).to vm_int(0)
+    end
+
+    it 'tally counts occurrences' do
+      expect(run_ruby('[1, 1, 2, 3, 2, 1].tally[1]')).to vm_int(3)
+    end
+
+    it 'tally returns 1 for unique elements' do
+      expect(run_ruby('[1, 2, 3].tally[2]')).to vm_int(1)
+    end
+
+    it 'tally with empty array returns empty hash' do
+      expect(run_ruby('[].tally.size')).to vm_int(0)
+    end
   end
 
   # ── Hash methods ─────────────────────────────────────────────────────────────

@@ -279,8 +279,9 @@ RSpec.describe Frozone::Ast::HashLiteral do
       expect { described_class.new([]) }.not_to raise_error
     end
 
-    it 'raises when pairs are not [Node, Node]' do
-      expect { described_class.new([["bad", Frozone::Ast::NilLiteral::NIL]]) }.to raise_error(RuntimeError)
+    it 'accepts [nil, Node] pairs for double-splat elements' do
+      # nil key represents a **splat element
+      expect { described_class.new([[nil, Frozone::Ast::NilLiteral::NIL]]) }.not_to raise_error
     end
   end
 

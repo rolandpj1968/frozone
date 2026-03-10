@@ -74,11 +74,11 @@ RSpec.describe Frozone::Ast::ConstantRead do
       expect(result).to equal(val)
     end
 
-    it 'returns nil when constant is not found' do
+    it 'raises NameError when constant is not found' do
       scope = Frozone::Vm::ClassObject.new(:CRMiss, nil, Frozone::Vm::Core::OBJECT_CLASS)
       ctx = make_context(scopes: [scope])
-      result = described_class.new(:MISSING_ZZ).evaluate(ctx)
-      expect(result).to be_nil
+      expect { described_class.new(:MISSING_ZZ).evaluate(ctx) }
+        .to raise_error(Frozone::Vm::FrozoneException, /uninitialized constant MISSING_ZZ/)
     end
   end
 

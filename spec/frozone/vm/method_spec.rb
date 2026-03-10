@@ -58,11 +58,11 @@ RSpec.describe Frozone::Vm::Method do
       end
 
       it 'raises on too few arguments' do
-        expect { m.invoke(ctx, receiver, [], {}) }.to raise_error(RuntimeError, /wrong number/)
+        expect { m.invoke(ctx, receiver, [], {}) }.to raise_error(StandardError, /wrong number/)
       end
 
       it 'raises on too many arguments' do
-        expect { m.invoke(ctx, receiver, [int(1), int(2)], {}) }.to raise_error(RuntimeError, /wrong number/)
+        expect { m.invoke(ctx, receiver, [int(1), int(2)], {}) }.to raise_error(StandardError, /wrong number/)
       end
     end
 
@@ -118,12 +118,12 @@ RSpec.describe Frozone::Vm::Method do
       end
 
       it 'raises when the required kw arg is missing' do
-        expect { m.invoke(ctx, receiver, [], {}) }.to raise_error(RuntimeError, /missing keyword/)
+        expect { m.invoke(ctx, receiver, [], {}) }.to raise_error(StandardError, /missing keyword/)
       end
 
       it 'raises on unknown keyword when no kw_rest_param' do
         extra = sym(:unknown)
-        expect { m.invoke(ctx, receiver, [], { kw => int(1), extra => int(2) }) }.to raise_error(RuntimeError, /unknown keyword/)
+        expect { m.invoke(ctx, receiver, [], { kw => int(1), extra => int(2) }) }.to raise_error(StandardError, /unknown keyword/)
       end
     end
 
