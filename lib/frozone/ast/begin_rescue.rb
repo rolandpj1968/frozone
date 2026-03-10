@@ -28,17 +28,30 @@ module Frozone
 
       # Check whether exception e is an instance of (or subclass of) frozone_class.
       def exception_is_a?(e, frozone_class)
-        return false unless e.is_a?(Vm::FrozoneException)
+        frozone_name = frozone_class.respond_to?(:name) ? frozone_class.name : nil
 
-        vm_obj = e.vm_object
-        # Walk the class hierarchy of the VM exception object.
-        c = vm_obj.is_a?(Vm::ObjectObject) ? vm_obj.class_object : nil
-        while c
-          return true if c.equal?(frozone_class)
-          c = c.respond_to?(:superclass) ? c.superclass : nil
+        if e.is_a?(Vm::FrozoneException)
+          vm_obj = e.vm_object
+          # Walk the class hierarchy of the VM exception object.
+          c = vm_obj.is_a?(Vm::ObjectObject) ? vm_obj.class_object : nil
+          while c
+            return true if c.equal?(frozone_class)
+            c = c.respond_to?(:superclass) ? c.superclass : nil
+          end
+          return false
         end
-        false
+
+        # Plain Ruby exception (not wrapped in FrozoneException) —
+        # match if frozone_class is Exception or a Ruby ancestor.
+        return false unless frozone_name
+        ruby_exc_names = RUBY_EXCEPTION_ANCESTORS[e.class]
+        ruby_exc_names&.include?(frozone_name)
       end
+
+      # Map Ruby exception classes to their ancestor chain names (for rescue matching)
+      RUBY_EXCEPTION_ANCESTORS = Hash.new { |h, k|
+        h[k] = k.ancestors.map { |a| a.name&.to_sym }.compact
+      }
     end
 
     class BeginRescue < Node
