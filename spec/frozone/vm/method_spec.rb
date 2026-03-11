@@ -27,10 +27,10 @@ RSpec.describe Frozone::Vm::Method do
       }.to raise_error(RuntimeError)
     end
 
-    it 'raises when post_params are given without a rest_param' do
+    it 'allows post_params without a rest_param (for def foo(a=1, b) style)' do
       expect {
         described_class.new([klass], :test, [], [], nil, [:post], [], [], nil, nil, [], Frozone::Ast::NilLiteral::NIL)
-      }.to raise_error(RuntimeError, /post_params/)
+      }.not_to raise_error
     end
   end
 

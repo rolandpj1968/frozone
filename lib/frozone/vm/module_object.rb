@@ -39,7 +39,7 @@ module Frozone
       end
 
       def set_method(name, method)
-        raise "method must be an Method" unless method.is_a?(Method)
+        raise "method must be a Method or DefinedMethod" unless method.is_a?(Method) || method.is_a?(DefinedMethod)
         # TODO thread safety
         @methods[name] = method
       end

@@ -20,6 +20,7 @@ require_relative 'ast/sequence'
 require_relative 'ast/if'
 require_relative 'ast/while'
 require_relative 'ast/until'
+require_relative 'ast/for_loop'
 
 require_relative 'ast/local_variable_read'
 require_relative 'ast/local_variable_write'

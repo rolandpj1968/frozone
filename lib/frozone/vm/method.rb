@@ -19,7 +19,6 @@ module Frozone
         @optional_params = check_array_of_pairs_of_types("optional_params", optional_params, Symbol, Ast::Node)
         @rest_param = check_nil_or_type("rest_param", rest_param, Symbol)
         @post_params = check_array_type("post_params", post_params, Symbol)
-        raise "post_params but no rest_param" if rest_param.nil? && post_params.any?
 
         @required_kw_params = check_array_type("required_kw_params", required_kw_params, Symbol)
         @optional_kw_params = check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, Symbol, Ast::Node)
@@ -161,10 +160,12 @@ module Frozone
     # A method created by define_method that delegates to a captured block
     class DefinedMethod
       attr_reader :name
+      attr_accessor :visibility
 
       def initialize(name, block_obj)
         @name = name
         @block_obj = block_obj
+        @visibility = :public
       end
 
       def invoke(context, receiver, args, kwargs, block: nil)

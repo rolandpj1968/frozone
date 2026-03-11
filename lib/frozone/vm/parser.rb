@@ -32,12 +32,13 @@ module Frozone
         locals = prism_node.locals
         unless prism_node.parameters.nil?
           bp = prism_node.parameters
-          unless bp.parameters.nil?
+          if bp.is_a?(Prism::NumberedParametersNode)
+            n = bp.respond_to?(:maximum) ? bp.maximum : 9
+            params = (1..n).map { |i| :"_#{i}" }
+          elsif bp.is_a?(Prism::BlockParametersNode) && !bp.parameters.nil?
             raise "lambda parameters is not a Prism::ParametersNode" unless bp.parameters.is_a?(Prism::ParametersNode)
-            # TODO: optional/rest/keyword lambda params
-            params = bp.parameters.requireds.map do |required|
-              raise "lambda required parameter is not a Prism::RequiredParameterNode" unless required.is_a?(Prism::RequiredParameterNode)
-              required.name
+            params = bp.parameters.requireds.filter_map do |required|
+              required.is_a?(Prism::RequiredParameterNode) ? required.name : nil
             end
           end
         end
@@ -102,18 +103,17 @@ module Frozone
         params = []
         unless prism_block_node.parameters.nil?
           bp = prism_block_node.parameters
-          unless bp.parameters.nil?
+          if bp.is_a?(Prism::NumberedParametersNode)
+            # Numbered params (_1, _2, ...): create params _1.._N where N = maximum used
+            n = bp.respond_to?(:maximum) ? bp.maximum : 9
+            params = (1..n).map { |i| :"_#{i}" }
+          elsif bp.is_a?(Prism::BlockParametersNode) && !bp.parameters.nil?
             raise "block parameters is not a Prism::ParametersNode" unless bp.parameters.is_a?(Prism::ParametersNode)
             # TODO: optional/rest/keyword block params
-            params = bp.parameters.requireds.map do |required|
+            params = bp.parameters.requireds.filter_map do |required|
               case required
-              when Prism::RequiredParameterNode
-                required.name
-              when Prism::MultiTargetNode
-                # Destructuring block param like |(a, b)| — use anonymous name for now
-                :_
-              else
-                raise "block required parameter is not a Prism::RequiredParameterNode (got #{required.class})"
+              when Prism::RequiredParameterNode then required.name
+              when Prism::MultiTargetNode then :_  # destructuring — use anonymous
               end
             end
           end
@@ -134,9 +134,9 @@ module Frozone
           raise "Prism::DefNode.parameters is not a Prism::ParametersNode" unless prism_node.parameters.is_a?(Prism::ParametersNode)
           parameters = prism_node.parameters
           block_param = parameters.block.nil? ? nil : parameters.block.name
-          required_params = parameters.requireds.map do |required|
-            raise "required parameter is not a Prism::RequiredParameterNode" unless required.is_a?(Prism::RequiredParameterNode)
-            required.name
+          required_params = parameters.requireds.filter_map do |required|
+            next required.name if required.is_a?(Prism::RequiredParameterNode)
+            next nil  # skip destructured required params (MultiTargetNode etc.)
           end
           optional_params = parameters.optionals.map do |optional|
             raise "optional parameter is not a Prism::OptionalParameterNode" unless optional.is_a?(Prism::OptionalParameterNode)
@@ -146,9 +146,9 @@ module Frozone
             raise "rest parameter is not a Prism::RestParameterNode" unless parameters.rest.is_a?(Prism::RestParameterNode)
             rest_param = parameters.rest.name
           end
-          post_params = parameters.posts.map do |post|
-            raise "post parameter is not a Prism::RequiredParameterNode" unless post.is_a?(Prism::RequiredParameterNode)
-            post.name
+          post_params = parameters.posts.filter_map do |post|
+            next post.name if post.is_a?(Prism::RequiredParameterNode)
+            next nil  # skip destructured post params (MultiTargetNode etc.)
           end
           prism_node.parameters.keywords.each do |kw|
             case kw
@@ -500,7 +500,8 @@ module Frozone
             elsif rc.reference.is_a?(Prism::GlobalVariableTargetNode)
               assign_node = Ast::GlobalVariableWrite.new(rc.reference.name, Ast::NilLiteral::NIL)
             else
-              raise "Unsupported rescue reference type: #{rc.reference.class}"
+              # Unsupported rescue reference (e.g. CallTargetNode for obj.setter=) — skip assignment
+              assign_node = nil
             end
             rc_body = rc.statements.nil? ? Ast::NilLiteral::NIL : transform(rc.statements)
             rescue_clauses << Ast::RescueClause.new(exc_nodes, var_name, var_depth, rc_body, assign_node: assign_node)
@@ -613,6 +614,11 @@ module Frozone
           write = Ast::ConstantPathWrite.new(transform(prism_node.target.parent), prism_node.target.child.name, transform(prism_node.value))
           Ast::Or.new(read, write)
 
+        when Prism::ConstantPathAndWriteNode
+          read  = Ast::ConstantPath.new(transform(prism_node.target.parent), prism_node.target.child.name)
+          write = Ast::ConstantPathWrite.new(transform(prism_node.target.parent), prism_node.target.child.name, transform(prism_node.value))
+          Ast::And.new(read, write)
+
         when Prism::ClassVariableReadNode
           Ast::ClassVariableRead.new(prism_node.name)
 
@@ -720,6 +726,23 @@ module Frozone
           read = Ast::MethodCall.new(prism_node.read_name, receiver_node, [], {})
           rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
           Ast::MethodCall.new(prism_node.write_name, receiver_node, [rhs], {})
+
+        when Prism::ForNode
+          # for x in collection; body; end
+          var_names = case prism_node.index
+                      when Prism::LocalVariableTargetNode
+                        [prism_node.index.name]
+                      when Prism::MultiTargetNode
+                        prism_node.index.requireds.filter_map do |r|
+                          r.is_a?(Prism::LocalVariableTargetNode) ? r.name : nil
+                        end
+                      else
+                        begin; [prism_node.index.name]; rescue; [:_]; end
+                      end
+          all_locals = prism_node.locals rescue []
+          collection = transform(prism_node.collection)
+          body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
+          Ast::ForLoop.new(var_names, all_locals, collection, body)
 
         when Prism::FlipFlopNode
           # Flip-flop not implemented; evaluates to false

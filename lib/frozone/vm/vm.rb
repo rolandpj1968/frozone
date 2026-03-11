@@ -87,6 +87,7 @@ module Frozone
         evaluate_file("#{core_path}/range.rb")
         evaluate_file("#{core_path}/exception.rb")
         evaluate_file("#{core_path}/pp.rb")
+        evaluate_file("#{core_path}/stringio.rb")
         init_globals
       end
 
@@ -106,7 +107,8 @@ module Frozone
         # Pre-stub pp.rb: Frozone provides pretty_inspect/pp directly in core,
         # so pp.rb must not be loaded (it uses default-param tricks Frozone can't handle).
         pp_path = $LOAD_PATH.map { |d| File.join(d, 'pp.rb') }.find { |f| File.exist?(f) } || 'pp.rb'
-        GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new([StringObject.new(pp_path)])
+        stringio_path = $LOAD_PATH.map { |d| File.join(d, 'stringio') }.find { |f| File.exist?("#{f}.so") || File.exist?("#{f}.rb") } || 'stringio'
+        GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new([StringObject.new(pp_path), StringObject.new(stringio_path)])
         GLOBALS[:"$stdout"]          = ObjectObject.new(Core::OBJECT_CLASS) # placeholder
         GLOBALS[:"$0"]               = StringObject.new($0.to_s)
         GLOBALS[:"$PROGRAM_NAME"]    = GLOBALS[:"$0"]

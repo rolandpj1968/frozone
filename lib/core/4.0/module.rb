@@ -20,7 +20,7 @@ class Module
   def remove_method(*names) = self
   def undef_method(*names) = self
   def alias_method(new_name, old_name) = Intrinsics.module_alias_method(self, new_name, old_name)
-  def define_method(name, &block) = Intrinsics.module_define_method(self, name, block)
+  def define_method(name, callable = nil, &block) = Intrinsics.module_define_method(self, name, callable || block)
 
   def name            = Intrinsics.module_name(self)
   def to_s            = Intrinsics.module_name(self) || Intrinsics.object_to_s(self)

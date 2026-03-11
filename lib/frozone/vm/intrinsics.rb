@@ -344,7 +344,12 @@ module Frozone
             names.raw.each do |name_obj|
               name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
               m = receiver.get_method(name)
-              raise "undefined method '#{name}' for class '#{receiver.name}'" if m.nil?
+              if m.nil?
+                # If not in own methods, look up inherited and copy to this class
+                m = receiver.is_a?(ClassObject) ? receiver.lookup_method(name) : nil
+                raise FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.name}'") if m.nil?
+                receiver.set_method(name, m)
+              end
               m.visibility = vis
             end
           end
@@ -356,10 +361,13 @@ module Frozone
         # Kernel require/load
         def kernel_require(_, _receiver, path_obj)
           path = path_obj.raw
-          full_path = resolve_load_path(path)
-          raise FrozoneException.make(:LoadError, "cannot load such file -- #{path}") if full_path.nil?
+          # Check LOADED_FEATURES first for pre-stubbed libs (e.g. stringio, pp)
           loaded = GLOBALS[:"$LOADED_FEATURES"]
           loaded_paths = loaded.raw.map(&:raw)
+          path_base = path.end_with?('.rb') ? path[0..-4] : path
+          return FalseObject::FALSE if loaded_paths.any? { |p| p == path || p.end_with?("/#{path_base}") || p.end_with?("/#{path_base}.rb") }
+          full_path = resolve_load_path(path)
+          raise FrozoneException.make(:LoadError, "cannot load such file -- #{path}") if full_path.nil?
           return FalseObject::FALSE if loaded_paths.include?(full_path)
           loaded.push(StringObject.new(full_path))
           Fiber[:vm_evaluate].call(full_path)
@@ -448,7 +456,44 @@ module Frozone
         public
 
         # Class
-        def class_new(context, klass, args, kwargs) = klass.new_instance(context, args.raw, kwargs.raw)
+        def class_new(context, klass, args, kwargs, block = nil)
+          raw_args = args.raw
+          raw_kwargs = kwargs.raw
+          has_block = block && !block.is_a?(NilObject)
+          if klass.equal?(Core::CLASS_CLASS)
+            superclass = raw_args.first.is_a?(ClassObject) ? raw_args.first : Core::OBJECT_CLASS
+            new_class = ClassObject.new(nil, nil, superclass)
+            if has_block
+              new_class.current_visibility = :public
+              new_frame = Frame.new(new_class, [], [new_class])
+              context.push_frame(new_frame)
+              context.scopes << new_class
+              begin
+                block.invoke(context, [])
+              ensure
+                context.pop_frame
+                context.scopes.pop
+              end
+            end
+            return new_class
+          elsif klass.equal?(Core::MODULE_CLASS)
+            new_mod = ModuleObject.new(nil, nil)
+            if has_block
+              new_mod.current_visibility = :public
+              new_frame = Frame.new(new_mod, [], [new_mod])
+              context.push_frame(new_frame)
+              context.scopes << new_mod
+              begin
+                block.invoke(context, [])
+              ensure
+                context.pop_frame
+                context.scopes.pop
+              end
+            end
+            return new_mod
+          end
+          klass.new_instance(context, raw_args, raw_kwargs)
+        end
         def class_superclass(_, klass)
           sc = klass.is_a?(ClassObject) ? klass.superclass : nil
           sc.nil? ? NilObject::NIL : sc
