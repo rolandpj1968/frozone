@@ -21,9 +21,16 @@ module Frozone
         defining_class = current_method.scopes.last
 
         receiver = context.frame.the_self
-        klass    = receiver.is_a?(Vm::ClassObject) ? receiver.singleton_class : receiver.class_object
+        if receiver.is_a?(Vm::ClassObject)
+          # Class method: search in singleton class hierarchy
+          klass  = receiver.singleton_class
+          origin = defining_class.is_a?(Vm::ClassObject) ? defining_class.singleton_class : defining_class
+        else
+          klass  = receiver.class_object
+          origin = defining_class
+        end
 
-        super_method = klass.lookup_method_after(method_name, defining_class)
+        super_method = klass.lookup_method_after(method_name, origin)
         if super_method.nil?
           raise Vm::FrozoneException.make(:NoMethodError, "super: no superclass method '#{method_name}' for an instance of #{receiver.class_object.name}")
         end

@@ -26,7 +26,7 @@ module Frozone
 
       def evaluate(context)
         method = Vm::Method.new(
-          context.frame.scopes,
+          context.scopes,
           @name,
           @required_params,
           @optional_params,
