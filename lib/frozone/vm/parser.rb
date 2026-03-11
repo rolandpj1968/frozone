@@ -725,20 +725,39 @@ module Frozone
 
         when Prism::ForNode
           # for x in collection; body; end
-          var_names = case prism_node.index
-                      when Prism::LocalVariableTargetNode
-                        [prism_node.index.name]
-                      when Prism::MultiTargetNode
-                        (prism_node.index.lefts rescue []).filter_map do |r|
-                          r.is_a?(Prism::LocalVariableTargetNode) ? r.name : nil
-                        end
-                      else
-                        begin; [prism_node.index.name]; rescue; [:_]; end
-                      end
-          all_locals = prism_node.locals rescue []
+          # For loops do NOT create a new scope - use target descriptor for direct assignment.
+          target = case prism_node.index
+                   when Prism::LocalVariableTargetNode
+                     [:local, prism_node.index.name]
+                   when Prism::InstanceVariableTargetNode
+                     [:ivar, prism_node.index.name]
+                   when Prism::ClassVariableTargetNode
+                     [:cvar, prism_node.index.name]
+                   when Prism::GlobalVariableTargetNode
+                     [:gvar, prism_node.index.name]
+                   when Prism::MultiTargetNode
+                     idx = prism_node.index
+                     lefts = (idx.lefts rescue []).filter_map { |r| r.is_a?(Prism::LocalVariableTargetNode) ? r.name : nil }
+                     rest_sym = case (idx.rest rescue nil)
+                                when Prism::SplatNode
+                                  expr = idx.rest.expression
+                                  expr.is_a?(Prism::LocalVariableTargetNode) ? expr.name : nil
+                                else
+                                  nil
+                                end
+                     rights = (idx.rights rescue []).filter_map { |r| r.is_a?(Prism::LocalVariableTargetNode) ? r.name : nil }
+                     [:multi, lefts, rest_sym, rights]
+                   when Prism::CallTargetNode
+                     [:call, transform(prism_node.index.receiver), prism_node.index.name]
+                   when Prism::IndexTargetNode
+                     arg_nodes = (prism_node.index.arguments&.arguments || []).map { |a| transform(a) }
+                     [:index, transform(prism_node.index.receiver), arg_nodes]
+                   else
+                     begin; [:local, prism_node.index.name]; rescue; [:local, :_]; end
+                   end
           collection = transform(prism_node.collection)
           body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
-          Ast::ForLoop.new(var_names, all_locals, collection, body)
+          Ast::ForLoop.new(target, collection, body)
 
         when Prism::ImplicitNode
           # {a:} shorthand hash syntax - ImplicitNode wraps the value (local variable)

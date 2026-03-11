@@ -132,7 +132,7 @@ RSpec.describe Frozone::Vm::Intrinsics do
       expect(result.raw).to eq(7)
     end
 
-    it 'raises when name is not a SymbolObject' do
+    it 'raises when name is not a SymbolObject or StringObject' do
       expect {
         described_class.basic_object___send__(real_ctx, obj, :greet,
           Frozone::Vm::ArrayObject.new([]), Frozone::Vm::HashObject.new({}))
