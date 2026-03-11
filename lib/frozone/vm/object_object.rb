@@ -67,12 +67,12 @@ module Frozone
           case method.visibility
           when :private
             unless private_ok
-              raise FrozoneException.new(NilObject::NIL, "private method '#{name}' called for an instance of #{@class_object.name}")
+              raise FrozoneException.make(:NoMethodError, "private method '#{name}' called for an instance of #{@class_object.name}")
             end
           when :protected
             caller_class = context&.frame&.the_self&.class_object
             unless subclass_of?(caller_class, @class_object)
-              raise FrozoneException.new(NilObject::NIL, "protected method '#{name}' called for an instance of #{@class_object.name}")
+              raise FrozoneException.make(:NoMethodError, "protected method '#{name}' called for an instance of #{@class_object.name}")
             end
           end
           return method.invoke(context, self, args, kw_args, block)
