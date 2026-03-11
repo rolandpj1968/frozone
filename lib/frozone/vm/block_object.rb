@@ -28,9 +28,20 @@ module Frozone
           @enclosing_frame
         )
 
-        # Block auto-splat: when called with single Array arg and block expects multiple
-        if @auto_splat && args.length == 1 && args[0].is_a?(ArrayObject)
-          args = args[0].raw
+        # Block auto-splat: when called with single arg and block expects multiple
+        if @auto_splat && args.length == 1
+          arg = args[0]
+          if arg.is_a?(ArrayObject)
+            args = arg.raw
+          elsif !arg.is_a?(NilObject) && arg.lookup_instance_method(:to_ary)
+            # Try to_ary conversion for auto-splat
+            converted = arg.dispatch(context, :to_ary, [], {})
+            if converted.is_a?(ArrayObject)
+              args = converted.raw
+            elsif !converted.is_a?(NilObject)
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{arg.class_object.name} into Array")
+            end
+          end
         end
 
         populate_params(context, new_frame, args)
@@ -83,8 +94,38 @@ module Frozone
         post_start = [args.length - n_post, n_req].max
 
         # Fill required params from front (lenient: missing → nil)
-        @required_params.each_with_index do |name, i|
-          frame.set_local(name, args.fetch(i, NilObject::NIL))
+        @required_params.each_with_index do |param, i|
+          val = args.fetch(i, NilObject::NIL)
+          if param.is_a?(Hash)
+            # Destructuring: |(a, b)| or |(a, *b, c)|
+            sub_args = if val.is_a?(ArrayObject)
+              val.raw
+            elsif !val.is_a?(NilObject) && val.lookup_instance_method(:to_ary)
+              converted = val.dispatch(context, :to_ary, [], {})
+              if converted.is_a?(ArrayObject)
+                converted.raw
+              elsif converted.is_a?(NilObject)
+                [val]
+              else
+                raise FrozoneException.make(:TypeError, "no implicit conversion of #{val.class_object.name} into Array")
+              end
+            else
+              [val]
+            end
+            sub_names  = param[:names]
+            sub_rest   = param[:rest]
+            sub_rights = param[:rights] || []
+            n_fixed = sub_names.length + sub_rights.length
+            sub_names.each_with_index { |n, j| frame.set_local(n, sub_args.fetch(j, NilObject::NIL)) }
+            if sub_rest
+              rest_end = sub_rights.length > 0 ? -(sub_rights.length + 1) : -1
+              rest_vals = sub_args[sub_names.length..rest_end] || []
+              frame.set_local(sub_rest, ArrayObject.new(rest_vals))
+            end
+            sub_rights.each_with_index { |n, j| frame.set_local(n, sub_args.fetch(-(sub_rights.length - j), NilObject::NIL)) }
+          else
+            frame.set_local(param, val)
+          end
         end
 
         # Fill post params starting at post_start (lenient: missing → nil)

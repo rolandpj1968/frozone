@@ -87,12 +87,23 @@ module Frozone
         Ast::MultipleAssignment.new(targets, transform(prism_node.value))
       end
 
+      def parse_multi_target_param(node)
+        # Returns {names: [...], rest: name_or_nil} for |(a, b)| or |(a, *b, c)| style params
+        names = node.lefts.map { |n| n.is_a?(Prism::RequiredParameterNode) ? n.name : nil }.compact
+        rest  = node.rest.is_a?(Prism::RestParameterNode) ? (node.rest.name || :_) : nil
+        rights = node.rights.map { |n| n.is_a?(Prism::RequiredParameterNode) ? n.name : nil }.compact
+        {names: names, rest: rest, rights: rights}
+      end
+
       def parse_block(prism_block_node)
         required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, auto_splat =
           parse_block_or_lambda_params(prism_block_node.parameters, auto_splat: true)
         body = prism_block_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_block_node.body)
+        # Compute locals: expand destructure params to their sub-variable names
+        locals = prism_block_node.locals.dup
+        required.each { |p| locals.concat(p[:names]) if p.is_a?(Hash) }
         Ast::Block.new(required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param,
-                       auto_splat, prism_block_node.locals, body)
+                       auto_splat, locals, body)
       end
 
       # Parse block/lambda params from a Prism BlockParametersNode or ParametersNode.
@@ -129,7 +140,7 @@ module Frozone
         required_params = parameters.requireds.filter_map do |r|
           case r
           when Prism::RequiredParameterNode then r.name
-          when Prism::MultiTargetNode then :_  # destructuring placeholder
+          when Prism::MultiTargetNode then parse_multi_target_param(r)
           else nil
           end
         end

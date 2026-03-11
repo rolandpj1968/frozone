@@ -7,7 +7,7 @@ module Frozone
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
                      block_param, auto_splat, locals, body)
-        @required_params    = check_array_type("required_params", required_params, Symbol)
+        @required_params    = required_params  # Array of Symbol or {destructure: [names...]} Hash
         @optional_params    = optional_params  # [[name, node], ...]
         @rest_param         = rest_param       # Symbol or nil
         @post_params        = check_array_type("post_params", post_params, Symbol)
