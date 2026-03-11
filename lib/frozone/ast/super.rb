@@ -6,10 +6,11 @@ module Frozone
     # forwarding: true  → ForwardingSuperNode (super without parens — passes current method args)
     # forwarding: false → SuperNode (super with explicit args or empty parens)
     class Super < Node
-      def initialize(arg_nodes, block_node, forwarding:)
-        @arg_nodes   = check_array_type("arg_nodes", arg_nodes, Node)
-        @block_node  = check_nil_or_type("block_node", block_node, Node)
-        @forwarding  = forwarding
+      def initialize(arg_nodes, block_node, forwarding:, kw_splat_nodes: [])
+        @arg_nodes       = check_array_type("arg_nodes", arg_nodes, Node)
+        @block_node      = check_nil_or_type("block_node", block_node, Node)
+        @forwarding      = forwarding
+        @kw_splat_nodes  = check_array_type("kw_splat_nodes", kw_splat_nodes, Node)
       end
 
       def evaluate(context)
@@ -43,9 +44,21 @@ module Frozone
           end
         end
 
+        kw_args = if @forwarding
+          {}
+        else
+          result = {}
+          @kw_splat_nodes.each do |splat_node|
+            splatted = splat_node.evaluate(context)
+            next if splatted.is_a?(Vm::NilObject)
+            splatted.raw.each { |k, v| result[k.is_a?(Vm::SymbolObject) ? k.raw : k] = v }
+          end
+          result
+        end
+
         block = @block_node ? @block_node.evaluate(context) : (mf.block if @forwarding)
 
-        super_method.invoke(context, receiver, args, {}, block)
+        super_method.invoke(context, receiver, args, kw_args, block)
       end
     end
   end

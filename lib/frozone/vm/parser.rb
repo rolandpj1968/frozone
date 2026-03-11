@@ -563,10 +563,42 @@ module Frozone
           Ast::Retry.new
 
         when Prism::DefinedNode
-          if prism_node.value.is_a?(Prism::ConstantReadNode)
-            Ast::DefinedConstant.new(prism_node.value.name)
+          val = prism_node.value
+          case val
+          when Prism::SelfNode
+            Ast::DefinedExpr.new(:self)
+          when Prism::NilNode
+            Ast::DefinedExpr.new(:nil)
+          when Prism::TrueNode
+            Ast::DefinedExpr.new(:true)
+          when Prism::FalseNode
+            Ast::DefinedExpr.new(:false)
+          when Prism::IntegerNode, Prism::FloatNode, Prism::ImaginaryNode, Prism::RationalNode,
+               Prism::StringNode, Prism::InterpolatedStringNode, Prism::SymbolNode,
+               Prism::InterpolatedSymbolNode, Prism::RegularExpressionNode,
+               Prism::ArrayNode, Prism::HashNode, Prism::RangeNode, Prism::LambdaNode
+            Ast::DefinedExpr.new(:literal)
+          when Prism::ConstantReadNode
+            Ast::DefinedExpr.new(:constant, Ast::ConstantRead.new(val.name))
+          when Prism::ConstantPathNode
+            Ast::DefinedExpr.new(:constant, transform(val))
+          when Prism::LocalVariableReadNode
+            Ast::DefinedExpr.new(:local_var)
+          when Prism::InstanceVariableReadNode
+            Ast::DefinedExpr.new(:ivar, val.name)
+          when Prism::ClassVariableReadNode
+            Ast::DefinedExpr.new(:cvar, val.name)
+          when Prism::GlobalVariableReadNode
+            Ast::DefinedExpr.new(:gvar, val.name)
+          when Prism::CallNode
+            receiver_node = val.receiver.nil? ? nil : transform(val.receiver)
+            Ast::DefinedExpr.new(:method, [receiver_node, val.name])
+          when Prism::YieldNode
+            Ast::DefinedExpr.new(:yield)
+          when Prism::SuperNode, Prism::ForwardingSuperNode
+            Ast::DefinedExpr.new(:super)
           else
-            # Conservative stub: returns nil for non-constant expressions
+            # For anything else, conservatively return nil
             Ast::NilLiteral::NIL
           end
 
@@ -643,16 +675,31 @@ module Frozone
           Ast::StringLiteral.from("")
 
         when Prism::SuperNode
-          arg_nodes = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
-          block_node = case prism_node.block
-                       when nil then nil
-                       when Prism::BlockNode then parse_block(prism_node.block)
-                       when Prism::BlockArgumentNode
-                expr = prism_node.block.expression
-                expr.nil? ? Ast::ForwardBlock::INSTANCE : Ast::BlockArg.new(transform(expr))
-                       else raise "Unsupported super block type: #{prism_node.block.class}"
+          raw_args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments
+          has_forwarding = raw_args.any? { |a| a.is_a?(Prism::ForwardingArgumentsNode) }
+          arg_nodes = []
+          kw_splats = []
+          raw_args.each do |a|
+            if a.is_a?(Prism::ForwardingArgumentsNode)
+              arg_nodes << Ast::SplatArg.new(Ast::LocalVariableRead.new(:__forward_args__, 0))
+              kw_splats << Ast::LocalVariableRead.new(:__forward_kwargs__, 0)
+            else
+              arg_nodes << transform(a)
+            end
+          end
+          block_node = if has_forwarding
+                         Ast::BlockArg.new(Ast::LocalVariableRead.new(:__forward_block__, 0))
+                       else
+                         case prism_node.block
+                         when nil then nil
+                         when Prism::BlockNode then parse_block(prism_node.block)
+                         when Prism::BlockArgumentNode
+                           expr = prism_node.block.expression
+                           expr.nil? ? Ast::ForwardBlock::INSTANCE : Ast::BlockArg.new(transform(expr))
+                         else raise "Unsupported super block type: #{prism_node.block.class}"
+                         end
                        end
-          Ast::Super.new(arg_nodes, block_node, forwarding: false)
+          Ast::Super.new(arg_nodes, block_node, forwarding: false, kw_splat_nodes: kw_splats)
 
         when Prism::ForwardingSuperNode
           block_node = case prism_node.block
