@@ -70,7 +70,7 @@ module Frozone
         end
 
         unless @rest_param.nil?
-          new_frame.set_local(@rest_param, ArrayObject.new(args[@required_params.length + @optional_params.length .. -@post_params.length - 1]))
+          new_frame.set_local(@rest_param, ArrayObject.new(args[@required_params.length + @optional_params.length .. -@post_params.length - 1] || []))
         end
       end
 
