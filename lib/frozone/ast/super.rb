@@ -37,7 +37,21 @@ module Frozone
         end
 
         args = if @forwarding
-          mf.method_args || []
+          # Read CURRENT values of params from the frame (not original method_args)
+          m = current_method
+          if m.respond_to?(:required_params)
+            current_frame = context.frame
+            fwd_args = m.required_params.map { |p| current_frame.get_local(p) }
+            m.optional_params.each { |p, _| fwd_args << current_frame.get_local(p) }
+            if m.rest_param
+              rest_val = current_frame.get_local(m.rest_param)
+              fwd_args += rest_val.is_a?(Vm::ArrayObject) ? rest_val.raw : [rest_val]
+            end
+            m.post_params.each { |p| fwd_args << current_frame.get_local(p) }
+            fwd_args
+          else
+            mf.method_args || []
+          end
         else
           @arg_nodes.flat_map do |n|
             n.is_a?(SplatArg) ? n.evaluate(context).raw : [n.evaluate(context)]
@@ -45,7 +59,22 @@ module Frozone
         end
 
         kw_args = if @forwarding
-          {}
+          m = current_method
+          if m.respond_to?(:required_kw_params)
+            current_frame = context.frame
+            fwd_kw = {}
+            m.required_kw_params.each { |k| fwd_kw[k] = current_frame.get_local(k) }
+            m.optional_kw_params.each { |k, _| fwd_kw[k] = current_frame.get_local(k) }
+            if m.kw_rest_param
+              rest_hash = current_frame.get_local(m.kw_rest_param)
+              if rest_hash.is_a?(Vm::HashObject)
+                rest_hash.raw.each { |k, v| fwd_kw[k.is_a?(Vm::SymbolObject) ? k.raw : k] = v }
+              end
+            end
+            fwd_kw
+          else
+            mf.method_kwargs || {}
+          end
         else
           result = {}
           @kw_splat_nodes.each do |splat_node|

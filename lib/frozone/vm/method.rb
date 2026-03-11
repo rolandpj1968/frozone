@@ -32,6 +32,8 @@ module Frozone
       end
 
       attr_accessor :visibility
+      attr_reader :required_params, :optional_params, :rest_param, :post_params
+      attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param
 
       def populate_params(context, new_frame, args)
         min_args_expected = @required_params.length + @post_params.length
