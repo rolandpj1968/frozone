@@ -70,6 +70,12 @@ class String
   def index(sub, offset = nil) = Intrinsics.string_index(self, sub, offset)
   def rindex(sub, offset = nil) = Intrinsics.string_rindex(self, sub, offset)
   def replace(other) = Intrinsics.string_replace(self, other)
+
+  def each_line(sep = "\n", &block) = Intrinsics.string_each_line(self, sep, block)
+  def b = Intrinsics.string_b(self)
+  def force_encoding(enc) = self
+  def valid_encoding? = true
+  def ascii_only? = false
 end
 
 class Regexp

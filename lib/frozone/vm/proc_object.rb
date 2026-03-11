@@ -10,6 +10,7 @@ module Frozone
         @lambda = lambda
       end
 
+      def block_object = @block_object
       def lambda? = @lambda
 
       def call(context, args, receiver: nil)

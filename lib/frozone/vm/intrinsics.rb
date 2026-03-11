@@ -111,6 +111,17 @@ module Frozone
           NilObject::NIL
         end
 
+        def kernel_catch(context, _receiver, tag, block)
+          tag_raw = tag.is_a?(NilObject) ? :__catch_nil__ : tag.respond_to?(:raw) ? tag.raw : tag
+          result = catch(tag_raw) { block.invoke(context, [tag]) }
+          result.is_a?(ObjectObject) ? result : NilObject::NIL
+        end
+
+        def kernel_throw(_, _receiver, tag, value = NilObject::NIL)
+          tag_raw = tag.respond_to?(:raw) ? tag.raw : tag
+          throw(tag_raw, value)
+        end
+
         def kernel_abort(_, _receiver, msg)
           m = msg.is_a?(NilObject) ? nil : msg.dispatch(Fiber[:context], :to_s, [], {}).raw
           $stderr.puts(m) if m
@@ -161,6 +172,13 @@ module Frozone
           NilObject::NIL
         end
 
+        def object_instance_exec(context, receiver, args, block)
+          return NilObject::NIL if block.nil? || block.is_a?(NilObject)
+          return block.invoke(context, args.raw, receiver: receiver) if block.is_a?(ProcObject)
+          return block.invoke(context, args.raw, receiver: receiver) if block.is_a?(BlockObject)
+          NilObject::NIL
+        end
+
         def object_extend(_, receiver, mod)
           raise "extend: mod must be a ModuleObject" unless mod.is_a?(ModuleObject)
           receiver.singleton_class.add_module(mod)
@@ -181,6 +199,33 @@ module Frozone
           block_obj = block.is_a?(ProcObject) ? block.block_object : block
           receiver.set_method(name, DefinedMethod.new(name, block_obj))
           SymbolObject.from(name)
+        end
+
+        def module_constants(_, receiver)
+          names = []
+          c = receiver
+          while c
+            c.instance_variable_get(:@constants)&.each_key { |k| names << SymbolObject.from(k) }
+            c = c.is_a?(ClassObject) ? c.superclass : nil
+          end
+          ArrayObject.new(names.uniq)
+        end
+
+        def module_class_variable_defined(_, receiver, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          receiver.class_variables.key?(name) ? TrueObject::TRUE : FalseObject::FALSE
+        end
+
+        def module_class_variables(_, receiver)
+          ArrayObject.new(receiver.class_variables.keys.map { |k| SymbolObject.from(k) })
+        end
+
+        def module_remove_const(_, receiver, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          val = receiver.get_constant(name)
+          raise FrozoneException.make(:NameError, "constant #{name} not defined") if val.nil?
+          receiver.instance_variable_get(:@constants).delete(name)
+          val
         end
 
         def module_name(_, receiver)
@@ -404,6 +449,10 @@ module Frozone
 
         # Class
         def class_new(context, klass, args, kwargs) = klass.new_instance(context, args.raw, kwargs.raw)
+        def class_superclass(_, klass)
+          sc = klass.is_a?(ClassObject) ? klass.superclass : nil
+          sc.nil? ? NilObject::NIL : sc
+        end
 
         # Integer
         def integer_spaceship(_, v1, v2)
@@ -460,6 +509,33 @@ module Frozone
         def dir_home(_) = StringObject.new(Dir.home)
         def dir_glob(_, pattern)
           ArrayObject.new(Dir.glob(pattern.raw).map { |p| StringObject.new(p) })
+        end
+        def dir_chdir(_, path, block)
+          path_raw = path.is_a?(NilObject) || path.nil? ? nil : path.raw
+          if block
+            result = path_raw ? Dir.chdir(path_raw) { block.invoke(Fiber[:context], [StringObject.new(Dir.pwd)]) } :
+                                Dir.chdir { block.invoke(Fiber[:context], [StringObject.new(Dir.pwd)]) }
+            result.is_a?(ObjectObject) ? result : NilObject::NIL
+          else
+            Dir.chdir(path_raw || Dir.pwd)
+            NilObject::NIL
+          end
+        end
+        def dir_mkdir(_, path) = (Dir.mkdir(path.raw); IntegerObject.new(0))
+        def dir_exist(_, path) = path.raw && Dir.exist?(path.raw) ? TrueObject::TRUE : FalseObject::FALSE
+        def dir_mktmpdir(_, prefix, block)
+          require 'tmpdir'
+          pfx = prefix.is_a?(NilObject) || prefix.nil? ? nil : prefix.raw
+          path = pfx ? Dir.mktmpdir(pfx) : Dir.mktmpdir
+          if block
+            begin
+              block.invoke(Fiber[:context], [StringObject.new(path)])
+            ensure
+              FileUtils.remove_entry(path) rescue nil
+            end
+          else
+            StringObject.new(path)
+          end
         end
         def process_pid(_) = IntegerObject.new(Process.pid)
         def process_euid(_) = IntegerObject.new(Process.euid)
@@ -564,6 +640,13 @@ module Frozone
           return v if other.is_a?(NilObject)
           StringObject.new(other.raw)
         end
+        def string_each_line(context, v, sep, block)
+          sep_raw = sep.is_a?(NilObject) ? "\n" : sep.raw
+          return ArrayObject.new(v.raw.each_line(sep_raw).map { |l| StringObject.new(l) }) unless block
+          v.raw.each_line(sep_raw) { |l| block.invoke(context, [StringObject.new(l)]) }
+          v
+        end
+        def string_b(_, v) = StringObject.new(v.raw.b)
         def string_concat(_, v1, v2)      = StringObject.new(v1.raw + v2.raw)
         def string_multiply(_, v, n)      = StringObject.new(v.raw * n.raw)
         def string_format(_, v, args)
@@ -646,9 +729,17 @@ module Frozone
 
         def array_length(_, v) = IntegerObject.new(v.length)
 
+        ARRAY_TO_S_GUARD = :__array_inspect_guard__
         def array_to_s(context, v)
-          inner = v.raw.map { |e| e.dispatch(context, :inspect, [], {}).raw }.join(", ")
-          StringObject.new("[#{inner}]")
+          seen = (Thread.current[ARRAY_TO_S_GUARD] ||= {})
+          return StringObject.new("[...]") if seen.key?(v.object_id)
+          seen[v.object_id] = true
+          begin
+            inner = v.raw.map { |e| e.dispatch(context, :inspect, [], {}).raw }.join(", ")
+            StringObject.new("[#{inner}]")
+          ensure
+            seen.delete(v.object_id)
+          end
         end
 
         def array_hash(context, v)

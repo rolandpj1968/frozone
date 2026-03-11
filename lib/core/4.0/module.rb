@@ -36,4 +36,9 @@ class Module
   def public_method_defined?(name) = Intrinsics.module_method_defined(self, name)
   def private_method_defined?(name) = false
   def protected_method_defined?(name) = false
+
+  def constants(inherit = true) = Intrinsics.module_constants(self)
+  def class_variable_defined?(name) = Intrinsics.module_class_variable_defined(self, name)
+  def class_variables = Intrinsics.module_class_variables(self)
+  def remove_const(name) = Intrinsics.module_remove_const(self, name)
 end

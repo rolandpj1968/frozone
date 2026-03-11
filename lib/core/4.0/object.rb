@@ -25,6 +25,7 @@ class Object
 
   def extend(mod) = Intrinsics.object_extend(self, mod)
   def instance_eval(&block) = Intrinsics.object_instance_eval(self, block)
+  def instance_exec(*args, &block) = Intrinsics.object_instance_exec(self, args, block)
 
   def freeze = self
   def frozen? = false
@@ -68,6 +69,9 @@ class Object
   def Array(val)              = Intrinsics.kernel_array(self, val)
 
   def loop(&block) = Intrinsics.kernel_loop(self, block)
+
+  def catch(tag = nil, &block) = Intrinsics.kernel_catch(self, tag || :__catch_anon__, block)
+  def throw(tag, value = nil) = Intrinsics.kernel_throw(self, tag, value)
 
   def at_exit(&block) = nil  # stub: at_exit blocks not executed in frozone
   def abort(msg = nil) = Intrinsics.kernel_abort(self, msg)

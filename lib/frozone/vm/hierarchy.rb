@@ -77,6 +77,10 @@ class Dir < Object
   def self.home = Intrinsics.dir_home
   def self.glob(pattern) = Intrinsics.dir_glob(pattern)
   def self.[](pattern) = self.glob(pattern)
+  def self.chdir(path = nil, &block) = Intrinsics.dir_chdir(path, block)
+  def self.mkdir(path, mode = 0o777) = Intrinsics.dir_mkdir(path)
+  def self.exist?(path) = Intrinsics.dir_exist(path)
+  def self.mktmpdir(prefix = nil, &block) = Intrinsics.dir_mktmpdir(prefix, block)
 end
 
 class Encoding < Object
@@ -90,6 +94,15 @@ class Process < Object
 end
 
 class Exception < Object
+  def initialize(msg = nil)
+    @message = msg.nil? ? self.class.name : msg.to_s
+  end
+  def message = @message.nil? ? self.class.name : @message
+  def to_s = message
+  def inspect = "#<#{self.class.name}: #{message}>"
+  def backtrace = []
+  def exception(msg = nil) = msg ? self.class.new(msg) : self
+  def set_backtrace(bt) = bt
 end
 
 class SystemExit < Exception
@@ -171,6 +184,27 @@ class TypeError < StandardError
 end
 
 class ZeroDivisionError < StandardError
+end
+
+class LocalJumpError < StandardError
+end
+
+class UncaughtThrowError < ArgumentError
+end
+
+class RangeError < StandardError
+end
+
+class FloatDomainError < RangeError
+end
+
+class IndexError < StandardError
+end
+
+class StopIteration < IndexError
+end
+
+class EncodingError < StandardError
 end
 
 class Time < Object

@@ -12,6 +12,12 @@ module Frozone
 
       attr_reader :begin_val, :end_val, :exclusive
       def exclusive? = @exclusive
+
+      def raw
+        b = @begin_val.respond_to?(:raw) ? @begin_val.raw : @begin_val
+        e = @end_val.respond_to?(:raw) ? @end_val.raw : @end_val
+        Range.new(b, e, @exclusive)
+      end
     end
   end
 end
