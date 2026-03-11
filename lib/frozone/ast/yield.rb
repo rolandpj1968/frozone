@@ -1,4 +1,5 @@
 require_relative 'node'
+require_relative '../vm/frozone_exception'
 
 module Frozone
   module Ast
@@ -9,8 +10,7 @@ module Frozone
 
       def evaluate(context)
         block = context.frame.block
-        # TODO: raise LocalJumpError (a proper VM exception) instead
-        raise "LocalJumpError: no block given (yield)" if block.nil?
+        raise Vm::FrozoneException.make(:LocalJumpError, "no block given (yield)") if block.nil?
         args = @arg_nodes.map { |n| n.evaluate(context) }
         block.invoke(context, args)
       end

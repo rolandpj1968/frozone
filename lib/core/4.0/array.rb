@@ -12,6 +12,7 @@ class Array
   def <<(v); Intrinsics.array_push(self, v); self; end
   def concat(other) = Intrinsics.array_concat(self, other)
   def replace(other) = Intrinsics.array_replace(self, other)
+  def clear; replace([]); self; end
   def length = Intrinsics.array_length(self)
   alias size length
   def count(&block) = Intrinsics.array_count(self, block)

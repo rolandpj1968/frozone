@@ -11,7 +11,9 @@ class Module
   def private(*names)   = Intrinsics.module_set_private(self, names)
   def protected(*names) = Intrinsics.module_set_protected(self, names)
   def module_function(*names) = nil
-  def module_eval(&block) = Intrinsics.module_eval(self, block)
+  def module_eval(code = nil, *_rest, &block)
+    code ? Intrinsics.module_eval_string(self, code) : Intrinsics.module_eval(self, block)
+  end
   alias class_eval module_eval
   def private_constant(*names) = self
   def public_constant(*names) = self
@@ -41,4 +43,6 @@ class Module
   def class_variable_defined?(name) = Intrinsics.module_class_variable_defined(self, name)
   def class_variables = Intrinsics.module_class_variables(self)
   def remove_const(name) = Intrinsics.module_remove_const(self, name)
+  def remove_class_variable(name) = Intrinsics.module_remove_class_variable(self, name)
+  def ruby2_keywords(*names) = self
 end

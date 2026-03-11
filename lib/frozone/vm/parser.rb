@@ -403,7 +403,8 @@ module Frozone
           namespace_node = nil
           if prism_node.constant_path.is_a?(Prism::ConstantPathNode)
             # module A::B — namespace_node evaluates to A
-            namespace_node = transform(prism_node.constant_path.parent)
+            # module ::A — parent is nil (absolute path), namespace is root Object
+            namespace_node = prism_node.constant_path.parent.nil? ? Ast::RootNamespaceNode::INSTANCE : transform(prism_node.constant_path.parent)
           elsif !prism_node.constant_path.is_a?(Prism::ConstantReadNode)
             raise "unexpected module name type: #{prism_node.constant_path.class}"
           end
@@ -416,7 +417,8 @@ module Frozone
           namespace_node = nil
           if prism_node.constant_path.is_a?(Prism::ConstantPathNode)
             # class A::B — namespace_node evaluates to A
-            namespace_node = transform(prism_node.constant_path.parent)
+            # class ::A — parent is nil (absolute path), namespace is root Object
+            namespace_node = prism_node.constant_path.parent.nil? ? Ast::RootNamespaceNode::INSTANCE : transform(prism_node.constant_path.parent)
           elsif !prism_node.constant_path.is_a?(Prism::ConstantReadNode)
             raise "unexpected class name type: #{prism_node.constant_path.class}"
           end
@@ -733,7 +735,7 @@ module Frozone
                       when Prism::LocalVariableTargetNode
                         [prism_node.index.name]
                       when Prism::MultiTargetNode
-                        prism_node.index.requireds.filter_map do |r|
+                        (prism_node.index.lefts rescue []).filter_map do |r|
                           r.is_a?(Prism::LocalVariableTargetNode) ? r.name : nil
                         end
                       else
@@ -743,6 +745,10 @@ module Frozone
           collection = transform(prism_node.collection)
           body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
           Ast::ForLoop.new(var_names, all_locals, collection, body)
+
+        when Prism::ImplicitNode
+          # {a:} shorthand hash syntax - ImplicitNode wraps the value (local variable)
+          transform(prism_node.value)
 
         when Prism::FlipFlopNode
           # Flip-flop not implemented; evaluates to false

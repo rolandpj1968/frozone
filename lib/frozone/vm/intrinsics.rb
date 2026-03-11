@@ -158,6 +158,11 @@ module Frozone
           receiver
         end
 
+        def toplevel_include(_, _self, mods)
+          mods.raw.each { |mod| Core::OBJECT_CLASS.add_module(mod) }
+          Core::OBJECT_CLASS
+        end
+
         def module_prepend(_, receiver, mod)
           raise "module_prepend: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
           raise "module_prepend: mod must be a ModuleObject" unless mod.is_a?(ModuleObject)
@@ -228,6 +233,13 @@ module Frozone
           val
         end
 
+        def module_remove_class_variable(_, receiver, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          raise FrozoneException.make(:NameError, "class variable #{name} not defined for #{receiver.name}") unless receiver.class_variables.key?(name)
+          receiver.class_variables.delete(name)
+          NilObject::NIL
+        end
+
         def module_name(_, receiver)
           receiver.name ? StringObject.new(receiver.name.to_s) : NilObject::NIL
         end
@@ -247,6 +259,22 @@ module Frozone
         def module_eval(context, receiver, block)
           return NilObject::NIL if block.nil? || block.is_a?(NilObject)
           block.invoke(context, [], receiver: receiver)
+        end
+
+        def module_eval_string(context, receiver, code_obj)
+          code = code_obj.raw
+          parser = Parser.new(code)
+          ast = parser.ast
+          # Evaluate in a frame where self = receiver (the module/class)
+          new_frame = Frame.new(receiver, parser.top_level_locals, context.frame.scopes + [receiver])
+          context.push_frame(new_frame)
+          context.scopes << receiver
+          begin
+            ast.evaluate(context)
+          ensure
+            context.pop_frame
+            context.scopes.pop
+          end
         end
 
         def module_ancestors(_, receiver)
@@ -464,30 +492,28 @@ module Frozone
             superclass = raw_args.first.is_a?(ClassObject) ? raw_args.first : Core::OBJECT_CLASS
             new_class = ClassObject.new(nil, nil, superclass)
             if has_block
+              prev_vis = new_class.current_visibility
               new_class.current_visibility = :public
-              new_frame = Frame.new(new_class, [], [new_class])
-              context.push_frame(new_frame)
               context.scopes << new_class
               begin
-                block.invoke(context, [])
+                block.invoke(context, [], receiver: new_class)
               ensure
-                context.pop_frame
                 context.scopes.pop
+                new_class.current_visibility = prev_vis
               end
             end
             return new_class
           elsif klass.equal?(Core::MODULE_CLASS)
             new_mod = ModuleObject.new(nil, nil)
             if has_block
+              prev_vis = new_mod.current_visibility
               new_mod.current_visibility = :public
-              new_frame = Frame.new(new_mod, [], [new_mod])
-              context.push_frame(new_frame)
               context.scopes << new_mod
               begin
-                block.invoke(context, [])
+                block.invoke(context, [], receiver: new_mod)
               ensure
-                context.pop_frame
                 context.scopes.pop
+                new_mod.current_visibility = prev_vis
               end
             end
             return new_mod

@@ -86,6 +86,7 @@ module Frozone
         evaluate_file("#{core_path}/proc.rb")
         evaluate_file("#{core_path}/range.rb")
         evaluate_file("#{core_path}/exception.rb")
+        evaluate_file("#{core_path}/encoding.rb")
         evaluate_file("#{core_path}/pp.rb")
         evaluate_file("#{core_path}/stringio.rb")
         init_globals
@@ -93,7 +94,7 @@ module Frozone
 
       # Attach 'main' proxy singleton methods for private/public/protected → Object
       def setup_main(main_obj)
-        { private: :toplevel_private, public: :toplevel_public, protected: :toplevel_protected }.each do |name, intrinsic|
+        { private: :toplevel_private, public: :toplevel_public, protected: :toplevel_protected, include: :toplevel_include }.each do |name, intrinsic|
           body = Ast::IntrinsicCall.new(intrinsic, [Ast::SelfLiteral::SELF, Ast::LocalVariableRead.new(:names, 0)])
           m = Method.new([Core::OBJECT_CLASS], name, [], [], :names, [], [], [], nil, nil, [:names], body)
           main_obj.define_singleton_method(name, m)

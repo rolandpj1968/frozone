@@ -3,6 +3,15 @@ require_relative '../vm/frozone_exception'
 
 module Frozone
   module Ast
+    # Evaluates to the root Object class (for ::Foo absolute constant paths)
+    class RootNamespaceNode < Node
+      INSTANCE = new
+
+      def evaluate(_context)
+        Vm::Core::OBJECT_CLASS
+      end
+    end
+
     class ConstantPath < Node
       def initialize(parent_node, name)
         @parent_node = check_type("parent_node", parent_node, Node)
