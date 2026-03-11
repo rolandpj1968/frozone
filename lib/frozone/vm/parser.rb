@@ -563,56 +563,7 @@ module Frozone
           Ast::Retry.new
 
         when Prism::DefinedNode
-          val = prism_node.value
-          case val
-          when Prism::SelfNode
-            Ast::DefinedExpr.new(:self)
-          when Prism::NilNode
-            Ast::DefinedExpr.new(:nil)
-          when Prism::TrueNode
-            Ast::DefinedExpr.new(:true)
-          when Prism::FalseNode
-            Ast::DefinedExpr.new(:false)
-          when Prism::IntegerNode, Prism::FloatNode, Prism::ImaginaryNode, Prism::RationalNode,
-               Prism::StringNode, Prism::InterpolatedStringNode, Prism::SymbolNode,
-               Prism::InterpolatedSymbolNode, Prism::RegularExpressionNode,
-               Prism::ArrayNode, Prism::HashNode, Prism::RangeNode, Prism::LambdaNode
-            Ast::DefinedExpr.new(:literal)
-          when Prism::ConstantReadNode
-            Ast::DefinedExpr.new(:constant, Ast::ConstantRead.new(val.name))
-          when Prism::ConstantPathNode
-            Ast::DefinedExpr.new(:constant, transform(val))
-          when Prism::LocalVariableReadNode
-            Ast::DefinedExpr.new(:local_var)
-          when Prism::InstanceVariableReadNode
-            Ast::DefinedExpr.new(:ivar, val.name)
-          when Prism::ClassVariableReadNode
-            Ast::DefinedExpr.new(:cvar, val.name)
-          when Prism::GlobalVariableReadNode
-            Ast::DefinedExpr.new(:gvar, val.name)
-          when Prism::CallNode
-            receiver_node = val.receiver.nil? ? nil : transform(val.receiver)
-            Ast::DefinedExpr.new(:method, [receiver_node, val.name])
-          when Prism::YieldNode
-            Ast::DefinedExpr.new(:yield)
-          when Prism::SuperNode, Prism::ForwardingSuperNode
-            Ast::DefinedExpr.new(:super)
-          when Prism::LocalVariableWriteNode, Prism::InstanceVariableWriteNode,
-               Prism::ClassVariableWriteNode, Prism::GlobalVariableWriteNode,
-               Prism::ConstantWriteNode, Prism::ConstantPathWriteNode,
-               Prism::MultiWriteNode, Prism::LocalVariableOrWriteNode,
-               Prism::LocalVariableAndWriteNode, Prism::InstanceVariableOrWriteNode,
-               Prism::InstanceVariableAndWriteNode, Prism::CallOrWriteNode,
-               Prism::CallAndWriteNode, Prism::CallOperatorWriteNode
-            Ast::DefinedExpr.new(:assignment)
-          when Prism::BlockNode, Prism::LambdaNode,
-               Prism::AndNode, Prism::OrNode,
-               Prism::ParenthesesNode
-            Ast::DefinedExpr.new(:expression)
-          else
-            # For anything else, conservatively return nil
-            Ast::NilLiteral::NIL
-          end
+          transform_defined_value(prism_node.value)
 
         when Prism::BeginNode
           body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
@@ -945,6 +896,89 @@ module Frozone
 
         else
           raise FrozoneException.make(:NotImplementedError, "Unsupported Ruby feature: #{prism_node.class.name.split('::').last.sub('Node', '')}")
+        end
+      end
+
+      DEFINED_ASSIGNMENT_NODES = [
+        Prism::LocalVariableWriteNode, Prism::InstanceVariableWriteNode,
+        Prism::ClassVariableWriteNode, Prism::GlobalVariableWriteNode,
+        Prism::ConstantWriteNode, Prism::ConstantPathWriteNode,
+        Prism::MultiWriteNode,
+        Prism::LocalVariableOrWriteNode, Prism::LocalVariableAndWriteNode,
+        Prism::LocalVariableOperatorWriteNode,
+        Prism::InstanceVariableOrWriteNode, Prism::InstanceVariableAndWriteNode,
+        Prism::InstanceVariableOperatorWriteNode,
+        Prism::ClassVariableOrWriteNode, Prism::ClassVariableAndWriteNode,
+        Prism::ClassVariableOperatorWriteNode,
+        Prism::GlobalVariableOrWriteNode, Prism::GlobalVariableAndWriteNode,
+        Prism::GlobalVariableOperatorWriteNode,
+        Prism::ConstantOrWriteNode, Prism::ConstantAndWriteNode,
+        Prism::ConstantOperatorWriteNode,
+        Prism::ConstantPathOrWriteNode, Prism::ConstantPathAndWriteNode,
+        Prism::ConstantPathOperatorWriteNode,
+        Prism::CallOrWriteNode, Prism::CallAndWriteNode, Prism::CallOperatorWriteNode,
+        Prism::IndexOrWriteNode, Prism::IndexAndWriteNode, Prism::IndexOperatorWriteNode,
+      ].freeze
+
+      DEFINED_EXPRESSION_NODES = [
+        Prism::BlockNode, Prism::LambdaNode,
+        Prism::AndNode, Prism::OrNode,
+        Prism::IfNode, Prism::UnlessNode, Prism::CaseNode, Prism::CaseMatchNode,
+        Prism::ForNode, Prism::WhileNode, Prism::UntilNode,
+        Prism::BreakNode, Prism::NextNode, Prism::RedoNode, Prism::RetryNode,
+        Prism::ReturnNode, Prism::BeginNode,
+        Prism::SourceFileNode, Prism::SourceLineNode, Prism::SourceEncodingNode,
+        Prism::RegularExpressionNode, Prism::InterpolatedRegularExpressionNode,
+        Prism::RangeNode,
+      ].freeze
+
+      def transform_defined_value(val)
+        case val
+        when Prism::SelfNode
+          Ast::DefinedExpr.new(:self)
+        when Prism::NilNode
+          Ast::DefinedExpr.new(:nil)
+        when Prism::TrueNode
+          Ast::DefinedExpr.new(:true)
+        when Prism::FalseNode
+          Ast::DefinedExpr.new(:false)
+        when Prism::IntegerNode, Prism::FloatNode, Prism::ImaginaryNode, Prism::RationalNode,
+             Prism::StringNode, Prism::InterpolatedStringNode, Prism::SymbolNode,
+             Prism::InterpolatedSymbolNode, Prism::ArrayNode, Prism::HashNode, Prism::LambdaNode
+          Ast::DefinedExpr.new(:literal)
+        when Prism::ConstantReadNode
+          Ast::DefinedExpr.new(:constant, Ast::ConstantRead.new(val.name))
+        when Prism::ConstantPathNode
+          Ast::DefinedExpr.new(:constant, transform(val))
+        when Prism::LocalVariableReadNode
+          Ast::DefinedExpr.new(:local_var)
+        when Prism::InstanceVariableReadNode
+          Ast::DefinedExpr.new(:ivar, val.name)
+        when Prism::ClassVariableReadNode
+          Ast::DefinedExpr.new(:cvar, val.name)
+        when Prism::GlobalVariableReadNode
+          Ast::DefinedExpr.new(:gvar, val.name)
+        when Prism::BackReferenceReadNode
+          Ast::DefinedExpr.new(:back_ref, val.name)
+        when Prism::NumberedReferenceReadNode
+          Ast::DefinedExpr.new(:num_ref, val.number)
+        when Prism::CallNode
+          receiver_node = val.receiver.nil? ? nil : transform(val.receiver)
+          receiver_defined = val.receiver.nil? ? nil : transform_defined_value(val.receiver)
+          Ast::DefinedExpr.new(:method, [receiver_node, val.name, receiver_defined])
+        when Prism::YieldNode
+          Ast::DefinedExpr.new(:yield)
+        when Prism::SuperNode, Prism::ForwardingSuperNode
+          Ast::DefinedExpr.new(:super)
+        when *DEFINED_ASSIGNMENT_NODES
+          Ast::DefinedExpr.new(:assignment)
+        when Prism::ParenthesesNode
+          inner = val.body&.body&.first
+          inner ? transform_defined_value(inner) : Ast::DefinedExpr.new(:expression)
+        when *DEFINED_EXPRESSION_NODES
+          Ast::DefinedExpr.new(:expression)
+        else
+          Ast::NilLiteral::NIL
         end
       end
     end

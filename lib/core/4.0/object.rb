@@ -5,6 +5,7 @@ class Object
 
   def ! = Intrinsics.object_not(self)
   def !=(other) = !(self == other)
+  def !~(other) = !(self =~ other)
   def ===(other) = self == other
 
   def nil? = false

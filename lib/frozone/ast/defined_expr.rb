@@ -4,6 +4,8 @@ module Frozone
   module Ast
     # defined?(expr) — returns a String describing what expr is, or nil
     class DefinedExpr < Node
+      attr_reader :kind
+
       def initialize(kind, extra = nil)
         @kind  = kind   # Symbol: :self, :nil, :true, :false, :literal, :constant,
                         #         :local_var, :ivar, :cvar, :gvar, :method, :yield, :super
@@ -31,35 +33,57 @@ module Frozone
           # Always defined at this point (Prism only generates defined?(local) if in scope)
           "local-variable"
         when :ivar
-          val = context.frame.the_self.get_ivar(@extra)
-          val && !val.is_a?(Vm::NilObject) ? "instance-variable" : nil
+          context.frame.the_self.ivar_defined?(@extra) ? "instance-variable" : nil
         when :cvar
           # @extra is class var name
           begin
-            klass = context.scopes.last
+            s = context.frame.the_self
+            klass = s.is_a?(Vm::ModuleObject) ? s : s.class_object
             val = klass.get_class_var(@extra)
             val ? "class variable" : nil
           rescue
             nil
           end
         when :gvar
-          # global-variable is defined if it's been assigned (even to nil)
-          Vm::GLOBALS.key?(@extra) ? "global-variable" : nil
+          # $! and $~ are always defined (special-cased by Ruby)
+          # Other globals: defined if assigned (even to nil)
+          always_defined = %i[$! $~]
+          if always_defined.include?(@extra) || Vm::GLOBALS.key?(@extra)
+            "global-variable"
+          else
+            nil
+          end
+        when :back_ref
+          # $&, $', $`, $+ — defined only if last match was successful
+          Fiber[:last_match] ? "global-variable" : nil
+        when :num_ref
+          # $1, $2, ... — defined only if last match captured that group
+          m = Fiber[:last_match]
+          (m && @extra <= m.size - 1 && m[@extra]) ? "global-variable" : nil
         when :method
-          # @extra = [receiver_node_or_nil, method_name]
-          receiver_node, method_name = @extra
+          # @extra = [receiver_node_or_nil, method_name, receiver_defined_check]
+          receiver_node, method_name, receiver_defined = @extra
           if receiver_node
-            begin
-              receiver = receiver_node.evaluate(context)
-              method = receiver.class_object.lookup_method(method_name)
-              method ? "method" : nil
-            rescue
-              nil
+            # If receiver might not be defined (ivar/gvar/cvar/back_ref/num_ref), check first
+            receiver_ok = true
+            if receiver_defined&.is_a?(DefinedExpr) &&
+               %i[ivar cvar gvar back_ref num_ref].include?(receiver_defined.kind)
+              recv_check = receiver_defined.evaluate(context)
+              receiver_ok = !recv_check.is_a?(Vm::NilObject)
+            end
+            if receiver_ok
+              begin
+                receiver = receiver_node.evaluate(context)
+                method = receiver.lookup_instance_method(method_name)
+                method && method.visibility == :public ? "method" : nil
+              rescue
+                nil
+              end
             end
           else
-            # Implicit receiver — check current self
+            # Implicit receiver — check current self (private methods are accessible)
             receiver = context.frame.the_self
-            method = receiver.class_object.lookup_method(method_name)
+            method = receiver.lookup_instance_method(method_name)
             method ? "method" : nil
           end
         when :yield

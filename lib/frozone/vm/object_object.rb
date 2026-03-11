@@ -99,6 +99,10 @@ module Frozone
 
       public
 
+      def ivar_defined?(name)
+        @instance_variables.key?(name)
+      end
+
       def get_ivar(name)
         @instance_variables.fetch(name, NilObject::NIL)
       end
