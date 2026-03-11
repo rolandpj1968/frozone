@@ -45,7 +45,8 @@ module Frozone
           # Only def directly in a class/module body or top-level respects current_visibility.
           frame = context.frame
           inside_method_or_block = !frame.method_frame.nil? || !frame.parent_frame.nil?
-          vis = @name == :initialize ? :private : (inside_method_or_block ? :public : scope.current_visibility)
+          private_by_default = %i[initialize initialize_copy initialize_dup initialize_clone respond_to_missing?].include?(@name)
+          vis = private_by_default ? :private : (inside_method_or_block ? :public : scope.current_visibility)
           if vis == :module_function
             # module_function: private instance method + public singleton method
             method.visibility = :private

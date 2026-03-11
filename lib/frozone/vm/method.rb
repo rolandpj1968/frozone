@@ -45,7 +45,7 @@ module Frozone
             expecting += "..#{max_args_expected}"
           end
 
-          raise FrozoneException.make(:ArgumentError, "wrong number of arguments for #{@name} (given #{args.length} expecting #{expecting})")
+          raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given #{args.length}, expected #{expecting})")
         end
 
         @required_params.length.times do |i|

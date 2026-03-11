@@ -348,6 +348,49 @@ module Frozone
           m && (m.visibility == :public || m.visibility == :protected) ? TrueObject::TRUE : FalseObject::FALSE
         end
 
+        def module_private_instance_methods(_, receiver, include_super_obj = TrueObject::TRUE)
+          include_super = include_super_obj.truthy?
+          seen = {}
+          result = []
+          collect = lambda do |mod|
+            mod.instance_variable_get(:@methods).each do |name, m|
+              next if seen[name]
+              seen[name] = true
+              result << SymbolObject.from(name) if m.visibility == :private
+            end
+          end
+          if include_super
+            walk = lambda do |mod|
+              mod.prepends.each { |m| walk.call(m) }
+              collect.call(mod)
+              mod.modules.each { |m| walk.call(m) }
+              walk.call(mod.superclass) if mod.is_a?(ClassObject) && mod.superclass
+            end
+            walk.call(receiver)
+          else
+            collect.call(receiver)
+          end
+          ArrayObject.new(result)
+        end
+
+        def module_private_method_defined(_, receiver, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          m = receiver.get_method(name)
+          m && m.visibility == :private ? TrueObject::TRUE : FalseObject::FALSE
+        end
+
+        def module_public_method_defined(_, receiver, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          m = receiver.get_method(name)
+          m && m.visibility == :public ? TrueObject::TRUE : FalseObject::FALSE
+        end
+
+        def module_protected_method_defined(_, receiver, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          m = receiver.get_method(name)
+          m && m.visibility == :protected ? TrueObject::TRUE : FalseObject::FALSE
+        end
+
         def module_attr_reader(_, receiver, names)
           raise "attr_reader: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
           names.raw.each do |name_obj|

@@ -33,12 +33,12 @@ class Module
   def ancestors       = Intrinsics.module_ancestors(self)
   def instance_methods(include_super = true) = Intrinsics.module_instance_methods(self, include_super)
   def public_instance_methods(include_super = true) = Intrinsics.module_instance_methods(self, include_super)
-  def private_instance_methods(include_super = true) = []
+  def private_instance_methods(include_super = true) = Intrinsics.module_private_instance_methods(self, include_super)
   def protected_instance_methods(include_super = true) = []
   def method_defined?(name) = Intrinsics.module_method_defined(self, name)
-  def public_method_defined?(name) = Intrinsics.module_method_defined(self, name)
-  def private_method_defined?(name) = false
-  def protected_method_defined?(name) = false
+  def public_method_defined?(name) = Intrinsics.module_public_method_defined(self, name)
+  def private_method_defined?(name) = Intrinsics.module_private_method_defined(self, name)
+  def protected_method_defined?(name) = Intrinsics.module_protected_method_defined(self, name)
 
   def constants(inherit = true) = Intrinsics.module_constants(self)
   def class_variable_defined?(name) = Intrinsics.module_class_variable_defined(self, name)
