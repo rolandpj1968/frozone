@@ -21,11 +21,12 @@ module Frozone
       end
 
       def evaluate(context)
-        # Lambdas do NOT auto-splat (auto_splat: false)
+        # Lambdas do NOT auto-splat (auto_splat: false), and have strict arg checking (is_lambda: true)
         block = Vm::BlockObject.new(
           @required_params, @optional_params, @rest_param, @post_params,
           @required_kw_params, @optional_kw_params, @kw_rest_param,
-          @block_param, false, @locals, @body, context.frame
+          @block_param, false, @locals, @body, context.frame,
+          is_lambda: true
         )
         Vm::ProcObject.new(block, lambda: true)
       end

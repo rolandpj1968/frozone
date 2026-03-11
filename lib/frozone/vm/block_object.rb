@@ -3,9 +3,11 @@ module Frozone
     class BlockObject
       # auto_splat: true for procs/blocks (not lambdas), causes single Array arg to be
       # auto-splatted when block expects multiple positional args
+      # is_lambda: true for lambdas (strict arg count checking, no auto-splat)
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
-                     block_param, auto_splat, locals, body, enclosing_frame)
+                     block_param, auto_splat, locals, body, enclosing_frame,
+                     is_lambda: false)
         @required_params     = required_params
         @optional_params     = optional_params
         @rest_param          = rest_param
@@ -15,9 +17,16 @@ module Frozone
         @kw_rest_param       = kw_rest_param
         @block_param         = block_param
         @auto_splat          = auto_splat
+        @is_lambda           = is_lambda
         @locals              = locals
         @body                = body
         @enclosing_frame     = enclosing_frame
+      end
+
+      def lambda? = @is_lambda
+      def make_lambda!
+        @is_lambda = true
+        @auto_splat = false
       end
 
       def invoke(context, args, kw_args: {}, receiver: nil, block: nil)
@@ -55,8 +64,13 @@ module Frozone
         # Propagate enclosing method's block so `yield` inside a block calls the outer block.
         # But only if not explicitly overridden.
         new_frame.block = block || @enclosing_frame.block
-        # `return` inside a block exits the enclosing method, not the method that invoked yield.
-        new_frame.method_frame = @enclosing_frame.method_frame
+        if @is_lambda
+          # Lambdas catch their own `return` (like a method), don't propagate to enclosing method.
+          new_frame.method_frame = new_frame
+        else
+          # `return` inside a block exits the enclosing method, not the method that invoked yield.
+          new_frame.method_frame = @enclosing_frame.method_frame
+        end
 
         context.push_frame(new_frame)
         begin
@@ -68,10 +82,15 @@ module Frozone
             end
           end
         rescue Ast::ReturnException => e
-          # If there's no enclosing method (method_frame nil), absorb return as a block return.
-          # Otherwise re-raise so the enclosing Method#invoke can catch it.
-          raise unless e.method_frame.nil?
-          e.value
+          if @is_lambda
+            # Lambdas catch their own return
+            raise unless e.method_frame.equal?(new_frame)
+            e.value
+          else
+            # Procs/blocks: if there's no enclosing method (method_frame nil), absorb; otherwise re-raise.
+            raise unless e.method_frame.nil?
+            e.value
+          end
         rescue Ast::NextException => e
           e.value
         rescue Ast::BreakException => e
@@ -89,10 +108,24 @@ module Frozone
         n_post = @post_params.length
         n_opt  = @optional_params.length
 
-        # Cap effective args at total param slots (excess args are ignored in blocks)
-        unless @rest_param
-          effective_len = [args.length, n_req + n_opt + n_post].min
-          args = args[0, effective_len] if args.length > effective_len
+        if @is_lambda
+          # Lambdas have strict argument checking
+          n_min = n_req + n_post
+          n_max = n_req + n_opt + n_post
+          if args.length < n_min
+            raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given #{args.length}, expected #{n_min}#{n_opt > 0 || @rest_param ? '+' : ''})")
+          end
+          unless @rest_param
+            if args.length > n_max
+              raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given #{args.length}, expected #{n_min == n_max ? n_min : "#{n_min}..#{n_max}"})")
+            end
+          end
+        else
+          # Cap effective args at total param slots (excess args are ignored in blocks)
+          unless @rest_param
+            effective_len = [args.length, n_req + n_opt + n_post].min
+            args = args[0, effective_len] if args.length > effective_len
+          end
         end
 
         # post_start: where post params begin in args array
@@ -158,8 +191,11 @@ module Frozone
 
       def populate_kw_params(context, frame, kw_args)
         @required_kw_params.each do |kw|
-          next unless kw_args.key?(kw)
-          frame.set_local(kw, kw_args.delete(kw))
+          if kw_args.key?(kw)
+            frame.set_local(kw, kw_args.delete(kw))
+          else
+            raise FrozoneException.make(:ArgumentError, "missing keyword: #{kw}")
+          end
         end
 
         @optional_kw_params.each do |kw, value_node|

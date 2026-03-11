@@ -507,6 +507,7 @@ module Frozone
         def kernel_lambda(context, _receiver)
           block = context.frame.block
           raise "lambda called without a block" if block.nil?
+          block.make_lambda! if block.is_a?(BlockObject)
           ProcObject.new(block, lambda: true)
         end
 

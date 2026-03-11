@@ -151,7 +151,7 @@ module Frozone
 
         unless parameters.rest.nil?
           case parameters.rest
-          when Prism::RestParameterNode then rest_param = parameters.rest.name
+          when Prism::RestParameterNode then rest_param = parameters.rest.name || :__anon_rest__
           when Prism::ImplicitRestNode  then implicit_rest = true
           end
         end
@@ -774,25 +774,19 @@ module Frozone
           receiver_node = transform(prism_node.receiver)
           index_args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
           val_node = transform(prism_node.value)
-          read = Ast::MethodCall.new(:[], receiver_node, index_args, {})
-          rhs  = Ast::MethodCall.new(prism_node.operator, read, [val_node], {})
-          Ast::MethodCall.new(:[]=, receiver_node, index_args + [rhs], {})
+          Ast::IndexOperatorWrite.new(prism_node.operator, receiver_node, index_args, val_node)
 
         when Prism::IndexOrWriteNode
           receiver_node = transform(prism_node.receiver)
           index_args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
           val_node = transform(prism_node.value)
-          read  = Ast::MethodCall.new(:[], receiver_node, index_args, {})
-          write = Ast::MethodCall.new(:[]=, receiver_node, index_args + [val_node], {})
-          Ast::Or.new(read, write)
+          Ast::IndexOrWrite.new(receiver_node, index_args, val_node)
 
         when Prism::IndexAndWriteNode
           receiver_node = transform(prism_node.receiver)
           index_args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
           val_node = transform(prism_node.value)
-          read  = Ast::MethodCall.new(:[], receiver_node, index_args, {})
-          write = Ast::MethodCall.new(:[]=, receiver_node, index_args + [val_node], {})
-          Ast::And.new(read, write)
+          Ast::IndexAndWrite.new(receiver_node, index_args, val_node)
 
         when Prism::InterpolatedSymbolNode
           parts = prism_node.parts.map do |part|
