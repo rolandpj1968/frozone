@@ -694,7 +694,56 @@ module Frozone
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
           m = receiver.raw.match(s)
           Fiber[:last_match] = m  # store for $~ and MatchWriteNode
+          m ? MatchDataObject.new(m) : NilObject::NIL
+        end
+
+        def regexp_match_index(_, receiver, str)
+          s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
+          m = receiver.raw.match(s)
+          Fiber[:last_match] = m
           m ? IntegerObject.new(m.begin(0)) : NilObject::NIL
+        end
+
+        def match_data_to_a(_, md)
+          captures = [md.raw[0]] + md.raw.captures
+          ArrayObject.new(captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
+        end
+
+        def match_data_index(_, md, idx)
+          raw = md.raw
+          val = if idx.is_a?(IntegerObject)
+            raw[idx.raw]
+          elsif idx.is_a?(StringObject) || idx.is_a?(SymbolObject)
+            raw[idx.raw.to_s]
+          else
+            raw[idx.raw]
+          end
+          val ? StringObject.new(val) : NilObject::NIL
+        end
+
+        def match_data_size(_, md)    = IntegerObject.new(md.raw.size)
+        def match_data_pre_match(_, md)  = StringObject.new(md.raw.pre_match)
+        def match_data_post_match(_, md) = StringObject.new(md.raw.post_match)
+        def match_data_string(_, md)     = StringObject.new(md.raw.string.dup)
+        def match_data_regexp(_, md)     = RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
+        def match_data_begin(_, md, n)
+          v = md.raw.begin(n.is_a?(IntegerObject) ? n.raw : n.raw.to_s)
+          v ? IntegerObject.new(v) : NilObject::NIL
+        end
+        def match_data_end(_, md, n)
+          v = md.raw.end(n.is_a?(IntegerObject) ? n.raw : n.raw.to_s)
+          v ? IntegerObject.new(v) : NilObject::NIL
+        end
+        def match_data_captures(_, md)
+          ArrayObject.new(md.raw.captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
+        end
+        def match_data_named_captures(_, md)
+          h = md.raw.named_captures.transform_keys { |k| StringObject.new(k) }
+                                    .transform_values { |v| v ? StringObject.new(v) : NilObject::NIL }
+          HashObject.new(h)
+        end
+        def match_data_names(_, md)
+          ArrayObject.new(md.raw.regexp.named_captures.keys.map { |k| StringObject.new(k) })
         end
 
         # String
@@ -810,7 +859,8 @@ module Frozone
         def string_match(_, v, pattern)
           pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
           m = pat.match(v.raw)
-          m ? IntegerObject.new(m.begin(0)) : NilObject::NIL
+          Fiber[:last_match] = m
+          m ? MatchDataObject.new(m) : NilObject::NIL
         end
         def string_scan(_, v, pattern)
           pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
@@ -1081,6 +1131,12 @@ module Frozone
         end
 
         # Range
+        def range_new(_, b, e, excl = nil)
+          excl = excl.nil? || excl.is_a?(NilObject) ? false : excl.truthy?
+          e = NilObject::NIL if e.nil?
+          RangeObject.new(b, e, excl)
+        end
+
         def range_each(context, range, block)
           raise "Range#each requires a block" if block.nil? || block.is_a?(NilObject)
           raise "Range#each only supports Integer ranges" unless range.begin_val.is_a?(IntegerObject)

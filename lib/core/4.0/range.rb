@@ -1,4 +1,8 @@
 class Range
+  def self.new(b, e, excl = false)
+    Intrinsics.range_new(b, e, excl)
+  end
+
   def each(&block)
     Intrinsics.range_each(self, block)
   end

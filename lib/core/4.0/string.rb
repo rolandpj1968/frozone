@@ -27,7 +27,7 @@ class String
 
   def hash = Intrinsics.string_hash(self)
   def eql?(v) = Intrinsics.string_eql(self, v)
-  def =~(pattern) = Intrinsics.regexp_match(pattern, self)
+  def =~(pattern) = Intrinsics.regexp_match_index(pattern, self)
   def match(pattern) = Intrinsics.string_match(self, pattern)
   def scan(pattern) = Intrinsics.string_scan(self, pattern)
 
@@ -82,8 +82,8 @@ class String
 end
 
 class Regexp
-  def =~(str) = Intrinsics.regexp_match(self, str)
+  def =~(str) = Intrinsics.regexp_match_index(self, str)
   def !~(str) = !(self =~ str)
-  def match(str) = Intrinsics.regexp_match(self, str)
+  def match(str, pos = nil) = Intrinsics.regexp_match(self, str)
   def match?(str) = !Intrinsics.regexp_match(self, str).nil?
 end

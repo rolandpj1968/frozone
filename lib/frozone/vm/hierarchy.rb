@@ -46,6 +46,9 @@ end
 class Regexp < Object
 end
 
+class MatchData < Object
+end
+
 class IO < Object
 end
 

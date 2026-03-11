@@ -13,6 +13,7 @@ require_relative 'range_object'
 require_relative 'float_object'
 require_relative 'time_object'
 require_relative 'regexp_object'
+require_relative 'match_data_object'
 
 module Frozone
   module Vm
@@ -87,6 +88,7 @@ module Frozone
         evaluate_file("#{core_path}/range.rb")
         evaluate_file("#{core_path}/exception.rb")
         evaluate_file("#{core_path}/encoding.rb")
+        evaluate_file("#{core_path}/match_data.rb")
         evaluate_file("#{core_path}/pp.rb")
         evaluate_file("#{core_path}/stringio.rb")
         init_globals
