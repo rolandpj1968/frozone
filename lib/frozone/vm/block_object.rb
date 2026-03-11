@@ -89,6 +89,12 @@ module Frozone
         n_post = @post_params.length
         n_opt  = @optional_params.length
 
+        # Cap effective args at total param slots (excess args are ignored in blocks)
+        unless @rest_param
+          effective_len = [args.length, n_req + n_opt + n_post].min
+          args = args[0, effective_len] if args.length > effective_len
+        end
+
         # post_start: where post params begin in args array
         # If fewer args than post params, start from 0 (fill left-to-right, trailing get nil)
         post_start = [args.length - n_post, n_req].max
