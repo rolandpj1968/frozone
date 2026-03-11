@@ -33,6 +33,7 @@ require_relative 'ast/global_variable_write'
 
 require_relative 'ast/constant_read'
 require_relative 'ast/constant_write'
+require_relative 'ast/constant_op_write'
 
 require_relative 'ast/intrinsic_call'
 require_relative 'ast/method_call'

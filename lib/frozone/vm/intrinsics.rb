@@ -990,24 +990,26 @@ module Frozone
           arr
         end
 
-        def array_new(context, size_or_array = nil, fill = nil, block = nil)
+        def array_new(context, klass, size_or_array = nil, fill = nil, block = nil)
           size_or_array = nil if size_or_array.is_a?(NilObject)
           fill = nil if fill.is_a?(NilObject)
           block = nil if block.is_a?(NilObject)
+          # Use the calling class (for Array subclasses); default to ARRAY_CLASS
+          cls = klass.is_a?(ClassObject) ? klass : nil
           if size_or_array.is_a?(ArrayObject)
             # Array.new(arr) — copy
-            ArrayObject.new(size_or_array.raw.dup)
+            ArrayObject.new(size_or_array.raw.dup, cls)
           elsif size_or_array.is_a?(IntegerObject)
             n = size_or_array.raw
             if block
               elements = (0...n).map { |i| block.invoke(context, [IntegerObject.new(i)]) }
-              ArrayObject.new(elements)
+              ArrayObject.new(elements, cls)
             else
               elements = Array.new(n, fill || NilObject::NIL)
-              ArrayObject.new(elements)
+              ArrayObject.new(elements, cls)
             end
           else
-            ArrayObject.new([])
+            ArrayObject.new([], cls)
           end
         end
 

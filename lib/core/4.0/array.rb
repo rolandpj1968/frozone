@@ -1,6 +1,6 @@
 class Array
   def self.new(size_or_array = nil, fill = nil, &block)
-    Intrinsics.array_new(size_or_array, fill, block)
+    Intrinsics.array_new(self, size_or_array, fill, block)
   end
 
   def initialize(size_or_array = nil, fill = nil, &block)

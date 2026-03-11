@@ -721,14 +721,10 @@ module Frozone
           Ast::And.new(read, write)
 
         when Prism::ConstantOrWriteNode
-          read  = Ast::ConstantRead.new(prism_node.name)
-          write = Ast::ConstantWrite.new(prism_node.name, transform(prism_node.value))
-          Ast::Or.new(read, write)
+          Ast::ConstantOrWrite.new(prism_node.name, transform(prism_node.value))
 
         when Prism::ConstantAndWriteNode
-          read  = Ast::ConstantRead.new(prism_node.name)
-          write = Ast::ConstantWrite.new(prism_node.name, transform(prism_node.value))
-          Ast::And.new(read, write)
+          Ast::ConstantAndWrite.new(prism_node.name, transform(prism_node.value))
 
         when Prism::ConstantPathNode
           if prism_node.parent.nil?
@@ -744,14 +740,20 @@ module Frozone
           Ast::ConstantPathWrite.new(parent_node, prism_node.target.child.name, transform(prism_node.value))
 
         when Prism::ConstantPathOrWriteNode
-          read  = Ast::ConstantPath.new(transform(prism_node.target.parent), prism_node.target.child.name)
-          write = Ast::ConstantPathWrite.new(transform(prism_node.target.parent), prism_node.target.child.name, transform(prism_node.value))
-          Ast::Or.new(read, write)
+          if prism_node.target.parent.nil?
+            # ::FOO ||= val
+            Ast::ConstantPathOrWrite.new(Ast::RootNamespaceNode::INSTANCE, prism_node.target.child.name, transform(prism_node.value))
+          else
+            Ast::ConstantPathOrWrite.new(transform(prism_node.target.parent), prism_node.target.child.name, transform(prism_node.value))
+          end
 
         when Prism::ConstantPathAndWriteNode
-          read  = Ast::ConstantPath.new(transform(prism_node.target.parent), prism_node.target.child.name)
-          write = Ast::ConstantPathWrite.new(transform(prism_node.target.parent), prism_node.target.child.name, transform(prism_node.value))
-          Ast::And.new(read, write)
+          if prism_node.target.parent.nil?
+            # ::FOO &&= val
+            Ast::ConstantPathAndWrite.new(Ast::RootNamespaceNode::INSTANCE, prism_node.target.child.name, transform(prism_node.value))
+          else
+            Ast::ConstantPathAndWrite.new(transform(prism_node.target.parent), prism_node.target.child.name, transform(prism_node.value))
+          end
 
         when Prism::ClassVariableReadNode
           Ast::ClassVariableRead.new(prism_node.name)
