@@ -18,7 +18,7 @@ module Frozone
         raise "super called outside of method" if current_method.nil?
 
         method_name    = current_method.name
-        defining_class = current_method.scopes.first
+        defining_class = current_method.scopes.last
 
         receiver = context.frame.the_self
         klass    = receiver.is_a?(Vm::ClassObject) ? receiver.singleton_class : receiver.class_object
