@@ -10,7 +10,7 @@ class Module
   def public(*names)    = Intrinsics.module_set_public(self, names)
   def private(*names)   = Intrinsics.module_set_private(self, names)
   def protected(*names) = Intrinsics.module_set_protected(self, names)
-  def module_function(*names) = nil
+  def module_function(*names) = Intrinsics.module_function(self, names)
   def module_eval(code = nil, *_rest, &block)
     code ? Intrinsics.module_eval_string(self, code) : Intrinsics.module_eval(self, block)
   end
@@ -29,6 +29,7 @@ class Module
   def inspect         = Intrinsics.module_name(self) || Intrinsics.object_to_s(self)
   def const_defined?(name, inherit = true) = Intrinsics.module_const_defined(self, name, inherit)
   def const_get(name) = Intrinsics.module_const_get(self, name)
+  def const_set(name, value) = Intrinsics.module_const_set(self, name, value)
   def ancestors       = Intrinsics.module_ancestors(self)
   def instance_methods(include_super = true) = Intrinsics.module_instance_methods(self, include_super)
   def public_instance_methods(include_super = true) = Intrinsics.module_instance_methods(self, include_super)

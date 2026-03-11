@@ -252,8 +252,14 @@ module Frozone
         def module_const_get(_, receiver, name_obj)
           name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
           c = receiver.get_constant(name)
-          raise "uninitialized constant #{receiver.name}::#{name}" if c.nil?
+          raise FrozoneException.make(:NameError, "uninitialized constant #{receiver.name}::#{name}") if c.nil?
           c
+        end
+
+        def module_const_set(_, receiver, name_obj, value)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          receiver.set_constant(name, value)
+          value
         end
 
         def module_eval(context, receiver, block)
@@ -356,6 +362,27 @@ module Frozone
         def module_set_public(context, receiver, names)    = module_set_visibility(context, receiver, names, :public)
         def module_set_private(context, receiver, names)   = module_set_visibility(context, receiver, names, :private)
         def module_set_protected(context, receiver, names) = module_set_visibility(context, receiver, names, :protected)
+        def module_function(_, receiver, names)
+          raise "module_function: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
+          if names.is_a?(ArrayObject) && names.raw.empty?
+            receiver.current_visibility = :module_function
+            return receiver
+          end
+          name_list = names.is_a?(ArrayObject) ? names.raw : [names]
+          name_list.each do |name_obj|
+            name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+            m = receiver.get_method(name) || (receiver.is_a?(ClassObject) ? receiver.lookup_method(name) : nil)
+            next if m.nil?
+            # Add as private instance method
+            m.visibility = :private
+            receiver.set_method(name, m)
+            # Add as public singleton method
+            sm = m.dup
+            sm.visibility = :public
+            receiver.singleton_class.set_method(name, sm)
+          end
+          receiver
+        end
 
         # Top-level 'main' proxy: delegate to Object
         def toplevel_public(context, _, names)    = module_set_visibility(context, Core::OBJECT_CLASS, names, :public)
@@ -725,7 +752,13 @@ module Frozone
           StringObject.new(v.raw % raw_args)
         end
         def string_encode(_, v, enc = nil) = v
-        def string_encoding(_, v)         = StringObject.new(v.raw.encoding.name)
+        def string_encoding(_, v)
+          enc_name = v.raw.encoding.name
+          enc_class = Core::OBJECT_CLASS.get_constant(:Encoding)
+          return StringObject.new(enc_name) unless enc_class
+          const_name = enc_name.tr('-', '_').to_sym
+          enc_class.get_constant(const_name) || StringObject.new(enc_name)
+        end
         def string_freeze(_, v)           = v
         def string_frozen(_, v)           = bool_object_for(false)
         def string_dup(_, v)              = StringObject.new(v.raw.dup)

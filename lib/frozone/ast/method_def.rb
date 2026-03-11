@@ -45,8 +45,18 @@ module Frozone
           # Only def directly in a class/module body or top-level respects current_visibility.
           frame = context.frame
           inside_method_or_block = !frame.method_frame.nil? || !frame.parent_frame.nil?
-          method.visibility = @name == :initialize ? :private : (inside_method_or_block ? :public : scope.current_visibility)
-          scope.set_method(@name, method)
+          vis = @name == :initialize ? :private : (inside_method_or_block ? :public : scope.current_visibility)
+          if vis == :module_function
+            # module_function: private instance method + public singleton method
+            method.visibility = :private
+            scope.set_method(@name, method)
+            singleton_method = Vm::Method.new(method.scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
+            singleton_method.visibility = :public
+            scope.singleton_class.set_method(@name, singleton_method)
+          else
+            method.visibility = vis
+            scope.set_method(@name, method)
+          end
         else
           @receiver_node.evaluate(context).define_singleton_method(@name, method)
         end

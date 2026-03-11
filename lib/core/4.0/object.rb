@@ -79,4 +79,5 @@ class Object
   def exit!(code = 1) = Intrinsics.kernel_exit(self, code)
   def sleep(secs = nil) = nil
   def system(*args) = false
+  def suppress_warning; yield; end
 end

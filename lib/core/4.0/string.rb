@@ -73,9 +73,12 @@ class String
 
   def each_line(sep = "\n", &block) = Intrinsics.string_each_line(self, sep, block)
   def b = Intrinsics.string_b(self)
+  def +@ = dup
+  def -@ = freeze
   def force_encoding(enc) = self
   def valid_encoding? = true
   def ascii_only? = false
+  def set_encoding(enc) = self
 end
 
 class Regexp
