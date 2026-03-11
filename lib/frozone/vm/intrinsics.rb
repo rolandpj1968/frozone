@@ -264,7 +264,15 @@ module Frozone
 
         def module_eval(context, receiver, block)
           return NilObject::NIL if block.nil? || block.is_a?(NilObject)
-          block.invoke(context, [], receiver: receiver)
+          prev_vis = receiver.is_a?(ModuleObject) ? receiver.current_visibility : nil
+          receiver.current_visibility = :public if prev_vis
+          context.scopes << receiver
+          begin
+            block.invoke(context, [], receiver: receiver)
+          ensure
+            context.scopes.pop
+            receiver.current_visibility = prev_vis if prev_vis
+          end
         end
 
         def module_eval_string(context, receiver, code_obj)
