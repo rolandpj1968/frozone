@@ -48,9 +48,15 @@ module Frozone
           ArrayObject.new(names.map { |k| SymbolObject.from(k) })
         end
 
-        def object_respond_to(_, v, name)
+        def object_respond_to(_, v, name, include_private_obj = FalseObject::FALSE)
           raise "respond_to? name must be a SymbolObject" unless name.is_a?(SymbolObject)
-          bool_object_for(!v.class_object.lookup_method(name.raw).nil?)
+          include_private = include_private_obj.truthy?
+          m = v.lookup_instance_method(name.raw)
+          if m
+            bool_object_for(include_private || m.visibility != :private)
+          else
+            FalseObject::FALSE
+          end
         end
 
         def object_to_s(_, v)

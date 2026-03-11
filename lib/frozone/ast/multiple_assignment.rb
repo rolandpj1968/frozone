@@ -19,18 +19,29 @@ module Frozone
       def evaluate(context)
         rhs = @value_node.evaluate(context)
 
-        # Coerce RHS to array (Ruby semantics: call to_ary if available)
+        # Coerce RHS to array (Ruby semantics: call to_ary if available, even private)
         values =
           if rhs.is_a?(Vm::ArrayObject)
             rhs.raw.dup
-          elsif !rhs.is_a?(Vm::NilObject) && rhs.lookup_instance_method(:to_ary)
-            converted = rhs.dispatch(context, :to_ary, [], {})
-            if converted.is_a?(Vm::NilObject)
-              [rhs]
-            elsif converted.is_a?(Vm::ArrayObject)
-              converted.raw.dup
+          elsif !rhs.is_a?(Vm::NilObject)
+            # Check via respond_to?(:to_ary, true) - includes private methods
+            has_to_ary = begin
+              result = rhs.dispatch(context, :respond_to?, [Vm::SymbolObject.from(:to_ary), Vm::TrueObject::TRUE], {})
+              result.truthy?
+            rescue
+              rhs.lookup_instance_method(:to_ary) ? true : false
+            end
+            if has_to_ary
+              converted = rhs.dispatch(context, :to_ary, [], {}, nil, private_ok: true)
+              if converted.is_a?(Vm::NilObject)
+                [rhs]
+              elsif converted.is_a?(Vm::ArrayObject)
+                converted.raw.dup
+              else
+                raise Vm::FrozoneException.make(:TypeError, "can't convert #{rhs.class_object.name} into Array (to_ary should return Array)")
+              end
             else
-              raise Vm::FrozoneException.make(:TypeError, "can't convert #{rhs.class_object.name} into Array (to_ary should return Array)")
+              [rhs]
             end
           else
             [rhs]
