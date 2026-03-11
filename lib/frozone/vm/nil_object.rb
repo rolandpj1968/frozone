@@ -11,6 +11,8 @@ module Frozone
       # Global singleton object
       private_class_method :new
 
+      def raw = nil
+      def truthy? = false
       def to_s = "nil"
 
       NIL = new

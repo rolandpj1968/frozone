@@ -17,7 +17,9 @@ class BasicObject
     Intrinsics.basic_object_method_missing(self, name, args, kwargs)
   end
 
-  def __send__(name, *args, **kwargs) = Intrinsics.basic_object___send__(self, name, args, kwargs)
+  def __send__(name, *args, **kwargs, &block)
+    Intrinsics.basic_object___send__(self, name, args, kwargs, block)
+  end
 
   # TODO
   # instance_eval

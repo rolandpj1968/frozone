@@ -144,11 +144,13 @@ module Frozone
           raise FrozoneException.make(:NoMethodError, "undefined method '#{name}' for an instance of #{class_name}")
         end
 
-        def basic_object___send__(context, receiver, name, args, kwargs)
+        def basic_object___send__(context, receiver, name, args, kwargs, block_arg = nil)
           raise "BasicObject#__send__ name must be a SymbolObject or StringObject" unless name.is_a?(SymbolObject) || name.is_a?(StringObject)
           method_name = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
           raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
-          receiver.dispatch(context, method_name, args.raw, raw_kwargs, nil, private_ok: true)
+          block_obj = block_arg.is_a?(ProcObject) ? block_arg.block_object : block_arg
+          block_obj = nil if block_obj.is_a?(NilObject)
+          receiver.dispatch(context, method_name, args.raw, raw_kwargs, block_obj, private_ok: true)
         end
 
         # Module
@@ -188,6 +190,15 @@ module Frozone
         def object_extend(_, receiver, mod)
           raise "extend: mod must be a ModuleObject" unless mod.is_a?(ModuleObject)
           receiver.singleton_class.add_module(mod)
+          receiver
+        end
+
+        def module_undef_method(_, receiver, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          # Check if method exists anywhere in hierarchy
+          existing = receiver.is_a?(ClassObject) ? receiver.lookup_method(name) : receiver.get_method(name)
+          raise FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.name}'") if existing.nil?
+          receiver.undef_method(name)
           receiver
         end
 
@@ -571,8 +582,29 @@ module Frozone
 
         def integer_eql(_, v1, v2) = bool_object_for(v2.is_a?(IntegerObject) && v1.raw == v2.raw)
 
-        def integer_to_s(_, v) = StringObject.new(v.raw.to_s)
+        def integer_to_s(_, v, base = nil)
+          base.nil? || base.is_a?(NilObject) ? StringObject.new(v.raw.to_s) : StringObject.new(v.raw.to_s(base.raw))
+        end
         def integer_abs(_, v) = IntegerObject.new(v.raw.abs)
+        def integer_chr(_, v, enc = nil) = StringObject.new(v.raw.chr)
+        def integer_bitand(_, v1, v2) = IntegerObject.new(v1.raw & v2.raw)
+        def integer_bitor(_, v1, v2)  = IntegerObject.new(v1.raw | v2.raw)
+        def integer_bitxor(_, v1, v2) = IntegerObject.new(v1.raw ^ v2.raw)
+        def integer_bitnot(_, v)      = IntegerObject.new(~v.raw)
+        def integer_lshift(_, v1, v2) = IntegerObject.new(v1.raw << v2.raw)
+        def integer_rshift(_, v1, v2) = IntegerObject.new(v1.raw >> v2.raw)
+        def integer_bit(_, v, n)      = IntegerObject.new(v.raw[n.raw])
+        def integer_bit_length(_, v)  = IntegerObject.new(v.raw.bit_length)
+        def integer_to_r(_, v)
+          r_class = Core::OBJECT_CLASS.get_constant(:Rational)
+          return StringObject.new("#{v.raw}/1") unless r_class
+          r_class.dispatch(Fiber[:context], :new, [v, IntegerObject.new(1)], {})
+        end
+        def integer_to_c(_, v)
+          c_class = Core::OBJECT_CLASS.get_constant(:Complex)
+          return StringObject.new("#{v.raw}+0i") unless c_class
+          c_class.dispatch(Fiber[:context], :new, [v, IntegerObject.new(0)], {})
+        end
 
         # Integer generated methods
         def is_int(v) = v.is_a?(IntegerObject)
@@ -661,6 +693,7 @@ module Frozone
         def regexp_match(_, receiver, str)
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
           m = receiver.raw.match(s)
+          Fiber[:last_match] = m  # store for $~ and MatchWriteNode
           m ? IntegerObject.new(m.begin(0)) : NilObject::NIL
         end
 
@@ -1115,7 +1148,14 @@ module Frozone
 
         def hash_index(context, h, key)
           value = h[key]
-          value.nil? ? NilObject::NIL : value
+          return value unless value.nil?
+          if h.default_block
+            h.default_block.invoke(context, [h, key])
+          elsif h.default_value
+            h.default_value
+          else
+            NilObject::NIL
+          end
         end
 
         def hash_eq(context, v1, v2)
@@ -1138,8 +1178,16 @@ module Frozone
           bool_object_for(result)
         end
 
-        def hash_new(_, default = nil)
-          HashObject.new({})  # TODO: support default value
+        def hash_new(_, default = nil, block = nil)
+          block_obj = block.is_a?(ProcObject) ? block.block_object : block
+          block_obj = nil if block_obj.is_a?(NilObject)
+          if block_obj
+            HashObject.new({}, default_block: block_obj)
+          elsif default && !default.is_a?(NilObject)
+            HashObject.new({}, default_value: default)
+          else
+            HashObject.new({})
+          end
         end
 
         def hash_each(context, h, block)

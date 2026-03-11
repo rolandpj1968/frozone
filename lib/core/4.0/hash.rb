@@ -1,5 +1,7 @@
 class Hash
-  def self.new(default = nil) = Intrinsics.hash_new(default)
+  def self.new(default = nil, &block)
+    Intrinsics.hash_new(default, block)
+  end
   def ==(other) = Intrinsics.hash_eq(self, other)
   def [](key) = Intrinsics.hash_index(self, key)
   def []=(key, value) = Intrinsics.hash_index_write(self, key, value)

@@ -161,7 +161,7 @@ module Frozone
         end
 
         unless parameters.block.nil?
-          block_param = parameters.block.name
+          block_param = parameters.block.name || :__anon_block__
         end
 
         # Also check BlockParametersNode locals for &block param
@@ -193,7 +193,8 @@ module Frozone
         unless prism_node.parameters.nil?
           raise "Prism::DefNode.parameters is not a Prism::ParametersNode" unless prism_node.parameters.is_a?(Prism::ParametersNode)
           parameters = prism_node.parameters
-          block_param = parameters.block.nil? ? nil : parameters.block.name
+          # Anonymous block param `&` has name=nil; use synthetic name for forwarding support
+          block_param = parameters.block.nil? ? nil : (parameters.block.name || :__anon_block__)
           required_params = parameters.requireds.filter_map do |required|
             next required.name if required.is_a?(Prism::RequiredParameterNode)
             next nil  # skip destructured required params (MultiTargetNode etc.)
@@ -204,7 +205,8 @@ module Frozone
           end
           unless parameters.rest.nil?
             raise "rest parameter is not a Prism::RestParameterNode" unless parameters.rest.is_a?(Prism::RestParameterNode)
-            rest_param = parameters.rest.name
+            # Anonymous rest `*` uses synthetic name for forwarding
+            rest_param = parameters.rest.name || :__anon_rest__
           end
           post_params = parameters.posts.filter_map do |post|
             next post.name if post.is_a?(Prism::RequiredParameterNode)
@@ -221,9 +223,15 @@ module Frozone
             end
           end
           unless parameters.keyword_rest.nil?
-            # **nil (NoKeywordsParameterNode) disallows kwargs — we just ignore it
-            if parameters.keyword_rest.is_a?(Prism::KeywordRestParameterNode)
-              kw_rest_param = parameters.keyword_rest.name
+            if parameters.keyword_rest.is_a?(Prism::ForwardingParameterNode)
+              # def foo(...) — capture all args, kwargs, block for forwarding
+              rest_param     = :__forward_args__
+              kw_rest_param  = :__forward_kwargs__
+              block_param    = :__forward_block__
+            elsif parameters.keyword_rest.is_a?(Prism::KeywordRestParameterNode)
+              # **nil (NoKeywordsParameterNode) disallows kwargs — we just ignore it
+              # Anonymous `**` uses synthetic name for forwarding
+              kw_rest_param = parameters.keyword_rest.name || :__anon_kwargs__
             end
           end
         end
@@ -434,26 +442,45 @@ module Frozone
                         raise "syntax errors found" if kw_arg.value.is_a?(Prism::MissingNode)
                         kw_args[transform(kw_arg.key)] = transform(kw_arg.value)
                       when Prism::AssocSplatNode
-                        kw_splats << transform(kw_arg.value)
+                        # Anonymous `**` with no value — forward __anon_kwargs__
+                        splat_val = kw_arg.value.nil? ? Ast::LocalVariableRead.new(:__anon_kwargs__, 0) : transform(kw_arg.value)
+                        kw_splats << splat_val
                       else
                         raise "Unexpected KeywordHashNode element: #{kw_arg.class}"
                       end
                     end
                   end
                 when Prism::SplatNode
-                  arg_nodes << Ast::SplatArg.new(argument.expression.nil? ? nil : transform(argument.expression))
+                  # Anonymous `*` with no expression — forward __anon_rest__
+                  splat_expr = argument.expression.nil? ? Ast::LocalVariableRead.new(:__anon_rest__, 0) : transform(argument.expression)
+                  arg_nodes << Ast::SplatArg.new(splat_expr)
+                when Prism::ForwardingArgumentsNode
+                  # bar(...) — expand forwarded args, kwargs, block
+                  arg_nodes << Ast::SplatArg.new(Ast::LocalVariableRead.new(:__forward_args__, 0))
+                  kw_splats << Ast::LocalVariableRead.new(:__forward_kwargs__, 0)
+                  # block is handled below via __forward_block__
                 else
                   arg_nodes << transform(argument)
                 end
               end
             end
 
+            # Check if ForwardingArgumentsNode was used — if so, use __forward_block__ as block
+            has_forwarding = !prism_node.arguments.nil? &&
+              prism_node.arguments.arguments.any? { |a| a.is_a?(Prism::ForwardingArgumentsNode) }
+
             block_node =
-              case prism_node.block
-              when nil then nil
-              when Prism::BlockNode then parse_block(prism_node.block)
-              when Prism::BlockArgumentNode then Ast::BlockArg.new(transform(prism_node.block.expression))
-              else raise "Unsupported block type: #{prism_node.block.class}"
+              if has_forwarding
+                Ast::BlockArg.new(Ast::LocalVariableRead.new(:__forward_block__, 0))
+              else
+                case prism_node.block
+                when nil then nil
+                when Prism::BlockNode then parse_block(prism_node.block)
+                when Prism::BlockArgumentNode
+                  expr = prism_node.block.expression
+                  expr.nil? ? Ast::ForwardBlock::INSTANCE : Ast::BlockArg.new(transform(expr))
+                else raise "Unsupported block type: #{prism_node.block.class}"
+                end
               end
 
             Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args, block_node, kw_splat_nodes: kw_splats)
@@ -583,6 +610,22 @@ module Frozone
           # alias $new $old — stub as nil (Frozone uses a flat globals hash)
           Ast::NilLiteral::NIL
 
+        when Prism::UndefNode
+          # undef :foo, :bar — remove methods from current class
+          stmts = prism_node.names.map do |sym_node|
+            name_node = case sym_node
+                        when Prism::SymbolNode
+                          Ast::SymbolLiteral.from(sym_node.unescaped.to_sym)
+                        when Prism::InterpolatedSymbolNode
+                          # Dynamic undef: evaluate interpolation, convert to symbol
+                          transform(sym_node)  # InterpolatedSymbolNode → MethodCall(:to_sym, ...)
+                        else
+                          Ast::SymbolLiteral.from(sym_node.unescaped.to_sym)
+                        end
+            Ast::IntrinsicCall.new(:module_undef_method, [Ast::SelfLiteral::SELF, name_node])
+          end
+          stmts.length == 1 ? stmts[0] : Ast::Sequence.new(stmts)
+
         when Prism::AliasMethodNode
           # Alias with non-simple symbol names (e.g. interpolated) — stub as nil
           if prism_node.new_name.is_a?(Prism::SymbolNode) && prism_node.old_name.is_a?(Prism::SymbolNode)
@@ -604,7 +647,9 @@ module Frozone
           block_node = case prism_node.block
                        when nil then nil
                        when Prism::BlockNode then parse_block(prism_node.block)
-                       when Prism::BlockArgumentNode then Ast::BlockArg.new(transform(prism_node.block.expression))
+                       when Prism::BlockArgumentNode
+                expr = prism_node.block.expression
+                expr.nil? ? Ast::ForwardBlock::INSTANCE : Ast::BlockArg.new(transform(expr))
                        else raise "Unsupported super block type: #{prism_node.block.class}"
                        end
           Ast::Super.new(arg_nodes, block_node, forwarding: false)
@@ -613,7 +658,9 @@ module Frozone
           block_node = case prism_node.block
                        when nil then nil
                        when Prism::BlockNode then parse_block(prism_node.block)
-                       when Prism::BlockArgumentNode then Ast::BlockArg.new(transform(prism_node.block.expression))
+                       when Prism::BlockArgumentNode
+                expr = prism_node.block.expression
+                expr.nil? ? Ast::ForwardBlock::INSTANCE : Ast::BlockArg.new(transform(expr))
                        else raise "Unsupported super block type: #{prism_node.block.class}"
                        end
           Ast::Super.new([], block_node, forwarding: true)
@@ -746,6 +793,16 @@ module Frozone
 
         when Prism::SourceLineNode
           Ast::IntegerLiteral.from(prism_node.location.start_line)
+
+        when Prism::SourceEncodingNode
+          # Returns the Encoding object for the current source file encoding (UTF-8)
+          Ast::ConstantPath.new(Ast::ConstantRead.new(:Encoding), :UTF_8)
+
+        when Prism::MatchWriteNode
+          # /(?<name>...)/ =~ string — perform match and assign named captures to locals
+          call_node = transform(prism_node.call)
+          targets = prism_node.targets.map { |t| [t.depth, t.name] }
+          Ast::MatchWrite.new(call_node, targets)
 
         when Prism::BackReferenceReadNode
           Ast::GlobalVariableRead.new(prism_node.name)

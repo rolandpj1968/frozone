@@ -44,6 +44,7 @@ module Frozone
         return nil if idx.nil?
         ancs[(idx + 1)..].each do |ancestor|
           m = ancestor.get_method(name)
+          return nil if m == ModuleObject::UNDEF_SENTINEL
           return m unless m.nil?
         end
         nil
@@ -57,18 +58,21 @@ module Frozone
         unless @prepends.nil?
           @prepends.each do |mod|
             method = mod.get_method(name)
+            return nil if method == ModuleObject::UNDEF_SENTINEL
             return method unless method.nil?
           end
         end
 
         # 2. This class's methods
         method = get_method(name)
+        return nil if method == ModuleObject::UNDEF_SENTINEL
         return method unless method.nil?
 
         # 3. Module methods
         unless @modules.nil?
           @modules.each do |mod|
             method = mod.get_method(name)
+            return nil if method == ModuleObject::UNDEF_SENTINEL
             return method unless method.nil?
           end
         end

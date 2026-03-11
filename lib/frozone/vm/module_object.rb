@@ -38,16 +38,27 @@ module Frozone
         @modules << mod
       end
 
+      # Sentinel for undef_method - stops method lookup
+      UNDEF_SENTINEL = :__undef__
+
       def set_method(name, method)
         raise "method must be a Method or DefinedMethod" unless method.is_a?(Method) || method.is_a?(DefinedMethod)
         # TODO thread safety
         @methods[name] = method
       end
 
+      def undef_method(name)
+        raise "name must be a Symbol" unless name.is_a?(Symbol)
+        @methods[name] = UNDEF_SENTINEL
+      end
+
       def get_method(name)
         raise "name must be a Symbol" unless name.is_a?(Symbol)
 
-        @methods[name]
+        v = @methods[name]
+        # If the method is the undef sentinel, return a special marker
+        # (callers must check for UNDEF_SENTINEL to stop lookup)
+        v == UNDEF_SENTINEL ? UNDEF_SENTINEL : v
       end
       
       attr_reader :class_variables

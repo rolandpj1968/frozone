@@ -17,13 +17,17 @@ module Frozone
         def eql?(v) = v.is_a?(KeyWrapper) && @key.dispatch(Fiber[:context], :eql?, [v.unwrap], {}).truthy?
       end
 
-      def initialize(elements)
+      def initialize(elements = {}, default_value: nil, default_block: nil)
         raise "HashObject must have an Hash elements" unless elements.is_a?(Hash)
 
         super(Core::HASH_CLASS)
 
         @elements = elements.to_h { |k, v| [wrap(k), v] }
+        @default_value = default_value
+        @default_block = default_block
       end
+
+      attr_reader :default_block, :default_value
 
       # Returns a Hash with the original VM-object keys (unwrapped).
       def raw = @elements.transform_keys(&:unwrap)

@@ -123,7 +123,13 @@ module Frozone
         populate_kw_params(context, new_frame, kw_args)
 
         if @block_param
-          proc_obj = block ? ProcObject.new(block) : NilObject::NIL
+          proc_obj = if block.is_a?(ProcObject)
+                       block  # already a ProcObject — don't double-wrap
+                     elsif block
+                       ProcObject.new(block)
+                     else
+                       NilObject::NIL
+                     end
           new_frame.set_local(@block_param, proc_obj)
         end
 
@@ -168,7 +174,7 @@ module Frozone
         @visibility = :public
       end
 
-      def invoke(context, receiver, args, kwargs, block: nil)
+      def invoke(context, receiver, args, kwargs, block = nil)
         @block_obj.invoke(context, args, receiver: receiver)
       end
 
