@@ -57,6 +57,7 @@ require_relative 'ast/class_variable_write'
 require_relative 'ast/range_literal'
 
 require_relative 'ast/call_or_write'
+require_relative 'ast/attribute_write'
 require_relative 'ast/index_op_write'
 require_relative 'ast/class_def'
 require_relative 'ast/module_def'

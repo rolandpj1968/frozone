@@ -494,7 +494,11 @@ module Frozone
                 end
               end
 
-            Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args, block_node, kw_splat_nodes: kw_splats)
+            if prism_node.attribute_write?
+              Ast::AttributeWrite.new(prism_node.name, receiver_node, arg_nodes, kw_args)
+            else
+              Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args, block_node, kw_splat_nodes: kw_splats)
+            end
           end
 
         when Prism::ModuleNode
