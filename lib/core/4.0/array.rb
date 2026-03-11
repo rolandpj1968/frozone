@@ -1,4 +1,12 @@
 class Array
+  def self.new(size_or_array = nil, fill = nil, &block)
+    Intrinsics.array_new(size_or_array, fill, block)
+  end
+
+  def initialize(size_or_array = nil, fill = nil, &block)
+    Intrinsics.array_initialize(self, size_or_array, fill, block)
+  end
+
   def [](i, len = nil) = Intrinsics.array_index(self, i, len)
   def []=(i, len_or_val, val = :__unset__)
     if val.equal?(:__unset__)

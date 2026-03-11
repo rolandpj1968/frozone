@@ -19,10 +19,19 @@ module Frozone
       def evaluate(context)
         rhs = @value_node.evaluate(context)
 
-        # Coerce RHS to array
+        # Coerce RHS to array (Ruby semantics: call to_ary if available)
         values =
           if rhs.is_a?(Vm::ArrayObject)
             rhs.raw.dup
+          elsif !rhs.is_a?(Vm::NilObject) && rhs.lookup_instance_method(:to_ary)
+            converted = rhs.dispatch(context, :to_ary, [], {})
+            if converted.is_a?(Vm::NilObject)
+              [rhs]
+            elsif converted.is_a?(Vm::ArrayObject)
+              converted.raw.dup
+            else
+              raise Vm::FrozoneException.make(:TypeError, "can't convert #{rhs.class_object.name} into Array (to_ary should return Array)")
+            end
           else
             [rhs]
           end

@@ -877,6 +877,44 @@ module Frozone
         def symbol_eql(_, v1, v2) = bool_object_for(v2.is_a?(SymbolObject) && v1.raw == v2.raw)
 
         # Array
+        def array_initialize(context, arr, size_or_array = nil, fill = nil, block = nil)
+          size_or_array = nil if size_or_array.nil? || size_or_array.is_a?(NilObject)
+          fill = nil if fill.nil? || fill.is_a?(NilObject)
+          block = nil if block.nil? || block.is_a?(NilObject)
+          if size_or_array.is_a?(ArrayObject)
+            size_or_array.raw.each { |e| arr.push(e) }
+          elsif size_or_array.is_a?(IntegerObject)
+            n = size_or_array.raw
+            if block
+              n.times { |i| arr.push(block.invoke(context, [IntegerObject.new(i)])) }
+            else
+              n.times { arr.push(fill || NilObject::NIL) }
+            end
+          end
+          arr
+        end
+
+        def array_new(context, size_or_array = nil, fill = nil, block = nil)
+          size_or_array = nil if size_or_array.is_a?(NilObject)
+          fill = nil if fill.is_a?(NilObject)
+          block = nil if block.is_a?(NilObject)
+          if size_or_array.is_a?(ArrayObject)
+            # Array.new(arr) — copy
+            ArrayObject.new(size_or_array.raw.dup)
+          elsif size_or_array.is_a?(IntegerObject)
+            n = size_or_array.raw
+            if block
+              elements = (0...n).map { |i| block.invoke(context, [IntegerObject.new(i)]) }
+              ArrayObject.new(elements)
+            else
+              elements = Array.new(n, fill || NilObject::NIL)
+              ArrayObject.new(elements)
+            end
+          else
+            ArrayObject.new([])
+          end
+        end
+
         def array_index(_, v, i, len = nil)
           len = nil if len.is_a?(NilObject)
           if len.nil?
