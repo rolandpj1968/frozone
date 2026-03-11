@@ -802,7 +802,7 @@ module Frozone
           enc_class.get_constant(const_name) || StringObject.new(enc_name)
         end
         def string_freeze(_, v)           = v
-        def string_frozen(_, v)           = bool_object_for(false)
+        def string_frozen(_, v)           = bool_object_for(v.frozen?)
         def string_dup(_, v)              = StringObject.new(v.raw.dup)
         def string_to_sym(_, v)           = SymbolObject.from(v.raw.to_sym)
         def string_to_f(_, v)             = FloatObject.new(v.raw.to_f)

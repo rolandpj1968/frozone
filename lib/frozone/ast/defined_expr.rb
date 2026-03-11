@@ -12,11 +12,13 @@ module Frozone
 
       def evaluate(context)
         result = case @kind
-        when :self    then "self"
-        when :nil     then "nil"
-        when :true    then "true"
-        when :false   then "false"
-        when :literal then "expression"
+        when :self       then "self"
+        when :nil        then "nil"
+        when :true       then "true"
+        when :false      then "false"
+        when :literal    then "expression"
+        when :assignment then "assignment"
+        when :expression then "expression"
         when :constant
           # @extra is the AST node to evaluate the constant lookup
           begin
@@ -41,8 +43,8 @@ module Frozone
             nil
           end
         when :gvar
-          val = Vm::GLOBALS[@extra]
-          val && !val.is_a?(Vm::NilObject) ? "global-variable" : nil
+          # global-variable is defined if it's been assigned (even to nil)
+          Vm::GLOBALS.key?(@extra) ? "global-variable" : nil
         when :method
           # @extra = [receiver_node_or_nil, method_name]
           receiver_node, method_name = @extra
@@ -76,7 +78,7 @@ module Frozone
           super_method ? "super" : nil
         end
 
-        result ? Vm::StringObject.new(result) : Vm::NilObject::NIL
+        result ? Vm::StringObject.new(result, frozen: true) : Vm::NilObject::NIL
       end
     end
   end

@@ -597,6 +597,18 @@ module Frozone
             Ast::DefinedExpr.new(:yield)
           when Prism::SuperNode, Prism::ForwardingSuperNode
             Ast::DefinedExpr.new(:super)
+          when Prism::LocalVariableWriteNode, Prism::InstanceVariableWriteNode,
+               Prism::ClassVariableWriteNode, Prism::GlobalVariableWriteNode,
+               Prism::ConstantWriteNode, Prism::ConstantPathWriteNode,
+               Prism::MultiWriteNode, Prism::LocalVariableOrWriteNode,
+               Prism::LocalVariableAndWriteNode, Prism::InstanceVariableOrWriteNode,
+               Prism::InstanceVariableAndWriteNode, Prism::CallOrWriteNode,
+               Prism::CallAndWriteNode, Prism::CallOperatorWriteNode
+            Ast::DefinedExpr.new(:assignment)
+          when Prism::BlockNode, Prism::LambdaNode,
+               Prism::AndNode, Prism::OrNode,
+               Prism::ParenthesesNode
+            Ast::DefinedExpr.new(:expression)
           else
             # For anything else, conservatively return nil
             Ast::NilLiteral::NIL
