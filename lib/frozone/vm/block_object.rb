@@ -31,6 +31,11 @@ module Frozone
               # redo: re-run body with same args
             end
           end
+        rescue Ast::ReturnException => e
+          # If there's no enclosing method (method_frame nil), absorb return as a block return.
+          # Otherwise re-raise so the enclosing Method#invoke can catch it.
+          raise unless e.method_frame.nil?
+          e.value
         rescue Ast::NextException => e
           e.value
         rescue Ast::BreakException => e

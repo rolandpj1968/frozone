@@ -25,7 +25,8 @@ module Frozone
           # Namespaced class: class A::B — define B inside A
           # The namespace A is NOT pushed onto the lexical scope stack; only B is.
           container = @namespace_node.evaluate(context)
-          namespace = container.is_a?(Vm::ModuleObject) ? container : nil
+          raise Vm::FrozoneException.make(:TypeError, "#{@namespace_node} is not a class/module") unless container.is_a?(Vm::ModuleObject)
+          namespace = container
           class_constant = container.get_constant(@name)
           unless class_constant.nil? || class_constant.is_a?(Vm::ClassObject)
             raise "previous defn of #{@name} was not a class"

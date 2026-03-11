@@ -20,6 +20,11 @@ class String
   def <=>(v) = Intrinsics.string_spaceship(self, v)
   def ==(v) = Intrinsics.string_eql(self, v)
 
+  # Exception duck-typing (String can be used as exception proxy)
+  def message = self
+  def backtrace = []
+  def exception(msg = nil) = msg ? self.class.new(msg) : self
+
   def hash = Intrinsics.string_hash(self)
   def eql?(v) = Intrinsics.string_eql(self, v)
   def =~(pattern) = Intrinsics.regexp_match(pattern, self)

@@ -15,6 +15,7 @@ module Frozone
 
       def the_self = @the_self
       def scopes = @scopes
+      def parent_frame = @parent_frame
       def block = @block
       def block=(b); @block = b; end
       attr_accessor :method_frame

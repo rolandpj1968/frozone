@@ -76,6 +76,7 @@ class Dir < Object
   def self.pwd = Intrinsics.dir_pwd
   def self.home = Intrinsics.dir_home
   def self.glob(pattern) = Intrinsics.dir_glob(pattern)
+  def self.[](pattern) = self.glob(pattern)
 end
 
 class Encoding < Object

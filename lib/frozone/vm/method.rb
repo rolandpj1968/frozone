@@ -109,6 +109,14 @@ module Frozone
         new_frame.block = block
         new_frame.method_frame = new_frame
         new_frame.current_method = self
+
+        # If the method has no keyword params, convert kwargs to a positional Hash (Ruby semantics)
+        if !kw_args.empty? && @required_kw_params.empty? && @optional_kw_params.empty? && @kw_rest_param.nil?
+          hash_val = HashObject.new(kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k })
+          args = args + [hash_val]
+          kw_args = {}
+        end
+
         new_frame.method_args = args
         new_frame.method_kwargs = kw_args
 

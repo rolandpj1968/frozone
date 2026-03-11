@@ -161,8 +161,10 @@ module Frozone
             end
           end
           unless parameters.keyword_rest.nil?
-            raise "keyword_rest parameter is not a Prism::KeywordRestParameterNode" unless parameters.keyword_rest.is_a?(Prism::KeywordRestParameterNode)
-            kw_rest_param = parameters.keyword_rest.name
+            # **nil (NoKeywordsParameterNode) disallows kwargs — we just ignore it
+            if parameters.keyword_rest.is_a?(Prism::KeywordRestParameterNode)
+              kw_rest_param = parameters.keyword_rest.name
+            end
           end
         end
         [required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param]
@@ -519,9 +521,12 @@ module Frozone
           Ast::NilLiteral::NIL
 
         when Prism::AliasMethodNode
-          raise "new_name #{prism_node.new_name.class} must be a Prism::SymbolNode" unless prism_node.new_name.is_a?(Prism::SymbolNode)
-          raise "old_name #{prism_node.old_name.class} must be a Prism::SymbolNode" unless prism_node.old_name.is_a?(Prism::SymbolNode)
-          Ast::MethodAlias.new(prism_node.new_name.unescaped.to_sym, prism_node.old_name.unescaped.to_sym)
+          # Alias with non-simple symbol names (e.g. interpolated) — stub as nil
+          if prism_node.new_name.is_a?(Prism::SymbolNode) && prism_node.old_name.is_a?(Prism::SymbolNode)
+            Ast::MethodAlias.new(prism_node.new_name.unescaped.to_sym, prism_node.old_name.unescaped.to_sym)
+          else
+            Ast::NilLiteral::NIL
+          end
 
         when Prism::BreakNode
           value_node = prism_node.arguments.nil? || prism_node.arguments.arguments.empty? ? nil : transform(prism_node.arguments.arguments.first)

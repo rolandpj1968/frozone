@@ -42,7 +42,9 @@ module Frozone
         )
         if @receiver_node.nil?
           scope = context.scopes.last
-          method.visibility = @name == :initialize ? :private : scope.current_visibility
+          # In a block (parent_frame != nil), def is always public; only true top-level defs are private
+          in_block = !context.frame.parent_frame.nil?
+          method.visibility = @name == :initialize ? :private : (in_block ? :public : scope.current_visibility)
           scope.set_method(@name, method)
         else
           @receiver_node.evaluate(context).define_singleton_method(@name, method)

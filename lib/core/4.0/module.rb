@@ -5,6 +5,7 @@ class Module
   def attr_reader(*names)  = Intrinsics.module_attr_reader(self, names)
   def attr_writer(*names)  = Intrinsics.module_attr_writer(self, names)
   def attr_accessor(*names) = Intrinsics.module_attr_accessor(self, names)
+  alias attr attr_reader
 
   def public(*names)    = Intrinsics.module_set_public(self, names)
   def private(*names)   = Intrinsics.module_set_private(self, names)
