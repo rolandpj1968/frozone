@@ -48,7 +48,7 @@ class String
   def upcase! = Intrinsics.string_upcase(self)
   def downcase! = Intrinsics.string_downcase(self)
   def capitalize! = Intrinsics.string_capitalize(self)
-  def reverse! = Intrinsics.string_reverse(self)
+  def reverse! = Intrinsics.string_reverse_bang(self)
   def gsub!(pattern, replacement = nil) = Intrinsics.string_gsub(self, pattern, replacement)
   def sub!(pattern, replacement) = Intrinsics.string_sub(self, pattern, replacement)
   def squeeze!(*args) = Intrinsics.string_squeeze(self, *args)

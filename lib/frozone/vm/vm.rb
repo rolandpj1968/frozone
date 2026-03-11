@@ -80,6 +80,7 @@ module Frozone
         evaluate_file("#{core_path}/true_class.rb")
         evaluate_file("#{core_path}/false_class.rb")
         evaluate_file("#{core_path}/integer.rb")
+        evaluate_file("#{core_path}/float.rb")
         evaluate_file("#{core_path}/string.rb")
         evaluate_file("#{core_path}/symbol.rb")
         evaluate_file("#{core_path}/array.rb")

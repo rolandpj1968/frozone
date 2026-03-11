@@ -656,6 +656,47 @@ module Frozone
           c_class.dispatch(Fiber[:context], :new, [v, IntegerObject.new(0)], {})
         end
 
+        # Float intrinsics
+        def float_eq(_, v1, v2)
+          return bool_object_for(false) unless v2.is_a?(FloatObject) || v2.is_a?(IntegerObject)
+          bool_object_for(v1.raw == v2.raw)
+        end
+        def float_eql(_, v1, v2)       = bool_object_for(v2.is_a?(FloatObject) && v1.raw == v2.raw)
+        def float_hash(_, v)           = IntegerObject.new(v.raw.hash)
+        def float_spaceship(_, v1, v2)
+          return NilObject::NIL unless v2.is_a?(FloatObject) || v2.is_a?(IntegerObject)
+          r = v1.raw <=> v2.raw
+          r ? IntegerObject.new(r) : NilObject::NIL
+        end
+        def float_to_s(_, v)           = StringObject.new(v.raw.inspect)
+        def float_to_i(_, v)           = IntegerObject.new(v.raw.to_i)
+        def float_to_f(_, v)           = v
+        def float_to_r(_, v)           = StringObject.new(v.raw.to_r.to_s)
+        def float_abs(_, v)            = FloatObject.new(v.raw.abs)
+        def float_ceil(_, v, n = nil)  = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.ceil) : FloatObject.new(v.raw.ceil(n.raw))
+        def float_floor(_, v, n = nil) = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.floor) : FloatObject.new(v.raw.floor(n.raw))
+        def float_round(_, v, n = nil) = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.round) : FloatObject.new(v.raw.round(n.raw))
+        def float_truncate(_, v, n = nil) = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.truncate) : FloatObject.new(v.raw.truncate(n.raw))
+        def float_nan?(_, v)           = bool_object_for(v.raw.nan?)
+        def float_infinite?(_, v)
+          r = v.raw.infinite?
+          r ? IntegerObject.new(r) : NilObject::NIL
+        end
+        def float_finite?(_, v)        = bool_object_for(v.raw.finite?)
+        def float_zero?(_, v)          = bool_object_for(v.raw.zero?)
+        def float_positive?(_, v)      = bool_object_for(v.raw.positive?)
+        def float_negative?(_, v)      = bool_object_for(v.raw.negative?)
+        def float_divmod(_, v1, v2)
+          q, r = v1.raw.divmod(v2.raw)
+          ArrayObject.new([IntegerObject.new(q), FloatObject.new(r)])
+        end
+        def def_float_bin_op(name, op)
+          eval "def float_#{name}(_, v1, v2); FloatObject.new(v1.raw #{op} v2.raw); end"
+        end
+        def def_float_cmp(name, op)
+          eval "def float_#{name}(_, v1, v2); return FalseObject::FALSE unless v2.is_a?(FloatObject) || v2.is_a?(IntegerObject); bool_object_for(v1.raw #{op} v2.raw); end"
+        end
+
         # Integer generated methods
         def is_int(v) = v.is_a?(IntegerObject)
 
@@ -831,6 +872,11 @@ module Frozone
         def string_downcase(_, v)          = StringObject.new(v.raw.downcase)
         def string_capitalize(_, v)        = StringObject.new(v.raw.capitalize)
         def string_reverse(_, v)           = StringObject.new(v.raw.reverse)
+        def string_reverse_bang(_, v)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v.raw.inspect}") if v.frozen?
+          v.instance_variable_set(:@raw, v.raw.reverse)
+          v
+        end
         def string_chars(_, v)             = ArrayObject.new(v.raw.chars.map { |c| StringObject.new(c) })
         def string_bytes(_, v)             = ArrayObject.new(v.raw.bytes.map { |b| IntegerObject.new(b) })
         def string_split(_, v, sep = nil, limit = nil)
@@ -1446,6 +1492,18 @@ module Frozone
       def_integer_bin_op('_div_', '/')
       def_integer_bin_op('_mod_', '%')
       def_integer_bin_op('_pow_', '**')
+
+      # Float
+      def_float_cmp('_lt_', '<')
+      def_float_cmp('_le_', '<=')
+      def_float_cmp('_ge_', '>=')
+      def_float_cmp('_gt_', '>')
+      def_float_bin_op('_plus_', '+')
+      def_float_bin_op('_minus_', '-')
+      def_float_bin_op('_mul_', '*')
+      def_float_bin_op('_div_', '/')
+      def_float_bin_op('_mod_', '%')
+      def_float_bin_op('_pow_', '**')
     end
   end
 end
