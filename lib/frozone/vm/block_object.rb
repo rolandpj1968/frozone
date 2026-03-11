@@ -1,24 +1,49 @@
 module Frozone
   module Vm
     class BlockObject
-      def initialize(params, locals, body, enclosing_frame)
-        @params = params            # Array of Symbol - required param names
-        @locals = locals            # Array of Symbol - all locals in block scope
-        @body = body                # Ast::Node
-        @enclosing_frame = enclosing_frame
+      # auto_splat: true for procs/blocks (not lambdas), causes single Array arg to be
+      # auto-splatted when block expects multiple positional args
+      def initialize(required_params, optional_params, rest_param, post_params,
+                     required_kw_params, optional_kw_params, kw_rest_param,
+                     block_param, auto_splat, locals, body, enclosing_frame)
+        @required_params     = required_params
+        @optional_params     = optional_params
+        @rest_param          = rest_param
+        @post_params         = post_params
+        @required_kw_params  = required_kw_params
+        @optional_kw_params  = optional_kw_params
+        @kw_rest_param       = kw_rest_param
+        @block_param         = block_param
+        @auto_splat          = auto_splat
+        @locals              = locals
+        @body                = body
+        @enclosing_frame     = enclosing_frame
       end
 
-      def invoke(context, args, receiver: nil)
+      def invoke(context, args, kw_args: {}, receiver: nil, block: nil)
         new_frame = Frame.new(
           receiver || @enclosing_frame.the_self,
           @locals,
           @enclosing_frame.scopes,
           @enclosing_frame
         )
-        # Block parameter matching is lenient: missing args become nil, extras are ignored.
-        @params.each_with_index { |param, i| new_frame.set_local(param, args.fetch(i, NilObject::NIL)) }
+
+        # Block auto-splat: when called with single Array arg and block expects multiple
+        if @auto_splat && args.length == 1 && args[0].is_a?(ArrayObject)
+          args = args[0].raw
+        end
+
+        populate_params(context, new_frame, args)
+        populate_kw_params(context, new_frame, kw_args)
+
+        if @block_param
+          proc_obj = block ? ProcObject.new(block) : NilObject::NIL
+          new_frame.set_local(@block_param, proc_obj)
+        end
+
         # Propagate enclosing method's block so `yield` inside a block calls the outer block.
-        new_frame.block = @enclosing_frame.block
+        # But only if not explicitly overridden.
+        new_frame.block = block || @enclosing_frame.block
         # `return` inside a block exits the enclosing method, not the method that invoked yield.
         new_frame.method_frame = @enclosing_frame.method_frame
 
@@ -43,6 +68,61 @@ module Frozone
           raise
         ensure
           context.pop_frame
+        end
+      end
+
+      private
+
+      def populate_params(context, frame, args)
+        n_req  = @required_params.length
+        n_post = @post_params.length
+        n_opt  = @optional_params.length
+
+        # post_start: where post params begin in args array
+        # If fewer args than post params, start from 0 (fill left-to-right, trailing get nil)
+        post_start = [args.length - n_post, n_req].max
+
+        # Fill required params from front (lenient: missing → nil)
+        @required_params.each_with_index do |name, i|
+          frame.set_local(name, args.fetch(i, NilObject::NIL))
+        end
+
+        # Fill post params starting at post_start (lenient: missing → nil)
+        @post_params.each_with_index do |name, i|
+          frame.set_local(name, args.fetch(post_start + i, NilObject::NIL))
+        end
+
+        # Fill optional params from the middle region (between required and post_start)
+        n_middle = [post_start - n_req, 0].max
+        @optional_params.each_with_index do |(name, default_node), i|
+          value = i < n_middle ? args[n_req + i] : default_node.evaluate(context)
+          frame.set_local(name, value)
+        end
+
+        # Fill rest param
+        unless @rest_param.nil?
+          filled_opt = [n_middle, n_opt].min
+          rest_start = n_req + filled_opt
+          rest_end   = post_start - 1
+          rest_items = rest_end >= rest_start ? (args[rest_start..rest_end] || []) : []
+          frame.set_local(@rest_param, ArrayObject.new(rest_items))
+        end
+      end
+
+      def populate_kw_params(context, frame, kw_args)
+        @required_kw_params.each do |kw|
+          next unless kw_args.key?(kw)
+          frame.set_local(kw, kw_args.delete(kw))
+        end
+
+        @optional_kw_params.each do |kw, value_node|
+          value = kw_args.key?(kw) ? kw_args.delete(kw) : value_node.evaluate(context)
+          frame.set_local(kw, value)
+        end
+
+        unless @kw_rest_param.nil?
+          kw_rest = kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k }
+          frame.set_local(@kw_rest_param, HashObject.new(kw_rest))
         end
       end
     end

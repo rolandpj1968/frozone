@@ -5,14 +5,28 @@ require_relative '../vm/proc_object'
 module Frozone
   module Ast
     class Lambda < Node
-      def initialize(params, locals, body)
-        @params = check_array_type("params", params, Symbol)
-        @locals = check_array_type("locals", locals, Symbol)
-        @body = check_type("body", body, Node)
+      def initialize(required_params, optional_params, rest_param, post_params,
+                     required_kw_params, optional_kw_params, kw_rest_param,
+                     block_param, locals, body)
+        @required_params    = check_array_type("required_params", required_params, Symbol)
+        @optional_params    = optional_params
+        @rest_param         = rest_param
+        @post_params        = check_array_type("post_params", post_params, Symbol)
+        @required_kw_params = check_array_type("required_kw_params", required_kw_params, Symbol)
+        @optional_kw_params = optional_kw_params
+        @kw_rest_param      = kw_rest_param
+        @block_param        = block_param
+        @locals             = check_array_type("locals", locals, Symbol)
+        @body               = check_type("body", body, Node)
       end
 
       def evaluate(context)
-        block = Vm::BlockObject.new(@params, @locals, @body, context.frame)
+        # Lambdas do NOT auto-splat (auto_splat: false)
+        block = Vm::BlockObject.new(
+          @required_params, @optional_params, @rest_param, @post_params,
+          @required_kw_params, @optional_kw_params, @kw_rest_param,
+          @block_param, false, @locals, @body, context.frame
+        )
         Vm::ProcObject.new(block, lambda: true)
       end
     end

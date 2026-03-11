@@ -28,22 +28,10 @@ module Frozone
       private
 
       def parse_lambda(prism_node)
-        params = []
-        locals = prism_node.locals
-        unless prism_node.parameters.nil?
-          bp = prism_node.parameters
-          if bp.is_a?(Prism::NumberedParametersNode)
-            n = bp.respond_to?(:maximum) ? bp.maximum : 9
-            params = (1..n).map { |i| :"_#{i}" }
-          elsif bp.is_a?(Prism::BlockParametersNode) && !bp.parameters.nil?
-            raise "lambda parameters is not a Prism::ParametersNode" unless bp.parameters.is_a?(Prism::ParametersNode)
-            params = bp.parameters.requireds.filter_map do |required|
-              required.is_a?(Prism::RequiredParameterNode) ? required.name : nil
-            end
-          end
-        end
+        required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, _auto_splat =
+          parse_block_or_lambda_params(prism_node.parameters, auto_splat: false)
         body = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
-        [params, locals, body]
+        [required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, prism_node.locals, body]
       end
 
       def parse_multi_write_target(target)
@@ -100,26 +88,98 @@ module Frozone
       end
 
       def parse_block(prism_block_node)
-        params = []
-        unless prism_block_node.parameters.nil?
-          bp = prism_block_node.parameters
-          if bp.is_a?(Prism::NumberedParametersNode)
-            # Numbered params (_1, _2, ...): create params _1.._N where N = maximum used
-            n = bp.respond_to?(:maximum) ? bp.maximum : 9
-            params = (1..n).map { |i| :"_#{i}" }
-          elsif bp.is_a?(Prism::BlockParametersNode) && !bp.parameters.nil?
-            raise "block parameters is not a Prism::ParametersNode" unless bp.parameters.is_a?(Prism::ParametersNode)
-            # TODO: optional/rest/keyword block params
-            params = bp.parameters.requireds.filter_map do |required|
-              case required
-              when Prism::RequiredParameterNode then required.name
-              when Prism::MultiTargetNode then :_  # destructuring — use anonymous
-              end
-            end
+        required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, auto_splat =
+          parse_block_or_lambda_params(prism_block_node.parameters, auto_splat: true)
+        body = prism_block_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_block_node.body)
+        Ast::Block.new(required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param,
+                       auto_splat, prism_block_node.locals, body)
+      end
+
+      # Parse block/lambda params from a Prism BlockParametersNode or ParametersNode.
+      # Returns [required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, auto_splat]
+      def parse_block_or_lambda_params(params_node, auto_splat: false)
+        required_params = []; optional_params = []; rest_param = nil; post_params = []
+        required_kw_params = []; optional_kw_params = []; kw_rest_param = nil; block_param = nil
+        implicit_rest = false
+
+        return [required_params, optional_params, rest_param, post_params,
+                required_kw_params, optional_kw_params, kw_rest_param, block_param, false] if params_node.nil?
+
+        if params_node.is_a?(Prism::NumberedParametersNode)
+          n = params_node.respond_to?(:maximum) ? params_node.maximum : 9
+          required_params = (1..n).map { |i| :"_#{i}" }
+          # Numbered params: auto-splat if 2+ params
+          as = auto_splat && n >= 2
+          return [required_params, optional_params, rest_param, post_params,
+                  required_kw_params, optional_kw_params, kw_rest_param, block_param, as]
+        end
+
+        # Extract ParametersNode from BlockParametersNode
+        parameters = if params_node.is_a?(Prism::BlockParametersNode)
+                       block_param = params_node.locals.first rescue nil  # block-local vars (not block param)
+                       block_param = nil  # block-local vars are just locals, not the &block
+                       params_node.parameters
+                     else
+                       params_node  # ParametersNode directly (for lambdas)
+                     end
+
+        return [required_params, optional_params, rest_param, post_params,
+                required_kw_params, optional_kw_params, kw_rest_param, block_param, false] if parameters.nil?
+
+        required_params = parameters.requireds.filter_map do |r|
+          case r
+          when Prism::RequiredParameterNode then r.name
+          when Prism::MultiTargetNode then :_  # destructuring placeholder
+          else nil
           end
         end
-        body = prism_block_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_block_node.body)
-        Ast::Block.new(params, prism_block_node.locals, body)
+
+        optional_params = parameters.optionals.map do |o|
+          [o.name, transform(o.value)]
+        end
+
+        unless parameters.rest.nil?
+          case parameters.rest
+          when Prism::RestParameterNode then rest_param = parameters.rest.name
+          when Prism::ImplicitRestNode  then implicit_rest = true
+          end
+        end
+
+        post_params = parameters.posts.filter_map do |p|
+          p.is_a?(Prism::RequiredParameterNode) ? p.name : nil
+        end
+
+        parameters.keywords.each do |kw|
+          case kw
+          when Prism::RequiredKeywordParameterNode  then required_kw_params << kw.name
+          when Prism::OptionalKeywordParameterNode  then optional_kw_params << [kw.name, transform(kw.value)]
+          end
+        end
+
+        if parameters.keyword_rest.is_a?(Prism::KeywordRestParameterNode)
+          kw_rest_param = parameters.keyword_rest.name
+        end
+
+        unless parameters.block.nil?
+          block_param = parameters.block.name
+        end
+
+        # Also check BlockParametersNode locals for &block param
+        if params_node.is_a?(Prism::BlockParametersNode) && params_node.respond_to?(:opening_loc)
+          # block_param already set from parameters.block above
+        end
+
+        # Auto-splat: procs/blocks auto-splat unless:
+        #   - empty params, OR single required (no others), OR single rest (no others)
+        if auto_splat
+          is_empty        = required_params.empty? && optional_params.empty? && rest_param.nil? && !implicit_rest && post_params.empty?
+          is_single_req   = required_params.length == 1 && optional_params.empty? && rest_param.nil? && !implicit_rest && post_params.empty?
+          is_rest_only    = required_params.empty? && optional_params.empty? && rest_param && !implicit_rest && post_params.empty?
+          auto_splat = !is_empty && !is_single_req && !is_rest_only
+        end
+
+        [required_params, optional_params, rest_param, post_params,
+         required_kw_params, optional_kw_params, kw_rest_param, block_param, auto_splat]
       end
 
       def parse_method_params(prism_node)
@@ -455,8 +515,8 @@ module Frozone
           Ast::Return.new(value_node)
 
         when Prism::LambdaNode
-          params, locals, body = parse_lambda(prism_node)
-          Ast::Lambda.new(params, locals, body)
+          required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, locals, body = parse_lambda(prism_node)
+          Ast::Lambda.new(required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, locals, body)
 
         when Prism::YieldNode
           arg_nodes = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
