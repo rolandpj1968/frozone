@@ -55,6 +55,7 @@ require_relative 'ast/class_variable_read'
 require_relative 'ast/class_variable_write'
 require_relative 'ast/range_literal'
 
+require_relative 'ast/call_or_write'
 require_relative 'ast/class_def'
 require_relative 'ast/module_def'
 require_relative 'ast/singleton_class_def'

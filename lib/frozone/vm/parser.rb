@@ -713,21 +713,15 @@ module Frozone
 
         when Prism::CallOrWriteNode
           receiver_node = prism_node.receiver ? transform(prism_node.receiver) : nil
-          read  = Ast::MethodCall.new(prism_node.read_name, receiver_node, [], {})
-          write = Ast::MethodCall.new(prism_node.write_name, receiver_node, [transform(prism_node.value)], {})
-          Ast::Or.new(read, write)
+          Ast::CallOrWrite.new(prism_node.read_name, prism_node.write_name, receiver_node, transform(prism_node.value))
 
         when Prism::CallAndWriteNode
           receiver_node = prism_node.receiver ? transform(prism_node.receiver) : nil
-          read  = Ast::MethodCall.new(prism_node.read_name, receiver_node, [], {})
-          write = Ast::MethodCall.new(prism_node.write_name, receiver_node, [transform(prism_node.value)], {})
-          Ast::And.new(read, write)
+          Ast::CallAndWrite.new(prism_node.read_name, prism_node.write_name, receiver_node, transform(prism_node.value))
 
         when Prism::CallOperatorWriteNode
           receiver_node = prism_node.receiver ? transform(prism_node.receiver) : nil
-          read = Ast::MethodCall.new(prism_node.read_name, receiver_node, [], {})
-          rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
-          Ast::MethodCall.new(prism_node.write_name, receiver_node, [rhs], {})
+          Ast::CallOperatorWrite.new(prism_node.read_name, prism_node.write_name, prism_node.operator, receiver_node, transform(prism_node.value))
 
         when Prism::ForNode
           # for x in collection; body; end
