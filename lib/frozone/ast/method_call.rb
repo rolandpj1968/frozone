@@ -3,13 +3,14 @@ require_relative 'node'
 module Frozone
   module Ast
     class MethodCall < Node
-      def initialize(name, receiver_node, arg_nodes, kw_arg_nodes, block_node = nil, kw_splat_nodes: [])
+      def initialize(name, receiver_node, arg_nodes, kw_arg_nodes, block_node = nil, kw_splat_nodes: [], safe_nav: false)
         @name = check_type("name", name, Symbol)
         @receiver_node = check_nil_or_type("receiver_node", receiver_node, Node)
         @arg_nodes = check_array_type("arg_nodes", arg_nodes, Node)
         @kw_arg_nodes = check_hash_of_types("kw_arg_nodes", kw_arg_nodes, Node, Node)
         @block_node = check_nil_or_type("block_node", block_node, Node)
         @kw_splat_nodes = check_array_type("kw_splat_nodes", kw_splat_nodes, Node)
+        @safe_nav = safe_nav
       end
 
       def to_s
@@ -24,6 +25,8 @@ module Frozone
           else
             @receiver_node.evaluate(context)
           end
+
+        return Vm::NilObject::NIL if @safe_nav && receiver.is_a?(Vm::NilObject)
 
         args = @arg_nodes.flat_map do |p|
           p.is_a?(SplatArg) ? p.evaluate(context).raw : p.evaluate(context)

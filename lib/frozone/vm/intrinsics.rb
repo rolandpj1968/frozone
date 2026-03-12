@@ -122,6 +122,18 @@ module Frozone
           ArrayObject.new(result)
         end
 
+        def object_singleton_class(_, v)
+          # Integer and Symbol don't have singleton classes
+          if v.is_a?(IntegerObject) || v.is_a?(SymbolObject)
+            raise FrozoneException.make(:TypeError, "can't define singleton for #{v.class_object.name}")
+          end
+          # true/false/nil return their class (they are singleton instances)
+          if v.is_a?(TrueObject) || v.is_a?(FalseObject) || v.is_a?(NilObject)
+            return v.class_object
+          end
+          v.singleton_class
+        end
+
         def object_singleton_methods(_, v, include_super_obj = TrueObject::TRUE)
           return ArrayObject.new([]) if v.instance_variable_get(:@eigenclass).equal?(v.class_object)
           include_super = include_super_obj.truthy?
@@ -654,8 +666,12 @@ module Frozone
         def kernel_load(_, _receiver, path_obj)
           path = path_obj.raw
           full_path = File.exist?(path) ? path : resolve_load_path(path)
-          raise "cannot load such file -- #{path}" if full_path.nil?
-          Fiber[:vm_evaluate].call(full_path)
+          raise FrozoneException.make(:LoadError, "cannot load such file -- #{path}") if full_path.nil?
+          begin
+            Fiber[:vm_evaluate].call(full_path)
+          rescue Ast::ReturnException
+            # return at top level of loaded file stops loading gracefully
+          end
           TrueObject::TRUE
         end
 
@@ -843,6 +859,42 @@ module Frozone
           s ? IntegerObject.new(s) : NilObject::NIL
         end
         def file_read(_, path) = StringObject.new(File.read(path.raw))
+        def file_write(_, path, content)
+          File.write(path.raw, content.raw)
+          IntegerObject.new(content.raw.length)
+        end
+        def file_open(_, path, mode, block)
+          mode_str = mode.is_a?(NilObject) || mode.nil? ? 'r' : mode.raw
+          if block
+            File.open(path.raw, mode_str) do |f|
+              io_obj = ObjectObject.new(Core.object_class)
+              io_obj.instance_variable_set(:@__file__, f)
+              block.invoke(Fiber[:context], [io_obj])
+            end
+            NilObject::NIL
+          else
+            io_obj = ObjectObject.new(Core.object_class)
+            io_obj.instance_variable_set(:@__file__, File.open(path.raw, mode_str))
+            io_obj
+          end
+        end
+        def file_delete(_, paths)
+          paths.raw.each { |p| File.delete(p.raw) rescue nil }
+          IntegerObject.new(paths.raw.length)
+        end
+        def file_rename(_, from, to) = (File.rename(from.raw, to.raw); IntegerObject.new(0))
+        def file_symlink(_, path) = bool_object_for(File.symlink?(path.raw))
+        def file_symlink_create(_, target, link) = (File.symlink(target.raw, link.raw); IntegerObject.new(0))
+        def file_zero(_, path) = bool_object_for(File.zero?(path.raw))
+        def file_fnmatch(_, pattern, path, flags)
+          bool_object_for(File.fnmatch(pattern.raw, path.raw, flags.raw))
+        end
+        def file_stat(_, path)
+          st = File.stat(path.raw)
+          obj = ObjectObject.new(Core.object_class)
+          obj.instance_variable_set(:@__stat__, st)
+          obj
+        end
         def file_split(_, path)
           parts = File.split(path.raw)
           ArrayObject.new(parts.map { |p| StringObject.new(p) })
@@ -864,6 +916,12 @@ module Frozone
           end
         end
         def dir_mkdir(_, path) = (Dir.mkdir(path.raw); IntegerObject.new(0))
+        def dir_entries(_, path)
+          entries = Dir.entries(path.raw)
+          ArrayObject.new(entries.map { |e| StringObject.new(e) })
+        end
+        def dir_rmdir(_, path) = (Dir.rmdir(path.raw); IntegerObject.new(0))
+        def dir_empty(_, path) = bool_object_for(Dir.empty?(path.raw))
         def dir_exist(_, path) = path.raw && Dir.exist?(path.raw) ? TrueObject::TRUE : FalseObject::FALSE
         def dir_mktmpdir(_, prefix, block)
           require 'tmpdir'
@@ -986,7 +1044,7 @@ module Frozone
         def string_reverse(_, v)           = StringObject.new(v.raw.reverse)
         def string_reverse_bang(_, v)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v.raw.inspect}") if v.frozen?
-          v.instance_variable_set(:@raw, v.raw.reverse)
+          v.instance_variable_set(:@value, v.raw.reverse.freeze)
           v
         end
         def string_chars(_, v)             = ArrayObject.new(v.raw.chars.map { |c| StringObject.new(c) })
@@ -1027,16 +1085,32 @@ module Frozone
           result.nil? ? NilObject::NIL : StringObject.new(result)
         end
         def string_index(_, v, sub, offset = nil)
-          result = offset.nil? ? v.raw.index(sub.raw) : v.raw.index(sub.raw, offset.raw)
+          result = (offset.nil? || offset.is_a?(NilObject)) ? v.raw.index(sub.raw) : v.raw.index(sub.raw, offset.raw)
           result.nil? ? NilObject::NIL : IntegerObject.new(result)
         end
         def string_rindex(_, v, sub, offset = nil)
-          result = offset.nil? ? v.raw.rindex(sub.raw) : v.raw.rindex(sub.raw, offset.raw)
+          result = (offset.nil? || offset.is_a?(NilObject)) ? v.raw.rindex(sub.raw) : v.raw.rindex(sub.raw, offset.raw)
           result.nil? ? NilObject::NIL : IntegerObject.new(result)
         end
         def string_replace(_, v, other)
           return v if other.is_a?(NilObject)
           StringObject.new(other.raw)
+        end
+        def string_succ(_, v)          = StringObject.new(v.raw.succ)
+        def string_succ_bang(_, v)
+          v.instance_variable_set(:@value, v.raw.succ.freeze)
+          v
+        end
+        def string_insert(_, v, index, str)
+          result = v.raw.dup.insert(index.raw, str.raw)
+          v.instance_variable_set(:@value, result.freeze)
+          v
+        end
+        def string_slice_bang(_, v, idx, len = nil)
+          raw = v.raw.dup
+          result = len.is_a?(NilObject) || len.nil? ? raw.slice!(idx.raw) : raw.slice!(idx.raw, len.raw)
+          v.instance_variable_set(:@value, raw.freeze)
+          result.nil? ? NilObject::NIL : StringObject.new(result)
         end
         def string_each_line(context, v, sep, block)
           sep_raw = sep.is_a?(NilObject) ? "\n" : sep.raw

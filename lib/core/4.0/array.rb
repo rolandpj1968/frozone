@@ -25,8 +25,8 @@ class Array
   alias size length
   def count(&block); return length unless block; n = 0; each { |x| n += 1 if block.call(x) }; n; end
   def empty? = length == 0
-  def first = self[0]
-  def last = self[self.length - 1]
+  def first(n = nil) = n ? self[0, n] : self[0]
+  def last(n = nil) = n ? self[-n, n] : self[self.length - 1]
   def ==(other)
     return false unless other.is_a?(Array)
     return false unless length == other.length

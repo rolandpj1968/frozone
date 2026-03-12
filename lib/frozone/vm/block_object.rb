@@ -54,6 +54,18 @@ module Frozone
           end
         end
 
+        # For blocks with keyword parameters: if the last positional arg is a Hash with symbol keys,
+        # extract it as keyword args (Ruby's keyword argument extraction for blocks).
+        if kw_args.empty? && !args.empty? &&
+           (@kw_rest_param || !@required_kw_params.empty? || !@optional_kw_params.empty?) &&
+           args.last.is_a?(HashObject)
+          last = args.last
+          if last.raw.keys.all? { |k| k.is_a?(SymbolObject) }
+            args = args[0..-2]
+            kw_args = last.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
+          end
+        end
+
         populate_params(context, new_frame, args)
         populate_kw_params(context, new_frame, kw_args)
 

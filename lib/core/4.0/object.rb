@@ -41,6 +41,7 @@ class Object
   def private_methods(include_super = true) = []
   def protected_methods(include_super = true) = []
   def singleton_methods(include_super = true) = Intrinsics.object_singleton_methods(self, include_super)
+  def singleton_class = Intrinsics.object_singleton_class(self)
 
   def to_s = Intrinsics.object_to_s(self)
   def inspect = to_s

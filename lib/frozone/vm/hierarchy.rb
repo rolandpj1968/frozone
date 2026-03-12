@@ -79,6 +79,23 @@ class File < IO
   def self.read(path) = Intrinsics.file_read(path)
   def self.realpath(path, base = nil) = Intrinsics.file_expand_path(path, base)
   def self.split(path) = Intrinsics.file_split(path)
+  def self.write(path, content, **opts) = Intrinsics.file_write(path, content)
+  def self.open(path, mode = 'r', &block) = Intrinsics.file_open(path, mode, block)
+  def self.delete(*paths) = Intrinsics.file_delete(paths)
+  def self.unlink(*paths) = Intrinsics.file_delete(paths)
+  def self.rename(from, to) = Intrinsics.file_rename(from, to)
+  def self.symlink?(path) = Intrinsics.file_symlink(path)
+  def self.symlink(target, link) = Intrinsics.file_symlink_create(target, link)
+  def self.zero?(path) = Intrinsics.file_zero(path)
+  def self.absolute_path(path, base = nil) = Intrinsics.file_expand_path(path, base)
+  def self.chmod(mode, *paths) = nil
+  def self.stat(path) = Intrinsics.file_stat(path)
+  def self.lstat(path) = Intrinsics.file_stat(path)
+
+  def self.binread(path, length = nil, offset = nil) = Intrinsics.file_read(path)
+  def self.binwrite(path, content, offset = nil) = Intrinsics.file_write(path, content)
+  def self.fnmatch(pattern, path, flags = 0) = Intrinsics.file_fnmatch(pattern, path, flags)
+  def self.fnmatch?(pattern, path, flags = 0) = Intrinsics.file_fnmatch(pattern, path, flags)
 end
 
 class Dir < Object
@@ -90,6 +107,10 @@ class Dir < Object
   def self.mkdir(path, mode = 0o777) = Intrinsics.dir_mkdir(path)
   def self.exist?(path) = Intrinsics.dir_exist(path)
   def self.mktmpdir(prefix = nil, &block) = Intrinsics.dir_mktmpdir(prefix, block)
+  def self.entries(path) = Intrinsics.dir_entries(path)
+  def self.delete(path) = Intrinsics.dir_rmdir(path)
+  def self.rmdir(path) = Intrinsics.dir_rmdir(path)
+  def self.empty?(path) = Intrinsics.dir_empty(path)
 end
 
 class Encoding < Object

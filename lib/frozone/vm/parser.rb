@@ -516,10 +516,11 @@ module Frozone
                 end
               end
 
+            safe_nav = prism_node.safe_navigation?
             if prism_node.attribute_write?
-              Ast::AttributeWrite.new(prism_node.name, receiver_node, arg_nodes, kw_args)
+              Ast::AttributeWrite.new(prism_node.name, receiver_node, arg_nodes, kw_args, safe_nav: safe_nav)
             else
-              Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args, block_node, kw_splat_nodes: kw_splats)
+              Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args, block_node, kw_splat_nodes: kw_splats, safe_nav: safe_nav)
             end
           end
 
@@ -905,15 +906,15 @@ module Frozone
 
         when Prism::CallOrWriteNode
           receiver_node = (prism_node.receiver.nil? || prism_node.receiver.is_a?(Prism::SelfNode)) ? nil : transform(prism_node.receiver)
-          Ast::CallOrWrite.new(prism_node.read_name, prism_node.write_name, receiver_node, transform(prism_node.value))
+          Ast::CallOrWrite.new(prism_node.read_name, prism_node.write_name, receiver_node, transform(prism_node.value), safe_nav: prism_node.safe_navigation?)
 
         when Prism::CallAndWriteNode
           receiver_node = (prism_node.receiver.nil? || prism_node.receiver.is_a?(Prism::SelfNode)) ? nil : transform(prism_node.receiver)
-          Ast::CallAndWrite.new(prism_node.read_name, prism_node.write_name, receiver_node, transform(prism_node.value))
+          Ast::CallAndWrite.new(prism_node.read_name, prism_node.write_name, receiver_node, transform(prism_node.value), safe_nav: prism_node.safe_navigation?)
 
         when Prism::CallOperatorWriteNode
           receiver_node = (prism_node.receiver.nil? || prism_node.receiver.is_a?(Prism::SelfNode)) ? nil : transform(prism_node.receiver)
-          Ast::CallOperatorWrite.new(prism_node.read_name, prism_node.write_name, prism_node.operator, receiver_node, transform(prism_node.value))
+          Ast::CallOperatorWrite.new(prism_node.read_name, prism_node.write_name, prism_node.operator, receiver_node, transform(prism_node.value), safe_nav: prism_node.safe_navigation?)
 
         when Prism::ForNode
           # for x in collection; body; end

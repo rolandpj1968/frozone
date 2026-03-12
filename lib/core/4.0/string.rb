@@ -72,6 +72,12 @@ class String
   def index(sub, offset = nil) = Intrinsics.string_index(self, sub, offset)
   def rindex(sub, offset = nil) = Intrinsics.string_rindex(self, sub, offset)
   def replace(other) = Intrinsics.string_replace(self, other)
+  def succ = Intrinsics.string_succ(self)
+  alias next succ
+  def succ! = Intrinsics.string_succ_bang(self)
+  alias next! succ!
+  def insert(index, str) = Intrinsics.string_insert(self, index, str)
+  def slice!(idx, len = nil) = Intrinsics.string_slice_bang(self, idx, len)
 
   def each_line(sep = "\n", &block) = Intrinsics.string_each_line(self, sep, block)
   def b = Intrinsics.string_b(self)
