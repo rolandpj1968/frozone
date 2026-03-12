@@ -1,4 +1,4 @@
-require 'parser/ruby34'
+require 'parser/ruby40'
 require 'set'
 
 require_relative '../ast'
@@ -60,7 +60,7 @@ module Frozone
 
       def ast(raise_syntax_errors: false)
         buf = ::Parser::Source::Buffer.new(@filepath || '(string)', source: @text)
-        wq = ::Parser::Ruby34.new
+        wq = ::Parser::Ruby40.new
         wq.diagnostics.all_errors_are_fatal = false
         wq.diagnostics.ignore_warnings      = true
 

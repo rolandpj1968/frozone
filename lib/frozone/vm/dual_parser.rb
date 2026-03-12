@@ -1,17 +1,17 @@
 require 'prism'
 require 'prism/translation/parser'
-require 'parser/ruby34'
+require 'parser/ruby40'
 
 module Frozone
   module Vm
     # DualParser runs the same source through two independent parsers and compares
     # their s-expression outputs:
     #
-    #   Parser A: whitequark `parser` gem (Parser::Ruby34) — pure Ruby, self-hostable
+    #   Parser A: whitequark `parser` gem (Parser::Ruby40) — pure Ruby, self-hostable
     #   Parser B: Prism::Translation::Parser40 — stdlib Prism translated to same format
     #
     # Both produce identical Parser::AST::Node s-expressions, so mismatches reveal
-    # bugs in either parser.  The primary motivation is to validate Parser::Ruby34
+    # bugs in either parser.  The primary motivation is to validate Parser::Ruby40
     # as a future self-hostable replacement for the Prism C-extension dependency.
     #
     # Usage:
@@ -33,7 +33,7 @@ module Frozone
 
           a = ast.inspect
           b = ast_prism.inspect
-          "parser/ruby34 vs prism/translation differ:\n  A: #{a[0, 200]}\n  B: #{b[0, 200]}"
+          "parser/ruby40 vs prism/translation differ:\n  A: #{a[0, 200]}\n  B: #{b[0, 200]}"
         end
       end
 
@@ -43,7 +43,7 @@ module Frozone
         ast_primary = nil
         errors_primary = []
         begin
-          parser_a = ::Parser::Ruby34.new
+          parser_a = ::Parser::Ruby40.new
           parser_a.diagnostics.all_errors_are_fatal = false
           parser_a.diagnostics.ignore_warnings      = true
           ast_primary = parser_a.parse(buf)
