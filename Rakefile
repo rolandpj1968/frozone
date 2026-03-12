@@ -1,5 +1,6 @@
 RUBY_SPEC_DIR = ENV.fetch('RUBY_SPEC_DIR', File.expand_path('spec/ruby-spec', __dir__))
 MSPEC_RUNNER  = File.expand_path('spec/mspec_runner.rb', __dir__)
+PARSER_FLAVOR = ENV.fetch('PARSER', 'prism')  # prism (default) or wq
 
 # Internal RSpec suite
 task default: :spec
@@ -12,7 +13,7 @@ end
 # Language spec helpers
 def run_language_specs(*spec_files)
   args = spec_files.map { |f| File.expand_path(f) }.join(' ')
-  sh "bundle exec ruby frozone.rb #{MSPEC_RUNNER} #{args}"
+  sh "bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args}"
 end
 
 def language_spec_path(name)
@@ -20,7 +21,7 @@ def language_spec_path(name)
 end
 
 # Run all language specs
-desc "Run all ruby/spec language specs (RUBY_SPEC_DIR=... to override path)"
+desc "Run all ruby/spec language specs (RUBY_SPEC_DIR=... PARSER=prism|wq to override)"
 task :language do
   all_specs = Dir["#{RUBY_SPEC_DIR}/language/*_spec.rb"].sort
   run_language_specs(*all_specs)
