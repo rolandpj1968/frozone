@@ -11,13 +11,19 @@ module Frozone
         @filepath = filepath
       end
 
-      def ast
+      def ast(raise_syntax_errors: false)
         parse_opts = @filepath ? { filepath: @filepath } : {}
-        program_node = Prism.parse(@text, **parse_opts).value
+        result = Prism.parse(@text, **parse_opts)
 
+        if raise_syntax_errors && result.errors.any?
+          msg = result.errors.map(&:message).first
+          raise FrozoneException.make(:SyntaxError, msg)
+        end
+
+        program_node = result.value
         puts program_node.inspect if @dump_ast
 
-        raise "Unexpected Prism.parse value type #{value.class} expecting Prism::ProgramNode" unless program_node.is_a?(Prism::ProgramNode)
+        raise "Unexpected Prism.parse value type #{program_node.class} expecting Prism::ProgramNode" unless program_node.is_a?(Prism::ProgramNode)
 
         @top_level_locals = program_node.locals
         transform(program_node.statements)
@@ -197,8 +203,11 @@ module Frozone
           end
         end
 
-        if parameters.keyword_rest.is_a?(Prism::KeywordRestParameterNode)
-          kw_rest_param = parameters.keyword_rest.name
+        case parameters.keyword_rest
+        when Prism::KeywordRestParameterNode
+          kw_rest_param = parameters.keyword_rest.name || :__anon_kwargs__
+        when Prism::NoKeywordsParameterNode
+          kw_rest_param = :__no_kwargs__
         end
 
         unless parameters.block.nil?

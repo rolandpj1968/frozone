@@ -110,10 +110,12 @@ module Frozone
             # Lambdas catch their own return
             raise unless e.method_frame.equal?(new_frame)
             e.value
+          elsif e.method_frame.nil?
+            # No enclosing method: return in a proc at top-level or class body → LocalJumpError
+            raise FrozoneException.make(:LocalJumpError, "unexpected return")
           else
-            # Procs/blocks: if there's no enclosing method (method_frame nil), absorb; otherwise re-raise.
-            raise unless e.method_frame.nil?
-            e.value
+            # Procs/blocks: propagate return to exit the enclosing method
+            raise
           end
         rescue Ast::NextException => e
           e.value
@@ -207,7 +209,11 @@ module Frozone
           frame.set_local(kw, value)
         end
 
-        unless @kw_rest_param.nil?
+        if @kw_rest_param == :__no_kwargs__
+          unless kw_args.empty?
+            raise FrozoneException.make(:ArgumentError, "no keywords accepted")
+          end
+        elsif @kw_rest_param
           kw_rest = kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k }
           frame.set_local(@kw_rest_param, HashObject.new(kw_rest))
         end

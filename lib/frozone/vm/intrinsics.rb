@@ -676,20 +676,26 @@ module Frozone
 
         def kernel_proc(context, _receiver)
           block = context.frame.block
-          raise "proc called without a block" if block.nil?
+          raise FrozoneException.make(:ArgumentError, "tried to create Proc object without a block") if block.nil?
           ProcObject.new(block)
         end
 
         def kernel_lambda(context, _receiver)
           block = context.frame.block
-          raise "lambda called without a block" if block.nil?
+          raise FrozoneException.make(:ArgumentError, "tried to create Proc object without a block") if block.nil?
           block.make_lambda! if block.is_a?(BlockObject)
           ProcObject.new(block, lambda: true)
         end
 
         def proc_call(context, proc_obj, args)
           raise "proc_call: receiver must be a ProcObject" unless proc_obj.is_a?(ProcObject)
-          proc_obj.call(context, args.raw)
+          blk = context.frame.block
+          blk = nil if blk.nil? || blk.is_a?(NilObject)
+          proc_obj.call(context, args.raw, block: blk)
+        end
+
+        def proc_lambda_p(_context, proc_obj)
+          proc_obj.lambda? ? TrueObject::TRUE : FalseObject::FALSE
         end
 
         def kernel_eval(context, _receiver, code_obj, _binding = NilObject::NIL)
@@ -697,7 +703,7 @@ module Frozone
           code = code_obj.raw
           caller_frame = context.frame
           parser = Parser.new(code)
-          ast = parser.ast
+          ast = parser.ast(raise_syntax_errors: true)
           new_frame = Frame.new(caller_frame.the_self, parser.top_level_locals, caller_frame.scopes)
           context.push_frame(new_frame)
           begin
