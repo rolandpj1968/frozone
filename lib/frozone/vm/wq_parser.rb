@@ -264,7 +264,8 @@ module Frozone
 
         when :indexasgn
           # With Builder::Default.modernize: arr[i] = v → s(:indexasgn, arr, i, v)
-          # Last child is the value; the rest are receiver + index args
+          # Last child is the value; the rest are receiver + index args.
+          # Use AttributeWrite so the expression evaluates to the assigned value.
           children = node.children
           recv_node = children[0]
           val_node  = children[-1]
@@ -272,7 +273,7 @@ module Frozone
           receiver_ast = recv_node ? transform(recv_node) : nil
           idx_asts     = idx_nodes.map { |a| transform(a) }
           val_ast      = transform(val_node)
-          Ast::MethodCall.new(:[]=, receiver_ast, idx_asts + [val_ast], {})
+          Ast::AttributeWrite.new(:[]=, receiver_ast, idx_asts + [val_ast], {})
 
         when :block
           transform_block(node)
@@ -533,11 +534,28 @@ module Frozone
       # Send (method call) transformation
       # -----------------------------------------------------------------------
 
+      # Returns true if node (WQ AST) contains a bare `it` call anywhere.
+      def body_uses_it?(node)
+        return false unless node.is_a?(::Parser::AST::Node)
+        return true if node.type == :send && node.children[0].nil? &&
+                       node.children[1] == :it && node.children.length == 2
+        # Don't descend into nested blocks/defs (new scope)
+        return false if %i[block numblock def defs class module sclass].include?(node.type)
+
+        node.children.any? { |c| body_uses_it?(c) }
+      end
+
       def transform_send(node)
         type = node.type  # :send or :csend
         c    = node.children
         recv_node, name, *raw_args = c[0], c[1], *c[2..]
         safe_nav = (type == :csend)
+
+        # `it` as implicit block parameter — treat as lvar read when in scope
+        if recv_node.nil? && name == :it && raw_args.empty?
+          d = @scope_chain.depth_of(:it)
+          return Ast::LocalVariableRead.new(:it, d) unless d.nil?
+        end
 
         # Check for Intrinsics.method_name pattern
         if recv_node && recv_node.type == :const &&
@@ -585,6 +603,13 @@ module Frozone
         # Parse block params
         required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, shadow =
           parse_block_args(args_node, is_lambda: is_lambda)
+
+        # Ruby 3.4+: `it` in block/lambda body with no explicit params → implicit first param
+        if required.empty? && optional.empty? && rest.nil? && post.empty? &&
+           req_kw.empty? && opt_kw.empty? && kw_rest.nil? && block_param.nil? &&
+           body_uses_it?(body_node)
+          required = [:it]
+        end
 
         # Push a block scope — initial claimed = param names + shadow names
         initial = collect_param_names(required, optional, rest, post, req_kw, opt_kw,
@@ -850,12 +875,17 @@ module Frozone
             # |(a, b)| style destructuring — counts as ONE required
             required << parse_multi_target_param(arg)
           when :procarg0
-            # |(expr)| — single destructured arg
-            inner = arg.children[0]
-            if inner.type == :mlhs
-              required << parse_multi_target_param(inner)
+            # |(expr)| — single arg, possibly destructured
+            if arg.children.size == 1
+              inner = arg.children[0]
+              if inner.type == :mlhs
+                required << parse_multi_target_param(inner)
+              else
+                required << inner.children[0]
+              end
             else
-              required << inner.children[0]
+              # |(a, b)| — multiple children means destructured tuple (no wrapping mlhs)
+              required << parse_multi_target_param(arg)
             end
           when :optarg
             seen_optional = true
@@ -955,21 +985,29 @@ module Frozone
             # hash literal (braced). Bare keyword syntax produces :kwargs nodes instead.
             arg_nodes << Ast::HashLiteral.new(transform_hash_pairs(arg))
           when :kwargs
-            # Ruby 3.0+ separate kwargs node
-            arg.children.each do |pair|
-              case pair.type
-              when :pair
-                key_node, val_node = pair.children[0], pair.children[1]
-                kw_args[transform(key_node)] = transform(val_node)
-              when :kwsplat
-                splat_val = pair.children[0].nil? ?
-                  Ast::LocalVariableRead.new(:__anon_kwargs__, 0) :
-                  transform(pair.children[0])
-                kw_splats << splat_val
-              when :forwarded_kwrestarg
-                # def m(**); target(**) end — with modernize, forwarded_kwrestarg inside kwargs
-                kw_splats << Ast::LocalVariableRead.new(:__anon_kwargs__, 0)
+            # Ruby 3.0+ separate kwargs node.
+            # With modernize, string-keyed implicit hash syntax (`foo('a' => 1)`) also
+            # becomes s(:kwargs). Only symbol-keyed pairs/kwsplats are actual keyword args;
+            # otherwise treat the whole node as a positional HashLiteral.
+            if should_be_kw_args?(arg)
+              arg.children.each do |pair|
+                case pair.type
+                when :pair
+                  key_node, val_node = pair.children[0], pair.children[1]
+                  kw_args[transform(key_node)] = transform(val_node)
+                when :kwsplat
+                  splat_val = pair.children[0].nil? ?
+                    Ast::LocalVariableRead.new(:__anon_kwargs__, 0) :
+                    transform(pair.children[0])
+                  kw_splats << splat_val
+                when :forwarded_kwrestarg
+                  # def m(**); target(**) end — with modernize, forwarded_kwrestarg inside kwargs
+                  kw_splats << Ast::LocalVariableRead.new(:__anon_kwargs__, 0)
+                end
               end
+            else
+              # String-keyed (or other non-sym) implicit hash → positional hash literal
+              arg_nodes << Ast::HashLiteral.new(transform_hash_pairs(arg))
             end
           else
             arg_nodes << transform(arg)
@@ -1061,6 +1099,19 @@ module Frozone
             inner_desc = parse_masgn_target(inner)
             [:"#{inner_desc[0]}_splat", *inner_desc[1..]]
           end
+        when :indexasgn
+          # With Builder::Default.modernize: b[0] in mlhs → s(:indexasgn, recv, idx...)
+          recv_node = node.children[0]
+          idx_nodes = node.children[1..]
+          receiver_ast = if recv_node.nil?
+                           nil
+                         elsif recv_node.type == :self
+                           Ast::SelfLiteral::SELF
+                         else
+                           transform(recv_node)
+                         end
+          [:index, receiver_ast, idx_nodes.map { |a| transform(a) }]
+
         when :send
           recv_node, mname, *arg_nodes = node.children
           receiver_ast = if recv_node.nil?
@@ -1138,6 +1189,13 @@ module Frozone
             Ast::ConstantPathWrite.new(parent_ast, name, rhs)
           end
 
+        when :indexasgn
+          recv_node = target_node.children[0]
+          idx_nodes = target_node.children[1..]
+          receiver_ast = recv_node.nil? || recv_node.type == :self ? nil : transform(recv_node)
+          index_arg_nodes = idx_nodes.map { |a| transform(a) }
+          Ast::IndexOperatorWrite.new(op, receiver_ast, index_arg_nodes, transform(value_node))
+
         when :send, :csend
           recv_node, mname, *index_args = target_node.children
           receiver_ast = recv_node.nil? || recv_node.type == :self ? nil : transform(recv_node)
@@ -1193,6 +1251,13 @@ module Frozone
             Ast::ConstantPathOrWrite.new(transform(parent), name, transform(value_node))
           end
 
+        when :indexasgn
+          recv_node = target_node.children[0]
+          idx_nodes = target_node.children[1..]
+          receiver_ast = recv_node.nil? || recv_node.type == :self ? nil : transform(recv_node)
+          index_arg_nodes = idx_nodes.map { |a| transform(a) }
+          Ast::IndexOrWrite.new(receiver_ast, index_arg_nodes, transform(value_node))
+
         when :send, :csend
           recv_node, mname, *index_args = target_node.children
           receiver_ast = recv_node.nil? || recv_node.type == :self ? nil : transform(recv_node)
@@ -1242,6 +1307,13 @@ module Frozone
           else
             Ast::ConstantPathAndWrite.new(transform(parent), name, transform(value_node))
           end
+
+        when :indexasgn
+          recv_node = target_node.children[0]
+          idx_nodes = target_node.children[1..]
+          receiver_ast = recv_node.nil? || recv_node.type == :self ? nil : transform(recv_node)
+          index_arg_nodes = idx_nodes.map { |a| transform(a) }
+          Ast::IndexAndWrite.new(receiver_ast, index_arg_nodes, transform(value_node))
 
         when :send, :csend
           recv_node, mname, *index_args = target_node.children
@@ -1532,6 +1604,12 @@ module Frozone
           end
 
           [:multi, lefts, rest, rights]
+        when :indexasgn
+          recv_node = node.children[0]
+          idx_nodes = node.children[1..]
+          recv_ast = recv_node.nil? || recv_node.type == :self ? nil : transform(recv_node)
+          [:index, recv_ast, idx_nodes.map { |a| transform(a) }]
+
         when :send
           recv_node, mname = node.children[0], node.children[1]
           recv_ast = recv_node.nil? || recv_node.type == :self ? nil : transform(recv_node)

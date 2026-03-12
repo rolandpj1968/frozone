@@ -153,6 +153,13 @@ module Frozone
                   required_kw_params, optional_kw_params, kw_rest_param, block_param, as]
         end
 
+        if params_node.is_a?(Prism::ItParametersNode)
+          # `it` is an implicit first block parameter
+          required_params = [:it]
+          return [required_params, optional_params, rest_param, post_params,
+                  required_kw_params, optional_kw_params, kw_rest_param, block_param, false]
+        end
+
         # Extract ParametersNode from BlockParametersNode
         parameters = if params_node.is_a?(Prism::BlockParametersNode)
                        block_param = nil  # block-local vars are just locals, not the &block
@@ -431,6 +438,9 @@ module Frozone
 
         when Prism::LocalVariableReadNode
           Ast::LocalVariableRead.new(prism_node.name, prism_node.depth)
+
+        when Prism::ItLocalVariableReadNode
+          Ast::LocalVariableRead.new(:it, 0)
 
         when Prism::LocalVariableWriteNode
           Ast::LocalVariableWrite.new(prism_node.name, prism_node.depth, transform(prism_node.value))
