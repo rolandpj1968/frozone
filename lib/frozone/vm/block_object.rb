@@ -190,12 +190,17 @@ module Frozone
       end
 
       def populate_kw_params(context, frame, kw_args)
+        missing = []
         @required_kw_params.each do |kw|
           if kw_args.key?(kw)
             frame.set_local(kw, kw_args.delete(kw))
           else
-            raise FrozoneException.make(:ArgumentError, "missing keyword: #{kw}")
+            missing << kw
           end
+        end
+        unless missing.empty?
+          label = missing.length == 1 ? "keyword" : "keywords"
+          raise FrozoneException.make(:ArgumentError, "missing #{label}: #{missing.join(', ')}")
         end
 
         @optional_kw_params.each do |kw, value_node|

@@ -10,10 +10,10 @@ module Frozone
 
       def to_s = "cvar=(#{@name}, #{@value_node})"
 
-      def evaluate(context)
-        value = @value_node.evaluate(context)
-        klass = current_class(context)
-        klass.set_class_var(@name, value)
+      def evaluate(context) = store(context, @value_node.evaluate(context))
+
+      def store(context, value)
+        current_class(context).set_class_var(@name, value)
         value
       end
 

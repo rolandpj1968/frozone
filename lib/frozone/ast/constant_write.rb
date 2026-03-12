@@ -11,8 +11,12 @@ module Frozone
 
       def to_s = "con=(#{@name}, #{@value_node})"
 
-      # TODO - not sure this is right; compare to natalie
-      def evaluate(context) = context.scopes.last.set_constant(@name, @value_node.evaluate(context))
+      def evaluate(context) = store(context, @value_node.evaluate(context))
+
+      def store(context, value)
+        context.scopes.last.set_constant(@name, value)
+        value
+      end
     end
   end
 end

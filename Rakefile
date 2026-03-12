@@ -22,7 +22,8 @@ end
 # Run all language specs
 desc "Run all ruby/spec language specs (RUBY_SPEC_DIR=... to override path)"
 task :language do
-  run_language_specs  # no args → mspec_runner uses glob
+  all_specs = Dir["#{RUBY_SPEC_DIR}/language/*_spec.rb"].sort
+  run_language_specs(*all_specs)
 end
 
 # Individual language spec tasks: rake language:array, rake language:hash, etc.

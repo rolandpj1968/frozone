@@ -598,8 +598,18 @@ module Frozone
               assign_node = Ast::InstanceVariableWrite.new(rc.reference.name, Ast::NilLiteral::NIL)
             elsif rc.reference.is_a?(Prism::GlobalVariableTargetNode)
               assign_node = Ast::GlobalVariableWrite.new(rc.reference.name, Ast::NilLiteral::NIL)
+            elsif rc.reference.is_a?(Prism::ClassVariableTargetNode)
+              assign_node = Ast::ClassVariableWrite.new(rc.reference.name, Ast::NilLiteral::NIL)
+            elsif rc.reference.is_a?(Prism::ConstantTargetNode)
+              assign_node = Ast::ConstantWrite.new(rc.reference.name, Ast::NilLiteral::NIL)
+            elsif rc.reference.is_a?(Prism::CallTargetNode)
+              receiver_node = rc.reference.receiver.is_a?(Prism::SelfNode) ? nil : transform(rc.reference.receiver)
+              assign_node = Ast::RescueCallTarget.new(receiver_node, rc.reference.name, rc.reference.safe_navigation?)
+            elsif rc.reference.is_a?(Prism::IndexTargetNode)
+              receiver_node = rc.reference.receiver.is_a?(Prism::SelfNode) ? nil : transform(rc.reference.receiver)
+              arg_nodes = (rc.reference.arguments&.arguments || []).map { |a| transform(a) }
+              assign_node = Ast::RescueIndexTarget.new(receiver_node, arg_nodes)
             else
-              # Unsupported rescue reference (e.g. CallTargetNode for obj.setter=) — skip assignment
               assign_node = nil
             end
             rc_body = rc.statements.nil? ? Ast::NilLiteral::NIL : transform(rc.statements)
@@ -608,13 +618,13 @@ module Frozone
           end
           else_node   = prism_node.else_clause.nil?   ? nil : transform(prism_node.else_clause)
           ensure_node = prism_node.ensure_clause.nil? ? nil : transform(prism_node.ensure_clause.statements)
-          Ast::BeginRescue.new(body, rescue_clauses, else_node, ensure_node)
+          Ast::Rescue.new(body, rescue_clauses, else_node, ensure_node)
 
         when Prism::RescueModifierNode
           # expr rescue fallback  →  begin; expr; rescue StandardError; fallback; end
           body = transform(prism_node.expression)
           fallback = transform(prism_node.rescue_expression)
-          Ast::BeginRescue.new(body, [Ast::RescueClause.new([], nil, nil, fallback)], nil, nil)
+          Ast::Rescue.new(body, [Ast::RescueClause.new([], nil, nil, fallback)], nil, nil)
 
         when Prism::AliasGlobalVariableNode
           # alias $new $old — stub as nil (Frozone uses a flat globals hash)

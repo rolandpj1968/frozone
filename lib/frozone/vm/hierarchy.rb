@@ -111,6 +111,12 @@ end
 class SystemExit < Exception
 end
 
+class NoMemoryError < Exception
+end
+
+class SystemStackError < Exception
+end
+
 class ScriptError < Exception
 end
 
@@ -127,6 +133,9 @@ class SignalException < Exception
 end
 
 class Interrupt < SignalException
+end
+
+class SecurityError < Exception
 end
 
 class StandardError < Exception

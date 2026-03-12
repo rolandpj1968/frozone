@@ -113,6 +113,7 @@ module Frozone
         pp_path = $LOAD_PATH.map { |d| File.join(d, 'pp.rb') }.find { |f| File.exist?(f) } || 'pp.rb'
         stringio_path = $LOAD_PATH.map { |d| File.join(d, 'stringio') }.find { |f| File.exist?("#{f}.so") || File.exist?("#{f}.rb") } || 'stringio'
         GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new([StringObject.new(pp_path), StringObject.new(stringio_path)])
+        GLOBALS[:"$\""] = GLOBALS[:"$LOADED_FEATURES"]  # $" is alias for $LOADED_FEATURES
         GLOBALS[:"$stdout"]          = ObjectObject.new(Core::OBJECT_CLASS) # placeholder
         GLOBALS[:"$0"]               = StringObject.new($0.to_s)
         GLOBALS[:"$PROGRAM_NAME"]    = GLOBALS[:"$0"]

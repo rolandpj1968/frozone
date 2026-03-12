@@ -81,4 +81,9 @@ class Object
   def sleep(secs = nil) = nil
   def system(*args) = false
   def suppress_warning; yield; end
+  def suppress_keyword_warning; yield; end
+
+  def caller(start = 1, length = nil) = []  # stub: no real backtrace in frozone
+  def caller_locations(start = 1, length = nil) = []
+  def __method__ = nil  # stub
 end

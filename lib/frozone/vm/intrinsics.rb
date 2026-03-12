@@ -254,8 +254,7 @@ module Frozone
         def module_remove_class_variable(_, receiver, name_obj)
           name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
           raise FrozoneException.make(:NameError, "class variable #{name} not defined for #{receiver.name}") unless receiver.class_variables.key?(name)
-          receiver.class_variables.delete(name)
-          NilObject::NIL
+          receiver.class_variables.delete(name) || NilObject::NIL
         end
 
         def module_name(_, receiver)

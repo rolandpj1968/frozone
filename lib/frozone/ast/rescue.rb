@@ -54,7 +54,7 @@ module Frozone
       }
     end
 
-    class BeginRescue < Node
+    class Rescue < Node
       # Control-flow exceptions must never be intercepted by user rescue clauses.
       CONTROL_FLOW = [ReturnException, NextException, RedoException, BreakException, RetryException].freeze
 

@@ -8,4 +8,5 @@ class NilClass
   def to_h = {}
   def &(_) = false
   def |(other) = other ? true : false
+  def =~(_) = nil
 end
