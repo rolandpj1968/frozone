@@ -23,21 +23,37 @@ class Array
   def clear; replace([]); self; end
   def length = Intrinsics.array_length(self)
   alias size length
-  def count(&block) = Intrinsics.array_count(self, block)
-  def empty? = Intrinsics.array_empty(self)
+  def count(&block); return length unless block; n = 0; each { |x| n += 1 if block.call(x) }; n; end
+  def empty? = length == 0
   def first = self[0]
   def last = self[self.length - 1]
-  def ==(other) = Intrinsics.array_eq(self, other)
+  def ==(other)
+    return false unless other.is_a?(Array)
+    return false unless length == other.length
+    i = 0; while i < length; return false unless self[i] == other[i]; i += 1; end
+    true
+  end
   def to_s = Intrinsics.array_to_s(self)
   alias inspect to_s
-  def to_a = Intrinsics.array_to_a(self)
-  def to_h(&block) = Intrinsics.array_to_h(self, block)
-  def dup = Intrinsics.array_dup(self)
-  def freeze = Intrinsics.array_freeze(self)
-  def frozen? = Intrinsics.array_frozen(self)
+  def to_a = self
+  def to_h(&block)
+    r = {}
+    each { |e|
+      pair = block ? block.call(e) : e
+      r[pair[0]] = pair[1]
+    }
+    r
+  end
+  def dup; r = []; each { |e| r << e }; r; end
 
-  def hash = Intrinsics.array_hash(self)
-  def eql?(v) = Intrinsics.array_eql(self, v)
+
+  def hash; reduce(0) { |acc, e| acc * 31 + e.hash }; end
+  def eql?(other)
+    return false unless other.is_a?(Array)
+    return false unless length == other.length
+    i = 0; while i < length; return false unless self[i].eql?(other[i]); i += 1; end
+    true
+  end
 
   def &(other)
     set = {}; other.each { |e| set[e] = true }
@@ -107,9 +123,9 @@ class Array
   def shift = Intrinsics.array_shift(self)
   def unshift(*elems) = Intrinsics.array_unshift(self, *elems)
   alias prepend unshift
-  def delete(elem) = Intrinsics.array_delete(self, elem)
-  def delete_if(&block) = Intrinsics.array_delete_if(self, block)
-  def index(elem = nil) = Intrinsics.array_index_of(self, elem)
+  def delete(elem); n = length; reject! { |x| x == elem }; n == length ? nil : elem; end
+  def delete_if(&block); reject!(&block); self; end
+  def index(elem = nil); i = 0; while i < length; return i if self[i] == elem; i += 1; end; nil; end
   alias find_index index
   def take(n)
     r = []; i = 0

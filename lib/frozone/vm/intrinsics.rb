@@ -1185,24 +1185,7 @@ module Frozone
           end
         end
 
-        def array_hash(context, v)
-          hash_val = v.raw.reduce(0) { |acc, e| acc * 31 + e.dispatch(context, :hash, [], {}).raw }
-          IntegerObject.new(hash_val)
-        end
 
-        def array_eq(context, v1, v2)
-          return bool_object_for(false) unless v2.is_a?(ArrayObject)
-          return bool_object_for(false) unless v1.raw.length == v2.raw.length
-          result = v1.raw.zip(v2.raw).all? { |a, b| a.dispatch(context, :==, [b], {}).truthy? }
-          bool_object_for(result)
-        end
-
-        def array_eql(context, v1, v2)
-          return bool_object_for(false) unless v2.is_a?(ArrayObject)
-          return bool_object_for(false) unless v1.raw.length == v2.raw.length
-          result = v1.raw.zip(v2.raw).all? { |a, b| a.dispatch(context, :eql?, [b], {}).truthy? }
-          bool_object_for(result)
-        end
 
 
 
@@ -1215,7 +1198,7 @@ module Frozone
           ArrayObject.new(v.raw.sort_by { |e| block.invoke(context, [e]) })
         end
 
-        def array_empty(_, v) = bool_object_for(v.raw.empty?)
+
 
         def array_reverse(_, v) = ArrayObject.new(v.raw.reverse)
 
@@ -1244,44 +1227,11 @@ module Frozone
           v
         end
 
-        def array_delete(_, v, elem)
-          removed = v.raw.reject! { |e| e.equal?(elem) || (e.respond_to?(:raw) && elem.respond_to?(:raw) && e.raw == elem.raw) }
-          removed.nil? ? NilObject::NIL : elem
-        end
 
-        def array_delete_if(context, v, block)
-          v.raw.reject! { |e| block.invoke(context, [e]).truthy? }
-          v
-        end
 
-        def array_index_of(_, v, elem)
-          idx = v.raw.index { |e| e.equal?(elem) || (e.respond_to?(:raw) && elem.respond_to?(:raw) && e.raw == elem.raw) }
-          idx.nil? ? NilObject::NIL : IntegerObject.new(idx)
-        end
-
-        def array_count(context, v, block = nil)
-          return IntegerObject.new(v.raw.size) if block.nil? || block.is_a?(NilObject)
-          IntegerObject.new(v.raw.count { |e| block.invoke(context, [e]).truthy? })
-        end
 
         def array_sample(_, v) = v.raw.empty? ? NilObject::NIL : v.raw.sample
         def array_shuffle(_, v) = ArrayObject.new(v.raw.shuffle)
-        def array_dup(_, v) = ArrayObject.new(v.raw.dup)
-        def array_freeze(_, v) = v
-        def array_frozen(_, v) = bool_object_for(false)
-        def array_to_a(_, v) = v
-        def array_to_h(context, v, block = nil)
-          result = HashObject.new
-          v.raw.each do |e|
-            if block && !block.is_a?(NilObject)
-              pair = block.invoke(context, [e])
-              result[pair.raw[0]] = pair.raw[1]
-            elsif e.is_a?(ArrayObject)
-              result[e.raw[0]] = e.raw[1]
-            end
-          end
-          result
-        end
 
         def array_combination(context, v, n, block = nil)
           combos = v.raw.combination(n.raw).map { |c| ArrayObject.new(c) }
@@ -1365,10 +1315,6 @@ module Frozone
 
         def hash_key(_, h, key) = bool_object_for(h.key?(key))
 
-        def hash_hash(context, v)
-          hash_val = v.raw.reduce(0) { |acc, (k, val)| acc ^ (k.dispatch(context, :hash, [], {}).raw ^ val.dispatch(context, :hash, [], {}).raw) }
-          IntegerObject.new(hash_val)
-        end
 
         def hash_index(context, h, key)
           value = h[key]
@@ -1382,25 +1328,6 @@ module Frozone
           end
         end
 
-        def hash_eq(context, v1, v2)
-          return bool_object_for(false) unless v2.is_a?(HashObject)
-          return bool_object_for(false) unless v1.raw.length == v2.raw.length
-          result = v1.raw.all? do |k1, val1|
-            pair2 = v2.raw.find { |k2, _| k1.dispatch(context, :==, [k2], {}).truthy? }
-            pair2 && val1.dispatch(context, :==, [pair2[1]], {}).truthy?
-          end
-          bool_object_for(result)
-        end
-
-        def hash_eql(context, v1, v2)
-          return bool_object_for(false) unless v2.is_a?(HashObject)
-          return bool_object_for(false) unless v1.raw.length == v2.raw.length
-          result = v1.raw.all? do |k1, val1|
-            pair2 = v2.raw.find { |k2, _| k1.dispatch(context, :eql?, [k2], {}).truthy? }
-            pair2 && val1.dispatch(context, :eql?, [pair2[1]], {}).truthy?
-          end
-          bool_object_for(result)
-        end
 
         def hash_new(_, default = nil, block = nil)
           block_obj = block.is_a?(ProcObject) ? block.block_object : block
@@ -1425,20 +1352,7 @@ module Frozone
           val.nil? ? NilObject::NIL : val
         end
 
-        def hash_fetch(context, h, key, default_val = nil)
-          val = h[key]
-          return val unless val.nil?
-          return default_val unless default_val.nil?
-          raise FrozoneException.make(:KeyError, "key not found")
-        end
 
-        def hash_freeze(_, h) = h
-        def hash_frozen(_, h) = bool_object_for(false)
-        def hash_dup(_, h)
-          new_h = HashObject.new
-          h.raw.each { |k, v| new_h[k] = v }
-          new_h
-        end
 
       end
 

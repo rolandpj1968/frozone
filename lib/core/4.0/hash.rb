@@ -2,7 +2,12 @@ class Hash
   def self.new(default = nil, &block)
     Intrinsics.hash_new(default, block)
   end
-  def ==(other) = Intrinsics.hash_eq(self, other)
+  def ==(other)
+    return false unless other.is_a?(Hash)
+    return false unless size == other.size
+    each { |k, v| return false unless other.key?(k) && v == other[k] }
+    true
+  end
   def [](key) = Intrinsics.hash_index(self, key)
   def []=(key, value) = Intrinsics.hash_index_write(self, key, value)
   def size = Intrinsics.hash_size(self)
@@ -23,9 +28,7 @@ class Hash
     "{#{pairs.join(', ')}}"
   end
   alias inspect to_s
-  def dup = Intrinsics.hash_dup(self)
-  def freeze = Intrinsics.hash_freeze(self)
-  def frozen? = Intrinsics.hash_frozen(self)
+  def dup; r = {}; each { |k, v| r[k] = v }; r; end
 
   def each(&block) = Intrinsics.hash_each(self, block)
   alias each_pair each
@@ -36,7 +39,11 @@ class Hash
   def merge!(other); other.each { |k, v| self[k] = v }; self; end
   alias update merge!
   def delete(key) = Intrinsics.hash_delete(self, key)
-  def fetch(key, default = nil) = Intrinsics.hash_fetch(self, key, default)
+  def fetch(key, default = nil)
+    return self[key] if key?(key)
+    return default unless default.nil?
+    raise KeyError, "key not found"
+  end
 
   def select(&block)
     r = {}
@@ -62,6 +69,11 @@ class Hash
     n = 0; each { |k, v| n += 1 if (block ? block.call(k, v) : yield(k, v)) }; n
   end
 
-  def hash = Intrinsics.hash_hash(self)
-  def eql?(v) = Intrinsics.hash_eql(self, v)
+  def hash; acc = 0; each { |k, v| acc = acc ^ (k.hash ^ v.hash) }; acc; end
+  def eql?(other)
+    return false unless other.is_a?(Hash)
+    return false unless size == other.size
+    each { |k, v| return false unless other.key?(k) && v.eql?(other[k]) }
+    true
+  end
 end

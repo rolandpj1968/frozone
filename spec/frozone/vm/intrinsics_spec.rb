@@ -256,27 +256,27 @@ RSpec.describe Frozone::Vm::Intrinsics do
     let(:i1) { Frozone::Vm::IntegerObject.new(1) }
     let(:i2) { Frozone::Vm::IntegerObject.new(2) }
 
-    it 'array_hash returns equal values for equal arrays' do
+    it 'array hash returns equal values for equal arrays' do
       a = Frozone::Vm::ArrayObject.new([i1, i2])
       b = Frozone::Vm::ArrayObject.new([Frozone::Vm::IntegerObject.new(1), Frozone::Vm::IntegerObject.new(2)])
-      expect(described_class.array_hash(real_ctx, a).raw).to eq(described_class.array_hash(real_ctx, b).raw)
+      expect(a.dispatch(real_ctx, :hash, [], {}).raw).to eq(b.dispatch(real_ctx, :hash, [], {}).raw)
     end
 
-    it 'array_eql returns TRUE for arrays with equal elements' do
+    it 'array eql? returns true for arrays with equal elements' do
       a = Frozone::Vm::ArrayObject.new([i1, i2])
       b = Frozone::Vm::ArrayObject.new([Frozone::Vm::IntegerObject.new(1), Frozone::Vm::IntegerObject.new(2)])
-      expect(described_class.array_eql(real_ctx, a, b)).to equal(Frozone::Vm::TrueObject::TRUE)
+      expect(a.dispatch(real_ctx, :eql?, [b], {})).to equal(Frozone::Vm::TrueObject::TRUE)
     end
 
-    it 'array_eql returns FALSE for arrays with different elements' do
+    it 'array eql? returns false for arrays with different elements' do
       a = Frozone::Vm::ArrayObject.new([i1])
       b = Frozone::Vm::ArrayObject.new([i2])
-      expect(described_class.array_eql(real_ctx, a, b)).to equal(Frozone::Vm::FalseObject::FALSE)
+      expect(a.dispatch(real_ctx, :eql?, [b], {})).to equal(Frozone::Vm::FalseObject::FALSE)
     end
 
-    it 'array_eql returns FALSE when compared to a non-ArrayObject' do
+    it 'array eql? returns false when compared to a non-ArrayObject' do
       a = Frozone::Vm::ArrayObject.new([])
-      expect(described_class.array_eql(real_ctx, a, Frozone::Vm::HashObject.new({}))).to equal(Frozone::Vm::FalseObject::FALSE)
+      expect(a.dispatch(real_ctx, :eql?, [Frozone::Vm::HashObject.new({})], {})).to equal(Frozone::Vm::FalseObject::FALSE)
     end
   end
 
@@ -286,33 +286,33 @@ RSpec.describe Frozone::Vm::Intrinsics do
     let(:v1) { Frozone::Vm::IntegerObject.new(1) }
     let(:v2) { Frozone::Vm::IntegerObject.new(2) }
 
-    it 'hash_hash returns equal values for equal hashes' do
+    it 'hash hash returns equal values for equal hashes' do
       h1 = Frozone::Vm::HashObject.new({ k => v1 })
       h2 = Frozone::Vm::HashObject.new({ Frozone::Vm::SymbolObject.from(:key) => Frozone::Vm::IntegerObject.new(1) })
-      expect(described_class.hash_hash(real_ctx, h1).raw).to eq(described_class.hash_hash(real_ctx, h2).raw)
+      expect(h1.dispatch(real_ctx, :hash, [], {}).raw).to eq(h2.dispatch(real_ctx, :hash, [], {}).raw)
     end
 
-    it 'hash_eql returns TRUE for hashes with equal key-value pairs' do
+    it 'hash eql? returns true for hashes with equal key-value pairs' do
       h1 = Frozone::Vm::HashObject.new({ k => v1 })
       h2 = Frozone::Vm::HashObject.new({ Frozone::Vm::SymbolObject.from(:key) => Frozone::Vm::IntegerObject.new(1) })
-      expect(described_class.hash_eql(real_ctx, h1, h2)).to equal(Frozone::Vm::TrueObject::TRUE)
+      expect(h1.dispatch(real_ctx, :eql?, [h2], {})).to equal(Frozone::Vm::TrueObject::TRUE)
     end
 
-    it 'hash_eql returns FALSE for hashes with different values' do
+    it 'hash eql? returns false for hashes with different values' do
       h1 = Frozone::Vm::HashObject.new({ k => v1 })
       h2 = Frozone::Vm::HashObject.new({ k => v2 })
-      expect(described_class.hash_eql(real_ctx, h1, h2)).to equal(Frozone::Vm::FalseObject::FALSE)
+      expect(h1.dispatch(real_ctx, :eql?, [h2], {})).to equal(Frozone::Vm::FalseObject::FALSE)
     end
 
-    it 'hash_eql returns FALSE for hashes with different keys' do
+    it 'hash eql? returns false for hashes with different keys' do
       h1 = Frozone::Vm::HashObject.new({ k => v1 })
       h2 = Frozone::Vm::HashObject.new({ Frozone::Vm::SymbolObject.from(:other) => v1 })
-      expect(described_class.hash_eql(real_ctx, h1, h2)).to equal(Frozone::Vm::FalseObject::FALSE)
+      expect(h1.dispatch(real_ctx, :eql?, [h2], {})).to equal(Frozone::Vm::FalseObject::FALSE)
     end
 
-    it 'hash_eql returns FALSE when compared to a non-HashObject' do
+    it 'hash eql? returns false when compared to a non-HashObject' do
       h = Frozone::Vm::HashObject.new({})
-      expect(described_class.hash_eql(real_ctx, h, Frozone::Vm::ArrayObject.new([]))).to equal(Frozone::Vm::FalseObject::FALSE)
+      expect(h.dispatch(real_ctx, :eql?, [Frozone::Vm::ArrayObject.new([])], {})).to equal(Frozone::Vm::FalseObject::FALSE)
     end
   end
 
