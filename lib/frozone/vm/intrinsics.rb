@@ -283,7 +283,6 @@ module Frozone
           parser = Parser.new(code)
           ast = parser.ast
           # Evaluate with self = receiver (the object), using its class as scope
-          receiver_class = receiver.is_a?(ModuleObject) ? receiver : receiver.class_object
           new_frame = Frame.new(receiver, parser.top_level_locals, context.frame.scopes)
           context.push_frame(new_frame)
           begin
@@ -571,6 +570,7 @@ module Frozone
         def module_set_public(context, receiver, names)    = module_set_visibility(context, receiver, names, :public)
         def module_set_private(context, receiver, names)   = module_set_visibility(context, receiver, names, :private)
         def module_set_protected(context, receiver, names) = module_set_visibility(context, receiver, names, :protected)
+
         def module_function(_, receiver, names)
           raise "module_function: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
           if names.is_a?(ArrayObject) && names.raw.empty?
@@ -761,6 +761,7 @@ module Frozone
           end
           klass.new_instance(context, raw_args, raw_kwargs)
         end
+
         def class_superclass(_, klass)
           sc = klass.is_a?(ClassObject) ? klass.superclass : nil
           sc.nil? ? NilObject::NIL : sc
@@ -779,6 +780,7 @@ module Frozone
         def integer_to_s(_, v, base = nil)
           base.nil? || base.is_a?(NilObject) ? StringObject.new(v.raw.to_s) : StringObject.new(v.raw.to_s(base.raw))
         end
+
         def integer_abs(_, v) = IntegerObject.new(v.raw.abs)
         def integer_chr(_, v, enc = nil) = StringObject.new(v.raw.chr)
         def integer_bitand(_, v1, v2) = IntegerObject.new(v1.raw & v2.raw)
@@ -789,11 +791,13 @@ module Frozone
         def integer_rshift(_, v1, v2) = IntegerObject.new(v1.raw >> v2.raw)
         def integer_bit(_, v, n)      = IntegerObject.new(v.raw[n.raw])
         def integer_bit_length(_, v)  = IntegerObject.new(v.raw.bit_length)
+
         def integer_to_r(_, v)
           r_class = Core::OBJECT_CLASS.get_constant(:Rational)
           return StringObject.new("#{v.raw}/1") unless r_class
           r_class.dispatch(Fiber[:context], :new, [v, IntegerObject.new(1)], {})
         end
+
         def integer_to_c(_, v)
           c_class = Core::OBJECT_CLASS.get_constant(:Complex)
           return StringObject.new("#{v.raw}+0i") unless c_class
@@ -805,13 +809,16 @@ module Frozone
           return bool_object_for(false) unless v2.is_a?(FloatObject) || v2.is_a?(IntegerObject)
           bool_object_for(v1.raw == v2.raw)
         end
+
         def float_eql(_, v1, v2)       = bool_object_for(v2.is_a?(FloatObject) && v1.raw == v2.raw)
         def float_hash(_, v)           = IntegerObject.new(v.raw.hash)
+
         def float_spaceship(_, v1, v2)
           return NilObject::NIL unless v2.is_a?(FloatObject) || v2.is_a?(IntegerObject)
           r = v1.raw <=> v2.raw
           r ? IntegerObject.new(r) : NilObject::NIL
         end
+
         def float_to_s(_, v)           = StringObject.new(v.raw.inspect)
         def float_to_i(_, v)           = IntegerObject.new(v.raw.to_i)
         def float_to_f(_, v)           = v
@@ -822,21 +829,26 @@ module Frozone
         def float_round(_, v, n = nil) = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.round) : FloatObject.new(v.raw.round(n.raw))
         def float_truncate(_, v, n = nil) = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.truncate) : FloatObject.new(v.raw.truncate(n.raw))
         def float_nan?(_, v)           = bool_object_for(v.raw.nan?)
+
         def float_infinite?(_, v)
           r = v.raw.infinite?
           r ? IntegerObject.new(r) : NilObject::NIL
         end
+
         def float_finite?(_, v)        = bool_object_for(v.raw.finite?)
         def float_zero?(_, v)          = bool_object_for(v.raw.zero?)
         def float_positive?(_, v)      = bool_object_for(v.raw.positive?)
         def float_negative?(_, v)      = bool_object_for(v.raw.negative?)
+
         def float_divmod(_, v1, v2)
           q, r = v1.raw.divmod(v2.raw)
           ArrayObject.new([IntegerObject.new(q), FloatObject.new(r)])
         end
+
         def def_float_bin_op(name, op)
           eval "def float_#{name}(_, v1, v2); FloatObject.new(v1.raw #{op} v2.raw); end"
         end
+
         def def_float_cmp(name, op)
           eval "def float_#{name}(_, v1, v2); return FalseObject::FALSE unless v2.is_a?(FloatObject) || v2.is_a?(IntegerObject); bool_object_for(v1.raw #{op} v2.raw); end"
         end
@@ -855,30 +867,38 @@ module Frozone
           strs = parts.raw.flat_map { |p| p.is_a?(ArrayObject) ? p.raw.map(&:raw) : p.raw }
           StringObject.new(File.join(*strs))
         end
+
         def file_dirname(_, path) = StringObject.new(File.dirname(path.raw))
+
         def file_basename(_, path, suffix = nil)
           result = suffix.nil? || suffix.is_a?(NilObject) ? File.basename(path.raw) : File.basename(path.raw, suffix.raw)
           StringObject.new(result)
         end
+
         def file_expand_path(_, path, base = nil)
           result = base.nil? || base.is_a?(NilObject) ? File.expand_path(path.raw) : File.expand_path(path.raw, base.raw)
           StringObject.new(result)
         end
+
         def file_exist(_, path) = bool_object_for(File.exist?(path.raw))
         def file_directory(_, path) = bool_object_for(File.directory?(path.raw))
         def file_file(_, path) = bool_object_for(File.file?(path.raw))
         def file_readable(_, path) = bool_object_for(File.readable?(path.raw))
         def file_executable(_, path) = bool_object_for(File.executable?(path.raw))
         def file_writable(_, path) = bool_object_for(File.writable?(path.raw))
+
         def file_size(_, path)
           s = File.size?(path.raw)
           s ? IntegerObject.new(s) : NilObject::NIL
         end
+
         def file_read(_, path) = StringObject.new(File.read(path.raw))
+
         def file_write(_, path, content)
           File.write(path.raw, content.raw)
           IntegerObject.new(content.raw.length)
         end
+
         def file_open(_, path, mode, block)
           mode_str = mode.is_a?(NilObject) || mode.nil? ? 'r' : mode.raw
           if block
@@ -894,32 +914,40 @@ module Frozone
             io_obj
           end
         end
+
         def file_delete(_, paths)
           paths.raw.each { |p| File.delete(p.raw) rescue nil }
           IntegerObject.new(paths.raw.length)
         end
+
         def file_rename(_, from, to) = (File.rename(from.raw, to.raw); IntegerObject.new(0))
         def file_symlink(_, path) = bool_object_for(File.symlink?(path.raw))
         def file_symlink_create(_, target, link) = (File.symlink(target.raw, link.raw); IntegerObject.new(0))
         def file_zero(_, path) = bool_object_for(File.zero?(path.raw))
+
         def file_fnmatch(_, pattern, path, flags)
           bool_object_for(File.fnmatch(pattern.raw, path.raw, flags.raw))
         end
+
         def file_stat(_, path)
           st = File.stat(path.raw)
           obj = ObjectObject.new(Core.object_class)
           obj.instance_variable_set(:@__stat__, st)
           obj
         end
+
         def file_split(_, path)
           parts = File.split(path.raw)
           ArrayObject.new(parts.map { |p| StringObject.new(p) })
         end
+
         def dir_pwd(_) = StringObject.new(Dir.pwd)
         def dir_home(_) = StringObject.new(Dir.home)
+
         def dir_glob(_, pattern)
           ArrayObject.new(Dir.glob(pattern.raw).map { |p| StringObject.new(p) })
         end
+
         def dir_chdir(_, path, block)
           path_raw = path.is_a?(NilObject) || path.nil? ? nil : path.raw
           if block
@@ -931,14 +959,18 @@ module Frozone
             NilObject::NIL
           end
         end
+
         def dir_mkdir(_, path) = (Dir.mkdir(path.raw); IntegerObject.new(0))
+
         def dir_entries(_, path)
           entries = Dir.entries(path.raw)
           ArrayObject.new(entries.map { |e| StringObject.new(e) })
         end
+
         def dir_rmdir(_, path) = (Dir.rmdir(path.raw); IntegerObject.new(0))
         def dir_empty(_, path) = bool_object_for(Dir.empty?(path.raw))
         def dir_exist(_, path) = path.raw && Dir.exist?(path.raw) ? TrueObject::TRUE : FalseObject::FALSE
+
         def dir_mktmpdir(_, prefix, block)
           require 'tmpdir'
           pfx = prefix.is_a?(NilObject) || prefix.nil? ? nil : prefix.raw
@@ -953,14 +985,17 @@ module Frozone
             StringObject.new(path)
           end
         end
+
         def process_pid(_) = IntegerObject.new(Process.pid)
         def process_euid(_) = IntegerObject.new(Process.euid)
 
         # Time
         def time_now(_) = TimeObject.new(Time.now)
+
         def time_minus(_, t, other)
           other.is_a?(TimeObject) ? FloatObject.new(t.raw - other.raw) : TimeObject.new(t.raw - other.raw)
         end
+
         def time_plus(_, t, secs) = TimeObject.new(t.raw + secs.raw)
         def time_to_f(_, t) = FloatObject.new(t.raw.to_f)
         def time_to_i(_, t) = IntegerObject.new(t.raw.to_i)
@@ -1003,22 +1038,27 @@ module Frozone
         def match_data_post_match(_, md) = StringObject.new(md.raw.post_match)
         def match_data_string(_, md)     = StringObject.new(md.raw.string.dup)
         def match_data_regexp(_, md)     = RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
+
         def match_data_begin(_, md, n)
           v = md.raw.begin(n.is_a?(IntegerObject) ? n.raw : n.raw.to_s)
           v ? IntegerObject.new(v) : NilObject::NIL
         end
+
         def match_data_end(_, md, n)
           v = md.raw.end(n.is_a?(IntegerObject) ? n.raw : n.raw.to_s)
           v ? IntegerObject.new(v) : NilObject::NIL
         end
+
         def match_data_captures(_, md)
           ArrayObject.new(md.raw.captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
         end
+
         def match_data_named_captures(_, md)
           h = md.raw.named_captures.transform_keys { |k| StringObject.new(k) }
                                     .transform_values { |v| v ? StringObject.new(v) : NilObject::NIL }
           HashObject.new(h)
         end
+
         def match_data_names(_, md)
           ArrayObject.new(md.raw.regexp.named_captures.keys.map { |k| StringObject.new(k) })
         end
@@ -1050,22 +1090,27 @@ module Frozone
         def string_strip(_, v)             = StringObject.new(v.raw.strip)
         def string_lstrip(_, v)            = StringObject.new(v.raw.lstrip)
         def string_rstrip(_, v)            = StringObject.new(v.raw.rstrip)
+
         def string_chomp(_, v, sep = nil)
           sep.nil? || sep.is_a?(NilObject) ? StringObject.new(v.raw.chomp) : StringObject.new(v.raw.chomp(sep.raw))
         end
+
         def string_chop(_, v)              = StringObject.new(v.raw.chop)
         def string_upcase(_, v)            = StringObject.new(v.raw.upcase)
         def string_downcase(_, v)          = StringObject.new(v.raw.downcase)
         def string_capitalize(_, v)        = StringObject.new(v.raw.capitalize)
         def string_reverse(_, v)           = StringObject.new(v.raw.reverse)
+
         def string_reverse_bang(_, v)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v.raw.inspect}") if v.frozen?
           v.instance_variable_set(:@value, v.raw.reverse.freeze)
           v
         end
+
         def string_chars(_, v)             = ArrayObject.new(v.raw.chars.map { |c| StringObject.new(c) })
         def string_bytes(_, v)             = ArrayObject.new(v.raw.bytes.map { |b| IntegerObject.new(b) })
         def string_ord(_, v)               = IntegerObject.new(v.raw.ord)
+
         def string_split(_, v, sep = nil, limit = nil)
           sep = nil if sep.is_a?(NilObject)
           limit = nil if limit.is_a?(NilObject)
@@ -1078,6 +1123,7 @@ module Frozone
           end
           ArrayObject.new(parts.map { |p| StringObject.new(p) })
         end
+
         def string_gsub(_, v, pattern, replacement = nil)
           pat = pattern.is_a?(StringObject) ? pattern.raw : pattern.raw
           if replacement.nil? || replacement.is_a?(NilObject)
@@ -1086,62 +1132,79 @@ module Frozone
             StringObject.new(v.raw.gsub(pat, replacement.raw))
           end
         end
+
         def string_sub(_, v, pattern, replacement)
           pat = pattern.is_a?(StringObject) ? pattern.raw : pattern.raw
           StringObject.new(v.raw.sub(pat, replacement.raw))
         end
+
         def string_tr(_, v, from, to) = StringObject.new(v.raw.tr(from.raw, to.raw))
+
         def string_squeeze(_, v, *args)
           args.empty? ? StringObject.new(v.raw.squeeze) : StringObject.new(v.raw.squeeze(*args.map(&:raw)))
         end
+
         def string_count(_, v, *args) = IntegerObject.new(v.raw.count(*args.map(&:raw)))
         def string_delete(_, v, *args) = StringObject.new(v.raw.delete(*args.map(&:raw)))
+
         def string_slice(_, v, idx, len = nil)
           result = len.nil? ? v.raw[idx.raw] : v.raw[idx.raw, len.raw]
           result.nil? ? NilObject::NIL : StringObject.new(result)
         end
+
         def string_index(_, v, sub, offset = nil)
           result = (offset.nil? || offset.is_a?(NilObject)) ? v.raw.index(sub.raw) : v.raw.index(sub.raw, offset.raw)
           result.nil? ? NilObject::NIL : IntegerObject.new(result)
         end
+
         def string_rindex(_, v, sub, offset = nil)
           result = (offset.nil? || offset.is_a?(NilObject)) ? v.raw.rindex(sub.raw) : v.raw.rindex(sub.raw, offset.raw)
           result.nil? ? NilObject::NIL : IntegerObject.new(result)
         end
+
         def string_replace(_, v, other)
           return v if other.is_a?(NilObject)
           StringObject.new(other.raw)
         end
+
         def string_succ(_, v)          = StringObject.new(v.raw.succ)
+
         def string_succ_bang(_, v)
           v.instance_variable_set(:@value, v.raw.succ.freeze)
           v
         end
+
         def string_insert(_, v, index, str)
           result = v.raw.dup.insert(index.raw, str.raw)
           v.instance_variable_set(:@value, result.freeze)
           v
         end
+
         def string_slice_bang(_, v, idx, len = nil)
           raw = v.raw.dup
           result = len.is_a?(NilObject) || len.nil? ? raw.slice!(idx.raw) : raw.slice!(idx.raw, len.raw)
           v.instance_variable_set(:@value, raw.freeze)
           result.nil? ? NilObject::NIL : StringObject.new(result)
         end
+
         def string_each_line(context, v, sep, block)
           sep_raw = sep.is_a?(NilObject) ? "\n" : sep.raw
           return ArrayObject.new(v.raw.each_line(sep_raw).map { |l| StringObject.new(l) }) unless block
           v.raw.each_line(sep_raw) { |l| block.invoke(context, [StringObject.new(l)]) }
           v
         end
+
         def string_b(_, v) = StringObject.new(v.raw.b)
         def string_concat(_, v1, v2)      = StringObject.new(v1.raw + v2.raw)
         def string_multiply(_, v, n)      = StringObject.new(v.raw * n.raw)
+
         def string_format(_, v, args)
           raw_args = args.is_a?(ArrayObject) ? args.raw.map(&:raw) : args.raw
           StringObject.new(v.raw % raw_args)
         end
+
         def string_encode(_, v, enc = nil) = v
+
         def string_encoding(_, v)
           enc_name = v.raw.encoding.name
           enc_class = Core::OBJECT_CLASS.get_constant(:Encoding)
@@ -1149,18 +1212,21 @@ module Frozone
           const_name = enc_name.tr('-', '_').to_sym
           enc_class.get_constant(const_name) || StringObject.new(enc_name)
         end
+
         def string_freeze(_, v)           = v
         def string_frozen(_, v)           = bool_object_for(v.frozen?)
         def string_dup(_, v)              = StringObject.new(v.raw.dup)
         def string_to_sym(_, v)           = SymbolObject.from(v.raw.to_sym)
         def string_to_f(_, v)             = FloatObject.new(v.raw.to_f)
         def string_to_r(_, v)             = NilObject::NIL  # stub
+
         def string_match(_, v, pattern)
           pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
           m = pat.match(v.raw)
           Fiber[:last_match] = m
           m ? MatchDataObject.new(m) : NilObject::NIL
         end
+
         def string_scan(_, v, pattern)
           pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
           results = v.raw.scan(pat)
@@ -1275,11 +1341,6 @@ module Frozone
           end
         end
 
-
-
-
-
-
         def array_sort(context, v)
           ArrayObject.new(v.raw.sort { |a, b| a.dispatch(context, :<=>, [b], {}).raw })
         end
@@ -1287,8 +1348,6 @@ module Frozone
         def array_sort_by(context, v, block)
           ArrayObject.new(v.raw.sort_by { |e| block.invoke(context, [e]) })
         end
-
-
 
         def array_reverse(_, v) = ArrayObject.new(v.raw.reverse)
 
@@ -1317,9 +1376,6 @@ module Frozone
           v
         end
 
-
-
-
         def array_sample(_, v) = v.raw.empty? ? NilObject::NIL : v.raw.sample
         def array_shuffle(_, v) = ArrayObject.new(v.raw.shuffle)
 
@@ -1345,55 +1401,9 @@ module Frozone
           RangeObject.new(b, e, excl)
         end
 
-        def range_each(context, range, block)
-          raise "Range#each requires a block" if block.nil? || block.is_a?(NilObject)
-          raise "Range#each only supports Integer ranges" unless range.begin_val.is_a?(IntegerObject)
-          b = range.begin_val.raw
-          e = range.end_val.is_a?(NilObject) ? nil : range.end_val.raw
-          i = b
-          while e.nil? || (range.exclusive? ? i < e : i <= e)
-            block.call(context, [IntegerObject.new(i)])
-            i += 1
-          end
-          range
-        end
-
-        def range_to_a(context, range)
-          raise "Range#to_a only supports Integer ranges" unless range.begin_val.is_a?(IntegerObject)
-          b = range.begin_val.raw
-          e = range.end_val.is_a?(NilObject) ? nil : range.end_val.raw
-          return ArrayObject.new([]) if e.nil?
-          arr = (range.exclusive? ? b...e : b..e).map { |i| IntegerObject.new(i) }
-          ArrayObject.new(arr)
-        end
-
-        def range_include(context, range, val)
-          b = range.begin_val
-          e = range.end_val
-          return FalseObject::FALSE if b.is_a?(NilObject) && e.is_a?(NilObject)
-          above_begin = b.is_a?(NilObject) || b.dispatch(context, :<=, [val], {}).truthy?
-          end_op      = range.exclusive? ? :< : :<=
-          below_end   = e.is_a?(NilObject) || val.dispatch(context, end_op, [e], {}).truthy?
-          bool_object_for(above_begin && below_end)
-        end
-
-        def range_size(context, range)
-          return NilObject::NIL unless range.begin_val.is_a?(IntegerObject) && range.end_val.is_a?(IntegerObject)
-          b = range.begin_val.raw
-          e = range.end_val.raw
-          size = range.exclusive? ? [e - b, 0].max : [e - b + 1, 0].max
-          IntegerObject.new(size)
-        end
-
         def range_begin(_, range) = range.begin_val
         def range_end(_, range)   = range.end_val
         def range_exclude_end(_, range) = bool_object_for(range.exclusive?)
-
-        def range_to_s(context, range)
-          b = range.begin_val.dispatch(context, :inspect, [], {}).raw
-          e = range.end_val.dispatch(context, :inspect, [], {}).raw
-          StringObject.new("#{b}#{range.exclusive? ? '...' : '..'}#{e}")
-        end
 
         # Hash
         def hash_index_write(_, h, key, value)
@@ -1404,7 +1414,6 @@ module Frozone
         def hash_size(_, h) = IntegerObject.new(h.size)
 
         def hash_key(_, h, key) = bool_object_for(h.key?(key))
-
 
         def hash_index(context, h, key)
           value = h[key]
@@ -1417,7 +1426,6 @@ module Frozone
             NilObject::NIL
           end
         end
-
 
         def hash_new(_, default = nil, block = nil)
           block_obj = block.is_a?(ProcObject) ? block.block_object : block
@@ -1441,8 +1449,6 @@ module Frozone
           h.delete(key)
           val.nil? ? NilObject::NIL : val
         end
-
-
 
       end
 

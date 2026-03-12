@@ -11,9 +11,11 @@ class Module
   def private(*names)   = Intrinsics.module_set_private(self, names)
   def protected(*names) = Intrinsics.module_set_protected(self, names)
   def module_function(*names) = Intrinsics.module_function(self, names)
+
   def module_eval(code = nil, *_rest, &block)
     code ? Intrinsics.module_eval_string(self, code) : Intrinsics.module_eval(self, block)
   end
+
   alias class_eval module_eval
   def private_constant(*names) = self
   def public_constant(*names) = self

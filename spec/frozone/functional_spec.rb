@@ -1058,7 +1058,7 @@ RSpec.describe "Frozone VM functional" do
 
     it 'each_slice yields complete slices and a partial last slice' do
       result = run_ruby('slices = []; [1,2,3,4,5].each_slice(2) { |s| slices << s }; slices')
-      expect(result.raw.map { |a| a.raw.map(&:raw) }).to eq([[1,2],[3,4],[5]])
+      expect(result.raw.map { |a| a.raw.map(&:raw) }).to eq([[1, 2], [3, 4], [5]])
     end
 
     it 'each_slice returns nil' do
@@ -1067,7 +1067,7 @@ RSpec.describe "Frozone VM functional" do
 
     it 'each_cons yields all consecutive runs of the given size' do
       result = run_ruby('cons = []; [1,2,3,4].each_cons(2) { |s| cons << s }; cons')
-      expect(result.raw.map { |a| a.raw.map(&:raw) }).to eq([[1,2],[2,3],[3,4]])
+      expect(result.raw.map { |a| a.raw.map(&:raw) }).to eq([[1, 2], [2, 3], [3, 4]])
     end
 
     it 'each_cons does not yield when array is shorter than n' do

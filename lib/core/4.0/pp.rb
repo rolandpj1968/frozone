@@ -14,3 +14,4 @@ class PP
 
   def self.width_for(_out) = 80
 end
+

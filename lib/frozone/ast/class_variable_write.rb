@@ -4,7 +4,7 @@ module Frozone
   module Ast
     class ClassVariableWrite < Node
       def initialize(name, value_node)
-        @name  = check_type("name", name, Symbol)
+        @name = check_type("name", name, Symbol)
         @value_node = check_type("value_node", value_node, Node)
       end
 

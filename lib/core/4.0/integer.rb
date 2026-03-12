@@ -15,6 +15,10 @@ class Integer
   def %(v) = Intrinsics.integer__mod_(self, v)
   def **(v) = Intrinsics.integer__pow_(self, v)
 
+  def succ = self + 1
+  alias next succ
+  def pred = self - 1
+
   def -@ = 0 - self
 
   def abs = Intrinsics.integer_abs(self)
@@ -48,13 +52,16 @@ class Integer
     while b != 0; a, b = b, a % b; end
     a
   end
+
   def lcm(n) = (self == 0 || n == 0) ? 0 : (self.abs / self.gcd(n) * n.abs)
+
   def digits(base = 10)
     return [0] if self == 0
     n = self.abs; result = []
     while n > 0; result << n % base; n /= base; end
     result
   end
+
   def pow(n, m = nil) = m ? Intrinsics.integer__pow_(self, n) % m : Intrinsics.integer__pow_(self, n)
   def &(n) = Intrinsics.integer_bitand(self, n)
   def |(n) = Intrinsics.integer_bitor(self, n)
@@ -69,6 +76,7 @@ class Integer
   def to_c = Intrinsics.integer_to_c(self)
   def integer? = true
   def nonzero? = self == 0 ? nil : self
+
   def clamp(min_or_range, max = nil)
     if max.nil?
       lo = min_or_range.begin; hi = min_or_range.end
@@ -81,5 +89,6 @@ class Integer
       self
     end
   end
+
   def between?(min, max) = self >= min && self <= max
 end

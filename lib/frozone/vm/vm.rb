@@ -52,20 +52,17 @@ module Frozone
 
         # if -e is present then ruby DOES NOT evaluate an ARGV file
         # Note: ruby -e 'ARGV.each {|f| load f}' file1.rb file2.rb file3.rb
-        result =
-          if scripts.empty?
-            # if -e is absent then ruby evaluates the FIRST file only
-            file = @options[:argv][0]
-            file.nil? ? eval_snippet("") : evaluate_file(File.expand_path(file))
-          else
-            # if multiple -e scripts are present, ruby simply joins them with \n, and parses together
-            #   ruby -e 'puts 3; class A' -e 'end; puts 4'
-            #   ruby -e 'puts "ha' -e 'llo"'
-            #   ruby -e 'puts 3' -e '@%@#$%@'
-            eval_snippet(scripts.join("\n"))
-          end
-
-        # puts "result: #{result}"  # debug
+        if scripts.empty?
+          # if -e is absent then ruby evaluates the FIRST file only
+          file = @options[:argv][0]
+          file.nil? ? eval_snippet("") : evaluate_file(File.expand_path(file))
+        else
+          # if multiple -e scripts are present, ruby simply joins them with \n, and parses together
+          #   ruby -e 'puts 3; class A' -e 'end; puts 4'
+          #   ruby -e 'puts "ha' -e 'llo"'
+          #   ruby -e 'puts 3' -e '@%@#$%@'
+          eval_snippet(scripts.join("\n"))
+        end
       end
 
       # Load the standard library into the shared class hierarchy.
@@ -110,7 +107,7 @@ module Frozone
       def init_globals
         gem_paths = Gem::Specification.flat_map(&:full_require_paths).select { |p| File.directory?(p) }
         all_load_paths = ($LOAD_PATH + gem_paths).uniq
-        GLOBALS[:"$LOAD_PATH"]       = ArrayObject.new(all_load_paths.map { |p| StringObject.new(p) })
+        GLOBALS[:"$LOAD_PATH"] = ArrayObject.new(all_load_paths.map { |p| StringObject.new(p) })
         # Pre-stub pp.rb: Frozone provides pretty_inspect/pp directly in core,
         # so pp.rb must not be loaded (it uses default-param tricks Frozone can't handle).
         pp_path = $LOAD_PATH.map { |d| File.join(d, 'pp.rb') }.find { |f| File.exist?(f) } || 'pp.rb'

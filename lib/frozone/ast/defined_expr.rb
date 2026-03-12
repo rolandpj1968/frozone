@@ -26,7 +26,7 @@ module Frozone
           begin
             @extra.evaluate(context)
             "constant"
-          rescue Vm::FrozoneException => e
+          rescue Vm::FrozoneException
             nil
           end
         when :local_var

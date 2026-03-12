@@ -21,4 +21,3 @@ module Frozone
     end
   end
 end
-

@@ -55,13 +55,12 @@ module Frozone
         if splat_idx
           pre  = @targets[0...splat_idx]
           post = @targets[(splat_idx + 1)..]
-          n_fixed = pre.length + post.length
 
-          pre_vals  = values[0, pre.length].map { |v| v || Vm::NilObject::NIL }
+          pre_vals = values[0, pre.length].map { |v| v || Vm::NilObject::NIL }
           post_start = post.length > 0 ? [values.length - post.length, pre.length].max : values.length
           post_vals = post.length > 0 ? (values[post_start..] || []) : []
           post_vals = post_vals.map { |v| v || Vm::NilObject::NIL }
-          splat_vals = values[pre.length ... post_start] || []
+          splat_vals = values[pre.length...post_start] || []
           splat_arr = Vm::ArrayObject.new(splat_vals)
 
           pre.each_with_index { |t, i| assign(context, t, pre_vals.fetch(i, Vm::NilObject::NIL), cached) }

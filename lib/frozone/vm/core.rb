@@ -44,7 +44,6 @@ module Frozone
         klass
       end
 
-
       # Trivial singleton classes — simpler to define here than bootstrap from hierarchy.rb
       NIL_CLASS_CLASS   = define_class(:NilClass,   OBJECT_CLASS)
       TRUE_CLASS_CLASS  = define_class(:TrueClass,  OBJECT_CLASS)

@@ -3,19 +3,48 @@ class Range
     Intrinsics.range_new(b, e, excl)
   end
 
-  def each(&block)
-    Intrinsics.range_each(self, block)
-  end
-  def to_a           = Intrinsics.range_to_a(self)
-  def include?(val)  = Intrinsics.range_include(self, val)
-  alias member? include?
-  alias cover? include?
-  def size           = Intrinsics.range_size(self)
-  alias count size
-  alias length size
   def begin          = Intrinsics.range_begin(self)
   def end            = Intrinsics.range_end(self)
   def exclude_end?   = Intrinsics.range_exclude_end(self)
+
+  def each(&block)
+    return to_enum(:each) unless block
+    i = self.begin
+    e = self.end
+    while exclude_end? ? i < e : i <= e
+      block.call(i)
+      i = i.succ
+    end
+    self
+  end
+
+  def to_a
+    r = []
+    each { |x| r << x }
+    r
+  end
+
+  def include?(val)
+    b = self.begin
+    e = self.end
+    return false if b.nil? && e.nil?
+    above_begin = b.nil? || b <= val
+    below_end   = e.nil? || (exclude_end? ? val < e : val <= e)
+    above_begin && below_end
+  end
+
+  alias member? include?
+  alias cover? include?
+
+  def size
+    return nil unless self.begin.is_a?(Integer) && self.end.is_a?(Integer)
+    n = exclude_end? ? self.end - self.begin : self.end - self.begin + 1
+    n < 0 ? 0 : n
+  end
+
+  alias count size
+  alias length size
+
   def first          = self.begin
   def last           = self.end
   def min            = self.begin
@@ -26,13 +55,16 @@ class Range
   def any?  = (each { |x| return true  if yield(x) }; false)
   def all?  = (each { |x| return false unless yield(x) }; true)
   def none? = (each { |x| return false if yield(x) }; true)
-  def to_s  = Intrinsics.range_to_s(self)
+  def to_s; "#{self.begin.inspect}#{exclude_end? ? '...' : '..'}#{self.end.inspect}"; end
+  def inspect = to_s
+
   def ==(other)
     return false unless other.is_a?(Range)
     self.begin == other.begin && self.end == other.end && self.exclude_end? == other.exclude_end?
   end
+
   alias eql? ==
-  def inspect = to_s
+
   def step(n = 1, &block)
     return to_enum(:step, n) unless block
     i = self.begin
@@ -43,6 +75,7 @@ class Range
     end
     self
   end
+
   def reduce(init = nil, &block)
     if init.nil?
       acc = nil
@@ -54,12 +87,15 @@ class Range
     end
     acc
   end
+
   alias inject reduce
+
   def find(&block); each { |x| return x if yield(x) }; nil; end
   alias detect find
   def sum(init = 0); inject(init) { |a, x| a + x }; end
   def flat_map(&block); map(&block).flatten(1); end
   alias collect_concat flat_map
+
   def each_slice(n)
     return to_enum(:each_slice, n) unless block_given?
     slice = []
@@ -73,6 +109,7 @@ class Range
     yield slice unless slice.empty?
     self
   end
+
   def each_cons(n)
     return to_enum(:each_cons, n) unless block_given?
     buf = []
@@ -85,16 +122,19 @@ class Range
     end
     self
   end
+
   def zip(*others)
     result = []
     to_a.each_with_index { |x, i| result << ([x] + others.map { |o| o.to_a[i] }) }
     result
   end
+
   def reverse_each(&block)
     return to_enum(:reverse_each) unless block
     to_a.reverse_each(&block)
     self
   end
+
   def sort; to_a.sort; end
   def sort_by(&block); to_a.sort_by(&block); end
   def min_by(&block); to_a.min_by(&block); end

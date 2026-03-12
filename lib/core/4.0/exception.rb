@@ -13,6 +13,7 @@ class Exception
   def backtrace_locations = []
 
   def self.exception(message = nil) = new(message)
+
   def exception(message = nil)
     message ? self.class.new(message) : self
   end
@@ -31,6 +32,7 @@ class SystemExit < Exception
     @status = status
     super(message)
   end
+
   def status = @status
 end
 
@@ -44,6 +46,7 @@ class NameError < StandardError
     @name = name
     super(message)
   end
+
   def name = @name
 end
 
@@ -52,6 +55,7 @@ class NoMethodError < NameError
     @args = args
     super(message, name)
   end
+
   def args = @args
 end
 

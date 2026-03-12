@@ -60,7 +60,7 @@ module Frozone
         # (callers must check for UNDEF_SENTINEL to stop lookup)
         v == UNDEF_SENTINEL ? UNDEF_SENTINEL : v
       end
-      
+
       attr_reader :class_variables
 
       def get_class_var(name)

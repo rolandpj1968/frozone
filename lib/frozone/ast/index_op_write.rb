@@ -13,7 +13,7 @@ module Frozone
 
       def evaluate(context)
         implicit = @receiver_node.nil?
-        receiver  = implicit ? context.frame.the_self : @receiver_node.evaluate(context)
+        receiver = implicit ? context.frame.the_self : @receiver_node.evaluate(context)
         index_args = @index_arg_nodes.flat_map do |p|
           p.is_a?(SplatArg) ? p.evaluate(context).raw : p.evaluate(context)
         end

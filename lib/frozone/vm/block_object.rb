@@ -24,6 +24,7 @@ module Frozone
       end
 
       def lambda? = @is_lambda
+
       def make_lambda!
         @is_lambda = true
         @auto_splat = false

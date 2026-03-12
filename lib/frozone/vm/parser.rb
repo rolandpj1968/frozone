@@ -107,7 +107,7 @@ module Frozone
           when Prism::MultiTargetNode       then parse_multi_target_param(n)
           end
         }.compact
-        {names: names, rest: rest, rights: rights}
+        { names: names, rest: rest, rights: rights }
       end
 
       def parse_block(prism_block_node)
@@ -149,7 +149,6 @@ module Frozone
 
         # Extract ParametersNode from BlockParametersNode
         parameters = if params_node.is_a?(Prism::BlockParametersNode)
-                       block_param = params_node.locals.first rescue nil  # block-local vars (not block param)
                        block_param = nil  # block-local vars are just locals, not the &block
                        params_node.parameters
                      else

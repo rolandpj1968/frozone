@@ -25,10 +25,12 @@ class Object
   def instance_variables = Intrinsics.object_ivar_names(self)
 
   def extend(mod) = Intrinsics.object_extend(self, mod)
+
   def instance_eval(str = nil, &block)
     return Intrinsics.object_instance_eval_string(self, str) if str && block.nil?
     Intrinsics.object_instance_eval(self, block)
   end
+
   def instance_exec(*args, &block) = Intrinsics.object_instance_exec(self, args, block)
 
   def freeze = self

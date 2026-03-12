@@ -256,7 +256,7 @@ class Time < Object
 end
 
 class Thread < Object
-  def self.report_on_exception=(val) = nil  # stub
+  def self.report_on_exception=(val); nil; end  # stub
   def self.report_on_exception = false       # stub
 end
 
