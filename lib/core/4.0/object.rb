@@ -3,7 +3,7 @@ class Object
 
   def object_id = __id__
 
-  def ! = Intrinsics.object_not(self)
+  def ! = self == nil || self == false
   def !=(other) = !(self == other)
   def !~(other) = !(self =~ other)
   def ===(other) = self == other
@@ -48,7 +48,7 @@ class Object
   def singleton_methods(include_super = true) = Intrinsics.object_singleton_methods(self, include_super)
   def singleton_class = Intrinsics.object_singleton_class(self)
 
-  def to_s = Intrinsics.object_to_s(self)
+  def to_s = "#<#{self.class.name}:0x#{__id__.to_s(16)}>"
   def inspect = to_s
   def pretty_inspect = inspect
 

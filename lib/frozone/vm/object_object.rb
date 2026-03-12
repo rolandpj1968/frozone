@@ -15,6 +15,7 @@ module Frozone
       end
 
       def class_object = @class_object
+      def eigenclass   = @eigenclass
 
       def create_singleton_class
         return unless @eigenclass.equal?(@class_object)

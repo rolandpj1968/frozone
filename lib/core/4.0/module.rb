@@ -27,8 +27,8 @@ class Module
   def define_method(name, callable = nil, &block) = Intrinsics.module_define_method(self, name, callable || block)
 
   def name            = Intrinsics.module_name(self)
-  def to_s            = Intrinsics.module_name(self) || Intrinsics.object_to_s(self)
-  def inspect         = Intrinsics.module_name(self) || Intrinsics.object_to_s(self)
+  def to_s            = Intrinsics.module_name(self) || super
+  def inspect         = Intrinsics.module_name(self) || super
   def const_defined?(name, inherit = true) = Intrinsics.module_const_defined(self, name, inherit)
   def const_get(name) = Intrinsics.module_const_get(self, name)
   def const_set(name, value) = Intrinsics.module_const_set(self, name, value)

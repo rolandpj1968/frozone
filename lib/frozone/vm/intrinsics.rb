@@ -20,7 +20,6 @@ module Frozone
           FalseObject::FALSE
         end
 
-        def object_not(_, v) = bool_object_for(!v.truthy?)
 
         def normalize_ivar(name)
           sym = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
@@ -56,67 +55,39 @@ module Frozone
           end
         end
 
-        def object_to_s(_, v)
-          StringObject.new("#<#{v.class_object.name}:0x#{v.__id__.to_s(16)}>")
+        def collect_method_names(v, include_super, &visibility_ok)
+          seen = {}
+          result = []
+          sources = []
+          sources << v.singleton_class unless v.eigenclass.equal?(v.class_object)
+          if include_super
+            c = v.class_object
+            while c
+              sources << c
+              c.modules.reverse_each { |m| sources << m }
+              c = c.is_a?(ClassObject) ? c.superclass : nil
+            end
+          else
+            sources << v.class_object
+          end
+          sources.each do |mod|
+            mod.instance_variable_get(:@methods).each do |name, meth|
+              next if seen[name]
+              seen[name] = true
+              next if meth == ModuleObject::UNDEF_SENTINEL
+              next unless visibility_ok.call(meth.visibility)
+              result << SymbolObject.from(name)
+            end
+          end
+          ArrayObject.new(result)
         end
 
         def object_methods(_, v, include_super_obj = TrueObject::TRUE)
-          include_super = include_super_obj.truthy?
-          seen = {}
-          result = []
-          # Collect methods from eigenclass (singleton methods) and class hierarchy
-          sources = []
-          sc = v.singleton_class if v.instance_variable_get(:@eigenclass) != v.class_object
-          sources << sc if sc
-          if include_super
-            c = v.class_object
-            while c
-              sources << c
-              c.modules.reverse_each { |m| sources << m }
-              c = c.is_a?(ClassObject) ? c.superclass : nil
-            end
-          else
-            sources << v.class_object
-          end
-          sources.each do |mod|
-            mod.instance_variable_get(:@methods).each do |name, meth|
-              next if seen[name]
-              seen[name] = true
-              next if meth == ModuleObject::UNDEF_SENTINEL
-              next if meth.visibility == :private
-              result << SymbolObject.from(name)
-            end
-          end
-          ArrayObject.new(result)
+          collect_method_names(v, include_super_obj.truthy?) { |vis| vis != :private }
         end
 
         def object_public_methods(_, v, include_super_obj = TrueObject::TRUE)
-          include_super = include_super_obj.truthy?
-          seen = {}
-          result = []
-          sources = []
-          sc = v.singleton_class if v.instance_variable_get(:@eigenclass) != v.class_object
-          sources << sc if sc
-          if include_super
-            c = v.class_object
-            while c
-              sources << c
-              c.modules.reverse_each { |m| sources << m }
-              c = c.is_a?(ClassObject) ? c.superclass : nil
-            end
-          else
-            sources << v.class_object
-          end
-          sources.each do |mod|
-            mod.instance_variable_get(:@methods).each do |name, meth|
-              next if seen[name]
-              seen[name] = true
-              next if meth == ModuleObject::UNDEF_SENTINEL
-              next unless meth.visibility == :public
-              result << SymbolObject.from(name)
-            end
-          end
-          ArrayObject.new(result)
+          collect_method_names(v, include_super_obj.truthy?) { |vis| vis == :public }
         end
 
         def object_singleton_class(_, v)
@@ -132,7 +103,7 @@ module Frozone
         end
 
         def object_singleton_methods(_, v, include_super_obj = TrueObject::TRUE)
-          return ArrayObject.new([]) if v.instance_variable_get(:@eigenclass).equal?(v.class_object)
+          return ArrayObject.new([]) if v.eigenclass.equal?(v.class_object)
           include_super = include_super_obj.truthy?
           seen = {}
           result = []
