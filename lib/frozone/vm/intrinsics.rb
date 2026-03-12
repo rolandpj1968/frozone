@@ -20,27 +20,24 @@ module Frozone
           FalseObject::FALSE
         end
 
-        def object_instance_of(_, v, klass) = bool_object_for(v.class_object.equal?(klass))
-
         def object_not(_, v) = bool_object_for(!v.truthy?)
 
+        def normalize_ivar(name)
+          sym = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
+          :"@#{sym.to_s.delete_prefix('@')}"
+        end
+
         def object_ivar_get(_, v, name)
-          ivar = name.is_a?(SymbolObject) ? :"@#{name.raw.to_s.delete_prefix('@')}" : name.raw.to_sym
-          ivar = :"@#{ivar.to_s.delete_prefix('@')}"
-          v.get_ivar(ivar)
+          v.get_ivar(normalize_ivar(name))
         end
 
         def object_ivar_set(_, v, name, value)
-          ivar = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
-          ivar = :"@#{ivar.to_s.delete_prefix('@')}"
-          v.set_ivar(ivar, value)
+          v.set_ivar(normalize_ivar(name), value)
           value
         end
 
         def object_ivar_defined(_, v, name)
-          ivar = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
-          ivar = :"@#{ivar.to_s.delete_prefix('@')}"
-          bool_object_for(v.get_ivar(ivar) != NilObject::NIL)
+          bool_object_for(v.ivar_defined?(normalize_ivar(name)))
         end
 
         def object_ivar_names(_, v)

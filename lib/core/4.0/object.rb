@@ -15,7 +15,7 @@ class Object
   def is_a?(klass) = Intrinsics.object_is_a(self, klass)
   alias kind_of? is_a?
 
-  def instance_of?(klass) = Intrinsics.object_instance_of(self, klass)
+  def instance_of?(klass) = self.class == klass
 
   def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name)
 
