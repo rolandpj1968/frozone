@@ -18,31 +18,25 @@ module Frozone
 
       def lookup_class = @eigenclass || @class_object
 
-      def create_singleton_class
-        return if @eigenclass
-        # For ClassObjects, singleton class inherits from the superclass's singleton class
-        sc_superclass =
-          if is_a?(ClassObject) && respond_to?(:superclass) && superclass
-            superclass.singleton_class
-          else
-            @class_object
-          end
-        @eigenclass = ClassObject.new(nil, nil, sc_superclass)
-      end
-
       def singleton_class
-        create_singleton_class
+        unless @eigenclass
+          # For ClassObjects, singleton class inherits from the superclass's singleton class
+          sc_superclass =
+            if is_a?(ClassObject) && respond_to?(:superclass) && superclass
+              superclass.singleton_class
+            else
+              @class_object
+            end
+          @eigenclass = ClassObject.new(nil, nil, sc_superclass)
+        end
         @eigenclass
       end
 
       # Returns a method defined directly on the eigenclass (if one exists).
-      def eigenclass_method(name)
-        @eigenclass&.get_method(name)
-      end
+      def eigenclass_method(name) = @eigenclass&.get_method(name)
 
       def define_singleton_method(name, unbound_method)
-        create_singleton_class
-        @eigenclass.set_method(name, unbound_method)
+        singleton_class.set_method(name, unbound_method)
       end
 
       def lookup_instance_method(name)
@@ -87,20 +81,6 @@ module Frozone
 
       def inspect = "#<#{self.class.name}>"
 
-      private
-
-      # Is klass the same as or a subclass of ancestor?
-      def subclass_of?(klass, ancestor)
-        c = klass
-        while c
-          return true if c.equal?(ancestor)
-          c = c.is_a?(ClassObject) ? c.superclass : nil
-        end
-        false
-      end
-
-      public
-
       def ivar_defined?(name)
         @instance_variables.key?(name)
       end
@@ -117,13 +97,17 @@ module Frozone
         !equal?(FalseObject::FALSE) && !equal?(NilObject::NIL)
       end
 
-      #
-      # For Hash emulation using "native" Hash
-      #
-      # TODO work out how to do this properly - we need to call :hash, :eql? properly, but don't have the context
-      #
-      # def hash = self.send(:hash)
-      # def eql?(v) = self.send(:eql?(v))
+      private
+
+      # Is klass the same as or a subclass of ancestor?
+      def subclass_of?(klass, ancestor)
+        c = klass
+        while c
+          return true if c.equal?(ancestor)
+          c = c.is_a?(ClassObject) ? c.superclass : nil
+        end
+        false
+      end
     end
   end
 end
