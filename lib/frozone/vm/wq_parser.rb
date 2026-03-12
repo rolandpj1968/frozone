@@ -63,6 +63,7 @@ module Frozone
         wq = ::Parser::Ruby40.new
         wq.diagnostics.all_errors_are_fatal = raise_syntax_errors
         wq.diagnostics.ignore_warnings      = true
+        ::Parser::Builders::Default.modernize
 
         begin
           wq_ast = wq.parse(buf)
@@ -252,6 +253,26 @@ module Frozone
 
         when :send, :csend
           transform_send(node)
+
+        when :index
+          # With Builder::Default.modernize: arr[i] → s(:index, arr, i, ...)
+          recv_node, *arg_nodes = node.children
+          receiver_ast = recv_node ? transform(recv_node) : nil
+          arg_asts, kw_args, kw_splats, block_ast = parse_call_args(arg_nodes)
+          Ast::MethodCall.new(:[], receiver_ast, arg_asts, kw_args, block_ast,
+                              kw_splat_nodes: kw_splats)
+
+        when :indexasgn
+          # With Builder::Default.modernize: arr[i] = v → s(:indexasgn, arr, i, v)
+          # Last child is the value; the rest are receiver + index args
+          children = node.children
+          recv_node = children[0]
+          val_node  = children[-1]
+          idx_nodes = children[1..-2]
+          receiver_ast = recv_node ? transform(recv_node) : nil
+          idx_asts     = idx_nodes.map { |a| transform(a) }
+          val_ast      = transform(val_node)
+          Ast::MethodCall.new(:[]=, receiver_ast, idx_asts + [val_ast], {})
 
         when :block
           transform_block(node)
@@ -554,10 +575,12 @@ module Frozone
       def transform_block(node)
         send_node, args_node, body_node = node.children[0], node.children[1], node.children[2]
 
-        # Detect lambda: s(:block, s(:send, nil, :lambda), ...)
-        is_lambda = send_node.type == :send &&
-                    send_node.children[0].nil? &&
-                    send_node.children[1] == :lambda
+        # Detect lambda: s(:block, s(:send, nil, :lambda), ...) or s(:block, s(:lambda), ...)
+        # With Builder::Default.modernize, lambdas emit s(:lambda) as the block send node.
+        is_lambda = (send_node.type == :send &&
+                     send_node.children[0].nil? &&
+                     send_node.children[1] == :lambda) ||
+                    send_node.type == :lambda
 
         # Parse block params
         required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, shadow =
@@ -731,7 +754,7 @@ module Frozone
             end
           when :mlhs
             # Destructured required param: |(a, b)|
-            if seen_rest
+            if seen_rest || seen_optional
               post << parse_multi_target_param(arg)
             else
               required << parse_multi_target_param(arg)
@@ -763,7 +786,7 @@ module Frozone
             else
               required << inner.children[0]
             end
-          when :forward_args
+          when :forward_args, :forward_arg
             rest      = :__forward_args__
             kw_rest   = :__forward_kwargs__
             block_param = :__forward_block__
@@ -921,24 +944,16 @@ module Frozone
             has_forwarding = true
             arg_nodes << Ast::SplatArg.new(Ast::LocalVariableRead.new(:__forward_args__, 0))
             kw_splats << Ast::LocalVariableRead.new(:__forward_kwargs__, 0)
+          when :forwarded_restarg
+            # def m(*); target(*) end — forward anonymous rest
+            arg_nodes << Ast::SplatArg.new(Ast::LocalVariableRead.new(:__anon_rest__, 0))
+          when :forwarded_kwrestarg
+            # def m(**); target(**) end — forward anonymous kw_rest
+            kw_splats << Ast::LocalVariableRead.new(:__anon_kwargs__, 0)
           when :hash
-            # Check if this hash is keyword args or a positional hash literal
-            if should_be_kw_args?(arg)
-              arg.children.each do |pair|
-                case pair.type
-                when :pair
-                  key_node, val_node = pair.children[0], pair.children[1]
-                  kw_args[transform(key_node)] = transform(val_node)
-                when :kwsplat
-                  splat_val = pair.children[0].nil? ?
-                    Ast::LocalVariableRead.new(:__anon_kwargs__, 0) :
-                    transform(pair.children[0])
-                  kw_splats << splat_val
-                end
-              end
-            else
-              arg_nodes << Ast::HashLiteral.new(transform_hash_pairs(arg))
-            end
+            # With Builder::Default.modernize, :hash in call args is always a positional
+            # hash literal (braced). Bare keyword syntax produces :kwargs nodes instead.
+            arg_nodes << Ast::HashLiteral.new(transform_hash_pairs(arg))
           when :kwargs
             # Ruby 3.0+ separate kwargs node
             arg.children.each do |pair|
@@ -951,6 +966,9 @@ module Frozone
                   Ast::LocalVariableRead.new(:__anon_kwargs__, 0) :
                   transform(pair.children[0])
                 kw_splats << splat_val
+              when :forwarded_kwrestarg
+                # def m(**); target(**) end — with modernize, forwarded_kwrestarg inside kwargs
+                kw_splats << Ast::LocalVariableRead.new(:__anon_kwargs__, 0)
               end
             end
           else
@@ -1044,10 +1062,21 @@ module Frozone
             [:"#{inner_desc[0]}_splat", *inner_desc[1..]]
           end
         when :send
-          recv_node, mname, *_args = node.children
-          receiver_ast = recv_node.nil? || recv_node.type == :self ? nil : transform(recv_node)
-          # Method name should be foo= for attribute assignment
-          [:call, receiver_ast, mname]
+          recv_node, mname, *arg_nodes = node.children
+          receiver_ast = if recv_node.nil?
+                           nil
+                         elsif recv_node.type == :self
+                           Ast::SelfLiteral::SELF
+                         else
+                           transform(recv_node)
+                         end
+          if mname == :[]=
+            # Index assignment: object[k] = val — include index args
+            [:index, receiver_ast, arg_nodes.map { |a| transform(a) }]
+          else
+            # Attribute assignment: object.foo = val
+            [:call, receiver_ast, mname]
+          end
         when :mlhs
           sub = node.children.map { |ch| parse_masgn_target(ch) }
           [:nested, sub]
