@@ -28,6 +28,8 @@ module Frozone
         @alive = false
       end
 
+      def local_names = @locals.keys
+
       def get_local(local) = @locals[local]
 
       def set_local(local, value)

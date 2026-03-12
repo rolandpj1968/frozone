@@ -67,6 +67,8 @@ class Object
   def proc   = Intrinsics.kernel_proc(self)
   def lambda = Intrinsics.kernel_lambda(self)
 
+  def eval(code, binding = nil) = Intrinsics.kernel_eval(self, code, binding)
+
   def sprintf(fmt, *args) = fmt % args
   def format(fmt, *args) = fmt % args
 

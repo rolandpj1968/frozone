@@ -692,6 +692,25 @@ module Frozone
           proc_obj.call(context, args.raw)
         end
 
+        def kernel_eval(context, _receiver, code_obj, _binding = NilObject::NIL)
+          return NilObject::NIL unless code_obj.is_a?(StringObject)
+          code = code_obj.raw
+          caller_frame = context.frame
+          parser = Parser.new(code)
+          ast = parser.ast
+          new_frame = Frame.new(caller_frame.the_self, parser.top_level_locals, caller_frame.scopes)
+          context.push_frame(new_frame)
+          begin
+            ast.evaluate(context)
+          rescue Ast::RetryException, Ast::RedoException
+            raise FrozoneException.make(:SyntaxError, "Invalid #{$!.class.name.split('::').last.sub('Exception', '').downcase} in eval")
+          rescue Ast::BreakException, Ast::NextException
+            raise FrozoneException.make(:LocalJumpError, "unexpected #{$!.class.name.split('::').last.sub('Exception', '').downcase}")
+          ensure
+            context.pop_frame
+          end
+        end
+
         private
 
         def resolve_load_path(path)
