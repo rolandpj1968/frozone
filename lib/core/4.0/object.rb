@@ -17,7 +17,7 @@ class Object
 
   def instance_of?(klass) = self.class == klass
 
-  def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name)
+  def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name, include_all)
 
   def instance_variable_get(name) = Intrinsics.object_ivar_get(self, name)
   def instance_variable_set(name, value) = Intrinsics.object_ivar_set(self, name, value)
