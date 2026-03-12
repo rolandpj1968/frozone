@@ -88,10 +88,21 @@ module Frozone
       end
 
       def parse_multi_target_param(node)
-        # Returns {names: [...], rest: name_or_nil} for |(a, b)| or |(a, *b, c)| style params
-        names = node.lefts.map { |n| n.is_a?(Prism::RequiredParameterNode) ? n.name : nil }.compact
-        rest  = node.rest.is_a?(Prism::RestParameterNode) ? (node.rest.name || :_) : nil
-        rights = node.rights.map { |n| n.is_a?(Prism::RequiredParameterNode) ? n.name : nil }.compact
+        # Returns {names: [...], rest: name_or_nil, rights: [...]}
+        # Each element of names/rights is either a Symbol or a nested Hash (for nested destructuring).
+        names  = node.lefts.map { |n|
+          case n
+          when Prism::RequiredParameterNode then n.name
+          when Prism::MultiTargetNode       then parse_multi_target_param(n)
+          end
+        }.compact
+        rest   = node.rest.is_a?(Prism::RestParameterNode) ? (node.rest.name || :__anon_rest__) : nil
+        rights = node.rights.map { |n|
+          case n
+          when Prism::RequiredParameterNode then n.name
+          when Prism::MultiTargetNode       then parse_multi_target_param(n)
+          end
+        }.compact
         {names: names, rest: rest, rights: rights}
       end
 
@@ -99,11 +110,18 @@ module Frozone
         required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, auto_splat =
           parse_block_or_lambda_params(prism_block_node.parameters, auto_splat: true)
         body = prism_block_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_block_node.body)
-        # Compute locals: expand destructure params to their sub-variable names
+        # Compute locals: recursively expand destructure params to their sub-variable names
         locals = prism_block_node.locals.dup
-        required.each { |p| locals.concat(p[:names]) if p.is_a?(Hash) }
+        required.each { |p| locals.concat(extract_destruct_names(p)) if p.is_a?(Hash) }
         Ast::Block.new(required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param,
                        auto_splat, locals, body)
+      end
+
+      def extract_destruct_names(param)
+        return [param] if param.is_a?(Symbol)
+        names = param[:names].flat_map { |n| extract_destruct_names(n) }
+        names << param[:rest] if param[:rest]
+        names + (param[:rights] || []).flat_map { |n| extract_destruct_names(n) }
       end
 
       # Parse block/lambda params from a Prism BlockParametersNode or ParametersNode.
@@ -561,8 +579,30 @@ module Frozone
           Ast::Lambda.new(required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, locals, body)
 
         when Prism::YieldNode
-          arg_nodes = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
-          Ast::Yield.new(arg_nodes)
+          arg_nodes = []
+          kw_args   = {}
+          unless prism_node.arguments.nil?
+            prism_node.arguments.arguments.each do |argument|
+              case argument
+              when Prism::KeywordHashNode
+                has_rocket = argument.elements.any? { |e| e.is_a?(Prism::AssocNode) && !e.operator_loc.nil? }
+                if has_rocket
+                  pairs = argument.elements.map { |e| [transform(e.key), transform(e.value)] }
+                  arg_nodes << Ast::HashLiteral.new(pairs)
+                else
+                  argument.elements.each do |kw_arg|
+                    kw_args[transform(kw_arg.key)] = transform(kw_arg.value) if kw_arg.is_a?(Prism::AssocNode)
+                  end
+                end
+              when Prism::SplatNode
+                splat_expr = argument.expression.nil? ? Ast::LocalVariableRead.new(:__anon_rest__, 0) : transform(argument.expression)
+                arg_nodes << Ast::SplatArg.new(splat_expr)
+              else
+                arg_nodes << transform(argument)
+              end
+            end
+          end
+          Ast::Yield.new(arg_nodes, kw_args)
 
         when Prism::MultiWriteNode
           parse_multi_write(prism_node)

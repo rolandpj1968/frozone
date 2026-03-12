@@ -7,7 +7,7 @@ module Frozone
         @symbol_obj = symbol_obj
       end
 
-      def invoke(context, args)
+      def invoke(context, args, **_kwargs)
         receiver = args[0]
         rest = args[1..]
         receiver.dispatch(context, @symbol_obj.raw, rest, {})

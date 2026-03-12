@@ -13,19 +13,19 @@ module Frozone
       def block_object = @block_object
       def lambda? = @lambda
 
-      def call(context, args, receiver: nil)
+      def call(context, args, receiver: nil, instance_eval_receiver: nil)
         if @lambda
           begin
-            @block_object.invoke(context, args, receiver: receiver)
+            @block_object.invoke(context, args, receiver: receiver, instance_eval_receiver: instance_eval_receiver)
           rescue Ast::ReturnException => e
             e.value  # `return` in a lambda exits the lambda
           end
         else
-          @block_object.invoke(context, args, receiver: receiver)
+          @block_object.invoke(context, args, receiver: receiver, instance_eval_receiver: instance_eval_receiver)
         end
       end
 
-      def invoke(context, args, receiver: nil) = call(context, args, receiver: receiver)
+      def invoke(context, args, receiver: nil, instance_eval_receiver: nil) = call(context, args, receiver: receiver, instance_eval_receiver: instance_eval_receiver)
     end
   end
 end

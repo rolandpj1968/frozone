@@ -20,6 +20,7 @@ module Frozone
       def block=(b); @block = b; end
       attr_accessor :method_frame
       attr_accessor :current_method, :method_args, :method_kwargs
+      attr_accessor :def_scope  # singleton class scope set by instance_eval or method's defining scope
 
       def get_local(local) = @locals[local]
 

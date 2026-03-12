@@ -63,6 +63,84 @@ module Frozone
           StringObject.new("#<#{v.class_object.name}:0x#{v.__id__.to_s(16)}>")
         end
 
+        def object_methods(_, v, include_super_obj = TrueObject::TRUE)
+          include_super = include_super_obj.truthy?
+          seen = {}
+          result = []
+          # Collect methods from eigenclass (singleton methods) and class hierarchy
+          sources = []
+          sc = v.singleton_class if v.instance_variable_get(:@eigenclass) != v.class_object
+          sources << sc if sc
+          if include_super
+            c = v.class_object
+            while c
+              sources << c
+              c.modules.reverse_each { |m| sources << m }
+              c = c.is_a?(ClassObject) ? c.superclass : nil
+            end
+          else
+            sources << v.class_object
+          end
+          sources.each do |mod|
+            mod.instance_variable_get(:@methods).each do |name, meth|
+              next if seen[name]
+              seen[name] = true
+              next if meth == ModuleObject::UNDEF_SENTINEL
+              next if meth.visibility == :private
+              result << SymbolObject.from(name)
+            end
+          end
+          ArrayObject.new(result)
+        end
+
+        def object_public_methods(_, v, include_super_obj = TrueObject::TRUE)
+          include_super = include_super_obj.truthy?
+          seen = {}
+          result = []
+          sources = []
+          sc = v.singleton_class if v.instance_variable_get(:@eigenclass) != v.class_object
+          sources << sc if sc
+          if include_super
+            c = v.class_object
+            while c
+              sources << c
+              c.modules.reverse_each { |m| sources << m }
+              c = c.is_a?(ClassObject) ? c.superclass : nil
+            end
+          else
+            sources << v.class_object
+          end
+          sources.each do |mod|
+            mod.instance_variable_get(:@methods).each do |name, meth|
+              next if seen[name]
+              seen[name] = true
+              next if meth == ModuleObject::UNDEF_SENTINEL
+              next unless meth.visibility == :public
+              result << SymbolObject.from(name)
+            end
+          end
+          ArrayObject.new(result)
+        end
+
+        def object_singleton_methods(_, v, include_super_obj = TrueObject::TRUE)
+          return ArrayObject.new([]) if v.instance_variable_get(:@eigenclass).equal?(v.class_object)
+          include_super = include_super_obj.truthy?
+          seen = {}
+          result = []
+          sc = v.singleton_class
+          sources = include_super ? sc.ancestors_list : [sc]
+          sources.each do |mod|
+            mod.instance_variable_get(:@methods).each do |name, meth|
+              next if seen[name]
+              seen[name] = true
+              next if meth == ModuleObject::UNDEF_SENTINEL
+              next if meth.visibility == :private
+              result << SymbolObject.from(name)
+            end
+          end
+          ArrayObject.new(result)
+        end
+
         # Kernel (on Object for now)
         def kernel_puts(_, _receiver, args)
           if args.raw.empty?
@@ -181,15 +259,15 @@ module Frozone
 
         def object_instance_eval(context, receiver, block)
           return NilObject::NIL if block.nil? || block.is_a?(NilObject)
-          return block.invoke(context, [], receiver: receiver) if block.is_a?(ProcObject)
-          return block.invoke(context, [], receiver: receiver) if block.is_a?(BlockObject)
+          return block.invoke(context, [], receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(ProcObject)
+          return block.invoke(context, [], receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(BlockObject)
           NilObject::NIL
         end
 
         def object_instance_exec(context, receiver, args, block)
           return NilObject::NIL if block.nil? || block.is_a?(NilObject)
-          return block.invoke(context, args.raw, receiver: receiver) if block.is_a?(ProcObject)
-          return block.invoke(context, args.raw, receiver: receiver) if block.is_a?(BlockObject)
+          return block.invoke(context, args.raw, receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(ProcObject)
+          return block.invoke(context, args.raw, receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(BlockObject)
           NilObject::NIL
         end
 
@@ -378,6 +456,40 @@ module Frozone
           ArrayObject.new(result)
         end
 
+        def module_instance_method(_, receiver, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          m = receiver.lookup_instance_method(name)
+          unless m
+            raise FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.name}'")
+          end
+          UnboundMethodObject.new(m, name, receiver)
+        end
+
+        def unbound_method_parameters(_, receiver)
+          m = receiver.is_a?(UnboundMethodObject) ? receiver.raw_method : nil
+          return ArrayObject.new([]) unless m
+          params = []
+          m.required_params.each { |p| params << ArrayObject.new([SymbolObject.from(:req), SymbolObject.from(p)]) }
+          m.optional_params.each { |p, _| params << ArrayObject.new([SymbolObject.from(:opt), SymbolObject.from(p)]) }
+          params << ArrayObject.new([SymbolObject.from(:rest), SymbolObject.from(m.rest_param)]) if m.rest_param
+          m.post_params.each { |p| params << ArrayObject.new([SymbolObject.from(:req), SymbolObject.from(p)]) }
+          m.required_kw_params.each { |p| params << ArrayObject.new([SymbolObject.from(:keyreq), SymbolObject.from(p)]) }
+          m.optional_kw_params.each { |p, _| params << ArrayObject.new([SymbolObject.from(:key), SymbolObject.from(p)]) }
+          params << ArrayObject.new([SymbolObject.from(:keyrest), SymbolObject.from(m.kw_rest_param)]) if m.kw_rest_param
+          params << ArrayObject.new([SymbolObject.from(:block), SymbolObject.from(m.block_param)]) if m.block_param
+          ArrayObject.new(params)
+        end
+
+        def unbound_method_name(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          SymbolObject.from(receiver.unbound_name)
+        end
+
+        def unbound_method_owner(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          receiver.unbound_owner
+        end
+
         def module_private_method_defined(_, receiver, name_obj)
           name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
           m = receiver.get_method(name)
@@ -468,9 +580,9 @@ module Frozone
               name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
               m = receiver.get_method(name)
               if m.nil?
-                # If not in own methods, look up inherited and copy to this class
-                m = receiver.is_a?(ClassObject) ? receiver.lookup_method(name) : nil
-                raise FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.name}'") if m.nil?
+                # If not in own methods, look up inherited (for classes/modules)
+                m = receiver.lookup_method(name)
+                next if m.nil?  # silently skip if not found (e.g. visibility change on singleton for inherited methods)
                 receiver.set_method(name, m)
               end
               m.visibility = vis
@@ -1121,6 +1233,12 @@ module Frozone
 
         def array_compact(_, v)
           ArrayObject.new(v.raw.reject { |e| e.is_a?(NilObject) })
+        end
+
+        def array_compact_bang(_, v)
+          before = v.raw.length
+          v.raw.reject! { |e| e.is_a?(NilObject) }
+          v.raw.length == before ? NilObject::NIL : v
         end
 
         def array_uniq(_, v)

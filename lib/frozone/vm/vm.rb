@@ -8,6 +8,7 @@ require_relative 'context'
 require_relative 'frame'
 require_relative 'method'
 
+require_relative 'unbound_method_object'
 require_relative 'nil_object'
 require_relative 'range_object'
 require_relative 'float_object'
@@ -37,7 +38,9 @@ module Frozone
         Core::OBJECT_CLASS.set_constant(:RUBY_REVISION, StringObject.new('0'))
         Core::OBJECT_CLASS.set_constant(:RUBY_RELEASE_DATE, StringObject.new('2025-01-01'))
         Core::OBJECT_CLASS.set_constant(:RUBY_DESCRIPTION, StringObject.new("frozone 4.0.1 (#{RUBY_PLATFORM})"))
+        Core::OBJECT_CLASS.set_constant(:RUBY_NAME, StringObject.new('ruby'))
         Core::OBJECT_CLASS.set_constant(:RUBY_COPYRIGHT, StringObject.new('frozone - Copyright (C) 2024 frozone'))
+        Core::OBJECT_CLASS.set_constant(:RUBY_EXE, StringObject.new(RbConfig.ruby))
 
         env_hash = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
         Core::OBJECT_CLASS.set_constant(:ENV, env_hash)

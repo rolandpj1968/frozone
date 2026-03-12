@@ -35,6 +35,7 @@ class Module
   def public_instance_methods(include_super = true) = Intrinsics.module_instance_methods(self, include_super)
   def private_instance_methods(include_super = true) = Intrinsics.module_private_instance_methods(self, include_super)
   def protected_instance_methods(include_super = true) = []
+  def instance_method(name) = Intrinsics.module_instance_method(self, name)
   def method_defined?(name) = Intrinsics.module_method_defined(self, name)
   def public_method_defined?(name) = Intrinsics.module_public_method_defined(self, name)
   def private_method_defined?(name) = Intrinsics.module_private_method_defined(self, name)

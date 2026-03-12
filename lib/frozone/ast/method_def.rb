@@ -25,8 +25,18 @@ module Frozone
       end
 
       def evaluate(context)
+        # Determine the defining scope: def_scope from frame (set by instance_eval or Method#invoke)
+        # takes priority over the lexical context.scopes.last.
+        frame = context.frame
+        def_scope = frame.def_scope
+        # Method's lexical scopes: include def_scope as last if it overrides the current scope
+        method_scopes = if def_scope && !def_scope.equal?(context.scopes.last)
+          context.scopes + [def_scope]
+        else
+          context.scopes
+        end
         method = Vm::Method.new(
-          context.scopes,
+          method_scopes,
           @name,
           @required_params,
           @optional_params,
@@ -40,13 +50,12 @@ module Frozone
           @body
         )
         if @receiver_node.nil?
-          scope = context.scopes.last
-          # Inside a method or block, def is always public.
-          # Only def directly in a class/module body or top-level respects current_visibility.
-          frame = context.frame
-          inside_method_or_block = !frame.method_frame.nil? || !frame.parent_frame.nil?
+          scope = def_scope || context.scopes.last
+          # Visibility: def resets to public inside a real method body, but closures
+          # (blocks/lambdas) at class-body level look outside for the current_visibility.
+          inside_method = frame.method_frame&.current_method != nil
           private_by_default = %i[initialize initialize_copy initialize_dup initialize_clone respond_to_missing?].include?(@name)
-          vis = private_by_default ? :private : (inside_method_or_block ? :public : scope.current_visibility)
+          vis = private_by_default ? :private : (inside_method ? :public : scope.current_visibility)
           if vis == :module_function
             # module_function: private instance method + public singleton method
             method.visibility = :private

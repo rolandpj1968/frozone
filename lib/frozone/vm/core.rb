@@ -35,6 +35,9 @@ module Frozone
       OBJECT_CLASS.set_constant(:Class, CLASS_CLASS)
       OBJECT_CLASS.set_constant(:Object, OBJECT_CLASS)
 
+      def self.unbound_method_class = OBJECT_CLASS.get_constant(:UnboundMethod)
+      def self.method_class         = OBJECT_CLASS.get_constant(:Method)
+
       def self.define_class(name, superclass)
         klass = ClassObject.new(name, nil, superclass)
         OBJECT_CLASS.set_constant(name, klass)

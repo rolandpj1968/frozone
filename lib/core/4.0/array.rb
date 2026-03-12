@@ -46,7 +46,8 @@ class Array
   def *(n) = Intrinsics.array_multiply(self, n)
 
   def flatten(depth = nil) = Intrinsics.array_flatten(self, depth)
-  def compact = Intrinsics.array_compact(self)
+  def compact  = Intrinsics.array_compact(self)
+  def compact! = Intrinsics.array_compact_bang(self)
   def uniq = Intrinsics.array_uniq(self)
   def reverse = Intrinsics.array_reverse(self)
   def reverse! = Intrinsics.array_reverse(self)
@@ -85,7 +86,9 @@ class Array
   end
 
   def map(&block);        r = []; each { |x| r << (block ? block.call(x) : yield(x)) };           r; end
+  def map!(&block);       i = 0; while i < length; self[i] = (block ? block.call(self[i]) : yield(self[i])); i += 1; end; self; end
   alias collect map
+  alias collect! map!
   def select(&block);    r = []; each { |x| r << x if (block ? block.call(x) : yield(x)) };      r; end
   alias filter select
   alias find_all select

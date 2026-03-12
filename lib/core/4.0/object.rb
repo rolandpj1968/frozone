@@ -36,11 +36,11 @@ class Object
   def then(&block) = block ? block.call(self) : self
   alias yield_self then
 
-  def methods(include_super = true) = []
-  def public_methods(include_super = true) = []
+  def methods(include_super = true) = Intrinsics.object_methods(self, include_super)
+  def public_methods(include_super = true) = Intrinsics.object_public_methods(self, include_super)
   def private_methods(include_super = true) = []
   def protected_methods(include_super = true) = []
-  def singleton_methods(include_super = true) = []
+  def singleton_methods(include_super = true) = Intrinsics.object_singleton_methods(self, include_super)
 
   def to_s = Intrinsics.object_to_s(self)
   def inspect = to_s
@@ -86,4 +86,10 @@ class Object
   def caller(start = 1, length = nil) = []  # stub: no real backtrace in frozone
   def caller_locations(start = 1, length = nil) = []
   def __method__ = nil  # stub
+end
+
+class UnboundMethod
+  def parameters = Intrinsics.unbound_method_parameters(self)
+  def name = Intrinsics.unbound_method_name(self)
+  def owner = Intrinsics.unbound_method_owner(self)
 end

@@ -10,6 +10,7 @@ class String
   def to_f = Intrinsics.string_to_f(self)
   def to_r = Intrinsics.string_to_r(self)
   def to_sym = Intrinsics.string_to_sym(self)
+  alias intern to_sym
   def inspect = Intrinsics.string_inspect(self)
   def dup = Intrinsics.string_dup(self)
   def freeze = Intrinsics.string_freeze(self)

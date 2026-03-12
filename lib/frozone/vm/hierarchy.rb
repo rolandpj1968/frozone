@@ -40,6 +40,12 @@ end
 class Proc < Object
 end
 
+class Method < Object
+end
+
+class UnboundMethod < Object
+end
+
 class Range < Object
 end
 

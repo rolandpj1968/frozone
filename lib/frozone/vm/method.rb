@@ -33,7 +33,7 @@ module Frozone
 
       attr_accessor :visibility
       attr_reader :required_params, :optional_params, :rest_param, :post_params
-      attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param
+      attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
 
       def populate_params(context, new_frame, args)
         min_args_expected = @required_params.length + @post_params.length
@@ -114,6 +114,8 @@ module Frozone
         new_frame.block = block
         new_frame.method_frame = new_frame
         new_frame.current_method = self
+        # def inside a method body goes to the method's defining scope, not the call-site scope
+        new_frame.def_scope = @scopes.last
 
         # If the method has no keyword params, convert kwargs to a positional Hash (Ruby semantics)
         if !kw_args.empty? && @required_kw_params.empty? && @optional_kw_params.empty? && @kw_rest_param.nil?
@@ -125,22 +127,24 @@ module Frozone
         new_frame.method_args = args
         new_frame.method_kwargs = kw_args
 
-        populate_params(context, new_frame, args)
-        populate_kw_params(context, new_frame, kw_args)
-
-        if @block_param
-          proc_obj = if block.is_a?(ProcObject)
-                       block  # already a ProcObject — don't double-wrap
-                     elsif block
-                       ProcObject.new(block)
-                     else
-                       NilObject::NIL
-                     end
-          new_frame.set_local(@block_param, proc_obj)
-        end
-
+        # Push frame BEFORE populating params so default expressions can reference
+        # earlier parameters (e.g. def foo(a, b = a.length)).
         context.push_frame(new_frame)
         begin
+          populate_params(context, new_frame, args)
+          populate_kw_params(context, new_frame, kw_args)
+
+          if @block_param
+            proc_obj = if block.is_a?(ProcObject)
+                         block  # already a ProcObject — don't double-wrap
+                       elsif block
+                         ProcObject.new(block)
+                       else
+                         NilObject::NIL
+                       end
+            new_frame.set_local(@block_param, proc_obj)
+          end
+
           @body.evaluate(context)
         rescue Ast::ReturnException => e
           raise e unless e.method_frame.equal?(new_frame)

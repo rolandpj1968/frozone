@@ -29,9 +29,10 @@ module Frozone
         @auto_splat = false
       end
 
-      def invoke(context, args, kw_args: {}, receiver: nil, block: nil)
+      def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil)
+        the_self = receiver || @enclosing_frame.the_self
         new_frame = Frame.new(
-          receiver || @enclosing_frame.the_self,
+          the_self,
           @locals,
           @enclosing_frame.scopes,
           @enclosing_frame
@@ -71,6 +72,8 @@ module Frozone
           # `return` inside a block exits the enclosing method, not the method that invoked yield.
           new_frame.method_frame = @enclosing_frame.method_frame
         end
+
+        new_frame.def_scope = instance_eval_receiver&.singleton_class
 
         context.push_frame(new_frame)
         begin
@@ -135,36 +138,7 @@ module Frozone
         # Fill required params from front (lenient: missing → nil)
         @required_params.each_with_index do |param, i|
           val = args.fetch(i, NilObject::NIL)
-          if param.is_a?(Hash)
-            # Destructuring: |(a, b)| or |(a, *b, c)|
-            sub_args = if val.is_a?(ArrayObject)
-              val.raw
-            elsif !val.is_a?(NilObject) && val.lookup_instance_method(:to_ary)
-              converted = val.dispatch(context, :to_ary, [], {})
-              if converted.is_a?(ArrayObject)
-                converted.raw
-              elsif converted.is_a?(NilObject)
-                [val]
-              else
-                raise FrozoneException.make(:TypeError, "no implicit conversion of #{val.class_object.name} into Array")
-              end
-            else
-              [val]
-            end
-            sub_names  = param[:names]
-            sub_rest   = param[:rest]
-            sub_rights = param[:rights] || []
-            n_fixed = sub_names.length + sub_rights.length
-            sub_names.each_with_index { |n, j| frame.set_local(n, sub_args.fetch(j, NilObject::NIL)) }
-            if sub_rest
-              rest_end = sub_rights.length > 0 ? -(sub_rights.length + 1) : -1
-              rest_vals = sub_args[sub_names.length..rest_end] || []
-              frame.set_local(sub_rest, ArrayObject.new(rest_vals))
-            end
-            sub_rights.each_with_index { |n, j| frame.set_local(n, sub_args.fetch(-(sub_rights.length - j), NilObject::NIL)) }
-          else
-            frame.set_local(param, val)
-          end
+          assign_param(context, frame, param, val)
         end
 
         # Fill post params starting at post_start (lenient: missing → nil)
@@ -212,6 +186,38 @@ module Frozone
           kw_rest = kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k }
           frame.set_local(@kw_rest_param, HashObject.new(kw_rest))
         end
+      end
+
+      # Assign a single param (Symbol or nested Hash) to frame given a value.
+      def assign_param(context, frame, param, val)
+        if param.is_a?(Hash)
+          # Destructuring: |(a, b)| or |(a, *b, c)| — possibly nested
+          sub_args = coerce_to_array(context, val)
+          sub_names  = param[:names]
+          sub_rest   = param[:rest]
+          sub_rights = param[:rights] || []
+          sub_names.each_with_index  { |n, j| assign_param(context, frame, n, sub_args.fetch(j, NilObject::NIL)) }
+          if sub_rest
+            rest_end  = sub_rights.length > 0 ? -(sub_rights.length + 1) : -1
+            rest_vals = sub_args[sub_names.length..rest_end] || []
+            frame.set_local(sub_rest, ArrayObject.new(rest_vals))
+          end
+          sub_rights.each_with_index { |n, j| assign_param(context, frame, n, sub_args.fetch(-(sub_rights.length - j), NilObject::NIL)) }
+        else
+          frame.set_local(param, val)
+        end
+      end
+
+      def coerce_to_array(context, val)
+        return val.raw if val.is_a?(ArrayObject)
+        return [val] if val.is_a?(NilObject)
+        if val.lookup_instance_method(:to_ary)
+          converted = val.dispatch(context, :to_ary, [], {})
+          return converted.raw if converted.is_a?(ArrayObject)
+          return [val] if converted.is_a?(NilObject)
+          raise FrozoneException.make(:TypeError, "no implicit conversion of #{val.class_object.name} into Array")
+        end
+        [val]
       end
     end
   end
