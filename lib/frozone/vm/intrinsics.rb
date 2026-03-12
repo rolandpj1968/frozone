@@ -177,6 +177,7 @@ module Frozone
 
         def kernel_catch(context, _receiver, tag, block)
           tag_raw = tag.is_a?(NilObject) ? :__catch_nil__ : tag.respond_to?(:raw) ? tag.raw : tag
+          return NilObject::NIL if block.nil? || block.is_a?(NilObject)
           result = catch(tag_raw) { block.invoke(context, [tag]) }
           result.is_a?(ObjectObject) ? result : NilObject::NIL
         end
@@ -869,7 +870,7 @@ module Frozone
 
         def file_open(_, path, mode, block)
           mode_str = mode.is_a?(NilObject) || mode.nil? ? 'r' : mode.raw
-          if block
+          if block && !block.is_a?(NilObject)
             File.open(path.raw, mode_str) do |f|
               io_obj = ObjectObject.new(Core.object_class)
               io_obj.instance_variable_set(:@__file__, f)
@@ -918,7 +919,7 @@ module Frozone
 
         def dir_chdir(_, path, block)
           path_raw = path.is_a?(NilObject) || path.nil? ? nil : path.raw
-          if block
+          if block && !block.is_a?(NilObject)
             result = path_raw ? Dir.chdir(path_raw) { block.invoke(Fiber[:context], [StringObject.new(Dir.pwd)]) } :
                                 Dir.chdir { block.invoke(Fiber[:context], [StringObject.new(Dir.pwd)]) }
             result.is_a?(ObjectObject) ? result : NilObject::NIL
@@ -943,7 +944,7 @@ module Frozone
           require 'tmpdir'
           pfx = prefix.is_a?(NilObject) || prefix.nil? ? nil : prefix.raw
           path = pfx ? Dir.mktmpdir(pfx) : Dir.mktmpdir
-          if block
+          if block && !block.is_a?(NilObject)
             begin
               block.invoke(Fiber[:context], [StringObject.new(path)])
             ensure
@@ -970,17 +971,34 @@ module Frozone
         def time_to_s(_, t) = StringObject.new(t.raw.to_s)
 
         # Regexp
+        def update_match_globals(m)
+          Fiber[:last_match] = m
+          if m
+            GLOBALS[:"$~"] = MatchDataObject.new(m)
+            m.captures.each_with_index do |cap, i|
+              GLOBALS[:"$#{i + 1}"] = cap ? StringObject.new(cap) : NilObject::NIL
+            end
+            GLOBALS[:"$&"] = StringObject.new(m[0])
+            GLOBALS[:"$`"] = StringObject.new(m.pre_match)
+            GLOBALS[:"$'"] = StringObject.new(m.post_match)
+          else
+            GLOBALS[:"$~"] = NilObject::NIL
+            GLOBALS.delete_if { |k, _| k.to_s =~ /^\$\d+$/ }
+            GLOBALS[:"$&"] = GLOBALS[:"$`"] = GLOBALS[:"$'"] = NilObject::NIL
+          end
+        end
+
         def regexp_match(_, receiver, str)
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
           m = receiver.raw.match(s)
-          Fiber[:last_match] = m  # store for $~ and MatchWriteNode
+          update_match_globals(m)
           m ? MatchDataObject.new(m) : NilObject::NIL
         end
 
         def regexp_match_index(_, receiver, str)
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
           m = receiver.raw.match(s)
-          Fiber[:last_match] = m
+          update_match_globals(m)
           m ? IntegerObject.new(m.begin(0)) : NilObject::NIL
         end
 
@@ -1116,7 +1134,7 @@ module Frozone
         def string_delete(_, v, *args) = StringObject.new(v.raw.delete(*args.map(&:raw)))
 
         def string_slice(_, v, idx, len = nil)
-          result = len.nil? ? v.raw[idx.raw] : v.raw[idx.raw, len.raw]
+          result = (len.nil? || len.is_a?(NilObject)) ? v.raw[idx.raw] : v.raw[idx.raw, len.raw]
           result.nil? ? NilObject::NIL : StringObject.new(result)
         end
 
@@ -1157,7 +1175,7 @@ module Frozone
 
         def string_each_line(context, v, sep, block)
           sep_raw = sep.is_a?(NilObject) ? "\n" : sep.raw
-          return ArrayObject.new(v.raw.each_line(sep_raw).map { |l| StringObject.new(l) }) unless block
+          return ArrayObject.new(v.raw.each_line(sep_raw).map { |l| StringObject.new(l) }) if block.nil? || block.is_a?(NilObject)
           v.raw.each_line(sep_raw) { |l| block.invoke(context, [StringObject.new(l)]) }
           v
         end
@@ -1191,7 +1209,7 @@ module Frozone
         def string_match(_, v, pattern)
           pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
           m = pat.match(v.raw)
-          Fiber[:last_match] = m
+          update_match_globals(m)
           m ? MatchDataObject.new(m) : NilObject::NIL
         end
 
