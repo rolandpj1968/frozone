@@ -15,6 +15,11 @@ module Frozone
         return nil if val.is_a?(Vm::NilObject)
         return Vm::SymbolProcObject.new(val) if val.is_a?(Vm::SymbolObject)
         return val if val.is_a?(Vm::ProcObject) || val.is_a?(Vm::BlockObject)
+        # Try to_proc coercion for other objects
+        if val.respond_to?(:dispatch)
+          proc_val = val.dispatch(context, :to_proc, [], {})
+          return proc_val if proc_val.is_a?(Vm::ProcObject) || proc_val.is_a?(Vm::BlockObject)
+        end
         raise "block argument must be a Proc (got #{val.class})"
       end
     end

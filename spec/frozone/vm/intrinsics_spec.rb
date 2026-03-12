@@ -97,7 +97,7 @@ RSpec.describe Frozone::Vm::Intrinsics do
       }.to raise_error(Frozone::Vm::FrozoneException, /undefined method 'no_such' for an instance of Object/)
     end
 
-    it 'raises when name is not a Symbol' do
+    it 'raises when name is not a Symbol or SymbolObject' do
       expect {
         described_class.basic_object_method_missing(real_ctx, obj, "no_such", empty_args, empty_kwargs)
       }.to raise_error(RuntimeError, /must be a Symbol/)

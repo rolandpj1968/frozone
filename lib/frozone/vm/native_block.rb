@@ -7,13 +7,13 @@ module Frozone
         @proc = proc
       end
 
-      def invoke(context, args, receiver: nil)
+      def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil)
         @proc.call(context, args)
         NilObject::NIL
       end
 
-      def call(context, args, receiver: nil)
-        invoke(context, args, receiver: receiver)
+      def call(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil)
+        invoke(context, args, kw_args: kw_args, receiver: receiver, block: block, instance_eval_receiver: instance_eval_receiver)
       end
     end
   end

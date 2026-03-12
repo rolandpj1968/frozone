@@ -107,17 +107,17 @@ module Frozone
         constant = get_constant(name)
         return constant unless constant.nil?
 
-        # 3. Module constants
+        # 3. Module constants (including transitive included modules)
         unless @modules.nil?
           @modules.each do |mod|
-            constant = mod.get_constant(name)
+            constant = mod.lookup_constant(name)
             return constant unless constant.nil?
           end
         end
 
-        # 4. Superclass
+        # 4. Superclass (full chain)
         unless @superclass.nil?
-          constant = @superclass.get_constant(name)
+          constant = @superclass.lookup_constant(name)
           return constant unless constant.nil?
         end
 

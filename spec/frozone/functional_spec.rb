@@ -1630,8 +1630,8 @@ RSpec.describe "Frozone VM functional" do
       RUBY
     end
 
-    it 'top-level def raises when called with explicit receiver' do
-      expect { run_ruby(<<~RUBY) }.to raise_error(/private method 'top_level_explicit_xyz'/)
+    it 'top-level def is callable with explicit self (Ruby 2.7+ allows private on self)' do
+      expect(run_ruby(<<~RUBY)).to vm_int(42)
         def top_level_explicit_xyz; 42; end
         self.top_level_explicit_xyz
       RUBY
@@ -1645,8 +1645,8 @@ RSpec.describe "Frozone VM functional" do
       RUBY
     end
 
-    it 'top-level private with no args sets default visibility' do
-      expect { run_ruby(<<~RUBY) }.to raise_error(/private method 'toplevel_priv_noarg_xyz'/)
+    it 'top-level private with no args sets default visibility, still callable on self' do
+      expect(run_ruby(<<~RUBY)).to vm_int(7)
         private
         def toplevel_priv_noarg_xyz; 7; end
         self.toplevel_priv_noarg_xyz
@@ -1672,8 +1672,8 @@ RSpec.describe "Frozone VM functional" do
       RUBY
     end
 
-    it 'top-level visibility is restored after reopening class Object' do
-      expect { run_ruby(<<~RUBY) }.to raise_error(/private method 'after_reopen_xyz'/)
+    it 'top-level visibility is restored after reopening class Object, callable on self' do
+      expect(run_ruby(<<~RUBY)).to vm_nil
         private
         class Object; end
         def after_reopen_xyz; end

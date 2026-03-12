@@ -223,9 +223,10 @@ module Frozone
         def basic_object__equal_equal_(_, v1, v2) = bool_object_for(v1.equal?(v2))
 
         def basic_object_method_missing(context, receiver, name, args, kwargs)
-          raise "BasicObject#method_missing name must be a Symbol" unless name.is_a?(Symbol)
+          raise "BasicObject#method_missing name must be a Symbol or SymbolObject" unless name.is_a?(Symbol) || name.is_a?(SymbolObject)
+          name_sym = name.is_a?(SymbolObject) ? name.raw : name
           class_name = receiver.class_object.name
-          raise FrozoneException.make(:NoMethodError, "undefined method '#{name}' for an instance of #{class_name}")
+          raise FrozoneException.make(:NoMethodError, "undefined method '#{name_sym}' for an instance of #{class_name}")
         end
 
         def basic_object___send__(context, receiver, name, args, kwargs, block_arg = nil)

@@ -80,7 +80,7 @@ module Frozone
         missing = @required_kw_params.reject { |kw| kw_args.key?(kw) }
         unless missing.empty?
           label = missing.length == 1 ? "keyword" : "keywords"
-          raise FrozoneException.make(:ArgumentError, "missing #{label}: #{missing.join(', ')}")
+          raise FrozoneException.make(:ArgumentError, "missing #{label}: #{missing.map { |k| ":#{k}" }.join(', ')}")
         end
         @required_kw_params.each do |kw|
           new_frame.set_local(kw, kw_args.delete(kw))

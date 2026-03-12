@@ -99,16 +99,27 @@ module Frozone
         @constants[name]
       end
 
+      # Lookup constant in this module and its included modules.
+      def lookup_constant(name)
+        constant = get_constant(name)
+        return constant unless constant.nil?
+        @modules&.each do |mod|
+          constant = mod.lookup_constant(name)
+          return constant unless constant.nil?
+        end
+        nil
+      end
+
       def self.lookup_constant(name, scopes)
-        # 1. Lexical scopes - not they're in reverse order of priority
+        # 1. Lexical scopes (only direct constants, not inheritance)
         scopes.reverse_each do |class_or_module|
           constant = class_or_module.get_constant(name)
           return constant unless constant.nil?
         end
 
-        # 2. Class hierarchy look-up
+        # 2. Class/module hierarchy look-up starting from innermost scope
         class_or_module = scopes.last
-        if class_or_module.is_a?(ClassObject)
+        if class_or_module
           constant = class_or_module.lookup_constant(name)
           return constant unless constant.nil?
         end

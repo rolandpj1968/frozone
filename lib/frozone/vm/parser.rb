@@ -447,7 +447,7 @@ module Frozone
             arg_pnodes = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments
             Ast::IntrinsicCall.new(prism_node.name, arg_pnodes.map { |pn| transform(pn) })
           else
-            receiver_node = prism_node.receiver.nil? ? nil : transform(prism_node.receiver)
+            receiver_node = (prism_node.receiver.nil? || prism_node.receiver.is_a?(Prism::SelfNode)) ? nil : transform(prism_node.receiver)
             arg_nodes = []
             kw_args = {}
             kw_splats = []

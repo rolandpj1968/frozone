@@ -20,11 +20,34 @@ module Frozone
 
         @exception_nodes.any? do |exc_node|
           frozone_class = exc_node.evaluate(context)
-          exception_is_a?(e, frozone_class)
+          # Splatted rescue list: *[ExcA, ExcB] evaluates to an ArrayObject
+          if frozone_class.is_a?(Vm::ArrayObject)
+            frozone_class.raw.any? { |fc| exception_matches?(e, fc, context) }
+          else
+            exception_matches?(e, frozone_class, context)
+          end
         end
       end
 
       private
+
+      # Check whether exception e matches frozone_class using ===.
+      def exception_matches?(e, frozone_class, context)
+        vm_obj = e.is_a?(Vm::FrozoneException) ? e.vm_object : nil
+
+        # Try VM dispatch of === if frozone_class is a VM object with dispatch
+        if frozone_class.respond_to?(:dispatch) && vm_obj
+          begin
+            result = frozone_class.dispatch(context, :===, [vm_obj], {})
+            return result.truthy?
+          rescue
+            # fall through to class hierarchy check
+          end
+        end
+
+        # Fallback: walk the class hierarchy
+        exception_is_a?(e, frozone_class)
+      end
 
       # Check whether exception e is an instance of (or subclass of) frozone_class.
       def exception_is_a?(e, frozone_class)
@@ -93,13 +116,15 @@ module Frozone
             rescue RetryException
               retry_requested = true
             end
+          else
+            result = @else_node.evaluate(context) if @else_node
           ensure
             @ensure_node&.evaluate(context)
           end
           break unless retry_requested
         end
 
-        !rescued && @else_node ? @else_node.evaluate(context) : result
+        result
       end
     end
   end

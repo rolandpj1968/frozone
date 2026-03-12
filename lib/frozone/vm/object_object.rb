@@ -80,7 +80,7 @@ module Frozone
 
         mm = lookup_instance_method(:method_missing)
         raise "BUG: method_missing not defined on #{@class_object.name}" if mm.nil?
-        mm.invoke(context, self, [name] + args, kw_args, nil)
+        mm.invoke(context, self, [SymbolObject.from(name)] + args, kw_args, nil)
       end
 
       def inspect = "#<#{self.class.name}>"
