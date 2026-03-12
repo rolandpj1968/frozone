@@ -16,7 +16,11 @@ module Frozone
 
       # Does this clause match the given host-Ruby exception in context?
       def matches?(e, context)
-        return true if @exception_nodes.empty?  # bare rescue
+        # bare rescue catches StandardError and subclasses (not Exception)
+        if @exception_nodes.empty?
+          std_error = Vm::Core::OBJECT_CLASS.get_constant(:StandardError)
+          return std_error ? exception_matches?(e, std_error, context) : true
+        end
 
         @exception_nodes.any? do |exc_node|
           frozone_class = exc_node.evaluate(context)
@@ -33,6 +37,11 @@ module Frozone
 
       # Check whether exception e matches frozone_class using ===.
       def exception_matches?(e, frozone_class, context)
+        # Ruby raises TypeError for non-Module/Class rescue clauses
+        unless frozone_class.is_a?(Vm::ClassObject) || frozone_class.is_a?(Vm::ModuleObject)
+          raise Vm::FrozoneException.make(:TypeError, "class or module required for rescue clause")
+        end
+
         vm_obj = e.is_a?(Vm::FrozoneException) ? e.vm_object : nil
 
         # Try VM dispatch of === if frozone_class is a VM object with dispatch
@@ -40,6 +49,8 @@ module Frozone
           begin
             result = frozone_class.dispatch(context, :===, [vm_obj], {}, nil, private_ok: true)
             return result.truthy?
+          rescue Vm::FrozoneException
+            raise
           rescue
             # fall through to class hierarchy check
           end
@@ -106,6 +117,8 @@ module Frozone
 
             rescued = true
             vm_val = e.is_a?(Vm::FrozoneException) ? e.vm_object : Vm::StringObject.new(e.message)
+            prev_dollar_bang = Vm::GLOBALS[:"$!"]
+            Vm::GLOBALS[:"$!"] = vm_val
             if clause.var_name
               context.frame.frame_at_depth(clause.var_depth).set_local(clause.var_name, vm_val)
             elsif clause.assign_node
@@ -115,6 +128,8 @@ module Frozone
               result = clause.body.evaluate(context)
             rescue RetryException
               retry_requested = true
+            ensure
+              Vm::GLOBALS[:"$!"] = prev_dollar_bang || Vm::NilObject::NIL
             end
           else
             result = @else_node.evaluate(context) if @else_node

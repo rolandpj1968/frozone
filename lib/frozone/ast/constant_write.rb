@@ -14,7 +14,7 @@ module Frozone
       def evaluate(context) = store(context, @value_node.evaluate(context))
 
       def store(context, value)
-        context.scopes.last.set_constant(@name, value)
+        context.frame.scopes.last.set_constant(@name, value)
         value
       end
     end

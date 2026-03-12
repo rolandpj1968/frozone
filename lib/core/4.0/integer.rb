@@ -26,7 +26,7 @@ class Integer
   def positive? = self > 0
   def negative? = self < 0
   def to_i = self
-  def to_s = Intrinsics.integer_to_s(self)
+  def to_s(base = nil) = Intrinsics.integer_to_s(self, base)
   def inspect = to_s
 
   def <=>(v) = Intrinsics.integer_spaceship(self, v)

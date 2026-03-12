@@ -8,7 +8,7 @@ module Frozone
           @locals[local] = NilObject::NIL
         end
         @the_self = the_self
-        @scopes = scopes
+        @scopes = scopes.frozen? ? scopes : scopes.dup.freeze
         @parent_frame = parent_frame
         @block = nil
       end
