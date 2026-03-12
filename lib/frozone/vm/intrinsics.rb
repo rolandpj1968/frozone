@@ -1204,49 +1204,8 @@ module Frozone
           bool_object_for(result)
         end
 
-        def array_intersection(_, v1, v2)
-          r1 = v1.raw; r2 = v2.raw
-          ArrayObject.new(r1 & r2)
-        end
 
-        def array_union(_, v1, v2)
-          ArrayObject.new(v1.raw | v2.raw)
-        end
 
-        def array_difference(_, v1, v2)
-          ArrayObject.new(v1.raw - v2.raw)
-        end
-
-        def array_plus(_, v1, v2)
-          ArrayObject.new(v1.raw + v2.raw)
-        end
-
-        def array_multiply(_, v, n)
-          n.is_a?(IntegerObject) ? ArrayObject.new(v.raw * n.raw) : StringObject.new(v.raw.map { |e| e.dispatch(Fiber[:context], :to_s, [], {}).raw }.join(n.raw))
-        end
-
-        def array_flatten(_, v, depth = nil)
-          depth = nil if depth.is_a?(NilObject)
-          result = depth.nil? ? v.raw.flatten : v.raw.flatten(depth.raw)
-          ArrayObject.new(result.map { |e| e.is_a?(ArrayObject) ? e : e })
-        end
-
-        def array_compact(_, v)
-          ArrayObject.new(v.raw.reject { |e| e.is_a?(NilObject) })
-        end
-
-        def array_compact_bang(_, v)
-          before = v.raw.length
-          v.raw.reject! { |e| e.is_a?(NilObject) }
-          v.raw.length == before ? NilObject::NIL : v
-        end
-
-        def array_uniq(_, v)
-          seen = {}
-          result = []
-          v.raw.each { |e| (seen[e.__id__] = result << e) unless seen[e.__id__] }
-          ArrayObject.new(result)
-        end
 
         def array_sort(context, v)
           ArrayObject.new(v.raw.sort { |a, b| a.dispatch(context, :<=>, [b], {}).raw })
@@ -1254,28 +1213,6 @@ module Frozone
 
         def array_sort_by(context, v, block)
           ArrayObject.new(v.raw.sort_by { |e| block.invoke(context, [e]) })
-        end
-
-        def array_min(context, v)
-          v.raw.empty? ? NilObject::NIL : v.raw.min { |a, b| a.dispatch(context, :<=>, [b], {}).raw }
-        end
-
-        def array_max(context, v)
-          v.raw.empty? ? NilObject::NIL : v.raw.max { |a, b| a.dispatch(context, :<=>, [b], {}).raw }
-        end
-
-        def array_sum(context, v, initial = nil)
-          initial = initial.nil? || initial.is_a?(NilObject) ? IntegerObject.new(0) : initial
-          v.raw.reduce(initial) { |acc, e| acc.dispatch(context, :+, [e], {}) }
-        end
-
-        def array_join(_, v, sep = nil)
-          sep = sep.nil? || sep.is_a?(NilObject) ? '' : sep.raw
-          StringObject.new(v.raw.map { |e| e.dispatch(Fiber[:context], :to_s, [], {}).raw }.join(sep))
-        end
-
-        def array_include(_, v, elem)
-          bool_object_for(v.raw.any? { |e| e.equal?(elem) || (e.respond_to?(:raw) && elem.respond_to?(:raw) && e.raw == elem.raw) })
         end
 
         def array_empty(_, v) = bool_object_for(v.raw.empty?)
@@ -1325,28 +1262,6 @@ module Frozone
         def array_count(context, v, block = nil)
           return IntegerObject.new(v.raw.size) if block.nil? || block.is_a?(NilObject)
           IntegerObject.new(v.raw.count { |e| block.invoke(context, [e]).truthy? })
-        end
-
-        def array_each_with_object(context, v, obj, block)
-          v.raw.each { |e| block.invoke(context, [e, obj]) }
-          obj
-        end
-
-        def array_flat_map(context, v, block)
-          ArrayObject.new(v.raw.flat_map { |e| r = block.invoke(context, [e]); r.is_a?(ArrayObject) ? r.raw : [r] })
-        end
-
-        def array_zip(_, v, *others)
-          result = v.raw.zip(*others.map { |o| o.is_a?(ArrayObject) ? o.raw : o.raw })
-          ArrayObject.new(result.map { |r| ArrayObject.new(r.map { |e| e.nil? ? NilObject::NIL : e }) })
-        end
-
-        def array_take(_, v, n) = ArrayObject.new(v.raw.take(n.raw))
-        def array_drop(_, v, n) = ArrayObject.new(v.raw.drop(n.raw))
-
-        def array_rotate(_, v, n = nil)
-          n = n.nil? || n.is_a?(NilObject) ? 1 : n.raw
-          ArrayObject.new(v.raw.rotate(n))
         end
 
         def array_sample(_, v) = v.raw.empty? ? NilObject::NIL : v.raw.sample
@@ -1504,38 +1419,6 @@ module Frozone
           h
         end
 
-        def hash_each_pair(context, h, block)
-          h.raw.each { |k, v| block.invoke(context, [k, v]) }
-          h
-        end
-
-        def hash_each_key(context, h, block)
-          h.raw.each { |k, _v| block.invoke(context, [k]) }
-          h
-        end
-
-        def hash_each_value(context, h, block)
-          h.raw.each { |_k, v| block.invoke(context, [v]) }
-          h
-        end
-
-        def hash_keys(_, h) = ArrayObject.new(h.raw.keys)
-        def hash_values(_, h) = ArrayObject.new(h.raw.values)
-        def hash_to_a(_, h) = ArrayObject.new(h.raw.map { |k, v| ArrayObject.new([k, v]) })
-        def hash_empty(_, h) = bool_object_for(h.raw.empty?)
-
-        def hash_merge(_, h1, h2)
-          result = h1.raw.merge(h2.raw)
-          new_h = HashObject.new
-          result.each { |k, v| new_h[k] = v }
-          new_h
-        end
-
-        def hash_update(_, h1, h2)
-          h2.raw.each { |k, v| h1[k] = v }
-          h1
-        end
-
         def hash_delete(_, h, key)
           val = h[key]
           h.delete(key)
@@ -1549,41 +1432,6 @@ module Frozone
           raise FrozoneException.make(:KeyError, "key not found")
         end
 
-        def hash_select(context, h, block)
-          new_h = HashObject.new
-          h.raw.each { |k, v| new_h[k] = v if block.invoke(context, [k, v]).truthy? }
-          new_h
-        end
-
-        def hash_reject(context, h, block)
-          new_h = HashObject.new
-          h.raw.each { |k, v| new_h[k] = v unless block.invoke(context, [k, v]).truthy? }
-          new_h
-        end
-
-        def hash_map(context, h, block)
-          ArrayObject.new(h.raw.map { |k, v| block.invoke(context, [k, v]) })
-        end
-
-        def hash_any(context, h, block)
-          bool_object_for(h.raw.any? { |k, v| block.invoke(context, [k, v]).truthy? })
-        end
-
-        def hash_all(context, h, block)
-          bool_object_for(h.raw.all? { |k, v| block.invoke(context, [k, v]).truthy? })
-        end
-
-        def hash_none(context, h, block)
-          bool_object_for(h.raw.none? { |k, v| block.invoke(context, [k, v]).truthy? })
-        end
-
-        def hash_to_s(_, h)
-          pairs = h.raw.map { |k, v| "#{k.dispatch(Fiber[:context], :inspect, [], {}).raw}=>#{v.dispatch(Fiber[:context], :inspect, [], {}).raw}" }
-          StringObject.new("{#{pairs.join(', ')}}")
-        end
-
-        def hash_value(_, h, v) = bool_object_for(h.raw.any? { |_k, val| val.equal?(v) })
-
         def hash_freeze(_, h) = h
         def hash_frozen(_, h) = bool_object_for(false)
         def hash_dup(_, h)
@@ -1592,10 +1440,6 @@ module Frozone
           new_h
         end
 
-        def hash_count(context, h, block = nil)
-          return IntegerObject.new(h.raw.size) if block.nil?
-          IntegerObject.new(h.raw.count { |k, v| block.invoke(context, [k, v]).truthy? })
-        end
       end
 
       # Integer

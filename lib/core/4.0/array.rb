@@ -39,26 +39,70 @@ class Array
   def hash = Intrinsics.array_hash(self)
   def eql?(v) = Intrinsics.array_eql(self, v)
 
-  def &(other) = Intrinsics.array_intersection(self, other)
-  def |(other) = Intrinsics.array_union(self, other)
-  def -(other) = Intrinsics.array_difference(self, other)
-  def +(other) = Intrinsics.array_plus(self, other)
-  def *(n) = Intrinsics.array_multiply(self, n)
+  def &(other)
+    set = {}; other.each { |e| set[e] = true }
+    seen = {}; r = []
+    each { |e| r << e and seen[e] = true if set.key?(e) && !seen.key?(e) }
+    r
+  end
+  def |(other)
+    seen = {}; r = []
+    each { |e| r << e and seen[e] = true unless seen.key?(e) }
+    other.each { |e| r << e and seen[e] = true unless seen.key?(e) }
+    r
+  end
+  def -(other)
+    set = {}; other.each { |e| set[e] = true }
+    reject { |e| set.key?(e) }
+  end
+  def +(other); r = dup; r.concat(other); r; end
+  def *(n)
+    if n.is_a?(Integer)
+      r = []; n.times { r.concat(self) }; r
+    else
+      join(n)
+    end
+  end
 
-  def flatten(depth = nil) = Intrinsics.array_flatten(self, depth)
-  def compact  = Intrinsics.array_compact(self)
-  def compact! = Intrinsics.array_compact_bang(self)
-  def uniq = Intrinsics.array_uniq(self)
+  def flatten(depth = nil)
+    r = []
+    each { |e|
+      if e.is_a?(Array) && (depth.nil? || depth > 0)
+        e.flatten(depth.nil? ? nil : depth - 1).each { |x| r << x }
+      else
+        r << e
+      end
+    }
+    r
+  end
+
+  def compact;  reject { |x| x.nil? }; end
+  def compact!; reject! { |x| x.nil? }; end
+  def uniq; seen = {}; r = []; each { |e| r << e and seen[e] = true unless seen.key?(e) }; r; end
   def reverse = Intrinsics.array_reverse(self)
-  def reverse! = Intrinsics.array_reverse(self)
+  def reverse!; replace(reverse); self; end
   def sort = Intrinsics.array_sort(self)
-  def sort! = Intrinsics.array_sort(self)
+  def sort!; replace(sort); self; end
   def sort_by(&block) = Intrinsics.array_sort_by(self, block)
-  def min = Intrinsics.array_min(self)
-  def max = Intrinsics.array_max(self)
-  def sum(initial = nil) = Intrinsics.array_sum(self, initial)
-  def join(sep = nil) = Intrinsics.array_join(self, sep)
-  def include?(elem) = Intrinsics.array_include(self, elem)
+  def min; empty? ? nil : reduce { |a, b| (a <=> b) <= 0 ? a : b }; end
+  def max; empty? ? nil : reduce { |a, b| (a <=> b) >= 0 ? a : b }; end
+  def sum(initial = nil)
+    acc = initial.nil? ? 0 : initial
+    each { |e| acc = acc + e }
+    acc
+  end
+  def join(sep = nil)
+    sep_str = sep.nil? ? '' : sep.to_s
+    result = ''
+    first = true
+    each { |e|
+      result << sep_str unless first
+      result << (e.is_a?(Array) ? e.join(sep) : e.to_s)
+      first = false
+    }
+    result
+  end
+  def include?(elem); any? { |x| x == elem }; end
   def pop = Intrinsics.array_pop(self)
   def shift = Intrinsics.array_shift(self)
   def unshift(*elems) = Intrinsics.array_unshift(self, *elems)
@@ -67,12 +111,36 @@ class Array
   def delete_if(&block) = Intrinsics.array_delete_if(self, block)
   def index(elem = nil) = Intrinsics.array_index_of(self, elem)
   alias find_index index
-  def take(n) = Intrinsics.array_take(self, n)
-  def drop(n) = Intrinsics.array_drop(self, n)
-  def rotate(n = nil) = Intrinsics.array_rotate(self, n)
+  def take(n)
+    r = []; i = 0
+    while i < n && i < length; r << self[i]; i += 1; end
+    r
+  end
+  def drop(n)
+    r = []; i = n
+    while i < length; r << self[i]; i += 1; end
+    r
+  end
+  def rotate(n = nil)
+    n = n.nil? ? 1 : n
+    return dup if empty?
+    n = n % length
+    return dup if n == 0
+    self[n, length - n] + self[0, n]
+  end
   def sample = Intrinsics.array_sample(self)
   def shuffle = Intrinsics.array_shuffle(self)
-  def zip(*others) = Intrinsics.array_zip(self, *others)
+  def zip(*others)
+    result = []
+    i = 0
+    while i < length
+      row = [self[i]]
+      others.each { |o| row << (i < o.length ? o[i] : nil) }
+      result << row
+      i += 1
+    end
+    result
+  end
   def combination(n, &block) = Intrinsics.array_combination(self, n, block)
   def permutation(n = nil, &block) = Intrinsics.array_permutation(self, n, block)
 
@@ -97,11 +165,21 @@ class Array
   def select!(&block);   n = length; r = select(&block); replace(r); n == length ? nil : self; end
   alias filter! select!
 
-  def flat_map(&block) = Intrinsics.array_flat_map(self, block)
+  def flat_map(&block)
+    r = []
+    each { |e|
+      v = block ? block.call(e) : yield(e)
+      v.is_a?(Array) ? v.each { |x| r << x } : r << v
+    }
+    r
+  end
   alias collect_concat flat_map
 
   def each_with_index; i = 0; each { |x| yield x, i; i += 1 }; self; end
-  def each_with_object(obj, &block) = Intrinsics.array_each_with_object(self, obj, block)
+  def each_with_object(obj, &block)
+    each { |e| block ? block.call(e, obj) : yield(e, obj) }
+    obj
+  end
 
   def find; each { |x| return x if yield(x) }; nil; end
   alias detect find
