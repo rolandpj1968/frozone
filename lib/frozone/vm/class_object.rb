@@ -7,12 +7,12 @@ module Frozone
     class ClassObject < ModuleObject
       include Utils
 
+      attr_reader :superclass
+
       def initialize(name, namespace, superclass)
         super(name, namespace, defined?(Core::CLASS_CLASS) ? Core::CLASS_CLASS : nil)
         @superclass = check_nil_or_type("superclass", superclass, ClassObject)
       end
-
-      def superclass = @superclass
 
       def to_s = "class(#{@name})"
 

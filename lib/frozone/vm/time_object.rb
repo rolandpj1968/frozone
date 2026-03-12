@@ -4,12 +4,13 @@ require_relative 'core'
 module Frozone
   module Vm
     class TimeObject < ObjectObject
+      attr_reader :raw
+
       def initialize(time)
         super(Core::OBJECT_CLASS.get_constant(:Time))
-        @time = time
+        @raw = time
       end
 
-      def raw = @time
       def truthy? = true
     end
   end

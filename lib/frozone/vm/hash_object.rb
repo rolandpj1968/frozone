@@ -7,15 +7,17 @@ module Frozone
       # Wrapper to call the real #hash and #eql? methods on Frozone objects.
       # Keys are always stored wrapped so mutations stay consistent.
       class KeyWrapper
+        attr_reader :unwrap
+
         def initialize(key)
-          @key = key
+          @unwrap = key
         end
 
-        def unwrap = @key
-
-        def hash = @key.dispatch(Fiber[:context], :hash, [], {}).raw
-        def eql?(v) = v.is_a?(KeyWrapper) && @key.dispatch(Fiber[:context], :eql?, [v.unwrap], {}).truthy?
+        def hash = @unwrap.dispatch(Fiber[:context], :hash, [], {}).raw
+        def eql?(v) = v.is_a?(KeyWrapper) && @unwrap.dispatch(Fiber[:context], :eql?, [v.unwrap], {}).truthy?
       end
+
+      attr_reader :default_block, :default_value
 
       def initialize(elements = {}, default_value: nil, default_block: nil)
         raise "HashObject must have an Hash elements" unless elements.is_a?(Hash)
@@ -26,8 +28,6 @@ module Frozone
         @default_value = default_value
         @default_block = default_block
       end
-
-      attr_reader :default_block, :default_value
 
       # Returns a Hash with the original VM-object keys (unwrapped).
       def raw = @elements.transform_keys(&:unwrap)

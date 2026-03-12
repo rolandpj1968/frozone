@@ -4,13 +4,14 @@ require_relative '../ast/return'
 module Frozone
   module Vm
     class ProcObject < ObjectObject
+      attr_reader :block_object
+
       def initialize(block_object, lambda: false)
         super(Core::OBJECT_CLASS.get_constant(:Proc))
         @block_object = block_object
         @lambda = lambda
       end
 
-      def block_object = @block_object
       def lambda? = @lambda
 
       def call(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil)

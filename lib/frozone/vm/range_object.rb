@@ -3,6 +3,8 @@ require_relative 'object_object'
 module Frozone
   module Vm
     class RangeObject < ObjectObject
+      attr_reader :begin_val, :end_val, :exclusive
+
       def initialize(begin_val, end_val, exclusive)
         super(Core::OBJECT_CLASS.get_constant(:Range))
         @begin_val = begin_val
@@ -10,7 +12,6 @@ module Frozone
         @exclusive = exclusive
       end
 
-      attr_reader :begin_val, :end_val, :exclusive
       def exclusive? = @exclusive
 
       def raw

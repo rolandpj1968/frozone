@@ -4,12 +4,13 @@ require_relative 'core'
 module Frozone
   module Vm
     class FloatObject < ObjectObject
+      attr_reader :raw
+
       def initialize(value)
         super(Core::OBJECT_CLASS.get_constant(:Float))
-        @value = value
+        @raw = value
       end
 
-      def raw = @value
       def truthy? = true
     end
   end

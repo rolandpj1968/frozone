@@ -6,6 +6,9 @@ module Frozone
   module Vm
     class ModuleObject < ObjectObject
       # TODO - the Module class _can_ be subclassed in ruby - need to work out how to deal with that
+      attr_reader :name, :class_variables
+      attr_accessor :current_visibility
+
       def initialize(name, namespace, class_object = Core::MODULE_CLASS)
         super(class_object)
 
@@ -18,10 +21,6 @@ module Frozone
         @class_variables = {}
         @current_visibility = :public
       end
-
-      attr_accessor :current_visibility
-
-      def name = @name
 
       def to_s = "module #{@name}"
 
@@ -60,8 +59,6 @@ module Frozone
         # (callers must check for UNDEF_SENTINEL to stop lookup)
         v == UNDEF_SENTINEL ? UNDEF_SENTINEL : v
       end
-
-      attr_reader :class_variables
 
       def get_class_var(name)
         # walk superclass chain

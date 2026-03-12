@@ -5,6 +5,8 @@ module Frozone
 
       def self.end_bootstrap! = @@bootstrapping = false
 
+      attr_reader :class_object, :eigenclass
+
       def initialize(class_object)
         unless @@bootstrapping || class_object.is_a?(ClassObject)
           raise "ObjectObject class_object must be a ClassObject"
@@ -14,9 +16,7 @@ module Frozone
         @eigenclass = nil
       end
 
-      def class_object  = @class_object
-      def eigenclass    = @eigenclass
-      def lookup_class  = @eigenclass || @class_object
+      def lookup_class = @eigenclass || @class_object
 
       def create_singleton_class
         return if @eigenclass

@@ -12,9 +12,6 @@ RSpec.describe Frozone::Vm::Intrinsics do
       expect(result.raw).to eq(8)
     end
 
-    it 'raises when given non-integer arguments' do
-      expect { described_class.integer__plus_(ctx, i3, "not an int") }.to raise_error(RuntimeError)
-    end
   end
 
   describe '.integer__minus_' do

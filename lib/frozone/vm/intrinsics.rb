@@ -1,11 +1,7 @@
 module Frozone
   module Vm
     module Intrinsics
-      StrictTypes = true
-
       class << self
-        def bool_object_for(bool) = bool ? TrueObject::TRUE : FalseObject::FALSE
-
         # Object
         def object_class(_, v) = v.class_object
 
@@ -18,12 +14,6 @@ module Frozone
             c = c.superclass
           end
           FalseObject::FALSE
-        end
-
-
-        def normalize_ivar(name)
-          sym = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
-          :"@#{sym.to_s.delete_prefix('@')}"
         end
 
         def object_ivar_get(_, v, name)
@@ -58,33 +48,6 @@ module Frozone
               FalseObject::FALSE
             end
           end
-        end
-
-        def collect_method_names(v, include_super, &visibility_ok)
-          seen = {}
-          result = []
-          sources = []
-          sources << v.singleton_class if v.eigenclass
-          if include_super
-            c = v.class_object
-            while c
-              sources << c
-              c.modules.reverse_each { |m| sources << m }
-              c = c.is_a?(ClassObject) ? c.superclass : nil
-            end
-          else
-            sources << v.class_object
-          end
-          sources.each do |mod|
-            mod.instance_variable_get(:@methods).each do |name, meth|
-              next if seen[name]
-              seen[name] = true
-              next if meth == ModuleObject::UNDEF_SENTINEL
-              next unless visibility_ok.call(meth.visibility)
-              result << SymbolObject.from(name)
-            end
-          end
-          ArrayObject.new(result)
         end
 
         def object_methods(_, v, include_super_obj = TrueObject::TRUE)
@@ -581,30 +544,6 @@ module Frozone
         def toplevel_private(context, _, names)   = module_set_visibility(context, Core::OBJECT_CLASS, names, :private)
         def toplevel_protected(context, _, names) = module_set_visibility(context, Core::OBJECT_CLASS, names, :protected)
 
-        private
-
-        def module_set_visibility(_, receiver, names, vis)
-          raise "module_set_visibility: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
-          if names.raw.empty?
-            receiver.current_visibility = vis
-          else
-            names.raw.each do |name_obj|
-              name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
-              m = receiver.get_method(name)
-              if m.nil?
-                # If not in own methods, look up inherited (for classes/modules)
-                m = receiver.lookup_method(name)
-                next if m.nil?  # silently skip if not found (e.g. visibility change on singleton for inherited methods)
-                receiver.set_method(name, m)
-              end
-              m.visibility = vis
-            end
-          end
-          NilObject::NIL
-        end
-
-        public
-
         # Kernel require/load
         def kernel_require(_, _receiver, path_obj)
           path = path_obj.raw
@@ -722,21 +661,6 @@ module Frozone
           end
         end
 
-        private
-
-        def resolve_load_path(path)
-          path_rb = path.end_with?('.rb') ? path : "#{path}.rb"
-          return path_rb if File.exist?(path_rb)
-          load_path = GLOBALS[:"$LOAD_PATH"]
-          load_path&.raw&.each do |dir_obj|
-            full = File.join(dir_obj.raw, path_rb)
-            return full if File.exist?(full)
-          end
-          nil
-        end
-
-        public
-
         # Class
         def class_new(context, klass, args, kwargs, block = nil)
           raw_args = args.raw
@@ -805,6 +729,19 @@ module Frozone
         def integer_bit(_, v, n)      = IntegerObject.new(v.raw[n.raw])
         def integer_bit_length(_, v)  = IntegerObject.new(v.raw.bit_length)
 
+        def integer__lt_(_, v1, v2)  = bool_object_for(v1.raw <  v2.raw)
+        def integer__le_(_, v1, v2)  = bool_object_for(v1.raw <= v2.raw)
+        def integer__ge_(_, v1, v2)  = bool_object_for(v1.raw >= v2.raw)
+        def integer__gt_(_, v1, v2)  = bool_object_for(v1.raw >  v2.raw)
+        def integer__eq_(_, v1, v2)  = bool_object_for(v1.raw == v2.raw)
+
+        def integer__plus_(_, v1, v2)  = IntegerObject.new(v1.raw + v2.raw)
+        def integer__minus_(_, v1, v2) = IntegerObject.new(v1.raw - v2.raw)
+        def integer__mul_(_, v1, v2)   = IntegerObject.new(v1.raw * v2.raw)
+        def integer__div_(_, v1, v2)   = IntegerObject.new(v1.raw / v2.raw)
+        def integer__mod_(_, v1, v2)   = IntegerObject.new(v1.raw % v2.raw)
+        def integer__pow_(_, v1, v2)   = IntegerObject.new(v1.raw ** v2.raw)
+
         def integer_to_r(_, v)
           r_class = Core::OBJECT_CLASS.get_constant(:Rational)
           return StringObject.new("#{v.raw}/1") unless r_class
@@ -858,22 +795,17 @@ module Frozone
           ArrayObject.new([IntegerObject.new(q), FloatObject.new(r)])
         end
 
-        def def_float_bin_op(name, op)
-          eval "def float_#{name}(_, v1, v2); FloatObject.new(v1.raw #{op} v2.raw); end"
-        end
+        def float__lt_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? bool_object_for(v1.raw <  v2.raw) : FalseObject::FALSE
+        def float__le_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? bool_object_for(v1.raw <= v2.raw) : FalseObject::FALSE
+        def float__ge_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? bool_object_for(v1.raw >= v2.raw) : FalseObject::FALSE
+        def float__gt_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? bool_object_for(v1.raw >  v2.raw) : FalseObject::FALSE
 
-        def def_float_cmp(name, op)
-          eval "def float_#{name}(_, v1, v2); return FalseObject::FALSE unless v2.is_a?(FloatObject) || v2.is_a?(IntegerObject); bool_object_for(v1.raw #{op} v2.raw); end"
-        end
-
-        # Integer generated methods
-        def is_int(v) = v.is_a?(IntegerObject)
-
-        def check_integer_bin_args(op) = ("raise 'BUG: Integer #{op} intrinsic called with non-Integer values' unless is_int(v1) and is_int(v2)" if StrictTypes)
-
-        def def_integer_cmp(name, op) = eval "def integer_#{name}(_, v1, v2); #{check_integer_bin_args(op)}; bool_object_for(v1.raw #{op} v2.raw); end"
-
-        def def_integer_bin_op(name, op) = eval "def integer_#{name}(_, v1, v2); #{check_integer_bin_args(op)}; IntegerObject.new(v1.raw #{op} v2.raw); end"
+        def float__plus_(_, v1, v2)  = FloatObject.new(v1.raw + v2.raw)
+        def float__minus_(_, v1, v2) = FloatObject.new(v1.raw - v2.raw)
+        def float__mul_(_, v1, v2)   = FloatObject.new(v1.raw * v2.raw)
+        def float__div_(_, v1, v2)   = FloatObject.new(v1.raw / v2.raw)
+        def float__mod_(_, v1, v2)   = FloatObject.new(v1.raw % v2.raw)
+        def float__pow_(_, v1, v2)   = FloatObject.new(v1.raw ** v2.raw)
 
         # File / Dir
         def file_join(_, parts)
@@ -1137,7 +1069,7 @@ module Frozone
 
         def string_reverse_bang(_, v)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v.raw.inspect}") if v.frozen?
-          v.instance_variable_set(:@value, v.raw.reverse.freeze)
+          v.raw = v.raw.reverse.freeze
           v
         end
 
@@ -1204,20 +1136,19 @@ module Frozone
         def string_succ(_, v)          = StringObject.new(v.raw.succ)
 
         def string_succ_bang(_, v)
-          v.instance_variable_set(:@value, v.raw.succ.freeze)
+          v.raw = v.raw.succ.freeze
           v
         end
 
         def string_insert(_, v, index, str)
-          result = v.raw.dup.insert(index.raw, str.raw)
-          v.instance_variable_set(:@value, result.freeze)
+          v.raw = v.raw.dup.insert(index.raw, str.raw).freeze
           v
         end
 
         def string_slice_bang(_, v, idx, len = nil)
-          raw = v.raw.dup
-          result = len.is_a?(NilObject) || len.nil? ? raw.slice!(idx.raw) : raw.slice!(idx.raw, len.raw)
-          v.instance_variable_set(:@value, raw.freeze)
+          mutated = v.raw.dup
+          result = len.is_a?(NilObject) || len.nil? ? mutated.slice!(idx.raw) : mutated.slice!(idx.raw, len.raw)
+          v.raw = mutated.freeze
           result.nil? ? NilObject::NIL : StringObject.new(result)
         end
 
@@ -1471,33 +1402,73 @@ module Frozone
           val.nil? ? NilObject::NIL : val
         end
 
+        def bool_object_for(bool) = bool ? TrueObject::TRUE : FalseObject::FALSE
+
+        private
+
+        def normalize_ivar(name)
+          sym = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
+          :"@#{sym.to_s.delete_prefix('@')}"
+        end
+
+        def collect_method_names(v, include_super, &visibility_ok)
+          seen = {}
+          result = []
+          sources = []
+          sources << v.singleton_class if v.eigenclass
+          if include_super
+            c = v.class_object
+            while c
+              sources << c
+              c.modules.reverse_each { |m| sources << m }
+              c = c.is_a?(ClassObject) ? c.superclass : nil
+            end
+          else
+            sources << v.class_object
+          end
+          sources.each do |mod|
+            mod.instance_variable_get(:@methods).each do |name, meth|
+              next if seen[name]
+              seen[name] = true
+              next if meth == ModuleObject::UNDEF_SENTINEL
+              next unless visibility_ok.call(meth.visibility)
+              result << SymbolObject.from(name)
+            end
+          end
+          ArrayObject.new(result)
+        end
+
+        def module_set_visibility(_, receiver, names, vis)
+          raise "module_set_visibility: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
+          if names.raw.empty?
+            receiver.current_visibility = vis
+          else
+            names.raw.each do |name_obj|
+              name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+              m = receiver.get_method(name)
+              if m.nil?
+                m = receiver.lookup_method(name)
+                next if m.nil?
+                receiver.set_method(name, m)
+              end
+              m.visibility = vis
+            end
+          end
+          NilObject::NIL
+        end
+
+        def resolve_load_path(path)
+          path_rb = path.end_with?('.rb') ? path : "#{path}.rb"
+          return path_rb if File.exist?(path_rb)
+          load_path = GLOBALS[:"$LOAD_PATH"]
+          load_path&.raw&.each do |dir_obj|
+            full = File.join(dir_obj.raw, path_rb)
+            return full if File.exist?(full)
+          end
+          nil
+        end
+
       end
-
-      # Integer
-      def_integer_cmp('_lt_', '<')
-      def_integer_cmp('_le_', '<=')
-      def_integer_cmp('_ge_', '>=')
-      def_integer_cmp('_gt_', '>')
-      def_integer_cmp('_eq_', '==') # TODO - should be alias for ===
-
-      def_integer_bin_op('_plus_', '+')
-      def_integer_bin_op('_minus_', '-')
-      def_integer_bin_op('_mul_', '*')
-      def_integer_bin_op('_div_', '/')
-      def_integer_bin_op('_mod_', '%')
-      def_integer_bin_op('_pow_', '**')
-
-      # Float
-      def_float_cmp('_lt_', '<')
-      def_float_cmp('_le_', '<=')
-      def_float_cmp('_ge_', '>=')
-      def_float_cmp('_gt_', '>')
-      def_float_bin_op('_plus_', '+')
-      def_float_bin_op('_minus_', '-')
-      def_float_bin_op('_mul_', '*')
-      def_float_bin_op('_div_', '/')
-      def_float_bin_op('_mod_', '%')
-      def_float_bin_op('_pow_', '**')
     end
   end
 end

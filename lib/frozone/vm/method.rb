@@ -11,6 +11,11 @@ module Frozone
     class Method
       include Utils
 
+      attr_reader :name, :scopes
+      attr_reader :required_params, :optional_params, :rest_param, :post_params
+      attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
+      attr_accessor :visibility
+
       def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body)
         @scopes = self.class.unique_scopes(check_array_type("scopes", scopes, ModuleObject))
         @name = check_type("name", name, Symbol)
@@ -30,10 +35,6 @@ module Frozone
         @body = check_type("body", body, Ast::Node)
         @visibility = :public
       end
-
-      attr_accessor :visibility
-      attr_reader :required_params, :optional_params, :rest_param, :post_params
-      attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
 
       def populate_params(context, new_frame, args)
         min_args_expected = @required_params.length + @post_params.length
@@ -105,9 +106,6 @@ module Frozone
           new_frame.set_local(@kw_rest_param, HashObject.new(kw_rest))
         end
       end
-
-      def name = @name
-      def scopes = @scopes
 
       private
 
