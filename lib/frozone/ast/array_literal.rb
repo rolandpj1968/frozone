@@ -5,7 +5,7 @@ module Frozone
   module Ast
     class ArrayLiteral < Node
       def initialize(element_nodes)
-        @element_nodes = check_array_type("element_nodes", element_nodes, Node)
+        @element_nodes = element_nodes
       end
 
       def to_s = "arr(TODO)"

@@ -7,12 +7,12 @@ module Frozone
   module Ast
     class ModuleDef < Node
       def initialize(name, locals, body, namespace_node: nil)
-        @name = check_type("name", name, Symbol)
+        @name = name
 
-        @locals = check_array_type("locals", locals, Symbol)
+        @locals = locals
 
-        @namespace_node = check_nil_or_type("namespace_node", namespace_node, Node)
-        @body = check_type("body", body, Node)
+        @namespace_node = namespace_node
+        @body = body
       end
 
       def to_s

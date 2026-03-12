@@ -6,7 +6,7 @@ module Frozone
   module Ast
     class ConstantRead < Node
       def initialize(name)
-        @name = check_type("name", name, Symbol)
+        @name = name
       end
 
       def to_s = "con(#{@name})"

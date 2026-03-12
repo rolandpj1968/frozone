@@ -4,8 +4,8 @@ module Frozone
   module Ast
     class Until < Node
       def initialize(condition_node, body_node, begin_modifier: false)
-        @condition_node = check_type("condition_node", condition_node, Node)
-        @body_node = check_type("body_node", body_node, Node)
+        @condition_node = condition_node
+        @body_node = body_node
         @begin_modifier = begin_modifier
       end
 

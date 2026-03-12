@@ -1,17 +1,14 @@
-require_relative '../utils'
 require_relative 'module_object'
 require_relative 'object_object'
 
 module Frozone
   module Vm
     class ClassObject < ModuleObject
-      include Utils
-
       attr_reader :superclass
 
       def initialize(name, namespace, superclass)
         super(name, namespace, defined?(Core::CLASS_CLASS) ? Core::CLASS_CLASS : nil)
-        @superclass = check_nil_or_type("superclass", superclass, ClassObject)
+        @superclass = superclass
       end
 
       def to_s = "class(#{@name})"

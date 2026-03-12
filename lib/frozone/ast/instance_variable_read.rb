@@ -4,7 +4,7 @@ module Frozone
   module Ast
     class InstanceVariableRead < Node
       def initialize(name)
-        @name = check_type("name", name, Symbol)
+        @name = name
       end
 
       def to_s = "ivar(#{@name})"

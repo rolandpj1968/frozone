@@ -5,7 +5,7 @@ module Frozone
   module Ast
     class IntegerLiteral < Node
       def initialize(value)
-        @value = check_type("value", value, Vm::IntegerObject)
+        @value = value
       end
 
       # Only via IntegerLiteral.from

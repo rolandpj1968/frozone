@@ -7,7 +7,7 @@ module Frozone
     class IntrinsicCall < Node
       def initialize(name, param_nodes)
         @method = self.class.method_for(name)
-        @param_nodes = check_array_type("param_nodes", param_nodes, Node)
+        @param_nodes = param_nodes
       end
 
       def to_s

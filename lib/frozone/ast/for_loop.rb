@@ -17,8 +17,8 @@ module Frozone
     class ForLoop < Node
       def initialize(target, collection_node, body_node)
         @target = target
-        @collection_node = check_type("collection_node", collection_node, Node)
-        @body_node = check_type("body_node", body_node, Node)
+        @collection_node = collection_node
+        @body_node = body_node
       end
 
       def evaluate(context)

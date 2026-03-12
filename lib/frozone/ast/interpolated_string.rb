@@ -4,7 +4,7 @@ module Frozone
   module Ast
     class InterpolatedString < Node
       def initialize(parts)
-        @parts = check_array_type("parts", parts, Node)
+        @parts = parts
       end
 
       def to_s = "interp_str(#{@parts.map(&:to_s).join(', ')})"

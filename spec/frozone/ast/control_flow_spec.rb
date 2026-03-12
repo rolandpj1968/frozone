@@ -14,13 +14,6 @@ RSpec.describe Frozone::Ast::If do
       expect { described_class.new(true_node, int1, nil)  }.not_to raise_error
     end
 
-    it 'raises when pred_node is not a Node' do
-      expect { described_class.new("bad", int1, nil) }.to raise_error(RuntimeError)
-    end
-
-    it 'raises when then_node is not a Node' do
-      expect { described_class.new(true_node, "bad", nil) }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do
@@ -70,9 +63,6 @@ RSpec.describe Frozone::Ast::Sequence do
       expect { described_class.new([int1]) }.not_to raise_error
     end
 
-    it 'raises when elements are not Nodes' do
-      expect { described_class.new(["bad"]) }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do
@@ -113,13 +103,6 @@ RSpec.describe Frozone::Ast::Or do
       expect { described_class.new(true_node, false_node) }.not_to raise_error
     end
 
-    it 'raises when left_node is not a Node' do
-      expect { described_class.new("bad", false_node) }.to raise_error(RuntimeError)
-    end
-
-    it 'raises when right_node is not a Node' do
-      expect { described_class.new(true_node, "bad") }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do

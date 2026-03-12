@@ -6,9 +6,9 @@ module Frozone
     # Ruby semantics: the value of `a.foo = val` is `val`, regardless of what `foo=` returns
     class AttributeWrite < Node
       def initialize(name, receiver_node, arg_nodes, kw_arg_nodes, safe_nav: false)
-        @name          = check_type("name", name, Symbol)
-        @receiver_node = check_nil_or_type("receiver_node", receiver_node, Node)
-        @arg_nodes     = check_array_type("arg_nodes", arg_nodes, Node)
+        @name          = name
+        @receiver_node = receiver_node
+        @arg_nodes     = arg_nodes
         @kw_arg_nodes  = kw_arg_nodes
         @safe_nav      = safe_nav
       end

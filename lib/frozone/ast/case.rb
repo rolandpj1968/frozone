@@ -7,9 +7,9 @@ module Frozone
       When = Struct.new(:condition_nodes, :body_node)
 
       def initialize(subject_node, whens, else_node)
-        @subject_node = check_nil_or_type("subject_node", subject_node, Node)
+        @subject_node = subject_node
         @whens = whens
-        @else_node = check_nil_or_type("else_node", else_node, Node)
+        @else_node = else_node
       end
 
       def to_s = "case(#{@subject_node}, #{@whens.length} whens)"

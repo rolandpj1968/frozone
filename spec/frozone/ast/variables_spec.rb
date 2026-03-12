@@ -6,13 +6,6 @@ RSpec.describe Frozone::Ast::LocalVariableRead do
       expect { described_class.new(:x, 0) }.not_to raise_error
     end
 
-    it 'raises when name is not a Symbol' do
-      expect { described_class.new("x", 0) }.to raise_error(RuntimeError)
-    end
-
-    it 'raises when depth is not an Integer' do
-      expect { described_class.new(:x, "0") }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do
@@ -49,9 +42,6 @@ RSpec.describe Frozone::Ast::ConstantRead do
       expect { described_class.new(:MY_CONST) }.not_to raise_error
     end
 
-    it 'raises when name is not a Symbol' do
-      expect { described_class.new("MY_CONST") }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do
@@ -95,13 +85,6 @@ RSpec.describe Frozone::Ast::ConstantWrite do
       expect { described_class.new(:C, Frozone::Ast::NilLiteral::NIL) }.not_to raise_error
     end
 
-    it 'raises when name is not a Symbol' do
-      expect { described_class.new("C", Frozone::Ast::NilLiteral::NIL) }.to raise_error(RuntimeError)
-    end
-
-    it 'raises when value_node is not a Node' do
-      expect { described_class.new(:C, "bad") }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do

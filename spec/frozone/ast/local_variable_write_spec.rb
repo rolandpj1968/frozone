@@ -7,18 +7,6 @@ RSpec.describe Frozone::Ast::LocalVariableWrite do
         described_class.new(:x, 0, Frozone::Ast::NilLiteral::NIL)
       }.not_to raise_error
     end
-
-    it 'raises when name is a String' do
-      expect { described_class.new("x", 0, Frozone::Ast::NilLiteral::NIL) }.to raise_error(RuntimeError)
-    end
-
-    it 'raises when depth is not an Integer' do
-      expect { described_class.new(:x, "0", Frozone::Ast::NilLiteral::NIL) }.to raise_error(RuntimeError)
-    end
-
-    it 'raises when value_node is not a Node' do
-      expect { described_class.new(:x, 0, "bad") }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do

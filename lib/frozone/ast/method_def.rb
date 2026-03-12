@@ -5,23 +5,26 @@ require_relative '../vm/symbol_object'
 module Frozone
   module Ast
     class MethodDef < Node
+      attr_reader :name, :receiver_node, :required_params, :optional_params, :rest_param, :post_params
+      attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param, :locals, :body
+
       def initialize(name, receiver_node, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body)
-        @name = check_type("name", name, Symbol)
-        @receiver_node = check_nil_or_type("receiver_node", receiver_node, Node)
+        @name = name
+        @receiver_node = receiver_node
 
-        @required_params = check_array_type_or_type("required_params", required_params, Symbol, Hash)
-        @optional_params = check_array_of_pairs_of_types("optional_params", optional_params, Symbol, Ast::Node)
-        @rest_param = check_nil_or_type("rest_param", rest_param, Symbol)
-        @post_params = check_array_type_or_type("post_params", post_params, Symbol, Hash)
+        @required_params = required_params
+        @optional_params = optional_params
+        @rest_param = rest_param
+        @post_params = post_params
 
-        @required_kw_params = check_array_type("required_kw_params", required_kw_params, Symbol)
-        @optional_kw_params = check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, Symbol, Ast::Node)
-        @kw_rest_param = check_nil_or_type("kw_rest_param", kw_rest_param, Symbol)
+        @required_kw_params = required_kw_params
+        @optional_kw_params = optional_kw_params
+        @kw_rest_param = kw_rest_param
 
-        @block_param = check_nil_or_type("block_param", block_param, Symbol)
+        @block_param = block_param
 
-        @locals = check_array_type("locals", locals, Symbol)
-        @body = check_type("body", body, Node)
+        @locals = locals
+        @body = body
       end
 
       def evaluate(context)

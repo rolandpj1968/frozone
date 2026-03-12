@@ -4,8 +4,8 @@ module Frozone
   module Ast
     class LocalVariableRead < Node
       def initialize(name, depth)
-        @name = check_type("name", name, Symbol)
-        @depth = check_type("depth", depth, Integer)
+        @name = name
+        @depth = depth
       end
 
       def to_s = "local(#{@name}, #{@depth})"

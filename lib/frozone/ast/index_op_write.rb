@@ -5,10 +5,10 @@ module Frozone
     # a[*args] += val — evaluates receiver and index args once, returns new value (not []= result)
     class IndexOperatorWrite < Node
       def initialize(operator, receiver_node, index_arg_nodes, value_node)
-        @operator       = check_type("operator", operator, Symbol)
-        @receiver_node  = check_nil_or_type("receiver_node", receiver_node, Node)
-        @index_arg_nodes = check_array_type("index_arg_nodes", index_arg_nodes, Node)
-        @value_node     = check_type("value_node", value_node, Node)
+        @operator        = operator
+        @receiver_node   = receiver_node
+        @index_arg_nodes = index_arg_nodes
+        @value_node      = value_node
       end
 
       def evaluate(context)
@@ -28,9 +28,9 @@ module Frozone
     # a[*args] ||= val — evaluates receiver and index args once, returns new value
     class IndexOrWrite < Node
       def initialize(receiver_node, index_arg_nodes, value_node)
-        @receiver_node   = check_nil_or_type("receiver_node", receiver_node, Node)
-        @index_arg_nodes = check_array_type("index_arg_nodes", index_arg_nodes, Node)
-        @value_node      = check_type("value_node", value_node, Node)
+        @receiver_node   = receiver_node
+        @index_arg_nodes = index_arg_nodes
+        @value_node      = value_node
       end
 
       def evaluate(context)
@@ -50,9 +50,9 @@ module Frozone
     # a[*args] &&= val — evaluates receiver and index args once, returns new value
     class IndexAndWrite < Node
       def initialize(receiver_node, index_arg_nodes, value_node)
-        @receiver_node   = check_nil_or_type("receiver_node", receiver_node, Node)
-        @index_arg_nodes = check_array_type("index_arg_nodes", index_arg_nodes, Node)
-        @value_node      = check_type("value_node", value_node, Node)
+        @receiver_node   = receiver_node
+        @index_arg_nodes = index_arg_nodes
+        @value_node      = value_node
       end
 
       def evaluate(context)

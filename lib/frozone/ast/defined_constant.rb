@@ -5,7 +5,7 @@ module Frozone
     # defined?(ConstantName) — returns "constant" if the constant is defined, nil otherwise
     class DefinedConstant < Node
       def initialize(name)
-        @name = check_type("name", name, Symbol)
+        @name = name
       end
 
       def evaluate(context)

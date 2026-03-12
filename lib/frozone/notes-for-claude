@@ -1,0 +1,19 @@
+Helper methods should be private, e.g. in intrinsics.rb and elsewhere.
+
+put all private methods in their own private section below the (default) public methods - RuboCop?
+
+attr_reader etc. should always be immediately above initialize - RuboCop?
+
+use attr_reader instead of explicit @foo access methods
+
+eigenclass vs instance_class naming is inconsistent in method.rb
+
+check if we can merge create_singleton_class into the singleton_class method
+
+check and report all uses of Fiber[:context] - this was intended to be used for only the HashObject KeyWrapper
+
+(re-)evaluate vm/core.rb bootstrap process - patch_class_object seems clumsy, and re-homing MODULE_CLASS on Object ditto
+
+analyse all internal sanity checks like "raise "respond_to? name must be a SymbolObject" unless name.is_a?(SymbolObject)" - these should be unnecessary now
+
+Ditto Utils.rb check* methods

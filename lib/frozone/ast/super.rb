@@ -7,10 +7,10 @@ module Frozone
     # forwarding: false → SuperNode (super with explicit args or empty parens)
     class Super < Node
       def initialize(arg_nodes, block_node, forwarding:, kw_splat_nodes: [])
-        @arg_nodes       = check_array_type("arg_nodes", arg_nodes, Node)
-        @block_node      = check_nil_or_type("block_node", block_node, Node)
+        @arg_nodes       = arg_nodes
+        @block_node      = block_node
         @forwarding      = forwarding
-        @kw_splat_nodes  = check_array_type("kw_splat_nodes", kw_splat_nodes, Node)
+        @kw_splat_nodes  = kw_splat_nodes
       end
 
       def evaluate(context)

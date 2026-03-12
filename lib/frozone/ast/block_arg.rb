@@ -7,7 +7,7 @@ module Frozone
     # Evaluates expr (expected to be a ProcObject or SymbolObject) and wraps it as a block.
     class BlockArg < Node
       def initialize(value_node)
-        @value_node = check_type("value_node", value_node, Node)
+        @value_node = value_node
       end
 
       def evaluate(context)

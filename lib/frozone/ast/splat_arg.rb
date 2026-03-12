@@ -5,7 +5,7 @@ module Frozone
     # Represents *expr in a method call argument list
     class SplatArg < Node
       def initialize(value_node)
-        @value_node = check_nil_or_type("value_node", value_node, Node)
+        @value_node = value_node
       end
 
       def evaluate(context)

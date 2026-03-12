@@ -4,7 +4,7 @@ module Frozone
   module Ast
     class ClassVariableRead < Node
       def initialize(name)
-        @name = check_type("name", name, Symbol)
+        @name = name
       end
 
       def to_s = "cvar(#{@name})"
@@ -15,6 +15,7 @@ module Frozone
       end
 
       private
+
       def current_class(context)
         s = context.frame.the_self
         s.is_a?(Vm::ModuleObject) ? s : s.class_object

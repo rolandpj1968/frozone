@@ -93,10 +93,10 @@ module Frozone
       CONTROL_FLOW = [ReturnException, NextException, RedoException, BreakException, RetryException].freeze
 
       def initialize(body, rescue_clauses, else_node, ensure_node)
-        @body           = check_type("body", body, Node)
+        @body           = body
         @rescue_clauses = rescue_clauses  # Array<RescueClause>
-        @else_node      = check_nil_or_type("else_node", else_node, Node)
-        @ensure_node    = check_nil_or_type("ensure_node", ensure_node, Node)
+        @else_node      = else_node
+        @ensure_node    = ensure_node
       end
 
       def evaluate(context)

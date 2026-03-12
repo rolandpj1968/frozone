@@ -5,10 +5,10 @@ module Frozone
     # a.b ||= val — evaluates receiver once, returns new value (not setter result)
     class CallOrWrite < Node
       def initialize(read_name, write_name, receiver_node, value_node, safe_nav: false)
-        @read_name = check_type("read_name", read_name, Symbol)
-        @write_name = check_type("write_name", write_name, Symbol)
-        @receiver_node = check_nil_or_type("receiver_node", receiver_node, Node)
-        @value_node = check_type("value_node", value_node, Node)
+        @read_name = read_name
+        @write_name = write_name
+        @receiver_node = receiver_node
+        @value_node = value_node
         @safe_nav = safe_nav
       end
 
@@ -27,10 +27,10 @@ module Frozone
     # a.b &&= val — evaluates receiver once, returns new value (not setter result)
     class CallAndWrite < Node
       def initialize(read_name, write_name, receiver_node, value_node, safe_nav: false)
-        @read_name = check_type("read_name", read_name, Symbol)
-        @write_name = check_type("write_name", write_name, Symbol)
-        @receiver_node = check_nil_or_type("receiver_node", receiver_node, Node)
-        @value_node = check_type("value_node", value_node, Node)
+        @read_name = read_name
+        @write_name = write_name
+        @receiver_node = receiver_node
+        @value_node = value_node
         @safe_nav = safe_nav
       end
 
@@ -49,11 +49,11 @@ module Frozone
     # a.b += val — evaluates receiver once, returns new value (not setter result)
     class CallOperatorWrite < Node
       def initialize(read_name, write_name, operator, receiver_node, value_node, safe_nav: false)
-        @read_name = check_type("read_name", read_name, Symbol)
-        @write_name = check_type("write_name", write_name, Symbol)
-        @operator = check_type("operator", operator, Symbol)
-        @receiver_node = check_nil_or_type("receiver_node", receiver_node, Node)
-        @value_node = check_type("value_node", value_node, Node)
+        @read_name = read_name
+        @write_name = write_name
+        @operator = operator
+        @receiver_node = receiver_node
+        @value_node = value_node
         @safe_nav = safe_nav
       end
 

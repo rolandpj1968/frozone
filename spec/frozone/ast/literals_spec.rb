@@ -252,10 +252,6 @@ RSpec.describe Frozone::Ast::ArrayLiteral do
     it 'accepts an array of Nodes' do
       expect { described_class.new([]) }.not_to raise_error
     end
-
-    it 'raises when elements are not Nodes' do
-      expect { described_class.new(["not a node"]) }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do
@@ -310,11 +306,6 @@ RSpec.describe Frozone::Ast::FloatLiteral do
     end
   end
 
-  describe '#initialize' do
-    it 'raises when given a non-Float' do
-      expect { described_class.from(1) }.to raise_error(RuntimeError)
-    end
-  end
 
   describe '#to_s' do
     it 'includes the float value' do

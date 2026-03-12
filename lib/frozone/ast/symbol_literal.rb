@@ -13,6 +13,8 @@ module Frozone
 
       def to_s = "sym(#{@value})"
 
+      def value = @value.raw
+
       def evaluate(_) = @value
 
       # TODO - thread-safety

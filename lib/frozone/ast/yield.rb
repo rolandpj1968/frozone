@@ -5,7 +5,7 @@ module Frozone
   module Ast
     class Yield < Node
       def initialize(arg_nodes, kw_arg_nodes = {})
-        @arg_nodes    = check_array_type("arg_nodes", arg_nodes, Node)
+        @arg_nodes    = arg_nodes
         @kw_arg_nodes = kw_arg_nodes  # Hash<Symbol, Node>
       end
 

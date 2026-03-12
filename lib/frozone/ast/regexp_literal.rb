@@ -14,7 +14,7 @@ module Frozone
 
     class InterpolatedRegexpLiteral < Node
       def initialize(parts, flags)
-        @parts = check_array_type("parts", parts, Node)
+        @parts = parts
         @flags = flags
       end
 

@@ -10,9 +10,6 @@ RSpec.describe Frozone::Ast::InstanceVariableRead do
       expect { described_class.new(:@x) }.not_to raise_error
     end
 
-    it 'raises when name is a String' do
-      expect { described_class.new("@x") }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do
@@ -52,9 +49,6 @@ RSpec.describe Frozone::Ast::InstanceVariableWrite do
       expect { described_class.new(:@x, Frozone::Ast::NilLiteral::NIL) }.not_to raise_error
     end
 
-    it 'raises when value_node is not a Node' do
-      expect { described_class.new(:@x, "bad") }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do

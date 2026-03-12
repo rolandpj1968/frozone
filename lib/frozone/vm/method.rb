@@ -1,4 +1,3 @@
-require_relative '../utils'
 require_relative '../ast/node'
 require_relative 'frame'
 require_relative 'array_object'
@@ -9,30 +8,28 @@ require_relative 'frozone_exception'
 module Frozone
   module Vm
     class Method
-      include Utils
-
       attr_reader :name, :scopes
       attr_reader :required_params, :optional_params, :rest_param, :post_params
       attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
       attr_accessor :visibility
 
       def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body)
-        @scopes = self.class.unique_scopes(check_array_type("scopes", scopes, ModuleObject))
-        @name = check_type("name", name, Symbol)
+        @scopes = self.class.unique_scopes(scopes)
+        @name = name
 
-        @required_params = check_array_type_or_type("required_params", required_params, Symbol, Hash)
-        @optional_params = check_array_of_pairs_of_types("optional_params", optional_params, Symbol, Ast::Node)
-        @rest_param = check_nil_or_type("rest_param", rest_param, Symbol)
-        @post_params = check_array_type_or_type("post_params", post_params, Symbol, Hash)
+        @required_params = required_params
+        @optional_params = optional_params
+        @rest_param = rest_param
+        @post_params = post_params
 
-        @required_kw_params = check_array_type("required_kw_params", required_kw_params, Symbol)
-        @optional_kw_params = check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, Symbol, Ast::Node)
-        @kw_rest_param = check_nil_or_type("kw_rest_param", kw_rest_param, Symbol)
+        @required_kw_params = required_kw_params
+        @optional_kw_params = optional_kw_params
+        @kw_rest_param = kw_rest_param
 
-        @block_param = check_nil_or_type("block_param", block_param, Symbol)
+        @block_param = block_param
 
-        @locals = check_array_type("locals", locals, Symbol)
-        @body = check_type("body", body, Ast::Node)
+        @locals = locals
+        @body = body
         @visibility = :public
       end
 

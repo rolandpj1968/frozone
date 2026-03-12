@@ -10,9 +10,6 @@ RSpec.describe Frozone::Ast::IntrinsicCall do
       expect { described_class.new(:nonexistent_intrinsic_zz, []) }.to raise_error(NameError)
     end
 
-    it 'raises when param_nodes are not Nodes' do
-      expect { described_class.new(:integer__plus_, ["bad"]) }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do
@@ -50,13 +47,6 @@ RSpec.describe Frozone::Ast::MethodCall do
       expect { described_class.new(:foo, nil, [], {}) }.not_to raise_error
     end
 
-    it 'raises when name is not a Symbol' do
-      expect { described_class.new("foo", nil, [], {}) }.to raise_error(RuntimeError)
-    end
-
-    it 'raises when arg_nodes contains a non-Node' do
-      expect { described_class.new(:foo, nil, ["bad"], {}) }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do
@@ -111,11 +101,6 @@ RSpec.describe Frozone::Ast::MethodDef do
       }.not_to raise_error
     end
 
-    it 'raises when name is not a Symbol' do
-      expect {
-        described_class.new("foo", nil, [], [], nil, [], [], [], nil, nil, [], Frozone::Ast::NilLiteral::NIL)
-      }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do
@@ -160,13 +145,6 @@ RSpec.describe Frozone::Ast::MethodAlias do
       expect { described_class.new(:new_name, :old_name) }.not_to raise_error
     end
 
-    it 'raises when new_name is not a Symbol' do
-      expect { described_class.new("new", :old) }.to raise_error(RuntimeError)
-    end
-
-    it 'raises when old_name is not a Symbol' do
-      expect { described_class.new(:new, "old") }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do
@@ -200,13 +178,6 @@ RSpec.describe Frozone::Ast::ClassDef do
       expect { described_class.new(:MyClass, [], nil, Frozone::Ast::NilLiteral::NIL) }.not_to raise_error
     end
 
-    it 'raises when name is not a Symbol' do
-      expect { described_class.new("Bad", [], nil, Frozone::Ast::NilLiteral::NIL) }.to raise_error(RuntimeError)
-    end
-
-    it 'raises when body is not a Node' do
-      expect { described_class.new(:MyClass, [], nil, "bad") }.to raise_error(RuntimeError)
-    end
   end
 
   describe '#evaluate' do

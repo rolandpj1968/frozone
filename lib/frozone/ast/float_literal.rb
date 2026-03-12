@@ -5,7 +5,7 @@ module Frozone
   module Ast
     class FloatLiteral < Node
       def initialize(value)
-        @value = check_type("value", value, Float)
+        @value = value
       end
 
       def to_s = "float(#{@value})"

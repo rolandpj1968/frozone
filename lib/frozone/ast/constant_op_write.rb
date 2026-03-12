@@ -7,8 +7,8 @@ module Frozone
     # FOO ||= val — assigns only if FOO is undefined or falsy
     class ConstantOrWrite < Node
       def initialize(name, value_node)
-        @name = check_type("name", name, Symbol)
-        @value_node = check_type("value_node", value_node, Node)
+        @name = name
+        @value_node = value_node
       end
 
       def evaluate(context)
@@ -25,8 +25,8 @@ module Frozone
     # FOO &&= val — assigns only if FOO is defined and truthy
     class ConstantAndWrite < Node
       def initialize(name, value_node)
-        @name = check_type("name", name, Symbol)
-        @value_node = check_type("value_node", value_node, Node)
+        @name = name
+        @value_node = value_node
       end
 
       def evaluate(context)
@@ -42,9 +42,9 @@ module Frozone
     # Module::FOO ||= val — evaluates Module once, assigns only if FOO undefined or falsy
     class ConstantPathOrWrite < Node
       def initialize(parent_node, name, value_node)
-        @parent_node = check_type("parent_node", parent_node, Node)
-        @name = check_type("name", name, Symbol)
-        @value_node = check_type("value_node", value_node, Node)
+        @parent_node = parent_node
+        @name = name
+        @value_node = value_node
       end
 
       def evaluate(context)
@@ -63,9 +63,9 @@ module Frozone
     # Module::FOO &&= val — evaluates Module once, assigns only if FOO defined and truthy
     class ConstantPathAndWrite < Node
       def initialize(parent_node, name, value_node)
-        @parent_node = check_type("parent_node", parent_node, Node)
-        @name = check_type("name", name, Symbol)
-        @value_node = check_type("value_node", value_node, Node)
+        @parent_node = parent_node
+        @name = name
+        @value_node = value_node
       end
 
       def evaluate(context)

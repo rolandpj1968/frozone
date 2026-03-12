@@ -4,8 +4,8 @@ module Frozone
   module Ast
     class And < Node
       def initialize(left_node, right_node)
-        @left_node = check_type("left_node", left_node, Node)
-        @right_node = check_type("right_node", right_node, Node)
+        @left_node = left_node
+        @right_node = right_node
       end
 
       def to_s

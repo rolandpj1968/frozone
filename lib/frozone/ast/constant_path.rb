@@ -14,8 +14,8 @@ module Frozone
 
     class ConstantPath < Node
       def initialize(parent_node, name)
-        @parent_node = check_type("parent_node", parent_node, Node)
-        @name = check_type("name", name, Symbol)
+        @parent_node = parent_node
+        @name = name
       end
 
       def to_s = "#{@parent_node}::#{@name}"
@@ -31,9 +31,9 @@ module Frozone
 
     class ConstantPathWrite < Node
       def initialize(parent_node, name, value_node)
-        @parent_node = check_type("parent_node", parent_node, Node)
-        @name = check_type("name", name, Symbol)
-        @value_node = check_type("value_node", value_node, Node)
+        @parent_node = parent_node
+        @name = name
+        @value_node = value_node
       end
 
       def evaluate(context)

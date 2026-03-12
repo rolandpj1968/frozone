@@ -5,8 +5,8 @@ module Frozone
   module Ast
     class RangeLiteral < Node
       def initialize(begin_node, end_node, exclusive)
-        @begin_node = check_nil_or_type("begin_node", begin_node, Node)
-        @end_node   = check_nil_or_type("end_node", end_node, Node)
+        @begin_node = begin_node
+        @end_node   = end_node
         @exclusive  = exclusive
       end
 

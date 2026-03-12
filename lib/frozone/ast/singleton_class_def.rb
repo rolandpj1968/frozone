@@ -5,9 +5,9 @@ module Frozone
   module Ast
     class SingletonClassDef < Node
       def initialize(expression_node, locals, body)
-        @expression_node = check_type("expression_node", expression_node, Node)
-        @locals = check_array_type("locals", locals, Symbol)
-        @body = check_type("body", body, Node)
+        @expression_node = expression_node
+        @locals = locals
+        @body = body
       end
 
       def evaluate(context)

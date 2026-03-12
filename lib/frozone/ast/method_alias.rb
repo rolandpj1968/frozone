@@ -4,8 +4,8 @@ module Frozone
   module Ast
     class MethodAlias < Node
       def initialize(new_name, old_name)
-        @new_name = check_type("new_name", new_name, Symbol)
-        @old_name = check_type("old_name", old_name, Symbol)
+        @new_name = new_name
+        @old_name = old_name
       end
 
       def to_s

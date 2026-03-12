@@ -5,7 +5,7 @@ module Frozone
   module Ast
     class GlobalVariableRead < Node
       def initialize(name)
-        @name = check_type("name", name, Symbol)
+        @name = name
       end
 
       def to_s = "gvar(#{@name})"

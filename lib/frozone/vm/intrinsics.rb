@@ -35,7 +35,6 @@ module Frozone
         end
 
         def object_respond_to(context, v, name, include_private_obj = FalseObject::FALSE)
-          raise "respond_to? name must be a SymbolObject" unless name.is_a?(SymbolObject)
           include_private = include_private_obj.truthy?
           m = v.lookup_instance_method(name.raw)
           if m
@@ -181,14 +180,12 @@ module Frozone
         def basic_object__equal_equal_(_, v1, v2) = bool_object_for(v1.equal?(v2))
 
         def basic_object_method_missing(context, receiver, name, args, kwargs)
-          raise "BasicObject#method_missing name must be a Symbol or SymbolObject" unless name.is_a?(Symbol) || name.is_a?(SymbolObject)
           name_sym = name.is_a?(SymbolObject) ? name.raw : name
           class_name = receiver.class_object.name
           raise FrozoneException.make(:NoMethodError, "undefined method '#{name_sym}' for an instance of #{class_name}")
         end
 
         def basic_object___send__(context, receiver, name, args, kwargs, block_arg = nil)
-          raise "BasicObject#__send__ name must be a SymbolObject or StringObject" unless name.is_a?(SymbolObject) || name.is_a?(StringObject)
           method_name = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
           raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
           block_obj = block_arg.is_a?(ProcObject) ? block_arg.block_object : block_arg
@@ -198,8 +195,6 @@ module Frozone
 
         # Module
         def module_include(_, receiver, mod)
-          raise "module_include: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
-          raise "module_include: mod must be a ModuleObject" unless mod.is_a?(ModuleObject)
           receiver.add_module(mod)
           receiver
         end
@@ -210,8 +205,6 @@ module Frozone
         end
 
         def module_prepend(_, receiver, mod)
-          raise "module_prepend: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
-          raise "module_prepend: mod must be a ModuleObject" unless mod.is_a?(ModuleObject)
           receiver.prepend_module(mod)
           receiver
         end
@@ -246,7 +239,6 @@ module Frozone
         end
 
         def object_extend(_, receiver, mod)
-          raise "extend: mod must be a ModuleObject" unless mod.is_a?(ModuleObject)
           receiver.singleton_class.add_module(mod)
           receiver
         end
@@ -483,7 +475,6 @@ module Frozone
         end
 
         def module_attr_reader(_, receiver, names)
-          raise "attr_reader: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
           names.raw.each do |name_obj|
             name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
             ivar = :"@#{name}"
@@ -495,7 +486,6 @@ module Frozone
         end
 
         def module_attr_writer(_, receiver, names)
-          raise "attr_writer: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
           names.raw.each do |name_obj|
             name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
             setter = :"#{name}="
@@ -518,7 +508,6 @@ module Frozone
         def module_set_protected(context, receiver, names) = module_set_visibility(context, receiver, names, :protected)
 
         def module_function(_, receiver, names)
-          raise "module_function: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
           if names.is_a?(ArrayObject) && names.raw.empty?
             receiver.current_visibility = :module_function
             return receiver
@@ -631,7 +620,6 @@ module Frozone
         end
 
         def proc_call(context, proc_obj, args, kw_args_obj = NilObject::NIL)
-          raise "proc_call: receiver must be a ProcObject" unless proc_obj.is_a?(ProcObject)
           blk = context.frame.block
           blk = nil if blk.nil? || blk.is_a?(NilObject)
           kw_args = kw_args_obj.is_a?(HashObject) ? kw_args_obj.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k } : {}
@@ -1439,7 +1427,6 @@ module Frozone
         end
 
         def module_set_visibility(_, receiver, names, vis)
-          raise "module_set_visibility: receiver must be a ModuleObject" unless receiver.is_a?(ModuleObject)
           if names.raw.empty?
             receiver.current_visibility = vis
           else

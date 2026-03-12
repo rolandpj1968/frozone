@@ -13,7 +13,7 @@ module Frozone
     class MultipleAssignment < Node
       def initialize(targets, value_node)
         @targets = targets      # Array of target descriptors (validated by parser)
-        @value_node = check_type("value_node", value_node, Node)
+        @value_node = value_node
       end
 
       def evaluate(context)

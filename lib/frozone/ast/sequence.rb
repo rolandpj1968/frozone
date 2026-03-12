@@ -3,8 +3,10 @@ require_relative 'node'
 module Frozone
   module Ast
     class Sequence < Node
+      attr_reader :nodes
+
       def initialize(nodes)
-        @nodes = check_array_type("nodes", nodes, Node)
+        @nodes = nodes
       end
 
       def to_s

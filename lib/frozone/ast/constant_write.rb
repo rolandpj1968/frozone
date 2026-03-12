@@ -5,8 +5,8 @@ module Frozone
   module Ast
     class ConstantWrite < Node
       def initialize(name, value_node)
-        @name = check_type("name", name, Symbol)
-        @value_node = check_type("value_node", value_node, Node)
+        @name = name
+        @value_node = value_node
       end
 
       def to_s = "con=(#{@name}, #{@value_node})"
