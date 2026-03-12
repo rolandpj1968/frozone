@@ -61,7 +61,7 @@ module Frozone
       def ast(raise_syntax_errors: false)
         buf = ::Parser::Source::Buffer.new(@filepath || '(string)', source: @text)
         wq = ::Parser::Ruby40.new
-        wq.diagnostics.all_errors_are_fatal = false
+        wq.diagnostics.all_errors_are_fatal = raise_syntax_errors
         wq.diagnostics.ignore_warnings      = true
 
         begin
@@ -797,6 +797,7 @@ module Frozone
 
         seen_optional = false
         seen_rest     = false
+        seen_param_names = {}
 
         args_to_parse = if args_node.type == :args
           args_node.children
@@ -808,12 +809,19 @@ module Frozone
           next if arg.nil?
           case arg.type
           when :arg
-            if seen_rest
-              post << arg.children[0]
-            elsif seen_optional
-              post << arg.children[0]
+            name = arg.children[0]
+            # Duplicate `_` params: rename 2nd+ to unique discard names (matches Prism behaviour)
+            if name == :_ && seen_param_names[:_]
+              name = :"__discard_#{arg.object_id}__"
             else
-              required << arg.children[0]
+              seen_param_names[name] = true
+            end
+            if seen_rest
+              post << name
+            elsif seen_optional
+              post << name
+            else
+              required << name
             end
           when :mlhs
             # |(a, b)| style destructuring — counts as ONE required
