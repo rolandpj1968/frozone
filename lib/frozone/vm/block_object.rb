@@ -110,11 +110,9 @@ module Frozone
             # Lambdas catch their own return
             raise unless e.method_frame.equal?(new_frame)
             e.value
-          elsif e.method_frame.nil?
-            # No enclosing method: return in a proc at top-level or class body → LocalJumpError
-            raise FrozoneException.make(:LocalJumpError, "unexpected return")
           else
-            # Procs/blocks: propagate return to exit the enclosing method
+            # Procs/blocks: propagate return to exit the enclosing method.
+            # If there's no enclosing method (method_frame nil), re-raise and let callers handle.
             raise
           end
         rescue Ast::NextException => e

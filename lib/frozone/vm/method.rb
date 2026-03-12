@@ -193,6 +193,10 @@ module Frozone
 
           @body.evaluate(context)
         rescue Ast::ReturnException => e
+          if e.method_frame.nil?
+            # No enclosing method context: proc/block return escaping its defining scope
+            raise FrozoneException.make(:LocalJumpError, "unexpected return")
+          end
           raise e unless e.method_frame.equal?(new_frame)
           e.value
         rescue Ast::BreakException => e
@@ -238,6 +242,11 @@ module Frozone
 
       def invoke(context, receiver, args, kwargs, block = nil)
         @block_obj.invoke(context, args, receiver: receiver, block: block)
+      rescue Ast::ReturnException => e
+        # Absorb return from a proc used as a method body (define_method semantics).
+        # A proc's return with nil method_frame exits the define_method-defined method.
+        raise unless e.method_frame.nil?
+        e.value
       end
 
       def alias_as(name) = DefinedMethod.new(name, @block_obj)
