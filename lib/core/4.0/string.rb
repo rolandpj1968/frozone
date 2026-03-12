@@ -60,6 +60,7 @@ class String
   def reverse = Intrinsics.string_reverse(self)
   def chars = Intrinsics.string_chars(self)
   def bytes = Intrinsics.string_bytes(self)
+  def ord = Intrinsics.string_ord(self)
   def split(sep = nil, limit = nil) = Intrinsics.string_split(self, sep, limit)
   def gsub(pattern, replacement = nil) = Intrinsics.string_gsub(self, pattern, replacement)
   def sub(pattern, replacement) = Intrinsics.string_sub(self, pattern, replacement)

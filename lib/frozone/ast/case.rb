@@ -23,7 +23,7 @@ module Frozone
             if cond_node.is_a?(SplatArg)
               arr = cond_node.evaluate(context)
               matched = arr.raw.any? do |elem|
-                subject.nil? ? elem.truthy? : elem.dispatch(context, :===, [subject], {}).truthy?
+                subject.nil? ? elem.truthy? : elem.dispatch(context, :===, [subject], {}, nil, private_ok: true).truthy?
               end
             else
               cond_val = cond_node.evaluate(context)
@@ -31,7 +31,7 @@ module Frozone
                 if subject.nil?
                   cond_val.truthy?
                 else
-                  cond_val.dispatch(context, :===, [subject], {}).truthy?
+                  cond_val.dispatch(context, :===, [subject], {}, nil, private_ok: true).truthy?
                 end
             end
             return w.body_node.evaluate(context) if matched

@@ -29,12 +29,16 @@ module Frozone
           namespace = container
           class_constant = container.get_constant(@name)
           unless class_constant.nil? || class_constant.is_a?(Vm::ClassObject)
-            raise "previous defn of #{@name} was not a class"
+            raise Vm::FrozoneException.make(:TypeError, "#{@name} is not a class (#{class_constant.class_object&.name})")
           end
           if class_constant.nil?
             superclass = @superclass_node ? @superclass_node.evaluate(context) : Vm::Core::OBJECT_CLASS
+            raise Vm::FrozoneException.make(:TypeError, "superclass must be a Class (#{superclass.class_object&.name} given)") unless superclass.is_a?(Vm::ClassObject)
             class_constant = Vm::ClassObject.new(@name, namespace, superclass)
             container.set_constant(@name, class_constant)
+          elsif @superclass_node
+            superclass = @superclass_node.evaluate(context)
+            raise Vm::FrozoneException.make(:TypeError, "superclass mismatch for class #{@name}") unless class_constant.superclass.equal?(superclass)
           end
         else
           # Namespace is the innermost enclosing class/module, except at top level where
@@ -44,14 +48,17 @@ module Frozone
           # 1. find or create the class defn and constant
           # MRI only looks in the immediate enclosing class/module, not outer nesting or superclass chain.
           class_constant = context.scopes.last.get_constant(@name)
-          unless class_constant.nil? or class_constant.is_a?(Vm::ClassObject)
-            # TODO this is a real runtime error, not an assert
-            raise "previous defn of #{@name} was not a class"
+          unless class_constant.nil? || class_constant.is_a?(Vm::ClassObject)
+            raise Vm::FrozoneException.make(:TypeError, "#{@name} is not a class (#{class_constant.class_object&.name})")
           end
           if class_constant.nil?
             superclass = @superclass_node ? @superclass_node.evaluate(context) : Vm::Core::OBJECT_CLASS
+            raise Vm::FrozoneException.make(:TypeError, "superclass must be a Class (#{superclass.class_object&.name} given)") unless superclass.is_a?(Vm::ClassObject)
             class_constant = Vm::ClassObject.new(@name, namespace, superclass)
             context.scopes.last.set_constant(@name, class_constant)
+          elsif @superclass_node
+            superclass = @superclass_node.evaluate(context)
+            raise Vm::FrozoneException.make(:TypeError, "superclass mismatch for class #{@name}") unless class_constant.superclass.equal?(superclass)
           end
         end
 

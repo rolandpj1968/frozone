@@ -12,7 +12,7 @@ module Frozone
       def evaluate(context)
         raw = @parts.map do |part|
           val = part.evaluate(context)
-          val.is_a?(Vm::StringObject) ? val.raw : val.dispatch(context, :to_s, [], {}).raw
+          val.is_a?(Vm::StringObject) ? val.raw : val.dispatch(context, :to_s, [], {}, nil, private_ok: true).raw
         end.join
         Vm::StringObject.new(raw)
       end

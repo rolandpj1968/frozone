@@ -991,6 +991,7 @@ module Frozone
         end
         def string_chars(_, v)             = ArrayObject.new(v.raw.chars.map { |c| StringObject.new(c) })
         def string_bytes(_, v)             = ArrayObject.new(v.raw.bytes.map { |b| IntegerObject.new(b) })
+        def string_ord(_, v)               = IntegerObject.new(v.raw.ord)
         def string_split(_, v, sep = nil, limit = nil)
           sep = nil if sep.is_a?(NilObject)
           limit = nil if limit.is_a?(NilObject)

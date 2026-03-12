@@ -49,7 +49,7 @@ module Frozone
 
       def evaluate(context)
         parent = @parent_node.evaluate(context)
-        raise "#{@parent_node}::#{@name}: parent is not a module" unless parent.is_a?(Vm::ModuleObject)
+        raise Vm::FrozoneException.make(:TypeError, "#{@parent_node}::#{@name}: parent is not a module") unless parent.is_a?(Vm::ModuleObject)
         current = parent.get_constant(@name)
         if !current.nil? && current.truthy?
           return current
@@ -70,7 +70,7 @@ module Frozone
 
       def evaluate(context)
         parent = @parent_node.evaluate(context)
-        raise "#{@parent_node}::#{@name}: parent is not a module" unless parent.is_a?(Vm::ModuleObject)
+        raise Vm::FrozoneException.make(:TypeError, "#{@parent_node}::#{@name}: parent is not a module") unless parent.is_a?(Vm::ModuleObject)
         current = parent.get_constant(@name)
         raise Vm::FrozoneException.make(:NameError, "uninitialized constant #{@parent_node}::#{@name}") if current.nil?
         return current unless current.truthy?

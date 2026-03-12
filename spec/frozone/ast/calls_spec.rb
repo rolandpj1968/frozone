@@ -243,7 +243,7 @@ RSpec.describe Frozone::Ast::ClassDef do
       ctx2 = make_context(scopes: [outer_scope])
       expect {
         described_class.new(:NotAClass, [], nil, Frozone::Ast::NilLiteral::NIL).evaluate(ctx2)
-      }.to raise_error(RuntimeError, /not a class/)
+      }.to raise_error(Frozone::Vm::FrozoneException, /not a class/)
     end
 
     it 'sets namespace to nil when enclosing scope is OBJECT_CLASS' do

@@ -199,12 +199,16 @@ module Frozone
         end
 
         # Auto-splat: procs/blocks auto-splat unless:
-        #   - empty params, OR single required (no others), OR single rest (no others)
+        #   - empty params, OR single required (no others), OR single optional (no others),
+        #     OR single rest (no others)
         if auto_splat
-          is_empty        = required_params.empty? && optional_params.empty? && rest_param.nil? && !implicit_rest && post_params.empty?
-          is_single_req   = required_params.length == 1 && optional_params.empty? && rest_param.nil? && !implicit_rest && post_params.empty?
-          is_rest_only    = required_params.empty? && optional_params.empty? && rest_param && !implicit_rest && post_params.empty?
-          auto_splat = !is_empty && !is_single_req && !is_rest_only
+          no_req_kw = required_kw_params.empty? && optional_kw_params.empty?
+          no_post = post_params.empty?
+          is_empty        = required_params.empty? && optional_params.empty? && rest_param.nil? && !implicit_rest && no_post
+          is_single_req   = required_params.length == 1 && optional_params.empty? && rest_param.nil? && !implicit_rest && no_post && no_req_kw && kw_rest_param.nil?
+          is_single_opt   = required_params.empty? && optional_params.length == 1 && rest_param.nil? && !implicit_rest && no_post && no_req_kw
+          is_rest_only    = required_params.empty? && optional_params.empty? && rest_param && !implicit_rest && no_post
+          auto_splat = !is_empty && !is_single_req && !is_single_opt && !is_rest_only
         end
 
         [required_params, optional_params, rest_param, post_params,
@@ -827,19 +831,19 @@ module Frozone
           Ast::And.new(read, write)
 
         when Prism::IndexOperatorWriteNode
-          receiver_node = transform(prism_node.receiver)
+          receiver_node = prism_node.receiver.is_a?(Prism::SelfNode) ? nil : transform(prism_node.receiver)
           index_args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
           val_node = transform(prism_node.value)
           Ast::IndexOperatorWrite.new(prism_node.operator, receiver_node, index_args, val_node)
 
         when Prism::IndexOrWriteNode
-          receiver_node = transform(prism_node.receiver)
+          receiver_node = prism_node.receiver.is_a?(Prism::SelfNode) ? nil : transform(prism_node.receiver)
           index_args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
           val_node = transform(prism_node.value)
           Ast::IndexOrWrite.new(receiver_node, index_args, val_node)
 
         when Prism::IndexAndWriteNode
-          receiver_node = transform(prism_node.receiver)
+          receiver_node = prism_node.receiver.is_a?(Prism::SelfNode) ? nil : transform(prism_node.receiver)
           index_args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments.map { |a| transform(a) }
           val_node = transform(prism_node.value)
           Ast::IndexAndWrite.new(receiver_node, index_args, val_node)
@@ -900,15 +904,15 @@ module Frozone
           Ast::ConstantPathWrite.new(parent_node, child_name, rhs)
 
         when Prism::CallOrWriteNode
-          receiver_node = prism_node.receiver ? transform(prism_node.receiver) : nil
+          receiver_node = (prism_node.receiver.nil? || prism_node.receiver.is_a?(Prism::SelfNode)) ? nil : transform(prism_node.receiver)
           Ast::CallOrWrite.new(prism_node.read_name, prism_node.write_name, receiver_node, transform(prism_node.value))
 
         when Prism::CallAndWriteNode
-          receiver_node = prism_node.receiver ? transform(prism_node.receiver) : nil
+          receiver_node = (prism_node.receiver.nil? || prism_node.receiver.is_a?(Prism::SelfNode)) ? nil : transform(prism_node.receiver)
           Ast::CallAndWrite.new(prism_node.read_name, prism_node.write_name, receiver_node, transform(prism_node.value))
 
         when Prism::CallOperatorWriteNode
-          receiver_node = prism_node.receiver ? transform(prism_node.receiver) : nil
+          receiver_node = (prism_node.receiver.nil? || prism_node.receiver.is_a?(Prism::SelfNode)) ? nil : transform(prism_node.receiver)
           Ast::CallOperatorWrite.new(prism_node.read_name, prism_node.write_name, prism_node.operator, receiver_node, transform(prism_node.value))
 
         when Prism::ForNode

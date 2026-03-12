@@ -26,8 +26,8 @@ module Frozone
           container = @namespace_node.evaluate(context)
           namespace = container.is_a?(Vm::ModuleObject) ? container : nil
           module_constant = container.get_constant(@name)
-          unless module_constant.nil? || module_constant.is_a?(Vm::ModuleObject)
-            raise "previous defn of #{@name} was not a module"
+          unless module_constant.nil? || (module_constant.is_a?(Vm::ModuleObject) && !module_constant.is_a?(Vm::ClassObject))
+            raise Vm::FrozoneException.make(:TypeError, "#{@name} is not a module (#{module_constant.is_a?(Vm::ObjectObject) ? module_constant.class_object&.name : module_constant.class} given)")
           end
           if module_constant.nil?
             module_constant = Vm::ModuleObject.new(@name, namespace)
@@ -38,8 +38,8 @@ module Frozone
 
           # MRI only looks in the immediate enclosing class/module, not outer nesting or superclass chain.
           module_constant = context.scopes.last.get_constant(@name)
-          unless module_constant.nil? || module_constant.is_a?(Vm::ModuleObject)
-            raise "previous defn of #{@name} was not a module"
+          unless module_constant.nil? || (module_constant.is_a?(Vm::ModuleObject) && !module_constant.is_a?(Vm::ClassObject))
+            raise Vm::FrozoneException.make(:TypeError, "#{@name} is not a module (#{module_constant.is_a?(Vm::ObjectObject) ? module_constant.class_object&.name : module_constant.class} given)")
           end
           if module_constant.nil?
             module_constant = Vm::ModuleObject.new(@name, namespace)

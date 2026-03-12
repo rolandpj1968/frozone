@@ -38,7 +38,7 @@ module Frozone
         # Try VM dispatch of === if frozone_class is a VM object with dispatch
         if frozone_class.respond_to?(:dispatch) && vm_obj
           begin
-            result = frozone_class.dispatch(context, :===, [vm_obj], {})
+            result = frozone_class.dispatch(context, :===, [vm_obj], {}, nil, private_ok: true)
             return result.truthy?
           rescue
             # fall through to class hierarchy check
