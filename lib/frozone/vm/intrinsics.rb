@@ -1216,21 +1216,19 @@ module Frozone
           end
         end
 
-        def array_index(_, v, i, len = nil)
+        def array_at(_, v, i)
+          element = v[i.raw]
+          element.nil? ? NilObject::NIL : element
+        end
+
+        def array_slice(_, v, i, len = nil)
           len = nil if len.is_a?(NilObject)
           if len.nil?
-            if i.is_a?(RangeObject)
-              b = i.begin_val.is_a?(IntegerObject) ? i.begin_val.raw : nil
-              e = i.end_val.is_a?(IntegerObject) ? i.end_val.raw : nil
-              ruby_range = i.exclusive? ? (b...e) : (b..e)
-              result = v.raw[ruby_range]
-              result.nil? ? NilObject::NIL : ArrayObject.new(result)
-            elsif i.is_a?(IntegerObject)
-              element = v[i.raw]
-              element.nil? ? NilObject::NIL : element
-            else
-              raise "Array#[] index must be an Integer or Range (got #{i.class})"
-            end
+            b = i.begin_val.is_a?(IntegerObject) ? i.begin_val.raw : nil
+            e = i.end_val.is_a?(IntegerObject) ? i.end_val.raw : nil
+            ruby_range = i.exclusive? ? (b...e) : (b..e)
+            result = v.raw[ruby_range]
+            result.nil? ? NilObject::NIL : ArrayObject.new(result)
           else
             result = v.raw[i.raw, len.raw]
             result.nil? ? NilObject::NIL : ArrayObject.new(result)

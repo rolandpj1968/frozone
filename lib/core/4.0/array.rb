@@ -7,7 +7,16 @@ class Array
     Intrinsics.array_initialize(self, size_or_array, fill, block)
   end
 
-  def [](i, len = nil) = Intrinsics.array_index(self, i, len)
+  def at(i) = Intrinsics.array_at(self, i)
+  def [](i, len = nil)
+    if len
+      Intrinsics.array_slice(self, i, len)
+    elsif i.is_a?(Range)
+      Intrinsics.array_slice(self, i, nil)
+    else
+      at(i)
+    end
+  end
   def []=(i, len_or_val, val = :__unset__)
     if val.equal?(:__unset__)
       Intrinsics.array_index_write(self, i, len_or_val)
