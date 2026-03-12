@@ -993,6 +993,8 @@ module Frozone
             m.captures.each_with_index do |cap, i|
               GLOBALS[:"$#{i + 1}"] = cap ? StringObject.new(cap) : NilObject::NIL
             end
+            last_non_nil = m.captures.reverse.find { |c| !c.nil? }
+            GLOBALS[:"$+"] = last_non_nil ? StringObject.new(last_non_nil) : NilObject::NIL
             GLOBALS[:"$&"] = StringObject.new(m[0])
             GLOBALS[:"$`"] = StringObject.new(m.pre_match)
             GLOBALS[:"$'"] = StringObject.new(m.post_match)

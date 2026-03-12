@@ -114,7 +114,19 @@ module Frozone
         stringio_path = $LOAD_PATH.map { |d| File.join(d, 'stringio') }.find { |f| File.exist?("#{f}.so") || File.exist?("#{f}.rb") } || 'stringio'
         GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new([StringObject.new(pp_path), StringObject.new(stringio_path)])
         GLOBALS[:"$\""] = GLOBALS[:"$LOADED_FEATURES"]  # $" is alias for $LOADED_FEATURES
+        GLOBALS[:"$/"]               = StringObject.new("\n")
+        GLOBALS[:"$\\"]              = NilObject::NIL
+        GLOBALS[:"$,"]               = NilObject::NIL
+        GLOBALS[:"$;"]               = NilObject::NIL
+        GLOBALS[:"$."]               = IntegerObject.new(0)
+        GLOBALS[:"$$"]               = IntegerObject.new(Process.pid)
+        GLOBALS[:"$VERBOSE"]         = FalseObject::FALSE
+        GLOBALS[:"$DEBUG"]           = FalseObject::FALSE
+        GLOBALS[:"$!"]               = NilObject::NIL
         GLOBALS[:"$stdout"]          = ObjectObject.new(Core::OBJECT_CLASS) # placeholder
+        GLOBALS[:"$stderr"]          = ObjectObject.new(Core::OBJECT_CLASS) # placeholder
+        GLOBALS[:"$stdin"]           = ObjectObject.new(Core::OBJECT_CLASS) # placeholder
+        GLOBALS[:"$>"]               = GLOBALS[:"$stdout"]
         GLOBALS[:"$0"]               = StringObject.new($0.to_s)
         GLOBALS[:"$PROGRAM_NAME"]    = GLOBALS[:"$0"]
       end
