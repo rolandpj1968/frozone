@@ -89,17 +89,17 @@ module Frozone
         end
 
         # Kernel (on Object for now)
-        def kernel_puts(_, _receiver, args)
+        def kernel_puts(context, _receiver, args)
           if args.raw.empty?
             $stdout.puts
           else
-            args.raw.each { |a| $stdout.puts(a.dispatch(Fiber[:context], :to_s, [], {}).raw) }
+            args.raw.each { |a| $stdout.puts(a.dispatch(context, :to_s, [], {}).raw) }
           end
           NilObject::NIL
         end
 
-        def kernel_print(_, _receiver, args)
-          args.raw.each { |a| $stdout.print(a.dispatch(Fiber[:context], :to_s, [], {}).raw) }
+        def kernel_print(context, _receiver, args)
+          args.raw.each { |a| $stdout.print(a.dispatch(context, :to_s, [], {}).raw) }
           NilObject::NIL
         end
 
@@ -127,8 +127,8 @@ module Frozone
           end
         end
 
-        def kernel_p(_, _receiver, args)
-          args.raw.each { |a| $stdout.puts(a.dispatch(Fiber[:context], :inspect, [], {}).raw) }
+        def kernel_p(context, _receiver, args)
+          args.raw.each { |a| $stdout.puts(a.dispatch(context, :inspect, [], {}).raw) }
           args.raw.length == 1 ? args.raw.first : args
         end
 
@@ -163,8 +163,8 @@ module Frozone
           throw(tag_raw, value)
         end
 
-        def kernel_abort(_, _receiver, msg)
-          m = msg.is_a?(NilObject) ? nil : msg.dispatch(Fiber[:context], :to_s, [], {}).raw
+        def kernel_abort(context, _receiver, msg)
+          m = msg.is_a?(NilObject) ? nil : msg.dispatch(context, :to_s, [], {}).raw
           $stderr.puts(m) if m
           exit(1)
         end
@@ -730,16 +730,16 @@ module Frozone
         def integer__mod_(_, v1, v2)   = IntegerObject.new(v1.raw % v2.raw)
         def integer__pow_(_, v1, v2)   = IntegerObject.new(v1.raw ** v2.raw)
 
-        def integer_to_r(_, v)
+        def integer_to_r(context, v)
           r_class = Core::OBJECT_CLASS.get_constant(:Rational)
           return StringObject.new("#{v.raw}/1") unless r_class
-          r_class.dispatch(Fiber[:context], :new, [v, IntegerObject.new(1)], {})
+          r_class.dispatch(context, :new, [v, IntegerObject.new(1)], {})
         end
 
-        def integer_to_c(_, v)
+        def integer_to_c(context, v)
           c_class = Core::OBJECT_CLASS.get_constant(:Complex)
           return StringObject.new("#{v.raw}+0i") unless c_class
-          c_class.dispatch(Fiber[:context], :new, [v, IntegerObject.new(0)], {})
+          c_class.dispatch(context, :new, [v, IntegerObject.new(0)], {})
         end
 
         # Float intrinsics
@@ -832,13 +832,13 @@ module Frozone
           IntegerObject.new(content.raw.length)
         end
 
-        def file_open(_, path, mode, block)
+        def file_open(context, path, mode, block)
           mode_str = mode.is_a?(NilObject) || mode.nil? ? 'r' : mode.raw
           if block && !block.is_a?(NilObject)
             File.open(path.raw, mode_str) do |f|
               io_obj = ObjectObject.new(Core.object_class)
               io_obj.instance_variable_set(:@__file__, f)
-              block.invoke(Fiber[:context], [io_obj])
+              block.invoke(context, [io_obj])
             end
             NilObject::NIL
           else
@@ -881,11 +881,11 @@ module Frozone
           ArrayObject.new(Dir.glob(pattern.raw).map { |p| StringObject.new(p) })
         end
 
-        def dir_chdir(_, path, block)
+        def dir_chdir(context, path, block)
           path_raw = path.is_a?(NilObject) || path.nil? ? nil : path.raw
           if block && !block.is_a?(NilObject)
-            result = path_raw ? Dir.chdir(path_raw) { block.invoke(Fiber[:context], [StringObject.new(Dir.pwd)]) } :
-                                Dir.chdir { block.invoke(Fiber[:context], [StringObject.new(Dir.pwd)]) }
+            result = path_raw ? Dir.chdir(path_raw) { block.invoke(context, [StringObject.new(Dir.pwd)]) } :
+                                Dir.chdir { block.invoke(context, [StringObject.new(Dir.pwd)]) }
             result.is_a?(ObjectObject) ? result : NilObject::NIL
           else
             Dir.chdir(path_raw || Dir.pwd)
@@ -904,13 +904,13 @@ module Frozone
         def dir_empty(_, path) = bool_object_for(Dir.empty?(path.raw))
         def dir_exist(_, path) = path.raw && Dir.exist?(path.raw) ? TrueObject::TRUE : FalseObject::FALSE
 
-        def dir_mktmpdir(_, prefix, block)
+        def dir_mktmpdir(context, prefix, block)
           require 'tmpdir'
           pfx = prefix.is_a?(NilObject) || prefix.nil? ? nil : prefix.raw
           path = pfx ? Dir.mktmpdir(pfx) : Dir.mktmpdir
           if block && !block.is_a?(NilObject)
             begin
-              block.invoke(Fiber[:context], [StringObject.new(path)])
+              block.invoke(context, [StringObject.new(path)])
             ensure
               FileUtils.remove_entry(path) rescue nil
             end
