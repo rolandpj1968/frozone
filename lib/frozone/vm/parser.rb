@@ -199,9 +199,12 @@ module Frozone
           end
         end
 
-        post_params = parameters.posts.filter_map do |p|
-          p.is_a?(Prism::RequiredParameterNode) ? p.name : nil
-        end
+        post_params = parameters.posts.map do |p|
+          case p
+          when Prism::RequiredParameterNode then p.name
+          when Prism::MultiTargetNode       then parse_multi_target_param(p)
+          end
+        end.compact
 
         parameters.keywords.each do |kw|
           case kw
@@ -331,7 +334,9 @@ module Frozone
           Ast::FloatLiteral.from(prism_node.value)
 
         when Prism::StringNode
-          Ast::StringLiteral.from(prism_node.unescaped)
+          s = prism_node.unescaped
+          s = s.dup.force_encoding("UTF-8") if prism_node.respond_to?(:forced_utf8_encoding?) && prism_node.forced_utf8_encoding?
+          Ast::StringLiteral.from(s)
 
         when Prism::SymbolNode
           Ast::SymbolLiteral.from(prism_node.unescaped)
@@ -499,29 +504,27 @@ module Frozone
                 # Prism parses this a bit weirdly - keyword args appear as a Prism::KeywordHashNode in the general arguments array
                 case argument
                 when Prism::KeywordHashNode
-                  # If any AssocNode uses => (hash-rocket), treat the whole node as a positional hash literal
-                  has_hash_rocket = argument.elements.any? { |e| e.is_a?(Prism::AssocNode) && !e.operator_loc.nil? }
-                  if has_hash_rocket
-                    pairs = argument.elements.map do |kw_arg|
-                      raise "Unexpected KeywordHashNode element: #{kw_arg.class}" unless kw_arg.is_a?(Prism::AssocNode)
-                      [transform(kw_arg.key), transform(kw_arg.value)]
-                    end
-                    arg_nodes << Ast::HashLiteral.new(pairs)
-                  else
-                    argument.elements.each do |kw_arg|
-                      case kw_arg
-                      when Prism::AssocNode
-                        raise "syntax errors found" if kw_arg.value.is_a?(Prism::MissingNode)
+                  # KeywordHashNode is always kwargs context (bare hash syntax, no braces).
+                  # Symbol-keyed pairs go to kw_args; non-symbol-keyed pairs go as a kw_splat hash.
+                  non_sym_pairs = []
+                  argument.elements.each do |kw_arg|
+                    case kw_arg
+                    when Prism::AssocNode
+                      raise "syntax errors found" if kw_arg.value.is_a?(Prism::MissingNode)
+                      if kw_arg.key.is_a?(Prism::SymbolNode)
                         kw_args[transform(kw_arg.key)] = transform(kw_arg.value)
-                      when Prism::AssocSplatNode
-                        # Anonymous `**` with no value — forward __anon_kwargs__
-                        splat_val = kw_arg.value.nil? ? Ast::LocalVariableRead.new(:__anon_kwargs__, 0) : transform(kw_arg.value)
-                        kw_splats << splat_val
                       else
-                        raise "Unexpected KeywordHashNode element: #{kw_arg.class}"
+                        non_sym_pairs << [transform(kw_arg.key), transform(kw_arg.value)]
                       end
+                    when Prism::AssocSplatNode
+                      # Anonymous `**` with no value — forward __anon_kwargs__
+                      splat_val = kw_arg.value.nil? ? Ast::LocalVariableRead.new(:__anon_kwargs__, 0) : transform(kw_arg.value)
+                      kw_splats << splat_val
+                    else
+                      raise "Unexpected KeywordHashNode element: #{kw_arg.class}"
                     end
                   end
+                  kw_splats << Ast::HashLiteral.new(non_sym_pairs) unless non_sym_pairs.empty?
                 when Prism::SplatNode
                   # Anonymous `*` with no expression — forward __anon_rest__
                   splat_expr = argument.expression.nil? ? Ast::LocalVariableRead.new(:__anon_rest__, 0) : transform(argument.expression)

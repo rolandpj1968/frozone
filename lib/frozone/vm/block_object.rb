@@ -63,6 +63,11 @@ module Frozone
           end
         end
 
+        # **nil parameter: reject any keyword arguments (check before populate_params)
+        if @kw_rest_param == :__no_kwargs__ && !kw_args.empty?
+          raise FrozoneException.make(:ArgumentError, "no keywords accepted")
+        end
+
         # If block has no keyword params, convert any kw_args to a positional Hash (Ruby semantics).
         if !kw_args.empty? && @required_kw_params.empty? && @optional_kw_params.empty? && @kw_rest_param.nil?
           hash_val = HashObject.new(kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k })
@@ -74,7 +79,13 @@ module Frozone
         populate_kw_params(context, new_frame, kw_args)
 
         if @block_param
-          proc_obj = block ? ProcObject.new(block) : NilObject::NIL
+          proc_obj = if block.is_a?(ProcObject)
+                       block
+                     elsif block && !block.is_a?(NilObject)
+                       ProcObject.new(block)
+                     else
+                       NilObject::NIL
+                     end
           new_frame.set_local(@block_param, proc_obj)
         end
 
@@ -162,8 +173,9 @@ module Frozone
         end
 
         # Fill post params starting at post_start (lenient: missing → nil)
-        @post_params.each_with_index do |name, i|
-          frame.set_local(name, args.fetch(post_start + i, NilObject::NIL))
+        @post_params.each_with_index do |param, i|
+          val = args.fetch(post_start + i, NilObject::NIL)
+          assign_param(context, frame, param, val)
         end
 
         # Fill optional params from the middle region (between required and post_start)

@@ -985,30 +985,29 @@ module Frozone
             # hash literal (braced). Bare keyword syntax produces :kwargs nodes instead.
             arg_nodes << Ast::HashLiteral.new(transform_hash_pairs(arg))
           when :kwargs
-            # Ruby 3.0+ separate kwargs node.
-            # With modernize, string-keyed implicit hash syntax (`foo('a' => 1)`) also
-            # becomes s(:kwargs). Only symbol-keyed pairs/kwsplats are actual keyword args;
-            # otherwise treat the whole node as a positional HashLiteral.
-            if should_be_kw_args?(arg)
-              arg.children.each do |pair|
-                case pair.type
-                when :pair
-                  key_node, val_node = pair.children[0], pair.children[1]
+            # Ruby 3.0+ separate kwargs node (bare hash syntax, no braces = always kwargs context).
+            # Symbol-keyed pairs go to kw_args; non-symbol-keyed pairs go as a kw_splat hash.
+            non_sym_pairs = []
+            arg.children.each do |pair|
+              case pair.type
+              when :pair
+                key_node, val_node = pair.children[0], pair.children[1]
+                if key_node.type == :sym
                   kw_args[transform(key_node)] = transform(val_node)
-                when :kwsplat
-                  splat_val = pair.children[0].nil? ?
-                    Ast::LocalVariableRead.new(:__anon_kwargs__, 0) :
-                    transform(pair.children[0])
-                  kw_splats << splat_val
-                when :forwarded_kwrestarg
-                  # def m(**); target(**) end — with modernize, forwarded_kwrestarg inside kwargs
-                  kw_splats << Ast::LocalVariableRead.new(:__anon_kwargs__, 0)
+                else
+                  non_sym_pairs << [transform(key_node), transform(val_node)]
                 end
+              when :kwsplat
+                splat_val = pair.children[0].nil? ?
+                  Ast::LocalVariableRead.new(:__anon_kwargs__, 0) :
+                  transform(pair.children[0])
+                kw_splats << splat_val
+              when :forwarded_kwrestarg
+                # def m(**); target(**) end — with modernize, forwarded_kwrestarg inside kwargs
+                kw_splats << Ast::LocalVariableRead.new(:__anon_kwargs__, 0)
               end
-            else
-              # String-keyed (or other non-sym) implicit hash → positional hash literal
-              arg_nodes << Ast::HashLiteral.new(transform_hash_pairs(arg))
             end
+            kw_splats << Ast::HashLiteral.new(non_sym_pairs) unless non_sym_pairs.empty?
           else
             arg_nodes << transform(arg)
           end

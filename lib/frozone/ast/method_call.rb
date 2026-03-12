@@ -36,6 +36,10 @@ module Frozone
         kw_args = @kw_arg_nodes.to_h { |kw_node, value_node| [kw_node.evaluate(context).raw, value_node.evaluate(context)] }
         @kw_splat_nodes.each do |splat_node|
           splatted = splat_node.evaluate(context)
+          next if splatted.is_a?(Vm::NilObject)  # **nil expands to {} in Ruby 3.4+
+          unless splatted.is_a?(Vm::HashObject)
+            raise Vm::FrozoneException.make(:TypeError, "no implicit conversion of #{splatted.class_object.name} into Hash")
+          end
           splatted.raw.each { |k, v| kw_args[k.is_a?(Vm::SymbolObject) ? k.raw : k] = v }
         end
         block = @block_node&.evaluate(context)
