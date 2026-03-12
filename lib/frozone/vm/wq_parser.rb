@@ -1349,8 +1349,13 @@ module Frozone
       end
 
       def transform_kwbegin(node)
-        inner = node.children[0]
-        return Ast::NilLiteral::NIL if inner.nil?
+        children = node.children
+        return Ast::NilLiteral::NIL if children.empty?
+        # Multiple direct children = statement list (e.g. in or_asgn value)
+        if children.length > 1
+          return Ast::Sequence.new(children.map { |c| transform(c) })
+        end
+        inner = children[0]
         case inner.type
         when :rescue
           transform_rescue_node(inner, nil, nil)
@@ -1366,9 +1371,11 @@ module Frozone
       def transform_kwbegin_body(node)
         return Ast::NilLiteral::NIL if node.nil?
         return transform(node) unless node.type == :kwbegin
-        inner = node.children[0]
-        return Ast::NilLiteral::NIL if inner.nil?
-        transform(inner)
+        children = node.children
+        return Ast::NilLiteral::NIL if children.empty?
+        # kwbegin in while_post can have multiple statement children
+        stmts = children.map { |c| transform(c) }
+        stmts.length == 1 ? stmts[0] : Ast::Sequence.new(stmts)
       end
 
       # -----------------------------------------------------------------------
