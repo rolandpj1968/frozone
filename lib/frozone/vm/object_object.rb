@@ -11,14 +11,15 @@ module Frozone
         end
         @class_object = class_object
         @instance_variables = {}
-        @eigenclass = class_object # promoted to singleton class at first singleton method def
+        @eigenclass = nil
       end
 
-      def class_object = @class_object
-      def eigenclass   = @eigenclass
+      def class_object  = @class_object
+      def eigenclass    = @eigenclass
+      def lookup_class  = @eigenclass || @class_object
 
       def create_singleton_class
-        return unless @eigenclass.equal?(@class_object)
+        return if @eigenclass
         # For ClassObjects, singleton class inherits from the superclass's singleton class
         sc_superclass =
           if is_a?(ClassObject) && respond_to?(:superclass) && superclass
@@ -34,9 +35,9 @@ module Frozone
         @eigenclass
       end
 
-      # Returns a method defined directly on the eigenclass (if distinct from class_object).
+      # Returns a method defined directly on the eigenclass (if one exists).
       def eigenclass_method(name)
-        @eigenclass.equal?(@class_object) ? nil : @eigenclass.get_method(name)
+        @eigenclass&.get_method(name)
       end
 
       def define_singleton_method(name, unbound_method)
@@ -45,7 +46,7 @@ module Frozone
       end
 
       def lookup_instance_method(name)
-        method = @eigenclass.lookup_method(name)
+        method = lookup_class.lookup_method(name)
         return method unless method.nil?
         # For ClassObjects, also walk superclass eigenclasses for inherited class methods
         if is_a?(ClassObject) && respond_to?(:superclass)

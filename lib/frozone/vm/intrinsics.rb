@@ -59,7 +59,7 @@ module Frozone
           seen = {}
           result = []
           sources = []
-          sources << v.singleton_class unless v.eigenclass.equal?(v.class_object)
+          sources << v.singleton_class if v.eigenclass
           if include_super
             c = v.class_object
             while c
@@ -103,7 +103,7 @@ module Frozone
         end
 
         def object_singleton_methods(_, v, include_super_obj = TrueObject::TRUE)
-          return ArrayObject.new([]) if v.eigenclass.equal?(v.class_object)
+          return ArrayObject.new([]) if v.eigenclass.nil?
           include_super = include_super_obj.truthy?
           seen = {}
           result = []
