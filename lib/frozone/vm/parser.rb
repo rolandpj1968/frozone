@@ -96,7 +96,11 @@ module Frozone
           when Prism::MultiTargetNode       then parse_multi_target_param(n)
           end
         }.compact
-        rest   = node.rest.is_a?(Prism::RestParameterNode) ? (node.rest.name || :__anon_rest__) : nil
+        rest   = case node.rest
+                 when Prism::RestParameterNode then node.rest.name || :__anon_rest__
+                 when Prism::SplatNode then node.rest.expression.is_a?(Prism::RequiredParameterNode) ? node.rest.expression.name : :__anon_rest__
+                 else nil
+                 end
         rights = node.rights.map { |n|
           case n
           when Prism::RequiredParameterNode then n.name
@@ -205,7 +209,7 @@ module Frozone
           no_req_kw = required_kw_params.empty? && optional_kw_params.empty?
           no_post = post_params.empty?
           is_empty        = required_params.empty? && optional_params.empty? && rest_param.nil? && !implicit_rest && no_post
-          is_single_req   = required_params.length == 1 && optional_params.empty? && rest_param.nil? && !implicit_rest && no_post && no_req_kw && kw_rest_param.nil?
+          is_single_req   = required_params.length == 1 && optional_params.empty? && rest_param.nil? && !implicit_rest && no_post
           is_single_opt   = required_params.empty? && optional_params.length == 1 && rest_param.nil? && !implicit_rest && no_post && no_req_kw
           is_rest_only    = required_params.empty? && optional_params.empty? && rest_param && !implicit_rest && no_post
           auto_splat = !is_empty && !is_single_req && !is_single_opt && !is_rest_only
@@ -229,8 +233,11 @@ module Frozone
           # Anonymous block param `&` has name=nil; use synthetic name for forwarding support
           block_param = parameters.block.nil? ? nil : (parameters.block.name || :__anon_block__)
           required_params = parameters.requireds.filter_map do |required|
-            next required.name if required.is_a?(Prism::RequiredParameterNode)
-            next nil  # skip destructured required params (MultiTargetNode etc.)
+            case required
+            when Prism::RequiredParameterNode then required.name
+            when Prism::MultiTargetNode       then parse_multi_target_param(required)
+            else nil
+            end
           end
           optional_params = parameters.optionals.map do |optional|
             raise "optional parameter is not a Prism::OptionalParameterNode" unless optional.is_a?(Prism::OptionalParameterNode)
@@ -242,8 +249,11 @@ module Frozone
             rest_param = parameters.rest.name || :__anon_rest__
           end
           post_params = parameters.posts.filter_map do |post|
-            next post.name if post.is_a?(Prism::RequiredParameterNode)
-            next nil  # skip destructured post params (MultiTargetNode etc.)
+            case post
+            when Prism::RequiredParameterNode then post.name
+            when Prism::MultiTargetNode       then parse_multi_target_param(post)
+            else nil
+            end
           end
           prism_node.parameters.keywords.each do |kw|
             case kw

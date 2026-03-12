@@ -8,10 +8,10 @@ module Frozone
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
                      block_param, locals, body)
-        @required_params    = check_array_type("required_params", required_params, Symbol)
+        @required_params    = check_array_type_or_type("required_params", required_params, Symbol, Hash)
         @optional_params    = optional_params
         @rest_param         = rest_param
-        @post_params        = check_array_type("post_params", post_params, Symbol)
+        @post_params        = check_array_type_or_type("post_params", post_params, Symbol, Hash)
         @required_kw_params = check_array_type("required_kw_params", required_kw_params, Symbol)
         @optional_kw_params = optional_kw_params
         @kw_rest_param      = kw_rest_param

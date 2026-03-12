@@ -16,6 +16,12 @@ module Frozone
       value
     end
 
+    def check_array_type_or_type(name, value, element_type_1, element_type_2)
+      check_type(name, value, Array)
+      raise "#{name} must be an Array of #{element_type_1} or #{element_type_2}" unless value.all? { |e| e.is_a?(element_type_1) || e.is_a?(element_type_2) }
+      value
+    end
+
     def check_nil_or_array_type(name, value, element_type)
       check_nil_or_array_type(name, value, Array)
       raise "#{name} must be an Array of #{element_type}" unless value.nil? || value.all?(element_type)

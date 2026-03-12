@@ -9,10 +9,10 @@ module Frozone
         @name = check_type("name", name, Symbol)
         @receiver_node = check_nil_or_type("receiver_node", receiver_node, Node)
 
-        @required_params = check_array_type("required_params", required_params, Symbol)
+        @required_params = check_array_type_or_type("required_params", required_params, Symbol, Hash)
         @optional_params = check_array_of_pairs_of_types("optional_params", optional_params, Symbol, Ast::Node)
         @rest_param = check_nil_or_type("rest_param", rest_param, Symbol)
-        @post_params = check_array_type("post_params", post_params, Symbol)
+        @post_params = check_array_type_or_type("post_params", post_params, Symbol, Hash)
 
         @required_kw_params = check_array_type("required_kw_params", required_kw_params, Symbol)
         @optional_kw_params = check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, Symbol, Ast::Node)

@@ -15,10 +15,10 @@ module Frozone
         @scopes = self.class.unique_scopes(check_array_type("scopes", scopes, ModuleObject))
         @name = check_type("name", name, Symbol)
 
-        @required_params = check_array_type("required_params", required_params, Symbol)
+        @required_params = check_array_type_or_type("required_params", required_params, Symbol, Hash)
         @optional_params = check_array_of_pairs_of_types("optional_params", optional_params, Symbol, Ast::Node)
         @rest_param = check_nil_or_type("rest_param", rest_param, Symbol)
-        @post_params = check_array_type("post_params", post_params, Symbol)
+        @post_params = check_array_type_or_type("post_params", post_params, Symbol, Hash)
 
         @required_kw_params = check_array_type("required_kw_params", required_kw_params, Symbol)
         @optional_kw_params = check_array_of_pairs_of_types("optional_kw_params", optional_kw_params, Symbol, Ast::Node)
@@ -51,11 +51,11 @@ module Frozone
         end
 
         @required_params.length.times do |i|
-          new_frame.set_local(@required_params[i], args[i])
+          assign_param(context, new_frame, @required_params[i], args[i])
         end
 
         @post_params.length.times do |i|
-          new_frame.set_local(@post_params[i], args[i - @post_params.length])
+          assign_param(context, new_frame, @post_params[i], args[i - @post_params.length])
         end
 
         unless @optional_params.empty?
@@ -109,6 +109,40 @@ module Frozone
       def name = @name
       def scopes = @scopes
 
+      private
+
+      def assign_param(context, frame, param, val)
+        if param.is_a?(Hash)
+          sub_args = coerce_to_array(context, val)
+          sub_names  = param[:names]
+          sub_rest   = param[:rest]
+          sub_rights = param[:rights] || []
+          sub_names.each_with_index  { |n, j| assign_param(context, frame, n, sub_args.fetch(j, NilObject::NIL)) }
+          if sub_rest
+            rest_end  = sub_rights.length > 0 ? -(sub_rights.length + 1) : -1
+            rest_vals = sub_args[sub_names.length..rest_end] || []
+            frame.set_local(sub_rest, ArrayObject.new(rest_vals))
+          end
+          sub_rights.each_with_index { |n, j| assign_param(context, frame, n, sub_args.fetch(-(sub_rights.length - j), NilObject::NIL)) }
+        else
+          frame.set_local(param, val)
+        end
+      end
+
+      def coerce_to_array(context, val)
+        return val.raw if val.is_a?(ArrayObject)
+        return [val] if val.is_a?(NilObject)
+        if val.lookup_instance_method(:to_ary)
+          converted = val.dispatch(context, :to_ary, [], {})
+          return converted.raw if converted.is_a?(ArrayObject)
+          return [val] if converted.is_a?(NilObject)
+          raise FrozoneException.make(:TypeError, "no implicit conversion of #{val.class_object.name} into Array")
+        end
+        [val]
+      end
+
+      public
+
       def invoke(context, receiver, args, kw_args, block = nil)
         new_frame = Frame.new(receiver, @locals, @scopes)
         new_frame.block = block
@@ -137,7 +171,7 @@ module Frozone
           if @block_param
             proc_obj = if block.is_a?(ProcObject)
                          block  # already a ProcObject — don't double-wrap
-                       elsif block
+                       elsif block && !block.is_a?(NilObject)
                          ProcObject.new(block)
                        else
                          NilObject::NIL

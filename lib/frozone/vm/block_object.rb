@@ -43,20 +43,28 @@ module Frozone
           arg = args[0]
           if arg.is_a?(ArrayObject)
             args = arg.raw
-          elsif !arg.is_a?(NilObject) && arg.lookup_instance_method(:to_ary)
-            # Try to_ary conversion for auto-splat
-            converted = arg.dispatch(context, :to_ary, [], {})
-            if converted.is_a?(ArrayObject)
-              args = converted.raw
-            elsif !converted.is_a?(NilObject)
-              raise FrozoneException.make(:TypeError, "no implicit conversion of #{arg.class_object.name} into Array")
+          elsif !arg.is_a?(NilObject)
+            # Call respond_to?(:to_ary, true) via dispatch (includes private); rescue for BasicObject
+            has_to_ary = begin
+              result = arg.dispatch(context, :respond_to?, [SymbolObject.from(:to_ary), TrueObject::TRUE], {})
+              result.truthy?
+            rescue
+              arg.lookup_instance_method(:to_ary) ? true : false
+            end
+            if has_to_ary
+              converted = arg.dispatch(context, :to_ary, [], {})
+              if converted.is_a?(ArrayObject)
+                args = converted.raw
+              elsif !converted.is_a?(NilObject)
+                raise FrozoneException.make(:TypeError, "no implicit conversion of #{arg.class_object.name} into Array")
+              end
             end
           end
         end
 
         # For blocks with keyword parameters: if the last positional arg is a Hash with symbol keys,
         # extract it as keyword args (Ruby's keyword argument extraction for blocks).
-        if kw_args.empty? && !args.empty? &&
+        if kw_args.empty? && !args.empty? && @post_params.empty? &&
            (@kw_rest_param || !@required_kw_params.empty? || !@optional_kw_params.empty?) &&
            args.last.is_a?(HashObject)
           last = args.last
@@ -186,7 +194,7 @@ module Frozone
         end
         unless missing.empty?
           label = missing.length == 1 ? "keyword" : "keywords"
-          raise FrozoneException.make(:ArgumentError, "missing #{label}: #{missing.join(', ')}")
+          raise FrozoneException.make(:ArgumentError, "missing #{label}: #{missing.map { |k| ":#{k}" }.join(', ')}")
         end
 
         @optional_kw_params.each do |kw, value_node|

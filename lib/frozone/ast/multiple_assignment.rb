@@ -17,6 +17,10 @@ module Frozone
       end
 
       def evaluate(context)
+        # Ruby evaluation order: pre-evaluate LHS receivers/indices (left to right),
+        # then evaluate RHS, then perform assignments.
+        cached = pre_evaluate_targets(context, @targets)
+
         rhs = @value_node.evaluate(context)
 
         # Coerce RHS to array (Ruby semantics: call to_ary if available, even private)
@@ -54,18 +58,18 @@ module Frozone
           n_fixed = pre.length + post.length
 
           pre_vals  = values[0, pre.length].map { |v| v || Vm::NilObject::NIL }
-          post_vals = post.length > 0 ? (values[-post.length..] || []) : []
+          post_start = post.length > 0 ? [values.length - post.length, pre.length].max : values.length
+          post_vals = post.length > 0 ? (values[post_start..] || []) : []
           post_vals = post_vals.map { |v| v || Vm::NilObject::NIL }
-          splat_end = post.length > 0 ? -(post.length + 1) : -1
-          splat_vals = values[pre.length .. splat_end] || []
+          splat_vals = values[pre.length ... post_start] || []
           splat_arr = Vm::ArrayObject.new(splat_vals)
 
-          pre.each_with_index { |t, i| assign(context, t, pre_vals.fetch(i, Vm::NilObject::NIL)) }
-          assign(context, @targets[splat_idx], splat_arr) unless @targets[splat_idx][0] == :splat_nil
-          post.each_with_index { |t, i| assign(context, t, post_vals.fetch(i, Vm::NilObject::NIL)) }
+          pre.each_with_index { |t, i| assign(context, t, pre_vals.fetch(i, Vm::NilObject::NIL), cached) }
+          assign(context, @targets[splat_idx], splat_arr, cached) unless @targets[splat_idx][0] == :splat_nil
+          post.each_with_index { |t, i| assign(context, t, post_vals.fetch(i, Vm::NilObject::NIL), cached) }
         else
           @targets.each_with_index do |t, i|
-            assign(context, t, values.fetch(i, Vm::NilObject::NIL))
+            assign(context, t, values.fetch(i, Vm::NilObject::NIL), cached)
           end
         end
 
@@ -74,7 +78,27 @@ module Frozone
 
       private
 
-      def assign(context, target, value)
+      # Pre-evaluate receivers/indices for :call/:index targets, returning a cache hash
+      def pre_evaluate_targets(context, targets)
+        cache = {}
+        targets.each do |t|
+          case t[0]
+          when :call, :call_splat
+            cache[t.object_id] = t[1].evaluate(context)
+          when :index, :index_splat
+            receiver = t[1].evaluate(context)
+            index_args = t[2].map { |n| n.evaluate(context) }
+            cache[t.object_id] = [receiver, index_args]
+          when :nested
+            # Recursively pre-evaluate nested targets
+            sub_cache = pre_evaluate_targets(context, t[1])
+            cache.merge!(sub_cache)
+          end
+        end
+        cache
+      end
+
+      def assign(context, target, value, cached = {})
         case target[0]
         when :local, :local_splat
           context.frame.frame_at_depth(target[2]).set_local(target[1], value)
@@ -86,12 +110,11 @@ module Frozone
           Vm::GLOBALS[target[1]] = value
         when :cvar_splat
           context.scopes.last.set_class_variable(target[1], value)
-        when :index
-          receiver = target[1].evaluate(context)
-          index_args = target[2].map { |n| n.evaluate(context) }
+        when :index, :index_splat
+          receiver, index_args = cached[target.object_id] || [target[1].evaluate(context), target[2].map { |n| n.evaluate(context) }]
           receiver.dispatch(context, :[]=, index_args + [value], {})
-        when :call
-          receiver = target[1].evaluate(context)
+        when :call, :call_splat
+          receiver = cached[target.object_id] || target[1].evaluate(context)
           receiver.dispatch(context, target[2], [value], {})
         when :const_path
           parent = target[1].evaluate(context)
@@ -103,7 +126,7 @@ module Frozone
           sub_values = value.is_a?(Vm::ArrayObject) ? value.raw.dup : [value]
           sub_targets = target[1]
           sub_targets.each_with_index do |st, i|
-            assign(context, st, sub_values.fetch(i, Vm::NilObject::NIL))
+            assign(context, st, sub_values.fetch(i, Vm::NilObject::NIL), cached)
           end
         end
       end

@@ -277,6 +277,22 @@ module Frozone
           NilObject::NIL
         end
 
+        def object_instance_eval_string(context, receiver, code_obj)
+          return NilObject::NIL unless code_obj.is_a?(StringObject)
+          code = code_obj.raw
+          parser = Parser.new(code)
+          ast = parser.ast
+          # Evaluate with self = receiver (the object), using its class as scope
+          receiver_class = receiver.is_a?(ModuleObject) ? receiver : receiver.class_object
+          new_frame = Frame.new(receiver, parser.top_level_locals, context.frame.scopes)
+          context.push_frame(new_frame)
+          begin
+            ast.evaluate(context)
+          ensure
+            context.pop_frame
+          end
+        end
+
         def object_instance_exec(context, receiver, args, block)
           return NilObject::NIL if block.nil? || block.is_a?(NilObject)
           return block.invoke(context, args.raw, receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(ProcObject)

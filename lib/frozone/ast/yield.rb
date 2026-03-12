@@ -15,7 +15,7 @@ module Frozone
         args = @arg_nodes.flat_map do |n|
           n.is_a?(SplatArg) ? n.evaluate(context).raw : [n.evaluate(context)]
         end
-        kw_args = @kw_arg_nodes.transform_values { |v| v.evaluate(context) }
+        kw_args = @kw_arg_nodes.to_h { |k, v| [k.evaluate(context).raw, v.evaluate(context)] }
         block.invoke(context, args, kw_args: kw_args)
       end
     end
