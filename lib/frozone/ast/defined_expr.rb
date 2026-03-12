@@ -21,6 +21,9 @@ module Frozone
         when :literal    then "expression"
         when :assignment then "assignment"
         when :expression then "expression"
+        when :array_literal
+          all_defined = @extra.all? { |check| !check.evaluate(context).is_a?(Vm::NilObject) }
+          all_defined ? "expression" : nil
         when :constant
           # @extra is the AST node to evaluate the constant lookup
           begin
@@ -74,17 +77,25 @@ module Frozone
             if receiver_ok
               begin
                 receiver = receiver_node.evaluate(context)
-                method = receiver.lookup_instance_method(method_name)
-                method && method.visibility == :public ? "method" : nil
+                # Use respond_to? dispatch: public methods only for explicit receivers,
+                # also handles class methods (via eigenclass) and respond_to_missing?
+                sym = Vm::SymbolObject.from(method_name)
+                result = receiver.dispatch(context, :respond_to?, [sym], {})
+                result.truthy? ? "method" : nil
               rescue
                 nil
               end
             end
           else
-            # Implicit receiver — check current self (private methods are accessible)
+            # Implicit receiver — private methods are accessible with no receiver
             receiver = context.frame.the_self
-            method = receiver.lookup_instance_method(method_name)
-            method ? "method" : nil
+            begin
+              sym = Vm::SymbolObject.from(method_name)
+              result = receiver.dispatch(context, :respond_to?, [sym, Vm::TrueObject::TRUE], {})
+              result.truthy? ? "method" : nil
+            rescue
+              receiver.lookup_instance_method(method_name) ? "method" : nil
+            end
           end
         when :yield
           context.frame.block ? "yield" : nil

@@ -1030,8 +1030,13 @@ module Frozone
           Ast::DefinedExpr.new(:false)
         when Prism::IntegerNode, Prism::FloatNode, Prism::ImaginaryNode, Prism::RationalNode,
              Prism::StringNode, Prism::InterpolatedStringNode, Prism::SymbolNode,
-             Prism::InterpolatedSymbolNode, Prism::ArrayNode, Prism::HashNode, Prism::LambdaNode
+             Prism::InterpolatedSymbolNode, Prism::HashNode, Prism::LambdaNode
           Ast::DefinedExpr.new(:literal)
+        when Prism::ArrayNode
+          element_checks = val.elements.map { |e|
+            e.is_a?(Prism::SplatNode) ? Ast::DefinedExpr.new(:expression) : transform_defined_value(e)
+          }
+          Ast::DefinedExpr.new(:array_literal, element_checks)
         when Prism::ConstantReadNode
           Ast::DefinedExpr.new(:constant, Ast::ConstantRead.new(val.name))
         when Prism::ConstantPathNode
