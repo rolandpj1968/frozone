@@ -10,10 +10,21 @@ class Array
   def at(i) = Intrinsics.array_at(self, i)
 
   def [](i, len = nil)
+    n = length
+
     if len
-      Intrinsics.array_slice(self, i, len)
+      s = i < 0 ? i + n : i
+      return nil if s < 0 || s > n
+      stop = s + len > n ? n : s + len
+      r = []; j = s; while j < stop; r << at(j); j += 1; end; r
     elsif i.is_a?(Range)
-      Intrinsics.array_slice(self, i, nil)
+      b = i.begin.nil? ? 0       : (i.begin < 0 ? i.begin + n : i.begin)
+      e = i.end.nil?   ? n - 1   : (i.end   < 0 ? i.end   + n : i.end)
+      e -= 1 if i.exclude_end?
+      return nil if b > n
+      return [] if b == n || e < b
+      e = n - 1 if e >= n
+      (b..e).map { |idx| at(idx) }
     else
       at(i)
     end
