@@ -96,7 +96,7 @@ module Frozone
           new_frame.set_local(kw, value)
         end
 
-        if @kw_rest_param.nil?
+        if @kw_rest_param.nil? || @kw_rest_param == :__no_kwargs__
           unless kw_args.empty?
             raise FrozoneException.make(:ArgumentError, "unknown keyword#{kw_args.length == 1 ? "" : "s"}: #{kw_args.keys.map { |k| ":#{k}" }.join(', ')}")
           end
@@ -123,7 +123,8 @@ module Frozone
             rest_vals = sub_args[sub_names.length..rest_end] || []
             frame.set_local(sub_rest, ArrayObject.new(rest_vals))
           end
-          sub_rights.each_with_index { |n, j| assign_param(context, frame, n, sub_args.fetch(-(sub_rights.length - j), NilObject::NIL)) }
+          rights_start = [sub_args.length - sub_rights.length, sub_names.length].max
+          sub_rights.each_with_index { |n, j| assign_param(context, frame, n, sub_args.fetch(rights_start + j, NilObject::NIL)) }
         else
           frame.set_local(param, val)
         end
@@ -132,7 +133,13 @@ module Frozone
       def coerce_to_array(context, val)
         return val.raw if val.is_a?(ArrayObject)
         return [val] if val.is_a?(NilObject)
-        if val.lookup_instance_method(:to_ary)
+        has_to_ary = begin
+          result = val.dispatch(context, :respond_to?, [SymbolObject.from(:to_ary), TrueObject::TRUE], {})
+          result.truthy?
+        rescue
+          val.lookup_instance_method(:to_ary) ? true : false
+        end
+        if has_to_ary
           converted = val.dispatch(context, :to_ary, [], {})
           return converted.raw if converted.is_a?(ArrayObject)
           return [val] if converted.is_a?(NilObject)
@@ -150,6 +157,11 @@ module Frozone
         new_frame.current_method = self
         # def inside a method body goes to the method's defining scope, not the call-site scope
         new_frame.def_scope = @scopes.last
+
+        # **nil parameter: reject any keyword arguments
+        if @kw_rest_param == :__no_kwargs__ && !kw_args.empty?
+          raise FrozoneException.make(:ArgumentError, "no keywords accepted")
+        end
 
         # If the method has no keyword params, convert kwargs to a positional Hash (Ruby semantics)
         if !kw_args.empty? && @required_kw_params.empty? && @optional_kw_params.empty? && @kw_rest_param.nil?
@@ -184,8 +196,14 @@ module Frozone
           raise e unless e.method_frame.equal?(new_frame)
           e.value
         rescue Ast::BreakException => e
-          e.value
+          # Convert to LocalJumpError if break targets this frame (captured block called within
+          # its defining scope) or if the defining frame is already dead (scope has returned).
+          if e.method_frame.equal?(new_frame) || (e.method_frame && !e.method_frame.alive?)
+            raise FrozoneException.make(:LocalJumpError, "break from proc-closure")
+          end
+          raise
         ensure
+          new_frame.kill!
           context.pop_frame
         end
       end
@@ -219,7 +237,7 @@ module Frozone
       end
 
       def invoke(context, receiver, args, kwargs, block = nil)
-        @block_obj.invoke(context, args, receiver: receiver)
+        @block_obj.invoke(context, args, receiver: receiver, block: block)
       end
 
       def alias_as(name) = DefinedMethod.new(name, @block_obj)

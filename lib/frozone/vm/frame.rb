@@ -22,6 +22,12 @@ module Frozone
       attr_accessor :current_method, :method_args, :method_kwargs
       attr_accessor :def_scope  # singleton class scope set by instance_eval or method's defining scope
 
+      def alive? = @alive != false
+
+      def kill!
+        @alive = false
+      end
+
       def get_local(local) = @locals[local]
 
       def set_local(local, value)

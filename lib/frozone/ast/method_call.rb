@@ -38,7 +38,18 @@ module Frozone
         end
         block = @block_node&.evaluate(context)
 
-        receiver.dispatch(context, @name, args, kw_args, block, private_ok: implicit_receiver)
+        # Capture the calling method's frame BEFORE dispatch for BreakException handling.
+        # Only set for INLINE block literals (Ast::Block), not block-pass (&b) which is BlockArg.
+        calling_method_frame = @block_node.is_a?(Block) ? context.frame.method_frame : nil
+
+        begin
+          receiver.dispatch(context, @name, args, kw_args, block, private_ok: implicit_receiver)
+        rescue Ast::BreakException => e
+          # Absorb break only if: this call had an inline block AND the break came from that block's context
+          raise unless calling_method_frame&.equal?(e.method_frame) ||
+                       (calling_method_frame.nil? && e.method_frame.nil? && @block_node.is_a?(Block))
+          e.value
+        end
       end
     end
   end

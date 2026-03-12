@@ -118,8 +118,12 @@ module Frozone
         rescue Ast::NextException => e
           e.value
         rescue Ast::BreakException => e
-          e.from_block = true
-          raise
+          if @is_lambda && e.method_frame&.equal?(new_frame)
+            e.value  # break directly in lambda exits the lambda (like return)
+          else
+            e.from_block = true
+            raise
+          end
         ensure
           context.pop_frame
         end
@@ -223,7 +227,8 @@ module Frozone
             rest_vals = sub_args[sub_names.length..rest_end] || []
             frame.set_local(sub_rest, ArrayObject.new(rest_vals))
           end
-          sub_rights.each_with_index { |n, j| assign_param(context, frame, n, sub_args.fetch(-(sub_rights.length - j), NilObject::NIL)) }
+          rights_start = [sub_args.length - sub_rights.length, sub_names.length].max
+          sub_rights.each_with_index { |n, j| assign_param(context, frame, n, sub_args.fetch(rights_start + j, NilObject::NIL)) }
         else
           frame.set_local(param, val)
         end
@@ -232,7 +237,13 @@ module Frozone
       def coerce_to_array(context, val)
         return val.raw if val.is_a?(ArrayObject)
         return [val] if val.is_a?(NilObject)
-        if val.lookup_instance_method(:to_ary)
+        has_to_ary = begin
+          result = val.dispatch(context, :respond_to?, [SymbolObject.from(:to_ary), TrueObject::TRUE], {})
+          result.truthy?
+        rescue
+          val.lookup_instance_method(:to_ary) ? true : false
+        end
+        if has_to_ary
           converted = val.dispatch(context, :to_ary, [], {})
           return converted.raw if converted.is_a?(ArrayObject)
           return [val] if converted.is_a?(NilObject)

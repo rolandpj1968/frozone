@@ -20,6 +20,7 @@ module Frozone
       end
 
       def frame = @frames.last
+      def frames = @frames
 
       def push_scope(scope)
         unless scope.is_a?(ClassObject) || scope.is_a?(ModuleObject)

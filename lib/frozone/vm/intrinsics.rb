@@ -165,6 +165,15 @@ module Frozone
           args.raw.length == 1 ? args.raw.first : args
         end
 
+        def kernel_block_given(context, _receiver)
+          # block_given? is a Ruby method call (adds one frame), so check the
+          # CALLING frame (one below current) to find the actual method's block.
+          frames = context.frames
+          caller_frame = frames.length >= 2 ? frames[-2] : nil
+          b = caller_frame&.block
+          bool_object_for(!b.nil? && !b.is_a?(NilObject))
+        end
+
         def kernel_loop(context, _receiver, block)
           return NilObject::NIL if block.nil? || block.is_a?(NilObject)
           loop do

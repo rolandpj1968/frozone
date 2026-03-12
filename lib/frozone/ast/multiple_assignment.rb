@@ -50,7 +50,7 @@ module Frozone
             cache[t.object_id] = t[1].evaluate(context)
           when :index, :index_splat
             receiver = t[1].evaluate(context)
-            index_args = t[2].map { |n| n.evaluate(context) }
+            index_args = t[2].flat_map { |n| n.is_a?(SplatArg) ? n.evaluate(context).raw : [n.evaluate(context)] }
             cache[t.object_id] = [receiver, index_args]
           when :nested
             # Recursively pre-evaluate nested targets
@@ -74,7 +74,7 @@ module Frozone
         when :cvar_splat
           context.scopes.last.set_class_variable(target[1], value)
         when :index, :index_splat
-          receiver, index_args = cached[target.object_id] || [target[1].evaluate(context), target[2].map { |n| n.evaluate(context) }]
+          receiver, index_args = cached[target.object_id] || [target[1].evaluate(context), target[2].flat_map { |n| n.is_a?(SplatArg) ? n.evaluate(context).raw : [n.evaluate(context)] }]
           receiver.dispatch(context, :[]=, index_args + [value], {})
         when :call, :call_splat
           receiver = cached[target.object_id] || target[1].evaluate(context)

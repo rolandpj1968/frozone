@@ -87,7 +87,16 @@ module Frozone
 
         block = @block_node ? @block_node.evaluate(context) : (mf.block if @forwarding)
 
-        super_method.invoke(context, receiver, args, kw_args, block)
+        # For inline block literals, absorb BreakException targeting the calling method frame.
+        calling_method_frame = @block_node.is_a?(Block) ? context.frame.method_frame : nil
+
+        begin
+          super_method.invoke(context, receiver, args, kw_args, block)
+        rescue Ast::BreakException => e
+          raise unless calling_method_frame&.equal?(e.method_frame) ||
+                       (calling_method_frame.nil? && e.method_frame.nil? && @block_node.is_a?(Block))
+          e.value
+        end
       end
     end
   end

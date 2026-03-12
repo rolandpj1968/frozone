@@ -158,9 +158,18 @@ module Frozone
         return [required_params, optional_params, rest_param, post_params,
                 required_kw_params, optional_kw_params, kw_rest_param, block_param, false] if parameters.nil?
 
+        seen_param_names = {}
         required_params = parameters.requireds.filter_map do |r|
           case r
-          when Prism::RequiredParameterNode then r.name
+          when Prism::RequiredParameterNode
+            name = r.name
+            # Duplicate `_` params (blank params): use a unique discard name for 2nd+
+            if seen_param_names[name]
+              :"__discard_#{r.object_id}__"
+            else
+              seen_param_names[name] = true
+              name
+            end
           when Prism::MultiTargetNode then parse_multi_target_param(r)
           else nil
           end
@@ -270,8 +279,10 @@ module Frozone
               rest_param     = :__forward_args__
               kw_rest_param  = :__forward_kwargs__
               block_param    = :__forward_block__
+            elsif parameters.keyword_rest.is_a?(Prism::NoKeywordsParameterNode)
+              # **nil disallows all keyword arguments
+              kw_rest_param = :__no_kwargs__
             elsif parameters.keyword_rest.is_a?(Prism::KeywordRestParameterNode)
-              # **nil (NoKeywordsParameterNode) disallows kwargs — we just ignore it
               # Anonymous `**` uses synthetic name for forwarding
               kw_rest_param = parameters.keyword_rest.name || :__anon_kwargs__
             end

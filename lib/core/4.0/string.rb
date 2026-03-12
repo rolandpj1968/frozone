@@ -3,6 +3,7 @@ class String
   def *(n) = Intrinsics.string_multiply(self, n)
   def %(args) = Intrinsics.string_format(self, args)
   def <<(v) = Intrinsics.string_concat(self, v)
+  def concat(*args); args.each { |v| Intrinsics.string_concat(self, v) }; self; end
   def length = Intrinsics.string_length(self)
   alias size length
   def to_s = Intrinsics.string_to_s(self)
