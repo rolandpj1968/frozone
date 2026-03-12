@@ -974,17 +974,20 @@ module Frozone
         def update_match_globals(m)
           Fiber[:last_match] = m
           if m
-            GLOBALS[:"$~"] = MatchDataObject.new(m)
+            md = MatchDataObject.new(m)
+            GLOBALS[:"$~"] = md
             m.captures.each_with_index do |cap, i|
               GLOBALS[:"$#{i + 1}"] = cap ? StringObject.new(cap) : NilObject::NIL
             end
             GLOBALS[:"$&"] = StringObject.new(m[0])
             GLOBALS[:"$`"] = StringObject.new(m.pre_match)
             GLOBALS[:"$'"] = StringObject.new(m.post_match)
+            md
           else
             GLOBALS[:"$~"] = NilObject::NIL
             GLOBALS.delete_if { |k, _| k.to_s =~ /^\$\d+$/ }
             GLOBALS[:"$&"] = GLOBALS[:"$`"] = GLOBALS[:"$'"] = NilObject::NIL
+            NilObject::NIL
           end
         end
 
@@ -992,7 +995,6 @@ module Frozone
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
           m = receiver.raw.match(s)
           update_match_globals(m)
-          m ? MatchDataObject.new(m) : NilObject::NIL
         end
 
         def regexp_match_index(_, receiver, str)
