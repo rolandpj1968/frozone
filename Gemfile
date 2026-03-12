@@ -1,6 +1,6 @@
 source "https://rubygems.org"
 
-gem 'prism'
+gem 'parser', path: 'vendor/parser'
 gem 'profile'
 gem 'rake'
 
