@@ -1148,7 +1148,12 @@ module Frozone
         end
 
         def string_b(_, v) = StringObject.new(v.raw.b)
-        def string_concat(_, v1, v2)      = StringObject.new(v1.raw + v2.raw)
+        def string_concat(_, v1, v2)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v1.raw.inspect}") if v1.frozen?
+          v2_str = v2.is_a?(StringObject) ? v2.raw : v2.raw.to_s
+          v1.raw << v2_str
+          v1
+        end
         def string_multiply(_, v, n)      = StringObject.new(v.raw * n.raw)
 
         def string_format(_, v, args)

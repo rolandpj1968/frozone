@@ -11,7 +11,7 @@ module Frozone
 
         super(Core::STRING_CLASS)
 
-        @raw = value.freeze
+        @raw = value.frozen? ? value.dup : value
         @frozen = frozen
       end
 

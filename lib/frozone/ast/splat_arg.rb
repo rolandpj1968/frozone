@@ -12,6 +12,8 @@ module Frozone
         return Vm::ArrayObject.new([]) if @value_node.nil?
         val = @value_node.evaluate(context)
         return val if val.is_a?(Vm::ArrayObject)
+        # Ruby 4.0: *nil → [] without calling to_a
+        return Vm::ArrayObject.new([]) if val.is_a?(Vm::NilObject)
         # Splat calls to_a (NOT to_ary), including private; checks respond_to?(:to_a, true) first
         has_to_a = begin
           result = val.dispatch(context, :respond_to?, [Vm::SymbolObject.from(:to_a), Vm::TrueObject::TRUE], {})

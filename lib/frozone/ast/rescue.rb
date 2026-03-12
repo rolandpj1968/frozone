@@ -134,7 +134,23 @@ module Frozone
           else
             result = @else_node.evaluate(context) if @else_node
           ensure
-            @ensure_node&.evaluate(context)
+            if @ensure_node
+              # When an exception is propagating through this ensure (unrescued or re-raised),
+              # Ruby sets $! to that exception. Mirror this in our Vm::GLOBALS[:"$!"].
+              propagating = $!
+              if propagating && !CONTROL_FLOW.any? { |k| propagating.is_a?(k) }
+                vm_exc = propagating.is_a?(Vm::FrozoneException) ? propagating.vm_object : Vm::StringObject.new(propagating.message)
+                prev_exc = Vm::GLOBALS[:"$!"]
+                Vm::GLOBALS[:"$!"] = vm_exc
+                begin
+                  @ensure_node.evaluate(context)
+                ensure
+                  Vm::GLOBALS[:"$!"] = prev_exc
+                end
+              else
+                @ensure_node.evaluate(context)
+              end
+            end
           end
           break unless retry_requested
         end

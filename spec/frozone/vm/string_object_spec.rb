@@ -22,8 +22,8 @@ RSpec.describe Frozone::Vm::StringObject do
       expect(described_class.new("hello").raw).to eq("hello")
     end
 
-    it 'returns a frozen string' do
-      expect(described_class.new("mutable").raw).to be_frozen
+    it 'returns a mutable (unfrozen) string' do
+      expect(described_class.new("mutable").raw).not_to be_frozen
     end
   end
 
