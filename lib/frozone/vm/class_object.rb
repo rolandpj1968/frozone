@@ -19,7 +19,6 @@ module Frozone
       # Called after CLASS_CLASS is defined to wire up the class pointer on bootstrap ClassObjects
       def patch_class_object
         @class_object = Core::CLASS_CLASS
-        @eigenclass   = Core::CLASS_CLASS
       end
 
       # TODO &block
