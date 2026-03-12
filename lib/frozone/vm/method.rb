@@ -193,8 +193,9 @@ module Frozone
 
           @body.evaluate(context)
         rescue Ast::ReturnException => e
-          if e.method_frame.nil?
-            # No enclosing method context: proc/block return escaping its defining scope
+          if e.method_frame.nil? || !e.method_frame.alive?
+            # No enclosing method context, or the defining scope has already exited:
+            # proc/block return escaping its defining scope
             raise FrozoneException.make(:LocalJumpError, "unexpected return")
           end
           raise e unless e.method_frame.equal?(new_frame)
@@ -244,8 +245,8 @@ module Frozone
         @block_obj.invoke(context, args, receiver: receiver, block: block)
       rescue Ast::ReturnException => e
         # Absorb return from a proc used as a method body (define_method semantics).
-        # A proc's return with nil method_frame exits the define_method-defined method.
-        raise unless e.method_frame.nil?
+        # Return with nil or dead method_frame exits the define_method-defined method.
+        raise unless e.method_frame.nil? || !e.method_frame.alive?
         e.value
       end
 

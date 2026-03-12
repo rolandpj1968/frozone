@@ -1,7 +1,7 @@
 class Proc
   def self.new(&block) = block
-  def call(*args) = Intrinsics.proc_call(self, args)
-  def [](*args)   = Intrinsics.proc_call(self, args)
+  def call(*args, **kwargs) = Intrinsics.proc_call(self, args, kwargs)
+  def [](*args, **kwargs)   = Intrinsics.proc_call(self, args, kwargs)
   alias === call
   alias yield call
   def lambda? = Intrinsics.proc_lambda_p(self)

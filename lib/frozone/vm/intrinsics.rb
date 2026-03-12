@@ -617,7 +617,11 @@ module Frozone
           raise FrozoneException.make(:LoadError, "cannot load such file -- #{path}") if full_path.nil?
           return FalseObject::FALSE if loaded_paths.include?(full_path)
           loaded.push(StringObject.new(full_path))
-          Fiber[:vm_evaluate].call(full_path)
+          begin
+            Fiber[:vm_evaluate].call(full_path)
+          rescue Ast::ReturnException
+            # return at top level of required file stops loading gracefully
+          end
           TrueObject::TRUE
         end
 
@@ -687,11 +691,12 @@ module Frozone
           ProcObject.new(block, lambda: true)
         end
 
-        def proc_call(context, proc_obj, args)
+        def proc_call(context, proc_obj, args, kw_args_obj = NilObject::NIL)
           raise "proc_call: receiver must be a ProcObject" unless proc_obj.is_a?(ProcObject)
           blk = context.frame.block
           blk = nil if blk.nil? || blk.is_a?(NilObject)
-          proc_obj.call(context, args.raw, block: blk)
+          kw_args = kw_args_obj.is_a?(HashObject) ? kw_args_obj.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k } : {}
+          proc_obj.call(context, args.raw, kw_args: kw_args, block: blk)
         end
 
         def proc_lambda_p(_context, proc_obj)

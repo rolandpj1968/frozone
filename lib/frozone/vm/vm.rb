@@ -167,10 +167,21 @@ module Frozone
         Fiber[:vm_evaluate] = method(:evaluate_file)
 
         frame = Frame.new(top_level_object, parser.top_level_locals, [top_level_scope])
+        # top-level frame acts as a method frame: procs defined here can `return`
+        # from this scope (e.g. `proc { return }.call` in a loaded file exits the load).
+        frame.method_frame = frame
         context.push_frame(frame)
         context.push_scope(top_level_scope)
 
-        ast.evaluate(context)
+        begin
+          ast.evaluate(context)
+        rescue Ast::ReturnException
+          # `return` at the top level of the main script (or a loaded file) exits gracefully.
+          # For loaded files kernel_load/kernel_require catch this; for the main script we absorb here.
+          NilObject::NIL
+        ensure
+          frame.kill!
+        end
       end
     end
   end

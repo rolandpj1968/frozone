@@ -145,8 +145,8 @@ class Array
     result = ''
     first = true
     each { |e|
-      result << sep_str unless first
-      result << (e.is_a?(Array) ? e.join(sep) : e.to_s)
+      result += sep_str unless first
+      result += e.is_a?(Array) ? e.join(sep) : e.to_s
       first = false
     }
     result
