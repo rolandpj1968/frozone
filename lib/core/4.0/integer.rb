@@ -20,6 +20,7 @@ class Integer
   def pred = self - 1
 
   def -@ = 0 - self
+  def +@ = self
 
   def abs = Intrinsics.integer_abs(self)
   def zero? = self == 0

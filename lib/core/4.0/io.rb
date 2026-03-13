@@ -13,4 +13,14 @@ class IO
   def closed?      = false
   def binmode      = self
   def set_encoding(*_) = self
+
+  def external_encoding
+    name = Intrinsics.io_external_encoding(self)
+    name.nil? ? nil : Encoding.find(name)
+  end
+
+  def internal_encoding = nil
+  def binmode?          = false
+  def read_nonblock(len, buf = nil, exception: true) = nil
+  def readpartial(len, buf = nil) = nil
 end

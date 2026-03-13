@@ -9,4 +9,11 @@ class Regexp
   def fixed_encoding? = Intrinsics.regexp_fixed_encoding(self)
   def match(str) = Intrinsics.regexp_match(self, str)
   def =~(str) = Intrinsics.regexp_match_index(self, str)
+  def named_captures = {}
+  def names = []
+
+  def self.escape(str) = Intrinsics.regexp_escape(str)
+  def self.quote(str)  = Intrinsics.regexp_escape(str)
+  def self.union(*patterns) = Intrinsics.regexp_union(patterns)
+  def self.last_match(n = nil) = Intrinsics.regexp_last_match(n)
 end

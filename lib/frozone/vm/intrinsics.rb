@@ -127,7 +127,7 @@ module Frozone
         def string_initialize(context, receiver, str_arg, _encoding = NilObject::NIL)
           # Convert str_arg to string if needed
           str_val = str_arg.is_a?(StringObject) ? str_arg.raw : str_arg.dispatch(context, :to_s, [], {}).raw
-          receiver.instance_variable_set(:@value, str_val.dup)
+          receiver.raw = str_val.dup
           NilObject::NIL
         end
 
@@ -255,6 +255,12 @@ module Frozone
           val
         end
 
+        def io_external_encoding(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(IOObject)
+          enc = receiver.native_io.external_encoding rescue nil
+          enc ? StringObject.new(enc.name) : NilObject::NIL
+        end
+
         def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = nil, _backtrace = nil)
           if msg.is_a?(NilObject)
             # bare `raise` re-raises current exception or raises RuntimeError
@@ -325,7 +331,16 @@ module Frozone
 
         def kernel_backtick(_, _receiver, cmd_obj)
           result = `#{cmd_obj.raw}`
+          GLOBALS[:"$?"] = ProcessStatusObject.new($?)
           StringObject.new(result)
+        end
+
+        def process_status_exitstatus(_, obj)
+          IntegerObject.new(obj.native_status.exitstatus || 0)
+        end
+
+        def process_status_pid(_, obj)
+          IntegerObject.new(obj.native_status.pid || 0)
         end
 
         def emit_vm_warning(context, msg)
@@ -910,16 +925,44 @@ module Frozone
           ArrayObject.new(params)
         end
 
+        def kernel_binding(context, _receiver)
+          # Capture the calling frame (frames[-2] since we're inside a kernel method call).
+          captured_frame = context.frames.length >= 2 ? context.frames[-2] : context.frame
+          BindingObject.new(captured_frame)
+        end
+
+        def binding_local_variables(_, binding_obj)
+          names = binding_obj.local_variable_names.map { |n| SymbolObject.from(n) }
+          ArrayObject.new(names)
+        end
+
         def kernel_eval(context, _receiver, code_obj, _binding = NilObject::NIL)
           return NilObject::NIL unless code_obj.is_a?(StringObject)
           code = code_obj.raw
-          caller_frame = context.frame
-          parser = Parser.new(code)
+          # binding_frame is the frame that called eval (one level below the eval method frame)
+          binding_frame = context.frames.length >= 2 ? context.frames[-2] : context.frame
+          parser = Parser.new(code, outer_locals: binding_frame.local_names)
           ast = parser.ast(raise_syntax_errors: true)
-          new_frame = Frame.new(caller_frame.the_self, parser.top_level_locals, caller_frame.scopes)
+          # Emit Prism warnings: always-level (e.g. integer_in_flip_flop) and verbose-level when $VERBOSE
+          parser.prism_always_warnings.each { |msg| Frozone::Vm.emit_warning(context, msg) }
+          if GLOBALS.fetch(:"$VERBOSE", FalseObject::FALSE).truthy?
+            parser.prism_verbose_warnings.each { |msg| Frozone::Vm.emit_warning(context, msg) }
+          end
+          # Create eval frame using binding_frame's self/scopes (not the eval method frame),
+          # so that `def`, `alias`, etc. use the correct lexical scope.
+          new_frame = Frame.new(binding_frame.the_self, parser.top_level_locals, binding_frame.scopes)
+          new_frame.block = binding_frame.block
+          # Inherit def_scope and method_frame from binding so `def` targets the right class
+          new_frame.def_scope = binding_frame.def_scope
+          new_frame.method_frame = binding_frame.method_frame
+          # Copy binding frame's current locals into eval frame (shared binding)
+          binding_frame.local_names.each { |name| new_frame.set_local(name, binding_frame.get_local(name)) }
           context.push_frame(new_frame)
           begin
-            ast.evaluate(context)
+            result = ast.evaluate(context)
+            # Write back all locals to binding frame (new vars from eval become accessible)
+            new_frame.local_names.each { |name| binding_frame.set_local(name, new_frame.get_local(name)) }
+            result
           rescue Ast::RetryException, Ast::RedoException
             raise FrozoneException.make(:SyntaxError, "Invalid #{$!.class.name.split('::').last.sub('Exception', '').downcase} in eval")
           rescue Ast::BreakException, Ast::NextException
@@ -933,7 +976,7 @@ module Frozone
         def class_new(context, klass, args, kwargs, block = nil)
           raise FrozoneException.make(:TypeError, "can't create instance of singleton class") if klass.instance_variable_get(:@is_singleton_class)
           raw_args = args.raw
-          raw_kwargs = kwargs.raw
+          raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
           has_block = block && !block.is_a?(NilObject)
           if klass.equal?(Core::CLASS_CLASS)
             superclass = raw_args.first.is_a?(ClassObject) ? raw_args.first : Core::OBJECT_CLASS
@@ -1234,7 +1277,7 @@ module Frozone
             md
           else
             GLOBALS[:"$~"] = NilObject::NIL
-            GLOBALS.delete_if { |k, _| k.to_s =~ /^\$\d+$/ }
+            GLOBALS.delete_if { |k, _| k.to_s =~ /^\$[1-9]\d*$/ }
             GLOBALS[:"$&"] = GLOBALS[:"$`"] = GLOBALS[:"$'"] = NilObject::NIL
             NilObject::NIL
           end
@@ -1252,6 +1295,23 @@ module Frozone
         def regexp_to_s(_, r) = StringObject.new(r.raw.to_s)
         def regexp_casefold(_, r) = bool_object_for(r.raw.casefold?)
         def regexp_fixed_encoding(_, r) = bool_object_for(r.raw.fixed_encoding?)
+        def regexp_escape(_, str) = StringObject.new(Regexp.escape(str.raw.to_s))
+
+        def regexp_union(_, patterns)
+          pats = patterns.raw.map { |p| p.is_a?(RegexpObject) ? p.raw : Regexp.escape(p.raw.to_s) }
+          RegexpObject.new(pats.join('|'), '')
+        end
+
+        def regexp_last_match(_, n = nil)
+          md = Fiber[:last_match]
+          return NilObject::NIL unless md
+          if n.nil? || n.is_a?(NilObject)
+            MatchDataObject.new(md)
+          else
+            cap = md[n.raw]
+            cap ? StringObject.new(cap) : NilObject::NIL
+          end
+        end
 
         def regexp_match(_, receiver, str)
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
@@ -1375,18 +1435,42 @@ module Frozone
           ArrayObject.new(parts.map { |p| StringObject.new(p) })
         end
 
-        def string_gsub(_, v, pattern, replacement = nil)
-          pat = pattern.is_a?(StringObject) ? pattern.raw : pattern.raw
-          if replacement.nil? || replacement.is_a?(NilObject)
+        def string_gsub(context, v, pattern, replacement = nil, block = nil)
+          pat = pattern.raw
+          if block
+            result = v.raw.gsub(pat) do |_match|
+              update_match_globals($~)
+              match_obj = StringObject.new($&)
+              block.invoke(context, [match_obj]).raw.to_s
+            end
+            StringObject.new(result)
+          elsif replacement.nil? || replacement.is_a?(NilObject)
             NilObject::NIL
+          elsif replacement.is_a?(HashObject)
+            result = v.raw.gsub(pat) do |match|
+              r = replacement[StringObject.new(match)]
+              r.is_a?(NilObject) || r.nil? ? match : r.raw.to_s
+            end
+            StringObject.new(result)
           else
             StringObject.new(v.raw.gsub(pat, replacement.raw))
           end
         end
 
-        def string_sub(_, v, pattern, replacement)
-          pat = pattern.is_a?(StringObject) ? pattern.raw : pattern.raw
-          StringObject.new(v.raw.sub(pat, replacement.raw))
+        def string_sub(context, v, pattern, replacement = nil, block = nil)
+          pat = pattern.raw
+          if block
+            result = v.raw.sub(pat) do |_match|
+              update_match_globals($~)
+              match_obj = StringObject.new($&)
+              block.invoke(context, [match_obj]).raw.to_s
+            end
+            StringObject.new(result)
+          elsif replacement.nil? || replacement.is_a?(NilObject)
+            NilObject::NIL
+          else
+            StringObject.new(v.raw.sub(pat, replacement.raw))
+          end
         end
 
         def string_tr(_, v, from, to) = StringObject.new(v.raw.tr(from.raw, to.raw))
@@ -1415,7 +1499,8 @@ module Frozone
 
         def string_replace(_, v, other)
           return v if other.is_a?(NilObject)
-          StringObject.new(other.raw)
+          v.raw = other.raw.freeze
+          v
         end
 
         def string_succ(_, v)          = StringObject.new(v.raw.succ)
@@ -1468,8 +1553,8 @@ module Frozone
           enc_class.get_constant(const_name) || StringObject.new(enc_name)
         end
 
-        def string_freeze(_, v)           = v
-        def string_frozen(_, v)           = bool_object_for(v.frozen?)
+        def string_freeze(_, v)           = (v.freeze_object!; v)
+        def string_frozen(_, v)           = bool_object_for(v.frozen_object?)
         def string_dup(_, v)              = StringObject.new(v.raw.dup)
         def string_to_sym(_, v)           = SymbolObject.from(v.raw.to_sym)
         def string_to_f(_, v)             = FloatObject.new(v.raw.to_f)
@@ -1617,6 +1702,16 @@ module Frozone
           v.raw.replace(other.raw)
           v
         end
+
+        def array_pack(_, v, fmt_obj)
+          fmt = fmt_obj.raw.to_s
+          ints = v.raw.map { |e| e.is_a?(IntegerObject) ? e.raw : e.raw.to_i }
+          StringObject.new(ints.pack(fmt))
+        end
+
+        def array_dup(_, v) = ArrayObject.new(v.raw.dup)
+
+        def array_clone(_, v, _freeze_opt = NilObject::NIL) = ArrayObject.new(v.raw.dup)
 
         def array_sample(_, v) = v.raw.empty? ? NilObject::NIL : v.raw.sample
         def array_shuffle(_, v) = ArrayObject.new(v.raw.shuffle)

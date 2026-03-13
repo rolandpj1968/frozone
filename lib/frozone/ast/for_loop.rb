@@ -79,9 +79,10 @@ module Frozone
             scope.set_constant(@target[1], value)
           end
         when :call
-          _, receiver_node, write_name = @target
+          _, receiver_node, write_name, safe_nav = @target
           value = args.fetch(0, Vm::NilObject::NIL)
-          receiver_node.evaluate(context).dispatch(context, write_name, [value], {})
+          receiver = receiver_node.evaluate(context)
+          receiver.dispatch(context, write_name, [value], {}) unless safe_nav && receiver.is_a?(Vm::NilObject)
         when :index
           _, receiver_node, arg_nodes = @target
           value = args.fetch(0, Vm::NilObject::NIL)

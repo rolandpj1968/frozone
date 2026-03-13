@@ -1,5 +1,6 @@
 require_relative 'module_object'
 require_relative 'object_object'
+require_relative 'string_object'
 
 module Frozone
   module Vm
@@ -22,6 +23,8 @@ module Frozone
       def new_instance(context, args, kwargs)
         o = if ancestors_list.any? { |a| a.equal?(Core::ARRAY_CLASS) }
           ArrayObject.new([], self)
+        elsif ancestors_list.any? { |a| a.equal?(Core::STRING_CLASS) }
+          StringObject.new("", class_obj: self)
         else
           ObjectObject.new(self)
         end

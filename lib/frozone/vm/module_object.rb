@@ -17,10 +17,16 @@ module Frozone
         parts = []
         current = self
         seen = {}
-        while current && current.name && !current.equal?(Core::OBJECT_CLASS)
+        while current && !current.equal?(Core::OBJECT_CLASS)
           break if seen.key?(current.object_id)
           seen[current.object_id] = true
-          parts.unshift(current.name.to_s)
+          if current.name
+            parts.unshift(current.name.to_s)
+          else
+            # Anonymous parent: use inspect-style representation as prefix
+            type = current.is_a?(ClassObject) ? "Class" : "Module"
+            parts.unshift("#<#{type}:0x#{current.object_id.to_s(16)}>")
+          end
           current = current.instance_variable_get(:@namespace)
         end
         parts.empty? ? @name : parts.join("::").to_sym

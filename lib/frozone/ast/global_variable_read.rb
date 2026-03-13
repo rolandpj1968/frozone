@@ -4,8 +4,9 @@ require_relative '../vm/globals'
 module Frozone
   module Ast
     class GlobalVariableRead < Node
-      def initialize(name)
+      def initialize(name, no_warn: false)
         @name = name
+        @no_warn = no_warn
       end
 
       def to_s = "gvar(#{@name})"
@@ -30,6 +31,12 @@ module Frozone
           Vm::GLOBALS.fetch(:"$LOADED_FEATURES", Vm::NilObject::NIL)
         else
           canonical = Vm::GLOBAL_ALIASES.fetch(@name, @name)
+          unless @no_warn || Vm::GLOBALS.key?(canonical)
+            verbose = Vm::GLOBALS.fetch(:"$VERBOSE", Vm::FalseObject::FALSE)
+            if verbose.truthy?
+              Vm::emit_warning(context, "global variable `#{@name}' not initialized")
+            end
+          end
           Vm::GLOBALS.fetch(canonical, Vm::NilObject::NIL)
         end
       end

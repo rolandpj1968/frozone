@@ -46,6 +46,9 @@ end
 class UnboundMethod < Object
 end
 
+class Binding < Object
+end
+
 class Range < Object
 end
 
@@ -76,7 +79,7 @@ class File < IO
   def self.writable?(path) = Intrinsics.file_writable(path)
   def self.size(path) = Intrinsics.file_size(path)
   def self.size?(path) = Intrinsics.file_size(path)
-  def self.read(path) = Intrinsics.file_read(path)
+  def self.read(path, length = nil, offset = nil, **opts) = Intrinsics.file_read(path)
   def self.realpath(path, base = nil) = Intrinsics.file_expand_path(path, base)
   def self.split(path) = Intrinsics.file_split(path)
   def self.write(path, content, **opts) = Intrinsics.file_write(path, content)
@@ -121,6 +124,15 @@ end
 class Process < Object
   def self.pid = Intrinsics.process_pid
   def self.euid = Intrinsics.process_euid
+
+  class Status < Object
+    def exitstatus = Intrinsics.process_status_exitstatus(self)
+    def success? = exitstatus == 0
+    def pid = Intrinsics.process_status_pid(self)
+    def to_i = exitstatus
+    def to_s = "#<Process::Status: pid #{pid} exit #{exitstatus}>"
+    def inspect = to_s
+  end
 end
 
 class Exception < Object
@@ -258,6 +270,24 @@ end
 class Thread < Object
   def self.report_on_exception=(val); nil; end  # stub
   def self.report_on_exception = false       # stub
+
+  class Mutex < Object
+    def initialize; @locked = false; end
+    def lock; @locked = true; self; end
+    def unlock; @locked = false; self; end
+    def locked? = @locked
+    def synchronize(&block); lock; begin; block.call; ensure; unlock; end; end
+    def try_lock; !@locked && (@locked = true); end
+  end
+end
+
+class Mutex < Object
+  def initialize; @locked = false; end
+  def lock; @locked = true; self; end
+  def unlock; @locked = false; self; end
+  def locked? = @locked
+  def synchronize(&block); lock; begin; block.call; ensure; unlock; end; end
+  def try_lock; !@locked && (@locked = true); end
 end
 
 class STDOUT < IO

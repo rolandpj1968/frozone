@@ -39,16 +39,18 @@ module Frozone
           Vm::emit_warning(context, "variable $= is no longer effective; ignored")
           Vm::GLOBALS[:"$="] = value
         elsif @name == :"$/" || @name == :"$-0"
-          unless value.is_a?(Vm::StringObject) || value.is_a?(Vm::NilObject)
+          unless value.is_a?(Vm::StringObject) || value.is_a?(Vm::NilObject) || string_subclass?(value)
             gname = @name == :"$/" ? "$/" : "$-0"
             raise Vm::FrozoneException.make(:TypeError, "value of #{gname} must be String")
           end
           gname = @name == :"$/" ? "'$/'".freeze : "'$-0'".freeze
           Vm::emit_warning(context, "#{gname} is deprecated") unless value.is_a?(Vm::NilObject)
+          # For String subclass instances, create a plain frozen String copy
+          value = coerce_to_string(context, value) if string_subclass?(value)
           Vm::GLOBALS[:"$/"] = value
           Vm::GLOBALS[:"$-0"] = value
         elsif @name == :"$\\" || @name == :"$," || @name == :"$;"
-          unless value.is_a?(Vm::StringObject) || value.is_a?(Vm::NilObject)
+          unless value.is_a?(Vm::StringObject) || value.is_a?(Vm::NilObject) || string_subclass?(value)
             gname = @name == :"$\\" ? '$\\' : @name.to_s
             raise Vm::FrozoneException.make(:TypeError, "value of #{gname} must be String")
           end
@@ -81,6 +83,7 @@ module Frozone
           end
           Vm::GLOBALS[:"$0"] = value
           Vm::GLOBALS[:"$PROGRAM_NAME"] = value
+          $0 = value.raw # also update the actual process name
         elsif @name == :"$DEBUG" || @name == :"$-d"
           Vm::GLOBALS[:"$DEBUG"] = value.truthy? ? Vm::TrueObject::TRUE : Vm::FalseObject::FALSE
         else
@@ -90,6 +93,35 @@ module Frozone
       end
 
       private
+
+      def string_subclass?(value)
+        # Returns true only for String subclass instances (not plain String instances)
+        return false unless value.respond_to?(:class_object) && value.class_object
+        return false if value.class_object.equal?(Vm::Core::STRING_CLASS)
+        # Check if any ancestor is STRING_CLASS (i.e. it's a subclass)
+        klass = value.class_object
+        while klass
+          return true if klass.equal?(Vm::Core::STRING_CLASS)
+          klass = klass.respond_to?(:superclass) ? klass.superclass : nil
+        end
+        false
+      end
+
+      def coerce_to_string(context, value)
+        # String subclass instances store their value as @value (set by string_initialize).
+        # Try to get it directly; fall back to dispatching to_s.
+        raw_val = if value.respond_to?(:raw)
+          value.raw
+        elsif value.instance_variable_defined?(:@value)
+          value.instance_variable_get(:@value)
+        else
+          str = value.dispatch(context, :to_s, [], {})
+          str.respond_to?(:raw) ? str.raw : str.to_s
+        end
+        s = Vm::StringObject.new(raw_val.to_s)
+        s.freeze_object!
+        s
+      end
 
       def vm_type_name(value)
         value.respond_to?(:class_object) && value.class_object ? value.class_object.name : value.class.name
@@ -167,7 +199,7 @@ module Frozone
       def set_match_global(value)
         if value.is_a?(Vm::NilObject)
           Vm::GLOBALS[:"$~"] = value
-          Vm::GLOBALS.delete_if { |k, _| k.to_s =~ /^\$\d+$/ }
+          Vm::GLOBALS.delete_if { |k, _| k.to_s =~ /^\$[1-9]\d*$/ }
           Vm::GLOBALS[:"$&"] = Vm::GLOBALS[:"$`"] = Vm::GLOBALS[:"$'"] = Vm::NilObject::NIL
         elsif value.is_a?(Vm::MatchDataObject)
           m = value.raw

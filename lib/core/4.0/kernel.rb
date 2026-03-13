@@ -8,13 +8,14 @@ module Kernel
 
   def require(path)          = Intrinsics.kernel_require(self, path)
   def require_relative(path) = Intrinsics.kernel_require_relative(self, path)
-  def load(path)             = Intrinsics.kernel_load(self, path)
+  def load(path, wrap = false) = Intrinsics.kernel_load(self, path)
   def __dir__                = Intrinsics.kernel_dir(self)
 
   def proc   = Intrinsics.kernel_proc(self)
   def lambda = Intrinsics.kernel_lambda(self)
 
-  def eval(code, binding = nil) = Intrinsics.kernel_eval(self, code, binding)
+  def eval(code, binding = nil, _file = nil, _line = nil) = Intrinsics.kernel_eval(self, code, binding)
+  def binding = Intrinsics.kernel_binding(self)
 
   def sprintf(fmt, *args) = fmt % args
   def format(fmt, *args) = fmt % args
@@ -47,7 +48,7 @@ module Kernel
 
   # Make these available as module functions: private instance methods AND public Kernel.method calls
   module_function :puts, :print, :warn, :p, :raise, :fail, :require, :require_relative, :load, :__dir__,
-                  :proc, :lambda, :eval, :sprintf, :format,
+                  :proc, :lambda, :eval, :binding, :sprintf, :format,
                   :Integer, :Float, :String, :Array,
                   :loop, :catch, :throw, :abort, :exit, :exit!, :sleep, :system,
                   :block_given?, :at_exit, :caller, :caller_locations, :__method__,

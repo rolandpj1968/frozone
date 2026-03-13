@@ -87,4 +87,7 @@ class Hash
     each { |k, v| return false unless other.key?(k) && v.eql?(other[k]) }
     true
   end
+
+  def self.ruby2_keywords_hash(h) = h
+  def self.ruby2_keywords_hash?(h) = false
 end

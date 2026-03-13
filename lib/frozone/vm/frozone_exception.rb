@@ -18,6 +18,20 @@ module Frozone
         exc_obj.set_ivar(:@message, StringObject.new(message)) unless exc_obj.is_a?(NilObject)
         new(exc_obj, message)
       end
+
+      # Wrap a plain MRI Ruby exception as a proper Frozone VM exception object.
+      # Falls back to RuntimeError if the MRI exception class is not defined in Frozone.
+      def self.wrap_mri(e)
+        return e.vm_object if e.is_a?(FrozoneException)
+        # Try to find the VM class by traversing the qualified MRI class name (e.g. Encoding::CompatibilityError)
+        parts = e.class.name&.split('::')&.map(&:to_sym) || [:RuntimeError]
+        exc_class = parts.reduce(Core::OBJECT_CLASS) { |scope, const| scope&.get_constant(const) }
+        exc_class ||= Core::OBJECT_CLASS.get_constant(:RuntimeError)
+        return NilObject::NIL unless exc_class
+        exc_obj = ObjectObject.new(exc_class)
+        exc_obj.set_ivar(:@message, StringObject.new(e.message))
+        exc_obj
+      end
     end
   end
 end

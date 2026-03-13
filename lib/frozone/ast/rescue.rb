@@ -1,4 +1,5 @@
 require_relative 'node'
+require_relative '../vm/frozone_exception'
 
 module Frozone
   module Ast
@@ -116,7 +117,7 @@ module Frozone
             raise unless clause
 
             rescued = true
-            vm_val = e.is_a?(Vm::FrozoneException) ? e.vm_object : Vm::StringObject.new(e.message)
+            vm_val = Vm::FrozoneException.wrap_mri(e)
             prev_dollar_bang = Vm::GLOBALS[:"$!"]
             prev_dollar_at = Vm::GLOBALS[:"$@"]
             Vm::GLOBALS[:"$!"] = vm_val
@@ -144,7 +145,7 @@ module Frozone
               # Ruby sets $! to that exception. Mirror this in our Vm::GLOBALS[:"$!"].
               propagating = $!
               if propagating && !CONTROL_FLOW.any? { |k| propagating.is_a?(k) }
-                vm_exc = propagating.is_a?(Vm::FrozoneException) ? propagating.vm_object : Vm::StringObject.new(propagating.message)
+                vm_exc = Vm::FrozoneException.wrap_mri(propagating)
                 prev_exc = Vm::GLOBALS[:"$!"]
                 Vm::GLOBALS[:"$!"] = vm_exc
                 begin

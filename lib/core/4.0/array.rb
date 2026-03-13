@@ -78,7 +78,8 @@ class Array
     r
   end
 
-  def dup; r = []; each { |e| r << e }; r; end
+  def dup = Intrinsics.array_dup(self)
+  def clone(freeze: nil) = Intrinsics.array_clone(self, freeze)
 
   def hash; reduce(0) { |acc, e| acc * 31 + e.hash }; end
 
@@ -129,6 +130,8 @@ class Array
     }
     r
   end
+
+  def pack(fmt) = Intrinsics.array_pack(self, fmt)
 
   def compact;  reject { |x| x.nil? }; end
   def compact!; reject! { |x| x.nil? }; end
@@ -276,4 +279,17 @@ class Array
 
   def group_by; result = {}; each { |x| k = yield(x); result[k] ||= []; result[k] << x }; result; end
   def tally;    result = {}; each { |x| result[x] = (result[x] || 0) + 1 };                result; end
+
+  # $LOAD_PATH.resolve_feature_path(feature) — return [:rb, path] or [:so, path] or nil
+  def resolve_feature_path(feature)
+    each do |dir|
+      rb = File.join(dir.to_s, "#{feature}.rb")
+      return [:rb, rb] if File.exist?(rb)
+      ['so', 'bundle', 'dylib'].each do |ext|
+        so = File.join(dir.to_s, "#{feature}.#{ext}")
+        return [:so, so] if File.exist?(so)
+      end
+    end
+    nil
+  end
 end

@@ -13,6 +13,9 @@ module Frozone
 
       def evaluate(context)
         result = {}
+        # Track keys from explicit pairs and literal hash splats (**{...}) for dup-key warnings.
+        # Variable splats (**var) do NOT contribute to literal_keys and do NOT trigger warnings.
+        literal_keys = {}
         @kv_nodes.each do |k, v|
           if k.nil?
             # **splat
@@ -34,12 +37,55 @@ module Frozone
                 raise Vm::FrozoneException.make(:TypeError, "no implicit conversion of #{splatted.class_object.name} into Hash")
               end
             end
-            splatted.raw.each { |sk, sv| result[sk] = sv }
+            # Only warn for duplicate keys from literal hash splats (**{...}), not variable splats (**var)
+            literal_splat = v.is_a?(HashLiteral)
+            splatted.raw.each do |sk, sv|
+              if literal_splat
+                warn_if_dup_key(context, literal_keys, sk)
+                literal_keys[sk] = true
+              end
+              result[sk] = sv
+            end
           else
-            result[k.evaluate(context)] = v.evaluate(context)
+            key_val = k.evaluate(context)
+            # Freeze String keys (Ruby freezes string keys in hash literals)
+            if key_val.is_a?(Vm::StringObject) && !key_val.frozen_object?
+              key_val = Vm::StringObject.new(key_val.raw.dup, frozen: true)
+            end
+            warn_if_dup_key(context, literal_keys, key_val)
+            literal_keys[key_val] = true
+            result[key_val] = v.evaluate(context)
           end
         end
         Vm::HashObject.new(result)
+      end
+
+      private
+
+      def warn_if_dup_key(context, result, new_key)
+        return unless dup_key?(result, new_key)
+
+        key_repr = begin
+          new_key.dispatch(context, :inspect, [], {}).raw
+        rescue StandardError
+          new_key.to_s
+        end
+        Vm::emit_warning(context, "key #{key_repr} is duplicated and overwritten on line #{context.frame.line_number rescue 0}")
+      end
+
+      def dup_key?(result, new_key)
+        result.any? do |existing_key, _|
+          vm_keys_equal?(existing_key, new_key)
+        end
+      end
+
+      def vm_keys_equal?(a, b)
+        return a.equal?(b) if a.is_a?(Vm::SymbolObject) && b.is_a?(Vm::SymbolObject)
+        return a.raw == b.raw if a.is_a?(Vm::StringObject) && b.is_a?(Vm::StringObject)
+        return a.raw == b.raw if a.is_a?(Vm::IntegerObject) && b.is_a?(Vm::IntegerObject)
+        return a.raw == b.raw if a.is_a?(Vm::FloatObject) && b.is_a?(Vm::FloatObject)
+
+        a.equal?(b)
       end
     end
   end

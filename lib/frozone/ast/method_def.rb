@@ -72,6 +72,19 @@ module Frozone
         else
           # For singleton methods: `def obj.foo` or `def self.foo`
           receiver_val = @receiver_node.evaluate(context)
+          # Check if receiver (or its singleton class) is frozen, and raise FrozenError with correct type name
+          receiver_sc = receiver_val.eigenclass
+          if receiver_val.frozen_object? || (receiver_sc && receiver_sc.frozen_object?)
+            if receiver_val.is_a?(Vm::ClassObject)
+              type_name = "Class"
+            elsif receiver_val.is_a?(Vm::ModuleObject)
+              type_name = "Module"
+            else
+              type_name = receiver_val.class_object&.name&.to_s || "Object"
+            end
+            repr = begin; receiver_val.dispatch(context, :inspect, [], {}).raw; rescue StandardError; receiver_val.to_s; end
+            raise Vm::FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{repr}")
+          end
           method_scopes = if receiver_val.is_a?(Vm::ClassObject)
             # Class-level singleton method (def ClassName.foo / def self.foo in class body):
             # keep lexical scopes so super.rb can map ClassObject → singleton class.

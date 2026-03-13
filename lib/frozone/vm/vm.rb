@@ -8,6 +8,7 @@ require_relative 'context'
 require_relative 'frame'
 require_relative 'method'
 
+require_relative 'binding_object'
 require_relative 'unbound_method_object'
 require_relative 'io_object'
 require_relative 'nil_object'
@@ -16,6 +17,7 @@ require_relative 'float_object'
 require_relative 'time_object'
 require_relative 'regexp_object'
 require_relative 'match_data_object'
+require_relative 'process_status_object'
 
 module Frozone
   module Vm
@@ -102,6 +104,7 @@ module Frozone
         evaluate_file("#{core_path}/regexp.rb")
         evaluate_file("#{core_path}/rational.rb")
         evaluate_file("#{core_path}/io.rb")
+        evaluate_file("#{core_path}/binding.rb")
         evaluate_file("#{core_path}/pp.rb")
         evaluate_file("#{core_path}/stringio.rb")
         init_globals
@@ -118,7 +121,8 @@ module Frozone
 
       def init_globals
         gem_paths = Gem::Specification.flat_map(&:full_require_paths).select { |p| File.directory?(p) }
-        all_load_paths = ($LOAD_PATH + gem_paths).uniq
+        core_path = File.expand_path("../../core/#{FROZONE_CORE_VERSION}", __dir__)
+        all_load_paths = ([core_path] + $LOAD_PATH + gem_paths).uniq.reject { |p| p == '.' || p == '' }
         GLOBALS[:"$LOAD_PATH"] = ArrayObject.new(all_load_paths.map { |p| StringObject.new(p) })
         # Pre-stub pp.rb: Frozone provides pretty_inspect/pp directly in core,
         # so pp.rb must not be loaded (it uses default-param tricks Frozone can't handle).

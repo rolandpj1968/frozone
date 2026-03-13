@@ -5,14 +5,16 @@ require_relative '../ast'
 module Frozone
   module Vm
     class Parser
-      def initialize(text, dump_ast = false, filepath: nil)
+      def initialize(text, dump_ast = false, filepath: nil, outer_locals: nil)
         @text = text
         @dump_ast = dump_ast
         @filepath = filepath
+        @outer_locals = outer_locals
       end
 
       def ast(raise_syntax_errors: false)
         parse_opts = @filepath ? { filepath: @filepath } : {}
+        parse_opts[:scopes] = [@outer_locals] if @outer_locals&.any?
         result = Prism.parse(@text, **parse_opts)
 
         if raise_syntax_errors && result.errors.any?
@@ -27,10 +29,29 @@ module Frozone
 
         @source_encoding = result.source.encoding rescue Encoding::UTF_8
         @top_level_locals = program_node.locals
+        # Collect Prism warnings to forward to the VM warning system.
+        # - always: integer_in_flip_flop (default level)
+        # - verbose only: void_statement, duplicated_when_clause
+        # Skip: duplicated_hash_key (handled by hash_literal.rb), unused_local_variable (noisy)
+        always_warn_types  = %i[integer_in_flip_flop]
+        verbose_warn_types = %i[void_statement duplicated_when_clause]
+        @prism_always_warnings  = result.warnings.select { |w| always_warn_types.include?(w.type) }.map(&:message)
+        @prism_verbose_warnings = result.warnings
+          .select { |w| verbose_warn_types.include?(w.type) }
+          .map(&:message)
+        # Collect void_statement [offset, length] pairs for DefinedNode in void context → no-op.
+        # We match BOTH offset and length so that a DefinedNode used as receiver of a void
+        # expression (e.g. defined?(x).should == y in void context) is not treated as void.
+        @void_defined_spans = result.warnings
+          .select { |w| w.type == :void_statement }
+          .map { |w| [w.location.start_offset, w.location.length] }
+          .to_set
         transform(program_node.statements)
       end
 
       def top_level_locals = @top_level_locals || []
+      def prism_always_warnings  = @prism_always_warnings  || []
+      def prism_verbose_warnings = @prism_verbose_warnings || []
 
       private
 
@@ -581,7 +602,11 @@ module Frozone
             if prism_node.attribute_write?
               Ast::AttributeWrite.new(prism_node.name, receiver_node, arg_nodes, kw_args, safe_nav: safe_nav)
             else
-              Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args, block_node, kw_splat_nodes: kw_splats, safe_nav: safe_nav)
+              # A bare-word call with no explicit receiver, no parens, no args, and no block is
+              # "ambiguous" (could be a local variable read). method_missing raises NameError for
+              # these. Calls with parens or arguments are unambiguous method calls → NoMethodError.
+              ambiguous = receiver_node.nil? && prism_node.opening_loc.nil? && prism_node.arguments.nil? && block_node.nil?
+              Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args, block_node, kw_splat_nodes: kw_splats, safe_nav: safe_nav, ambiguous: ambiguous)
             end
           end
 
@@ -691,7 +716,15 @@ module Frozone
           Ast::Retry.new
 
         when Prism::DefinedNode
-          transform_defined_value(prism_node.value)
+          # In void context, defined? is a complete no-op (does not evaluate receiver).
+          # Match both offset and length to avoid false positives when defined? is a
+          # receiver of another void-context expression.
+          span = [prism_node.location.start_offset, prism_node.location.length]
+          if @void_defined_spans&.include?(span)
+            Ast::NilLiteral::NIL
+          else
+            transform_defined_value(prism_node.value)
+          end
 
         when Prism::BeginNode
           body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
@@ -851,12 +884,12 @@ module Frozone
           Ast::And.new(read, write)
 
         when Prism::GlobalVariableOrWriteNode
-          read  = Ast::GlobalVariableRead.new(prism_node.name)
+          read  = Ast::GlobalVariableRead.new(prism_node.name, no_warn: true)
           write = Ast::GlobalVariableWrite.new(prism_node.name, transform(prism_node.value))
           Ast::Or.new(read, write)
 
         when Prism::GlobalVariableAndWriteNode
-          read  = Ast::GlobalVariableRead.new(prism_node.name)
+          read  = Ast::GlobalVariableRead.new(prism_node.name, no_warn: true)
           write = Ast::GlobalVariableWrite.new(prism_node.name, transform(prism_node.value))
           Ast::And.new(read, write)
 
@@ -1022,7 +1055,7 @@ module Frozone
                    when Prism::ConstantTargetNode
                      [:constant, prism_node.index.name]
                    when Prism::CallTargetNode
-                     [:call, transform(prism_node.index.receiver), prism_node.index.name]
+                     [:call, transform(prism_node.index.receiver), prism_node.index.name, prism_node.index.safe_navigation?]
                    when Prism::IndexTargetNode
                      arg_nodes = (prism_node.index.arguments&.arguments || []).map { |a| transform(a) }
                      [:index, transform(prism_node.index.receiver), arg_nodes]
@@ -1038,8 +1071,13 @@ module Frozone
           transform(prism_node.value)
 
         when Prism::FlipFlopNode
-          # Flip-flop not implemented; evaluates to false
-          Ast::FalseLiteral::FALSE
+          Ast::FlipFlop.new(
+            prism_node.left ? transform(prism_node.left) : Ast::NilLiteral::NIL,
+            prism_node.right ? transform(prism_node.right) : Ast::NilLiteral::NIL,
+            prism_node.exclude_end?,
+            left_int_literal:  prism_node.left.is_a?(Prism::IntegerNode),
+            right_int_literal: prism_node.right.is_a?(Prism::IntegerNode)
+          )
 
         when Prism::RationalNode
           # 3r → Rational(3, 1), 1.5r → Rational(3, 2)

@@ -5,7 +5,7 @@ module Frozone
     class MethodCall < Node
       attr_reader :name, :receiver_node, :arg_nodes, :kw_arg_nodes, :block_node, :kw_splat_nodes
 
-      def initialize(name, receiver_node, arg_nodes, kw_arg_nodes, block_node = nil, kw_splat_nodes: [], safe_nav: false)
+      def initialize(name, receiver_node, arg_nodes, kw_arg_nodes, block_node = nil, kw_splat_nodes: [], safe_nav: false, ambiguous: false)
         @name = name
         @receiver_node = receiver_node
         @arg_nodes = arg_nodes
@@ -13,6 +13,7 @@ module Frozone
         @block_node = block_node
         @kw_splat_nodes = kw_splat_nodes
         @safe_nav = safe_nav
+        @ambiguous = ambiguous
       end
 
       def to_s
@@ -49,7 +50,7 @@ module Frozone
         calling_method_frame = @block_node.is_a?(Block) ? context.frame.method_frame : nil
 
         begin
-          receiver.dispatch(context, @name, args, kw_args, block, private_ok: implicit_receiver)
+          receiver.dispatch(context, @name, args, kw_args, block, private_ok: implicit_receiver, implicit_self: implicit_receiver && @ambiguous)
         rescue Ast::BreakException => e
           # Absorb break only if: this call had an inline block AND the break came from that block's context
           raise unless calling_method_frame&.equal?(e.method_frame) ||
