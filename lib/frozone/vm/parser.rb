@@ -824,13 +824,8 @@ module Frozone
           Ast::ConstantAndWrite.new(prism_node.name, transform(prism_node.value))
 
         when Prism::ConstantPathNode
-          if prism_node.parent.nil?
-            # ::Foo — absolute constant path from root (OBJECT_CLASS)
-            Ast::ConstantRead.new(prism_node.child.name)
-          else
-            parent_node = transform(prism_node.parent)
-            Ast::ConstantPath.new(parent_node, prism_node.child.name)
-          end
+          parent_node = prism_node.parent.nil? ? Ast::RootNamespaceNode::INSTANCE : transform(prism_node.parent)
+          Ast::ConstantPath.new(parent_node, prism_node.child.name)
 
         when Prism::ConstantPathWriteNode
           parent_node = transform(prism_node.target.parent)

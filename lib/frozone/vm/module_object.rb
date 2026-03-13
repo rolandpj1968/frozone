@@ -96,15 +96,33 @@ module Frozone
         @constants[name]
       end
 
+      def mark_constant_private(name)
+        raise "name must be a Symbol" unless name.is_a?(Symbol)
+
+        @private_constants ||= {}
+        @private_constants[name] = true
+      end
+
+      def constant_private?(name)
+        @private_constants&.key?(name) || false
+      end
+
+      # Lookup constant in this module and its included modules.
+      # Returns [value, owner_module] where owner_module is the module that defines the constant.
+      # Returns [nil, nil] if not found.
+      def lookup_constant_with_owner(name)
+        val = get_constant(name)
+        return [val, self] unless val.nil?
+        @modules&.each do |mod|
+          val, owner = mod.lookup_constant_with_owner(name)
+          return [val, owner] unless val.nil?
+        end
+        [nil, nil]
+      end
+
       # Lookup constant in this module and its included modules.
       def lookup_constant(name)
-        constant = get_constant(name)
-        return constant unless constant.nil?
-        @modules&.each do |mod|
-          constant = mod.lookup_constant(name)
-          return constant unless constant.nil?
-        end
-        nil
+        lookup_constant_with_owner(name).first
       end
 
       def self.lookup_constant(name, scopes)

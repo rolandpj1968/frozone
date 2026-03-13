@@ -17,8 +17,8 @@ class Module
   end
 
   alias class_eval module_eval
-  def private_constant(*names) = self
-  def public_constant(*names) = self
+  def private_constant(*names) = Intrinsics.module_private_constant(self, *names)
+  def public_constant(*names) = Intrinsics.module_public_constant(self, *names)
   def private_class_method(*names) = self
   def public_class_method(*names) = self
   def remove_method(*names) = self

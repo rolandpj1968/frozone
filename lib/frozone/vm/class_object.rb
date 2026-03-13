@@ -90,35 +90,37 @@ module Frozone
       # Class-hierarchy look-up
       # Note that full constant lookup starts with the lexical scopes in ModuleObject.lookup_constant.
       def lookup_constant(name)
+        lookup_constant_with_owner(name).first
+      end
+
+      def lookup_constant_with_owner(name)
         # 1. Prepended modules
         unless @prepends.nil?
-          # TODO check forwards or reverse order here - I _think_ it's forwards which is counter-intuituve
           @prepends.each do |mod|
-            constant = mod.get_constant(name)
-            return constant unless constant.nil?
+            val = mod.get_constant(name)
+            return [val, mod] unless val.nil?
           end
         end
 
         # 2. This class's constants
-        constant = get_constant(name)
-        return constant unless constant.nil?
+        val = get_constant(name)
+        return [val, self] unless val.nil?
 
         # 3. Module constants (including transitive included modules)
         unless @modules.nil?
           @modules.each do |mod|
-            constant = mod.lookup_constant(name)
-            return constant unless constant.nil?
+            val, owner = mod.lookup_constant_with_owner(name)
+            return [val, owner] unless val.nil?
           end
         end
 
         # 4. Superclass (full chain)
         unless @superclass.nil?
-          constant = @superclass.lookup_constant(name)
-          return constant unless constant.nil?
+          val, owner = @superclass.lookup_constant_with_owner(name)
+          return [val, owner] unless val.nil?
         end
 
-        # 5.fail - missing_constant and raise are done by the VM
-        nil
+        [nil, nil]
       end
     end
   end

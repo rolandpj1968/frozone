@@ -287,6 +287,22 @@ module Frozone
           ArrayObject.new(receiver.class_variables.keys.map { |k| SymbolObject.from(k) })
         end
 
+        def module_private_constant(_, receiver, *name_objs)
+          name_objs.each do |name_obj|
+            name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+            receiver.mark_constant_private(name)
+          end
+          receiver
+        end
+
+        def module_public_constant(_, receiver, *name_objs)
+          name_objs.each do |name_obj|
+            name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+            receiver.instance_variable_get(:@private_constants)&.delete(name)
+          end
+          receiver
+        end
+
         def module_remove_const(_, receiver, name_obj)
           name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
           val = receiver.get_constant(name)

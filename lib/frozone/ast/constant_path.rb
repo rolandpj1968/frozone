@@ -23,8 +23,21 @@ module Frozone
       def evaluate(context)
         parent = @parent_node.evaluate(context)
         raise Vm::FrozoneException.make(:TypeError, "#{@parent_node}::#{@name}: parent is not a module") unless parent.is_a?(Vm::ModuleObject)
-        c = parent.lookup_constant(@name)
-        raise Vm::FrozoneException.make(:NameError, "uninitialized constant #{@parent_node}::#{@name}") if c.nil?
+        c, owner = parent.lookup_constant_with_owner(@name)
+        if c.nil?
+          # Check if it's private before reporting uninitialized (private constant returns NameError either way)
+          if parent.constant_private?(@name)
+            label = "#{parent.respond_to?(:name) && parent.name ? parent.name : @parent_node}::#{@name}"
+            raise Vm::FrozoneException.make(:NameError, "private constant #{label} referenced")
+          end
+          raise Vm::FrozoneException.make(:NameError, "uninitialized constant #{@parent_node}::#{@name}")
+        end
+        # Check privacy in the defining module
+        if owner&.constant_private?(@name)
+          owner_name = owner.respond_to?(:name) ? owner.name : nil
+          label = owner_name ? "#{owner_name}::#{@name}" : @name.to_s
+          raise Vm::FrozoneException.make(:NameError, "private constant #{label} referenced")
+        end
         c
       end
     end

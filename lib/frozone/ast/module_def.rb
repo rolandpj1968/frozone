@@ -25,6 +25,11 @@ module Frozone
           # The namespace A is NOT pushed onto the lexical scope stack; only B is.
           container = @namespace_node.evaluate(context)
           namespace = container.is_a?(Vm::ModuleObject) ? container : nil
+          if container.is_a?(Vm::ModuleObject) && container.constant_private?(@name)
+            container_name = container.respond_to?(:name) ? container.name : nil
+            label = container_name ? "#{container_name}::#{@name}" : @name.to_s
+            raise Vm::FrozoneException.make(:NameError, "private constant #{label} referenced")
+          end
           module_constant = container.get_constant(@name)
           unless module_constant.nil? || (module_constant.is_a?(Vm::ModuleObject) && !module_constant.is_a?(Vm::ClassObject))
             raise Vm::FrozoneException.make(:TypeError, "#{@name} is not a module (#{module_constant.is_a?(Vm::ObjectObject) ? module_constant.class_object&.name : module_constant.class} given)")
