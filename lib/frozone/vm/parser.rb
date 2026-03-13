@@ -1027,6 +1027,18 @@ module Frozone
           # Flip-flop not implemented; evaluates to false
           Ast::FalseLiteral::FALSE
 
+        when Prism::RationalNode
+          # 3r → Rational(3, 1), 1.5r → Rational(3, 2)
+          num = Ast::IntegerLiteral.from(prism_node.numerator)
+          den = Ast::IntegerLiteral.from(prism_node.denominator)
+          Ast::MethodCall.new(:Rational, nil, [num, den], {}, nil)
+
+        when Prism::ImaginaryNode
+          # 3i → Complex(0, 3)
+          inner = transform(prism_node.numeric)
+          zero = Ast::IntegerLiteral.from(0)
+          Ast::MethodCall.new(:Complex, nil, [zero, inner], {}, nil)
+
         else
           raise FrozoneException.make(:NotImplementedError, "Unsupported Ruby feature: #{prism_node.class.name.split('::').last.sub('Node', '')}")
         end

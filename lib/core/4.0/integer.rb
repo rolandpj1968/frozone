@@ -34,9 +34,29 @@ class Integer
   def hash = Intrinsics.integer_hash(self)
   def eql?(v) = Intrinsics.integer_eql(self, v)
 
-  def times;   i = 0;    while i < self; yield i; i += 1; end; self; end
-  def upto(n); i = self; while i <= n;   yield i; i += 1; end; self; end
-  def downto(n); i = self; while i >= n; yield i; i -= 1; end; self; end
+  def times(&block)
+    if block
+      i = 0; while i < self; block.call(i); i += 1; end; self
+    else
+      i = 0; a = []; while i < self; a << i; i += 1; end; a
+    end
+  end
+
+  def upto(n, &block)
+    if block
+      i = self; while i <= n; block.call(i); i += 1; end; self
+    else
+      i = self; a = []; while i <= n; a << i; i += 1; end; a
+    end
+  end
+
+  def downto(n, &block)
+    if block
+      i = self; while i >= n; block.call(i); i -= 1; end; self
+    else
+      i = self; a = []; while i >= n; a << i; i -= 1; end; a
+    end
+  end
 
   def chr(enc = nil) = Intrinsics.integer_chr(self, enc)
   def ord = self
