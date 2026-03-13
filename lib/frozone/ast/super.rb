@@ -85,7 +85,8 @@ module Frozone
           result
         end
 
-        block = @block_node ? @block_node.evaluate(context) : (mf.block if @forwarding)
+        # Ruby always passes the current block to super unless explicitly overridden (&node).
+        block = @block_node ? @block_node.evaluate(context) : mf.block
 
         # For inline block literals, absorb BreakException targeting the calling method frame.
         calling_method_frame = @block_node.is_a?(Block) ? context.frame.method_frame : nil
