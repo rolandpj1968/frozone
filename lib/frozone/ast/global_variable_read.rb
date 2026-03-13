@@ -21,6 +21,10 @@ module Frozone
           Vm::GLOBALS.fetch(:"$DEBUG", Vm::FalseObject::FALSE)
         when :"$-v", :"$-w"
           Vm::GLOBALS.fetch(:"$VERBOSE", Vm::FalseObject::FALSE)
+        when :"$:", :"$-I"
+          Vm::GLOBALS.fetch(:"$LOAD_PATH", Vm::NilObject::NIL)
+        when :"$\""
+          Vm::GLOBALS.fetch(:"$LOADED_FEATURES", Vm::NilObject::NIL)
         else
           Vm::GLOBALS.fetch(@name, Vm::NilObject::NIL)
         end

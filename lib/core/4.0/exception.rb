@@ -9,8 +9,22 @@ class Exception
 
   def to_s = message.to_s
 
-  def backtrace = []
+  def backtrace = @backtrace
   def backtrace_locations = []
+
+  def set_backtrace(bt)
+    if bt.nil?
+      @backtrace = nil
+    elsif bt.is_a?(String)
+      @backtrace = [bt]
+    elsif bt.is_a?(Array)
+      bt.each { |e| raise TypeError, "backtrace must be an Array of String" unless e.is_a?(String) }
+      @backtrace = bt
+    else
+      raise TypeError, "backtrace must be an Array of String"
+    end
+    @backtrace
+  end
 
   def self.exception(message = nil) = new(message)
 

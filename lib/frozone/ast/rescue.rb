@@ -118,7 +118,11 @@ module Frozone
             rescued = true
             vm_val = e.is_a?(Vm::FrozoneException) ? e.vm_object : Vm::StringObject.new(e.message)
             prev_dollar_bang = Vm::GLOBALS[:"$!"]
+            prev_dollar_at = Vm::GLOBALS[:"$@"]
             Vm::GLOBALS[:"$!"] = vm_val
+            empty_bt = Vm::ArrayObject.new([])
+            Vm::GLOBALS[:"$@"] = empty_bt
+            vm_val.dispatch(context, :set_backtrace, [empty_bt], {}) rescue nil
             if clause.var_name
               context.frame.frame_at_depth(clause.var_depth).set_local(clause.var_name, vm_val)
             elsif clause.assign_node
@@ -130,6 +134,7 @@ module Frozone
               retry_requested = true
             ensure
               Vm::GLOBALS[:"$!"] = prev_dollar_bang || Vm::NilObject::NIL
+              Vm::GLOBALS[:"$@"] = prev_dollar_at || Vm::NilObject::NIL
             end
           else
             result = @else_node.evaluate(context) if @else_node

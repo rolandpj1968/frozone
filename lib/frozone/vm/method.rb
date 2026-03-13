@@ -96,7 +96,7 @@ module Frozone
 
         if @kw_rest_param.nil? || @kw_rest_param == :__no_kwargs__
           unless kw_args.empty?
-            raise FrozoneException.make(:ArgumentError, "unknown keyword#{kw_args.length == 1 ? "" : "s"}: #{kw_args.keys.map { |k| k.to_s }.join(', ')}")
+            raise FrozoneException.make(:ArgumentError, "unknown keyword#{kw_args.length == 1 ? "" : "s"}: #{kw_args.keys.map { |k| ":#{k}" }.join(', ')}")
           end
         else
           kw_rest = kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k }
