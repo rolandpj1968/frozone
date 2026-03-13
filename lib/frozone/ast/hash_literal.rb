@@ -24,7 +24,8 @@ module Frozone
               has_to_hash = begin
                 splatted.dispatch(context, :respond_to?, [Vm::SymbolObject.from(:to_hash)], {}).truthy?
               rescue
-                false
+                # BasicObject may not have respond_to? — check directly
+                !splatted.lookup_instance_method(:to_hash).nil?
               end
               if has_to_hash
                 splatted = splatted.dispatch(context, :to_hash, [], {})

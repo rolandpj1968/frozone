@@ -46,7 +46,14 @@ class Array
   def clear; replace([]); self; end
   def length = Intrinsics.array_length(self)
   alias size length
-  def count(&block); return length unless block; n = 0; each { |x| n += 1 if block.call(x) }; n; end
+  def count(val = :__undefined__, &block)
+    if val.equal?(:__undefined__)
+      return length unless block
+      n = 0; each { |x| n += 1 if block.call(x) }; n
+    else
+      n = 0; each { |x| n += 1 if x == val }; n
+    end
+  end
   def empty? = length == 0
   def first(n = nil) = n ? self[0, n] : self[0]
   def last(n = nil) = n ? self[-n, n] : self[self.length - 1]

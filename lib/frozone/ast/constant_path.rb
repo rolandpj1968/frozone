@@ -41,19 +41,12 @@ module Frozone
         stop = @parent_node.is_a?(Ast::RootNamespaceNode) ? false : parent.is_a?(Vm::ClassObject)
         c, owner = parent.lookup_constant_with_owner(@name, stop_at_object: stop)
         if c.nil?
-          # Check if it's private before reporting uninitialized (private constant returns NameError either way)
-          if parent.constant_private?(@name)
-            label = "#{parent.respond_to?(:name) && parent.name ? parent.name : @parent_node}::#{@name}"
-            raise Vm::FrozoneException.make(:NameError, "private constant #{label} referenced")
-          end
           # Dispatch const_missing — default raises NameError with proper name/inspect message
           return parent.dispatch(context, :const_missing, [Vm::SymbolObject.from(@name)], {})
         end
-        # Check privacy in the defining module
+        # Check privacy in the defining module — private constants trigger const_missing
         if owner&.constant_private?(@name)
-          owner_name = owner.respond_to?(:name) ? owner.name : nil
-          label = owner_name ? "#{owner_name}::#{@name}" : @name.to_s
-          raise Vm::FrozoneException.make(:NameError, "private constant #{label} referenced")
+          return parent.dispatch(context, :const_missing, [Vm::SymbolObject.from(@name)], {})
         end
         c
       end

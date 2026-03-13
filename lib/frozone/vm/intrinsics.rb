@@ -1192,6 +1192,19 @@ module Frozone
           end
         end
 
+        def regexp_eq(_, r1, r2)
+          return TrueObject::TRUE if r1.equal?(r2)
+          return FalseObject::FALSE unless r2.is_a?(RegexpObject)
+          bool_object_for(r1.raw == r2.raw)
+        end
+
+        def regexp_source(_, r) = StringObject.new(r.raw.source)
+        def regexp_options(_, r) = IntegerObject.new(r.raw.options)
+        def regexp_inspect(_, r) = StringObject.new(r.raw.inspect)
+        def regexp_to_s(_, r) = StringObject.new(r.raw.to_s)
+        def regexp_casefold(_, r) = bool_object_for(r.raw.casefold?)
+        def regexp_fixed_encoding(_, r) = bool_object_for(r.raw.fixed_encoding?)
+
         def regexp_match(_, receiver, str)
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
           m = receiver.raw.match(s)

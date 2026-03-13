@@ -96,6 +96,7 @@ module Frozone
         evaluate_file("#{core_path}/exception.rb")
         evaluate_file("#{core_path}/encoding.rb")
         evaluate_file("#{core_path}/match_data.rb")
+        evaluate_file("#{core_path}/regexp.rb")
         evaluate_file("#{core_path}/io.rb")
         evaluate_file("#{core_path}/pp.rb")
         evaluate_file("#{core_path}/stringio.rb")
