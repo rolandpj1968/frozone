@@ -17,6 +17,8 @@ class Module
   end
 
   alias class_eval module_eval
+  def module_exec(*args, &block) = Intrinsics.module_exec(self, args, block)
+  alias class_exec module_exec
   def private_constant(*names) = Intrinsics.module_private_constant(self, *names)
   def public_constant(*names) = Intrinsics.module_public_constant(self, *names)
   def private_class_method(*names) = self
@@ -45,8 +47,16 @@ class Module
 
   def constants(inherit = true) = Intrinsics.module_constants(self)
   def class_variable_defined?(name) = Intrinsics.module_class_variable_defined(self, name)
+  def class_variable_get(name) = Intrinsics.module_class_variable_get(self, name)
+  def class_variable_set(name, value) = Intrinsics.module_class_variable_set(self, name, value)
   def class_variables = Intrinsics.module_class_variables(self)
   def remove_const(name) = Intrinsics.module_remove_const(self, name)
   def remove_class_variable(name) = Intrinsics.module_remove_class_variable(self, name)
   def ruby2_keywords(*names) = self
+
+  def const_missing(name)
+    n = self.name
+    label = n ? "#{n}::#{name}" : "#{self.inspect}::#{name}"
+    raise NameError, "uninitialized constant #{label}"
+  end
 end

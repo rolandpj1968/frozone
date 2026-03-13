@@ -7,6 +7,8 @@ module Frozone
 
       attr_reader :class_object, :eigenclass
 
+      attr_reader :frozen_object
+
       def initialize(class_object)
         unless @@bootstrapping || class_object.is_a?(ClassObject)
           raise "ObjectObject class_object must be a ClassObject"
@@ -14,7 +16,17 @@ module Frozone
         @class_object = class_object
         @instance_variables = {}
         @eigenclass = nil
+        @frozen_object = false
       end
+
+      def freeze_object!
+        @frozen_object = true
+        # Also freeze the singleton class if it exists
+        @eigenclass&.freeze_object!
+        self
+      end
+
+      def frozen_object? = @frozen_object
 
       def lookup_class = @eigenclass || @class_object
 
@@ -28,6 +40,10 @@ module Frozone
               @class_object
             end
           @eigenclass = ClassObject.new(nil, nil, sc_superclass)
+          @eigenclass.instance_variable_set(:@is_singleton_class, true)
+          @eigenclass.instance_variable_set(:@singleton_of, self)
+          # Propagate frozen state to newly-created singleton class
+          @eigenclass.freeze_object! if @frozen_object
         end
         @eigenclass
       end
@@ -76,7 +92,7 @@ module Frozone
 
         mm = lookup_instance_method(:method_missing)
         raise "BUG: method_missing not defined on #{@class_object.name}" if mm.nil?
-        mm.invoke(context, self, [SymbolObject.from(name)] + args, kw_args, nil)
+        mm.invoke(context, self, [SymbolObject.from(name)] + args, kw_args, block)
       end
 
       def inspect = "#<#{self.class.name}>"
@@ -90,7 +106,15 @@ module Frozone
       end
 
       def set_ivar(name, value)
+        if @frozen_object
+          type_name = is_a?(ModuleObject) ? (is_a?(ClassObject) ? "Class" : "Module") : (@class_object&.name&.to_s || "Object")
+          raise FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{inspect_for_error}")
+        end
         @instance_variables[name] = value
+      end
+
+      def inspect_for_error
+        "#<#{@class_object&.name}>"
       end
 
       def truthy?

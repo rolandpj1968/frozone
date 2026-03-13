@@ -9,6 +9,7 @@ require_relative 'frame'
 require_relative 'method'
 
 require_relative 'unbound_method_object'
+require_relative 'io_object'
 require_relative 'nil_object'
 require_relative 'range_object'
 require_relative 'float_object'
@@ -45,6 +46,10 @@ module Frozone
         env_hash = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
         Core::OBJECT_CLASS.set_constant(:ENV, env_hash)
 
+        Core::OBJECT_CLASS.set_constant(:STDOUT, GLOBALS[:"$stdout"])
+        Core::OBJECT_CLASS.set_constant(:STDERR, GLOBALS[:"$stderr"])
+        Core::OBJECT_CLASS.set_constant(:STDIN,  GLOBALS[:"$stdin"])
+
         script_argv = @options[:argv][1..] || []
         Core::OBJECT_CLASS.set_constant(:ARGV, ArrayObject.new(script_argv.map { |a| StringObject.new(a) }))
 
@@ -74,6 +79,7 @@ module Frozone
         ObjectObject.end_bootstrap!
         evaluate_file("#{core_path}/class.rb")
         evaluate_file("#{core_path}/basic_object.rb")
+        evaluate_file("#{core_path}/kernel.rb")
         evaluate_file("#{core_path}/object.rb")
         evaluate_file("#{core_path}/comparable.rb")
         evaluate_file("#{core_path}/nil_class.rb")
@@ -90,6 +96,7 @@ module Frozone
         evaluate_file("#{core_path}/exception.rb")
         evaluate_file("#{core_path}/encoding.rb")
         evaluate_file("#{core_path}/match_data.rb")
+        evaluate_file("#{core_path}/io.rb")
         evaluate_file("#{core_path}/pp.rb")
         evaluate_file("#{core_path}/stringio.rb")
         init_globals
@@ -123,9 +130,10 @@ module Frozone
         GLOBALS[:"$VERBOSE"]         = FalseObject::FALSE
         GLOBALS[:"$DEBUG"]           = FalseObject::FALSE
         GLOBALS[:"$!"]               = NilObject::NIL
-        GLOBALS[:"$stdout"]          = ObjectObject.new(Core::OBJECT_CLASS) # placeholder
-        GLOBALS[:"$stderr"]          = ObjectObject.new(Core::OBJECT_CLASS) # placeholder
-        GLOBALS[:"$stdin"]           = ObjectObject.new(Core::OBJECT_CLASS) # placeholder
+        io_class = Core.io_class
+        GLOBALS[:"$stdout"]          = IOObject.new($stdout, io_class)
+        GLOBALS[:"$stderr"]          = IOObject.new($stderr, io_class)
+        GLOBALS[:"$stdin"]           = IOObject.new($stdin,  io_class)
         GLOBALS[:"$>"]               = GLOBALS[:"$stdout"]
         GLOBALS[:"$0"]               = StringObject.new($0.to_s)
         GLOBALS[:"$PROGRAM_NAME"]    = GLOBALS[:"$0"]

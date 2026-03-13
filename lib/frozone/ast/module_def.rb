@@ -39,16 +39,18 @@ module Frozone
             container.set_constant(@name, module_constant)
           end
         else
-          namespace = context.scopes.last.equal?(Vm::Core::OBJECT_CLASS) ? nil : context.scopes.last
+          # Use the LEXICAL scope (frame's definition-site scopes) for constant lookup/assignment.
+          lex_scope = context.frame.scopes.last
+          namespace = lex_scope.equal?(Vm::Core::OBJECT_CLASS) ? nil : lex_scope
 
           # MRI only looks in the immediate enclosing class/module, not outer nesting or superclass chain.
-          module_constant = context.scopes.last.get_constant(@name)
+          module_constant = lex_scope.get_constant(@name)
           unless module_constant.nil? || (module_constant.is_a?(Vm::ModuleObject) && !module_constant.is_a?(Vm::ClassObject))
             raise Vm::FrozoneException.make(:TypeError, "#{@name} is not a module (#{module_constant.is_a?(Vm::ObjectObject) ? module_constant.class_object&.name : module_constant.class} given)")
           end
           if module_constant.nil?
             module_constant = Vm::ModuleObject.new(@name, namespace)
-            context.scopes.last.set_constant(@name, module_constant)
+            lex_scope.set_constant(@name, module_constant)
           end
         end
 

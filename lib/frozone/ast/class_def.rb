@@ -39,30 +39,41 @@ module Frozone
           if class_constant.nil?
             superclass = @superclass_node ? @superclass_node.evaluate(context) : Vm::Core::OBJECT_CLASS
             raise Vm::FrozoneException.make(:TypeError, "superclass must be a Class (#{superclass.class_object&.name} given)") unless superclass.is_a?(Vm::ClassObject)
+            raise Vm::FrozoneException.make(:TypeError, "can't make subclass of singleton class") if superclass.instance_variable_get(:@is_singleton_class)
             class_constant = Vm::ClassObject.new(@name, namespace, superclass)
             container.set_constant(@name, class_constant)
+            dispatch_inherited(context, superclass, class_constant)
           elsif @superclass_node
             superclass = @superclass_node.evaluate(context)
             raise Vm::FrozoneException.make(:TypeError, "superclass mismatch for class #{@name}") unless class_constant.superclass.equal?(superclass)
           end
         else
+          # Use the LEXICAL scope (frame's definition-site scopes) for constant lookup/assignment.
+          # This ensures that `class Foo` inside a block/lambda uses the block's outer scope,
+          # not the dynamic scope at call time.
+          lex_scope = context.frame.scopes.last
+
           # Namespace is the innermost enclosing class/module, except at top level where
           # scopes.last is OBJECT_CLASS acting as a container, not a real nesting namespace.
-          namespace = context.scopes.last.equal?(Vm::Core::OBJECT_CLASS) ? nil : context.scopes.last
+          namespace = lex_scope.equal?(Vm::Core::OBJECT_CLASS) ? nil : lex_scope
 
-          # 1. find or create the class defn and constant
+          # 1. Evaluate superclass expression FIRST (Ruby evaluates it before checking constant)
+          superclass = @superclass_node ? @superclass_node.evaluate(context) : nil
+
+          # 2. Find or create the class constant
           # MRI only looks in the immediate enclosing class/module, not outer nesting or superclass chain.
-          class_constant = context.scopes.last.get_constant(@name)
+          class_constant = lex_scope.get_constant(@name)
           unless class_constant.nil? || class_constant.is_a?(Vm::ClassObject)
             raise Vm::FrozoneException.make(:TypeError, "#{@name} is not a class (#{class_constant.class_object&.name})")
           end
           if class_constant.nil?
-            superclass = @superclass_node ? @superclass_node.evaluate(context) : Vm::Core::OBJECT_CLASS
-            raise Vm::FrozoneException.make(:TypeError, "superclass must be a Class (#{superclass.class_object&.name} given)") unless superclass.is_a?(Vm::ClassObject)
-            class_constant = Vm::ClassObject.new(@name, namespace, superclass)
-            context.scopes.last.set_constant(@name, class_constant)
+            sc = superclass || Vm::Core::OBJECT_CLASS
+            raise Vm::FrozoneException.make(:TypeError, "superclass must be a Class (#{sc.class_object&.name} given)") unless sc.is_a?(Vm::ClassObject)
+            raise Vm::FrozoneException.make(:TypeError, "can't make subclass of singleton class") if sc.instance_variable_get(:@is_singleton_class)
+            class_constant = Vm::ClassObject.new(@name, namespace, sc)
+            lex_scope.set_constant(@name, class_constant)
+            dispatch_inherited(context, sc, class_constant)
           elsif @superclass_node
-            superclass = @superclass_node.evaluate(context)
             raise Vm::FrozoneException.make(:TypeError, "superclass mismatch for class #{@name}") unless class_constant.superclass.equal?(superclass)
           end
         end
@@ -80,6 +91,14 @@ module Frozone
           context.scopes.pop
           class_constant.current_visibility = prev_visibility
         end
+      end
+
+      private
+
+      def dispatch_inherited(context, superclass, subclass)
+        m = superclass.lookup_instance_method(:inherited)
+        return if m.nil?
+        superclass.dispatch(context, :inherited, [subclass], {}, nil)
       end
     end
   end

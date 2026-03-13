@@ -19,7 +19,8 @@ module Frozone
           result = val.dispatch(context, :respond_to?, [Vm::SymbolObject.from(:to_a), Vm::TrueObject::TRUE], {})
           result.truthy?
         rescue
-          false
+          # BasicObject may not have respond_to? — check for to_a directly
+          !val.lookup_instance_method(:to_a).nil?
         end
         if has_to_a
           result = val.dispatch(context, :to_a, [], {}, nil, private_ok: true)

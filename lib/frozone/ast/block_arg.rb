@@ -17,10 +17,17 @@ module Frozone
         return val if val.is_a?(Vm::ProcObject) || val.is_a?(Vm::BlockObject)
         # Try to_proc coercion for other objects
         if val.respond_to?(:dispatch)
-          proc_val = val.dispatch(context, :to_proc, [], {})
-          return proc_val if proc_val.is_a?(Vm::ProcObject) || proc_val.is_a?(Vm::BlockObject)
+          has_to_proc = begin
+            val.dispatch(context, :respond_to?, [Vm::SymbolObject.from(:to_proc)], {}).truthy?
+          rescue
+            false
+          end
+          if has_to_proc
+            proc_val = val.dispatch(context, :to_proc, [], {})
+            return proc_val if proc_val.is_a?(Vm::ProcObject) || proc_val.is_a?(Vm::BlockObject)
+          end
         end
-        raise "block argument must be a Proc (got #{val.class})"
+        raise Vm::FrozoneException.make(:TypeError, "no implicit conversion of #{val.class_object.name} into Proc")
       end
     end
   end

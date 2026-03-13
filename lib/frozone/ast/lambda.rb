@@ -7,7 +7,7 @@ module Frozone
     class Lambda < Node
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
-                     block_param, locals, body)
+                     block_param, locals, body, it_param: false)
         @required_params    = required_params
         @optional_params    = optional_params
         @rest_param         = rest_param
@@ -16,6 +16,7 @@ module Frozone
         @optional_kw_params = optional_kw_params
         @kw_rest_param      = kw_rest_param
         @block_param        = block_param
+        @it_param           = it_param
         @locals             = locals
         @body               = body
       end
@@ -26,7 +27,7 @@ module Frozone
           @required_params, @optional_params, @rest_param, @post_params,
           @required_kw_params, @optional_kw_params, @kw_rest_param,
           @block_param, false, @locals, @body, context.frame,
-          is_lambda: true
+          is_lambda: true, it_param: @it_param
         )
         Vm::ProcObject.new(block, lambda: true)
       end

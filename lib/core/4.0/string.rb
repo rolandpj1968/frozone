@@ -14,6 +14,7 @@ class String
   alias intern to_sym
   def inspect = Intrinsics.string_inspect(self)
   def dup = Intrinsics.string_dup(self)
+  def clone(freeze: nil) = Intrinsics.string_clone(self, freeze)
   def freeze = Intrinsics.string_freeze(self)
   def frozen? = Intrinsics.string_frozen(self)
   def encoding = Intrinsics.string_encoding(self)
@@ -55,6 +56,8 @@ class String
   def sub!(pattern, replacement) = Intrinsics.string_sub(self, pattern, replacement)
   def squeeze!(*args) = Intrinsics.string_squeeze(self, *args)
   def delete!(*args) = Intrinsics.string_delete(self, *args)
+  def casecmp(other) = upcase <=> other.upcase
+  def casecmp?(other) = casecmp(other) == 0
   def upcase = Intrinsics.string_upcase(self)
   def downcase = Intrinsics.string_downcase(self)
   def capitalize = Intrinsics.string_capitalize(self)
@@ -95,4 +98,5 @@ class Regexp
   def !~(str) = !(self =~ str)
   def match(str, pos = nil) = Intrinsics.regexp_match(self, str)
   def match?(str) = !Intrinsics.regexp_match(self, str).nil?
+  def ===(str) = !(self =~ str).nil?
 end

@@ -27,8 +27,15 @@ module Frozone
           klass  = receiver.singleton_class
           origin = defining_class.is_a?(Vm::ClassObject) ? defining_class.singleton_class : defining_class
         else
-          klass  = receiver.class_object
-          origin = defining_class
+          # If origin is not in the instance class ancestors, it must be from the singleton chain
+          class_ancs = receiver.class_object.ancestors_list
+          if class_ancs.any? { |a| a.equal?(defining_class) }
+            klass  = receiver.class_object
+            origin = defining_class
+          else
+            klass  = receiver.singleton_class
+            origin = defining_class
+          end
         end
 
         super_method = klass.lookup_method_after(method_name, origin)
@@ -37,20 +44,20 @@ module Frozone
         end
 
         args = if @forwarding
-          # Read CURRENT values of params from the frame (not original method_args)
+          # Read CURRENT values of params from the METHOD frame (not current block/closure frame).
+          # super from inside a block/closure forwards the enclosing METHOD's params.
           m = current_method
           if m.respond_to?(:required_params)
-            current_frame = context.frame
-            fwd_args = m.required_params.map { |p| current_frame.get_local(p) }
-            m.optional_params.each { |p, _| fwd_args << current_frame.get_local(p) }
+            fwd_args = m.required_params.map { |p| mf.get_local(p) }
+            m.optional_params.each { |p, _| fwd_args << mf.get_local(p) }
             if m.rest_param
-              rest_val = current_frame.get_local(m.rest_param)
+              rest_val = mf.get_local(m.rest_param)
               fwd_args += rest_val.is_a?(Vm::ArrayObject) ? rest_val.raw : [rest_val]
             end
-            m.post_params.each { |p| fwd_args << current_frame.get_local(p) }
+            m.post_params.each { |p| fwd_args << mf.get_local(p) }
             fwd_args
           else
-            mf.method_args || []
+            raise Vm::FrozoneException.make(:RuntimeError, "implicit argument passing of super from method defined by define_method() is not supported. Specify all arguments explicitly.")
           end
         else
           @arg_nodes.flat_map do |n|
@@ -61,12 +68,11 @@ module Frozone
         kw_args = if @forwarding
           m = current_method
           if m.respond_to?(:required_kw_params)
-            current_frame = context.frame
             fwd_kw = {}
-            m.required_kw_params.each { |k| fwd_kw[k] = current_frame.get_local(k) }
-            m.optional_kw_params.each { |k, _| fwd_kw[k] = current_frame.get_local(k) }
+            m.required_kw_params.each { |k| fwd_kw[k] = mf.get_local(k) }
+            m.optional_kw_params.each { |k, _| fwd_kw[k] = mf.get_local(k) }
             if m.kw_rest_param
-              rest_hash = current_frame.get_local(m.kw_rest_param)
+              rest_hash = mf.get_local(m.kw_rest_param)
               if rest_hash.is_a?(Vm::HashObject)
                 rest_hash.raw.each { |k, v| fwd_kw[k.is_a?(Vm::SymbolObject) ? k.raw : k] = v }
               end

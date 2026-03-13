@@ -34,10 +34,11 @@ module Frozone
       private
 
       def parse_lambda(prism_node)
+        it_param = prism_node.parameters.is_a?(Prism::ItParametersNode)
         required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, _auto_splat =
           parse_block_or_lambda_params(prism_node.parameters, auto_splat: false)
         body = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
-        [required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, prism_node.locals, body]
+        [required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, prism_node.locals, body, it_param]
       end
 
       def parse_multi_write_target(target)
@@ -117,6 +118,7 @@ module Frozone
       end
 
       def parse_block(prism_block_node)
+        it_param = prism_block_node.parameters.is_a?(Prism::ItParametersNode)
         required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, auto_splat =
           parse_block_or_lambda_params(prism_block_node.parameters, auto_splat: true)
         body = prism_block_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_block_node.body)
@@ -124,7 +126,7 @@ module Frozone
         locals = prism_block_node.locals.dup
         required.each { |p| locals.concat(extract_destruct_names(p)) if p.is_a?(Hash) }
         Ast::Block.new(required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param,
-                       auto_splat, locals, body)
+                       auto_splat, locals, body, it_param: it_param)
       end
 
       def extract_destruct_names(param)
@@ -259,26 +261,42 @@ module Frozone
           parameters = prism_node.parameters
           # Anonymous block param `&` has name=nil; use synthetic name for forwarding support
           block_param = parameters.block.nil? ? nil : (parameters.block.name || :__anon_block__)
+          repeated_idx = 0
           required_params = parameters.requireds.filter_map do |required|
             case required
-            when Prism::RequiredParameterNode then required.name
-            when Prism::MultiTargetNode       then parse_multi_target_param(required)
+            when Prism::RequiredParameterNode
+              if required.repeated_parameter?
+                :"__repeated_#{repeated_idx += 1}__"
+              else
+                required.name
+              end
+            when Prism::MultiTargetNode then parse_multi_target_param(required)
             else nil
             end
           end
           optional_params = parameters.optionals.map do |optional|
             raise "optional parameter is not a Prism::OptionalParameterNode" unless optional.is_a?(Prism::OptionalParameterNode)
-            [optional.name, transform(optional.value)]
+            name = optional.repeated_parameter? ? :"__repeated_#{repeated_idx += 1}__" : optional.name
+            [name, transform(optional.value)]
           end
           unless parameters.rest.nil?
             raise "rest parameter is not a Prism::RestParameterNode" unless parameters.rest.is_a?(Prism::RestParameterNode)
-            # Anonymous rest `*` uses synthetic name for forwarding
-            rest_param = parameters.rest.name || :__anon_rest__
+            # Anonymous rest `*` uses synthetic name for forwarding; repeated `_` gets synthetic name too
+            rest_param = if parameters.rest.repeated_parameter?
+                           :"__repeated_#{repeated_idx += 1}__"
+                         else
+                           parameters.rest.name || :__anon_rest__
+                         end
           end
           post_params = parameters.posts.filter_map do |post|
             case post
-            when Prism::RequiredParameterNode then post.name
-            when Prism::MultiTargetNode       then parse_multi_target_param(post)
+            when Prism::RequiredParameterNode
+              if post.repeated_parameter?
+                :"__repeated_#{repeated_idx += 1}__"
+              else
+                post.name
+              end
+            when Prism::MultiTargetNode then parse_multi_target_param(post)
             else nil
             end
           end
@@ -622,8 +640,8 @@ module Frozone
           Ast::Return.new(value_node)
 
         when Prism::LambdaNode
-          required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, locals, body = parse_lambda(prism_node)
-          Ast::Lambda.new(required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, locals, body)
+          required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, locals, body, it_param = parse_lambda(prism_node)
+          Ast::Lambda.new(required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, locals, body, it_param: it_param)
 
         when Prism::YieldNode
           arg_nodes = []
@@ -655,7 +673,14 @@ module Frozone
           parse_multi_write(prism_node)
 
         when Prism::NextNode
-          value_node = prism_node.arguments.nil? || prism_node.arguments.arguments.empty? ? nil : transform(prism_node.arguments.arguments.first)
+          args = prism_node.arguments&.arguments || []
+          value_node = if args.empty?
+            nil
+          elsif args.length == 1
+            transform(args.first)
+          else
+            Ast::ArrayLiteral.new(args.map { |a| transform(a) })
+          end
           Ast::Next.new(value_node)
 
         when Prism::RedoNode
@@ -742,7 +767,14 @@ module Frozone
           end
 
         when Prism::BreakNode
-          value_node = prism_node.arguments.nil? || prism_node.arguments.arguments.empty? ? nil : transform(prism_node.arguments.arguments.first)
+          args = prism_node.arguments&.arguments || []
+          value_node = if args.empty?
+            nil
+          elsif args.length == 1
+            transform(args.first)
+          else
+            Ast::ArrayLiteral.new(args.map { |a| transform(a) })
+          end
           Ast::Break.new(value_node)
 
         when Prism::XStringNode, Prism::InterpolatedXStringNode
@@ -828,7 +860,7 @@ module Frozone
           Ast::ConstantPath.new(parent_node, prism_node.child.name)
 
         when Prism::ConstantPathWriteNode
-          parent_node = transform(prism_node.target.parent)
+          parent_node = prism_node.target.parent.nil? ? Ast::RootNamespaceNode::INSTANCE : transform(prism_node.target.parent)
           Ast::ConstantPathWrite.new(parent_node, prism_node.target.child.name, transform(prism_node.value))
 
         when Prism::ConstantPathOrWriteNode
@@ -937,9 +969,7 @@ module Frozone
         when Prism::ConstantPathOperatorWriteNode
           parent_node = transform(prism_node.target.parent)
           child_name  = prism_node.target.child.name
-          read  = Ast::ConstantPath.new(parent_node, child_name)
-          rhs   = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
-          Ast::ConstantPathWrite.new(parent_node, child_name, rhs)
+          Ast::ConstantPathOperatorWrite.new(parent_node, child_name, prism_node.operator, transform(prism_node.value))
 
         when Prism::CallOrWriteNode
           receiver_node = (prism_node.receiver.nil? || prism_node.receiver.is_a?(Prism::SelfNode)) ? nil : transform(prism_node.receiver)

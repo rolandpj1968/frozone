@@ -96,7 +96,7 @@ module Frozone
 
         if @kw_rest_param.nil? || @kw_rest_param == :__no_kwargs__
           unless kw_args.empty?
-            raise FrozoneException.make(:ArgumentError, "unknown keyword#{kw_args.length == 1 ? "" : "s"}: #{kw_args.keys.map { |k| ":#{k}" }.join(', ')}")
+            raise FrozoneException.make(:ArgumentError, "unknown keyword#{kw_args.length == 1 ? "" : "s"}: #{kw_args.keys.map { |k| k.to_s }.join(', ')}")
           end
         else
           kw_rest = kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k }
@@ -215,6 +215,16 @@ module Frozone
         Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
       end
 
+      def dup_with_visibility(vis)
+        m = Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
+        m.visibility = vis
+        m
+      end
+
+      def bound_copy(name, new_scope)
+        Method.new([new_scope], name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
+      end
+
       # TODO - thread-safety
       # TODO - surely this does not belong here? There must be other uses of unique scopes?
       UniqueScopes = {}
@@ -227,17 +237,18 @@ module Frozone
 
     # A method created by define_method that delegates to a captured block
     class DefinedMethod
-      attr_reader :name
+      attr_reader :name, :scopes
       attr_accessor :visibility
 
-      def initialize(name, block_obj)
+      def initialize(name, block_obj, defining_class = nil)
         @name = name
         @block_obj = block_obj
         @visibility = :public
+        @scopes = defining_class ? [defining_class] : []
       end
 
       def invoke(context, receiver, args, kwargs, block = nil)
-        @block_obj.invoke(context, args, receiver: receiver, block: block)
+        @block_obj.invoke(context, args, receiver: receiver, block: block, current_method: self, as_method: true)
       rescue Ast::ReturnException => e
         # Absorb return from a proc used as a method body (define_method semantics).
         # Return with nil or dead method_frame exits the define_method-defined method.
@@ -245,7 +256,13 @@ module Frozone
         e.value
       end
 
-      def alias_as(name) = DefinedMethod.new(name, @block_obj)
+      def alias_as(name) = DefinedMethod.new(name, @block_obj, @scopes.first)
+
+      def dup_with_visibility(vis)
+        m = DefinedMethod.new(@name, @block_obj, @scopes.first)
+        m.visibility = vis
+        m
+      end
     end
   end
 end

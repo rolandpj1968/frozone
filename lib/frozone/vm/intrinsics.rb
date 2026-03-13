@@ -6,12 +6,17 @@ module Frozone
         def object_class(_, v) = v.class_object
 
         def object_is_a(_, v, klass)
-          c = v.class_object
+          # Check eigenclass first (every object is kind_of? its singleton class)
+          if v.respond_to?(:eigenclass) && v.eigenclass
+            ec = v.eigenclass
+            return TrueObject::TRUE if ec.equal?(klass)
+          end
+          c = v.respond_to?(:class_object) ? v.class_object : nil
           until c.nil?
             return TrueObject::TRUE if c.equal?(klass)
-            return TrueObject::TRUE if c.prepends.any? { |m| m.equal?(klass) }
-            return TrueObject::TRUE if c.modules.any? { |m| m.equal?(klass) }
-            c = c.superclass
+            return TrueObject::TRUE if c.respond_to?(:prepends) && c.prepends.any? { |m| m.equal?(klass) }
+            return TrueObject::TRUE if c.respond_to?(:modules) && c.modules.any? { |m| m.equal?(klass) }
+            c = c.respond_to?(:superclass) ? c.superclass : nil
           end
           FalseObject::FALSE
         end
@@ -32,6 +37,13 @@ module Frozone
         def object_ivar_names(_, v)
           names = v.instance_variable_get(:@instance_variables)&.keys || []
           ArrayObject.new(names.map { |k| SymbolObject.from(k) })
+        end
+
+        def object_ivar_remove(_, v, name)
+          k = normalize_ivar(name)
+          ivars = v.instance_variable_get(:@instance_variables)
+          raise FrozoneException.make(:NameError, "instance variable #{k} not defined") unless ivars&.key?(k)
+          ivars.delete(k)
         end
 
         def object_respond_to(context, v, name, include_private_obj = FalseObject::FALSE)
@@ -55,6 +67,79 @@ module Frozone
 
         def object_public_methods(_, v, include_super_obj = TrueObject::TRUE)
           collect_method_names(v, include_super_obj.truthy?) { |vis| vis == :public }
+        end
+
+        # Copy the "ObjectObject" fields into a new instance (for dup/clone).
+        # Only works for plain ObjectObject instances (not specialized subclasses like StringObject).
+        def copy_object_fields(v, copy, eigenclass: nil, frozen: false)
+          copy.instance_variable_set(:@class_object, v.class_object)
+          copy.instance_variable_set(:@instance_variables, v.instance_variable_get(:@instance_variables).dup)
+          copy.instance_variable_set(:@eigenclass, eigenclass)
+          copy.instance_variable_set(:@frozen_object, frozen)
+          copy
+        end
+
+        def object_dup(_, v)
+          # Only works for plain ObjectObject instances — specialized types (String, Array, etc.)
+          # define their own dup methods in core Ruby.
+          return v unless v.class == ObjectObject
+          copy = ObjectObject.allocate
+          copy_object_fields(v, copy, eigenclass: nil, frozen: false)
+        end
+
+        def object_clone(_, v, freeze_opt = NilObject::NIL)
+          # Only works for plain ObjectObject instances — specialized types define their own clone.
+          return v unless v.class == ObjectObject
+          copy = ObjectObject.allocate
+          # Copy singleton class if it exists (clone copies singleton, dup does not)
+          sc_copy = nil
+          if v.eigenclass
+            sc_copy = ClassObject.new(nil, nil, v.eigenclass.superclass)
+            sc_copy.instance_variable_set(:@is_singleton_class, true)
+            sc_copy.instance_variable_set(:@singleton_of, copy)
+            orig_methods = v.eigenclass.instance_variable_get(:@methods) || {}
+            sc_copy.instance_variable_set(:@methods, orig_methods.dup)
+            orig_constants = v.eigenclass.instance_variable_get(:@constants) || {}
+            sc_copy.instance_variable_set(:@constants, orig_constants.dup)
+          end
+          # Handle freeze: option (freeze: false means unfreeze clone)
+          freeze_val = freeze_opt.is_a?(NilObject) ? nil : freeze_opt.truthy?
+          frozen = if freeze_val == false then false
+                   elsif freeze_val.nil? then v.frozen_object?
+                   else true
+                   end
+          copy_object_fields(v, copy, eigenclass: sc_copy, frozen: frozen)
+        end
+
+        def string_clone(_, v, freeze_opt = NilObject::NIL)
+          copy = StringObject.new(v.raw.dup)
+          if v.eigenclass
+            sc_copy = ClassObject.new(nil, nil, v.eigenclass.superclass)
+            sc_copy.instance_variable_set(:@is_singleton_class, true)
+            sc_copy.instance_variable_set(:@singleton_of, copy)
+            orig_methods = v.eigenclass.instance_variable_get(:@methods) || {}
+            sc_copy.instance_variable_set(:@methods, orig_methods.dup)
+            copy.instance_variable_set(:@eigenclass, sc_copy)
+          end
+          freeze_val = freeze_opt.is_a?(NilObject) ? nil : freeze_opt.truthy?
+          frozen = if freeze_val == false then false
+                   elsif freeze_val.nil? then v.frozen_object?
+                   else true
+                   end
+          copy.instance_variable_set(:@frozen_object, frozen)
+          copy
+        end
+
+        def object_freeze(_, v)
+          v.freeze_object!
+          v
+        end
+
+        def object_frozen(_, v)
+          # Integers, Symbols, nil, true, false are always frozen
+          return TrueObject::TRUE if v.is_a?(IntegerObject) || v.is_a?(SymbolObject) ||
+                                     v.is_a?(NilObject) || v.is_a?(TrueObject) || v.is_a?(FalseObject)
+          bool_object_for(v.frozen_object?)
         end
 
         def object_singleton_class(_, v)
@@ -101,6 +186,42 @@ module Frozone
         def kernel_print(context, _receiver, args)
           args.raw.each { |a| $stdout.print(a.dispatch(context, :to_s, [], {}).raw) }
           NilObject::NIL
+        end
+
+        def io_print(context, receiver, args)
+          native = receiver.is_a?(IOObject) ? receiver.native_io : $stdout
+          args.raw.each { |a| native.print(a.dispatch(context, :to_s, [], {}).raw) }
+          NilObject::NIL
+        end
+
+        def io_puts(context, receiver, args)
+          native = receiver.is_a?(IOObject) ? receiver.native_io : $stdout
+          if args.raw.empty?
+            native.puts
+          else
+            args.raw.each { |a| native.puts(a.dispatch(context, :to_s, [], {}).raw) }
+          end
+          NilObject::NIL
+        end
+
+        def io_write(context, receiver, args)
+          native = receiver.is_a?(IOObject) ? receiver.native_io : $stdout
+          str = args.raw.first
+          s = str.dispatch(context, :to_s, [], {}).raw
+          native.write(s)
+          IntegerObject.new(s.bytesize)
+        end
+
+        def io_flush(_, receiver)
+          native = receiver.is_a?(IOObject) ? receiver.native_io : $stdout
+          native.flush rescue nil
+          receiver
+        end
+
+        def io_sync_set(_, receiver, val)
+          native = receiver.is_a?(IOObject) ? receiver.native_io : $stdout
+          native.sync = val.truthy? rescue nil
+          val
         end
 
         def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = nil, _backtrace = nil)
@@ -159,8 +280,16 @@ module Frozone
         end
 
         def kernel_throw(_, _receiver, tag, value = NilObject::NIL)
+          # In Ruby, throw with a String tag raises ArgumentError
+          if tag.is_a?(StringObject)
+            raise FrozoneException.make(:ArgumentError, "no implicit conversion of String into Symbol")
+          end
           tag_raw = tag.respond_to?(:raw) ? tag.raw : tag
-          throw(tag_raw, value)
+          begin
+            throw(tag_raw, value)
+          rescue UncaughtThrowError => e
+            raise FrozoneException.make(:UncaughtThrowError, e.message)
+          end
         end
 
         def kernel_abort(context, _receiver, msg)
@@ -172,6 +301,13 @@ module Frozone
         def kernel_exit(_, _receiver, code)
           c = code.is_a?(TrueObject) ? 0 : code.is_a?(FalseObject) ? 1 : code.is_a?(IntegerObject) ? code.raw : 0
           exit(c)
+        end
+
+        def kernel_local_variables(context, _receiver)
+          # local_variables is called from a kernel method frame; the caller's frame has the actual locals
+          caller_frame = context.frames[-2] || context.frame
+          names = caller_frame.local_names.map { |n| SymbolObject.from(n) }
+          ArrayObject.new(names)
         end
 
         # BasicObject
@@ -263,8 +399,15 @@ module Frozone
 
         def module_define_method(_, receiver, name_obj, block)
           name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
-          block_obj = block.is_a?(ProcObject) ? block.block_object : block
-          receiver.set_method(name, DefinedMethod.new(name, block_obj))
+          method = if block.is_a?(UnboundMethodObject)
+                     raw = block.raw_method
+                     raw.is_a?(Method) ? raw.bound_copy(name, receiver) : DefinedMethod.new(name, raw.instance_variable_get(:@block_obj), receiver)
+                   elsif block.is_a?(ProcObject)
+                     DefinedMethod.new(name, block.block_object, receiver)
+                   else
+                     DefinedMethod.new(name, block, receiver)
+                   end
+          receiver.set_method(name, method)
           SymbolObject.from(name)
         end
 
@@ -285,6 +428,19 @@ module Frozone
 
         def module_class_variables(_, receiver)
           ArrayObject.new(receiver.class_variables.keys.map { |k| SymbolObject.from(k) })
+        end
+
+        def module_class_variable_get(_, receiver, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          val = receiver.get_class_var(name)
+          raise FrozoneException.make(:NameError, "uninitialized class variable #{name} in #{receiver.name}") if val.nil?
+          val
+        end
+
+        def module_class_variable_set(_, receiver, name_obj, value)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          receiver.set_class_var(name, value)
+          value
         end
 
         def module_private_constant(_, receiver, *name_objs)
@@ -318,7 +474,8 @@ module Frozone
         end
 
         def module_name(_, receiver)
-          receiver.name ? StringObject.new(receiver.name.to_s) : NilObject::NIL
+          return NilObject::NIL unless receiver.name
+          StringObject.new(receiver.full_name.to_s)
         end
 
         def module_const_defined(_, receiver, name_obj, _inherit = TrueObject::TRUE)
@@ -346,6 +503,20 @@ module Frozone
           context.scopes << receiver
           begin
             block.invoke(context, [], receiver: receiver)
+          ensure
+            context.scopes.pop
+            receiver.current_visibility = prev_vis if prev_vis
+          end
+        end
+
+        def module_exec(context, receiver, args_obj, block)
+          return NilObject::NIL if block.nil? || block.is_a?(NilObject)
+          args = args_obj.is_a?(ArrayObject) ? args_obj.raw : []
+          prev_vis = receiver.is_a?(ModuleObject) ? receiver.current_visibility : nil
+          receiver.current_visibility = :public if prev_vis
+          context.scopes << receiver
+          begin
+            block.invoke(context, args, receiver: receiver)
           ensure
             context.scopes.pop
             receiver.current_visibility = prev_vis if prev_vis
@@ -440,7 +611,7 @@ module Frozone
 
         def module_instance_method(_, receiver, name_obj)
           name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
-          m = receiver.lookup_instance_method(name)
+          m = receiver.lookup_method(name)
           unless m
             raise FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.name}'")
           end
@@ -646,6 +817,51 @@ module Frozone
           proc_obj.lambda? ? TrueObject::TRUE : FalseObject::FALSE
         end
 
+        def proc_arity(_, proc_obj)
+          blk = proc_obj.is_a?(ProcObject) ? proc_obj.instance_variable_get(:@block_object) : proc_obj
+          return IntegerObject.new(0) unless blk.is_a?(BlockObject)
+          req = blk.instance_variable_get(:@required_params)&.length || 0
+          opt = blk.instance_variable_get(:@optional_params)&.length || 0
+          rest = blk.instance_variable_get(:@rest_param)
+          post = blk.instance_variable_get(:@post_params)&.length || 0
+          req_kw = blk.instance_variable_get(:@required_kw_params)&.length || 0
+          if rest || opt > 0 || post > 0
+            IntegerObject.new(-(req + post + req_kw + 1))
+          else
+            IntegerObject.new(req + req_kw)
+          end
+        end
+
+        def proc_parameters(_, proc_obj)
+          blk = proc_obj.is_a?(ProcObject) ? proc_obj.instance_variable_get(:@block_object) : proc_obj
+          return ArrayObject.new([]) unless blk.is_a?(BlockObject)
+          # `it` implicit parameter: return [[:req]] for lambda, [[:opt]] for proc (Ruby 4.0+)
+          if blk.instance_variable_get(:@it_param)
+            is_lambda = blk.instance_variable_get(:@is_lambda)
+            return ArrayObject.new([ArrayObject.new([SymbolObject.from(is_lambda ? :req : :opt)])])
+          end
+          params = []
+          is_lambda = blk.instance_variable_get(:@is_lambda)
+          req_type = is_lambda ? :req : :opt
+          req_params = blk.instance_variable_get(:@required_params) || []
+          opt_params = blk.instance_variable_get(:@optional_params) || []
+          rest_param = blk.instance_variable_get(:@rest_param)
+          post_params = blk.instance_variable_get(:@post_params) || []
+          req_kw = blk.instance_variable_get(:@required_kw_params) || []
+          opt_kw = blk.instance_variable_get(:@optional_kw_params) || []
+          kw_rest = blk.instance_variable_get(:@kw_rest_param)
+          blk_param = blk.instance_variable_get(:@block_param)
+          req_params.each { |n| params << ArrayObject.new([SymbolObject.from(req_type), SymbolObject.from(n.is_a?(Hash) ? :* : n)]) }
+          opt_params.each { |n, _| params << ArrayObject.new([SymbolObject.from(:opt), SymbolObject.from(n)]) }
+          params << ArrayObject.new([SymbolObject.from(:rest), rest_param ? SymbolObject.from(rest_param) : SymbolObject.from(:*)]) if rest_param || blk.instance_variable_get(:@rest_param) == :__implicit_rest__
+          post_params.each { |n| params << ArrayObject.new([SymbolObject.from(req_type), SymbolObject.from(n)]) }
+          req_kw.each { |n| params << ArrayObject.new([SymbolObject.from(:keyreq), SymbolObject.from(n)]) }
+          opt_kw.each { |n, _| params << ArrayObject.new([SymbolObject.from(:key), SymbolObject.from(n)]) }
+          params << ArrayObject.new([SymbolObject.from(:keyrest), kw_rest == :__no_kwargs__ ? SymbolObject.from(:nil) : SymbolObject.from(kw_rest)]) if kw_rest
+          params << ArrayObject.new([SymbolObject.from(:block), SymbolObject.from(blk_param)]) if blk_param
+          ArrayObject.new(params)
+        end
+
         def kernel_eval(context, _receiver, code_obj, _binding = NilObject::NIL)
           return NilObject::NIL unless code_obj.is_a?(StringObject)
           code = code_obj.raw
@@ -667,6 +883,7 @@ module Frozone
 
         # Class
         def class_new(context, klass, args, kwargs, block = nil)
+          raise FrozoneException.make(:TypeError, "can't create instance of singleton class") if klass.instance_variable_get(:@is_singleton_class)
           raw_args = args.raw
           raw_kwargs = kwargs.raw
           has_block = block && !block.is_a?(NilObject)
@@ -676,11 +893,9 @@ module Frozone
             if has_block
               prev_vis = new_class.current_visibility
               new_class.current_visibility = :public
-              context.scopes << new_class
               begin
-                block.invoke(context, [], receiver: new_class)
+                block.invoke(context, [], receiver: new_class, def_scope: new_class)
               ensure
-                context.scopes.pop
                 new_class.current_visibility = prev_vis
               end
             end
@@ -690,17 +905,21 @@ module Frozone
             if has_block
               prev_vis = new_mod.current_visibility
               new_mod.current_visibility = :public
-              context.scopes << new_mod
               begin
-                block.invoke(context, [], receiver: new_mod)
+                block.invoke(context, [], receiver: new_mod, def_scope: new_mod)
               ensure
-                context.scopes.pop
                 new_mod.current_visibility = prev_vis
               end
             end
             return new_mod
           end
           klass.new_instance(context, raw_args, raw_kwargs)
+        end
+
+        def class_allocate(context, klass)
+          raise FrozoneException.make(:TypeError, "can't create instance of singleton class") if klass.instance_variable_get(:@is_singleton_class)
+          raise FrozoneException.make(:TypeError, "can't create instance of virtual class") if klass.equal?(Core::CLASS_CLASS) || klass.equal?(Core::MODULE_CLASS)
+          ObjectObject.new(klass)
         end
 
         def class_superclass(_, klass)
@@ -1426,6 +1645,14 @@ module Frozone
           sources = []
           sources << v.singleton_class if v.eigenclass
           if include_super
+            # For ClassObjects, also walk superclass eigenclasses (class methods of superclasses)
+            if v.is_a?(ClassObject) && v.respond_to?(:superclass)
+              c = v.respond_to?(:superclass) ? v.superclass : nil
+              while c
+                sources << c.eigenclass if c.eigenclass
+                c = c.respond_to?(:superclass) ? c.superclass : nil
+              end
+            end
             c = v.class_object
             while c
               sources << c
@@ -1457,9 +1684,12 @@ module Frozone
               if m.nil?
                 m = receiver.lookup_method(name)
                 next if m.nil?
+                # Duplicate the method so we don't change visibility on the superclass's copy
+                m = m.dup_with_visibility(vis)
                 receiver.set_method(name, m)
+              else
+                m.visibility = vis
               end
-              m.visibility = vis
             end
           end
           NilObject::NIL

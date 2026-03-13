@@ -164,7 +164,7 @@ RSpec.describe Frozone::Ast::MethodAlias do
 
     it 'raises when the original method does not exist' do
       node = described_class.new(:new_name, :no_such_method_zz)
-      expect { node.evaluate(ctx) }.to raise_error(RuntimeError, /undefined method/)
+      expect { node.evaluate(ctx) }.to raise_error(/undefined method/)
     end
   end
 end

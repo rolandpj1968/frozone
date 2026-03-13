@@ -7,6 +7,24 @@ module Frozone
     class ModuleObject < ObjectObject
       # TODO - the Module class _can_ be subclassed in ruby - need to work out how to deal with that
       attr_reader :name, :class_variables
+
+      def set_name(name)
+        raise "class/module name must be a Symbol" unless name.is_a?(Symbol)
+        @name = name
+      end
+
+      def full_name
+        parts = []
+        current = self
+        seen = {}
+        while current && current.name && !current.equal?(Core::OBJECT_CLASS)
+          break if seen.key?(current.object_id)
+          seen[current.object_id] = true
+          parts.unshift(current.name.to_s)
+          current = current.instance_variable_get(:@namespace)
+        end
+        parts.empty? ? @name : parts.join("::").to_sym
+      end
       attr_accessor :current_visibility
 
       def initialize(name, namespace, class_object = Core::MODULE_CLASS)
@@ -34,7 +52,35 @@ module Frozone
 
       def add_module(mod)
         @modules ||= []
-        @modules << mod
+        @modules.unshift(mod)
+      end
+
+      def ancestors_list
+        result = []
+        @prepends&.each { |mod| result.concat(mod.ancestors_list) }
+        result << self
+        @modules&.each { |mod| result.concat(mod.ancestors_list) }
+        result
+      end
+
+      def lookup_method(name)
+        raise "name must be a Symbol" unless name.is_a?(Symbol)
+
+        @prepends&.each do |mod|
+          m = mod.lookup_method(name)
+          return nil if m == UNDEF_SENTINEL
+          return m unless m.nil?
+        end
+        m = get_method(name)
+        return nil if m == UNDEF_SENTINEL
+        return m unless m.nil?
+
+        @modules&.each do |mod|
+          m = mod.lookup_method(name)
+          return nil if m == UNDEF_SENTINEL
+          return m unless m.nil?
+        end
+        nil
       end
 
       # Sentinel for undef_method - stops method lookup
@@ -42,8 +88,22 @@ module Frozone
 
       def set_method(name, method)
         raise "method must be a Method or DefinedMethod" unless method.is_a?(Method) || method.is_a?(DefinedMethod)
+        if frozen_object?
+          type_name = is_a?(ClassObject) ? "Class" : "Module"
+          raise FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{inspect_for_frozen}")
+        end
         # TODO thread safety
         @methods[name] = method
+      end
+
+      def inspect_for_frozen
+        n = name
+        n ? n.to_s : inspect_for_error
+      end
+
+      def inspect_for_error
+        n = name
+        n ? "#<#{is_a?(ClassObject) ? 'Class' : 'Module'}: #{n}>" : "#<#{is_a?(ClassObject) ? 'Class' : 'Module'}:0x#{object_id.to_s(16)}>"
       end
 
       def undef_method(name)
@@ -110,7 +170,7 @@ module Frozone
       # Lookup constant in this module and its included modules.
       # Returns [value, owner_module] where owner_module is the module that defines the constant.
       # Returns [nil, nil] if not found.
-      def lookup_constant_with_owner(name)
+      def lookup_constant_with_owner(name, stop_at_object: false)
         val = get_constant(name)
         return [val, self] unless val.nil?
         @modules&.each do |mod|
@@ -126,20 +186,32 @@ module Frozone
       end
 
       def self.lookup_constant(name, scopes)
-        # 1. Lexical scopes (only direct constants, not inheritance)
-        scopes.reverse_each do |class_or_module|
+        # 1. Lexical scopes (only direct constants, not inheritance).
+        # Skip the outermost OBJECT_CLASS if it is the base/ambient scope (index 0).
+        # It is NOT part of the explicit lexical nesting unless `class Object` was
+        # explicitly opened (in which case OBJECT_CLASS appears again at index > 0).
+        # Object is always searched as a last resort in step 3.
+        lex_scopes = (!scopes.empty? && scopes[0].equal?(Core::OBJECT_CLASS)) ? scopes[1..] : scopes
+        lex_scopes.reverse_each do |class_or_module|
           constant = class_or_module.get_constant(name)
           return constant unless constant.nil?
         end
 
-        # 2. Class/module hierarchy look-up starting from innermost scope
-        class_or_module = scopes.last
-        if class_or_module
+        # 2. Class/module hierarchy look-up for each lexical scope (innermost first).
+        # Walk each scope's ancestor chain (superclass + included modules).
+        # Use same filtered scopes to avoid double-searching ambient OBJECT_CLASS.
+        lex_scopes.reverse_each do |class_or_module|
           constant = class_or_module.lookup_constant(name)
           return constant unless constant.nil?
         end
 
-        # 3. No luck - Vm will try missing_const or else raise
+        # 3. Search Object as a last resort (constants included into Object are globally visible)
+        if defined?(Core::OBJECT_CLASS) && Core::OBJECT_CLASS
+          constant = Core::OBJECT_CLASS.lookup_constant(name)
+          return constant unless constant.nil?
+        end
+
+        # 4. No luck - const_missing will be dispatched by caller
         nil
       end
     end

@@ -32,31 +32,30 @@ module Frozone
         # takes priority over the lexical context.scopes.last.
         frame = context.frame
         def_scope = frame.def_scope
-        # Method's lexical scopes: include def_scope as last if it overrides the current scope
-        method_scopes = if def_scope && !def_scope.equal?(context.scopes.last)
-          context.scopes + [def_scope]
-        else
-          context.scopes
-        end
-        method = Vm::Method.new(
-          method_scopes,
-          @name,
-          @required_params,
-          @optional_params,
-          @rest_param,
-          @post_params,
-          @required_kw_params,
-          @optional_kw_params,
-          @kw_rest_param,
-          @block_param,
-          @locals,
-          @body
-        )
+        frame_scopes = frame.scopes
+
         if @receiver_node.nil?
-          scope = def_scope || context.scopes.last
           # Visibility: def resets to public inside a real method body, but closures
           # (blocks/lambdas) at class-body level look outside for the current_visibility.
           inside_method = frame.method_frame&.current_method != nil
+          # At class-body level (not inside a method), use the_self as defining scope.
+          # This handles both `class Foo; def bar; end; end` and `Class.new { def bar; end }`.
+          # Inside a method, use def_scope (set by Method#invoke to method's defining class).
+          scope = if inside_method
+            def_scope || frame_scopes.last
+          else
+            def_scope || (frame.the_self.is_a?(Vm::ModuleObject) ? frame.the_self : frame_scopes.last)
+          end
+          # Method's lexical scopes: use frame's scopes (definition-site), but ensure
+          # the actual defining scope is included at the end (for super to work correctly).
+          method_scopes = if !scope.equal?(frame_scopes.last)
+            frame_scopes + [scope]
+          elsif def_scope && !def_scope.equal?(frame_scopes.last)
+            frame_scopes + [def_scope]
+          else
+            frame_scopes
+          end
+          method = Vm::Method.new(method_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
           private_by_default = %i[initialize initialize_copy initialize_dup initialize_clone respond_to_missing?].include?(@name)
           vis = private_by_default ? :private : (inside_method ? :public : scope.current_visibility)
           if vis == :module_function
@@ -71,7 +70,19 @@ module Frozone
             scope.set_method(@name, method)
           end
         else
-          @receiver_node.evaluate(context).define_singleton_method(@name, method)
+          # For singleton methods: `def obj.foo` or `def self.foo`
+          receiver_val = @receiver_node.evaluate(context)
+          method_scopes = if receiver_val.is_a?(Vm::ClassObject)
+            # Class-level singleton method (def ClassName.foo / def self.foo in class body):
+            # keep lexical scopes so super.rb can map ClassObject → singleton class.
+            def_scope && !def_scope.equal?(frame_scopes.last) ? frame_scopes + [def_scope] : frame_scopes
+          else
+            # Instance-level singleton method (def obj.foo for non-class objects):
+            # set defining scope to obj's singleton class so super searches from there.
+            frame_scopes + [receiver_val.singleton_class]
+          end
+          method = Vm::Method.new(method_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
+          receiver_val.define_singleton_method(@name, method)
         end
         Vm::SymbolObject.from(@name)
       end

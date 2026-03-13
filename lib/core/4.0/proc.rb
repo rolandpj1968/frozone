@@ -4,5 +4,7 @@ class Proc
   def [](*args, **kwargs)   = Intrinsics.proc_call(self, args, kwargs)
   alias === call
   alias yield call
-  def lambda? = Intrinsics.proc_lambda_p(self)
+  def lambda?    = Intrinsics.proc_lambda_p(self)
+  def arity      = Intrinsics.proc_arity(self)
+  def parameters = Intrinsics.proc_parameters(self)
 end

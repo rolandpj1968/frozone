@@ -52,6 +52,8 @@ module Frozone
             receiver = t[1].evaluate(context)
             index_args = t[2].flat_map { |n| n.is_a?(SplatArg) ? n.evaluate(context).raw : [n.evaluate(context)] }
             cache[t.object_id] = [receiver, index_args]
+          when :const_path, :const_path_splat
+            cache[t.object_id] = t[1].evaluate(context)
           when :nested
             # Recursively pre-evaluate nested targets
             sub_cache = pre_evaluate_targets(context, t[1])
@@ -78,9 +80,11 @@ module Frozone
           receiver.dispatch(context, :[]=, index_args + [value], {})
         when :call, :call_splat
           receiver = cached[target.object_id] || target[1].evaluate(context)
-          receiver.dispatch(context, target[2], [value], {})
-        when :const_path
-          parent = target[1].evaluate(context)
+          # Allow private setter when called on self (Ruby permits self.foo= for private setters)
+          private_ok = receiver.equal?(context.frame.the_self)
+          receiver.dispatch(context, target[2], [value], {}, nil, private_ok: private_ok)
+        when :const_path, :const_path_splat
+          parent = cached[target.object_id] || target[1].evaluate(context)
           parent.set_constant(target[2], value)
         when :cvar
           context.scopes.last.set_class_variable(target[1], value)

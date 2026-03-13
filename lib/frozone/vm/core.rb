@@ -37,6 +37,7 @@ module Frozone
 
       def self.unbound_method_class = OBJECT_CLASS.get_constant(:UnboundMethod)
       def self.method_class         = OBJECT_CLASS.get_constant(:Method)
+      def self.io_class             = OBJECT_CLASS.get_constant(:IO)
 
       def self.define_class(name, superclass)
         klass = ClassObject.new(name, nil, superclass)

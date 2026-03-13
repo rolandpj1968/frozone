@@ -14,13 +14,13 @@ module Frozone
 
       def lambda? = @lambda
 
-      def call(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil)
+      def call(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil, def_scope: nil)
         # BlockObject#invoke already handles lambda return semantics (catches its own return,
         # re-raises ReturnExceptions destined for outer methods). Don't rescue here.
-        @block_object.invoke(context, args, kw_args: kw_args, receiver: receiver, block: block, instance_eval_receiver: instance_eval_receiver)
+        @block_object.invoke(context, args, kw_args: kw_args, receiver: receiver, block: block, instance_eval_receiver: instance_eval_receiver, def_scope: def_scope)
       end
 
-      def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil) = call(context, args, kw_args: kw_args, receiver: receiver, block: block, instance_eval_receiver: instance_eval_receiver)
+      def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil, def_scope: nil) = call(context, args, kw_args: kw_args, receiver: receiver, block: block, instance_eval_receiver: instance_eval_receiver, def_scope: def_scope)
     end
   end
 end

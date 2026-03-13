@@ -7,7 +7,7 @@ module Frozone
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
                      block_param, auto_splat, locals, body, enclosing_frame,
-                     is_lambda: false)
+                     is_lambda: false, it_param: false)
         @required_params     = required_params
         @optional_params     = optional_params
         @rest_param          = rest_param
@@ -18,6 +18,7 @@ module Frozone
         @block_param         = block_param
         @auto_splat          = auto_splat
         @is_lambda           = is_lambda
+        @it_param            = it_param
         @locals              = locals
         @body                = body
         @enclosing_frame     = enclosing_frame
@@ -30,7 +31,7 @@ module Frozone
         @auto_splat = false
       end
 
-      def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil)
+      def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil, def_scope: nil, current_method: nil, as_method: false)
         the_self = receiver || @enclosing_frame.the_self
         new_frame = Frame.new(
           the_self,
@@ -75,9 +76,6 @@ module Frozone
           kw_args = {}
         end
 
-        populate_params(context, new_frame, args)
-        populate_kw_params(context, new_frame, kw_args)
-
         if @block_param
           proc_obj = if block.is_a?(ProcObject)
                        block
@@ -92,18 +90,23 @@ module Frozone
         # Propagate enclosing method's block so `yield` inside a block calls the outer block.
         # But only if not explicitly overridden.
         new_frame.block = block || @enclosing_frame.block
-        if @is_lambda
-          # Lambdas catch their own `return` (like a method), don't propagate to enclosing method.
+        if @is_lambda || as_method
+          # Lambdas and define_method-invoked blocks act like methods.
           new_frame.method_frame = new_frame
         else
           # `return` inside a block exits the enclosing method, not the method that invoked yield.
           new_frame.method_frame = @enclosing_frame.method_frame
         end
 
-        new_frame.def_scope = instance_eval_receiver&.singleton_class
+        new_frame.def_scope = def_scope || instance_eval_receiver&.singleton_class
+        new_frame.current_method = current_method if current_method
 
+        # Push frame BEFORE populating params so default expressions evaluate with
+        # correct `self` (enclosing scope's self, not the proc/block caller's frame).
         context.push_frame(new_frame)
         begin
+          populate_params(context, new_frame, args)
+          populate_kw_params(context, new_frame, kw_args)
           loop do
             begin
               return @body.evaluate(context)
@@ -112,13 +115,11 @@ module Frozone
             end
           end
         rescue Ast::ReturnException => e
-          if @is_lambda
-            # Lambdas catch their own return
-            raise unless e.method_frame.equal?(new_frame)
+          if (@is_lambda || as_method) && e.method_frame.equal?(new_frame)
+            # Lambdas and define_method-invoked blocks catch their own return.
             e.value
           else
             # Procs/blocks: propagate return to exit the enclosing method.
-            # If there's no enclosing method (method_frame nil), re-raise and let callers handle.
             raise
           end
         rescue Ast::NextException => e

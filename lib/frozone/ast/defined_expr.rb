@@ -25,12 +25,17 @@ module Frozone
           all_defined = @extra.all? { |check| !check.evaluate(context).is_a?(Vm::NilObject) }
           all_defined ? "expression" : nil
         when :constant
-          # @extra is the AST node to evaluate the constant lookup
-          begin
-            @extra.evaluate(context)
-            "constant"
-          rescue Vm::FrozoneException
-            nil
+          # @extra is the AST node to evaluate the constant lookup.
+          # Use defined_check? if available to avoid triggering const_missing.
+          if @extra.respond_to?(:defined_check?)
+            @extra.defined_check?(context) ? "constant" : nil
+          else
+            begin
+              @extra.evaluate(context)
+              "constant"
+            rescue Vm::FrozoneException
+              nil
+            end
           end
         when :local_var
           # Always defined at this point (Prism only generates defined?(local) if in scope)

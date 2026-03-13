@@ -31,9 +31,9 @@ module Frozone
 
       def ancestors_list
         result = []
-        @prepends.each { |mod| result << mod } unless @prepends.nil?
+        @prepends&.each { |mod| result.concat(mod.ancestors_list) }
         result << self
-        @modules.each { |mod| result << mod } unless @modules.nil?
+        @modules&.each { |mod| result.concat(mod.ancestors_list) }
         result.concat(@superclass.ancestors_list) unless @superclass.nil?
         result
       end
@@ -55,12 +55,10 @@ module Frozone
         raise "name must be a Symbol" unless name.is_a?(Symbol)
 
         # 1. Prepended modules
-        unless @prepends.nil?
-          @prepends.each do |mod|
-            method = mod.get_method(name)
-            return nil if method == ModuleObject::UNDEF_SENTINEL
-            return method unless method.nil?
-          end
+        @prepends&.each do |mod|
+          method = mod.lookup_method(name)
+          return nil if method == ModuleObject::UNDEF_SENTINEL
+          return method unless method.nil?
         end
 
         # 2. This class's methods
@@ -68,23 +66,15 @@ module Frozone
         return nil if method == ModuleObject::UNDEF_SENTINEL
         return method unless method.nil?
 
-        # 3. Module methods
-        unless @modules.nil?
-          @modules.each do |mod|
-            method = mod.get_method(name)
-            return nil if method == ModuleObject::UNDEF_SENTINEL
-            return method unless method.nil?
-          end
-        end
-
-        # 4. Superclass
-        unless @superclass.nil?
-          method = @superclass.lookup_method(name)
+        # 3. Module methods (recursive — searches included modules of included modules)
+        @modules&.each do |mod|
+          method = mod.lookup_method(name)
+          return nil if method == ModuleObject::UNDEF_SENTINEL
           return method unless method.nil?
         end
 
-        # 5.fail - missing_method and raise are done by the VM
-        nil
+        # 4. Superclass
+        @superclass&.lookup_method(name)
       end
 
       # Class-hierarchy look-up
@@ -93,18 +83,20 @@ module Frozone
         lookup_constant_with_owner(name).first
       end
 
-      def lookup_constant_with_owner(name)
+      def lookup_constant_with_owner(name, stop_at_object: false, skip_own: false)
         # 1. Prepended modules
-        unless @prepends.nil?
+        unless @prepends.nil? || skip_own
           @prepends.each do |mod|
             val = mod.get_constant(name)
             return [val, mod] unless val.nil?
           end
         end
 
-        # 2. This class's constants
-        val = get_constant(name)
-        return [val, self] unless val.nil?
+        # 2. This class's constants (skipped for Object when stop_at_object is active)
+        unless skip_own
+          val = get_constant(name)
+          return [val, self] unless val.nil?
+        end
 
         # 3. Module constants (including transitive included modules)
         unless @modules.nil?
@@ -114,9 +106,10 @@ module Frozone
           end
         end
 
-        # 4. Superclass (full chain)
+        # 4. Superclass (full chain); for explicit A::B path lookup, skip Object's own constants
         unless @superclass.nil?
-          val, owner = @superclass.lookup_constant_with_owner(name)
+          skip_obj_own = stop_at_object && @superclass.equal?(Core::OBJECT_CLASS)
+          val, owner = @superclass.lookup_constant_with_owner(name, stop_at_object: stop_at_object, skip_own: skip_obj_own)
           return [val, owner] unless val.nil?
         end
 

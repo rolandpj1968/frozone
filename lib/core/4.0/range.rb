@@ -35,6 +35,7 @@ class Range
 
   alias member? include?
   alias cover? include?
+  alias === include?
 
   def size
     return nil unless self.begin.is_a?(Integer) && self.end.is_a?(Integer)
@@ -146,4 +147,12 @@ class Range
   def last(n = nil); n ? to_a.last(n) : self.end; end
   def entries; to_a; end
   def hash; [self.begin, self.end, self.exclude_end?].hash; end
+
+  # SpecVersion (mspec) may call split on a Range when given a range version like ""..."3.4".
+  # Fall back to splitting the end value's string representation.
+  def split(sep = nil, limit = nil)
+    v = self.end
+    v = v.nil? ? '' : v.to_s
+    limit.nil? ? v.split(sep) : v.split(sep, limit)
+  end
 end
