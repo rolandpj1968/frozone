@@ -73,7 +73,8 @@ module Frozone
       # Shared dispatch: look up and invoke a method on self by Symbol name.
       # Falls back to method_missing if the method is not found.
       # private_ok: true when called with implicit receiver (no explicit receiver in source)
-      def dispatch(context, name, args, kw_args, block = nil, private_ok: false)
+      # implicit_self: true for bare-word calls (no receiver) — raises NameError vs NoMethodError on miss
+      def dispatch(context, name, args, kw_args, block = nil, private_ok: false, implicit_self: false)
         method = lookup_instance_method(name)
         unless method.nil?
           case method.visibility
@@ -92,7 +93,14 @@ module Frozone
 
         mm = lookup_instance_method(:method_missing)
         raise "BUG: method_missing not defined on #{@class_object.name}" if mm.nil?
-        mm.invoke(context, self, [SymbolObject.from(name)] + args, kw_args, block)
+        # Track whether this is an implicit-self call so method_missing can raise NameError vs NoMethodError
+        prev = Fiber[:mm_implicit_self]
+        Fiber[:mm_implicit_self] = implicit_self
+        begin
+          mm.invoke(context, self, [SymbolObject.from(name)] + args, kw_args, block)
+        ensure
+          Fiber[:mm_implicit_self] = prev
+        end
       end
 
       def inspect = "#<#{self.class.name}>"

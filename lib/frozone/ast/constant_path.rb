@@ -1,5 +1,6 @@
 require_relative 'node'
 require_relative '../vm/frozone_exception'
+require_relative '../vm/globals'
 
 module Frozone
   module Ast
@@ -63,6 +64,7 @@ module Frozone
         parent = @parent_node.evaluate(context)
         value = @value_node.evaluate(context)
         raise Vm::FrozoneException.make(:TypeError, "#{@parent_node}::#{@name}: parent is not a module") unless parent.is_a?(Vm::ModuleObject)
+        Vm::emit_warning(context, "already initialized constant #{parent.name}::#{@name}") if parent.get_constant(@name)
         parent.set_constant(@name, value)
         # Auto-name anonymous classes/modules when first assigned to a constant
         if value.is_a?(Vm::ModuleObject) && value.name.nil?
@@ -88,6 +90,7 @@ module Frozone
         raise Vm::FrozoneException.make(:NameError, "uninitialized constant #{@name}") if current.nil?
         val = @value_node.evaluate(context)
         result = current.dispatch(context, @operator, [val], {})
+        Vm::emit_warning(context, "already initialized constant #{parent.name}::#{@name}")
         parent.set_constant(@name, result)
         result
       end

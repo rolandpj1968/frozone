@@ -11,6 +11,19 @@ module Frozone
             ec = v.eigenclass
             return TrueObject::TRUE if ec.equal?(klass)
           end
+          # Singleton classes of classes are instances of Class's singleton class
+          # (and that singleton class's singleton class, etc.)
+          if klass.respond_to?(:instance_variable_get) && klass.instance_variable_get(:@is_singleton_class) &&
+             v.respond_to?(:instance_variable_get) && v.instance_variable_get(:@is_singleton_class)
+            sc_of_v = v.instance_variable_get(:@singleton_of)
+            sc_of_k = klass.instance_variable_get(:@singleton_of)
+            if sc_of_v.is_a?(ClassObject) && sc_of_k.is_a?(ClassObject)
+              # v = #<Class:SomeClass>, klass = #<Class:SomeOtherClass>
+              # v.kind_of?(klass) iff SomeClass.kind_of?(SomeOtherClass_class)
+              # i.e. SomeClass is an instance of SomeOtherClass
+              return object_is_a(nil, sc_of_v, sc_of_k)
+            end
+          end
           c = v.respond_to?(:class_object) ? v.class_object : nil
           until c.nil?
             return TrueObject::TRUE if c.equal?(klass)
@@ -111,6 +124,13 @@ module Frozone
           copy_object_fields(v, copy, eigenclass: sc_copy, frozen: frozen)
         end
 
+        def string_initialize(context, receiver, str_arg, _encoding = NilObject::NIL)
+          # Convert str_arg to string if needed
+          str_val = str_arg.is_a?(StringObject) ? str_arg.raw : str_arg.dispatch(context, :to_s, [], {}).raw
+          receiver.instance_variable_set(:@value, str_val.dup)
+          NilObject::NIL
+        end
+
         def string_clone(_, v, freeze_opt = NilObject::NIL)
           copy = StringObject.new(v.raw.dup)
           if v.eigenclass
@@ -185,6 +205,17 @@ module Frozone
 
         def kernel_print(context, _receiver, args)
           args.raw.each { |a| $stdout.print(a.dispatch(context, :to_s, [], {}).raw) }
+          NilObject::NIL
+        end
+
+        def kernel_warn(context, _receiver, args)
+          stderr_vm = GLOBALS[:"$stderr"]
+          strs = args.raw.map { |a| a.dispatch(context, :to_s, [], {}) }
+          if strs.empty?
+            stderr_vm.dispatch(context, :puts, [], {})
+          else
+            stderr_vm.dispatch(context, :puts, strs, {})
+          end
           NilObject::NIL
         end
 
@@ -292,6 +323,15 @@ module Frozone
           end
         end
 
+        def kernel_backtick(_, _receiver, cmd_obj)
+          result = `#{cmd_obj.raw}`
+          StringObject.new(result)
+        end
+
+        def emit_vm_warning(context, msg)
+          Frozone::Vm.emit_warning(context, msg)
+        end
+
         def kernel_abort(context, _receiver, msg)
           m = msg.is_a?(NilObject) ? nil : msg.dispatch(context, :to_s, [], {}).raw
           $stderr.puts(m) if m
@@ -318,7 +358,11 @@ module Frozone
         def basic_object_method_missing(context, receiver, name, args, kwargs)
           name_sym = name.is_a?(SymbolObject) ? name.raw : name
           class_name = receiver.class_object.name
-          raise FrozoneException.make(:NoMethodError, "undefined method '#{name_sym}' for an instance of #{class_name}")
+          if Fiber[:mm_implicit_self]
+            raise FrozoneException.make(:NameError, "undefined local variable or method '#{name_sym}' for an instance of #{class_name}")
+          else
+            raise FrozoneException.make(:NoMethodError, "undefined method '#{name_sym}' for an instance of #{class_name}")
+          end
         end
 
         def basic_object___send__(context, receiver, name, args, kwargs, block_arg = nil)
@@ -478,9 +522,10 @@ module Frozone
           StringObject.new(receiver.full_name.to_s)
         end
 
-        def module_const_defined(_, receiver, name_obj, _inherit = TrueObject::TRUE)
+        def module_const_defined(_, receiver, name_obj, inherit = TrueObject::TRUE)
           name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
-          !receiver.get_constant(name).nil? ? TrueObject::TRUE : FalseObject::FALSE
+          c, = receiver.lookup_constant_with_owner(name)
+          !c.nil? ? TrueObject::TRUE : FalseObject::FALSE
         end
 
         def module_const_get(_, receiver, name_obj)
@@ -490,8 +535,11 @@ module Frozone
           c
         end
 
-        def module_const_set(_, receiver, name_obj, value)
+        def module_const_set(context, receiver, name_obj, value)
           name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          name_s = name.to_s
+          raise FrozoneException.make(:NameError, "wrong constant name #{name_s}") unless name_s =~ /\A[[:upper:]]/
+          emit_vm_warning(context, "already initialized constant #{receiver.name}::#{name}") if receiver.get_constant(name)
           receiver.set_constant(name, value)
           value
         end
@@ -786,7 +834,7 @@ module Frozone
           full_path = File.exist?(path) ? path : resolve_load_path(path)
           raise FrozoneException.make(:LoadError, "cannot load such file -- #{path}") if full_path.nil?
           begin
-            Fiber[:vm_evaluate].call(full_path)
+            Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
           rescue Ast::ReturnException
             # return at top level of loaded file stops loading gracefully
           end
@@ -1272,6 +1320,7 @@ module Frozone
         end
 
         def string_length(_, v) = IntegerObject.new(v.raw.length)
+        def string_bytesize(_, v) = IntegerObject.new(v.raw.bytesize)
         def string_to_s(_, v) = v
         def string_to_i(_, v) = IntegerObject.new(v.raw.to_i)
         def string_inspect(_, v) = StringObject.new(v.raw.inspect)

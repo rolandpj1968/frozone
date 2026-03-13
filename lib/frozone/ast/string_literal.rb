@@ -23,6 +23,12 @@ module Frozone
         # TODO - handle locale encoding
         StringLiterals[value] ||= new(Vm::StringObject.new(value))
       end
+
+      FrozenStringLiterals = {}
+
+      def self.frozen_from(value)
+        FrozenStringLiterals[value] ||= new(Vm::StringObject.new(value, frozen: true))
+      end
     end
   end
 end

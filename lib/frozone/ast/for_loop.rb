@@ -7,10 +7,11 @@ module Frozone
     # for x in collection; body; end
     # For loops do NOT create a new scope - iteration variables persist in the enclosing scope.
     # @target is one of:
-    #   [:local, name_sym]                       - single local variable
-    #   [:ivar,  name_sym]                        - instance variable
-    #   [:cvar,  name_sym]                        - class variable
-    #   [:gvar,  name_sym]                        - global variable
+    #   [:local,    name_sym]                       - single local variable
+    #   [:ivar,     name_sym]                       - instance variable
+    #   [:cvar,     name_sym]                       - class variable
+    #   [:gvar,     name_sym]                       - global variable
+    #   [:constant, name_sym]                       - constant
     #   [:multi, lefts, rest_sym_or_nil, rights]  - multi-target destructuring
     #   [:call,  receiver_node, write_name]       - method call target (ofor.target)
     #   [:index, receiver_node, [arg_nodes]]      - index target (arr[1])
@@ -62,16 +63,20 @@ module Frozone
       # args is a raw Ruby Array of VM objects (the values yielded by each)
       def assign_target(context, frame, args)
         case @target[0]
-        when :local, :ivar, :cvar, :gvar
+        when :local, :ivar, :cvar, :gvar, :constant
           # Single target: Ruby for-loop takes only the first yielded value
           value = args.fetch(0, Vm::NilObject::NIL)
           case @target[0]
-          when :local then frame.set_local(@target[1], value)
-          when :ivar  then frame.the_self.set_ivar(@target[1], value)
+          when :local    then frame.set_local(@target[1], value)
+          when :ivar     then frame.the_self.set_ivar(@target[1], value)
           when :cvar
             klass = frame.the_self.is_a?(Vm::ModuleObject) ? frame.the_self : frame.the_self.class_object
             klass.set_class_var(@target[1], value)
-          when :gvar  then Vm::GLOBALS[@target[1]] = value
+          when :gvar     then Vm::GLOBALS[@target[1]] = value
+          when :constant
+            scope = frame.scopes.last
+            Vm::emit_warning(context, "already initialized constant #{@target[1]}") if scope.get_constant(@target[1])
+            scope.set_constant(@target[1], value)
           end
         when :call
           _, receiver_node, write_name = @target

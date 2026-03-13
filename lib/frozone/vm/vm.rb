@@ -50,6 +50,9 @@ module Frozone
         Core::OBJECT_CLASS.set_constant(:STDERR, GLOBALS[:"$stderr"])
         Core::OBJECT_CLASS.set_constant(:STDIN,  GLOBALS[:"$stdin"])
 
+        Core::OBJECT_CLASS.set_constant(:TOPLEVEL_BINDING, NilObject::NIL)
+        Core::OBJECT_CLASS.set_constant(:ARGF, GLOBALS[:"$<"] || NilObject::NIL)
+
         script_argv = @options[:argv][1..] || []
         Core::OBJECT_CLASS.set_constant(:ARGV, ArrayObject.new(script_argv.map { |a| StringObject.new(a) }))
 
@@ -148,19 +151,19 @@ module Frozone
 
       private
 
-      def evaluate_file(path)
+      def evaluate_file(path, raise_syntax_errors: false)
         full_path = File.expand_path(path)
         (Fiber[:file_stack] ||= []) << full_path
         begin
-          evaluate(File.read(full_path), false, filepath: full_path)
+          evaluate(File.read(full_path), false, filepath: full_path, raise_syntax_errors: raise_syntax_errors)
         ensure
           Fiber[:file_stack].pop
         end
       end
 
-      def evaluate(script, dump_ast = false, filepath: nil)
+      def evaluate(script, dump_ast = false, filepath: nil, raise_syntax_errors: false)
         parser = Parser.new(script, dump_ast, filepath: filepath)
-        ast = parser.ast
+        ast = parser.ast(raise_syntax_errors: raise_syntax_errors)
 
         if dump_ast
           puts

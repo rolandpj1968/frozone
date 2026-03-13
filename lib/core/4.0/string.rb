@@ -1,4 +1,8 @@
 class String
+  def initialize(str = nil, encoding: nil, capacity: nil)
+    Intrinsics.string_initialize(self, str, encoding) unless str.nil?
+  end
+
   def +(v) = Intrinsics.string_plus(self, v)
   def *(n) = Intrinsics.string_multiply(self, n)
   def %(args) = Intrinsics.string_format(self, args)
@@ -6,6 +10,7 @@ class String
   def concat(*args); args.each { |v| Intrinsics.string_concat(self, v) }; self; end
   def length = Intrinsics.string_length(self)
   alias size length
+  def bytesize = Intrinsics.string_bytesize(self)
   def to_s = Intrinsics.string_to_s(self)
   def to_i = Intrinsics.string_to_i(self)
   def to_f = Intrinsics.string_to_f(self)
@@ -84,6 +89,7 @@ class String
   def slice!(idx, len = nil) = Intrinsics.string_slice_bang(self, idx, len)
 
   def each_line(sep = "\n", &block) = Intrinsics.string_each_line(self, sep, block)
+  def lines(sep = "\n") = each_line(sep)
   def b = Intrinsics.string_b(self)
   def +@ = dup
   def -@ = freeze

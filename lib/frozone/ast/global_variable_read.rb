@@ -15,6 +15,9 @@ module Frozone
         when :"$@"
           bang = Vm::GLOBALS.fetch(:"$!", Vm::NilObject::NIL)
           bang.is_a?(Vm::NilObject) ? Vm::NilObject::NIL : Vm::GLOBALS.fetch(:"$@", Vm::NilObject::NIL)
+        when :"$="
+          Vm::emit_warning(context, "variable $= is no longer effective")
+          Vm::GLOBALS.fetch(:"$=", Vm::NilObject::NIL)
         when :"$-0"
           Vm::GLOBALS.fetch(:"$/", Vm::NilObject::NIL)
         when :"$-d"
@@ -26,7 +29,8 @@ module Frozone
         when :"$\""
           Vm::GLOBALS.fetch(:"$LOADED_FEATURES", Vm::NilObject::NIL)
         else
-          Vm::GLOBALS.fetch(@name, Vm::NilObject::NIL)
+          canonical = Vm::GLOBAL_ALIASES.fetch(@name, @name)
+          Vm::GLOBALS.fetch(canonical, Vm::NilObject::NIL)
         end
       end
     end

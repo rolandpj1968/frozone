@@ -8,20 +8,24 @@ class StringIO
   def string = @data
 
   def gets(sep = $/, limit = nil)
-    return nil if @pos >= @data.length
+    if @pos >= @data.length
+      $_ = nil
+      return nil
+    end
     if sep.nil?
       result = @data[@pos..]
       @pos = @data.length
-      return result
-    end
-    idx = @data.index(sep, @pos)
-    if idx.nil?
-      result = @data[@pos..]
-      @pos = @data.length
     else
-      result = @data[@pos..idx]
-      @pos = idx + sep.length
+      idx = @data.index(sep, @pos)
+      if idx.nil?
+        result = @data[@pos..]
+        @pos = @data.length
+      else
+        result = @data[@pos..idx]
+        @pos = idx + sep.length
+      end
     end
+    $_ = result
     result
   end
 

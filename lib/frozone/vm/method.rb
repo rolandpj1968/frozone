@@ -11,7 +11,7 @@ module Frozone
       attr_reader :name, :scopes
       attr_reader :required_params, :optional_params, :rest_param, :post_params
       attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
-      attr_accessor :visibility
+      attr_accessor :visibility, :nested_def_scope
 
       def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body)
         @scopes = self.class.unique_scopes(scopes)
@@ -96,7 +96,7 @@ module Frozone
 
         if @kw_rest_param.nil? || @kw_rest_param == :__no_kwargs__
           unless kw_args.empty?
-            raise FrozoneException.make(:ArgumentError, "unknown keyword#{kw_args.length == 1 ? "" : "s"}: #{kw_args.keys.map { |k| ":#{k}" }.join(', ')}")
+            raise FrozoneException.make(:ArgumentError, "unknown keyword#{kw_args.length == 1 ? "" : "s"}: #{kw_args.keys.map { |k| k.is_a?(Symbol) ? ":#{k}" : k.to_s }.join(', ')}")
           end
         else
           kw_rest = kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k }
@@ -151,7 +151,7 @@ module Frozone
         new_frame.method_frame = new_frame
         new_frame.current_method = self
         # def inside a method body goes to the method's defining scope, not the call-site scope
-        new_frame.def_scope = @scopes.last
+        new_frame.def_scope = @nested_def_scope || @scopes.last
 
         # **nil parameter: reject any keyword arguments
         if @kw_rest_param == :__no_kwargs__ && !kw_args.empty?

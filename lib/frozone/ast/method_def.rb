@@ -82,6 +82,8 @@ module Frozone
             frame_scopes + [receiver_val.singleton_class]
           end
           method = Vm::Method.new(method_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
+          # For instance singleton methods, nested `def` should go to the enclosing class (like MRI nesting)
+          method.nested_def_scope = frame_scopes.last unless receiver_val.is_a?(Vm::ClassObject)
           receiver_val.define_singleton_method(@name, method)
         end
         Vm::SymbolObject.from(@name)

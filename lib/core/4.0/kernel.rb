@@ -1,6 +1,7 @@
 module Kernel
   def puts(*args) = Intrinsics.kernel_puts(self, args)
   def print(*args) = Intrinsics.kernel_print(self, args)
+  def warn(*args) = Intrinsics.kernel_warn(self, args)
   def p(*args) = Intrinsics.kernel_p(self, args)
   def raise(msg = nil, message = nil, backtrace = nil) = Intrinsics.kernel_raise(self, msg, message, backtrace)
   def fail(msg = nil, message = nil, backtrace = nil) = Intrinsics.kernel_raise(self, msg, message, backtrace)
@@ -34,6 +35,7 @@ module Kernel
   def exit!(code = 1) = Intrinsics.kernel_exit(self, code)
   def sleep(secs = nil) = nil
   def system(*args) = false
+  def `(cmd) = Intrinsics.kernel_backtick(self, cmd)
   def block_given? = Intrinsics.kernel_block_given(self)
   def suppress_warning; yield; end
   def suppress_keyword_warning; yield; end
@@ -44,7 +46,7 @@ module Kernel
   def local_variables = Intrinsics.kernel_local_variables(self)
 
   # Make these available as module functions: private instance methods AND public Kernel.method calls
-  module_function :puts, :print, :p, :raise, :fail, :require, :require_relative, :load, :__dir__,
+  module_function :puts, :print, :warn, :p, :raise, :fail, :require, :require_relative, :load, :__dir__,
                   :proc, :lambda, :eval, :sprintf, :format,
                   :Integer, :Float, :String, :Array,
                   :loop, :catch, :throw, :abort, :exit, :exit!, :sleep, :system,

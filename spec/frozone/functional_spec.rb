@@ -645,7 +645,7 @@ RSpec.describe "Frozone VM functional" do
 
   describe 'method_missing' do
     it 'raises with the Ruby-style error message for a missing method on self' do
-      expect { run_ruby("no_such_method_zz") }.to raise_error(Frozone::Vm::FrozoneException, /undefined method 'no_such_method_zz' for an instance of Object/)
+      expect { run_ruby("no_such_method_zz") }.to raise_error(Frozone::Vm::FrozoneException, /undefined (local variable or )?method 'no_such_method_zz' for an instance of Object/)
     end
 
     it 'raises with the receiver class name for an explicit receiver' do

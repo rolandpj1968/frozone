@@ -26,10 +26,15 @@ module Frozone
       def current_class(context)
         mf = context.frame.method_frame
         scope = mf&.def_scope
-        return scope if scope.is_a?(Vm::ModuleObject)
+        # For a real class/module scope (not Object), use it directly.
+        if scope.is_a?(Vm::ModuleObject) && !scope.equal?(Vm::Core::OBJECT_CLASS)
+          return scope
+        end
+        # If self is a class/module (we're in a class body), use self.
         s = context.frame.the_self
-        return nil unless s.is_a?(Vm::ModuleObject) || s.respond_to?(:class_object)
-        s.is_a?(Vm::ModuleObject) ? s : s.class_object
+        return s if s.is_a?(Vm::ModuleObject)
+        # Otherwise, toplevel or toplevel method → RuntimeError
+        nil
       end
     end
   end

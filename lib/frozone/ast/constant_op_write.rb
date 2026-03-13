@@ -1,6 +1,7 @@
 require_relative 'node'
 require_relative '../vm/module_object'
 require_relative '../vm/frozone_exception'
+require_relative '../vm/globals'
 
 module Frozone
   module Ast
@@ -75,6 +76,7 @@ module Frozone
         raise Vm::FrozoneException.make(:NameError, "uninitialized constant #{@parent_node}::#{@name}") if current.nil?
         return current unless current.truthy?
         val = @value_node.evaluate(context)
+        Vm::emit_warning(context, "already initialized constant #{parent.name}::#{@name}")
         parent.set_constant(@name, val)
         val
       end

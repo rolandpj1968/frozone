@@ -121,13 +121,24 @@ module Frozone
       end
 
       def get_class_var(name)
-        # walk superclass chain
+        # Walk superclass chain, detecting "overtaken" case:
+        # if the variable appears in both a subclass and an ancestor, raise RuntimeError.
+        found_in = nil
+        found_value = nil
         c = self
         while c
-          return c.class_variables[name] if c.class_variables.key?(name)
+          if c.class_variables.key?(name)
+            if found_in.nil?
+              found_in = c
+              found_value = c.class_variables[name]
+            else
+              raise FrozoneException.make(:RuntimeError,
+                "class variable #{name} of #{found_in.name || '#<Class>'} is overtaken by #{c.name || '#<Class>'}")
+            end
+          end
           c = c.is_a?(ClassObject) ? c.superclass : nil
         end
-        nil
+        found_value
       end
 
       def set_class_var(name, value)

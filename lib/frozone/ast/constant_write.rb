@@ -1,5 +1,6 @@
 require_relative 'node'
 require_relative '../vm/module_object'
+require_relative '../vm/globals'
 
 module Frozone
   module Ast
@@ -15,6 +16,7 @@ module Frozone
 
       def store(context, value)
         scope = context.frame.scopes.last
+        Vm::emit_warning(context, "already initialized constant #{@name}") if scope.get_constant(@name)
         scope.set_constant(@name, value)
         # Auto-name anonymous classes/modules when first assigned to a constant
         if value.is_a?(Vm::ModuleObject) && value.name.nil?

@@ -22,22 +22,38 @@ module Frozone
                      $: $LOAD_PATH $-I $" $LOADED_FEATURES $< $FILENAME $? $-a $-l $-p].freeze
 
       def store(context, value)
+        # Follow alias to the canonical global name, check read-only on canonical
+        if (canonical = Vm::GLOBAL_ALIASES[@name])
+          if READ_ONLY.include?(canonical)
+            raise Vm::FrozoneException.make(:NameError, "#{@name} is a read-only variable")
+          end
+          Vm::GLOBALS[canonical] = value
+          return value
+        end
+
         if READ_ONLY.include?(@name)
           raise Vm::FrozoneException.make(:NameError, "#{@name} is a read-only variable")
         elsif @name == :"$~"
           set_match_global(value)
+        elsif @name == :"$="
+          Vm::emit_warning(context, "variable $= is no longer effective; ignored")
+          Vm::GLOBALS[:"$="] = value
         elsif @name == :"$/" || @name == :"$-0"
           unless value.is_a?(Vm::StringObject) || value.is_a?(Vm::NilObject)
             gname = @name == :"$/" ? "$/" : "$-0"
             raise Vm::FrozoneException.make(:TypeError, "value of #{gname} must be String")
           end
+          gname = @name == :"$/" ? "'$/'".freeze : "'$-0'".freeze
+          Vm::emit_warning(context, "#{gname} is deprecated") unless value.is_a?(Vm::NilObject)
           Vm::GLOBALS[:"$/"] = value
           Vm::GLOBALS[:"$-0"] = value
-        elsif @name == :"$\\" || @name == :"$,"
+        elsif @name == :"$\\" || @name == :"$," || @name == :"$;"
           unless value.is_a?(Vm::StringObject) || value.is_a?(Vm::NilObject)
-            gname = @name == :"$\\" ? '$\\' : '$,'
+            gname = @name == :"$\\" ? '$\\' : @name.to_s
             raise Vm::FrozoneException.make(:TypeError, "value of #{gname} must be String")
           end
+          gname = "'#{@name}'"
+          Vm::emit_warning(context, "#{gname} is deprecated") unless value.is_a?(Vm::NilObject)
           Vm::GLOBALS[@name] = value
         elsif @name == :"$."
           set_dollar_dot(context, value)

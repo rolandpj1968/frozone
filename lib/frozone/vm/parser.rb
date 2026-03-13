@@ -25,6 +25,7 @@ module Frozone
 
         raise "Unexpected Prism.parse value type #{program_node.class} expecting Prism::ProgramNode" unless program_node.is_a?(Prism::ProgramNode)
 
+        @source_encoding = result.source.encoding rescue Encoding::UTF_8
         @top_level_locals = program_node.locals
         transform(program_node.statements)
       end
@@ -739,8 +740,7 @@ module Frozone
           Ast::Rescue.new(body, [Ast::RescueClause.new([], nil, nil, fallback)], nil, nil)
 
         when Prism::AliasGlobalVariableNode
-          # alias $new $old — stub as nil (Frozone uses a flat globals hash)
-          Ast::NilLiteral::NIL
+          Ast::GlobalAlias.new(prism_node.new_name.name.to_sym, prism_node.old_name.name.to_sym)
 
         when Prism::UndefNode
           # undef :foo, :bar — remove methods from current class
@@ -759,12 +759,9 @@ module Frozone
           stmts.length == 1 ? stmts[0] : Ast::Sequence.new(stmts)
 
         when Prism::AliasMethodNode
-          # Alias with non-simple symbol names (e.g. interpolated) — stub as nil
-          if prism_node.new_name.is_a?(Prism::SymbolNode) && prism_node.old_name.is_a?(Prism::SymbolNode)
-            Ast::MethodAlias.new(prism_node.new_name.unescaped.to_sym, prism_node.old_name.unescaped.to_sym)
-          else
-            Ast::NilLiteral::NIL
-          end
+          new_name = prism_node.new_name.is_a?(Prism::SymbolNode) ? prism_node.new_name.unescaped.to_sym : transform(prism_node.new_name)
+          old_name = prism_node.old_name.is_a?(Prism::SymbolNode) ? prism_node.old_name.unescaped.to_sym : transform(prism_node.old_name)
+          Ast::MethodAlias.new(new_name, old_name)
 
         when Prism::BreakNode
           args = prism_node.arguments&.arguments || []
@@ -777,9 +774,23 @@ module Frozone
           end
           Ast::Break.new(value_node)
 
-        when Prism::XStringNode, Prism::InterpolatedXStringNode
-          # Backtick command execution — not supported; return empty string stub
-          Ast::StringLiteral.from("")
+        when Prism::XStringNode
+          # Literal backtick: argument is a frozen string
+          cmd = Ast::StringLiteral.frozen_from(prism_node.unescaped)
+          Ast::MethodCall.new(:"`", nil, [cmd], {}, nil)
+
+        when Prism::InterpolatedXStringNode
+          # Interpolated backtick: argument is a mutable string
+          parts = prism_node.parts.map do |part|
+            case part
+            when Prism::StringNode            then Ast::StringLiteral.from(part.unescaped)
+            when Prism::EmbeddedStatementsNode then transform(part.statements)
+            when Prism::EmbeddedVariableNode   then transform(part.variable)
+            else raise "Unexpected xstring part type #{part.class}"
+            end
+          end
+          cmd = Ast::InterpolatedString.new(parts)
+          Ast::MethodCall.new(:"`", nil, [cmd], {}, nil)
 
         when Prism::SuperNode
           raw_args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments
@@ -940,8 +951,9 @@ module Frozone
           Ast::IntegerLiteral.from(prism_node.location.start_line)
 
         when Prism::SourceEncodingNode
-          # Returns the Encoding object for the current source file encoding (UTF-8)
-          Ast::ConstantPath.new(Ast::ConstantRead.new(:Encoding), :UTF_8)
+          # Returns the Encoding object for the current source file's encoding
+          enc_name = (@source_encoding || Encoding::UTF_8).name.upcase.tr('-', '_').gsub(/[^A-Z0-9_]/, '_')
+          Ast::ConstantPath.new(Ast::ConstantRead.new(:Encoding), enc_name.to_sym)
 
         when Prism::MatchWriteNode
           # /(?<name>...)/ =~ string — perform match and assign named captures to locals
@@ -1007,6 +1019,8 @@ module Frozone
                                 end
                      rights = (idx.rights rescue []).filter_map { |r| r.is_a?(Prism::LocalVariableTargetNode) ? r.name : nil }
                      [:multi, lefts, rest_sym, rights]
+                   when Prism::ConstantTargetNode
+                     [:constant, prism_node.index.name]
                    when Prism::CallTargetNode
                      [:call, transform(prism_node.index.receiver), prism_node.index.name]
                    when Prism::IndexTargetNode

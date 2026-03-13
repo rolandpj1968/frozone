@@ -7,9 +7,12 @@ module Frozone
       def initialize(source, flags)
         @source = source
         @flags  = flags
+        @cached = nil
       end
 
-      def evaluate(_context) = Vm::RegexpObject.new(@source, @flags)
+      def evaluate(_context)
+        @cached ||= Vm::RegexpObject.new(@source, @flags)
+      end
     end
 
     class InterpolatedRegexpLiteral < Node
