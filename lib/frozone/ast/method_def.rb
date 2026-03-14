@@ -8,7 +8,7 @@ module Frozone
       attr_reader :name, :receiver_node, :required_params, :optional_params, :rest_param, :post_params
       attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param, :locals, :body
 
-      def initialize(name, receiver_node, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body)
+      def initialize(name, receiver_node, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body, uses_block: nil, source_location: nil)
         @name = name
         @receiver_node = receiver_node
 
@@ -25,6 +25,8 @@ module Frozone
 
         @locals = locals
         @body = body
+        @uses_block = uses_block
+        @source_location = source_location
       end
 
       def evaluate(context)
@@ -55,14 +57,14 @@ module Frozone
           else
             frame_scopes
           end
-          method = Vm::Method.new(method_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
+          method = Vm::Method.new(method_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
           private_by_default = %i[initialize initialize_copy initialize_dup initialize_clone respond_to_missing?].include?(@name)
           vis = private_by_default ? :private : (inside_method ? :public : scope.current_visibility)
           if vis == :module_function
             # module_function: private instance method + public singleton method
             method.visibility = :private
             scope.set_method(@name, method)
-            singleton_method = Vm::Method.new(method.scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
+            singleton_method = Vm::Method.new(method.scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
             singleton_method.visibility = :public
             scope.singleton_class.set_method(@name, singleton_method)
           else
@@ -94,7 +96,7 @@ module Frozone
             # set defining scope to obj's singleton class so super searches from there.
             frame_scopes + [receiver_val.singleton_class]
           end
-          method = Vm::Method.new(method_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
+          method = Vm::Method.new(method_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
           # For instance singleton methods, nested `def` should go to the enclosing class (like MRI nesting)
           method.nested_def_scope = frame_scopes.last unless receiver_val.is_a?(Vm::ClassObject)
           receiver_val.define_singleton_method(@name, method)

@@ -64,3 +64,17 @@ class UnboundMethod
   def name = Intrinsics.unbound_method_name(self)
   def owner = Intrinsics.unbound_method_owner(self)
 end
+
+module Warning
+  @categories = {}
+
+  def self.[](category)
+    @categories.key?(category) ? @categories[category] : false
+  end
+
+  def self.[]=(category, value)
+    @categories[category] = value
+  end
+
+  def self.warn(msg, category: nil) = Kernel.warn(msg)
+end

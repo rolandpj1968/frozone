@@ -20,14 +20,13 @@ module Frozone
       StringLiterals = {}
 
       def self.from(value)
-        # TODO - handle locale encoding
-        StringLiterals[value] ||= new(Vm::StringObject.new(value))
+        StringLiterals[[value, value.encoding]] ||= new(Vm::StringObject.new(value))
       end
 
       FrozenStringLiterals = {}
 
       def self.frozen_from(value)
-        FrozenStringLiterals[value] ||= new(Vm::StringObject.new(value, frozen: true))
+        FrozenStringLiterals[[value, value.encoding]] ||= new(Vm::StringObject.new(value, frozen: true))
       end
     end
   end

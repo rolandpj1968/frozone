@@ -123,7 +123,14 @@ module Frozone
         gem_paths = Gem::Specification.flat_map(&:full_require_paths).select { |p| File.directory?(p) }
         core_path = File.expand_path("../../core/#{FROZONE_CORE_VERSION}", __dir__)
         all_load_paths = ([core_path] + $LOAD_PATH + gem_paths).uniq.reject { |p| p == '.' || p == '' }
-        GLOBALS[:"$LOAD_PATH"] = ArrayObject.new(all_load_paths.map { |p| StringObject.new(p) })
+        sitelibdir = RbConfig::CONFIG['sitelibdir'] rescue nil
+        site_idx = sitelibdir ? all_load_paths.index(sitelibdir) : nil
+        load_path_objs = all_load_paths.each_with_index.map do |p, i|
+          s = StringObject.new(p)
+          s.set_ivar(:@gem_prelude_index, TrueObject::TRUE) if site_idx && i >= site_idx
+          s
+        end
+        GLOBALS[:"$LOAD_PATH"] = ArrayObject.new(load_path_objs)
         # Pre-stub pp.rb: Frozone provides pretty_inspect/pp directly in core,
         # so pp.rb must not be loaded (it uses default-param tricks Frozone can't handle).
         pp_path = $LOAD_PATH.map { |d| File.join(d, 'pp.rb') }.find { |f| File.exist?(f) } || 'pp.rb'

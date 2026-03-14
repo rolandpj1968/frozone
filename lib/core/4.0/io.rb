@@ -16,7 +16,9 @@ class IO
 
   def external_encoding
     name = Intrinsics.io_external_encoding(self)
-    name.nil? ? nil : Encoding.find(name)
+    # If native IO has an encoding (readable IOs like STDIN), track Encoding.default_external.
+    # If native IO has no encoding (write-only IOs like STDOUT/STDERR), return nil.
+    name.nil? ? nil : Encoding.default_external
   end
 
   def internal_encoding = nil

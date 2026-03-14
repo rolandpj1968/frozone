@@ -98,7 +98,7 @@ module Frozone
         calling_method_frame = @block_node.is_a?(Block) ? context.frame.method_frame : nil
 
         begin
-          super_method.invoke(context, receiver, args, kw_args, block)
+          super_method.invoke(context, receiver, args, kw_args, block, from_super: true)
         rescue Ast::BreakException => e
           raise unless calling_method_frame&.equal?(e.method_frame) ||
                        (calling_method_frame.nil? && e.method_frame.nil? && @block_node.is_a?(Block))

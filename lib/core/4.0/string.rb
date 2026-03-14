@@ -93,7 +93,7 @@ class String
   def b = Intrinsics.string_b(self)
   def +@ = dup
   def -@ = freeze
-  def force_encoding(enc) = self
+  def force_encoding(enc) = Intrinsics.string_force_encoding(self, enc)
   def valid_encoding? = true
   def ascii_only? = false
   def set_encoding(enc) = self

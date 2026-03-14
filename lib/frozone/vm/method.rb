@@ -13,7 +13,9 @@ module Frozone
       attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
       attr_accessor :visibility, :nested_def_scope
 
-      def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body)
+      attr_reader :uses_block, :source_location
+
+      def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body, uses_block: nil, source_location: nil)
         @scopes = self.class.unique_scopes(scopes)
         @name = name
 
@@ -31,6 +33,8 @@ module Frozone
         @locals = locals
         @body = body
         @visibility = :public
+        @uses_block = uses_block
+        @source_location = source_location
       end
 
       def populate_params(context, new_frame, args)
@@ -145,7 +149,22 @@ module Frozone
 
       public
 
-      def invoke(context, receiver, args, kw_args, block = nil)
+      def invoke(context, receiver, args, kw_args, block = nil, from_super: false)
+        # Warn about unused block (Ruby 3.4 strict_unused_block category)
+        if !from_super && block && !block.is_a?(NilObject) && @uses_block == false && !@block_warning_emitted
+          verbose = GLOBALS.fetch(:"$VERBOSE", FalseObject::FALSE).truthy?
+          warning_class = Core::OBJECT_CLASS.get_constant(:Warning)
+          strict = warning_class&.dispatch(context, :[], [SymbolObject.from(:strict_unused_block)], {})&.truthy? rescue false
+          if verbose || strict
+            @block_warning_emitted = true
+            def_loc = @source_location || begin
+              def_scope = @scopes.last
+              def_scope.respond_to?(:name) ? def_scope.name.to_s : def_scope.to_s
+            end
+            Frozone::Vm.emit_warning(context, "the block passed to '#{@name}' defined at #{def_loc} may be ignored")
+          end
+        end
+
         new_frame = Frame.new(receiver, @locals, @scopes)
         new_frame.block = block
         new_frame.method_frame = new_frame
@@ -212,17 +231,17 @@ module Frozone
       def to_s = "method(#{@scopes.map(&:to_s)}, :#{@name}, #{@required_params} -> #{@body})"
 
       def alias_as(name)
-        Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
+        Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
       end
 
       def dup_with_visibility(vis)
-        m = Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
+        m = Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
         m.visibility = vis
         m
       end
 
       def bound_copy(name, new_scope)
-        Method.new([new_scope], name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body)
+        Method.new([new_scope], name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
       end
 
       # TODO - thread-safety

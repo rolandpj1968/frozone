@@ -81,10 +81,24 @@ class Encoding
          IBM863, IBM864, IBM865, IBM866, IBM869,
          KOI8_R, KOI8_U, CP65001].freeze
 
-  def self.default_external = UTF_8
-  def self.default_external=(enc) = enc
-  def self.default_internal = nil
-  def self.default_internal=(enc) = enc
+  @default_external = UTF_8
+  @default_internal = nil
+
+  def self.default_external
+    @default_external || UTF_8
+  end
+
+  def self.default_external=(enc)
+    @default_external = enc.is_a?(Encoding) ? enc : find(enc.to_s)
+  end
+
+  def self.default_internal
+    @default_internal
+  end
+
+  def self.default_internal=(enc)
+    @default_internal = enc.is_a?(Encoding) ? enc : (enc ? find(enc.to_s) : nil)
+  end
 
   def self.find(name)
     return default_external if name == "locale" || name == "external"

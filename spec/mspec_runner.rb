@@ -105,13 +105,16 @@ class Object
 
   # Override ruby_cmd to use single-quoting so shell does not expand $variables
   # in code snippets (mspec 1.9.1 uses code.inspect → double-quoted, breaks $a, $b, etc.)
+  # Unset bundler env vars so subprocesses don't load bundler (which causes spurious warnings).
+  CLEAR_BUNDLER_ENV = "env RUBYOPT= BUNDLE_GEMFILE= BUNDLE_BIN_PATH= RUBYLIB="
+
   def ruby_cmd(code, opts = {})
     body = code
     if code && !File.exist?(code)
       safe = code.gsub("'", "'\\\\''")
       body = "-e '#{safe}'"
     end
-    [RUBY_EXE, ENV['RUBY_FLAGS'], opts[:options], body, opts[:args]].compact.join(' ')
+    [CLEAR_BUNDLER_ENV, RUBY_EXE, ENV['RUBY_FLAGS'], opts[:options], body, opts[:args]].compact.join(' ')
   end
 end
 

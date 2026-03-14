@@ -3,17 +3,26 @@ require_relative 'node'
 module Frozone
   module Ast
     class InterpolatedString < Node
-      def initialize(parts)
+      def initialize(parts, source_encoding = nil)
         @parts = parts
+        @source_encoding = source_encoding
       end
 
       def to_s = "interp_str(#{@parts.map(&:to_s).join(', ')})"
 
       def evaluate(context)
-        raw = @parts.map do |part|
+        strings = @parts.map do |part|
           val = part.evaluate(context)
-          val.is_a?(Vm::StringObject) ? val.raw : val.dispatch(context, :to_s, [], {}, nil, private_ok: true).raw
-        end.join
+          r = val.is_a?(Vm::StringObject) ? val.raw : val.dispatch(context, :to_s, [], {}, nil, private_ok: true).raw
+          r.is_a?(String) ? r : r.to_s
+        end
+        # Use source encoding as the base if available; otherwise fall back to Ruby's default join
+        if @source_encoding && @source_encoding != Encoding::UTF_8
+          base = "".dup.force_encoding(@source_encoding)
+          raw = strings.reduce(base) { |acc, s| acc + s }
+        else
+          raw = strings.join
+        end
         Vm::StringObject.new(raw)
       end
     end

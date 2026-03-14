@@ -5,16 +5,18 @@ require_relative '../ast'
 module Frozone
   module Vm
     class Parser
-      def initialize(text, dump_ast = false, filepath: nil, outer_locals: nil)
+      def initialize(text, dump_ast = false, filepath: nil, outer_locals: nil, encoding: nil)
         @text = text
         @dump_ast = dump_ast
         @filepath = filepath
         @outer_locals = outer_locals
+        @encoding = encoding
       end
 
       def ast(raise_syntax_errors: false)
         parse_opts = @filepath ? { filepath: @filepath } : {}
         parse_opts[:scopes] = [@outer_locals] if @outer_locals&.any?
+        parse_opts[:encoding] = @encoding if @encoding
         result = Prism.parse(@text, **parse_opts)
 
         if raise_syntax_errors && result.errors.any?
@@ -33,7 +35,7 @@ module Frozone
         # - always: integer_in_flip_flop (default level)
         # - verbose only: void_statement, duplicated_when_clause
         # Skip: duplicated_hash_key (handled by hash_literal.rb), unused_local_variable (noisy)
-        always_warn_types  = %i[integer_in_flip_flop]
+        always_warn_types  = %i[integer_in_flip_flop literal_in_condition_default]
         verbose_warn_types = %i[void_statement duplicated_when_clause]
         @prism_always_warnings  = result.warnings.select { |w| always_warn_types.include?(w.type) }.map(&:message)
         @prism_verbose_warnings = result.warnings
@@ -270,6 +272,23 @@ module Frozone
          required_kw_params, optional_kw_params, kw_rest_param, block_param, auto_splat]
       end
 
+      # Check if a Prism node (or its descendants) contains a YieldNode or
+      # a ForwardingSuperNode (super without args forwards block implicitly).
+      # Does NOT recurse into nested def/class/module/lambda bodies.
+      BLOCK_BOUNDARY_NODES = [
+        Prism::DefNode, Prism::ClassNode, Prism::ModuleNode,
+        Prism::SingletonClassNode, Prism::LambdaNode,
+      ].freeze
+
+      def prism_body_uses_block?(node)
+        return false if node.nil?
+        return true if node.is_a?(Prism::YieldNode)
+        return true if node.is_a?(Prism::ForwardingSuperNode)
+        return true if node.is_a?(Prism::SuperNode)
+        return false if BLOCK_BOUNDARY_NODES.any? { |t| node.is_a?(t) }
+        node.child_nodes.compact.any? { |child| prism_body_uses_block?(child) }
+      end
+
       def parse_method_params(prism_node)
         required_params = []
         optional_params = []
@@ -388,6 +407,16 @@ module Frozone
           flags |= Regexp::EXTENDED   if prism_node.extended?
           Ast::RegexpLiteral.new(prism_node.unescaped, flags)
 
+        when Prism::MatchLastLineNode
+          # `/pattern/` used as condition without explicit matchee → matches against $_
+          flags = 0
+          flags |= Regexp::IGNORECASE if prism_node.ignore_case?
+          flags |= Regexp::MULTILINE  if prism_node.multi_line?
+          flags |= Regexp::EXTENDED   if prism_node.extended?
+          regexp = Ast::RegexpLiteral.new(prism_node.unescaped, flags)
+          dollar_underscore = Ast::GlobalVariableRead.new(:"$_")
+          Ast::MethodCall.new(:=~, regexp, [dollar_underscore], {}, nil)
+
         when Prism::InterpolatedRegularExpressionNode
           flags = 0
           flags |= Regexp::IGNORECASE if prism_node.ignore_case?
@@ -476,7 +505,7 @@ module Frozone
               raise "Unexpected interpolated string part type #{part.class}"
             end
           end
-          Ast::InterpolatedString.new(parts)
+          Ast::InterpolatedString.new(parts, @source_encoding)
 
         when Prism::ElseNode
           transform(prism_node.statements)
@@ -652,9 +681,12 @@ module Frozone
             required_kw_params, optional_kw_params, kw_rest_param, block_param = parse_method_params(prism_node)
 
           body_ast = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
+          uses_block = block_param || prism_body_uses_block?(prism_node.body)
+          def_line = prism_node.location.start_line
+          source_loc = @filepath ? "#{@filepath}:#{def_line}" : nil
 
           receiver_node = prism_node.receiver.nil? ? nil : transform(prism_node.receiver)
-          Ast::MethodDef.new(prism_node.name, receiver_node, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, prism_node.locals, body_ast)
+          Ast::MethodDef.new(prism_node.name, receiver_node, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, prism_node.locals, body_ast, uses_block: uses_block, source_location: source_loc)
 
         when Prism::ReturnNode
           value_node =

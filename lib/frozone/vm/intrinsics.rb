@@ -329,10 +329,14 @@ module Frozone
           end
         end
 
+        # Bundler reinitialization warnings appear in subprocess output when running under bundle exec.
+        BUNDLER_NOISE_RE = /\A.+(?:bundler\/rubygems_ext\.rb|rubygems\/platform\.rb):\d+: warning: (?:already initialized constant|previous definition of) /
+
         def kernel_backtick(_, _receiver, cmd_obj)
           result = `#{cmd_obj.raw}`
           GLOBALS[:"$?"] = ProcessStatusObject.new($?)
-          StringObject.new(result)
+          filtered = result.lines.reject { |l| BUNDLER_NOISE_RE.match?(l) }.join
+          StringObject.new(filtered)
         end
 
         def process_status_exitstatus(_, obj)
@@ -941,7 +945,21 @@ module Frozone
           code = code_obj.raw
           # binding_frame is the frame that called eval (one level below the eval method frame)
           binding_frame = context.frames.length >= 2 ? context.frames[-2] : context.frame
-          parser = Parser.new(code, outer_locals: binding_frame.local_names)
+
+          # Build closure chain: binding_frame + parent frames.
+          # Used for reading/writing variables from enclosing block scopes.
+          closure_chain = []
+          walk = binding_frame
+          while walk
+            closure_chain << walk
+            break if walk.parent_frame.nil?
+            walk = walk.parent_frame
+          end
+
+          # IMPORTANT: pass only binding_frame.local_names to Prism (not full closure chain).
+          # Passing any non-nil scope to Prism suppresses yield-in-block SyntaxErrors.
+          code_enc = code.encoding != Encoding::UTF_8 ? code.encoding : nil
+          parser = Parser.new(code, outer_locals: binding_frame.local_names, encoding: code_enc)
           ast = parser.ast(raise_syntax_errors: true)
           # Emit Prism warnings: always-level (e.g. integer_in_flip_flop) and verbose-level when $VERBOSE
           parser.prism_always_warnings.each { |msg| Frozone::Vm.emit_warning(context, msg) }
@@ -952,16 +970,35 @@ module Frozone
           # so that `def`, `alias`, etc. use the correct lexical scope.
           new_frame = Frame.new(binding_frame.the_self, parser.top_level_locals, binding_frame.scopes)
           new_frame.block = binding_frame.block
-          # Inherit def_scope and method_frame from binding so `def` targets the right class
-          new_frame.def_scope = binding_frame.def_scope
+          # Inherit def_scope and method_frame from binding so `def` targets the right class.
+          # If the binding frame has no def_scope AND its self is not a class/module (e.g. a
+          # lambda frame), walk up parent frames to find the nearest closure def context (e.g.
+          # instance_eval block or method frame). Skip this walk when the binding frame's self
+          # is already a class/module — in that case, method_def.rb uses the_self directly.
+          inherited_def_scope = binding_frame.def_scope
+          if !inherited_def_scope && !binding_frame.the_self.is_a?(ModuleObject)
+            walk = binding_frame.parent_frame
+            while walk && !inherited_def_scope
+              inherited_def_scope = walk.def_scope
+              walk = walk.parent_frame
+            end
+          end
+          new_frame.def_scope = inherited_def_scope
           new_frame.method_frame = binding_frame.method_frame
-          # Copy binding frame's current locals into eval frame (shared binding)
-          binding_frame.local_names.each { |name| new_frame.set_local(name, binding_frame.get_local(name)) }
+          # Copy locals from full closure chain into eval frame (innermost frame wins).
+          # This lets eval read outer-scope variables even if not in binding_frame.local_names.
+          closure_chain.reverse_each do |f|
+            f.local_names.each { |name| new_frame.set_local(name, f.get_local(name)) if new_frame.local_names.include?(name) }
+          end
           context.push_frame(new_frame)
           begin
             result = ast.evaluate(context)
-            # Write back all locals to binding frame (new vars from eval become accessible)
-            new_frame.local_names.each { |name| binding_frame.set_local(name, new_frame.get_local(name)) }
+            # Write back locals to the appropriate frame in the closure chain.
+            # New eval vars go to binding_frame; existing closure vars update their original frame.
+            new_frame.local_names.each do |name|
+              target = closure_chain.find { |f| f.local_names.include?(name) } || binding_frame
+              target.set_local(name, new_frame.get_local(name))
+            end
             result
           rescue Ast::RetryException, Ast::RedoException
             raise FrozoneException.make(:SyntaxError, "Invalid #{$!.class.name.split('::').last.sub('Exception', '').downcase} in eval")
@@ -1162,15 +1199,12 @@ module Frozone
           mode_str = mode.is_a?(NilObject) || mode.nil? ? 'r' : mode.raw
           if block && !block.is_a?(NilObject)
             File.open(path.raw, mode_str) do |f|
-              io_obj = ObjectObject.new(Core.object_class)
-              io_obj.instance_variable_set(:@__file__, f)
+              io_obj = IOObject.new(f, Core.io_class)
               block.invoke(context, [io_obj])
             end
             NilObject::NIL
           else
-            io_obj = ObjectObject.new(Core.object_class)
-            io_obj.instance_variable_set(:@__file__, File.open(path.raw, mode_str))
-            io_obj
+            IOObject.new(File.open(path.raw, mode_str), Core.io_class)
           end
         end
 
@@ -1190,7 +1224,7 @@ module Frozone
 
         def file_stat(_, path)
           st = File.stat(path.raw)
-          obj = ObjectObject.new(Core.object_class)
+          obj = ObjectObject.new(Core::OBJECT_CLASS)
           obj.instance_variable_set(:@__stat__, st)
           obj
         end
@@ -1437,7 +1471,7 @@ module Frozone
 
         def string_gsub(context, v, pattern, replacement = nil, block = nil)
           pat = pattern.raw
-          if block
+          if block && !block.is_a?(NilObject)
             result = v.raw.gsub(pat) do |_match|
               update_match_globals($~)
               match_obj = StringObject.new($&)
@@ -1459,7 +1493,7 @@ module Frozone
 
         def string_sub(context, v, pattern, replacement = nil, block = nil)
           pat = pattern.raw
-          if block
+          if block && !block.is_a?(NilObject)
             result = v.raw.sub(pat) do |_match|
               update_match_globals($~)
               match_obj = StringObject.new($&)
@@ -1544,6 +1578,18 @@ module Frozone
         end
 
         def string_encode(_, v, enc = nil) = v
+
+        def string_force_encoding(context, v, enc)
+          enc_name = if enc.is_a?(StringObject)
+                       enc.raw
+                     elsif enc.respond_to?(:get_ivar)
+                       enc.dispatch(context, :name, [], {}).raw rescue enc.get_ivar(:@name)&.raw || enc.to_s
+                     else
+                       enc.to_s
+                     end
+          v.raw.force_encoding(enc_name)
+          v
+        end
 
         def string_encoding(_, v)
           enc_name = v.raw.encoding.name
