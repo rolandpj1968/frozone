@@ -41,7 +41,7 @@ module Kernel
   def suppress_warning; yield; end
   def suppress_keyword_warning; yield; end
 
-  def caller(start = 1, length = nil) = []  # stub: no real backtrace in frozone
+  def caller(start = 1, length = nil) = Intrinsics.kernel_caller(self, start, length)
   def caller_locations(start = 1, length = nil) = []
   def __method__ = nil  # stub
   def local_variables = Intrinsics.kernel_local_variables(self)

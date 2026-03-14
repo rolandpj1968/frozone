@@ -116,7 +116,7 @@ module Frozone
       def set_ivar(name, value)
         if @frozen_object
           type_name = is_a?(ModuleObject) ? (is_a?(ClassObject) ? "Class" : "Module") : (@class_object&.name&.to_s || "Object")
-          raise FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{inspect_for_error}")
+          raise FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{inspect_for_error}", receiver: self)
         end
         @instance_variables[name] = value
       end

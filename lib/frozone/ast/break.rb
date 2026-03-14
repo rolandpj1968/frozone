@@ -18,6 +18,11 @@ module Frozone
 
       def evaluate(context)
         value = @value_node ? @value_node.evaluate(context) : Vm::NilObject::NIL
+        # When break runs inside a Thread body, it raises LocalJumpError (catchable by guest
+        # rescue inside the block), simulating the cross-thread boundary of real Ruby threading.
+        if context.frame.thread_boundary
+          raise Vm::FrozoneException.make(:LocalJumpError, "break from proc-closure")
+        end
         raise BreakException.new(value, context.frame.method_frame)
       end
     end

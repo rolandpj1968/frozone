@@ -45,9 +45,10 @@ module Frozone
           # Dispatch const_missing — default raises NameError with proper name/inspect message
           return parent.dispatch(context, :const_missing, [Vm::SymbolObject.from(@name)], {})
         end
-        # Check privacy in the defining module — private constants trigger const_missing
+        # Check privacy in the defining module — dispatch const_missing on the owner
+        # (not parent/child) so that e.receiver reflects the class holding the private constant
         if owner&.constant_private?(@name)
-          return parent.dispatch(context, :const_missing, [Vm::SymbolObject.from(@name)], {})
+          return owner.dispatch(context, :const_missing, [Vm::SymbolObject.from(@name)], {})
         end
         c
       end

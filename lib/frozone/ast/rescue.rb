@@ -113,17 +113,32 @@ module Frozone
           rescue => e
             raise if CONTROL_FLOW.any? { |k| e.is_a?(k) }
 
-            clause = @rescue_clauses.find { |c| c.matches?(e, context) }
-            raise unless clause
-
-            rescued = true
-            vm_val = Vm::FrozoneException.wrap_mri(e)
+            # Set $! immediately so rescue clause expressions see the current exception
+            # (e.g. `rescue (raise "other")` needs $! set for cause to be correct)
+            vm_val = e.is_a?(Vm::FrozoneException) ? e.vm_object : Vm::FrozoneException.wrap_mri(e)
             prev_dollar_bang = Vm::GLOBALS[:"$!"]
             prev_dollar_at = Vm::GLOBALS[:"$@"]
             Vm::GLOBALS[:"$!"] = vm_val
-            empty_bt = Vm::ArrayObject.new([])
-            Vm::GLOBALS[:"$@"] = empty_bt
-            vm_val.dispatch(context, :set_backtrace, [empty_bt], {}) rescue nil
+            existing_bt = vm_val.get_ivar(:@backtrace) rescue nil
+            bt_for_dollar_at = (existing_bt.is_a?(Vm::ArrayObject) && !existing_bt.raw.empty?) ? existing_bt : Vm::ArrayObject.new([])
+            Vm::GLOBALS[:"$@"] = bt_for_dollar_at
+
+            begin
+              clause = @rescue_clauses.find { |c| c.matches?(e, context) }
+            rescue => clause_err
+              # Exception raised during rescue clause expression evaluation
+              # (e.g. `rescue (raise "other")`). Restore $! before re-raising.
+              Vm::GLOBALS[:"$!"] = prev_dollar_bang || Vm::NilObject::NIL
+              Vm::GLOBALS[:"$@"] = prev_dollar_at || Vm::NilObject::NIL
+              raise clause_err
+            end
+            unless clause
+              Vm::GLOBALS[:"$!"] = prev_dollar_bang || Vm::NilObject::NIL
+              Vm::GLOBALS[:"$@"] = prev_dollar_at || Vm::NilObject::NIL
+              raise
+            end
+
+            rescued = true
             if clause.var_name
               context.frame.frame_at_depth(clause.var_depth).set_local(clause.var_name, vm_val)
             elsif clause.assign_node

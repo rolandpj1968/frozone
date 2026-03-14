@@ -5,7 +5,9 @@ module Frozone
       attr_accessor :block
       attr_accessor :method_frame
       attr_accessor :current_method, :method_args, :method_kwargs
-      attr_accessor :def_scope  # singleton class scope set by instance_eval or method's defining scope
+      attr_accessor :def_scope              # singleton class scope set by instance_eval or method's defining scope
+      attr_accessor :incoming_call_site    # "file:line" where this frame was invoked from
+      attr_accessor :thread_boundary       # true when block runs as a Thread body — break → LocalJumpError
 
       def initialize(the_self, locals, scopes, parent_frame = nil)
         # TODO - map locals to slot number

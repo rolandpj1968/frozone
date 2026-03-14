@@ -1,4 +1,27 @@
 class IO
+  # A read-only IO-like object backed by a captured string (used by IO.popen block form).
+  class CapturedOutput
+    def initialize(str)
+      @str = str
+    end
+
+    def read(len = nil) = len ? @str[0, len] : @str
+    def gets             = @str
+    def close            = self
+  end
+
+  def self.popen(cmd, mode = 'r', &block)
+    output = Intrinsics.io_popen_capture(cmd)
+    io = CapturedOutput.new(output)
+    if block
+      result = block.call(io)
+      io.close
+      result
+    else
+      io
+    end
+  end
+
   def print(*args) = Intrinsics.io_print(self, args)
   def puts(*args)  = Intrinsics.io_puts(self, args)
   def write(*args) = Intrinsics.io_write(self, args)

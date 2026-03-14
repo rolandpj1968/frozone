@@ -96,7 +96,7 @@ module Frozone
         raise "method must be a Method or DefinedMethod" unless method.is_a?(Method) || method.is_a?(DefinedMethod)
         if frozen_object?
           type_name = is_a?(ClassObject) ? "Class" : "Module"
-          raise FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{inspect_for_frozen}")
+          raise FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{inspect_for_frozen}", receiver: self)
         end
         # TODO thread safety
         @methods[name] = method

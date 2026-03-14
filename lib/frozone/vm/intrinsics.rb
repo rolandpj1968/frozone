@@ -255,24 +255,109 @@ module Frozone
           val
         end
 
+        def io_popen_capture(_, cmd)
+          cmd_str = if cmd.is_a?(ArrayObject)
+            require 'shellwords'
+            cmd.raw.map { |a| a.is_a?(StringObject) ? a.raw : a.to_s }.shelljoin
+          elsif cmd.is_a?(StringObject)
+            cmd.raw
+          else
+            cmd.to_s
+          end
+          output = ::IO.popen(cmd_str, 'r', &:read) rescue ""
+          StringObject.new(output || "")
+        end
+
         def io_external_encoding(_, receiver)
           return NilObject::NIL unless receiver.is_a?(IOObject)
           enc = receiver.native_io.external_encoding rescue nil
           enc ? StringObject.new(enc.name) : NilObject::NIL
         end
 
+        # Build a VM backtrace from the current context frames.
+        # Skips the 'raise'/'fail' wrapper frame (Kernel#raise is transparent in backtraces).
+        def build_vm_backtrace(context)
+          bt = []
+          all_frames = context.frames.reverse  # innermost first
+          # Use call-site approach: each entry shows WHERE this frame was called from
+          # plus the method name of the CALLING frame. This naturally places errors at
+          # the call site and omits internal frames (like method_missing) from the top.
+          i = 0
+          while i < all_frames.length - 1
+            frame = all_frames[i]
+            outer_frame = all_frames[i + 1]
+            loc = frame.incoming_call_site || "unknown:0"
+            meth = outer_frame.current_method&.name || :"<main>"
+            bt << StringObject.new("#{loc}:in '#{meth}'", frozen: true)
+            i += 1
+          end
+          # Outermost frame: use its incoming_call_site with <main>
+          if i < all_frames.length
+            outer = all_frames[i]
+            loc = outer.incoming_call_site || (outer.current_method&.source_location) || "unknown:0"
+            bt << StringObject.new("#{loc}:in '<main>'", frozen: true)
+          end
+          ArrayObject.new(bt)
+        end
+
+        def set_exc_backtrace(exc_obj, context)
+          bt = build_vm_backtrace(context)
+          exc_obj.set_ivar(:@backtrace, bt) unless exc_obj.is_a?(NilObject)
+        end
+
+        # Build the Ruby caller() array from the current frame stack.
+        # `start` — how many logical entries to skip (0 = include the frame that called caller)
+        # `length` — max entries to return (nil = all)
+        def kernel_caller(context, _receiver, start_obj = NilObject::NIL, length_obj = NilObject::NIL)
+          start  = start_obj.is_a?(IntegerObject)  ? start_obj.raw : 1
+          length = length_obj.is_a?(IntegerObject) ? length_obj.raw : nil
+
+          all_frames = context.frames.reverse  # most recent first
+
+          # Find the last :caller frame — that's where entries begin
+          last_caller_idx = all_frames.rindex { |f| f.current_method&.name == :caller } || -1
+          base = [last_caller_idx, 0].max
+
+          # Each entry i (0-based) represents:
+          #   line/file  = all_frames[base + i].incoming_call_site  (where the call originated)
+          #   method     = all_frames[base + i + 1].current_method.name (method that was running)
+          entries = []
+          i = base
+          while i < all_frames.length - 1
+            loc  = all_frames[i].incoming_call_site || "unknown:0"
+            meth = all_frames[i + 1].current_method&.name&.to_s || "block"
+            entries << StringObject.new("#{loc}:in '#{meth}'", frozen: true)
+            i += 1
+          end
+
+          # Apply start offset and length
+          sliced = length ? entries[start, length] : entries[start..]
+          ArrayObject.new(sliced || [])
+        end
+
         def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = nil, _backtrace = nil)
+          current_exc = GLOBALS[:"$!"]
+          cause = (current_exc && !current_exc.is_a?(NilObject)) ? current_exc : nil
+
           if msg.is_a?(NilObject)
             # bare `raise` re-raises current exception or raises RuntimeError
+            if cause
+              raise FrozoneException.new(cause, cause.get_ivar(:@message)&.raw || "RuntimeError")
+            end
             raise FrozoneException.make(:RuntimeError, "RuntimeError")
           elsif msg.is_a?(ClassObject) || msg.is_a?(ModuleObject)
             # raise SomeClass, "message"
             msg_str = message_arg ? message_arg.dispatch(context, :to_s, [], {}).raw : msg.name.to_s
             exc_obj = ObjectObject.new(msg)
             exc_obj.set_ivar(:@message, StringObject.new(msg_str))
+            exc_obj.set_ivar(:@cause, cause) if cause
+            set_exc_backtrace(exc_obj, context)
             raise FrozoneException.new(exc_obj, msg_str)
           elsif msg.is_a?(StringObject)
-            raise FrozoneException.make(:RuntimeError, msg.raw)
+            exc = FrozoneException.make(:RuntimeError, msg.raw)
+            exc.vm_object.set_ivar(:@cause, cause) if cause
+            set_exc_backtrace(exc.vm_object, context)
+            raise exc
           else
             # raise exception_object (must respond to message)
             begin
@@ -281,6 +366,8 @@ module Frozone
             rescue
               msg_str = "exception"
             end
+            msg.set_ivar(:@cause, cause) if cause && msg.respond_to?(:set_ivar)
+            set_exc_backtrace(msg, context)
             raise FrozoneException.new(msg, msg_str)
           end
         end
@@ -377,11 +464,13 @@ module Frozone
         def basic_object_method_missing(context, receiver, name, args, kwargs)
           name_sym = name.is_a?(SymbolObject) ? name.raw : name
           class_name = receiver.class_object.name
-          if Fiber[:mm_implicit_self]
-            raise FrozoneException.make(:NameError, "undefined local variable or method '#{name_sym}' for an instance of #{class_name}")
-          else
-            raise FrozoneException.make(:NoMethodError, "undefined method '#{name_sym}' for an instance of #{class_name}")
-          end
+          exc = if Fiber[:mm_implicit_self]
+                  FrozoneException.make(:NameError, "undefined local variable or method '#{name_sym}' for an instance of #{class_name}", name: name_sym, receiver: receiver)
+                else
+                  FrozoneException.make(:NoMethodError, "undefined method '#{name_sym}' for an instance of #{class_name}", name: name_sym, receiver: receiver)
+                end
+          set_exc_backtrace(exc.vm_object, context)
+          raise exc
         end
 
         def basic_object___send__(context, receiver, name, args, kwargs, block_arg = nil)
@@ -422,6 +511,8 @@ module Frozone
           ast = parser.ast
           # Evaluate with self = receiver (the object), using its class as scope
           new_frame = Frame.new(receiver, parser.top_level_locals, context.frame.scopes)
+          # `def` inside instance_eval always targets receiver's singleton class
+          new_frame.def_scope = receiver.singleton_class
           context.push_frame(new_frame)
           begin
             ast.evaluate(context)
@@ -439,6 +530,44 @@ module Frozone
 
         def object_extend(_, receiver, mod)
           receiver.singleton_class.add_module(mod)
+          receiver
+        end
+
+        # Thread-local global isolation: save $_ and $? before running Thread body.
+        THREAD_SAVED_LOCALS = {}
+
+        def thread_save_reset_locals(_, thread_obj)
+          THREAD_SAVED_LOCALS[thread_obj.object_id] = {
+            dollar_underscore: GLOBALS.fetch(:"$_", NilObject::NIL),
+            dollar_question:   GLOBALS.fetch(:"$?", NilObject::NIL)
+          }
+          GLOBALS[:"$_"] = NilObject::NIL
+          GLOBALS.delete(:"$?")
+          NilObject::NIL
+        end
+
+        def thread_restore_locals(_, thread_obj)
+          saved = THREAD_SAVED_LOCALS.delete(thread_obj.object_id) || {}
+          GLOBALS[:"$_"] = saved[:dollar_underscore] || NilObject::NIL
+          if saved[:dollar_question] && !saved[:dollar_question].is_a?(NilObject)
+            GLOBALS[:"$?"] = saved[:dollar_question]
+          else
+            GLOBALS.delete(:"$?")
+          end
+          NilObject::NIL
+        end
+
+        def thread_run_block(context, block_obj)
+          bo = block_obj.is_a?(ProcObject) ? block_obj.block_object : block_obj
+          bo.invoke(context, [], thread_boundary: true)
+        end
+
+        def module_ruby2_keywords(_, receiver, names_array)
+          names_array.raw.each do |name_obj|
+            name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+            m = receiver.is_a?(ClassObject) ? receiver.lookup_method(name) : receiver.get_method(name)
+            m.ruby2_keywords = true if m.respond_to?(:ruby2_keywords=)
+          end
           receiver
         end
 
@@ -959,7 +1088,9 @@ module Frozone
           # IMPORTANT: pass only binding_frame.local_names to Prism (not full closure chain).
           # Passing any non-nil scope to Prism suppresses yield-in-block SyntaxErrors.
           code_enc = code.encoding != Encoding::UTF_8 ? code.encoding : nil
-          parser = Parser.new(code, outer_locals: binding_frame.local_names, encoding: code_enc)
+          # Ruby 3.4+: __FILE__ inside eval returns "(eval at file:line)" using the caller's location
+          eval_filepath = context.call_site ? "(eval at #{context.call_site})" : "(eval)"
+          parser = Parser.new(code, outer_locals: binding_frame.local_names, encoding: code_enc, filepath: eval_filepath)
           ast = parser.ast(raise_syntax_errors: true)
           # Emit Prism warnings: always-level (e.g. integer_in_flip_flop) and verbose-level when $VERBOSE
           parser.prism_always_warnings.each { |msg| Frozone::Vm.emit_warning(context, msg) }
@@ -1041,7 +1172,7 @@ module Frozone
             end
             return new_mod
           end
-          klass.new_instance(context, raw_args, raw_kwargs)
+          klass.new_instance(context, raw_args, raw_kwargs, block)
         end
 
         def class_allocate(context, klass)
@@ -1831,6 +1962,15 @@ module Frozone
           val = h[key]
           h.delete(key)
           val.nil? ? NilObject::NIL : val
+        end
+
+        def hash_ruby2_keywords_hash(_, h)
+          h.ruby2_keywords = true if h.is_a?(HashObject)
+          h
+        end
+
+        def hash_ruby2_keywords_hash_q(_, h)
+          bool_object_for(h.is_a?(HashObject) && h.ruby2_keywords)
         end
 
         def bool_object_for(bool) = bool ? TrueObject::TRUE : FalseObject::FALSE

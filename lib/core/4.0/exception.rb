@@ -9,7 +9,7 @@ class Exception
 
   def to_s = message.to_s
 
-  def backtrace = @backtrace
+  def backtrace = instance_variable_defined?(:@backtrace) ? @backtrace : []
   def backtrace_locations = []
 
   def set_backtrace(bt)
@@ -31,6 +31,8 @@ class Exception
   def exception(message = nil)
     message ? self.class.new(message) : self
   end
+
+  def cause = @cause
 end
 
 class ScriptError < Exception; end

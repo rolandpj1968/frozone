@@ -635,7 +635,8 @@ module Frozone
               # "ambiguous" (could be a local variable read). method_missing raises NameError for
               # these. Calls with parens or arguments are unambiguous method calls → NoMethodError.
               ambiguous = receiver_node.nil? && prism_node.opening_loc.nil? && prism_node.arguments.nil? && block_node.nil?
-              Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args, block_node, kw_splat_nodes: kw_splats, safe_nav: safe_nav, ambiguous: ambiguous)
+              call_loc = @filepath ? "#{@filepath}:#{prism_node.location.start_line}" : nil
+              Ast::MethodCall.new(prism_node.name, receiver_node, arg_nodes, kw_args, block_node, kw_splat_nodes: kw_splats, safe_nav: safe_nav, ambiguous: ambiguous, source_location: call_loc)
             end
           end
 

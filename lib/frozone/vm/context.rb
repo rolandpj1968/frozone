@@ -22,6 +22,8 @@ module Frozone
       def frame = @frames.last
       def frames = @frames
 
+      attr_accessor :call_site  # set by MethodCall before dispatch; read by Method#invoke for warnings
+
       def push_scope(scope)
         unless scope.is_a?(ClassObject) || scope.is_a?(ModuleObject)
           raise "scope must be a ClassObject or ModuleObject"

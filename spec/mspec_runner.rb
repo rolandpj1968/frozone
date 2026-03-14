@@ -116,6 +116,13 @@ class Object
     end
     [CLEAR_BUNDLER_ENV, RUBY_EXE, ENV['RUBY_FLAGS'], opts[:options], body, opts[:args]].compact.join(' ')
   end
+
+  # ruby_exe with no args returns the RUBY_EXE path (used for IO.popen([*ruby_exe, ...]) pattern).
+  # ruby_exe(nil, opts) with opts runs ruby from stdin/file (code=nil = no -e or file arg).
+  def ruby_exe(code = nil, opts = {})
+    return RUBY_EXE if code.nil? && opts.empty?
+    `#{ruby_cmd(code, opts)}`
+  end
 end
 
 VersionGuard::FULL_RUBY_VERSION = SpecVersion.new(RUBY_VERSION)
@@ -133,6 +140,10 @@ spec_dir = File.expand_path(ENV.fetch('RUBY_SPEC_DIR', '../../spec/ruby-spec'), 
 specs = ARGV.empty? ? Dir["#{spec_dir}/language/*_spec.rb"].sort : ARGV
 
 specs.each do |f|
+  # Reset @env per file (mirroring real mspec's MSpec.files behavior) so that
+  # singleton methods defined on @env inside one spec's `it` blocks don't
+  # contaminate later spec files.
+  MSpec.instance_variable_set(:@env, Object.new.extend(MSpec))
   begin
     require_relative f
   rescue Exception => e

@@ -31,7 +31,7 @@ module Frozone
         @auto_splat = false
       end
 
-      def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil, def_scope: nil, current_method: nil, as_method: false)
+      def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil, def_scope: nil, current_method: nil, as_method: false, thread_boundary: false)
         the_self = receiver || @enclosing_frame.the_self
         new_frame = Frame.new(
           the_self,
@@ -100,6 +100,8 @@ module Frozone
 
         new_frame.def_scope = def_scope || instance_eval_receiver&.singleton_class
         new_frame.current_method = current_method if current_method
+        new_frame.incoming_call_site = context&.call_site
+        new_frame.thread_boundary = thread_boundary && !@is_lambda
 
         # Push frame BEFORE populating params so default expressions evaluate with
         # correct `self` (enclosing scope's self, not the proc/block caller's frame).

@@ -9,10 +9,12 @@ module Frozone
     GLOBAL_ALIASES = {}
 
     # Emit a warning to VM's $stderr (may be replaced by mspec's IOStub).
-    def self.emit_warning(context, msg)
+    # Optional +location+ is a "file:line" string prepended as "file:line: warning: msg".
+    def self.emit_warning(context, msg, location: nil)
       stderr_vm = GLOBALS[:"$stderr"]
       return unless stderr_vm
-      str_obj = StringObject.new("warning: #{msg}")
+      prefix = location ? "#{location}: " : ""
+      str_obj = StringObject.new("#{prefix}warning: #{msg}")
       stderr_vm.dispatch(context, :puts, [str_obj], {})
     rescue StandardError
       # Suppress any errors during warning emission

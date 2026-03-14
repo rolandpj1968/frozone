@@ -52,11 +52,13 @@ class Module
   def class_variables = Intrinsics.module_class_variables(self)
   def remove_const(name) = Intrinsics.module_remove_const(self, name)
   def remove_class_variable(name) = Intrinsics.module_remove_class_variable(self, name)
-  def ruby2_keywords(*names) = self
+  def ruby2_keywords(*names) = Intrinsics.module_ruby2_keywords(self, names)
 
   def const_missing(name)
     n = self.name
     label = n ? "#{n}::#{name}" : "#{self.inspect}::#{name}"
-    raise NameError, "uninitialized constant #{label}"
+    e = NameError.new("uninitialized constant #{label}", name)
+    e.instance_variable_set(:@receiver, self)
+    raise e
   end
 end

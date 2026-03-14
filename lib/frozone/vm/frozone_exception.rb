@@ -12,10 +12,14 @@ module Frozone
         super(message)
       end
 
-      def self.make(class_name, message)
+      def self.make(class_name, message, name: nil, receiver: nil)
         exc_class = Core::OBJECT_CLASS.get_constant(class_name)
         exc_obj = exc_class ? ObjectObject.new(exc_class) : NilObject::NIL
-        exc_obj.set_ivar(:@message, StringObject.new(message)) unless exc_obj.is_a?(NilObject)
+        unless exc_obj.is_a?(NilObject)
+          exc_obj.set_ivar(:@message, StringObject.new(message))
+          exc_obj.set_ivar(:@name, SymbolObject.from(name)) if name
+          exc_obj.set_ivar(:@receiver, receiver) if receiver
+        end
         new(exc_obj, message)
       end
 

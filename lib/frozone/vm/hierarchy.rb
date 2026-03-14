@@ -142,9 +142,9 @@ class Exception < Object
   def message = @message.nil? ? self.class.name : @message
   def to_s = message
   def inspect = "#<#{self.class.name}: #{message}>"
-  def backtrace = []
+  def backtrace = @backtrace || []
   def exception(msg = nil) = msg ? self.class.new(msg) : self
-  def set_backtrace(bt) = bt
+  def set_backtrace(bt) = (@backtrace = bt)
 end
 
 class SystemExit < Exception
@@ -205,6 +205,7 @@ class StopIteration < IndexError
 end
 
 class NameError < StandardError
+  def receiver = @receiver
 end
 
 class NoMethodError < NameError
@@ -223,6 +224,7 @@ class RuntimeError < StandardError
 end
 
 class FrozenError < RuntimeError
+  def receiver = @receiver
 end
 
 class SystemCallError < StandardError
@@ -270,6 +272,7 @@ end
 class Thread < Object
   def self.report_on_exception=(val); nil; end  # stub
   def self.report_on_exception = false       # stub
+  def self.pass; nil; end                        # no-op in single-threaded VM
 
   class Mutex < Object
     def initialize; @locked = false; end
@@ -279,6 +282,32 @@ class Thread < Object
     def synchronize(&block); lock; begin; block.call; ensure; unlock; end; end
     def try_lock; !@locked && (@locked = true); end
   end
+
+  # Single-threaded Thread: runs block immediately, isolating thread-local globals.
+  # thread_run_block invokes the block with thread_boundary:true so that `break`
+  # raises LocalJumpError (catchable inside the block) instead of propagating out.
+  def initialize(&block)
+    @result    = nil
+    @exception = nil
+    Intrinsics.thread_save_reset_locals(self)
+    begin
+      @result = Intrinsics.thread_run_block(block)
+    rescue => e
+      @exception = e
+    ensure
+      Intrinsics.thread_restore_locals(self)
+    end
+  end
+
+  def join(timeout = nil) = self
+
+  def value
+    raise @exception if @exception
+    @result
+  end
+
+  def status = false  # dead
+  def alive? = false
 end
 
 class Mutex < Object

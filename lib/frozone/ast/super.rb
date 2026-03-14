@@ -65,10 +65,20 @@ module Frozone
           end
         end
 
+        # ruby2_keywords delegation: forward r2k-marked last arg as kwargs
+        # For explicit super(*args): check if last arg is r2k
+        # For forwarding super (zsuper): check if current method is ruby2_keywords
+        fwd_method = @forwarding ? (current_method.respond_to?(:ruby2_keywords) ? current_method : nil) : nil
+        has_splat = !@forwarding && @arg_nodes.any? { |n| n.is_a?(SplatArg) }
+        r2k_kwargs = if (has_splat || (fwd_method&.ruby2_keywords)) && @kw_splat_nodes.empty? && args.last.is_a?(Vm::HashObject) && args.last.ruby2_keywords
+          r2k = args.pop
+          r2k.raw.transform_keys { |k| k.is_a?(Vm::SymbolObject) ? k.raw : k }
+        end
+
         kw_args = if @forwarding
           m = current_method
           if m.respond_to?(:required_kw_params)
-            fwd_kw = {}
+            fwd_kw = r2k_kwargs || {}
             m.required_kw_params.each { |k| fwd_kw[k] = mf.get_local(k) }
             m.optional_kw_params.each { |k, _| fwd_kw[k] = mf.get_local(k) }
             if m.kw_rest_param
@@ -82,7 +92,7 @@ module Frozone
             mf.method_kwargs || {}
           end
         else
-          result = {}
+          result = r2k_kwargs || {}
           @kw_splat_nodes.each do |splat_node|
             splatted = splat_node.evaluate(context)
             next if splatted.is_a?(Vm::NilObject)

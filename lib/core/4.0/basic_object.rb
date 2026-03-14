@@ -13,6 +13,10 @@ class BasicObject
 
   def !=(v) = !(self == v)
 
+  def respond_to_missing?(name, include_private = false)
+    false
+  end
+
   def method_missing(name, *args, **kwargs)
     Intrinsics.basic_object_method_missing(self, name, args, kwargs)
   end

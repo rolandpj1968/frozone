@@ -14,6 +14,7 @@ module Frozone
       attr_accessor :visibility, :nested_def_scope
 
       attr_reader :uses_block, :source_location
+      attr_accessor :ruby2_keywords
 
       def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body, uses_block: nil, source_location: nil)
         @scopes = self.class.unique_scopes(scopes)
@@ -151,7 +152,8 @@ module Frozone
 
       def invoke(context, receiver, args, kw_args, block = nil, from_super: false)
         # Warn about unused block (Ruby 3.4 strict_unused_block category)
-        if !from_super && block && !block.is_a?(NilObject) && @uses_block == false && !@block_warning_emitted
+        # initialize is exempt — blocks passed to .new are silently forwarded
+        if !from_super && @name != :initialize && block && !block.is_a?(NilObject) && @uses_block == false && !@block_warning_emitted
           verbose = GLOBALS.fetch(:"$VERBOSE", FalseObject::FALSE).truthy?
           warning_class = Core::OBJECT_CLASS.get_constant(:Warning)
           strict = warning_class&.dispatch(context, :[], [SymbolObject.from(:strict_unused_block)], {})&.truthy? rescue false
@@ -161,7 +163,7 @@ module Frozone
               def_scope = @scopes.last
               def_scope.respond_to?(:name) ? def_scope.name.to_s : def_scope.to_s
             end
-            Frozone::Vm.emit_warning(context, "the block passed to '#{@name}' defined at #{def_loc} may be ignored")
+            Frozone::Vm.emit_warning(context, "the block passed to '#{@name}' defined at #{def_loc} may be ignored", location: context.call_site)
           end
         end
 
@@ -169,6 +171,7 @@ module Frozone
         new_frame.block = block
         new_frame.method_frame = new_frame
         new_frame.current_method = self
+        new_frame.incoming_call_site = context&.call_site
         # def inside a method body goes to the method's defining scope, not the call-site scope
         new_frame.def_scope = @nested_def_scope || @scopes.last
 
@@ -180,6 +183,8 @@ module Frozone
         # If the method has no keyword params, convert kwargs to a positional Hash (Ruby semantics)
         if !kw_args.empty? && @required_kw_params.empty? && @optional_kw_params.empty? && @kw_rest_param.nil?
           hash_val = HashObject.new(kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k })
+          # ruby2_keywords method: mark the hash so it can be re-spread as kwargs at the call site
+          hash_val.ruby2_keywords = true if @ruby2_keywords
           args = args + [hash_val]
           kw_args = {}
         end
@@ -257,7 +262,7 @@ module Frozone
     # A method created by define_method that delegates to a captured block
     class DefinedMethod
       attr_reader :name, :scopes
-      attr_accessor :visibility
+      attr_accessor :visibility, :ruby2_keywords
 
       def initialize(name, block_obj, defining_class = nil)
         @name = name
@@ -267,7 +272,13 @@ module Frozone
       end
 
       def invoke(context, receiver, args, kwargs, block = nil)
-        @block_obj.invoke(context, args, receiver: receiver, block: block, current_method: self, as_method: true)
+        if @ruby2_keywords && !kwargs.empty?
+          hash_val = HashObject.new(kwargs.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k })
+          hash_val.ruby2_keywords = true
+          args = args + [hash_val]
+          kwargs = {}
+        end
+        @block_obj.invoke(context, args, kw_args: kwargs, receiver: receiver, block: block, current_method: self, as_method: true)
       rescue Ast::ReturnException => e
         # Absorb return from a proc used as a method body (define_method semantics).
         # Return with nil or dead method_frame exits the define_method-defined method.

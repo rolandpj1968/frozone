@@ -88,6 +88,6 @@ class Hash
     true
   end
 
-  def self.ruby2_keywords_hash(h) = h
-  def self.ruby2_keywords_hash?(h) = false
+  def self.ruby2_keywords_hash(h) = Intrinsics.hash_ruby2_keywords_hash(h)
+  def self.ruby2_keywords_hash?(h) = Intrinsics.hash_ruby2_keywords_hash_q(h)
 end

@@ -20,7 +20,7 @@ module Frozone
       end
 
       # TODO &block
-      def new_instance(context, args, kwargs)
+      def new_instance(context, args, kwargs, block = nil)
         o = if ancestors_list.any? { |a| a.equal?(Core::ARRAY_CLASS) }
           ArrayObject.new([], self)
         elsif ancestors_list.any? { |a| a.equal?(Core::STRING_CLASS) }
@@ -28,7 +28,7 @@ module Frozone
         else
           ObjectObject.new(self)
         end
-        o.dispatch(context, :initialize, args, kwargs, nil, private_ok: true)
+        o.dispatch(context, :initialize, args, kwargs, block, private_ok: true)
         o
       end
 
