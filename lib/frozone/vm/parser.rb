@@ -457,7 +457,14 @@ module Frozone
           transform(prism_node.body)
 
         when Prism::StatementsNode
-          Ast::Sequence.new(prism_node.body.map { |pn| transform(pn) })
+          # Hoist BEGIN{} blocks to run before other statements (Ruby semantics).
+          begin_stmts, other_stmts = prism_node.body.partition { |pn| pn.is_a?(Prism::PreExecutionNode) }
+          hoisted = begin_stmts.map { |pn| pn.statements ? transform(pn.statements) : Ast::NilLiteral::NIL }
+          Ast::Sequence.new(hoisted + other_stmts.map { |pn| transform(pn) })
+
+        when Prism::PreExecutionNode
+          # Standalone BEGIN{} (outside a statements list) — just run the body
+          prism_node.statements ? transform(prism_node.statements) : Ast::NilLiteral::NIL
 
         when Prism::IfNode
           Ast::If.new(

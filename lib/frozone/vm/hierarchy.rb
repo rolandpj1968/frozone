@@ -310,6 +310,15 @@ class Thread < Object
   def alive? = false
 end
 
+class Fiber < Object
+  def self.new(&block) = Intrinsics.fiber_new(self, block)
+  def self.yield(*args) = Intrinsics.fiber_yield(self, args)
+  def self.current = Intrinsics.fiber_current(self)
+
+  def resume(*args) = Intrinsics.fiber_resume(self, args)
+  def alive? = Intrinsics.fiber_alive(self)
+end
+
 class Mutex < Object
   def initialize; @locked = false; end
   def lock; @locked = true; self; end

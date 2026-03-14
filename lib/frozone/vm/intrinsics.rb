@@ -562,6 +562,29 @@ module Frozone
           bo.invoke(context, [], thread_boundary: true)
         end
 
+        def fiber_new(_, _klass, block_obj)
+          bo = block_obj.is_a?(ProcObject) ? block_obj.block_object : block_obj
+          FiberObject.new(bo)
+        end
+
+        def fiber_resume(context, fiber_obj, args)
+          raise FrozoneException.make(:TypeError, "can't resume a non-Fiber object") unless fiber_obj.is_a?(FiberObject)
+          fiber_obj.resume(context, args.raw)
+        end
+
+        def fiber_yield(_, _receiver, args)
+          ::Fiber.yield(args.raw.first || NilObject::NIL)
+        end
+
+        def fiber_current(_context, _receiver)
+          # Return the current Frozone FiberObject if inside one, else NilObject
+          ::Fiber[:frozone_fiber_obj] || NilObject::NIL
+        end
+
+        def fiber_alive(_, fiber_obj)
+          bool_object_for(fiber_obj.is_a?(FiberObject) && fiber_obj.alive?)
+        end
+
         def module_ruby2_keywords(_, receiver, names_array)
           names_array.raw.each do |name_obj|
             name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
@@ -1069,11 +1092,15 @@ module Frozone
           ArrayObject.new(names)
         end
 
-        def kernel_eval(context, _receiver, code_obj, _binding = NilObject::NIL)
+        def kernel_eval(context, _receiver, code_obj, binding_arg = NilObject::NIL)
           return NilObject::NIL unless code_obj.is_a?(StringObject)
           code = code_obj.raw
-          # binding_frame is the frame that called eval (one level below the eval method frame)
-          binding_frame = context.frames.length >= 2 ? context.frames[-2] : context.frame
+          # If a BindingObject is passed, use its captured frame; otherwise use the caller's frame.
+          binding_frame = if binding_arg.is_a?(BindingObject)
+                           binding_arg.captured_frame
+                         else
+                           context.frames.length >= 2 ? context.frames[-2] : context.frame
+                         end
 
           # Build closure chain: binding_frame + parent frames.
           # Used for reading/writing variables from enclosing block scopes.

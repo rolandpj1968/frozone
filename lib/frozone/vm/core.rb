@@ -40,6 +40,7 @@ module Frozone
       def self.method_class          = OBJECT_CLASS.get_constant(:Method)
       def self.io_class              = OBJECT_CLASS.get_constant(:IO)
       def self.process_status_class  = OBJECT_CLASS.get_constant(:Process).get_constant(:Status)
+      def self.fiber_class           = OBJECT_CLASS.get_constant(:Fiber)
 
       def self.define_class(name, superclass)
         klass = ClassObject.new(name, nil, superclass)

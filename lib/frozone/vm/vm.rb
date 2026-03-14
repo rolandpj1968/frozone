@@ -9,6 +9,7 @@ require_relative 'frame'
 require_relative 'method'
 
 require_relative 'binding_object'
+require_relative 'fiber_object'
 require_relative 'unbound_method_object'
 require_relative 'io_object'
 require_relative 'nil_object'
@@ -117,6 +118,12 @@ module Frozone
           m = Method.new([Core::OBJECT_CLASS], name, [], [], :names, [], [], [], nil, nil, [:names], body)
           main_obj.define_singleton_method(name, m)
         end
+        # main.to_s / main.inspect return "main" (Ruby top-level object identity)
+        main_str = Ast::StringLiteral.from("main")
+        [:to_s, :inspect].each do |name|
+          m = Method.new([Core::OBJECT_CLASS], name, [], [], nil, [], [], [], nil, nil, [], main_str)
+          main_obj.define_singleton_method(name, m)
+        end
       end
 
       def init_globals
@@ -196,6 +203,8 @@ module Frozone
         frame.method_frame = frame
         context.push_frame(frame)
         context.push_scope(top_level_scope)
+        # Set TOPLEVEL_BINDING to the top-level frame binding
+        Core::OBJECT_CLASS.set_constant(:TOPLEVEL_BINDING, BindingObject.new(frame))
 
         begin
           ast.evaluate(context)
