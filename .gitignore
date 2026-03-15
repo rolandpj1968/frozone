@@ -1,2 +1,5 @@
 # == emacs
 *~
+
+# ruby-spec temp files
+rubyspec_temp/
