@@ -54,6 +54,14 @@ module Kernel
 
   alias enum_for to_enum
 
+  def initialize_copy(source)
+    source.instance_variables.each do |ivar|
+      instance_variable_set(ivar, source.instance_variable_get(ivar))
+    end
+    self
+  end
+  private :initialize_copy
+
   # Make these available as module functions: private instance methods AND public Kernel.method calls
   module_function :puts, :print, :warn, :p, :raise, :fail, :require, :require_relative, :load, :__dir__,
                   :proc, :lambda, :eval, :binding, :sprintf, :format,

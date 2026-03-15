@@ -57,7 +57,7 @@ class Module
 
   def const_missing(name)
     n = self.name
-    label = n ? "#{n}::#{name}" : "#{self.inspect}::#{name}"
+    label = (n && n != "Object") ? "#{n}::#{name}" : name.to_s
     e = NameError.new("uninitialized constant #{label}", name)
     e.instance_variable_set(:@receiver, self)
     raise e

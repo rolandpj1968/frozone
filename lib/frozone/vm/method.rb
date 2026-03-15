@@ -215,7 +215,9 @@ module Frozone
           if e.method_frame.nil? || !e.method_frame.alive?
             # No enclosing method context, or the defining scope has already exited:
             # proc/block return escaping its defining scope
-            raise FrozoneException.make(:LocalJumpError, "unexpected return")
+            exc = FrozoneException.make(:LocalJumpError, "unexpected return")
+            exc.vm_object.set_ivar(:@exit_value, e.value)
+            raise exc
           end
           raise e unless e.method_frame.equal?(new_frame)
           e.value

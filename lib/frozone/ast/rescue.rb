@@ -148,6 +148,17 @@ module Frozone
               result = clause.body.evaluate(context)
             rescue RetryException
               retry_requested = true
+            rescue Vm::FrozoneException
+              raise
+            rescue => body_exc
+              raise if CONTROL_FLOW.any? { |k| body_exc.is_a?(k) }
+              # Native MRI exception raised inside rescue body — wrap it and set cause.
+              wrapped = Vm::FrozoneException.wrap_mri(body_exc)
+              current_exc = Vm::GLOBALS[:"$!"]
+              if current_exc && !current_exc.is_a?(Vm::NilObject) && !current_exc.equal?(wrapped)
+                (wrapped.set_ivar(:@cause, current_exc)) rescue nil
+              end
+              raise Vm::FrozoneException.new(wrapped, body_exc.message)
             ensure
               Vm::GLOBALS[:"$!"] = prev_dollar_bang || Vm::NilObject::NIL
               Vm::GLOBALS[:"$@"] = prev_dollar_at || Vm::NilObject::NIL

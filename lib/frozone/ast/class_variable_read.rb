@@ -13,7 +13,7 @@ module Frozone
         klass = current_class(context)
         raise Vm::FrozoneException.make(:RuntimeError, "class variable access from toplevel") if klass.nil?
         val = klass.get_class_var(@name)
-        raise Vm::FrozoneException.make(:NameError, "uninitialized class variable #{@name} in #{klass.name}") if val.nil?
+        raise Vm::FrozoneException.make(:NameError, "uninitialized class variable #{@name} in #{klass.name}", name: @name) if val.nil?
         val
       end
 

@@ -85,7 +85,7 @@ module Frozone
               type_name = receiver_val.class_object&.name&.to_s || "Object"
             end
             repr = begin; receiver_val.dispatch(context, :inspect, [], {}).raw; rescue StandardError; receiver_val.to_s; end
-            raise Vm::FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{repr}")
+            raise Vm::FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{repr}", receiver: receiver_val)
           end
           method_scopes = if receiver_val.is_a?(Vm::ClassObject)
             # Class-level singleton method (def ClassName.foo / def self.foo in class body):

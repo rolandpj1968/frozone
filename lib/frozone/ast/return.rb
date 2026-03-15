@@ -19,7 +19,9 @@ module Frozone
         # When return runs inside a Thread body, it raises LocalJumpError (catchable by guest
         # rescue inside the block), simulating the cross-thread boundary of real Ruby threading.
         if context.frame.thread_boundary
-          raise Vm::FrozoneException.make(:LocalJumpError, "unexpected return")
+          exc = Vm::FrozoneException.make(:LocalJumpError, "unexpected return")
+          exc.vm_object.set_ivar(:@exit_value, value)
+          raise exc
         end
         raise ReturnException.new(value, context.frame.method_frame)
       end

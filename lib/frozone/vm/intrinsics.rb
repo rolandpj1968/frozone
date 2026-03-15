@@ -92,12 +92,14 @@ module Frozone
           copy
         end
 
-        def object_dup(_, v)
+        def object_dup(context, v)
           # Only works for plain ObjectObject instances — specialized types (String, Array, etc.)
           # define their own dup methods in core Ruby.
           return v unless v.class == ObjectObject
           copy = ObjectObject.allocate
           copy_object_fields(v, copy, eigenclass: nil, frozen: false)
+          copy.dispatch(context, :initialize_copy, [v], {}, nil, private_ok: true)
+          copy
         end
 
         def object_clone(_, v, freeze_opt = NilObject::NIL)
@@ -340,11 +342,14 @@ module Frozone
           cause = (current_exc && !current_exc.is_a?(NilObject)) ? current_exc : nil
 
           if msg.is_a?(NilObject)
-            # bare `raise` re-raises current exception or raises RuntimeError
+            # bare `raise` re-raises current exception or raises RuntimeError with empty message
             if cause
-              raise FrozoneException.new(cause, cause.get_ivar(:@message)&.raw || "RuntimeError")
+              set_exc_backtrace(cause, context) unless cause.get_ivar(:@backtrace).is_a?(ArrayObject)
+              raise FrozoneException.new(cause, cause.get_ivar(:@message)&.raw || "")
             end
-            raise FrozoneException.make(:RuntimeError, "RuntimeError")
+            exc = FrozoneException.make(:RuntimeError, "")
+            set_exc_backtrace(exc.vm_object, context)
+            raise exc
           elsif msg.is_a?(ClassObject) || msg.is_a?(ModuleObject)
             # raise SomeClass, "message"
             msg_str = message_arg ? message_arg.dispatch(context, :to_s, [], {}).raw : msg.name.to_s
@@ -366,10 +371,29 @@ module Frozone
             rescue
               msg_str = "exception"
             end
-            msg.set_ivar(:@cause, cause) if cause && msg.respond_to?(:set_ivar)
+            # Don't set cause when re-raising the same exception that's in $!
+            msg.set_ivar(:@cause, cause) if cause && !cause.equal?(msg) && msg.respond_to?(:set_ivar)
             set_exc_backtrace(msg, context)
             raise FrozoneException.new(msg, msg_str)
           end
+        end
+
+        def exception_caller_string(context)
+          # Return a caller location string for full_message when exception has no backtrace
+          all_frames = context.frames.reverse
+          # Skip internal frames (full_message, detailed_message, exception_caller_string)
+          i = 0
+          i += 1 while i < all_frames.length && %i[full_message detailed_message exception_caller_string].include?(all_frames[i].current_method&.name)
+          return NilObject::NIL if i >= all_frames.length
+          loc = all_frames[i].incoming_call_site
+          return NilObject::NIL unless loc
+          outer_name = (i + 1 < all_frames.length) ? all_frames[i + 1].current_method&.name&.to_s : "<main>"
+          StringObject.new("#{loc}:in '#{outer_name}'")
+        end
+
+        def signal_trap(context, signal, block_arg = NilObject::NIL)
+          # Stub: signal trapping not fully implemented
+          NilObject::NIL
         end
 
         def kernel_p(context, _receiver, args)
@@ -412,7 +436,9 @@ module Frozone
           begin
             throw(tag_raw, value)
           rescue UncaughtThrowError => e
-            raise FrozoneException.make(:UncaughtThrowError, e.message)
+            exc = FrozoneException.make(:UncaughtThrowError, e.message)
+            exc.vm_object.set_ivar(:@tag, tag)
+            raise exc
           end
         end
 
@@ -491,7 +517,9 @@ module Frozone
           exc = if Fiber[:mm_implicit_self]
                   FrozoneException.make(:NameError, "undefined local variable or method '#{name_sym}' for an instance of #{class_name}", name: name_sym, receiver: receiver)
                 else
-                  FrozoneException.make(:NoMethodError, "undefined method '#{name_sym}' for an instance of #{class_name}", name: name_sym, receiver: receiver)
+                  e = FrozoneException.make(:NoMethodError, "undefined method '#{name_sym}' for an instance of #{class_name}", name: name_sym, receiver: receiver)
+                  e.vm_object.set_ivar(:@args, args.is_a?(ArrayObject) ? args : ArrayObject.new([]))
+                  e
                 end
           set_exc_backtrace(exc.vm_object, context)
           raise exc
@@ -1186,7 +1214,11 @@ module Frozone
           path_base = path.end_with?('.rb') ? path[0..-4] : path
           return FalseObject::FALSE if loaded_paths.any? { |p| p == path || p.end_with?("/#{path_base}") || p.end_with?("/#{path_base}.rb") }
           full_path = resolve_load_path(path)
-          raise FrozoneException.make(:LoadError, "cannot load such file -- #{path}") if full_path.nil?
+          if full_path.nil?
+            exc = FrozoneException.make(:LoadError, "cannot load such file -- #{path}")
+            exc.vm_object.set_ivar(:@path, StringObject.new(path))
+            raise exc
+          end
           return FalseObject::FALSE if loaded_paths.include?(full_path)
           loaded.push(StringObject.new(full_path))
           begin
@@ -1241,7 +1273,11 @@ module Frozone
         def kernel_load(_, _receiver, path_obj)
           path = path_obj.raw
           full_path = File.exist?(path) ? path : resolve_load_path(path)
-          raise FrozoneException.make(:LoadError, "cannot load such file -- #{path}") if full_path.nil?
+          if full_path.nil?
+            exc = FrozoneException.make(:LoadError, "cannot load such file -- #{path}")
+            exc.vm_object.set_ivar(:@path, StringObject.new(path))
+            raise exc
+          end
           begin
             Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
           rescue Ast::ReturnException
