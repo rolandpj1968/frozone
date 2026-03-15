@@ -24,7 +24,12 @@ module Comparable
   end
 
   def ==(other)
-    r = self <=> other
+    return true if equal?(other)
+    r = begin
+      self <=> other
+    rescue NoMethodError
+      return false
+    end
     return false if r.nil?
     raise ArgumentError, "comparison of #{self.class} with #{other} failed" unless r.is_a?(Numeric)
     r == 0
@@ -35,8 +40,8 @@ module Comparable
   def clamp(min_or_range, max = :__undefined__)
     if max.equal?(:__undefined__)
       # Range form
-      raise ArgumentError, "cannot clamp with an exclusive range" if min_or_range.exclude_end?
       lo = min_or_range.begin; hi = min_or_range.end
+      raise ArgumentError, "cannot clamp with an exclusive range" if min_or_range.exclude_end? && hi
       if lo
         c = self <=> lo
         raise ArgumentError, "comparison of #{self.class} with #{lo.class} failed" if c.nil?
