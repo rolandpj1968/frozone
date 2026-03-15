@@ -2190,15 +2190,16 @@ module Frozone
           val
         end
 
+
         def hash_get_default_proc(_, h)
-          h.default_block ? ProcObject.new(h.default_block) : NilObject::NIL
+          h.default_block || NilObject::NIL
         end
 
         def hash_set_default_proc(_, h, prc)
           if prc.is_a?(NilObject)
             h.default_block = nil
           elsif prc.is_a?(ProcObject)
-            h.default_block = prc.block_object
+            h.default_block = prc
             h.default_value = nil
           else
             raise FrozoneException.make(:TypeError, "wrong argument type #{prc.class.name} (expected Proc/nil)")
@@ -2207,10 +2208,15 @@ module Frozone
         end
 
         def hash_new(_, default = nil, block = nil)
-          block_obj = block.is_a?(ProcObject) ? block.block_object : block
-          block_obj = nil if block_obj.is_a?(NilObject)
-          if block_obj
-            HashObject.new({}, default_block: block_obj)
+          proc_obj = if block.is_a?(ProcObject)
+            block
+          elsif block.is_a?(BlockObject)
+            ProcObject.new(block)
+          elsif block && !block.is_a?(NilObject)
+            ProcObject.new(block)
+          end
+          if proc_obj
+            HashObject.new({}, default_block: proc_obj)
           elsif default && !default.is_a?(NilObject)
             HashObject.new({}, default_value: default)
           else
@@ -2219,7 +2225,7 @@ module Frozone
         end
 
         def hash_each(context, h, block)
-          h.raw.each { |k, v| block.invoke(context, [k, v]) }
+          h.raw.each { |k, v| block.invoke(context, [ArrayObject.new([k, v])]) }
           h
         end
 
@@ -2230,7 +2236,32 @@ module Frozone
         end
 
         def hash_clear(_, h)
-          h.raw.clear if h.is_a?(HashObject)
+          h.clear_elements if h.is_a?(HashObject)
+          h
+        end
+
+        def hash_transform_keys_bang(context, h, hash_arg, block_arg)
+          original_pairs = h.raw.to_a
+          new_pairs = []
+          processed = 0
+          begin
+            original_pairs.each do |k, v|
+              nk = if hash_arg && !hash_arg.is_a?(NilObject) && hash_arg.key?(k)
+                hash_arg[k]
+              elsif block_arg && !block_arg.is_a?(NilObject)
+                block_arg.invoke(context, [k])
+              else
+                k
+              end
+              new_pairs << [nk, v]
+              processed += 1
+            end
+          rescue Ast::BreakException
+            # break occurred mid-iteration: remaining pairs stay with original keys
+          end
+          h.clear_elements
+          original_pairs[processed..].each { |k, v| h[k] = v }
+          new_pairs.each { |k, v| h[k] = v }
           h
         end
 

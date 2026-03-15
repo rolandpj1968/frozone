@@ -1,5 +1,8 @@
 class Hash
-  def self.new(default = nil, capacity: nil, &block)
+  def self.new(default = :__unset__, capacity: nil, &block)
+    has_default = !default.equal?(:__unset__)
+    default = nil if default.equal?(:__unset__)
+    raise ArgumentError, "wrong number of arguments (given 1, expected 0)" if has_default && block
     Intrinsics.hash_new(default, block)
   end
 
@@ -19,6 +22,11 @@ class Hash
       arg = args[0]
       if arg.is_a?(Hash)
         arg.each { |k, v| h[k] = v }
+        return h
+      elsif arg.respond_to?(:to_hash)
+        converted = arg.to_hash
+        raise TypeError, "can't convert #{arg.class} into Hash (#{arg.class}#to_hash gives #{converted.class})" unless converted.is_a?(Hash)
+        converted.each { |k, v| h[k] = v }
         return h
       elsif arg.respond_to?(:to_ary)
         arg.to_ary.each do |pair|
@@ -67,8 +75,19 @@ class Hash
   def []=(key, value) = Intrinsics.hash_index_write(self, key, value)
   alias store []=
 
-  def default(key = nil) = Intrinsics.hash_get_default(self, key)
-  def default=(val) = Intrinsics.hash_set_default(self, val)
+  def default(key = :__no_key__)
+    if default_proc
+      return nil if key.equal?(:__no_key__)
+      default_proc.call(self, key)
+    else
+      Intrinsics.hash_get_default(self, nil)
+    end
+  end
+
+  def default=(val)
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    Intrinsics.hash_set_default(self, val)
+  end
   def default_proc = Intrinsics.hash_get_default_proc(self)
 
   def default_proc=(prc)
@@ -99,10 +118,18 @@ class Hash
   alias entries to_a
   def to_proc; h = self; ->(k) { h[k] }; end
 
+  def to_hash = self
+
   def to_h(&block)
     return self unless block
     r = {}
-    each { |k, v| pair = block.call(k, v); r[pair[0]] = pair[1] }
+    each do |k, v|
+      pair = block.call(k, v)
+      pair = pair.to_ary if !pair.is_a?(Array) && pair.respond_to?(:to_ary)
+      raise TypeError, "wrong element type #{pair.class} (expected Array)" unless pair.is_a?(Array)
+      raise ArgumentError, "element has wrong array length (expected 2, was #{pair.length})" unless pair.length == 2
+      r[pair[0]] = pair[1]
+    end
     r
   end
 
@@ -114,7 +141,17 @@ class Hash
     ongoing << __id__
     begin
       pairs = []
-      each { |k, v| pairs << "#{k.inspect}=>#{v.inspect}" }
+      each do |k, v|
+        v_s = v.inspect
+        v_s = v_s.to_s unless v_s.is_a?(String)
+        if k.is_a?(Symbol)
+          pairs << "#{k.inspect.sub(/\A:/, '')}: #{v_s}"
+        else
+          k_s = k.inspect
+          k_s = k_s.to_s unless k_s.is_a?(String)
+          pairs << "#{k_s} => #{v_s}"
+        end
+      end
       "{#{pairs.join(', ')}}"
     ensure
       ongoing.pop
@@ -122,7 +159,17 @@ class Hash
   end
 
   alias inspect to_s
-  def dup; r = {}; each { |k, v| r[k] = v }; r; end
+  def dup
+    r = {}
+    each { |k, v| r[k] = v }
+    if default_proc
+      r.default_proc = default_proc
+    elsif default
+      r.default = default
+    end
+    r
+  end
+
   def clone; dup; end
 
   def each(&block)
@@ -130,8 +177,17 @@ class Hash
     Intrinsics.hash_each(self, block)
   end
   alias each_pair each
-  def each_key(&block);   each { |k, _| block ? block.call(k) : yield(k) }; self; end
-  def each_value(&block); each { |_, v| block ? block.call(v) : yield(v) }; self; end
+  def each_key(&block)
+    return to_enum(:each_key) { size } unless block
+    each { |k, _| block.call(k) }
+    self
+  end
+
+  def each_value(&block)
+    return to_enum(:each_value) { size } unless block
+    each { |_, v| block.call(v) }
+    self
+  end
 
   def each_with_object(obj)
     each { |k, v| yield([k, v], obj) }
@@ -141,6 +197,8 @@ class Hash
   def merge(*others, &block)
     r = dup
     others.each do |other|
+      other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
+      raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
       if block
         other.each { |k, v| r[k] = r.key?(k) ? block.call(k, r[k], v) : v }
       else
@@ -167,24 +225,37 @@ class Hash
   alias update merge!
 
   def replace(other)
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
     other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
     raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
     Intrinsics.hash_clear(self)
     other.each { |k, v| self[k] = v }
+    if other.default_proc
+      Intrinsics.hash_set_default_proc(self, other.default_proc)
+    else
+      Intrinsics.hash_set_default(self, other.default)
+    end
+    compare_by_identity if other.compare_by_identity?
     self
   end
 
-  def delete(key) = Intrinsics.hash_delete(self, key)
+  def delete(key, &block)
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    return Intrinsics.hash_delete(self, key) if key?(key)
+    block ? block.call(key) : nil
+  end
 
-  def delete_if
-    return to_enum(:delete_if) unless block_given?
-    each { |k, v| delete(k) if yield(k, v) }
+  def delete_if(&block)
+    return to_enum(:delete_if) { size } unless block
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    each { |k, v| Intrinsics.hash_delete(self, k) if block.call(k, v) }
     self
   end
 
-  def keep_if
-    return to_enum(:keep_if) unless block_given?
-    each { |k, v| delete(k) unless yield(k, v) }
+  def keep_if(&block)
+    return to_enum(:keep_if) { size } unless block
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    each { |k, v| Intrinsics.hash_delete(self, k) unless block.call(k, v) }
     self
   end
 
@@ -210,34 +281,36 @@ class Hash
   end
 
   def select(&block)
-    return to_enum(:select) unless block
+    return to_enum(:select) { size } unless block
     r = {}
-    each { |k, v| r[k] = v if (block ? block.call(k, v) : yield(k, v)) }
+    each { |k, v| r[k] = v if block.call(k, v) }
     r
   end
 
   alias filter select
 
   def select!(&block)
-    return to_enum(:select!) unless block
+    return to_enum(:select!) { size } unless block
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
     changed = false
-    each { |k, v| unless block.call(k, v); delete(k); changed = true; end }
+    each { |k, v| unless block.call(k, v); Intrinsics.hash_delete(self, k); changed = true; end }
     changed ? self : nil
   end
 
   alias filter! select!
 
   def reject(&block)
-    return to_enum(:reject) unless block
+    return to_enum(:reject) { size } unless block
     r = {}
-    each { |k, v| r[k] = v unless (block ? block.call(k, v) : yield(k, v)) }
+    each { |k, v| r[k] = v unless block.call(k, v) }
     r
   end
 
   def reject!(&block)
-    return to_enum(:reject!) unless block
+    return to_enum(:reject!) { size } unless block
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
     changed = false
-    each { |k, v| if block.call(k, v); delete(k); changed = true; end }
+    each { |k, v| if block.call(k, v); Intrinsics.hash_delete(self, k); changed = true; end }
     changed ? self : nil
   end
 
@@ -260,7 +333,7 @@ class Hash
   alias collect_concat flat_map
 
   def transform_keys(hash = nil, &block)
-    return to_enum(:transform_keys) if hash.nil? && !block
+    return to_enum(:transform_keys) { size } if hash.nil? && !block
     r = {}
     each do |k, v|
       nk = if hash && hash.key?(k)
@@ -276,32 +349,21 @@ class Hash
   end
 
   def transform_keys!(hash = nil, &block)
-    return to_enum(:transform_keys!) if hash.nil? && !block
+    return to_enum(:transform_keys!) { size } if hash.nil? && !block
     raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
-    pairs = map { |k, v| [k, v] }
-    Intrinsics.hash_clear(self)
-    pairs.each do |k, v|
-      nk = if hash && hash.key?(k)
-        hash[k]
-      elsif block
-        block.call(k)
-      else
-        k
-      end
-      self[nk] = v
-    end
-    self
+    Intrinsics.hash_transform_keys_bang(self, hash, block)
   end
 
   def transform_values(&block)
-    return to_enum(:transform_values) unless block
+    return to_enum(:transform_values) { size } unless block
     r = {}
     each { |k, v| r[k] = block.call(v) }
     r
   end
 
   def transform_values!(&block)
-    return to_enum(:transform_values!) unless block
+    return to_enum(:transform_values!) { size } unless block
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
     each { |k, v| self[k] = block.call(v) }
     self
   end
@@ -313,13 +375,16 @@ class Hash
   end
 
   def flatten(depth = 1)
+    depth = depth.respond_to?(:to_int) ? depth.to_int : depth
+    raise TypeError, "no implicit conversion of #{depth.class} into Integer" unless depth.is_a?(Integer)
     to_a.flatten(depth)
   end
 
   def shift
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
     return nil if empty?
     k = keys.first
-    v = delete(k)
+    v = Intrinsics.hash_delete(self, k)
     [k, v]
   end
 
@@ -407,11 +472,19 @@ class Hash
   def compare_by_identity = Intrinsics.hash_compare_by_identity(self)
   def compare_by_identity? = Intrinsics.hash_compare_by_identity_q(self)
 
-  def clear = Intrinsics.hash_clear(self)
+  def clear
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    Intrinsics.hash_clear(self)
+  end
 
   def compact
     r = {}
     each { |k, v| r[k] = v unless v.nil? }
+    if default_proc
+      r.default_proc = default_proc
+    else
+      r.default = default
+    end
     r
   end
 
@@ -421,7 +494,13 @@ class Hash
     changed ? self : nil
   end
 
-  def rehash = self  # stub - not needed for value-based hash
+  def rehash
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    pairs = map { |k, v| [k, v] }
+    Intrinsics.hash_clear(self)
+    pairs.each { |k, v| self[k] = v }
+    self
+  end
 
   def sort(&block)
     to_a.sort(&block)
@@ -444,21 +523,27 @@ class Hash
   end
 
   def <=(other)
-    return false unless other.is_a?(Hash)
+    other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
+    raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
     each { |k, v| return false unless other.key?(k) && other[k] == v }
     true
   end
 
   def >=(other)
-    return false unless other.is_a?(Hash)
+    other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
+    raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
     other <= self
   end
 
   def <(other)
+    other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
+    raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
     self <= other && self != other
   end
 
   def >(other)
+    other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
+    raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
     self >= other && self != other
   end
 
@@ -467,7 +552,9 @@ class Hash
     return 0 if ongoing.include?(__id__)
     ongoing << __id__
     begin
-      acc = 0; each { |k, v| acc = acc ^ (k.hash ^ v.hash) }; acc
+      acc = size.hash
+      each { |k, v| acc = acc ^ (k.hash * 31 + v.hash) }
+      acc
     ensure
       ongoing.pop
     end
@@ -489,6 +576,15 @@ class Hash
     end
   end
 
-  def self.ruby2_keywords_hash(h) = Intrinsics.hash_ruby2_keywords_hash(h)
-  def self.ruby2_keywords_hash?(h) = Intrinsics.hash_ruby2_keywords_hash_q(h)
+  def self.ruby2_keywords_hash(h)
+    raise TypeError, "not a hash" unless h.is_a?(Hash)
+    r = h.dup
+    Intrinsics.hash_ruby2_keywords_hash(r)
+    r
+  end
+
+  def self.ruby2_keywords_hash?(h)
+    raise TypeError, "not a hash" unless h.is_a?(Hash)
+    Intrinsics.hash_ruby2_keywords_hash_q(h)
+  end
 end
