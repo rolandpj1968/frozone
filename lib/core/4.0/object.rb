@@ -69,9 +69,14 @@ class Object
 end
 
 class UnboundMethod
-  def parameters = Intrinsics.unbound_method_parameters(self)
-  def name = Intrinsics.unbound_method_name(self)
-  def owner = Intrinsics.unbound_method_owner(self)
+  def parameters      = Intrinsics.unbound_method_parameters(self)
+  def name            = Intrinsics.unbound_method_name(self)
+  def original_name   = Intrinsics.unbound_method_original_name(self)
+  def owner           = Intrinsics.unbound_method_owner(self)
+  def arity           = Intrinsics.unbound_method_arity(self)
+  def source_location = Intrinsics.unbound_method_source_location(self)
+  def bind(receiver)  = Intrinsics.unbound_method_bind(self, receiver)
+  def bind_call(receiver, *args, **kwargs, &block) = bind(receiver).call(*args, **kwargs, &block)
 end
 
 module Warning

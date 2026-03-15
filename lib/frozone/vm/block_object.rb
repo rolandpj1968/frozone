@@ -5,6 +5,8 @@ module Frozone
       # auto-splatted when block expects multiple positional args
       # is_lambda: true for lambdas (strict arg count checking, no auto-splat)
       attr_reader :source_location
+      attr_reader :required_params, :optional_params, :rest_param, :post_params
+      attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
 
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,

@@ -920,25 +920,59 @@ module Frozone
           end
         end
 
-        def bound_method_parameters(_, receiver)
-          return ArrayObject.new([]) unless receiver.is_a?(BoundMethodObject)
-          m = receiver.raw_method
-          return ArrayObject.new([]) unless m.is_a?(Method)
+        ANON_REST    = :__anon_rest__
+        ANON_KWARGS  = :__anon_kwargs__
+        ANON_BLOCK   = :__anon_block__
+
+        def normalize_param_name(sym)
+          case sym
+          when ANON_REST   then :*
+          when ANON_KWARGS then :**
+          when ANON_BLOCK  then :&
+          when /\A__repeated_\d+__\z/ then :_
+          else sym
+          end
+        end
+
+        def extract_method_params(m)
+          # Resolve DefinedMethod to its underlying block_obj
+          m = m.block_obj if m.is_a?(DefinedMethod)
+          return [] unless m.respond_to?(:required_params)
           params = []
-          m.required_params.each { |p| params << ArrayObject.new([SymbolObject.from(:req), SymbolObject.from(p)]) }
-          m.optional_params.each { |p, _| params << ArrayObject.new([SymbolObject.from(:opt), SymbolObject.from(p)]) }
-          params << ArrayObject.new([SymbolObject.from(:rest), SymbolObject.from(m.rest_param)]) if m.rest_param && m.rest_param != :__no_rest__
-          m.post_params.each { |p| params << ArrayObject.new([SymbolObject.from(:req), SymbolObject.from(p)]) }
+          m.required_params.each { |p| params << ArrayObject.new([SymbolObject.from(:req), SymbolObject.from(normalize_param_name(p))]) }
+          m.optional_params.each { |p, _| params << ArrayObject.new([SymbolObject.from(:opt), SymbolObject.from(normalize_param_name(p))]) }
+          if m.rest_param && m.rest_param != :__no_rest__
+            params << ArrayObject.new([SymbolObject.from(:rest), SymbolObject.from(normalize_param_name(m.rest_param))])
+          end
+          m.post_params.each { |p| params << ArrayObject.new([SymbolObject.from(:req), SymbolObject.from(normalize_param_name(p))]) }
           m.required_kw_params.each { |p| params << ArrayObject.new([SymbolObject.from(:keyreq), SymbolObject.from(p)]) }
           m.optional_kw_params.each { |p, _| params << ArrayObject.new([SymbolObject.from(:key), SymbolObject.from(p)]) }
-          params << ArrayObject.new([SymbolObject.from(:keyrest), SymbolObject.from(m.kw_rest_param)]) if m.kw_rest_param && m.kw_rest_param != :__no_kwargs__
-          params << ArrayObject.new([SymbolObject.from(:block), SymbolObject.from(m.block_param)]) if m.block_param
-          ArrayObject.new(params)
+          if m.kw_rest_param == :__no_kwargs__
+            params << ArrayObject.new([SymbolObject.from(:nokey)])
+          elsif m.kw_rest_param
+            params << ArrayObject.new([SymbolObject.from(:keyrest), SymbolObject.from(normalize_param_name(m.kw_rest_param))])
+          end
+          if m.block_param
+            params << ArrayObject.new([SymbolObject.from(:block), SymbolObject.from(normalize_param_name(m.block_param))])
+          end
+          params
+        end
+
+        def bound_method_parameters(_, receiver)
+          return ArrayObject.new([]) unless receiver.is_a?(BoundMethodObject)
+          ArrayObject.new(extract_method_params(receiver.raw_method))
         end
 
         def bound_method_name(_, receiver)
           return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
           SymbolObject.from(receiver.bound_name)
+        end
+
+        def bound_method_original_name(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          m = receiver.raw_method
+          orig = m.is_a?(Method) ? m.name : receiver.bound_name
+          SymbolObject.from(orig)
         end
 
         def bound_method_owner(_, receiver)
@@ -971,7 +1005,15 @@ module Frozone
 
         def bound_method_hash(_, receiver)
           return IntegerObject.new(0) unless receiver.is_a?(BoundMethodObject)
-          h = receiver.bound_receiver.object_id ^ receiver.bound_name.hash
+          m = receiver.raw_method
+          body_id = if m.is_a?(Method)
+            m.body.object_id
+          elsif m.is_a?(DefinedMethod)
+            m.block_obj.object_id
+          else
+            m.object_id
+          end
+          h = receiver.bound_receiver.object_id ^ body_id
           IntegerObject.new(h)
         end
 
@@ -1003,23 +1045,54 @@ module Frozone
         end
 
         def unbound_method_parameters(_, receiver)
-          m = receiver.is_a?(UnboundMethodObject) ? receiver.raw_method : nil
-          return ArrayObject.new([]) unless m
-          params = []
-          m.required_params.each { |p| params << ArrayObject.new([SymbolObject.from(:req), SymbolObject.from(p)]) }
-          m.optional_params.each { |p, _| params << ArrayObject.new([SymbolObject.from(:opt), SymbolObject.from(p)]) }
-          params << ArrayObject.new([SymbolObject.from(:rest), SymbolObject.from(m.rest_param)]) if m.rest_param
-          m.post_params.each { |p| params << ArrayObject.new([SymbolObject.from(:req), SymbolObject.from(p)]) }
-          m.required_kw_params.each { |p| params << ArrayObject.new([SymbolObject.from(:keyreq), SymbolObject.from(p)]) }
-          m.optional_kw_params.each { |p, _| params << ArrayObject.new([SymbolObject.from(:key), SymbolObject.from(p)]) }
-          params << ArrayObject.new([SymbolObject.from(:keyrest), SymbolObject.from(m.kw_rest_param)]) if m.kw_rest_param
-          params << ArrayObject.new([SymbolObject.from(:block), SymbolObject.from(m.block_param)]) if m.block_param
-          ArrayObject.new(params)
+          return ArrayObject.new([]) unless receiver.is_a?(UnboundMethodObject)
+          ArrayObject.new(extract_method_params(receiver.raw_method))
         end
 
         def unbound_method_name(_, receiver)
           return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
           SymbolObject.from(receiver.unbound_name)
+        end
+
+        def unbound_method_original_name(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          m = receiver.raw_method
+          orig = m.is_a?(Method) ? m.name : receiver.unbound_name
+          SymbolObject.from(orig)
+        end
+
+        def unbound_method_arity(_, receiver)
+          return IntegerObject.new(0) unless receiver.is_a?(UnboundMethodObject)
+          m = receiver.raw_method
+          return IntegerObject.new(0) unless m.is_a?(Method)
+          req = m.required_params.length
+          opt = m.optional_params.length
+          rest = m.rest_param && m.rest_param != :__no_rest__
+          post = m.post_params.length
+          req_kw = m.required_kw_params.length
+          opt_kw = m.optional_kw_params.length
+          kw_rest = m.kw_rest_param
+          req_kw_count = req_kw > 0 ? 1 : 0
+          kw_optional = req_kw == 0 && (opt_kw > 0 || (kw_rest && kw_rest != :__no_kwargs__))
+          has_opt = rest || post > 0 || opt > 0 || kw_optional
+          if has_opt
+            IntegerObject.new(-(req + post + req_kw_count + 1))
+          else
+            IntegerObject.new(req + post + req_kw_count)
+          end
+        end
+
+        def unbound_method_source_location(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          m = receiver.raw_method
+          return NilObject::NIL unless m.is_a?(Method) && m.source_location
+          file, line = m.source_location.split(":")
+          ArrayObject.new([StringObject.new(file), IntegerObject.new(line.to_i)])
+        end
+
+        def unbound_method_bind(_, receiver, new_receiver)
+          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          BoundMethodObject.new(receiver.raw_method, receiver.unbound_name, new_receiver, receiver.unbound_owner)
         end
 
         def unbound_method_owner(_, receiver)
