@@ -46,6 +46,10 @@ module Frozone
         Core::OBJECT_CLASS.set_constant(:RUBY_COPYRIGHT, StringObject.new('frozone - Copyright (C) 2024 frozone'))
         Core::OBJECT_CLASS.set_constant(:RUBY_EXE, StringObject.new(RbConfig.ruby))
 
+        float_class = Core::OBJECT_CLASS.get_constant(:Float)
+        float_class.set_constant(:INFINITY, FloatObject.new(::Float::INFINITY))
+        float_class.set_constant(:NAN,      FloatObject.new(::Float::NAN))
+
         env_hash = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
         Core::OBJECT_CLASS.set_constant(:ENV, env_hash)
 
@@ -63,16 +67,32 @@ module Frozone
 
         # if -e is present then ruby DOES NOT evaluate an ARGV file
         # Note: ruby -e 'ARGV.each {|f| load f}' file1.rb file2.rb file3.rb
-        if scripts.empty?
-          # if -e is absent then ruby evaluates the FIRST file only
-          file = @options[:argv][0]
-          file.nil? ? eval_snippet("") : evaluate_file(File.expand_path(file))
-        else
-          # if multiple -e scripts are present, ruby simply joins them with \n, and parses together
-          #   ruby -e 'puts 3; class A' -e 'end; puts 4'
-          #   ruby -e 'puts "ha' -e 'llo"'
-          #   ruby -e 'puts 3' -e '@%@#$%@'
-          eval_snippet(scripts.join("\n"))
+        begin
+          if scripts.empty?
+            # if -e is absent then ruby evaluates the FIRST file only
+            file = @options[:argv][0]
+            file.nil? ? eval_snippet("") : evaluate_file(File.expand_path(file))
+          else
+            # if multiple -e scripts are present, ruby simply joins them with \n, and parses together
+            #   ruby -e 'puts 3; class A' -e 'end; puts 4'
+            #   ruby -e 'puts "ha' -e 'llo"'
+            #   ruby -e 'puts 3' -e '@%@#$%@'
+            eval_snippet(scripts.join("\n"))
+          end
+        rescue FrozoneException => e
+          vm_obj = e.vm_object
+          if vm_obj.is_a?(ObjectObject)
+            cls = vm_obj.class_object
+            while cls
+              break if cls.name == :SystemExit
+              cls = cls.superclass
+            end
+            if cls
+              status_obj = vm_obj.get_ivar(:@status)
+              exit(status_obj.is_a?(IntegerObject) ? status_obj.raw : 0)
+            end
+          end
+          raise
         end
       end
 
@@ -99,6 +119,7 @@ module Frozone
         evaluate_file("#{core_path}/hash.rb")
         evaluate_file("#{core_path}/proc.rb")
         evaluate_file("#{core_path}/range.rb")
+        evaluate_file("#{core_path}/enumerator.rb")
         evaluate_file("#{core_path}/exception.rb")
         evaluate_file("#{core_path}/encoding.rb")
         evaluate_file("#{core_path}/match_data.rb")

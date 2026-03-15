@@ -124,6 +124,8 @@ end
 class Process < Object
   def self.pid = Intrinsics.process_pid
   def self.euid = Intrinsics.process_euid
+  def self.exit(code = true) = Kernel.exit(code)
+  def self.exit!(code = false) = Intrinsics.kernel_exit(self, code)
 
   class Status < Object
     def exitstatus = Intrinsics.process_status_exitstatus(self)
@@ -148,6 +150,18 @@ class Exception < Object
 end
 
 class SystemExit < Exception
+  def initialize(code = true, msg = nil)
+    if code.is_a?(String)
+      @status = 0
+      super(code)
+    else
+      @status = code.is_a?(Integer) ? code : (code ? 0 : 1)
+      super(msg || self.class.name)
+    end
+  end
+
+  def status = @status
+  def success? = @status == 0
 end
 
 class NoMemoryError < Exception
@@ -314,6 +328,8 @@ class Fiber < Object
   def self.new(&block) = Intrinsics.fiber_new(self, block)
   def self.yield(*args) = Intrinsics.fiber_yield(self, args)
   def self.current = Intrinsics.fiber_current(self)
+  def self.[](key) = Intrinsics.fiber_storage_get(self, key)
+  def self.[]=(key, val) = Intrinsics.fiber_storage_set(self, key, val)
 
   def resume(*args) = Intrinsics.fiber_resume(self, args)
   def alive? = Intrinsics.fiber_alive(self)
@@ -324,6 +340,7 @@ class Mutex < Object
   def lock; @locked = true; self; end
   def unlock; @locked = false; self; end
   def locked? = @locked
+  def owned? = @locked
   def synchronize(&block); lock; begin; block.call; ensure; unlock; end; end
   def try_lock; !@locked && (@locked = true); end
 end

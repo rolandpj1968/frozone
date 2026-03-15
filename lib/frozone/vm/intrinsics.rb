@@ -445,8 +445,12 @@ module Frozone
         end
 
         def kernel_exit(_, _receiver, code)
-          c = code.is_a?(TrueObject) ? 0 : code.is_a?(FalseObject) ? 1 : code.is_a?(IntegerObject) ? code.raw : 0
-          exit(c)
+          status = code.is_a?(TrueObject) ? 0 : code.is_a?(FalseObject) ? 1 : code.is_a?(IntegerObject) ? code.raw : 0
+          exc_class = Core::OBJECT_CLASS.get_constant(:SystemExit)
+          exc_obj = ObjectObject.new(exc_class)
+          exc_obj.set_ivar(:@status, IntegerObject.new(status))
+          exc_obj.set_ivar(:@message, StringObject.new("exit"))
+          raise FrozoneException.new(exc_obj, "exit")
         end
 
         def kernel_local_variables(context, _receiver)
@@ -583,6 +587,17 @@ module Frozone
 
         def fiber_alive(_, fiber_obj)
           bool_object_for(fiber_obj.is_a?(FiberObject) && fiber_obj.alive?)
+        end
+
+        def fiber_storage_get(_context, _receiver, key_obj)
+          sym = key_obj.is_a?(SymbolObject) ? key_obj.raw : key_obj.to_sym
+          ::Fiber[sym] || NilObject::NIL
+        end
+
+        def fiber_storage_set(_context, _receiver, key_obj, val)
+          sym = key_obj.is_a?(SymbolObject) ? key_obj.raw : key_obj.to_sym
+          ::Fiber[sym] = val
+          val
         end
 
         def module_ruby2_keywords(_, receiver, names_array)
@@ -1215,8 +1230,9 @@ module Frozone
 
         # Integer
         def integer_spaceship(_, v1, v2)
-          return NilObject::NIL unless v2.is_a?(IntegerObject)
-          IntegerObject.new(v1.raw <=> v2.raw)
+          return NilObject::NIL unless v2.is_a?(IntegerObject) || v2.is_a?(FloatObject)
+          result = v1.raw <=> v2.raw
+          result.nil? ? NilObject::NIL : IntegerObject.new(result)
         end
 
         def integer_hash(_, v) = IntegerObject.new(v.raw.hash)
@@ -1233,23 +1249,72 @@ module Frozone
         def integer_bitor(_, v1, v2)  = IntegerObject.new(v1.raw | v2.raw)
         def integer_bitxor(_, v1, v2) = IntegerObject.new(v1.raw ^ v2.raw)
         def integer_bitnot(_, v)      = IntegerObject.new(~v.raw)
-        def integer_lshift(_, v1, v2) = IntegerObject.new(v1.raw << v2.raw)
-        def integer_rshift(_, v1, v2) = IntegerObject.new(v1.raw >> v2.raw)
+        SHIFT_LIMIT = 2**32
+
+        def integer_lshift(_, v1, v2)
+          n = v1.raw
+          m = v2.is_a?(IntegerObject) ? v2.raw : v2.raw.to_i
+          if m < 0
+            shift = m.abs > 1_000_000 ? 1_000_000 : m.abs
+            IntegerObject.new(n >> shift)
+          elsif m >= SHIFT_LIMIT && n != 0
+            raise FrozoneException.make(:RangeError, 'shift width too big')
+          else
+            IntegerObject.new(n << m)
+          end
+        end
+
+        def integer_rshift(_, v1, v2)
+          n = v1.raw
+          m = v2.is_a?(IntegerObject) ? v2.raw : v2.raw.to_i
+          if m < 0
+            raise FrozoneException.make(:RangeError, 'shift width too big') if m.abs >= SHIFT_LIMIT && n != 0
+            IntegerObject.new(n << m.abs)
+          elsif m > 1_000_000
+            IntegerObject.new(n >= 0 ? 0 : -1)
+          else
+            IntegerObject.new(n >> m)
+          end
+        end
         def integer_bit(_, v, n)      = IntegerObject.new(v.raw[n.raw])
         def integer_bit_length(_, v)  = IntegerObject.new(v.raw.bit_length)
 
-        def integer__lt_(_, v1, v2)  = bool_object_for(v1.raw <  v2.raw)
-        def integer__le_(_, v1, v2)  = bool_object_for(v1.raw <= v2.raw)
-        def integer__ge_(_, v1, v2)  = bool_object_for(v1.raw >= v2.raw)
-        def integer__gt_(_, v1, v2)  = bool_object_for(v1.raw >  v2.raw)
-        def integer__eq_(_, v1, v2)  = bool_object_for(v1.raw == v2.raw)
+        def integer_raw(v)
+          return v.raw if v.is_a?(IntegerObject) || v.is_a?(FloatObject)
+          raise FrozoneException.make(:TypeError, "#{v.is_a?(ObjectObject) ? (v.class_object&.name || 'Object') : v.class} can't be coerced into Integer")
+        end
 
-        def integer__plus_(_, v1, v2)  = IntegerObject.new(v1.raw + v2.raw)
-        def integer__minus_(_, v1, v2) = IntegerObject.new(v1.raw - v2.raw)
-        def integer__mul_(_, v1, v2)   = IntegerObject.new(v1.raw * v2.raw)
-        def integer__div_(_, v1, v2)   = IntegerObject.new(v1.raw / v2.raw)
-        def integer__mod_(_, v1, v2)   = IntegerObject.new(v1.raw % v2.raw)
-        def integer__pow_(_, v1, v2)   = IntegerObject.new(v1.raw ** v2.raw)
+        def numeric_wrap(result)
+          case result
+          when ::Float    then FloatObject.new(result)
+          when ::Integer  then IntegerObject.new(result)
+          when ::Rational then Core::OBJECT_CLASS.get_constant(:Rational) ? make_rational(result) : FloatObject.new(result.to_f)
+          else IntegerObject.new(result.to_i)
+          end
+        end
+
+        def make_rational(r)
+          rat_class = Core::OBJECT_CLASS.get_constant(:Rational)
+          obj = ObjectObject.new(rat_class)
+          obj.set_ivar(:@numerator, IntegerObject.new(r.numerator))
+          obj.set_ivar(:@denominator, IntegerObject.new(r.denominator))
+          obj
+        end
+
+        def integer__lt_(_, v1, v2)  = bool_object_for(v1.raw <  integer_raw(v2))
+        def integer__le_(_, v1, v2)  = bool_object_for(v1.raw <= integer_raw(v2))
+        def integer__ge_(_, v1, v2)  = bool_object_for(v1.raw >= integer_raw(v2))
+        def integer__gt_(_, v1, v2)  = bool_object_for(v1.raw >  integer_raw(v2))
+        def integer__eq_(_, v1, v2)  = bool_object_for(v1.raw == (v2.is_a?(IntegerObject) || v2.is_a?(FloatObject) ? v2.raw : nil))
+
+        def integer__plus_(_, v1, v2)  = numeric_wrap(v1.raw + integer_raw(v2))
+        def integer__minus_(_, v1, v2) = numeric_wrap(v1.raw - integer_raw(v2))
+        def integer__mul_(_, v1, v2)   = numeric_wrap(v1.raw * integer_raw(v2))
+        def integer__div_(_, v1, v2)   = numeric_wrap(v1.raw / integer_raw(v2))
+        def integer__mod_(_, v1, v2)   = numeric_wrap(v1.raw % integer_raw(v2))
+        def integer__pow_(_, v1, v2)   = numeric_wrap(v1.raw ** integer_raw(v2))
+
+        def integer_to_f(_, v) = FloatObject.new(v.raw.to_f)
 
         def integer_to_r(context, v)
           r_class = Core::OBJECT_CLASS.get_constant(:Rational)
@@ -1287,6 +1352,14 @@ module Frozone
         def float_floor(_, v, n = nil) = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.floor) : FloatObject.new(v.raw.floor(n.raw))
         def float_round(_, v, n = nil) = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.round) : FloatObject.new(v.raw.round(n.raw))
         def float_truncate(_, v, n = nil) = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.truncate) : FloatObject.new(v.raw.truncate(n.raw))
+        def float_infinity(_)    = FloatObject.new(::Float::INFINITY)
+        def float_nan(_)         = FloatObject.new(::Float::NAN)
+        def float_next_float(_, v) = FloatObject.new(v.raw.next_float)
+        def float_prev_float(_, v) = FloatObject.new(v.raw.prev_float)
+        def float_rationalize(context, v, eps = nil)
+          r = eps.nil? || eps.is_a?(NilObject) ? v.raw.rationalize : v.raw.rationalize(eps.raw)
+          make_rational(r)
+        end
         def float_nan?(_, v)           = bool_object_for(v.raw.nan?)
 
         def float_infinite?(_, v)
@@ -1315,6 +1388,33 @@ module Frozone
         def float__div_(_, v1, v2)   = FloatObject.new(v1.raw / v2.raw)
         def float__mod_(_, v1, v2)   = FloatObject.new(v1.raw % v2.raw)
         def float__pow_(_, v1, v2)   = FloatObject.new(v1.raw ** v2.raw)
+
+        # Math module functions
+        def float_sqrt(_, v)  = FloatObject.new(::Math.sqrt(v.raw))
+        def float_cbrt(_, v)  = FloatObject.new(::Math.cbrt(v.raw))
+        def float_exp(_, v)   = FloatObject.new(::Math.exp(v.raw))
+        def float_log(_, v)   = FloatObject.new(::Math.log(v.raw))
+        def float_log2(_, v)  = FloatObject.new(::Math.log2(v.raw))
+        def float_log10(_, v) = FloatObject.new(::Math.log10(v.raw))
+        def float_sin(_, v)   = FloatObject.new(::Math.sin(v.raw))
+        def float_cos(_, v)   = FloatObject.new(::Math.cos(v.raw))
+        def float_tan(_, v)   = FloatObject.new(::Math.tan(v.raw))
+        def float_asin(_, v)  = FloatObject.new(::Math.asin(v.raw))
+        def float_acos(_, v)  = FloatObject.new(::Math.acos(v.raw))
+        def float_atan(_, v)  = FloatObject.new(::Math.atan(v.raw))
+        def float_atan2(_, y, x) = FloatObject.new(::Math.atan2(y.raw, x.raw))
+        def float_sinh(_, v)  = FloatObject.new(::Math.sinh(v.raw))
+        def float_cosh(_, v)  = FloatObject.new(::Math.cosh(v.raw))
+        def float_tanh(_, v)  = FloatObject.new(::Math.tanh(v.raw))
+        def float_asinh(_, v) = FloatObject.new(::Math.asinh(v.raw))
+        def float_acosh(_, v) = FloatObject.new(::Math.acosh(v.raw))
+        def float_atanh(_, v) = FloatObject.new(::Math.atanh(v.raw))
+        def float_hypot(_, a, b) = FloatObject.new(::Math.hypot(a.raw, b.raw))
+        def float_frexp(_, v)
+          m, e = ::Math.frexp(v.raw)
+          ArrayObject.new([FloatObject.new(m), IntegerObject.new(e)])
+        end
+        def float_ldexp(_, v, n) = FloatObject.new(::Math.ldexp(v.raw, n.raw))
 
         # File / Dir
         def file_join(_, parts)
@@ -1567,7 +1667,7 @@ module Frozone
 
         # String
         def string_plus(_, v1, v2)
-          raise "String#+ requires a String argument" unless v2.is_a?(StringObject)
+          raise TypeError, "no implicit conversion of #{v2.class_object&.name || v2.class.name} into String" unless v2.is_a?(StringObject)
           StringObject.new(v1.raw + v2.raw)
         end
 
@@ -1627,41 +1727,77 @@ module Frozone
           ArrayObject.new(parts.map { |p| StringObject.new(p) })
         end
 
+        def extract_pattern(context, pattern)
+          return pattern.raw if pattern.is_a?(StringObject) || pattern.is_a?(RegexpObject)
+          if pattern.is_a?(ObjectObject)
+            r = pattern.dispatch(context, :to_str, [], {}) rescue nil
+            return r.raw if r.is_a?(StringObject)
+          end
+          name = pattern.is_a?(ObjectObject) ? (pattern.class_object&.name || 'Object').to_s : pattern.class.name
+          raise FrozoneException.make(:TypeError, "no implicit conversion of #{name} into String")
+        end
+
+        def extract_string_replacement(context, replacement)
+          return replacement.raw if replacement.is_a?(StringObject)
+          if replacement.is_a?(ObjectObject)
+            r = replacement.dispatch(context, :to_str, [], {}) rescue nil
+            return r.raw if r.is_a?(StringObject)
+          end
+          name = replacement.is_a?(ObjectObject) ? (replacement.class_object&.name || 'Object').to_s : replacement.class.name
+          raise FrozoneException.make(:TypeError, "no implicit conversion of #{name} into String")
+        end
+
+        def block_result_to_s(context, val)
+          return val.raw if val.is_a?(StringObject)
+          r = val.dispatch(context, :to_s, [], {}) rescue nil
+          r.is_a?(StringObject) ? r.raw : val.to_s
+        end
+
         def string_gsub(context, v, pattern, replacement = nil, block = nil)
-          pat = pattern.raw
-          if block && !block.is_a?(NilObject)
+          pat = extract_pattern(context, pattern)
+          has_replacement = !(replacement.nil? || replacement.is_a?(NilObject))
+          has_block = block && !block.is_a?(NilObject)
+          if has_block && !has_replacement
             result = v.raw.gsub(pat) do |_match|
               update_match_globals($~)
               match_obj = StringObject.new($&)
-              block.invoke(context, [match_obj]).raw.to_s
+              block_result_to_s(context, block.invoke(context, [match_obj]))
             end
             StringObject.new(result)
-          elsif replacement.nil? || replacement.is_a?(NilObject)
+          elsif !has_replacement
             NilObject::NIL
           elsif replacement.is_a?(HashObject)
             result = v.raw.gsub(pat) do |match|
               r = replacement[StringObject.new(match)]
-              r.is_a?(NilObject) || r.nil? ? match : r.raw.to_s
+              r.is_a?(NilObject) || r.nil? ? match : block_result_to_s(context, r)
             end
             StringObject.new(result)
           else
-            StringObject.new(v.raw.gsub(pat, replacement.raw))
+            StringObject.new(v.raw.gsub(pat, extract_string_replacement(context, replacement)))
           end
         end
 
         def string_sub(context, v, pattern, replacement = nil, block = nil)
-          pat = pattern.raw
-          if block && !block.is_a?(NilObject)
+          pat = extract_pattern(context, pattern)
+          has_replacement = !(replacement.nil? || replacement.is_a?(NilObject))
+          has_block = block && !block.is_a?(NilObject)
+          if has_block && !has_replacement
             result = v.raw.sub(pat) do |_match|
               update_match_globals($~)
               match_obj = StringObject.new($&)
-              block.invoke(context, [match_obj]).raw.to_s
+              block_result_to_s(context, block.invoke(context, [match_obj]))
             end
             StringObject.new(result)
-          elsif replacement.nil? || replacement.is_a?(NilObject)
+          elsif !has_replacement
             NilObject::NIL
+          elsif replacement.is_a?(HashObject)
+            result = v.raw.sub(pat) do |match|
+              r = replacement[StringObject.new(match)]
+              r.is_a?(NilObject) || r.nil? ? match : block_result_to_s(context, r)
+            end
+            StringObject.new(result)
           else
-            StringObject.new(v.raw.sub(pat, replacement.raw))
+            StringObject.new(v.raw.sub(pat, extract_string_replacement(context, replacement)))
           end
         end
 
@@ -1728,7 +1864,14 @@ module Frozone
           v1.raw << v2_str
           v1
         end
-        def string_multiply(_, v, n)      = StringObject.new(v.raw * n.raw)
+        def string_multiply(_, v, n)
+          count = n.is_a?(IntegerObject) ? n.raw : (n.respond_to?(:raw) ? n.raw.to_i : n.to_i)
+          raise FrozoneException.make(:ArgumentError, "negative string size (or exceeds maximum allowed string size)") if count < 0
+          raise FrozoneException.make(:RangeError, "bignum too big to convert into 'long'") if count > 9_223_372_036_854_775_807
+          str = v.raw
+          raise FrozoneException.make(:ArgumentError, "argument exceeds the limit") if !str.empty? && count > 1_073_741_823
+          StringObject.new(str * count)
+        end
 
         def string_format(_, v, args)
           raw_args = args.is_a?(ArrayObject) ? args.raw.map(&:raw) : args.raw
@@ -1786,18 +1929,23 @@ module Frozone
         def symbol_eql(_, v1, v2) = bool_object_for(v2.is_a?(SymbolObject) && v1.raw == v2.raw)
 
         # Array
+        ARRAY_MAX_SIZE = 1_073_741_823  # 2**30 - 1; prevents allocation hangs for huge sizes
+
         def array_initialize(context, arr, size_or_array = nil, fill = nil, block = nil)
           size_or_array = nil if size_or_array.nil? || size_or_array.is_a?(NilObject)
           fill = nil if fill.nil? || fill.is_a?(NilObject)
           block = nil if block.nil? || block.is_a?(NilObject)
+          arr.raw.clear
           if size_or_array.is_a?(ArrayObject)
-            size_or_array.raw.each { |e| arr.push(e) }
+            arr.raw.replace(size_or_array.raw.dup)
           elsif size_or_array.is_a?(IntegerObject)
             n = size_or_array.raw
+            raise FrozoneException.make(:ArgumentError, "negative array size") if n < 0
+            raise FrozoneException.make(:ArgumentError, "array size too big") if n > ARRAY_MAX_SIZE
             if block
               n.times { |i| arr.push(block.invoke(context, [IntegerObject.new(i)])) }
             else
-              n.times { arr.push(fill || NilObject::NIL) }
+              arr.raw.replace(Array.new(n, fill || NilObject::NIL))
             end
           end
           arr
@@ -1814,6 +1962,8 @@ module Frozone
             ArrayObject.new(size_or_array.raw.dup, cls)
           elsif size_or_array.is_a?(IntegerObject)
             n = size_or_array.raw
+            raise FrozoneException.make(:ArgumentError, "negative array size") if n < 0
+            raise FrozoneException.make(:ArgumentError, "array size too big") if n > ARRAY_MAX_SIZE
             if block
               elements = (0...n).map { |i| block.invoke(context, [IntegerObject.new(i)]) }
               ArrayObject.new(elements, cls)
@@ -1865,7 +2015,11 @@ module Frozone
           return StringObject.new("[...]") if seen.key?(v.object_id)
           seen[v.object_id] = true
           begin
-            inner = v.raw.map { |e| e.dispatch(context, :inspect, [], {}).raw }.join(", ")
+            inner = v.raw.map do |e|
+              r = e.dispatch(context, :inspect, [], {})
+              r = r.dispatch(context, :to_s, [], {}) unless r.is_a?(StringObject)
+              r.is_a?(StringObject) ? r.raw : r.to_s
+            end.join(", ")
             StringObject.new("[#{inner}]")
           ensure
             seen.delete(v.object_id)
@@ -1898,7 +2052,8 @@ module Frozone
         end
 
         def array_concat(_, v1, v2)
-          v2.raw.each { |e| v1.raw << e }
+          elems = v1.equal?(v2) ? v2.raw.dup : v2.raw
+          elems.each { |e| v1.raw << e }
           v1
         end
 
@@ -1942,6 +2097,21 @@ module Frozone
           RangeObject.new(b, e, excl)
         end
 
+        def range_allocate(_, _klass)
+          RangeObject.new(NilObject::NIL, NilObject::NIL, false, initialized: false)
+        end
+
+        def range_initialized_q(_, range)
+          bool_object_for(range.is_a?(RangeObject) && range.initialized?)
+        end
+
+        def range_set(_, range, b, e, excl)
+          excl = excl.nil? || excl.is_a?(NilObject) ? false : excl.truthy?
+          e = NilObject::NIL if e.nil?
+          range.set_range(b, e, excl)
+          range
+        end
+
         def range_begin(_, range) = range.begin_val
         def range_end(_, range)   = range.end_val
         def range_exclude_end(_, range) = bool_object_for(range.exclusive?)
@@ -1968,6 +2138,38 @@ module Frozone
           end
         end
 
+        def hash_get_default(context, h, key = nil)
+          if h.default_block
+            key.nil? || key.is_a?(NilObject) ? NilObject::NIL : h.default_block.invoke(context, [h, key])
+          elsif h.default_value
+            h.default_value
+          else
+            NilObject::NIL
+          end
+        end
+
+        def hash_set_default(_, h, val)
+          h.default_block = nil
+          h.default_value = val.is_a?(NilObject) ? nil : val
+          val
+        end
+
+        def hash_get_default_proc(_, h)
+          h.default_block ? ProcObject.new(h.default_block) : NilObject::NIL
+        end
+
+        def hash_set_default_proc(_, h, prc)
+          if prc.is_a?(NilObject)
+            h.default_block = nil
+          elsif prc.is_a?(ProcObject)
+            h.default_block = prc.block_object
+            h.default_value = nil
+          else
+            raise FrozoneException.make(:TypeError, "wrong argument type #{prc.class.name} (expected Proc/nil)")
+          end
+          prc
+        end
+
         def hash_new(_, default = nil, block = nil)
           block_obj = block.is_a?(ProcObject) ? block.block_object : block
           block_obj = nil if block_obj.is_a?(NilObject)
@@ -1989,6 +2191,20 @@ module Frozone
           val = h[key]
           h.delete(key)
           val.nil? ? NilObject::NIL : val
+        end
+
+        def hash_clear(_, h)
+          h.raw.clear if h.is_a?(HashObject)
+          h
+        end
+
+        def hash_compare_by_identity(_, h)
+          # Stub - Frozone doesn't support identity-based key comparison
+          h
+        end
+
+        def hash_compare_by_identity_q(_, h)
+          FalseObject::FALSE
         end
 
         def hash_ruby2_keywords_hash(_, h)

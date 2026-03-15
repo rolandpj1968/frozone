@@ -46,6 +46,12 @@ module Kernel
   def __method__ = nil  # stub
   def local_variables = Intrinsics.kernel_local_variables(self)
 
+  def to_enum(method_name = :each, *args, &size_block)
+    Enumerator._from_method(self, method_name, args, size_block)
+  end
+
+  alias enum_for to_enum
+
   # Make these available as module functions: private instance methods AND public Kernel.method calls
   module_function :puts, :print, :warn, :p, :raise, :fail, :require, :require_relative, :load, :__dir__,
                   :proc, :lambda, :eval, :binding, :sprintf, :format,

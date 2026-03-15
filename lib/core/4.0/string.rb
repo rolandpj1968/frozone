@@ -47,20 +47,65 @@ class String
   def lstrip = Intrinsics.string_lstrip(self)
   def rstrip = Intrinsics.string_rstrip(self)
   def chomp(sep = nil) = Intrinsics.string_chomp(self, sep)
-  def chomp!(sep = nil) = Intrinsics.string_chomp(self, sep)
+  def chomp!(sep = nil)
+    r = Intrinsics.string_chomp(self, sep); return nil if r == self; Intrinsics.string_replace(self, r)
+  end
+
   def chop = Intrinsics.string_chop(self)
-  def chop! = Intrinsics.string_chop(self)
-  def strip! = Intrinsics.string_strip(self)
-  def lstrip! = Intrinsics.string_lstrip(self)
-  def rstrip! = Intrinsics.string_rstrip(self)
-  def upcase! = Intrinsics.string_upcase(self)
-  def downcase! = Intrinsics.string_downcase(self)
-  def capitalize! = Intrinsics.string_capitalize(self)
+
+  def chop!
+    return nil if empty?; r = Intrinsics.string_chop(self); Intrinsics.string_replace(self, r)
+  end
+
+  def strip!
+    r = Intrinsics.string_strip(self); return nil if r == self; Intrinsics.string_replace(self, r)
+  end
+
+  def lstrip!
+    r = Intrinsics.string_lstrip(self); return nil if r == self; Intrinsics.string_replace(self, r)
+  end
+
+  def rstrip!
+    r = Intrinsics.string_rstrip(self); return nil if r == self; Intrinsics.string_replace(self, r)
+  end
+
+  def upcase!(*args)
+    r = Intrinsics.string_upcase(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
+  end
+
+  def downcase!(*args)
+    r = Intrinsics.string_downcase(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
+  end
+
+  def capitalize!(*args)
+    r = Intrinsics.string_capitalize(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
+  end
+
   def reverse! = Intrinsics.string_reverse_bang(self)
-  def gsub!(pattern, replacement = nil, &block) = Intrinsics.string_gsub(self, pattern, replacement, block)
-  def sub!(pattern, replacement = nil, &block) = Intrinsics.string_sub(self, pattern, replacement, block)
-  def squeeze!(*args) = Intrinsics.string_squeeze(self, *args)
-  def delete!(*args) = Intrinsics.string_delete(self, *args)
+
+  def gsub!(pattern, replacement = nil, &block)
+    r = Intrinsics.string_gsub(self, pattern, replacement, block)
+    return nil if r.nil? || r.is_a?(NilClass)
+    changed = r != self
+    Intrinsics.string_replace(self, r)
+    changed ? self : nil
+  end
+
+  def sub!(pattern, replacement = nil, &block)
+    r = Intrinsics.string_sub(self, pattern, replacement, block)
+    return nil if r.nil? || r.is_a?(NilClass)
+    changed = r != self
+    Intrinsics.string_replace(self, r)
+    changed ? self : nil
+  end
+
+  def squeeze!(*args)
+    r = Intrinsics.string_squeeze(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
+  end
+
+  def delete!(*args)
+    r = Intrinsics.string_delete(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
+  end
   def casecmp(other) = upcase <=> other.upcase
   def casecmp?(other) = casecmp(other) == 0
   def upcase = Intrinsics.string_upcase(self)
@@ -78,6 +123,7 @@ class String
   def count(*args) = Intrinsics.string_count(self, *args)
   def delete(*args) = Intrinsics.string_delete(self, *args)
   def [](idx, len = nil) = Intrinsics.string_slice(self, idx, len)
+  alias slice []
   def index(sub, offset = nil) = Intrinsics.string_index(self, sub, offset)
   def rindex(sub, offset = nil) = Intrinsics.string_rindex(self, sub, offset)
   def replace(other) = Intrinsics.string_replace(self, other)

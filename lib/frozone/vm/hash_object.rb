@@ -17,7 +17,7 @@ module Frozone
         def eql?(v) = v.is_a?(KeyWrapper) && @unwrap.dispatch(Fiber[:context], :eql?, [v.unwrap], {}).truthy?
       end
 
-      attr_reader :default_block, :default_value
+      attr_accessor :default_block, :default_value
 
       attr_accessor :ruby2_keywords
 

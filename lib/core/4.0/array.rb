@@ -4,7 +4,30 @@ class Array
   end
 
   def initialize(size_or_array = nil, fill = nil, &block)
-    Intrinsics.array_initialize(self, size_or_array, fill, block)
+    raise FrozenError, "can't modify frozen #{self.class}" if frozen?
+    if size_or_array.nil?
+      warn "warning: given block not used" if block
+      Intrinsics.array_initialize(self, nil, nil, nil)
+    elsif size_or_array.is_a?(Array)
+      raise TypeError, "wrong number of arguments (given 2, expected 0..1)" if !fill.nil?
+      warn "warning: given block not used" if block
+      Intrinsics.array_initialize(self, size_or_array, nil, nil)
+    elsif size_or_array.respond_to?(:to_ary, true)
+      raise TypeError, "wrong number of arguments (given 2, expected 0..1)" if !fill.nil?
+      warn "warning: given block not used" if block
+      Intrinsics.array_initialize(self, size_or_array.send(:to_ary), nil, nil)
+    elsif size_or_array.is_a?(Integer)
+      warn "warning: block supersedes default value argument" if block && !fill.nil?
+      Intrinsics.array_initialize(self, size_or_array, fill, block)
+    elsif size_or_array.respond_to?(:to_int)
+      n = size_or_array.to_int
+      raise TypeError, "no implicit conversion of #{size_or_array.class} into Integer" unless n.is_a?(Integer)
+      raise TypeError, "wrong number of arguments (given 2, expected 0..1)" if !fill.nil? && !n.is_a?(Integer)
+      warn "warning: block supersedes default value argument" if block && !fill.nil?
+      Intrinsics.array_initialize(self, n, fill, block)
+    else
+      raise TypeError, "no implicit conversion of #{size_or_array.class} into Integer"
+    end
   end
 
   def at(i) = Intrinsics.array_at(self, i)
@@ -56,13 +79,22 @@ class Array
   end
   def empty? = length == 0
   def first(n = nil) = n ? self[0, n] : self[0]
-  def last(n = nil) = n ? self[-n, n] : self[self.length - 1]
+  def last(n = nil) = n ? self[[length - n, 0].max, n] : self[length - 1]
 
   def ==(other)
     return false unless other.is_a?(Array)
     return false unless length == other.length
-    i = 0; while i < length; return false unless self[i] == other[i]; i += 1; end
-    true
+    return true if equal?(other)
+    ongoing = (Fiber[:__array_eq__] ||= [])
+    id1, id2 = __id__, other.__id__
+    return true if ongoing.any? { |a, b| a == id1 && b == id2 }
+    ongoing << [id1, id2]
+    begin
+      i = 0; while i < length; return false unless self[i] == other[i]; i += 1; end
+      true
+    ensure
+      ongoing.pop
+    end
   end
 
   def to_s = Intrinsics.array_to_s(self)
@@ -81,13 +113,31 @@ class Array
   def dup = Intrinsics.array_dup(self)
   def clone(freeze: nil) = Intrinsics.array_clone(self, freeze)
 
-  def hash; reduce(0) { |acc, e| acc * 31 + e.hash }; end
+  def hash
+    ongoing = (Fiber[:__array_hash__] ||= [])
+    return 0 if ongoing.include?(__id__)
+    ongoing << __id__
+    begin
+      reduce(0) { |acc, e| acc * 31 + e.hash }
+    ensure
+      ongoing.pop
+    end
+  end
 
   def eql?(other)
     return false unless other.is_a?(Array)
     return false unless length == other.length
-    i = 0; while i < length; return false unless self[i].eql?(other[i]); i += 1; end
-    true
+    return true if equal?(other)
+    ongoing = (Fiber[:__array_eql__] ||= [])
+    id1, id2 = __id__, other.__id__
+    return true if ongoing.any? { |a, b| a == id1 && b == id2 }
+    ongoing << [id1, id2]
+    begin
+      i = 0; while i < length; return false unless self[i].eql?(other[i]); i += 1; end
+      true
+    ensure
+      ongoing.pop
+    end
   end
 
   def &(other)
@@ -141,8 +191,44 @@ class Array
   def sort = Intrinsics.array_sort(self)
   def sort!; replace(sort); self; end
   def sort_by(&block) = Intrinsics.array_sort_by(self, block)
-  def min; empty? ? nil : reduce { |a, b| (a <=> b) <= 0 ? a : b }; end
-  def max; empty? ? nil : reduce { |a, b| (a <=> b) >= 0 ? a : b }; end
+  def min(&block)
+    return nil if empty?
+    if block
+      # Call both < and > on block result to match MRI behavior
+      r = self[0]
+      each_with_index do |x, i|
+        next if i == 0
+        cmp = block.call(x, r)
+        if cmp < 0
+          r = x      # new element is smaller
+        elsif cmp > 0
+          # keep r   # new element is larger
+        end
+      end
+      r
+    else
+      reduce { |a, b| (a <=> b) <= 0 ? a : b }
+    end
+  end
+
+  def max(&block)
+    return nil if empty?
+    if block
+      r = self[0]
+      each_with_index do |x, i|
+        next if i == 0
+        cmp = block.call(x, r)
+        if cmp > 0
+          r = x      # new element is larger
+        elsif cmp < 0
+          # keep r   # new element is smaller
+        end
+      end
+      r
+    else
+      reduce { |a, b| (a <=> b) >= 0 ? a : b }
+    end
+  end
 
   def sum(initial = nil)
     acc = initial.nil? ? 0 : initial
@@ -196,15 +282,26 @@ class Array
   def shuffle = Intrinsics.array_shuffle(self)
 
   def zip(*others)
-    result = []
-    i = 0
-    while i < length
-      row = [self[i]]
-      others.each { |o| row << (i < o.length ? o[i] : nil) }
-      result << row
-      i += 1
+    n = length
+    converted = others.map do |o|
+      if o.respond_to?(:to_ary)
+        o.to_ary
+      elsif o.respond_to?(:each)
+        elems = []
+        o.each { |e| elems << e; break if elems.length >= n }
+        elems
+      else
+        raise TypeError, "wrong argument type #{o.class} (must respond to :each)"
+      end
     end
-    result
+    if block_given?
+      each_with_index { |elem, i| yield([elem] + converted.map { |arr| i < arr.length ? arr[i] : nil }) }
+      nil
+    else
+      result = []
+      each_with_index { |elem, i| result << ([elem] + converted.map { |arr| i < arr.length ? arr[i] : nil }) }
+      result
+    end
   end
 
   def combination(n, &block) = Intrinsics.array_combination(self, n, block)

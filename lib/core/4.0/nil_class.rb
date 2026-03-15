@@ -9,4 +9,5 @@ class NilClass
   def &(_) = false
   def |(other) = other ? true : false
   def =~(_) = nil
+  def <=>(other) = nil
 end
