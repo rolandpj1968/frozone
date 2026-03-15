@@ -1079,6 +1079,84 @@ module Frozone
           proc_obj.lambda? ? TrueObject::TRUE : FalseObject::FALSE
         end
 
+        def proc_curry(context, proc_obj, arity_arg = NilObject::NIL)
+          is_lambda = proc_obj.lambda?
+          # Determine the target arity for currying
+          base_arity = proc_arity(context, proc_obj).raw
+          min_required = base_arity < 0 ? -(base_arity + 1) : base_arity
+          # Compute max accepted args (infinity if has splat)
+          blk_obj = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
+          if blk_obj.is_a?(BlockObject)
+            has_rest = !blk_obj.instance_variable_get(:@rest_param).nil?
+            opt_count = blk_obj.instance_variable_get(:@optional_params)&.length || 0
+          else
+            has_rest = base_arity < 0
+            opt_count = 0
+          end
+          max_accepted = has_rest ? Float::INFINITY : min_required + opt_count
+
+          target = if arity_arg.is_a?(NilObject)
+            min_required
+          else
+            a = arity_arg.raw
+            if is_lambda
+              if a < min_required
+                raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given #{a}, expected #{min_required}+)")
+              end
+              if a > max_accepted
+                raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given #{a}, expected #{min_required}..#{max_accepted == Float::INFINITY ? '*' : max_accepted})")
+              end
+            end
+            a
+          end
+
+          make_curried = lambda do |accumulated|
+            NativeBlock.new(
+              source_location: nil,
+              parameters_override: [[:rest]],
+              is_lambda: is_lambda
+            ) do |ctx, new_args, block: nil|
+              all_args = accumulated + new_args
+              if all_args.length >= target
+                proc_obj.call(ctx, all_args, block: block)
+              else
+                ProcObject.new(make_curried.call(all_args), lambda: is_lambda)
+              end
+            end
+          end
+
+          ProcObject.new(make_curried.call([]), lambda: is_lambda)
+        end
+
+        def proc_dup(context, proc_obj)
+          blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
+          copy = ProcObject.new(blk, lambda: proc_obj.lambda?)
+          copy.instance_variable_set(:@class_object, proc_obj.class_object)
+          copy_object_fields(proc_obj, copy, eigenclass: nil, frozen: false)
+          copy
+        end
+
+        def proc_clone(context, proc_obj, freeze_opt = NilObject::NIL)
+          blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
+          copy = ProcObject.new(blk, lambda: proc_obj.lambda?)
+          copy.instance_variable_set(:@class_object, proc_obj.class_object)
+          freeze_val = freeze_opt.is_a?(NilObject) ? nil : freeze_opt.truthy?
+          frozen = if freeze_val == false then false
+                   elsif freeze_val.nil? then proc_obj.frozen_object?
+                   else true
+                   end
+          sc_copy = nil
+          if proc_obj.eigenclass
+            sc_copy = ClassObject.new(nil, nil, proc_obj.eigenclass.superclass)
+            sc_copy.instance_variable_set(:@is_singleton_class, true)
+            sc_copy.instance_variable_set(:@singleton_of, copy)
+            orig_methods = proc_obj.eigenclass.instance_variable_get(:@methods) || {}
+            sc_copy.instance_variable_set(:@methods, orig_methods.dup)
+          end
+          copy_object_fields(proc_obj, copy, eigenclass: sc_copy, frozen: frozen)
+          copy
+        end
+
         def proc_arity(_, proc_obj)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.instance_variable_get(:@block_object) : proc_obj
           if blk.is_a?(NativeBlock) && blk.parameters_override
@@ -1088,15 +1166,25 @@ module Frozone
             return has_rest ? IntegerObject.new(-(req + 1)) : IntegerObject.new(req)
           end
           return IntegerObject.new(0) unless blk.is_a?(BlockObject)
+          is_lambda = blk.instance_variable_get(:@is_lambda)
           req = blk.instance_variable_get(:@required_params)&.length || 0
           opt = blk.instance_variable_get(:@optional_params)&.length || 0
           rest = blk.instance_variable_get(:@rest_param)
           post = blk.instance_variable_get(:@post_params)&.length || 0
           req_kw = blk.instance_variable_get(:@required_kw_params)&.length || 0
-          if rest || opt > 0 || post > 0
-            IntegerObject.new(-(req + post + req_kw + 1))
+          opt_kw = blk.instance_variable_get(:@optional_kw_params)&.length || 0
+          kw_rest = blk.instance_variable_get(:@kw_rest_param)
+          # Keyword params: required kw count as 1 positional (absorbed from optional kw);
+          # optional kw / kw_rest only make arity negative when there are no required kw.
+          req_kw_count = req_kw > 0 ? 1 : 0
+          kw_optional = req_kw == 0 && (opt_kw > 0 || (kw_rest && kw_rest != :__no_kwargs__))
+          # For lambdas, optional positional params and kw_optional make arity negative.
+          # For procs, only rest/post make arity negative (opt positional and kw_optional ignored).
+          has_opt = rest || post > 0 || (is_lambda && (opt > 0 || kw_optional))
+          if has_opt
+            IntegerObject.new(-(req + post + req_kw_count + 1))
           else
-            IntegerObject.new(req + req_kw)
+            IntegerObject.new(req + post + req_kw_count)
           end
         end
 
