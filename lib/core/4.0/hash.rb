@@ -17,7 +17,7 @@ class Hash
   end
 
   def self.[](*args)
-    h = {}
+    h = allocate
     if args.length == 1
       arg = args[0]
       if arg.is_a?(Hash)
@@ -29,11 +29,14 @@ class Hash
         converted.each { |k, v| h[k] = v }
         return h
       elsif arg.respond_to?(:to_ary)
+        idx = 0
         arg.to_ary.each do |pair|
-          raise ArgumentError, "wrong element type #{pair.class} at 0 (expected Array)" unless pair.respond_to?(:to_ary)
+          type_name = pair.nil? ? "nil" : (pair.equal?(true) ? "true" : (pair.equal?(false) ? "false" : pair.class.to_s))
+          raise ArgumentError, "wrong element type #{type_name} at #{idx} (expected array)" unless pair.respond_to?(:to_ary)
           kv = pair.to_ary
           raise ArgumentError, "invalid number of elements (#{kv.length} for 1..2)" unless kv.length == 1 || kv.length == 2
           h[kv[0]] = kv.length == 2 ? kv[1] : nil
+          idx += 1
         end
         return h
       end

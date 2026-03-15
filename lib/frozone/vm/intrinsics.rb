@@ -1544,10 +1544,34 @@ module Frozone
           klass.new_instance(context, raw_args, raw_kwargs, block)
         end
 
+        def subclass_of_builtin?(klass, base_class)
+          k = klass
+          while k.is_a?(ClassObject)
+            return true if k.equal?(base_class)
+            k = k.superclass
+          end
+          false
+        end
+
         def class_allocate(context, klass)
           raise FrozoneException.make(:TypeError, "can't create instance of singleton class") if klass.instance_variable_get(:@is_singleton_class)
           raise FrozoneException.make(:TypeError, "can't create instance of virtual class") if klass.equal?(Core::CLASS_CLASS) || klass.equal?(Core::MODULE_CLASS)
-          ObjectObject.new(klass)
+          # Special allocation for built-in types that need their own VM objects
+          if subclass_of_builtin?(klass, Core::HASH_CLASS)
+            h = HashObject.new({})
+            h.instance_variable_set(:@class_object, klass)
+            h
+          elsif subclass_of_builtin?(klass, Core::ARRAY_CLASS)
+            a = ArrayObject.new([])
+            a.instance_variable_set(:@class_object, klass)
+            a
+          elsif subclass_of_builtin?(klass, Core::STRING_CLASS)
+            s = StringObject.new("")
+            s.instance_variable_set(:@class_object, klass)
+            s
+          else
+            ObjectObject.new(klass)
+          end
         end
 
         def class_superclass(_, klass)
