@@ -38,7 +38,10 @@ class Object
   def frozen? = Intrinsics.object_frozen(self)
   def dup = Intrinsics.object_dup(self)
   def clone(freeze: nil) = Intrinsics.object_clone(self, freeze)
-  def tap(&block) = self
+  def tap
+    yield self if block_given?
+    self
+  end
   def then(&block) = block ? block.call(self) : self
   alias yield_self then
 

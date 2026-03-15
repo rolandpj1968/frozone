@@ -1895,7 +1895,13 @@ module Frozone
             m = idx.raw.match(v.raw)
             update_match_globals(m)
             unless len.nil?
-              cap = m ? m[len.raw] : nil
+              cap_idx = begin
+                raw = len.raw
+                raw.is_a?(Integer) ? raw : Integer(raw)
+              rescue NoMethodError, TypeError, ArgumentError
+                raise FrozoneException.make(:TypeError, "no implicit conversion of #{len.class_object.name} into Integer")
+              end
+              cap = m ? m[cap_idx] : nil
               return cap ? StringObject.new(cap) : NilObject::NIL
             end
             return m ? StringObject.new(m[0]) : NilObject::NIL
