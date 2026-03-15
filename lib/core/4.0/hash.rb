@@ -163,7 +163,8 @@ class Hash
 
   alias inspect to_s
   def dup
-    r = {}
+    r = self.class.allocate
+    r.compare_by_identity if compare_by_identity?
     each { |k, v| r[k] = v }
     if default_proc
       r.default_proc = default_proc
@@ -173,7 +174,11 @@ class Hash
     r
   end
 
-  def clone; dup; end
+  def clone(freeze: nil)
+    r = dup
+    r.freeze if freeze || (freeze.nil? && frozen?)
+    r
+  end
 
   def each(&block)
     return to_enum(:each) { size } unless block

@@ -2679,12 +2679,12 @@ module Frozone
         end
 
         def hash_compare_by_identity(_, h)
-          # Stub - Frozone doesn't support identity-based key comparison
+          h.compare_by_identity! if h.is_a?(HashObject)
           h
         end
 
         def hash_compare_by_identity_q(_, h)
-          FalseObject::FALSE
+          bool_object_for(h.is_a?(HashObject) && h.compare_by_identity_flag)
         end
 
         def hash_ruby2_keywords_hash(_, h)
