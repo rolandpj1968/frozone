@@ -13,7 +13,7 @@ module Frozone
       attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
       attr_accessor :visibility, :nested_def_scope
 
-      attr_reader :uses_block, :source_location
+      attr_reader :uses_block, :source_location, :body
       attr_accessor :ruby2_keywords
 
       def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body, uses_block: nil, source_location: nil)
@@ -261,7 +261,7 @@ module Frozone
 
     # A method created by define_method that delegates to a captured block
     class DefinedMethod
-      attr_reader :name, :scopes
+      attr_reader :name, :scopes, :block_obj
       attr_accessor :visibility, :ruby2_keywords
 
       def initialize(name, block_obj, defining_class = nil)

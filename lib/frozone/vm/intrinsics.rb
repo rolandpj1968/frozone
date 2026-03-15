@@ -880,6 +880,128 @@ module Frozone
           UnboundMethodObject.new(m, name, receiver)
         end
 
+        def object_method(_, receiver, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          klass = receiver.eigenclass || receiver.class_object
+          m = klass.lookup_method(name) || receiver.class_object.lookup_method(name)
+          unless m
+            raise FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.class_object.full_name}'")
+          end
+          owner = receiver.class_object.lookup_method_owner(name) || receiver.class_object
+          BoundMethodObject.new(m, name, receiver, owner)
+        end
+
+        def bound_method_call(context, receiver, args, kwargs)
+          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          blk = context.frame.block
+          blk = nil if blk.nil? || blk.is_a?(NilObject)
+          kw = kwargs.is_a?(HashObject) ? kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k.raw.to_sym } : {}
+          receiver.bound_receiver.dispatch(context, receiver.bound_name, args.raw, kw, blk)
+        end
+
+        def bound_method_arity(_, receiver)
+          return IntegerObject.new(0) unless receiver.is_a?(BoundMethodObject)
+          m = receiver.raw_method
+          return IntegerObject.new(0) unless m.is_a?(Method)
+          req = m.required_params.length
+          opt = m.optional_params.length
+          rest = m.rest_param && m.rest_param != :__no_rest__
+          post = m.post_params.length
+          req_kw = m.required_kw_params.length
+          opt_kw = m.optional_kw_params.length
+          kw_rest = m.kw_rest_param
+          req_kw_count = req_kw > 0 ? 1 : 0
+          kw_optional = req_kw == 0 && (opt_kw > 0 || (kw_rest && kw_rest != :__no_kwargs__))
+          has_opt = rest || post > 0 || opt > 0 || kw_optional
+          if has_opt
+            IntegerObject.new(-(req + post + req_kw_count + 1))
+          else
+            IntegerObject.new(req + post + req_kw_count)
+          end
+        end
+
+        def bound_method_parameters(_, receiver)
+          return ArrayObject.new([]) unless receiver.is_a?(BoundMethodObject)
+          m = receiver.raw_method
+          return ArrayObject.new([]) unless m.is_a?(Method)
+          params = []
+          m.required_params.each { |p| params << ArrayObject.new([SymbolObject.from(:req), SymbolObject.from(p)]) }
+          m.optional_params.each { |p, _| params << ArrayObject.new([SymbolObject.from(:opt), SymbolObject.from(p)]) }
+          params << ArrayObject.new([SymbolObject.from(:rest), SymbolObject.from(m.rest_param)]) if m.rest_param && m.rest_param != :__no_rest__
+          m.post_params.each { |p| params << ArrayObject.new([SymbolObject.from(:req), SymbolObject.from(p)]) }
+          m.required_kw_params.each { |p| params << ArrayObject.new([SymbolObject.from(:keyreq), SymbolObject.from(p)]) }
+          m.optional_kw_params.each { |p, _| params << ArrayObject.new([SymbolObject.from(:key), SymbolObject.from(p)]) }
+          params << ArrayObject.new([SymbolObject.from(:keyrest), SymbolObject.from(m.kw_rest_param)]) if m.kw_rest_param && m.kw_rest_param != :__no_kwargs__
+          params << ArrayObject.new([SymbolObject.from(:block), SymbolObject.from(m.block_param)]) if m.block_param
+          ArrayObject.new(params)
+        end
+
+        def bound_method_name(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          SymbolObject.from(receiver.bound_name)
+        end
+
+        def bound_method_owner(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          receiver.bound_owner
+        end
+
+        def bound_method_receiver(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          receiver.bound_receiver
+        end
+
+        def bound_method_unbind(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          UnboundMethodObject.new(receiver.raw_method, receiver.bound_name, receiver.bound_owner)
+        end
+
+        def bound_method_source_location(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          m = receiver.raw_method
+          return NilObject::NIL unless m.is_a?(Method) && m.source_location
+          file, line = m.source_location.split(":")
+          ArrayObject.new([StringObject.new(file), IntegerObject.new(line.to_i)])
+        end
+
+        def bound_method_dup(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          BoundMethodObject.new(receiver.raw_method, receiver.bound_name, receiver.bound_receiver, receiver.bound_owner)
+        end
+
+        def bound_method_hash(_, receiver)
+          return IntegerObject.new(0) unless receiver.is_a?(BoundMethodObject)
+          h = receiver.bound_receiver.object_id ^ receiver.bound_name.hash
+          IntegerObject.new(h)
+        end
+
+        def bound_method_super(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          owner = receiver.bound_owner
+          return NilObject::NIL unless owner
+          super_klass = owner.is_a?(ClassObject) ? owner.superclass : nil
+          return NilObject::NIL unless super_klass
+          m = super_klass.lookup_method(receiver.bound_name)
+          return NilObject::NIL unless m
+          super_owner = super_klass.lookup_method_owner(receiver.bound_name) || super_klass
+          BoundMethodObject.new(m, receiver.bound_name, receiver.bound_receiver, super_owner)
+        end
+
+        def bound_method_eql(_, m1, m2)
+          return FalseObject::FALSE unless m1.is_a?(BoundMethodObject) && m2.is_a?(BoundMethodObject)
+          return FalseObject::FALSE unless m1.bound_receiver.equal?(m2.bound_receiver)
+          m1m = m1.raw_method; m2m = m2.raw_method
+          # Methods are equal if they share the same implementation body/block
+          same = if m1m.is_a?(Method) && m2m.is_a?(Method)
+            m1m.equal?(m2m) || m1m.body.equal?(m2m.body)
+          elsif m1m.is_a?(DefinedMethod) && m2m.is_a?(DefinedMethod)
+            m1m.equal?(m2m) || m1m.block_obj.equal?(m2m.block_obj)
+          else
+            m1m.equal?(m2m)
+          end
+          same ? TrueObject::TRUE : FalseObject::FALSE
+        end
+
         def unbound_method_parameters(_, receiver)
           m = receiver.is_a?(UnboundMethodObject) ? receiver.raw_method : nil
           return ArrayObject.new([]) unless m

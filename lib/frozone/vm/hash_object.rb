@@ -14,7 +14,7 @@ module Frozone
         end
 
         def hash = @unwrap.dispatch(Fiber[:context], :hash, [], {}, nil, private_ok: true).raw
-        def eql?(v) = v.is_a?(KeyWrapper) && @unwrap.dispatch(Fiber[:context], :eql?, [v.unwrap], {}).truthy?
+        def eql?(v) = v.is_a?(KeyWrapper) && (@unwrap.equal?(v.unwrap) || @unwrap.dispatch(Fiber[:context], :eql?, [v.unwrap], {}).truthy?)
       end
 
       attr_accessor :default_block, :default_value
@@ -40,6 +40,9 @@ module Frozone
 
       def []=(key, value)
         raise FrozoneException.make(:FrozenError, "can't modify frozen Hash: #{inspect_for_error}", receiver: self) if frozen_object?
+        # String keys are dup'd (no singleton methods) and frozen, matching MRI behaviour.
+        # Ruby Hash keeps the existing key object when updating; only the value changes.
+        key = StringObject.new(key.raw.dup, frozen: true) if key.is_a?(StringObject) && !key.frozen_object?
         @elements[wrap(key)] = value
       end
 

@@ -89,6 +89,22 @@ module Frozone
         nil
       end
 
+      def lookup_method_owner(name)
+        raise "name must be a Symbol" unless name.is_a?(Symbol)
+
+        @prepends&.each do |mod|
+          owner = mod.lookup_method_owner(name)
+          return owner if owner
+        end
+        return self if get_method(name) && get_method(name) != UNDEF_SENTINEL
+
+        @modules&.each do |mod|
+          owner = mod.lookup_method_owner(name)
+          return owner if owner
+        end
+        nil
+      end
+
       # Sentinel for undef_method - stops method lookup
       UNDEF_SENTINEL = :__undef__
 

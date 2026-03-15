@@ -80,6 +80,23 @@ module Frozone
         @superclass&.lookup_method(name)
       end
 
+      def lookup_method_owner(name)
+        raise "name must be a Symbol" unless name.is_a?(Symbol)
+
+        @prepends&.each do |mod|
+          owner = mod.lookup_method_owner(name)
+          return owner if owner
+        end
+        m = get_method(name)
+        return self if m && m != ModuleObject::UNDEF_SENTINEL
+
+        @modules&.each do |mod|
+          owner = mod.lookup_method_owner(name)
+          return owner if owner
+        end
+        @superclass&.lookup_method_owner(name)
+      end
+
       # Class-hierarchy look-up
       # Note that full constant lookup starts with the lexical scopes in ModuleObject.lookup_constant.
       def lookup_constant(name)

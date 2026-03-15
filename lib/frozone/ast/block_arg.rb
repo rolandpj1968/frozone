@@ -15,6 +15,7 @@ module Frozone
         return nil if val.is_a?(Vm::NilObject)
         return Vm::SymbolProcObject.new(val) if val.is_a?(Vm::SymbolObject)
         return val if val.is_a?(Vm::ProcObject) || val.is_a?(Vm::BlockObject)
+        return val if val.is_a?(Vm::BoundMethodObject)
         # Try to_proc coercion for other objects
         if val.respond_to?(:dispatch)
           has_to_proc = begin

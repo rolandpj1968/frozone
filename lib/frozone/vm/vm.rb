@@ -11,6 +11,7 @@ require_relative 'method'
 require_relative 'binding_object'
 require_relative 'fiber_object'
 require_relative 'unbound_method_object'
+require_relative 'bound_method_object'
 require_relative 'io_object'
 require_relative 'nil_object'
 require_relative 'range_object'
@@ -118,6 +119,7 @@ module Frozone
         evaluate_file("#{core_path}/array.rb")
         evaluate_file("#{core_path}/hash.rb")
         evaluate_file("#{core_path}/proc.rb")
+        evaluate_file("#{core_path}/method.rb")
         evaluate_file("#{core_path}/range.rb")
         evaluate_file("#{core_path}/enumerator.rb")
         evaluate_file("#{core_path}/exception.rb")

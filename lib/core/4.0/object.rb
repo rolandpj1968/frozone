@@ -56,6 +56,8 @@ class Object
   def inspect = to_s
   def pretty_inspect = inspect
 
+  def method(name) = Intrinsics.object_method(self, name)
+
   alias send __send__
 
   def public_send(name, *args, **kwargs, &block)
