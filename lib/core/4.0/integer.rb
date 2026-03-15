@@ -1,41 +1,51 @@
 class Integer
+  # Call coerce even if private; propagate non-NoMethodError exceptions
   def _coerce_op(v, op)
-    if v.respond_to?(:coerce)
-      a, b = v.coerce(self)
-      a.send(op, b)
-    else
+    begin
+      a, b = v.send(:coerce, self)
+    rescue NoMethodError
       raise TypeError, "#{v.class} can't be coerced into Integer"
     end
+    a.send(op, b)
   end
 
   private :_coerce_op
 
   def < (v)
     return Intrinsics.integer__lt_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    _coerce_op(v, :<)
+    begin; a, b = v.coerce(self); rescue TypeError, NoMethodError; raise ArgumentError, "comparison of #{self.class} with #{v.class} failed"; end
+    a < b
   end
 
   def <=(v)
     return Intrinsics.integer__le_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    _coerce_op(v, :<=)
+    begin; a, b = v.coerce(self); rescue TypeError, NoMethodError; raise ArgumentError, "comparison of #{self.class} with #{v.class} failed"; end
+    a <= b
   end
 
   def >=(v)
     return Intrinsics.integer__ge_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    _coerce_op(v, :>=)
+    begin; a, b = v.coerce(self); rescue TypeError, NoMethodError; raise ArgumentError, "comparison of #{self.class} with #{v.class} failed"; end
+    a >= b
   end
 
   def > (v)
     return Intrinsics.integer__gt_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    _coerce_op(v, :>)
+    begin; a, b = v.coerce(self); rescue TypeError, NoMethodError; raise ArgumentError, "comparison of #{self.class} with #{v.class} failed"; end
+    a > b
   end
 
   def ==(v)
     return Intrinsics.integer__eq_(self, v) if v.is_a?(Integer)
-    begin; v == self; rescue; false; end
+    r = begin; v == self; rescue; false; end
+    r ? true : false
   end
 
-  alias === ==
+  def ===(v)
+    return Intrinsics.integer__eq_(self, v) if v.is_a?(Integer)
+    r = begin; v == self; rescue; false; end
+    r ? true : false
+  end
 
   def +(v)
     return Intrinsics.integer__plus_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
@@ -63,7 +73,12 @@ class Integer
   end
 
   def **(v)
-    return Intrinsics.integer__pow_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
+    if v.is_a?(Integer)
+      raise ZeroDivisionError, "divided by 0" if self == 0 && v < 0
+      return Intrinsics.integer__pow_(self, v)
+    end
+    return Intrinsics.integer__pow_(self, v) if v.is_a?(Float)
+    raise ZeroDivisionError, "divided by 0" if self == 0 && v.respond_to?(:negative?) && v.negative?
     _coerce_op(v, :**)
   end
 
@@ -88,10 +103,10 @@ class Integer
     return Intrinsics.integer_spaceship(self, v) if v.is_a?(Integer) || v.is_a?(Float)
     begin
       a, b = v.coerce(self)
-      a <=> b
-    rescue
-      nil
+    rescue TypeError, NoMethodError
+      return nil
     end
+    a <=> b
   end
 
   def hash = Intrinsics.integer_hash(self)
@@ -107,18 +122,30 @@ class Integer
 
   def upto(n)
     unless block_given?
-      sz = n >= self ? n - self + 1 : 0
       s = self
-      return Enumerator.new(sz) { |y| i = s; while i <= n; y.yield(i); i += 1; end }
+      sz_proc = -> {
+        begin
+          n >= s ? n - s + 1 : 0
+        rescue NoMethodError
+          raise ArgumentError, "comparison of #{n.class} with #{s.class} failed"
+        end
+      }
+      return Enumerator.new(sz_proc) { |y| i = s; while i <= n; y.yield(i); i += 1; end }
     end
     i = self; while i <= n; yield i; i += 1; end; self
   end
 
   def downto(n)
     unless block_given?
-      sz = self >= n ? self - n + 1 : 0
       s = self
-      return Enumerator.new(sz) { |y| i = s; while i >= n; y.yield(i); i -= 1; end }
+      sz_proc = -> {
+        begin
+          s >= n ? s - n + 1 : 0
+        rescue NoMethodError
+          raise ArgumentError, "comparison of #{n.class} with #{s.class} failed"
+        end
+      }
+      return Enumerator.new(sz_proc) { |y| i = s; while i >= n; y.yield(i); i -= 1; end }
     end
     i = self; while i >= n; yield i; i -= 1; end; self
   end
@@ -131,9 +158,12 @@ class Integer
   def floor(n = 0) = n >= 0 ? self : (self.to_f.floor(n).to_i rescue self)
 
   def round(n = 0, half: nil)
-    if !n.is_a?(Integer)
+    unless n.is_a?(Integer)
       if n.nil?
         raise TypeError, "no implicit conversion of NilClass into Integer"
+      elsif n.is_a?(Float)
+        raise RangeError, "#{n} is out of range of integer" if n.infinite?
+        raise TypeError, "no implicit conversion of Float into Integer"
       elsif n.respond_to?(:to_int)
         n = n.to_int
         raise TypeError, "can't convert to Integer" unless n.is_a?(Integer)
@@ -141,25 +171,60 @@ class Integer
         raise TypeError, "no implicit conversion of #{n.class} into Integer"
       end
     end
-    return self if n >= 0 && half.nil?
-    return self.to_f.round(n).to_i rescue self if n < 0
-    self
+    raise RangeError, "integer #{n} too big to convert to `int'" if n > 2**30 || n < -(2**30)
+    raise ArgumentError, "invalid rounding mode: #{half}" unless [nil, :up, :down, :even].include?(half)
+    return self if n >= 0
+    factor = 10 ** (-n)
+    q, r = divmod(factor)
+    base = q * factor
+    two_r = 2 * r
+    if two_r < factor
+      base
+    elsif two_r > factor
+      base + factor
+    else
+      case half
+      when :down  then self >= 0 ? base : base + factor
+      when :even  then q.even? ? base : base + factor
+      else             self >= 0 ? base + factor : base
+      end
+    end
   end
 
-  def truncate(n = 0) = self
-  def divmod(n) = [self / n, self % n]
+  def truncate(n = 0)
+    return self if n >= 0
+    factor = 10 ** (-n)
+    q, r = divmod(factor)
+    q += 1 if self < 0 && r != 0
+    q * factor
+  end
+  def divmod(n)
+    if n.is_a?(Integer)
+      [self / n, self % n]
+    elsif n.is_a?(Float)
+      raise ZeroDivisionError, "divided by 0" if n == 0.0
+      raise FloatDomainError, "NaN" if n.nan?
+      q = (self.to_f / n).floor
+      [q, self.to_f - q * n]
+    else
+      begin
+        a, b = n.send(:coerce, self)
+      rescue NoMethodError
+        raise TypeError, "#{n.class} can't be coerced into Integer"
+      end
+      a.divmod(b)
+    end
+  end
 
   def div(n)
     if n.is_a?(Integer)
       raise ZeroDivisionError, "divided by 0" if n == 0
-      q = self / n
-      q -= 1 if (self ^ n) < 0 && q * n != self
-      q
+      self / n
     elsif n.is_a?(Float)
       raise ZeroDivisionError, "divided by 0" if n == 0.0
       (self.to_f / n).floor.to_i
     elsif n.respond_to?(:coerce)
-      a, b = n.coerce(self)
+      a, b = n.send(:coerce, self)
       a.div(b)
     else
       raise TypeError, "#{n.class} can't be coerced into Integer"
@@ -167,28 +232,38 @@ class Integer
   end
 
   def fdiv(n)
-    if n.respond_to?(:coerce)
-      a, b = n.coerce(self)
-      a.to_f / b.to_f
-    else
+    if n.is_a?(Integer) || n.is_a?(Float)
       self.to_f / n.to_f
+    elsif n.respond_to?(:coerce)
+      a, b = n.send(:coerce, self)
+      a.fdiv(b)
+    else
+      raise TypeError, "#{n.class} can't be coerced into Integer"
     end
   end
 
   def remainder(n)
-    raise TypeError, "#{n.class} can't be coerced into Integer" unless n.is_a?(Numeric)
+    raise TypeError, "#{n.class} can't be coerced into Integer" unless n.is_a?(Integer) || n.is_a?(Float) || n.respond_to?(:coerce)
+    raise ZeroDivisionError, "divided by 0" if n == 0
     self - n * (self.to_f / n.to_f).truncate
   end
 
   def gcd(n)
+    raise TypeError, "not an integer" unless n.is_a?(Integer)
     a, b = self.abs, n.abs
     while b != 0; a, b = b, a % b; end
     a
   end
 
-  def lcm(n) = (self == 0 || n == 0) ? 0 : (self.abs / self.gcd(n) * n.abs)
+  def lcm(n)
+    raise TypeError, "not an integer" unless n.is_a?(Integer)
+    (self == 0 || n == 0) ? 0 : (self.abs / self.gcd(n) * n.abs)
+  end
 
-  def gcdlcm(n) = [gcd(n), lcm(n)]
+  def gcdlcm(n)
+    raise TypeError, "not an integer" unless n.is_a?(Integer)
+    [gcd(n), lcm(n)]
+  end
 
   def digits(base = 10)
     base = base.to_int if base.respond_to?(:to_int) && !base.is_a?(Integer)
@@ -200,30 +275,44 @@ class Integer
     result
   end
 
-  def pow(n, m = nil) = m ? Intrinsics.integer__pow_(self, n) % m : Intrinsics.integer__pow_(self, n)
+  def pow(n, m = :__undefined__)
+    if m.equal?(:__undefined__)
+      if n.is_a?(Integer)
+        raise ZeroDivisionError, "divided by 0" if self == 0 && n < 0
+        Intrinsics.integer__pow_(self, n)
+      elsif n.is_a?(Float)
+        Intrinsics.integer__pow_(self, n)
+      else
+        raise ZeroDivisionError, "divided by 0" if self == 0 && n.respond_to?(:negative?) && n.negative?
+        _coerce_op(n, :**)
+      end
+    else
+      raise TypeError, "2nd argument not allowed unless all arguments are integers" unless n.is_a?(Integer) && m.is_a?(Integer)
+      raise RangeError, "2nd argument not allowed unless all arguments are integers" if n < 0
+      raise ZeroDivisionError, "divided by 0" if m == 0
+      Intrinsics.integer__pow_(self, n) % m
+    end
+  end
 
   def &(n)
-    unless n.is_a?(Integer)
-      n = n.to_int if n.respond_to?(:to_int)
-      raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.is_a?(Integer)
-    end
-    Intrinsics.integer_bitand(self, n)
+    return Intrinsics.integer_bitand(self, n) if n.is_a?(Integer)
+    raise TypeError, "no implicit conversion of Float into Integer" if n.is_a?(Float)
+    begin; a, b = n.coerce(self); return a & b; rescue NoMethodError; end
+    raise TypeError, "no implicit conversion of #{n.class} into Integer"
   end
 
   def |(n)
-    unless n.is_a?(Integer)
-      n = n.to_int if n.respond_to?(:to_int)
-      raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.is_a?(Integer)
-    end
-    Intrinsics.integer_bitor(self, n)
+    return Intrinsics.integer_bitor(self, n) if n.is_a?(Integer)
+    raise TypeError, "no implicit conversion of Float into Integer" if n.is_a?(Float)
+    begin; a, b = n.coerce(self); return a | b; rescue NoMethodError; end
+    raise TypeError, "no implicit conversion of #{n.class} into Integer"
   end
 
   def ^(n)
-    unless n.is_a?(Integer)
-      n = n.to_int if n.respond_to?(:to_int)
-      raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.is_a?(Integer)
-    end
-    Intrinsics.integer_bitxor(self, n)
+    return Intrinsics.integer_bitxor(self, n) if n.is_a?(Integer)
+    raise TypeError, "no implicit conversion of Float into Integer" if n.is_a?(Float)
+    begin; a, b = n.coerce(self); return a ^ b; rescue NoMethodError; end
+    raise TypeError, "no implicit conversion of #{n.class} into Integer"
   end
 
   def ~    = Intrinsics.integer_bitnot(self)
@@ -240,18 +329,56 @@ class Integer
     Intrinsics.integer_rshift(self, n)
   end
 
-  def [](n, len = nil)
-    unless n.is_a?(Integer)
-      if n.respond_to?(:to_int)
-        n = n.to_int
-        raise TypeError, "to_int should return Integer" unless n.is_a?(Integer)
+  def [](idx, len = nil)
+    if idx.is_a?(Range)
+      lo = idx.begin
+      hi = idx.end
+      excl = idx.exclude_end?
+      # Convert Float boundaries (raise FloatDomainError)
+      if lo.is_a?(Float)
+        raise FloatDomainError, lo.infinite? == 1 ? "Infinity" : lo.infinite? == -1 ? "-Infinity" : lo.inspect
+      end
+      if hi.is_a?(Float)
+        raise FloatDomainError, hi.infinite? == 1 ? "Infinity" : hi.infinite? == -1 ? "-Infinity" : hi.inspect
+      end
+      if lo.nil?
+        # (..i) form: returns 0 if all bits 0..hi_pos are 0, else ArgumentError
+        hi_pos = hi.is_a?(Integer) ? hi : hi.to_int
+        hi_pos -= 1 if excl
+        mask = (1 << (hi_pos + 1)) - 1
+        return 0 if (self & mask) == 0
+        raise ArgumentError, "The beginless range for Integer#[] results in infinity"
+      end
+      lo_i = lo.is_a?(Integer) ? lo : lo.to_int
+      if hi.nil?
+        return self >> lo_i
+      end
+      hi_i = hi.is_a?(Integer) ? hi : hi.to_int
+      hi_pos = excl ? hi_i - 1 : hi_i
+      return self >> lo_i if hi_pos < lo_i
+      width = hi_pos - lo_i + 1
+      (self >> lo_i) & ((1 << width) - 1)
+    else
+      unless idx.is_a?(Integer)
+        if idx.is_a?(Float)
+          idx = idx.to_i
+        elsif idx.respond_to?(:to_int)
+          idx = idx.to_int
+          raise TypeError, "to_int should return Integer" unless idx.is_a?(Integer)
+        else
+          raise TypeError, "no implicit conversion of #{idx.class} into Integer"
+        end
+      end
+      if len.nil?
+        Intrinsics.integer_bit(self, idx)
       else
-        raise TypeError, "no implicit conversion of #{n.class} into Integer"
+        len = len.to_int unless len.is_a?(Integer)
+        return self >> idx if len < 0
+        (self >> idx) & ((1 << len) - 1)
       end
     end
-    Intrinsics.integer_bit(self, n)
   end
-  def size  = 8
+  def size = [(bit_length + 7) / 8, 8].max
   def bit_length = Intrinsics.integer_bit_length(self)
   def to_r = Intrinsics.integer_to_r(self)
   def to_c = Intrinsics.integer_to_c(self)
@@ -290,15 +417,26 @@ class Integer
     (self & mask) == 0
   end
 
-  def ceildiv(n) = -(-self / n)
+  def ceildiv(n)
+    q, r = divmod(n)
+    r == 0 ? q : q + 1
+  end
 
   def coerce(other)
     if other.is_a?(Integer)
       [other, self]
     elsif other.is_a?(Float)
       [other, self.to_f]
+    elsif other.is_a?(String)
+      [Float(other), self.to_f]
+    elsif other.nil?
+      raise TypeError, "can't coerce NilClass into Integer"
+    elsif other.respond_to?(:to_f)
+      result = other.to_f
+      raise TypeError, "can't coerce #{other.class} into Float (#{other.class}#to_f should return Float)" unless result.is_a?(Float)
+      [result, self.to_f]
     else
-      raise TypeError, "#{other.class} can't be coerced into Integer"
+      raise TypeError, "can't coerce #{other.class} into Integer"
     end
   end
 
@@ -321,6 +459,7 @@ class Integer
     return val if val.is_a?(Integer)
     return nil unless val.respond_to?(:to_int)
     result = val.to_int
+    return nil if result.nil?
     raise TypeError, "can't convert #{val.class} into Integer (#{val.class}#to_int gives #{result.class})" unless result.is_a?(Integer)
     result
   end
@@ -330,8 +469,8 @@ class Integer
     raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.is_a?(Integer)
     raise Math::DomainError, "out of domain" if n < 0
     return 0 if n == 0
-    # Newton's method for integer square root
-    x = Math.sqrt(n.to_f).floor.to_i
+    sqrt_f = Math.sqrt(n.to_f)
+    x = sqrt_f.infinite? ? 2 ** ((n.bit_length + 1) / 2) : sqrt_f.floor.to_i
     x -= 1 while x * x > n
     x += 1 while (x + 1) * (x + 1) <= n
     x

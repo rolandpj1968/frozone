@@ -1346,19 +1346,51 @@ module Frozone
         def float_to_s(_, v)           = StringObject.new(v.raw.inspect)
         def float_to_i(_, v)           = IntegerObject.new(v.raw.to_i)
         def float_to_f(_, v)           = v
-        def float_to_r(_, v)           = StringObject.new(v.raw.to_r.to_s)
+        def float_to_r(_, v)           = make_rational(v.raw.to_r)
         def float_abs(_, v)            = FloatObject.new(v.raw.abs)
-        def float_ceil(_, v, n = nil)  = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.ceil) : FloatObject.new(v.raw.ceil(n.raw))
-        def float_floor(_, v, n = nil) = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.floor) : FloatObject.new(v.raw.floor(n.raw))
-        def float_round(_, v, n = nil) = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.round) : FloatObject.new(v.raw.round(n.raw))
-        def float_truncate(_, v, n = nil) = n.nil? || n.is_a?(NilObject) ? IntegerObject.new(v.raw.truncate) : FloatObject.new(v.raw.truncate(n.raw))
+
+        def float_ceil(_, v, n = nil)
+          n_raw = n.nil? || n.is_a?(NilObject) ? nil : n.raw
+          result = n_raw.nil? ? v.raw.ceil : v.raw.ceil(n_raw)
+          result.is_a?(::Integer) ? IntegerObject.new(result) : FloatObject.new(result)
+        end
+
+        def float_floor(_, v, n = nil)
+          n_raw = n.nil? || n.is_a?(NilObject) ? nil : n.raw
+          result = n_raw.nil? ? v.raw.floor : v.raw.floor(n_raw)
+          result.is_a?(::Integer) ? IntegerObject.new(result) : FloatObject.new(result)
+        end
+
+        def float_round(_, v, n = nil, half = nil)
+          n_raw = n.nil? || n.is_a?(NilObject) ? nil : n.raw
+          half_raw = half.nil? || half.is_a?(NilObject) ? nil : (half.is_a?(SymbolObject) ? half.raw : half.raw.to_sym)
+          opts = half_raw ? { half: half_raw } : {}
+          result = n_raw.nil? ? v.raw.round(**opts) : v.raw.round(n_raw, **opts)
+          result.is_a?(::Integer) ? IntegerObject.new(result) : FloatObject.new(result)
+        end
+
+        def float_truncate(_, v, n = nil)
+          n_raw = n.nil? || n.is_a?(NilObject) ? nil : n.raw
+          result = n_raw.nil? ? v.raw.truncate : v.raw.truncate(n_raw)
+          result.is_a?(::Integer) ? IntegerObject.new(result) : FloatObject.new(result)
+        end
         def float_infinity(_)    = FloatObject.new(::Float::INFINITY)
         def float_nan(_)         = FloatObject.new(::Float::NAN)
         def float_next_float(_, v) = FloatObject.new(v.raw.next_float)
         def float_prev_float(_, v) = FloatObject.new(v.raw.prev_float)
         def float_rationalize(context, v, eps = nil)
-          r = eps.nil? || eps.is_a?(NilObject) ? v.raw.rationalize : v.raw.rationalize(eps.raw)
-          make_rational(r)
+          if eps.nil? || eps.is_a?(NilObject)
+            make_rational(v.raw.rationalize)
+          elsif eps.is_a?(FloatObject) || eps.is_a?(IntegerObject)
+            eps_raw = eps.raw < 0 ? -eps.raw : eps.raw
+            make_rational(v.raw.rationalize(eps_raw))
+          else
+            num = eps.get_ivar(:@numerator)
+            den = eps.get_ivar(:@denominator)
+            eps_r = Rational(num.raw, den.raw)
+            eps_r = -eps_r if eps_r < 0
+            make_rational(v.raw.rationalize(eps_r))
+          end
         end
         def float_nan?(_, v)           = bool_object_for(v.raw.nan?)
 

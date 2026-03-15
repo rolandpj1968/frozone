@@ -35,6 +35,7 @@ class Module
   def const_get(name) = Intrinsics.module_const_get(self, name)
   def const_set(name, value) = Intrinsics.module_const_set(self, name, value)
   def ancestors       = Intrinsics.module_ancestors(self)
+  def include?(mod) = ancestors.drop(1).include?(mod)
   def instance_methods(include_super = true) = Intrinsics.module_instance_methods(self, include_super)
   def public_instance_methods(include_super = true) = Intrinsics.module_instance_methods(self, include_super)
   def private_instance_methods(include_super = true) = Intrinsics.module_private_instance_methods(self, include_super)

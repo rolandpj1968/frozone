@@ -71,6 +71,19 @@ class ComplainMatcher
   end
 end
 
+# Patch PlatformGuard to handle c_long_size (not in mspec 1.9.1)
+class PlatformGuard
+  alias match_without_c_long_size? match?
+
+  def match?
+    result = match_without_c_long_size?
+    if result && @options.key?(:c_long_size)
+      result &&= (@options[:c_long_size] == 8 * 1.size)
+    end
+    result
+  end
+end
+
 # guard -> { condition } do ... end — run block only when condition is true.
 # This is a newer mspec feature missing from 1.9.1.
 class Object

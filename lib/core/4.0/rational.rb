@@ -81,10 +81,29 @@ class Rational
     end
   end
 
+  def coerce(other)
+    case other
+    when Float   then [other, to_f]
+    when Integer then [Rational(other), self]
+    when Rational then [other, self]
+    else raise TypeError, "can't coerce #{other.class} into Rational"
+    end
+  end
+
   def to_f = @numerator.to_f / @denominator.to_f
   def to_i = @numerator / @denominator
   def to_r = self
   def to_c = Complex(self, 0)
+
+  def floor(n = 0) = n == 0 ? @numerator / @denominator : Rational(to_f.floor(n))
+  def ceil(n = 0)  = n == 0 ? -(-@numerator / @denominator) : Rational(to_f.ceil(n))
+  def truncate(n = 0) = @numerator < 0 ? ceil(n) : floor(n)
+  def round(n = 0, half: :up) = to_f.round(n, half: half)
+
+  def div(other) = (self / other).floor
+  def divmod(other) = [div(other), self - other * div(other)]
+  def %(other) = self - other * (self / other).floor
+  alias modulo %
 
   def abs = @numerator < 0 ? Rational(-@numerator, @denominator) : self
   def negative? = @numerator < 0
@@ -181,6 +200,15 @@ end
 
 module Kernel
   def Rational(numerator, denominator = 1)
+    # Handle Float arguments by converting to Rational first
+    if numerator.is_a?(Float)
+      r = numerator.to_r
+      return denominator == 1 ? r : Rational(r.numerator, r.denominator * denominator)
+    end
+    if denominator.is_a?(Float)
+      r = denominator.to_r
+      return Rational(numerator * r.denominator, r.numerator)
+    end
     Rational.new(numerator, denominator)
   end
 
