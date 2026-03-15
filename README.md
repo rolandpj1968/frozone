@@ -1,19 +1,47 @@
 # Frozone
 
-Ruby VM in two stages - load, execute.
+A Ruby VM implemented in Ruby. Parses Ruby source via the [Prism](https://github.com/ruby/prism) gem and evaluates the resulting AST directly. No compilation step — pure tree-walking interpreter.
 
-Load stage: partial evaluation of source code to define all modules/classes and methods.
+## Project Status (v4.0.0)
 
-Execute stage: compilation of closed-world code-base.
+Frozone targets Ruby 4.0 semantics and passes **2519/2520** ruby/spec language examples
+(0 failures, 1 error — the sole error is an unimplemented `-e` magic-comment edge case).
+Pattern matching is not yet implemented (excluded from the count above).
+
+### Parsers
+
+Frozone ships two independent front-ends that produce the same AST:
+
+| Parser | Gem | Status |
+|--------|-----|--------|
+| **Prism** (default) | `prism` (Ruby stdlib) | 2519/2520 — 0F 1E |
+| **WqParser** (`--parser=wq`) | `parser` gem (whitequark/parser) | 2518/2520 — 0F 2E |
+
+Switch parsers with `PARSER=wq bundle exec rake language` or `--parser=wq` on the CLI.
+
+The WqParser's two extra errors are fundamental whitequark lexer limitations:
+- `mod::ἍBB` — non-ASCII uppercase identifiers are not recognised as constants (the whitequark lexer is ASCII-only; Prism uses Ruby's own Unicode-aware lexer)
+- The same `-e` magic-comment edge case as Prism
+
+Both parsers are otherwise at full parity on the language spec suite.
+
+### Architecture
+
+- **`lib/frozone/vm/`** — VM runtime: `ClassObject`, `ModuleObject`, `Method`, `Frame`, `Context`, intrinsics
+- **`lib/frozone/ast/`** — AST node types evaluated by the tree-walker
+- **`lib/frozone/vm/parser.rb`** — Prism-based front-end
+- **`lib/frozone/vm/wq_parser.rb`** — whitequark `parser`-based front-end (self-hostable path)
+- **`lib/core/4.0/`** — Ruby standard library implemented in Ruby, parsed at VM startup
 
 ## ruby/spec Language Spec Status
 
 Tested against [ruby/spec](https://github.com/ruby/spec) language specs.
 Run with `bundle exec rake language` (or `rake language:NAME` for a single spec).
 
-**Overall: 2511 / 2520 passing** (0 failures, 9 errors) — as of 2026-03-14
+**Prism parser: 2519 / 2520 passing** (0 failures, 1 error) — as of 2026-03-15 (v4.0.0)
 
-Remaining 9 errors are unimplemented features: `BEGIN` (5), `return` inside `BEGIN` (1), Fiber-local `$!`/`$@` (2), Big5 magic comment encoding (1).
+Remaining 1 error: magic comment in a `-e` argument (not implemented).
+Pattern matching excluded (not yet implemented).
 
 | Spec | Examples | Passing | Failures | Errors |
 |---|---:|---:|---:|---:|
@@ -21,7 +49,7 @@ Remaining 9 errors are unimplemented features: `BEGIN` (5), `return` inside `BEG
 | and | 10 | 10 | 0 | 0 |
 | array | 23 | 23 | 0 | 0 |
 | assignments | 38 | 38 | 0 | 0 |
-| BEGIN | 7 | 2 | 0 | 5 |
+| BEGIN | 7 | 7 | 0 | 0 |
 | block | 165 | 165 | 0 | 0 |
 | break | 39 | 39 | 0 | 0 |
 | case | 47 | 47 | 0 | 0 |
@@ -60,7 +88,7 @@ Remaining 9 errors are unimplemented features: `BEGIN` (5), `return` inside `BEG
 | order | 5 | 5 | 0 | 0 |
 | pattern_matching | — | 0 | — | — |
 | precedence | 32 | 32 | 0 | 0 |
-| predefined | 172 | 170 | 0 | 2 |
+| predefined | 172 | 172 | 0 | 0 |
 | private | 7 | 7 | 0 | 0 |
 | proc | 40 | 40 | 0 | 0 |
 | range | 5 | 5 | 0 | 0 |
@@ -68,7 +96,7 @@ Remaining 9 errors are unimplemented features: `BEGIN` (5), `return` inside `BEG
 | regexp | 25 | 25 | 0 | 0 |
 | rescue | 59 | 59 | 0 | 0 |
 | retry | 3 | 3 | 0 | 0 |
-| return | 43 | 42 | 0 | 1 |
+| return | 43 | 43 | 0 | 0 |
 | safe | 1 | 1 | 0 | 0 |
 | safe_navigator | 13 | 13 | 0 | 0 |
 | send | 76 | 76 | 0 | 0 |
@@ -84,3 +112,16 @@ Remaining 9 errors are unimplemented features: `BEGIN` (5), `return` inside `BEG
 | variables | 119 | 119 | 0 | 0 |
 | while | 37 | 37 | 0 | 0 |
 | yield | 39 | 39 | 0 | 0 |
+
+### WqParser (whitequark `parser` gem)
+
+**WqParser: 2518 / 2520 passing** (0 failures, 2 errors) — as of 2026-03-15 (v4.0.0)
+
+Differences from Prism (both are whitequark lexer limitations):
+
+| Spec | Prism | WqParser | Notes |
+|------|-------|----------|-------|
+| constants | 100/100 | 99/100 | `mod::ἍBB` — non-ASCII uppercase not lexed as constant |
+| magic_comment | 53/54 | 53/54 | same `-e` edge case as Prism |
+| variables | 119/119 | 119/119 | `ἍBB = 1` in method body correctly raises SyntaxError |
+| All others | identical | identical | |
