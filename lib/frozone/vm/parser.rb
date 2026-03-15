@@ -149,8 +149,9 @@ module Frozone
         # Compute locals: recursively expand destructure params to their sub-variable names
         locals = prism_block_node.locals.dup
         required.each { |p| locals.concat(extract_destruct_names(p)) if p.is_a?(Hash) }
+        src_loc = @filepath ? [@filepath, prism_block_node.location.start_line] : nil
         Ast::Block.new(required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param,
-                       auto_splat, locals, body, it_param: it_param)
+                       auto_splat, locals, body, it_param: it_param, source_location: src_loc)
       end
 
       def extract_destruct_names(param)
@@ -707,7 +708,8 @@ module Frozone
 
         when Prism::LambdaNode
           required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, locals, body, it_param = parse_lambda(prism_node)
-          Ast::Lambda.new(required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, locals, body, it_param: it_param)
+          src_loc = @filepath ? [@filepath, prism_node.location.start_line] : nil
+          Ast::Lambda.new(required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, locals, body, it_param: it_param, source_location: src_loc)
 
         when Prism::YieldNode
           arg_nodes = []

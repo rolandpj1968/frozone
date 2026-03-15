@@ -1047,15 +1047,17 @@ module Frozone
 
         auto_splat = compute_auto_splat(required, optional, rest, post, req_kw, opt_kw, implicit_rest: implicit_rest)
 
+        src_loc = @filepath && node.location ? [@filepath, node.location.line] : nil
         if is_arrow_lambda
           # `-> { }` syntax: create Ast::Lambda directly (no method dispatch needed)
           Ast::Lambda.new(required, optional, rest, post, req_kw, opt_kw, kw_rest,
-                          block_param, locals, body_ast, it_param: it_param)
+                          block_param, locals, body_ast, it_param: it_param, source_location: src_loc)
         else
           # `lambda { }` or other block call: dispatch through method call so `lambda` can be overridden.
           # For `lambda { }`, Kernel#lambda will receive the block and make it a lambda-style proc.
           block_obj = Ast::Block.new(required, optional, rest, post, req_kw, opt_kw, kw_rest,
-                                     block_param, auto_splat, locals, body_ast, it_param: it_param)
+                                     block_param, auto_splat, locals, body_ast, it_param: it_param,
+                                     source_location: src_loc)
           transform_send_with_block(send_node, block_obj)
         end
       end

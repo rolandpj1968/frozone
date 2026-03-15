@@ -3,13 +3,17 @@ module Frozone
     # A native (host Ruby) block that can be used as a VM block.
     # Does not create a new frame - used for for-loop collection.
     class NativeBlock
-      def initialize(&proc)
+      attr_reader :source_location, :parameters_override, :is_lambda
+
+      def initialize(source_location: nil, parameters_override: nil, is_lambda: false, &proc)
         @proc = proc
+        @source_location = source_location
+        @parameters_override = parameters_override
+        @is_lambda = is_lambda
       end
 
       def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil, def_scope: nil)
-        @proc.call(context, args)
-        NilObject::NIL
+        @proc.call(context, args, block: block) || NilObject::NIL
       end
 
       def call(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil, def_scope: nil)

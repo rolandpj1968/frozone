@@ -55,6 +55,10 @@ class Object
 
   alias send __send__
 
+  def public_send(name, *args, **kwargs, &block)
+    Intrinsics.object_public_send(self, name, args, kwargs, block)
+  end
+
   def suppress_warning; yield; end
   def suppress_keyword_warning; yield; end
 end

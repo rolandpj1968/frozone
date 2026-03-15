@@ -74,7 +74,7 @@ module Frozone
       # Falls back to method_missing if the method is not found.
       # private_ok: true when called with implicit receiver (no explicit receiver in source)
       # implicit_self: true for bare-word calls (no receiver) — raises NameError vs NoMethodError on miss
-      def dispatch(context, name, args, kw_args, block = nil, private_ok: false, implicit_self: false)
+      def dispatch(context, name, args, kw_args, block = nil, private_ok: false, implicit_self: false, public_only: false)
         method = lookup_instance_method(name)
         unless method.nil?
           case method.visibility
@@ -83,6 +83,9 @@ module Frozone
               raise FrozoneException.make(:NoMethodError, "private method '#{name}' called for an instance of #{@class_object.name}")
             end
           when :protected
+            if public_only
+              raise FrozoneException.make(:NoMethodError, "protected method '#{name}' called for an instance of #{@class_object.name}")
+            end
             caller_class = context&.frame&.the_self&.class_object
             unless subclass_of?(caller_class, @class_object)
               raise FrozoneException.make(:NoMethodError, "protected method '#{name}' called for an instance of #{@class_object.name}")

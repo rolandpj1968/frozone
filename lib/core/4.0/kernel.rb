@@ -34,6 +34,8 @@ module Kernel
   def abort(msg = nil) = Intrinsics.kernel_abort(self, msg)
   def exit(code = 0) = Intrinsics.kernel_exit(self, code)
   def exit!(code = 1) = Intrinsics.kernel_exit(self, code)
+  def rand(n = nil) = Intrinsics.kernel_rand(self, n)
+  def srand(seed = nil) = Intrinsics.kernel_srand(self, seed)
   def sleep(secs = nil) = nil
   def system(*args) = false
   def `(cmd) = Intrinsics.kernel_backtick(self, cmd)
@@ -58,5 +60,5 @@ module Kernel
                   :Integer, :Float, :String, :Array,
                   :loop, :catch, :throw, :abort, :exit, :exit!, :sleep, :system,
                   :block_given?, :at_exit, :caller, :caller_locations, :__method__,
-                  :local_variables
+                  :local_variables, :rand, :srand
 end

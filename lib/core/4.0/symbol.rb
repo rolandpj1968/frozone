@@ -1,7 +1,28 @@
 class Symbol
+  def self.allocate
+    raise TypeError, "allocating an instance of Symbol"
+  end
+
+  def self.new(*)
+    raise NoMethodError, "undefined method 'new' for Symbol:Class"
+  end
+
+  def self.all_symbols
+    Intrinsics.symbol_all_symbols
+  end
+
   def to_s = Intrinsics.symbol_to_s(self)
+  alias id2name to_s
+
+  def name
+    Intrinsics.symbol_name(self)
+  end
+
   def to_sym = self
-  def to_proc; s = self; proc { |o, *args| o.send(s, *args) }; end
+  alias intern to_sym
+
+  def to_proc = Intrinsics.symbol_to_proc(self)
+
   def inspect = Intrinsics.symbol_inspect(self)
 
   def hash = Intrinsics.symbol_hash(self)
@@ -16,13 +37,46 @@ class Symbol
   alias size length
 
   def empty? = to_s.empty?
-  def upcase = to_s.upcase.to_sym
-  def downcase = to_s.downcase.to_sym
-  def capitalize = to_s.capitalize.to_sym
+  def upcase(*args) = to_s.upcase(*args).to_sym
+  def downcase(*args) = to_s.downcase(*args).to_sym
+  def capitalize(*args) = to_s.capitalize(*args).to_sym
+  def swapcase(*args) = to_s.swapcase(*args).to_sym
   def encoding = to_s.encoding
-  def match(pattern) = to_s.match(pattern)
-  def match?(pattern) = to_s.match?(pattern)
-  def [](idx, len = nil) = len ? to_s[idx, len] : to_s[idx]
+
+  def casecmp(other)
+    return nil unless other.is_a?(Symbol)
+    to_s.casecmp(other.to_s)
+  end
+
+  def casecmp?(other)
+    return nil unless other.is_a?(Symbol)
+    to_s.casecmp?(other.to_s)
+  end
+
+  def match(pattern, pos = :__unset__, &block)
+    result = pos.equal?(:__unset__) ? to_s.match(pattern) : to_s.match(pattern, pos)
+    return result unless block && !result.nil?
+    block.call(result)
+  end
+
+  def match?(pattern, pos = :__unset__)
+    pos.equal?(:__unset__) ? to_s.match?(pattern) : to_s.match?(pattern, pos)
+  end
+
+  def start_with?(*prefixes)
+    to_s.start_with?(*prefixes)
+  end
+
+  def end_with?(*suffixes)
+    to_s.end_with?(*suffixes)
+  end
+
+  def [](idx, len = :__unset__)
+    len.equal?(:__unset__) ? to_s[idx] : to_s[idx, len]
+  end
+  alias slice []
+
+  def =~(pattern) = to_s =~ pattern
 
   include Comparable
 end

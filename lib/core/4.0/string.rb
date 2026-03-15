@@ -36,12 +36,54 @@ class String
   def hash = Intrinsics.string_hash(self)
   def eql?(v) = Intrinsics.string_eql(self, v)
   def =~(pattern) = Intrinsics.regexp_match_index(pattern, self)
-  def match(pattern) = Intrinsics.string_match(self, pattern)
+  def match(pattern, &block)
+    result = Intrinsics.string_match(self, pattern)
+    return result unless block && !result.nil?
+    block.call(result)
+  end
+
+  def match?(pattern, pos = :__unset__)
+    if pos.equal?(:__unset__)
+      Intrinsics.string_match_q(self, pattern, nil)
+    else
+      Intrinsics.string_match_q(self, pattern, pos)
+    end
+  end
   def scan(pattern) = Intrinsics.string_scan(self, pattern)
 
   def empty? = Intrinsics.string_empty(self)
-  def start_with?(*args) = Intrinsics.string_start_with(self, *args)
-  def end_with?(*args) = Intrinsics.string_end_with(self, *args)
+  def start_with?(*prefixes)
+    prefixes.each do |prefix|
+      if prefix.is_a?(Regexp)
+        m = Intrinsics.string_match(self, prefix)
+        return true if m && m.begin(0) == 0
+        next
+      end
+      unless prefix.is_a?(String)
+        begin
+          prefix = prefix.to_str
+        rescue NoMethodError
+          raise TypeError, "no implicit conversion of #{prefix.class} into String"
+        end
+      end
+      return true if Intrinsics.string_start_with(self, prefix)
+    end
+    false
+  end
+
+  def end_with?(*suffixes)
+    suffixes.each do |suffix|
+      unless suffix.is_a?(String)
+        begin
+          suffix = suffix.to_str
+        rescue NoMethodError
+          raise TypeError, "no implicit conversion of #{suffix.class} into String"
+        end
+      end
+      return true if Intrinsics.string_end_with(self, suffix)
+    end
+    false
+  end
   def include?(s) = Intrinsics.string_include(self, s)
   def strip = Intrinsics.string_strip(self)
   def lstrip = Intrinsics.string_lstrip(self)
@@ -111,6 +153,7 @@ class String
   def upcase = Intrinsics.string_upcase(self)
   def downcase = Intrinsics.string_downcase(self)
   def capitalize = Intrinsics.string_capitalize(self)
+  def swapcase = Intrinsics.string_swapcase(self)
   def reverse = Intrinsics.string_reverse(self)
   def chars = Intrinsics.string_chars(self)
   def bytes = Intrinsics.string_bytes(self)
@@ -122,7 +165,9 @@ class String
   def squeeze(*args) = Intrinsics.string_squeeze(self, *args)
   def count(*args) = Intrinsics.string_count(self, *args)
   def delete(*args) = Intrinsics.string_delete(self, *args)
-  def [](idx, len = nil) = Intrinsics.string_slice(self, idx, len)
+  def [](idx, len = :__unset__)
+    len.equal?(:__unset__) ? Intrinsics.string_slice(self, idx) : Intrinsics.string_slice(self, idx, len)
+  end
   alias slice []
   def index(sub, offset = nil) = Intrinsics.string_index(self, sub, offset)
   def rindex(sub, offset = nil) = Intrinsics.string_rindex(self, sub, offset)
@@ -132,7 +177,9 @@ class String
   def succ! = Intrinsics.string_succ_bang(self)
   alias next! succ!
   def insert(index, str) = Intrinsics.string_insert(self, index, str)
-  def slice!(idx, len = nil) = Intrinsics.string_slice_bang(self, idx, len)
+  def slice!(idx, len = :__unset__)
+    len.equal?(:__unset__) ? Intrinsics.string_slice_bang(self, idx) : Intrinsics.string_slice_bang(self, idx, len)
+  end
 
   def each_line(sep = "\n", &block) = Intrinsics.string_each_line(self, sep, block)
   def lines(sep = "\n") = each_line(sep)

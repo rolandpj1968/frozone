@@ -453,6 +453,26 @@ module Frozone
           raise FrozoneException.new(exc_obj, "exit")
         end
 
+        def kernel_rand(_, _receiver, n)
+          if n.nil? || n.is_a?(NilObject)
+            FloatObject.new(rand)
+          elsif n.is_a?(IntegerObject)
+            IntegerObject.new(rand(n.raw))
+          elsif n.is_a?(FloatObject)
+            FloatObject.new(rand(n.raw))
+          elsif n.is_a?(RangeObject)
+            result = rand(n.raw)
+            result.is_a?(Integer) ? IntegerObject.new(result) : FloatObject.new(result)
+          else
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{n.class} into Integer")
+          end
+        end
+
+        def kernel_srand(_, _receiver, seed)
+          result = seed.nil? || seed.is_a?(NilObject) ? srand : srand(seed.raw)
+          IntegerObject.new(result)
+        end
+
         def kernel_local_variables(context, _receiver)
           # local_variables is called from a kernel method frame; the caller's frame has the actual locals
           caller_frame = context.frames[-2] || context.frame
@@ -483,6 +503,14 @@ module Frozone
           block_obj = block_arg.is_a?(ProcObject) ? block_arg.block_object : block_arg
           block_obj = nil if block_obj.is_a?(NilObject)
           receiver.dispatch(context, method_name, args.raw, raw_kwargs, block_obj, private_ok: true)
+        end
+
+        def object_public_send(context, receiver, name, args, kwargs, block_arg = nil)
+          method_name = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
+          raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
+          block_obj = block_arg.is_a?(ProcObject) ? block_arg.block_object : block_arg
+          block_obj = nil if block_obj.is_a?(NilObject)
+          receiver.dispatch(context, method_name, args.raw, raw_kwargs, block_obj, private_ok: false, public_only: true)
         end
 
         # Module
@@ -1053,6 +1081,12 @@ module Frozone
 
         def proc_arity(_, proc_obj)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.instance_variable_get(:@block_object) : proc_obj
+          if blk.is_a?(NativeBlock) && blk.parameters_override
+            params = blk.parameters_override
+            req = params.count { |p| p[0] == :req || p[0] == :keyreq }
+            has_rest = params.any? { |p| p[0] == :rest || p[0] == :keyrest }
+            return has_rest ? IntegerObject.new(-(req + 1)) : IntegerObject.new(req)
+          end
           return IntegerObject.new(0) unless blk.is_a?(BlockObject)
           req = blk.instance_variable_get(:@required_params)&.length || 0
           opt = blk.instance_variable_get(:@optional_params)&.length || 0
@@ -1068,6 +1102,9 @@ module Frozone
 
         def proc_parameters(_, proc_obj)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.instance_variable_get(:@block_object) : proc_obj
+          if blk.is_a?(NativeBlock) && blk.parameters_override
+            return ArrayObject.new(blk.parameters_override.map { |p| ArrayObject.new(p.map { |s| SymbolObject.from(s) }) })
+          end
           return ArrayObject.new([]) unless blk.is_a?(BlockObject)
           # `it` implicit parameter: return [[:req]] for lambda, [[:opt]] for proc (Ruby 4.0+)
           if blk.instance_variable_get(:@it_param)
@@ -1094,6 +1131,13 @@ module Frozone
           params << ArrayObject.new([SymbolObject.from(:keyrest), kw_rest == :__no_kwargs__ ? SymbolObject.from(:nil) : SymbolObject.from(kw_rest)]) if kw_rest
           params << ArrayObject.new([SymbolObject.from(:block), SymbolObject.from(blk_param)]) if blk_param
           ArrayObject.new(params)
+        end
+
+        def proc_source_location(_, proc_obj)
+          blk = proc_obj.is_a?(ProcObject) ? proc_obj.instance_variable_get(:@block_object) : proc_obj
+          loc = (blk.is_a?(BlockObject) || blk.is_a?(NativeBlock)) ? blk.source_location : nil
+          return NilObject::NIL unless loc
+          ArrayObject.new([StringObject.new(loc[0]), IntegerObject.new(loc[1])])
         end
 
         def kernel_binding(context, _receiver)
@@ -1733,6 +1777,7 @@ module Frozone
         def string_chop(_, v)              = StringObject.new(v.raw.chop)
         def string_upcase(_, v)            = StringObject.new(v.raw.upcase)
         def string_downcase(_, v)          = StringObject.new(v.raw.downcase)
+        def string_swapcase(_, v)          = StringObject.new(v.raw.swapcase)
         def string_capitalize(_, v)        = StringObject.new(v.raw.capitalize)
         def string_reverse(_, v)           = StringObject.new(v.raw.reverse)
 
@@ -1842,8 +1887,28 @@ module Frozone
         def string_count(_, v, *args) = IntegerObject.new(v.raw.count(*args.map(&:raw)))
         def string_delete(_, v, *args) = StringObject.new(v.raw.delete(*args.map(&:raw)))
 
-        def string_slice(_, v, idx, len = nil)
-          result = (len.nil? || len.is_a?(NilObject)) ? v.raw[idx.raw] : v.raw[idx.raw, len.raw]
+        # Called as string_slice(v, idx) — no length — or string_slice(v, idx, len) — explicit length.
+        # String#[] uses :__unset__ sentinel so explicit nil can be distinguished from absent len.
+        def string_slice(context, v, idx, len = nil)
+          if idx.is_a?(RegexpObject)
+            raise FrozoneException.make(:TypeError, "no implicit conversion of nil into Integer") if !len.nil? && len.is_a?(NilObject)
+            m = idx.raw.match(v.raw)
+            update_match_globals(m)
+            unless len.nil?
+              cap = m ? m[len.raw] : nil
+              return cap ? StringObject.new(cap) : NilObject::NIL
+            end
+            return m ? StringObject.new(m[0]) : NilObject::NIL
+          end
+          # Explicit nil as length raises TypeError; absent len (len.nil? = true) is fine
+          raise FrozoneException.make(:TypeError, "no implicit conversion of nil into Integer") if !len.nil? && len.is_a?(NilObject)
+          begin
+            result = len.nil? ? v.raw[idx.raw] : v.raw[idx.raw, len.raw]
+          rescue TypeError => e
+            raise FrozoneException.make(:TypeError, e.message)
+          rescue NoMethodError
+            raise FrozoneException.make(:TypeError, "no implicit conversion into Integer")
+          end
           result.nil? ? NilObject::NIL : StringObject.new(result)
         end
 
@@ -1946,6 +2011,13 @@ module Frozone
           m ? MatchDataObject.new(m) : NilObject::NIL
         end
 
+        def string_match_q(_, v, pattern, pos)
+          pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
+          str = v.raw
+          result = (pos.is_a?(NilObject) || pos.nil?) ? pat.match?(str) : pat.match?(str, pos.raw)
+          bool_object_for(result)
+        end
+
         def string_scan(_, v, pattern)
           pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
           results = v.raw.scan(pat)
@@ -1956,9 +2028,37 @@ module Frozone
         def symbol_to_s(_, v) = StringObject.new(v.raw.to_s)
         def symbol_inspect(_, v) = StringObject.new(v.raw.inspect)
 
+        SYMBOL_NAME_CACHE = {}
+        def symbol_name(_, v)
+          SYMBOL_NAME_CACHE[v.raw] ||= StringObject.new(v.raw.to_s, frozen: true)
+        end
+
         def symbol_hash(_, v) = IntegerObject.new(v.raw.hash)
 
         def symbol_eql(_, v1, v2) = bool_object_for(v2.is_a?(SymbolObject) && v1.raw == v2.raw)
+
+        def symbol_to_proc(context, sym)
+          method_name = sym.raw
+          native = NativeBlock.new(
+            source_location: nil,
+            parameters_override: [[:req], [:rest]],
+            is_lambda: true
+          ) do |ctx, args, block: nil|
+            if args.empty?
+              raise FrozoneException.make(:ArgumentError, "no receiver given")
+            end
+            receiver = args[0]
+            rest = args[1..]
+            block_obj = block.is_a?(ProcObject) ? block.block_object : block
+            block_obj = nil if block_obj.nil? || block_obj.is_a?(NilObject)
+            receiver.dispatch(ctx, method_name, rest, {}, block_obj, private_ok: false, public_only: true)
+          end
+          ProcObject.new(native, lambda: true)
+        end
+
+        def symbol_all_symbols(_)
+          ArrayObject.new(SymbolObject::SymbolObjects.values)
+        end
 
         # Array
         ARRAY_MAX_SIZE = 1_073_741_823  # 2**30 - 1; prevents allocation hangs for huge sizes

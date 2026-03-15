@@ -10,7 +10,8 @@ module Frozone
 
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
-                     block_param, auto_splat, locals, body, is_lambda: false, it_param: false)
+                     block_param, auto_splat, locals, body, is_lambda: false, it_param: false,
+                     source_location: nil)
         @required_params    = required_params  # Array of Symbol or {destructure: [names...]} Hash
         @optional_params    = optional_params  # [[name, node], ...]
         @rest_param         = rest_param       # Symbol or nil
@@ -24,6 +25,7 @@ module Frozone
         @it_param           = it_param        # Boolean: true for `it` implicit parameter
         @locals             = locals
         @body               = body
+        @source_location    = source_location # [file, line] or nil
       end
 
       def evaluate(context)
@@ -31,7 +33,7 @@ module Frozone
           @required_params, @optional_params, @rest_param, @post_params,
           @required_kw_params, @optional_kw_params, @kw_rest_param,
           @block_param, @auto_splat, @locals, @body, context.frame,
-          is_lambda: @is_lambda, it_param: @it_param
+          is_lambda: @is_lambda, it_param: @it_param, source_location: @source_location
         )
       end
     end

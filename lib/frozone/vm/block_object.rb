@@ -4,10 +4,12 @@ module Frozone
       # auto_splat: true for procs/blocks (not lambdas), causes single Array arg to be
       # auto-splatted when block expects multiple positional args
       # is_lambda: true for lambdas (strict arg count checking, no auto-splat)
+      attr_reader :source_location
+
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
                      block_param, auto_splat, locals, body, enclosing_frame,
-                     is_lambda: false, it_param: false)
+                     is_lambda: false, it_param: false, source_location: nil)
         @required_params     = required_params
         @optional_params     = optional_params
         @rest_param          = rest_param
@@ -22,6 +24,7 @@ module Frozone
         @locals              = locals
         @body                = body
         @enclosing_frame     = enclosing_frame
+        @source_location     = source_location # [file, line] or nil
       end
 
       def lambda? = @is_lambda
