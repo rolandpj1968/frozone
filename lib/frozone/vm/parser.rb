@@ -871,9 +871,27 @@ module Frozone
           raw_args = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments
           has_forwarding = raw_args.any? { |a| a.is_a?(Prism::ForwardingArgumentsNode) }
           arg_nodes = []
+          kw_args = {}
           kw_splats = []
           raw_args.each do |a|
-            if a.is_a?(Prism::ForwardingArgumentsNode)
+            case a
+            when Prism::KeywordHashNode
+              non_sym_pairs = []
+              a.elements.each do |kw_arg|
+                case kw_arg
+                when Prism::AssocNode
+                  if kw_arg.key.is_a?(Prism::SymbolNode)
+                    kw_args[transform(kw_arg.key)] = transform(kw_arg.value)
+                  else
+                    non_sym_pairs << [transform(kw_arg.key), transform(kw_arg.value)]
+                  end
+                when Prism::AssocSplatNode
+                  splat_val = kw_arg.value.nil? ? Ast::LocalVariableRead.new(:__anon_kwargs__, 0) : transform(kw_arg.value)
+                  kw_splats << splat_val
+                end
+              end
+              kw_splats << Ast::HashLiteral.new(non_sym_pairs) unless non_sym_pairs.empty?
+            when Prism::ForwardingArgumentsNode
               arg_nodes << Ast::SplatArg.new(Ast::LocalVariableRead.new(:__forward_args__, 0))
               kw_splats << Ast::LocalVariableRead.new(:__forward_kwargs__, 0)
             else
@@ -892,6 +910,7 @@ module Frozone
                          else raise "Unsupported super block type: #{prism_node.block.class}"
                          end
                        end
+          kw_splats.unshift(Ast::HashLiteral.new(kw_args.to_a)) unless kw_args.empty?
           Ast::Super.new(arg_nodes, block_node, forwarding: false, kw_splat_nodes: kw_splats)
 
         when Prism::ForwardingSuperNode

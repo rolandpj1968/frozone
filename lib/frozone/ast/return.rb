@@ -21,6 +21,7 @@ module Frozone
         if context.frame.thread_boundary
           exc = Vm::FrozoneException.make(:LocalJumpError, "unexpected return")
           exc.vm_object.set_ivar(:@exit_value, value)
+          exc.vm_object.set_ivar(:@reason, Vm::SymbolObject.from(:return))
           raise exc
         end
         raise ReturnException.new(value, context.frame.method_frame)

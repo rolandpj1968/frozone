@@ -371,10 +371,17 @@ module Frozone
             set_exc_backtrace(exc.vm_object, context)
             raise exc
           elsif msg.is_a?(ClassObject) || msg.is_a?(ModuleObject)
-            # raise SomeClass, "message"
-            msg_str = message_arg ? message_arg.dispatch(context, :to_s, [], {}).raw : msg.name.to_s
-            exc_obj = ObjectObject.new(msg)
-            exc_obj.set_ivar(:@message, StringObject.new(msg_str))
+            # raise SomeClass[, "message"] — call SomeClass.exception(message) to build instance
+            exc_obj = if message_arg
+              msg.dispatch(context, :exception, [message_arg], {})
+            else
+              msg.dispatch(context, :exception, [], {})
+            end
+            msg_str = begin
+              exc_obj.dispatch(context, :message, [], {}).raw
+            rescue StandardError
+              msg.name.to_s
+            end
             exc_obj.set_ivar(:@cause, cause) if cause
             set_exc_backtrace(exc_obj, context)
             raise FrozoneException.new(exc_obj, msg_str)
@@ -399,16 +406,19 @@ module Frozone
         end
 
         def exception_caller_string(context)
-          # Return a caller location string for full_message when exception has no backtrace
+          # Return a caller location string for full_message when exception has no backtrace.
+          # We want the call site where full_message was invoked, which is stored as the
+          # incoming_call_site of the full_message frame (last internal frame we skip over).
           all_frames = context.frames.reverse
           # Skip internal frames (full_message, detailed_message, exception_caller_string)
           i = 0
           skip = %i[full_message detailed_message exception_caller_string _full_message_dm _format_single_full_message]
           i += 1 while i < all_frames.length && skip.include?(all_frames[i].current_method&.name)
-          return NilObject::NIL if i >= all_frames.length
-          loc = all_frames[i].incoming_call_site
+          return NilObject::NIL if i.zero?
+          # The last skipped frame (i-1) has incoming_call_site = where full_message was called from
+          loc = all_frames[i - 1].incoming_call_site
           return NilObject::NIL unless loc
-          outer_name = (i + 1 < all_frames.length) ? all_frames[i + 1].current_method&.name&.to_s : "<main>"
+          outer_name = i < all_frames.length ? (all_frames[i].current_method&.name&.to_s || "<main>") : "<main>"
           StringObject.new("#{loc}:in '#{outer_name}'")
         end
 
@@ -538,16 +548,53 @@ module Frozone
 
         def basic_object_method_missing(context, receiver, name, args, kwargs)
           name_sym = name.is_a?(SymbolObject) ? name.raw : name
-          class_name = receiver.class_object.name
+          receiver_desc = no_method_receiver_desc(receiver)
           exc = if Fiber[:mm_implicit_self]
+                  class_name = receiver.class_object.name
                   FrozoneException.make(:NameError, "undefined local variable or method '#{name_sym}' for an instance of #{class_name}", name: name_sym, receiver: receiver)
                 else
-                  e = FrozoneException.make(:NoMethodError, "undefined method '#{name_sym}' for an instance of #{class_name}", name: name_sym, receiver: receiver)
+                  e = FrozoneException.make(:NoMethodError, "undefined method '#{name_sym}' for #{receiver_desc}", name: name_sym, receiver: receiver)
                   e.vm_object.set_ivar(:@args, args.is_a?(ArrayObject) ? args : ArrayObject.new([]))
                   e
                 end
           set_exc_backtrace(exc.vm_object, context)
           raise exc
+        end
+
+        def no_method_receiver_desc(receiver)
+          ctx = Fiber[:context]
+          if receiver.equal?(NilObject::NIL)
+            "nil"
+          elsif receiver.equal?(TrueObject::TRUE)
+            "true"
+          elsif receiver.equal?(FalseObject::FALSE)
+            "false"
+          elsif receiver.is_a?(ClassObject)
+            if receiver.instance_variable_get(:@is_singleton_class)
+              singleton_of = receiver.instance_variable_get(:@singleton_of)
+              inner = singleton_of ? "#<#{singleton_of.class_object&.name || "Object"}:0x#{singleton_of.__id__.to_s(16)}>" : "0x#{receiver.__id__.to_s(16)}"
+              label = "#<Class:#{inner}>"
+            else
+              n = begin; ctx ? receiver.dispatch(ctx, :name, [], {})&.raw : receiver.name; rescue StandardError; receiver.name; end
+              label = n ? n.to_s : "#<Class:0x#{receiver.__id__.to_s(16)}>"
+            end
+            "class #{label}"
+          elsif receiver.is_a?(ModuleObject)
+            n = begin; ctx ? receiver.dispatch(ctx, :name, [], {})&.raw : receiver.name; rescue StandardError; receiver.name; end
+            label = n ? n.to_s : "#<Module:0x#{receiver.__id__.to_s(16)}>"
+            "module #{label}"
+          elsif receiver.instance_variable_get(:@eigenclass)
+            # Has singleton class — use inspect-like representation
+            klass = receiver.class_object
+            class_name = begin; ctx ? klass.dispatch(ctx, :name, [], {})&.raw : klass.name; rescue StandardError; klass.name; end
+            class_name ||= "#<Class:0x#{klass.__id__.to_s(16)}>"
+            "#<#{class_name}:0x#{receiver.__id__.to_s(16)}>"
+          else
+            klass = receiver.class_object
+            class_name = begin; ctx ? klass.dispatch(ctx, :name, [], {})&.raw : klass.name; rescue StandardError; klass.name; end
+            class_name ||= "#<Class:0x#{klass.__id__.to_s(16)}>"
+            "an instance of #{class_name}"
+          end
         end
 
         def basic_object___send__(context, receiver, name, args, kwargs, block_arg = nil)
@@ -941,7 +988,8 @@ module Frozone
           unless m
             raise FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.name}'")
           end
-          UnboundMethodObject.new(m, name, receiver)
+          owner = receiver.lookup_method_owner(name) || receiver
+          UnboundMethodObject.new(m, name, owner)
         end
 
         def object_method(_, receiver, name_obj)

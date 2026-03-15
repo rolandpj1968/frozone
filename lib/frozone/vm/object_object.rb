@@ -56,18 +56,22 @@ module Frozone
       end
 
       def lookup_instance_method(name)
-        method = lookup_class.lookup_method(name)
-        return method unless method.nil?
-        # For ClassObjects, also walk superclass eigenclasses for inherited class methods
+        # For ClassObjects: eigenclass chain takes priority over Class instance methods.
+        # Own eigenclass → superclass eigenclasses → @class_object (Class/Module) instance methods.
+        # This ensures inherited `def self.foo` methods shadow `Class#foo` instance methods.
         if is_a?(ClassObject) && respond_to?(:superclass)
+          m = @eigenclass&.lookup_method(name)
+          return m if m
           c = superclass
           while c
             m = c.eigenclass_method(name)
             return m unless m.nil?
             c = c.respond_to?(:superclass) ? c.superclass : nil
           end
+          return @class_object&.lookup_method(name)
         end
-        nil
+        # For modules and regular objects: own eigenclass first, then class object
+        lookup_class.lookup_method(name)
       end
 
       # Shared dispatch: look up and invoke a method on self by Symbol name.

@@ -217,6 +217,7 @@ module Frozone
             # proc/block return escaping its defining scope
             exc = FrozoneException.make(:LocalJumpError, "unexpected return")
             exc.vm_object.set_ivar(:@exit_value, e.value)
+            exc.vm_object.set_ivar(:@reason, SymbolObject.from(:return))
             raise exc
           end
           raise e unless e.method_frame.equal?(new_frame)
@@ -225,7 +226,10 @@ module Frozone
           # Convert to LocalJumpError if break targets this frame (captured block called within
           # its defining scope) or if the defining frame is already dead (scope has returned).
           if e.method_frame.equal?(new_frame) || (e.method_frame && !e.method_frame.alive?)
-            raise FrozoneException.make(:LocalJumpError, "break from proc-closure")
+            exc2 = FrozoneException.make(:LocalJumpError, "break from proc-closure")
+            exc2.vm_object.set_ivar(:@exit_value, e.value)
+            exc2.vm_object.set_ivar(:@reason, SymbolObject.from(:break))
+            raise exc2
           end
           raise
         ensure

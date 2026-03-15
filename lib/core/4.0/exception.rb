@@ -76,9 +76,17 @@ class Exception
           "\e[1;4m#{class_name || self.class.inspect}\e[m"
         end
       elsif class_name
-        "\e[1m#{msg} (\e[1;4m#{class_name}\e[m\e[1m)\e[m"
+        lines = msg.split("\n", -1)
+        if lines.length > 1
+          first = "\e[1m#{lines[0]} (\e[1;4m#{class_name}\e[m\e[1m)\e[m"
+          rest = lines[1..].map { |l| "\e[1m#{l}\e[m" }.join("\n")
+          "#{first}\n#{rest}"
+        else
+          "\e[1m#{msg} (\e[1;4m#{class_name}\e[m\e[1m)\e[m"
+        end
       else
-        "\e[1m#{msg}\e[m"
+        lines = msg.split("\n", -1)
+        lines.map { |l| "\e[1m#{l}\e[m" }.join("\n")
       end
     else
       if empty_msg
@@ -90,7 +98,12 @@ class Exception
           class_name || self.class.inspect
         end
       elsif class_name
-        "#{msg} (#{class_name})"
+        lines = msg.split("\n", -1)
+        if lines.length > 1
+          "#{lines[0]} (#{class_name})\n#{lines[1..].join("\n")}"
+        else
+          "#{msg} (#{class_name})"
+        end
       else
         msg
       end
@@ -323,11 +336,67 @@ class LocalJumpError < StandardError
   def reason = @reason
 end
 class SystemCallError < StandardError
+  def self.new(message = :__no_arg__, second = nil, third = nil)
+    # Non-SystemCallError subclasses: build the instance
+    unless equal?(SystemCallError)
+      message = nil if message.equal?(:__no_arg__)
+      obj = allocate
+      # If subclass has custom initialize, call with original user args; otherwise use standard 3-arg form
+      if instance_method(:initialize).owner.equal?(SystemCallError)
+        obj.send(:initialize, message, nil, second)  # message, errno=nil(from class), location=second
+      elsif message.nil? && second.nil? && third.nil?
+        obj.send(:initialize)
+      elsif second.nil? && third.nil?
+        obj.send(:initialize, message)
+      elsif third.nil?
+        obj.send(:initialize, message, second)
+      else
+        obj.send(:initialize, message, second, third)
+      end
+      return obj
+    end
+
+    raise ArgumentError, "wrong number of arguments (given 0, expected 1+)" if message.equal?(:__no_arg__)
+
+    # SystemCallError.new factory
+    # If first arg is Integer/Float, treat as errno (no message)
+    if message.is_a?(Integer)
+      errno_val = message; message = nil
+    elsif message.is_a?(Float) && second.nil?
+      errno_val = message.to_i; message = nil
+    elsif !message.nil? && !message.is_a?(String)
+      raise TypeError, "no implicit conversion of #{message.class} into String"
+    else
+      errno_val = second
+    end
+
+    location = third
+
+    # Normalize errno_val
+    if errno_val.is_a?(Float)
+      errno_val = errno_val.to_i
+    elsif errno_val.is_a?(Complex)
+      begin
+        errno_val = Integer(errno_val)
+      rescue RangeError
+        raise RangeError, "can't convert #{errno_val} into an exact number"
+      end
+    elsif !errno_val.nil? && !errno_val.is_a?(Integer)
+      raise TypeError, "no implicit conversion of #{errno_val.class} into Integer"
+    end
+
+    target_class = errno_val ? (Errno._by_errno(errno_val) || SystemCallError) : SystemCallError
+    obj = target_class.allocate
+    obj.send(:initialize, message, errno_val, location)
+    obj
+  end
+
   def initialize(message = nil, errno_val = nil, location = nil)
-    @errno = errno_val || self.class::Errno rescue nil
-    base = self.class::Strerror rescue nil
-    if message && location
-      super(base ? "#{base} @ #{location} - #{message}" : "@ #{location} - #{message}")
+    @errno = errno_val.nil? ? (self.class::Errno rescue nil) : errno_val
+    base = (self.class::Strerror rescue nil) || (@errno ? "Unknown error #{@errno}" : nil)
+    loc_str = location ? location.to_s : nil
+    if message && loc_str
+      super(base ? "#{base} @ #{loc_str} - #{message}" : "@ #{loc_str} - #{message}")
     elsif message
       super(base ? "#{base} - #{message}" : message)
     else
@@ -344,6 +413,8 @@ class RegexpError < StandardError; end
 
 module Errno
   @by_errno = {}
+
+  def self._by_errno(num) = @by_errno[num]
 
   def self._define(name, num, strerror)
     if @by_errno.key?(num)
