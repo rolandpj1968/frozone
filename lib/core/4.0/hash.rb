@@ -290,7 +290,8 @@ class Hash
 
   def select(&block)
     return to_enum(:select) { size } unless block
-    r = {}
+    r = self.class.allocate
+    r.compare_by_identity if compare_by_identity?
     each { |k, v| r[k] = v if block.call(k, v) }
     r
   end
@@ -309,7 +310,8 @@ class Hash
 
   def reject(&block)
     return to_enum(:reject) { size } unless block
-    r = {}
+    r = self.class.allocate
+    r.compare_by_identity if compare_by_identity?
     each { |k, v| r[k] = v unless block.call(k, v) }
     r
   end
@@ -411,14 +413,16 @@ class Hash
   end
 
   def slice(*keys)
-    r = {}
+    r = self.class.allocate
+    r.compare_by_identity if compare_by_identity?
     keys.each { |k| r[k] = self[k] if key?(k) }
     r
   end
 
   def except(*keys)
-    r = dup
-    keys.each { |k| r.delete(k) }
+    r = self.class.allocate
+    r.compare_by_identity if compare_by_identity?
+    each { |k, v| r[k] = v unless keys.include?(k) }
     r
   end
 
@@ -486,7 +490,8 @@ class Hash
   end
 
   def compact
-    r = {}
+    r = self.class.allocate
+    r.compare_by_identity if compare_by_identity?
     each { |k, v| r[k] = v unless v.nil? }
     if default_proc
       r.default_proc = default_proc
