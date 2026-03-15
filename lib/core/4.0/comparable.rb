@@ -1,31 +1,32 @@
 module Comparable
   def <(other)
     r = self <=> other
-    raise ArgumentError, "comparison of #{self.class} with #{other.class} failed" if r.nil?
+    raise ArgumentError, "comparison of #{self.class} with #{other} failed" if r.nil? || !r.is_a?(Numeric)
     r < 0
   end
 
   def <=(other)
     r = self <=> other
-    raise ArgumentError, "comparison of #{self.class} with #{other.class} failed" if r.nil?
+    raise ArgumentError, "comparison of #{self.class} with #{other} failed" if r.nil? || !r.is_a?(Numeric)
     r <= 0
   end
 
   def >(other)
     r = self <=> other
-    raise ArgumentError, "comparison of #{self.class} with #{other.class} failed" if r.nil?
+    raise ArgumentError, "comparison of #{self.class} with #{other} failed" if r.nil? || !r.is_a?(Numeric)
     r > 0
   end
 
   def >=(other)
     r = self <=> other
-    raise ArgumentError, "comparison of #{self.class} with #{other.class} failed" if r.nil?
+    raise ArgumentError, "comparison of #{self.class} with #{other} failed" if r.nil? || !r.is_a?(Numeric)
     r >= 0
   end
 
   def ==(other)
     r = self <=> other
     return false if r.nil?
+    raise ArgumentError, "comparison of #{self.class} with #{other} failed" unless r.is_a?(Numeric)
     r == 0
   end
 
@@ -52,7 +53,7 @@ module Comparable
       lo = min_or_range; hi = max
       if lo && hi
         c = lo <=> hi
-        raise ArgumentError, "min argument must be smaller than max argument" if c && c > 0
+        raise ArgumentError, "min argument must be smaller than max argument" if c.nil? || c > 0
       end
       if lo
         c = self <=> lo
