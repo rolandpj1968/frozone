@@ -100,6 +100,7 @@ class Array
   def to_s = Intrinsics.array_to_s(self)
   alias inspect to_s
   def to_a = self
+  def to_ary = self
 
   def to_h(&block)
     r = {}
@@ -188,8 +189,22 @@ class Array
   def uniq; seen = {}; r = []; each { |e| r << e and seen[e] = true unless seen.key?(e) }; r; end
   def reverse = Intrinsics.array_reverse(self)
   def reverse!; replace(reverse); self; end
-  def sort = Intrinsics.array_sort(self)
-  def sort!; replace(sort); self; end
+  def <=>(other)
+    return nil unless other.is_a?(Array)
+    i = 0
+    while i < length && i < other.length
+      c = self[i] <=> other[i]
+      return c if c != 0
+      i += 1
+    end
+    length <=> other.length
+  end
+
+  def sort(&block)
+    block ? Intrinsics.array_sort_block(self, block) : Intrinsics.array_sort(self)
+  end
+
+  def sort!(&block); replace(sort(&block)); self; end
   def sort_by(&block) = Intrinsics.array_sort_by(self, block)
   def min(&block)
     return nil if empty?
@@ -253,6 +268,13 @@ class Array
   def shift = Intrinsics.array_shift(self)
   def unshift(*elems) = Intrinsics.array_unshift(self, *elems)
   alias prepend unshift
+  def dig(idx, *rest)
+    val = self[idx]
+    return val if rest.empty?
+    raise TypeError, "#{val.class} does not have #dig method" unless val.respond_to?(:dig)
+    val.dig(*rest)
+  end
+
   def delete(elem); n = length; reject! { |x| x == elem }; n == length ? nil : elem; end
   def delete_if(&block); reject!(&block); self; end
   def index(elem = nil); i = 0; while i < length; return i if self[i] == elem; i += 1; end; nil; end

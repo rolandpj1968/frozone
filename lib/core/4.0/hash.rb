@@ -1,6 +1,16 @@
 class Hash
-  def self.new(default = nil, &block)
+  def self.new(default = nil, capacity: nil, &block)
     Intrinsics.hash_new(default, block)
+  end
+
+  def initialize(default = nil, &block)
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    if block
+      Intrinsics.hash_set_default_proc(self, block)
+    else
+      Intrinsics.hash_set_default(self, default)
+    end
+    self
   end
 
   def self.[](*args)
@@ -33,7 +43,7 @@ class Hash
     return obj if obj.is_a?(Hash)
     return nil unless obj.respond_to?(:to_hash)
     result = obj.to_hash
-    raise TypeError, "can't convert #{obj.class} into Hash" unless result.is_a?(Hash)
+    raise TypeError, "can't convert #{obj.class} into Hash (#{obj.class}#to_hash gives #{result.class})" unless result.nil? || result.is_a?(Hash)
     result
   end
 
@@ -60,7 +70,18 @@ class Hash
   def default(key = nil) = Intrinsics.hash_get_default(self, key)
   def default=(val) = Intrinsics.hash_set_default(self, val)
   def default_proc = Intrinsics.hash_get_default_proc(self)
-  def default_proc=(prc) = Intrinsics.hash_set_default_proc(self, prc)
+
+  def default_proc=(prc)
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    if !prc.nil? && !prc.is_a?(Proc)
+      raise TypeError, "#{prc.class} is not a Proc" unless prc.respond_to?(:to_proc)
+      prc = prc.to_proc
+    end
+    if prc && prc.lambda? && prc.arity != 2
+      raise TypeError, "default_proc takes two arguments (2 for #{prc.arity})"
+    end
+    Intrinsics.hash_set_default_proc(self, prc)
+  end
   def size = Intrinsics.hash_size(self)
   alias length size
   def empty?; size == 0; end
@@ -75,6 +96,8 @@ class Hash
   def keys;   r = []; each { |k, _| r << k }; r; end
   def values; r = []; each { |_, v| r << v }; r; end
   def to_a;   r = []; each { |k, v| r << [k, v] }; r; end
+  alias entries to_a
+  def to_proc; h = self; ->(k) { h[k] }; end
 
   def to_h(&block)
     return self unless block
@@ -82,6 +105,8 @@ class Hash
     each { |k, v| pair = block.call(k, v); r[pair[0]] = pair[1] }
     r
   end
+
+  def deconstruct_keys(keys) = self
 
   def to_s
     ongoing = (Fiber[:__hash_inspect__] ||= [])
@@ -100,7 +125,10 @@ class Hash
   def dup; r = {}; each { |k, v| r[k] = v }; r; end
   def clone; dup; end
 
-  def each(&block) = Intrinsics.hash_each(self, block)
+  def each(&block)
+    return to_enum(:each) { size } unless block
+    Intrinsics.hash_each(self, block)
+  end
   alias each_pair each
   def each_key(&block);   each { |k, _| block ? block.call(k) : yield(k) }; self; end
   def each_value(&block); each { |_, v| block ? block.call(v) : yield(v) }; self; end
@@ -123,7 +151,10 @@ class Hash
   end
 
   def merge!(*others, &block)
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
     others.each do |other|
+      other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
+      raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
       if block
         other.each { |k, v| self[k] = self.key?(k) ? block.call(k, self[k], v) : v }
       else
@@ -136,6 +167,8 @@ class Hash
   alias update merge!
 
   def replace(other)
+    other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
+    raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
     Intrinsics.hash_clear(self)
     other.each { |k, v| self[k] = v }
     self
@@ -156,14 +189,18 @@ class Hash
   end
 
   def fetch(key, *args, &block)
+    raise ArgumentError, "wrong number of arguments (given #{args.length + 1}, expected 1..2)" if args.length > 1
     return self[key] if key?(key)
-    return block.call(key) if block
+    if block
+      warn "warning: block supersedes default value argument" unless args.empty?
+      return block.call(key)
+    end
     return args[0] unless args.empty?
-    raise KeyError, "key not found: #{key.inspect}"
+    raise KeyError.new("key not found: #{key.inspect}", receiver: self, key: key)
   end
 
   def fetch_values(*keys, &block)
-    keys.map { |k| key?(k) ? self[k] : (block ? block.call(k) : raise(KeyError, "key not found: #{k.inspect}")) }
+    keys.map { |k| key?(k) ? self[k] : (block ? block.call(k) : raise(KeyError.new("key not found: #{k.inspect}", receiver: self, key: k))) }
   end
 
   def dig(key, *rest)
@@ -222,16 +259,37 @@ class Hash
 
   alias collect_concat flat_map
 
-  def transform_keys(&block)
-    return to_enum(:transform_keys) unless block
+  def transform_keys(hash = nil, &block)
+    return to_enum(:transform_keys) if hash.nil? && !block
     r = {}
-    each { |k, v| r[block.call(k)] = v }
+    each do |k, v|
+      nk = if hash && hash.key?(k)
+        hash[k]
+      elsif block
+        block.call(k)
+      else
+        k
+      end
+      r[nk] = v
+    end
     r
   end
 
-  def transform_keys!(&block)
-    return to_enum(:transform_keys!) unless block
-    keys.each { |k| nk = block.call(k); v = delete(k); self[nk] = v }
+  def transform_keys!(hash = nil, &block)
+    return to_enum(:transform_keys!) if hash.nil? && !block
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    pairs = map { |k, v| [k, v] }
+    Intrinsics.hash_clear(self)
+    pairs.each do |k, v|
+      nk = if hash && hash.key?(k)
+        hash[k]
+      elsif block
+        block.call(k)
+      else
+        k
+      end
+      self[nk] = v
+    end
     self
   end
 

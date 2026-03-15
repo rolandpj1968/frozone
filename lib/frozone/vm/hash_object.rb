@@ -13,7 +13,7 @@ module Frozone
           @unwrap = key
         end
 
-        def hash = @unwrap.dispatch(Fiber[:context], :hash, [], {}).raw
+        def hash = @unwrap.dispatch(Fiber[:context], :hash, [], {}, nil, private_ok: true).raw
         def eql?(v) = v.is_a?(KeyWrapper) && @unwrap.dispatch(Fiber[:context], :eql?, [v.unwrap], {}).truthy?
       end
 
@@ -39,6 +39,7 @@ module Frozone
       def [](key) = @elements[wrap(key)]
 
       def []=(key, value)
+        raise FrozoneException.make(:FrozenError, "can't modify frozen Hash: #{inspect_for_error}", receiver: self) if frozen_object?
         @elements[wrap(key)] = value
       end
 

@@ -91,6 +91,16 @@ class Object
     block.call if condition.call
   end
 
+  # suppress_warning — run block with $VERBOSE = nil to suppress warnings.
+  # mspec 1.9.1 lacks this helper.
+  def suppress_warning
+    saved = $VERBOSE
+    $VERBOSE = nil
+    yield
+  ensure
+    $VERBOSE = saved
+  end
+
   def complain(complaint = nil, verbose: nil)
     ComplainMatcher.new(complaint, verbose: verbose)
   end
@@ -119,7 +129,7 @@ class Object
   # Override ruby_cmd to use single-quoting so shell does not expand $variables
   # in code snippets (mspec 1.9.1 uses code.inspect → double-quoted, breaks $a, $b, etc.)
   # Unset bundler env vars so subprocesses don't load bundler (which causes spurious warnings).
-  CLEAR_BUNDLER_ENV = "env RUBYOPT= BUNDLE_GEMFILE= BUNDLE_BIN_PATH= RUBYLIB="
+  CLEAR_BUNDLER_ENV = "env -u BUNDLER_SETUP RUBYOPT= BUNDLE_GEMFILE= BUNDLE_BIN_PATH= RUBYLIB= BUNDLER_VERSION="
 
   def ruby_cmd(code, opts = {})
     body = code

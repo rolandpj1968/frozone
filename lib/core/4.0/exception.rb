@@ -87,7 +87,16 @@ class RangeError < StandardError; end
 class FloatDomainError < RangeError; end
 class ZeroDivisionError < StandardError; end
 class IndexError < StandardError; end
-class KeyError < IndexError; end
+class KeyError < IndexError
+  def initialize(message = nil, receiver: nil, key: nil)
+    super(message)
+    @receiver = receiver
+    @key = key
+  end
+
+  def receiver = @receiver
+  def key = @key
+end
 class StopIteration < IndexError
   def result = nil
 end

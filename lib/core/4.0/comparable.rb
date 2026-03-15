@@ -31,16 +31,39 @@ module Comparable
 
   def between?(min, max) = min <= self && self <= max
 
-  def clamp(min_or_range, max = nil)
-    if max.nil?
+  def clamp(min_or_range, max = :__undefined__)
+    if max.equal?(:__undefined__)
+      # Range form
+      raise ArgumentError, "cannot clamp with an exclusive range" if min_or_range.exclude_end?
       lo = min_or_range.begin; hi = min_or_range.end
-      return lo if lo && self < lo
-      return hi if hi && (min_or_range.exclude_end? ? self >= hi : self > hi)
+      if lo
+        c = self <=> lo
+        raise ArgumentError, "comparison of #{self.class} with #{lo.class} failed" if c.nil?
+        return lo if c < 0
+      end
+      if hi
+        c = self <=> hi
+        raise ArgumentError, "comparison of #{self.class} with #{hi.class} failed" if c.nil?
+        return hi if c > 0
+      end
       self
     else
-      raise ArgumentError, "min argument must be smaller than max argument" if min_or_range > max
-      return min_or_range if self < min_or_range
-      return max if self > max
+      # Two-arg form: clamp(min, max)
+      lo = min_or_range; hi = max
+      if lo && hi
+        c = lo <=> hi
+        raise ArgumentError, "min argument must be smaller than max argument" if c && c > 0
+      end
+      if lo
+        c = self <=> lo
+        raise ArgumentError, "comparison of #{self.class} with #{lo.class} failed" if c.nil?
+        return lo if c < 0
+      end
+      if hi
+        c = self <=> hi
+        raise ArgumentError, "comparison of #{self.class} with #{hi.class} failed" if c.nil?
+        return hi if c > 0
+      end
       self
     end
   end

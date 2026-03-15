@@ -2062,6 +2062,10 @@ module Frozone
           ArrayObject.new(v.raw.sort { |a, b| a.dispatch(context, :<=>, [b], {}).raw })
         end
 
+        def array_sort_block(context, v, block)
+          ArrayObject.new(v.raw.sort { |a, b| block.invoke(context, [a, b]).raw })
+        end
+
         def array_sort_by(context, v, block)
           ArrayObject.new(v.raw.sort_by { |e| block.invoke(context, [e]) })
         end
