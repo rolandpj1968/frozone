@@ -52,6 +52,10 @@ class Object
   def singleton_methods(include_super = true) = Intrinsics.object_singleton_methods(self, include_super)
   def singleton_class = Intrinsics.object_singleton_class(self)
 
+  def define_singleton_method(name, &block)
+    singleton_class.define_method(name, &block)
+  end
+
   def to_s = "#<#{self.class.name}:0x#{__id__.to_s(16)}>"
   def inspect = to_s
   def pretty_inspect = inspect

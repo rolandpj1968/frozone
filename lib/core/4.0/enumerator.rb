@@ -237,17 +237,30 @@ class Enumerator
       recv = @receiver
       meth = @method_name
       args = @method_args
-      @fiber = Fiber.new { recv.send(meth, *args) { |*vals| Fiber.yield(vals) }; nil }
+      enum = self
+      @fiber = Fiber.new do
+        result = recv.send(meth, *args) { |*vals| Fiber.yield(vals) }
+        enum.instance_variable_set(:@_enum_result, result)
+        nil
+      end
     end
   end
 
   def _advance
     _ensure_fiber
-    raise StopIteration, "iteration reached an end" unless @fiber.alive?
+    unless @fiber.alive?
+      exc = StopIteration.new("iteration reached an end")
+      exc.instance_variable_set(:@result, @_enum_result)
+      raise exc
+    end
     feed_val = @feed
     @feed = nil
     vals = @fiber.resume(feed_val)
-    raise StopIteration, "iteration reached an end" if vals.nil?
+    if vals.nil?
+      exc = StopIteration.new("iteration reached an end")
+      exc.instance_variable_set(:@result, @_enum_result)
+      raise exc
+    end
     vals
   end
 

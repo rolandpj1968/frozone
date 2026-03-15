@@ -35,16 +35,36 @@ module Frozone
         end
 
         def object_ivar_get(_, v, name)
+          ivar_name_str = name.is_a?(SymbolObject) ? name.raw.to_s : name.raw.to_s
+          unless ivar_name_str.start_with?('@') && ivar_name_str.length > 1
+            raise ivar_name_error("'#{ivar_name_str}' is not allowed as an instance variable name", name, v)
+          end
           v.get_ivar(normalize_ivar(name))
         end
 
         def object_ivar_set(_, v, name, value)
+          ivar_name_str = name.is_a?(SymbolObject) ? name.raw.to_s : name.raw.to_s
+          unless ivar_name_str.start_with?('@') && ivar_name_str.length > 1
+            raise ivar_name_error("'#{ivar_name_str}' is not allowed as an instance variable name", name, v)
+          end
           v.set_ivar(normalize_ivar(name), value)
           value
         end
 
         def object_ivar_defined(_, v, name)
+          ivar_name_str = name.is_a?(SymbolObject) ? name.raw.to_s : name.raw.to_s
+          unless ivar_name_str.start_with?('@') && ivar_name_str.length > 1
+            raise ivar_name_error("'#{ivar_name_str}' is not allowed as an instance variable name", name, v)
+          end
           bool_object_for(v.ivar_defined?(normalize_ivar(name)))
+        end
+
+        def ivar_name_error(msg, name_obj, receiver)
+          exc = FrozoneException.make(:NameError, msg)
+          # Set @name to the original VM object (may be String) for identity equality in tests
+          exc.vm_object.set_ivar(:@name, name_obj)
+          exc.vm_object.set_ivar(:@receiver, receiver)
+          exc
         end
 
         def object_ivar_names(_, v)
@@ -383,12 +403,17 @@ module Frozone
           all_frames = context.frames.reverse
           # Skip internal frames (full_message, detailed_message, exception_caller_string)
           i = 0
-          i += 1 while i < all_frames.length && %i[full_message detailed_message exception_caller_string].include?(all_frames[i].current_method&.name)
+          skip = %i[full_message detailed_message exception_caller_string _full_message_dm _format_single_full_message]
+          i += 1 while i < all_frames.length && skip.include?(all_frames[i].current_method&.name)
           return NilObject::NIL if i >= all_frames.length
           loc = all_frames[i].incoming_call_site
           return NilObject::NIL unless loc
           outer_name = (i + 1 < all_frames.length) ? all_frames[i + 1].current_method&.name&.to_s : "<main>"
           StringObject.new("#{loc}:in '#{outer_name}'")
+        end
+
+        def exception_tty_check(_context = nil)
+          $stderr.isatty ? TrueObject::TRUE : FalseObject::FALSE
         end
 
         def signal_trap(context, signal, block_arg = NilObject::NIL)
@@ -717,9 +742,20 @@ module Frozone
         end
 
         def module_class_variable_get(_, receiver, name_obj)
-          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          name_str = name_obj.is_a?(SymbolObject) ? name_obj.raw.to_s : name_obj.raw.to_s
+          unless name_str.start_with?('@@') && name_str.length > 2
+            exc = FrozoneException.make(:NameError, "`#{name_str}' is not allowed as a class variable name")
+            exc.vm_object.set_ivar(:@name, name_obj)
+            exc.vm_object.set_ivar(:@receiver, receiver)
+            raise exc
+          end
+          name = name_str.to_sym
           val = receiver.get_class_var(name)
-          raise FrozoneException.make(:NameError, "uninitialized class variable #{name} in #{receiver.name}") if val.nil?
+          if val.nil?
+            exc = FrozoneException.make(:NameError, "uninitialized class variable #{name} in #{receiver.name}", name: name)
+            exc.vm_object.set_ivar(:@receiver, receiver)
+            raise exc
+          end
           val
         end
 

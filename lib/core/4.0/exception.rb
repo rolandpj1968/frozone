@@ -97,11 +97,46 @@ class Exception
     end
   end
 
-  def full_message(highlight: nil, order: :bottom)
-    hl = highlight || false
-    dm = detailed_message(highlight: hl)
+  def self.to_tty?
+    Intrinsics.exception_tty_check
+  end
+
+  def full_message(highlight: nil, order: :bottom, **kwargs)
+    hl = highlight.nil? ? Exception.to_tty? : highlight
+
+    # Get the detailed message, calling #detailed_message with all kwargs + highlight
+    dm = _full_message_dm(hl, **kwargs)
+    dm = dm.nil? ? (hl ? "\e[1;4m#{self.class.name || self.class.inspect}\e[m" : (self.class.name || self.class.inspect).to_s) : dm.to_str rescue dm.to_s
     bt = backtrace
 
+    result = _format_single_full_message(bt, dm, hl, order)
+
+    # Append cause chain
+    c = cause
+    seen = [self.object_id]
+    while c && !seen.include?(c.object_id)
+      seen << c.object_id
+      c_dm = c._full_message_dm(hl, **kwargs) rescue c.class.name.to_s
+      c_dm = c_dm.nil? ? c.class.name.to_s : (c_dm.to_str rescue c_dm.to_s)
+      c_bt = c.backtrace
+      result += _format_single_full_message(c_bt, c_dm, hl, order)
+      c = c.cause rescue nil
+    end
+
+    result
+  end
+
+  def _full_message_dm(hl, **kwargs)
+    if respond_to?(:detailed_message)
+      detailed_message(highlight: hl, **kwargs)
+    else
+      hl ? "\e[1;4m#{self.class.name || self.class.inspect}\e[m" : (self.class.name || self.class.inspect).to_s
+    end
+  end
+
+  private
+
+  def _format_single_full_message(bt, dm, hl, order)
     if bt.nil? || bt.empty?
       caller_str = Intrinsics.exception_caller_string
       if caller_str
@@ -170,7 +205,7 @@ class SignalException < Exception
       @signo = sig
       entry = Signal.list.find { |_k, v| v == sig }
       raise ArgumentError, "invalid signal number (#{sig})" unless entry
-      @signm = "SIG#{entry[0]}"
+      @signm = message || "SIG#{entry[0]}"
     elsif sig.is_a?(String) || sig.is_a?(Symbol)
       sigstr = sig.to_s.upcase
       if sigstr.start_with?("SIG")
