@@ -54,15 +54,57 @@ module Frozone
         def string_bytes(_, v)             = ArrayObject.new(v.raw.bytes.map { |b| IntegerObject.new(b) })
         def string_ord(_, v)               = IntegerObject.new(v.raw.ord)
 
-        def string_split(_, v, sep = nil, limit = nil)
+        def string_split(context, v, sep = nil, limit = nil)
           sep = nil if sep.is_a?(NilObject)
           limit = nil if limit.is_a?(NilObject)
-          parts = if sep.nil?
-            v.raw.split
-          elsif limit.nil?
-            v.raw.split(sep.is_a?(StringObject) ? sep.raw : sep.raw)
+
+          # Coerce limit to integer
+          if limit && !limit.is_a?(IntegerObject)
+            begin
+              limit = limit.dispatch(context, :to_int, [], {})
+              raise FrozoneException.make(:TypeError, "no implicit conversion into Integer") unless limit.is_a?(IntegerObject)
+            rescue FrozoneException => e
+              vm_obj = e.vm_object
+              if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
+                raise FrozoneException.make(:TypeError, "no implicit conversion of #{vm_obj.class_object&.name} into Integer")
+              end
+              raise
+            end
+          end
+          limit_raw = limit&.raw
+
+          # Use $; when sep is nil
+          gs = nil
+          if sep.nil?
+            gs = GLOBALS[:"$;"]
+            gs = nil if gs.nil? || gs.is_a?(NilObject)
+          end
+
+          # Determine the raw separator
+          sep_raw = if sep.nil? && gs.nil?
+            nil
+          elsif sep.nil?
+            gs.is_a?(StringObject) ? gs.raw : gs.raw
+          elsif sep.is_a?(StringObject) || sep.is_a?(RegexpObject)
+            sep.raw
           else
-            v.raw.split(sep.is_a?(StringObject) ? sep.raw : sep.raw, limit.raw)
+            begin
+              coerced = sep.dispatch(context, :to_str, [], {})
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{sep.class_object&.name || 'Object'} into String") unless coerced.is_a?(StringObject)
+              coerced.raw
+            rescue FrozoneException => e
+              vm_obj = e.vm_object
+              if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
+                raise FrozoneException.make(:TypeError, "no implicit conversion of #{sep.class_object&.name || 'Object'} into String")
+              end
+              raise
+            end
+          end
+
+          parts = if sep_raw.nil?
+            limit_raw ? v.raw.split(nil, limit_raw) : v.raw.split
+          else
+            limit_raw ? v.raw.split(sep_raw, limit_raw) : v.raw.split(sep_raw)
           end
           ArrayObject.new(parts.map { |p| StringObject.new(p) })
         end
@@ -314,8 +356,97 @@ module Frozone
           result.nil? ? NilObject::NIL : StringObject.new(result)
         end
 
+        def string_coerce_replacement(context, repl)
+          return repl.raw if repl.is_a?(StringObject)
+          if repl.is_a?(IntegerObject)
+            raise FrozoneException.make(:TypeError, "no implicit conversion of Integer into String")
+          end
+          if repl.is_a?(NilObject)
+            raise FrozoneException.make(:TypeError, "no implicit conversion of nil into String")
+          end
+          begin
+            coerced = repl.dispatch(context, :to_str, [], {})
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{repl.class_object&.name || 'Object'} into String") unless coerced.is_a?(StringObject)
+            coerced.raw
+          rescue FrozoneException => e
+            vm_obj = e.vm_object
+            if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{repl.class_object&.name || 'Object'} into String")
+            end
+            raise
+          end
+        end
+
+        def string_store(context, v, idx, *rest)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v.raw.inspect}") if v.frozen?
+          repl_vm = rest.pop
+          repl_raw = string_coerce_replacement(context, repl_vm)
+
+          s = v.raw.dup
+          begin
+            if idx.is_a?(IntegerObject)
+              i = idx.raw
+              if rest.empty?
+                s[i] = repl_raw
+              else
+                len_vm = rest[0]
+                len = len_vm.is_a?(IntegerObject) ? len_vm.raw : str_vm_coerce_to_int(context, len_vm)
+                s[i, len] = repl_raw
+              end
+            elsif idx.is_a?(StringObject)
+              pat = idx.raw
+              raise FrozoneException.make(:IndexError, "string not matched") unless s.include?(pat)
+              s[pat] = repl_raw
+            elsif idx.is_a?(RegexpObject)
+              pat = idx.raw
+              if rest.empty?
+                m = pat.match(s)
+                raise FrozoneException.make(:IndexError, "regexp not matched") unless m
+                update_match_globals(m)
+                s[pat] = repl_raw
+              else
+                cap_vm = rest[0]
+                cap = cap_vm.is_a?(IntegerObject) ? cap_vm.raw : str_vm_coerce_to_int(context, cap_vm)
+                m = pat.match(s)
+                raise FrozoneException.make(:IndexError, "regexp not matched") unless m
+                update_match_globals(m)
+                s[pat, cap] = repl_raw
+              end
+            elsif idx.is_a?(RangeObject)
+              b = idx.begin_val
+              e = idx.end_val
+              b_raw = b.nil? || b.is_a?(NilObject) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
+              e_raw = e.nil? || e.is_a?(NilObject) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
+              s[Range.new(b_raw, e_raw, idx.exclusive?)] = repl_raw
+            else
+              i = str_vm_coerce_to_int(context, idx)
+              if rest.empty?
+                s[i] = repl_raw
+              else
+                len_vm = rest[0]
+                len = len_vm.is_a?(IntegerObject) ? len_vm.raw : str_vm_coerce_to_int(context, len_vm)
+                s[i, len] = repl_raw
+              end
+            end
+          rescue ::IndexError => e
+            raise FrozoneException.make(:IndexError, e.message)
+          rescue ::Encoding::CompatibilityError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          end
+          v.raw = s
+          repl_vm
+        end
+
         def string_each_line(context, v, sep, block)
-          sep_raw = sep.is_a?(NilObject) ? "\n" : sep.raw
+          if sep.is_a?(NilObject) || sep.nil?
+            # nil separator: yield entire string as one chunk
+            if block.nil? || block.is_a?(NilObject)
+              return ArrayObject.new([StringObject.new(v.raw.dup)])
+            end
+            block.invoke(context, [StringObject.new(v.raw.dup)])
+            return v
+          end
+          sep_raw = sep.raw
           return ArrayObject.new(v.raw.each_line(sep_raw).map { |l| StringObject.new(l) }) if block.nil? || block.is_a?(NilObject)
           v.raw.each_line(sep_raw) { |l| block.invoke(context, [StringObject.new(l)]) }
           v
@@ -421,7 +552,10 @@ module Frozone
         def string_dup(_, v)              = StringObject.new(v.raw.dup)
         def string_to_sym(_, v)           = SymbolObject.from(v.raw.to_sym)
         def string_to_f(_, v)             = FloatObject.new(v.raw.to_f)
-        def string_to_r(_, v)             = NilObject::NIL  # stub
+        def string_to_r(context, v)
+          r = v.raw.to_r
+          make_rational(r)
+        end
 
         def string_match(_, v, pattern)
           pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw

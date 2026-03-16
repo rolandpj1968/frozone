@@ -178,7 +178,22 @@ class String
   def chars = Intrinsics.string_chars(self)
   def bytes = Intrinsics.string_bytes(self)
   def ord = Intrinsics.string_ord(self)
-  def split(sep = nil, limit = nil) = Intrinsics.string_split(self, sep, limit)
+  def split(sep = nil, limit = nil, &block)
+    if sep.nil? && $; && !Fiber[:__split_warn_guard__]
+      Fiber[:__split_warn_guard__] = true
+      begin
+        warn "warning: $; is set to non-nil value"
+      ensure
+        Fiber[:__split_warn_guard__] = nil
+      end
+    end
+    result = Intrinsics.string_split(self, sep, limit)
+    if block
+      result.each { |s| block.call(s) }
+      return self
+    end
+    result
+  end
   def gsub(pattern, replacement = nil, &block) = Intrinsics.string_gsub(self, pattern, replacement, block)
   def sub(pattern, replacement = nil, &block) = Intrinsics.string_sub(self, pattern, replacement, block)
   def tr(from, to) = Intrinsics.string_tr(self, from, to)
@@ -189,6 +204,11 @@ class String
     len.equal?(:__unset__) ? Intrinsics.string_slice(self, idx) : Intrinsics.string_slice(self, idx, len)
   end
   alias slice []
+
+  def []=(idx, *rest)
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    Intrinsics.string_store(self, idx, *rest)
+  end
   def index(sub, offset = nil) = Intrinsics.string_index(self, sub, offset)
   def rindex(sub, offset = nil) = Intrinsics.string_rindex(self, sub, offset)
   def replace(other) = Intrinsics.string_replace(self, other)
@@ -201,8 +221,24 @@ class String
     len.equal?(:__unset__) ? Intrinsics.string_slice_bang(self, idx) : Intrinsics.string_slice_bang(self, idx, len)
   end
 
-  def each_line(sep = "\n", &block) = Intrinsics.string_each_line(self, sep, block)
-  def lines(sep = "\n") = each_line(sep)
+  def each_line(sep = "\n", chomp: false, &block)
+    lines = Intrinsics.string_each_line(self, sep, nil)
+    lines = lines.map(&:chomp) if chomp
+    if block
+      lines.each { |l| block.call(l) }
+      return self
+    end
+    lines
+  end
+
+  def lines(sep = "\n", chomp: false, &block)
+    result = each_line(sep, chomp: chomp)
+    if block
+      result.each { |l| block.call(l) }
+      return self
+    end
+    result
+  end
   def b = Intrinsics.string_b(self)
   def +@ = dup
   def -@ = freeze
