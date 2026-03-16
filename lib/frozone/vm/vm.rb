@@ -18,6 +18,7 @@ require_relative 'range_object'
 require_relative 'float_object'
 require_relative 'time_object'
 require_relative 'regexp_object'
+require_relative 'random_object'
 require_relative 'match_data_object'
 require_relative 'process_status_object'
 
@@ -154,6 +155,7 @@ module Frozone
         evaluate_file("#{core_path}/pp.rb")
         evaluate_file("#{core_path}/stringio.rb")
         evaluate_file("#{core_path}/set.rb")
+        evaluate_file("#{core_path}/random.rb")
         init_globals
       end
 

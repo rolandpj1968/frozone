@@ -58,6 +58,9 @@ end
 class MatchData < Object
 end
 
+class Random < Object
+end
+
 class IO < Object
 end
 

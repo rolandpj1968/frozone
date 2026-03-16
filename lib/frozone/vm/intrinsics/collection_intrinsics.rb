@@ -96,7 +96,13 @@ module Frozone
             inner = v.raw.map do |e|
               r = e.dispatch(context, :inspect, [], {})
               r = r.dispatch(context, :to_s, [], {}) unless r.is_a?(StringObject)
-              r.is_a?(StringObject) ? r.raw : r.to_s
+              if r.is_a?(StringObject)
+                r.raw
+              else
+                # inspect and to_s both failed to return a String — use default format
+                cls_name = e.class_object&.name || :Object
+                "#<#{cls_name}:0x#{e.__id__.to_s(16).rjust(16, '0')}>"
+              end
             end.join(", ")
             StringObject.new("[#{inner}]")
           ensure
@@ -327,14 +333,27 @@ module Frozone
           StringObject.new(ints.pack(fmt))
         end
 
-        def array_dup(_, v) = ArrayObject.new(v.raw.dup)
+        def array_dup(_, v) = ArrayObject.new(v.raw.dup, v.class_object)
 
-        def array_clone(_, v, _freeze_opt = NilObject::NIL, klass = nil)
+        def array_clone(_, v, freeze_opt = NilObject::NIL, klass = nil)
           cls = klass.is_a?(ClassObject) ? klass : nil
-          ArrayObject.new(v.raw.dup, cls)
+          cloned = ArrayObject.new(v.raw.dup, cls)
+          # Copy singleton class (eigenclass) including its methods
+          if v.eigenclass
+            new_sc = ClassObject.clone_singleton(v.eigenclass, cloned)
+            cloned.copy_fields_from(cloned, eigenclass: new_sc, frozen: freeze_opt.truthy?)
+          elsif freeze_opt.truthy?
+            cloned.freeze_object!
+          end
+          cloned
         end
 
         def array_sample(_, v) = v.raw.empty? ? NilObject::NIL : v.raw.sample
+
+        def array_sample_n(_, v, n)
+          ArrayObject.new(v.raw.sample(n.raw))
+        end
+
         def array_shuffle(_, v) = ArrayObject.new(v.raw.shuffle)
 
         def array_combination(context, v, n, block = nil)

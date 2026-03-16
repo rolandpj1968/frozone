@@ -72,10 +72,31 @@ class Array
   end
 
   def []=(i, len_or_val, val = :__unset__)
+    raise FrozenError, "can't modify frozen Array" if frozen?
     if val.equal?(:__unset__)
+      # 2-arg form: ary[index] = val or ary[range] = val
+      if i.is_a?(Range)
+        bi = i.begin
+        ei = i.end
+        bi_int = bi.nil? ? nil : __coerce_to_int__(bi)
+        ei_int = ei.nil? ? nil : __coerce_to_int__(ei)
+        i = Range.new(bi_int, ei_int, i.exclude_end?)
+      else
+        i = __coerce_to_int__(i)
+      end
       Intrinsics.array_index_write(self, i, len_or_val)
     else
-      Intrinsics.array_slice_write(self, i, len_or_val, val)
+      # 3-arg form: ary[start, length] = val
+      start_int = __coerce_to_int__(i)
+      length_int = __coerce_to_int__(len_or_val)
+      # Coerce val via to_ary if not already an Array
+      unless val.is_a?(Array)
+        if val.respond_to?(:to_ary)
+          converted = val.to_ary
+          val = converted if converted.is_a?(Array)
+        end
+      end
+      Intrinsics.array_slice_write(self, start_int, length_int, val)
     end
   end
 
@@ -91,17 +112,22 @@ class Array
   def concat(*others)
     return self if others.empty?
     raise FrozenError, "can't modify frozen Array" if frozen?
-    others.each { |other|
-      unless other.is_a?(Array)
+    # Coerce and snapshot all args before any mutation (handles concat(self, self))
+    coerced = others.map { |other|
+      arr = if other.is_a?(Array)
+        other
+      else
         begin
-          other = other.to_ary
-          raise TypeError, "to_ary must return Array" unless other.is_a?(Array)
+          r = other.to_ary
+          raise TypeError, "to_ary must return Array" unless r.is_a?(Array)
+          r
         rescue NoMethodError
           raise TypeError, "no implicit conversion of #{other.class} into Array"
         end
       end
-      Intrinsics.array_concat(self, other)
+      arr.equal?(self) ? arr.dup : arr
     }
+    coerced.each { |other| Intrinsics.array_concat(self, other) }
     self
   end
   def replace(other) = Intrinsics.array_replace(self, other)
@@ -173,7 +199,11 @@ class Array
     return 0 if ongoing.include?(__id__)
     ongoing << __id__
     begin
-      reduce(0) { |acc, e| acc * 31 + e.hash }
+      reduce(0) { |acc, e|
+        h = e.hash
+        h = h.to_int unless h.is_a?(Integer)
+        acc * 31 + h
+      }
     ensure
       ongoing.pop
     end
@@ -439,16 +469,66 @@ class Array
     r
   end
 
-  def rotate(n = nil)
-    n = n.nil? ? 1 : n
+  def rotate(n = 1)
+    n = __coerce_to_int__(n)
     return dup if empty?
     n = n % length
     return dup if n == 0
     self[n, length - n] + self[0, n]
   end
 
-  def sample = Intrinsics.array_sample(self)
-  def shuffle = Intrinsics.array_shuffle(self)
+  def __array_rand_int__(rng, n)
+    v = rng.rand(n)
+    unless v.is_a?(Integer)
+      v = v.to_int
+      raise TypeError, "to_int should return Integer" unless v.is_a?(Integer)
+    end
+    raise RangeError, "random number too small #{v}" if v < 0
+    raise RangeError, "random number too large #{v}" if v >= n
+    v
+  end
+
+  def sample(n = :__none__, random: nil)
+    if n.equal?(:__none__)
+      return nil if empty?
+      if random.nil?
+        Intrinsics.array_sample(self)
+      else
+        idx = __array_rand_int__(random, length)
+        Intrinsics.array_at(self, idx)
+      end
+    else
+      n = __coerce_to_int__(n)
+      raise ArgumentError, "negative sample number" if n < 0
+      len = length
+      n = len if n > len
+      return Intrinsics.array_sample_n(self, n) if random.nil?
+      pool = Array.new(self)
+      n.times do |i|
+        j = i + __array_rand_int__(random, len - i)
+        tmp = pool[i]; pool[i] = pool[j]; pool[j] = tmp
+      end
+      pool[0, n]
+    end
+  end
+
+  def shuffle(random: nil)
+    result = Array.new(self)
+    len = result.length
+    i = len - 1
+    while i > 0
+      j = random.nil? ? rand(i + 1) : __array_rand_int__(random, i + 1)
+      tmp = result[i]; result[i] = result[j]; result[j] = tmp
+      i -= 1
+    end
+    result
+  end
+
+  def shuffle!(random: nil)
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    replace(shuffle(random: random))
+    self
+  end
 
   def zip(*others)
     n = length

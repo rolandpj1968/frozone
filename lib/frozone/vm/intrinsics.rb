@@ -532,6 +532,36 @@ module Frozone
           IntegerObject.new(result)
         end
 
+        def random_new(_, _receiver, seed)
+          raw_seed = seed.nil? || seed.is_a?(NilObject) ? nil : seed.raw
+          RandomObject.new(raw_seed)
+        end
+
+        def random_rand(_, v, n)
+          rng = v.is_a?(RandomObject) ? v.rng : Random
+          if n.nil? || n.is_a?(NilObject)
+            FloatObject.new(rng.rand)
+          elsif n.is_a?(IntegerObject)
+            IntegerObject.new(rng.rand(n.raw))
+          elsif n.is_a?(FloatObject)
+            FloatObject.new(rng.rand(n.raw))
+          elsif n.is_a?(RangeObject)
+            result = rng.rand(n.raw)
+            result.is_a?(Integer) ? IntegerObject.new(result) : FloatObject.new(result)
+          else
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{n.class_object&.name} into Integer")
+          end
+        end
+
+        def random_seed(_, v)
+          rng = v.is_a?(RandomObject) ? v.rng : Random
+          IntegerObject.new(rng.seed)
+        end
+
+        def random_new_seed(_, _receiver)
+          IntegerObject.new(Random.new_seed)
+        end
+
         def kernel_local_variables(context, _receiver)
           # local_variables is called from a kernel method frame; the caller's frame has the actual locals
           caller_frame = context.frames[-2] || context.frame
