@@ -428,19 +428,14 @@ module Frozone
 
         # Raw key lookup — returns nil (Ruby nil) if not found (no default applied).
         def hash_raw_get(_, h, key)
-          h.is_a?(HashObject) ? (h.key?(key) ? h[key] : nil) : nil
+          h.is_a?(HashObject) ? h[key] : nil
         end
 
         def hash_index(context, h, key)
           value = h[key]
           return value unless value.nil?
-          if h.default_block
-            h.default_block.invoke(context, [h, key])
-          elsif h.default_value
-            h.default_value
-          else
-            NilObject::NIL
-          end
+          # Key not found — dispatch to VM-level #default to allow subclass overrides
+          h.dispatch(context, :default, [key], {})
         end
 
         def hash_get_default(context, h, key = nil)

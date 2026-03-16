@@ -11,9 +11,10 @@ module Frozone
 
         def initialize(key)
           @unwrap = key
+          @hash = key.dispatch(Fiber[:context], :hash, [], {}, nil, private_ok: true).raw
         end
 
-        def hash = @unwrap.dispatch(Fiber[:context], :hash, [], {}, nil, private_ok: true).raw
+        def hash = @hash
         def eql?(v) = v.is_a?(KeyWrapper) && (@unwrap.equal?(v.unwrap) || @unwrap.dispatch(Fiber[:context], :eql?, [v.unwrap], {}).truthy?)
       end
 

@@ -79,9 +79,7 @@ class Hash
     end
   end
 
-  def [](key)
-    key?(key) ? Intrinsics.hash_raw_get(self, key) : default(key)
-  end
+  def [](key) = Intrinsics.hash_index(self, key)
   def []=(key, value) = Intrinsics.hash_index_write(self, key, value)
   alias store []=
 
