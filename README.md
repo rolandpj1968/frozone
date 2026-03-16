@@ -133,68 +133,68 @@ Differences from Prism (both are whitequark lexer limitations):
 Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 
-**Overall: 4029 / 11412 passing** (2128 failures, 5255 errors) — as of 2026-03-16 (Prism parser)
+**Overall: 4305 / 12332 passing** (1990 failures, 6037 errors) — as of 2026-03-16 (Prism parser, excludes timed-out modules)
 
 Note: Negative "passing" counts indicate errors exceed examples (mspec counts some errors as extra failures).
-Modules with all zeros are not yet being run (timeout).
+`—` = not yet run (hangs/timeout); `(TO)` = suite times out.
 
 | Module | Examples | Passing | Failures | Errors |
 |---|---:|---:|---:|---:|
 | argf | 84 | -53 | 3 | 134 |
-| basicobject | 178 | 111 | 40 | 27 |
+| array | — (TO) | — | — | — |
+| basicobject | 178 | 111 | 41 | 26 |
 | binding | 53 | 11 | 4 | 38 |
 | builtin_constants | 27 | 27 | 0 | 0 |
 | class | 45 | 22 | 18 | 5 |
 | comparable | 54 | 54 | 0 | 0 |
 | complex | 176 | 23 | 57 | 96 |
+| conditionvariable | — | — | — | — |
 | data | 77 | 0 | 4 | 73 |
-| dir | 291 | 80 | 41 | 170 |
-| encoding | 552 | -53 | 21 | 584 |
-| enumerable | 539 | -19 | 83 | 475 |
-| enumerator | 226 | -75 | 33 | 268 |
-| env | 239 | 139 | 93 | 7 |
-| exception | 247 | 232 | 9 | 6 |
+| dir | 309 | 103 | 50 | 156 |
+| encoding | 552 | -45 | 23 | 574 |
+| enumerable | 574 | 574 | 0 | 0 |
+| enumerator | — (TO) | — | — | — |
+| env | 239 | 138 | 95 | 6 |
+| exception | 247 | 230 | 10 | 7 |
 | false | 13 | 13 | 0 | 0 |
-| fiber | 163 | 31 | 80 | 52 |
-| file | 781 | -66 | 192 | 655 |
+| fiber | 168 | 26 | 77 | 65 |
+| file | 781 | -60 | 190 | 651 |
+| filetest | — | — | — | — |
 | float | 328 | 320 | 5 | 3 |
 | gc | 33 | -10 | 4 | 39 |
-| hash | 633 | 610 | 16 | 7 |
+| hash | 633 | 627 | 4 | 2 |
+| integer | — | — | — | — |
+| io | — | — | — | — |
+| kernel | — (TO) | — | — | — |
 | main | 27 | 4 | 11 | 12 |
 | marshal | 110 | -3 | 6 | 107 |
 | matchdata | 186 | 83 | 23 | 80 |
 | math | 243 | 108 | 71 | 64 |
-| method | 223 | 167 | 26 | 30 |
+| method | 223 | 167 | 27 | 29 |
+| module | — (TO) | — | — | — |
+| mutex | — (TO) | — | — | — |
 | nil | 27 | 27 | 0 | 0 |
 | numeric | 327 | -28 | 95 | 260 |
 | objectspace | 112 | 10 | 10 | 92 |
 | proc | 294 | 212 | 54 | 28 |
+| process | — (TO) | — | — | — |
 | queue | 88 | -3 | 13 | 78 |
-| random | 33 | -4 | 3 | 34 |
+| random | 48 | 20 | 4 | 24 |
+| range | — (TO) | — | — | — |
 | rational | 159 | 70 | 66 | 23 |
 | refinement | 25 | 0 | 0 | 25 |
-| regexp | 265 | 75 | 59 | 131 |
-| set | 100 | -81 | 5 | 176 |
+| regexp | 265 | 76 | 57 | 132 |
+| set | — (TO) | — | — | — |
 | signal | 10 | -42 | 6 | 46 |
 | sizedqueue | 129 | 0 | 16 | 113 |
+| string | 4216 | 1180 | 767 | 2269 |
 | struct | 132 | -26 | 8 | 150 |
-| symbol | 330 | 323 | 5 | 2 |
+| symbol | 330 | 326 | 4 | 0 |
 | systemexit | 6 | 6 | 0 | 0 |
+| thread | — (TO) | — | — | — |
 | threadgroup | 5 | -3 | 0 | 8 |
 | time | 627 | -58 | 145 | 540 |
 | tracepoint | 73 | -1 | 4 | 70 |
 | true | 13 | 13 | 0 | 0 |
-| unboundmethod | 86 | 56 | 17 | 13 |
-| array | 3043 | 1727 | 782 | 534 |
-| conditionvariable | — | — | — | — |
-| filetest | — | — | — | — |
-| integer | — | — | — | — |
-| io | — | — | — | — |
-| kernel | — | — | — | — |
-| module | — | — | — | — |
-| mutex | — | — | — | — |
-| process | — | — | — | — |
-| range | — | — | — | — |
-| string | — | — | — | — |
-| thread | — | — | — | — |
-| warning | — | — | — | — |
+| unboundmethod | 86 | 56 | 18 | 12 |
+| warning | — (TO) | — | — | — |

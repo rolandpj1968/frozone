@@ -894,6 +894,11 @@ module Frozone
           raise FrozoneException.make(:NameError, "wrong constant name #{name_s}") unless name_s =~ /\A[[:upper:]]/
           emit_vm_warning(context, "already initialized constant #{receiver.name}::#{name}") if receiver.get_constant(name)
           receiver.set_constant(name, value)
+          # Auto-name anonymous classes/modules (same as constant_write.rb)
+          if value.is_a?(ModuleObject) && value.name.nil?
+            value.set_name(name)
+            value.namespace = receiver unless receiver.equal?(Core::OBJECT_CLASS)
+          end
           value
         end
 

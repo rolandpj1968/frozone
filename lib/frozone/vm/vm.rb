@@ -182,6 +182,7 @@ module Frozone
         evaluate_file("#{core_path}/binding.rb")
         evaluate_file("#{core_path}/pp.rb")
         evaluate_file("#{core_path}/stringio.rb")
+        evaluate_file("#{core_path}/struct.rb")
         evaluate_file("#{core_path}/set.rb")
         evaluate_file("#{core_path}/random.rb")
         init_globals
