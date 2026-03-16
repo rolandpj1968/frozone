@@ -310,7 +310,7 @@ module Frozone
 
         def array_unshift(_, v, *elems)
           raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v) if v.frozen_object?
-          elems.each { |e| v.raw.unshift(e) }
+          v.raw.unshift(*elems)
           v
         end
 

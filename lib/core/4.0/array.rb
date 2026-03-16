@@ -5,6 +5,14 @@ class Array
     a
   end
 
+  def self.try_convert(obj)
+    return obj if obj.is_a?(Array)
+    return nil unless obj.respond_to?(:to_ary)
+    result = obj.to_ary
+    raise TypeError, "can't convert #{obj.class} into Array (#{obj.class}#to_ary gives #{result.class})" unless result.is_a?(Array) || result.nil?
+    result
+  end
+
   def initialize(size_or_array = nil, fill = nil, &block)
     raise FrozenError, "can't modify frozen #{self.class}" if frozen?
     if size_or_array.nil?
@@ -130,7 +138,10 @@ class Array
     coerced.each { |other| Intrinsics.array_concat(self, other) }
     self
   end
-  def replace(other) = Intrinsics.array_replace(self, other)
+  def replace(other)
+    other = __array_coerce__(other) unless other.is_a?(Array)
+    Intrinsics.array_replace(self, other)
+  end
   def clear; replace([]); self; end
   def length = Intrinsics.array_length(self)
   alias size length
@@ -179,14 +190,41 @@ class Array
 
   def to_s = Intrinsics.array_to_s(self)
   alias inspect to_s
-  def to_a = self
+  def to_a
+    return self if instance_of?(Array)
+    Array.new(self)
+  end
   def to_ary = self
 
   def to_h(&block)
     r = {}
+    idx = 0
     each { |e|
-      pair = block ? block.call(e) : e
+      if block
+        pair = block.call(e)
+        if !pair.is_a?(Array)
+          if pair.respond_to?(:to_ary)
+            pair = pair.to_ary
+            raise TypeError, "wrong element type #{pair.class} at #{idx} (expected Array)" unless pair.is_a?(Array)
+          else
+            raise TypeError, "wrong element type #{pair.class} at #{idx} (expected Array)"
+          end
+        end
+        raise ArgumentError, "wrong array length at #{idx} (expected 2, was #{pair.length})" unless pair.length == 2
+      else
+        pair = e
+        if !pair.is_a?(Array)
+          if pair.respond_to?(:to_ary)
+            pair = pair.to_ary
+            raise TypeError, "wrong element type #{pair.class} at #{idx} (expected Array)" unless pair.is_a?(Array)
+          else
+            raise TypeError, "wrong element type #{pair.class} at #{idx} (expected Array)"
+          end
+        end
+        raise ArgumentError, "wrong array length at #{idx} (expected 2, was #{pair.length})" unless pair.length == 2
+      end
       r[pair[0]] = pair[1]
+      idx += 1
     }
     r
   end
@@ -247,13 +285,30 @@ class Array
     reject { |e| set.key?(e) }
   end
 
-  def +(other); r = dup; r.concat(other); r; end
+  def +(other)
+    other = __array_coerce__(other)
+    r = Array.new(self)
+    r.concat(other)
+    r
+  end
 
   def *(n)
-    if n.is_a?(Integer)
-      r = []; n.times { r.concat(self) }; r
-    else
+    if n.is_a?(String)
       join(n)
+    elsif n.is_a?(Integer)
+      raise ArgumentError, "negative argument" if n < 0
+      r = []; n.times { r.concat(self) }; r
+    elsif n.respond_to?(:to_str)
+      join(n.to_str)
+    else
+      begin
+        n_int = n.to_int
+        raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n_int.is_a?(Integer)
+        raise ArgumentError, "negative argument" if n_int < 0
+        r = []; n_int.times { r.concat(self) }; r
+      rescue NoMethodError
+        raise TypeError, "no implicit conversion of #{n.class} into Integer"
+      end
     end
   end
 
@@ -309,11 +364,11 @@ class Array
   def min(&block)
     return nil if empty?
     if block
-      # Call both < and > on block result to match MRI behavior
       r = self[0]
       each_with_index do |x, i|
         next if i == 0
         cmp = block.call(x, r)
+        raise ArgumentError, "comparison failed" if cmp.nil?
         if cmp < 0
           r = x      # new element is smaller
         elsif cmp > 0
@@ -322,7 +377,11 @@ class Array
       end
       r
     else
-      reduce { |a, b| (a <=> b) <= 0 ? a : b }
+      reduce { |a, b|
+        cmp = a <=> b
+        raise ArgumentError, "comparison of #{a.class} with #{b.class} failed" if cmp.nil?
+        cmp <= 0 ? a : b
+      }
     end
   end
 
@@ -333,6 +392,7 @@ class Array
       each_with_index do |x, i|
         next if i == 0
         cmp = block.call(x, r)
+        raise ArgumentError, "comparison failed" if cmp.nil?
         if cmp > 0
           r = x      # new element is larger
         elsif cmp < 0
@@ -341,7 +401,11 @@ class Array
       end
       r
     else
-      reduce { |a, b| (a <=> b) >= 0 ? a : b }
+      reduce { |a, b|
+        cmp = a <=> b
+        raise ArgumentError, "comparison of #{a.class} with #{b.class} failed" if cmp.nil?
+        cmp >= 0 ? a : b
+      }
     end
   end
 
@@ -466,6 +530,7 @@ class Array
   def dig(idx, *rest)
     val = self[idx]
     return val if rest.empty?
+    return nil if val.nil?
     raise TypeError, "#{val.class} does not have #dig method" unless val.respond_to?(:dig)
     val.dig(*rest)
   end
@@ -517,12 +582,12 @@ class Array
   end
 
   def delete(elem, &block)
-    n = length
-    reject! { |x| x == elem }
-    if n == length
-      block ? block.call : nil
-    else
+    found = any? { |x| x == elem }
+    if found
+      reject! { |x| x == elem }
       elem
+    else
+      block ? block.call : nil
     end
   end
 
@@ -1174,15 +1239,25 @@ class Array
   end
 
   def values_at(*indices)
+    n = length
     r = []
     indices.each { |i|
       if i.is_a?(Range)
-        b = i.begin.nil? ? 0 : (i.begin < 0 ? i.begin + length : i.begin)
-        e = i.end.nil? ? length - 1 : (i.end < 0 ? i.end + length : i.end)
-        e -= 1 if i.exclude_end?
-        j = b; while j <= e; r << self[j]; j += 1; end
+        bi = i.begin
+        ei = i.end
+        bi_int = bi.nil? ? 0 : __coerce_to_int__(bi)
+        b = bi_int < 0 ? bi_int + n : bi_int
+        if ei.nil?
+          # endless range: go to end of array
+          e = n - 1
+        else
+          ei_int = __coerce_to_int__(ei)
+          e = ei_int < 0 ? ei_int + n : ei_int
+          e -= 1 if i.exclude_end?
+        end
+        j = b; while j <= e; r << (j >= 0 && j < n ? self[j] : nil); j += 1; end
       else
-        r << self[i]
+        r << self[__coerce_to_int__(i)]
       end
     }
     r
@@ -1260,9 +1335,20 @@ class Array
 
   def transpose
     return [] if empty?
-    n = self[0].length
-    each { |row| raise IndexError, "element size differs" unless row.length == n }
-    (0...n).map { |j| map { |row| row[j] } }
+    rows = map { |row|
+      if row.is_a?(Array)
+        row
+      elsif row.respond_to?(:to_ary)
+        converted = row.to_ary
+        raise TypeError, "no implicit conversion of #{row.class} into Array" unless converted.is_a?(Array)
+        converted
+      else
+        raise TypeError, "no implicit conversion of #{row.class} into Array"
+      end
+    }
+    n = rows[0].length
+    rows.each { |row| raise IndexError, "element size differs (#{row.length} should be #{n})" unless row.length == n }
+    (0...n).map { |j| rows.map { |row| row[j] } }
   end
 
   def take_while(&block)
@@ -1345,13 +1431,13 @@ class Array
   end
 
   def difference(*others)
-    result = dup
+    result = Array.new(self)
     others.each { |other| result = result - other }
     result
   end
 
   def union(*others)
-    result = dup
+    result = uniq
     others.each { |other| result = result | other }
     result
   end
@@ -1379,13 +1465,12 @@ class Array
 
   def __array_coerce__(other)
     return other if other.is_a?(Array)
-    begin
-      result = other.to_ary
-      raise TypeError, "to_ary must return Array" unless result.is_a?(Array)
-      result
-    rescue NoMethodError
+    unless other.respond_to?(:to_ary)
       raise TypeError, "no implicit conversion of #{other.class} into Array"
     end
+    result = other.to_ary
+    raise TypeError, "no implicit conversion of #{other.class} into Array" unless result.is_a?(Array)
+    result
   end
 
   def __coerce_to_int__(n)
