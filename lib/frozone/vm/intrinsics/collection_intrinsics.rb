@@ -371,6 +371,24 @@ module Frozone
           v
         end
 
+        def array_repeated_combination(context, v, n, block = nil)
+          n_raw = n.is_a?(IntegerObject) ? n.raw : 0
+          return v if n_raw < 0
+          combos = v.raw.repeated_combination(n_raw).map { |c| ArrayObject.new(c) }
+          return ArrayObject.new(combos) if block.nil? || block.is_a?(NilObject)
+          combos.each { |c| block.invoke(context, [c]) }
+          v
+        end
+
+        def array_repeated_permutation(context, v, n, block = nil)
+          n_raw = n.is_a?(IntegerObject) ? n.raw : 0
+          return v if n_raw < 0
+          perms = v.raw.repeated_permutation(n_raw).map { |p| ArrayObject.new(p) }
+          return ArrayObject.new(perms) if block.nil? || block.is_a?(NilObject)
+          perms.each { |p| block.invoke(context, [p]) }
+          v
+        end
+
         # Range
         def range_new(_, b, e, excl = nil)
           excl = excl.nil? || excl.is_a?(NilObject) ? false : excl.truthy?

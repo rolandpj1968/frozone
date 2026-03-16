@@ -271,7 +271,21 @@ class Array
 
   def compact;  reject { |x| x.nil? }; end
   def compact!; reject! { |x| x.nil? }; end
-  def uniq; seen = {}; r = []; each { |e| r << e and seen[e] = true unless seen.key?(e) }; r; end
+  def uniq(&block)
+    seen = {}
+    r = []
+    i = 0
+    while i < length
+      e = Intrinsics.array_at(self, i)
+      key = block ? block.call(e) : e
+      unless seen.key?(key)
+        r << e
+        seen[key] = true
+      end
+      i += 1
+    end
+    r
+  end
   def reverse = Intrinsics.array_reverse(self)
   def reverse!; replace(reverse); self; end
   def <=>(other) = Intrinsics.array_cmp(self, other)
@@ -281,7 +295,17 @@ class Array
   end
 
   def sort!(&block); replace(sort(&block)); self; end
-  def sort_by(&block) = Intrinsics.array_sort_by(self, block)
+  def sort_by(&block)
+    return to_enum(:sort_by) unless block
+    Intrinsics.array_sort_by(self, block)
+  end
+
+  def sort_by!(&block)
+    return to_enum(:sort_by!) { size } unless block
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    replace(sort_by(&block))
+    self
+  end
   def min(&block)
     return nil if empty?
     if block
@@ -1056,7 +1080,10 @@ class Array
   end
 
   def rassoc(val)
-    each { |e| return e if e.is_a?(Array) && e.length >= 2 && e[1] == val }
+    each { |e|
+      arr = e.is_a?(Array) ? e : begin; e.to_ary; rescue; nil; end
+      return arr if arr.is_a?(Array) && arr.length >= 2 && arr[1] == val
+    }
     nil
   end
 
@@ -1162,23 +1189,31 @@ class Array
   end
 
   def repeated_combination(n, &block)
-    return to_enum(:repeated_combination, n) unless block
-    if n == 0
-      yield []
-      return self
+    n = __coerce_to_int__(n)
+    unless block
+      sz = n < 0 ? 0 : (n == 0 ? 1 : __binomial_coeff__(length + n - 1, n))
+      return to_enum(:repeated_combination, n) { sz }
     end
-    raw.repeated_combination(n) { |c| yield c }
+    Intrinsics.array_repeated_combination(self, n, block)
     self
   end
 
   def repeated_permutation(n, &block)
-    return to_enum(:repeated_permutation, n) unless block
-    if n == 0
-      yield []
-      return self
+    n = __coerce_to_int__(n)
+    unless block
+      sz = n < 0 ? 0 : (length == 0 ? (n == 0 ? 1 : 0) : length ** n)
+      return to_enum(:repeated_permutation, n) { sz }
     end
-    raw.repeated_permutation(n) { |c| yield c }
+    Intrinsics.array_repeated_permutation(self, n, block)
     self
+  end
+
+  def __binomial_coeff__(n, k)
+    return 0 if k < 0 || k > n
+    k = n - k if k > n - k
+    result = 1
+    k.times { |i| result = result * (n - i) / (i + 1) }
+    result
   end
 
   def product(*others, &block)
@@ -1284,13 +1319,15 @@ class Array
     nil
   end
 
-  def uniq!
+  def uniq!(&block)
+    raise FrozenError, "can't modify frozen Array" if frozen?
     seen = {}; write_idx = 0; read_idx = 0
     while read_idx < length
-      e = self[read_idx]
-      unless seen.key?(e)
+      e = Intrinsics.array_at(self, read_idx)
+      key = block ? block.call(e) : e
+      unless seen.key?(key)
         self[write_idx] = e
-        seen[e] = true
+        seen[key] = true
         write_idx += 1
       end
       read_idx += 1
