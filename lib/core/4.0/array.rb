@@ -396,6 +396,26 @@ class Array
     nil
   end
 
+  def grep(pattern, &block)
+    r = []
+    if block
+      each { |x| r << block.call(x) if pattern === x }
+    else
+      each { |x| r << x if pattern === x }
+    end
+    r
+  end
+
+  def grep_v(pattern, &block)
+    r = []
+    if block
+      each { |x| r << block.call(x) unless pattern === x }
+    else
+      each { |x| r << x unless pattern === x }
+    end
+    r
+  end
+
   def group_by; result = {}; each { |x| k = yield(x); result[k] ||= []; result[k] << x }; result; end
   def tally;    result = {}; each { |x| result[x] = (result[x] || 0) + 1 };                result; end
 

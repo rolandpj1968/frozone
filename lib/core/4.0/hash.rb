@@ -1,9 +1,14 @@
 class Hash
-  def self.new(default = :__unset__, capacity: nil, &block)
-    has_default = !default.equal?(:__unset__)
-    default = nil if default.equal?(:__unset__)
-    raise ArgumentError, "wrong number of arguments (given 1, expected 0)" if has_default && block
-    Intrinsics.hash_new(default, block)
+  def self.new(*args, capacity: nil, &block)
+    if self.equal?(Hash)
+      raise ArgumentError, "wrong number of arguments (given #{args.size}, expected 0..1)" if args.size > 1
+      raise ArgumentError, "wrong number of arguments (given 1, expected 0)" if args.size == 1 && block
+      Intrinsics.hash_new(args.size == 1 ? args[0] : nil, block)
+    else
+      h = allocate
+      h.send(:initialize, *args, &block)
+      h
+    end
   end
 
   def initialize(default = nil, &block)
@@ -74,7 +79,9 @@ class Hash
     end
   end
 
-  def [](key) = Intrinsics.hash_index(self, key)
+  def [](key)
+    key?(key) ? Intrinsics.hash_raw_get(self, key) : default(key)
+  end
   def []=(key, value) = Intrinsics.hash_index_write(self, key, value)
   alias store []=
 
@@ -124,7 +131,18 @@ class Hash
   def to_hash = self
 
   def to_h(&block)
-    return self unless block
+    unless block
+      return self if instance_of?(Hash)
+      r = {}
+      each { |k, v| r[k] = v }
+      r.compare_by_identity if compare_by_identity?
+      if default_proc
+        r.default_proc = default_proc
+      elsif default
+        r.default = default
+      end
+      return r
+    end
     r = {}
     each do |k, v|
       pair = block.call(k, v)
@@ -146,12 +164,25 @@ class Hash
       pairs = []
       each do |k, v|
         v_s = v.inspect
-        v_s = v_s.to_s unless v_s.is_a?(String)
+        unless v_s.is_a?(String)
+          v_s2 = v_s.to_s
+          v_s = v_s2.is_a?(String) ? v_s2 : "#<#{v_s.class.name}:0x#{v_s.__id__.to_s(16)}>"
+        end
         if k.is_a?(Symbol)
-          pairs << "#{k.inspect.sub(/\A:/, '')}: #{v_s}"
+          name = k.to_s
+          # Use bare-word syntax only for simple identifiers (letters/digits/underscore,
+          # optional ?/! suffix). Everything else (operators, setters, etc.) needs quoting.
+          if name =~ /\A[a-zA-Z_\u0080-\uFFFF][a-zA-Z0-9_\u0080-\uFFFF]*[?!]?\z/
+            pairs << "#{name}: #{v_s}"
+          else
+            pairs << "#{name.inspect}: #{v_s}"
+          end
         else
           k_s = k.inspect
-          k_s = k_s.to_s unless k_s.is_a?(String)
+          unless k_s.is_a?(String)
+            k_s2 = k_s.to_s
+            k_s = k_s2.is_a?(String) ? k_s2 : "#<#{k_s.class.name}:0x#{k_s.__id__.to_s(16)}>"
+          end
           pairs << "#{k_s} => #{v_s}"
         end
       end
@@ -171,6 +202,7 @@ class Hash
     elsif default
       r.default = default
     end
+    instance_variables.each { |iv| r.instance_variable_set(iv, instance_variable_get(iv)) }
     r
   end
 
@@ -237,6 +269,7 @@ class Hash
     other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
     raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
     Intrinsics.hash_clear(self)
+    Intrinsics.hash_reset_compare_by_identity(self)
     other.each { |k, v| self[k] = v }
     if other.default_proc
       Intrinsics.hash_set_default_proc(self, other.default_proc)
@@ -367,6 +400,7 @@ class Hash
   def transform_values(&block)
     return to_enum(:transform_values) { size } unless block
     r = {}
+    r.compare_by_identity if compare_by_identity?
     each { |k, v| r[k] = block.call(v) }
     r
   end
@@ -413,9 +447,9 @@ class Hash
   end
 
   def slice(*keys)
-    r = self.class.allocate
+    r = Hash.new
     r.compare_by_identity if compare_by_identity?
-    keys.each { |k| r[k] = self[k] if key?(k) }
+    keys.each { |k| r[k] = Intrinsics.hash_index(self, k) if key?(k) }
     r
   end
 

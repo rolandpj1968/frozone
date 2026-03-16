@@ -71,6 +71,11 @@ module Frozone
         self
       end
 
+      def reset_compare_by_identity!
+        @compare_by_identity_flag = false
+        self
+      end
+
       def size = @elements.size
       def key?(key) = @elements.key?(wrap(key))
       def delete(key) = @elements.delete(wrap(key))

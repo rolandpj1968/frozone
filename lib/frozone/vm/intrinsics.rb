@@ -1648,22 +1648,7 @@ module Frozone
         def class_allocate(context, klass)
           raise FrozoneException.make(:TypeError, "can't create instance of singleton class") if klass.is_singleton_class
           raise FrozoneException.make(:TypeError, "can't create instance of virtual class") if klass.equal?(Core::CLASS_CLASS) || klass.equal?(Core::MODULE_CLASS)
-          # Special allocation for built-in types that need their own VM objects
-          if subclass_of_builtin?(klass, Core::HASH_CLASS)
-            h = HashObject.new({})
-            h.class_object = klass
-            h
-          elsif subclass_of_builtin?(klass, Core::ARRAY_CLASS)
-            a = ArrayObject.new([])
-            a.class_object = klass
-            a
-          elsif subclass_of_builtin?(klass, Core::STRING_CLASS)
-            s = StringObject.new("")
-            s.class_object = klass
-            s
-          else
-            ObjectObject.new(klass)
-          end
+          klass.allocate_instance
         end
 
         def class_superclass(_, klass)

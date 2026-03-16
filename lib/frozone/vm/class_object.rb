@@ -31,17 +31,24 @@ module Frozone
         sc
       end
 
-      # TODO &block
       def new_instance(context, args, kwargs, block = nil)
-        o = if ancestors_list.any? { |a| a.equal?(Core::ARRAY_CLASS) }
+        o = allocate_instance
+        o.dispatch(context, :initialize, args, kwargs, block, private_ok: true)
+        o
+      end
+
+      def allocate_instance
+        if ancestors_list.any? { |a| a.equal?(Core::ARRAY_CLASS) }
           ArrayObject.new([], self)
         elsif ancestors_list.any? { |a| a.equal?(Core::STRING_CLASS) }
           StringObject.new("", class_obj: self)
+        elsif ancestors_list.any? { |a| a.equal?(Core::HASH_CLASS) }
+          h = HashObject.new({})
+          h.class_object = self
+          h
         else
           ObjectObject.new(self)
         end
-        o.dispatch(context, :initialize, args, kwargs, block, private_ok: true)
-        o
       end
 
       def ancestors_list

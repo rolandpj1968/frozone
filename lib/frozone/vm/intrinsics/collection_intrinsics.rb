@@ -206,6 +206,11 @@ module Frozone
 
         def hash_key(_, h, key) = bool_object_for(h.key?(key))
 
+        # Raw key lookup — returns nil (Ruby nil) if not found (no default applied).
+        def hash_raw_get(_, h, key)
+          h.is_a?(HashObject) ? (h.key?(key) ? h[key] : nil) : nil
+        end
+
         def hash_index(context, h, key)
           value = h[key]
           return value unless value.nil?
@@ -311,6 +316,11 @@ module Frozone
 
         def hash_compare_by_identity(_, h)
           h.compare_by_identity! if h.is_a?(HashObject)
+          h
+        end
+
+        def hash_reset_compare_by_identity(_, h)
+          h.reset_compare_by_identity! if h.is_a?(HashObject)
           h
         end
 
