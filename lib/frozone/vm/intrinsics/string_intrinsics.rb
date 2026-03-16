@@ -158,27 +158,93 @@ module Frozone
             m = idx.raw.match(v.raw)
             update_match_globals(m)
             unless len.nil?
-              cap_idx = begin
-                raw = len.raw
-                raw.is_a?(Integer) ? raw : Integer(raw)
-              rescue NoMethodError, TypeError, ArgumentError
-                raise FrozoneException.make(:TypeError, "no implicit conversion of #{len.class_object.name} into Integer")
+              # len can be Integer (capture index), String/Symbol (named capture), or to_int-able
+              cap_idx = if len.is_a?(IntegerObject)
+                          len.raw
+                        elsif len.is_a?(StringObject) || len.is_a?(SymbolObject)
+                          len.raw
+                        else
+                          str_vm_coerce_to_int(context, len)
+                        end
+              if m
+                begin
+                  cap = m[cap_idx]
+                rescue IndexError => e
+                  raise FrozoneException.make(:IndexError, e.message)
+                end
+                return cap ? StringObject.new(cap) : NilObject::NIL
+              else
+                return NilObject::NIL
               end
-              cap = m ? m[cap_idx] : nil
-              return cap ? StringObject.new(cap) : NilObject::NIL
             end
             return m ? StringObject.new(m[0]) : NilObject::NIL
           end
-          # Explicit nil as length raises TypeError; absent len (len.nil? = true) is fine
-          raise FrozoneException.make(:TypeError, "no implicit conversion of nil into Integer") if !len.nil? && len.is_a?(NilObject)
-          begin
-            result = len.nil? ? v.raw[idx.raw] : v.raw[idx.raw, len.raw]
-          rescue TypeError => e
-            raise FrozoneException.make(:TypeError, e.message)
-          rescue NoMethodError
-            raise FrozoneException.make(:TypeError, "no implicit conversion into Integer")
+          # String index: substring search
+          if idx.is_a?(StringObject)
+            raise FrozoneException.make(:TypeError, "no implicit conversion of Integer into String") unless len.nil?
+            result = v.raw[idx.raw]
+            return result.nil? ? NilObject::NIL : StringObject.new(result)
+          end
+          # Range index
+          if idx.is_a?(RangeObject)
+            raise FrozoneException.make(:TypeError, "no implicit conversion of Integer into Range") unless len.nil?
+            # Coerce range bounds if needed
+            b = idx.begin_val
+            e = idx.end_val
+            b_raw = b.nil? || b.is_a?(NilObject) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
+            e_raw = e.nil? || e.is_a?(NilObject) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
+            range = Range.new(b_raw, e_raw, idx.exclusive?)
+            begin
+              result = v.raw[range]
+            rescue TypeError => err
+              raise FrozoneException.make(:TypeError, err.message)
+            end
+            return result.nil? ? NilObject::NIL : StringObject.new(result)
+          end
+          # Coerce idx to Integer
+          idx_i = if idx.is_a?(IntegerObject)
+                    idx.raw
+                  else
+                    str_vm_coerce_to_int(context, idx)
+                  end
+          # Coerce len to Integer if provided
+          if len.nil?
+            begin
+              result = v.raw[idx_i]
+            rescue TypeError => e
+              raise FrozoneException.make(:TypeError, e.message)
+            rescue RangeError => e
+              raise FrozoneException.make(:RangeError, e.message)
+            end
+          else
+            raise FrozoneException.make(:TypeError, "no implicit conversion of nil into Integer") if len.is_a?(NilObject)
+            len_i = len.is_a?(IntegerObject) ? len.raw : str_vm_coerce_to_int(context, len)
+            begin
+              result = v.raw[idx_i, len_i]
+            rescue TypeError => e
+              raise FrozoneException.make(:TypeError, e.message)
+            rescue RangeError => e
+              raise FrozoneException.make(:RangeError, e.message)
+            end
           end
           result.nil? ? NilObject::NIL : StringObject.new(result)
+        end
+
+        def str_vm_coerce_to_int(context, obj)
+          raise FrozoneException.make(:TypeError, "no implicit conversion of nil into Integer") if obj.is_a?(NilObject)
+          unless obj.respond_to?(:dispatch)
+            return obj.raw.is_a?(Integer) ? obj.raw : (raise FrozoneException.make(:TypeError, "no implicit conversion into Integer"))
+          end
+          begin
+            coerced = obj.dispatch(context, :to_int, [], {})
+            coerced.is_a?(IntegerObject) ? coerced.raw : (raise FrozoneException.make(:TypeError, "to_int should return Integer"))
+          rescue FrozoneException => e
+            vm_obj = e.vm_object
+            if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{obj.class_object&.name} into Integer")
+            end
+            raise
+          end
         end
 
         def string_index(_, v, sub, offset = nil)
@@ -209,10 +275,42 @@ module Frozone
           v
         end
 
-        def string_slice_bang(_, v, idx, len = nil)
+        def string_slice_bang(context, v, idx, len = nil)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v.raw.inspect}") if v.frozen?
+          # Coerce idx
+          if idx.is_a?(RangeObject)
+            b = idx.begin_val
+            e = idx.end_val
+            b_raw = b.nil? || b.is_a?(NilObject) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
+            e_raw = e.nil? || e.is_a?(NilObject) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
+            idx_ruby = Range.new(b_raw, e_raw, idx.exclusive?)
+          elsif idx.is_a?(IntegerObject)
+            idx_ruby = idx.raw
+          elsif idx.is_a?(RegexpObject)
+            idx_ruby = idx.raw
+          elsif idx.is_a?(StringObject)
+            idx_ruby = idx.raw
+          else
+            idx_ruby = str_vm_coerce_to_int(context, idx)
+          end
+          len_ruby = if len.nil? || len.is_a?(NilObject)
+                       nil
+                     elsif len.is_a?(IntegerObject)
+                       len.raw
+                     else
+                       str_vm_coerce_to_int(context, len)
+                     end
           mutated = v.raw.dup
-          result = len.is_a?(NilObject) || len.nil? ? mutated.slice!(idx.raw) : mutated.slice!(idx.raw, len.raw)
-          v.raw = mutated.freeze
+          if idx_ruby.is_a?(::Regexp) && len_ruby.nil?
+            m = idx_ruby.match(mutated)
+            update_match_globals(m)
+            result = m ? (mutated.slice!(idx_ruby); m[0]) : nil
+          elsif len_ruby.nil?
+            result = mutated.slice!(idx_ruby)
+          else
+            result = mutated.slice!(idx_ruby, len_ruby)
+          end
+          v.raw = mutated
           result.nil? ? NilObject::NIL : StringObject.new(result)
         end
 
@@ -224,6 +322,7 @@ module Frozone
         end
 
         def string_b(_, v) = StringObject.new(v.raw.b)
+        def string_ascii_only(_, v) = bool_object_for(v.raw.ascii_only?)
         def string_concat(_, v1, v2)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v1.raw.inspect}") if v1.frozen?
           v2_str = v2.is_a?(StringObject) ? v2.raw : v2.to_s

@@ -208,7 +208,7 @@ class String
   def -@ = freeze
   def force_encoding(enc) = Intrinsics.string_force_encoding(self, enc)
   def valid_encoding? = true
-  def ascii_only? = false
+  def ascii_only? = Intrinsics.string_ascii_only(self)
   def set_encoding(enc) = self
 end
 

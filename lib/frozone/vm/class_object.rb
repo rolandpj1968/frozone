@@ -41,7 +41,7 @@ module Frozone
         if ancestors_list.any? { |a| a.equal?(Core::ARRAY_CLASS) }
           ArrayObject.new([], self)
         elsif ancestors_list.any? { |a| a.equal?(Core::STRING_CLASS) }
-          StringObject.new("", class_obj: self)
+          StringObject.new("".b, class_obj: self)
         elsif ancestors_list.any? { |a| a.equal?(Core::HASH_CLASS) }
           h = HashObject.new({})
           h.class_object = self
