@@ -104,12 +104,105 @@ module Frozone
           end
         end
 
+        def array_flatten(context, arr, depth)
+          d = if depth.nil? || depth.is_a?(NilObject)
+            nil
+          elsif depth.is_a?(IntegerObject)
+            n = depth.raw
+            n < 0 ? nil : n  # negative means flatten all levels
+          elsif depth.respond_to?(:dispatch)
+            converted = begin
+              depth.dispatch(context, :to_int, [], {})
+            rescue
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{depth.class_object.name} into Integer")
+            end
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{depth.class_object.name} into Integer") unless converted.is_a?(IntegerObject)
+            n = converted.raw
+            n < 0 ? nil : n
+          else
+            raise FrozoneException.make(:TypeError, "no implicit conversion into Integer")
+          end
+          result = []
+          _array_flatten_into(context, arr, d, result, {})
+          ArrayObject.new(result)
+        end
+
+        def _array_flatten_into(context, arr, depth, result, seen)
+          raise FrozoneException.make(:ArgumentError, "flatten: cannot flatten recursive array") if seen[arr.object_id]
+          seen[arr.object_id] = true
+          arr.raw.each do |elem|
+            if elem.is_a?(ArrayObject) && (depth.nil? || depth > 0)
+              _array_flatten_into(context, elem, depth.nil? ? nil : depth - 1, result, seen)
+            elsif (depth.nil? || depth > 0) && !elem.is_a?(NilObject) && elem.respond_to?(:dispatch)
+              # Use VM respond_to?(:to_ary, true) so respond_to_missing? is triggered
+              has_to_ary = begin
+                r = elem.dispatch(context, :respond_to?, [SymbolObject.from(:to_ary), TrueObject::TRUE], {})
+                r.truthy?
+              rescue
+                false
+              end
+              converted = if has_to_ary
+                begin
+                  r = elem.dispatch(context, :to_ary, [], {})
+                  if r.is_a?(ArrayObject)
+                    r
+                  elsif r.is_a?(NilObject) || r.nil?
+                    nil
+                  else
+                    raise FrozoneException.make(:TypeError, "can't convert #{elem.class_object.name} into Array (#{elem.class_object.name}#to_ary gives #{r.class_object.name})")
+                  end
+                rescue FrozoneException
+                  raise
+                rescue
+                  nil
+                end
+              end
+              if converted
+                _array_flatten_into(context, converted, depth.nil? ? nil : depth - 1, result, seen)
+              else
+                result << elem
+              end
+            else
+              result << elem
+            end
+          end
+          seen.delete(arr.object_id)
+        end
+
+        ARRAY_CMP_GUARD = :__array_cmp_guard__
+        def array_cmp(context, v, other)
+          unless other.is_a?(ArrayObject)
+            return NilObject::NIL unless other.respond_to?(:dispatch)
+            converted = begin
+              other.dispatch(context, :to_ary, [], {})
+            rescue
+              return NilObject::NIL
+            end
+            return NilObject::NIL unless converted.is_a?(ArrayObject)
+            other = converted
+          end
+          seen = (Thread.current[ARRAY_CMP_GUARD] ||= {})
+          key = [v.object_id, other.object_id]
+          return IntegerObject.new(0) if seen[key]
+          seen[key] = true
+          begin
+            i = 0
+            while i < v.length && i < other.length
+              c = v[i].dispatch(context, :<=>, [other[i]], {})
+              return NilObject::NIL if c.nil? || c.is_a?(NilObject)
+              return c if c.raw != 0
+              i += 1
+            end
+            IntegerObject.new(v.length <=> other.length)
+          ensure
+            seen.delete(key)
+          end
+        end
+
         def array_sort(context, v)
           ArrayObject.new(v.raw.sort do |a, b|
             result = begin
               a.dispatch(context, :<=>, [b], {})
-            rescue FrozoneException
-              raise
             rescue => _e
               raise FrozoneException.make(:ArgumentError, "comparison failed")
             end

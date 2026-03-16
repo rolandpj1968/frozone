@@ -177,16 +177,14 @@ class Array
     end
   end
 
-  def flatten(depth = nil)
-    r = []
-    each { |e|
-      if e.is_a?(Array) && (depth.nil? || depth > 0)
-        e.flatten(depth.nil? ? nil : depth - 1).each { |x| r << x }
-      else
-        r << e
-      end
-    }
-    r
+  def flatten(depth = nil) = Intrinsics.array_flatten(self, depth)
+
+  def flatten!(depth = nil)
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    result = flatten(depth)
+    return nil if result == self
+    replace(result)
+    self
   end
 
   def pack(fmt) = Intrinsics.array_pack(self, fmt)
@@ -196,16 +194,7 @@ class Array
   def uniq; seen = {}; r = []; each { |e| r << e and seen[e] = true unless seen.key?(e) }; r; end
   def reverse = Intrinsics.array_reverse(self)
   def reverse!; replace(reverse); self; end
-  def <=>(other)
-    return nil unless other.is_a?(Array)
-    i = 0
-    while i < length && i < other.length
-      c = self[i] <=> other[i]
-      return c if c != 0
-      i += 1
-    end
-    length <=> other.length
-  end
+  def <=>(other) = Intrinsics.array_cmp(self, other)
 
   def sort(&block)
     block ? Intrinsics.array_sort_block(self, block) : Intrinsics.array_sort(self)
@@ -259,15 +248,67 @@ class Array
   end
 
   def join(sep = nil)
-    sep_str = sep.nil? ? '' : sep.to_s
-    result = ''
-    first = true
-    each { |e|
-      result += sep_str unless first
-      result += e.is_a?(Array) ? e.join(sep) : e.to_s
-      first = false
-    }
-    result
+    return '' if empty?
+    if sep.nil?
+      sep = $,
+      if sep && !Fiber[:__join_warn_guard__]
+        Fiber[:__join_warn_guard__] = true
+        begin
+          warn "warning: $, is set to non-nil value"
+        ensure
+          Fiber[:__join_warn_guard__] = nil
+        end
+      end
+    end
+    sep_str = if sep.nil?
+      ''
+    elsif sep.is_a?(String)
+      sep
+    else
+      begin
+        s = sep.to_str
+        raise TypeError, "no implicit conversion of #{sep.class} into String" unless s.is_a?(String)
+        s
+      rescue NoMethodError
+        raise TypeError, "no implicit conversion of #{sep.class} into String"
+      end
+    end
+    guard = (Fiber[:__array_join_guard__] ||= [])
+    raise ArgumentError, "recursive array join" if guard.include?(__id__)
+    guard << __id__
+    begin
+      result = ''
+      first = true
+      each { |e|
+        result += sep_str unless first
+        first = false
+        if e.is_a?(String)
+          result += e
+        elsif e.is_a?(Array)
+          result += e.join(sep_str)
+        else
+          # Try to_str, then to_ary, then to_s (direct calls, no respond_to? check)
+          str_val = begin; e.to_str; rescue NoMethodError; nil; end
+          if str_val.is_a?(String)
+            result += str_val
+          elsif str_val.nil?
+            ary_val = begin; e.to_ary; rescue NoMethodError; nil; end
+            if ary_val.is_a?(Array)
+              result += ary_val.join(sep_str)
+            elsif ary_val.nil?
+              result += e.to_s
+            else
+              result += e.to_s
+            end
+          else
+            result += e.to_s
+          end
+        end
+      }
+      result
+    ensure
+      guard.pop
+    end
   end
 
   def include?(elem); any? { |x| x == elem }; end
