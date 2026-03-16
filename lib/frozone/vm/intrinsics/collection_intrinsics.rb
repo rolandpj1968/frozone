@@ -91,6 +91,7 @@ module Frozone
         def array_to_s(context, v)
           seen = (Thread.current[ARRAY_TO_S_GUARD] ||= {})
           return StringObject.new("[...]") if seen.key?(v.object_id)
+          return StringObject.new("[]".encode("US-ASCII")) if v.raw.empty?
           seen[v.object_id] = true
           begin
             inner = v.raw.map do |e|

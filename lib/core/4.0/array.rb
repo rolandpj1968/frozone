@@ -431,7 +431,6 @@ class Array
   end
 
   def join(sep = nil)
-    return '' if empty?
     if sep.nil?
       sep = $,
       if sep && !Fiber[:__join_warn_guard__]
@@ -443,6 +442,7 @@ class Array
         end
       end
     end
+    return ''.force_encoding('US-ASCII') if empty?
     sep_str = if sep.nil?
       ''
     elsif sep.is_a?(String)
