@@ -15,6 +15,12 @@ module Frozone
         @frozen_object = frozen
       end
 
+      def initialize_copy(orig)
+        super
+        @raw = @raw.dup
+        @frozen_object = false
+      end
+
       def frozen? = @frozen_object
 
       def to_s = @raw

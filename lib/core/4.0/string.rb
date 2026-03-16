@@ -6,8 +6,27 @@ class String
   def +(v) = Intrinsics.string_plus(self, v)
   def *(n) = Intrinsics.string_multiply(self, n)
   def %(args) = Intrinsics.string_format(self, args)
-  def <<(v) = Intrinsics.string_concat(self, v)
-  def concat(*args); args.each { |v| Intrinsics.string_concat(self, v) }; self; end
+  def <<(v)
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    if v.is_a?(Integer)
+      Intrinsics.string_concat_codepoint(self, v)
+    elsif v.is_a?(String)
+      Intrinsics.string_concat(self, v)
+    else
+      unless v.respond_to?(:to_str)
+        raise TypeError, "no implicit conversion of #{v.class} into String"
+      end
+      str = v.to_str
+      raise TypeError, "no implicit conversion of #{v.class} into String" unless str.is_a?(String)
+      Intrinsics.string_concat(self, str)
+    end
+    self
+  end
+
+  def concat(*args)
+    args.each { |v| self << v }
+    self
+  end
   def length = Intrinsics.string_length(self)
   alias size length
   def bytesize = Intrinsics.string_bytesize(self)
@@ -23,7 +42,8 @@ class String
   def freeze = Intrinsics.string_freeze(self)
   def frozen? = Intrinsics.string_frozen(self)
   def encoding = Intrinsics.string_encoding(self)
-  def encode(enc = nil) = Intrinsics.string_encode(self, enc)
+  def encode(enc = nil, **opts) = Intrinsics.string_encode(self, enc)
+  def encode!(enc = nil, **opts) = Intrinsics.string_encode_bang(self, enc)
 
   def <=>(v) = Intrinsics.string_spaceship(self, v)
   def ==(v) = Intrinsics.string_eql(self, v)

@@ -226,8 +226,27 @@ module Frozone
         def string_b(_, v) = StringObject.new(v.raw.b)
         def string_concat(_, v1, v2)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v1.raw.inspect}") if v1.frozen?
-          v2_str = v2.is_a?(StringObject) ? v2.raw : v2.raw.to_s
+          v2_str = v2.is_a?(StringObject) ? v2.raw : v2.to_s
           v1.raw << v2_str
+          v1
+        end
+
+        def string_concat_codepoint(_, v1, n)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v1.raw.inspect}") if v1.frozen?
+          codepoint = n.is_a?(IntegerObject) ? n.raw : n.to_i
+          raise FrozoneException.make(:RangeError, "invalid codepoint #{codepoint} in #{v1.raw.encoding}") if codepoint < 0
+          begin
+            enc = v1.raw.encoding
+            # US-ASCII with value 128..255: switch to BINARY
+            if enc == ::Encoding::US_ASCII && codepoint >= 128 && codepoint <= 255
+              v1.raw.force_encoding(::Encoding::BINARY)
+              v1.raw << codepoint
+            else
+              v1.raw << codepoint.chr(enc)
+            end
+          rescue RangeError => e
+            raise FrozoneException.make(:RangeError, e.message)
+          end
           v1
         end
         def string_multiply(_, v, n)
@@ -244,7 +263,39 @@ module Frozone
           StringObject.new(v.raw % raw_args)
         end
 
-        def string_encode(_, v, enc = nil) = v
+        def string_encode(context, v, enc = nil, **_opts)
+          return StringObject.new(v.raw.dup) if enc.nil? || enc.is_a?(NilObject)
+          enc_name = if enc.is_a?(StringObject)
+                       enc.raw
+                     elsif enc.respond_to?(:dispatch)
+                       enc.dispatch(context, :name, [], {}).raw rescue (enc.get_ivar(:@name)&.raw || enc.to_s)
+                     else
+                       enc.to_s
+                     end
+          begin
+            StringObject.new(v.raw.encode(enc_name))
+          rescue ::Encoding::UndefinedConversionError, ::Encoding::InvalidByteSequenceError => e
+            raise FrozoneException.make(:EncodingError, e.message)
+          end
+        end
+
+        def string_encode_bang(context, v, enc = nil, **_opts)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen String") if v.frozen?
+          return v if enc.nil? || enc.is_a?(NilObject)
+          enc_name = if enc.is_a?(StringObject)
+                       enc.raw
+                     elsif enc.respond_to?(:dispatch)
+                       enc.dispatch(context, :name, [], {}).raw rescue (enc.get_ivar(:@name)&.raw || enc.to_s)
+                     else
+                       enc.to_s
+                     end
+          begin
+            v.raw.encode!(enc_name)
+            v
+          rescue ::Encoding::UndefinedConversionError, ::Encoding::InvalidByteSequenceError => e
+            raise FrozoneException.make(:EncodingError, e.message)
+          end
+        end
 
         def string_force_encoding(context, v, enc)
           enc_name = if enc.is_a?(StringObject)
