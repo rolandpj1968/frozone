@@ -254,7 +254,7 @@ module Frozone
         rescue FrozoneException => e
           # Set @path on SyntaxError when loading/requiring a file
           vo = e.vm_object
-          if vo.respond_to?(:class_object) && vo.class_object&.name == :SyntaxError
+          if vo.is_a?(ObjectObject) && vo.class_object&.name == :SyntaxError
             vo.set_ivar(:@path, StringObject.new(full_path))
           end
           raise

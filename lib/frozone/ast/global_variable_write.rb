@@ -176,9 +176,9 @@ module Frozone
           Vm::GLOBALS[:"$@"] = arr
           bang.dispatch(context, :set_backtrace, [value], {})
         elsif value.is_a?(Vm::ArrayObject)
-          # Validate each element is a String
+          # Validate each element is a String or Thread::Backtrace::Location (Ruby 3.4+)
           value.raw.each do |elem|
-            unless elem.is_a?(Vm::StringObject)
+            unless elem.is_a?(Vm::StringObject) || backtrace_location?(elem)
               raise Vm::FrozoneException.make(:TypeError, "backtrace must be an Array of String")
             end
           end
@@ -189,6 +189,22 @@ module Frozone
           bang.dispatch(context, :set_backtrace, [value], {})
         else
           raise Vm::FrozoneException.make(:TypeError, "backtrace must be an Array of String")
+        end
+      end
+
+      def backtrace_location?(elem)
+        return false unless elem.is_a?(Vm::ObjectObject)
+        klass = elem.class_object
+        return false unless klass
+        begin
+          thread_class = Vm::Core::OBJECT_CLASS.get_constant(:Thread)
+          return false unless thread_class
+          bt_class = thread_class.get_constant(:Backtrace)
+          return false unless bt_class
+          loc_class = bt_class.get_constant(:Location)
+          loc_class && klass.equal?(loc_class)
+        rescue
+          false
         end
       end
 

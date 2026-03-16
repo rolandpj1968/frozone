@@ -56,13 +56,21 @@ module Frozone
       def prepends = @prepends || []
       def modules  = @modules  || []
 
+      def ancestors_include?(mod)
+        return true if equal?(mod)
+        @prepends&.any? { |m| m.ancestors_include?(mod) } ||
+          @modules&.any? { |m| m.ancestors_include?(mod) }
+      end
+
       def prepend_module(mod)
         @prepends ||= []
+        return if ancestors_include?(mod)
         @prepends << mod
       end
 
       def add_module(mod)
         @modules ||= []
+        return if ancestors_include?(mod)
         @modules.unshift(mod)
       end
 

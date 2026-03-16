@@ -161,7 +161,7 @@ module Frozone
             @block_warning_emitted = true
             def_loc = @source_location || begin
               def_scope = @scopes.last
-              def_scope.respond_to?(:name) ? def_scope.name.to_s : def_scope.to_s
+              def_scope.is_a?(ModuleObject) ? def_scope.name.to_s : def_scope.to_s
             end
             Frozone::Vm.emit_warning(context, "the block passed to '#{@name}' defined at #{def_loc} may be ignored", location: context.call_site)
           end

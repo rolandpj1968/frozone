@@ -165,13 +165,13 @@ module Frozone
           # scope = Object when defined at top level, making scope inspection unreliable for them).
           rto_overridden = !elem.eigenclass_method(:respond_to?).nil? || begin
             rto = elem.lookup_instance_method(:respond_to?)
-            rto && rto.scopes.none? { |s| s.respond_to?(:name) && [:Object, :Kernel, :BasicObject].include?(s.name) }
+            rto && rto.scopes.none? { |s| [:Object, :Kernel, :BasicObject].include?(s.name) }
           end
 
           # respond_to_missing? check: scope inspection works because top-level scope is :Object,
           # which differs from the BasicObject default (scope :BasicObject).
           rtm = elem.lookup_instance_method(:respond_to_missing?)
-          rtm_overridden = rtm && rtm.scopes.none? { |s| s.respond_to?(:name) && s.name == :BasicObject }
+          rtm_overridden = rtm && rtm.scopes.none? { |s| s.name == :BasicObject }
 
           r = if rto_overridden || rtm_overridden
             has_to_ary = begin

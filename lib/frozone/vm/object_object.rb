@@ -45,7 +45,7 @@ module Frozone
         unless @eigenclass
           # For ClassObjects, singleton class inherits from the superclass's singleton class
           sc_superclass =
-            if is_a?(ClassObject) && respond_to?(:superclass) && superclass
+            if is_a?(ClassObject) && superclass
               superclass.singleton_class
             else
               @class_object
@@ -70,14 +70,14 @@ module Frozone
         # For ClassObjects: eigenclass chain takes priority over Class instance methods.
         # Own eigenclass → superclass eigenclasses → @class_object (Class/Module) instance methods.
         # This ensures inherited `def self.foo` methods shadow `Class#foo` instance methods.
-        if is_a?(ClassObject) && respond_to?(:superclass)
+        if is_a?(ClassObject)
           m = @eigenclass&.lookup_method(name)
           return m if m
           c = superclass
           while c
             m = c.eigenclass_method(name)
             return m unless m.nil?
-            c = c.respond_to?(:superclass) ? c.superclass : nil
+            c = c.is_a?(ClassObject) ? c.superclass : nil
           end
           return @class_object&.lookup_method(name)
         end

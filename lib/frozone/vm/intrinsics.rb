@@ -6,30 +6,21 @@ module Frozone
         def object_class(_, v) = v.class_object
 
         def object_is_a(_, v, klass)
-          # Check eigenclass first (every object is kind_of? its singleton class)
-          if v.respond_to?(:eigenclass) && v.eigenclass
-            ec = v.eigenclass
-            return TrueObject::TRUE if ec.equal?(klass)
-          end
-          # Singleton classes of classes are instances of Class's singleton class
-          # (and that singleton class's singleton class, etc.)
-          if klass.respond_to?(:is_singleton_class) && klass.is_singleton_class &&
-             v.respond_to?(:is_singleton_class) && v.is_singleton_class
+          # Metaclass hierarchy: #<Class:Foo>.is_a?(#<Class:Bar>) iff Foo.is_a?(Bar's underlying class)
+          if v.is_a?(ClassObject) && v.is_singleton_class &&
+             klass.is_a?(ClassObject) && klass.is_singleton_class
             sc_of_v = v.singleton_of
             sc_of_k = klass.singleton_of
             if sc_of_v.is_a?(ClassObject) && sc_of_k.is_a?(ClassObject)
-              # v = #<Class:SomeClass>, klass = #<Class:SomeOtherClass>
-              # v.kind_of?(klass) iff SomeClass.kind_of?(SomeOtherClass_class)
-              # i.e. SomeClass is an instance of SomeOtherClass
               return object_is_a(nil, sc_of_v, sc_of_k)
             end
           end
-          c = v.respond_to?(:class_object) ? v.class_object : nil
+          # Walk from lookup_class (eigenclass if materialised, else class_object).
+          # ancestors_include? short-circuits and handles transitive prepend/include at each level.
+          c = v.lookup_class
           until c.nil?
-            return TrueObject::TRUE if c.equal?(klass)
-            return TrueObject::TRUE if c.respond_to?(:prepends) && c.prepends.any? { |m| m.equal?(klass) }
-            return TrueObject::TRUE if c.respond_to?(:modules) && c.modules.any? { |m| m.equal?(klass) }
-            c = c.respond_to?(:superclass) ? c.superclass : nil
+            return TrueObject::TRUE if c.ancestors_include?(klass)
+            c = c.is_a?(ClassObject) ? c.superclass : nil
           end
           FalseObject::FALSE
         end
@@ -397,7 +388,7 @@ module Frozone
               msg_str = "exception"
             end
             # Don't set cause when re-raising the same exception that's in $!
-            msg.set_ivar(:@cause, cause) if cause && !cause.equal?(msg) && msg.respond_to?(:set_ivar)
+            msg.set_ivar(:@cause, cause) if cause && !cause.equal?(msg) && msg.is_a?(ObjectObject)
             set_exc_backtrace(msg, context)
             raise FrozoneException.new(msg, msg_str)
           end
@@ -760,7 +751,7 @@ module Frozone
           names_array.raw.each do |name_obj|
             name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
             m = receiver.is_a?(ClassObject) ? receiver.lookup_method(name) : receiver.get_method(name)
-            m.ruby2_keywords = true if m.respond_to?(:ruby2_keywords=)
+            m.ruby2_keywords = true if m.is_a?(Method)
           end
           receiver
         end
@@ -1091,7 +1082,7 @@ module Frozone
         def extract_method_params(m)
           # Resolve DefinedMethod to its underlying block_obj
           m = m.block_obj if m.is_a?(DefinedMethod)
-          return [] unless m.respond_to?(:required_params)
+          return [] unless m.is_a?(BlockObject)
           params = []
           m.required_params.each { |p| params << ArrayObject.new([SymbolObject.from(:req), SymbolObject.from(normalize_param_name(p))]) }
           m.optional_params.each { |p, _| params << ArrayObject.new([SymbolObject.from(:opt), SymbolObject.from(normalize_param_name(p))]) }
@@ -1738,11 +1729,11 @@ module Frozone
           sources << v.singleton_class if v.eigenclass
           if include_super
             # For ClassObjects, also walk superclass eigenclasses (class methods of superclasses)
-            if v.is_a?(ClassObject) && v.respond_to?(:superclass)
-              c = v.respond_to?(:superclass) ? v.superclass : nil
+            if v.is_a?(ClassObject)
+              c = v.superclass
               while c
                 sources << c.eigenclass if c.eigenclass
-                c = c.respond_to?(:superclass) ? c.superclass : nil
+                c = c.is_a?(ClassObject) ? c.superclass : nil
               end
             end
             c = v.class_object

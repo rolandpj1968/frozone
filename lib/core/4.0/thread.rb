@@ -1,9 +1,18 @@
 class Thread
   def self.report_on_exception=(val); nil; end
   def self.report_on_exception = false
-  def self.pass; nil; end  # no-op in single-threaded VM
 
-  # Single-threaded: defers block until join/value to avoid spin-lock hangs.
+  @@pending = []
+
+  # Thread.pass runs the next pending thread so that spin-loops like
+  # `Thread.pass until flag` work in single-threaded VM.
+  def self.pass
+    t = @@pending.shift
+    t.__run_block if t
+    nil
+  end
+
+  # Single-threaded: defers block until Thread.pass/join/value.
   # thread_run_block invokes with thread_boundary:true so `break` raises
   # LocalJumpError rather than propagating out.
   def initialize(&block)
@@ -11,15 +20,16 @@ class Thread
     @result    = nil
     @exception = nil
     @done      = false
+    @@pending << self
   end
 
   def join(timeout = nil)
-    _run_block
+    __run_block
     self
   end
 
   def value
-    _run_block
+    __run_block
     raise @exception if @exception
     @result
   end
@@ -27,10 +37,9 @@ class Thread
   def status  = @done ? false : 'sleep'
   def alive?  = !@done
 
-  private
-
-  def _run_block
+  def __run_block
     return if @done
+    @@pending.delete(self)
     @done = true
     Intrinsics.thread_save_reset_locals(self)
     begin
