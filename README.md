@@ -15,9 +15,11 @@ Frozone ships two independent front-ends that produce the same AST:
 | Parser | Gem | Status |
 |--------|-----|--------|
 | **Prism** (default) | `prism` (Ruby stdlib) | 2519/2520 — 0F 1E |
-| **WqParser** (`--parser=wq`) | `parser` gem (whitequark/parser) | 2518/2520 — 0F 2E |
+| **WqParser** (`--parser=wq`) | `parser` gem (whitequark/parser fork) | 2518/2520 — 0F 2E |
 
 Switch parsers with `PARSER=wq bundle exec rake language` or `--parser=wq` on the CLI.
+
+The WqParser uses a [fork of whitequark/parser](https://github.com/rolandpj1968/parser) that adds Ruby 4.0 parsing support (the upstream gem targets Ruby 3.x only).
 
 The WqParser's two extra errors are fundamental whitequark lexer limitations:
 - `mod::ἍBB` — non-ASCII uppercase identifiers are not recognised as constants (the whitequark lexer is ASCII-only; Prism uses Ruby's own Unicode-aware lexer)
@@ -113,7 +115,7 @@ Pattern matching excluded (not yet implemented).
 | while | 37 | 37 | 0 | 0 |
 | yield | 39 | 39 | 0 | 0 |
 
-### WqParser (whitequark `parser` gem)
+### WqParser (whitequark `parser` gem fork)
 
 **WqParser: 2518 / 2520 passing** (0 failures, 2 errors) — as of 2026-03-15 (v4.0.0)
 
@@ -131,7 +133,7 @@ Differences from Prism (both are whitequark lexer limitations):
 Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 
-**Overall: 2302 / 8369 passing** (1346 failures, 4721 errors) — as of 2026-03-16 (Prism parser)
+**Overall: 4029 / 11412 passing** (2128 failures, 5255 errors) — as of 2026-03-16 (Prism parser)
 
 Note: Negative "passing" counts indicate errors exceed examples (mspec counts some errors as extra failures).
 Modules with all zeros are not yet being run (timeout).
@@ -183,7 +185,7 @@ Modules with all zeros are not yet being run (timeout).
 | tracepoint | 73 | -1 | 4 | 70 |
 | true | 13 | 13 | 0 | 0 |
 | unboundmethod | 86 | 56 | 17 | 13 |
-| array | — | — | — | — |
+| array | 3043 | 1727 | 782 | 534 |
 | conditionvariable | — | — | — | — |
 | filetest | — | — | — | — |
 | integer | — | — | — | — |
