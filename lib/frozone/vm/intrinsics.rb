@@ -324,7 +324,10 @@ module Frozone
 
         def set_exc_backtrace(exc_obj, context)
           bt = build_vm_backtrace(context)
-          exc_obj.set_ivar(:@backtrace, bt) unless exc_obj.is_a?(NilObject)
+          unless exc_obj.is_a?(NilObject)
+            exc_obj.set_ivar(:@backtrace, bt)
+            exc_obj.set_ivar(:@_has_locations, TrueObject::TRUE)
+          end
         end
 
         # Build the Ruby caller() array from the current frame stack.
@@ -357,9 +360,16 @@ module Frozone
           ArrayObject.new(sliced || [])
         end
 
-        def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = nil, _backtrace = nil)
+        def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = nil, _backtrace = nil, cause_arg = nil)
           current_exc = GLOBALS[:"$!"]
-          cause = (current_exc && !current_exc.is_a?(NilObject)) ? current_exc : nil
+          no_cause_sentinel = cause_arg.is_a?(SymbolObject) && cause_arg.raw == :__raise_no_cause__
+          cause = if cause_arg.nil? || no_cause_sentinel
+            (current_exc && !current_exc.is_a?(NilObject)) ? current_exc : nil
+          elsif cause_arg.is_a?(NilObject)
+            nil
+          else
+            cause_arg
+          end
 
           if msg.is_a?(NilObject)
             # bare `raise` re-raises current exception or raises RuntimeError with empty message
@@ -1306,7 +1316,7 @@ module Frozone
           return FalseObject::FALSE if loaded_paths.include?(full_path)
           loaded.push(StringObject.new(full_path))
           begin
-            Fiber[:vm_evaluate].call(full_path)
+            Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
           rescue Ast::ReturnException
             # return at top level of required file stops loading gracefully
           end
@@ -1350,7 +1360,7 @@ module Frozone
           loaded_paths = loaded.raw.map(&:raw)
           return FalseObject::FALSE if loaded_paths.include?(full_path)
           loaded.push(StringObject.new(full_path))
-          Fiber[:vm_evaluate].call(full_path)
+          Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
           TrueObject::TRUE
         end
 
@@ -1554,9 +1564,10 @@ module Frozone
           ArrayObject.new(names)
         end
 
-        def kernel_eval(context, _receiver, code_obj, binding_arg = NilObject::NIL)
+        def kernel_eval(context, _receiver, code_obj, binding_arg = NilObject::NIL, filename_arg = NilObject::NIL)
           return NilObject::NIL unless code_obj.is_a?(StringObject)
           code = code_obj.raw
+          eval_filename = filename_arg.is_a?(StringObject) ? filename_arg.raw : nil
           # If a BindingObject is passed, use its captured frame; otherwise use the caller's frame.
           binding_frame = if binding_arg.is_a?(BindingObject)
                            binding_arg.captured_frame
@@ -1578,9 +1589,14 @@ module Frozone
           # Passing any non-nil scope to Prism suppresses yield-in-block SyntaxErrors.
           code_enc = code.encoding != Encoding::UTF_8 ? code.encoding : nil
           # Ruby 3.4+: __FILE__ inside eval returns "(eval at file:line)" using the caller's location
-          eval_filepath = context.call_site ? "(eval at #{context.call_site})" : "(eval)"
+          eval_filepath = eval_filename || (context.call_site ? "(eval at #{context.call_site})" : "(eval)")
           parser = Parser.new(code, outer_locals: binding_frame.local_names, encoding: code_enc, filepath: eval_filepath)
-          ast = parser.ast(raise_syntax_errors: true)
+          begin
+            ast = parser.ast(raise_syntax_errors: true)
+          rescue FrozoneException => e
+            e.vm_object.set_ivar(:@path, StringObject.new(eval_filename)) if eval_filename
+            raise
+          end
           # Emit Prism warnings: always-level (e.g. integer_in_flip_flop) and verbose-level when $VERBOSE
           parser.prism_always_warnings.each { |msg| Frozone::Vm.emit_warning(context, msg) }
           if GLOBALS.fetch(:"$VERBOSE", FalseObject::FALSE).truthy?

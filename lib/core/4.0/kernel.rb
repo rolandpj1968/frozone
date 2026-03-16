@@ -3,8 +3,13 @@ module Kernel
   def print(*args) = Intrinsics.kernel_print(self, args)
   def warn(*args) = Intrinsics.kernel_warn(self, args)
   def p(*args) = Intrinsics.kernel_p(self, args)
-  def raise(msg = nil, message = nil, backtrace = nil) = Intrinsics.kernel_raise(self, msg, message, backtrace)
-  def fail(msg = nil, message = nil, backtrace = nil) = Intrinsics.kernel_raise(self, msg, message, backtrace)
+  def raise(msg = nil, message = nil, backtrace = nil, cause: :__raise_no_cause__)
+    Intrinsics.kernel_raise(self, msg, message, backtrace, cause)
+  end
+
+  def fail(msg = nil, message = nil, backtrace = nil, cause: :__raise_no_cause__)
+    Intrinsics.kernel_raise(self, msg, message, backtrace, cause)
+  end
 
   def require(path)          = Intrinsics.kernel_require(self, path)
   def require_relative(path) = Intrinsics.kernel_require_relative(self, path)
@@ -14,7 +19,7 @@ module Kernel
   def proc   = Intrinsics.kernel_proc(self)
   def lambda = Intrinsics.kernel_lambda(self)
 
-  def eval(code, binding = nil, _file = nil, _line = nil) = Intrinsics.kernel_eval(self, code, binding)
+  def eval(code, binding = nil, file = nil, _line = nil) = Intrinsics.kernel_eval(self, code, binding, file)
   def binding = Intrinsics.kernel_binding(self)
 
   def sprintf(fmt, *args) = fmt % args

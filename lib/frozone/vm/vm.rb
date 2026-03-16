@@ -197,6 +197,13 @@ module Frozone
         (Fiber[:file_stack] ||= []) << full_path
         begin
           evaluate(File.read(full_path), false, filepath: full_path, raise_syntax_errors: raise_syntax_errors)
+        rescue FrozoneException => e
+          # Set @path on SyntaxError when loading/requiring a file
+          vo = e.vm_object
+          if vo.respond_to?(:class_object) && vo.class_object&.name == :SyntaxError
+            vo.set_ivar(:@path, StringObject.new(full_path))
+          end
+          raise
         ensure
           Fiber[:file_stack].pop
         end

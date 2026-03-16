@@ -48,4 +48,17 @@ class IO
   def binmode?          = false
   def read_nonblock(len, buf = nil, exception: true) = nil
   def readpartial(len, buf = nil) = nil
+
+  module WaitReadable; end
+  module WaitWritable; end
+
+  EAGAINWaitReadable = Class.new(Errno::EAGAIN) { include IO::WaitReadable }
+  EAGAINWaitWritable = Class.new(Errno::EAGAIN) { include IO::WaitWritable }
+
+  EWOULDBLOCKWaitReadable = Errno::EAGAIN.equal?(Errno::EWOULDBLOCK) ?
+    EAGAINWaitReadable :
+    Class.new(Errno::EWOULDBLOCK) { include IO::WaitReadable }
+  EWOULDBLOCKWaitWritable = Errno::EAGAIN.equal?(Errno::EWOULDBLOCK) ?
+    EAGAINWaitWritable :
+    Class.new(Errno::EWOULDBLOCK) { include IO::WaitWritable }
 end

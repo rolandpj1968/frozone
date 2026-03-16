@@ -11,16 +11,32 @@ class Exception
 
   def backtrace = @backtrace
 
-  def backtrace_locations = nil
+  def backtrace_locations
+    return nil unless @_has_locations
+    return nil if @backtrace.nil?
+    @backtrace_locations ||= @backtrace.map { |s| Thread::Backtrace::Location._from_string(s.to_s) }
+  end
 
   def set_backtrace(bt)
     if bt.nil?
       @backtrace = nil
+      @_has_locations = false
+      @backtrace_locations = nil
     elsif bt.is_a?(String)
       @backtrace = [bt]
+      @_has_locations = false
+      @backtrace_locations = nil
     elsif bt.is_a?(Array)
-      bt.each { |e| raise TypeError, "backtrace must be an Array of String" unless e.is_a?(String) }
-      @backtrace = bt
+      if !bt.empty? && bt.first.is_a?(Thread::Backtrace::Location)
+        @backtrace_locations = bt.dup
+        @backtrace = bt.map(&:to_s)
+        @_has_locations = true
+      else
+        bt.each { |e| raise TypeError, "backtrace must be an Array of String" unless e.is_a?(String) }
+        @backtrace = bt
+        @_has_locations = false
+        @backtrace_locations = nil
+      end
     else
       raise TypeError, "backtrace must be an Array of String"
     end
@@ -517,4 +533,51 @@ module Math
   def self.hypot(a, b) = Intrinsics.float_hypot(a.to_f, b.to_f)
   def self.frexp(x)    = Intrinsics.float_frexp(x.to_f)
   def self.ldexp(x, n) = Intrinsics.float_ldexp(x.to_f, n.to_i)
+end
+
+class Thread
+  class Backtrace
+    class Location
+      def self._from_string(str)
+        loc = allocate
+        m = str.match(/\A(.*):(\d+):in '(.*)'\z/)
+        if m
+          loc.instance_variable_set(:@path, m[1])
+          loc.instance_variable_set(:@lineno, m[2].to_i)
+          loc.instance_variable_set(:@label, m[3])
+        else
+          m2 = str.match(/\A(.*):(\d+)\z/)
+          if m2
+            loc.instance_variable_set(:@path, m2[1])
+            loc.instance_variable_set(:@lineno, m2[2].to_i)
+            loc.instance_variable_set(:@label, nil)
+          else
+            loc.instance_variable_set(:@path, str)
+            loc.instance_variable_set(:@lineno, 0)
+            loc.instance_variable_set(:@label, nil)
+          end
+        end
+        loc
+      end
+
+      def path = @path
+      def lineno = @lineno
+      def label = @label || "<main>"
+
+      def base_label
+        (@label || "<main>").sub(/\Ablock( \(\d+\))? in /, "")
+      end
+
+      def absolute_path
+        return nil unless @path
+        File.expand_path(@path)
+      end
+
+      def to_s
+        @label ? "#{@path}:#{@lineno}:in '#{@label}'" : "#{@path}:#{@lineno}"
+      end
+
+      def inspect = to_s
+    end
+  end
 end
