@@ -1,8 +1,4 @@
 class Array
-  def self.new(size_or_array = nil, fill = nil, &block)
-    Intrinsics.array_new(self, size_or_array, fill, block)
-  end
-
   def self.[](*args)
     a = allocate
     args.each { |x| a << x }
@@ -12,15 +8,15 @@ class Array
   def initialize(size_or_array = nil, fill = nil, &block)
     raise FrozenError, "can't modify frozen #{self.class}" if frozen?
     if size_or_array.nil?
-      warn "warning: given block not used" if block
+      Intrinsics.kernel_verbose_warn(self, "given block not used") if block
       Intrinsics.array_initialize(self, nil, nil, nil)
     elsif size_or_array.is_a?(Array)
       raise TypeError, "wrong number of arguments (given 2, expected 0..1)" if !fill.nil?
-      warn "warning: given block not used" if block
+      Intrinsics.kernel_verbose_warn(self, "given block not used") if block
       Intrinsics.array_initialize(self, size_or_array, nil, nil)
     elsif size_or_array.respond_to?(:to_ary, true)
       raise TypeError, "wrong number of arguments (given 2, expected 0..1)" if !fill.nil?
-      warn "warning: given block not used" if block
+      Intrinsics.kernel_verbose_warn(self, "given block not used") if block
       Intrinsics.array_initialize(self, size_or_array.send(:to_ary), nil, nil)
     elsif size_or_array.is_a?(Integer)
       warn "warning: block supersedes default value argument" if block && !fill.nil?
@@ -122,30 +118,33 @@ class Array
     end
   end
   def empty? = length == 0
-  def first(n = nil)
-    return self[0] if n.nil?
+  def first(n = :__none__)
+    return self[0] if n.equal?(:__none__)
     n = __coerce_to_int__(n)
     raise ArgumentError, "negative array size" if n < 0
     self[0, n]
   end
 
-  def last(n = nil)
-    return self[length - 1] if n.nil?
+  def last(n = :__none__)
+    return self[length - 1] if n.equal?(:__none__)
     n = __coerce_to_int__(n)
     raise ArgumentError, "negative array size" if n < 0
     self[[length - n, 0].max, n]
   end
 
   def ==(other)
-    return false unless other.is_a?(Array)
-    return false unless length == other.length
     return true if equal?(other)
+    unless other.is_a?(Array)
+      return false unless other.respond_to?(:to_ary)
+      return other == self
+    end
+    return false unless length == other.length
     ongoing = (Fiber[:__array_eq__] ||= [])
     id1, id2 = __id__, other.__id__
     return true if ongoing.any? { |a, b| a == id1 && b == id2 }
     ongoing << [id1, id2]
     begin
-      i = 0; while i < length; return false unless self[i] == other[i]; i += 1; end
+      i = 0; while i < length; return false unless self[i].equal?(other[i]) || self[i] == other[i]; i += 1; end
       true
     ensure
       ongoing.pop
@@ -197,6 +196,7 @@ class Array
   end
 
   def &(other)
+    other = __array_coerce__(other)
     set = {}; other.each { |e| set[e] = true }
     seen = {}; r = []
     each { |e| r << e and seen[e] = true if set.key?(e) && !seen.key?(e) }
@@ -204,6 +204,7 @@ class Array
   end
 
   def |(other)
+    other = __array_coerce__(other)
     seen = {}; r = []
     each { |e| r << e and seen[e] = true unless seen.key?(e) }
     other.each { |e| r << e and seen[e] = true unless seen.key?(e) }
@@ -211,6 +212,7 @@ class Array
   end
 
   def -(other)
+    other = __array_coerce__(other)
     set = {}; other.each { |e| set[e] = true }
     reject { |e| set.key?(e) }
   end
@@ -289,9 +291,24 @@ class Array
     end
   end
 
-  def sum(initial = nil)
+  def sum(initial = nil, &block)
     acc = initial.nil? ? 0 : initial
-    each { |e| acc = acc + e }
+    # Kahan's compensated summation for all-finite-float arrays (no block, no init override)
+    if initial.nil? && !block && all? { |e| e.is_a?(Float) && e.finite? }
+      c = 0.0; acc = 0.0
+      i = 0; n = length
+      while i < n
+        y = self[i] - c; t = acc + y; c = (t - acc) - y; acc = t
+        i += 1
+      end
+      return acc
+    end
+    i = 0
+    while i < length
+      e = block ? block.call(self[i]) : self[i]
+      acc = acc + e
+      i += 1
+    end
     acc
   end
 
@@ -395,13 +412,13 @@ class Array
     self
   end
   def index(elem = :__none__, &block)
-    if block
-      warn "warning: given block not used" unless elem.equal?(:__none__)
-      i = 0; while i < length; return i if block.call(self[i]); i += 1; end; nil
-    elsif elem.equal?(:__none__)
-      return to_enum(:index)
-    else
+    if !elem.equal?(:__none__)
+      warn "warning: given block not used" if block
       i = 0; while i < length; return i if self[i] == elem; i += 1; end; nil
+    elsif block
+      i = 0; while i < length; return i if block.call(self[i]); i += 1; end; nil
+    else
+      return to_enum(:index)
     end
   end
   alias find_index index
@@ -973,13 +990,13 @@ class Array
   end
 
   def rindex(elem = :__none__, &block)
-    if block
-      warn "warning: given block not used" unless elem.equal?(:__none__)
-      i = length - 1; while i >= 0; return i if block.call(self[i]); i -= 1; end; nil
-    elsif elem.equal?(:__none__)
-      return to_enum(:rindex)
-    else
+    if !elem.equal?(:__none__)
+      warn "warning: given block not used" if block
       i = length - 1; while i >= 0; return i if self[i] == elem; i -= 1; end; nil
+    elsif block
+      i = length - 1; while i >= 0 && i < length; return i if block.call(self[i]); i -= 1; end; nil
+    else
+      return to_enum(:rindex)
     end
   end
 
@@ -1127,6 +1144,12 @@ class Array
     result
   end
 
+  def intersection(*others)
+    result = dup
+    others.each { |other| result = result & other }
+    result
+  end
+
   # $LOAD_PATH.resolve_feature_path(feature) — return [:rb, path] or [:so, path] or nil
   def resolve_feature_path(feature)
     each do |dir|
@@ -1141,6 +1164,17 @@ class Array
   end
 
   private
+
+  def __array_coerce__(other)
+    return other if other.is_a?(Array)
+    begin
+      result = other.to_ary
+      raise TypeError, "to_ary must return Array" unless result.is_a?(Array)
+      result
+    rescue NoMethodError
+      raise TypeError, "no implicit conversion of #{other.class} into Array"
+    end
+  end
 
   def __coerce_to_int__(n)
     return n if n.is_a?(Integer)
