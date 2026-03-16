@@ -234,11 +234,7 @@ module Frozone
 
         def array_sort(context, v)
           ArrayObject.new(v.raw.sort do |a, b|
-            result = begin
-              a.dispatch(context, :<=>, [b], {})
-            rescue => _e
-              raise FrozoneException.make(:ArgumentError, "comparison failed")
-            end
+            result = a.dispatch(context, :<=>, [b], {})
             raise FrozoneException.make(:ArgumentError, "comparison failed") if result.nil? || result.is_a?(NilObject)
             result.raw
           end)
