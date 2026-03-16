@@ -32,10 +32,24 @@ class Range
       raise TypeError, "can't iterate from #{i.class}" unless i.respond_to?(:succ)
     end
     if discrete
-      # Fast path for known discrete types: succ on last element is safe
-      while e.nil? || (excl ? i < e : i <= e)
-        block.call(i)
-        i = i.succ
+      # Single-char String/Symbol: iterate by character code (MRI semantics).
+      # succ-based iteration is wrong here — "Z".succ == "AA" which is still
+      # < "z" lexicographically, causing an infinite loop.
+      if !e.nil? && (i.is_a?(String) || i.is_a?(Symbol)) && i.to_s.length == 1 && e.to_s.length == 1
+        sym  = i.is_a?(Symbol)
+        s    = i.to_s
+        enc  = s.encoding.name
+        ic   = s.ord
+        ec   = e.to_s.ord
+        r    = excl ? (ic...ec) : (ic..ec)
+        r.each { |c| block.call(sym ? c.chr(enc).to_sym : c.chr(enc)) }
+      else
+        # Integer and multi-char String/Symbol: succ-based; guard against length growth
+        while e.nil? || (excl ? i < e : i <= e)
+          break if !e.nil? && i.respond_to?(:length) && e.respond_to?(:length) && i.length > e.length
+          block.call(i)
+          i = i.succ
+        end
       end
     elsif excl
       loop do
@@ -56,6 +70,8 @@ class Range
   end
 
   def to_a
+    raise RangeError, "cannot convert endless range to an array" if self.end.nil?
+    raise TypeError, "cannot convert beginless range to an array" if self.begin.nil?
     r = []
     each { |x| r << x }
     r
@@ -179,6 +195,16 @@ class Range
       e
     end
   end
+  def minmax(&block) = [min(&block), max(&block)]
+
+  def to_set(&block)
+    raise RangeError, "cannot convert endless range to a set" if self.end.nil?
+    raise TypeError, "can't iterate from NilClass" if self.begin.nil?
+    s = Set.new
+    each { |x| s.add(block ? block.call(x) : x) }
+    s
+  end
+
   def each_with_index; i = 0; each { |x| yield x, i; i += 1 }; self; end
   def map;    r = []; each { |x| r << yield(x) };      r; end
   def select; r = []; each { |x| r << x if yield(x) }; r; end
@@ -469,8 +495,23 @@ class Range
   end
 
   def reverse_each(&block)
-    return to_enum(:reverse_each) unless block
-    to_a.reverse_each(&block)
+    return to_enum(:reverse_each) { size } unless block
+    b    = self.begin
+    e    = self.end
+    excl = exclude_end?
+    raise TypeError, "can't iterate from NilClass" if e.nil?
+    if b.nil? || b.is_a?(Integer)
+      # Integer (or beginless-integer) range: iterate downward without to_a
+      raise TypeError, "can't iterate from #{b.class}" unless b.nil? || b.is_a?(Integer)
+      raise TypeError, "can't iterate from #{e.class}" unless e.is_a?(Integer)
+      i = excl ? e - 1 : e
+      while b.nil? || i >= b
+        block.call(i)
+        i -= 1
+      end
+    else
+      to_a.reverse_each(&block)
+    end
     self
   end
 

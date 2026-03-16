@@ -70,6 +70,9 @@ module Kernel
   private :initialize_copy
 
   # Make these available as module functions: private instance methods AND public Kernel.method calls
+  def autoload(name, path) = nil
+  def autoload?(name) = nil
+
   module_function :puts, :print, :warn, :p, :raise, :fail, :require, :require_relative, :load, :__dir__,
                   :proc, :lambda, :eval, :binding, :sprintf, :format,
                   :Integer, :Float, :String, :Array,

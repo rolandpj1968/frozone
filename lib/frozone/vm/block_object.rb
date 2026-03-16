@@ -132,8 +132,8 @@ module Frozone
         rescue Ast::NextException => e
           e.value
         rescue Ast::BreakException => e
-          if @is_lambda && e.method_frame&.equal?(new_frame)
-            e.value  # break directly in lambda exits the lambda (like return)
+          if (@is_lambda || as_method) && e.method_frame&.equal?(new_frame)
+            e.value  # break in lambda/define_method exits the method
           else
             e.from_block = true
             raise

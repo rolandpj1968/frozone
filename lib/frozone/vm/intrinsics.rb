@@ -777,7 +777,9 @@ module Frozone
         def module_alias_method(_, receiver, new_name_obj, old_name_obj)
           new_name = new_name_obj.is_a?(SymbolObject) ? new_name_obj.raw : new_name_obj.raw.to_sym
           old_name = old_name_obj.is_a?(SymbolObject) ? old_name_obj.raw : old_name_obj.raw.to_sym
-          method = receiver.is_a?(ClassObject) ? receiver.lookup_method(old_name) : receiver.get_method(old_name)
+          method = receiver.lookup_method(old_name)
+          # Modules may alias methods defined on Object (e.g. Kernel aliasing Object methods)
+          method ||= Core::OBJECT_CLASS.lookup_method(old_name) unless receiver.is_a?(ClassObject)
           raise FrozoneException.make(:NameError, "undefined method '#{old_name}'") if method.nil?
           receiver.set_method(new_name, method.alias_as(new_name))
           receiver
@@ -943,6 +945,13 @@ module Frozone
             context.pop_frame
             context.scopes.pop
           end
+        end
+
+        def module_nesting(context, _receiver)
+          # Return the lexical nesting as an array, excluding the ambient OBJECT_CLASS scope
+          scopes = context.scopes
+          lex = (!scopes.empty? && scopes[0].equal?(Core::OBJECT_CLASS)) ? scopes[1..] : scopes
+          ArrayObject.new(lex.reverse)
         end
 
         def module_ancestors(_, receiver)

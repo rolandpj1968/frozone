@@ -55,6 +55,11 @@ class Module
   def remove_class_variable(name) = Intrinsics.module_remove_class_variable(self, name)
   def ruby2_keywords(*names) = Intrinsics.module_ruby2_keywords(self, names)
 
+  def self.nesting = Intrinsics.module_nesting(self)
+
+  def autoload(name, path) = nil
+  def autoload?(name) = nil
+
   def const_missing(name)
     n = self.name
     label = (n && n != "Object") ? "#{n}::#{name}" : name.to_s

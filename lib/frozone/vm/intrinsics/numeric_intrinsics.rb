@@ -20,7 +20,16 @@ module Frozone
         end
 
         def integer_abs(_, v) = IntegerObject.new(v.raw.abs)
-        def integer_chr(_, v, enc = nil) = StringObject.new(v.raw.chr)
+        def integer_chr(_, v, enc = nil)
+          if enc.nil? || enc.is_a?(NilObject)
+            StringObject.new(v.raw.chr)
+          elsif enc.is_a?(StringObject)
+            StringObject.new(v.raw.chr(enc.raw))
+          else
+            # Encoding object: call .name on it via VM would be complex; use to_s
+            StringObject.new(v.raw.chr(enc.respond_to?(:raw) ? enc.raw.to_s : enc.to_s))
+          end
+        end
         def integer_bitand(_, v1, v2) = IntegerObject.new(v1.raw & v2.raw)
         def integer_bitor(_, v1, v2)  = IntegerObject.new(v1.raw | v2.raw)
         def integer_bitxor(_, v1, v2) = IntegerObject.new(v1.raw ^ v2.raw)
