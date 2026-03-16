@@ -303,7 +303,10 @@ module Frozone
 
         def array_dup(_, v) = ArrayObject.new(v.raw.dup)
 
-        def array_clone(_, v, _freeze_opt = NilObject::NIL) = ArrayObject.new(v.raw.dup)
+        def array_clone(_, v, _freeze_opt = NilObject::NIL, klass = nil)
+          cls = klass.is_a?(ClassObject) ? klass : nil
+          ArrayObject.new(v.raw.dup, cls)
+        end
 
         def array_sample(_, v) = v.raw.empty? ? NilObject::NIL : v.raw.sample
         def array_shuffle(_, v) = ArrayObject.new(v.raw.shuffle)

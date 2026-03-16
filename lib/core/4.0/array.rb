@@ -36,24 +36,33 @@ class Array
     end
   end
 
-  def at(i) = Intrinsics.array_at(self, i)
+  def at(i)
+    i = __coerce_to_int__(i)
+    Intrinsics.array_at(self, i)
+  end
 
   def [](i, len = nil)
     n = length
-
     if len
+      i = __coerce_to_int__(i)
+      len = __coerce_to_int__(len)
+      return nil if len < 0
       s = i < 0 ? i + n : i
       return nil if s < 0 || s > n
       stop = s + len > n ? n : s + len
-      r = []; j = s; while j < stop; r << at(j); j += 1; end; r
+      r = []; j = s; while j < stop; r << Intrinsics.array_at(self, j); j += 1; end; r
     elsif i.is_a?(Range)
-      b = i.begin.nil? ? 0       : (i.begin < 0 ? i.begin + n : i.begin)
-      e = i.end.nil?   ? n - 1   : (i.end   < 0 ? i.end   + n : i.end)
+      bi = i.begin
+      ei = i.end
+      bi = bi.nil? ? 0 : __coerce_to_int__(bi)
+      ei = ei.nil? ? n - 1 : __coerce_to_int__(ei)
+      b = bi < 0 ? bi + n : bi
+      e = ei < 0 ? ei + n : ei
       e -= 1 if i.exclude_end?
-      return nil if b > n
+      return nil if b > n || b < 0
       return [] if b == n || e < b
       e = n - 1 if e >= n
-      (b..e).map { |idx| at(idx) }
+      r = []; j = b; while j <= e; r << Intrinsics.array_at(self, j); j += 1; end; r
     else
       at(i)
     end
@@ -67,10 +76,31 @@ class Array
     end
   end
 
-  def push(*vals); vals.each { |v| Intrinsics.array_push(self, v) }; self; end
+  def push(*vals)
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    vals.each { |v| Intrinsics.array_push(self, v) }
+    self
+  end
+
   alias append push
   def <<(v); Intrinsics.array_push(self, v); self; end
-  def concat(other) = Intrinsics.array_concat(self, other)
+
+  def concat(*others)
+    return self if others.empty?
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    others.each { |other|
+      unless other.is_a?(Array)
+        begin
+          other = other.to_ary
+          raise TypeError, "to_ary must return Array" unless other.is_a?(Array)
+        rescue NoMethodError
+          raise TypeError, "no implicit conversion of #{other.class} into Array"
+        end
+      end
+      Intrinsics.array_concat(self, other)
+    }
+    self
+  end
   def replace(other) = Intrinsics.array_replace(self, other)
   def clear; replace([]); self; end
   def length = Intrinsics.array_length(self)
@@ -85,8 +115,19 @@ class Array
     end
   end
   def empty? = length == 0
-  def first(n = nil) = n ? self[0, n] : self[0]
-  def last(n = nil) = n ? self[[length - n, 0].max, n] : self[length - 1]
+  def first(n = nil)
+    return self[0] if n.nil?
+    n = __coerce_to_int__(n)
+    raise ArgumentError, "negative array size" if n < 0
+    self[0, n]
+  end
+
+  def last(n = nil)
+    return self[length - 1] if n.nil?
+    n = __coerce_to_int__(n)
+    raise ArgumentError, "negative array size" if n < 0
+    self[[length - n, 0].max, n]
+  end
 
   def ==(other)
     return false unless other.is_a?(Array)
@@ -119,7 +160,7 @@ class Array
   end
 
   def dup = Intrinsics.array_dup(self)
-  def clone(freeze: nil) = Intrinsics.array_clone(self, freeze)
+  def clone(freeze: nil) = Intrinsics.array_clone(self, freeze, self.class)
 
   def hash
     ongoing = (Fiber[:__array_hash__] ||= [])
@@ -324,14 +365,28 @@ class Array
   end
 
   def delete_at(i)
+    i = __coerce_to_int__(i)
     return nil if i >= length || i < -length
     val = self[i]
     self[i, 1] = []
     val
   end
 
-  def delete(elem); n = length; reject! { |x| x == elem }; n == length ? nil : elem; end
-  def delete_if(&block); reject!(&block); self; end
+  def delete(elem, &block)
+    n = length
+    reject! { |x| x == elem }
+    if n == length
+      block ? block.call : nil
+    else
+      elem
+    end
+  end
+
+  def delete_if(&block)
+    return to_enum(:delete_if) { size } unless block
+    reject!(&block)
+    self
+  end
   def index(elem = :__none__, &block)
     if block
       warn "warning: given block not used" unless elem.equal?(:__none__)
@@ -345,12 +400,16 @@ class Array
   alias find_index index
 
   def take(n)
+    n = __coerce_to_int__(n)
+    raise ArgumentError, "attempt to take negative size" if n < 0
     r = []; i = 0
     while i < n && i < length; r << self[i]; i += 1; end
     r
   end
 
   def drop(n)
+    n = __coerce_to_int__(n)
+    raise ArgumentError, "attempt to drop negative size" if n < 0
     r = []; i = n
     while i < length; r << self[i]; i += 1; end
     r
@@ -390,16 +449,145 @@ class Array
     end
   end
 
-  def combination(n, &block) = Intrinsics.array_combination(self, n, block)
-  def permutation(n = nil, &block) = Intrinsics.array_permutation(self, n, block)
+  def combination(n, &block)
+    return to_enum(:combination, n) { Intrinsics.array_combination(self, n, nil).length } unless block
+    Intrinsics.array_combination(self, n, block)
+  end
+
+  def permutation(n = nil, &block)
+    return to_enum(:permutation, n) { Intrinsics.array_permutation(self, n, nil).length } unless block
+    Intrinsics.array_permutation(self, n, block)
+  end
 
   def each
+    return to_enum(:each) { size } unless block_given?
     i = 0
     while i < length
       yield self[i]
       i += 1
     end
     self
+  end
+
+  def each_index
+    return to_enum(:each_index) { size } unless block_given?
+    i = 0
+    while i < length
+      yield i
+      i += 1
+    end
+    self
+  end
+
+  def deconstruct = self
+
+  def fetch(i, default = :__unset__, &block)
+    i = __coerce_to_int__(i)
+    orig_i = i
+    n = length
+    i = i < 0 ? i + n : i
+    if i >= 0 && i < n
+      self[i]
+    elsif block
+      warn "warning: block supersedes default value argument" unless default.equal?(:__unset__)
+      block.call(orig_i)
+    elsif !default.equal?(:__unset__)
+      default
+    else
+      raise IndexError, "index #{orig_i} outside of array bounds: #{-n}...#{n}"
+    end
+  end
+
+  def fetch_values(*indices, &block)
+    indices.map { |i| fetch(i, &block) }
+  end
+
+  def insert(idx, *vals)
+    return self if vals.empty?
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    idx = __coerce_to_int__(idx)
+    n = length
+    raise IndexError, "index #{idx} too small for array; minimum: #{-n - 1}" if idx < -(n + 1)
+    idx = n + 1 + idx if idx < 0
+    self[idx, 0] = vals
+    self
+  end
+
+  def fill(arg1 = :__unset__, arg2 = :__unset__, arg3 = :__unset__, &block)
+    if block
+      # fill([start_or_range [, len]]) { |i| ... }
+      raise ArgumentError, "wrong number of arguments" unless arg3.equal?(:__unset__)
+      if arg1.equal?(:__unset__)
+        fill_start = 0
+        fill_len = nil
+      elsif arg1.is_a?(Range)
+        fill_start, fill_len = __fill_range_bounds__(arg1)
+      else
+        fill_start = __coerce_to_int__(arg1)
+        fill_start = [fill_start + length, 0].max if fill_start < 0
+        fill_len = (arg2.equal?(:__unset__) || arg2.nil?) ? nil : __coerce_to_int__(arg2)
+        fill_len = 0 if fill_len && fill_len < 0
+      end
+      fill_value = nil
+    else
+      # fill(value [, start_or_range [, len]])
+      raise ArgumentError, "wrong number of arguments" if arg1.equal?(:__unset__)
+      fill_value = arg1
+      if arg2.equal?(:__unset__) || arg2.nil?
+        fill_start = 0
+        fill_len = nil
+      elsif arg2.is_a?(Range)
+        raise TypeError, "no implicit conversion of #{arg3.class} into Array" unless arg3.equal?(:__unset__)
+        fill_start, fill_len = __fill_range_bounds__(arg2)
+      else
+        fill_start = __coerce_to_int__(arg2)
+        fill_start = [fill_start + length, 0].max if fill_start < 0
+        fill_len = (arg3.equal?(:__unset__) || arg3.nil?) ? nil : __coerce_to_int__(arg3)
+        fill_len = 0 if fill_len && fill_len < 0
+      end
+    end
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    if fill_len
+      raise RangeError, "fill length too large" if fill_len >= (1 << 63)
+      raise ArgumentError, "fill length too large" if fill_len > (1 << 30)
+    end
+    n = length
+    stop = fill_len.nil? ? [n, fill_start].max : fill_start + fill_len
+    i = fill_start
+    while i < stop
+      self[i] = block ? block.call(i) : fill_value
+      i += 1
+    end
+    self
+  end
+
+  def __fill_range_bounds__(r)
+    n = length
+    b = r.begin.nil? ? 0 : __coerce_to_int__(r.begin)
+    b_adj = b < 0 ? b + n : b
+    raise RangeError, "#{b} is out of range" if b_adj < 0
+    end_nil = r.end.nil?
+    e = end_nil ? n - 1 : __coerce_to_int__(r.end)
+    e_adj = e < 0 ? e + n : e
+    e_adj -= 1 if r.exclude_end? && !end_nil
+    rlen = e_adj < b_adj ? 0 : e_adj - b_adj + 1
+    [b_adj, rlen]
+  end
+
+  private :__fill_range_bounds__
+
+  def intersect?(other)
+    unless other.is_a?(Array)
+      begin
+        other = other.to_ary
+        raise TypeError, "no implicit conversion into Array" unless other.is_a?(Array)
+      rescue NoMethodError
+        raise TypeError, "no implicit conversion of #{other.class} into Array"
+      end
+    end
+    set = {}
+    other.each { |e| set[e] = true }
+    any? { |e| set.key?(e) }
   end
 
   def map(&block)
@@ -656,23 +844,7 @@ class Array
   end
   alias inject reduce
 
-  def each_slice(n)
-    i = 0
-    while i < length
-      yield self[i, n] || []
-      i += n
-    end
-    nil
-  end
-
-  def each_cons(n)
-    i = 0
-    while i + n <= length
-      yield self[i, n]
-      i += 1
-    end
-    nil
-  end
+  # each_slice and each_cons are defined later with block/enumerator support
 
   def grep(pattern, &block)
     is_regexp = pattern.is_a?(Regexp) rescue false
@@ -706,7 +878,10 @@ class Array
   end
 
   def assoc(key)
-    each { |e| return e if e.is_a?(Array) && !e.empty? && e[0] == key }
+    each { |e|
+      arr = e.is_a?(Array) ? e : begin; e.to_ary; rescue; nil; end
+      return arr if arr.is_a?(Array) && !arr.empty? && arr[0] == key
+    }
     nil
   end
 
@@ -780,6 +955,171 @@ class Array
     lo < length ? lo : nil
   end
 
+  def reverse_each(&block)
+    return to_enum(:reverse_each) { size } unless block
+    i = length - 1
+    while i >= 0
+      yield self[i]
+      i -= 1
+    end
+    self
+  end
+
+  def rindex(elem = :__none__, &block)
+    if block
+      warn "warning: given block not used" unless elem.equal?(:__none__)
+      i = length - 1; while i >= 0; return i if block.call(self[i]); i -= 1; end; nil
+    elsif elem.equal?(:__none__)
+      return to_enum(:rindex)
+    else
+      i = length - 1; while i >= 0; return i if self[i] == elem; i -= 1; end; nil
+    end
+  end
+
+  def values_at(*indices)
+    r = []
+    indices.each { |i|
+      if i.is_a?(Range)
+        b = i.begin.nil? ? 0 : (i.begin < 0 ? i.begin + length : i.begin)
+        e = i.end.nil? ? length - 1 : (i.end < 0 ? i.end + length : i.end)
+        e -= 1 if i.exclude_end?
+        j = b; while j <= e; r << self[j]; j += 1; end
+      else
+        r << self[i]
+      end
+    }
+    r
+  end
+
+  def repeated_combination(n, &block)
+    return to_enum(:repeated_combination, n) unless block
+    if n == 0
+      yield []
+      return self
+    end
+    raw.repeated_combination(n) { |c| yield c }
+    self
+  end
+
+  def repeated_permutation(n, &block)
+    return to_enum(:repeated_permutation, n) unless block
+    if n == 0
+      yield []
+      return self
+    end
+    raw.repeated_permutation(n) { |c| yield c }
+    self
+  end
+
+  def product(*others, &block)
+    result = [[]]
+    ([self] + others).each { |a|
+      result = result.flat_map { |r| a.map { |e| r + [e] } }
+    }
+    if block
+      result.each { |r| block.call(r) }
+      self
+    else
+      result
+    end
+  end
+
+  def transpose
+    return [] if empty?
+    n = self[0].length
+    each { |row| raise IndexError, "element size differs" unless row.length == n }
+    (0...n).map { |j| map { |row| row[j] } }
+  end
+
+  def take_while(&block)
+    return to_enum(:take_while) unless block
+    r = []
+    each { |e| block.call(e) ? r << e : break }
+    r
+  end
+
+  def partition(&block)
+    return to_enum(:partition) unless block
+    yes = []; no = []
+    each { |e| block.call(e) ? yes << e : no << e }
+    [yes, no]
+  end
+
+  def minmax(&block)
+    return [nil, nil] if empty?
+    [min(&block), max(&block)]
+  end
+
+  def minmax_by(&block)
+    return to_enum(:minmax_by) unless block
+    [min_by(&block), max_by(&block)]
+  end
+
+  def min_by(&block)
+    return to_enum(:min_by) unless block
+    sort_by(&block).first
+  end
+
+  def max_by(&block)
+    return to_enum(:max_by) unless block
+    sort_by(&block).last
+  end
+
+  def each_slice(n, &block)
+    return to_enum(:each_slice, n) { (length + n - 1) / n } unless block
+    i = 0
+    while i < length
+      yield self[i, n] || []
+      i += n
+    end
+    nil
+  end
+
+  def each_cons(n, &block)
+    return to_enum(:each_cons, n) { [length - n + 1, 0].max } unless block
+    i = 0
+    while i + n <= length
+      yield self[i, n]
+      i += 1
+    end
+    nil
+  end
+
+  def uniq!
+    seen = {}; write_idx = 0; read_idx = 0
+    while read_idx < length
+      e = self[read_idx]
+      unless seen.key?(e)
+        self[write_idx] = e
+        seen[e] = true
+        write_idx += 1
+      end
+      read_idx += 1
+    end
+    if write_idx < length
+      self[write_idx, length - write_idx] = []
+      self
+    end
+  end
+
+  def rotate!(n = 1)
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    replace(rotate(n))
+    self
+  end
+
+  def difference(*others)
+    result = dup
+    others.each { |other| result = result - other }
+    result
+  end
+
+  def union(*others)
+    result = dup
+    others.each { |other| result = result | other }
+    result
+  end
+
   # $LOAD_PATH.resolve_feature_path(feature) — return [:rb, path] or [:so, path] or nil
   def resolve_feature_path(feature)
     each do |dir|
@@ -791,5 +1131,18 @@ class Array
       end
     end
     nil
+  end
+
+  private
+
+  def __coerce_to_int__(n)
+    return n if n.is_a?(Integer)
+    begin
+      result = n.to_int
+      raise TypeError, "can't convert #{n.class} into Integer (to_int gives #{result.class})" unless result.is_a?(Integer)
+      result
+    rescue NoMethodError
+      raise TypeError, "no implicit conversion of #{n.class} into Integer"
+    end
   end
 end
