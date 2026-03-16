@@ -3,6 +3,12 @@ class Array
     Intrinsics.array_new(self, size_or_array, fill, block)
   end
 
+  def self.[](*args)
+    a = allocate
+    args.each { |x| a << x }
+    a
+  end
+
   def initialize(size_or_array = nil, fill = nil, &block)
     raise FrozenError, "can't modify frozen #{self.class}" if frozen?
     if size_or_array.nil?
@@ -276,6 +282,13 @@ class Array
     val.dig(*rest)
   end
 
+  def delete_at(i)
+    return nil if i >= length || i < -length
+    val = self[i]
+    self[i, 1] = []
+    val
+  end
+
   def delete(elem); n = length; reject! { |x| x == elem }; n == length ? nil : elem; end
   def delete_if(&block); reject!(&block); self; end
   def index(elem = :__none__, &block)
@@ -350,13 +363,13 @@ class Array
 
   def map(&block)
     return to_enum(:map) { size } unless block
-    r = []; each { |x| r << block.call(x) }; r
+    Intrinsics.array_map_with_block(self, block)
   end
 
   def map!(&block)
     return to_enum(:map!) { size } unless block
     raise FrozenError, "can't modify frozen Array" if frozen?
-    i = 0; while i < length; self[i] = block.call(self[i]); i += 1; end; self
+    Intrinsics.array_map_bang_with_block(self, block)
   end
 
   alias collect map
@@ -377,22 +390,105 @@ class Array
 
   def reject!(&block)
     return to_enum(:reject!) { size } unless block
-    n = length; r = reject(&block); replace(r); n == length ? nil : self
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    n = length
+    write_idx = 0
+    read_idx = 0
+    begin
+      while read_idx < length
+        unless block.call(self[read_idx])
+          self[write_idx] = self[read_idx]
+          write_idx += 1
+        end
+        read_idx += 1
+      end
+    rescue => e
+      while read_idx < length
+        self[write_idx] = self[read_idx]
+        write_idx += 1
+        read_idx += 1
+      end
+      raise e
+    ensure
+      self[write_idx, length - write_idx] = [] if write_idx < length
+    end
+    write_idx == n ? nil : self
   end
 
   def select!(&block)
     return to_enum(:select!) { size } unless block
-    n = length; r = select(&block); replace(r); n == length ? nil : self
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    n = length
+    write_idx = 0
+    read_idx = 0
+    begin
+      while read_idx < length
+        if block.call(self[read_idx])
+          self[write_idx] = self[read_idx]
+          write_idx += 1
+        end
+        read_idx += 1
+      end
+    rescue => e
+      while read_idx < length
+        self[write_idx] = self[read_idx]
+        write_idx += 1
+        read_idx += 1
+      end
+      raise e
+    ensure
+      self[write_idx, length - write_idx] = [] if write_idx < length
+    end
+    write_idx == n ? nil : self
   end
 
   alias filter! select!
+
+  def keep_if(&block)
+    return to_enum(:keep_if) { size } unless block
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    write_idx = 0
+    read_idx = 0
+    begin
+      while read_idx < length
+        if block.call(self[read_idx])
+          self[write_idx] = self[read_idx]
+          write_idx += 1
+        end
+        read_idx += 1
+      end
+    rescue => e
+      while read_idx < length
+        self[write_idx] = self[read_idx]
+        write_idx += 1
+        read_idx += 1
+      end
+      raise e
+    ensure
+      self[write_idx, length - write_idx] = [] if write_idx < length
+    end
+    self
+  end
 
   def flat_map(&block)
     return to_enum(:flat_map) { size } unless block
     r = []
     each { |e|
       v = block.call(e)
-      v.is_a?(Array) ? v.each { |x| r << x } : r << v
+      if v.is_a?(Array)
+        v.each { |x| r << x }
+      elsif v.respond_to?(:to_ary)
+        arr = v.to_ary
+        if arr.nil?
+          r << v
+        elsif arr.is_a?(Array)
+          arr.each { |x| r << x }
+        else
+          raise TypeError, "can't convert #{v.class} into Array (#{v.class}#to_ary gives #{arr.class})"
+        end
+      else
+        r << v
+      end
     }
     r
   end
@@ -410,7 +506,11 @@ class Array
     obj
   end
 
-  def find; each { |x| return x if yield(x) }; nil; end
+  def find(ifnone = nil, &block)
+    return to_enum(:find, ifnone) unless block
+    each { |x| return x if block.call(x) }
+    ifnone ? ifnone.call : nil
+  end
   alias detect find
 
   def any?(pat = :__none__, &block)
@@ -470,12 +570,20 @@ class Array
     when 0
       raise ArgumentError, "no block given (yield)" unless block
     when 1
-      if args[0].is_a?(Symbol) || args[0].is_a?(String)
-        sym = args[0].to_sym
-        warn "warning: given block not used" if block
+      arg = args[0]
+      if block
+        has_initial = true; initial = arg
+        Intrinsics.kernel_verbose_warn(self, "given block not used") if arg.is_a?(Symbol)
+      elsif arg.is_a?(Symbol)
+        sym = arg
+      elsif arg.is_a?(String)
+        sym = arg.to_sym
+      elsif arg.respond_to?(:to_str)
+        str = arg.to_str
+        raise TypeError, "#{arg.inspect} is not a symbol nor a string" unless str.is_a?(String)
+        sym = str.to_sym
       else
-        has_initial = true; initial = args[0]
-        raise ArgumentError, "no block given (yield)" unless block
+        raise TypeError, "#{arg.inspect} is not a symbol nor a string"
       end
     when 2
       initial = args[0]; has_initial = true
@@ -489,7 +597,7 @@ class Array
       else
         raise TypeError, "#{arg1.inspect} is not a symbol nor a string"
       end
-      warn "warning: given block not used" if block
+      Intrinsics.kernel_verbose_warn(self, "given block not used") if block
     else
       raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
     end
@@ -526,21 +634,23 @@ class Array
   end
 
   def grep(pattern, &block)
+    is_regexp = pattern.is_a?(Regexp) rescue false
     r = []
     if block
       each { |x| r << block.call(x) if pattern === x }
     else
-      each { |x| r << x if pattern === x }
+      each { |x| matched = is_regexp ? pattern.match?(x) : (pattern === x); r << x if matched }
     end
     r
   end
 
   def grep_v(pattern, &block)
+    is_regexp = pattern.is_a?(Regexp) rescue false
     r = []
     if block
       each { |x| r << block.call(x) unless pattern === x }
     else
-      each { |x| r << x unless pattern === x }
+      each { |x| matched = is_regexp ? pattern.match?(x) : (pattern === x); r << x unless matched }
     end
     r
   end

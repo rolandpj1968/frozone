@@ -113,7 +113,8 @@ class Range
     if b.is_a?(Integer) || b.is_a?(Float)
       return cover?(val)
     end
-    # For other types (String, custom): use succ-based iteration
+    # For other types (String, custom): use succ-based iteration if succ available
+    return cover?(val) unless b.respond_to?(:succ)
     # First check if val is in the comparison range (quick filter)
     return false unless cover?(val)
     # Iterate via succ; for String, stop if succ grows in length

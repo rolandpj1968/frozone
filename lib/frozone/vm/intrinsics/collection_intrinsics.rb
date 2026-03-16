@@ -105,11 +105,59 @@ module Frozone
         end
 
         def array_sort(context, v)
-          ArrayObject.new(v.raw.sort { |a, b| a.dispatch(context, :<=>, [b], {}).raw })
+          ArrayObject.new(v.raw.sort do |a, b|
+            result = begin
+              a.dispatch(context, :<=>, [b], {})
+            rescue FrozoneException
+              raise
+            rescue => _e
+              raise FrozoneException.make(:ArgumentError, "comparison failed")
+            end
+            raise FrozoneException.make(:ArgumentError, "comparison failed") if result.nil? || result.is_a?(NilObject)
+            result.raw
+          end)
+        end
+
+        def array_map_with_block(context, arr, block)
+          result = []
+          i = 0
+          while i < arr.length
+            begin
+              result << block.invoke(context, [arr[i]])
+            rescue Ast::BreakException => e
+              return e.value
+            end
+            i += 1
+          end
+          ArrayObject.new(result)
+        end
+
+        def array_map_bang_with_block(context, arr, block)
+          i = 0
+          while i < arr.length
+            begin
+              arr[i] = block.invoke(context, [arr[i]])
+            rescue Ast::BreakException => e
+              return e.value
+            end
+            i += 1
+          end
+          arr
         end
 
         def array_sort_block(context, v, block)
-          ArrayObject.new(v.raw.sort { |a, b| block.invoke(context, [a, b]).raw })
+          ArrayObject.new(v.raw.sort do |a, b|
+            result = block.invoke(context, [a, b])
+            if result.is_a?(IntegerObject)
+              result.raw
+            elsif result.is_a?(NilObject)
+              raise FrozoneException.make(:ArgumentError, "comparison failed")
+            else
+              cmp = result.dispatch(context, :<=>, [IntegerObject.new(0)], {})
+              raise FrozoneException.make(:ArgumentError, "comparison failed") if cmp.is_a?(NilObject) || cmp.nil?
+              cmp.raw
+            end
+          end)
         end
 
         def array_sort_by(context, v, block)

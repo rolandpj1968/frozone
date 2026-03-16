@@ -162,7 +162,7 @@ class Enumerator
 
   def to_a
     result = []
-    each { |x| result << x }
+    each { |*x| result << (x.length == 1 ? x[0] : x) }
     result
   end
 
@@ -170,7 +170,7 @@ class Enumerator
 
   def first(n = nil)
     if n.nil?
-      begin; next; rescue StopIteration; return nil; end if @receiver || @block
+      begin; return self.next; rescue StopIteration; return nil; end if @receiver || @block
       peek
     else
       result = []
@@ -186,14 +186,14 @@ class Enumerator
   def take(n)
     result = []
     count = 0
-    each { |x| result << x; count += 1; break if count >= n }
+    each { |*x| result << (x.length == 1 ? x[0] : x); count += 1; break if count >= n }
     result
   end
 
   def map(&block)
     return to_enum(:map) unless block
     result = []
-    each { |x| result << (block ? block.call(x) : yield(x)) }
+    each { |*x| result << block.call(*x) }
     result
   end
 
@@ -202,20 +202,26 @@ class Enumerator
   def each_with_index
     return to_enum(:each_with_index) unless block_given?
     i = 0
-    each { |x| yield x, i; i += 1 }
+    each { |*x| yield (x.length == 1 ? x[0] : x), i; i += 1 }
     self
   end
 
   def each_with_object(obj, &block)
     return to_enum(:each_with_object, obj) unless block
-    each { |x| block.call(x, obj) }
+    each { |*x| block.call(x.length == 1 ? x[0] : x, obj) }
     obj
   end
 
   def with_index(offset = 0, &block)
     return to_enum(:with_index, offset) unless block
-    each_with_index { |x, i| block.call(x, i + offset) }
-    self
+    i = offset
+    result = each { |*x|
+      key = block.call(x.length == 1 ? x[0] : x, i)
+      i += 1
+      key
+    }
+    # For method-mode enumerators (e.g. chunk), each returns the method's result enumerator
+    result.is_a?(Enumerator) && !result.equal?(self) ? result : self
   end
 
   def with_object(obj, &block)

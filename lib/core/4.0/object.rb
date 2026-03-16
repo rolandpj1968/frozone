@@ -42,6 +42,7 @@ class Object
     yield self if block_given?
     self
   end
+  def itself = self
   def then(&block) = block ? block.call(self) : self
   alias yield_self then
 

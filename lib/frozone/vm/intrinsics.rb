@@ -208,6 +208,27 @@ module Frozone
           NilObject::NIL
         end
 
+        # Emit a verbose-only warning (e.g. "given block not used") with the caller's call-site.
+        # Uses the incoming_call_site of the current frame (where the Ruby method was called from).
+        # Output format: "file:line: warning: msg"
+        def kernel_verbose_warn(context, _receiver, msg_obj)
+          verbose = GLOBALS.fetch(:"$VERBOSE", FalseObject::FALSE).truthy?
+          return NilObject::NIL unless verbose
+          msg = msg_obj.is_a?(StringObject) ? msg_obj.raw : msg_obj.dispatch(context, :to_s, [], {}).raw
+          location = context.frame&.incoming_call_site
+          Frozone::Vm.emit_warning(context, msg, location: location)
+          NilObject::NIL
+        end
+
+        # Emit an unconditional warning with the caller's call-site (for deprecation warnings).
+        # Output format: "file:line: warning: msg"
+        def kernel_deprecation_warn(context, _receiver, msg_obj)
+          msg = msg_obj.is_a?(StringObject) ? msg_obj.raw : msg_obj.dispatch(context, :to_s, [], {}).raw
+          location = context.frame&.incoming_call_site
+          Frozone::Vm.emit_warning(context, msg, location: location)
+          NilObject::NIL
+        end
+
         def io_print(context, receiver, args)
           native = receiver.is_a?(IOObject) ? receiver.native_io : $stdout
           args.raw.each { |a| native.print(a.dispatch(context, :to_s, [], {}).raw) }
@@ -1446,6 +1467,7 @@ module Frozone
             has_rest = params.any? { |p| p[0] == :rest || p[0] == :keyrest }
             return has_rest ? IntegerObject.new(-(req + 1)) : IntegerObject.new(req)
           end
+          return bound_method_arity(nil, blk) if blk.is_a?(BoundMethodObject)
           return IntegerObject.new(0) unless blk.is_a?(BlockObject)
           is_lambda = blk.is_lambda
           req = blk.required_params&.length || 0

@@ -360,7 +360,11 @@ class Hash
   def map(&block)
     return to_enum(:map) { size } unless block
     r = []
-    each { |pair| r << block.call(pair) }
+    if block.arity == 1
+      each { |k, v| r << block.call([k, v]) }
+    else
+      each { |k, v| r << block.call(k, v) }
+    end
     r
   end
 
@@ -533,13 +537,6 @@ class Hash
     to_a.sort_by { |kv| block.call(*kv) }
   end
 
-  def reduce(init = nil, &block)
-    acc = init
-    each { |k, v| acc = acc.nil? ? [k, v] : block.call(acc, [k, v]) }
-    acc
-  end
-
-  alias inject reduce
 
   def compare_by_identity = Intrinsics.hash_compare_by_identity(self)
   def compare_by_identity? = Intrinsics.hash_compare_by_identity_q(self)

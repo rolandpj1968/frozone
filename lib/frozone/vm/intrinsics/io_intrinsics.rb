@@ -199,6 +199,22 @@ module Frozone
           update_match_globals(m)
         end
 
+        def regexp_match_bool(context, receiver, str)
+          s = if str.is_a?(StringObject)
+                str.raw
+              elsif str.respond_to?(:raw)
+                str.raw.to_s
+              else
+                begin
+                  result = str.dispatch(context, :to_str, [], {})
+                  result.is_a?(StringObject) ? result.raw : result.to_s
+                rescue
+                  str.to_s
+                end
+              end
+          bool_object_for(receiver.raw.match?(s))
+        end
+
         def regexp_match_index(_, receiver, str)
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
           m = receiver.raw.match(s)
