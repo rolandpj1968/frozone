@@ -74,6 +74,7 @@ class Array
       return length unless block
       n = 0; each { |x| n += 1 if block.call(x) }; n
     else
+      warn "warning: given block not used" if block
       n = 0; each { |x| n += 1 if x == val }; n
     end
   end
@@ -277,7 +278,16 @@ class Array
 
   def delete(elem); n = length; reject! { |x| x == elem }; n == length ? nil : elem; end
   def delete_if(&block); reject!(&block); self; end
-  def index(elem = nil); i = 0; while i < length; return i if self[i] == elem; i += 1; end; nil; end
+  def index(elem = :__none__, &block)
+    if block
+      warn "warning: given block not used" unless elem.equal?(:__none__)
+      i = 0; while i < length; return i if block.call(self[i]); i += 1; end; nil
+    elsif elem.equal?(:__none__)
+      return to_enum(:index)
+    else
+      i = 0; while i < length; return i if self[i] == elem; i += 1; end; nil
+    end
+  end
   alias find_index index
 
   def take(n)
@@ -338,22 +348,50 @@ class Array
     self
   end
 
-  def map(&block);        r = []; each { |x| r << (block ? block.call(x) : yield(x)) };           r; end
-  def map!(&block);       i = 0; while i < length; self[i] = (block ? block.call(self[i]) : yield(self[i])); i += 1; end; self; end
+  def map(&block)
+    return to_enum(:map) { size } unless block
+    r = []; each { |x| r << block.call(x) }; r
+  end
+
+  def map!(&block)
+    return to_enum(:map!) { size } unless block
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    i = 0; while i < length; self[i] = block.call(self[i]); i += 1; end; self
+  end
+
   alias collect map
   alias collect! map!
-  def select(&block);    r = []; each { |x| r << x if (block ? block.call(x) : yield(x)) };      r; end
+
+  def select(&block)
+    return to_enum(:select) { size } unless block
+    r = []; each { |x| r << x if block.call(x) }; r
+  end
+
   alias filter select
   alias find_all select
-  def reject(&block);    r = []; each { |x| r << x unless (block ? block.call(x) : yield(x)) }; r; end
-  def reject!(&block);   n = length; r = reject(&block); replace(r); n == length ? nil : self; end
-  def select!(&block);   n = length; r = select(&block); replace(r); n == length ? nil : self; end
+
+  def reject(&block)
+    return to_enum(:reject) { size } unless block
+    r = []; each { |x| r << x unless block.call(x) }; r
+  end
+
+  def reject!(&block)
+    return to_enum(:reject!) { size } unless block
+    n = length; r = reject(&block); replace(r); n == length ? nil : self
+  end
+
+  def select!(&block)
+    return to_enum(:select!) { size } unless block
+    n = length; r = select(&block); replace(r); n == length ? nil : self
+  end
+
   alias filter! select!
 
   def flat_map(&block)
+    return to_enum(:flat_map) { size } unless block
     r = []
     each { |e|
-      v = block ? block.call(e) : yield(e)
+      v = block.call(e)
       v.is_a?(Array) ? v.each { |x| r << x } : r << v
     }
     r
@@ -361,19 +399,70 @@ class Array
 
   alias collect_concat flat_map
 
-  def each_with_index; i = 0; each { |x| yield x, i; i += 1 }; self; end
+  def each_with_index(&block)
+    return to_enum(:each_with_index) { size } unless block
+    i = 0; each { |x| block.call(x, i); i += 1 }; self
+  end
 
   def each_with_object(obj, &block)
-    each { |e| block ? block.call(e, obj) : yield(e, obj) }
+    return to_enum(:each_with_object, obj) { size } unless block
+    each { |e| block.call(e, obj) }
     obj
   end
 
   def find; each { |x| return x if yield(x) }; nil; end
   alias detect find
 
-  def any?(&block)  = (each { |x| return true  if (block ? block.call(x) : yield(x)) }; false)
-  def all?(&block)  = (each { |x| return false unless (block ? block.call(x) : yield(x)) }; true)
-  def none?(&block) = (each { |x| return false if (block ? block.call(x) : yield(x)) }; true)
+  def any?(pat = :__none__, &block)
+    if pat.equal?(:__none__)
+      each { |x| return true if (block ? block.call(x) : x) }
+    else
+      warn "warning: given block not used" if block
+      each { |x| return true if pat === x }
+    end
+    false
+  end
+
+  def all?(pat = :__none__, &block)
+    if pat.equal?(:__none__)
+      each { |x| return false unless (block ? block.call(x) : x) }
+    else
+      warn "warning: given block not used" if block
+      each { |x| return false unless pat === x }
+    end
+    true
+  end
+
+  def none?(pat = :__none__, &block)
+    if pat.equal?(:__none__)
+      each { |x| return false if (block ? block.call(x) : x) }
+    else
+      warn "warning: given block not used" if block
+      each { |x| return false if pat === x }
+    end
+    true
+  end
+
+  def one?(pat = :__none__, &block)
+    found = false
+    if pat.equal?(:__none__)
+      each do |x|
+        if block ? block.call(x) : x
+          return false if found
+          found = true
+        end
+      end
+    else
+      warn "warning: given block not used" if block
+      each do |x|
+        if pat === x
+          return false if found
+          found = true
+        end
+      end
+    end
+    found
+  end
 
   def reduce(initial = nil, &block); acc = initial; each { |x| acc = acc.nil? ? x : (block ? block.call(acc, x) : yield(acc, x)) }; acc; end
   alias inject reduce

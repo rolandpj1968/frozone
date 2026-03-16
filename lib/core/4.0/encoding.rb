@@ -8,6 +8,24 @@ class Encoding
   def to_s = @name
   def inspect = "#<Encoding:#{@name}>"
   def ==(other) = other.is_a?(Encoding) && other.name == @name
+  alias eql? ==
+
+  # Non-ASCII-compatible encodings (UTF-16 and UTF-32 use multi-byte for ASCII chars)
+  NON_ASCII_COMPATIBLE = %w[UTF-16 UTF-16BE UTF-16LE UTF-32 UTF-32BE UTF-32LE].freeze
+  # Dummy encodings need BOM or explicit byte order to be usable
+  DUMMY_ENCODINGS = %w[UTF-16 UTF-32].freeze
+
+  def ascii_compatible?
+    !NON_ASCII_COMPATIBLE.include?(@name)
+  end
+
+  def dummy?
+    DUMMY_ENCODINGS.include?(@name)
+  end
+
+  def ascii_only?
+    @name == "US-ASCII"
+  end
 
   UTF_8    = new("UTF-8")
   US_ASCII = new("US-ASCII")

@@ -15,6 +15,7 @@ module Frozone
       def [](index) = @elements[index]
 
       def []=(index, value)
+        raise FrozoneException.make(:FrozenError, "can't modify frozen Array: #{array_inspect_for_error}", receiver: self) if frozen_object?
         @elements[index] = value
       end
 

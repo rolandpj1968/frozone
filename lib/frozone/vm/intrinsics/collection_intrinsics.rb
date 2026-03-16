@@ -59,6 +59,7 @@ module Frozone
 
 
         def array_index_write(_, v, i, val)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v) if v.frozen_object?
           if i.is_a?(IntegerObject)
             v.raw[i.raw] = val
           elsif i.is_a?(RangeObject)
@@ -71,6 +72,7 @@ module Frozone
         end
 
         def array_slice_write(_, v, start, length, val)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v) if v.frozen_object?
           raise "Array#[]= start must be an Integer" unless start.is_a?(IntegerObject)
           raise "Array#[]= length must be an Integer" unless length.is_a?(IntegerObject)
           replacement = val.is_a?(ArrayObject) ? val.raw : [val]
@@ -117,27 +119,32 @@ module Frozone
         def array_reverse(_, v) = ArrayObject.new(v.raw.reverse)
 
         def array_pop(_, v)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v) if v.frozen_object?
           val = v.raw.pop
           val.nil? ? NilObject::NIL : val
         end
 
         def array_shift(_, v)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v) if v.frozen_object?
           val = v.raw.shift
           val.nil? ? NilObject::NIL : val
         end
 
         def array_unshift(_, v, *elems)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v) if v.frozen_object?
           elems.each { |e| v.raw.unshift(e) }
           v
         end
 
         def array_concat(_, v1, v2)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v1) if v1.frozen_object?
           elems = v1.equal?(v2) ? v2.raw.dup : v2.raw
           elems.each { |e| v1.raw << e }
           v1
         end
 
         def array_replace(_, v, other)
+          raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v) if v.frozen_object?
           v.raw.replace(other.raw)
           v
         end
