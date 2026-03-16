@@ -121,6 +121,27 @@ module Frozone
 
       # Load the standard library into the shared class hierarchy.
       # Idempotent: safe to call multiple times (methods are simply redefined).
+      #
+      # Load order matters for a few bootstrap reasons:
+      #
+      #   1. module.rb MUST be first: it defines Module#include, Module#attr_reader,
+      #      Module#module_function, etc. Every subsequent file that calls `include`,
+      #      `attr_accessor`, or `module_function` in its class/module body depends on
+      #      these being available as dispatchable methods on the class being opened.
+      #      (core.rb has already created the essential VM-level ClassObjects, but has
+      #      not yet given Module any ruby-land methods.)
+      #
+      #   2. kernel.rb before object.rb: object.rb says `class Object < BasicObject;
+      #      include Kernel`, so Kernel must exist first.
+      #
+      #   3. comparable.rb + enumerable.rb before the classes that include them
+      #      (numeric.rb → integer/float, string, symbol, array, hash, range).
+      #
+      #   4. exception.rb before encoding/io/thread: those files add subclasses and
+      #      methods that reference exception classes.
+      #
+      # Everything else is natural ruby-land; no special hierarchy.rb bootstrap file
+      # is needed.
       def load_core
         core_path = File.expand_path("../../core/#{FROZONE_CORE_VERSION}", __dir__)
         evaluate_file("#{core_path}/module.rb")
