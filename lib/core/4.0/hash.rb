@@ -1,4 +1,6 @@
 class Hash
+  include Enumerable
+
   def self.new(*args, capacity: nil, &block)
     if self.equal?(Hash)
       raise ArgumentError, "wrong number of arguments (given #{args.size}, expected 0..1)" if args.size > 1

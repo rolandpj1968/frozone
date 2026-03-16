@@ -1,4 +1,6 @@
 class String
+  include Comparable
+
   def initialize(str = nil, encoding: nil, capacity: nil)
     Intrinsics.string_initialize(self, str, encoding) unless str.nil?
   end

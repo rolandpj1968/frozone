@@ -1,4 +1,6 @@
-class Object
+class Object < BasicObject
+  include Kernel
+
   def hash = __id__
 
   def object_id = __id__

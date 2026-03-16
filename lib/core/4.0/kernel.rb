@@ -45,6 +45,8 @@ module Kernel
   def system(*args) = false
   def `(cmd) = Intrinsics.kernel_backtick(self, cmd)
   def block_given? = Intrinsics.kernel_block_given(self)
+  def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name, include_all)
+
   def suppress_warning; yield; end
   def suppress_keyword_warning; yield; end
 

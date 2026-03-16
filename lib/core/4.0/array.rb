@@ -1,4 +1,6 @@
 class Array
+  include Enumerable
+
   def self.[](*args)
     a = allocate
     args.each { |x| a << x }

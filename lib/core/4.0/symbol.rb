@@ -1,4 +1,6 @@
 class Symbol
+  include Comparable
+
   def self.allocate
     raise TypeError, "allocating an instance of Symbol"
   end

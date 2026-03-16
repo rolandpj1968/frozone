@@ -535,6 +535,29 @@ module Math
   def self.ldexp(x, n) = Intrinsics.float_ldexp(x.to_f, n.to_i)
 end
 
+class SystemExit < Exception
+  def initialize(code = true, msg = nil)
+    if code.is_a?(String)
+      @status = 0
+      super(code)
+    else
+      @status = code.is_a?(Integer) ? code : (code ? 0 : 1)
+      super(msg || self.class.name)
+    end
+  end
+
+  def status   = @status
+  def success? = @status == 0
+end
+
+class NameError
+  def receiver = @receiver
+end
+
+class FrozenError
+  def receiver = @receiver
+end
+
 class Thread
   class Backtrace
     class Location

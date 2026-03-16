@@ -62,3 +62,8 @@ class IO
     EAGAINWaitWritable :
     Class.new(Errno::EWOULDBLOCK) { include IO::WaitWritable }
 end
+
+
+class STDOUT < IO; end
+class STDERR < IO; end
+class STDIN  < IO; end
