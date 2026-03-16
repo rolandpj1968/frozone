@@ -130,6 +130,7 @@ module Frozone
         evaluate_file("#{core_path}/kernel.rb")
         evaluate_file("#{core_path}/object.rb")
         evaluate_file("#{core_path}/comparable.rb")
+        evaluate_file("#{core_path}/enumerable.rb")
         evaluate_file("#{core_path}/nil_class.rb")
         evaluate_file("#{core_path}/true_class.rb")
         evaluate_file("#{core_path}/false_class.rb")
@@ -152,6 +153,7 @@ module Frozone
         evaluate_file("#{core_path}/binding.rb")
         evaluate_file("#{core_path}/pp.rb")
         evaluate_file("#{core_path}/stringio.rb")
+        evaluate_file("#{core_path}/set.rb")
         init_globals
       end
 

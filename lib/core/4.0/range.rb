@@ -1,4 +1,6 @@
 class Range
+  include Enumerable
+
   def self.new(b, e, excl = false)
     Intrinsics.range_new(b, e, excl)
   end

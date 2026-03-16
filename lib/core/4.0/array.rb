@@ -464,7 +464,47 @@ class Array
     found
   end
 
-  def reduce(initial = nil, &block); acc = initial; each { |x| acc = acc.nil? ? x : (block ? block.call(acc, x) : yield(acc, x)) }; acc; end
+  def reduce(*args, &block)
+    sym = nil; has_initial = false; initial = nil
+    case args.length
+    when 0
+      raise ArgumentError, "no block given (yield)" unless block
+    when 1
+      if args[0].is_a?(Symbol) || args[0].is_a?(String)
+        sym = args[0].to_sym
+        warn "warning: given block not used" if block
+      else
+        has_initial = true; initial = args[0]
+        raise ArgumentError, "no block given (yield)" unless block
+      end
+    when 2
+      initial = args[0]; has_initial = true
+      arg1 = args[1]
+      if arg1.is_a?(Symbol)
+        sym = arg1.to_sym
+      elsif arg1.is_a?(String)
+        sym = arg1.to_sym
+      elsif arg1.respond_to?(:to_str)
+        sym = arg1.to_str.to_sym
+      else
+        raise TypeError, "#{arg1.inspect} is not a symbol nor a string"
+      end
+      warn "warning: given block not used" if block
+    else
+      raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
+    end
+    acc = initial; first = !has_initial
+    each do |x|
+      if first
+        acc = x; first = false
+      elsif sym
+        acc = acc.send(sym, x)
+      else
+        acc = block.call(acc, x)
+      end
+    end
+    acc
+  end
   alias inject reduce
 
   def each_slice(n)
@@ -505,8 +545,89 @@ class Array
     r
   end
 
-  def group_by; result = {}; each { |x| k = yield(x); result[k] ||= []; result[k] << x }; result; end
-  def tally;    result = {}; each { |x| result[x] = (result[x] || 0) + 1 };                result; end
+  def group_by(&block)
+    return to_enum(:group_by) unless block
+    result = {}; each { |x| k = block.call(x); result[k] ||= []; result[k] << x }; result
+  end
+
+  def tally(hash = nil)
+    result = hash || {}; each { |x| result[x] = (result[x] || 0) + 1 }; result
+  end
+
+  def assoc(key)
+    each { |e| return e if e.is_a?(Array) && !e.empty? && e[0] == key }
+    nil
+  end
+
+  def rassoc(val)
+    each { |e| return e if e.is_a?(Array) && e.length >= 2 && e[1] == val }
+    nil
+  end
+
+  def bsearch(&block)
+    return to_enum(:bsearch) unless block
+    lo = 0; hi = length
+    # Detect mode from first truthy result
+    # find-minimum mode: block returns true/false
+    # find-any mode: block returns negative/zero/positive
+    mode = nil
+    result_idx = nil
+    lo = 0; hi = length
+    while lo < hi
+      mid = (lo + hi) / 2
+      val = block.call(self[mid])
+      if val == true
+        mode ||= :min
+        hi = mid
+      elsif val == false || val.nil?
+        mode ||= :min
+        lo = mid + 1
+      elsif val.is_a?(Integer) || val.is_a?(Float)
+        mode = :any
+        if val == 0
+          return self[mid]
+        elsif val < 0
+          lo = mid + 1
+        else
+          hi = mid
+        end
+      else
+        raise TypeError, "wrong argument type #{val.class} (must be numeric, true, false or nil)"
+      end
+    end
+    return nil if mode == :any
+    lo < length ? self[lo] : nil
+  end
+
+  def bsearch_index(&block)
+    return to_enum(:bsearch_index) unless block
+    lo = 0; hi = length
+    mode = nil
+    while lo < hi
+      mid = (lo + hi) / 2
+      val = block.call(self[mid])
+      if val == true
+        mode ||= :min
+        hi = mid
+      elsif val == false || val.nil?
+        mode ||= :min
+        lo = mid + 1
+      elsif val.is_a?(Integer) || val.is_a?(Float)
+        mode = :any
+        if val == 0
+          return mid
+        elsif val < 0
+          lo = mid + 1
+        else
+          hi = mid
+        end
+      else
+        raise TypeError, "wrong argument type #{val.class} (must be numeric, true, false or nil)"
+      end
+    end
+    return nil if mode == :any
+    lo < length ? lo : nil
+  end
 
   # $LOAD_PATH.resolve_feature_path(feature) — return [:rb, path] or [:so, path] or nil
   def resolve_feature_path(feature)

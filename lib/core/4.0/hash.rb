@@ -358,9 +358,9 @@ class Hash
   end
 
   def map(&block)
-    return to_enum(:map) unless block
+    return to_enum(:map) { size } unless block
     r = []
-    each { |k, v| r << (block ? block.call(k, v) : yield(k, v)) }
+    each { |pair| r << block.call(pair) }
     r
   end
 
@@ -460,9 +460,35 @@ class Hash
     r
   end
 
-  def any?(&block);  each { |k, v| return true  if (block ? block.call(k, v) : yield(k, v)) }; false; end
-  def all?(&block);  each { |k, v| return false unless (block ? block.call(k, v) : yield(k, v)) }; true; end
-  def none?(&block); each { |k, v| return false if (block ? block.call(k, v) : yield(k, v)) }; true; end
+  def any?(pat = :__none__, &block)
+    if pat.equal?(:__none__)
+      each { |k, v| return true if (block ? block.call(k, v) : true) }
+    else
+      warn "warning: given block not used" if block
+      each { |k, v| return true if pat === [k, v] }
+    end
+    false
+  end
+
+  def all?(pat = :__none__, &block)
+    if pat.equal?(:__none__)
+      each { |k, v| return false unless (block ? block.call(k, v) : true) }
+    else
+      warn "warning: given block not used" if block
+      each { |k, v| return false unless pat === [k, v] }
+    end
+    true
+  end
+
+  def none?(pat = :__none__, &block)
+    if pat.equal?(:__none__)
+      each { |k, v| return false if (block ? block.call(k, v) : true) }
+    else
+      warn "warning: given block not used" if block
+      each { |k, v| return false if pat === [k, v] }
+    end
+    true
+  end
 
   def count(&block)
     return size unless block

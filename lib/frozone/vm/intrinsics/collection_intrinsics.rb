@@ -113,7 +113,12 @@ module Frozone
         end
 
         def array_sort_by(context, v, block)
-          ArrayObject.new(v.raw.sort_by { |e| block.invoke(context, [e]) })
+          pairs = v.raw.map { |e| [block.invoke(context, [e]), e] }
+          sorted = pairs.sort { |a, b|
+            result = a[0].dispatch(context, :<=>, [b[0]], {})
+            (result.nil? || result.is_a?(NilObject)) ? 0 : result.raw
+          }
+          ArrayObject.new(sorted.map { |_, e| e })
         end
 
         def array_reverse(_, v) = ArrayObject.new(v.raw.reverse)

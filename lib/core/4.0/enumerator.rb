@@ -76,7 +76,7 @@ class Enumerator
         begin
           loop do
             vals = _advance
-            result = yield(vals.length == 1 ? vals[0] : vals)
+            result = yield(vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals))
             @feed = result
           end
         rescue StopIteration
@@ -88,7 +88,7 @@ class Enumerator
 
   def next
     vals = _next_values_raw
-    vals.length == 1 ? vals[0] : vals
+    vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals)
   end
 
   def next_values
@@ -97,7 +97,7 @@ class Enumerator
 
   def peek
     vals = _peek_values_raw
-    vals.length == 1 ? vals[0] : vals
+    vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals)
   end
 
   def peek_values
