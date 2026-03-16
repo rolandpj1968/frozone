@@ -134,29 +134,7 @@ module Frozone
             if elem.is_a?(ArrayObject) && (depth.nil? || depth > 0)
               _array_flatten_into(context, elem, depth.nil? ? nil : depth - 1, result, seen)
             elsif (depth.nil? || depth > 0) && !elem.is_a?(NilObject) && elem.respond_to?(:dispatch)
-              # Use VM respond_to?(:to_ary, true) so respond_to_missing? is triggered
-              has_to_ary = begin
-                r = elem.dispatch(context, :respond_to?, [SymbolObject.from(:to_ary), TrueObject::TRUE], {})
-                r.truthy?
-              rescue
-                false
-              end
-              converted = if has_to_ary
-                begin
-                  r = elem.dispatch(context, :to_ary, [], {})
-                  if r.is_a?(ArrayObject)
-                    r
-                  elsif r.is_a?(NilObject) || r.nil?
-                    nil
-                  else
-                    raise FrozoneException.make(:TypeError, "can't convert #{elem.class_object.name} into Array (#{elem.class_object.name}#to_ary gives #{r.class_object.name})")
-                  end
-                rescue FrozoneException
-                  raise
-                rescue
-                  nil
-                end
-              end
+              converted = _array_flatten_coerce(context, elem)
               if converted
                 _array_flatten_into(context, converted, depth.nil? ? nil : depth - 1, result, seen)
               else
@@ -167,6 +145,54 @@ module Frozone
             end
           end
           seen.delete(arr.object_id)
+        end
+
+        def _array_flatten_coerce(context, elem)
+          # MRI's flatten coercion logic:
+          # - If respond_to? is overridden (on eigenclass, or non-Object/Kernel class): gate via it
+          # - If respond_to_missing? is overridden (not the BasicObject default): gate via respond_to?
+          # - Otherwise: call to_ary directly so method_missing can intercept it
+          # When gating, let NoMethodError from to_ary propagate (respond_to? said it exists).
+          #
+          # respond_to? check: use eigenclass_method first (singleton overrides may have lexical
+          # scope = Object when defined at top level, making scope inspection unreliable for them).
+          rto_overridden = !elem.eigenclass_method(:respond_to?).nil? || begin
+            rto = elem.lookup_instance_method(:respond_to?)
+            rto && rto.scopes.none? { |s| s.respond_to?(:name) && [:Object, :Kernel, :BasicObject].include?(s.name) }
+          end
+
+          # respond_to_missing? check: scope inspection works because top-level scope is :Object,
+          # which differs from the BasicObject default (scope :BasicObject).
+          rtm = elem.lookup_instance_method(:respond_to_missing?)
+          rtm_overridden = rtm && rtm.scopes.none? { |s| s.respond_to?(:name) && s.name == :BasicObject }
+
+          r = if rto_overridden || rtm_overridden
+            has_to_ary = begin
+              resp = elem.dispatch(context, :respond_to?, [SymbolObject.from(:to_ary), TrueObject::TRUE], {})
+              resp.truthy?
+            rescue FrozoneException
+              false
+            end
+            return nil unless has_to_ary
+            # respond_to? says true → call to_ary; NoMethodError propagates (MRI behaviour)
+            elem.dispatch(context, :to_ary, [], {})
+          else
+            # No custom respond_to? or respond_to_missing?: call to_ary directly (via method_missing)
+            begin
+              elem.dispatch(context, :to_ary, [], {})
+            rescue FrozoneException => e
+              raise unless e.vm_object.is_a?(ObjectObject) && e.vm_object.class_object&.name == :NoMethodError
+              return nil
+            end
+          end
+
+          if r.is_a?(ArrayObject)
+            r
+          elsif r.is_a?(NilObject) || r.nil?
+            nil
+          else
+            raise FrozoneException.make(:TypeError, "can't convert #{elem.class_object.name} into Array (#{elem.class_object.name}#to_ary gives #{r.class_object.name})")
+          end
         end
 
         ARRAY_CMP_GUARD = :__array_cmp_guard__

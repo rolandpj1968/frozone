@@ -88,7 +88,7 @@ module Frozone
             begin
               result = v.dispatch(context, :respond_to_missing?, [name, include_private_obj], {})
               result.truthy? ? TrueObject::TRUE : FalseObject::FALSE
-            rescue
+            rescue FrozoneException
               FalseObject::FALSE
             end
           end

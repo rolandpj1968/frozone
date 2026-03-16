@@ -41,11 +41,14 @@ class Array
     Intrinsics.array_at(self, i)
   end
 
+  ARRAY_MAX_INDEX = (1 << 62)
+
   def [](i, len = nil)
     n = length
     if len
       i = __coerce_to_int__(i)
       len = __coerce_to_int__(len)
+      raise RangeError, "length too large" if len.abs >= ARRAY_MAX_INDEX
       return nil if len < 0
       s = i < 0 ? i + n : i
       return nil if s < 0 || s > n
@@ -53,18 +56,22 @@ class Array
       r = []; j = s; while j < stop; r << Intrinsics.array_at(self, j); j += 1; end; r
     elsif i.is_a?(Range)
       bi = i.begin
-      ei = i.end
-      bi = bi.nil? ? 0 : __coerce_to_int__(bi)
-      ei = ei.nil? ? n - 1 : __coerce_to_int__(ei)
-      b = bi < 0 ? bi + n : bi
-      e = ei < 0 ? ei + n : ei
-      e -= 1 if i.exclude_end?
+      end_nil = i.end.nil?
+      bi_int = bi.nil? ? 0 : __coerce_to_int__(bi)
+      raise RangeError, "index too large" if bi_int.abs >= ARRAY_MAX_INDEX
+      ei_int = end_nil ? n - 1 : __coerce_to_int__(i.end)
+      raise RangeError, "index too large" if !end_nil && ei_int.abs >= ARRAY_MAX_INDEX
+      b = bi_int < 0 ? bi_int + n : bi_int
+      e = ei_int < 0 ? ei_int + n : ei_int
+      e -= 1 if i.exclude_end? && !end_nil
       return nil if b > n || b < 0
       return [] if b == n || e < b
       e = n - 1 if e >= n
       r = []; j = b; while j <= e; r << Intrinsics.array_at(self, j); j += 1; end; r
     else
-      at(i)
+      i_int = __coerce_to_int__(i)
+      raise RangeError, "index too large" if i_int.abs >= ARRAY_MAX_INDEX
+      Intrinsics.array_at(self, i_int)
     end
   end
 
@@ -482,8 +489,8 @@ class Array
   def deconstruct = self
 
   def fetch(i, default = :__unset__, &block)
-    i = __coerce_to_int__(i)
     orig_i = i
+    i = __coerce_to_int__(i)
     n = length
     i = i < 0 ? i + n : i
     if i >= 0 && i < n
@@ -503,8 +510,8 @@ class Array
   end
 
   def insert(idx, *vals)
-    return self if vals.empty?
     raise FrozenError, "can't modify frozen Array" if frozen?
+    return self if vals.empty?
     idx = __coerce_to_int__(idx)
     n = length
     raise IndexError, "index #{idx} too small for array; minimum: #{-n - 1}" if idx < -(n + 1)
