@@ -407,8 +407,36 @@ class Array
   end
 
   def include?(elem); any? { |x| x == elem }; end
-  def pop = Intrinsics.array_pop(self)
-  def shift = Intrinsics.array_shift(self)
+  def pop(n = :__none__)
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    if n.equal?(:__none__)
+      Intrinsics.array_pop(self)
+    else
+      n = __coerce_to_int__(n)
+      raise ArgumentError, "negative array size" if n < 0
+      len = length
+      cnt = n > len ? len : n
+      result = self[len - cnt, cnt]
+      self[len - cnt, cnt] = []
+      result
+    end
+  end
+
+  def shift(n = :__none__)
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    if n.equal?(:__none__)
+      Intrinsics.array_shift(self)
+    else
+      n = __coerce_to_int__(n)
+      raise ArgumentError, "negative array size" if n < 0
+      len = length
+      cnt = n > len ? len : n
+      result = self[0, cnt]
+      self[0, cnt] = []
+      result
+    end
+  end
+
   def unshift(*elems) = Intrinsics.array_unshift(self, *elems)
   alias prepend unshift
   def dig(idx, *rest)
@@ -416,6 +444,44 @@ class Array
     return val if rest.empty?
     raise TypeError, "#{val.class} does not have #dig method" unless val.respond_to?(:dig)
     val.dig(*rest)
+  end
+
+  alias slice []
+
+  def slice!(i, len = :__none__)
+    raise FrozenError, "can't modify frozen Array" if frozen?
+    if len.equal?(:__none__)
+      if i.is_a?(Range)
+        bi = i.begin
+        ei = i.end
+        bi_int = bi.nil? ? 0 : __coerce_to_int__(bi)
+        ei_int = ei.nil? ? nil : __coerce_to_int__(ei)
+        n = length
+        b = bi_int < 0 ? bi_int + n : bi_int
+        return nil if b < 0 || b > n
+        e = ei_int.nil? ? n - 1 : (ei_int < 0 ? ei_int + n : ei_int)
+        e -= 1 if i.exclude_end? && !ei_int.nil?
+        cnt = e < b ? 0 : [e - b + 1, n - b].min
+        result = self[b, cnt]
+        self[b, cnt] = []
+        result
+      else
+        i_int = __coerce_to_int__(i)
+        n = length
+        adj = i_int < 0 ? i_int + n : i_int
+        return nil if adj < 0 || adj >= n
+        val = Intrinsics.array_at(self, i_int)
+        self[i_int, 1] = []
+        val
+      end
+    else
+      start_int = __coerce_to_int__(i)
+      len_int = __coerce_to_int__(len)
+      result = self[start_int, len_int]
+      return nil if result.nil?
+      self[start_int, len_int] = []
+      result
+    end
   end
 
   def delete_at(i)
@@ -1116,14 +1182,43 @@ class Array
   end
 
   def product(*others, &block)
-    result = [[]]
-    ([self] + others).each { |a|
-      result = result.flat_map { |r| a.map { |e| r + [e] } }
+    arrays = [self] + others.map { |o|
+      if o.is_a?(Array)
+        o
+      else
+        begin
+          converted = o.to_ary
+        rescue NoMethodError
+          raise TypeError, "no implicit conversion of #{o.class} into Array"
+        end
+        raise TypeError, "no implicit conversion of #{o.class} into Array" unless converted.is_a?(Array)
+        converted
+      end
     }
+    # Check for unreasonably large product
+    total = arrays.reduce(1) { |acc, a| acc * a.length }
+    raise RangeError, "too big to product" if total > 65536
     if block
-      result.each { |r| block.call(r) }
+      return self if arrays.any?(&:empty?)
+      # Yield combinations iteratively
+      indices = Array.new(arrays.length, 0)
+      loop do
+        combo = indices.each_with_index.map { |idx, i| arrays[i][idx] }
+        block.call(combo)
+        # Increment indices from right
+        i = arrays.length - 1
+        while i >= 0
+          indices[i] += 1
+          break if indices[i] < arrays[i].length
+          indices[i] = 0
+          i -= 1
+        end
+        break if i < 0
+      end
       self
     else
+      result = [[]]
+      arrays.each { |a| result = result.flat_map { |r| a.map { |e| r + [e] } } }
       result
     end
   end
