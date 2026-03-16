@@ -751,7 +751,7 @@ module Frozone
           names_array.raw.each do |name_obj|
             name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
             m = receiver.is_a?(ClassObject) ? receiver.lookup_method(name) : receiver.get_method(name)
-            m.ruby2_keywords = true if m.is_a?(Method)
+            m.ruby2_keywords = true if m.is_a?(Method) || m.is_a?(DefinedMethod)
           end
           receiver
         end
