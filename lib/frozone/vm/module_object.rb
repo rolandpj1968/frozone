@@ -7,6 +7,9 @@ module Frozone
     class ModuleObject < ObjectObject
       # TODO - the Module class _can_ be subclassed in ruby - need to work out how to deal with that
       attr_reader :name, :class_variables
+      attr_accessor :namespace
+      attr_reader :methods_table, :constants_table
+      def private_constants_table = @private_constants
 
       def set_name(name)
         raise "class/module name must be a Symbol" unless name.is_a?(Symbol)
@@ -27,11 +30,13 @@ module Frozone
             type = current.is_a?(ClassObject) ? "Class" : "Module"
             parts.unshift("#<#{type}:0x#{current.object_id.to_s(16)}>")
           end
-          current = current.instance_variable_get(:@namespace)
+          current = current.namespace
         end
         parts.empty? ? @name : parts.join("::").to_sym
       end
       attr_accessor :current_visibility
+      def is_singleton_class = false
+      def singleton_of       = nil
 
       def initialize(name, namespace, class_object = Core::MODULE_CLASS)
         super(class_object)
@@ -40,8 +45,8 @@ module Frozone
         @name = name
         raise "class/module namespace must be a module" unless namespace.nil? or namespace.is_a?(ModuleObject)
         @namespace = namespace
-        @methods = {}
-        @constants = {}
+        @methods_table = {}
+        @constants_table = {}
         @class_variables = {}
         @current_visibility = :public
       end
@@ -115,7 +120,7 @@ module Frozone
           raise FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{inspect_for_frozen}", receiver: self)
         end
         # TODO thread safety
-        @methods[name] = method
+        @methods_table[name] = method
       end
 
       def inspect_for_frozen
@@ -130,13 +135,13 @@ module Frozone
 
       def undef_method(name)
         raise "name must be a Symbol" unless name.is_a?(Symbol)
-        @methods[name] = UNDEF_SENTINEL
+        @methods_table[name] = UNDEF_SENTINEL
       end
 
       def get_method(name)
         raise "name must be a Symbol" unless name.is_a?(Symbol)
 
-        v = @methods[name]
+        v = @methods_table[name]
         # If the method is the undef sentinel, return a special marker
         # (callers must check for UNDEF_SENTINEL to stop lookup)
         v == UNDEF_SENTINEL ? UNDEF_SENTINEL : v
@@ -180,13 +185,13 @@ module Frozone
       def set_constant(name, value)
         raise "name must be a Symbol" unless name.is_a?(Symbol)
 
-        @constants[name] = value
+        @constants_table[name] = value
       end
 
       def get_constant(name)
         raise "name must be a Symbol" unless name.is_a?(Symbol)
 
-        @constants[name]
+        @constants_table[name]
       end
 
       def mark_constant_private(name)

@@ -39,7 +39,7 @@ module Frozone
           if class_constant.nil?
             superclass = @superclass_node ? @superclass_node.evaluate(context) : Vm::Core::OBJECT_CLASS
             raise Vm::FrozoneException.make(:TypeError, "superclass must be a Class (#{superclass.class_object&.name} given)") unless superclass.is_a?(Vm::ClassObject)
-            raise Vm::FrozoneException.make(:TypeError, "can't make subclass of singleton class") if superclass.instance_variable_get(:@is_singleton_class)
+            raise Vm::FrozoneException.make(:TypeError, "can't make subclass of singleton class") if superclass.is_singleton_class
             class_constant = Vm::ClassObject.new(@name, namespace, superclass)
             container.set_constant(@name, class_constant)
             dispatch_inherited(context, superclass, class_constant)
@@ -69,7 +69,7 @@ module Frozone
           if class_constant.nil?
             sc = superclass || Vm::Core::OBJECT_CLASS
             raise Vm::FrozoneException.make(:TypeError, "superclass must be a Class (#{sc.class_object&.name} given)") unless sc.is_a?(Vm::ClassObject)
-            raise Vm::FrozoneException.make(:TypeError, "can't make subclass of singleton class") if sc.instance_variable_get(:@is_singleton_class)
+            raise Vm::FrozoneException.make(:TypeError, "can't make subclass of singleton class") if sc.is_singleton_class
             class_constant = Vm::ClassObject.new(@name, namespace, sc)
             lex_scope.set_constant(@name, class_constant)
             dispatch_inherited(context, sc, class_constant)

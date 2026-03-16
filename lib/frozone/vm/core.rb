@@ -27,7 +27,7 @@ module Frozone
     module Core
       OBJECT_CLASS = ClassObject.new(:Object, nil, BASIC_OBJECT_CLASS)
       # Fix bootstrap: Module and Class should inherit from Object, not BasicObject
-      MODULE_CLASS.instance_variable_set(:@superclass, OBJECT_CLASS)
+      MODULE_CLASS.superclass = OBJECT_CLASS
       # CLASS_CLASS already has MODULE_CLASS as superclass (correct)
       # Essential constants so class/module lookups work in hierarchy.rb
       OBJECT_CLASS.set_constant(:BasicObject, BASIC_OBJECT_CLASS)

@@ -93,6 +93,8 @@ module Frozone
       # Control-flow exceptions must never be intercepted by user rescue clauses.
       CONTROL_FLOW = [ReturnException, NextException, RedoException, BreakException, RetryException].freeze
 
+      attr_reader :body, :rescue_clauses, :else_node, :ensure_node
+
       def initialize(body, rescue_clauses, else_node, ensure_node)
         @body           = body
         @rescue_clauses = rescue_clauses  # Array<RescueClause>

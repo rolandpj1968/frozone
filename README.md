@@ -125,3 +125,74 @@ Differences from Prism (both are whitequark lexer limitations):
 | magic_comment | 53/54 | 53/54 | same `-e` edge case as Prism |
 | variables | 119/119 | 119/119 | `ἍBB = 1` in method body correctly raises SyntaxError |
 | All others | identical | identical | |
+
+## ruby/spec Core Spec Status
+
+Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
+Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
+
+**Overall: 2302 / 8369 passing** (1346 failures, 4721 errors) — as of 2026-03-16 (Prism parser)
+
+Note: Negative "passing" counts indicate errors exceed examples (mspec counts some errors as extra failures).
+Modules with all zeros are not yet being run (timeout).
+
+| Module | Examples | Passing | Failures | Errors |
+|---|---:|---:|---:|---:|
+| argf | 84 | -53 | 3 | 134 |
+| basicobject | 178 | 111 | 40 | 27 |
+| binding | 53 | 11 | 4 | 38 |
+| builtin_constants | 27 | 27 | 0 | 0 |
+| class | 45 | 22 | 18 | 5 |
+| comparable | 54 | 54 | 0 | 0 |
+| complex | 176 | 23 | 57 | 96 |
+| data | 77 | 0 | 4 | 73 |
+| dir | 291 | 80 | 41 | 170 |
+| encoding | 552 | -53 | 21 | 584 |
+| enumerable | 539 | -19 | 83 | 475 |
+| enumerator | 226 | -75 | 33 | 268 |
+| env | 239 | 139 | 93 | 7 |
+| exception | 247 | 232 | 9 | 6 |
+| false | 13 | 13 | 0 | 0 |
+| fiber | 163 | 31 | 80 | 52 |
+| file | 781 | -66 | 192 | 655 |
+| float | 328 | 320 | 5 | 3 |
+| gc | 33 | -10 | 4 | 39 |
+| hash | 633 | 610 | 16 | 7 |
+| main | 27 | 4 | 11 | 12 |
+| marshal | 110 | -3 | 6 | 107 |
+| matchdata | 186 | 83 | 23 | 80 |
+| math | 243 | 108 | 71 | 64 |
+| method | 223 | 167 | 26 | 30 |
+| nil | 27 | 27 | 0 | 0 |
+| numeric | 327 | -28 | 95 | 260 |
+| objectspace | 112 | 10 | 10 | 92 |
+| proc | 294 | 212 | 54 | 28 |
+| queue | 88 | -3 | 13 | 78 |
+| random | 33 | -4 | 3 | 34 |
+| rational | 159 | 70 | 66 | 23 |
+| refinement | 25 | 0 | 0 | 25 |
+| regexp | 265 | 75 | 59 | 131 |
+| set | 100 | -81 | 5 | 176 |
+| signal | 10 | -42 | 6 | 46 |
+| sizedqueue | 129 | 0 | 16 | 113 |
+| struct | 132 | -26 | 8 | 150 |
+| symbol | 330 | 323 | 5 | 2 |
+| systemexit | 6 | 6 | 0 | 0 |
+| threadgroup | 5 | -3 | 0 | 8 |
+| time | 627 | -58 | 145 | 540 |
+| tracepoint | 73 | -1 | 4 | 70 |
+| true | 13 | 13 | 0 | 0 |
+| unboundmethod | 86 | 56 | 17 | 13 |
+| array | — | — | — | — |
+| conditionvariable | — | — | — | — |
+| filetest | — | — | — | — |
+| integer | — | — | — | — |
+| io | — | — | — | — |
+| kernel | — | — | — | — |
+| module | — | — | — | — |
+| mutex | — | — | — | — |
+| process | — | — | — | — |
+| range | — | — | — | — |
+| string | — | — | — | — |
+| thread | — | — | — | — |
+| warning | — | — | — | — |

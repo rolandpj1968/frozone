@@ -6,15 +6,17 @@ module Frozone
       def self.end_bootstrap! = @@bootstrapping = false
 
       attr_reader :class_object, :eigenclass
+      attr_accessor :class_object
 
       attr_reader :frozen_object
+      attr_reader :instance_variables_hash
 
       def initialize(class_object)
         unless @@bootstrapping || class_object.is_a?(ClassObject)
           raise "ObjectObject class_object must be a ClassObject"
         end
         @class_object = class_object
-        @instance_variables = {}
+        @instance_variables_hash = {}
         @eigenclass = nil
         @frozen_object = false
       end
@@ -28,6 +30,15 @@ module Frozone
 
       def frozen_object? = @frozen_object
 
+      # Copy base ObjectObject fields from source into self (used by dup/clone).
+      # Sets eigenclass and frozen state directly — this is intentionally internal.
+      def copy_fields_from(source, eigenclass: nil, frozen: false)
+        @instance_variables_hash = source.instance_variables_hash.dup
+        @eigenclass = eigenclass
+        @frozen_object = frozen
+        self
+      end
+
       def lookup_class = @eigenclass || @class_object
 
       def singleton_class
@@ -40,8 +51,8 @@ module Frozone
               @class_object
             end
           @eigenclass = ClassObject.new(nil, nil, sc_superclass)
-          @eigenclass.instance_variable_set(:@is_singleton_class, true)
-          @eigenclass.instance_variable_set(:@singleton_of, self)
+          @eigenclass.is_singleton_class = true
+          @eigenclass.singleton_of = self
           # Propagate frozen state to newly-created singleton class
           @eigenclass.freeze_object! if @frozen_object
         end
@@ -113,11 +124,11 @@ module Frozone
       def inspect = "#<#{self.class.name}>"
 
       def ivar_defined?(name)
-        @instance_variables.key?(name)
+        @instance_variables_hash.key?(name)
       end
 
       def get_ivar(name)
-        @instance_variables.fetch(name, NilObject::NIL)
+        @instance_variables_hash.fetch(name, NilObject::NIL)
       end
 
       def set_ivar(name, value)
@@ -125,7 +136,7 @@ module Frozone
           type_name = is_a?(ModuleObject) ? (is_a?(ClassObject) ? "Class" : "Module") : (@class_object&.name&.to_s || "Object")
           raise FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{inspect_for_error}", receiver: self)
         end
-        @instance_variables[name] = value
+        @instance_variables_hash[name] = value
       end
 
       def inspect_for_error

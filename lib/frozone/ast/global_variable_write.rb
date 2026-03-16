@@ -108,12 +108,8 @@ module Frozone
       end
 
       def coerce_to_string(context, value)
-        # String subclass instances store their value as @value (set by string_initialize).
-        # Try to get it directly; fall back to dispatching to_s.
         raw_val = if value.respond_to?(:raw)
           value.raw
-        elsif value.instance_variable_defined?(:@value)
-          value.instance_variable_get(:@value)
         else
           str = value.dispatch(context, :to_s, [], {})
           str.respond_to?(:raw) ? str.raw : str.to_s

@@ -21,7 +21,7 @@ module Frozone
         # Auto-name anonymous classes/modules when first assigned to a constant
         if value.is_a?(Vm::ModuleObject) && value.name.nil?
           value.set_name(@name)
-          value.instance_variable_set(:@namespace, scope) unless scope.equal?(Vm::Core::OBJECT_CLASS)
+          value.namespace = scope unless scope.equal?(Vm::Core::OBJECT_CLASS)
         end
         value
       end

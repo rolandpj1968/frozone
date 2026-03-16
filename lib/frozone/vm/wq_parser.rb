@@ -1968,10 +1968,7 @@ module Frozone
         elsif body_node.type == :rescue
           result = transform_rescue_node(body_node, nil, nil)
           # Wrap result's ensure
-          Ast::Rescue.new(result.instance_variable_get(:@body),
-                          result.instance_variable_get(:@rescue_clauses),
-                          result.instance_variable_get(:@else_node),
-                          ensure_ast)
+          Ast::Rescue.new(result.body, result.rescue_clauses, result.else_node, ensure_ast)
         else
           body_ast = transform(body_node)
           Ast::Rescue.new(body_ast, [], nil, ensure_ast)

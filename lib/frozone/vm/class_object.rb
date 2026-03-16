@@ -5,7 +5,8 @@ require_relative 'string_object'
 module Frozone
   module Vm
     class ClassObject < ModuleObject
-      attr_reader :superclass
+      attr_accessor :superclass
+      attr_accessor :is_singleton_class, :singleton_of
 
       def initialize(name, namespace, superclass)
         super(name, namespace, defined?(Core::CLASS_CLASS) ? Core::CLASS_CLASS : nil)
@@ -17,6 +18,17 @@ module Frozone
       # Called after CLASS_CLASS is defined to wire up the class pointer on bootstrap ClassObjects
       def patch_class_object
         @class_object = Core::CLASS_CLASS
+      end
+
+      # Create a singleton-class copy of original_sc, owned by new_owner.
+      # Used by dup/clone implementations to copy singleton-class state.
+      def self.clone_singleton(original_sc, new_owner)
+        sc = new(nil, nil, original_sc.superclass)
+        sc.is_singleton_class = true
+        sc.singleton_of = new_owner
+        sc.methods_table.replace(original_sc.methods_table.dup)
+        sc.constants_table.replace(original_sc.constants_table.dup)
+        sc
       end
 
       # TODO &block

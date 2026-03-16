@@ -18,8 +18,8 @@ module Frozone
         # Use def_scope when set (e.g. inside instance_eval/instance_exec), otherwise use lexical scope.
         clazz = context.frame.def_scope || context.scopes.last
         # Aliasing on singleton class of immutable types (Integer, Symbol, etc.) raises TypeError
-        if clazz.instance_variable_get(:@is_singleton_class)
-          owner = clazz.instance_variable_get(:@singleton_of)
+        if clazz.is_singleton_class
+          owner = clazz.singleton_of
           if owner && (owner.is_a?(Vm::IntegerObject) || owner.is_a?(Vm::SymbolObject) ||
                        owner.is_a?(Vm::NilObject) || owner.is_a?(Vm::TrueObject) || owner.is_a?(Vm::FalseObject))
             raise Vm::FrozoneException.make(:TypeError, "can't define singleton")

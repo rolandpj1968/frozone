@@ -84,15 +84,28 @@ class UnboundMethod
 end
 
 module Warning
-  @categories = {}
+  KNOWN_CATEGORIES = %i[deprecated experimental performance strict_unused_block unused_block].freeze
+
+  @categories = { deprecated: false, experimental: true, performance: false,
+                  strict_unused_block: false, unused_block: false }
+
+  extend self
 
   def self.[](category)
-    @categories.key?(category) ? @categories[category] : false
+    raise TypeError, "wrong argument type #{category.class} (expected Symbol)" unless category.is_a?(Symbol)
+    raise ArgumentError, "unknown category: #{category}" unless KNOWN_CATEGORIES.include?(category)
+    @categories[category]
   end
 
   def self.[]=(category, value)
-    @categories[category] = value
+    raise TypeError, "wrong argument type #{category.class} (expected Symbol)" unless category.is_a?(Symbol)
+    raise ArgumentError, "unknown category: #{category}" unless KNOWN_CATEGORIES.include?(category)
+    @categories[category] = value ? true : false
   end
 
-  def self.warn(msg, category: nil) = Kernel.warn(msg)
+  def self.categories = KNOWN_CATEGORIES
+
+  def self.warn(msg, category: nil)
+    Kernel.warn(msg)
+  end
 end
