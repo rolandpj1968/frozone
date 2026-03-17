@@ -1,5 +1,3 @@
-require 'prism'
-
 require_relative '../ast'
 
 module Frozone
@@ -14,6 +12,7 @@ module Frozone
       end
 
       def ast(raise_syntax_errors: false)
+        require 'prism'
         parse_opts = @filepath ? { filepath: @filepath } : {}
         parse_opts[:scopes] = [@outer_locals] if @outer_locals&.any?
         parse_opts[:encoding] = @encoding if @encoding
@@ -276,17 +275,19 @@ module Frozone
       # Check if a Prism node (or its descendants) contains a YieldNode or
       # a ForwardingSuperNode (super without args forwards block implicitly).
       # Does NOT recurse into nested def/class/module/lambda bodies.
-      BLOCK_BOUNDARY_NODES = [
-        Prism::DefNode, Prism::ClassNode, Prism::ModuleNode,
-        Prism::SingletonClassNode, Prism::LambdaNode,
-      ].freeze
+      def self.block_boundary_nodes
+        @block_boundary_nodes ||= [
+          Prism::DefNode, Prism::ClassNode, Prism::ModuleNode,
+          Prism::SingletonClassNode, Prism::LambdaNode,
+        ].freeze
+      end
 
       def prism_body_uses_block?(node)
         return false if node.nil?
         return true if node.is_a?(Prism::YieldNode)
         return true if node.is_a?(Prism::ForwardingSuperNode)
         return true if node.is_a?(Prism::SuperNode)
-        return false if BLOCK_BOUNDARY_NODES.any? { |t| node.is_a?(t) }
+        return false if Parser.block_boundary_nodes.any? { |t| node.is_a?(t) }
         node.child_nodes.compact.any? { |child| prism_body_uses_block?(child) }
       end
 
@@ -567,8 +568,12 @@ module Frozone
           Ast::ConstantWrite.new(prism_node.name, transform(prism_node.value))
 
         when Prism::CallNode
+          # __dir__ — bake directory at parse time (like __FILE__), not runtime file stack
+          if prism_node.name == :__dir__ && prism_node.receiver.nil? && prism_node.arguments.nil?
+            dir = @filepath ? File.dirname(File.expand_path(@filepath)) : nil
+            Ast::StringLiteral.from(dir || Dir.pwd)
           # TODO - only when parsing core files
-          if prism_node.receiver.is_a?(Prism::ConstantReadNode) && prism_node.receiver.name.equal?(:Intrinsics)
+          elsif prism_node.receiver.is_a?(Prism::ConstantReadNode) && prism_node.receiver.name.equal?(:Intrinsics)
             arg_pnodes = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments
             Ast::IntrinsicCall.new(prism_node.name, arg_pnodes.map { |pn| transform(pn) })
           else
@@ -701,8 +706,10 @@ module Frozone
           value_node =
             if prism_node.arguments.nil? || prism_node.arguments.arguments.empty?
               nil
-            else
+            elsif prism_node.arguments.arguments.length == 1
               transform(prism_node.arguments.arguments.first)
+            else
+              Ast::ArrayLiteral.new(prism_node.arguments.arguments.map { |a| transform(a) })
             end
           Ast::Return.new(value_node)
 
@@ -1157,38 +1164,42 @@ module Frozone
         end
       end
 
-      DEFINED_ASSIGNMENT_NODES = [
-        Prism::LocalVariableWriteNode, Prism::InstanceVariableWriteNode,
-        Prism::ClassVariableWriteNode, Prism::GlobalVariableWriteNode,
-        Prism::ConstantWriteNode, Prism::ConstantPathWriteNode,
-        Prism::MultiWriteNode,
-        Prism::LocalVariableOrWriteNode, Prism::LocalVariableAndWriteNode,
-        Prism::LocalVariableOperatorWriteNode,
-        Prism::InstanceVariableOrWriteNode, Prism::InstanceVariableAndWriteNode,
-        Prism::InstanceVariableOperatorWriteNode,
-        Prism::ClassVariableOrWriteNode, Prism::ClassVariableAndWriteNode,
-        Prism::ClassVariableOperatorWriteNode,
-        Prism::GlobalVariableOrWriteNode, Prism::GlobalVariableAndWriteNode,
-        Prism::GlobalVariableOperatorWriteNode,
-        Prism::ConstantOrWriteNode, Prism::ConstantAndWriteNode,
-        Prism::ConstantOperatorWriteNode,
-        Prism::ConstantPathOrWriteNode, Prism::ConstantPathAndWriteNode,
-        Prism::ConstantPathOperatorWriteNode,
-        Prism::CallOrWriteNode, Prism::CallAndWriteNode, Prism::CallOperatorWriteNode,
-        Prism::IndexOrWriteNode, Prism::IndexAndWriteNode, Prism::IndexOperatorWriteNode,
-      ].freeze
+      def self.defined_assignment_nodes
+        @defined_assignment_nodes ||= [
+          Prism::LocalVariableWriteNode, Prism::InstanceVariableWriteNode,
+          Prism::ClassVariableWriteNode, Prism::GlobalVariableWriteNode,
+          Prism::ConstantWriteNode, Prism::ConstantPathWriteNode,
+          Prism::MultiWriteNode,
+          Prism::LocalVariableOrWriteNode, Prism::LocalVariableAndWriteNode,
+          Prism::LocalVariableOperatorWriteNode,
+          Prism::InstanceVariableOrWriteNode, Prism::InstanceVariableAndWriteNode,
+          Prism::InstanceVariableOperatorWriteNode,
+          Prism::ClassVariableOrWriteNode, Prism::ClassVariableAndWriteNode,
+          Prism::ClassVariableOperatorWriteNode,
+          Prism::GlobalVariableOrWriteNode, Prism::GlobalVariableAndWriteNode,
+          Prism::GlobalVariableOperatorWriteNode,
+          Prism::ConstantOrWriteNode, Prism::ConstantAndWriteNode,
+          Prism::ConstantOperatorWriteNode,
+          Prism::ConstantPathOrWriteNode, Prism::ConstantPathAndWriteNode,
+          Prism::ConstantPathOperatorWriteNode,
+          Prism::CallOrWriteNode, Prism::CallAndWriteNode, Prism::CallOperatorWriteNode,
+          Prism::IndexOrWriteNode, Prism::IndexAndWriteNode, Prism::IndexOperatorWriteNode,
+        ].freeze
+      end
 
-      DEFINED_EXPRESSION_NODES = [
-        Prism::BlockNode, Prism::LambdaNode,
-        Prism::AndNode, Prism::OrNode,
-        Prism::IfNode, Prism::UnlessNode, Prism::CaseNode, Prism::CaseMatchNode,
-        Prism::ForNode, Prism::WhileNode, Prism::UntilNode,
-        Prism::BreakNode, Prism::NextNode, Prism::RedoNode, Prism::RetryNode,
-        Prism::ReturnNode, Prism::BeginNode,
-        Prism::SourceFileNode, Prism::SourceLineNode, Prism::SourceEncodingNode,
-        Prism::RegularExpressionNode, Prism::InterpolatedRegularExpressionNode,
-        Prism::RangeNode,
-      ].freeze
+      def self.defined_expression_nodes
+        @defined_expression_nodes ||= [
+          Prism::BlockNode, Prism::LambdaNode,
+          Prism::AndNode, Prism::OrNode,
+          Prism::IfNode, Prism::UnlessNode, Prism::CaseNode, Prism::CaseMatchNode,
+          Prism::ForNode, Prism::WhileNode, Prism::UntilNode,
+          Prism::BreakNode, Prism::NextNode, Prism::RedoNode, Prism::RetryNode,
+          Prism::ReturnNode, Prism::BeginNode,
+          Prism::SourceFileNode, Prism::SourceLineNode, Prism::SourceEncodingNode,
+          Prism::RegularExpressionNode, Prism::InterpolatedRegularExpressionNode,
+          Prism::RangeNode,
+        ].freeze
+      end
 
       def transform_defined_value(val)
         case val
@@ -1233,12 +1244,12 @@ module Frozone
           Ast::DefinedExpr.new(:yield)
         when Prism::SuperNode, Prism::ForwardingSuperNode
           Ast::DefinedExpr.new(:super)
-        when *DEFINED_ASSIGNMENT_NODES
+        when *Parser.defined_assignment_nodes
           Ast::DefinedExpr.new(:assignment)
         when Prism::ParenthesesNode
           inner = val.body&.body&.first
           inner ? transform_defined_value(inner) : Ast::DefinedExpr.new(:expression)
-        when *DEFINED_EXPRESSION_NODES
+        when *Parser.defined_expression_nodes
           Ast::DefinedExpr.new(:expression)
         else
           Ast::NilLiteral::NIL

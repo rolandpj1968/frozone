@@ -1,6 +1,14 @@
 class String
   include Comparable
 
+  def self.try_convert(obj)
+    return obj if obj.is_a?(String)
+    return nil unless obj.respond_to?(:to_str)
+    result = obj.to_str
+    raise TypeError, "can't convert #{obj.class} into String (#{obj.class}#to_str gives #{result.class})" unless result.is_a?(String) || result.nil?
+    result
+  end
+
   def initialize(str = nil, encoding: nil, capacity: nil)
     Intrinsics.string_initialize(self, str, encoding) unless str.nil?
   end
@@ -199,6 +207,9 @@ class String
   def gsub(pattern, replacement = nil, &block) = Intrinsics.string_gsub(self, pattern, replacement, block)
   def sub(pattern, replacement = nil, &block) = Intrinsics.string_sub(self, pattern, replacement, block)
   def tr(from, to) = Intrinsics.string_tr(self, from, to)
+  def tr!(from, to)
+    r = Intrinsics.string_tr(self, from, to); return nil if r == self; Intrinsics.string_replace(self, r)
+  end
   def squeeze(*args) = Intrinsics.string_squeeze(self, *args)
   def count(*args) = Intrinsics.string_count(self, *args)
   def delete(*args) = Intrinsics.string_delete(self, *args)

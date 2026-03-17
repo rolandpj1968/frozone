@@ -110,7 +110,9 @@ module Frozone
         end
 
         mm = lookup_instance_method(:method_missing)
-        raise "BUG: method_missing not defined on #{@class_object.name}" if mm.nil?
+        if mm.nil?
+          raise "BUG: method_missing not defined on #{@class_object.name} (looking up: #{name.inspect})"
+        end
         # Track whether this is an implicit-self call so method_missing can raise NameError vs NoMethodError
         prev = Fiber[:mm_implicit_self]
         Fiber[:mm_implicit_self] = implicit_self

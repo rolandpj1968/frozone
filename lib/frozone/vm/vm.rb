@@ -185,6 +185,7 @@ module Frozone
         evaluate_file("#{core_path}/struct.rb")
         evaluate_file("#{core_path}/set.rb")
         evaluate_file("#{core_path}/random.rb")
+        evaluate_file("#{core_path}/rubygems.rb")
         init_globals
       end
 
@@ -207,7 +208,7 @@ module Frozone
         gem_paths = Gem::Specification.flat_map(&:full_require_paths).select { |p| File.directory?(p) }
         core_path = File.expand_path("../../core/#{FROZONE_CORE_VERSION}", __dir__)
         all_load_paths = ([core_path] + $LOAD_PATH + gem_paths).uniq.reject { |p| p == '.' || p == '' }
-        sitelibdir = RbConfig::CONFIG['sitelibdir'] rescue nil
+        sitelibdir = RbConfig::CONFIG['sitelibdir']
         site_idx = sitelibdir ? all_load_paths.index(sitelibdir) : nil
         load_path_objs = all_load_paths.each_with_index.map do |p, i|
           s = StringObject.new(p)
@@ -237,6 +238,67 @@ module Frozone
         GLOBALS[:"$>"]               = GLOBALS[:"$stdout"]
         GLOBALS[:"$0"]               = StringObject.new($0.to_s)
         GLOBALS[:"$PROGRAM_NAME"]    = GLOBALS[:"$0"]
+        setup_frozone_land
+      end
+
+      # Set up the minimal Frozone-land infrastructure needed for self-hosting (Frozone²).
+      #
+      # 1. Pre-stubs all Frozone source files in Frozone-land $LOADED_FEATURES so that
+      #    inner `require_relative 'lib/frozone/vm/vm'` etc. are no-ops.
+      # 2. Creates a minimal Frozone-land Frozone::Vm::Vm class whose #run delegates
+      #    to the outer Frozone's MRI evaluator via the kernel_run_vm intrinsic.
+      def setup_frozone_land
+        # Pre-stub Frozone source files so the inner Frozone's require calls skip them.
+        frozone_src = File.expand_path('..', __dir__)       # lib/frozone/
+        core_src    = File.expand_path('../../core', __dir__) # lib/core/
+        existing    = GLOBALS[:"$LOADED_FEATURES"].raw.map(&:raw)
+        $LOADED_FEATURES.each do |path|
+          next unless (path.start_with?(frozone_src) || path.start_with?(core_src)) && path.end_with?('.rb')
+          GLOBALS[:"$LOADED_FEATURES"].push(StringObject.new(path)) unless existing.include?(path)
+        end
+
+        # Only create the Frozone-land Frozone::Vm namespace once.
+        return if Core::OBJECT_CLASS.get_constant(:Frozone)
+
+        frozone_mod = ModuleObject.new(:Frozone, nil)
+        vm_mod      = ModuleObject.new(:Vm, frozone_mod)
+        frozone_mod.set_constant(:Vm, vm_mod)
+        Core::OBJECT_CLASS.set_constant(:Frozone, frozone_mod)
+
+        vm_class = ClassObject.new(:Vm, vm_mod, Core::OBJECT_CLASS)
+        vm_mod.set_constant(:Vm, vm_class)
+
+        # Dummy Parser / WqParser constants so inner frozone.rb's
+        #   Frozone::Vm.send(:remove_const, :Parser)
+        #   Frozone::Vm::Parser = Frozone::Vm::WqParser
+        # succeed without error (the classes themselves are never invoked).
+        vm_mod.set_constant(:Parser,   ClassObject.new(:Parser,   vm_mod, Core::OBJECT_CLASS))
+        vm_mod.set_constant(:WqParser, ClassObject.new(:WqParser, vm_mod, Core::OBJECT_CLASS))
+
+        # Vm#initialize(options = {}) — stores Frozone-land options hash.
+        init_body   = Ast::IntrinsicCall.new(:kernel_vm_initialize,
+                                             [Ast::SelfLiteral::SELF,
+                                              Ast::LocalVariableRead.new(:options, 0)])
+        init_method = Method.new([vm_class], :initialize,
+                                 [], [[:options, Ast::HashLiteral.new([])]],
+                                 nil, [],
+                                 [], [],
+                                 nil, nil,
+                                 [:options],
+                                 init_body)
+        init_method.visibility = :private
+        vm_class.set_method(:initialize, init_method)
+
+        # Vm#run — delegates to outer Frozone's MRI evaluator.
+        run_body   = Ast::IntrinsicCall.new(:kernel_run_vm, [Ast::SelfLiteral::SELF])
+        run_method = Method.new([vm_class], :run,
+                                [], [],
+                                nil, [],
+                                [], [],
+                                nil, nil,
+                                [],
+                                run_body)
+        vm_class.set_method(:run, run_method)
       end
 
       # Evaluate a Ruby snippet and return the resulting VM object.
@@ -280,6 +342,7 @@ module Frozone
         context = Context.new
         Fiber[:context] = context
         Fiber[:vm_evaluate] = method(:evaluate_file)
+        Fiber[:vm_eval]     = method(:evaluate)
 
         frame = Frame.new(top_level_object, parser.top_level_locals, [top_level_scope])
         # top-level frame acts as a method frame: procs defined here can `return`

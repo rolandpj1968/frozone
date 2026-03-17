@@ -738,12 +738,15 @@ module Frozone
 
         def fiber_storage_get(_context, _receiver, key_obj)
           sym = key_obj.is_a?(SymbolObject) ? key_obj.raw : key_obj.to_sym
-          ::Fiber[sym] || NilObject::NIL
+          # Use a sub-hash to isolate Frozone-level Fiber storage from MRI-level Fiber storage
+          # (outer Frozone vm.rb uses ::Fiber[:file_stack] etc. directly as MRI Arrays)
+          val = (::Fiber[:__frozone_storage__] ||= {})[sym]
+          val.nil? ? NilObject::NIL : val
         end
 
         def fiber_storage_set(_context, _receiver, key_obj, val)
           sym = key_obj.is_a?(SymbolObject) ? key_obj.raw : key_obj.to_sym
-          ::Fiber[sym] = val
+          (::Fiber[:__frozone_storage__] ||= {})[sym] = val
           val
         end
 
@@ -1325,11 +1328,8 @@ module Frozone
         # Kernel require/load
         def kernel_require(_, _receiver, path_obj)
           path = path_obj.raw
-          # Check LOADED_FEATURES first for pre-stubbed libs (e.g. stringio, pp)
           loaded = GLOBALS[:"$LOADED_FEATURES"]
           loaded_paths = loaded.raw.map(&:raw)
-          path_base = path.end_with?('.rb') ? path[0..-4] : path
-          return FalseObject::FALSE if loaded_paths.any? { |p| p == path || p.end_with?("/#{path_base}") || p.end_with?("/#{path_base}.rb") }
           full_path = resolve_load_path(path)
           if full_path.nil?
             exc = FrozoneException.make(:LoadError, "cannot load such file -- #{path}")
@@ -1787,6 +1787,53 @@ module Frozone
             return full if File.exist?(full)
           end
           nil
+        end
+
+        # Self-hosting helpers: minimal Frozone::Vm::Vm proxy for Frozone-land evaluation
+
+        def kernel_vm_initialize(_, vm_obj, options_obj)
+          vm_obj.set_ivar(:@options, options_obj)
+          vm_obj
+        end
+
+        def kernel_run_vm(_, vm_obj)
+          fl_options = vm_obj.get_ivar(:@options)
+          opts = fl_options.is_a?(HashObject) ? fl_options.raw : {}
+
+          scripts_obj = opts[SymbolObject.from(:scripts)]
+          argv_obj    = opts[SymbolObject.from(:argv)]
+
+          scripts = scripts_obj.is_a?(ArrayObject) ? scripts_obj.raw.map { |s| s.is_a?(StringObject) ? s.raw : s.to_s } : []
+          argv    = argv_obj.is_a?(ArrayObject)    ? argv_obj.raw.map    { |a| a.is_a?(StringObject) ? a.raw : a.to_s } : []
+
+          # Set Frozone-land ARGV for the inner script
+          script_argv = scripts.empty? ? (argv[1..] || []) : []
+          Core::OBJECT_CLASS.set_constant(:ARGV, ArrayObject.new(script_argv.map { |a| StringObject.new(a) }))
+
+          begin
+            if scripts.empty?
+              file = argv[0]
+              file.nil? ? Fiber[:vm_eval].call('', false) : Fiber[:vm_evaluate].call(File.expand_path(file))
+            else
+              Fiber[:vm_eval].call(scripts.join("\n"), false)
+            end
+          rescue FrozoneException => e
+            vo = e.vm_object
+            if vo.is_a?(ObjectObject)
+              cls = vo.class_object
+              while cls
+                break if cls.name == :SystemExit
+                cls = cls.superclass
+              end
+              if cls
+                status_obj = vo.get_ivar(:@status)
+                exit(status_obj.is_a?(IntegerObject) ? status_obj.raw : 0)
+              end
+            end
+            raise
+          end
+
+          NilObject::NIL
         end
 
       end

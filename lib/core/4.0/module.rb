@@ -60,6 +60,28 @@ class Module
   def autoload(name, path) = nil
   def autoload?(name) = nil
 
+  def <(other)
+    return nil unless other.is_a?(Module)
+    return false if equal?(other)
+    ancestors.include?(other) ? true : (other.ancestors.include?(self) ? false : nil)
+  end
+
+  def >(other)
+    return nil unless other.is_a?(Module)
+    return false if equal?(other)
+    other.ancestors.include?(self) ? true : (ancestors.include?(other) ? false : nil)
+  end
+
+  def <=(other)
+    return nil unless other.is_a?(Module)
+    ancestors.include?(other)
+  end
+
+  def >=(other)
+    return nil unless other.is_a?(Module)
+    other.ancestors.include?(self)
+  end
+
   def const_missing(name)
     n = self.name
     label = (n && n != "Object") ? "#{n}::#{name}" : name.to_s

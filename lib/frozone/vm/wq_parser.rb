@@ -690,7 +690,14 @@ module Frozone
         # --- Return / break / next / yield / super ---------------------------
 
         when :return
-          value_node = c.empty? ? nil : transform_first_arg(c[0])
+          value_node =
+            if c.empty?
+              nil
+            elsif c.length == 1
+              transform_first_arg(c[0])
+            else
+              Ast::ArrayLiteral.new(c.map { |a| transform(a) })
+            end
           Ast::Return.new(value_node)
 
         when :break
@@ -939,6 +946,12 @@ module Frozone
         c    = node.children
         recv_node, name, *raw_args = c[0], c[1], *c[2..]
         safe_nav = (type == :csend)
+
+        # __dir__ — bake directory at parse time (like __FILE__), not runtime file stack
+        if recv_node.nil? && name == :__dir__ && raw_args.empty?
+          dir = @filepath ? File.dirname(File.expand_path(@filepath)) : nil
+          return Ast::StringLiteral.from(dir || Dir.pwd)
+        end
 
         # `it` as implicit block parameter — treat as lvar read when in scope
         if recv_node.nil? && name == :it && raw_args.empty?
