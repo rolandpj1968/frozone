@@ -1,4 +1,6 @@
 class Rational
+  include Comparable
+
   def initialize(numerator, denominator = 1)
     raise ZeroDivisionError, "divided by 0" if denominator == 0
     g = numerator.gcd(denominator)
@@ -119,6 +121,10 @@ class Rational
 end
 
 class Complex
+  def self.polar(r, theta = 0)
+    Complex(r * Math.cos(theta), r * Math.sin(theta))
+  end
+
   def initialize(real, imaginary = 0)
     @real = real
     @imaginary = imaginary
@@ -182,7 +188,9 @@ class Complex
   def eql?(other) = other.is_a?(Complex) && @real.eql?(other.real) && @imaginary.eql?(other.imaginary)
 
   def inspect
-    if @imaginary < 0 || (@imaginary.is_a?(Float) && @imaginary.nan?)
+    imag_neg = @imaginary.respond_to?(:negative?) ? @imaginary.negative? : @imaginary < 0
+    imag_nan = @imaginary.is_a?(Float) && @imaginary.nan?
+    if imag_neg || imag_nan
       "(#{@real}#{@imaginary}i)"
     else
       "(#{@real}+#{@imaginary}i)"
@@ -190,7 +198,9 @@ class Complex
   end
 
   def to_s
-    if @imaginary < 0 || (@imaginary.is_a?(Float) && @imaginary.nan?)
+    imag_neg = @imaginary.respond_to?(:negative?) ? @imaginary.negative? : @imaginary < 0
+    imag_nan = @imaginary.is_a?(Float) && @imaginary.nan?
+    if imag_neg || imag_nan
       "#{@real}#{@imaginary}i"
     else
       "#{@real}+#{@imaginary}i"

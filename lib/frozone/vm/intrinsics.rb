@@ -116,8 +116,21 @@ module Frozone
         end
 
         def string_initialize(context, receiver, str_arg, _encoding = NilObject::NIL)
-          # Convert str_arg to string if needed
-          str_val = str_arg.is_a?(StringObject) ? str_arg.raw : str_arg.dispatch(context, :to_s, [], {}).raw
+          str_val = if str_arg.is_a?(StringObject)
+                      str_arg.raw
+                    else
+                      begin
+                        r = str_arg.dispatch(context, :to_str, [], {})
+                        raise FrozoneException.make(:TypeError, "no implicit conversion of #{str_arg.class_object&.name} into String") unless r.is_a?(StringObject)
+                        r.raw
+                      rescue FrozoneException => e
+                        vm_obj = e.vm_object
+                        if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
+                          raise FrozoneException.make(:TypeError, "no implicit conversion of #{str_arg.class_object&.name} into String")
+                        end
+                        raise
+                      end
+                    end
           receiver.raw = str_val.dup
           NilObject::NIL
         end
@@ -1346,16 +1359,40 @@ module Frozone
           TrueObject::TRUE
         end
 
-        def kernel_integer(context, _receiver, val, base)
-          return val if val.is_a?(IntegerObject)
-          if val.is_a?(StringObject)
-            return IntegerObject.new(Integer(val.raw, base.raw))
+        def kernel_integer(context, _receiver, val, base, exception = nil)
+          exc = exception.nil? || exception.is_a?(NilObject) || exception.truthy?
+          b = base.respond_to?(:raw) ? base.raw : 0
+          if val.is_a?(IntegerObject)
+            return val
+          elsif val.is_a?(FloatObject)
+            begin
+              return IntegerObject.new(Integer(val.raw))
+            rescue ::TypeError => e
+              raise FrozoneException.make(:TypeError, e.message) if exc
+              return NilObject::NIL
+            end
+          elsif val.is_a?(StringObject)
+            begin
+              return IntegerObject.new(Integer(val.raw, b))
+            rescue ::ArgumentError => e
+              raise FrozoneException.make(:ArgumentError, e.message) if exc
+              return NilObject::NIL
+            end
+          elsif val.is_a?(NilObject)
+            raise FrozoneException.make(:TypeError, "can't convert nil into Integer") if exc
+            return NilObject::NIL
+          else
+            # Object with to_int or to_i
+            begin
+              if val.class_object.lookup_method(:to_int)
+                return val.dispatch(context, :to_int, [], {})
+              end
+              return val.dispatch(context, :to_i, [], {})
+            rescue FrozoneException => e
+              raise if exc
+              return NilObject::NIL
+            end
           end
-          # Object with to_int or to_i
-          if val.class_object.lookup_method(:to_int)
-            return val.dispatch(context, :to_int, [], {})
-          end
-          val.dispatch(context, :to_i, [], {})
         end
 
         def kernel_float(_, _receiver, val)

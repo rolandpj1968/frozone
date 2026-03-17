@@ -25,7 +25,7 @@ module Kernel
   def sprintf(fmt, *args) = fmt % args
   def format(fmt, *args) = fmt % args
 
-  def Integer(val, base = 10) = Intrinsics.kernel_integer(self, val, base)
+  def Integer(val, base = 0, exception: true) = Intrinsics.kernel_integer(self, val, base, exception)
   def Float(val)              = Intrinsics.kernel_float(self, val)
   def String(val)             = val.to_s
   def Array(val)              = Intrinsics.kernel_array(self, val)

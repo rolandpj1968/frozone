@@ -18,4 +18,6 @@ class Regexp
   def self.quote(str)  = Intrinsics.regexp_escape(str)
   def self.union(*patterns) = Intrinsics.regexp_union(patterns)
   def self.last_match(n = nil) = Intrinsics.regexp_last_match(n)
+
+  def self.new(pattern, options = nil) = Intrinsics.regexp_new(pattern, options)
 end

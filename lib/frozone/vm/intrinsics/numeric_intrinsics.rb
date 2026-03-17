@@ -20,14 +20,27 @@ module Frozone
         end
 
         def integer_abs(_, v) = IntegerObject.new(v.raw.abs)
-        def integer_chr(_, v, enc = nil)
+        def integer_chr(context, v, enc = nil)
           if enc.nil? || enc.is_a?(NilObject)
             StringObject.new(v.raw.chr)
           elsif enc.is_a?(StringObject)
             StringObject.new(v.raw.chr(enc.raw))
+          elsif enc.is_a?(ObjectObject)
+            # Encoding Frozone-land object — dispatch :name to get string name
+            enc_name = begin
+              r = enc.dispatch(context, :name, [], {})
+              r.is_a?(StringObject) ? r.raw : enc.get_ivar(:@name)&.raw
+            rescue FrozoneException
+              enc.get_ivar(:@name)&.raw
+            end
+            enc_name ||= 'UTF-8'
+            begin
+              StringObject.new(v.raw.chr(enc_name))
+            rescue ::RangeError => e
+              raise FrozoneException.make(:RangeError, e.message)
+            end
           else
-            # Encoding object: call .name on it via VM would be complex; use to_s
-            StringObject.new(v.raw.chr(enc.respond_to?(:raw) ? enc.raw.to_s : enc.to_s))
+            StringObject.new(v.raw.chr)
           end
         end
         def integer_bitand(_, v1, v2) = IntegerObject.new(v1.raw & v2.raw)

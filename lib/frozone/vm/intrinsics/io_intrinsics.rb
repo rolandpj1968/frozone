@@ -169,6 +169,25 @@ module Frozone
           bool_object_for(r1.raw == r2.raw)
         end
 
+        def regexp_new(_, pattern, options = nil)
+          pat_raw = pattern.is_a?(StringObject) ? pattern.raw : pattern.raw.to_s
+          if options.nil? || options.is_a?(NilObject)
+            RegexpObject.new(pat_raw, '')
+          elsif options.is_a?(IntegerObject)
+            RegexpObject.new(pat_raw, options.raw)
+          elsif options.is_a?(StringObject)
+            RegexpObject.new(pat_raw, options.raw)
+          elsif options.is_a?(TrueObject)
+            RegexpObject.new(pat_raw, Regexp::IGNORECASE)
+          elsif options.is_a?(FalseObject)
+            RegexpObject.new(pat_raw, '')
+          else
+            RegexpObject.new(pat_raw, '')
+          end
+        rescue ::RegexpError => e
+          raise FrozoneException.make(:RegexpError, e.message)
+        end
+
         def regexp_source(_, r) = StringObject.new(r.raw.source)
         def regexp_options(_, r) = IntegerObject.new(r.raw.options)
         def regexp_inspect(_, r) = StringObject.new(r.raw.inspect)
