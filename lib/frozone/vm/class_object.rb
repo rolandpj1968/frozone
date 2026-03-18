@@ -7,6 +7,7 @@ module Frozone
     class ClassObject < ModuleObject
       attr_accessor :superclass
       attr_accessor :is_singleton_class, :singleton_of
+      attr_accessor :uninitialized_class
 
       def initialize(name, namespace, superclass)
         super(name, namespace, defined?(Core::CLASS_CLASS) ? Core::CLASS_CLASS : nil)

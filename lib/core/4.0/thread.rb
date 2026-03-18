@@ -12,6 +12,12 @@ class Thread
     nil
   end
 
+  def self.__run_next_pending
+    t = @@pending.shift
+    t.__run_block if t
+    t
+  end
+
   # Single-threaded: defers block until Thread.pass/join/value.
   # thread_run_block invokes with thread_boundary:true so `break` raises
   # LocalJumpError rather than propagating out.
@@ -70,4 +76,77 @@ class Thread
       end
     end
   end
+
+end
+
+class ConditionVariable
+  def initialize
+    @waiters = 0
+  end
+
+  # In single-threaded model: wait runs pending threads until signalled.
+  # Since we're cooperative, just run pending threads and return.
+  def wait(mutex, timeout = nil)
+    mutex.unlock
+    # Run pending threads to allow broadcast/signal to be called
+    Thread.__run_next_pending
+    mutex.lock
+    self
+  end
+
+  def signal
+    self
+  end
+
+  def broadcast
+    self
+  end
+end
+
+# Queue: thread-safe FIFO queue with blocking pop (cooperative single-threaded)
+class Queue
+  def initialize
+    @data = []
+  end
+
+  def push(obj)
+    @data.push(obj)
+    self
+  end
+
+  alias enq push
+  alias << push
+
+  def pop(non_block = false)
+    if @data.empty?
+      if non_block
+        raise ThreadError, "queue empty"
+      end
+      # In cooperative single-threaded model: run pending threads until data arrives
+      loop do
+        Thread.__run_next_pending
+        break unless @data.empty?
+      end
+    end
+    @data.shift
+  end
+
+  alias deq pop
+  alias shift pop
+
+  def empty?  = @data.empty?
+  def size    = @data.size
+  alias length size
+  def clear   = (@data.clear; self)
+  def num_waiting = 0
+end
+
+class SizedQueue < Queue
+  def initialize(max)
+    super()
+    @max = max
+  end
+
+  def max   = @max
+  def max=(v); @max = v; end
 end

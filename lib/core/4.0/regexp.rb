@@ -75,5 +75,17 @@ class Regexp
   def self.timeout     = Intrinsics.regexp_timeout(self)
   def self.timeout=(v) = Intrinsics.regexp_set_timeout(self, v)
 
+  def dup
+    Regexp.new(source, options)
+  end
+
+  def clone(freeze: nil)
+    c = dup
+    should_freeze = freeze.nil? ? frozen? : freeze
+    raise ArgumentError, "can't unfreeze Regexp" if freeze == false
+    c.freeze if should_freeze
+    c
+  end
+
   class TimeoutError < RegexpError; end
 end

@@ -374,15 +374,53 @@ end
 
 class Enumerator
   class ArithmeticSequence < Enumerator
-    # Returned by Range#step / Range#% for numeric ranges
-    def begin = @receiver.begin
-    def end   = @receiver.end
-    def step  = @method_args.first
-    def exclude_end? = @receiver.exclude_end?
+    # Supports both Range#step (receiver is a Range) and Numeric#step (receiver is a Numeric).
+    def begin
+      @receiver.is_a?(Range) ? @receiver.begin : @receiver
+    end
+
+    def end
+      if @receiver.is_a?(Range)
+        @receiver.end
+      else
+        kw = @method_kwargs || {}
+        kw[:to]
+      end
+    end
+
+    def step
+      if @receiver.is_a?(Range)
+        @method_args.first
+      else
+        kw = @method_kwargs || {}
+        kw[:by] || @method_args.first || 1
+      end
+    end
+
+    def exclude_end?
+      @receiver.is_a?(Range) ? @receiver.exclude_end? : false
+    end
+
+    def ==(other)
+      return false unless other.is_a?(ArithmeticSequence)
+      self.begin == other.begin && self.end == other.end &&
+        self.step == other.step && exclude_end? == other.exclude_end?
+    end
 
     def inspect
-      args_str = @method_args.empty? ? "" : "(#{@method_args.map(&:inspect).join(', ')})"
-      "((#{@receiver.inspect}).#{@method_name}#{args_str})"
+      if @receiver.is_a?(Range)
+        args_str = @method_args.empty? ? "" : "(#{@method_args.map(&:inspect).join(', ')})"
+        "((#{@receiver.inspect}).#{@method_name}#{args_str})"
+      else
+        kw = @method_kwargs || {}
+        parts = []
+        parts << "by: #{kw[:by].inspect}" if kw.key?(:by)
+        parts << "to: #{kw[:to].inspect}" if kw.key?(:to)
+        args_part = @method_args.map(&:inspect)
+        all_args = args_part + parts
+        args_str = all_args.empty? ? "" : "(#{all_args.join(', ')})"
+        "((#{@receiver.inspect}).#{@method_name}#{args_str})"
+      end
     end
 
     alias to_s inspect

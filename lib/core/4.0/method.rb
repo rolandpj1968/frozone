@@ -66,7 +66,7 @@ class Method
     recv_is_class = recv.is_a?(Class)
     if recv_is_class
       # Receiver IS a class: use #<Class:Name> format
-      recv_name = recv.name ? "#<Class:#{recv.name}>" : recv.inspect
+      recv_name = recv.name ? "#<Class:#{recv.name}>" : "#<Class:#{recv.inspect}>"
       own_name = own ? (own.name || own.inspect) : nil
       if own_name && own != recv
         "#<Method: #{recv_name}(#{own_name})##{name}(#{param_sig})#{loc}>"

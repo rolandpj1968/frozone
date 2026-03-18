@@ -1,6 +1,10 @@
 class Numeric
   include Comparable
 
+  def singleton_method_added(id)
+    raise TypeError, "can't define singleton"
+  end
+
   def integer? = false
   def real?    = true
 

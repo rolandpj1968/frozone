@@ -130,7 +130,7 @@ module Warning
   # Use parallel arrays instead of a Hash to avoid Symbol#hash ordering issues
   # (object.rb loads before symbol.rb, so Hash uses __id__ as hash function).
   @cat_keys = [:deprecated, :experimental, :performance, :strict_unused_block, :unused_block]
-  @cat_vals = [false, true, false, false, false]
+  @cat_vals = [true, true, false, false, false]
 
   extend self
 

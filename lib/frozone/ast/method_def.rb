@@ -94,6 +94,10 @@ module Frozone
             context.call_site = prev_call_site
             return Vm::SymbolObject.from(@name)
           end
+          # Integer/Float/Symbol cannot have singleton classes: raise TypeError (not FrozenError)
+          if receiver_val.is_a?(Vm::IntegerObject) || receiver_val.is_a?(Vm::FloatObject) || receiver_val.is_a?(Vm::SymbolObject)
+            raise Vm::FrozoneException.make(:TypeError, "can't define singleton for #{receiver_val.class_object.name}")
+          end
           # Check if receiver (or its singleton class) is frozen, and raise FrozenError with correct type name
           receiver_sc = receiver_val.eigenclass
           if receiver_val.frozen_object? || (receiver_sc && receiver_sc.frozen_object?)

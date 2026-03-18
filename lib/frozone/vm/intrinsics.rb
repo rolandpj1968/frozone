@@ -122,6 +122,8 @@ module Frozone
         end
 
         def module_dup(context, v)
+          # BasicObject cannot be duped
+          raise FrozoneException.make(:TypeError, "can't copy the root class") if v.equal?(Core::BASIC_OBJECT_CLASS)
           # Create a fresh anonymous module/class and copy the source's contents.
           copy = if v.is_a?(ClassObject)
                    ClassObject.new(nil, v.namespace, v.superclass)
@@ -1916,7 +1918,9 @@ module Frozone
 
         def validate_const_name!(name_s, orig_name_obj)
           orig_s = orig_name_obj.is_a?(SymbolObject) ? orig_name_obj.raw.to_s : (orig_name_obj.is_a?(StringObject) ? orig_name_obj.raw : name_s)
-          raise FrozoneException.make(:NameError, "wrong constant name #{orig_s}") unless name_s =~ CONST_NAME_RE
+          # Encode to UTF-8 for Unicode regex matching (handles EUC-JP etc.)
+          check_s = name_s.encoding == Encoding::UTF_8 ? name_s : name_s.encode("UTF-8", invalid: :replace, undef: :replace)
+          raise FrozoneException.make(:NameError, "wrong constant name #{orig_s}") unless check_s =~ CONST_NAME_RE
         end
 
         def resolve_const_path(context, name_obj, receiver, inherit)
@@ -2181,7 +2185,8 @@ module Frozone
           end
           name = sym_name(name_obj)
           name_s = name.to_s
-          raise FrozoneException.make(:NameError, "wrong constant name #{name_s}") unless name_s =~ /\A[A-Z][a-zA-Z0-9_]*\z/
+          check_s = name_s.encoding == Encoding::UTF_8 ? name_s : name_s.encode("UTF-8", invalid: :replace, undef: :replace)
+          raise FrozoneException.make(:NameError, "wrong constant name #{name_s}") unless check_s =~ CONST_NAME_RE
           emit_vm_warning(context, "already initialized constant #{receiver.name}::#{name}") if receiver.get_constant(name)
           # Use call_site as source location for dynamically set constants
           src_loc = context.call_site ? context.call_site.split(':').then { |parts| parts.length >= 2 ? [parts[0..-2].join(':'), parts[-1].to_i] : nil } : nil
@@ -2501,6 +2506,7 @@ module Frozone
           when ANON_KWARGS, :__forward_kwargs__   then :**
           when ANON_BLOCK, :__forward_block__     then :&
           when /\A__(?:repeated|discard)_\w+__\z/  then :_
+          when Hash                               then nil  # multi-target destructuring: no name
           else sym
           end
         end
@@ -3696,6 +3702,7 @@ module Frozone
         # Class
         def class_new(context, klass, args, kwargs, block = nil)
           raise FrozoneException.make(:TypeError, "can't create instance of singleton class") if klass.is_singleton_class
+          raise FrozoneException.make(:TypeError, "uninitialized class") if klass.is_a?(ClassObject) && klass.uninitialized_class
           raw_args = args.raw
           raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
           has_block = block && !block.is_a?(NilObject)
@@ -3752,11 +3759,20 @@ module Frozone
 
         def class_allocate(context, klass)
           raise FrozoneException.make(:TypeError, "can't create instance of singleton class") if klass.is_singleton_class
-          raise FrozoneException.make(:TypeError, "can't create instance of virtual class") if klass.equal?(Core::CLASS_CLASS) || klass.equal?(Core::MODULE_CLASS)
+          if klass.equal?(Core::MODULE_CLASS)
+            raise FrozoneException.make(:TypeError, "can't create instance of virtual class")
+          end
+          if klass.equal?(Core::CLASS_CLASS)
+            # Class.allocate returns an uninitialized Class instance (no superclass set)
+            uninit = ClassObject.new(nil, nil, nil)
+            uninit.uninitialized_class = true
+            return uninit
+          end
           klass.allocate_instance
         end
 
         def class_superclass(_, klass)
+          raise FrozoneException.make(:TypeError, "uninitialized class") if klass.is_a?(ClassObject) && klass.uninitialized_class
           sc = klass.is_a?(ClassObject) ? klass.superclass : nil
           sc.nil? ? NilObject::NIL : sc
         end
