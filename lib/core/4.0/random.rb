@@ -7,6 +7,8 @@ class Random
     Intrinsics.random_rand(nil, n)
   end
 
+  def self.random_number(n = nil) = Intrinsics.random_rand(nil, n)
+
   def self.new_seed
     Intrinsics.random_new_seed(nil)
   end
@@ -23,6 +25,7 @@ class Random
   def self.urandom(n) = Intrinsics.random_urandom(nil, n)
 
   def rand(n = nil) = Intrinsics.random_rand(self, n)
+  def random_number(n = nil) = Intrinsics.random_rand(self, n)
   def seed = Intrinsics.random_seed(self)
   def bytes(n) = Intrinsics.random_bytes(self, n)
   def state = Intrinsics.random_state(self)

@@ -658,19 +658,8 @@ module Frozone
           raise FrozoneException.new(exc_obj, "exit")
         end
 
-        def kernel_rand(_, _receiver, n)
-          if n.nil? || n.is_a?(NilObject)
-            FloatObject.new(rand)
-          elsif n.is_a?(IntegerObject)
-            IntegerObject.new(rand(n.raw))
-          elsif n.is_a?(FloatObject)
-            FloatObject.new(rand(n.raw))
-          elsif n.is_a?(RangeObject)
-            result = rand(n.raw)
-            result.is_a?(Integer) ? IntegerObject.new(result) : FloatObject.new(result)
-          else
-            raise FrozoneException.make(:TypeError, "no implicit conversion of #{n.class} into Integer")
-          end
+        def kernel_rand(context, _receiver, n)
+          random_rand(context, nil, n)
         end
 
         def kernel_srand(_, _receiver, seed)
@@ -678,12 +667,49 @@ module Frozone
           IntegerObject.new(result)
         end
 
-        def random_new(_, _receiver, seed)
-          raw_seed = seed.nil? || seed.is_a?(NilObject) ? nil : seed.raw
+        def random_new(context, _receiver, seed)
+          if seed.nil? || seed.is_a?(NilObject)
+            raw_seed = nil
+          elsif seed.is_a?(IntegerObject)
+            raw_seed = seed.raw
+          elsif seed.respond_to?(:raw)
+            raw_seed = seed.raw
+            if raw_seed.is_a?(::Rational)
+              raw_seed = raw_seed.to_i
+            elsif raw_seed.is_a?(::Complex)
+              if raw_seed.imaginary != 0
+                raise FrozoneException.make(:RangeError, "can't convert #{raw_seed.inspect} into Integer")
+              end
+              raw_seed = raw_seed.real.to_i
+            elsif raw_seed.respond_to?(:to_i)
+              raw_seed = raw_seed.to_i
+            end
+          elsif seed.is_a?(ObjectObject) && seed.class_object&.name == :Complex
+            imag = seed.dispatch(context, :imaginary, [], {})
+            imag_raw = imag.is_a?(IntegerObject) ? imag.raw : (imag.respond_to?(:raw) ? imag.raw : 0)
+            if imag_raw != 0
+              raise FrozoneException.make(:RangeError, "can't convert #{seed.class_object.name}(#{imag_raw}i) into Integer")
+            end
+            real_obj = seed.dispatch(context, :real, [], {})
+            int_obj = real_obj.dispatch(context, :to_i, [], {})
+            raw_seed = int_obj.is_a?(IntegerObject) ? int_obj.raw : int_obj.raw.to_i
+          elsif seed.is_a?(ObjectObject) && seed.class_object&.name == :Rational
+            int_obj = seed.dispatch(context, :to_i, [], {})
+            raw_seed = int_obj.is_a?(IntegerObject) ? int_obj.raw : int_obj.raw.to_i
+          else
+            begin
+              result = seed.dispatch(context, :to_int, [], {})
+              raw_seed = result.is_a?(IntegerObject) ? result.raw : result.raw.to_i
+            rescue FrozoneException => e
+              raise unless e.frozone_class_name == :NoMethodError
+              klass = seed.respond_to?(:class_object) ? (seed.class_object&.name || seed.class) : seed.class
+              raise FrozoneException.make(:TypeError, "can't convert #{klass} into Integer")
+            end
+          end
           RandomObject.new(raw_seed)
         end
 
-        def random_rand(_, v, n)
+        def random_rand(context, v, n)
           rng = v.is_a?(RandomObject) ? v.rng : Random
           if n.nil? || n.is_a?(NilObject)
             FloatObject.new(rng.rand)
@@ -692,10 +718,56 @@ module Frozone
           elsif n.is_a?(FloatObject)
             FloatObject.new(rng.rand(n.raw))
           elsif n.is_a?(RangeObject)
-            result = rng.rand(n.raw)
-            result.is_a?(Integer) ? IntegerObject.new(result) : FloatObject.new(result)
+            beg_val = n.begin_val
+            end_val = n.end_val
+            # If begin/end are native types, delegate to MRI rand
+            if (beg_val.is_a?(IntegerObject) || beg_val.is_a?(FloatObject) ||
+                beg_val.nil? || beg_val.is_a?(NilObject)) &&
+               (end_val.is_a?(IntegerObject) || end_val.is_a?(FloatObject) ||
+                end_val.nil? || end_val.is_a?(NilObject))
+              result = rng.rand(n.raw)
+              result.is_a?(Integer) ? IntegerObject.new(result) : FloatObject.new(result)
+            else
+              # Custom object range: compute beg + rand*(end-beg)
+              begin
+                diff = end_val.dispatch(context, :-, [beg_val], {})
+              rescue FrozoneException => e
+                raise FrozoneException.make(:ArgumentError, "bad value for range") unless e.frozone_class_name == :ArgumentError
+                raise
+              end
+              # Try integer path first (to_int)
+              int_diff = begin
+                diff.dispatch(context, :to_int, [], {})
+              rescue FrozoneException
+                nil
+              end
+              if int_diff&.is_a?(IntegerObject)
+                size = int_diff.raw
+                size -= 1 if n.exclusive? && size > 0
+                rand_int = rng.rand(size + 1)
+                beg_val.dispatch(context, :+, [IntegerObject.new(rand_int)], {})
+              else
+                # Float path
+                float_diff = begin
+                  diff.dispatch(context, :to_f, [], {})
+                rescue FrozoneException
+                  diff
+                end
+                diff_f = float_diff.is_a?(FloatObject) ? float_diff.raw : 1.0
+                rand_f = rng.rand * diff_f
+                beg_val.dispatch(context, :+, [FloatObject.new(rand_f)], {})
+              end
+            end
           else
-            raise FrozoneException.make(:TypeError, "no implicit conversion of #{n.class_object&.name} into Integer")
+            # Try to_int coercion
+            begin
+              result = n.dispatch(context, :to_int, [], {})
+              IntegerObject.new(rng.rand(result.is_a?(IntegerObject) ? result.raw : result.raw.to_i))
+            rescue FrozoneException => e
+              raise unless e.frozone_class_name == :NoMethodError
+              klass = n.respond_to?(:class_object) ? (n.class_object&.name || n.class) : n.class
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into Integer")
+            end
           end
         end
 
