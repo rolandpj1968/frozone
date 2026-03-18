@@ -90,6 +90,15 @@ class UnboundMethod
   def source_location = Intrinsics.unbound_method_source_location(self)
   def bind(receiver)  = Intrinsics.unbound_method_bind(self, receiver)
   def bind_call(receiver, *args, **kwargs, &block) = bind(receiver).call(*args, **kwargs, &block)
+  def super_method    = Intrinsics.unbound_method_super(self)
+  def dup             = Intrinsics.unbound_method_dup(self)
+  def hash            = Intrinsics.unbound_method_hash(self)
+
+  def clone(freeze: nil)
+    c = dup
+    c.freeze if freeze
+    c
+  end
 
   def ==(other)
     return false unless other.is_a?(UnboundMethod)

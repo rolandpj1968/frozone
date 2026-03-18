@@ -2458,9 +2458,60 @@ module Frozone
         def unbound_method_source_location(_, receiver)
           return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
           m = receiver.raw_method
-          return NilObject::NIL unless m.is_a?(Method) && m.source_location
-          file, line = m.source_location.split(":")
-          ArrayObject.new([StringObject.new(file), IntegerObject.new(line.to_i)])
+          # Resolve VisibilityOverride to underlying method
+          m = m.original_owner.lookup_method(m.method_name) if m.is_a?(ModuleObject::VisibilityOverride)
+          m = m.block_obj if m.is_a?(DefinedMethod)
+          if m.is_a?(Method) && m.source_location
+            file, line = m.source_location.split(":")
+            if file.start_with?(FROZONE_CORE_LIB)
+              rel = file[FROZONE_CORE_LIB.length + 1..]
+              ArrayObject.new([StringObject.new("<internal:#{rel}>"), IntegerObject.new(line.to_i)])
+            else
+              ArrayObject.new([StringObject.new(file), IntegerObject.new(line.to_i)])
+            end
+          elsif m.is_a?(BlockObject) && m.source_location
+            file, line = m.source_location
+            ArrayObject.new([StringObject.new(file), IntegerObject.new(line)])
+          else
+            NilObject::NIL
+          end
+        end
+
+        def unbound_method_super(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          owner = receiver.unbound_owner
+          return NilObject::NIL unless owner&.respond_to?(:lookup_method_after)
+          orig_raw = receiver.raw_method
+          if orig_raw.is_a?(ModuleObject::VisibilityOverride)
+            lookup_name = orig_raw.method_name
+            origin = orig_raw.original_owner
+          else
+            lookup_name = orig_raw.is_a?(Method) ? orig_raw.name : receiver.unbound_name
+            raw = orig_raw.is_a?(DefinedMethod) ? orig_raw.block_obj : orig_raw
+            origin = (raw.is_a?(Method) && raw.original_owner) || owner
+          end
+          m = owner.lookup_method_after(lookup_name, origin)
+          return NilObject::NIL unless m
+          super_owner = owner.lookup_method_owner_after(lookup_name, origin) || owner
+          UnboundMethodObject.new(m, lookup_name, super_owner)
+        end
+
+        def unbound_method_dup(_, receiver)
+          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          UnboundMethodObject.new(receiver.raw_method, receiver.unbound_name, receiver.unbound_owner)
+        end
+
+        def unbound_method_hash(_, receiver)
+          return IntegerObject.new(0) unless receiver.is_a?(UnboundMethodObject)
+          m = receiver.raw_method
+          body_id = if m.is_a?(Method)
+            m.body.object_id
+          elsif m.is_a?(DefinedMethod)
+            m.block_obj.object_id
+          else
+            m.object_id
+          end
+          IntegerObject.new(receiver.unbound_owner.object_id ^ body_id)
         end
 
         def unbound_method_bind(_, receiver, new_receiver)
