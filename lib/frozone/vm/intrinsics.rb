@@ -110,7 +110,14 @@ module Frozone
 
         def object_respond_to(context, v, name, include_private_obj = FalseObject::FALSE)
           include_private = include_private_obj.truthy?
-          m = v.lookup_instance_method(name.raw)
+          method_name = name.is_a?(SymbolObject) ? name.raw : (name.is_a?(StringObject) ? name.raw.to_sym : name.raw)
+          # Check active refinements first (refinements can add methods visible to respond_to?)
+          active_refinements = context&.frame&.active_refinements
+          m = if active_refinements && !active_refinements.empty?
+            v.lookup_method_with_refinements(method_name, active_refinements)
+          else
+            v.lookup_instance_method(method_name)
+          end
           if m
             bool_object_for(include_private || m.visibility == :public)
           else
@@ -995,7 +1002,17 @@ module Frozone
           raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
           block_obj = block_arg.is_a?(ProcObject) ? block_arg.block_object : block_arg
           block_obj = nil if block_obj.is_a?(NilObject)
-          receiver.dispatch(context, method_name, args.raw, raw_kwargs, block_obj, private_ok: true)
+          # Propagate caller's active refinements: send/public_send honor refinements
+          # active at the call site (the frame that invoked send, which is our parent frame).
+          frame = context.frame
+          caller_refs = frame&.parent_frame&.active_refinements
+          prev_refs = frame&.active_refinements
+          frame&.active_refinements = caller_refs if caller_refs && !caller_refs.empty? && (prev_refs.nil? || prev_refs.empty?)
+          begin
+            receiver.dispatch(context, method_name, args.raw, raw_kwargs, block_obj, private_ok: true)
+          ensure
+            frame&.active_refinements = prev_refs
+          end
         end
 
         def object_public_send(context, receiver, name, args, kwargs, block_arg = nil)
@@ -1003,7 +1020,17 @@ module Frozone
           raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
           block_obj = block_arg.is_a?(ProcObject) ? block_arg.block_object : block_arg
           block_obj = nil if block_obj.is_a?(NilObject)
-          receiver.dispatch(context, method_name, args.raw, raw_kwargs, block_obj, private_ok: false, public_only: true)
+          # Propagate caller's active refinements: send/public_send honor refinements
+          # active at the call site (the frame that invoked send, which is our parent frame).
+          frame = context.frame
+          caller_refs = frame&.parent_frame&.active_refinements
+          prev_refs = frame&.active_refinements
+          frame&.active_refinements = caller_refs if caller_refs && !caller_refs.empty? && (prev_refs.nil? || prev_refs.empty?)
+          begin
+            receiver.dispatch(context, method_name, args.raw, raw_kwargs, block_obj, private_ok: false, public_only: true)
+          ensure
+            frame&.active_refinements = prev_refs
+          end
         end
 
         # Module
@@ -1088,6 +1115,17 @@ module Frozone
 
         def frozone_class_name(obj)
           obj.is_a?(ObjectObject) ? (obj.class_object&.name || "Object") : obj.class.name
+        end
+
+        # Get active refinements from the calling context. When a method lookup intrinsic
+        # (respond_to?, method, instance_method, etc.) is called from within a Frozone method,
+        # context.frame is the method's own frame (typically no refinements), and
+        # context.frame.parent_frame is the actual call-site frame with the caller's refinements.
+        # We check both the current frame and its parent to find any active refinements.
+        def caller_active_refinements(context)
+          refs = context&.frame&.active_refinements
+          return refs if refs && !refs.empty?
+          context&.frame&.parent_frame&.active_refinements
         end
 
         def toplevel_include(_, _self, mods)
@@ -1650,6 +1688,15 @@ module Frozone
           method = receiver.lookup_method(old_name)
           # Modules may alias methods defined on Object (e.g. Kernel aliasing Object methods)
           method ||= Core::OBJECT_CLASS.lookup_method(old_name) unless receiver.is_a?(ClassObject)
+          # Inside a refine block, receiver is the refinement module. If not found there,
+          # look in the refined class (e.g. alias_method :x, :count should find Array#count
+          # when inside `refine Array do ... end`).
+          if method.nil?
+            refined_class_obj = receiver.get_ivar(:@__refined_class__)
+            if refined_class_obj && !refined_class_obj.is_a?(NilObject)
+              method = refined_class_obj.lookup_method(old_name)
+            end
+          end
           raise FrozoneException.make(:NameError, "undefined method '#{old_name}'") if method.nil?
           aliased = method.alias_as(new_name)
           aliased.visibility = :private if ALWAYS_PRIVATE_METHOD_NAMES.include?(new_name)
@@ -2008,11 +2055,13 @@ module Frozone
             return NilObject::NIL
           end
 
-          # Temporarily install refinements on the block's enclosing frame.
-          # BlockObject#invoke creates a new_frame inheriting active_refinements from enclosing_frame,
-          # so setting them here makes them visible inside the refine block body.
+          # Temporarily install refinements and refining_module on the block's enclosing frame.
+          # BlockObject#invoke creates a new_frame inheriting active_refinements and
+          # current_refining_module from enclosing_frame, so setting them here makes them
+          # visible inside the refine block body (for cross-refinement and method.refining_module).
           enc_frame = block_obj.enclosing_frame
           prev_enc_refs = enc_frame.active_refinements
+          prev_enc_refining_mod = enc_frame.current_refining_module
           enc_frame.active_refinements = if all_refs.empty?
             prev_enc_refs
           elsif prev_enc_refs
@@ -2020,10 +2069,12 @@ module Frozone
           else
             all_refs
           end
+          enc_frame.current_refining_module = refining_mod
           begin
             module_eval(context, refinement_mod, block)
           ensure
             enc_frame.active_refinements = prev_enc_refs
+            enc_frame.current_refining_module = prev_enc_refining_mod
           end
           NilObject::NIL
         end
@@ -2117,7 +2168,11 @@ module Frozone
             if last
               c = if inherit_b
                 val, = start.lookup_constant_with_owner(sym)
-                val || (!start.equal?(Core::OBJECT_CLASS) && Core::OBJECT_CLASS.lookup_constant(sym)) ||
+                # Fall through to Object only if receiver inherits from Object
+                # (BasicObject subclasses should NOT see Object constants)
+                object_visible = !start.equal?(Core::OBJECT_CLASS) &&
+                  (!start.is_a?(ClassObject) || start.ancestors_list.any? { |a| a.equal?(Core::OBJECT_CLASS) })
+                val || (object_visible && Core::OBJECT_CLASS.lookup_constant(sym)) ||
                   start.lookup_autoload(sym, inherit: true)
               else
                 start.get_constant(sym) || start.get_autoload(sym)
@@ -2467,16 +2522,22 @@ module Frozone
               result << SymbolObject.from(name) if m.visibility == :public || m.visibility == :protected
             end
           end
+          walk = lambda do |mod|
+            mod.prepends.each { |m| walk.call(m) }
+            collect.call(mod)
+            mod.modules.each { |m| walk.call(m) }
+            walk.call(mod.superclass) if mod.is_a?(ClassObject) && mod.superclass
+          end
           if include_super
-            walk = lambda do |mod|
-              mod.prepends.each { |m| walk.call(m) }
-              collect.call(mod)
-              mod.modules.each { |m| walk.call(m) }
-              walk.call(mod.superclass) if mod.is_a?(ClassObject) && mod.superclass
-            end
             walk.call(receiver)
           else
             collect.call(receiver)
+          end
+          # For refinement modules: include the refined class's instance methods.
+          # MRI's Refinement#instance_methods returns methods including those of the refined module.
+          refined_class_obj = receiver.get_ivar(:@__refined_class__)
+          if refined_class_obj && !refined_class_obj.is_a?(NilObject)
+            walk.call(refined_class_obj)
           end
           ArrayObject.new(result)
         end
@@ -2554,6 +2615,22 @@ module Frozone
 
         def module_instance_method(context, receiver, name_obj)
           name = sym_name_coercing(context, name_obj)
+          # Check active refinements first (refinements shadow regular methods for instance_method).
+          # Refinements active at the CALL SITE take priority — the method itself (instance_method)
+          # has no stored refinements, so check the caller's frame (parent_frame) for using-activated refinements.
+          active_refs = caller_active_refinements(context)
+          if active_refs && !active_refs.empty?
+            receiver.ancestors_list.each do |ancestor|
+              ref_mod = active_refs[ancestor.object_id]
+              if ref_mod
+                ref_m = ref_mod.get_method(name)
+                if ref_m && ref_m != ModuleObject::UNDEF_SENTINEL
+                  owner = ref_m.is_a?(Method) && ref_m.original_owner ? ref_m.original_owner : ref_mod
+                  return UnboundMethodObject.new(ref_m, name, owner)
+                end
+              end
+            end
+          end
           m = receiver.lookup_method(name)
           if m.nil? || m == ModuleObject::UNDEF_SENTINEL
             exc = FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.name}'")
@@ -2583,8 +2660,14 @@ module Frozone
 
         def object_method(context, receiver, name_obj)
           name = sym_name(name_obj)
-          klass = receiver.eigenclass || receiver.class_object
-          m = klass.lookup_method(name) || receiver.class_object.lookup_method(name)
+          # Check active refinements first — `method(:foo)` with refinements active should find refined methods
+          active_refinements = context&.frame&.active_refinements
+          m = if active_refinements && !active_refinements.empty?
+            receiver.lookup_method_with_refinements(name, active_refinements)
+          else
+            klass = receiver.eigenclass || receiver.class_object
+            klass.lookup_method(name) || receiver.class_object.lookup_method(name)
+          end
           unless m
             # Check respond_to_missing?
             rtm = begin
@@ -2601,6 +2684,30 @@ module Frozone
             raise FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.class_object.full_name}'")
           end
           # If the eigenclass has the method (directly or via extended modules), use eigenclass chain for owner
+          if receiver.eigenclass&.lookup_method(name)
+            owner = receiver.eigenclass.lookup_method_owner(name) || receiver.eigenclass
+          else
+            owner = receiver.class_object.lookup_method_owner(name) || receiver.class_object
+          end
+          BoundMethodObject.new(m, name, receiver, owner)
+        end
+
+        def object_public_method(context, receiver, name_obj)
+          name = sym_name(name_obj)
+          active_refinements = context&.frame&.active_refinements
+          m = if active_refinements && !active_refinements.empty?
+            receiver.lookup_method_with_refinements(name, active_refinements)
+          else
+            klass = receiver.eigenclass || receiver.class_object
+            klass.lookup_method(name) || receiver.class_object.lookup_method(name)
+          end
+          unless m
+            raise FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.class_object.full_name}'")
+          end
+          vis = m.respond_to?(:visibility) ? m.visibility : :public
+          unless vis == :public
+            raise FrozoneException.make(:NameError, "method '#{name}' for class '#{receiver.class_object.full_name}' is #{vis}")
+          end
           if receiver.eigenclass&.lookup_method(name)
             owner = receiver.eigenclass.lookup_method_owner(name) || receiver.eigenclass
           else
@@ -2972,29 +3079,56 @@ module Frozone
 
         # Check if a method (UnboundMethodObject) is "defined in Ruby code" (not an intrinsic).
         # A method with an IntrinsicCall body is considered NOT defined in Ruby code.
+        # Returns true if the method body consists entirely of IntrinsicCall node(s).
+        # A Sequence with one IntrinsicCall, or a bare IntrinsicCall, both count as intrinsic.
+        def intrinsic_only_body?(body)
+          case body
+          when Ast::IntrinsicCall
+            true
+          when Ast::Sequence
+            body.nodes.size == 1 && body.nodes.first.is_a?(Ast::IntrinsicCall)
+          else
+            false
+          end
+        end
+
+        # Check if a method (UnboundMethodObject) is "defined in Ruby code" (not an intrinsic).
+        # A method whose body is a bare IntrinsicCall (or a Sequence wrapping one) is NOT Ruby code.
         def method_ruby_defined_q(_, receiver)
           return FalseObject::FALSE unless receiver.is_a?(UnboundMethodObject)
           m = receiver.raw_method
           return FalseObject::FALSE unless m.is_a?(Method)
           body = m.body
-          return FalseObject::FALSE if body.is_a?(Ast::IntrinsicCall)
+          return FalseObject::FALSE if intrinsic_only_body?(body)
           TrueObject::TRUE
         end
 
         # Copy an UnboundMethod into a refinement module as an owned method.
+        # Sets refining_module so the imported method can see other refinements from the same module.
+        # Updates scopes so that super() resolves through the refinement module's refined class.
         def refinement_import_method(_, refinement, name_obj, unbound_method_obj)
           return NilObject::NIL unless refinement.is_a?(ModuleObject)
           return NilObject::NIL unless unbound_method_obj.is_a?(UnboundMethodObject)
           name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.to_s.to_sym
           raw_m = unbound_method_obj.raw_method
+          # Use refinement as the last scope so super resolves through the refinement's class hierarchy.
+          new_scopes = (raw_m.scopes || []).dup
+          if new_scopes.empty?
+            new_scopes = [refinement]
+          else
+            new_scopes[-1] = refinement
+          end
           imported = Method.new(
-            raw_m.scopes, name, raw_m.required_params, raw_m.optional_params, raw_m.rest_param,
+            new_scopes, name, raw_m.required_params, raw_m.optional_params, raw_m.rest_param,
             raw_m.post_params, raw_m.required_kw_params, raw_m.optional_kw_params, raw_m.kw_rest_param,
-            raw_m.block_param, [], raw_m.body,
+            raw_m.block_param, raw_m.locals, raw_m.body,
             uses_block: raw_m.uses_block, source_location: raw_m.source_location
           )
           imported.visibility = raw_m.visibility
           imported.original_owner = refinement
+          # Link to the containing refinement module so this method sees other refinements
+          refining_mod = refinement.get_ivar(:@__refining_module__)
+          imported.refining_module = refining_mod if refining_mod.is_a?(ModuleObject)
           refinement.set_method(name, imported)
           NilObject::NIL
         end

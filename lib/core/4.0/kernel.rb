@@ -55,6 +55,12 @@ module Kernel
   def system(*args) = false
   def `(cmd) = Intrinsics.kernel_backtick(self, cmd)
   def block_given? = Intrinsics.kernel_block_given(self)
+  def hash = __id__
+  def object_id = __id__
+  def class = Intrinsics.object_class(self)
+  def nil? = false
+  def is_a?(klass) = Intrinsics.object_is_a(self, klass)
+  alias kind_of? is_a?
   def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name, include_all)
   def instance_of?(klass) = Intrinsics.object_class(self).equal?(klass)
 
@@ -71,6 +77,12 @@ module Kernel
   end
 
   alias enum_for to_enum
+
+  def instance_variable_get(name) = Intrinsics.object_ivar_get(self, name)
+  def instance_variable_set(name, value) = Intrinsics.object_ivar_set(self, name, value)
+  def instance_variable_defined?(name) = Intrinsics.object_ivar_defined(self, name)
+  def instance_variables = Intrinsics.object_ivar_names(self)
+  def remove_instance_variable(name) = Intrinsics.object_ivar_remove(self, name)
 
   def initialize_copy(source)
     source.instance_variables.each do |ivar|

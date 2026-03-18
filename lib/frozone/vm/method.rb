@@ -15,7 +15,7 @@ module Frozone
       attr_accessor :active_refinements  # refinements active at method definition site
       attr_accessor :refining_module     # if set, collect all refinements from this module at invoke time
 
-      attr_reader :uses_block, :source_location, :body
+      attr_reader :uses_block, :source_location, :body, :locals
 
       # ruby2_keywords flag is stored in a shared holder array so aliases
       # of the same method see the same flag value (like MRI's shared definition).

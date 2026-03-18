@@ -1,33 +1,17 @@
 class Object < BasicObject
   include Kernel
 
-  def hash = __id__
-
-  def object_id = __id__
-
   def ! = self == nil || self == false
   def !=(other) = !(self == other)
   def !~(other) = !(self =~ other)
   def ===(other) = self == other
 
-  def nil? = false
   def <=>(other) = equal?(other) ? 0 : nil
-
-  def class = Intrinsics.object_class(self)
-
-  def is_a?(klass) = Intrinsics.object_is_a(self, klass)
-  alias kind_of? is_a?
 
   def respond_to?(name, include_all = false)
     name = name.to_sym if name.is_a?(String)
     Intrinsics.object_respond_to(self, name, include_all)
   end
-
-  def instance_variable_get(name) = Intrinsics.object_ivar_get(self, name)
-  def instance_variable_set(name, value) = Intrinsics.object_ivar_set(self, name, value)
-  def instance_variable_defined?(name) = Intrinsics.object_ivar_defined(self, name)
-  def instance_variables = Intrinsics.object_ivar_names(self)
-  def remove_instance_variable(name) = Intrinsics.object_ivar_remove(self, name)
 
   def extend(mod) = Intrinsics.object_extend(self, mod)
 
@@ -78,6 +62,7 @@ class Object < BasicObject
   def pretty_inspect = inspect
 
   def method(name) = Intrinsics.object_method(self, name)
+  def public_method(name) = Intrinsics.object_public_method(self, name)
 
   alias send __send__
 

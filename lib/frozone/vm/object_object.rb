@@ -90,15 +90,50 @@ module Frozone
         lookup_class.lookup_method(name)
       end
 
-      # Look up a refinement method for this receiver given active refinements from the calling frame.
-      # Checks the receiver's class and all its ancestors (including included modules) for a refinement match.
-      def lookup_refinement_method(name, active_refinements)
+      # Look up a method with active refinements using the correct interleaved priority order:
+      # 1. Singleton class (eigenclass) methods always win over refinements
+      # 2. For each ancestor in MRO order: refinement for that ancestor, then ancestor's own method
+      # This implements Ruby's actual refinement lookup: refinements override a class's OWN methods,
+      # but NOT methods defined in subclasses (which appear earlier in the MRO).
+      def lookup_method_with_refinements(name, active_refinements)
+        # Eigenclass (singleton class) methods take priority over ALL refinements.
+        # Mirrors the ClassObject logic in lookup_instance_method.
+        if is_a?(ClassObject)
+          if @eigenclass
+            m = @eigenclass.lookup_method(name)
+            return nil if m.nil? && @eigenclass.get_method(name) == ModuleObject::UNDEF_SENTINEL
+            return m if m
+          end
+          c = superclass
+          while c
+            ec_m = c.eigenclass_method(name)
+            return nil if ec_m == ModuleObject::UNDEF_SENTINEL
+            return ec_m unless ec_m.nil?
+            c = c.is_a?(ClassObject) ? c.superclass : nil
+          end
+          # Fall through to instance method lookup via @class_object
+          return @class_object&.lookup_method(name)
+        end
+
+        # For non-ClassObjects: check eigenclass first (singleton class takes priority over refinements)
+        if @eigenclass
+          m = @eigenclass.lookup_method(name)
+          return m if m
+        end
+
+        # Walk the ancestor chain, interleaving refinements with own methods.
+        # ancestors_list includes all prepends, the class, and all includes in MRO order.
         @class_object.ancestors_list.each do |ancestor|
+          # Refinement for this ancestor takes priority over ancestor's own methods
           ref_mod = active_refinements[ancestor.object_id]
           if ref_mod
             m = ref_mod.get_method(name)
             return m if m && m != ModuleObject::UNDEF_SENTINEL
           end
+          # Ancestor's own method (directly defined on this ancestor, not inherited)
+          m = ancestor.get_method(name)
+          return nil if m == ModuleObject::UNDEF_SENTINEL  # explicit undef stops search
+          return m if m
         end
         nil
       end
@@ -108,17 +143,17 @@ module Frozone
       # private_ok: true when called with implicit receiver (no explicit receiver in source)
       # implicit_self: true for bare-word calls (no receiver) — raises NameError vs NoMethodError on miss
       def dispatch(context, name, args, kw_args, block = nil, private_ok: false, implicit_self: false, public_only: false)
-        # Check active refinements in the calling frame first (refinements take priority)
+        # When active refinements are present, use the interleaved lookup that correctly
+        # prioritizes: singleton class > (refinement for each ancestor, then ancestor's own methods).
+        # Otherwise, use the standard lookup.
         active_refinements = context&.frame&.active_refinements
-        if active_refinements && !active_refinements.empty?
-          ref_method = lookup_refinement_method(name, active_refinements)
-          if ref_method
-            return ref_method.invoke(context, self, args, kw_args, block)
-          end
+        method = if active_refinements && !active_refinements.empty?
+          lookup_method_with_refinements(name, active_refinements)
+        else
+          lookup_instance_method(name)
         end
 
-        method = lookup_instance_method(name)
-        unless method.nil?
+        unless method.nil? || method == ModuleObject::UNDEF_SENTINEL
           visibility_ok = case method.visibility
           when :private
             private_ok

@@ -26,6 +26,15 @@ module Frozone
           end
         end
         method = clazz.lookup_method(old_name)
+        # Inside a refine block, clazz is the refinement module. If the method isn't defined
+        # on the refinement module, look for it in the refined class (e.g. `alias :x :count` should
+        # find Array#count when inside `refine Array do ... end`).
+        if method.nil? && clazz.is_a?(Vm::ModuleObject)
+          refined_class_obj = clazz.get_ivar(:@__refined_class__)
+          if refined_class_obj && !refined_class_obj.is_a?(Vm::NilObject)
+            method = refined_class_obj.lookup_method(old_name)
+          end
+        end
         if method.nil?
           clazz_name = clazz.respond_to?(:name) ? clazz.name : nil
           raise Vm::FrozoneException.make(:NameError, "undefined method '#{old_name}' for class '#{clazz_name}'")

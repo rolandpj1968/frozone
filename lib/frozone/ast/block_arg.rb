@@ -13,7 +13,7 @@ module Frozone
       def evaluate(context)
         val = @value_node.evaluate(context)
         return nil if val.is_a?(Vm::NilObject)
-        return Vm::SymbolProcObject.new(val) if val.is_a?(Vm::SymbolObject)
+        return Vm::SymbolProcObject.new(val, active_refinements: context.frame&.active_refinements) if val.is_a?(Vm::SymbolObject)
         return val if val.is_a?(Vm::ProcObject) || val.is_a?(Vm::BlockObject)
         return val if val.is_a?(Vm::BoundMethodObject)
         # Try to_proc coercion for other objects

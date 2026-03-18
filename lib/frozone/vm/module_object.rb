@@ -401,9 +401,25 @@ module Frozone
         end
 
         # 3. Search Object as a last resort (constants included into Object are globally visible)
+        # Skip only if the innermost non-ambient lexical scope is a Class (not Module) that
+        # is a subclass of BasicObject but NOT of Object (i.e., directly extends BasicObject).
         if defined?(Core::OBJECT_CLASS) && Core::OBJECT_CLASS
-          constant = Core::OBJECT_CLASS.lookup_constant(name)
-          return constant unless constant.nil?
+          skip_object = begin
+            innermost = lex_scopes.last
+            # Skip Object only for explicitly-defined BasicObject subclasses.
+            # Singleton classes are transparent — their constant lookup scope is inherited
+            # from the definition site, not the singleton class hierarchy.
+            innermost.is_a?(ClassObject) &&
+              !innermost.equal?(Core::OBJECT_CLASS) &&
+              !innermost.is_singleton_class &&
+              !innermost.ancestors_list.any? { |a| a.equal?(Core::OBJECT_CLASS) }
+          rescue StandardError
+            false
+          end
+          unless skip_object
+            constant = Core::OBJECT_CLASS.lookup_constant(name)
+            return constant unless constant.nil?
+          end
         end
 
         # 4. No luck - const_missing will be dispatched by caller

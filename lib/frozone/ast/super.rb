@@ -22,10 +22,24 @@ module Frozone
         defining_class = current_method.scopes.last
 
         receiver = context.frame.the_self
-        if receiver.is_a?(Vm::ClassObject)
+
+        # Check if the defining_class is a refinement module — super should resolve through
+        # the refined class's hierarchy (bypassing the refinement itself).
+        is_refinement = defining_class.is_a?(Vm::ModuleObject) &&
+                        defining_class.get_ivar(:@__refinement__)&.truthy?
+
+        if is_refinement
+          # For refinement methods, super looks up the method in the refined class's hierarchy.
+          refined_class = defining_class.get_ivar(:@__refined_class__)
+          klass  = if receiver.is_a?(Vm::ClassObject) then receiver.singleton_class else receiver.class_object end
+          # Use the refined class itself as the "start" point and look from beginning of its hierarchy.
+          # We want the first method matching method_name in the class ancestry (not the refinement).
+          super_method = klass.lookup_method(method_name)
+        elsif receiver.is_a?(Vm::ClassObject)
           # Class method: search in singleton class hierarchy
           klass  = receiver.singleton_class
           origin = defining_class.is_a?(Vm::ClassObject) ? defining_class.singleton_class : defining_class
+          super_method = klass.lookup_method_after(method_name, origin)
         else
           # If origin is not in the instance class ancestors, it must be from the singleton chain
           class_ancs = receiver.class_object.ancestors_list
@@ -36,9 +50,8 @@ module Frozone
             klass  = receiver.singleton_class
             origin = defining_class
           end
+          super_method = klass.lookup_method_after(method_name, origin)
         end
-
-        super_method = klass.lookup_method_after(method_name, origin)
         if super_method.nil?
           raise Vm::FrozoneException.make(:NoMethodError, "super: no superclass method '#{method_name}' for an instance of #{receiver.class_object.name}")
         end

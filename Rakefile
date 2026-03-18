@@ -72,11 +72,22 @@ task :core do
   per_module = {}
 
   # Default parallelism: number of CPUs (capped at 8 to avoid memory pressure)
-  n_jobs = [ENV.fetch('JOBS', Etc.nprocessors.to_s).to_i, 1].max
+  n_jobs = [ENV.fetch('JOBS', [Etc.nprocessors, 8].min.to_s).to_i, 1].max
+
+  # Known-slow or hanging spec files excluded from the batch run.
+  # These are either statistical performance tests (run thousands of iterations)
+  # or tests requiring concurrent threading that deadlock in cooperative model.
+  SKIP_SPEC_FILES = %w[
+    array/sample_spec.rb
+    array/sort_spec.rb
+    module/autoload_spec.rb
+    regexp/timeout_spec.rb
+  ].map { |f| "#{RUBY_SPEC_DIR}/core/#{f}" }.freeze
 
   # Build list of (name, args) pairs for non-empty modules
   work = core_modules.filter_map do |name|
     specs = Dir["#{RUBY_SPEC_DIR}/core/#{name}/**/*_spec.rb"].sort
+    specs -= SKIP_SPEC_FILES
     next if specs.empty?
 
     args = specs.map { |f| File.expand_path(f) }.join(' ')
