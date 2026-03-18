@@ -152,10 +152,10 @@ module Frozone
           @method_name = method_name
         end
 
-        def invoke(context, receiver, args, kw_args, block)
+        def invoke(context, receiver, args, kw_args, block, from_super: false, callee_name: nil)
           m = @original_owner.lookup_method(@method_name)
           raise "BUG: VisibilityOverride: method #{@method_name} not found in #{@original_owner}" unless m && m != UNDEF_SENTINEL
-          m.invoke(context, receiver, args, kw_args, block)
+          m.invoke(context, receiver, args, kw_args, block, from_super: from_super, callee_name: callee_name)
         end
 
         def uses_block

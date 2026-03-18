@@ -2809,6 +2809,7 @@ module Frozone
 
         # Returns nil to indicate the parameter is anonymous (no name in output)
         # ANON_REST maps to :* for both methods and procs (anonymous splat shows as *)
+        # __native_xxx__ params: strip name (simulate C-level method signature, no param name shown)
         def normalize_param_name(sym, for_proc: false)
           case sym
           when ANON_REQ                           then nil
@@ -2817,6 +2818,7 @@ module Frozone
           when ANON_KWARGS, :__forward_kwargs__   then :**
           when ANON_BLOCK, :__forward_block__     then :&
           when /\A__(?:repeated|discard)_\w+__\z/  then :_
+          when /\A__native_\w+__\z/              then nil
           when Hash                               then nil  # multi-target destructuring: no name
           else sym
           end

@@ -637,15 +637,15 @@ class Array
   end
 
   def include?(elem); any? { |x| x == elem }; end
-  def pop(n = :__none__)
+  def pop(__native_n__ = :__none__)
     raise FrozenError, "can't modify frozen Array" if frozen?
-    if n.equal?(:__none__)
+    if __native_n__.equal?(:__none__)
       Intrinsics.array_pop(self)
     else
-      n = __coerce_to_int__(n)
-      raise ArgumentError, "negative array size" if n < 0
+      __native_n__ = __coerce_to_int__(__native_n__)
+      raise ArgumentError, "negative array size" if __native_n__ < 0
       len = length
-      cnt = n > len ? len : n
+      cnt = __native_n__ > len ? len : __native_n__
       result = self[len - cnt, cnt]
       self[len - cnt, cnt] = []
       result

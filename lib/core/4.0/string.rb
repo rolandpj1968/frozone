@@ -18,14 +18,14 @@ class String
     self
   end
 
-  def +(v)
-    unless v.is_a?(String)
-      raise TypeError, "no implicit conversion of #{v.class} into String" unless v.respond_to?(:to_str)
-      v = v.to_str
-      raise TypeError, "to_str must return String (#{v.class} given)" unless v.is_a?(String)
+  def +(__native_v__)
+    unless __native_v__.is_a?(String)
+      raise TypeError, "no implicit conversion of #{__native_v__.class} into String" unless __native_v__.respond_to?(:to_str)
+      __native_v__ = __native_v__.to_str
+      raise TypeError, "to_str must return String (#{__native_v__.class} given)" unless __native_v__.is_a?(String)
     end
     result = String.new(self)
-    result << v
+    result << __native_v__
     result
   end
   def *(n)
@@ -343,9 +343,9 @@ class String
     r = squeeze(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
-  def delete!(*args)
+  def delete!(*__native_args__)
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    r = delete(*args); return nil if r == self; Intrinsics.string_replace(self, r)
+    r = delete(*__native_args__); return nil if r == self; Intrinsics.string_replace(self, r)
   end
   def casecmp(other)
     begin
