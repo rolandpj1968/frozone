@@ -38,7 +38,7 @@ module Frozone
         @auto_splat = false
       end
 
-      def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil, def_scope: nil, current_method: nil, as_method: false, thread_boundary: false)
+      def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil, def_scope: nil, current_method: nil, as_method: false, thread_boundary: false, callee_name: nil)
         the_self = receiver || @enclosing_frame.the_self
         new_frame = Frame.new(
           the_self,
@@ -121,6 +121,7 @@ module Frozone
           new_frame.cvar_scope = enclosing_mf&.cvar_scope || enclosing_mf&.def_scope
         end
         new_frame.current_method = current_method if current_method
+        new_frame.callee_name = callee_name || @enclosing_frame.method_frame&.callee_name
         new_frame.incoming_call_site = context&.call_site
         new_frame.thread_boundary = thread_boundary && !@is_lambda
 

@@ -70,6 +70,7 @@ module Kernel
   def caller(start = 1, length = nil) = Intrinsics.kernel_caller(self, start, length)
   def caller_locations(start = 1, length = nil) = Intrinsics.kernel_caller_locations(self, start, length)
   def __method__ = Intrinsics.kernel__method__(self)
+  def __callee__ = Intrinsics.kernel__callee__(self)
   def local_variables = Intrinsics.kernel_local_variables(self)
 
   def to_enum(method_name = :each, *args, **kwargs, &size_block)

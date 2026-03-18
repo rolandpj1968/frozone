@@ -689,6 +689,27 @@ module Frozone
           NilObject::NIL
         end
 
+        CALLEE_TRANSPARENT_METHODS = %i[send __send__ public_send].freeze
+
+        def kernel__callee__(context, _receiver)
+          # __callee__ returns the callee name of the innermost non-transparent method frame.
+          # send/__send__/public_send are transparent: skip them and look at the calling method.
+          frames = context.frames
+          i = frames.length - 2
+          while i >= 0
+            mf = frames[i].method_frame
+            return NilObject::NIL unless mf
+            cn = mf.callee_name
+            break unless cn && CALLEE_TRANSPARENT_METHODS.include?(cn)
+            i -= 1
+          end
+          return NilObject::NIL if i < 0
+          mf = frames[i].method_frame
+          return NilObject::NIL unless mf
+          cn = mf.callee_name
+          cn ? SymbolObject.from(cn) : NilObject::NIL
+        end
+
         def kernel_block_given(context, _receiver)
           # block_given? is a Ruby method call (adds one frame), so check the
           # CALLING frame (one below current) to find the actual method's block.

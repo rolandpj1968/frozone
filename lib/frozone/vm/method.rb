@@ -160,7 +160,7 @@ module Frozone
 
       public
 
-      def invoke(context, receiver, args, kw_args, block = nil, from_super: false)
+      def invoke(context, receiver, args, kw_args, block = nil, from_super: false, callee_name: nil)
         # Warn about unused block (Ruby 3.4 strict_unused_block category)
         # initialize is exempt — blocks passed to .new are silently forwarded
         if !from_super && @name != :initialize && block && !block.is_a?(NilObject) && @uses_block == false && !@block_warning_emitted
@@ -181,6 +181,7 @@ module Frozone
         new_frame.block = block
         new_frame.method_frame = new_frame
         new_frame.current_method = self
+        new_frame.callee_name = callee_name || @name
         new_frame.incoming_call_site = context&.call_site
         # def inside a method body goes to the method's defining scope, not the call-site scope
         new_frame.def_scope = @nested_def_scope || @scopes.last
@@ -340,7 +341,7 @@ module Frozone
         @scopes = defining_class ? [defining_class] : []
       end
 
-      def invoke(context, receiver, args, kwargs, block = nil, from_super: false)
+      def invoke(context, receiver, args, kwargs, block = nil, from_super: false, callee_name: nil)
         if ruby2_keywords && !kwargs.empty?
           hash_val = HashObject.new(kwargs.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k })
           hash_val.ruby2_keywords = true
@@ -350,7 +351,7 @@ module Frozone
         # Use the block's def_scope (from its definition context) so that `def` inside
         # a define_method block defines in the correct class (not the call-site class).
         block_def_scope = @block_obj.respond_to?(:enclosing_frame) ? @block_obj.enclosing_frame&.def_scope : nil
-        @block_obj.invoke(context, args, kw_args: kwargs, receiver: receiver, block: block, current_method: self, as_method: true, def_scope: block_def_scope)
+        @block_obj.invoke(context, args, kw_args: kwargs, receiver: receiver, block: block, current_method: self, as_method: true, def_scope: block_def_scope, callee_name: callee_name || @name)
       rescue Ast::ReturnException => e
         # Absorb return from a proc used as a method body (define_method semantics).
         # Return with nil or dead method_frame exits the define_method-defined method.

@@ -13,6 +13,7 @@ module Frozone
       attr_accessor :thread_boundary       # true when block runs as a Thread body — break → LocalJumpError
       attr_accessor :active_refinements    # list of refinement modules activated by `using` in this frame
       attr_accessor :current_refining_module  # set during module_refine_eval so method_def can record it
+      attr_accessor :callee_name           # name used at call site (may differ from method name when aliased)
 
       def initialize(the_self, locals, scopes, parent_frame = nil)
         # TODO - map locals to slot number

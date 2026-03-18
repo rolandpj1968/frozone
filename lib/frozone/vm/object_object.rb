@@ -163,7 +163,7 @@ module Frozone
             true
           end
           if visibility_ok
-            return method.invoke(context, self, args, kw_args, block)
+            return method.invoke(context, self, args, kw_args, block, callee_name: name)
           end
           # Visibility check failed — store violation info for method_missing / default error message
           Fiber[:mm_visibility_violation] = [method.visibility, name, @class_object.name]
