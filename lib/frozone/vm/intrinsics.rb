@@ -1,6 +1,11 @@
 module Frozone
   module Vm
     module Intrinsics
+      # Current Frozone (simulated) thread ID: nil = main thread, otherwise the
+      # object_id of the active Frozone Thread object (set by thread_save_reset_locals).
+      # Single-element array so it can be mutated from class methods.
+      CURRENT_FROZONE_THREAD_ID = [nil]
+
       class << self
         # Object
         def object_class(_, v) = v.class_object
@@ -448,19 +453,78 @@ module Frozone
           end
         end
 
-        def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = nil, _backtrace = nil, cause_arg = nil)
+        def exception_instance?(obj)
+          frozone_exc_class = Core::OBJECT_CLASS.get_constant(:Exception)
+          return false unless frozone_exc_class && obj.is_a?(ObjectObject)
+          c = obj.class_object
+          while c
+            return true if c.equal?(frozone_exc_class)
+            c = c.respond_to?(:superclass) ? c.superclass : nil
+          end
+          false
+        end
+
+        def validate_cause(cause, exc_obj)
+          return if cause.nil?
+          # cause must be an Exception instance or NilObject (nil)
+          raise FrozoneException.make(:TypeError, "exception object expected") unless exception_instance?(cause)
+          # self-cause: don't set if cause equals exc_obj
+          return if exc_obj && cause.equal?(exc_obj)
+          # circular cause check: walk cause chain looking for exc_obj
+          if exc_obj && exc_obj.is_a?(ObjectObject)
+            c = cause
+            while c && exception_instance?(c)
+              c_cause = c.get_ivar(:@cause)
+              break if c_cause.nil? || c_cause.is_a?(NilObject)
+              if c_cause.equal?(exc_obj)
+                raise FrozoneException.make(:ArgumentError, "circular causes")
+              end
+              c = c_cause
+            end
+          end
+        end
+
+        def apply_backtrace(exc_obj, backtrace_arg, context)
+          if backtrace_arg.is_a?(ArrayObject)
+            exc_obj.set_ivar(:@backtrace, backtrace_arg)
+            # Detect if elements are Thread::Backtrace::Location objects (not plain strings)
+            first = backtrace_arg.raw.first
+            has_locs = first.is_a?(ObjectObject) && !first.is_a?(StringObject)
+            exc_obj.set_ivar(:@_has_locations, has_locs ? TrueObject::TRUE : FalseObject::FALSE)
+          elsif !backtrace_arg.nil? && !backtrace_arg.is_a?(NilObject)
+            exc_obj.set_ivar(:@backtrace, backtrace_arg)
+            exc_obj.set_ivar(:@_has_locations, TrueObject::TRUE)
+          else
+            set_exc_backtrace(exc_obj, context)
+          end
+        end
+
+        def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = nil, backtrace_arg = nil, cause_arg = nil)
           current_exc = GLOBALS[:"$!"]
           no_cause_sentinel = cause_arg.is_a?(SymbolObject) && cause_arg.raw == :__raise_no_cause__
-          cause = if cause_arg.nil? || no_cause_sentinel
+          explicit_cause = !cause_arg.nil? && !no_cause_sentinel
+
+          # Distinguish bare `raise` (no args → :__raise_no_arg__ sentinel) from `raise(nil)` (explicit nil → TypeError)
+          no_arg_sentinel = msg.is_a?(SymbolObject) && msg.raw == :__raise_no_arg__
+
+          # ArgumentError: only cause: given with no positional args
+          if no_arg_sentinel && explicit_cause
+            raise FrozoneException.make(:ArgumentError, "only cause is given with no arguments")
+          end
+
+          # Validate explicit cause type before building exception
+          if explicit_cause && !cause_arg.is_a?(NilObject)
+            raise FrozoneException.make(:TypeError, "exception object expected") unless exception_instance?(cause_arg)
+          end
+
+          cause = if no_cause_sentinel
             (current_exc && !current_exc.is_a?(NilObject)) ? current_exc : nil
-          elsif cause_arg.is_a?(NilObject)
+          elsif cause_arg.nil? || cause_arg.is_a?(NilObject)
             nil
           else
             cause_arg
           end
 
-          # Distinguish bare `raise` (no args → :__raise_no_arg__ sentinel) from `raise(nil)` (explicit nil → TypeError)
-          no_arg_sentinel = msg.is_a?(SymbolObject) && msg.raw == :__raise_no_arg__
           if no_arg_sentinel
             # bare `raise` re-raises current exception or raises RuntimeError with empty message
             if cause
@@ -472,7 +536,7 @@ module Frozone
             raise exc
           elsif msg.is_a?(ClassObject) || msg.is_a?(ModuleObject)
             # raise SomeClass[, "message"] — call SomeClass.exception(message) to build instance
-            exc_obj = if message_arg
+            exc_obj = if message_arg && !message_arg.is_a?(NilObject)
               msg.dispatch(context, :exception, [message_arg], {})
             else
               msg.dispatch(context, :exception, [], {})
@@ -482,54 +546,34 @@ module Frozone
             rescue StandardError
               msg.name.to_s
             end
-            exc_obj.set_ivar(:@cause, cause) if cause
-            set_exc_backtrace(exc_obj, context)
+            effective_cause = (cause && !cause.equal?(exc_obj)) ? cause : nil
+            validate_cause(effective_cause, exc_obj)
+            exc_obj.set_ivar(:@cause, effective_cause) if effective_cause
+            apply_backtrace(exc_obj, backtrace_arg, context)
             raise FrozoneException.new(exc_obj, msg_str)
-          elsif msg.is_a?(StringObject)
+          elsif msg.is_a?(StringObject) && (message_arg.nil? || message_arg.is_a?(NilObject))
+            # raise "message" — create RuntimeError with string
             exc = FrozoneException.make(:RuntimeError, msg.raw)
-            exc.vm_object.set_ivar(:@cause, cause) if cause
-            set_exc_backtrace(exc.vm_object, context)
+            effective_cause = (cause && !cause.equal?(exc.vm_object)) ? cause : nil
+            exc.vm_object.set_ivar(:@cause, effective_cause) if effective_cause
+            apply_backtrace(exc.vm_object, backtrace_arg, context)
             raise exc
           else
             # raise exception_object — first check if it responds to #exception
             # (this implements the exception protocol: any object with #exception can be raised)
+            has_message_arg = !message_arg.nil? && !message_arg.is_a?(NilObject)
             exc_obj = begin
-              msg.dispatch(context, :exception, message_arg ? [message_arg] : [], {})
+              msg.dispatch(context, :exception, has_message_arg ? [message_arg] : [], {})
             rescue FrozoneException => nm_err
               # NoMethodError or similar — try using msg directly if it's Exception subclass
-              frozone_exc_class = Core::OBJECT_CLASS.get_constant(:Exception)
-              exc_hierarchy = msg.is_a?(ObjectObject) ? msg.class_object : nil
-              is_exc = frozone_exc_class && begin
-                c = exc_hierarchy
-                found = false
-                while c
-                  if c.equal?(frozone_exc_class)
-                    found = true
-                    break
-                  end
-                  c = c.respond_to?(:superclass) ? c.superclass : nil
-                end
-                found
-              end
+              is_exc = exception_instance?(msg)
               is_exc ? msg : (raise FrozoneException.make(:TypeError, "exception class/object expected"))
             rescue
               raise FrozoneException.make(:TypeError, "exception class/object expected")
             end
             # Verify the result is an exception instance
             if exc_obj.is_a?(ObjectObject)
-              frozone_exc_class = Core::OBJECT_CLASS.get_constant(:Exception)
-              if frozone_exc_class
-                c = exc_obj.class_object
-                is_exc = false
-                while c
-                  if c.equal?(frozone_exc_class)
-                    is_exc = true
-                    break
-                  end
-                  c = c.respond_to?(:superclass) ? c.superclass : nil
-                end
-                raise FrozoneException.make(:TypeError, "exception object expected") unless is_exc
-              end
+              raise FrozoneException.make(:TypeError, "exception object expected") unless exception_instance?(exc_obj)
             elsif !exc_obj.is_a?(FrozoneException)
               raise FrozoneException.make(:TypeError, "exception object expected")
             end
@@ -539,8 +583,14 @@ module Frozone
               nil
             end
             msg_str = msg_str.is_a?(StringObject) ? msg_str.raw : "exception"
-            exc_obj.set_ivar(:@cause, cause) if cause && !cause.equal?(exc_obj) && exc_obj.is_a?(ObjectObject)
-            set_exc_backtrace(exc_obj, context)
+            effective_cause = (cause && !cause.equal?(exc_obj)) ? cause : nil
+            validate_cause(effective_cause, exc_obj)
+            exc_obj.set_ivar(:@cause, effective_cause) if effective_cause && exc_obj.is_a?(ObjectObject)
+            # Only set backtrace if explicitly provided or exception has no backtrace yet
+            already_has_bt = exc_obj.is_a?(ObjectObject) && exc_obj.get_ivar(:@backtrace).is_a?(ArrayObject)
+            unless already_has_bt
+              apply_backtrace(exc_obj, backtrace_arg, context)
+            end
             raise FrozoneException.new(exc_obj, msg_str)
           end
         end
@@ -1143,10 +1193,12 @@ module Frozone
         def thread_save_reset_locals(_, thread_obj)
           THREAD_SAVED_LOCALS[thread_obj.object_id] = {
             dollar_underscore: GLOBALS.fetch(:"$_", NilObject::NIL),
-            dollar_question:   GLOBALS.fetch(:"$?", NilObject::NIL)
+            dollar_question:   GLOBALS.fetch(:"$?", NilObject::NIL),
+            frozone_thread_id: CURRENT_FROZONE_THREAD_ID[0]
           }
           GLOBALS[:"$_"] = NilObject::NIL
           GLOBALS.delete(:"$?")
+          CURRENT_FROZONE_THREAD_ID[0] = thread_obj.object_id
           NilObject::NIL
         end
 
@@ -1158,6 +1210,7 @@ module Frozone
           else
             GLOBALS.delete(:"$?")
           end
+          CURRENT_FROZONE_THREAD_ID[0] = saved.key?(:frozone_thread_id) ? saved[:frozone_thread_id] : nil
           NilObject::NIL
         end
 
@@ -1195,7 +1248,8 @@ module Frozone
             raise FrozoneException.make(:TypeError, "storage must be a Hash")
           end
 
-          fo = FiberObject.new(bo, blocking: blocking, initial_storage: init_storage)
+          fo = FiberObject.new(bo, blocking: blocking, initial_storage: init_storage,
+                               frozone_thread_id: CURRENT_FROZONE_THREAD_ID[0])
           fo.instance_variable_set(:@class_object, fiber_klass) if fiber_klass != (Core.fiber_class || Core::OBJECT_CLASS)
           fo
         end
@@ -1266,23 +1320,57 @@ module Frozone
           end
         end
 
-        def fiber_raise(context, fiber_obj, args)
+        def fiber_raise(context, fiber_obj, msg = NilObject::NIL, message_arg = nil, backtrace_arg = nil, cause_arg = nil)
           raise FrozoneException.make(:FiberError, "cannot raise exception on unborn fiber") if fiber_obj.is_a?(FiberObject) && fiber_obj.status == :created
+
+          # Validate cause: arg in calling context (TypeError/ArgumentError raised here, not in fiber)
+          no_cause_sentinel = cause_arg.is_a?(SymbolObject) && cause_arg.raw == :__raise_no_cause__
+          no_arg_sentinel = msg.is_a?(SymbolObject) && msg.raw == :__raise_no_arg__
+          explicit_cause = !cause_arg.nil? && !no_cause_sentinel
+
+          if no_arg_sentinel && explicit_cause
+            raise FrozoneException.make(:ArgumentError, "only cause is given with no arguments")
+          end
+
+          if explicit_cause && !cause_arg.is_a?(NilObject)
+            raise FrozoneException.make(:TypeError, "exception object expected") unless exception_instance?(cause_arg)
+          end
+
+          # If the target fiber is the currently running fiber (or its parent in the resume chain),
+          # raise directly rather than scheduling (avoids "double resume" error).
+          if fiber_obj.is_a?(FiberObject) && fiber_obj.status == :running
+            kernel_raise(context, NilObject::NIL, msg, message_arg, backtrace_arg, cause_arg)
+            return NilObject::NIL
+          end
+
           raise FrozoneException.make(:FiberError, "dead fiber called") if !fiber_obj.is_a?(FiberObject) || !fiber_obj.alive?
-          exc = build_frozone_exception(context, args.raw)
+
+          exc = begin
+            kernel_raise(context, NilObject::NIL, msg, message_arg, backtrace_arg, cause_arg)
+            FrozoneException.make(:RuntimeError, "")  # fallback if kernel_raise didn't raise (shouldn't happen)
+          rescue FrozoneException => e
+            e
+          end
+
           fiber_obj.schedule_raise(exc)
-          fiber_obj.resume(context, [])
+          fiber_obj.resume_for_raise(context)
         end
 
         def fiber_kill(context, fiber_obj)
           return NilObject::NIL unless fiber_obj.is_a?(FiberObject)
+          # Kill unborn fiber: just mark as dead
+          if fiber_obj.status == :created
+            fiber_obj.kill_unborn!
+            return NilObject::NIL
+          end
           return NilObject::NIL unless fiber_obj.alive?
           begin
-            exc = FrozoneException.make(:FiberError, "killed")
-            fiber_obj.schedule_raise(exc)
-            fiber_obj.resume(context, [])
+            fiber_obj.schedule_kill
+            fiber_obj.resume_for_raise(context)
           rescue FrozoneException
             # fiber terminated
+          rescue ::FiberError
+            # fiber error during kill
           end
           NilObject::NIL
         end

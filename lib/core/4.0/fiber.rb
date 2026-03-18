@@ -29,7 +29,16 @@ class Fiber
   def inspect             = Intrinsics.fiber_inspect(self)
   def to_s                = inspect
 
-  def raise(*args)        = Intrinsics.fiber_raise(self, args)
+  def raise(msg = :__raise_no_arg__, message = nil, backtrace = nil, cause: :__raise_no_cause__, **extra_kwargs)
+    # Extra kwargs (other than cause:) are passed as part of the message hash for compatibility
+    if extra_kwargs.empty?
+      Intrinsics.fiber_raise(self, msg, message, backtrace, cause)
+    else
+      msg_hash = message.nil? ? extra_kwargs : extra_kwargs
+      Intrinsics.fiber_raise(self, msg, msg_hash, backtrace, cause)
+    end
+  end
+
   def kill                = Intrinsics.fiber_kill(self)
 
   def storage             = Intrinsics.fiber_storage_hash(self)
