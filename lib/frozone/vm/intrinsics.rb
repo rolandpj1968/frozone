@@ -358,16 +358,30 @@ module Frozone
           val
         end
 
-        def io_popen_capture(_, cmd)
-          cmd_str = if cmd.is_a?(ArrayObject)
-            require 'shellwords'
-            cmd.raw.map { |a| a.is_a?(StringObject) ? a.raw : a.to_s }.shelljoin
-          elsif cmd.is_a?(StringObject)
-            cmd.raw
-          else
-            cmd.to_s
+        def io_popen_capture(_, cmd, opts_obj = NilObject::NIL)
+          # Convert opts HashObject to MRI hash
+          mri_opts = {}
+          if opts_obj.is_a?(HashObject) && !opts_obj.raw.empty?
+            opts_obj.raw.each do |k, v|
+              key = k.is_a?(SymbolObject) ? k.raw : k.raw.to_sym
+              val = case v
+                    when ArrayObject then v.raw.map { |e| e.is_a?(SymbolObject) ? e.raw : e.raw }
+                    when SymbolObject then v.raw
+                    when IntegerObject then v.raw
+                    else v.raw
+                    end
+              mri_opts[key] = val
+            end
           end
-          output = ::IO.popen(cmd_str, 'r', &:read) rescue ""
+
+          output = if cmd.is_a?(ArrayObject)
+            cmd_arr = cmd.raw.map { |a| a.is_a?(StringObject) ? a.raw : a.to_s }
+            ::IO.popen(cmd_arr, 'r', **mri_opts, &:read) rescue ""
+          elsif cmd.is_a?(StringObject)
+            ::IO.popen(cmd.raw, 'r', **mri_opts, &:read) rescue ""
+          else
+            ::IO.popen(cmd.to_s, 'r', **mri_opts, &:read) rescue ""
+          end
           GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
           StringObject.new(output || "")
         end
@@ -1941,13 +1955,16 @@ module Frozone
         end
 
         def module_used_refinements(context, _klass)
-          # used_refinements returns refinements active in the CALLING scope,
-          # not in the scope where used_refinements itself was defined.
-          # Walk up the call stack to find the first frame with active refinements
-          # that belongs to a non-method scope (module/class body context).
-          # The direct caller of Module.used_refinements (parent_frame) has the refinements.
-          frame = context.frame&.parent_frame
+          # used_refinements returns refinements active in the CALLING scope.
+          # When called as an intrinsic, context.frame is the module body frame itself.
+          # When called via a method wrapper, context.frame is the method frame and
+          # context.frame.parent_frame is the module body frame.
+          # Check both: current frame and its parent.
+          frame = context.frame
           refs = frame&.active_refinements
+          if (refs.nil? || refs.empty?) && frame
+            refs = frame.parent_frame&.active_refinements
+          end
           return ArrayObject.new([]) unless refs && !refs.empty?
           ArrayObject.new(refs.values)
         end
@@ -1962,7 +1979,7 @@ module Frozone
           all_refs = own_refs.dup
           all_refs[refined_class.object_id] = refinement_mod if refined_class
 
-          block_obj = block.is_a?(BlockObject) ? block : (block.is_a?(ProcObject) ? block.block : block)
+          block_obj = block.is_a?(BlockObject) ? block : (block.is_a?(ProcObject) ? block.block_object : block)
           unless block_obj.is_a?(BlockObject)
             module_eval(context, refinement_mod, block)
             return NilObject::NIL
@@ -3160,6 +3177,41 @@ module Frozone
         def toplevel_public(context, _, names)    = module_set_visibility(context, Core::OBJECT_CLASS, names, :public)
         def toplevel_private(context, _, names)   = module_set_visibility(context, Core::OBJECT_CLASS, names, :private)
         def toplevel_protected(context, _, names) = module_set_visibility(context, Core::OBJECT_CLASS, names, :protected)
+
+        # main.define_method(name, callable_or_nil, &block) → delegates to Object.define_method
+        # args_array collects [name] or [name, callable]; block is the block arg.
+        def toplevel_define_method(context, _, args_array, block)
+          args = args_array.raw
+          name_obj = args[0]
+          callable = args.length > 1 ? args[1] : nil
+          effective = if callable.nil? || callable.is_a?(NilObject)
+            block
+          else
+            callable
+          end
+          unless effective && !effective.is_a?(NilObject)
+            raise FrozoneException.make(:ArgumentError, "tried to create Proc object without a block")
+          end
+          # top-level define_method always creates a public method on Object
+          # (unlike module context where current_visibility applies)
+          prev_vis = Core::OBJECT_CLASS.current_visibility
+          Core::OBJECT_CLASS.current_visibility = :public
+          begin
+            module_define_method(context, Core::OBJECT_CLASS, name_obj, effective)
+          ensure
+            Core::OBJECT_CLASS.current_visibility = prev_vis
+          end
+        end
+
+        def toplevel_ruby2_keywords(context, _, names)
+          module_ruby2_keywords(context, Core::OBJECT_CLASS, names)
+        end
+
+        def toplevel_using(context, _receiver, mod_array)
+          mod = mod_array.raw.first
+          raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given 0, expected 1)") if mod.nil?
+          module_using(context, _receiver, mod)
+        end
 
         # Kernel require/load
         def kernel_require(_, _receiver, path_obj)

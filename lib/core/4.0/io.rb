@@ -10,8 +10,8 @@ class IO
     def close            = self
   end
 
-  def self.popen(cmd, mode = 'r', &block)
-    output = Intrinsics.io_popen_capture(cmd)
+  def self.popen(cmd, mode = 'r', **opts, &block)
+    output = Intrinsics.io_popen_capture(cmd, opts)
     io = CapturedOutput.new(output)
     if block
       result = block.call(io)

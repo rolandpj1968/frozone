@@ -194,12 +194,24 @@ module Frozone
 
       # Attach 'main' proxy singleton methods for private/public/protected → Object
       def setup_main(main_obj)
-        { private: :toplevel_private, public: :toplevel_public, protected: :toplevel_protected, include: :toplevel_include }.each do |name, intrinsic|
+        # Private proxy methods: private, public, protected, include, ruby2_keywords
+        { private: :toplevel_private, public: :toplevel_public, protected: :toplevel_protected, include: :toplevel_include, ruby2_keywords: :toplevel_ruby2_keywords }.each do |name, intrinsic|
           body = Ast::IntrinsicCall.new(intrinsic, [Ast::SelfLiteral::SELF, Ast::LocalVariableRead.new(:names, 0)])
           m = Method.new([Core::OBJECT_CLASS], name, [], [], :names, [], [], [], nil, nil, [:names], body)
+          m.visibility = :private
           main_obj.define_singleton_method(name, m)
         end
-        # main.to_s / main.inspect return "main" (Ruby top-level object identity)
+        # main.define_method(name, callable=nil, &block) — defines on Object as public (private access)
+        define_method_body = Ast::IntrinsicCall.new(:toplevel_define_method, [Ast::SelfLiteral::SELF, Ast::LocalVariableRead.new(:args, 0), Ast::LocalVariableRead.new(:block, 0)])
+        define_method_m = Method.new([Core::OBJECT_CLASS], :define_method, [], [], :args, [], [], [], nil, :block, %i[args block], define_method_body)
+        define_method_m.visibility = :private
+        main_obj.define_singleton_method(:define_method, define_method_m)
+        # main.using(mod) — activates refinements in the current file scope (private)
+        using_body = Ast::IntrinsicCall.new(:toplevel_using, [Ast::SelfLiteral::SELF, Ast::LocalVariableRead.new(:names, 0)])
+        using_m = Method.new([Core::OBJECT_CLASS], :using, [], [], :names, [], [], [], nil, nil, [:names], using_body)
+        using_m.visibility = :private
+        main_obj.define_singleton_method(:using, using_m)
+        # main.to_s / main.inspect return "main" (Ruby top-level object identity) — public
         main_str = Ast::StringLiteral.from("main")
         [:to_s, :inspect].each do |name|
           m = Method.new([Core::OBJECT_CLASS], name, [], [], nil, [], [], [], nil, nil, [], main_str)
