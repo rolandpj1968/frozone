@@ -29,10 +29,38 @@ class File
   def self.zero?(path)         = Intrinsics.file_zero(path)
   def self.absolute_path(path, base = nil) = Intrinsics.file_expand_path(path, base)
   def self.chmod(mode, *paths) = nil
-  def self.stat(path)          = Intrinsics.file_stat(path)
-  def self.lstat(path)         = Intrinsics.file_stat(path)
+  def self.stat(path)  = Stat.new(path)
+  def self.lstat(path) = Stat.new(path)
   def self.binread(path, length = nil, offset = nil) = Intrinsics.file_read(path)
   def self.binwrite(path, content, offset = nil) = Intrinsics.file_write(path, content)
   def self.fnmatch(pattern, path, flags = 0)  = Intrinsics.file_fnmatch(pattern, path, flags)
   def self.fnmatch?(pattern, path, flags = 0) = Intrinsics.file_fnmatch(pattern, path, flags)
+
+  def self.umask(new_mask = nil) = Intrinsics.file_umask(new_mask)
+
+  class Stat
+    def initialize(path)
+      @path = path
+    end
+
+    def directory?    = File.directory?(@path)
+    def file?         = File.file?(@path)
+    def readable?     = File.readable?(@path)
+    def writable?     = File.writable?(@path)
+    def executable?   = File.executable?(@path)
+    def symlink?      = File.symlink?(@path)
+    def zero?         = File.zero?(@path)
+    def size          = File.size(@path)
+    def world_writable?
+      mode = Intrinsics.file_stat_mode(@path)
+      (mode & 0o002) != 0
+    end
+
+    def sticky?
+      mode = Intrinsics.file_stat_mode(@path)
+      (mode & 0o001000) != 0
+    end
+
+    def mode = Intrinsics.file_stat_mode(@path)
+  end
 end

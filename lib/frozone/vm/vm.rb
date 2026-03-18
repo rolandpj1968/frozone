@@ -84,7 +84,9 @@ module Frozone
         Core::OBJECT_CLASS.set_constant(:ARGF, GLOBALS[:"$<"] || NilObject::NIL)
 
         script_argv = @options[:argv][1..] || []
-        Core::OBJECT_CLASS.set_constant(:ARGV, ArrayObject.new(script_argv.map { |a| StringObject.new(a) }))
+        argv_obj = ArrayObject.new(script_argv.map { |a| StringObject.new(a) })
+        Core::OBJECT_CLASS.set_constant(:ARGV, argv_obj)
+        GLOBALS[:"$*"] = argv_obj
 
         scripts = @options[:scripts]
 
@@ -239,6 +241,7 @@ module Frozone
         GLOBALS[:"$stderr"]          = IOObject.new($stderr, io_class)
         GLOBALS[:"$stdin"]           = IOObject.new($stdin,  io_class)
         GLOBALS[:"$>"]               = GLOBALS[:"$stdout"]
+        GLOBALS[:"$<"]               = GLOBALS[:"$stdin"]
         GLOBALS[:"$0"]               = StringObject.new($0.to_s)
         GLOBALS[:"$PROGRAM_NAME"]    = GLOBALS[:"$0"]
         setup_frozone_land
