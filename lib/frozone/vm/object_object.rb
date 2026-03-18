@@ -90,12 +90,63 @@ module Frozone
         lookup_class.lookup_method(name)
       end
 
+      # Look up a method with active refinements using correct interleaved priority:
+      # 1. Singleton class (eigenclass) methods always win over refinements
+      # 2. For each ancestor in MRO order: refinement for that ancestor, then ancestor's own method
+      # This implements Ruby's refinement lookup: refinements override a class's OWN methods,
+      # but NOT methods defined in subclasses (which appear earlier in the MRO).
+      def lookup_method_with_refinements(name, active_refinements)
+        # Eigenclass (singleton class) methods take priority over ALL refinements.
+        if is_a?(ClassObject)
+          if @eigenclass
+            m = @eigenclass.lookup_method(name)
+            return nil if m.nil? && @eigenclass.get_method(name) == ModuleObject::UNDEF_SENTINEL
+            return m if m
+          end
+          c = superclass
+          while c
+            ec_m = c.eigenclass_method(name)
+            return nil if ec_m == ModuleObject::UNDEF_SENTINEL
+            return ec_m unless ec_m.nil?
+            c = c.is_a?(ClassObject) ? c.superclass : nil
+          end
+          return @class_object&.lookup_method(name)
+        end
+
+        # For non-ClassObjects: check eigenclass first
+        if @eigenclass
+          m = @eigenclass.lookup_method(name)
+          return m if m
+        end
+
+        # Walk ancestors in MRO order, interleaving refinements with own methods.
+        # ancestors_list includes all prepends, the class, and includes in correct order.
+        @class_object.ancestors_list.each do |ancestor|
+          ref_mod = active_refinements[ancestor.object_id]
+          if ref_mod
+            m = ref_mod.get_method(name)
+            return m if m && m != ModuleObject::UNDEF_SENTINEL
+          end
+          m = ancestor.get_method(name)
+          return nil if m == ModuleObject::UNDEF_SENTINEL
+          return m if m
+        end
+        nil
+      end
+
       # Shared dispatch: look up and invoke a method on self by Symbol name.
       # Falls back to method_missing if the method is not found.
       # private_ok: true when called with implicit receiver (no explicit receiver in source)
       # implicit_self: true for bare-word calls (no receiver) — raises NameError vs NoMethodError on miss
       def dispatch(context, name, args, kw_args, block = nil, private_ok: false, implicit_self: false, public_only: false)
-        method = lookup_instance_method(name)
+        # When active refinements are present, use interleaved lookup (refinements + normal).
+        # Otherwise use the standard lookup.
+        active_refinements = context&.frame&.active_refinements
+        method = if active_refinements && !active_refinements.empty?
+          lookup_method_with_refinements(name, active_refinements)
+        else
+          lookup_instance_method(name)
+        end
         unless method.nil?
           visibility_ok = case method.visibility
           when :private

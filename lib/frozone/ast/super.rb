@@ -22,23 +22,8 @@ module Frozone
         defining_class = current_method.scopes.last
 
         receiver = context.frame.the_self
-        if receiver.is_a?(Vm::ClassObject)
-          # Class method: search in singleton class hierarchy
-          klass  = receiver.singleton_class
-          origin = defining_class.is_a?(Vm::ClassObject) ? defining_class.singleton_class : defining_class
-        else
-          # If origin is not in the instance class ancestors, it must be from the singleton chain
-          class_ancs = receiver.class_object.ancestors_list
-          if class_ancs.any? { |a| a.equal?(defining_class) }
-            klass  = receiver.class_object
-            origin = defining_class
-          else
-            klass  = receiver.singleton_class
-            origin = defining_class
-          end
-        end
 
-        super_method = klass.lookup_method_after(method_name, origin)
+        super_method = resolve_super_method(receiver, method_name, defining_class)
         if super_method.nil?
           raise Vm::FrozoneException.make(:NoMethodError, "super: no superclass method '#{method_name}' for an instance of #{receiver.class_object.name}")
         end
@@ -114,6 +99,36 @@ module Frozone
                        (calling_method_frame.nil? && e.method_frame.nil? && @block_node.is_a?(Block))
           e.value
         end
+      end
+
+      private
+
+      def resolve_super_method(receiver, method_name, defining_class)
+        # If defined inside a refine block, super looks in the refined class (ignoring other refinements).
+        if defining_class.is_a?(Vm::ModuleObject)
+          refined_class_obj = defining_class.get_ivar(:@__refined_class__)
+          if refined_class_obj && !refined_class_obj.is_a?(Vm::NilObject)
+            return refined_class_obj.lookup_method(method_name)
+          end
+        end
+
+        if receiver.is_a?(Vm::ClassObject)
+          # Class method: search in singleton class hierarchy
+          klass  = receiver.singleton_class
+          origin = defining_class.is_a?(Vm::ClassObject) ? defining_class.singleton_class : defining_class
+        else
+          # If origin is not in the instance class ancestors, it must be from the singleton chain
+          class_ancs = receiver.class_object.ancestors_list
+          if class_ancs.any? { |a| a.equal?(defining_class) }
+            klass  = receiver.class_object
+            origin = defining_class
+          else
+            klass  = receiver.singleton_class
+            origin = defining_class
+          end
+        end
+
+        klass.lookup_method_after(method_name, origin)
       end
     end
   end

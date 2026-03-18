@@ -12,6 +12,8 @@ module Frozone
       attr_reader :required_params, :optional_params, :rest_param, :post_params
       attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
       attr_accessor :visibility, :nested_def_scope, :original_owner
+      attr_accessor :active_refinements  # refinements active at method definition site
+      attr_accessor :refining_module     # if set, collect all refinements from this module at invoke time
 
       attr_reader :uses_block, :source_location, :body
 
@@ -182,6 +184,14 @@ module Frozone
         new_frame.incoming_call_site = context&.call_site
         # def inside a method body goes to the method's defining scope, not the call-site scope
         new_frame.def_scope = @nested_def_scope || @scopes.last
+        # Refinements active at definition site are active during invocation.
+        # If refining_module is set, dynamically collect ALL current refinements from that module
+        # (enables cross-refinement calls within the same refinement module).
+        if @refining_module
+          new_frame.active_refinements = collect_refining_module_refs(@refining_module)
+        elsif @active_refinements
+          new_frame.active_refinements = @active_refinements
+        end
 
         # **nil parameter: reject any keyword arguments
         if @kw_rest_param == :__no_kwargs__ && !kw_args.empty?
@@ -257,6 +267,8 @@ module Frozone
         m = Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
         m.original_owner = @original_owner
         m.visibility = @visibility
+        m.active_refinements = @active_refinements
+        m.refining_module = @refining_module
         m.instance_variable_set(:@ruby2_keywords_holder, @ruby2_keywords_holder)
         m
       end
@@ -265,12 +277,45 @@ module Frozone
         m = Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
         m.visibility = vis
         m.original_owner = original_owner || @original_owner
+        m.active_refinements = @active_refinements
+        m.refining_module = @refining_module
         m
       end
 
       def bound_copy(name, new_scope)
-        Method.new([new_scope], name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
+        m = Method.new([new_scope], name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
+        m.active_refinements = @active_refinements
+        m.refining_module = @refining_module
+        m
       end
+
+      private
+
+      # Collect all refinements from a refining module at call time (for cross-refinement support).
+      # The module's @__refinements__ is a Frozone HashObject with IntegerObject keys.
+      def collect_refining_module_refs(mod)
+        refinements = {}
+        refs_obj = mod.get_ivar(:@__refinements__)
+        unless refs_obj.is_a?(NilObject) || !refs_obj.is_a?(HashObject)
+          refs_obj.raw.each do |k, v|
+            key = k.is_a?(IntegerObject) ? k.raw : k
+            refinements[key] = v if v.is_a?(ModuleObject)
+          end
+        end
+        mod.ancestors_list.each do |ancestor|
+          next if ancestor.equal?(mod)
+          next unless ancestor.is_a?(ModuleObject) && !ancestor.is_a?(ClassObject)
+          anc_refs_obj = ancestor.get_ivar(:@__refinements__)
+          next if anc_refs_obj.is_a?(NilObject) || !anc_refs_obj.is_a?(HashObject)
+          anc_refs_obj.raw.each do |k, v|
+            key = k.is_a?(IntegerObject) ? k.raw : k
+            refinements[key] ||= v if v.is_a?(ModuleObject)
+          end
+        end
+        refinements
+      end
+
+      public
 
       # TODO - thread-safety
       # TODO - surely this does not belong here? There must be other uses of unique scopes?

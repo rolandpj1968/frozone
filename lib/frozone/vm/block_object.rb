@@ -46,6 +46,9 @@ module Frozone
           @enclosing_frame.scopes,
           @enclosing_frame
         )
+        # Inherit active refinements and refining-module context from enclosing frame (lexical scope)
+        new_frame.active_refinements = @enclosing_frame.active_refinements if @enclosing_frame.active_refinements
+        new_frame.current_refining_module = @enclosing_frame.current_refining_module if @enclosing_frame.current_refining_module
 
         # Block auto-splat: when called with single arg and block expects multiple
         if @auto_splat && !as_method && args.length == 1
