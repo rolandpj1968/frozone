@@ -3194,6 +3194,37 @@ module Frozone
           binding_obj.captured_frame.the_self
         end
 
+        def binding_local_variable_get(_, binding_obj, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          frame = binding_obj.captured_frame
+          raise FrozoneException.make(:NameError, "local variable `#{name}' not defined for #{frame.the_self.inspect}") unless frame.local_names.include?(name)
+          frame.get_local(name)
+        end
+
+        def binding_local_variable_set(_, binding_obj, name_obj, value)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          binding_obj.captured_frame.set_local(name, value)
+          value
+        end
+
+        def binding_local_variable_defined_q(_, binding_obj, name_obj)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
+          bool_object_for(binding_obj.captured_frame.local_names.include?(name))
+        end
+
+        def binding_source_location(_, binding_obj)
+          frame = binding_obj.captured_frame
+          loc = frame.incoming_call_site
+          return NilObject::NIL unless loc
+          parts = loc.split(":")
+          return NilObject::NIL unless parts.length >= 2
+          ArrayObject.new([StringObject.new(parts[0]), IntegerObject.new(parts[1].to_i)])
+        end
+
+        def binding_dup(_, binding_obj)
+          BindingObject.new(binding_obj.captured_frame)
+        end
+
         def kernel_eval(context, _receiver, code_obj, binding_arg = NilObject::NIL, filename_arg = NilObject::NIL, lineno_arg = NilObject::NIL)
           return NilObject::NIL unless code_obj.is_a?(StringObject)
           code = code_obj.raw
