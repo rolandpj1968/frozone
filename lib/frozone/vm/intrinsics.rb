@@ -2293,6 +2293,8 @@ module Frozone
         def bound_method_source_location(_, receiver)
           return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
           m = receiver.raw_method
+          # Resolve VisibilityOverride to the underlying method
+          m = m.original_owner.lookup_method(m.method_name) if m.is_a?(ModuleObject::VisibilityOverride)
           m = m.block_obj if m.is_a?(DefinedMethod)
           if m.is_a?(Method) && m.source_location
             file, line = m.source_location.split(":")
@@ -2344,12 +2346,19 @@ module Frozone
           # For aliased methods, the raw Method preserves its original name (alias_as keeps @name).
           # Use that original name for the ancestor lookup so we find the right super method.
           orig_raw = receiver.raw_method
-          lookup_name = orig_raw.is_a?(Method) ? orig_raw.name : receiver.bound_name
-          raw = orig_raw.is_a?(DefinedMethod) ? orig_raw.block_obj : orig_raw
-          # For visibility-changed methods, the raw_method has original_owner pointing to
-          # the actual defining class. Use that as the origin for super lookup so we skip
-          # over the visibility wrapper stored in owner's class.
-          origin = (raw.is_a?(Method) && raw.original_owner) || owner
+          # VisibilityOverride: the actual method lives in original_owner under method_name.
+          # Use those for lookup so super skips the module where the override was created.
+          if orig_raw.is_a?(ModuleObject::VisibilityOverride)
+            lookup_name = orig_raw.method_name
+            origin = orig_raw.original_owner
+          else
+            lookup_name = orig_raw.is_a?(Method) ? orig_raw.name : receiver.bound_name
+            raw = orig_raw.is_a?(DefinedMethod) ? orig_raw.block_obj : orig_raw
+            # For visibility-changed methods, the raw_method has original_owner pointing to
+            # the actual defining class. Use that as the origin for super lookup so we skip
+            # over the visibility wrapper stored in owner's class.
+            origin = (raw.is_a?(Method) && raw.original_owner) || owner
+          end
           m = lookup_klass.lookup_method_after(lookup_name, origin)
           return NilObject::NIL unless m
           super_owner = lookup_klass.lookup_method_owner_after(lookup_name, origin) || lookup_klass
@@ -3082,6 +3091,13 @@ module Frozone
 
         def proc_binding(_, proc_obj)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
+          # A proc created from a Method (via to_proc) wraps a BoundMethodObject.
+          # Synthesise a binding whose self is the method's receiver.
+          if blk.is_a?(BoundMethodObject)
+            scopes = blk.bound_owner ? [blk.bound_owner] : []
+            frame = Frame.new(blk.bound_receiver, [], scopes)
+            return BindingObject.new(frame)
+          end
           frame = blk.is_a?(BlockObject) ? blk.enclosing_frame : nil
           return NilObject::NIL unless frame
           BindingObject.new(frame)
