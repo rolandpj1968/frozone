@@ -804,6 +804,10 @@ module Frozone
               type = frozone_class_name(mod)
               raise FrozoneException.make(:TypeError, "wrong argument type #{type} (expected Module)")
             end
+            # Refinement modules cannot be included
+            if mod.is_a?(ModuleObject) && mod.get_ivar(:@__refinement__)&.truthy?
+              raise FrozoneException.make(:TypeError, "Cannot include refinement")
+            end
             mod.dispatch(context, :append_features, [receiver], {}, nil, private_ok: true)
             begin
               mod.dispatch(context, :included, [receiver], {}, nil, private_ok: true)
@@ -823,6 +827,10 @@ module Frozone
             if !is_module || is_class
               type = frozone_class_name(mod)
               raise FrozoneException.make(:TypeError, "wrong argument type #{type} (expected Module)")
+            end
+            # Refinement modules cannot be prepended
+            if mod.is_a?(ModuleObject) && mod.get_ivar(:@__refinement__)&.truthy?
+              raise FrozoneException.make(:TypeError, "Cannot prepend refinement")
             end
             mod.dispatch(context, :prepend_features, [receiver], {}, nil, private_ok: true)
             begin

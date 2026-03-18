@@ -221,7 +221,12 @@ class Module
     raise ArgumentError, "wrong number of arguments (given 0, expected 1)" if klass.nil? && !block
     raise ArgumentError, "no block given" unless block
     raise TypeError, "wrong argument type #{klass.class} (expected Class or Module)" unless klass.is_a?(Module)
-    # Refinements not yet implemented — return a stub anonymous module
-    Module.new
+    # Return an anonymous module representing the refinement.
+    # Mark it so include/prepend can raise "Cannot include/prepend refinement".
+    # Refinement activation via `using` is not yet implemented.
+    refinement = Module.new
+    refinement.instance_variable_set(:@__refinement__, true)
+    refinement.instance_eval(&block)
+    refinement
   end
 end
