@@ -25,7 +25,10 @@ module Frozone
         scope.set_constant(@name, value, source_location: source_location)
         # Auto-name anonymous classes/modules when first assigned to a constant
         ConstantWrite.maybe_set_name(value, @name, scope)
+        prev_call_site = context.call_site
+        context.call_site = "#{source_location[0]}:#{source_location[1]}" if source_location
         Vm.trigger_const_added(context, scope, @name)
+        context.call_site = prev_call_site
         value
       end
 

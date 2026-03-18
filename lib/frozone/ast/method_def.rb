@@ -60,6 +60,8 @@ module Frozone
           method = Vm::Method.new(method_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
           private_by_default = %i[initialize initialize_copy initialize_dup initialize_clone respond_to_missing?].include?(@name)
           vis = private_by_default ? :private : (inside_method ? :public : scope.current_visibility)
+          prev_call_site = context.call_site
+          context.call_site = @source_location if @source_location
           if vis == :module_function
             # module_function: private instance method + public singleton method
             method.visibility = :private
@@ -76,6 +78,7 @@ module Frozone
             scope.set_method(@name, method)
             Vm::Intrinsics.trigger_method_added(context, scope, @name)
           end
+          context.call_site = prev_call_site
         else
           # For singleton methods: `def obj.foo` or `def self.foo`
           receiver_val = @receiver_node.evaluate(context)
@@ -105,7 +108,10 @@ module Frozone
           # For instance singleton methods, nested `def` should go to the enclosing class (like MRI nesting)
           method.nested_def_scope = frame_scopes.last unless receiver_val.is_a?(Vm::ClassObject)
           receiver_val.define_singleton_method(@name, method)
+          prev_call_site = context.call_site
+          context.call_site = @source_location if @source_location
           Vm::Intrinsics.trigger_method_added(context, receiver_val.singleton_class, @name)
+          context.call_site = prev_call_site
         end
         Vm::SymbolObject.from(@name)
       end

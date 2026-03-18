@@ -48,7 +48,10 @@ module Frozone
             module_constant = Vm::ModuleObject.new(@name, namespace)
             module_constant.mark_name_permanent! if container.equal?(Vm::Core::OBJECT_CLASS) || container.name_permanent
             container.set_constant(@name, module_constant, source_location: @source_location)
+            prev_call_site = context.call_site
+            context.call_site = "#{@source_location[0]}:#{@source_location[1]}" if @source_location
             Vm.trigger_const_added(context, container, @name)
+            context.call_site = prev_call_site
           end
         else
           # Use the LEXICAL scope (frame's definition-site scopes) for constant lookup/assignment.
@@ -73,7 +76,10 @@ module Frozone
             module_constant = Vm::ModuleObject.new(@name, namespace)
             module_constant.mark_name_permanent! if lex_scope.equal?(Vm::Core::OBJECT_CLASS) || lex_scope.name_permanent
             lex_scope.set_constant(@name, module_constant, source_location: @source_location)
+            prev_call_site = context.call_site
+            context.call_site = "#{@source_location[0]}:#{@source_location[1]}" if @source_location
             Vm.trigger_const_added(context, lex_scope, @name)
+            context.call_site = prev_call_site
           end
         end
 

@@ -29,11 +29,19 @@ module Frozone
 
         # Check for autoloads in lexical scope chain before const_missing
         scope = context.frame.scopes.last || Vm::Core::OBJECT_CLASS
-        autoload_path = Vm::ModuleObject.lookup_autoload_for_const(@name, context.frame.scopes)
+        autoload_path, autoload_scope = Vm::ModuleObject.lookup_autoload_for_const_with_scope(@name, context.frame.scopes)
         if autoload_path
           Vm::Intrinsics.kernel_require(context, nil, Vm::StringObject.new(autoload_path))
+          # If the declaring scope didn't get the constant, warn once in verbose mode
+          if autoload_scope && autoload_scope.get_constant(@name).nil?
+            if Vm::GLOBALS.fetch(:"$VERBOSE", Vm::FalseObject::FALSE).truthy?
+              scope_name = autoload_scope.full_name
+              Vm.emit_warning(context, "Expected #{autoload_path} to define #{scope_name}::#{@name} but it didn't")
+            end
+            autoload_scope.remove_autoload(@name)
+          end
           val = Vm::ModuleObject.lookup_constant(@name, context.frame.scopes)
-          # File loaded but constant not defined: fall through to const_missing
+          # File loaded but constant not defined anywhere: fall through to const_missing
           return val unless val.nil?
         end
 

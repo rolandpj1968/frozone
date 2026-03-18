@@ -53,7 +53,10 @@ module Frozone
             class_constant = Vm::ClassObject.new(@name, namespace, superclass)
             class_constant.mark_name_permanent! if container.equal?(Vm::Core::OBJECT_CLASS) || container.name_permanent
             container.set_constant(@name, class_constant, source_location: @source_location)
+            prev_call_site = context.call_site
+            context.call_site = "#{@source_location[0]}:#{@source_location[1]}" if @source_location
             Vm.trigger_const_added(context, container, @name)
+            context.call_site = prev_call_site
             dispatch_inherited(context, superclass, class_constant)
           elsif @superclass_node
             superclass = @superclass_node.evaluate(context)
@@ -94,7 +97,10 @@ module Frozone
             class_constant = Vm::ClassObject.new(@name, namespace, sc)
             class_constant.mark_name_permanent! if lex_scope.equal?(Vm::Core::OBJECT_CLASS) || lex_scope.name_permanent
             lex_scope.set_constant(@name, class_constant, source_location: @source_location)
+            prev_call_site = context.call_site
+            context.call_site = "#{@source_location[0]}:#{@source_location[1]}" if @source_location
             Vm.trigger_const_added(context, lex_scope, @name)
+            context.call_site = prev_call_site
             dispatch_inherited(context, sc, class_constant)
           elsif @superclass_node
             raise Vm::FrozoneException.make(:TypeError, "superclass mismatch for class #{@name}") unless class_constant.superclass.equal?(superclass)
