@@ -185,6 +185,7 @@ module Frozone
         evaluate_file("#{core_path}/struct.rb")
         evaluate_file("#{core_path}/set.rb")
         evaluate_file("#{core_path}/random.rb")
+        evaluate_file("#{core_path}/objectspace.rb")
         evaluate_file("#{core_path}/rubygems.rb")
         init_globals
       end

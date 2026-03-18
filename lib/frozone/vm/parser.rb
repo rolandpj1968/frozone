@@ -415,7 +415,20 @@ module Frozone
           flags |= Regexp::IGNORECASE if prism_node.ignore_case?
           flags |= Regexp::MULTILINE  if prism_node.multi_line?
           flags |= Regexp::EXTENDED   if prism_node.extended?
-          Ast::RegexpLiteral.new(prism_node.unescaped, flags)
+          enc_name = if prism_node.utf_8?
+            flags |= Regexp::FIXEDENCODING
+            'UTF-8'
+          elsif prism_node.euc_jp?
+            flags |= Regexp::FIXEDENCODING
+            'EUC-JP'
+          elsif prism_node.windows_31j?
+            flags |= Regexp::FIXEDENCODING
+            'Windows-31J'
+          elsif prism_node.ascii_8bit?
+            flags |= Regexp::NOENCODING
+            nil
+          end
+          Ast::RegexpLiteral.new(prism_node.unescaped, flags, enc_name)
 
         when Prism::MatchLastLineNode
           # `/pattern/` used as condition without explicit matchee → matches against $_
@@ -423,7 +436,16 @@ module Frozone
           flags |= Regexp::IGNORECASE if prism_node.ignore_case?
           flags |= Regexp::MULTILINE  if prism_node.multi_line?
           flags |= Regexp::EXTENDED   if prism_node.extended?
-          regexp = Ast::RegexpLiteral.new(prism_node.unescaped, flags)
+          enc_name = if prism_node.utf_8?
+            flags |= Regexp::FIXEDENCODING; 'UTF-8'
+          elsif prism_node.euc_jp?
+            flags |= Regexp::FIXEDENCODING; 'EUC-JP'
+          elsif prism_node.windows_31j?
+            flags |= Regexp::FIXEDENCODING; 'Windows-31J'
+          elsif prism_node.ascii_8bit?
+            flags |= Regexp::NOENCODING; nil
+          end
+          regexp = Ast::RegexpLiteral.new(prism_node.unescaped, flags, enc_name)
           dollar_underscore = Ast::GlobalVariableRead.new(:"$_")
           Ast::MethodCall.new(:=~, regexp, [dollar_underscore], {}, nil)
 

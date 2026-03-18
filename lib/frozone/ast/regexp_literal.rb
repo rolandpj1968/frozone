@@ -4,14 +4,15 @@ require_relative '../vm/regexp_object'
 module Frozone
   module Ast
     class RegexpLiteral < Node
-      def initialize(source, flags)
+      def initialize(source, flags, encoding_name = nil)
         @source = source
         @flags  = flags
+        @encoding_name = encoding_name
         @cached = nil
       end
 
       def evaluate(_context)
-        @cached ||= Vm::RegexpObject.new(@source, @flags)
+        @cached ||= Vm::RegexpObject.new(@source, @flags, @encoding_name).tap(&:freeze_object!)
       end
     end
 

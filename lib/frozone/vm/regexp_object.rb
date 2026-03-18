@@ -6,9 +6,14 @@ module Frozone
     class RegexpObject < ObjectObject
       attr_reader :raw
 
-      def initialize(source, flags = 0)
+      def initialize(source, flags = 0, encoding_name = nil)
         super(Core::OBJECT_CLASS.get_constant(:Regexp))
-        @raw = Regexp.new(source, flags)
+        if encoding_name
+          src = source.dup.force_encoding(encoding_name)
+          @raw = Regexp.new(src, flags)
+        else
+          @raw = Regexp.new(source, flags)
+        end
       end
 
       def truthy? = true

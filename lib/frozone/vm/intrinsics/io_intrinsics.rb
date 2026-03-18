@@ -141,10 +141,10 @@ module Frozone
         def time_to_s(_, t) = StringObject.new(t.raw.to_s)
 
         # Regexp
-        def update_match_globals(m)
+        def update_match_globals(m, regexp_obj = nil)
           Fiber[:last_match] = m
           if m
-            md = MatchDataObject.new(m)
+            md = MatchDataObject.new(m, regexp_obj)
             GLOBALS[:"$~"] = md
             m.captures.each_with_index do |cap, i|
               GLOBALS[:"$#{i + 1}"] = cap ? StringObject.new(cap) : NilObject::NIL
@@ -169,21 +169,42 @@ module Frozone
           bool_object_for(r1.raw == r2.raw)
         end
 
-        def regexp_new(_, pattern, options = nil)
-          pat_raw = pattern.is_a?(StringObject) ? pattern.raw : pattern.raw.to_s
-          if options.nil? || options.is_a?(NilObject)
-            RegexpObject.new(pat_raw, '')
-          elsif options.is_a?(IntegerObject)
-            RegexpObject.new(pat_raw, options.raw)
-          elsif options.is_a?(StringObject)
-            RegexpObject.new(pat_raw, options.raw)
-          elsif options.is_a?(TrueObject)
-            RegexpObject.new(pat_raw, Regexp::IGNORECASE)
-          elsif options.is_a?(FalseObject)
-            RegexpObject.new(pat_raw, '')
-          else
-            RegexpObject.new(pat_raw, '')
+        def regexp_new(context, pattern, options = nil)
+          if pattern.is_a?(RegexpObject)
+            # When given a Regexp, use its source+options; warn and ignore extra options
+            if options && !options.is_a?(NilObject) && !options.is_a?(FalseObject)
+              kernel_warn(context, NilObject::NIL, ArrayObject.new([StringObject.new("warning: flags ignored")]))
+            end
+            return RegexpObject.new(pattern.raw.source, pattern.raw.options, pattern.raw.encoding.name)
           end
+          # Coerce to String
+          pat_raw = if pattern.is_a?(StringObject)
+            pattern.raw
+          else
+            klass = pattern.respond_to?(:class_object) ? (pattern.class_object&.name || pattern.class) : pattern.class
+            begin
+              result = pattern.dispatch(context, :to_str, [], {})
+              unless result.is_a?(StringObject)
+                raise FrozoneException.make(:TypeError, "can't convert #{klass} into String")
+              end
+              result.raw
+            rescue FrozoneException => e
+              raise unless e.frozone_class_name == :NoMethodError
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
+            end
+          end
+          flags = if options.nil? || options.is_a?(NilObject) || options.is_a?(FalseObject)
+            0
+          elsif options.is_a?(IntegerObject)
+            options.raw
+          elsif options.is_a?(StringObject)
+            options.raw
+          elsif options.is_a?(TrueObject)
+            Regexp::IGNORECASE
+          else
+            0
+          end
+          RegexpObject.new(pat_raw, flags)
         rescue ::RegexpError => e
           raise FrozoneException.make(:RegexpError, e.message)
         end
@@ -197,31 +218,30 @@ module Frozone
         def regexp_escape(_, str) = StringObject.new(Regexp.escape(str.raw.to_s))
         def regexp_hash(_, r) = IntegerObject.new(r.raw.hash)
         def regexp_linear_time_q(_, r)
-          begin
-            bool_object_for(r.raw.linear_time?)
-          rescue
-            FalseObject::FALSE
-          end
+          bool_object_for(Regexp.linear_time?(r.raw))
+        rescue
+          FalseObject::FALSE
         end
 
-        def regexp_class_linear_time_q(_, pattern, flags = NilObject::NIL)
-          raw_pat = if pattern.is_a?(RegexpObject)
-            pattern.raw
+        def regexp_class_linear_time_q(context, pattern, flags = NilObject::NIL)
+          if pattern.is_a?(RegexpObject)
+            unless flags.is_a?(NilObject) || flags.nil?
+              kernel_warn(context, NilObject::NIL, ArrayObject.new([StringObject.new("warning: flags ignored")]))
+            end
+            raw_pat = pattern.raw
           elsif pattern.is_a?(StringObject)
             opts = flags.is_a?(IntegerObject) ? flags.raw : 0
             begin
-              Regexp.new(pattern.raw, opts)
+              raw_pat = Regexp.new(pattern.raw, opts)
             rescue ::RegexpError => e
               raise FrozoneException.make(:RegexpError, e.message)
             end
           else
             return FalseObject::FALSE
           end
-          begin
-            bool_object_for(raw_pat.linear_time?)
-          rescue
-            FalseObject::FALSE
-          end
+          bool_object_for(Regexp.linear_time?(raw_pat))
+        rescue
+          FalseObject::FALSE
         end
 
         def regexp_encoding(context, r)
@@ -251,7 +271,7 @@ module Frozone
           return NilObject::NIL unless dollar_underscore.is_a?(StringObject)
           s = dollar_underscore.raw
           m = receiver.raw.match(s)
-          update_match_globals(m)
+          update_match_globals(m, receiver)
           m ? IntegerObject.new(m.begin(0)) : NilObject::NIL
         end
 
@@ -264,28 +284,94 @@ module Frozone
           val
         end
 
-        def regexp_union(_, patterns)
-          pats = patterns.raw.map { |p| p.is_a?(RegexpObject) ? p.raw : Regexp.escape(p.raw.to_s) }
-          RegexpObject.new(pats.join('|'), '')
+        def regexp_union(context, patterns)
+          raw_pats = patterns.raw
+          # Unwrap single array argument: Regexp.union(["a", "b"]) → treat as Regexp.union("a", "b")
+          raw_pats = raw_pats[0].raw if raw_pats.length == 1 && raw_pats[0].is_a?(ArrayObject)
+          return RegexpObject.new('(?!)', 0) if raw_pats.empty?
+          pats = raw_pats.map do |p|
+            if p.is_a?(RegexpObject)
+              p.raw
+            elsif p.is_a?(StringObject)
+              Regexp.escape(p.raw)
+            else
+              # Try to_regexp first
+              klass = p.respond_to?(:class_object) ? (p.class_object&.name || p.class) : p.class
+              begin
+                result = p.dispatch(context, :to_regexp, [], {})
+                if result.is_a?(RegexpObject)
+                  result.raw
+                else
+                  raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into Regexp")
+                end
+              rescue FrozoneException => e
+                raise unless e.frozone_class_name == :NoMethodError
+                # Try to_str
+                begin
+                  str_result = p.dispatch(context, :to_str, [], {})
+                  Regexp.escape(str_result.is_a?(StringObject) ? str_result.raw : str_result.raw.to_s)
+                rescue FrozoneException => e2
+                  raise unless e2.frozone_class_name == :NoMethodError
+                  raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
+                end
+              end
+            end
+          end
+          ::Regexp.union(*pats).then { |r| RegexpObject.new(r.source, r.options) }
+        rescue ::ArgumentError => e
+          raise FrozoneException.make(:ArgumentError, e.message)
         end
 
-        def regexp_last_match(_, n = nil)
+        def regexp_last_match(context, n = nil)
           md = Fiber[:last_match]
           return NilObject::NIL unless md
           if n.nil? || n.is_a?(NilObject)
-            MatchDataObject.new(md)
+            GLOBALS[:"$~"] || NilObject::NIL
           else
-            cap = md[n.raw]
+            idx = if n.is_a?(IntegerObject)
+              n.raw
+            elsif n.is_a?(StringObject) || n.is_a?(SymbolObject)
+              n.raw.to_s
+            else
+              klass = n.respond_to?(:class_object) ? (n.class_object&.name || n.class) : n.class
+              begin
+                result = n.dispatch(context, :to_int, [], {})
+                result.is_a?(IntegerObject) ? result.raw : result.raw.to_i
+              rescue FrozoneException => e
+                raise unless e.frozone_class_name == :NoMethodError
+                raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into Integer")
+              end
+            end
+            cap = md[idx]
             cap ? StringObject.new(cap) : NilObject::NIL
           end
         end
 
-        def regexp_match(_, receiver, str, pos = NilObject::NIL)
-          return NilObject::NIL if str.is_a?(NilObject)
-          s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
+        def regexp_match(context, receiver, str, pos = NilObject::NIL)
+          if str.is_a?(NilObject)
+            update_match_globals(nil)
+            return NilObject::NIL
+          end
+          s = if str.is_a?(StringObject)
+            str.raw
+          elsif str.is_a?(SymbolObject)
+            str.raw.to_s
+          else
+            klass = str.respond_to?(:class_object) ? (str.class_object&.name || str.class) : str.class
+            begin
+              result = str.dispatch(context, :to_str, [], {})
+              unless result.is_a?(StringObject)
+                raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
+              end
+              result.raw
+            rescue FrozoneException => e
+              raise unless e.frozone_class_name == :NoMethodError
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
+            end
+          end
           p = pos.is_a?(IntegerObject) ? pos.raw : 0
           m = p == 0 ? receiver.raw.match(s) : receiver.raw.match(s, p)
-          update_match_globals(m)
+          update_match_globals(m, receiver)
         end
 
         def regexp_match_bool(context, receiver, str, pos = NilObject::NIL)
@@ -310,8 +396,25 @@ module Frozone
           return NilObject::NIL if str.is_a?(NilObject)
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
           m = receiver.raw.match(s)
-          update_match_globals(m)
+          update_match_globals(m, receiver)
           m ? IntegerObject.new(m.begin(0)) : NilObject::NIL
+        end
+
+        def match_data_group_key(context, n)
+          if n.is_a?(IntegerObject)
+            n.raw
+          elsif n.is_a?(StringObject) || n.is_a?(SymbolObject)
+            n.raw.to_s
+          else
+            klass = n.respond_to?(:class_object) ? (n.class_object&.name || n.class.to_s) : n.class.to_s
+            begin
+              result = n.dispatch(context, :to_int, [], {})
+              result.is_a?(IntegerObject) ? result.raw : result.raw.to_i
+            rescue FrozoneException => e
+              raise unless e.frozone_class_name == :NoMethodError
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into Integer")
+            end
+          end
         end
 
         def match_data_to_a(_, md)
@@ -319,16 +422,13 @@ module Frozone
           ArrayObject.new(captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
         end
 
-        def match_data_index(_, md, idx)
+        def match_data_index(context, md, idx)
           raw = md.raw
-          val = if idx.is_a?(IntegerObject)
-            raw[idx.raw]
-          elsif idx.is_a?(StringObject) || idx.is_a?(SymbolObject)
-            raw[idx.raw.to_s]
-          else
-            raw[idx.raw]
-          end
+          key = match_data_group_key(context, idx)
+          val = raw[key]
           val ? StringObject.new(val) : NilObject::NIL
+        rescue ::IndexError => e
+          raise FrozoneException.make(:IndexError, e.message)
         end
 
         def match_data_slice(_, md, start_obj, len_obj)
@@ -342,35 +442,70 @@ module Frozone
 
         def match_data_slice_range(_, md, range_obj)
           all = [md.raw[0]] + md.raw.captures
-          # Convert VM Range to Ruby range
           r = range_obj.raw rescue (return NilObject::NIL)
           slice = all[r]
           return NilObject::NIL unless slice
           ArrayObject.new(slice.map { |c| c ? StringObject.new(c) : NilObject::NIL })
         end
 
+        def match_data_values_at_range(_, md, range_obj, size_obj)
+          all = [md.raw[0]] + md.raw.captures
+          size = all.size
+          r = range_obj.raw rescue (return ArrayObject.new([]))
+          rb = r.begin
+          re = r.end
+          # Check for negative out-of-range begin
+          if rb && rb < 0 && rb.abs > size
+            raise FrozoneException.make(:RangeError, "#{r} out of range")
+          end
+          # Compute absolute start
+          start = rb.nil? ? 0 : (rb < 0 ? [rb + size, 0].max : rb)
+          # Compute absolute finish (inclusive), extending beyond size to fill nil
+          finish = if re.nil?
+            size - 1
+          else
+            f = re < 0 ? re + size : re
+            r.exclude_end? ? f - 1 : f
+          end
+          indices = start > finish ? [] : (start..finish).to_a
+          result = indices.map { |i| i < size ? (all[i] ? StringObject.new(all[i]) : NilObject::NIL) : NilObject::NIL }
+          ArrayObject.new(result)
+        end
+
         def match_data_size(_, md)    = IntegerObject.new(md.raw.size)
         def match_data_pre_match(_, md)  = StringObject.new(md.raw.pre_match)
         def match_data_post_match(_, md) = StringObject.new(md.raw.post_match)
-        def match_data_string(_, md)     = StringObject.new(md.raw.string.dup)
-        def match_data_regexp(_, md)     = RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
-
-        def match_data_begin(_, md, n)
-          v = md.raw.begin(n.is_a?(IntegerObject) ? n.raw : n.raw.to_s)
-          v ? IntegerObject.new(v) : NilObject::NIL
+        def match_data_string(_, md)
+          s = StringObject.new(md.raw.string.dup)
+          s.freeze
+          s
+        end
+        def match_data_regexp(_, md)
+          md.frozone_regexp || RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
         end
 
-        def match_data_end(_, md, n)
-          v = md.raw.end(n.is_a?(IntegerObject) ? n.raw : n.raw.to_s)
+        def match_data_begin(context, md, n)
+          key = match_data_group_key(context, n)
+          v = md.raw.begin(key)
           v ? IntegerObject.new(v) : NilObject::NIL
+        rescue ::IndexError => e
+          raise FrozoneException.make(:IndexError, e.message)
+        end
+
+        def match_data_end(context, md, n)
+          key = match_data_group_key(context, n)
+          v = md.raw.end(key)
+          v ? IntegerObject.new(v) : NilObject::NIL
+        rescue ::IndexError => e
+          raise FrozoneException.make(:IndexError, e.message)
         end
 
         def match_data_captures(_, md)
           ArrayObject.new(md.raw.captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
         end
 
-        def match_data_bytebegin(_, md, n)
-          key = n.is_a?(IntegerObject) ? n.raw : n.raw.to_s
+        def match_data_bytebegin(context, md, n)
+          key = match_data_group_key(context, n)
           v = md.raw.bytebegin(key)
           v ? IntegerObject.new(v) : NilObject::NIL
         rescue ::IndexError => e
@@ -379,8 +514,8 @@ module Frozone
           raise FrozoneException.make(:IndexError, e.message)
         end
 
-        def match_data_byteend(_, md, n)
-          key = n.is_a?(IntegerObject) ? n.raw : n.raw.to_s
+        def match_data_byteend(context, md, n)
+          key = match_data_group_key(context, n)
           v = md.raw.byteend(key)
           v ? IntegerObject.new(v) : NilObject::NIL
         rescue ::IndexError => e
@@ -389,8 +524,8 @@ module Frozone
           raise FrozoneException.make(:IndexError, e.message)
         end
 
-        def match_data_match_length(_, md, n)
-          key = n.is_a?(IntegerObject) ? n.raw : n.raw.to_s
+        def match_data_match_length(context, md, n)
+          key = match_data_group_key(context, n)
           b = md.raw.begin(key)
           e = md.raw.end(key)
           return NilObject::NIL unless b && e

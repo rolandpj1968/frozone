@@ -3515,6 +3515,85 @@ module Frozone
           nil
         end
 
+        # ObjectSpace
+
+        def objectspace_each_object(context, klass_obj, block)
+          return IntegerObject.new(0) if block.nil? || block.is_a?(NilObject)
+          klass = klass_obj.is_a?(NilObject) ? nil : klass_obj
+          count = 0
+          ::ObjectSpace.each_object(Frozone::Vm::ObjectObject) do |obj|
+            next if klass && object_is_a(context, obj, klass).equal?(FalseObject::FALSE)
+            block.invoke(context, [obj])
+            count += 1
+          end
+          IntegerObject.new(count)
+        rescue StandardError
+          IntegerObject.new(0)
+        end
+
+        def objectspace_define_finalizer(context, obj, proc_arg, block)
+          callable = if !block.nil? && !block.is_a?(NilObject)
+            block
+          elsif !proc_arg.nil? && !proc_arg.is_a?(NilObject)
+            proc_arg
+          else
+            raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given 1, expected 2)")
+          end
+          unless callable.respond_to?(:invoke) || callable.respond_to?(:dispatch)
+            raise FrozoneException.make(:ArgumentError, "wrong argument type #{callable.class_object&.name || callable.class} (expected Proc)")
+          end
+          # Return [0, proc] as MRI does
+          ArrayObject.new([IntegerObject.new(0), callable])
+        end
+
+        def objectspace_undefine_finalizer(_, obj)
+          obj
+        end
+
+        def objectspace_id2ref(_, id_obj)
+          id = id_obj.is_a?(IntegerObject) ? id_obj.raw : id_obj.raw.to_i
+          begin
+            obj = ::ObjectSpace._id2ref(id)
+            obj.is_a?(Frozone::Vm::ObjectObject) ? obj : NilObject::NIL
+          rescue RangeError => e
+            raise FrozoneException.make(:RangeError, e.message)
+          end
+        end
+
+        def objectspace_count_objects(_, result_obj)
+          counts = ::ObjectSpace.count_objects
+          h = {
+            SymbolObject.from(:TOTAL) => IntegerObject.new(counts[:TOTAL] || 0),
+            SymbolObject.from(:FREE) => IntegerObject.new(counts[:FREE] || 0),
+            SymbolObject.from(:T_OBJECT) => IntegerObject.new(counts[:T_OBJECT] || 0),
+            SymbolObject.from(:T_CLASS) => IntegerObject.new(counts[:T_CLASS] || 0),
+            SymbolObject.from(:T_MODULE) => IntegerObject.new(counts[:T_MODULE] || 0),
+            SymbolObject.from(:T_FLOAT) => IntegerObject.new(counts[:T_FLOAT] || 0),
+            SymbolObject.from(:T_STRING) => IntegerObject.new(counts[:T_STRING] || 0),
+            SymbolObject.from(:T_REGEXP) => IntegerObject.new(counts[:T_REGEXP] || 0),
+            SymbolObject.from(:T_ARRAY) => IntegerObject.new(counts[:T_ARRAY] || 0),
+            SymbolObject.from(:T_HASH) => IntegerObject.new(counts[:T_HASH] || 0),
+            SymbolObject.from(:T_STRUCT) => IntegerObject.new(counts[:T_STRUCT] || 0),
+            SymbolObject.from(:T_BIGNUM) => IntegerObject.new(0),
+            SymbolObject.from(:T_FILE) => IntegerObject.new(counts[:T_FILE] || 0),
+            SymbolObject.from(:T_DATA) => IntegerObject.new(counts[:T_DATA] || 0),
+            SymbolObject.from(:T_MATCH) => IntegerObject.new(counts[:T_MATCH] || 0),
+            SymbolObject.from(:T_COMPLEX) => IntegerObject.new(counts[:T_COMPLEX] || 0),
+            SymbolObject.from(:T_RATIONAL) => IntegerObject.new(counts[:T_RATIONAL] || 0),
+            SymbolObject.from(:T_NIL) => IntegerObject.new(0),
+            SymbolObject.from(:T_TRUE) => IntegerObject.new(0),
+            SymbolObject.from(:T_FALSE) => IntegerObject.new(0),
+            SymbolObject.from(:T_SYMBOL) => IntegerObject.new(counts[:T_SYMBOL] || 0),
+            SymbolObject.from(:T_FIXNUM) => IntegerObject.new(0),
+            SymbolObject.from(:T_UNDEF) => IntegerObject.new(0),
+            SymbolObject.from(:T_IMEMO) => IntegerObject.new(0),
+            SymbolObject.from(:T_NODE) => IntegerObject.new(0),
+            SymbolObject.from(:T_ICLASS) => IntegerObject.new(0),
+            SymbolObject.from(:T_ZOMBIE) => IntegerObject.new(0)
+          }
+          HashObject.new(h.transform_keys { |k| k })
+        end
+
         # Self-hosting helpers: minimal Frozone::Vm::Vm proxy for Frozone-land evaluation
 
         def kernel_vm_initialize(_, vm_obj, options_obj)

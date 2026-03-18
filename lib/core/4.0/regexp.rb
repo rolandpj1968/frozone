@@ -17,7 +17,15 @@ class Regexp
   def named_captures = Intrinsics.regexp_named_captures(self)
   def names = Intrinsics.regexp_names(self)
 
-  def match(str, pos = 0) = Intrinsics.regexp_match(self, str, pos)
+  def match(str, pos = 0, &block)
+    md = Intrinsics.regexp_match(self, str, pos)
+    if block && md
+      block.call(md)
+    else
+      md
+    end
+  end
+
   def match?(str, pos = 0) = Intrinsics.regexp_match_bool(self, str, pos)
 
   def ===(str)
@@ -48,8 +56,18 @@ class Regexp
   def self.linear_time?(pattern, flags = nil) = Intrinsics.regexp_class_linear_time_q(pattern, flags)
   def self.try_convert(obj)
     return obj if obj.is_a?(Regexp)
-    nil
+    return nil unless obj.respond_to?(:to_regexp)
+    result = obj.to_regexp
+    raise TypeError, "can't convert #{obj.class} into Regexp (to_regexp should return Regexp)" unless result.is_a?(Regexp)
+    result
   end
+
+  def initialize(pattern = nil, options = nil)
+    raise FrozenError, "can't modify frozen Regexp: #{inspect}" if frozen?
+    raise TypeError, "already initialized regexp"
+  end
+
+  private :initialize
 
   def self.new(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(pattern, options)
   def self.compile(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(pattern, options)
