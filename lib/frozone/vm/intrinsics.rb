@@ -2212,11 +2212,11 @@ module Frozone
         ANON_REQ     = :__anon_req__
 
         # Returns nil to indicate the parameter is anonymous (no name in output)
-        # For proc parameters, ANON_REST maps to :* (Proc shows star); for method, maps to nil (no name)
+        # ANON_REST maps to :* for both methods and procs (anonymous splat shows as *)
         def normalize_param_name(sym, for_proc: false)
           case sym
           when ANON_REQ                           then nil
-          when ANON_REST                          then (for_proc ? :* : nil)
+          when ANON_REST                          then :*
           when :__forward_args__                  then :*
           when ANON_KWARGS, :__forward_kwargs__   then :**
           when ANON_BLOCK, :__forward_block__     then :&
@@ -2256,7 +2256,9 @@ module Frozone
 
         def bound_method_parameters(_, receiver)
           return ArrayObject.new([]) unless receiver.is_a?(BoundMethodObject)
-          ArrayObject.new(extract_method_params(receiver.raw_method))
+          m = receiver.raw_method
+          return ArrayObject.new([ArrayObject.new([SymbolObject.from(:rest)])]) if m.nil?
+          ArrayObject.new(extract_method_params(m))
         end
 
         def bound_method_name(_, receiver)
