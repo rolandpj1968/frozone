@@ -351,17 +351,26 @@ module Frozone
       end
 
       def self.lookup_autoload_for_const(name, scopes)
+        lookup_autoload_for_const_with_scope(name, scopes).first
+      end
+
+      # Returns [path, declaring_scope] for the autoload registered for +name+ in the given scopes.
+      # declaring_scope is the module/class that directly has the autoload (nil if found only via inherit).
+      def self.lookup_autoload_for_const_with_scope(name, scopes)
         lex_scopes = (!scopes.empty? && scopes[0].equal?(Core::OBJECT_CLASS)) ? scopes[1..] : scopes
         lex_scopes.reverse_each do |class_or_module|
           path = class_or_module.get_autoload(name)
-          return path if path
+          return [path, class_or_module] if path
         end
         lex_scopes.reverse_each do |class_or_module|
           path = class_or_module.lookup_autoload(name, inherit: true)
-          return path if path
+          return [path, nil] if path
         end
-        path = Core::OBJECT_CLASS.lookup_autoload(name, inherit: true) if defined?(Core::OBJECT_CLASS) && Core::OBJECT_CLASS
-        path
+        if defined?(Core::OBJECT_CLASS) && Core::OBJECT_CLASS
+          path = Core::OBJECT_CLASS.lookup_autoload(name, inherit: true)
+          return [path, nil] if path
+        end
+        [nil, nil]
       end
 
       def self.lookup_constant(name, scopes)
