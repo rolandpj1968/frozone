@@ -8,7 +8,7 @@ class Object < BasicObject
 
   def <=>(other) = equal?(other) ? 0 : nil
 
-  def extend(mod) = Intrinsics.object_extend(self, mod)
+  def extend(*mods) = Intrinsics.object_extend_multi(self, mods)
 
   def instance_eval(str = :__unset__, file = nil, line = nil, extra = :__unset__, &block)
     if block

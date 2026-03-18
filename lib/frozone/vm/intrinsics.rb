@@ -1319,6 +1319,12 @@ module Frozone
           NilObject::NIL
         end
 
+        def object_extend_multi(context, receiver, mods_arr)
+          raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given 0, expected 1+)") if mods_arr.raw.empty?
+          mods_arr.raw.each { |mod| object_extend(context, receiver, mod) }
+          receiver
+        end
+
         def object_extend(context, receiver, mod)
           raise FrozoneException.make(:TypeError, "wrong argument type #{frozone_class_name(mod)} (expected Module)") unless mod.is_a?(ModuleObject)
           raise FrozoneException.make(:TypeError, "wrong argument type #{frozone_class_name(mod)} (expected Module)") if mod.is_a?(ClassObject)
@@ -1337,7 +1343,7 @@ module Frozone
 
         def module_extend_object(_, self_mod, obj)
           raise FrozoneException.make(:TypeError, "extend_object is not permitted on classes") if self_mod.is_a?(ClassObject)
-          raise FrozoneException.make(:RuntimeError, "can't modify frozen #{frozone_class_name(obj)}: #{obj.object_id}") if obj.frozen_object?
+          raise FrozoneException.make(:FrozenError, "can't modify frozen #{frozone_class_name(obj)}: #{obj.object_id}") if obj.frozen_object?
           obj.singleton_class.add_module(self_mod)
           obj
         end
