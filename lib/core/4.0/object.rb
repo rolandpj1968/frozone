@@ -53,11 +53,36 @@ class Object < BasicObject
   end
 
   def to_s = "#<#{self.class}:0x#{__id__.to_s(16)}>"
-  def inspect = to_s
+
+  def inspect
+    klass = begin; self.class; rescue NameError; nil; end
+    class_part = klass ? klass.to_s : "Object"
+    base = "#<#{class_part}:0x#{__id__.to_s(16)}"
+    ivars = if respond_to?(:instance_variables_to_inspect, true)
+      result = instance_variables_to_inspect
+      if result.nil?
+        instance_variables
+      elsif result.is_a?(Array)
+        result.select { |name| instance_variable_defined?(name) }
+      else
+        raise TypeError, "Expected #instance_variables_to_inspect to return an Array or nil, but it returned #{result.class}"
+      end
+    else
+      instance_variables
+    end
+    if ivars.empty?
+      "#{base}>"
+    else
+      ivar_strs = ivars.map { |name| "#{name}=#{instance_variable_get(name).inspect}" }
+      "#{base} #{ivar_strs.join(', ')}>"
+    end
+  end
+
   def pretty_inspect = inspect
 
   def method(name) = Intrinsics.object_method(self, name)
   def public_method(name) = Intrinsics.object_public_method(self, name)
+  def singleton_method(name) = Intrinsics.object_singleton_method(self, name)
 
   alias send __send__
 

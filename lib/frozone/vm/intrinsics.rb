@@ -2767,6 +2767,17 @@ module Frozone
           BoundMethodObject.new(m, name, receiver, owner)
         end
 
+        def object_singleton_method(context, receiver, name_obj)
+          name = sym_name_coercing(context, name_obj)
+          sc = receiver.eigenclass
+          m = sc&.lookup_method(name)
+          unless m && m != ModuleObject::UNDEF_SENTINEL
+            raise FrozoneException.make(:NameError, "undefined singleton method '#{name}' for '#{receiver.class_object.full_name}'")
+          end
+          owner = sc.lookup_method_owner(name) || sc
+          BoundMethodObject.new(m, name, receiver, owner)
+        end
+
         def object_public_method(context, receiver, name_obj)
           name = sym_name_coercing(context, name_obj)
           active_refinements = context&.frame&.active_refinements
@@ -4269,7 +4280,12 @@ module Frozone
           seen = {}
           result = []
           sources = []
-          sources << v.singleton_class if v.eigenclass
+          if v.eigenclass
+            sc = v.singleton_class
+            sources << sc
+            # Add modules included in the singleton class (from extend) when including super
+            sc.modules.reverse_each { |m| sources << m } if include_super
+          end
           if include_super
             # For ClassObjects, also walk superclass eigenclasses (class methods of superclasses)
             if v.is_a?(ClassObject)
