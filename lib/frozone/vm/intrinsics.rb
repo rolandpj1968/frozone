@@ -904,12 +904,13 @@ module Frozone
 
         def object_instance_eval(context, receiver, block)
           return NilObject::NIL if block.nil? || block.is_a?(NilObject)
-          return block.invoke(context, [], receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(ProcObject)
-          return block.invoke(context, [], receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(BlockObject)
+          # Pass receiver as block arg so |obj| parameters receive self (MRI behaviour)
+          return block.invoke(context, [receiver], receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(ProcObject)
+          return block.invoke(context, [receiver], receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(BlockObject)
           NilObject::NIL
         end
 
-        def object_instance_eval_string(context, receiver, code_obj)
+        def object_instance_eval_string(context, receiver, code_obj, file_obj = NilObject::NIL, line_obj = NilObject::NIL)
           return NilObject::NIL unless code_obj.is_a?(StringObject)
           code = code_obj.raw
           parser = Parser.new(code)
@@ -918,6 +919,11 @@ module Frozone
           new_frame = Frame.new(receiver, parser.top_level_locals, context.frame.scopes)
           # `def` inside instance_eval always targets receiver's singleton class
           new_frame.def_scope = receiver.singleton_class
+          if file_obj.is_a?(StringObject)
+            fname = file_obj.raw
+            lnum = line_obj.is_a?(IntegerObject) ? line_obj.raw : 1
+            new_frame.incoming_call_site = "#{fname}:#{lnum}"
+          end
           context.push_frame(new_frame)
           begin
             ast.evaluate(context)

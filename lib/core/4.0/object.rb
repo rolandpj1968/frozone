@@ -31,9 +31,17 @@ class Object < BasicObject
 
   def extend(mod) = Intrinsics.object_extend(self, mod)
 
-  def instance_eval(str = nil, &block)
-    return Intrinsics.object_instance_eval_string(self, str) if str && block.nil?
-    Intrinsics.object_instance_eval(self, block)
+  def instance_eval(str = :__unset__, file = nil, line = nil, extra = :__unset__, &block)
+    if block
+      raise ArgumentError, "wrong number of arguments (given #{[str, file, line].count { |a| !a.equal?(:__unset__) && !a.nil? } + (extra.equal?(:__unset__) ? 0 : 1)}, expected 0)" unless str.equal?(:__unset__) && file.nil? && line.nil? && extra.equal?(:__unset__)
+      Intrinsics.object_instance_eval(self, block)
+    elsif str.equal?(:__unset__)
+      raise ArgumentError, "wrong number of arguments (given 0, expected 1..3)"
+    elsif !extra.equal?(:__unset__)
+      raise ArgumentError, "wrong number of arguments (given 4, expected 1..3)"
+    else
+      Intrinsics.object_instance_eval_string(self, str, file, line)
+    end
   end
 
   def instance_exec(*args, &block) = Intrinsics.object_instance_exec(self, args, block)
