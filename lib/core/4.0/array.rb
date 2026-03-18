@@ -60,6 +60,76 @@ class Array
       return nil if s < 0 || s > n
       stop = s + len > n ? n : s + len
       r = []; j = s; while j < stop; r << Intrinsics.array_at(self, j); j += 1; end; r
+    elsif i.is_a?(Enumerator::ArithmeticSequence)
+      seq = i
+      b = seq.begin
+      e = seq.end
+      st = seq.step
+      raise ArgumentError, "step can't be 0" if st == 0
+      abs_st = st.abs
+      if st > 0
+        # Positive step
+        b_int = b.nil? ? 0 : __coerce_to_int__(b)
+        b_int = b_int < 0 ? b_int + n : b_int
+        if e.nil?
+          # Endless range: OOB begin is nil (step=1) or RangeError (step>1) or [] (begin==n)
+          return [] if b_int == n
+          if b_int > n
+            return nil if st == 1
+            raise RangeError, "#{seq.inspect} out of range of array size #{n}"
+          end
+          result = []
+          j = b_int
+          while j < n; result << Intrinsics.array_at(self, j); j += st; end
+          result
+        else
+          e_int = __coerce_to_int__(e)
+          e_int = e_int < 0 ? e_int + n : e_int
+          e_int -= 1 if seq.exclude_end?
+          # RangeError if end is reachable from begin (same step alignment) and is OOB, unless step==1
+          if e_int >= n && st > 1 && (e_int - b_int) % st == 0
+            raise RangeError, "#{seq.inspect} out of range of array size #{n}"
+          end
+          result = []
+          j = b_int
+          while j <= e_int
+            result << Intrinsics.array_at(self, j) if j >= 0 && j < n
+            j += st
+          end
+          result
+        end
+      else
+        # Negative step
+        b_int = b.nil? ? n - 1 : __coerce_to_int__(b)
+        b_int = b_int < 0 ? b_int + n : b_int
+        if e.nil?
+          # Endless (beginless) with negative step: start from b_int, go down to 0
+          if b_int >= n
+            b_int = n - 1  # clamp
+          end
+          result = []
+          j = b_int
+          while j >= 0; result << Intrinsics.array_at(self, j); j += st; end
+          result
+        else
+          e_int = __coerce_to_int__(e)
+          e_int = e_int < 0 ? e_int + n : e_int
+          lower = seq.exclude_end? ? e_int + 1 : e_int
+          # RangeError if begin is OOB and reachable-aligned (same step modular alignment)
+          if b_int >= n && abs_st > 1 && (b_int - e_int) % abs_st == 0
+            raise RangeError, "#{seq.inspect} out of range of array size #{n}"
+          end
+          # Clamp b_int to n-1 if OOB
+          b_int = n - 1 if b_int >= n
+          result = []
+          j = b_int
+          while j >= lower
+            result << Intrinsics.array_at(self, j) if j >= 0 && j < n
+            j += st
+          end
+          result
+        end
+      end
     elsif i.is_a?(Range)
       bi = i.begin
       end_nil = i.end.nil?
