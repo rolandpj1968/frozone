@@ -324,10 +324,146 @@ module Frozone
           v
         end
 
-        def array_pack(_, v, fmt_obj)
-          fmt = fmt_obj.raw.to_s
-          raws = v.raw.map(&:raw)
-          StringObject.new(raws.pack(fmt))
+        # Proxy wrapping a Frozone ObjectObject so MRI's Array#pack can call
+        # to_str / to_s / to_int / to_f on it via Frozone dispatch.
+        class PackProxy
+          attr_reader :frozone_obj
+
+          def initialize(frozone_obj, context)
+            @obj = frozone_obj
+            @ctx = context
+          end
+
+          def frozone_class_name = @obj.class_object&.name.to_s
+
+          def to_str
+            result = @obj.dispatch(@ctx, :to_str, [], {})
+            return result.raw if result.is_a?(StringObject)
+
+            raise ::TypeError, "no implicit conversion of #{frozone_class_name} into String"
+          rescue FrozoneException => e
+            raise ::TypeError, "no implicit conversion of #{frozone_class_name} into String"
+          end
+
+          def to_s
+            result = @obj.dispatch(@ctx, :to_s, [], {})
+            return result.raw if result.is_a?(StringObject)
+
+            frozone_class_name
+          rescue FrozoneException
+            frozone_class_name
+          end
+
+          def to_int
+            result = @obj.dispatch(@ctx, :to_int, [], {})
+            return result.raw if result.is_a?(IntegerObject)
+
+            raise ::TypeError, "no implicit conversion of #{frozone_class_name} into Integer"
+          rescue FrozoneException => e
+            raise ::TypeError, "no implicit conversion of #{frozone_class_name} into Integer"
+          end
+
+          def to_f
+            result = @obj.dispatch(@ctx, :to_f, [], {})
+            return result.raw if result.is_a?(FloatObject)
+
+            raise ::TypeError, "can't convert #{frozone_class_name} into Float"
+          rescue FrozoneException => e
+            raise ::TypeError, "can't convert #{frozone_class_name} into Float"
+          end
+        end
+
+        def pack_coerce_fmt(context, fmt_obj)
+          case fmt_obj
+          when StringObject then return fmt_obj.raw
+          when NilObject
+            raise FrozoneException.make(:TypeError, "no implicit conversion of nil into String")
+          end
+          begin
+            result = fmt_obj.dispatch(context, :to_str, [], {}, nil, public_only: true)
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{fmt_obj.class_object&.name} into String") unless result.is_a?(StringObject)
+
+            result.raw
+          rescue FrozoneException => e
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{fmt_obj.class_object&.name} into String") if e.frozone_class_name.to_s =~ /NoMethod/
+
+            raise
+          end
+        end
+
+        def pack_frozone_to_ruby(elem, context)
+          case elem
+          when StringObject, IntegerObject, FloatObject, SymbolObject, NilObject, ArrayObject
+            elem.raw
+          else
+            PackProxy.new(elem, context)
+          end
+        end
+
+        # For float directives: pre-coerce Frozone Numeric subclasses to Ruby Float.
+        # Non-Numeric objects stay as PackProxy so MRI raises proper TypeError.
+        def pack_frozone_to_float(elem, context)
+          return elem.raw if elem.is_a?(FloatObject)
+          return elem.raw.to_f if elem.is_a?(IntegerObject)
+          return elem.raw.to_f if elem.is_a?(NilObject)  # let MRI raise TypeError
+
+          # Check if Frozone object is a Numeric subclass (e.g. Rational)
+          c = elem.class_object
+          while c
+            return begin
+              result = elem.dispatch(context, :to_f, [], {})
+              result.is_a?(FloatObject) ? result.raw : PackProxy.new(elem, context)
+            rescue FrozoneException
+              class_name = elem.class_object&.name.to_s
+              raise FrozoneException.make(:TypeError, "can't convert #{class_name} into Float")
+            end if c.equal?(Core::NUMERIC_CLASS)
+
+            c = c.is_a?(ClassObject) ? c.superclass : nil
+          end
+          PackProxy.new(elem, context)
+        end
+
+        def array_pack(context, v, fmt_obj, buffer_obj = nil)
+          fmt = pack_coerce_fmt(context, fmt_obj)
+          elements = v.raw
+
+          # Validate buffer if provided
+          buf_str = nil
+          if buffer_obj && !buffer_obj.is_a?(NilObject)
+            unless buffer_obj.is_a?(StringObject)
+              class_name = buffer_obj.class_object&.name.to_s
+              raise FrozoneException.make(:TypeError, "buffer must be String, not #{class_name}")
+            end
+            raise FrozoneException.make(:FrozenError, "can't modify frozen String", receiver: buffer_obj) if buffer_obj.frozen_object?
+
+            buf_str = buffer_obj.raw
+          end
+
+          # For all elements, use raw values or PackProxy (MRI handles coercion/errors).
+          pack_args = elements.map { |elem| pack_frozone_to_ruby(elem, context) }
+
+          begin
+            if buf_str
+              # Use MRI's native :buffer option to get correct @-offset behavior
+              pack_args.pack(fmt, buffer: buf_str)
+              buffer_obj.raw = buf_str
+              buffer_obj
+            else
+              StringObject.new(pack_args.pack(fmt))
+            end
+          rescue ::TypeError => e
+            msg = e.message
+            # Fix anonymous PackProxy class name in MRI error messages
+            if msg =~ /PackProxy/
+              proxy = pack_args.find { |a| a.is_a?(PackProxy) }
+              msg = msg.sub(/#<[^>]+>::PackProxy|PackProxy/, proxy ? proxy.frozone_class_name : "Object") if proxy
+            end
+            raise FrozoneException.make(:TypeError, msg)
+          rescue ::ArgumentError => e
+            raise FrozoneException.make(:ArgumentError, e.message)
+          rescue ::RangeError => e
+            raise FrozoneException.make(:RangeError, e.message)
+          end
         end
 
         def array_dup(_, v) = ArrayObject.new(v.raw.dup, v.class_object)

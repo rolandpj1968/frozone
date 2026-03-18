@@ -47,7 +47,7 @@ class Array
     Intrinsics.array_at(self, i)
   end
 
-  ARRAY_MAX_INDEX = (1 << 62)
+  ARRAY_MAX_INDEX = (1 << 63)
 
   def [](i, len = nil)
     n = length
@@ -348,7 +348,7 @@ class Array
     self
   end
 
-  def pack(fmt) = Intrinsics.array_pack(self, fmt)
+  def pack(fmt, buffer: nil) = Intrinsics.array_pack(self, fmt, buffer)
 
   def compact;  reject { |x| x.nil? }; end
   def compact!; reject! { |x| x.nil? }; end
