@@ -695,17 +695,28 @@ module Frozone
           args.raw.length == 1 ? args.raw.first : args
         end
 
+        SEND_TRANSPARENT_CALLEE_NAMES = %i[send __send__ public_send].freeze
+
         def kernel__method__(context, _receiver)
           frames = context.frames
-          # Walk up frames to find the nearest method frame (skip block/proc frames)
-          (frames.length - 2).downto(0) do |i|
-            m = frames[i].current_method
-            return m.is_a?(Method) ? SymbolObject.from(m.name) : NilObject::NIL if m
+          # Start at frames[-2]: the frame that contains the __method__ call.
+          # For blocks, method_frame points to the enclosing method's frame (definition site).
+          # For methods, method_frame points to the method frame itself.
+          # Skip transparent dispatch methods (send/__send__/public_send).
+          i = frames.length - 2
+          while i >= 0
+            mf = frames[i].method_frame
+            return NilObject::NIL unless mf
+            m = mf.current_method
+            return NilObject::NIL unless m
+            callee = mf.callee_name
+            unless callee && SEND_TRANSPARENT_CALLEE_NAMES.include?(callee)
+              return SymbolObject.from(m.name)
+            end
+            i -= 1
           end
           NilObject::NIL
         end
-
-        CALLEE_TRANSPARENT_METHODS = %i[send __send__ public_send].freeze
 
         def kernel__callee__(context, _receiver)
           # __callee__ returns the callee name of the innermost non-transparent method frame.
@@ -716,7 +727,7 @@ module Frozone
             mf = frames[i].method_frame
             return NilObject::NIL unless mf
             cn = mf.callee_name
-            break unless cn && CALLEE_TRANSPARENT_METHODS.include?(cn)
+            break unless cn && SEND_TRANSPARENT_CALLEE_NAMES.include?(cn)
             i -= 1
           end
           return NilObject::NIL if i < 0
@@ -2696,7 +2707,7 @@ module Frozone
         end
 
         def object_method(context, receiver, name_obj)
-          name = sym_name(name_obj)
+          name = sym_name_coercing(context, name_obj)
           # Check active refinements first — `method(:foo)` with refinements active should find refined methods
           active_refinements = context&.frame&.active_refinements
           m = if active_refinements && !active_refinements.empty?
@@ -2730,7 +2741,7 @@ module Frozone
         end
 
         def object_public_method(context, receiver, name_obj)
-          name = sym_name(name_obj)
+          name = sym_name_coercing(context, name_obj)
           active_refinements = context&.frame&.active_refinements
           m = if active_refinements && !active_refinements.empty?
             receiver.lookup_method_with_refinements(name, active_refinements)
