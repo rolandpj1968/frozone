@@ -9,6 +9,7 @@ class Rational < Numeric
       @numerator = -@numerator
       @denominator = -@denominator
     end
+    freeze
   end
 
   def numerator = @numerator
@@ -122,6 +123,9 @@ class Rational < Numeric
   def to_i = @numerator < 0 ? -(-@numerator / @denominator) : @numerator / @denominator
   def to_r = self
   def to_c = Complex(self, 0)
+
+  def dup = self
+  def clone(freeze: nil) = self
 
   def floor(n = 0)
     n = _validate_ndigits(n) unless n.is_a?(Integer)
@@ -285,6 +289,7 @@ class Complex
   def initialize(real, imaginary = 0)
     @real = real
     @imaginary = imaginary
+    freeze
   end
 
   I = Complex.new(0, 1)
@@ -505,6 +510,9 @@ class Complex
   end
 
   def to_c = self
+
+  def dup = self
+  def clone(freeze: nil) = self
 
   def integer?  = false
   def zero?     = @real == 0 && @imaginary == 0

@@ -105,6 +105,12 @@ module Kernel
 
   private :initialize_copy, :initialize_dup, :initialize_clone
 
+  def respond_to_missing?(name, include_private = false)
+    false
+  end
+
+  private :respond_to_missing?
+
   # Make these available as module functions: private instance methods AND public Kernel.method calls
   def autoload(name, path)
     # At the top level, autoload registers on Object (same as Module#autoload called on Object)

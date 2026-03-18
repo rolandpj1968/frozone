@@ -134,11 +134,14 @@ module Frozone
           else
             v.lookup_instance_method(method_name)
           end
-          if m
-            bool_object_for(include_private || m.visibility == :public)
+          # Method is visible if include_private is true, or if it's a public method
+          visible = m && (include_private || m.visibility == :public)
+          if visible
+            TrueObject::TRUE
           else
+            # Method not found or not visible — call respond_to_missing?
             begin
-              result = v.dispatch(context, :respond_to_missing?, [name, include_private_obj], {})
+              result = v.dispatch(context, :respond_to_missing?, [name, include_private_obj], {}, nil, private_ok: true)
               result.truthy? ? TrueObject::TRUE : FalseObject::FALSE
             rescue FrozoneException
               FalseObject::FALSE
@@ -208,15 +211,24 @@ module Frozone
           copy
         end
 
-        def object_clone(_, v, freeze_opt = NilObject::NIL)
+        def object_clone(context, v, freeze_opt = NilObject::NIL)
           # Only works for plain ObjectObject instances — specialized types define their own clone.
           return v unless v.class == ObjectObject
+          # Validate freeze: argument — only nil, true, false allowed
+          unless freeze_opt.is_a?(NilObject) || freeze_opt.is_a?(TrueObject) || freeze_opt.is_a?(FalseObject)
+            type_name = freeze_opt.is_a?(ObjectObject) ? (freeze_opt.class_object&.name || 'Object') : freeze_opt.class.name
+            raise FrozoneException.make(:ArgumentError, "unexpected value for freeze: #{type_name}")
+          end
           copy = ObjectObject.allocate
           copy.class_object = v.class_object
           sc_copy = v.eigenclass ? ClassObject.clone_singleton(v.eigenclass, copy) : nil
           freeze_val = freeze_opt.is_a?(NilObject) ? nil : freeze_opt.truthy?
           frozen = freeze_val == false ? false : freeze_val.nil? ? v.frozen_object? : true
-          copy.copy_fields_from(v, eigenclass: sc_copy, frozen: frozen)
+          copy.copy_fields_from(v, eigenclass: sc_copy, frozen: false)
+          # Call initialize_clone(original, freeze: freeze_opt) — may call initialize_copy
+          copy.dispatch(context, :initialize_clone, [v], { freeze: freeze_opt }, nil, private_ok: true)
+          copy.freeze_object! if frozen
+          copy
         end
 
         def string_initialize(context, receiver, str_arg, _encoding = NilObject::NIL)
@@ -285,7 +297,22 @@ module Frozone
           seen = {}
           result = []
           sc = v.singleton_class
-          sources = include_super ? sc.ancestors_list : [sc]
+          # include_super walk rules differ for classes vs modules/instances:
+          # - Classes: walk the full singleton class inheritance (corresponds to superclass chain)
+          # - Modules/instances: only include the singleton class itself and modules explicitly
+          #   extended into the object (NOT the meta-class chain like #<Class:Module>)
+          sources = if include_super
+            if v.is_a?(ClassObject)
+              sc.ancestors_list.take_while { |mod| !mod.is_a?(ClassObject) || mod.is_singleton_class }
+            else
+              # Only sc and explicitly-extended modules (sc.modules and their ancestors, no ClassObjects)
+              explicit_mods = []
+              sc.modules.each { |m| explicit_mods.concat(m.ancestors_list.reject { |a| a.is_a?(ClassObject) }) }
+              [sc] + explicit_mods
+            end
+          else
+            [sc]
+          end
           sources.each do |mod|
             mod.methods_table.each do |name, meth|
               next if seen[name]
