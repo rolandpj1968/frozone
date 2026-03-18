@@ -143,6 +143,13 @@ module Frozone
         def process_pid(_) = IntegerObject.new(Process.pid)
         def process_euid(_) = IntegerObject.new(Process.euid)
 
+        def process_kill(_, sig_obj, pid_obj)
+          sig = sig_obj.is_a?(IntegerObject) ? sig_obj.raw : sig_obj.raw.to_i
+          pid = pid_obj.is_a?(IntegerObject) ? pid_obj.raw : pid_obj.raw.to_i
+          Process.kill(sig, pid)
+          NilObject::NIL
+        end
+
         def process_clock_gettime(_, clock_id_obj, unit_obj)
           clock_id = clock_id_obj.is_a?(IntegerObject) ? clock_id_obj.raw : 1  # default CLOCK_MONOTONIC
           unit_sym = unit_obj.is_a?(SymbolObject) ? unit_obj.raw : :float_second

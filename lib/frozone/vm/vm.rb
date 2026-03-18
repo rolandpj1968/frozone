@@ -73,9 +73,6 @@ module Frozone
         float_class.set_constant(:INFINITY, FloatObject.new(::Float::INFINITY))
         float_class.set_constant(:NAN,      FloatObject.new(::Float::NAN))
 
-        env_hash = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
-        Core::OBJECT_CLASS.set_constant(:ENV, env_hash)
-
         Core::OBJECT_CLASS.set_constant(:STDOUT, GLOBALS[:"$stdout"])
         Core::OBJECT_CLASS.set_constant(:STDERR, GLOBALS[:"$stderr"])
         Core::OBJECT_CLASS.set_constant(:STDIN,  GLOBALS[:"$stdin"])
@@ -190,6 +187,7 @@ module Frozone
         evaluate_file("#{core_path}/random.rb")
         evaluate_file("#{core_path}/objectspace.rb")
         evaluate_file("#{core_path}/gc.rb")
+        evaluate_file("#{core_path}/env.rb")
         evaluate_file("#{core_path}/rubygems.rb")
         init_globals
       end

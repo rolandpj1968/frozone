@@ -11,6 +11,7 @@ module Frozone
       attr_accessor :instance_eval_const_scope  # receiver's singleton class for instance_eval string constant lookup
       attr_accessor :incoming_call_site    # "file:line" where this frame was invoked from
       attr_accessor :thread_boundary       # true when block runs as a Thread body — break → LocalJumpError
+      attr_accessor :active_refinements    # list of refinement modules activated by `using` in this frame
 
       def initialize(the_self, locals, scopes, parent_frame = nil)
         # TODO - map locals to slot number

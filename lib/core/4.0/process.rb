@@ -11,6 +11,18 @@ class Process
     Intrinsics.process_clock_gettime(clock_id, unit)
   end
 
+  def self.kill(signal, *pids)
+    sigstr = signal.is_a?(Integer) ? nil : signal.to_s.sub(/\ASIG/, '')
+    sig = signal.is_a?(Integer) ? signal : Signal.list[sigstr]
+    raise ArgumentError, "unsupported signal #{signal}" unless sig
+    our_pid = Process.pid
+    pids.each do |pid|
+      raise SignalException.new(sig) if pid == our_pid
+      Intrinsics.process_kill(sig, pid)
+    end
+    pids.length
+  end
+
   class Status
     def exitstatus = Intrinsics.process_status_exitstatus(self)
     def success?   = exitstatus == 0

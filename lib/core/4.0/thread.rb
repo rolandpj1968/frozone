@@ -3,6 +3,18 @@ class Thread
   def self.report_on_exception = false
 
   @@pending = []
+  @@main = nil
+
+  def self.current
+    @@main ||= new_main_thread
+  end
+
+  def self.new_main_thread
+    t = allocate
+    t.__init_main
+    t
+  end
+  private_class_method :new_main_thread
 
   # Thread.pass runs the next pending thread so that spin-loops like
   # `Thread.pass until flag` work in single-threaded VM.
@@ -22,10 +34,12 @@ class Thread
   # thread_run_block invokes with thread_boundary:true so `break` raises
   # LocalJumpError rather than propagating out.
   def initialize(&block)
-    @block     = block
-    @result    = nil
-    @exception = nil
-    @done      = false
+    @block       = block
+    @result      = nil
+    @exception   = nil
+    @done        = false
+    @thread_vars = {}
+    @fiber_vars  = {}
     @@pending << self
   end
 
@@ -43,6 +57,15 @@ class Thread
   def status  = @done ? false : 'sleep'
   def alive?  = !@done
 
+  def __init_main
+    @block     = nil
+    @result    = nil
+    @exception = nil
+    @done      = false
+    @thread_vars = {}
+    @fiber_vars  = {}
+  end
+
   def __run_block
     return if @done
     @@pending.delete(self)
@@ -55,6 +78,48 @@ class Thread
     ensure
       Intrinsics.thread_restore_locals(self)
     end
+  end
+
+  # Thread-local variables (not fiber-local)
+  def thread_variable_set(key, value)
+    @thread_vars ||= {}
+    @thread_vars[key.to_sym] = value
+  end
+
+  def thread_variable_get(key)
+    @thread_vars ||= {}
+    @thread_vars[key.to_sym]
+  end
+
+  def thread_variable?(key)
+    @thread_vars ||= {}
+    @thread_vars.key?(key.to_sym)
+  end
+
+  def thread_variables
+    @thread_vars ||= {}
+    @thread_vars.keys.map { |k| k.to_s.to_sym }
+  end
+
+  # Fiber-local variables (Thread#[] / Thread#[]=)
+  def [](key)
+    @fiber_vars ||= {}
+    @fiber_vars[key.to_sym]
+  end
+
+  def []=(key, value)
+    @fiber_vars ||= {}
+    @fiber_vars[key.to_sym] = value
+  end
+
+  def key?(key)
+    @fiber_vars ||= {}
+    @fiber_vars.key?(key.to_sym)
+  end
+
+  def keys
+    @fiber_vars ||= {}
+    @fiber_vars.keys.map { |k| k.to_s.to_sym }
   end
 
   class Mutex
