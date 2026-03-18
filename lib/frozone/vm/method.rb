@@ -14,7 +14,14 @@ module Frozone
       attr_accessor :visibility, :nested_def_scope, :original_owner
 
       attr_reader :uses_block, :source_location, :body
-      attr_accessor :ruby2_keywords
+
+      # ruby2_keywords flag is stored in a shared holder array so aliases
+      # of the same method see the same flag value (like MRI's shared definition).
+      def ruby2_keywords = @ruby2_keywords_holder[0]
+
+      def ruby2_keywords=(val)
+        @ruby2_keywords_holder[0] = val
+      end
 
       def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body, uses_block: nil, source_location: nil)
         @scopes = self.class.unique_scopes(scopes)
@@ -36,6 +43,7 @@ module Frozone
         @visibility = :public
         @uses_block = uses_block
         @source_location = source_location
+        @ruby2_keywords_holder = [false]
       end
 
       def populate_params(context, new_frame, args)
@@ -167,7 +175,7 @@ module Frozone
           end
         end
 
-        new_frame = Frame.new(receiver, @locals, @scopes)
+        new_frame = Frame.new(receiver, @locals, @scopes, context.frame)
         new_frame.block = block
         new_frame.method_frame = new_frame
         new_frame.current_method = self
@@ -184,7 +192,7 @@ module Frozone
         if !kw_args.empty? && @required_kw_params.empty? && @optional_kw_params.empty? && @kw_rest_param.nil?
           hash_val = HashObject.new(kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k })
           # ruby2_keywords method: mark the hash so it can be re-spread as kwargs at the call site
-          hash_val.ruby2_keywords = true if @ruby2_keywords
+          hash_val.ruby2_keywords = true if ruby2_keywords
           args = args + [hash_val]
           kw_args = {}
         end
@@ -249,6 +257,7 @@ module Frozone
         m = Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
         m.original_owner = @original_owner
         m.visibility = @visibility
+        m.instance_variable_set(:@ruby2_keywords_holder, @ruby2_keywords_holder)
         m
       end
 
@@ -286,7 +295,7 @@ module Frozone
       end
 
       def invoke(context, receiver, args, kwargs, block = nil, from_super: false)
-        if @ruby2_keywords && !kwargs.empty?
+        if ruby2_keywords && !kwargs.empty?
           hash_val = HashObject.new(kwargs.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k })
           hash_val.ruby2_keywords = true
           args = args + [hash_val]

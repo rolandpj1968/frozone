@@ -229,4 +229,16 @@ class Module
     refinement.instance_eval(&block)
     refinement
   end
+
+  def using(mod)
+    raise TypeError, "wrong argument type #{mod.class} (expected Module)" unless mod.is_a?(Module)
+    raise TypeError, "wrong argument type Class (expected Module)" if mod.is_a?(Class)
+    raise RuntimeError, "Module#using is not permitted in methods" if Intrinsics.module_in_method_scope_q(self)
+    # Refinements are not yet implemented; using only validates args and returns self.
+    self
+  end
+
+  private :using
+
+  def self.used_refinements = []
 end

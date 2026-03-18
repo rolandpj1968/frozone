@@ -130,15 +130,22 @@ class Exception
     Intrinsics.exception_tty_check
   end
 
-  def full_message(highlight: nil, order: :bottom, **kwargs)
+  ORDER_UNSET = :__order_unset__
+  private_constant :ORDER_UNSET
+
+  def full_message(highlight: nil, order: ORDER_UNSET, **kwargs)
     hl = highlight.nil? ? Exception.to_tty? : highlight
+    # When order is not explicitly passed, MRI uses single-line format (like :top).
+    # When order: :bottom is explicitly passed, MRI prepends the Traceback header.
+    explicit_bottom = (order == :bottom)
+    actual_order = (order == ORDER_UNSET) ? :top : order
 
     # Get the detailed message, calling #detailed_message with all kwargs + highlight
     dm = _full_message_dm(hl, **kwargs)
     dm = dm.nil? ? (hl ? "\e[1;4m#{self.class.name || self.class.inspect}\e[m" : (self.class.name || self.class.inspect).to_s) : dm.to_str rescue dm.to_s
     bt = backtrace
 
-    result = _format_single_full_message(bt, dm, hl, order)
+    result = _format_single_full_message(bt, dm, hl, actual_order, explicit_bottom: explicit_bottom)
 
     # Append cause chain
     c = cause
@@ -148,7 +155,7 @@ class Exception
       c_dm = c._full_message_dm(hl, **kwargs) rescue c.class.name.to_s
       c_dm = c_dm.nil? ? c.class.name.to_s : (c_dm.to_str rescue c_dm.to_s)
       c_bt = c.backtrace
-      result += _format_single_full_message(c_bt, c_dm, hl, order)
+      result += _format_single_full_message(c_bt, c_dm, hl, actual_order, explicit_bottom: explicit_bottom)
       c = c.cause rescue nil
     end
 
@@ -165,13 +172,15 @@ class Exception
 
   private
 
-  def _format_single_full_message(bt, dm, hl, order)
+  def _format_single_full_message(bt, dm, hl, order, explicit_bottom: false)
     if bt.nil? || bt.empty?
       caller_str = Intrinsics.exception_caller_string
-      if caller_str
-        return "#{caller_str}: #{dm}\n"
+      loc = caller_str || "(unknown)"
+      if explicit_bottom
+        tb_hdr = hl ? "\e[1mTraceback\e[m (most recent call last):\n" : "Traceback (most recent call last):\n"
+        return "#{tb_hdr}#{loc}: #{dm}\n"
       else
-        return "#{dm}\n"
+        return "#{loc}: #{dm}\n"
       end
     end
 
@@ -326,6 +335,9 @@ class ZeroDivisionError < StandardError; end
 class IndexError < StandardError; end
 class FiberError < StandardError; end
 class ThreadError < StandardError; end
+class NoMemoryError < Exception; end
+class SecurityError < Exception; end
+class SystemStackError < Exception; end
 class KeyError < IndexError
   def initialize(message = nil, receiver: nil, key: nil)
     super(message)

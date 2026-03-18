@@ -1179,14 +1179,34 @@ module Frozone
           val
         end
 
-        def module_ruby2_keywords(_, receiver, names_array)
+        def module_ruby2_keywords(context, receiver, names_array)
           names_array.raw.each do |name_obj|
             name = sym_name(name_obj)
             m = receiver.is_a?(ClassObject) ? receiver.lookup_method(name) : receiver.get_method(name)
             if m.nil? || m == ModuleObject::UNDEF_SENTINEL
               raise FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.name}'")
             end
-            m.ruby2_keywords = true if m.is_a?(Method) || m.is_a?(DefinedMethod)
+            if m.is_a?(Method)
+              has_rest = !m.rest_param.nil?
+              has_post = m.post_params && !m.post_params.empty?
+              has_kw = !m.required_kw_params.empty? || !m.optional_kw_params.empty? || !m.kw_rest_param.nil?
+              if has_rest && !has_post && !has_kw
+                m.ruby2_keywords = true
+              else
+                reason = if !has_rest
+                  "does not accept splat"
+                elsif has_kw
+                  "accepts keyword"
+                elsif has_post
+                  "accepts post-argument"
+                end
+                src = m.source_location ? " #{m.source_location}" : ""
+                msg = StringObject.new("warning: Skipping set of ruby2_keywords flag for #{name}#{src}: #{reason}")
+                kernel_warn(context, NilObject::NIL, ArrayObject.new([msg]))
+              end
+            elsif m.is_a?(DefinedMethod)
+              m.ruby2_keywords = true
+            end
           end
           NilObject::NIL
         end
@@ -1402,10 +1422,11 @@ module Frozone
 
         CVAR_NAME_RE = /\A@@[^@!? ][^!? ]*\z/.freeze
 
-        def validate_cvar_name!(name_str, name_obj)
+        def validate_cvar_name!(name_str, name_obj, receiver: nil)
           unless name_str.start_with?('@@') && name_str.length > 2 && name_str[2] != '@'
             exc = FrozoneException.make(:NameError, "`#{name_str}' is not allowed as a class variable name")
             exc.vm_object.set_ivar(:@name, name_obj)
+            exc.vm_object.set_ivar(:@receiver, receiver) if receiver
             raise exc
           end
         end
@@ -1476,7 +1497,7 @@ module Frozone
 
         def module_class_variable_get(context, receiver, name_obj)
           name_str = coerce_cvar_name(context, name_obj)
-          validate_cvar_name!(name_str, name_obj)
+          validate_cvar_name!(name_str, name_obj, receiver: receiver)
           name = name_str.to_sym
           val = get_class_var_from_ancestors(receiver, name)
           if val.nil?
@@ -1563,6 +1584,13 @@ module Frozone
 
         def module_singleton_class_q(_, receiver)
           receiver.is_a?(ClassObject) && receiver.is_singleton_class ? TrueObject::TRUE : FalseObject::FALSE
+        end
+
+        def module_in_method_scope_q(context, _receiver)
+          # Check the CALLER's frame (parent of using's own method frame).
+          # `using` itself has current_method set; we want to know if its caller does.
+          caller_frame = context.frame.parent_frame
+          caller_frame&.method_frame&.current_method ? TrueObject::TRUE : FalseObject::FALSE
         end
 
         def module_set_temporary_name(_, receiver, name_obj)
