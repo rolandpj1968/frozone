@@ -3184,12 +3184,16 @@ module Frozone
         def kernel_binding(context, _receiver)
           # Capture the calling frame (frames[-2] since we're inside a kernel method call).
           captured_frame = context.frames.length >= 2 ? context.frames[-2] : context.frame
-          BindingObject.new(captured_frame)
+          # Source location: where `binding` was called (context.call_site set by MethodCall.evaluate)
+          binding_call_site = context.call_site || captured_frame&.incoming_call_site
+          BindingObject.new(captured_frame, binding_call_site)
         end
 
         def binding_local_variables(_, binding_obj)
-          names = binding_obj.local_variable_names.map { |n| SymbolObject.from(n) }
-          ArrayObject.new(names)
+          all = binding_obj.binding_local_names
+          # Filter out numbered params, :it, etc.
+          visible = all.reject { |n| n == :it || /\A_[1-9]\z/.match?(n.to_s) }
+          ArrayObject.new(visible.map { |n| SymbolObject.from(n) })
         end
 
         def binding_eval(context, binding_obj, code_obj, filename_arg = NilObject::NIL, lineno_arg = NilObject::NIL)
@@ -3200,35 +3204,89 @@ module Frozone
           binding_obj.captured_frame.the_self
         end
 
-        def binding_local_variable_get(_, binding_obj, name_obj)
-          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
-          frame = binding_obj.captured_frame
-          raise FrozoneException.make(:NameError, "local variable `#{name}' not defined for #{frame.the_self.inspect}") unless frame.local_names.include?(name)
-          frame.get_local(name)
+        def binding_coerce_name(name_obj, context)
+          if name_obj.is_a?(SymbolObject)
+            name_obj.raw
+          elsif name_obj.is_a?(StringObject)
+            name_obj.raw.to_sym
+          else
+            result = name_obj.dispatch(context, :to_str, [], {})
+            result.raw.to_sym
+          end
         end
 
-        def binding_local_variable_set(_, binding_obj, name_obj, value)
-          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
-          binding_obj.captured_frame.set_local(name, value)
+        def binding_find_frame(frame, name)
+          f = frame
+          while f
+            return f if f.local_names.include?(name)
+            f = f.parent_frame
+          end
+          nil
+        end
+
+        def binding_all_locals(frame)
+          names = []
+          f = frame
+          while f
+            # If frame has own_locals set (eval frame), use only those for this level.
+            # Parent frame walk handles inherited locals.
+            locals_here = f.own_locals || f.local_names
+            locals_here.each { |n| names << n unless names.include?(n) }
+            f = f.parent_frame
+          end
+          names
+        end
+
+        def binding_local_variable_get(context, binding_obj, name_obj)
+          name = binding_coerce_name(name_obj, context)
+          frame = binding_obj.captured_frame
+          unless binding_obj.binding_local_names.include?(name)
+            raise FrozoneException.make(:NameError, "local variable `#{name}' not defined for #{frame.the_self.inspect}")
+          end
+          found = binding_find_frame(frame, name)
+          raise FrozoneException.make(:NameError, "local variable `#{name}' not defined for #{frame.the_self.inspect}") unless found
+          found.get_local(name)
+        end
+
+        def binding_local_variable_set(context, binding_obj, name_obj, value)
+          name = binding_coerce_name(name_obj, context)
+          name_str = name.to_s
+          unless name_str.match?(/\A[a-z_][a-zA-Z0-9_]*\z/)
+            raise FrozoneException.make(:NameError, "`#{name}' is not allowed as a local variable name")
+          end
+          frame = binding_obj.captured_frame
+          found = binding_find_frame(frame, name)
+          if found
+            found.set_local(name, value)
+            binding_obj.binding_local_names |= [name]
+          else
+            # New variable: store in shared captured_frame, prepend to this binding's name set only.
+            frame.set_local(name, value)
+            binding_obj.binding_local_names = [name] + binding_obj.binding_local_names
+          end
           value
         end
 
-        def binding_local_variable_defined_q(_, binding_obj, name_obj)
-          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.raw.to_sym
-          bool_object_for(binding_obj.captured_frame.local_names.include?(name))
+        def binding_local_variable_defined_q(context, binding_obj, name_obj)
+          name = binding_coerce_name(name_obj, context)
+          bool_object_for(binding_obj.binding_local_names.include?(name))
         end
 
         def binding_source_location(_, binding_obj)
-          frame = binding_obj.captured_frame
-          loc = frame.incoming_call_site
+          loc = binding_obj.binding_call_site || binding_obj.captured_frame&.incoming_call_site
           return NilObject::NIL unless loc
           parts = loc.split(":")
           return NilObject::NIL unless parts.length >= 2
-          ArrayObject.new([StringObject.new(parts[0]), IntegerObject.new(parts[1].to_i)])
+          ArrayObject.new([StringObject.new(parts[0...-1].join(":")), IntegerObject.new(parts[-1].to_i)])
         end
 
         def binding_dup(_, binding_obj)
-          BindingObject.new(binding_obj.captured_frame)
+          copy = BindingObject.new(binding_obj.captured_frame, binding_obj.binding_call_site)
+          # Override binding_local_names with a COPY (not shared) so new vars added to either
+          # binding after the dup don't leak to the other.
+          copy.binding_local_names = binding_obj.binding_local_names.dup
+          copy.copy_fields_from(binding_obj)
+          copy
         end
 
         def kernel_eval(context, _receiver, code_obj, binding_arg = NilObject::NIL, filename_arg = NilObject::NIL, lineno_arg = NilObject::NIL)
@@ -3253,12 +3311,16 @@ module Frozone
             walk = walk.parent_frame
           end
 
-          # IMPORTANT: pass only binding_frame.local_names to Prism (not full closure chain).
-          # Passing any non-nil scope to Prism suppresses yield-in-block SyntaxErrors.
+          # When a BindingObject is given, use its authoritative name set (binding_local_names)
+          # as outer_locals. This ensures per-binding isolation: vars only known to a specific
+          # binding (not its dup/clone) won't be recognized as locals in other bindings' evals.
+          # Without a BindingObject, fall back to the full closure chain locals.
+          all_outer_locals = closure_chain.flat_map(&:local_names).uniq
+          outer_locals = binding_arg.is_a?(BindingObject) ? binding_arg.binding_local_names : all_outer_locals
           code_enc = code.encoding != Encoding::UTF_8 ? code.encoding : nil
           # Ruby 3.4+: __FILE__ inside eval returns "(eval at file:line)" using the caller's location
           eval_filepath = eval_filename || (context.call_site ? "(eval at #{context.call_site})" : "(eval)")
-          parser = Parser.new(code, outer_locals: binding_frame.local_names, encoding: code_enc, filepath: eval_filepath, line: eval_lineno)
+          parser = Parser.new(code, outer_locals: outer_locals, encoding: code_enc, filepath: eval_filepath, line: eval_lineno)
           begin
             ast = parser.ast(raise_syntax_errors: true)
           rescue FrozoneException => e
@@ -3274,6 +3336,10 @@ module Frozone
           # so that `def`, `alias`, etc. use the correct lexical scope.
           new_frame = Frame.new(binding_frame.the_self, parser.top_level_locals, binding_frame.scopes)
           new_frame.block = binding_frame.block
+          new_frame.parent_frame = binding_frame
+          # Track which locals are eval-native (not from any outer scope).
+          # BindingObject.collect_local_names uses own_locals to emit eval-native vars first.
+          new_frame.own_locals = parser.top_level_locals.reject { |n| outer_locals.include?(n) }
           # Inherit def_scope and method_frame from binding so `def` targets the right class.
           # If the binding frame has no def_scope AND its self is not a class/module (e.g. a
           # lambda frame), walk up parent frames to find the nearest closure def context (e.g.
@@ -3289,6 +3355,16 @@ module Frozone
           end
           new_frame.def_scope = inherited_def_scope
           new_frame.method_frame = binding_frame.method_frame
+          # Inherit current_method so that __method__ inside eval returns the binding's method.
+          # Walk up parent_frame to skip transparent dispatch methods (__send__, send, public_send).
+          transparent = %i[__send__ send public_send]
+          binding_method_frame = binding_frame
+          while binding_method_frame
+            m = binding_method_frame.current_method
+            break if m && !transparent.include?(m.name)
+            binding_method_frame = binding_method_frame.parent_frame
+          end
+          new_frame.current_method = binding_method_frame&.current_method
           # Copy locals from full closure chain into eval frame (innermost frame wins).
           # This lets eval read outer-scope variables even if not in binding_frame.local_names.
           closure_chain.reverse_each do |f|
@@ -3310,10 +3386,16 @@ module Frozone
           begin
             result = ast.evaluate(context)
             # Write back locals to the appropriate frame in the closure chain.
-            # New eval vars go to binding_frame; existing closure vars update their original frame.
+            # Existing vars update their original frame (shared between all bindings of that frame).
+            # New eval vars go to binding_frame AND are added to binding_arg's name set only.
             new_frame.local_names.each do |name|
-              target = closure_chain.find { |f| f.local_names.include?(name) } || binding_frame
-              target.set_local(name, new_frame.get_local(name))
+              target = closure_chain.find { |f| f.local_names.include?(name) }
+              if target
+                target.set_local(name, new_frame.get_local(name))
+              else
+                binding_frame.set_local(name, new_frame.get_local(name))
+                binding_arg.binding_local_names |= [name] if binding_arg.is_a?(BindingObject)
+              end
             end
             result
           rescue Ast::RetryException, Ast::RedoException

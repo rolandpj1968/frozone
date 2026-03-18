@@ -1,7 +1,8 @@
 module Frozone
   module Vm
     class Frame
-      attr_reader :the_self, :scopes, :parent_frame
+      attr_reader :the_self, :scopes
+      attr_accessor :parent_frame, :own_locals
       attr_accessor :block
       attr_accessor :method_frame
       attr_accessor :current_method, :method_args, :method_kwargs

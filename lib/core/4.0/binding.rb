@@ -10,7 +10,11 @@ class Binding
 
   def clone(freeze: nil)
     c = dup
-    c.freeze if freeze
+    if freeze.nil?
+      c.freeze if frozen?
+    elsif freeze
+      c.freeze
+    end
     c
   end
 end
