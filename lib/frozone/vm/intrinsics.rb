@@ -872,7 +872,15 @@ module Frozone
         def basic_object_method_missing(context, receiver, name, args, kwargs)
           name_sym = name.is_a?(SymbolObject) ? name.raw : name
           receiver_desc = no_method_receiver_desc(receiver)
-          exc = if Fiber[:mm_implicit_self]
+          violation = Fiber[:mm_visibility_violation]
+          Fiber[:mm_visibility_violation] = nil
+          exc = if violation && violation[1] == name_sym
+                  vis_word = violation[0] == :private ? "private" : "protected"
+                  class_name = violation[2]
+                  e = FrozoneException.make(:NoMethodError, "#{vis_word} method '#{name_sym}' called for an instance of #{class_name}", name: name_sym, receiver: receiver)
+                  e.vm_object.set_ivar(:@args, args.is_a?(ArrayObject) ? args : ArrayObject.new([]))
+                  e
+                elsif Fiber[:mm_implicit_self]
                   class_name = receiver.class_object.name
                   FrozoneException.make(:NameError, "undefined local variable or method '#{name_sym}' for an instance of #{class_name}", name: name_sym, receiver: receiver)
                 else
@@ -2749,7 +2757,11 @@ module Frozone
 
         def unbound_method_dup(_, receiver)
           return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
-          UnboundMethodObject.new(receiver.raw_method, receiver.unbound_name, receiver.unbound_owner)
+          copy = UnboundMethodObject.new(receiver.raw_method, receiver.unbound_name, receiver.unbound_owner)
+          receiver.instance_variables_hash.each do |ivar, val|
+            copy.set_ivar(ivar, val)
+          end
+          copy
         end
 
         def unbound_method_hash(_, receiver)

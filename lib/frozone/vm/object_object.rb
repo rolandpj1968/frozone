@@ -97,21 +97,19 @@ module Frozone
       def dispatch(context, name, args, kw_args, block = nil, private_ok: false, implicit_self: false, public_only: false)
         method = lookup_instance_method(name)
         unless method.nil?
-          case method.visibility
+          visibility_ok = case method.visibility
           when :private
-            unless private_ok
-              raise FrozoneException.make(:NoMethodError, "private method '#{name}' called for an instance of #{@class_object.name}")
-            end
+            private_ok
           when :protected
-            if public_only
-              raise FrozoneException.make(:NoMethodError, "protected method '#{name}' called for an instance of #{@class_object.name}")
-            end
-            caller_class = context&.frame&.the_self&.class_object
-            unless subclass_of?(caller_class, @class_object)
-              raise FrozoneException.make(:NoMethodError, "protected method '#{name}' called for an instance of #{@class_object.name}")
-            end
+            !public_only && subclass_of?(context&.frame&.the_self&.class_object, @class_object)
+          else
+            true
           end
-          return method.invoke(context, self, args, kw_args, block)
+          if visibility_ok
+            return method.invoke(context, self, args, kw_args, block)
+          end
+          # Visibility check failed — store violation info for method_missing / default error message
+          Fiber[:mm_visibility_violation] = [method.visibility, name, @class_object.name]
         end
 
         mm = lookup_instance_method(:method_missing)
@@ -120,11 +118,13 @@ module Frozone
         end
         # Track whether this is an implicit-self call so method_missing can raise NameError vs NoMethodError
         prev = Fiber[:mm_implicit_self]
+        prev_violation = Fiber[:mm_visibility_violation]
         Fiber[:mm_implicit_self] = implicit_self
         begin
           mm.invoke(context, self, [SymbolObject.from(name)] + args, kw_args, block)
         ensure
           Fiber[:mm_implicit_self] = prev
+          Fiber[:mm_visibility_violation] = prev_violation
         end
       end
 

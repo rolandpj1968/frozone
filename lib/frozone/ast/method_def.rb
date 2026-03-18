@@ -82,6 +82,18 @@ module Frozone
         else
           # For singleton methods: `def obj.foo` or `def self.foo`
           receiver_val = @receiver_node.evaluate(context)
+          # nil/true/false cannot have singleton classes: redirect to their class (MRI compat)
+          if receiver_val.is_a?(Vm::NilObject) || receiver_val.is_a?(Vm::TrueObject) || receiver_val.is_a?(Vm::FalseObject)
+            scope = receiver_val.class_object
+            method = Vm::Method.new(frame_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
+            method.visibility = vis
+            scope.set_method(@name, method)
+            prev_call_site = context.call_site
+            context.call_site = @source_location if @source_location
+            Vm::Intrinsics.trigger_method_added(context, scope, @name)
+            context.call_site = prev_call_site
+            return Vm::SymbolObject.from(@name)
+          end
           # Check if receiver (or its singleton class) is frozen, and raise FrozenError with correct type name
           receiver_sc = receiver_val.eigenclass
           if receiver_val.frozen_object? || (receiver_sc && receiver_sc.frozen_object?)

@@ -104,7 +104,8 @@ class UnboundMethod
 
   def clone(freeze: nil)
     c = dup
-    c.freeze if freeze
+    should_freeze = freeze.nil? ? frozen? : freeze
+    c.freeze if should_freeze
     c
   end
 
