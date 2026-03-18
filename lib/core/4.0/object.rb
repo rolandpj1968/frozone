@@ -8,11 +8,6 @@ class Object < BasicObject
 
   def <=>(other) = equal?(other) ? 0 : nil
 
-  def respond_to?(name, include_all = false)
-    name = name.to_sym if name.is_a?(String)
-    Intrinsics.object_respond_to(self, name, include_all)
-  end
-
   def extend(mod) = Intrinsics.object_extend(self, mod)
 
   def instance_eval(str = :__unset__, file = nil, line = nil, extra = :__unset__, &block)

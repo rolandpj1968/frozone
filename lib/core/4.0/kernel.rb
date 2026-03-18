@@ -53,6 +53,7 @@ module Kernel
   def srand(seed = nil) = Intrinsics.kernel_srand(self, seed)
   def sleep(secs = nil) = nil
   def system(*args) = false
+  def fork(&block) = nil  # not supported; block given to fork is never executed
   def `(cmd) = Intrinsics.kernel_backtick(self, cmd)
   def block_given? = Intrinsics.kernel_block_given(self)
   def hash = __id__

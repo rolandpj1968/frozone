@@ -110,7 +110,23 @@ module Frozone
 
         def object_respond_to(context, v, name, include_private_obj = FalseObject::FALSE)
           include_private = include_private_obj.truthy?
-          method_name = name.is_a?(SymbolObject) ? name.raw : (name.is_a?(StringObject) ? name.raw.to_sym : name.raw)
+          if name.is_a?(SymbolObject)
+            method_name = name.raw
+          elsif name.is_a?(StringObject)
+            method_name = name.raw.to_sym
+          else
+            # Try to_str coercion
+            if name.respond_to?(:dispatch)
+              converted = begin; name.dispatch(context, :to_str, [], {}, nil, private_ok: false); rescue FrozoneException; nil; end
+              if converted.is_a?(StringObject)
+                method_name = converted.raw.to_sym
+              else
+                raise FrozoneException.make(:TypeError, "#{name.class_object&.name || 'Object'} is not a symbol nor a string")
+              end
+            else
+              raise FrozoneException.make(:TypeError, "is not a symbol nor a string")
+            end
+          end
           # Check active refinements first (refinements can add methods visible to respond_to?)
           active_refinements = context&.frame&.active_refinements
           m = if active_refinements && !active_refinements.empty?
@@ -2723,6 +2739,18 @@ module Frozone
             klass.lookup_method(name) || receiver.class_object.lookup_method(name)
           end
           unless m
+            # public_method checks respond_to_missing? with include_all=false (public only)
+            rtm = begin
+              receiver.dispatch(context, :respond_to_missing?, [SymbolObject.from(name), FalseObject::FALSE], {}, nil, private_ok: true)
+            rescue FrozoneException
+              FalseObject::FALSE
+            end
+            if rtm.truthy?
+              owner = receiver.class_object
+              bm = BoundMethodObject.new(nil, name, receiver, owner)
+              bm.method_missing_dispatch = true
+              return bm
+            end
             raise FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.class_object.full_name}'")
           end
           vis = m.respond_to?(:visibility) ? m.visibility : :public
