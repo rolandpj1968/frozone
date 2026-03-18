@@ -19,11 +19,16 @@ class Random
     Kernel.srand(seed)
   end
 
-  def rand(n = nil)
-    Intrinsics.random_rand(self, n)
-  end
+  def self.bytes(n) = Intrinsics.random_bytes(nil, n)
+  def self.urandom(n) = Intrinsics.random_urandom(nil, n)
 
-  def seed
-    Intrinsics.random_seed(self)
+  def rand(n = nil) = Intrinsics.random_rand(self, n)
+  def seed = Intrinsics.random_seed(self)
+  def bytes(n) = Intrinsics.random_bytes(self, n)
+  def state = Intrinsics.random_state(self)
+
+  def ==(other)
+    return false unless other.is_a?(Random)
+    seed == other.seed && state == other.state
   end
 end

@@ -708,6 +708,27 @@ module Frozone
           IntegerObject.new(Random.new_seed)
         end
 
+        def random_bytes(_, v, n_obj)
+          rng = v.is_a?(RandomObject) ? v.rng : Random
+          n = n_obj.is_a?(IntegerObject) ? n_obj.raw : n_obj.raw.to_i
+          StringObject.new(rng.bytes(n))
+        end
+
+        def random_urandom(_, _v, n_obj)
+          n = n_obj.is_a?(IntegerObject) ? n_obj.raw : n_obj.raw.to_i
+          StringObject.new(Random.urandom(n))
+        end
+
+        def random_state(_, v)
+          rng = v.is_a?(RandomObject) ? v.rng : Random
+          state_val = begin
+            rng.send(:state)
+          rescue
+            rng.seed
+          end
+          IntegerObject.new(state_val)
+        end
+
         def kernel_local_variables(context, _receiver)
           # local_variables is called from a kernel method frame; the caller's frame has the actual locals
           caller_frame = context.frames[-2] || context.frame
