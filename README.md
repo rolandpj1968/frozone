@@ -8,6 +8,9 @@ Frozone targets Ruby 4.0 semantics and passes **2519/2520** ruby/spec language e
 (0 failures, 1 error — the sole error is an unimplemented `-e` magic-comment edge case).
 Pattern matching is not yet implemented (excluded from the count above).
 
+Core library spec coverage: **13965 / 17750 passing (78.7%)** across 50 of 58 core modules
+(8 modules hang indefinitely due to unimplemented Thread/Mutex/IO concurrency primitives).
+
 ### Frozone² — Self-hosting (sort of)
 
 Frozone can run itself:
@@ -155,69 +158,70 @@ Differences from Prism (both are whitequark lexer limitations):
 
 Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
+Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: ~8442 / ~13244 passing** (~64%) — as of 2026-03-18 (Prism parser, excludes timed-out modules)
+**Overall: 13965 / 17750 passing (78.7%)** — as of 2026-03-18 (Prism parser, 50 of 58 modules measured)
 
 Note: Negative "passing" counts indicate errors exceed examples (mspec counts some errors as extra failures).
-`—` = not yet run (hangs/timeout); `(TO)` = suite times out.
+`(hangs)` = module hangs indefinitely (Thread/Mutex/IO/concurrent primitives not yet implemented).
 
 | Module | Examples | Passing | Failures | Errors |
 |---|---:|---:|---:|---:|
-| argf | 84 | -53 | 3 | 134 |
-| array | — (TO) | — | — | — |
-| basicobject | 178 | 111 | 41 | 26 |
-| binding | 53 | 23 | 7 | 23 |
+| argf | 101 | -36 | 3 | 134 |
+| array | 2985 | 2951 | 7 | 27 |
+| basicobject | 178 | 167 | 3 | 8 |
+| binding | 58 | 57 | 0 | 1 |
 | builtin_constants | 27 | 27 | 0 | 0 |
-| class | 45 | 22 | 18 | 5 |
+| class | 53 | 49 | 1 | 3 |
 | comparable | 54 | 54 | 0 | 0 |
-| complex | 176 | 23 | 57 | 96 |
-| conditionvariable | — | — | — | — |
+| complex | 186 | 186 | 0 | 0 |
+| conditionvariable | (hangs) | — | — | — |
 | data | 77 | 0 | 4 | 73 |
-| dir | 309 | 103 | 50 | 156 |
-| encoding | 552 | -45 | 23 | 574 |
+| dir | 309 | 104 | 49 | 156 |
+| encoding | 595 | 2 | 56 | 537 |
 | enumerable | 574 | 574 | 0 | 0 |
-| enumerator | — (TO) | — | — | — |
+| enumerator | (hangs) | — | — | — |
 | env | 239 | 138 | 95 | 6 |
-| exception | 247 | 231 | 8 | 8 |
-| false | 13 | 13 | 0 | 0 |
-| fiber | 168 | 26 | 77 | 65 |
-| file | 781 | -60 | 190 | 651 |
-| filetest | — | — | — | — |
+| exception | 247 | 239 | 2 | 6 |
+| false | 13 | 12 | 0 | 1 |
+| fiber | 163 | 163 | 0 | 0 |
+| file | 781 | -62 | 190 | 653 |
+| filetest | (hangs) | — | — | — |
 | float | 328 | 323 | 5 | 0 |
-| gc | 33 | -10 | 4 | 39 |
+| gc | 41 | 41 | 0 | 0 |
 | hash | 633 | 633 | 0 | 0 |
-| integer | — | — | — | — |
-| io | — | — | — | — |
-| kernel | — (TO) | — | — | — |
-| main | 27 | 4 | 11 | 12 |
+| integer | 603 | 555 | 48 | 0 |
+| io | (hangs) | — | — | — |
+| kernel | (hangs) | — | — | — |
+| main | 27 | 9 | 6 | 12 |
 | marshal | 110 | -3 | 6 | 107 |
-| matchdata | 186 | 83 | 23 | 80 |
-| math | 243 | 108 | 71 | 64 |
-| method | 223 | 211 | 8 | 4 |
-| module | 1061 | 973 | 25 | 63 |
-| mutex | — (TO) | — | — | — |
-| nil | 27 | 27 | 0 | 0 |
-| numeric | 327 | -28 | 95 | 260 |
-| objectspace | 112 | 10 | 10 | 92 |
-| proc | 294 | 212 | 54 | 28 |
-| process | — (TO) | — | — | — |
+| matchdata | 186 | 185 | 0 | 1 |
+| math | 243 | 243 | 0 | 0 |
+| method | 223 | 217 | 5 | 1 |
+| module | 1061 | 1004 | 21 | 36 |
+| mutex | (hangs) | — | — | — |
+| nil | 27 | 26 | 0 | 1 |
+| numeric | 338 | 337 | 1 | 0 |
+| objectspace | 112 | 43 | 6 | 63 |
+| proc | 303 | 303 | 0 | 0 |
+| process | 283 | -20 | 86 | 217 |
 | queue | 88 | -3 | 13 | 78 |
-| random | 48 | 20 | 4 | 24 |
-| range | — (TO) | — | — | — |
+| random | 87 | 87 | 0 | 0 |
+| range | 459 | 455 | 1 | 3 |
 | rational | 159 | 156 | 3 | 0 |
-| refinement | 25 | 0 | 0 | 25 |
-| regexp | 265 | 76 | 57 | 132 |
-| set | — (TO) | — | — | — |
+| refinement | 25 | 3 | 7 | 15 |
+| regexp | 265 | 259 | 2 | 4 |
+| set | (hangs) | — | — | — |
 | signal | 10 | -42 | 6 | 46 |
 | sizedqueue | 129 | 0 | 16 | 113 |
-| string | 3976 | 3973 | 3 | 0 |
+| string | 3976 | 3972 | 3 | 1 |
 | struct | 182 | 181 | 1 | 0 |
 | symbol | 330 | 330 | 0 | 0 |
 | systemexit | 6 | 6 | 0 | 0 |
-| thread | — (TO) | — | — | — |
+| thread | (hangs) | — | — | — |
 | threadgroup | 5 | -3 | 0 | 8 |
-| time | 668 | -60 | 164 | 564 |
+| time | 668 | -59 | 163 | 564 |
 | tracepoint | 73 | -1 | 4 | 70 |
-| true | 13 | 13 | 0 | 0 |
-| unboundmethod | 86 | 66 | 11 | 9 |
-| warning | — (TO) | — | — | — |
+| true | 13 | 12 | 0 | 1 |
+| unboundmethod | 86 | 74 | 8 | 4 |
+| warning | 31 | 17 | 13 | 1 |
