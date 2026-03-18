@@ -156,10 +156,10 @@ module Frozone
 
         def _array_flatten_coerce(context, elem)
           # MRI's flatten coercion logic:
-          # - If respond_to? is overridden (on eigenclass, or non-Object/Kernel class): gate via it
           # - If respond_to_missing? is overridden (not the BasicObject default): gate via respond_to?
-          # - Otherwise: call to_ary directly so method_missing can intercept it
-          # When gating, let NoMethodError from to_ary propagate (respond_to? said it exists).
+          #   (which internally calls respond_to_missing?)
+          # - Otherwise: call to_ary directly so method_missing can intercept it.
+          #   Catch NoMethodError and treat as "not an array".
           #
           # respond_to? check: use eigenclass_method first (singleton overrides may have lexical
           # scope = Object when defined at top level, making scope inspection unreliable for them).
@@ -168,10 +168,10 @@ module Frozone
             rto && rto.scopes.none? { |s| [:Object, :Kernel, :BasicObject].include?(s.name) }
           end
 
-          # respond_to_missing? check: scope inspection works because top-level scope is :Object,
-          # which differs from the BasicObject default (scope :BasicObject).
+          # respond_to_missing? check: exclude Kernel (which now defines it as returning false)
+          # and BasicObject (the original default). Only user-defined overrides gate the call.
           rtm = elem.lookup_instance_method(:respond_to_missing?)
-          rtm_overridden = rtm && rtm.scopes.none? { |s| s.name == :BasicObject }
+          rtm_overridden = rtm && rtm.scopes.none? { |s| [:BasicObject, :Kernel].include?(s.name) }
 
           r = if rto_overridden || rtm_overridden
             has_to_ary = begin
