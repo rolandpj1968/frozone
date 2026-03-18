@@ -24,6 +24,15 @@ module Frozone
 
         def file_exist(_, path) = bool_object_for(File.exist?(path.raw))
         def file_directory(_, path) = bool_object_for(File.directory?(path.raw))
+
+        def file_umask(_, new_mask)
+          if new_mask.nil? || new_mask.is_a?(NilObject)
+            IntegerObject.new(File.umask)
+          else
+            old = File.umask(new_mask.is_a?(IntegerObject) ? new_mask.raw : new_mask.raw.to_i)
+            IntegerObject.new(old)
+          end
+        end
         def file_file(_, path) = bool_object_for(File.file?(path.raw))
         def file_readable(_, path) = bool_object_for(File.readable?(path.raw))
         def file_executable(_, path) = bool_object_for(File.executable?(path.raw))
@@ -73,6 +82,12 @@ module Frozone
           obj = ObjectObject.new(Core::OBJECT_CLASS)
           obj.instance_variable_set(:@__stat__, st)
           obj
+        end
+
+        def file_stat_mode(_, path)
+          IntegerObject.new(File.stat(path.raw).mode)
+        rescue Errno::ENOENT, Errno::EACCES
+          IntegerObject.new(0)
         end
 
         def file_split(_, path)
@@ -127,6 +142,13 @@ module Frozone
 
         def process_pid(_) = IntegerObject.new(Process.pid)
         def process_euid(_) = IntegerObject.new(Process.euid)
+
+        def process_clock_gettime(_, clock_id_obj, unit_obj)
+          clock_id = clock_id_obj.is_a?(IntegerObject) ? clock_id_obj.raw : 1  # default CLOCK_MONOTONIC
+          unit_sym = unit_obj.is_a?(SymbolObject) ? unit_obj.raw : :float_second
+          result = Process.clock_gettime(clock_id, unit_sym)
+          result.is_a?(Integer) ? IntegerObject.new(result) : FloatObject.new(result)
+        end
 
         # Time
         def time_now(_) = TimeObject.new(Time.now)

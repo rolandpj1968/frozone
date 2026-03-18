@@ -154,7 +154,7 @@ class Encoding
   end
 
   def self.find(name)
-    return default_external if name == "locale" || name == "external"
+    return default_external if name == "locale" || name == "external" || name == "filesystem"
     return default_internal || UTF_8 if name == "internal"
     name_s = name.to_s
     ALL.find { |e| e.name.casecmp(name_s) == 0 } ||

@@ -8,6 +8,7 @@ class Dir
   def self.exist?(path)          = Intrinsics.dir_exist(path)
   def self.mktmpdir(prefix = nil, &block) = Intrinsics.dir_mktmpdir(prefix, block)
   def self.entries(path)         = Intrinsics.dir_entries(path)
+  def self.children(path, encoding: nil) = entries(path).reject { |e| e == '.' || e == '..' }
   def self.delete(path)          = Intrinsics.dir_rmdir(path)
   def self.rmdir(path)           = Intrinsics.dir_rmdir(path)
   def self.empty?(path)          = Intrinsics.dir_empty(path)

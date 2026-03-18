@@ -4,8 +4,9 @@
 class PP
   def self.pp(obj, out = nil, width = 80)
     str = obj.pretty_inspect
+    str = "#{str}\n" unless str.end_with?("\n")
     if out.nil?
-      puts str
+      $stdout.print str
     else
       out << str
     end

@@ -1,8 +1,15 @@
 class Process
+  CLOCK_REALTIME  = 0
+  CLOCK_MONOTONIC = 1
+
   def self.pid   = Intrinsics.process_pid
   def self.euid  = Intrinsics.process_euid
   def self.exit(code = true)  = Kernel.exit(code)
   def self.exit!(code = false) = Intrinsics.kernel_exit(self, code)
+
+  def self.clock_gettime(clock_id, unit = :float_second)
+    Intrinsics.process_clock_gettime(clock_id, unit)
+  end
 
   class Status
     def exitstatus = Intrinsics.process_status_exitstatus(self)
