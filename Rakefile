@@ -61,35 +61,77 @@ def core_spec_path(name)
   "#{RUBY_SPEC_DIR}/core/#{name}"
 end
 
-# Run all core specs (module by module to stay under ARG_MAX)
-desc "Run all ruby/spec core specs (RUBY_SPEC_DIR=... PARSER=prism|wq to override)"
+# Run all core specs in parallel (one process per module)
+desc "Run all ruby/spec core specs (RUBY_SPEC_DIR=... PARSER=prism|wq JOBS=N to override)"
 task :core do
+  require 'tempfile'
+  require 'etc'
+
   totals = { examples: 0, passing: 0, failures: 0, errors: 0 }
   core_modules = Dir["#{RUBY_SPEC_DIR}/core/*/"].map { |d| File.basename(d) }.sort
   per_module = {}
 
-  tmpfile = "/tmp/frozone_core_spec_out.txt"
-  core_modules.each do |name|
+  # Default parallelism: number of CPUs (capped at 8 to avoid memory pressure)
+  n_jobs = [ENV.fetch('JOBS', Etc.nprocessors.to_s).to_i, 1].max
+
+  # Build list of (name, args) pairs for non-empty modules
+  work = core_modules.filter_map do |name|
     specs = Dir["#{RUBY_SPEC_DIR}/core/#{name}/**/*_spec.rb"].sort
     next if specs.empty?
 
     args = specs.map { |f| File.expand_path(f) }.join(' ')
-    system("timeout 60 bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile} 2>/dev/null")
-    output = File.read(tmpfile, encoding: 'binary')
-    if output =~ /(\d+) files, (\d+) examples, \d+ expectations, (\d+) failures, (\d+) errors/
-      ex = $2.to_i; fl = $3.to_i; er = $4.to_i; pass = ex - fl - er
-      totals[:examples]  += ex
-      totals[:passing]   += pass
-      totals[:failures]  += fl
-      totals[:errors]    += er
-      per_module[name] = { examples: ex, passing: pass, failures: fl, errors: er }
-    else
+    [name, args]
+  end
+
+  # Run in parallel with n_jobs workers
+  results = {}
+  mutex = Mutex.new
+  queue = work.dup
+
+  workers = n_jobs.times.map do
+    Thread.new do
+      loop do
+        item = mutex.synchronize { queue.shift }
+        break unless item
+
+        name, args = item
+        tmpfile = Tempfile.new("frozone_core_#{name}")
+        begin
+          system("timeout 300 bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile.path} 2>/dev/null")
+          output = File.read(tmpfile.path, encoding: 'binary')
+          if output =~ /(\d+) files, (\d+) examples, \d+ expectations, (\d+) failures, (\d+) errors/
+            ex = $2.to_i; fl = $3.to_i; er = $4.to_i; pass = ex - fl - er
+            mutex.synchronize { results[name] = { examples: ex, passing: pass, failures: fl, errors: er } }
+          else
+            mutex.synchronize { results[name] = :timeout }
+          end
+        ensure
+          tmpfile.close
+          tmpfile.unlink
+        end
+      end
+    end
+  end
+
+  workers.each(&:join)
+
+  core_modules.each do |name|
+    r = results[name]
+    next unless r
+
+    if r == :timeout
       puts "#{name}: (no output / timeout)"
+    else
+      totals[:examples] += r[:examples]
+      totals[:passing]  += r[:passing]
+      totals[:failures] += r[:failures]
+      totals[:errors]   += r[:errors]
+      per_module[name] = r
     end
   end
 
   puts "\n#{'='*60}"
-  puts "Core spec results (#{PARSER_FLAVOR} parser)"
+  puts "Core spec results (#{PARSER_FLAVOR} parser, #{n_jobs} parallel jobs)"
   puts "Overall: #{totals[:passing]}/#{totals[:examples]} passing " \
        "(#{totals[:failures]} failures, #{totals[:errors]} errors)"
   puts "\n#{'%-20s' % 'Module'} #{'%8s' % 'Examples'} #{'%8s' % 'Passing'} #{'%8s' % 'Failures'} #{'%8s' % 'Errors'}"
