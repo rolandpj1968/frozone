@@ -24,11 +24,23 @@ class String
       v = v.to_str
       raise TypeError, "to_str must return String (#{v.class} given)" unless v.is_a?(String)
     end
-    Intrinsics.string_plus(self, v)
+    result = String.new(self)
+    result << v
+    result
   end
   def *(n)
     n = n.to_int unless n.is_a?(Integer)
-    Intrinsics.string_multiply(self, n)
+    raise RangeError, "bignum too big to convert into 'long'" if n > 9_223_372_036_854_775_807
+    raise ArgumentError, "negative string size (or exceeds maximum allowed string size)" if n < 0
+    return String.new(''.force_encoding(encoding)) if empty? || n == 0
+    raise ArgumentError, "argument exceeds the limit" if n > 1_073_741_823
+    result = String.new(''.force_encoding(encoding))
+    i = 0
+    while i < n
+      result << self
+      i += 1
+    end
+    result
   end
   def %(args) = Intrinsics.string_format(self, args)
   def <<(v)
@@ -54,7 +66,7 @@ class String
     strs.each { |v| self << v }
     self
   end
-  def length = Intrinsics.string_length(self)
+  def length = chars.length
   alias size length
   def bytesize = Intrinsics.string_bytesize(self)
   def to_s
@@ -133,7 +145,8 @@ class String
     Intrinsics.string_scan(self, pattern, block)
   end
 
-  def empty? = Intrinsics.string_empty(self)
+  def empty? = bytesize == 0
+
   def start_with?(*prefixes)
     prefixes.each do |prefix|
       if prefix.is_a?(Regexp)
@@ -148,7 +161,7 @@ class String
           raise TypeError, "no implicit conversion of #{prefix.class} into String"
         end
       end
-      return true if Intrinsics.string_start_with(self, prefix)
+      return true if !prefix.empty? ? self[0, prefix.length] == prefix : true
     end
     false
   end
@@ -162,21 +175,37 @@ class String
           raise TypeError, "no implicit conversion of #{suffix.class} into String"
         end
       end
-      return true if Intrinsics.string_end_with(self, suffix)
+      # Raises Encoding::CompatibilityError if encodings are incompatible
+      Intrinsics.string_encoding_compat(self, suffix)
+      if suffix.empty?
+        return true
+      else
+        slen = suffix.length
+        return true if length >= slen && self[-slen..] == suffix
+      end
     end
     false
   end
+
   def include?(s)
     unless s.is_a?(String)
       raise TypeError, "no implicit conversion of #{s.class} into String" unless s.respond_to?(:to_str)
       s = s.to_str
       raise TypeError, "can't convert to String" unless s.is_a?(String)
     end
-    Intrinsics.string_include(self, s)
+    !index(s).nil?
   end
-  def strip = Intrinsics.string_strip(self)
-  def lstrip = Intrinsics.string_lstrip(self)
-  def rstrip = Intrinsics.string_rstrip(self)
+  def lstrip = sub(/\A[[:space:]\x00]+/, '')
+
+  def rstrip
+    begin
+      sub(/[[:space:]\x00]+\z/, '')
+    rescue ArgumentError => e
+      raise Encoding::CompatibilityError, e.message
+    end
+  end
+
+  def strip = lstrip.rstrip
   def chomp(sep = :__unset__)
     if sep.equal?(:__unset__)
       sep = $/
@@ -185,7 +214,40 @@ class String
     else
       sep = sep.to_str unless sep.is_a?(String)
     end
-    Intrinsics.string_chomp(self, sep)
+    return dup if empty?
+    if sep.nil?
+      # Default separator (from $/ being nil): no-op
+      return dup
+    elsif sep == ''
+      # Paragraph mode: remove all trailing newlines (including \r\n sequences)
+      result = dup
+      while result.end_with?("\n")
+        len = result.length
+        if len >= 2 && result[len - 2] == "\r"
+          result = result[0...(len - 2)]
+        else
+          result = result[0...(len - 1)]
+        end
+      end
+      result
+    elsif sep == "\n"
+      # Default newline mode: remove one trailing \r\n, \r, or \n
+      # Use encode for cross-encoding comparison (e.g. UTF-32BE strings with "\n")
+      lf = "\n".encode(encoding) rescue "\n"
+      cr = "\r".encode(encoding) rescue "\r"
+      crlf = "\r\n".encode(encoding) rescue "\r\n"
+      len = length
+      if len >= 2 && end_with?(crlf)
+        self[0...(len - 2)]
+      elsif end_with?(cr) || end_with?(lf)
+        self[0...(len - 1)]
+      else
+        dup
+      end
+    else
+      # Remove sep from end if present
+      end_with?(sep) ? self[0...(length - sep.length)] : dup
+    end
   end
 
   def chomp!(sep = :__unset__)
@@ -195,44 +257,56 @@ class String
     Intrinsics.string_replace(self, r)
   end
 
-  def chop = Intrinsics.string_chop(self)
+  def chop
+    return dup if empty?
+    len = length
+    crlf = begin; "\r\n".encode(encoding); rescue; "\r\n"; end
+    if len >= 2 && end_with?(crlf)
+      self[0...(len - 2)]
+    else
+      self[0...(len - 1)]
+    end
+  end
 
   def chop!
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    return nil if empty?; r = Intrinsics.string_chop(self); Intrinsics.string_replace(self, r)
+    return nil if empty?; r = chop; Intrinsics.string_replace(self, r)
   end
 
   def strip!
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    r = Intrinsics.string_strip(self); return nil if r == self; Intrinsics.string_replace(self, r)
+    r = strip; return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def lstrip!
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    r = Intrinsics.string_lstrip(self); return nil if r == self; Intrinsics.string_replace(self, r)
+    r = lstrip; return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def rstrip!
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    r = Intrinsics.string_rstrip(self); return nil if r == self; Intrinsics.string_replace(self, r)
+    r = rstrip; return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def upcase!(*args)
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    r = Intrinsics.string_upcase_opts(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
+    r = upcase(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def downcase!(*args)
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    r = Intrinsics.string_downcase_opts(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
+    r = downcase(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def capitalize!(*args)
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    r = Intrinsics.string_capitalize_opts(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
+    r = capitalize(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
-  def reverse! = Intrinsics.string_reverse_bang(self)
+  def reverse!
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    Intrinsics.string_replace(self, reverse)
+  end
 
   def gsub!(pattern, replacement = :__unset__, &block)
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
@@ -252,9 +326,9 @@ class String
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     if replacement.equal?(:__unset__)
       raise ArgumentError, "wrong number of arguments (given 1, expected 2)" unless block
-      snap = Intrinsics.string_bytesize(self)
+      snap = bytesize
       r = Intrinsics.string_sub(self, pattern, nil, block)
-      raise RuntimeError, "string modified" if Intrinsics.string_bytesize(self) != snap
+      raise RuntimeError, "string modified" if bytesize != snap
     else
       r = Intrinsics.string_sub(self, pattern, replacement, block)
     end
@@ -266,12 +340,12 @@ class String
 
   def squeeze!(*args)
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    r = Intrinsics.string_squeeze(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
+    r = squeeze(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def delete!(*args)
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    r = Intrinsics.string_delete(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
+    r = delete(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
   def casecmp(other)
     begin
@@ -298,9 +372,13 @@ class String
   def swapcase(*args) = Intrinsics.string_swapcase_opts(self, *args)
   def swapcase!(*args)
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    r = Intrinsics.string_swapcase_opts(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
+    r = swapcase(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
-  def reverse = Intrinsics.string_reverse(self)
+  def reverse
+    r = chars.reverse.join
+    r.force_encoding(encoding)
+    r
+  end
   def chars(&block)
     arr = Intrinsics.string_chars(self)
     return arr unless block
@@ -309,7 +387,12 @@ class String
   end
 
   def bytes(&block)
-    arr = Intrinsics.string_bytes(self)
+    arr = []
+    i = 0
+    while i < bytesize
+      arr << Intrinsics.string_get_byte(self, i)
+      i += 1
+    end
     return arr unless block
     arr.each(&block)
     self
@@ -351,7 +434,7 @@ class String
   def tr(from, to) = Intrinsics.string_tr(self, from, to)
   def tr!(from, to)
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    r = Intrinsics.string_tr(self, from, to); return nil if r == self; Intrinsics.string_replace(self, r)
+    r = tr(from, to); return nil if r == self; Intrinsics.string_replace(self, r)
   end
   def squeeze(*args) = Intrinsics.string_squeeze(self, *args)
   def count(*args) = Intrinsics.string_count(self, *args)
@@ -413,7 +496,17 @@ class String
       end
       raise TypeError, "no implicit conversion of #{str.class} into String" unless str.is_a?(String)
     end
-    Intrinsics.string_insert(self, index, str)
+    len = length
+    idx = index
+    if idx < 0
+      idx = len + idx + 1
+      raise IndexError, "index #{index} out of string" if idx < 0
+    else
+      raise IndexError, "index #{index} out of string" if idx > len
+    end
+    new_str = self[0...idx].to_s + str + (idx < len ? self[idx..].to_s : '')
+    Intrinsics.string_replace(self, new_str)
+    self
   end
   def slice!(idx, len = :__unset__)
     len.equal?(:__unset__) ? Intrinsics.string_slice_bang(self, idx) : Intrinsics.string_slice_bang(self, idx, len)
@@ -451,7 +544,11 @@ class String
     end
     result
   end
-  def b = Intrinsics.string_b(self)
+  def b
+    r = dup
+    r.force_encoding(Encoding::BINARY)
+    r
+  end
 
   def +@
     # Ruby 4.0: chilled strings (literals) return a non-chilled dup; frozen strings also dup; mutable non-chilled return self
@@ -490,7 +587,10 @@ class String
       i = i.to_int
       raise TypeError, "can't convert to Integer" unless i.is_a?(Integer)
     end
-    Intrinsics.string_getbyte(self, i)
+    bs = bytesize
+    i += bs if i < 0
+    return nil if i < 0 || i >= bs
+    Intrinsics.string_get_byte(self, i)
   end
   def setbyte(i, b) = Intrinsics.string_setbyte(self, i, b)
   def append_as_bytes(*args) = Intrinsics.string_append_as_bytes(self, *args)
@@ -542,7 +642,7 @@ class String
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     from = from.to_str unless from.is_a?(String)
     to = to.to_str unless to.is_a?(String)
-    r = Intrinsics.string_tr_s(self, from, to); return nil if r == self; Intrinsics.string_replace(self, r)
+    r = tr_s(from, to); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def grapheme_clusters(&block)
@@ -565,14 +665,14 @@ class String
 
   def each_char(&block)
     return to_enum(:each_char) { length } unless block
-    Intrinsics.string_chars(self).each(&block)
+    chars.each(&block)
     self
   end
 
   def each_byte(&block)
     return to_enum(:each_byte) { bytesize } unless block
     i = 0
-    while i < Intrinsics.string_bytesize(self)
+    while i < bytesize
       block.call(Intrinsics.string_get_byte(self, i))
       i += 1
     end
@@ -581,12 +681,12 @@ class String
 
   def each_codepoint(&block)
     return to_enum(:each_codepoint) { length } unless block
-    Intrinsics.string_chars(self).each { |c| block.call(c.ord) }
+    chars.each { |c| block.call(c.ord) }
     self
   end
 
   def codepoints(&block)
-    arr = Intrinsics.string_chars(self).map(&:ord)
+    arr = chars.map(&:ord)
     return arr unless block
     arr.each(&block)
     self
@@ -774,12 +874,15 @@ class String
   def dedup = -self
 
   def scrub!(replacement = nil, &block)
-    r = Intrinsics.string_scrub(self, replacement, block)
+    r = scrub(replacement, &block)
     return nil if r == self
     Intrinsics.string_replace(self, r)
   end
 
-  def unicode_normalize!(form = :nfc) = (r = Intrinsics.string_unicode_normalize(self, form); Intrinsics.string_replace(self, r); self)
+  def unicode_normalize!(form = :nfc)
+    Intrinsics.string_replace(self, unicode_normalize(form))
+    self
+  end
 
   def sum(bits = 16)
     bits = bits.to_int unless bits.is_a?(Integer)
