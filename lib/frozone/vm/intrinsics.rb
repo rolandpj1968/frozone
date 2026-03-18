@@ -2779,6 +2779,28 @@ module Frozone
 
         def unbound_method_bind(_, receiver, new_receiver)
           return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          owner = receiver.unbound_owner
+          if owner.is_a?(ClassObject) && owner.is_singleton_class
+            # Singleton class method: check based on what the singleton belongs to
+            orig = owner.singleton_of
+            if orig.is_a?(ClassObject)
+              # Class singleton method: bindable to the same class or subclasses
+              unless new_receiver.is_a?(ClassObject) && subclass_of_builtin?(new_receiver, orig)
+                raise FrozoneException.make(:TypeError, "singleton method called for a different object")
+              end
+            else
+              # Instance singleton method: only bindable to the exact original object
+              unless new_receiver.equal?(orig)
+                raise FrozoneException.make(:TypeError, "singleton method called for a different object")
+              end
+            end
+          elsif owner.is_a?(ClassObject)
+            # Class method: new_receiver must be kind_of? the owner class
+            unless new_receiver.is_a?(ObjectObject) && subclass_of_builtin?(new_receiver.class_object, owner)
+              raise FrozoneException.make(:TypeError, "bind argument must be an instance of #{owner.name}")
+            end
+          end
+          # Module methods: any receiver allowed
           BoundMethodObject.new(receiver.raw_method, receiver.unbound_name, new_receiver, receiver.unbound_owner)
         end
 
