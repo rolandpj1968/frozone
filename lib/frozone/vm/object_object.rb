@@ -90,11 +90,35 @@ module Frozone
         lookup_class.lookup_method(name)
       end
 
+      # Look up a refinement method for this receiver given active refinements from the calling frame.
+      # Checks the receiver's class and all its ancestors for a refinement match.
+      def lookup_refinement_method(name, active_refinements)
+        klass = @class_object
+        while klass
+          ref_mod = active_refinements[klass.object_id]
+          if ref_mod
+            m = ref_mod.get_method(name)
+            return m if m && m != ModuleObject::UNDEF_SENTINEL
+          end
+          klass = klass.is_a?(ClassObject) ? klass.superclass : nil
+        end
+        nil
+      end
+
       # Shared dispatch: look up and invoke a method on self by Symbol name.
       # Falls back to method_missing if the method is not found.
       # private_ok: true when called with implicit receiver (no explicit receiver in source)
       # implicit_self: true for bare-word calls (no receiver) — raises NameError vs NoMethodError on miss
       def dispatch(context, name, args, kw_args, block = nil, private_ok: false, implicit_self: false, public_only: false)
+        # Check active refinements in the calling frame first (refinements take priority)
+        active_refinements = context&.frame&.active_refinements
+        if active_refinements && !active_refinements.empty?
+          ref_method = lookup_refinement_method(name, active_refinements)
+          if ref_method
+            return ref_method.invoke(context, self, args, kw_args, block)
+          end
+        end
+
         method = lookup_instance_method(name)
         unless method.nil?
           visibility_ok = case method.visibility

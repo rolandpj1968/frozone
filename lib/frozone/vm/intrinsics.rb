@@ -35,6 +35,20 @@ module Frozone
               return FalseObject::FALSE
             end
           end
+          # A non-singleton class is_a? a singleton class iff the class <= singleton class's singleton_of.
+          # e.g. b.is_a?(a.singleton_class) iff b <= a (b is a or a subclass of a).
+          if v.is_a?(ClassObject) && !v.is_singleton_class &&
+             klass.is_a?(ClassObject) && klass.is_singleton_class
+            sc_of_k = klass.singleton_of
+            if sc_of_k.is_a?(ClassObject)
+              c2 = v
+              until c2.nil?
+                return TrueObject::TRUE if c2.ancestors_include?(sc_of_k)
+                c2 = c2.is_a?(ClassObject) ? c2.superclass : nil
+              end
+              return FalseObject::FALSE
+            end
+          end
           # Walk from lookup_class (eigenclass if materialised, else class_object).
           # ancestors_include? short-circuits and handles transitive prepend/include at each level.
           c = v.lookup_class
@@ -354,6 +368,7 @@ module Frozone
             cmd.to_s
           end
           output = ::IO.popen(cmd_str, 'r', &:read) rescue ""
+          GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
           StringObject.new(output || "")
         end
 
@@ -710,6 +725,11 @@ module Frozone
 
         def process_status_pid(_, obj)
           IntegerObject.new(obj.native_status.pid || 0)
+        end
+
+        def process_status_termsig(_, obj)
+          sig = obj.native_status.termsig
+          sig ? IntegerObject.new(sig) : NilObject::NIL
         end
 
         def emit_vm_warning(context, msg)
@@ -1921,10 +1941,51 @@ module Frozone
         end
 
         def module_used_refinements(context, _klass)
-          frame = context.frame
-          refs = frame.active_refinements
+          # used_refinements returns refinements active in the CALLING scope,
+          # not in the scope where used_refinements itself was defined.
+          # Walk up the call stack to find the first frame with active refinements
+          # that belongs to a non-method scope (module/class body context).
+          # The direct caller of Module.used_refinements (parent_frame) has the refinements.
+          frame = context.frame&.parent_frame
+          refs = frame&.active_refinements
           return ArrayObject.new([]) unless refs && !refs.empty?
           ArrayObject.new(refs.values)
+        end
+
+        # Evaluate a refine block with all the refining module's own refinements active.
+        # This enables cross-refinement calls inside the refine block.
+        def module_refine_eval(context, refining_mod, refinement_mod, block)
+          # Collect the refining module's own refinements (NOT ancestors)
+          own_refs = refining_mod.instance_variable_get(:@__refinements__) || {}
+          # Also include the refinement_mod itself (for the class being refined)
+          refined_class = refinement_mod.instance_variable_get(:@__refined_class__)
+          all_refs = own_refs.dup
+          all_refs[refined_class.object_id] = refinement_mod if refined_class
+
+          block_obj = block.is_a?(BlockObject) ? block : (block.is_a?(ProcObject) ? block.block : block)
+          unless block_obj.is_a?(BlockObject)
+            module_eval(context, refinement_mod, block)
+            return NilObject::NIL
+          end
+
+          # Temporarily install refinements on the block's enclosing frame.
+          # BlockObject#invoke creates a new_frame inheriting active_refinements from enclosing_frame,
+          # so setting them here makes them visible inside the refine block body.
+          enc_frame = block_obj.enclosing_frame
+          prev_enc_refs = enc_frame.active_refinements
+          enc_frame.active_refinements = if all_refs.empty?
+            prev_enc_refs
+          elsif prev_enc_refs
+            prev_enc_refs.merge(all_refs)
+          else
+            all_refs
+          end
+          begin
+            module_eval(context, refinement_mod, block)
+          ensure
+            enc_frame.active_refinements = prev_enc_refs
+          end
+          NilObject::NIL
         end
 
         def module_set_temporary_name(_, receiver, name_obj)
@@ -2310,6 +2371,8 @@ module Frozone
             chain.each { |m| eval_scopes << m unless eval_scopes.include?(m) }
           end
           new_frame = Frame.new(receiver, parser.top_level_locals, eval_scopes)
+          # Inherit active refinements from the calling frame (lexical scope for eval)
+          new_frame.active_refinements = context.frame.active_refinements if context.frame&.active_refinements
           context.push_frame(new_frame)
           context.scopes << receiver
           begin

@@ -16,8 +16,11 @@ class Process
     sig = signal.is_a?(Integer) ? signal : Signal.list[sigstr]
     raise ArgumentError, "unsupported signal #{signal}" unless sig
     our_pid = Process.pid
+    int_sig = Signal.list["INT"] || 2
     pids.each do |pid|
-      raise SignalException.new(sig) if pid == our_pid
+      if pid == our_pid
+        raise(sig == int_sig ? Interrupt.new : SignalException.new(sig))
+      end
       Intrinsics.process_kill(sig, pid)
     end
     pids.length
@@ -27,7 +30,13 @@ class Process
     def exitstatus = Intrinsics.process_status_exitstatus(self)
     def success?   = exitstatus == 0
     def pid        = Intrinsics.process_status_pid(self)
-    def to_i       = exitstatus
+    def termsig    = Intrinsics.process_status_termsig(self)
+    def signaled?  = !termsig.nil?
+    def stopped?   = false
+    def stopsig    = nil
+    def coredump?  = false
+    def exited?    = !signaled?
+    def to_i       = exitstatus.to_i
     def to_s       = "#<Process::Status: pid #{pid} exit #{exitstatus}>"
     def inspect    = to_s
   end

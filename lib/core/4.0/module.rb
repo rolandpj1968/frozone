@@ -237,19 +237,26 @@ class Module
       refinement.instance_variable_set(:@__refining_module__, self)
       @__refinements__[klass.object_id] = refinement
     end
-    refinement.module_eval(&block)
+    # Execute the refine block with all refinements from THIS module active
+    # (so methods defined in the refine block can call other refined methods)
+    Intrinsics.module_refine_eval(self, refinement, block)
     refinement
+  end
+
+  def refinements
+    refs = @__refinements__
+    return [] unless refs
+    refs.values
   end
 
   def using(mod)
     raise TypeError, "wrong argument type #{mod.class} (expected Module)" unless mod.is_a?(Module)
     raise TypeError, "wrong argument type Class (expected Module)" if mod.is_a?(Class)
-    raise RuntimeError, "Module#using is not permitted in methods" if Intrinsics.module_in_method_scope_q(self)
-    # Refinements are not yet implemented; using only validates args and returns self.
+    Intrinsics.module_using(self, mod)
     self
   end
 
   private :using
 
-  def self.used_refinements = []
+  def self.used_refinements = Intrinsics.module_used_refinements(self)
 end

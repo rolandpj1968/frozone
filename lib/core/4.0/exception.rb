@@ -232,8 +232,9 @@ module Signal
 
   def self.list = LIST
 
-  def self.trap(signal, &block)
-    Intrinsics.signal_trap(signal, block)
+  def self.trap(signal, command = :__no_command__, &block)
+    callable = command.equal?(:__no_command__) ? block : command
+    Intrinsics.signal_trap(signal, callable)
   end
 end
 
