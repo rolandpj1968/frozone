@@ -13,6 +13,7 @@ module Frozone
       end
 
       def truthy? = true
+      def inspect_for_error = @raw.inspect
     end
   end
 end

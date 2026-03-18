@@ -17,9 +17,22 @@ class BasicObject
     false
   end
 
+  private
+
   def method_missing(name, *args, **kwargs)
     Intrinsics.basic_object_method_missing(self, name, args, kwargs)
   end
+
+  def singleton_method_added(name)
+  end
+
+  def singleton_method_removed(name)
+  end
+
+  def singleton_method_undefined(name)
+  end
+
+  public
 
   def __send__(name, *args, **kwargs, &block)
     Intrinsics.basic_object___send__(self, name, args, kwargs, block)

@@ -29,12 +29,13 @@ module Frozone
       # @@var inside `class << self` reads from the original class, not the singleton.
       def current_class(context)
         mf = context.frame.method_frame
-        scope = mf&.def_scope
+        # cvar_scope is set for lambda blocks in instance_eval to preserve lexical scope
+        scope = mf&.cvar_scope || mf&.def_scope
         # For a real class/module scope (not Object), use it directly.
         if scope.is_a?(Vm::ModuleObject) && !scope.equal?(Vm::Core::OBJECT_CLASS)
           # Unwrap singleton classes: @@var in `class << Foo` body → read from Foo
-          scope = scope.singleton_of while scope.is_singleton_class
-          return scope
+          scope = scope.singleton_of while scope.is_a?(Vm::ModuleObject) && scope.is_singleton_class
+          return scope if scope.is_a?(Vm::ModuleObject)
         end
         # If self is a class/module (we're in a class body), use self.
         s = context.frame.the_self

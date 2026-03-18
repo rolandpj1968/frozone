@@ -7,6 +7,8 @@ module Frozone
       attr_accessor :method_frame
       attr_accessor :current_method, :method_args, :method_kwargs
       attr_accessor :def_scope              # singleton class scope set by instance_eval or method's defining scope
+      attr_accessor :cvar_scope             # lexical scope for class variable lookup (preserved through instance_eval)
+      attr_accessor :instance_eval_const_scope  # receiver's singleton class for instance_eval string constant lookup
       attr_accessor :incoming_call_site    # "file:line" where this frame was invoked from
       attr_accessor :thread_boundary       # true when block runs as a Thread body — break → LocalJumpError
 

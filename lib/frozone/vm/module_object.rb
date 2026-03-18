@@ -182,6 +182,13 @@ module Frozone
       def set_method(name, method)
         raise "method must be a Method, DefinedMethod, or VisibilityOverride" unless method.is_a?(Method) || method.is_a?(DefinedMethod) || method.is_a?(VisibilityOverride)
         if frozen_object?
+          if is_a?(ClassObject) && is_singleton_class
+            so = singleton_of
+            if so.is_a?(IntegerObject) || so.is_a?(FloatObject) || so.is_a?(SymbolObject) ||
+               so.is_a?(NilObject) || so.is_a?(TrueObject) || so.is_a?(FalseObject)
+              raise FrozoneException.make(:TypeError, "can't define singleton", receiver: self)
+            end
+          end
           type_name = is_a?(ClassObject) ? "Class" : "Module"
           raise FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{inspect_for_frozen}", receiver: self)
         end

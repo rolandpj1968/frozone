@@ -13,6 +13,7 @@ module Frozone
       private_class_method :new
 
       def to_s = "true"
+      def inspect_for_error = "true"
 
       TRUE = new
     end

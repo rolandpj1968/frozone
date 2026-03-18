@@ -19,6 +19,7 @@ module Frozone
       private_class_method :new
 
       def to_s = ":#{@raw}"
+      def inspect_for_error = ":#{@raw}"
 
       # TODO - share with unique strings???
       # TODO - thread-safety

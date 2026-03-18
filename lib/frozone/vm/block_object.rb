@@ -112,6 +112,11 @@ module Frozone
         end
 
         new_frame.def_scope = def_scope || instance_eval_receiver&.singleton_class
+        # For lambda blocks in instance_eval, preserve lexical cvar scope from enclosing frame
+        if instance_eval_receiver && (@is_lambda || as_method)
+          enclosing_mf = @enclosing_frame.method_frame
+          new_frame.cvar_scope = enclosing_mf&.cvar_scope || enclosing_mf&.def_scope
+        end
         new_frame.current_method = current_method if current_method
         new_frame.incoming_call_site = context&.call_site
         new_frame.thread_boundary = thread_boundary && !@is_lambda

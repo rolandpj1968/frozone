@@ -1049,15 +1049,24 @@ module Frozone
           # Seed the eval frame with the caller's current local variable values so that
           # reads in the eval see the caller's values, and after the eval we write them back.
           eval_locals = parser.top_level_locals
-          new_frame = Frame.new(receiver, eval_locals, caller_frame.scopes)
+          # Constant lookup order: receiver singleton, receiver class, then caller scopes
+          # (receiver class hierarchy searched via step 2 of ModuleObject.lookup_constant)
+          receiver_sc = receiver.singleton_class
+          receiver_class = receiver.is_a?(ModuleObject) ? receiver : receiver.class_object
+          eval_scopes = caller_frame.scopes + [receiver_class, receiver_sc]
+          new_frame = Frame.new(receiver, eval_locals, eval_scopes)
           caller_local_names.each do |name|
             next unless eval_locals.include?(name)
             v = caller_frame.get_local(name)
             new_frame.set_local(name, v) if v
           end
           new_frame.parent_frame = caller_frame
+          new_frame.method_frame = new_frame
           # `def` inside instance_eval always targets receiver's singleton class
           new_frame.def_scope = receiver.singleton_class
+          # Class variable lookup uses caller's lexical scope (not receiver's singleton)
+          caller_mf = caller_frame.method_frame
+          new_frame.cvar_scope = caller_mf&.cvar_scope || caller_mf&.def_scope
           context.push_frame(new_frame)
           begin
             result = ast.evaluate(context)
@@ -1073,7 +1082,9 @@ module Frozone
         end
 
         def object_instance_exec(context, receiver, args, block)
-          return NilObject::NIL if block.nil? || block.is_a?(NilObject)
+          if block.nil? || block.is_a?(NilObject)
+            raise FrozoneException.make(:LocalJumpError, "no block given")
+          end
           return block.invoke(context, args.raw, receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(ProcObject)
           return block.invoke(context, args.raw, receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(BlockObject)
           NilObject::NIL
@@ -2696,19 +2707,15 @@ module Frozone
           if receiver.is_a?(ClassObject) && receiver.is_singleton_class && receiver.singleton_of
             # Adding to a singleton class → call singleton_method_added on original object
             orig = receiver.singleton_of
-            begin
-              orig.dispatch(context, :singleton_method_added, [SymbolObject.from(name)], {}, nil, private_ok: true)
-            rescue FrozoneException, StandardError
-              # ignore errors (including NoMethodError when not defined, bootstrap errors)
-            end
+            orig.dispatch(context, :singleton_method_added, [SymbolObject.from(name)], {}, nil, private_ok: true)
           else
             # Regular class/module → call method_added on the class/module itself
-            begin
-              receiver.dispatch(context, :method_added, [SymbolObject.from(name)], {}, nil, private_ok: true)
-            rescue FrozoneException, StandardError
-              # ignore errors (including NoMethodError when not defined, bootstrap errors)
-            end
+            receiver.dispatch(context, :method_added, [SymbolObject.from(name)], {}, nil, private_ok: true)
           end
+        rescue FrozoneException
+          raise  # propagate Frozone exceptions (e.g. NoMethodError when hook is undefined)
+        rescue StandardError
+          # Suppress MRI-level errors (e.g. during boot when Frozone VM not fully set up)
         end
 
         def module_display_name(context, receiver)
@@ -2734,18 +2741,28 @@ module Frozone
 
         def trigger_method_removed(context, receiver, name)
           return unless context
-          begin
+          if receiver.is_a?(ClassObject) && receiver.is_singleton_class && receiver.singleton_of
+            orig = receiver.singleton_of
+            orig.dispatch(context, :singleton_method_removed, [SymbolObject.from(name)], {}, nil, private_ok: true)
+          else
             receiver.dispatch(context, :method_removed, [SymbolObject.from(name)], {}, nil, private_ok: true)
-          rescue FrozoneException, StandardError
           end
+        rescue FrozoneException
+          raise
+        rescue StandardError
         end
 
         def trigger_method_undefined(context, receiver, name)
           return unless context
-          begin
+          if receiver.is_a?(ClassObject) && receiver.is_singleton_class && receiver.singleton_of
+            orig = receiver.singleton_of
+            orig.dispatch(context, :singleton_method_undefined, [SymbolObject.from(name)], {}, nil, private_ok: true)
+          else
             receiver.dispatch(context, :method_undefined, [SymbolObject.from(name)], {}, nil, private_ok: true)
-          rescue FrozoneException, StandardError
           end
+        rescue FrozoneException
+          raise
+        rescue StandardError
         end
 
         def coerce_attr_name(context, name_obj)

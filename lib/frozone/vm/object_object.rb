@@ -71,11 +71,16 @@ module Frozone
         # Own eigenclass → superclass eigenclasses → @class_object (Class/Module) instance methods.
         # This ensures inherited `def self.foo` methods shadow `Class#foo` instance methods.
         if is_a?(ClassObject)
-          m = @eigenclass&.lookup_method(name)
-          return m if m
+          if @eigenclass
+            m = @eigenclass.lookup_method(name)
+            # If eigenclass has UNDEF_SENTINEL, stop searching entirely (undef_method in singleton class)
+            return nil if m.nil? && @eigenclass.get_method(name) == ModuleObject::UNDEF_SENTINEL
+            return m if m
+          end
           c = superclass
           while c
             m = c.eigenclass_method(name)
+            return nil if m == ModuleObject::UNDEF_SENTINEL
             return m unless m.nil?
             c = c.is_a?(ClassObject) ? c.superclass : nil
           end
@@ -145,6 +150,8 @@ module Frozone
         end
         @instance_variables_hash[name] = value
       end
+
+      def is_singleton_class = false
 
       def inspect_for_error
         "#<#{@class_object&.name}>"

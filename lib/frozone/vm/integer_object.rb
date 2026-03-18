@@ -16,6 +16,7 @@ module Frozone
       end
 
       def to_s = @raw.to_s
+      def inspect_for_error = @raw.inspect
     end
   end
 end
