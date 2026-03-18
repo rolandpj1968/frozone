@@ -111,6 +111,8 @@ module Frozone
         prev_visibility = class_constant.current_visibility
         class_constant.current_visibility = :public
         new_frame = Vm::Frame.new(class_constant, @locals, context.scopes)
+        # Inherit active refinements from the enclosing frame (lexical scoping of `using`)
+        new_frame.active_refinements = context.frame.active_refinements if context.frame.active_refinements
         context.push_frame(new_frame)
 
         begin

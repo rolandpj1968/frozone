@@ -231,7 +231,7 @@ class Module
     @__refinements__ ||= {}
     refinement = @__refinements__[klass.object_id]
     unless refinement
-      refinement = Module.new
+      refinement = Refinement.new
       refinement.instance_variable_set(:@__refinement__, true)
       refinement.instance_variable_set(:@__refined_class__, klass)
       refinement.instance_variable_set(:@__refining_module__, self)

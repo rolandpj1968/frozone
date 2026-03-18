@@ -63,6 +63,9 @@ module Frozone
       STRING_CLASS  = define_class(:String,  OBJECT_CLASS)
       ARRAY_CLASS   = define_class(:Array,   OBJECT_CLASS)
       HASH_CLASS    = define_class(:Hash,    OBJECT_CLASS)
+
+      # Refinement is a subclass of Module (refinement objects are Module instances with extra methods)
+      REFINEMENT_CLASS = define_class(:Refinement, MODULE_CLASS)
     end
   end
 end

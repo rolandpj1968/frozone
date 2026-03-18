@@ -146,6 +146,7 @@ module Frozone
         evaluate_file("#{core_path}/module.rb")
         ObjectObject.end_bootstrap!
         evaluate_file("#{core_path}/class.rb")
+        evaluate_file("#{core_path}/refinement.rb")
         evaluate_file("#{core_path}/basic_object.rb")
         evaluate_file("#{core_path}/kernel.rb")
         evaluate_file("#{core_path}/object.rb")

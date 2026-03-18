@@ -1091,8 +1091,9 @@ module Frozone
         end
 
         def toplevel_include(_, _self, mods)
-          mods.raw.each { |mod| Core::OBJECT_CLASS.add_module(mod) }
-          Core::OBJECT_CLASS
+          target = Fiber[:load_wrap_module] || Core::OBJECT_CLASS
+          mods.raw.each { |mod| target.add_module(mod) }
+          target
         end
 
         def module_prepend(_, receiver, mod)
@@ -1208,6 +1209,10 @@ module Frozone
         def object_extend(context, receiver, mod)
           raise FrozoneException.make(:TypeError, "wrong argument type #{frozone_class_name(mod)} (expected Module)") unless mod.is_a?(ModuleObject)
           raise FrozoneException.make(:TypeError, "wrong argument type #{frozone_class_name(mod)} (expected Module)") if mod.is_a?(ClassObject)
+          # Refinement modules cannot be used with Object#extend
+          if mod.is_a?(ModuleObject) && mod.get_ivar(:@__refinement__)&.truthy?
+            raise FrozoneException.make(:TypeError, "Refinement#extend_object has been removed")
+          end
           mod.dispatch(context, :extend_object, [receiver], {}, nil, private_ok: true)
           begin
             mod.dispatch(context, :extended, [receiver], {}, nil, private_ok: true)
@@ -1982,10 +1987,18 @@ module Frozone
         # Evaluate a refine block with all the refining module's own refinements active.
         # This enables cross-refinement calls inside the refine block.
         def module_refine_eval(context, refining_mod, refinement_mod, block)
-          # Collect the refining module's own refinements (NOT ancestors)
-          own_refs = refining_mod.instance_variable_get(:@__refinements__) || {}
+          # Collect the refining module's own refinements (NOT ancestors), using Frozone's get_ivar
+          own_refs_obj = refining_mod.get_ivar(:@__refinements__)
+          own_refs = {}
+          unless own_refs_obj.is_a?(NilObject) || !own_refs_obj.is_a?(HashObject)
+            own_refs_obj.raw.each do |k, v|
+              key = k.is_a?(IntegerObject) ? k.raw : k
+              own_refs[key] = v if v.is_a?(ModuleObject)
+            end
+          end
           # Also include the refinement_mod itself (for the class being refined)
-          refined_class = refinement_mod.instance_variable_get(:@__refined_class__)
+          refined_class_obj = refinement_mod.get_ivar(:@__refined_class__)
+          refined_class = refined_class_obj.is_a?(NilObject) ? nil : refined_class_obj
           all_refs = own_refs.dup
           all_refs[refined_class.object_id] = refinement_mod if refined_class
 
@@ -2957,6 +2970,35 @@ module Frozone
           receiver.unbound_owner
         end
 
+        # Check if a method (UnboundMethodObject) is "defined in Ruby code" (not an intrinsic).
+        # A method with an IntrinsicCall body is considered NOT defined in Ruby code.
+        def method_ruby_defined_q(_, receiver)
+          return FalseObject::FALSE unless receiver.is_a?(UnboundMethodObject)
+          m = receiver.raw_method
+          return FalseObject::FALSE unless m.is_a?(Method)
+          body = m.body
+          return FalseObject::FALSE if body.is_a?(Ast::IntrinsicCall)
+          TrueObject::TRUE
+        end
+
+        # Copy an UnboundMethod into a refinement module as an owned method.
+        def refinement_import_method(_, refinement, name_obj, unbound_method_obj)
+          return NilObject::NIL unless refinement.is_a?(ModuleObject)
+          return NilObject::NIL unless unbound_method_obj.is_a?(UnboundMethodObject)
+          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.to_s.to_sym
+          raw_m = unbound_method_obj.raw_method
+          imported = Method.new(
+            raw_m.scopes, name, raw_m.required_params, raw_m.optional_params, raw_m.rest_param,
+            raw_m.post_params, raw_m.required_kw_params, raw_m.optional_kw_params, raw_m.kw_rest_param,
+            raw_m.block_param, [], raw_m.body,
+            uses_block: raw_m.uses_block, source_location: raw_m.source_location
+          )
+          imported.visibility = raw_m.visibility
+          imported.original_owner = refinement
+          refinement.set_method(name, imported)
+          NilObject::NIL
+        end
+
         def module_private_method_defined(context, receiver, name_obj, inherit_obj = TrueObject::TRUE)
           name = sym_name_coercing(context, name_obj)
           inherit = inherit_obj.truthy?
@@ -3313,7 +3355,7 @@ module Frozone
           TrueObject::TRUE
         end
 
-        def kernel_load(_, _receiver, path_obj)
+        def kernel_load(_, _receiver, path_obj, wrap_obj = nil)
           path = path_obj.raw
           full_path = File.exist?(path) ? path : resolve_load_path(path)
           if full_path.nil?
@@ -3321,10 +3363,18 @@ module Frozone
             exc.vm_object.set_ivar(:@path, StringObject.new(path))
             raise exc
           end
+          wrap = wrap_obj && !wrap_obj.is_a?(NilObject) && !wrap_obj.is_a?(FalseObject)
+          prev_wrap_mod = Fiber[:load_wrap_module]
+          if wrap
+            wrap_mod = ModuleObject.new(nil, nil)
+            Fiber[:load_wrap_module] = wrap_mod
+          end
           begin
             Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
           rescue Ast::ReturnException
             # return at top level of loaded file stops loading gracefully
+          ensure
+            Fiber[:load_wrap_module] = prev_wrap_mod if wrap
           end
           TrueObject::TRUE
         end
@@ -3909,8 +3959,8 @@ module Frozone
               end
             end
             return new_class
-          elsif klass.equal?(Core::MODULE_CLASS)
-            new_mod = ModuleObject.new(nil, nil)
+          elsif klass.equal?(Core::MODULE_CLASS) || klass.equal?(Core::REFINEMENT_CLASS)
+            new_mod = ModuleObject.new(nil, nil, klass)
             if has_block
               prev_vis = new_mod.current_visibility
               new_mod.current_visibility = :public

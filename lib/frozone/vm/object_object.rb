@@ -91,16 +91,14 @@ module Frozone
       end
 
       # Look up a refinement method for this receiver given active refinements from the calling frame.
-      # Checks the receiver's class and all its ancestors for a refinement match.
+      # Checks the receiver's class and all its ancestors (including included modules) for a refinement match.
       def lookup_refinement_method(name, active_refinements)
-        klass = @class_object
-        while klass
-          ref_mod = active_refinements[klass.object_id]
+        @class_object.ancestors_list.each do |ancestor|
+          ref_mod = active_refinements[ancestor.object_id]
           if ref_mod
             m = ref_mod.get_method(name)
             return m if m && m != ModuleObject::UNDEF_SENTINEL
           end
-          klass = klass.is_a?(ClassObject) ? klass.superclass : nil
         end
         nil
       end
