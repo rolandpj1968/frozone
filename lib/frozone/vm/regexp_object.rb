@@ -5,9 +5,10 @@ module Frozone
   module Vm
     class RegexpObject < ObjectObject
       attr_reader :raw
+      attr_accessor :newly_created_for_subclass
 
-      def initialize(source, flags = 0, encoding_name = nil)
-        super(Core::OBJECT_CLASS.get_constant(:Regexp))
+      def initialize(source, flags = 0, encoding_name = nil, klass: nil)
+        super(klass || Core::OBJECT_CLASS.get_constant(:Regexp))
         if encoding_name
           src = source.dup.force_encoding(encoding_name)
           @raw = Regexp.new(src, flags)

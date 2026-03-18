@@ -3614,6 +3614,12 @@ module Frozone
         end
 
         def objectspace_define_finalizer(context, obj, proc_arg, block)
+          # Non-reference objects (immediate values) cannot have finalizers
+          if obj.is_a?(IntegerObject) || obj.is_a?(SymbolObject) || obj.is_a?(NilObject) ||
+             obj.is_a?(TrueObject) || obj.is_a?(FalseObject)
+            klass = obj.respond_to?(:class_object) ? (obj.class_object&.name || obj.class) : obj.class
+            raise FrozoneException.make(:ArgumentError, "wrong argument type #{klass} (expected non-immediate)")
+          end
           callable = if !block.nil? && !block.is_a?(NilObject)
             block
           elsif !proc_arg.nil? && !proc_arg.is_a?(NilObject)
@@ -3621,14 +3627,36 @@ module Frozone
           else
             raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given 1, expected 2)")
           end
-          unless callable.respond_to?(:invoke) || callable.respond_to?(:dispatch)
-            raise FrozoneException.make(:ArgumentError, "wrong argument type #{callable.class_object&.name || callable.class} (expected Proc)")
+          # Check respond_to?(:call)
+          responds = begin
+            result = callable.dispatch(context, :respond_to?, [SymbolObject.from(:call)], {})
+            result.equal?(TrueObject::TRUE)
+          rescue FrozoneException
+            callable.respond_to?(:invoke)
+          end
+          unless responds
+            klass = callable.respond_to?(:class_object) ? (callable.class_object&.name || callable.class) : callable.class
+            raise FrozoneException.make(:ArgumentError, "wrong argument type #{klass} (expected Proc)")
           end
           # Return [0, proc] as MRI does
           ArrayObject.new([IntegerObject.new(0), callable])
         end
 
-        def objectspace_undefine_finalizer(_, obj)
+        def objectspace_garbage_collect(_)
+          ::GC.start
+          NilObject::NIL
+        end
+
+        def objectspace_undefine_finalizer(context, obj)
+          is_frozen = begin
+            obj.dispatch(context, :frozen?, [], {}).equal?(TrueObject::TRUE)
+          rescue FrozoneException
+            false
+          end
+          if is_frozen
+            klass_name = obj.respond_to?(:class_object) ? (obj.class_object&.name || 'Object') : 'Object'
+            raise FrozoneException.make(:FrozenError, "can't modify frozen #{klass_name}")
+          end
           obj
         end
 

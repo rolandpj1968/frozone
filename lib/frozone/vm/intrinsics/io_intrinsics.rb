@@ -169,28 +169,35 @@ module Frozone
           bool_object_for(r1.raw == r2.raw)
         end
 
-        def regexp_new(context, pattern, options = nil)
+        def regexp_new(context, klass, pattern, options = nil)
+          regexp_class = Core::OBJECT_CLASS.get_constant(:Regexp)
           if pattern.is_a?(RegexpObject)
             # When given a Regexp, use its source+options; warn and ignore extra options
             if options && !options.is_a?(NilObject) && !options.is_a?(FalseObject)
               kernel_warn(context, NilObject::NIL, ArrayObject.new([StringObject.new("warning: flags ignored")]))
             end
-            return RegexpObject.new(pattern.raw.source, pattern.raw.options, pattern.raw.encoding.name)
+            result = RegexpObject.new(pattern.raw.source, pattern.raw.options, pattern.raw.encoding.name, klass: klass)
+            unless klass.equal?(regexp_class)
+              result.newly_created_for_subclass = true
+              result.dispatch(context, :initialize, [pattern, options || NilObject::NIL], {}, nil, private_ok: true)
+              result.newly_created_for_subclass = false
+            end
+            return result
           end
           # Coerce to String
+          pat_klass = pattern.respond_to?(:class_object) ? (pattern.class_object&.name || pattern.class) : pattern.class
           pat_raw = if pattern.is_a?(StringObject)
             pattern.raw
           else
-            klass = pattern.respond_to?(:class_object) ? (pattern.class_object&.name || pattern.class) : pattern.class
             begin
               result = pattern.dispatch(context, :to_str, [], {})
               unless result.is_a?(StringObject)
-                raise FrozoneException.make(:TypeError, "can't convert #{klass} into String")
+                raise FrozoneException.make(:TypeError, "can't convert #{pat_klass} into String")
               end
               result.raw
             rescue FrozoneException => e
               raise unless e.frozone_class_name == :NoMethodError
-              raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{pat_klass} into String")
             end
           end
           flags = if options.nil? || options.is_a?(NilObject) || options.is_a?(FalseObject)
@@ -202,15 +209,30 @@ module Frozone
           elsif options.is_a?(TrueObject)
             Regexp::IGNORECASE
           else
-            0
+            kernel_warn(context, NilObject::NIL, ArrayObject.new([StringObject.new("warning: expected true or false as ignorecase")]))
+            Regexp::IGNORECASE
           end
-          RegexpObject.new(pat_raw, flags)
+          result = RegexpObject.new(pat_raw, flags, klass: klass)
+          unless klass.equal?(regexp_class)
+            result.newly_created_for_subclass = true
+            result.dispatch(context, :initialize, [pattern, options || NilObject::NIL], {}, nil, private_ok: true)
+            result.newly_created_for_subclass = false
+          end
+          result
         rescue ::RegexpError => e
           raise FrozoneException.make(:RegexpError, e.message)
         end
 
+        def regexp_newly_created_q(_, r)
+          r.is_a?(RegexpObject) ? bool_object_for(r.newly_created_for_subclass) : FalseObject::FALSE
+        end
+
         def regexp_source(_, r) = StringObject.new(r.raw.source)
-        def regexp_options(_, r) = IntegerObject.new(r.raw.options)
+
+        def regexp_options(_, r)
+          raise FrozoneException.make(:TypeError, "uninitialized Regexp") unless r.is_a?(RegexpObject)
+          IntegerObject.new(r.raw.options)
+        end
         def regexp_inspect(_, r) = StringObject.new(r.raw.inspect)
         def regexp_to_s(_, r) = StringObject.new(r.raw.to_s)
         def regexp_casefold(_, r) = bool_object_for(r.raw.casefold?)
@@ -275,7 +297,7 @@ module Frozone
           m ? IntegerObject.new(m.begin(0)) : NilObject::NIL
         end
 
-        REGEXP_TIMEOUT = [nil].freeze
+        REGEXP_TIMEOUT = [nil]
 
         def regexp_timeout(_, _r) = REGEXP_TIMEOUT[0].nil? ? NilObject::NIL : IntegerObject.new(REGEXP_TIMEOUT[0])
 
@@ -293,7 +315,11 @@ module Frozone
             if p.is_a?(RegexpObject)
               p.raw
             elsif p.is_a?(StringObject)
-              Regexp.escape(p.raw)
+              # Pass raw string to ::Regexp.union — it will escape internally
+              p.raw
+            elsif p.is_a?(SymbolObject)
+              # Symbols are converted to strings and escaped
+              p.raw.to_s
             else
               # Try to_regexp first
               klass = p.respond_to?(:class_object) ? (p.class_object&.name || p.class) : p.class
@@ -309,7 +335,7 @@ module Frozone
                 # Try to_str
                 begin
                   str_result = p.dispatch(context, :to_str, [], {})
-                  Regexp.escape(str_result.is_a?(StringObject) ? str_result.raw : str_result.raw.to_s)
+                  str_result.is_a?(StringObject) ? str_result.raw : str_result.raw.to_s
                 rescue FrozoneException => e2
                   raise unless e2.frozone_class_name == :NoMethodError
                   raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
@@ -348,6 +374,7 @@ module Frozone
         end
 
         def regexp_match(context, receiver, str, pos = NilObject::NIL)
+          raise FrozoneException.make(:TypeError, "uninitialized Regexp") unless receiver.is_a?(RegexpObject)
           if str.is_a?(NilObject)
             update_match_globals(nil)
             return NilObject::NIL
@@ -375,6 +402,7 @@ module Frozone
         end
 
         def regexp_match_bool(context, receiver, str, pos = NilObject::NIL)
+          raise FrozoneException.make(:TypeError, "uninitialized Regexp") unless receiver.is_a?(RegexpObject)
           return FalseObject::FALSE if str.is_a?(NilObject)
           s = if str.is_a?(StringObject)
                 str.raw

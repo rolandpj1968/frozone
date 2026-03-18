@@ -58,19 +58,19 @@ class Regexp
     return obj if obj.is_a?(Regexp)
     return nil unless obj.respond_to?(:to_regexp)
     result = obj.to_regexp
-    raise TypeError, "can't convert #{obj.class} into Regexp (to_regexp should return Regexp)" unless result.is_a?(Regexp)
+    raise TypeError, "can't convert #{obj.class} into Regexp (#{obj.class}#to_regexp gives #{result.class})" unless result.is_a?(Regexp)
     result
   end
 
   def initialize(pattern = nil, options = nil)
     raise FrozenError, "can't modify frozen Regexp: #{inspect}" if frozen?
-    raise TypeError, "already initialized regexp"
+    raise TypeError, "already initialized regexp" unless Intrinsics.regexp_newly_created_q(self)
   end
 
   private :initialize
 
-  def self.new(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(pattern, options)
-  def self.compile(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(pattern, options)
+  def self.new(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options)
+  def self.compile(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options)
 
   def self.timeout     = Intrinsics.regexp_timeout(self)
   def self.timeout=(v) = Intrinsics.regexp_set_timeout(self, v)
