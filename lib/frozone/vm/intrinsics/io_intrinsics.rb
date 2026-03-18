@@ -331,6 +331,24 @@ module Frozone
           val ? StringObject.new(val) : NilObject::NIL
         end
 
+        def match_data_slice(_, md, start_obj, len_obj)
+          s = start_obj.is_a?(IntegerObject) ? start_obj.raw : start_obj.raw.to_i
+          l = len_obj.is_a?(IntegerObject) ? len_obj.raw : len_obj.raw.to_i
+          all = [md.raw[0]] + md.raw.captures
+          slice = all[s, l]
+          return NilObject::NIL unless slice
+          ArrayObject.new(slice.map { |c| c ? StringObject.new(c) : NilObject::NIL })
+        end
+
+        def match_data_slice_range(_, md, range_obj)
+          all = [md.raw[0]] + md.raw.captures
+          # Convert VM Range to Ruby range
+          r = range_obj.raw rescue (return NilObject::NIL)
+          slice = all[r]
+          return NilObject::NIL unless slice
+          ArrayObject.new(slice.map { |c| c ? StringObject.new(c) : NilObject::NIL })
+        end
+
         def match_data_size(_, md)    = IntegerObject.new(md.raw.size)
         def match_data_pre_match(_, md)  = StringObject.new(md.raw.pre_match)
         def match_data_post_match(_, md) = StringObject.new(md.raw.post_match)
@@ -349,6 +367,42 @@ module Frozone
 
         def match_data_captures(_, md)
           ArrayObject.new(md.raw.captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
+        end
+
+        def match_data_bytebegin(_, md, n)
+          key = n.is_a?(IntegerObject) ? n.raw : n.raw.to_s
+          v = md.raw.bytebegin(key)
+          v ? IntegerObject.new(v) : NilObject::NIL
+        rescue ::IndexError => e
+          raise FrozoneException.make(:IndexError, e.message)
+        rescue ::NameError => e
+          raise FrozoneException.make(:IndexError, e.message)
+        end
+
+        def match_data_byteend(_, md, n)
+          key = n.is_a?(IntegerObject) ? n.raw : n.raw.to_s
+          v = md.raw.byteend(key)
+          v ? IntegerObject.new(v) : NilObject::NIL
+        rescue ::IndexError => e
+          raise FrozoneException.make(:IndexError, e.message)
+        rescue ::NameError => e
+          raise FrozoneException.make(:IndexError, e.message)
+        end
+
+        def match_data_match_length(_, md, n)
+          key = n.is_a?(IntegerObject) ? n.raw : n.raw.to_s
+          b = md.raw.begin(key)
+          e = md.raw.end(key)
+          return NilObject::NIL unless b && e
+          IntegerObject.new(e - b)
+        rescue ::IndexError => e
+          raise FrozoneException.make(:IndexError, e.message)
+        rescue ::NameError => e
+          raise FrozoneException.make(:IndexError, e.message)
+        end
+
+        def match_data_hash(_, md)
+          IntegerObject.new(md.raw.hash)
         end
 
         def match_data_named_captures(_, md)
