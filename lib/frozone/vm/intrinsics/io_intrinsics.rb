@@ -169,7 +169,7 @@ module Frozone
           bool_object_for(r1.raw == r2.raw)
         end
 
-        def regexp_new(context, klass, pattern, options = nil)
+        def regexp_new(context, klass, pattern, options = nil, kw_opts = nil)
           regexp_class = Core::OBJECT_CLASS.get_constant(:Regexp)
           if pattern.is_a?(RegexpObject)
             # When given a Regexp, use its source+options; warn and ignore extra options
@@ -212,7 +212,16 @@ module Frozone
             kernel_warn(context, NilObject::NIL, ArrayObject.new([StringObject.new("warning: expected true or false as ignorecase")]))
             Regexp::IGNORECASE
           end
-          result = RegexpObject.new(pat_raw, flags, klass: klass)
+          # Extract timeout keyword arg if present
+          timeout_val = nil
+          if kw_opts.is_a?(HashObject)
+            kw_opts.raw.each do |k, v|
+              if k.is_a?(SymbolObject) && k.raw == :timeout
+                timeout_val = v.is_a?(FloatObject) ? v.raw : (v.is_a?(IntegerObject) ? v.raw.to_f : nil)
+              end
+            end
+          end
+          result = RegexpObject.new(pat_raw, flags, klass: klass, timeout: timeout_val)
           unless klass.equal?(regexp_class)
             result.newly_created_for_subclass = true
             result.dispatch(context, :initialize, [pattern, options || NilObject::NIL], {}, nil, private_ok: true)
@@ -299,10 +308,16 @@ module Frozone
 
         REGEXP_TIMEOUT = [nil]
 
-        def regexp_timeout(_, _r) = REGEXP_TIMEOUT[0].nil? ? NilObject::NIL : IntegerObject.new(REGEXP_TIMEOUT[0])
+        def regexp_timeout(_, _r)
+          v = REGEXP_TIMEOUT[0]
+          return NilObject::NIL if v.nil?
+          v.is_a?(Integer) ? IntegerObject.new(v) : FloatObject.new(v)
+        end
 
         def regexp_set_timeout(_, _r, val)
-          REGEXP_TIMEOUT[0] = val.is_a?(NilObject) ? nil : val.raw
+          raw_val = val.is_a?(NilObject) ? nil : val.raw
+          REGEXP_TIMEOUT[0] = raw_val
+          ::Regexp.timeout = raw_val
           val
         end
 
@@ -397,7 +412,12 @@ module Frozone
             end
           end
           p = pos.is_a?(IntegerObject) ? pos.raw : 0
-          m = p == 0 ? receiver.raw.match(s) : receiver.raw.match(s, p)
+          begin
+            m = p == 0 ? receiver.raw.match(s) : receiver.raw.match(s, p)
+          rescue ::Regexp::TimeoutError => e
+            vm_obj = FrozoneException.wrap_mri(e)
+            raise FrozoneException.new(vm_obj, e.message)
+          end
           update_match_globals(m, receiver)
         end
 
@@ -417,13 +437,23 @@ module Frozone
                 end
               end
           p = pos.is_a?(IntegerObject) ? pos.raw : 0
-          bool_object_for(p == 0 ? receiver.raw.match?(s) : receiver.raw.match?(s, p))
+          begin
+            bool_object_for(p == 0 ? receiver.raw.match?(s) : receiver.raw.match?(s, p))
+          rescue ::Regexp::TimeoutError => e
+            vm_obj = FrozoneException.wrap_mri(e)
+            raise FrozoneException.new(vm_obj, e.message)
+          end
         end
 
         def regexp_match_index(_, receiver, str)
           return NilObject::NIL if str.is_a?(NilObject)
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
-          m = receiver.raw.match(s)
+          begin
+            m = receiver.raw.match(s)
+          rescue ::Regexp::TimeoutError => e
+            vm_obj = FrozoneException.wrap_mri(e)
+            raise FrozoneException.new(vm_obj, e.message)
+          end
           update_match_globals(m, receiver)
           m ? IntegerObject.new(m.begin(0)) : NilObject::NIL
         end

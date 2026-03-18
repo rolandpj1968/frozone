@@ -69,9 +69,11 @@ class Regexp
 
   private :initialize
 
-  def self.new(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options)
-  def self.compile(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options)
+  def self.new(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options, kw_opts)
+  def self.compile(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options, kw_opts)
 
   def self.timeout     = Intrinsics.regexp_timeout(self)
   def self.timeout=(v) = Intrinsics.regexp_set_timeout(self, v)
+
+  class TimeoutError < RegexpError; end
 end

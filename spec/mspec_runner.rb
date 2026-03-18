@@ -50,6 +50,14 @@ class SpecPositiveOperatorMatcher
     end
   end
 
+  # mspec 1.9.1 lacks !~, so `x.should !~ y` would call =~ first (inverted bug).
+  # Define !~ to properly check that @actual does not match expected.
+  def !~(expected)
+    if @actual =~ expected
+      SpecExpectation.fail_with("Expected #{@actual.inspect}", "not to match #{expected.inspect}")
+    end
+  end
+
   # mspec 1.9.1 lacks ===, so `x.should === y` falls through to Object#=== → ==
   # which triggers SpecPositiveOperatorMatcher#== (checks @actual == expected).
   # Define === to correctly check @actual === expected.
