@@ -1,6 +1,11 @@
 require 'mspec'
 require 'mspec/runner/formatters/dotted'
 
+# Define SkipExampleError for mspec 1.9.1 which lacks skip support
+module MSpec
+  class SkipExampleError < StandardError; end
+end
+
 # Add max_long/min_long helpers not present in mspec 1.9.1 (platform C long limits)
 class Object
   def max_long
@@ -113,7 +118,11 @@ class ComplainMatcher
 end
 
 # Patch PlatformGuard to handle c_long_size (not in mspec 1.9.1)
+# and add class-level standard? (mspec 1.9.1 only has instance-level)
 class PlatformGuard
+  def self.standard?
+    new.standard?
+  end
   alias match_without_c_long_size? match?
 
   def match?
@@ -130,6 +139,11 @@ end
 class Object
   def guard(condition, &block)
     block.call if condition.call
+  end
+
+  # skip — skip the current example at runtime (mspec 1.9.1 lacks this).
+  def skip(reason = nil)
+    raise MSpec::SkipExampleError, reason.to_s
   end
 
   # suppress_warning — run block with $VERBOSE = nil to suppress warnings.
