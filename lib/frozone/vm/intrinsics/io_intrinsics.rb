@@ -195,6 +195,74 @@ module Frozone
         def regexp_casefold(_, r) = bool_object_for(r.raw.casefold?)
         def regexp_fixed_encoding(_, r) = bool_object_for(r.raw.fixed_encoding?)
         def regexp_escape(_, str) = StringObject.new(Regexp.escape(str.raw.to_s))
+        def regexp_hash(_, r) = IntegerObject.new(r.raw.hash)
+        def regexp_linear_time_q(_, r)
+          begin
+            bool_object_for(r.raw.linear_time?)
+          rescue
+            FalseObject::FALSE
+          end
+        end
+
+        def regexp_class_linear_time_q(_, pattern, flags = NilObject::NIL)
+          raw_pat = if pattern.is_a?(RegexpObject)
+            pattern.raw
+          elsif pattern.is_a?(StringObject)
+            opts = flags.is_a?(IntegerObject) ? flags.raw : 0
+            begin
+              Regexp.new(pattern.raw, opts)
+            rescue ::RegexpError => e
+              raise FrozoneException.make(:RegexpError, e.message)
+            end
+          else
+            return FalseObject::FALSE
+          end
+          begin
+            bool_object_for(raw_pat.linear_time?)
+          rescue
+            FalseObject::FALSE
+          end
+        end
+
+        def regexp_encoding(context, r)
+          enc_name = r.raw.encoding.name
+          enc_class = Core::OBJECT_CLASS.get_constant(:Encoding)
+          return StringObject.new(enc_name) unless enc_class
+          begin
+            enc_class.dispatch(context, :find, [StringObject.new(enc_name)], {})
+          rescue
+            StringObject.new(enc_name)
+          end
+        end
+
+        def regexp_named_captures(_, r)
+          caps = r.raw.named_captures
+          pairs = caps.transform_keys { |name| StringObject.new(name) }
+                     .transform_values { |indices| ArrayObject.new(indices.map { |i| IntegerObject.new(i) }) }
+          HashObject.new(pairs)
+        end
+
+        def regexp_names(_, r)
+          ArrayObject.new(r.raw.names.map { |n| StringObject.new(n) })
+        end
+
+        def regexp_tilde(context, receiver)
+          dollar_underscore = GLOBALS[:"$_"]
+          return NilObject::NIL unless dollar_underscore.is_a?(StringObject)
+          s = dollar_underscore.raw
+          m = receiver.raw.match(s)
+          update_match_globals(m)
+          m ? IntegerObject.new(m.begin(0)) : NilObject::NIL
+        end
+
+        REGEXP_TIMEOUT = [nil].freeze
+
+        def regexp_timeout(_, _r) = REGEXP_TIMEOUT[0].nil? ? NilObject::NIL : IntegerObject.new(REGEXP_TIMEOUT[0])
+
+        def regexp_set_timeout(_, _r, val)
+          REGEXP_TIMEOUT[0] = val.is_a?(NilObject) ? nil : val.raw
+          val
+        end
 
         def regexp_union(_, patterns)
           pats = patterns.raw.map { |p| p.is_a?(RegexpObject) ? p.raw : Regexp.escape(p.raw.to_s) }
@@ -212,13 +280,16 @@ module Frozone
           end
         end
 
-        def regexp_match(_, receiver, str)
+        def regexp_match(_, receiver, str, pos = NilObject::NIL)
+          return NilObject::NIL if str.is_a?(NilObject)
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
-          m = receiver.raw.match(s)
+          p = pos.is_a?(IntegerObject) ? pos.raw : 0
+          m = p == 0 ? receiver.raw.match(s) : receiver.raw.match(s, p)
           update_match_globals(m)
         end
 
-        def regexp_match_bool(context, receiver, str)
+        def regexp_match_bool(context, receiver, str, pos = NilObject::NIL)
+          return FalseObject::FALSE if str.is_a?(NilObject)
           s = if str.is_a?(StringObject)
                 str.raw
               elsif str.respond_to?(:raw)
@@ -231,10 +302,12 @@ module Frozone
                   str.to_s
                 end
               end
-          bool_object_for(receiver.raw.match?(s))
+          p = pos.is_a?(IntegerObject) ? pos.raw : 0
+          bool_object_for(p == 0 ? receiver.raw.match?(s) : receiver.raw.match?(s, p))
         end
 
         def regexp_match_index(_, receiver, str)
+          return NilObject::NIL if str.is_a?(NilObject)
           s = str.is_a?(StringObject) ? str.raw : str.raw.to_s
           m = receiver.raw.match(s)
           update_match_globals(m)
