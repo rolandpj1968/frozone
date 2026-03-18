@@ -366,10 +366,54 @@ class String
     return nil unless other.is_a?(String)
     Intrinsics.string_casecmp_q(self, other)
   end
-  def upcase(*args) = Intrinsics.string_upcase_opts(self, *args)
-  def downcase(*args) = Intrinsics.string_downcase_opts(self, *args)
-  def capitalize(*args) = Intrinsics.string_capitalize_opts(self, *args)
-  def swapcase(*args) = Intrinsics.string_swapcase_opts(self, *args)
+  def upcase(*args)
+    return Intrinsics.string_upcase_opts(self, *args) unless args.empty?
+    return Intrinsics.string_upcase_opts(self) unless ascii_only?
+    each_char.map { |c|
+      b = Intrinsics.string_get_byte(c, 0)
+      (b >= 97 && b <= 122) ? (b - 32).chr(encoding) : c
+    }.join.force_encoding(encoding)
+  end
+
+  def downcase(*args)
+    return Intrinsics.string_downcase_opts(self, *args) unless args.empty?
+    return Intrinsics.string_downcase_opts(self) unless ascii_only?
+    each_char.map { |c|
+      b = Intrinsics.string_get_byte(c, 0)
+      (b >= 65 && b <= 90) ? (b + 32).chr(encoding) : c
+    }.join.force_encoding(encoding)
+  end
+
+  def capitalize(*args)
+    return Intrinsics.string_capitalize_opts(self, *args) unless args.empty?
+    return Intrinsics.string_capitalize_opts(self) unless ascii_only?
+    return dup if empty?
+    first = true
+    each_char.map { |c|
+      b = Intrinsics.string_get_byte(c, 0)
+      if first
+        first = false
+        (b >= 97 && b <= 122) ? (b - 32).chr(encoding) : c
+      else
+        (b >= 65 && b <= 90) ? (b + 32).chr(encoding) : c
+      end
+    }.join.force_encoding(encoding)
+  end
+
+  def swapcase(*args)
+    return Intrinsics.string_swapcase_opts(self, *args) unless args.empty?
+    return Intrinsics.string_swapcase_opts(self) unless ascii_only?
+    each_char.map { |c|
+      b = Intrinsics.string_get_byte(c, 0)
+      if b >= 65 && b <= 90
+        (b + 32).chr(encoding)
+      elsif b >= 97 && b <= 122
+        (b - 32).chr(encoding)
+      else
+        c
+      end
+    }.join.force_encoding(encoding)
+  end
   def swapcase!(*args)
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     r = swapcase(*args); return nil if r == self; Intrinsics.string_replace(self, r)
@@ -465,11 +509,125 @@ class String
     force_encoding(enc)
     self
   end
-  def succ = Intrinsics.string_succ(self)
+  def succ
+    # Always return String (not subclass), matching MRI behaviour
+    enc = encoding
+    return String.new(''.force_encoding(enc)) if empty?
+
+    # Work with raw byte array for correctness with all encodings (incl. BINARY)
+    bs = bytesize
+    result = []
+    i = 0
+    while i < bs
+      result << Intrinsics.string_get_byte(self, i)
+      i += 1
+    end
+
+    # Find rightmost alphanumeric byte position
+    alnum_right = -1
+    bi = bs - 1
+    while bi >= 0
+      b = result[bi]
+      if (b >= 48 && b <= 57) || (b >= 65 && b <= 90) || (b >= 97 && b <= 122)
+        alnum_right = bi
+        break
+      end
+      bi -= 1
+    end
+
+    if alnum_right < 0
+      # No alphanumeric: increment rightmost byte with byte-level carry
+      carry = true
+      j = bs - 1
+      while carry && j >= 0
+        b = result[j]
+        if b < 255
+          result[j] = b + 1
+          carry = false
+        else
+          result[j] = 0
+          j -= 1
+        end
+      end
+      result.unshift(1) if carry
+      r = result.map { |b| b.chr }.join
+      return r.force_encoding(enc)
+    end
+
+    # Find leftmost alphanumeric byte position (for carry prepend)
+    leftmost_alnum = 0
+    bi2 = 0
+    while bi2 < bs
+      b = result[bi2]
+      if (b >= 48 && b <= 57) || (b >= 65 && b <= 90) || (b >= 97 && b <= 122)
+        leftmost_alnum = bi2
+        break
+      end
+      bi2 += 1
+    end
+
+    # Alphanumeric carry pass: start from rightmost alnum
+    carry = true
+    j = alnum_right
+    while carry && j >= 0
+      b = result[j]
+      if b >= 48 && b <= 57       # '0'..'9'
+        if b < 57
+          result[j] = b + 1
+          carry = false
+        else
+          result[j] = 48  # '0'
+          # seek left for next alnum
+          j -= 1
+          j -= 1 while j >= 0 && !((result[j] >= 48 && result[j] <= 57) || (result[j] >= 65 && result[j] <= 90) || (result[j] >= 97 && result[j] <= 122))
+        end
+      elsif b >= 65 && b <= 90    # 'A'..'Z'
+        if b < 90
+          result[j] = b + 1
+          carry = false
+        else
+          result[j] = 65  # 'A'
+          j -= 1
+          j -= 1 while j >= 0 && !((result[j] >= 48 && result[j] <= 57) || (result[j] >= 65 && result[j] <= 90) || (result[j] >= 97 && result[j] <= 122))
+        end
+      elsif b >= 97 && b <= 122   # 'a'..'z'
+        if b < 122
+          result[j] = b + 1
+          carry = false
+        else
+          result[j] = 97  # 'a'
+          j -= 1
+          j -= 1 while j >= 0 && !((result[j] >= 48 && result[j] <= 57) || (result[j] >= 65 && result[j] <= 90) || (result[j] >= 97 && result[j] <= 122))
+        end
+      else
+        carry = false
+      end
+    end
+
+    if carry
+      # Prepend carry char based on type of leftmost alnum
+      b0 = result[leftmost_alnum]
+      carry_byte = if b0 >= 48 && b0 <= 57
+        49  # '1'
+      elsif b0 >= 65 && b0 <= 90
+        65  # 'A'
+      else
+        97  # 'a'
+      end
+      result.insert(leftmost_alnum, carry_byte)
+    end
+
+    r = result.map { |b| b.chr }.join
+    r.force_encoding(enc)
+  end
+
   alias next succ
+
   def succ!
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-    Intrinsics.string_succ_bang(self)
+    r = succ
+    Intrinsics.string_replace(self, r)
+    self
   end
 
   alias next! succ!

@@ -372,10 +372,56 @@ class Array
   def <=>(other) = Intrinsics.array_cmp(self, other)
 
   def sort(&block)
-    block ? Intrinsics.array_sort_block(self, block) : Intrinsics.array_sort(self)
+    return dup if length <= 1
+    cmp = block || method(:_default_cmp)
+    _merge_sort(dup, cmp)
   end
 
+  def _default_cmp(a, b)
+    r = a <=> b
+    raise ArgumentError, "comparison failed" if r.nil?
+    r
+  end
+
+  def _merge_sort(arr, cmp)
+    n = arr.length
+    return arr if n <= 1
+    mid = n / 2
+    left = _merge_sort(arr[0...mid], cmp)
+    right = _merge_sort(arr[mid..], cmp)
+    _merge(left, right, cmp)
+  end
+
+  def _merge(left, right, cmp)
+    result = []
+    i = 0
+    j = 0
+    while i < left.length && j < right.length
+      c = cmp.call(left[i], right[j])
+      raise ArgumentError, "comparison failed" if c.nil?
+      if c <= 0
+        result << left[i]
+        i += 1
+      else
+        result << right[j]
+        j += 1
+      end
+    end
+    while i < left.length
+      result << left[i]
+      i += 1
+    end
+    while j < right.length
+      result << right[j]
+      j += 1
+    end
+    result
+  end
+
+  private :_default_cmp, :_merge_sort, :_merge
+
   def sort!(&block); replace(sort(&block)); self; end
+
   def sort_by(&block)
     return to_enum(:sort_by) unless block
     Intrinsics.array_sort_by(self, block)
