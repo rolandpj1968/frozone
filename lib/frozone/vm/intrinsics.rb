@@ -150,7 +150,7 @@ module Frozone
         end
 
         def object_methods(_, v, include_super_obj = TrueObject::TRUE)
-          collect_method_names(v, include_super_obj.truthy?) { |vis| vis != :private }
+          collect_method_names(v, include_super_obj.truthy?, singleton_only_when_false: true) { |vis| vis != :private }
         end
 
         def object_public_methods(_, v, include_super_obj = TrueObject::TRUE)
@@ -4282,17 +4282,27 @@ module Frozone
           :"@#{sym.to_s.delete_prefix('@')}"
         end
 
-        def collect_method_names(v, include_super, &visibility_ok)
+        def collect_method_names(v, include_super, singleton_only_when_false: false, &visibility_ok)
           seen = {}
           result = []
-          sources = []
-          if v.eigenclass
-            sc = v.singleton_class
-            sources << sc
-            # Add modules included in the singleton class (from extend) when including super
-            sc.modules.reverse_each { |m| sources << m } if include_super
+
+          add_from = lambda do |mod|
+            mod.methods_table.each do |name, meth|
+              next if seen[name]
+              seen[name] = true
+              next if meth == ModuleObject::UNDEF_SENTINEL
+              next unless visibility_ok.call(meth.visibility)
+              result << SymbolObject.from(name)
+            end
           end
+
           if include_super
+            sources = []
+            if v.eigenclass
+              sc = v.singleton_class
+              sources << sc
+              sc.modules.reverse_each { |m| sources << m }
+            end
             # For ClassObjects, also walk superclass eigenclasses (class methods of superclasses)
             if v.is_a?(ClassObject)
               c = v.superclass
@@ -4307,17 +4317,31 @@ module Frozone
               c.modules.reverse_each { |m| sources << m }
               c = c.is_a?(ClassObject) ? c.superclass : nil
             end
-          # include_super=false: only singleton class's own methods (no class_object methods)
-          end
-          sources.each do |mod|
-            mod.methods_table.each do |name, meth|
-              next if seen[name]
-              seen[name] = true
-              next if meth == ModuleObject::UNDEF_SENTINEL
-              next unless visibility_ok.call(meth.visibility)
-              result << SymbolObject.from(name)
+            sources.each { |mod| add_from.call(mod) }
+          elsif singleton_only_when_false
+            # methods(false) semantics: ONLY the eigenclass's own methods_table
+            add_from.call(v.eigenclass) if v.eigenclass
+          else
+            # public_methods(false) / private_methods(false) semantics: walk the singleton
+            # class's ancestor list, including all singleton classes and modules (extended
+            # modules), then the first real class's own methods_table only.
+            if v.eigenclass
+              v.singleton_class.ancestors_list.each do |ancestor|
+                if ancestor.is_a?(ClassObject) && !ancestor.is_singleton_class
+                  # First non-singleton class: include only its own methods_table, then stop
+                  add_from.call(ancestor)
+                  break
+                else
+                  # Singleton class or module: include fully
+                  add_from.call(ancestor)
+                end
+              end
+            else
+              # No singleton class: include only the object's own class methods
+              add_from.call(v.class_object)
             end
           end
+
           ArrayObject.new(result)
         end
 
