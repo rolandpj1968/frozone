@@ -1,7 +1,17 @@
 module Kernel
   def puts(*args) = Intrinsics.kernel_puts(self, args)
   def print(*args) = Intrinsics.kernel_print(self, args)
-  def warn(*args) = Intrinsics.kernel_warn(self, args)
+  def warn(*args, category: nil, uplevel: nil)
+    return nil if args.empty?
+    category = category.to_sym if category.is_a?(String)
+    return nil if category && !Warning[category]
+    args.each do |msg|
+      str = msg.to_s
+      str += "\n" unless str.end_with?("\n")
+      Warning.warn(str, category: category)
+    end
+    nil
+  end
   def p(*args) = Intrinsics.kernel_p(self, args)
   def raise(msg = :__raise_no_arg__, message = nil, backtrace = nil, cause: :__raise_no_cause__)
     Intrinsics.kernel_raise(self, msg, message, backtrace, cause)
