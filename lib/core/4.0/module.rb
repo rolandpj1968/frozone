@@ -102,6 +102,11 @@ class Module
   def name            = Intrinsics.module_name(self)
 
   def to_s
+    if @__refinement__
+      refined_name = @__refined_class__ ? (@__refined_class__.name || @__refined_class__.inspect) : "?"
+      container_name = @__refining_module__ ? (@__refining_module__.name || @__refining_module__.inspect) : "?"
+      return "#<refinement:#{refined_name}@#{container_name}>"
+    end
     n = Intrinsics.module_name(self)
     return n if n
     unless singleton_class?
@@ -217,16 +222,22 @@ class Module
     raise e
   end
 
-  def refine(klass = nil, &block)
-    raise ArgumentError, "wrong number of arguments (given 0, expected 1)" if klass.nil? && !block
+  def refine(klass = :__refine_unset__, &block)
+    raise ArgumentError, "wrong number of arguments (given 0, expected 1)" if klass.equal?(:__refine_unset__)
     raise ArgumentError, "no block given" unless block
     raise TypeError, "wrong argument type #{klass.class} (expected Class or Module)" unless klass.is_a?(Module)
-    # Return an anonymous module representing the refinement.
-    # Mark it so include/prepend can raise "Cannot include/prepend refinement".
-    # Refinement activation via `using` is not yet implemented.
-    refinement = Module.new
-    refinement.instance_variable_set(:@__refinement__, true)
-    refinement.instance_eval(&block)
+    # Reuse the same refinement module for repeated refine of the same class.
+    # Methods defined in the block become instance methods of the refinement module.
+    @__refinements__ ||= {}
+    refinement = @__refinements__[klass.object_id]
+    unless refinement
+      refinement = Module.new
+      refinement.instance_variable_set(:@__refinement__, true)
+      refinement.instance_variable_set(:@__refined_class__, klass)
+      refinement.instance_variable_set(:@__refining_module__, self)
+      @__refinements__[klass.object_id] = refinement
+    end
+    refinement.module_eval(&block)
     refinement
   end
 
