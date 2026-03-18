@@ -26,7 +26,13 @@ module Frozone
             # Instance singleton class is_a? class's singleton class iff instance's class <= that class.
             # e.g. instance.singleton_class.is_a?(klass.singleton_class) iff instance.class <= klass
             if !sc_of_v.is_a?(ClassObject) && sc_of_k.is_a?(ClassObject)
-              return object_is_a(nil, sc_of_v.class_object, sc_of_k)
+              # Check if instance's class is sc_of_k or a subclass of it (walk superclass chain)
+              c2 = sc_of_v.class_object
+              until c2.nil?
+                return TrueObject::TRUE if c2.ancestors_include?(sc_of_k)
+                c2 = c2.is_a?(ClassObject) ? c2.superclass : nil
+              end
+              return FalseObject::FALSE
             end
           end
           # Walk from lookup_class (eigenclass if materialised, else class_object).
@@ -1882,6 +1888,43 @@ module Frozone
           # `using` itself has current_method set; we want to know if its caller does.
           caller_frame = context.frame.parent_frame
           caller_frame&.method_frame&.current_method ? TrueObject::TRUE : FalseObject::FALSE
+        end
+
+        # Collect all refinements from mod and its ancestors (depth-first, included modules).
+        # Returns a hash mapping klass.object_id => refinement_module.
+        def collect_refinements_from_module(mod)
+          refinements = {}
+          mod.ancestors_list.reverse_each do |ancestor|
+            next if ancestor.equal?(mod)
+            if ancestor.is_a?(ModuleObject) && !ancestor.is_a?(ClassObject)
+              anc_refs = ancestor.instance_variable_get(:@__refinements__)
+              refinements.merge!(anc_refs) if anc_refs
+            end
+          end
+          own_refs = mod.instance_variable_get(:@__refinements__)
+          refinements.merge!(own_refs) if own_refs
+          refinements
+        end
+
+        def module_using(context, _receiver, mod)
+          raise FrozoneException.make(:TypeError, "wrong argument type #{frozone_class_name(mod)} (expected Module)") unless mod.is_a?(ModuleObject)
+          raise FrozoneException.make(:TypeError, "wrong argument type Class (expected Module)") if mod.is_a?(ClassObject)
+          caller_frame = context.frame.parent_frame
+          raise FrozoneException.make(:RuntimeError, "Module#using is not permitted in methods") if caller_frame&.method_frame&.current_method
+          new_refs = collect_refinements_from_module(mod)
+          unless new_refs.empty?
+            target_frame = caller_frame
+            target_frame.active_refinements ||= {}
+            target_frame.active_refinements.merge!(new_refs)
+          end
+          NilObject::NIL
+        end
+
+        def module_used_refinements(context, _klass)
+          frame = context.frame
+          refs = frame.active_refinements
+          return ArrayObject.new([]) unless refs && !refs.empty?
+          ArrayObject.new(refs.values)
         end
 
         def module_set_temporary_name(_, receiver, name_obj)

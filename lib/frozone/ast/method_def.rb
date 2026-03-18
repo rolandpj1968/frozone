@@ -58,6 +58,7 @@ module Frozone
             frame_scopes
           end
           method = Vm::Method.new(method_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
+          method.active_refinements = frame.active_refinements if frame.active_refinements
           private_by_default = %i[initialize initialize_copy initialize_dup initialize_clone respond_to_missing?].include?(@name)
           vis = private_by_default ? :private : (inside_method ? :public : scope.current_visibility)
           prev_call_site = context.call_site
@@ -86,6 +87,7 @@ module Frozone
           if receiver_val.is_a?(Vm::NilObject) || receiver_val.is_a?(Vm::TrueObject) || receiver_val.is_a?(Vm::FalseObject)
             scope = receiver_val.class_object
             method = Vm::Method.new(frame_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
+            method.active_refinements = frame.active_refinements if frame.active_refinements
             method.visibility = vis
             scope.set_method(@name, method)
             prev_call_site = context.call_site
@@ -121,6 +123,7 @@ module Frozone
             frame_scopes + [receiver_val.singleton_class]
           end
           method = Vm::Method.new(method_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
+          method.active_refinements = frame.active_refinements if frame.active_refinements
           # For instance singleton methods, nested `def` should go to the enclosing class (like MRI nesting)
           method.nested_def_scope = frame_scopes.last unless receiver_val.is_a?(Vm::ClassObject)
           receiver_val.define_singleton_method(@name, method)
