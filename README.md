@@ -2,11 +2,34 @@
 
 A Ruby VM implemented in Ruby. Parses Ruby source via the [Prism](https://github.com/ruby/prism) gem and evaluates the resulting AST directly. No compilation step — pure tree-walking interpreter.
 
-## Project Status (v4.0.0)
+## Project Status (v4.0.1)
 
 Frozone targets Ruby 4.0 semantics and passes **2519/2520** ruby/spec language examples
 (0 failures, 1 error — the sole error is an unimplemented `-e` magic-comment edge case).
 Pattern matching is not yet implemented (excluded from the count above).
+
+### Frozone² — Self-hosting (sort of)
+
+Frozone can run itself:
+
+```
+bundle exec ruby frozone.rb --parser=wq frozone.rb --parser=wq -e "puts 'hello from frozone²'"
+# => hello from frozone²
+```
+
+**The cheat:** when `frozone.rb` loads inside the outer Frozone, the inner
+`Frozone::Vm::Vm` class is replaced by a thin proxy that routes all evaluation
+back to the outer Frozone's own MRI-backed evaluator via a `kernel_run_vm`
+intrinsic. All Frozone source files are pre-stubbed in the inner Frozone's
+`$LOADED_FEATURES` so `require` calls inside Frozone's own code are no-ops —
+the inner Frozone never actually loads `lib/core/4.0/` or its own VM
+infrastructure.
+
+In effect, Frozone² is the outer Frozone's evaluator wearing a thin Frozone-land
+costume. True self-hosting — where the inner Frozone runs its own AST evaluator
+on its own class objects, with all core methods implemented in pure Frozone-Ruby
+— would require the core library (`String`, `Array`, `Hash`, …) to be fully
+de-intrinsified. That is the goal of the ongoing de-intrinsification work.
 
 ### Parsers
 
@@ -133,7 +156,7 @@ Differences from Prism (both are whitequark lexer limitations):
 Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 
-**Overall: 4305 / 12332 passing** (1990 failures, 6037 errors) — as of 2026-03-16 (Prism parser, excludes timed-out modules)
+**Overall: ~8442 / ~13244 passing** (~64%) — as of 2026-03-18 (Prism parser, excludes timed-out modules)
 
 Note: Negative "passing" counts indicate errors exceed examples (mspec counts some errors as extra failures).
 `—` = not yet run (hangs/timeout); `(TO)` = suite times out.
@@ -143,7 +166,7 @@ Note: Negative "passing" counts indicate errors exceed examples (mspec counts so
 | argf | 84 | -53 | 3 | 134 |
 | array | — (TO) | — | — | — |
 | basicobject | 178 | 111 | 41 | 26 |
-| binding | 53 | 11 | 4 | 38 |
+| binding | 53 | 23 | 7 | 23 |
 | builtin_constants | 27 | 27 | 0 | 0 |
 | class | 45 | 22 | 18 | 5 |
 | comparable | 54 | 54 | 0 | 0 |
@@ -155,14 +178,14 @@ Note: Negative "passing" counts indicate errors exceed examples (mspec counts so
 | enumerable | 574 | 574 | 0 | 0 |
 | enumerator | — (TO) | — | — | — |
 | env | 239 | 138 | 95 | 6 |
-| exception | 247 | 230 | 10 | 7 |
+| exception | 247 | 231 | 8 | 8 |
 | false | 13 | 13 | 0 | 0 |
 | fiber | 168 | 26 | 77 | 65 |
 | file | 781 | -60 | 190 | 651 |
 | filetest | — | — | — | — |
-| float | 328 | 320 | 5 | 3 |
+| float | 328 | 323 | 5 | 0 |
 | gc | 33 | -10 | 4 | 39 |
-| hash | 633 | 627 | 4 | 2 |
+| hash | 633 | 633 | 0 | 0 |
 | integer | — | — | — | — |
 | io | — | — | — | — |
 | kernel | — (TO) | — | — | — |
@@ -170,8 +193,8 @@ Note: Negative "passing" counts indicate errors exceed examples (mspec counts so
 | marshal | 110 | -3 | 6 | 107 |
 | matchdata | 186 | 83 | 23 | 80 |
 | math | 243 | 108 | 71 | 64 |
-| method | 223 | 167 | 27 | 29 |
-| module | — (TO) | — | — | — |
+| method | 223 | 211 | 8 | 4 |
+| module | 1061 | 973 | 25 | 63 |
 | mutex | — (TO) | — | — | — |
 | nil | 27 | 27 | 0 | 0 |
 | numeric | 327 | -28 | 95 | 260 |
@@ -181,20 +204,20 @@ Note: Negative "passing" counts indicate errors exceed examples (mspec counts so
 | queue | 88 | -3 | 13 | 78 |
 | random | 48 | 20 | 4 | 24 |
 | range | — (TO) | — | — | — |
-| rational | 159 | 70 | 66 | 23 |
+| rational | 159 | 156 | 3 | 0 |
 | refinement | 25 | 0 | 0 | 25 |
 | regexp | 265 | 76 | 57 | 132 |
 | set | — (TO) | — | — | — |
 | signal | 10 | -42 | 6 | 46 |
 | sizedqueue | 129 | 0 | 16 | 113 |
-| string | 4216 | 1180 | 767 | 2269 |
-| struct | 132 | -26 | 8 | 150 |
-| symbol | 330 | 326 | 4 | 0 |
+| string | 3976 | 3973 | 3 | 0 |
+| struct | 182 | 181 | 1 | 0 |
+| symbol | 330 | 330 | 0 | 0 |
 | systemexit | 6 | 6 | 0 | 0 |
 | thread | — (TO) | — | — | — |
 | threadgroup | 5 | -3 | 0 | 8 |
-| time | 627 | -58 | 145 | 540 |
+| time | 668 | -60 | 164 | 564 |
 | tracepoint | 73 | -1 | 4 | 70 |
 | true | 13 | 13 | 0 | 0 |
-| unboundmethod | 86 | 56 | 18 | 12 |
+| unboundmethod | 86 | 66 | 11 | 9 |
 | warning | — (TO) | — | — | — |
