@@ -2,14 +2,20 @@ class Range
   include Enumerable
 
   def self.new(b, e, excl = false)
-    Intrinsics.range_new(b, e, excl)
+    r = allocate
+    r.__send__(:initialize, b, e, excl)
+    r
   end
 
   def self.allocate = Intrinsics.range_allocate(self)
 
   def initialize(b, e, excl = false)
     raise FrozenError, "can't modify frozen Range" if Intrinsics.range_initialized_q(self)
-    raise ArgumentError, "bad value for range" unless b.respond_to?(:<=>) || e.respond_to?(:<=>) || b.nil? || e.nil?
+    unless b.nil? || e.nil?
+      # Validate that b and e are comparable; propagate any exception from <=>
+      cmp = b <=> e
+      raise ArgumentError, "bad value for range" if cmp.nil?
+    end
     Intrinsics.range_set(self, b, e, excl)
   end
 
@@ -26,9 +32,7 @@ class Range
     e = self.end
     discrete = i.is_a?(Integer) || i.is_a?(String) || i.is_a?(Symbol)
     excl = exclude_end?
-    # For non-discrete types: validate comparability (calls <=>) before checking succ (matches MRI)
     unless discrete
-      e.nil? || (i <=> e)
       raise TypeError, "can't iterate from #{i.class}" unless i.respond_to?(:succ)
     end
     if discrete
@@ -187,15 +191,40 @@ class Range
       raise RangeError, "cannot get the maximum of beginless range with custom comparison method" if b.nil?
       to_a.max(&block)
     elsif exclude_end?
-      raise TypeError, "cannot exclude non Integer end value" unless e.is_a?(Integer)
-      return nil if !b.nil? && (b <=> e) >= 0
-      e - 1
+      # Check for empty range FIRST before any TypeError
+      if !b.nil?
+        cmp = b <=> e
+        return nil if cmp.nil? || cmp >= 0
+      end
+      if e.is_a?(Integer)
+        e - 1
+      elsif e.is_a?(Float)
+        raise TypeError, "cannot exclude non Integer end value"
+      elsif !b.nil? && b.respond_to?(:succ)
+        # Non-numeric exclusive range with succ: iterate to find last element
+        last = nil
+        each { |x| last = x }
+        last
+      else
+        raise TypeError, "cannot exclude non Integer end value"
+      end
     else
       return nil if !b.nil? && (b <=> e) > 0
       e
     end
   end
-  def minmax(&block) = [min(&block), max(&block)]
+
+  def minmax(&block)
+    if block
+      b = self.begin; e = self.end
+      raise RangeError, "cannot get the minimum of beginless range" if b.nil?
+      raise RangeError, "cannot get the maximum of endless range" if e.nil?
+      a = to_a
+      [a.min(&block), a.max(&block)]
+    else
+      [min, max]
+    end
+  end
 
   def to_set(&block)
     raise RangeError, "cannot convert endless range to a set" if self.end.nil?
@@ -234,7 +263,10 @@ class Range
     self.begin == other.begin && self.end == other.end && self.exclude_end? == other.exclude_end?
   end
 
-  alias eql? ==
+  def eql?(other)
+    return false unless other.is_a?(Range)
+    self.begin.eql?(other.begin) && self.end.eql?(other.end) && self.exclude_end? == other.exclude_end?
+  end
 
   def step(n = 1, &block)
     b = self.begin
@@ -252,8 +284,6 @@ class Range
 
     unless block
       raise ArgumentError, "step can't be 0" if numeric && (n == 0 || n == 0.0)
-      # Non-numeric: check direction once (mspec mock expects exactly 1 call to <=>)
-      b <=> e if !b.nil? && !e.nil? && !numeric
       rng = self
       if arithmetic
         return Enumerator::ArithmeticSequence._from_method(self, :step, [n], proc { rng.send(:_step_size, n) })
@@ -495,17 +525,20 @@ class Range
   end
 
   def reverse_each(&block)
-    return to_enum(:reverse_each) { size } unless block
+    return to_enum(:reverse_each) { _reverse_each_size } unless block
     b    = self.begin
     e    = self.end
     excl = exclude_end?
     raise TypeError, "can't iterate from NilClass" if e.nil?
-    if b.nil? || b.is_a?(Integer)
-      # Integer (or beginless-integer) range: iterate downward without to_a
-      raise TypeError, "can't iterate from #{b.class}" unless b.nil? || b.is_a?(Integer)
+    if b.nil?
+      # Beginless range: only Integer end supported (otherwise always NilClass error)
+      raise TypeError, "can't iterate from NilClass" unless e.is_a?(Integer)
+      i = excl ? e - 1 : e
+      loop { block.call(i); i -= 1 }
+    elsif b.is_a?(Integer)
       raise TypeError, "can't iterate from #{e.class}" unless e.is_a?(Integer)
       i = excl ? e - 1 : e
-      while b.nil? || i >= b
+      while i >= b
         block.call(i)
         i -= 1
       end
@@ -515,11 +548,37 @@ class Range
     self
   end
 
+  private def _reverse_each_size
+    b = self.begin; e = self.end
+    if b.nil?
+      # Beginless: only Integer end is iterable
+      return Float::INFINITY if e.is_a?(Integer)
+      raise TypeError, "can't iterate from #{e.nil? ? 'NilClass' : e.class}"
+    end
+    if b.is_a?(Float)
+      raise TypeError, "can't iterate from #{e.nil? ? 'NilClass' : e.class}"
+    end
+    return nil unless b.is_a?(Integer)
+    return Float::INFINITY if e.nil?
+    if e.is_a?(Integer)
+      n = exclude_end? ? e - b : e - b + 1
+    elsif e.is_a?(Float)
+      hi = exclude_end? ? e.ceil - 1 : e.floor
+      n = hi - b + 1
+    else
+      raise TypeError, "can't iterate from #{e.class}"
+    end
+    n < 0 ? 0 : n
+  end
+
   def sort; to_a.sort; end
   def sort_by(&block); to_a.sort_by(&block); end
   def min_by(&block); to_a.min_by(&block); end
   def max_by(&block); to_a.max_by(&block); end
-  def count(&block); block ? to_a.count(&block) : size; end
+  def count(&block)
+    return Float::INFINITY if !block && (self.begin.nil? || self.end.nil?)
+    block ? to_a.count(&block) : (size || to_a.size)
+  end
   def take(n); to_a.take(n); end
   def drop(n); to_a.drop(n); end
   def first(*args)
@@ -549,6 +608,196 @@ class Range
   end
   def entries; to_a; end
   def hash; [self.begin, self.end, self.exclude_end?].hash; end
+
+  def %(n, &block)
+    return step(n, &block) if block
+    # No block: create ArithmeticSequence with :% method name (affects inspect)
+    b = self.begin; e = self.end
+    b_numeric = b.is_a?(Integer) || b.is_a?(Float)
+    e_numeric = e.nil? || e.is_a?(Integer) || e.is_a?(Float)
+    numeric = b_numeric && e_numeric
+    arithmetic = numeric || (b.nil? && (e.is_a?(Integer) || e.is_a?(Float)))
+    raise ArgumentError, "step can't be 0" if numeric && (n == 0 || n == 0.0)
+    rng = self
+    if arithmetic
+      return Enumerator::ArithmeticSequence._from_method(self, :%, [n], proc { rng.send(:_step_size, n) })
+    end
+    to_enum(:%, n) { _step_size(n) }
+  end
+
+  def overlap?(other)
+    raise TypeError, "wrong argument type #{other.class} (expected Range)" unless other.is_a?(Range)
+    a_begin = self.begin; a_end = self.end; a_excl = self.exclude_end?
+    b_begin = other.begin; b_end = other.end; b_excl = other.exclude_end?
+
+    # Empty ranges don't overlap
+    return false if !a_begin.nil? && !a_end.nil? && (a_excl ? a_begin >= a_end : a_begin > a_end)
+    return false if !b_begin.nil? && !b_end.nil? && (b_excl ? b_begin >= b_end : b_begin > b_end)
+
+    # Check a_end vs b_begin
+    if !a_end.nil? && !b_begin.nil?
+      cmp = a_end <=> b_begin
+      return false if cmp.nil?
+      return false if a_excl ? cmp <= 0 : cmp < 0
+    end
+
+    # Check b_end vs a_begin
+    if !b_end.nil? && !a_begin.nil?
+      cmp = b_end <=> a_begin
+      return false if cmp.nil?
+      return false if b_excl ? cmp <= 0 : cmp < 0
+    end
+
+    true
+  end
+
+  def bsearch(&block)
+    b = self.begin; e = self.end
+    b_ok = b.nil? || b.is_a?(Integer) || b.is_a?(Float)
+    e_ok = e.nil? || e.is_a?(Integer) || e.is_a?(Float)
+    unless b_ok && e_ok
+      raise TypeError, "can't do binary search for #{b_ok ? e.class : b.class}"
+    end
+    return to_enum(:bsearch) { _bsearch_size } unless block
+    if (b.nil? || b.is_a?(Integer)) && (e.nil? || e.is_a?(Integer))
+      _bsearch_integer(b, e, exclude_end?, &block)
+    else
+      bf = b.nil? ? -Float::INFINITY : b.to_f
+      ef = e.nil? ?  Float::INFINITY : e.to_f
+      _bsearch_float(bf, ef, exclude_end?, &block)
+    end
+  end
+
+  private
+
+  def _bsearch_size = nil
+
+  def _bsearch_validate(r)
+    return if r == true || r == false || r.nil? || r.is_a?(Numeric)
+    raise TypeError, "wrong argument type #{r.class} (must be numeric, true, false or nil)"
+  end
+
+  # Integer bsearch
+  def _bsearch_integer(lo, hi, excl, &block)
+    lo_val = lo.nil? ? (-(2**62)) : lo
+    hi_val = hi.nil? ? (2**62) : (excl ? hi - 1 : hi)
+    return nil if lo_val > hi_val
+    r0 = block.call(lo_val)
+    _bsearch_validate(r0)
+    r0.is_a?(Numeric) ? _bsearch_int_any(lo_val, hi_val, r0, &block)
+                      : _bsearch_int_min(lo_val, hi_val, r0, &block)
+  end
+
+  # Integer find-minimum (true/false mode)
+  # Convention: find leftmost element where block returns truthy
+  def _bsearch_int_min(lo, hi, r0, &block)
+    result = r0 ? lo : nil
+    left = r0 ? lo : lo + 1
+    right = hi
+    while left <= right
+      mid = left + (right - left) / 2
+      r = block.call(mid)
+      raise TypeError, "wrong argument type #{r.class} (must be true, false or nil)" if r.is_a?(Numeric)
+      _bsearch_validate(r)
+      if r
+        result = mid
+        right = mid - 1
+      else
+        left = mid + 1
+      end
+    end
+    result
+  end
+
+  # Integer find-any (numeric mode)
+  # Convention: block returns positive if element is too small (go right),
+  #             negative if too large (go left), zero if found
+  def _bsearch_int_any(lo, hi, r0, &block)
+    n0 = r0.is_a?(Numeric) ? r0 : (r0 ? 1 : -1)
+    return lo if n0 == 0
+    return nil if n0 < 0  # lo is already too large, answer is left of range
+    left = lo + 1; right = hi  # n0 > 0: lo is too small, search right
+    while left <= right
+      mid = left + (right - left) / 2
+      r = block.call(mid)
+      _bsearch_validate(r)
+      n = r.is_a?(Numeric) ? r : (r ? 1 : -1)
+      if n == 0
+        return mid
+      elsif n > 0
+        left = mid + 1   # too small, go right
+      else
+        right = mid - 1  # too large, go left
+      end
+    end
+    nil
+  end
+
+  # Float bsearch: convert floats to sortable uint64 for exact integer binary search
+  FLOAT_SIGN_BIT = 1 << 63
+  FLOAT_UINT64_MASK = (1 << 64) - 1
+
+  def _float_to_ord(f)
+    bits = [f].pack('G').unpack1('Q>')
+    (bits & FLOAT_SIGN_BIT) != 0 ? (~bits & FLOAT_UINT64_MASK) : (bits | FLOAT_SIGN_BIT)
+  end
+
+  def _ord_to_float(ord)
+    bits = (ord & FLOAT_SIGN_BIT) != 0 ? (ord ^ FLOAT_SIGN_BIT) : (~ord & FLOAT_UINT64_MASK)
+    [bits].pack('Q>').unpack1('G')
+  end
+
+  def _bsearch_float(lo, hi, excl, &block)
+    lo_ord = _float_to_ord(lo)
+    hi_ord = _float_to_ord(hi)
+    hi_ord -= 1 if excl
+    return nil if lo_ord > hi_ord
+
+    # Probe at lo to detect mode
+    lo_f = _ord_to_float(lo_ord)
+    r0 = block.call(lo_f)
+    _bsearch_validate(r0)
+
+    if r0.is_a?(Numeric)
+      # Find-any mode: block returns positive=too small, negative=too large, 0=found
+      n0 = r0.to_f
+      return lo_f if n0 == 0.0
+      return nil if n0 < 0.0  # lo is already too large
+      # n0 > 0: lo is too small, search [lo_ord+1, hi_ord]
+      left = lo_ord + 1; right = hi_ord
+      while left <= right
+        mid_ord = left + (right - left) / 2
+        mid = _ord_to_float(mid_ord)
+        r = block.call(mid)
+        _bsearch_validate(r)
+        n = r.is_a?(Numeric) ? r.to_f : (r ? 1.0 : -1.0)
+        return mid if n == 0.0
+        n > 0.0 ? (left = mid_ord + 1) : (right = mid_ord - 1)
+      end
+      nil
+    else
+      # Find-min mode: find leftmost element where block returns truthy
+      result = r0 ? lo_f : nil
+      left = r0 ? lo_ord : lo_ord + 1
+      right = hi_ord
+      while left <= right
+        mid_ord = left + (right - left) / 2
+        mid = _ord_to_float(mid_ord)
+        r = block.call(mid)
+        raise TypeError, "wrong argument type #{r.class} (must be true, false or nil)" if r.is_a?(Numeric)
+        _bsearch_validate(r)
+        if r
+          result = mid
+          right = mid_ord - 1
+        else
+          left = mid_ord + 1
+        end
+      end
+      result
+    end
+  end
+
+  public
 
   # SpecVersion (mspec) may call split on a Range when given a range version like ""..."3.4".
   # Fall back to splitting the end value's string representation.

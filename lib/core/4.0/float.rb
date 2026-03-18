@@ -71,7 +71,15 @@ class Float
   alias modulo %
 
   def **(other)
-    return Intrinsics.float__pow_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
+    if other.is_a?(Float) || other.is_a?(Integer)
+      # Negative base with fractional exponent returns Complex
+      if self < 0 && other.is_a?(Float) && other != other.floor
+        r = Intrinsics.float_abs(self) ** other
+        theta = Math::PI * other
+        return Complex(r * Math.cos(theta), r * Math.sin(theta))
+      end
+      return Intrinsics.float__pow_(self, other)
+    end
     begin; a, b = other.coerce(self); rescue NoMethodError; raise TypeError, "#{other.class} can't be coerced into Float"; end
     a ** b
   end
@@ -146,6 +154,9 @@ class Float
   def fdiv(other)
     if other.is_a?(Float) || other.is_a?(Integer)
       self / other.to_f
+    elsif other.is_a?(Complex)
+      denom = other.real.to_f ** 2 + other.imaginary.to_f ** 2
+      Complex(self * other.real.to_f / denom, -self * other.imaginary.to_f / denom)
     elsif other.respond_to?(:coerce)
       a, b = other.coerce(self)
       a.fdiv(b)

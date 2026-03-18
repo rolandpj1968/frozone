@@ -32,6 +32,7 @@ class Enumerator
     @receiver = nil
     @method_name = nil
     @method_args = []
+    @method_kwargs = {}
     @size_block = nil
     @fiber = nil
     @peeked = false
@@ -42,11 +43,12 @@ class Enumerator
 
   private :initialize
 
-  def self._from_method(receiver, method_name, method_args, size_block = nil)
+  def self._from_method(receiver, method_name, method_args, size_block = nil, method_kwargs = {})
     e = allocate
     e.instance_variable_set(:@receiver, receiver)
     e.instance_variable_set(:@method_name, method_name)
     e.instance_variable_set(:@method_args, method_args || [])
+    e.instance_variable_set(:@method_kwargs, method_kwargs || {})
     e.instance_variable_set(:@size_block, size_block)
     e.instance_variable_set(:@block, nil)
     e.instance_variable_set(:@size, nil)
@@ -57,19 +59,25 @@ class Enumerator
     e
   end
 
-  def each(*extra_args, &block)
+  def each(*extra_args, **extra_kwargs, &block)
     unless block
-      return self if extra_args.empty?
+      return self if extra_args.empty? && extra_kwargs.empty?
       # Return new enumerator with extra args appended
       if @receiver
-        self.class._from_method(@receiver, @method_name, @method_args + extra_args, @size_block)
+        merged_kwargs = (@method_kwargs || {}).merge(extra_kwargs)
+        self.class._from_method(@receiver, @method_name, @method_args + extra_args, @size_block, merged_kwargs)
       else
         self
       end
     else
       if @receiver
         # Method-mode: call the method directly and return its return value
-        @receiver.send(@method_name, *(@method_args + extra_args), &block)
+        combined_kwargs = (@method_kwargs || {}).merge(extra_kwargs)
+        if combined_kwargs.empty?
+          @receiver.send(@method_name, *(@method_args + extra_args), &block)
+        else
+          @receiver.send(@method_name, *(@method_args + extra_args), **combined_kwargs, &block)
+        end
       else
         # Block-mode: iterate via fiber
         rewind
@@ -243,9 +251,14 @@ class Enumerator
       recv = @receiver
       meth = @method_name
       args = @method_args
+      kwargs = @method_kwargs || {}
       enum = self
       @fiber = Fiber.new do
-        result = recv.send(meth, *args) { |*vals| Fiber.yield(vals) }
+        result = if kwargs.empty?
+          recv.send(meth, *args) { |*vals| Fiber.yield(vals) }
+        else
+          recv.send(meth, *args, **kwargs) { |*vals| Fiber.yield(vals) }
+        end
         enum.instance_variable_set(:@_enum_result, result)
         nil
       end
@@ -361,6 +374,17 @@ end
 
 class Enumerator
   class ArithmeticSequence < Enumerator
-    # Returned by Range#step for numeric ranges
+    # Returned by Range#step / Range#% for numeric ranges
+    def begin = @receiver.begin
+    def end   = @receiver.end
+    def step  = @method_args.first
+    def exclude_end? = @receiver.exclude_end?
+
+    def inspect
+      args_str = @method_args.empty? ? "" : "(#{@method_args.map(&:inspect).join(', ')})"
+      "((#{@receiver.inspect}).#{@method_name}#{args_str})"
+    end
+
+    alias to_s inspect
   end
 end

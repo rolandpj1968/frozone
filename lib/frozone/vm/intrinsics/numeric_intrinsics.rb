@@ -20,6 +20,24 @@ module Frozone
         end
 
         def integer_abs(_, v) = IntegerObject.new(v.raw.abs)
+
+        def integer_fdiv(context, v, n)
+          n_val = n.is_a?(IntegerObject) ? n.raw : n.is_a?(FloatObject) ? n.raw : nil
+          if n_val
+            FloatObject.new(v.raw.fdiv(n_val))
+          elsif n.respond_to?(:dispatch)
+            has_coerce = n.dispatch(context, :respond_to?, [SymbolObject.from(:coerce)], {}).truthy? rescue false
+            if has_coerce
+              pair = n.dispatch(context, :coerce, [v], {})
+              a, b = pair.raw[0], pair.raw[1]
+              a.dispatch(context, :fdiv, [b], {})
+            else
+              raise FrozoneException.make(:TypeError, "#{n.class_object&.name} can't be coerced into Integer")
+            end
+          else
+            raise FrozoneException.make(:TypeError, "#{n.class} can't be coerced into Integer")
+          end
+        end
         def integer_chr(context, v, enc = nil)
           if enc.nil? || enc.is_a?(NilObject)
             StringObject.new(v.raw.chr)
@@ -117,7 +135,7 @@ module Frozone
         def integer_to_r(context, v)
           r_class = Core::OBJECT_CLASS.get_constant(:Rational)
           return StringObject.new("#{v.raw}/1") unless r_class
-          r_class.dispatch(context, :new, [v, IntegerObject.new(1)], {})
+          make_rational(v.raw.to_r)
         end
 
         def integer_to_c(context, v)
@@ -245,6 +263,21 @@ module Frozone
           ArrayObject.new([FloatObject.new(m), IntegerObject.new(e)])
         end
         def float_ldexp(_, v, n) = FloatObject.new(::Math.ldexp(v.raw, n.raw))
+        def float_erf(_, v)      = FloatObject.new(::Math.erf(v.raw))
+        def float_erfc(_, v)     = FloatObject.new(::Math.erfc(v.raw))
+        def float_expm1(_, v)    = FloatObject.new(::Math.expm1(v.raw))
+        def float_log1p(_, v)    = FloatObject.new(::Math.log1p(v.raw))
+        def float_gamma(_, v)
+          begin
+            FloatObject.new(::Math.gamma(v.raw))
+          rescue ::Math::DomainError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          end
+        end
+        def float_lgamma(_, v)
+          result, sign = ::Math.lgamma(v.raw)
+          ArrayObject.new([FloatObject.new(result), IntegerObject.new(sign)])
+        end
       end
     end
   end

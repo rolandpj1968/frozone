@@ -12,6 +12,7 @@ module Frozone
         super(Core::SYMBOL_CLASS)
 
         @raw = value
+        @frozen_object = true
       end
 
       # Only via SymbolObject.from since Symbol's are globally unique in ruby

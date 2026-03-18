@@ -6,13 +6,14 @@ require_relative '../vm/nil_object'
 module Frozone
   module Ast
     class ModuleDef < Node
-      def initialize(name, locals, body, namespace_node: nil)
+      def initialize(name, locals, body, namespace_node: nil, source_location: nil)
         @name = name
 
         @locals = locals
 
         @namespace_node = namespace_node
         @body = body
+        @source_location = source_location
       end
 
       def to_s
@@ -31,12 +32,23 @@ module Frozone
             raise Vm::FrozoneException.make(:NameError, "private constant #{label} referenced")
           end
           module_constant = container.get_constant(@name)
+          if module_constant.nil? && (autoload_path = container.lookup_autoload(@name, inherit: false))
+            begin
+              Vm::Intrinsics.kernel_require(context, nil, Vm::StringObject.new(autoload_path))
+            rescue Vm::FrozoneException
+              raise
+            end
+            module_constant = container.get_constant(@name)
+            container.remove_autoload(@name) if module_constant.nil?
+          end
           unless module_constant.nil? || (module_constant.is_a?(Vm::ModuleObject) && !module_constant.is_a?(Vm::ClassObject))
             raise Vm::FrozoneException.make(:TypeError, "#{@name} is not a module (#{module_constant.is_a?(Vm::ObjectObject) ? module_constant.class_object&.name : module_constant.class} given)")
           end
           if module_constant.nil?
             module_constant = Vm::ModuleObject.new(@name, namespace)
-            container.set_constant(@name, module_constant)
+            module_constant.mark_name_permanent! if container.equal?(Vm::Core::OBJECT_CLASS) || container.name_permanent
+            container.set_constant(@name, module_constant, source_location: @source_location)
+            Vm.trigger_const_added(context, container, @name)
           end
         else
           # Use the LEXICAL scope (frame's definition-site scopes) for constant lookup/assignment.
@@ -45,12 +57,23 @@ module Frozone
 
           # MRI only looks in the immediate enclosing class/module, not outer nesting or superclass chain.
           module_constant = lex_scope.get_constant(@name)
+          if module_constant.nil? && (autoload_path = lex_scope.lookup_autoload(@name, inherit: false))
+            begin
+              Vm::Intrinsics.kernel_require(context, nil, Vm::StringObject.new(autoload_path))
+            rescue Vm::FrozoneException
+              raise
+            end
+            module_constant = lex_scope.get_constant(@name)
+            lex_scope.remove_autoload(@name) if module_constant.nil?
+          end
           unless module_constant.nil? || (module_constant.is_a?(Vm::ModuleObject) && !module_constant.is_a?(Vm::ClassObject))
             raise Vm::FrozoneException.make(:TypeError, "#{@name} is not a module (#{module_constant.is_a?(Vm::ObjectObject) ? module_constant.class_object&.name : module_constant.class} given)")
           end
           if module_constant.nil?
             module_constant = Vm::ModuleObject.new(@name, namespace)
-            lex_scope.set_constant(@name, module_constant)
+            module_constant.mark_name_permanent! if lex_scope.equal?(Vm::Core::OBJECT_CLASS) || lex_scope.name_permanent
+            lex_scope.set_constant(@name, module_constant, source_location: @source_location)
+            Vm.trigger_const_added(context, lex_scope, @name)
           end
         end
 

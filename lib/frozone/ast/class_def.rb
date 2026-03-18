@@ -6,7 +6,7 @@ require_relative '../vm/nil_object'
 module Frozone
   module Ast
     class ClassDef < Node
-      def initialize(name, locals, superclass_node, body, namespace_node: nil)
+      def initialize(name, locals, superclass_node, body, namespace_node: nil, source_location: nil)
         @name = name
 
         @locals = locals
@@ -14,6 +14,7 @@ module Frozone
         @superclass_node = superclass_node
         @namespace_node  = namespace_node
         @body = body
+        @source_location = source_location
       end
 
       def to_s
@@ -33,6 +34,15 @@ module Frozone
             raise Vm::FrozoneException.make(:NameError, "private constant #{label} referenced")
           end
           class_constant = container.get_constant(@name)
+          if class_constant.nil? && (autoload_path = container.lookup_autoload(@name, inherit: false))
+            begin
+              Vm::Intrinsics.kernel_require(context, nil, Vm::StringObject.new(autoload_path))
+            rescue Vm::FrozoneException
+              raise
+            end
+            class_constant = container.get_constant(@name)
+            container.remove_autoload(@name) if class_constant.nil?
+          end
           unless class_constant.nil? || class_constant.is_a?(Vm::ClassObject)
             raise Vm::FrozoneException.make(:TypeError, "#{@name} is not a class (#{class_constant.class_object&.name})")
           end
@@ -41,7 +51,9 @@ module Frozone
             raise Vm::FrozoneException.make(:TypeError, "superclass must be a Class (#{superclass.class_object&.name} given)") unless superclass.is_a?(Vm::ClassObject)
             raise Vm::FrozoneException.make(:TypeError, "can't make subclass of singleton class") if superclass.is_singleton_class
             class_constant = Vm::ClassObject.new(@name, namespace, superclass)
-            container.set_constant(@name, class_constant)
+            class_constant.mark_name_permanent! if container.equal?(Vm::Core::OBJECT_CLASS) || container.name_permanent
+            container.set_constant(@name, class_constant, source_location: @source_location)
+            Vm.trigger_const_added(context, container, @name)
             dispatch_inherited(context, superclass, class_constant)
           elsif @superclass_node
             superclass = @superclass_node.evaluate(context)
@@ -63,6 +75,15 @@ module Frozone
           # 2. Find or create the class constant
           # MRI only looks in the immediate enclosing class/module, not outer nesting or superclass chain.
           class_constant = lex_scope.get_constant(@name)
+          if class_constant.nil? && (autoload_path = lex_scope.lookup_autoload(@name, inherit: false))
+            begin
+              Vm::Intrinsics.kernel_require(context, nil, Vm::StringObject.new(autoload_path))
+            rescue Vm::FrozoneException
+              raise
+            end
+            class_constant = lex_scope.get_constant(@name)
+            lex_scope.remove_autoload(@name) if class_constant.nil?
+          end
           unless class_constant.nil? || class_constant.is_a?(Vm::ClassObject)
             raise Vm::FrozoneException.make(:TypeError, "#{@name} is not a class (#{class_constant.class_object&.name})")
           end
@@ -71,7 +92,9 @@ module Frozone
             raise Vm::FrozoneException.make(:TypeError, "superclass must be a Class (#{sc.class_object&.name} given)") unless sc.is_a?(Vm::ClassObject)
             raise Vm::FrozoneException.make(:TypeError, "can't make subclass of singleton class") if sc.is_singleton_class
             class_constant = Vm::ClassObject.new(@name, namespace, sc)
-            lex_scope.set_constant(@name, class_constant)
+            class_constant.mark_name_permanent! if lex_scope.equal?(Vm::Core::OBJECT_CLASS) || lex_scope.name_permanent
+            lex_scope.set_constant(@name, class_constant, source_location: @source_location)
+            Vm.trigger_const_added(context, lex_scope, @name)
             dispatch_inherited(context, sc, class_constant)
           elsif @superclass_node
             raise Vm::FrozoneException.make(:TypeError, "superclass mismatch for class #{@name}") unless class_constant.superclass.equal?(superclass)
@@ -96,9 +119,9 @@ module Frozone
       private
 
       def dispatch_inherited(context, superclass, subclass)
-        m = superclass.lookup_instance_method(:inherited)
-        return if m.nil?
-        superclass.dispatch(context, :inherited, [subclass], {}, nil)
+        superclass.dispatch(context, :inherited, [subclass], {}, nil, private_ok: true)
+      rescue Vm::FrozoneException => e
+        raise unless e.frozone_class_name == :NoMethodError
       end
     end
   end

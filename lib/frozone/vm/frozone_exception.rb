@@ -7,6 +7,8 @@ module Frozone
     class FrozoneException < StandardError
       attr_reader :vm_object   # the Frozone VM exception object (e.g. RuntimeError instance)
 
+      def frozone_class_name = @vm_object.is_a?(ObjectObject) ? @vm_object.class_object&.name : nil
+
       def initialize(vm_object, message)
         @vm_object = vm_object
         super(message)

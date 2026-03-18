@@ -7,6 +7,8 @@ module Frozone
       attr_reader :source_location, :is_lambda, :it_param
       attr_reader :required_params, :optional_params, :rest_param, :post_params
       attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
+      attr_reader :enclosing_frame
+      attr_accessor :ruby2_keywords
 
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
@@ -46,7 +48,7 @@ module Frozone
         )
 
         # Block auto-splat: when called with single arg and block expects multiple
-        if @auto_splat && args.length == 1
+        if @auto_splat && !as_method && args.length == 1
           arg = args[0]
           if arg.is_a?(ArrayObject)
             args = arg.raw
@@ -77,6 +79,7 @@ module Frozone
         # If block has no keyword params, convert any kw_args to a positional Hash (Ruby semantics).
         if !kw_args.empty? && @required_kw_params.empty? && @optional_kw_params.empty? && @kw_rest_param.nil?
           hash_val = HashObject.new(kw_args.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k })
+          hash_val.ruby2_keywords = true if @ruby2_keywords
           args = args + [hash_val]
           kw_args = {}
         end
@@ -84,6 +87,10 @@ module Frozone
         if @block_param
           proc_obj = if block.is_a?(ProcObject)
                        block
+                     elsif block.is_a?(BoundMethodObject)
+                       ProcObject.new(block, lambda: true)
+                     elsif block.is_a?(NativeBlock) && block.is_lambda
+                       ProcObject.new(block, lambda: true)
                      elsif block && !block.is_a?(NilObject)
                        ProcObject.new(block)
                      else
@@ -93,8 +100,9 @@ module Frozone
         end
 
         # Propagate enclosing method's block so `yield` inside a block calls the outer block.
-        # But only if not explicitly overridden.
-        new_frame.block = block || @enclosing_frame.block
+        # If block has an explicit &b param, the passed block goes to b; yield uses enclosing block.
+        # Otherwise, the passed block is used for yield (standard block propagation).
+        new_frame.block = @block_param ? @enclosing_frame.block : (block || @enclosing_frame.block)
         if @is_lambda || as_method
           # Lambdas and define_method-invoked blocks act like methods.
           new_frame.method_frame = new_frame
@@ -112,7 +120,7 @@ module Frozone
         # correct `self` (enclosing scope's self, not the proc/block caller's frame).
         context.push_frame(new_frame)
         begin
-          populate_params(context, new_frame, args)
+          populate_params(context, new_frame, args, as_method: as_method)
           populate_kw_params(context, new_frame, kw_args)
           loop do
             begin
@@ -145,13 +153,13 @@ module Frozone
 
       private
 
-      def populate_params(context, frame, args)
+      def populate_params(context, frame, args, as_method: false)
         n_req  = @required_params.length
         n_post = @post_params.length
         n_opt  = @optional_params.length
 
-        if @is_lambda
-          # Lambdas have strict argument checking
+        if @is_lambda || as_method
+          # Lambdas and define_method blocks have strict argument checking
           n_min = n_req + n_post
           n_max = n_req + n_opt + n_post
           if args.length < n_min

@@ -953,6 +953,12 @@ module Frozone
           return Ast::StringLiteral.from(dir || Dir.pwd)
         end
 
+        # "literal".freeze — mirrors YARV OPT_STR_FREEZE: returns same frozen object each time,
+        # and registers it in the dedup table (matches MRI 4.0 fstring behavior for literals)
+        if name == :freeze && raw_args.empty? && recv_node&.type == :str
+          return Ast::StringLiteral.frozen_from(recv_node.children[0])
+        end
+
         # `it` as implicit block parameter — treat as lvar read when in scope
         if recv_node.nil? && name == :it && raw_args.empty?
           d = @scope_chain.depth_of(:it)

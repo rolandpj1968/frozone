@@ -9,15 +9,27 @@ class String
     result
   end
 
-  def initialize(str = nil, encoding: nil, capacity: nil)
-    return self if str.nil?
+  def initialize(str = :__unset__, encoding: nil, capacity: nil)
+    return self if str.equal?(:__unset__)
+    raise TypeError, "no implicit conversion of #{str.class} into String" if str.nil?
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     Intrinsics.string_initialize(self, str, encoding)
+    force_encoding(encoding) if encoding
     self
   end
 
-  def +(v) = Intrinsics.string_plus(self, v)
-  def *(n) = Intrinsics.string_multiply(self, n)
+  def +(v)
+    unless v.is_a?(String)
+      raise TypeError, "no implicit conversion of #{v.class} into String" unless v.respond_to?(:to_str)
+      v = v.to_str
+      raise TypeError, "to_str must return String (#{v.class} given)" unless v.is_a?(String)
+    end
+    Intrinsics.string_plus(self, v)
+  end
+  def *(n)
+    n = n.to_int unless n.is_a?(Integer)
+    Intrinsics.string_multiply(self, n)
+  end
   def %(args) = Intrinsics.string_format(self, args)
   def <<(v)
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
@@ -45,8 +57,16 @@ class String
   def length = Intrinsics.string_length(self)
   alias size length
   def bytesize = Intrinsics.string_bytesize(self)
-  def to_s = Intrinsics.string_to_s(self)
-  def to_i(base = 0) = base == 0 ? Intrinsics.string_to_i(self) : Intrinsics.string_to_i_base(self, base)
+  def to_s
+    return self if self.class == String
+    String.new(self)
+  end
+
+  alias to_str to_s
+  def to_i(base = 0)
+    base = base.to_int unless base.is_a?(Integer)
+    Intrinsics.string_to_i_base(self, base)
+  end
   def to_f = Intrinsics.string_to_f(self)
   def to_r = Intrinsics.string_to_r(self)
   def to_sym = Intrinsics.string_to_sym(self)
@@ -57,11 +77,20 @@ class String
   def freeze = Intrinsics.string_freeze(self)
   def frozen? = Intrinsics.string_frozen(self)
   def encoding = Intrinsics.string_encoding(self)
-  def encode(enc = nil, src_enc = nil, **opts) = Intrinsics.string_encode(self, enc, src_enc)
-  def encode!(enc = nil, src_enc = nil, **opts) = Intrinsics.string_encode_bang(self, enc, src_enc)
+  def encode(enc = nil, src_enc = nil, **opts)
+    Intrinsics.string_encode(self, enc, src_enc, opts)
+  end
+
+  def encode!(enc = nil, src_enc = nil, **opts)
+    Intrinsics.string_encode_bang(self, enc, src_enc, opts)
+  end
 
   def <=>(v) = Intrinsics.string_spaceship(self, v)
-  def ==(v) = Intrinsics.string_eql(self, v)
+  def ==(v)
+    return Intrinsics.string_eql(self, v) if v.is_a?(String)
+    return v == self if v.respond_to?(:to_str)
+    false
+  end
 
   # Exception duck-typing (String can be used as exception proxy)
   def message = self
@@ -79,10 +108,15 @@ class String
   def match(pattern, pos = :__unset__, &block)
     if pattern.is_a?(String)
       result = pos.equal?(:__unset__) ? Intrinsics.string_match(self, pattern) : Intrinsics.string_match_pos(self, pattern, pos)
-    else
-      # Dispatch match on pattern object (allows mocking/overriding)
+    elsif pattern.is_a?(Regexp)
       str = pos.equal?(:__unset__) ? self : self[pos..] || ''
       result = pattern.match(str)
+    elsif pattern.respond_to?(:to_str)
+      pattern = pattern.to_str
+      raise TypeError, "no implicit conversion of #{pattern.class} into String" unless pattern.is_a?(String)
+      result = pos.equal?(:__unset__) ? Intrinsics.string_match(self, pattern) : Intrinsics.string_match_pos(self, pattern, pos)
+    else
+      raise TypeError, "no implicit conversion of #{pattern.class} into String"
     end
     return result unless block && !result.nil?
     block.call(result)
@@ -132,7 +166,14 @@ class String
     end
     false
   end
-  def include?(s) = Intrinsics.string_include(self, s)
+  def include?(s)
+    unless s.is_a?(String)
+      raise TypeError, "no implicit conversion of #{s.class} into String" unless s.respond_to?(:to_str)
+      s = s.to_str
+      raise TypeError, "can't convert to String" unless s.is_a?(String)
+    end
+    Intrinsics.string_include(self, s)
+  end
   def strip = Intrinsics.string_strip(self)
   def lstrip = Intrinsics.string_lstrip(self)
   def rstrip = Intrinsics.string_rstrip(self)
@@ -140,7 +181,7 @@ class String
     if sep.equal?(:__unset__)
       sep = $/
     elsif sep.nil?
-      return self  # explicit nil: no-op
+      return dup  # explicit nil: no-op, but still returns a copy
     else
       sep = sep.to_str unless sep.is_a?(String)
     end
@@ -157,30 +198,37 @@ class String
   def chop = Intrinsics.string_chop(self)
 
   def chop!
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     return nil if empty?; r = Intrinsics.string_chop(self); Intrinsics.string_replace(self, r)
   end
 
   def strip!
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     r = Intrinsics.string_strip(self); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def lstrip!
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     r = Intrinsics.string_lstrip(self); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def rstrip!
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     r = Intrinsics.string_rstrip(self); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def upcase!(*args)
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     r = Intrinsics.string_upcase_opts(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def downcase!(*args)
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     r = Intrinsics.string_downcase_opts(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def capitalize!(*args)
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     r = Intrinsics.string_capitalize_opts(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
@@ -204,7 +252,9 @@ class String
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     if replacement.equal?(:__unset__)
       raise ArgumentError, "wrong number of arguments (given 1, expected 2)" unless block
+      snap = Intrinsics.string_bytesize(self)
       r = Intrinsics.string_sub(self, pattern, nil, block)
+      raise RuntimeError, "string modified" if Intrinsics.string_bytesize(self) != snap
     else
       r = Intrinsics.string_sub(self, pattern, replacement, block)
     end
@@ -247,13 +297,25 @@ class String
   def capitalize(*args) = Intrinsics.string_capitalize_opts(self, *args)
   def swapcase(*args) = Intrinsics.string_swapcase_opts(self, *args)
   def swapcase!(*args)
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     r = Intrinsics.string_swapcase_opts(self, *args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
   def reverse = Intrinsics.string_reverse(self)
-  def chars = Intrinsics.string_chars(self)
-  def bytes = Intrinsics.string_bytes(self)
+  def chars(&block)
+    arr = Intrinsics.string_chars(self)
+    return arr unless block
+    arr.each(&block)
+    self
+  end
+
+  def bytes(&block)
+    arr = Intrinsics.string_bytes(self)
+    return arr unless block
+    arr.each(&block)
+    self
+  end
   def ord = Intrinsics.string_ord(self)
-  def split(sep = nil, limit = nil, &block)
+  def split(sep = nil, limit = :__unset__, &block)
     if sep.nil? && $; && !Fiber[:__split_warn_guard__]
       Fiber[:__split_warn_guard__] = true
       begin
@@ -303,19 +365,43 @@ class String
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     Intrinsics.string_store(self, idx, *rest)
   end
-  def index(sub, offset = nil) = Intrinsics.string_index(self, sub, offset)
-  def rindex(sub, offset = nil) = Intrinsics.string_rindex(self, sub, offset)
+  def index(sub, offset = :__unset__) = Intrinsics.string_index(self, sub, offset)
+
+  def rindex(sub, offset = :__unset__)
+    if !offset.equal?(:__unset__) && offset.nil?
+      raise TypeError, "no implicit conversion from nil to integer"
+    end
+    Intrinsics.string_rindex(self, sub, offset)
+  end
   def replace(other) = Intrinsics.string_replace(self, other)
 
   def clear
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    enc = encoding
     Intrinsics.string_replace(self, "")
+    force_encoding(enc)
     self
   end
   def succ = Intrinsics.string_succ(self)
   alias next succ
-  def succ! = Intrinsics.string_succ_bang(self)
+  def succ!
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    Intrinsics.string_succ_bang(self)
+  end
+
   alias next! succ!
+
+  def crypt(salt)
+    unless salt.is_a?(String)
+      raise TypeError, "no implicit conversion of #{salt.class} into String" unless salt.respond_to?(:to_str)
+      salt = salt.to_str
+      raise TypeError, "can't convert to String" unless salt.is_a?(String)
+    end
+    raise ArgumentError, "crypt: NUL in crypt" if include?("\0") || salt.include?("\0")
+    raise ArgumentError, "salt is too short (need >=2 chars)" if salt.length < 2
+    String.new(Intrinsics.string_crypt(self, salt))
+  end
+
   def insert(index, str)
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     index = index.to_int unless index.is_a?(Integer)
@@ -334,15 +420,12 @@ class String
   end
 
   def each_line(sep = $/, chomp: false, &block)
-    return to_enum(:each_line, sep, chomp: chomp) unless block
     if sep && !sep.is_a?(String)
-      begin
-        sep = sep.to_str
-      rescue NoMethodError
-        raise TypeError, "no implicit conversion of #{sep.class} into String"
-      end
-      raise TypeError, "no implicit conversion of #{sep.class} into String" unless sep.is_a?(String)
+      raise TypeError, "no implicit conversion of #{sep.class} into String" unless sep.respond_to?(:to_str)
+      sep = sep.to_str
+      raise TypeError, "can't convert to String" unless sep.is_a?(String)
     end
+    return to_enum(:each_line, sep, chomp: chomp) unless block
     raw_lines = Intrinsics.string_each_line(self, sep, nil)
     raw_lines.each do |l|
       l = chomp ? l.chomp(sep || "\n") : l
@@ -369,7 +452,11 @@ class String
     result
   end
   def b = Intrinsics.string_b(self)
-  def +@ = dup
+
+  def +@
+    # Ruby 4.0: chilled strings (literals) return a non-chilled dup; frozen strings also dup; mutable non-chilled return self
+    frozen? || Intrinsics.string_chilled_q(self) ? dup : self
+  end
   def -@
     Intrinsics.string_dedup(self)
   end
@@ -379,11 +466,39 @@ class String
   def ascii_only? = Intrinsics.string_ascii_only(self)
   def set_encoding(enc, *) = force_encoding(enc)
 
-  def getbyte(i) = Intrinsics.string_getbyte(self, i)
+  def unpack(fmt, offset: nil)
+    unless fmt.is_a?(String)
+      raise TypeError, "no implicit conversion of #{fmt.class} into String" unless fmt.respond_to?(:to_str)
+      fmt = fmt.to_str
+      raise TypeError, "can't convert to String" unless fmt.is_a?(String)
+    end
+    Intrinsics.string_unpack(self, fmt, offset)
+  end
+
+  def unpack1(fmt, offset: nil)
+    unless fmt.is_a?(String)
+      raise TypeError, "no implicit conversion of #{fmt.class} into String" unless fmt.respond_to?(:to_str)
+      fmt = fmt.to_str
+      raise TypeError, "can't convert to String" unless fmt.is_a?(String)
+    end
+    Intrinsics.string_unpack1(self, fmt, offset)
+  end
+
+  def getbyte(i)
+    unless i.is_a?(Integer)
+      raise TypeError, "no implicit conversion of #{i.class} into Integer" unless i.respond_to?(:to_int)
+      i = i.to_int
+      raise TypeError, "can't convert to Integer" unless i.is_a?(Integer)
+    end
+    Intrinsics.string_getbyte(self, i)
+  end
   def setbyte(i, b) = Intrinsics.string_setbyte(self, i, b)
   def append_as_bytes(*args) = Intrinsics.string_append_as_bytes(self, *args)
 
   def byteslice(idx, len = :__unset__)
+    if !len.equal?(:__unset__) && idx.is_a?(Range)
+      raise TypeError, "wrong argument type Range (expected Integer)"
+    end
     len.equal?(:__unset__) ? Intrinsics.string_byteslice(self, idx) : Intrinsics.string_byteslice(self, idx, len)
   end
 
@@ -417,9 +532,16 @@ class String
     Intrinsics.string_upto(self, other, exclusive, block)
   end
 
-  def tr_s(from, to) = Intrinsics.string_tr_s(self, from, to)
+  def tr_s(from, to)
+    from = from.to_str unless from.is_a?(String)
+    to = to.to_str unless to.is_a?(String)
+    Intrinsics.string_tr_s(self, from, to)
+  end
 
   def tr_s!(from, to)
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    from = from.to_str unless from.is_a?(String)
+    to = to.to_str unless to.is_a?(String)
     r = Intrinsics.string_tr_s(self, from, to); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
@@ -431,7 +553,9 @@ class String
   end
 
   def each_grapheme_cluster(&block)
-    Intrinsics.string_each_grapheme_cluster(self, block)
+    return to_enum(:each_grapheme_cluster) { grapheme_clusters.size } unless block
+    grapheme_clusters.each(&block)
+    self
   end
 
   def append_bytes(*args) = Intrinsics.string_append_bytes(self, *args)
@@ -440,79 +564,127 @@ class String
   def unicode_normalized?(form = :nfc) = Intrinsics.string_unicode_normalized_q(self, form)
 
   def each_char(&block)
-    return to_enum(:each_char) unless block
-    chars.each(&block)
+    return to_enum(:each_char) { length } unless block
+    Intrinsics.string_chars(self).each(&block)
     self
   end
 
   def each_byte(&block)
-    return to_enum(:each_byte) unless block
-    bytes.each(&block)
+    return to_enum(:each_byte) { bytesize } unless block
+    i = 0
+    while i < Intrinsics.string_bytesize(self)
+      block.call(Intrinsics.string_get_byte(self, i))
+      i += 1
+    end
     self
   end
 
   def each_codepoint(&block)
-    return to_enum(:each_codepoint) unless block
-    chars.each { |c| block.call(c.ord) }
+    return to_enum(:each_codepoint) { length } unless block
+    Intrinsics.string_chars(self).each { |c| block.call(c.ord) }
     self
   end
 
-  def codepoints
-    chars.map(&:ord)
+  def codepoints(&block)
+    arr = Intrinsics.string_chars(self).map(&:ord)
+    return arr unless block
+    arr.each(&block)
+    self
   end
 
   def chr = self[0] || self
 
   def center(width, padstr = ' ')
-    width = width.to_int unless width.is_a?(Integer)
-    padstr = padstr.to_str unless padstr.is_a?(String)
+    unless width.is_a?(Integer)
+      raise TypeError, "no implicit conversion of #{width.class} into Integer" unless width.respond_to?(:to_int)
+      width = width.to_int
+      raise TypeError, "can't convert to Integer" unless width.is_a?(Integer)
+    end
+    unless padstr.is_a?(String)
+      raise TypeError, "no implicit conversion of #{padstr.class} into String" unless padstr.respond_to?(:to_str)
+      padstr = padstr.to_str
+      raise TypeError, "can't convert to String" unless padstr.is_a?(String)
+    end
     raise ArgumentError, "zero width padding" if padstr.empty?
     len = length
     return dup if len >= width
     total = width - len
     left = total / 2
     right = total - left
+    compat_enc = Intrinsics.string_encoding_compat(self, padstr)
     lpad = (padstr * ((left / padstr.length) + 1))[0, left]
     rpad = (padstr * ((right / padstr.length) + 1))[0, right]
     r = lpad + self + rpad
-    r.force_encoding(encoding) if r.encoding != encoding
+    r.force_encoding(compat_enc) unless r.encoding == compat_enc
     r
   end
 
   def ljust(width, padstr = ' ')
-    width = width.to_int unless width.is_a?(Integer)
-    padstr = padstr.to_str unless padstr.is_a?(String)
+    unless width.is_a?(Integer)
+      raise TypeError, "no implicit conversion of #{width.class} into Integer" unless width.respond_to?(:to_int)
+      width = width.to_int
+      raise TypeError, "can't convert to Integer" unless width.is_a?(Integer)
+    end
+    unless padstr.is_a?(String)
+      raise TypeError, "no implicit conversion of #{padstr.class} into String" unless padstr.respond_to?(:to_str)
+      padstr = padstr.to_str
+      raise TypeError, "can't convert to String" unless padstr.is_a?(String)
+    end
     raise ArgumentError, "zero width padding" if padstr.empty?
+    compat_enc = Intrinsics.string_encoding_compat(self, padstr)
     len = length
     return dup if len >= width
     total = width - len
     pad = (padstr * ((total / padstr.length) + 1))[0, total]
-    self + pad
+    r = self + pad
+    r.force_encoding(compat_enc) unless r.encoding == compat_enc
+    r
   end
 
   def rjust(width, padstr = ' ')
-    width = width.to_int unless width.is_a?(Integer)
-    padstr = padstr.to_str unless padstr.is_a?(String)
+    unless width.is_a?(Integer)
+      raise TypeError, "no implicit conversion of #{width.class} into Integer" unless width.respond_to?(:to_int)
+      width = width.to_int
+      raise TypeError, "can't convert to Integer" unless width.is_a?(Integer)
+    end
+    unless padstr.is_a?(String)
+      raise TypeError, "no implicit conversion of #{padstr.class} into String" unless padstr.respond_to?(:to_str)
+      padstr = padstr.to_str
+      raise TypeError, "can't convert to String" unless padstr.is_a?(String)
+    end
     raise ArgumentError, "zero width padding" if padstr.empty?
+    compat_enc = Intrinsics.string_encoding_compat(self, padstr)
     len = length
     return dup if len >= width
     total = width - len
     pad = (padstr * ((total / padstr.length) + 1))[0, total]
-    pad + self
+    r = pad + self
+    r.force_encoding(compat_enc) unless r.encoding == compat_enc
+    r
   end
 
   def partition(sep)
     if sep.is_a?(Regexp)
       m = match(sep)
-      return [self, '', ''] unless m
+      unless m
+        enc = encoding
+        return [String.new(self), ''.force_encoding(enc), ''.force_encoding(enc)]
+      end
       ms = m.begin(0)
       me = m.end(0)
-      [self[0...ms], self[ms...me], self[me..] || '']
+      [String.new(self[0...ms]), String.new(self[ms...me]), String.new(self[me..] || '')]
     else
-      sep = sep.to_str unless sep.is_a?(String)
+      unless sep.is_a?(String)
+        raise TypeError, "no implicit conversion of #{sep.class} into String" unless sep.respond_to?(:to_str)
+        sep = sep.to_str
+        raise TypeError, "can't convert to String" unless sep.is_a?(String)
+      end
       i = index(sep)
-      return [self, '', ''] unless i
-      [self[0...i], sep, self[(i + sep.length)..] || '']
+      unless i
+        enc = encoding
+        return [String.new(self), ''.force_encoding(enc), ''.force_encoding(enc)]
+      end
+      [String.new(self[0...i]), String.new(sep), String.new(self[(i + sep.length)..] || '')]
     end
   end
 
@@ -537,20 +709,17 @@ class String
       [String.new(self[0...last_pos] || ''), String.new(self[last_pos, last_len] || ''), String.new(self[(last_pos + last_len)..] || '')]
     else
       unless sep.is_a?(String)
-        begin
-          sep = sep.to_str
-        rescue NoMethodError
-          raise TypeError, "no implicit conversion of #{sep.class} into String"
-        end
-        raise TypeError, "no implicit conversion of #{sep.class} into String" unless sep.is_a?(String)
+        raise TypeError, "no implicit conversion of #{sep.class} into String" unless sep.respond_to?(:to_str)
+        sep = sep.to_str
+        raise TypeError, "can't convert to String" unless sep.is_a?(String)
       end
       enc = encoding
       i = rindex(sep)
       unless i
-        e = ''.force_encoding(enc)
-        return [e.dup, e.dup, dup]
+        e = String.new(''.force_encoding(enc))
+        return [e, e.dup, String.new(self)]
       end
-      [self[0...i].force_encoding(enc), sep.dup, self[(i + sep.length)..].force_encoding(enc)]
+      [String.new(self[0...i].force_encoding(enc)), String.new(sep), String.new(self[(i + sep.length)..].force_encoding(enc))]
     end
   end
 
@@ -579,22 +748,24 @@ class String
 
   def delete_prefix(prefix)
     prefix = prefix.to_str unless prefix.is_a?(String)
-    start_with?(prefix) ? self[prefix.length..] : self
+    start_with?(prefix) ? self[prefix.length..] : dup
   end
 
   def delete_prefix!(prefix)
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     prefix = prefix.to_str unless prefix.is_a?(String)
-    return nil unless start_with?(prefix)
+    return nil if prefix.empty? || !start_with?(prefix)
     Intrinsics.string_replace(self, self[prefix.length..])
   end
 
   def delete_suffix(suffix)
     suffix = suffix.to_str unless suffix.is_a?(String)
-    return self if suffix.empty?
-    end_with?(suffix) ? self[0...(length - suffix.length)] : self
+    return dup if suffix.empty?
+    end_with?(suffix) ? self[0...(length - suffix.length)] : dup
   end
 
   def delete_suffix!(suffix)
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
     suffix = suffix.to_str unless suffix.is_a?(String)
     return nil if suffix.empty? || !end_with?(suffix)
     Intrinsics.string_replace(self, self[0...(length - suffix.length)])
@@ -611,8 +782,9 @@ class String
   def unicode_normalize!(form = :nfc) = (r = Intrinsics.string_unicode_normalize(self, form); Intrinsics.string_replace(self, r); self)
 
   def sum(bits = 16)
+    bits = bits.to_int unless bits.is_a?(Integer)
     total = bytes.reduce(0) { |s, b| s + b }
-    bits == 0 ? total : total % (1 << bits)
+    bits <= 0 ? total : total % (1 << bits)
   end
 
 end

@@ -64,12 +64,17 @@ module Frozone
             # module_function: private instance method + public singleton method
             method.visibility = :private
             scope.set_method(@name, method)
-            singleton_method = Vm::Method.new(method.scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
+            Vm::Intrinsics.trigger_method_added(context, scope, @name)
+            # Singleton method scopes use [singleton_class] so super resolves through
+            # the singleton class chain (includes extended modules).
+            singleton_method = Vm::Method.new([scope.singleton_class], @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
             singleton_method.visibility = :public
             scope.singleton_class.set_method(@name, singleton_method)
+            Vm::Intrinsics.trigger_method_added(context, scope.singleton_class, @name)
           else
             method.visibility = vis
             scope.set_method(@name, method)
+            Vm::Intrinsics.trigger_method_added(context, scope, @name)
           end
         else
           # For singleton methods: `def obj.foo` or `def self.foo`
@@ -100,6 +105,7 @@ module Frozone
           # For instance singleton methods, nested `def` should go to the enclosing class (like MRI nesting)
           method.nested_def_scope = frame_scopes.last unless receiver_val.is_a?(Vm::ClassObject)
           receiver_val.define_singleton_method(@name, method)
+          Vm::Intrinsics.trigger_method_added(context, receiver_val.singleton_class, @name)
         end
         Vm::SymbolObject.from(@name)
       end

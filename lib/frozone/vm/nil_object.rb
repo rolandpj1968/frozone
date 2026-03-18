@@ -6,6 +6,7 @@ module Frozone
     class NilObject < ObjectObject
       def initialize
         super(Core::NIL_CLASS_CLASS)
+        @frozen_object = true
       end
 
       # Global singleton object

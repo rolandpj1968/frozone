@@ -12,6 +12,7 @@ module Frozone
         super(Core::INTEGER_CLASS)
 
         @raw = value
+        @frozen_object = true
       end
 
       def to_s = @raw.to_s

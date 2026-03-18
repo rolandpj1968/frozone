@@ -15,9 +15,11 @@ module Frozone
 
         def string_length(_, v) = IntegerObject.new(v.raw.length)
         def string_bytesize(_, v) = IntegerObject.new(v.raw.bytesize)
+        def string_get_byte(_, v, i) = (b = v.raw.getbyte(i.is_a?(IntegerObject) ? i.raw : i.to_i); b ? IntegerObject.new(b) : NilObject::NIL)
         def string_to_s(_, v) = v
         def string_to_i(_, v) = IntegerObject.new(v.raw.to_i)
         def string_inspect(_, v) = StringObject.new(v.raw.inspect)
+        def string_crypt(_, v, salt) = StringObject.new(v.raw.crypt(salt.raw))
 
         def string_spaceship(context, v1, v2)
           if v2.is_a?(StringObject)
@@ -116,22 +118,33 @@ module Frozone
 
         def string_split(context, v, sep = nil, limit = nil)
           sep = nil if sep.is_a?(NilObject)
-          limit = nil if limit.is_a?(NilObject)
 
-          # Coerce limit to integer
-          if limit && !limit.is_a?(IntegerObject)
-            begin
-              limit = limit.dispatch(context, :to_int, [], {})
-              raise FrozoneException.make(:TypeError, "no implicit conversion into Integer") unless limit.is_a?(IntegerObject)
-            rescue FrozoneException => e
-              vm_obj = e.vm_object
-              if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
-                raise FrozoneException.make(:TypeError, "no implicit conversion of #{vm_obj.class_object&.name} into Integer")
+          # Detect :__unset__ sentinel (limit not provided)
+          limit_unset = limit.is_a?(SymbolObject) && limit.raw == :__unset__
+
+          unless limit_unset
+            # Explicit nil for limit raises TypeError
+            if limit.is_a?(NilObject)
+              raise FrozoneException.make(:TypeError, "no implicit conversion from nil to integer")
+            end
+
+            # Coerce limit to integer
+            unless limit.nil? || limit.is_a?(IntegerObject)
+              begin
+                limit = limit.dispatch(context, :to_int, [], {})
+                raise FrozoneException.make(:TypeError, "no implicit conversion into Integer") unless limit.is_a?(IntegerObject)
+              rescue FrozoneException => e
+                vm_obj = e.vm_object
+                if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
+                  raise FrozoneException.make(:TypeError, "no implicit conversion of #{e.message.split.last} into Integer")
+                end
+                raise
               end
-              raise
             end
           end
-          limit_raw = limit&.raw
+
+          limit = nil if limit_unset
+          limit_raw = limit.is_a?(IntegerObject) ? limit.raw : nil
 
           # Use $; when sep is nil
           gs = nil
@@ -201,14 +214,26 @@ module Frozone
           has_replacement = !(replacement.nil? || replacement.is_a?(NilObject))
           if has_block && !has_replacement
             last_m = nil
+            # Method references (BoundMethodObject) don't get $~ set (only Proc/lambda do)
+            # When &method(:foo) is passed, it arrives wrapped in ProcObject by Method#invoke
+            inner = block.is_a?(ProcObject) ? block.block_object : block
+            set_match_for_block = !inner.is_a?(BoundMethodObject)
             result = v.raw.gsub(pat) do |_match|
               m = $~
-              update_match_globals(m)
+              update_match_globals(m) if set_match_for_block
               last_m = m
               match_obj = StringObject.new($&)
-              ret = block_result_to_s(context, block.invoke(context, [match_obj]))
-              # Restore $~ to the gsub match after block runs (block may have changed it)
-              update_match_globals(m)
+              if set_match_for_block
+                ret = block_result_to_s(context, block.invoke(context, [match_obj]))
+                # Restore $~ to the gsub match after block runs (block may have changed it)
+                update_match_globals(m)
+              else
+                # BoundMethodObject: $~ is method-local in MRI; clear before invoke, restore after
+                saved_md = GLOBALS[:"$~"]
+                update_match_globals(nil)
+                ret = block_result_to_s(context, block.invoke(context, [match_obj]))
+                GLOBALS[:"$~"] = saved_md
+              end
               ret
             end
             update_match_globals(last_m)
@@ -414,6 +439,15 @@ module Frozone
           unless obj.respond_to?(:dispatch)
             return obj.raw.is_a?(Integer) ? obj.raw : (raise FrozoneException.make(:TypeError, "no implicit conversion into Integer"))
           end
+          # Check respond_to?(:to_int, true) first (matches MRI rb_check_convert_type behavior)
+          begin
+            rt_result = obj.dispatch(context, :respond_to?, [SymbolObject.from(:to_int), TrueObject::TRUE], {})
+            unless rt_result.truthy?
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{obj.class_object&.name} into Integer")
+            end
+          rescue FrozoneException
+            # respond_to? not found or raised - fall through to direct dispatch
+          end
           begin
             coerced = obj.dispatch(context, :to_int, [], {})
             coerced.is_a?(IntegerObject) ? coerced.raw : (raise FrozoneException.make(:TypeError, "to_int should return Integer"))
@@ -437,7 +471,7 @@ module Frozone
             end
             result.nil? ? NilObject::NIL : IntegerObject.new(result)
           rescue ::Encoding::CompatibilityError => e
-            raise FrozoneException.make(:EncodingError, e.message)
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
           rescue ::TypeError => e
             raise FrozoneException.make(:TypeError, e.message)
           end
@@ -451,15 +485,30 @@ module Frozone
           off_raw = coerce_offset(context, offset)
           begin
             result = off_raw ? v.raw.rindex(pat, off_raw) : v.raw.rindex(pat)
+            if pat.is_a?(::Regexp)
+              m = result ? pat.match(v.raw, result) : nil
+              update_match_globals(m)
+            end
             result.nil? ? NilObject::NIL : IntegerObject.new(result)
           rescue ::Encoding::CompatibilityError => e
-            raise FrozoneException.make(:EncodingError, e.message)
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
           rescue ::TypeError => e
             raise FrozoneException.make(:TypeError, e.message)
           end
         end
 
         private
+
+        def deprecated_warnings_enabled?
+          warning_class = Core::OBJECT_CLASS.get_constant(:Warning)
+          return true unless warning_class
+          ctx = Fiber[:context]
+          return true unless ctx
+          flag = warning_class.dispatch(ctx, :[], [SymbolObject.from(:deprecated)], {}) rescue nil
+          flag.nil? || flag.truthy?
+        rescue
+          true
+        end
 
         def coerce_str_or_regexp(context, sub)
           return sub.raw if sub.is_a?(StringObject) || sub.is_a?(RegexpObject)
@@ -485,6 +534,7 @@ module Frozone
 
         def coerce_offset(context, offset)
           return nil if offset.nil? || offset.is_a?(NilObject)
+          return nil if offset.is_a?(SymbolObject) && offset.raw == :__unset__
           return offset.raw if offset.is_a?(IntegerObject)
           str_vm_coerce_to_int(context, offset)
         end
@@ -494,7 +544,7 @@ module Frozone
         def string_dedup(_, v)
           raw = v.raw
           # skip dedup for strings with instance variables
-          return v if v.frozen_object? && v.get_ivar(:@__ivars__)
+          return v if v.frozen_object? && v.instance_variables_hash.any?
           key = "#{raw.b}\x00#{raw.encoding.name}"
           existing = STRING_DEDUP_TABLE[key]
           if existing
@@ -514,6 +564,10 @@ module Frozone
 
         def string_replace(context, v, other)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v.raw.inspect}") if v.frozen?
+          if v.chilled? && deprecated_warnings_enabled?
+            Frozone::Vm.emit_warning(context, v.chilled_warning)
+            v.unchilled!
+          end
           other_raw = if other.is_a?(StringObject)
                         other.raw
                       elsif other.is_a?(NilObject)
@@ -616,28 +670,16 @@ module Frozone
         def string_store(context, v, idx, *rest)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v.raw.inspect}") if v.frozen?
           repl_vm = rest.pop
-          repl_raw = string_coerce_replacement(context, repl_vm)
 
           s = v.raw.dup
           begin
-            if idx.is_a?(IntegerObject)
-              i = idx.raw
-              if rest.empty?
-                s[i] = repl_raw
-              else
-                len_vm = rest[0]
-                len = len_vm.is_a?(IntegerObject) ? len_vm.raw : str_vm_coerce_to_int(context, len_vm)
-                s[i, len] = repl_raw
-              end
-            elsif idx.is_a?(StringObject)
-              pat = idx.raw
-              raise FrozoneException.make(:IndexError, "string not matched") unless s.include?(pat)
-              s[pat] = repl_raw
-            elsif idx.is_a?(RegexpObject)
+            if idx.is_a?(RegexpObject)
+              # Check match BEFORE coercing replacement
               pat = idx.raw
               if rest.empty?
                 m = pat.match(s)
                 raise FrozoneException.make(:IndexError, "regexp not matched") unless m
+                repl_raw = string_coerce_replacement(context, repl_vm)
                 update_match_globals(m)
                 s[pat] = repl_raw
               else
@@ -645,23 +687,44 @@ module Frozone
                 cap = cap_vm.is_a?(IntegerObject) ? cap_vm.raw : str_vm_coerce_to_int(context, cap_vm)
                 m = pat.match(s)
                 raise FrozoneException.make(:IndexError, "regexp not matched") unless m
+                # Validate capture index BEFORE coercing replacement
+                if cap >= m.size || cap < -m.size
+                  raise FrozoneException.make(:IndexError, "index #{cap} out of regexp")
+                end
+                repl_raw = string_coerce_replacement(context, repl_vm)
                 update_match_globals(m)
                 s[pat, cap] = repl_raw
               end
-            elsif idx.is_a?(RangeObject)
-              b = idx.begin_val
-              e = idx.end_val
-              b_raw = b.nil? || b.is_a?(NilObject) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
-              e_raw = e.nil? || e.is_a?(NilObject) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
-              s[Range.new(b_raw, e_raw, idx.exclusive?)] = repl_raw
             else
-              i = str_vm_coerce_to_int(context, idx)
-              if rest.empty?
-                s[i] = repl_raw
+              repl_raw = string_coerce_replacement(context, repl_vm)
+              if idx.is_a?(IntegerObject)
+                i = idx.raw
+                if rest.empty?
+                  s[i] = repl_raw
+                else
+                  len_vm = rest[0]
+                  len = len_vm.is_a?(IntegerObject) ? len_vm.raw : str_vm_coerce_to_int(context, len_vm)
+                  s[i, len] = repl_raw
+                end
+              elsif idx.is_a?(StringObject)
+                pat = idx.raw
+                raise FrozoneException.make(:IndexError, "string not matched") unless s.include?(pat)
+                s[pat] = repl_raw
+              elsif idx.is_a?(RangeObject)
+                b = idx.begin_val
+                e = idx.end_val
+                b_raw = b.nil? || b.is_a?(NilObject) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
+                e_raw = e.nil? || e.is_a?(NilObject) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
+                s[Range.new(b_raw, e_raw, idx.exclusive?)] = repl_raw
               else
-                len_vm = rest[0]
-                len = len_vm.is_a?(IntegerObject) ? len_vm.raw : str_vm_coerce_to_int(context, len_vm)
-                s[i, len] = repl_raw
+                i = str_vm_coerce_to_int(context, idx)
+                if rest.empty?
+                  s[i] = repl_raw
+                else
+                  len_vm = rest[0]
+                  len = len_vm.is_a?(IntegerObject) ? len_vm.raw : str_vm_coerce_to_int(context, len_vm)
+                  s[i, len] = repl_raw
+                end
               end
             end
           rescue ::IndexError => e
@@ -732,8 +795,12 @@ module Frozone
 
         def string_b(_, v) = StringObject.new(v.raw.b)
         def string_ascii_only(_, v) = bool_object_for(v.raw.ascii_only?)
-        def string_concat(_, v1, v2)
+        def string_concat(context, v1, v2)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v1.raw.inspect}") if v1.frozen?
+          if v1.chilled? && deprecated_warnings_enabled?
+            Frozone::Vm.emit_warning(context, v1.chilled_warning)
+            v1.unchilled!
+          end
           v2_str = v2.is_a?(StringObject) ? v2.raw : v2.to_s
           v1.raw << v2_str
           v1
@@ -956,17 +1023,44 @@ module Frozone
           end
         end
 
-        def string_encode(context, v, enc = nil, src_enc = nil, **opts)
+        def string_encode(context, v, enc = nil, src_enc = nil, opts = nil)
+          # Coerce options hash if it's a VM object
+          opts = coerce_encode_opts(context, opts || {})
+
+          enc_nil = enc.nil? || enc.is_a?(NilObject)
+          src_nil = src_enc.nil? || src_enc.is_a?(NilObject)
+
+          enc_name = if enc_nil
+                       # Use Encoding.default_internal
+                       di = begin
+                         Core::OBJECT_CLASS.get_constant(:Encoding)&.dispatch(context, :default_internal, [], {})
+                       rescue
+                         nil
+                       end
+                       di && !di.is_a?(NilObject) ? resolve_encoding_name(context, di) : nil
+                     else
+                       resolve_encoding_name(context, enc)
+                     end
+
+          src_name = src_nil ? nil : resolve_encoding_name(context, src_enc)
           enc_opts = extract_encode_opts(opts)
-          if enc.nil? || enc.is_a?(NilObject)
-            # Check default_internal
-            di = GLOBALS[:"$KCODE"] # Not ideal; check Encoding.default_internal via constants
-            return StringObject.new(v.raw.dup)
-          end
-          enc_name = resolve_encoding_name(context, enc)
-          src_name = src_enc && !src_enc.is_a?(NilObject) ? resolve_encoding_name(context, src_enc) : nil
+          xml_opt = enc_opts.delete(:xml)
+          fallback_opt = enc_opts.delete(:fallback)
+
+          newline_opts = %i[cr_newline crlf_newline universal_newline]
+          has_newline_opt = enc_opts.any? { |k, v| newline_opts.include?(k) && v }
+          has_replace_opt = enc_opts[:invalid] == :replace || enc_opts[:undef] == :replace
+          return StringObject.new(v.raw.dup) if enc_name.nil? && !xml_opt && !has_newline_opt && !has_replace_opt
+
           begin
-            result = if src_name
+            result = if xml_opt
+                       encode_xml(v.raw, enc_name, xml_opt, enc_opts)
+                     elsif fallback_opt
+                       encode_with_fallback(context, v.raw, enc_name, fallback_opt, enc_opts)
+                     elsif enc_name.nil? && (has_newline_opt || has_replace_opt)
+                       # Encoding change within same encoding (invalid: :replace, newline conversion)
+                       v.raw.encode(v.raw.encoding, **enc_opts)
+                     elsif src_name
                        enc_opts.empty? ? v.raw.encode(enc_name, src_name) : v.raw.encode(enc_name, src_name, **enc_opts)
                      else
                        enc_opts.empty? ? v.raw.encode(enc_name) : v.raw.encode(enc_name, **enc_opts)
@@ -980,12 +1074,38 @@ module Frozone
           end
         end
 
-        def string_encode_bang(context, v, enc = nil, src_enc = nil, **opts)
+        def string_encode_bang(context, v, enc = nil, src_enc = nil, opts = nil)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String") if v.frozen?
-          return v if enc.nil? || enc.is_a?(NilObject)
-          enc_name = resolve_encoding_name(context, enc)
-          src_name = src_enc && !src_enc.is_a?(NilObject) ? resolve_encoding_name(context, src_enc) : nil
+          opts = coerce_encode_opts(context, opts || {})
+          enc_nil = enc.nil? || enc.is_a?(NilObject)
           enc_opts = extract_encode_opts(opts)
+          has_replace_opt = enc_opts[:invalid] == :replace || enc_opts[:undef] == :replace
+          if enc_nil
+            # Check default_internal
+            di = begin
+              Core::OBJECT_CLASS.get_constant(:Encoding)&.dispatch(context, :default_internal, [], {})
+            rescue
+              nil
+            end
+            if di && !di.is_a?(NilObject)
+              enc = di
+            elsif has_replace_opt
+              # No target encoding but invalid: :replace — encode in-place (same encoding)
+              begin
+                v.raw.encode!(v.raw.encoding, **enc_opts)
+              rescue ::Encoding::UndefinedConversionError,
+                     ::Encoding::InvalidByteSequenceError,
+                     ::Encoding::ConverterNotFoundError,
+                     ::Encoding::CompatibilityError => e
+                raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+              end
+              return v
+            else
+              return v
+            end
+          end
+          enc_name = resolve_encoding_name(context, enc)
+          src_name = (src_enc && !src_enc.is_a?(NilObject)) ? resolve_encoding_name(context, src_enc) : nil
           begin
             if src_name
               enc_opts.empty? ? v.raw.encode!(enc_name, src_name) : v.raw.encode!(enc_name, src_name, **enc_opts)
@@ -1003,26 +1123,193 @@ module Frozone
 
         private
 
+        def coerce_encode_opts(context, opts)
+          return {} if opts.nil?
+          return opts.raw if opts.is_a?(HashObject)
+          return {} if opts.is_a?(NilObject)
+          return opts if opts.is_a?(::Hash)
+          # Try to_hash coercion for mock objects
+          begin
+            result = opts.dispatch(context, :to_hash, [], {})
+            return result.is_a?(HashObject) ? result.raw : {}
+          rescue
+          end
+          {}
+        end
+
         def extract_encode_opts(opts)
           return {} unless opts.is_a?(::Hash)
           result = {}
           opts.each do |k, v|
             key = k.is_a?(SymbolObject) ? k.raw : k.is_a?(Symbol) ? k : nil
             next unless key
-            val = v.is_a?(SymbolObject) ? v.raw : v.is_a?(NilObject) ? nil : v.is_a?(StringObject) ? v.raw : v
+            val = if v.is_a?(SymbolObject) then v.raw
+                  elsif v.is_a?(NilObject) then nil
+                  elsif v.is_a?(StringObject) then v.raw
+                  elsif v.is_a?(TrueObject) then true
+                  elsif v.is_a?(FalseObject) then false
+                  elsif v.is_a?(IntegerObject) then v.raw
+                  else v
+                  end
             result[key] = val
           end
           result
+        end
+
+        def encode_xml(raw_str, enc_name, xml_opt, enc_opts)
+          # Validate xml option
+          unless xml_opt == :text || xml_opt == :attr
+            raise FrozoneException.make(:ArgumentError, "unknown xml option value: #{xml_opt.inspect}")
+          end
+          # Process string char by char
+          result = String.new("")
+          raw_str.each_char do |ch|
+            if enc_name
+              begin
+                ch.encode(enc_name, **enc_opts)
+                # char is encodable — apply XML entity encoding
+                case ch
+                when '&' then result << '&amp;'
+                when '<' then result << '&lt;'
+                when '>' then result << '&gt;'
+                when '"' then xml_opt == :attr ? result << '&quot;' : result << ch
+                else result << ch
+                end
+              rescue ::Encoding::UndefinedConversionError
+                # Replace with hex numeric character reference (not entity-encoded)
+                codepoint = ch.ord
+                result << "&#x#{codepoint.to_s(16).upcase};"
+              end
+            else
+              case ch
+              when '&' then result << '&amp;'
+              when '<' then result << '&lt;'
+              when '>' then result << '&gt;'
+              when '"' then xml_opt == :attr ? result << '&quot;' : result << ch
+              else result << ch
+              end
+            end
+          end
+          result = "\"#{result}\"" if xml_opt == :attr
+          enc_name ? result.force_encoding(enc_name) : result
+        end
+
+        def encode_with_fallback(context, raw_str, enc_name, fallback, enc_opts)
+          # If invalid: :replace is set, first sanitize the string to remove invalid byte sequences
+          # (MRI handles invalid sequences as units, not byte-by-byte via chars)
+          working_str = if enc_opts[:invalid] == :replace
+                          repl = enc_opts[:replace] || "?"
+                          raw_str.encode(raw_str.encoding, invalid: :replace, replace: repl)
+                        else
+                          raw_str
+                        end
+          # Strip invalid: :replace from opts since we've already handled it
+          fallback_enc_opts = enc_opts.reject { |k, _| k == :invalid }
+
+          # Implement fallback encoding manually since MRI doesn't support VM procs as fallback
+          chars = working_str.chars
+          result = enc_name ? String.new("", encoding: Encoding.find(enc_name)) : String.new("")
+          chars.each do |ch|
+            begin
+              encoded_ch = ch.encode(enc_name || ch.encoding, **fallback_enc_opts)
+              result << encoded_ch
+            rescue ::Encoding::UndefinedConversionError => undef_err
+              # Apply fallback to get replacement for undefined char
+              replacement_vm = call_fallback(context, fallback, ch)
+              if replacement_vm
+                replacement_raw = if replacement_vm.is_a?(StringObject)
+                                    replacement_vm.raw
+                                  elsif replacement_vm.is_a?(::String)
+                                    replacement_vm
+                                  elsif replacement_vm.is_a?(ObjectObject)
+                                    begin
+                                      r = replacement_vm.dispatch(context, :to_str, [], {})
+                                      r.is_a?(StringObject) ? r.raw : nil
+                                    rescue FrozoneException => e
+                                      vm = e.vm_object
+                                      if vm.is_a?(ObjectObject) && vm.class_object&.name == :NoMethodError
+                                        type_name = replacement_vm.class_object&.name || 'Object'
+                                        raise FrozoneException.make(:TypeError, "no implicit conversion of #{type_name} into String")
+                                      end
+                                      raise
+                                    end
+                                  else
+                                    nil
+                                  end
+                if replacement_raw.nil?
+                  raise
+                end
+                begin
+                  encoded_repl = replacement_raw.encode(enc_name)
+                  result << encoded_repl
+                rescue ::Encoding::UndefinedConversionError
+                  raise ::ArgumentError, "too big fallback string"
+                end
+              else
+                raise
+              end
+            end
+          end
+          result
+        end
+
+        def call_fallback(context, fallback, ch)
+          if fallback.is_a?(HashObject)
+            # VM-level Hash
+            ch_obj = StringObject.new(ch)
+            val = fallback.raw.find { |k, _| k.is_a?(StringObject) && k.raw == ch }&.last
+            val ||= begin
+              fallback.dispatch(context, :default, [ch_obj], {})
+            rescue FrozoneException
+              nil
+            end
+            val.is_a?(NilObject) ? nil : val
+          elsif fallback.is_a?(::Hash)
+            val = fallback[ch]
+            val = fallback.default if val.nil? && fallback.default
+            val
+          elsif fallback.is_a?(ProcObject)
+            begin
+              fallback.invoke(context, [StringObject.new(ch)])
+            rescue FrozoneException
+              nil
+            end
+          elsif fallback.is_a?(ObjectObject)
+            # Try calling it as a proc/method (responds to :call)
+            begin
+              fallback.dispatch(context, :call, [StringObject.new(ch)], {})
+            rescue FrozoneException => e
+              vm = e.vm_object
+              if vm.is_a?(ObjectObject) && vm.class_object&.name == :NoMethodError
+                # Try [] for hash-like objects
+                begin
+                  fallback.dispatch(context, :[], [StringObject.new(ch)], {})
+                rescue FrozoneException
+                  nil
+                end
+              else
+                raise
+              end
+            end
+          else
+            nil
+          end
         end
 
         def resolve_encoding_name(context, enc)
           if enc.is_a?(StringObject)
             enc.raw
           elsif enc.is_a?(ObjectObject)
-            # Check if it's an Encoding object (has @name ivar)
-            name_ivar = enc.get_ivar(:@name)
-            if name_ivar && name_ivar.is_a?(StringObject)
-              return name_ivar.raw
+            # Only use @name ivar if this is actually an Encoding object
+            if enc.class_object&.name == :Encoding
+              name_ivar = enc.get_ivar(:@name)
+              return name_ivar.raw if name_ivar && name_ivar.is_a?(StringObject)
+              # Try :name method
+              begin
+                r = enc.dispatch(context, :name, [], {})
+                return r.raw if r.is_a?(StringObject)
+              rescue FrozoneException
+              end
             end
             # Try to_str coercion
             begin
@@ -1034,12 +1321,6 @@ module Frozone
               unless vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
                 raise
               end
-            end
-            # Try :name method (for Encoding objects)
-            begin
-              r = enc.dispatch(context, :name, [], {})
-              return r.raw if r.is_a?(StringObject)
-            rescue FrozoneException
             end
             name = enc.class_object&.name || 'Object'
             raise FrozoneException.make(:TypeError, "no implicit conversion of #{name} into String")
@@ -1133,9 +1414,20 @@ module Frozone
           enc_class.get_constant(const_name) || StringObject.new(enc_name)
         end
 
-        def string_freeze(_, v)           = (v.freeze_object!; v)
+        def string_chilled_q(_, v) = bool_object_for(v.chilled?)
+
+        def string_freeze(_, v)
+          v.freeze_object!
+          v
+        end
         def string_frozen(_, v)           = bool_object_for(v.frozen_object?)
-        def string_dup(_, v)              = StringObject.new(v.raw.dup)
+        def string_dup(context, v)
+          copy = StringObject.new(v.raw.dup)
+          copy.class_object = v.class_object
+          copy.copy_fields_from(v, eigenclass: nil, frozen: false)
+          copy.dispatch(context, :initialize_copy, [v], {}, nil, private_ok: true)
+          copy
+        end
         def string_to_sym(_, v)           = SymbolObject.from(v.raw.to_sym)
         def string_to_f(_, v)             = FloatObject.new(v.raw.to_f)
         def string_to_r(context, v)
@@ -1410,7 +1702,7 @@ module Frozone
           rescue ::TypeError => e
             raise FrozoneException.make(:TypeError, e.message)
           rescue ::Encoding::CompatibilityError => e
-            raise FrozoneException.make(:EncodingError, e.message)
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
           end
           v
         end
@@ -1519,7 +1811,7 @@ module Frozone
           begin
             StringObject.new(v.raw.unicode_normalize(form_raw))
           rescue ::Encoding::CompatibilityError => e
-            raise FrozoneException.make(:EncodingError, e.message)
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
           end
         end
 
@@ -1528,7 +1820,7 @@ module Frozone
           begin
             bool_object_for(v.raw.unicode_normalized?(form_raw))
           rescue ::Encoding::CompatibilityError => e
-            raise FrozoneException.make(:EncodingError, e.message)
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
           end
         end
 
@@ -1558,7 +1850,7 @@ module Frozone
           when ::Rational
             return IntegerObject.new(n.numerator) if n.denominator == 1
             return FloatObject.new(n.to_f) unless rat_class
-            rat_class.dispatch(context, :new, [IntegerObject.new(n.numerator), IntegerObject.new(n.denominator)], {})
+            make_rational(n)
           else IntegerObject.new(0)
           end
         end
@@ -1587,8 +1879,88 @@ module Frozone
 
         public
 
+        def encoding_converter_check(_, from_str, to_str)
+          from_raw = from_str.is_a?(StringObject) ? from_str.raw : from_str.to_s
+          to_raw = to_str.is_a?(StringObject) ? to_str.raw : to_str.to_s
+          begin
+            ::Encoding::Converter.new(from_raw, to_raw)
+          rescue ::Encoding::ConverterNotFoundError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          end
+          NilObject::NIL
+        end
+
+        def string_encoding_compat(_, v1, v2)
+          # Returns compatible Encoding object for the two strings, or raises CompatibilityError
+          enc = ::Encoding.compatible?(v1.raw, v2.raw)
+          if enc.nil?
+            err = ::Encoding::CompatibilityError.new(
+              "incompatible character encodings: #{v1.raw.encoding} and #{v2.raw.encoding}")
+            raise FrozoneException.new(FrozoneException.wrap_mri(err), err.message)
+          end
+          # Return a Frozone encoding object (just need the name; force_encoding accepts strings)
+          begin
+            encoding_obj = Core::OBJECT_CLASS.get_constant(:Encoding)
+            if encoding_obj
+              encoding_obj.dispatch(nil, :find, [StringObject.new(enc.name)], {})
+            else
+              StringObject.new(enc.name)
+            end
+          rescue
+            StringObject.new(enc.name)
+          end
+        end
+
+        def string_unpack(context, v, fmt, offset_arg = nil)
+          fmt_raw = fmt.is_a?(StringObject) ? fmt.raw : fmt.to_s
+          begin
+            results = if offset_arg && !offset_arg.is_a?(NilObject)
+                        off = offset_arg.is_a?(IntegerObject) ? offset_arg.raw : offset_arg.to_i
+                        v.raw.unpack(fmt_raw, offset: off)
+                      else
+                        v.raw.unpack(fmt_raw)
+                      end
+            ArrayObject.new(results.map { |r| unpack_result_to_vm(r) })
+          rescue ::ArgumentError => e
+            raise FrozoneException.make(:ArgumentError, e.message)
+          rescue ::TypeError => e
+            raise FrozoneException.make(:TypeError, e.message)
+          end
+        end
+
+        def string_unpack1(context, v, fmt, offset_arg = nil)
+          fmt_raw = fmt.is_a?(StringObject) ? fmt.raw : fmt.to_s
+          begin
+            result = if offset_arg && !offset_arg.is_a?(NilObject)
+                       off = offset_arg.is_a?(IntegerObject) ? offset_arg.raw : offset_arg.to_i
+                       v.raw.unpack1(fmt_raw, offset: off)
+                     else
+                       v.raw.unpack1(fmt_raw)
+                     end
+            unpack_result_to_vm(result)
+          rescue ::ArgumentError => e
+            raise FrozoneException.make(:ArgumentError, e.message)
+          rescue ::TypeError => e
+            raise FrozoneException.make(:TypeError, e.message)
+          end
+        end
+
+        private
+
+        def unpack_result_to_vm(r)
+          case r
+          when ::Integer then IntegerObject.new(r)
+          when ::Float then FloatObject.new(r)
+          when ::String then StringObject.new(r)
+          when nil then NilObject::NIL
+          else NilObject::NIL
+          end
+        end
+
+        public
+
         # Symbol
-        def symbol_to_s(_, v) = StringObject.new(v.raw.to_s)
+        def symbol_to_s(_, v) = StringObject.new(v.raw.to_s, chilled_source: v.raw)
         def symbol_inspect(_, v) = StringObject.new(v.raw.inspect)
 
         SYMBOL_NAME_CACHE = {}
@@ -1605,7 +1977,8 @@ module Frozone
           native = NativeBlock.new(
             source_location: nil,
             parameters_override: [[:req], [:rest]],
-            is_lambda: true
+            is_lambda: true,
+            symbol_name: method_name
           ) do |ctx, args, block: nil|
             if args.empty?
               raise FrozoneException.make(:ArgumentError, "no receiver given")

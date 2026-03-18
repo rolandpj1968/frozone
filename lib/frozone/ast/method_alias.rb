@@ -31,6 +31,7 @@ module Frozone
           raise Vm::FrozoneException.make(:NameError, "undefined method '#{old_name}' for class '#{clazz_name}'")
         end
         clazz.set_method(new_name, method.alias_as(new_name))
+        Vm::Intrinsics.trigger_method_added(context, clazz, new_name)
         Vm::SymbolObject.from(new_name)
       end
 

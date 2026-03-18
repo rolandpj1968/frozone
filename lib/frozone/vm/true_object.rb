@@ -6,6 +6,7 @@ module Frozone
     class TrueObject < ObjectObject
       def initialize
         super(Core::TRUE_CLASS_CLASS)
+        @frozen_object = true
       end
 
       # Global singleton object

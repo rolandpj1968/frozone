@@ -1,6 +1,38 @@
 require 'mspec'
 require 'mspec/runner/formatters/dotted'
 
+# Add max_long/min_long helpers not present in mspec 1.9.1 (platform C long limits)
+class Object
+  def max_long
+    require 'rbconfig/sizeof'
+    2 ** (RbConfig::SIZEOF['long'] * 8 - 1) - 1
+  rescue LoadError
+    2**63 - 1  # default to 64-bit
+  end
+
+  def min_long
+    require 'rbconfig/sizeof'
+    -(2 ** (RbConfig::SIZEOF['long'] * 8 - 1))
+  rescue LoadError
+    -(2**63)
+  end
+end
+
+# Patch PlatformGuard to support :pointer_size option (mspec 1.9.1 only handles :wordsize)
+class PlatformGuard
+  alias_method :match_without_pointer_size?, :match?
+
+  def match?
+    result = match_without_pointer_size?
+    # Handle :pointer_size option not in mspec 1.9.1
+    if @options.key?(:pointer_size)
+      pointer_bits = 8 * 1.size  # Size of a Ruby Integer pointer (8 on 64-bit)
+      result &&= (@options[:pointer_size] == pointer_bits)
+    end
+    result
+  end
+end
+
 # Patch SpecPositiveOperatorMatcher / SpecNegativeOperatorMatcher to support
 # the `s.should.empty?` / `s.should.include?(x)` chained style used by newer
 # ruby-spec tests.  mspec 1.9.1 omits method_missing, so we add it here.
@@ -10,6 +42,15 @@ class SpecPositiveOperatorMatcher
   def !=(expected)
     if @actual == expected
       SpecExpectation.fail_with("Expected #{@actual.inspect}", "not to equal #{expected.inspect}")
+    end
+  end
+
+  # mspec 1.9.1 lacks ===, so `x.should === y` falls through to Object#=== → ==
+  # which triggers SpecPositiveOperatorMatcher#== (checks @actual == expected).
+  # Define === to correctly check @actual === expected.
+  def ===(expected)
+    unless @actual === expected
+      SpecExpectation.fail_with("Expected #{@actual.inspect}", "to equal #{expected.inspect}")
     end
   end
 

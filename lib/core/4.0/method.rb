@@ -16,14 +16,15 @@ class Method
   alias eql? ==
 
   def dup = Intrinsics.bound_method_dup(self)
-  def clone(freeze: nil) = Intrinsics.bound_method_dup(self)
+
+  def clone(freeze: nil)
+    frozen_val = freeze.nil? ? frozen? : freeze
+    Intrinsics.bound_method_dup(self, frozen_val)
+  end
 
   def hash = Intrinsics.bound_method_hash(self)
 
-  def to_proc
-    m = self
-    lambda { |*args, **kwargs, &blk| m.call(*args, **kwargs, &blk) }
-  end
+  def to_proc = Intrinsics.bound_method_to_proc(self)
 
   def <<(other)
     raise TypeError, "callable object is expected" unless other.respond_to?(:call)
@@ -49,14 +50,37 @@ class Method
   end
 
   def to_s
-    recv_class = receiver.class
+    recv = receiver
     own = owner
     param_sig = _param_sig
     loc = source_location ? " #{source_location[0]}:#{source_location[1]}" : ""
-    if own && own != recv_class
-      "#<Method: #{recv_class.name}(#{own.name})##{name}(#{param_sig})#{loc}>"
+
+    # Singleton method defined directly on receiver's singleton class
+    # Detect: own is receiver's singleton class
+    if !recv.is_a?(Class) && recv.respond_to?(:singleton_class) &&
+       (own_sc = recv.singleton_class rescue nil) && own_sc.equal?(own)
+      recv_str = recv.inspect.sub(/0x[0-9a-f]+/, '0x%x' % recv.__id__)
+      return "#<Method: #{recv_str}.#{name}(#{param_sig})#{loc}>"
+    end
+
+    recv_is_class = recv.is_a?(Class)
+    if recv_is_class
+      # Receiver IS a class: use #<Class:Name> format
+      recv_name = recv.name ? "#<Class:#{recv.name}>" : recv.inspect
+      own_name = own ? (own.name || own.inspect) : nil
+      if own_name && own != recv
+        "#<Method: #{recv_name}(#{own_name})##{name}(#{param_sig})#{loc}>"
+      else
+        "#<Method: #{recv_name}##{name}(#{param_sig})#{loc}>"
+      end
     else
-      "#<Method: #{recv_class.name}##{name}(#{param_sig})#{loc}>"
+      recv_class = recv.class
+      own_name = own ? (own.name || own.inspect) : nil
+      if own_name && own != recv_class
+        "#<Method: #{recv_class.name}(#{own_name})##{name}(#{param_sig})#{loc}>"
+      else
+        "#<Method: #{recv_class.name}##{name}(#{param_sig})#{loc}>"
+      end
     end
   end
 

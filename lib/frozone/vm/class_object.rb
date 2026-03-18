@@ -11,6 +11,18 @@ module Frozone
       def initialize(name, namespace, superclass)
         super(name, namespace, defined?(Core::CLASS_CLASS) ? Core::CLASS_CLASS : nil)
         @superclass = superclass
+        @subclasses = []
+        # Register this class as a direct subclass of superclass (after bootstrap)
+        superclass.register_subclass(self) if superclass.is_a?(ClassObject)
+      end
+
+      def register_subclass(klass)
+        @subclasses ||= []
+        @subclasses << klass unless @subclasses.include?(klass)
+      end
+
+      def direct_subclasses
+        (@subclasses ||= []).reject { |sc| sc.is_singleton_class }
       end
 
       def to_s = "class(#{@name})"
@@ -28,6 +40,7 @@ module Frozone
         sc.singleton_of = new_owner
         sc.methods_table.replace(original_sc.methods_table.dup)
         sc.constants_table.replace(original_sc.constants_table.dup)
+        original_sc.modules.reverse_each { |mod| sc.add_module(mod) }
         sc
       end
 
@@ -51,6 +64,13 @@ module Frozone
         end
       end
 
+      def ancestors_include?(mod)
+        return true if equal?(mod)
+        @prepends&.any? { |m| m.ancestors_include?(mod) } ||
+          @modules&.any? { |m| m.ancestors_include?(mod) } ||
+          (@superclass&.ancestors_include?(mod) || false)
+      end
+
       def ancestors_list
         result = []
         @prepends&.each { |mod| result.concat(mod.ancestors_list) }
@@ -68,6 +88,20 @@ module Frozone
           m = ancestor.get_method(name)
           return nil if m == ModuleObject::UNDEF_SENTINEL
           return m unless m.nil?
+        end
+        nil
+      end
+
+      def lookup_method_owner_after(name, origin)
+        ancs = ancestors_list
+        idx = ancs.index { |a| a.equal?(origin) }
+        return nil if idx.nil?
+        ancs[(idx + 1)..].each do |ancestor|
+          m = ancestor.get_method(name)
+          return nil if m == ModuleObject::UNDEF_SENTINEL
+          if m
+            return m.is_a?(Method) && m.original_owner ? m.original_owner : ancestor
+          end
         end
         nil
       end

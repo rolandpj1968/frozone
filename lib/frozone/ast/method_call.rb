@@ -47,7 +47,18 @@ module Frozone
           splatted = splat_node.evaluate(context)
           next if splatted.is_a?(Vm::NilObject)  # **nil expands to {} in Ruby 3.4+
           unless splatted.is_a?(Vm::HashObject)
-            raise Vm::FrozoneException.make(:TypeError, "no implicit conversion of #{splatted.class_object.name} into Hash")
+            # Try to_hash coercion (Ruby semantics for **)
+            if splatted.is_a?(Vm::ObjectObject)
+              begin
+                splatted = splatted.dispatch(context, :to_hash, [], {})
+              rescue Vm::FrozoneException
+                splatted = nil
+              end
+            end
+            unless splatted.is_a?(Vm::HashObject)
+              type_name = splatted&.class_object&.name || 'Object'
+              raise Vm::FrozoneException.make(:TypeError, "no implicit conversion of #{type_name} into Hash")
+            end
           end
           splatted.raw.each { |k, v| kw_args[k.is_a?(Vm::SymbolObject) ? k.raw : k] = v }
         end

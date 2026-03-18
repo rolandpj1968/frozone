@@ -326,8 +326,8 @@ module Frozone
 
         def array_pack(_, v, fmt_obj)
           fmt = fmt_obj.raw.to_s
-          ints = v.raw.map { |e| e.is_a?(IntegerObject) ? e.raw : e.raw.to_i }
-          StringObject.new(ints.pack(fmt))
+          raws = v.raw.map(&:raw)
+          StringObject.new(raws.pack(fmt))
         end
 
         def array_dup(_, v) = ArrayObject.new(v.raw.dup, v.class_object)

@@ -114,6 +114,7 @@ class Encoding
   GB2312      = new("GB2312")
   TIS_620     = new("TIS-620")
   UTF_7       = new("UTF-7")
+  CESU_8      = new("CESU-8")
 
   CompatibilityError        = Class.new(EncodingError)
   ConverterNotFoundError    = Class.new(EncodingError)
@@ -129,7 +130,9 @@ class Encoding
          Big5, Big5_HKSCS, Big5_UAO,
          IBM437, IBM775, IBM852, IBM855, IBM857, IBM860, IBM861, IBM862,
          IBM863, IBM864, IBM865, IBM866, IBM869,
-         KOI8_R, KOI8_U, CP65001].freeze
+         KOI8_R, KOI8_U, CP65001,
+         Emacs_Mule, ISO_2022_JP, ISO_2022_JP_2, ISO_2022_JP_KDDI,
+         UTF8_MAC, EUCJP_MS, CP51932, GB18030, GBK, GB2312, TIS_620, UTF_7, CESU_8].freeze
 
   @default_external = UTF_8
   @default_internal = nil
@@ -155,7 +158,15 @@ class Encoding
     return default_internal || UTF_8 if name == "internal"
     name_s = name.to_s
     ALL.find { |e| e.name.casecmp(name_s) == 0 } ||
-      raise(ArgumentError, "unknown encoding name - #{name_s}")
+      begin
+        canonical = aliases[name_s] || aliases.find { |k, _| k.casecmp(name_s) == 0 }&.last
+        if canonical
+          ALL.find { |e| e.name.casecmp(canonical) == 0 } ||
+            raise(ArgumentError, "unknown encoding name - #{name_s}")
+        else
+          raise(ArgumentError, "unknown encoding name - #{name_s}")
+        end
+      end
   end
 
   def self.list = ALL
@@ -163,4 +174,18 @@ class Encoding
     "ASCII" => "US-ASCII", "ANSI_X3.4-1968" => "US-ASCII",
     "BINARY" => "ASCII-8BIT", "CP65001" => "UTF-8"
   }
+
+  class Converter
+    def self.new(from_enc, to_enc, *_opts)
+      from = from_enc.is_a?(Encoding) ? from_enc.name : from_enc.to_s
+      to   = to_enc.is_a?(Encoding) ? to_enc.name : to_enc.to_s
+      begin
+        # Try creating the converter via MRI to see if it's possible
+        Intrinsics.encoding_converter_check(from, to)
+      rescue Encoding::ConverterNotFoundError => e
+        raise Encoding::ConverterNotFoundError, e.message
+      end
+      super()
+    end
+  end
 end

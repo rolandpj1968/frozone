@@ -16,6 +16,20 @@ module Frozone
         @name = name
       end
 
+      def mark_name_permanent!
+        @name_permanent = true
+      end
+
+      def name_permanent
+        @name_permanent
+      end
+
+      def clear_name!
+        @name = nil
+        @name_permanent = false
+        @cached_name_str = nil
+      end
+
       def full_name
         parts = []
         current = self
@@ -47,6 +61,8 @@ module Frozone
         @namespace = namespace
         @methods_table = {}
         @constants_table = {}
+        @constants_locations = {}
+        @autoloads = {}
         @class_variables = {}
         @current_visibility = :public
       end
@@ -64,8 +80,9 @@ module Frozone
 
       def prepend_module(mod)
         @prepends ||= []
-        return if ancestors_include?(mod)
-        @prepends << mod
+        # Only skip if already in our own direct prepend chain (not superclass or included modules)
+        return if @prepends.any? { |m| m.ancestors_include?(mod) }
+        @prepends.unshift(mod)
       end
 
       def add_module(mod)
@@ -109,7 +126,9 @@ module Frozone
           owner = mod.lookup_method_owner(name)
           return owner if owner
         end
-        return self if get_method(name) && get_method(name) != UNDEF_SENTINEL
+        m = get_method(name)
+        return m.original_owner if m.is_a?(VisibilityOverride)
+        return self if m && m != UNDEF_SENTINEL
 
         @modules&.each do |mod|
           owner = mod.lookup_method_owner(name)
@@ -121,8 +140,47 @@ module Frozone
       # Sentinel for undef_method - stops method lookup
       UNDEF_SENTINEL = :__undef__
 
+      # Visibility override for inherited methods: tracks new visibility without copying method body.
+      # When invoked, dynamically looks up the current implementation from the original owner.
+      class VisibilityOverride
+        attr_accessor :visibility
+        attr_reader :original_owner, :method_name
+
+        def initialize(vis, original_owner, method_name)
+          @visibility = vis
+          @original_owner = original_owner
+          @method_name = method_name
+        end
+
+        def invoke(context, receiver, args, kw_args, block)
+          m = @original_owner.lookup_method(@method_name)
+          raise "BUG: VisibilityOverride: method #{@method_name} not found in #{@original_owner}" unless m && m != UNDEF_SENTINEL
+          m.invoke(context, receiver, args, kw_args, block)
+        end
+
+        def uses_block
+          m = @original_owner.lookup_method(@method_name)
+          m&.uses_block || false
+        end
+
+        def source_location
+          m = @original_owner.lookup_method(@method_name)
+          m&.source_location
+        end
+
+        def dup_with_visibility(new_vis, **_kwargs)
+          VisibilityOverride.new(new_vis, @original_owner, @method_name)
+        end
+
+        def alias_as(_new_name)
+          VisibilityOverride.new(@visibility, @original_owner, @method_name)
+        end
+
+        def original_owner = @original_owner
+      end
+
       def set_method(name, method)
-        raise "method must be a Method or DefinedMethod" unless method.is_a?(Method) || method.is_a?(DefinedMethod)
+        raise "method must be a Method, DefinedMethod, or VisibilityOverride" unless method.is_a?(Method) || method.is_a?(DefinedMethod) || method.is_a?(VisibilityOverride)
         if frozen_object?
           type_name = is_a?(ClassObject) ? "Class" : "Module"
           raise FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{inspect_for_frozen}", receiver: self)
@@ -144,6 +202,11 @@ module Frozone
       def undef_method(name)
         raise "name must be a Symbol" unless name.is_a?(Symbol)
         @methods_table[name] = UNDEF_SENTINEL
+      end
+
+      def remove_method(name)
+        raise "name must be a Symbol" unless name.is_a?(Symbol)
+        @methods_table.delete(name)
       end
 
       def get_method(name)
@@ -190,16 +253,68 @@ module Frozone
         value
       end
 
-      def set_constant(name, value)
+      def set_constant(name, value, source_location: nil)
         raise "name must be a Symbol" unless name.is_a?(Symbol)
 
         @constants_table[name] = value
+        if source_location
+          @constants_locations[name] = source_location
+        else
+          @constants_locations.delete(name)
+        end
       end
 
       def get_constant(name)
         raise "name must be a Symbol" unless name.is_a?(Symbol)
 
         @constants_table[name]
+      end
+
+      def get_constant_location(name)
+        @constants_locations[name]
+      end
+
+      def set_autoload(name, path, source_location: nil)
+        @autoloads[name] = path
+        @autoload_locations ||= {}
+        if source_location
+          @autoload_locations[name] = source_location
+        else
+          @autoload_locations.delete(name)
+        end
+      end
+
+      def get_autoload(name)
+        # Only return if constant not yet defined
+        @autoloads[name] unless @constants_table.key?(name)
+      end
+
+      def get_autoload_location(name)
+        @autoload_locations&.[](name)
+      end
+
+      def remove_autoload(name)
+        @autoloads.delete(name)
+        @autoload_locations&.delete(name)
+      end
+
+      def lookup_autoload(name, inherit: true)
+        path = get_autoload(name)
+        return path if path
+        return nil unless inherit
+        prepends.each do |m|
+          path = m.lookup_autoload(name, inherit: true)
+          return path if path
+        end
+        modules.each do |m|
+          path = m.lookup_autoload(name, inherit: true)
+          return path if path
+        end
+        if is_a?(ClassObject) && superclass
+          path = superclass.lookup_autoload(name, inherit: true)
+          return path if path
+        end
+        nil
       end
 
       def mark_constant_private(name)
@@ -213,10 +328,14 @@ module Frozone
         @private_constants&.key?(name) || false
       end
 
-      # Lookup constant in this module and its included modules.
+      # Lookup constant in this module and its included/prepended modules.
       # Returns [value, owner_module] where owner_module is the module that defines the constant.
       # Returns [nil, nil] if not found.
       def lookup_constant_with_owner(name, stop_at_object: false)
+        @prepends&.each do |mod|
+          val, owner = mod.lookup_constant_with_owner(name)
+          return [val, owner] unless val.nil?
+        end
         val = get_constant(name)
         return [val, self] unless val.nil?
         @modules&.each do |mod|
@@ -229,6 +348,20 @@ module Frozone
       # Lookup constant in this module and its included modules.
       def lookup_constant(name)
         lookup_constant_with_owner(name).first
+      end
+
+      def self.lookup_autoload_for_const(name, scopes)
+        lex_scopes = (!scopes.empty? && scopes[0].equal?(Core::OBJECT_CLASS)) ? scopes[1..] : scopes
+        lex_scopes.reverse_each do |class_or_module|
+          path = class_or_module.get_autoload(name)
+          return path if path
+        end
+        lex_scopes.reverse_each do |class_or_module|
+          path = class_or_module.lookup_autoload(name, inherit: true)
+          return path if path
+        end
+        path = Core::OBJECT_CLASS.lookup_autoload(name, inherit: true) if defined?(Core::OBJECT_CLASS) && Core::OBJECT_CLASS
+        path
       end
 
       def self.lookup_constant(name, scopes)

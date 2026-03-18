@@ -19,7 +19,7 @@ module Kernel
   def proc   = Intrinsics.kernel_proc(self)
   def lambda = Intrinsics.kernel_lambda(self)
 
-  def eval(code, binding = nil, file = nil, _line = nil) = Intrinsics.kernel_eval(self, code, binding, file)
+  def eval(code, binding = nil, file = nil, line = nil) = Intrinsics.kernel_eval(self, code, binding, file, line)
   def binding = Intrinsics.kernel_binding(self)
 
   def sprintf(fmt, *args) = fmt % args
@@ -46,17 +46,18 @@ module Kernel
   def `(cmd) = Intrinsics.kernel_backtick(self, cmd)
   def block_given? = Intrinsics.kernel_block_given(self)
   def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name, include_all)
+  def instance_of?(klass) = Intrinsics.object_class(self).equal?(klass)
 
   def suppress_warning; yield; end
   def suppress_keyword_warning; yield; end
 
   def caller(start = 1, length = nil) = Intrinsics.kernel_caller(self, start, length)
-  def caller_locations(start = 1, length = nil) = []
-  def __method__ = nil  # stub
+  def caller_locations(start = 1, length = nil) = Intrinsics.kernel_caller_locations(self, start, length)
+  def __method__ = Intrinsics.kernel__method__(self)
   def local_variables = Intrinsics.kernel_local_variables(self)
 
-  def to_enum(method_name = :each, *args, &size_block)
-    Enumerator._from_method(self, method_name, args, size_block)
+  def to_enum(method_name = :each, *args, **kwargs, &size_block)
+    Enumerator._from_method(self, method_name, args, size_block, kwargs)
   end
 
   alias enum_for to_enum
@@ -67,11 +68,28 @@ module Kernel
     end
     self
   end
-  private :initialize_copy
+
+  def initialize_dup(other)
+    initialize_copy(other)
+    self
+  end
+
+  def initialize_clone(other, freeze: nil)
+    initialize_copy(other)
+    self
+  end
+
+  private :initialize_copy, :initialize_dup, :initialize_clone
 
   # Make these available as module functions: private instance methods AND public Kernel.method calls
-  def autoload(name, path) = nil
-  def autoload?(name) = nil
+  def autoload(name, path)
+    # At the top level, autoload registers on Object (same as Module#autoload called on Object)
+    Object.autoload(name, path)
+  end
+
+  def autoload?(name)
+    Object.autoload?(name)
+  end
 
   module_function :puts, :print, :warn, :p, :raise, :fail, :require, :require_relative, :load, :__dir__,
                   :proc, :lambda, :eval, :binding, :sprintf, :format,

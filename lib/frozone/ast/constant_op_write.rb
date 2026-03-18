@@ -1,4 +1,5 @@
 require_relative 'node'
+require_relative 'constant_write'
 require_relative '../vm/module_object'
 require_relative '../vm/frozone_exception'
 require_relative '../vm/globals'
@@ -18,7 +19,10 @@ module Frozone
           return current
         end
         val = @value_node.evaluate(context)
-        context.scopes.last.set_constant(@name, val)
+        scope = context.scopes.last
+        scope.set_constant(@name, val)
+        ConstantWrite.maybe_set_name(val, @name, scope)
+        Vm.trigger_const_added(context, scope, @name)
         val
       end
     end
@@ -57,6 +61,8 @@ module Frozone
         end
         val = @value_node.evaluate(context)
         parent.set_constant(@name, val)
+        ConstantWrite.maybe_set_name(val, @name, parent)
+        Vm.trigger_const_added(context, parent, @name)
         val
       end
     end

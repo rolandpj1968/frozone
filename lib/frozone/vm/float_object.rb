@@ -9,6 +9,7 @@ module Frozone
       def initialize(value)
         super(Core::OBJECT_CLASS.get_constant(:Float))
         @raw = value
+        @frozen_object = true
       end
 
       def truthy? = true

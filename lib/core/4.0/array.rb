@@ -236,16 +236,40 @@ class Array
 
   def hash
     ongoing = (Fiber[:__array_hash__] ||= [])
-    return 0 if ongoing.include?(__id__)
+    if ongoing.include?(__id__)
+      outer_tag = Fiber[:__hash_hash_outer__]
+      throw outer_tag, 0 if outer_tag
+      return 0
+    end
     ongoing << __id__
+    outer_tag = Fiber[:__hash_hash_outer__]
     begin
-      reduce(0) { |acc, e|
-        h = e.hash
-        h = h.to_int unless h.is_a?(Integer)
-        acc * 31 + h
-      }
+      if outer_tag.nil?
+        my_tag = __id__
+        acc = 0
+        each do |e|
+          e_hash = catch(my_tag) do
+            Fiber[:__hash_hash_outer__] = my_tag
+            e.hash
+          end
+          Fiber[:__hash_hash_outer__] = nil
+          h = e_hash.is_a?(Integer) ? e_hash : e_hash.to_int
+          acc = acc * 31 + h
+        end
+        acc
+      else
+        acc = 0
+        each do |e|
+          Fiber[:__hash_hash_outer__] = outer_tag
+          h = e.hash
+          h = h.to_int unless h.is_a?(Integer)
+          acc = acc * 31 + h
+        end
+        acc
+      end
     ensure
-      ongoing.pop
+      ongoing.delete(__id__)
+      Fiber[:__hash_hash_outer__] = outer_tag
     end
   end
 

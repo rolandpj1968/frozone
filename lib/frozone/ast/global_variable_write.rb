@@ -50,7 +50,10 @@ module Frozone
           Vm::GLOBALS[:"$/"] = value
           Vm::GLOBALS[:"$-0"] = value
         elsif @name == :"$\\" || @name == :"$," || @name == :"$;"
-          unless value.is_a?(Vm::StringObject) || value.is_a?(Vm::NilObject) || string_subclass?(value)
+          # $; also accepts Regexp (used as split separator)
+          valid = value.is_a?(Vm::StringObject) || value.is_a?(Vm::NilObject) || string_subclass?(value) ||
+                  (@name == :"$;" && value.is_a?(Vm::RegexpObject))
+          unless valid
             gname = @name == :"$\\" ? '$\\' : @name.to_s
             raise Vm::FrozoneException.make(:TypeError, "value of #{gname} must be String")
           end

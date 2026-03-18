@@ -11,15 +11,17 @@ class Object < BasicObject
   def ===(other) = self == other
 
   def nil? = false
+  def <=>(other) = equal?(other) ? 0 : nil
 
   def class = Intrinsics.object_class(self)
 
   def is_a?(klass) = Intrinsics.object_is_a(self, klass)
   alias kind_of? is_a?
 
-  def instance_of?(klass) = self.class == klass
-
-  def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name, include_all)
+  def respond_to?(name, include_all = false)
+    name = name.to_sym if name.is_a?(String)
+    Intrinsics.object_respond_to(self, name, include_all)
+  end
 
   def instance_variable_get(name) = Intrinsics.object_ivar_get(self, name)
   def instance_variable_set(name, value) = Intrinsics.object_ivar_set(self, name, value)
@@ -50,16 +52,20 @@ class Object < BasicObject
 
   def methods(include_super = true) = Intrinsics.object_methods(self, include_super)
   def public_methods(include_super = true) = Intrinsics.object_public_methods(self, include_super)
-  def private_methods(include_super = true) = []
-  def protected_methods(include_super = true) = []
+  def private_methods(include_super = true) = Intrinsics.object_private_methods(self, include_super)
+  def protected_methods(include_super = true) = Intrinsics.object_protected_methods(self, include_super)
   def singleton_methods(include_super = true) = Intrinsics.object_singleton_methods(self, include_super)
   def singleton_class = Intrinsics.object_singleton_class(self)
 
-  def define_singleton_method(name, &block)
-    singleton_class.define_method(name, &block)
+  def define_singleton_method(name, callable = :__unset__, &block)
+    if callable.equal?(:__unset__)
+      singleton_class.define_method(name, &block)
+    else
+      singleton_class.define_method(name, callable)
+    end
   end
 
-  def to_s = "#<#{self.class.name}:0x#{__id__.to_s(16)}>"
+  def to_s = "#<#{self.class}:0x#{__id__.to_s(16)}>"
   def inspect = to_s
   def pretty_inspect = inspect
 
@@ -84,26 +90,44 @@ class UnboundMethod
   def source_location = Intrinsics.unbound_method_source_location(self)
   def bind(receiver)  = Intrinsics.unbound_method_bind(self, receiver)
   def bind_call(receiver, *args, **kwargs, &block) = bind(receiver).call(*args, **kwargs, &block)
+
+  def ==(other)
+    return false unless other.is_a?(UnboundMethod)
+    Intrinsics.unbound_method_eq(self, other)
+  end
+
+  def inspect
+    own = owner
+    own_name = own ? (own.name || own.inspect) : nil
+    loc = source_location ? " #{source_location[0]}:#{source_location[1]}" : ""
+    "#<UnboundMethod: #{own_name}##{name}#{loc}>"
+  end
+
+  alias to_s inspect
 end
 
 module Warning
   KNOWN_CATEGORIES = %i[deprecated experimental performance strict_unused_block unused_block].freeze
 
-  @categories = { deprecated: false, experimental: true, performance: false,
-                  strict_unused_block: false, unused_block: false }
+  # Use parallel arrays instead of a Hash to avoid Symbol#hash ordering issues
+  # (object.rb loads before symbol.rb, so Hash uses __id__ as hash function).
+  @cat_keys = [:deprecated, :experimental, :performance, :strict_unused_block, :unused_block]
+  @cat_vals = [true, true, false, false, false]
 
   extend self
 
   def self.[](category)
     raise TypeError, "wrong argument type #{category.class} (expected Symbol)" unless category.is_a?(Symbol)
-    raise ArgumentError, "unknown category: #{category}" unless KNOWN_CATEGORIES.include?(category)
-    @categories[category]
+    idx = @cat_keys.index { |k| k == category }
+    raise ArgumentError, "unknown category: #{category}" unless idx
+    @cat_vals[idx]
   end
 
   def self.[]=(category, value)
     raise TypeError, "wrong argument type #{category.class} (expected Symbol)" unless category.is_a?(Symbol)
-    raise ArgumentError, "unknown category: #{category}" unless KNOWN_CATEGORIES.include?(category)
-    @categories[category] = value ? true : false
+    idx = @cat_keys.index { |k| k == category }
+    raise ArgumentError, "unknown category: #{category}" unless idx
+    @cat_vals[idx] = value ? true : false
   end
 
   def self.categories = KNOWN_CATEGORIES

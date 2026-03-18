@@ -138,6 +138,11 @@ module Frozone
           type_name = is_a?(ModuleObject) ? (is_a?(ClassObject) ? "Class" : "Module") : (@class_object&.name&.to_s || "Object")
           raise FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{inspect_for_error}", receiver: self)
         end
+        if is_a?(StringObject) && chilled?
+          ctx = Fiber[:context]
+          Frozone::Vm.emit_warning(ctx, chilled_warning) if ctx
+          unchilled!
+        end
         @instance_variables_hash[name] = value
       end
 

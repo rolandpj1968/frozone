@@ -77,7 +77,15 @@ class Integer
       raise ZeroDivisionError, "divided by 0" if self == 0 && v < 0
       return Intrinsics.integer__pow_(self, v)
     end
-    return Intrinsics.integer__pow_(self, v) if v.is_a?(Float)
+    if v.is_a?(Float)
+      # Negative base with fractional exponent returns Complex
+      if self < 0 && v != v.floor
+        r = (-self).to_f ** v
+        theta = Math::PI * v
+        return Complex(r * Math.cos(theta), r * Math.sin(theta))
+      end
+      return Intrinsics.integer__pow_(self, v)
+    end
     raise ZeroDivisionError, "divided by 0" if self == 0 && v.respond_to?(:negative?) && v.negative?
     _coerce_op(v, :**)
   end
@@ -111,6 +119,7 @@ class Integer
 
   def hash = Intrinsics.integer_hash(self)
   def eql?(v) = Intrinsics.integer_eql(self, v)
+  def equal?(v) = self == v
 
   def times
     unless block_given?
@@ -150,7 +159,34 @@ class Integer
     i = self; while i >= n; yield i; i -= 1; end; self
   end
 
-  def chr(enc = nil) = Intrinsics.integer_chr(self, enc)
+  def chr(enc = nil)
+    resolved = if enc.nil? && self > 255
+      di = Encoding.default_internal
+      return Intrinsics.integer_chr(self, nil) if di.nil?
+      di
+    else
+      enc
+    end
+    # CESU-8: BMP same as UTF-8; supplementary via surrogate pairs
+    if resolved.is_a?(Encoding) && resolved.name == "CESU-8"
+      raise RangeError, "#{self} out of char range" if self < 0 || self > 0x10FFFF
+      if self < 0x10000
+        return self.chr(Encoding::UTF_8)
+      else
+        u_prime = self - 0x10000
+        hi = 0xD800 + (u_prime >> 10)
+        lo = 0xDC00 + (u_prime & 0x3FF)
+        bytes = [
+          0xED, 0xA0 | ((hi >> 6) & 0x0F), 0x80 | (hi & 0x3F),
+          0xED, 0xB0 | ((lo >> 6) & 0x0F), 0x80 | (lo & 0x3F)
+        ]
+        s = bytes.map { |b| b.chr(Encoding::ASCII_8BIT) }.join
+        Intrinsics.string_force_encoding(s, resolved)
+      end
+    else
+      Intrinsics.integer_chr(self, resolved)
+    end
+  end
   def ord = self
   def even? = self % 2 == 0
   def odd?  = self % 2 != 0
@@ -231,21 +267,20 @@ class Integer
     end
   end
 
-  def fdiv(n)
-    if n.is_a?(Integer) || n.is_a?(Float)
-      self.to_f / n.to_f
-    elsif n.respond_to?(:coerce)
-      a, b = n.send(:coerce, self)
-      a.fdiv(b)
-    else
-      raise TypeError, "#{n.class} can't be coerced into Integer"
-    end
-  end
+  def fdiv(n) = Intrinsics.integer_fdiv(self, n)
 
   def remainder(n)
     raise TypeError, "#{n.class} can't be coerced into Integer" unless n.is_a?(Integer) || n.is_a?(Float) || n.respond_to?(:coerce)
     raise ZeroDivisionError, "divided by 0" if n == 0
-    self - n * (self.to_f / n.to_f).truncate
+    if n.is_a?(Integer)
+      q, r = divmod(n)
+      r != 0 && (self < 0) != (n < 0) ? r - n : r
+    elsif n.is_a?(Float)
+      self.to_f.remainder(n)
+    else
+      a, b = n.coerce(self)
+      a.remainder(b)
+    end
   end
 
   def gcd(n)
@@ -277,15 +312,7 @@ class Integer
 
   def pow(n, m = :__undefined__)
     if m.equal?(:__undefined__)
-      if n.is_a?(Integer)
-        raise ZeroDivisionError, "divided by 0" if self == 0 && n < 0
-        Intrinsics.integer__pow_(self, n)
-      elsif n.is_a?(Float)
-        Intrinsics.integer__pow_(self, n)
-      else
-        raise ZeroDivisionError, "divided by 0" if self == 0 && n.respond_to?(:negative?) && n.negative?
-        _coerce_op(n, :**)
-      end
+      self ** n
     else
       raise TypeError, "2nd argument not allowed unless all arguments are integers" unless n.is_a?(Integer) && m.is_a?(Integer)
       raise RangeError, "2nd argument not allowed unless all arguments are integers" if n < 0
@@ -471,8 +498,13 @@ class Integer
     return 0 if n == 0
     sqrt_f = Math.sqrt(n.to_f)
     x = sqrt_f.infinite? ? 2 ** ((n.bit_length + 1) / 2) : sqrt_f.floor.to_i
-    x -= 1 while x * x > n
-    x += 1 while (x + 1) * (x + 1) <= n
+    # Newton's method for large integers (converges quadratically)
+    loop do
+      x1 = (x + n / x) / 2
+      break if x1 >= x
+      x = x1
+    end
+    x -= 1 if x * x > n
     x
   end
 end

@@ -7,6 +7,8 @@ module Frozone
         @symbol_obj = symbol_obj
       end
 
+      def symbol_name = @symbol_obj.raw
+
       def invoke(context, args, block: nil, **_kwargs)
         receiver = args[0]
         rest = args[1..]

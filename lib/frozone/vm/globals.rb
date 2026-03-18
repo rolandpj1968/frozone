@@ -19,5 +19,15 @@ module Frozone
     rescue StandardError
       # Suppress any errors during warning emission
     end
+
+    # Trigger Module#const_added callback on scope when a constant named +name+ is added.
+    def self.trigger_const_added(context, scope, name)
+      return unless scope.is_a?(ModuleObject)
+      scope.dispatch(context, :const_added, [SymbolObject.from(name)], {}, nil, private_ok: true)
+    rescue FrozoneException
+      # ignore errors (e.g. NoMethodError if const_added is not defined or raises)
+    rescue StandardError
+      # ignore MRI-level errors too
+    end
   end
 end

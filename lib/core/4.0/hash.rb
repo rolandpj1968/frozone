@@ -168,14 +168,49 @@ class Hash
           v_s2 = v_s.to_s
           v_s = v_s2.is_a?(String) ? v_s2 : "#<#{v_s.class.name}:0x#{v_s.__id__.to_s(16)}>"
         end
+        # Non-ASCII-compatible encodings (e.g. UTF-16BE) cannot be concatenated with
+        # ASCII/UTF-8 strings. MRI escapes non-ASCII code points as \uXXXX in this case.
+        unless v_s.encoding.ascii_compatible?
+          v_s = v_s.encode('UTF-8').chars.map { |c|
+            c.ord > 127 ? "\\u#{c.ord.to_s(16).rjust(4, '0')}" : c
+          }.join
+        end
         if k.is_a?(Symbol)
           name = k.to_s
-          # Use bare-word syntax only for simple identifiers (letters/digits/underscore,
-          # optional ?/! suffix). Everything else (operators, setters, etc.) needs quoting.
-          if name =~ /\A[a-zA-Z_\u0080-\uFFFF][a-zA-Z0-9_\u0080-\uFFFF]*[?!]?\z/
-            pairs << "#{name}: #{v_s}"
+          ext_enc = Encoding.default_external
+          # Check if non-ASCII chars in the name are representable in the default external encoding.
+          # ASCII-only names are always representable.
+          needs_escape = !name.ascii_only? && begin
+            name.encode(ext_enc.name)
+            false
+          rescue
+            true
+          end
+          if needs_escape
+            # Encode to UTF-8 to get codepoints, then escape non-ASCII as \uXXXX
+            utf8_name = name.encode('UTF-8') rescue name
+            escaped = utf8_name.chars.map do |c|
+              if c.ord > 127
+                "\\u#{c.ord.to_s(16).rjust(4, '0')}"
+              elsif c == '"'
+                '\\"'
+              elsif c == '\\'
+                '\\\\'
+              else
+                c
+              end
+            end.join
+            pairs << "\"#{escaped}\": #{v_s}"
           else
-            pairs << "#{name.inspect}: #{v_s}"
+            # Encode to UTF-8 for regex compatibility (e.g. Windows-31J name vs UTF-8 regex)
+            name_for_check = name.ascii_only? ? name : (name.encode('UTF-8') rescue name)
+            # Use bare-word syntax only for simple identifiers (letters/digits/underscore,
+            # optional ?/! suffix). Everything else (operators, setters, etc.) needs quoting.
+            if name_for_check =~ /\A[a-zA-Z_\u0080-\uFFFF][a-zA-Z0-9_\u0080-\uFFFF]*[?!]?\z/
+              pairs << "#{name}: #{v_s}"
+            else
+              pairs << "#{name.inspect}: #{v_s}"
+            end
           end
         else
           k_s = k.inspect
@@ -619,14 +654,37 @@ class Hash
 
   def hash
     ongoing = (Fiber[:__hash_hash__] ||= [])
-    return 0 if ongoing.include?(__id__)
+    if ongoing.include?(__id__)
+      outer_tag = Fiber[:__hash_hash_outer__]
+      throw outer_tag, 0 if outer_tag
+      return 0
+    end
     ongoing << __id__
+    outer_tag = Fiber[:__hash_hash_outer__]
     begin
-      acc = size.hash
-      each { |k, v| acc = acc ^ (k.hash * 31 + v.hash) }
-      acc
+      if outer_tag.nil?
+        my_tag = __id__
+        acc = size.hash
+        each do |k, v|
+          v_hash = catch(my_tag) do
+            Fiber[:__hash_hash_outer__] = my_tag
+            v.hash
+          end
+          Fiber[:__hash_hash_outer__] = nil
+          acc ^= (k.hash * 31 + v_hash)
+        end
+        acc
+      else
+        acc = size.hash
+        each do |k, v|
+          Fiber[:__hash_hash_outer__] = outer_tag
+          acc ^= (k.hash * 31 + v.hash)
+        end
+        acc
+      end
     ensure
-      ongoing.pop
+      ongoing.delete(__id__)
+      Fiber[:__hash_hash_outer__] = outer_tag
     end
   end
 

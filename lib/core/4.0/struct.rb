@@ -47,7 +47,8 @@ class Struct
       end
 
       def self.members       = @members || superclass.members
-      def self.keyword_init? = @keyword_init
+      def self.[](*args, **kwargs, &blk) = new(*args, **kwargs, &blk)
+      def self.keyword_init? = @keyword_init ? true : @keyword_init
 
       class_exec(self, &block) if block
     end
@@ -99,7 +100,16 @@ class Struct
   def to_h(&block)
     h = {}
     members.each { |m| h[m] = @struct_values&.fetch(m, nil) }
-    block ? h.map(&block).to_h : h
+    return h unless block
+    result = {}
+    h.each do |k, v|
+      pair = block.call(k, v)
+      pair = pair.to_ary if !pair.is_a?(Array) && pair.respond_to?(:to_ary)
+      raise TypeError, "wrong element type #{pair.class} (expected Array)" unless pair.is_a?(Array)
+      raise ArgumentError, "element has wrong array length (expected 2, was #{pair.length})" unless pair.length == 2
+      result[pair[0]] = pair[1]
+    end
+    result
   end
 
   def deconstruct_keys(keys)
@@ -143,10 +153,12 @@ class Struct
       raise IndexError, "offset #{name_or_idx} too small for struct(size:#{mems.size})" if idx < 0
       raise IndexError, "offset #{name_or_idx} too large for struct(size:#{mems.size})" if idx >= mems.size
       @struct_values&.fetch(mems[idx], nil)
-    else
+    elsif name_or_idx.is_a?(Symbol) || name_or_idx.is_a?(String)
       name = name_or_idx.to_sym
       raise NameError, "no member '#{name_or_idx}' in struct" unless mems.include?(name)
       @struct_values&.fetch(name, nil)
+    else
+      raise TypeError, "no implicit conversion of #{name_or_idx.class} into Integer"
     end
   end
 
@@ -158,23 +170,25 @@ class Struct
       raise IndexError, "offset #{name_or_idx} too small for struct(size:#{mems.size})" if idx < 0
       raise IndexError, "offset #{name_or_idx} too large for struct(size:#{mems.size})" if idx >= mems.size
       (@struct_values ||= {})[mems[idx]] = val
-    else
+    elsif name_or_idx.is_a?(Symbol) || name_or_idx.is_a?(String)
       name = name_or_idx.to_sym
       raise NameError, "no member '#{name_or_idx}' in struct" unless mems.include?(name)
       (@struct_values ||= {})[name] = val
+    else
+      raise TypeError, "no implicit conversion of #{name_or_idx.class} into Integer"
     end
     val
   end
 
   def each(&block)
-    return to_enum(:each) unless block
+    return to_enum(:each) { size } unless block
     to_a.each(&block)
     self
   end
 
   def each_pair(&block)
-    return to_enum(:each_pair) unless block
-    members.each { |m| block.call(m, @struct_values&.fetch(m, nil)) }
+    return to_enum(:each_pair) { size } unless block
+    members.each { |m| block.call([m, @struct_values&.fetch(m, nil)]) }
     self
   end
 
@@ -183,23 +197,33 @@ class Struct
     result = []
     indices.each do |idx|
       if idx.is_a?(Range)
-        r = idx.to_a
-        r.each do |i|
-          raise RangeError, "#{idx} out of range" if i < 0 && (mems.size + i) < 0
-          next if i >= mems.size
+        b = idx.begin
+        e = idx.end
+        # Clamp beginless start to 0
+        start = b.nil? ? 0 : b
+        # Clamp endless end to struct size - 1 (fill no nils for endless)
+        stop = e.nil? ? mems.size - 1 : (idx.exclude_end? ? e - 1 : e)
+        (start..stop).each do |i|
           j = i < 0 ? mems.size + i : i
-          result << @struct_values&.fetch(mems[j], nil)
+          raise RangeError, "#{idx} out of range" if j < 0
+          result << (j < mems.size ? @struct_values&.fetch(mems[j], nil) : nil)
         end
-      else
+      elsif idx.is_a?(Integer)
         result << self[idx]
+      else
+        raise TypeError, "no implicit conversion of #{idx.class} into Integer"
       end
     end
     result
   end
 
   def dig(key, *rest)
-    val = self[key]
-    return val if rest.empty?
+    val = begin
+      self[key]
+    rescue NameError, TypeError
+      return nil
+    end
+    return val if rest.empty? || val.nil?
     raise TypeError, "#{val.class} does not have #dig method" unless val.respond_to?(:dig)
     val.dig(*rest)
   end
@@ -244,12 +268,19 @@ class Struct
   end
 
   def inspect
-    name = self.class.name
+    # Use intrinsic name to bypass any user-overridden #name method.
+    # Treat as anonymous if the name contains anonymous namespace components.
+    raw_name = Intrinsics.module_name(self.class)
+    name = raw_name && !raw_name.include?("#<") ? raw_name : nil
     pairs = members.map { |m| "#{m}=#{(@struct_values&.fetch(m, nil)).inspect}" }.join(', ')
     name ? "#<struct #{name} #{pairs}>" : "#<struct #{pairs}>"
   end
 
   alias to_s inspect
+
+  def instance_variables
+    super.reject { |v| v == :@struct_values }
+  end
 
   def freeze
     @struct_values&.each_value(&:freeze) rescue nil

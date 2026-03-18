@@ -11,7 +11,7 @@ module Frozone
       attr_reader :name, :scopes
       attr_reader :required_params, :optional_params, :rest_param, :post_params
       attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
-      attr_accessor :visibility, :nested_def_scope
+      attr_accessor :visibility, :nested_def_scope, :original_owner
 
       attr_reader :uses_block, :source_location, :body
       attr_accessor :ruby2_keywords
@@ -202,6 +202,10 @@ module Frozone
           if @block_param
             proc_obj = if block.is_a?(ProcObject)
                          block  # already a ProcObject — don't double-wrap
+                       elsif block.is_a?(BoundMethodObject)
+                         ProcObject.new(block, lambda: true)
+                       elsif block.is_a?(NativeBlock) && block.is_lambda
+                         ProcObject.new(block, lambda: true)
                        elsif block && !block.is_a?(NilObject)
                          ProcObject.new(block)
                        else
@@ -242,12 +246,16 @@ module Frozone
       def to_s = "method(#{@scopes.map(&:to_s)}, :#{@name}, #{@required_params} -> #{@body})"
 
       def alias_as(name)
-        Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
+        m = Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
+        m.original_owner = @original_owner
+        m.visibility = @visibility
+        m
       end
 
-      def dup_with_visibility(vis)
+      def dup_with_visibility(vis, original_owner: nil)
         m = Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
         m.visibility = vis
+        m.original_owner = original_owner || @original_owner
         m
       end
 
@@ -277,14 +285,17 @@ module Frozone
         @scopes = defining_class ? [defining_class] : []
       end
 
-      def invoke(context, receiver, args, kwargs, block = nil)
+      def invoke(context, receiver, args, kwargs, block = nil, from_super: false)
         if @ruby2_keywords && !kwargs.empty?
           hash_val = HashObject.new(kwargs.transform_keys { |k| k.is_a?(Symbol) ? SymbolObject.from(k) : k })
           hash_val.ruby2_keywords = true
           args = args + [hash_val]
           kwargs = {}
         end
-        @block_obj.invoke(context, args, kw_args: kwargs, receiver: receiver, block: block, current_method: self, as_method: true)
+        # Use the block's def_scope (from its definition context) so that `def` inside
+        # a define_method block defines in the correct class (not the call-site class).
+        block_def_scope = @block_obj.respond_to?(:enclosing_frame) ? @block_obj.enclosing_frame&.def_scope : nil
+        @block_obj.invoke(context, args, kw_args: kwargs, receiver: receiver, block: block, current_method: self, as_method: true, def_scope: block_def_scope)
       rescue Ast::ReturnException => e
         # Absorb return from a proc used as a method body (define_method semantics).
         # Return with nil or dead method_frame exits the define_method-defined method.

@@ -3,12 +3,13 @@ require_relative '../ast'
 module Frozone
   module Vm
     class Parser
-      def initialize(text, dump_ast = false, filepath: nil, outer_locals: nil, encoding: nil)
+      def initialize(text, dump_ast = false, filepath: nil, outer_locals: nil, encoding: nil, line: nil)
         @text = text
         @dump_ast = dump_ast
         @filepath = filepath
         @outer_locals = outer_locals
         @encoding = encoding
+        @line = line
       end
 
       def ast(raise_syntax_errors: false)
@@ -16,6 +17,7 @@ module Frozone
         parse_opts = @filepath ? { filepath: @filepath } : {}
         parse_opts[:scopes] = [@outer_locals] if @outer_locals&.any?
         parse_opts[:encoding] = @encoding if @encoding
+        parse_opts[:line] = @line if @line
         result = Prism.parse(@text, **parse_opts)
 
         if raise_syntax_errors && result.errors.any?
@@ -397,7 +399,13 @@ module Frozone
         when Prism::StringNode
           s = prism_node.unescaped
           s = s.dup.force_encoding("UTF-8") if prism_node.respond_to?(:forced_utf8_encoding?) && prism_node.forced_utf8_encoding?
-          Ast::StringLiteral.from(s)
+          if prism_node.frozen?
+            Ast::StringLiteral.frozen_from(s)
+          elsif prism_node.mutable?
+            Ast::StringLiteral.mutable_from(s)
+          else
+            Ast::StringLiteral.from(s)  # no magic comment → chilled
+          end
 
         when Prism::SymbolNode
           Ast::SymbolLiteral.from(prism_node.unescaped)
@@ -514,7 +522,12 @@ module Frozone
               raise "Unexpected interpolated string part type #{part.class}"
             end
           end
-          Ast::InterpolatedString.new(parts, @source_encoding)
+          # Determine chilled status from magic comment flags
+          # mutable? (frozen_string_literal: false) → not chilled; frozen? → frozen; else → chilled (no magic)
+          # Only static (all-StringNode) interpolations can be chilled; dynamic ones are always mutable
+          is_static = prism_node.parts.all? { |p| p.is_a?(Prism::StringNode) }
+          chilled = is_static && !prism_node.mutable? && !prism_node.frozen?
+          Ast::InterpolatedString.new(parts, @source_encoding, chilled: chilled)
 
         when Prism::ElseNode
           transform(prism_node.statements)
@@ -565,13 +578,19 @@ module Frozone
           Ast::ConstantRead.new(prism_node.name)
 
         when Prism::ConstantWriteNode
-          Ast::ConstantWrite.new(prism_node.name, transform(prism_node.value))
+          src_loc = @filepath ? [@filepath, prism_node.location.start_line] : nil
+          Ast::ConstantWrite.new(prism_node.name, transform(prism_node.value), source_location: src_loc)
 
         when Prism::CallNode
           # __dir__ — bake directory at parse time (like __FILE__), not runtime file stack
           if prism_node.name == :__dir__ && prism_node.receiver.nil? && prism_node.arguments.nil?
             dir = @filepath ? File.dirname(File.expand_path(@filepath)) : nil
             Ast::StringLiteral.from(dir || Dir.pwd)
+          # "literal".freeze — mirrors YARV OPT_STR_FREEZE: returns same frozen object each time,
+          # and registers it in the dedup table (matches MRI 4.0 fstring behavior for literals)
+          elsif prism_node.name == :freeze && prism_node.arguments.nil? &&
+                prism_node.receiver.is_a?(Prism::StringNode)
+            Ast::StringLiteral.frozen_from(prism_node.receiver.unescaped)
           # TODO - only when parsing core files
           elsif prism_node.receiver.is_a?(Prism::ConstantReadNode) && prism_node.receiver.name.equal?(:Intrinsics)
             arg_pnodes = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments
@@ -663,7 +682,8 @@ module Frozone
             raise "unexpected module name type: #{prism_node.constant_path.class}"
           end
           body_ast = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
-          Ast::ModuleDef.new(prism_node.name, prism_node.locals, body_ast, namespace_node: namespace_node)
+          src_loc = @filepath ? [@filepath, prism_node.location.start_line] : nil
+          Ast::ModuleDef.new(prism_node.name, prism_node.locals, body_ast, namespace_node: namespace_node, source_location: src_loc)
 
         when Prism::ClassNode
           # Prism seems a bit weird - it successfully parses class defns where the class name can be an arbitrary expression
@@ -683,7 +703,8 @@ module Frozone
           end
           superclass_node = prism_node.superclass.nil? ? nil : transform(prism_node.superclass)
           body_ast = prism_node.body.nil? ? Ast::NilLiteral::NIL : transform(prism_node.body)
-          Ast::ClassDef.new(prism_node.name, prism_node.locals, superclass_node, body_ast, namespace_node: namespace_node)
+          src_loc = @filepath ? [@filepath, prism_node.location.start_line] : nil
+          Ast::ClassDef.new(prism_node.name, prism_node.locals, superclass_node, body_ast, namespace_node: namespace_node, source_location: src_loc)
 
         when Prism::SingletonClassNode
           expression_node = transform(prism_node.expression)
@@ -973,7 +994,8 @@ module Frozone
 
         when Prism::ConstantPathWriteNode
           parent_node = prism_node.target.parent.nil? ? Ast::RootNamespaceNode::INSTANCE : transform(prism_node.target.parent)
-          Ast::ConstantPathWrite.new(parent_node, prism_node.target.child.name, transform(prism_node.value))
+          src_loc = @filepath ? [@filepath, prism_node.location.start_line] : nil
+          Ast::ConstantPathWrite.new(parent_node, prism_node.target.child.name, transform(prism_node.value), source_location: src_loc)
 
         when Prism::ConstantPathOrWriteNode
           if prism_node.target.parent.nil?
