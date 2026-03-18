@@ -12,6 +12,7 @@ module Frozone
       attr_reader :required_params, :optional_params, :rest_param, :post_params
       attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
       attr_accessor :visibility, :nested_def_scope, :original_owner
+      attr_accessor :active_refinements  # refinements active at method definition site
 
       attr_reader :uses_block, :source_location, :body
 
@@ -182,6 +183,8 @@ module Frozone
         new_frame.incoming_call_site = context&.call_site
         # def inside a method body goes to the method's defining scope, not the call-site scope
         new_frame.def_scope = @nested_def_scope || @scopes.last
+        # Refinements active at definition site are active during invocation
+        new_frame.active_refinements = @active_refinements if @active_refinements
 
         # **nil parameter: reject any keyword arguments
         if @kw_rest_param == :__no_kwargs__ && !kw_args.empty?
@@ -257,6 +260,7 @@ module Frozone
         m = Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
         m.original_owner = @original_owner
         m.visibility = @visibility
+        m.active_refinements = @active_refinements
         m.instance_variable_set(:@ruby2_keywords_holder, @ruby2_keywords_holder)
         m
       end
@@ -265,11 +269,14 @@ module Frozone
         m = Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
         m.visibility = vis
         m.original_owner = original_owner || @original_owner
+        m.active_refinements = @active_refinements
         m
       end
 
       def bound_copy(name, new_scope)
-        Method.new([new_scope], name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
+        m = Method.new([new_scope], name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
+        m.active_refinements = @active_refinements
+        m
       end
 
       # TODO - thread-safety

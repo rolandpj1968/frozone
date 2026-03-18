@@ -164,7 +164,12 @@ class Object
     $VERBOSE = saved
   end
 
-  def complain(complaint = nil, verbose: nil)
+  # Accept both `complain(pattern, verbose: true)` (keyword) and
+  # `complain(pattern, {verbose: true})` (positional hash, as used by newer ruby-spec).
+  def complain(complaint = nil, opts = nil, verbose: nil)
+    if opts.is_a?(Hash)
+      verbose = opts[:verbose] if opts.key?(:verbose)
+    end
     ComplainMatcher.new(complaint, verbose: verbose)
   end
 
