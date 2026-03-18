@@ -434,10 +434,14 @@ module Frozone
         end
 
         # Build a FrozoneException from raise args without actually raising it.
+        NO_ARG_SENTINEL = SymbolObject.from(:__raise_no_arg__)
+
         def build_frozone_exception(context, args)
           begin
             args_spread = args.is_a?(ArrayObject) ? args.raw : Array(args)
-            kernel_raise(context, NilObject::NIL, *args_spread)
+            # Pass sentinel for empty args so kernel_raise treats it as bare re-raise
+            first_arg = args_spread.empty? ? NO_ARG_SENTINEL : args_spread[0]
+            kernel_raise(context, NilObject::NIL, first_arg, *args_spread[1..])
             FrozoneException.make(:RuntimeError, "")  # fallback
           rescue FrozoneException => e
             e
@@ -455,7 +459,9 @@ module Frozone
             cause_arg
           end
 
-          if msg.is_a?(NilObject)
+          # Distinguish bare `raise` (no args → :__raise_no_arg__ sentinel) from `raise(nil)` (explicit nil → TypeError)
+          no_arg_sentinel = msg.is_a?(SymbolObject) && msg.raw == :__raise_no_arg__
+          if no_arg_sentinel
             # bare `raise` re-raises current exception or raises RuntimeError with empty message
             if cause
               set_exc_backtrace(cause, context) unless cause.get_ivar(:@backtrace).is_a?(ArrayObject)

@@ -3,11 +3,11 @@ module Kernel
   def print(*args) = Intrinsics.kernel_print(self, args)
   def warn(*args) = Intrinsics.kernel_warn(self, args)
   def p(*args) = Intrinsics.kernel_p(self, args)
-  def raise(msg = nil, message = nil, backtrace = nil, cause: :__raise_no_cause__)
+  def raise(msg = :__raise_no_arg__, message = nil, backtrace = nil, cause: :__raise_no_cause__)
     Intrinsics.kernel_raise(self, msg, message, backtrace, cause)
   end
 
-  def fail(msg = nil, message = nil, backtrace = nil, cause: :__raise_no_cause__)
+  def fail(msg = :__raise_no_arg__, message = nil, backtrace = nil, cause: :__raise_no_cause__)
     Intrinsics.kernel_raise(self, msg, message, backtrace, cause)
   end
 
