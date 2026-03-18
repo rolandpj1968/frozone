@@ -864,8 +864,19 @@ module Frozone
           end
         end
 
+        def send_method_name(name)
+          if name.is_a?(SymbolObject)
+            name.raw
+          elsif name.is_a?(StringObject)
+            name.raw.to_sym
+          else
+            klass = name.respond_to?(:class_object) ? (name.class_object&.name || name.class) : name.class
+            raise FrozoneException.make(:TypeError, "#{klass} is not a symbol nor a string")
+          end
+        end
+
         def basic_object___send__(context, receiver, name, args, kwargs, block_arg = nil)
-          method_name = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
+          method_name = send_method_name(name)
           raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
           block_obj = block_arg.is_a?(ProcObject) ? block_arg.block_object : block_arg
           block_obj = nil if block_obj.is_a?(NilObject)
@@ -873,7 +884,7 @@ module Frozone
         end
 
         def object_public_send(context, receiver, name, args, kwargs, block_arg = nil)
-          method_name = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
+          method_name = send_method_name(name)
           raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
           block_obj = block_arg.is_a?(ProcObject) ? block_arg.block_object : block_arg
           block_obj = nil if block_obj.is_a?(NilObject)
@@ -983,22 +994,79 @@ module Frozone
         end
 
         def object_instance_eval_string(context, receiver, code_obj, file_obj = NilObject::NIL, line_obj = NilObject::NIL)
-          return NilObject::NIL unless code_obj.is_a?(StringObject)
-          code = code_obj.raw
-          parser = Parser.new(code)
+          # Coerce code to String via to_str
+          code = if code_obj.is_a?(StringObject)
+            code_obj.raw
+          else
+            klass = code_obj.respond_to?(:class_object) ? (code_obj.class_object&.name || code_obj.class) : code_obj.class
+            begin
+              result = code_obj.dispatch(context, :to_str, [], {})
+              raise FrozoneException.make(:TypeError, "can't convert #{klass} into String") unless result.is_a?(StringObject)
+              result.raw
+            rescue FrozoneException => e
+              raise unless e.frozone_class_name == :NoMethodError
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
+            end
+          end
+          # Coerce filename via to_str
+          fname = if file_obj.is_a?(StringObject)
+            file_obj.raw
+          elsif !file_obj.is_a?(NilObject)
+            klass = file_obj.respond_to?(:class_object) ? (file_obj.class_object&.name || file_obj.class) : file_obj.class
+            begin
+              result = file_obj.dispatch(context, :to_str, [], {})
+              raise FrozoneException.make(:TypeError, "can't convert #{klass} into String") unless result.is_a?(StringObject)
+              result.raw
+            rescue FrozoneException => e
+              raise unless e.frozone_class_name == :NoMethodError
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
+            end
+          end
+          # Coerce line number via to_int
+          lnum = if line_obj.is_a?(IntegerObject)
+            line_obj.raw
+          elsif !line_obj.is_a?(NilObject)
+            klass = line_obj.respond_to?(:class_object) ? (line_obj.class_object&.name || line_obj.class) : line_obj.class
+            begin
+              result = line_obj.dispatch(context, :to_int, [], {})
+              raise FrozoneException.make(:TypeError, "can't convert #{klass} into Integer") unless result.is_a?(IntegerObject)
+              result.raw
+            rescue FrozoneException => e
+              raise unless e.frozone_class_name == :NoMethodError
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into Integer")
+            end
+          else
+            1
+          end
+          # Default filepath: "(eval at caller:line)"
+          # The current frame is instance_eval's own method frame; the caller is one level up.
+          caller_frame = context.frames[-2] || context.frame
+          eval_filepath = fname || (context.call_site ? "(eval at #{context.call_site})" : "(eval)")
+          # Get caller's locals so eval code can access/modify them
+          caller_local_names = caller_frame.local_names
+          parser = Parser.new(code, filepath: eval_filepath, line: lnum, outer_locals: caller_local_names)
           ast = parser.ast
-          # Evaluate with self = receiver (the object), using its class as scope
-          new_frame = Frame.new(receiver, parser.top_level_locals, context.frame.scopes)
+          # Seed the eval frame with the caller's current local variable values so that
+          # reads in the eval see the caller's values, and after the eval we write them back.
+          eval_locals = parser.top_level_locals
+          new_frame = Frame.new(receiver, eval_locals, caller_frame.scopes)
+          caller_local_names.each do |name|
+            next unless eval_locals.include?(name)
+            v = caller_frame.get_local(name)
+            new_frame.set_local(name, v) if v
+          end
+          new_frame.parent_frame = caller_frame
           # `def` inside instance_eval always targets receiver's singleton class
           new_frame.def_scope = receiver.singleton_class
-          if file_obj.is_a?(StringObject)
-            fname = file_obj.raw
-            lnum = line_obj.is_a?(IntegerObject) ? line_obj.raw : 1
-            new_frame.incoming_call_site = "#{fname}:#{lnum}"
-          end
           context.push_frame(new_frame)
           begin
-            ast.evaluate(context)
+            result = ast.evaluate(context)
+            # Write back any caller locals that were modified in the eval frame
+            caller_local_names.each do |name|
+              next unless eval_locals.include?(name)
+              caller_frame.set_local(name, new_frame.get_local(name))
+            end
+            result
           ensure
             context.pop_frame
           end
