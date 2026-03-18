@@ -1931,12 +1931,22 @@ module Frozone
           mod.ancestors_list.reverse_each do |ancestor|
             next if ancestor.equal?(mod)
             if ancestor.is_a?(ModuleObject) && !ancestor.is_a?(ClassObject)
-              anc_refs = ancestor.instance_variable_get(:@__refinements__)
-              refinements.merge!(anc_refs) if anc_refs
+              anc_refs_obj = ancestor.get_ivar(:@__refinements__)
+              next if anc_refs_obj.is_a?(NilObject) || !anc_refs_obj.is_a?(HashObject)
+              # @__refinements__ is a Frozone HashObject with Integer keys (object_id) => ModuleObject values
+              anc_refs_obj.raw.each do |k, v|
+                key = k.is_a?(IntegerObject) ? k.raw : k
+                refinements[key] = v if v.is_a?(ModuleObject)
+              end
             end
           end
-          own_refs = mod.instance_variable_get(:@__refinements__)
-          refinements.merge!(own_refs) if own_refs
+          own_refs_obj = mod.get_ivar(:@__refinements__)
+          unless own_refs_obj.is_a?(NilObject) || !own_refs_obj.is_a?(HashObject)
+              own_refs_obj.raw.each do |k, v|
+              key = k.is_a?(IntegerObject) ? k.raw : k
+              refinements[key] = v if v.is_a?(ModuleObject)
+            end
+          end
           refinements
         end
 
