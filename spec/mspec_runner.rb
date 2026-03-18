@@ -189,9 +189,27 @@ class Object
     end
   end
 
-  # raise_consistent_error — mspec 1.9.1 lacks this; delegate to raise_error.
+  # raise_consistent_error — mspec 1.9.1 lacks this.
+  # Ruby 4 changed some TypeError/ArgumentError messages from "into" to "to"
+  # with added context (e.g., "can't convert Foo to Bar (Foo#to_x gives Baz)").
+  # Accept both old ("into") and new ("to") format by relaxing the pattern.
   def raise_consistent_error(exception = Exception, message = nil, &block)
-    raise_error(exception, message, &block)
+    # Normalise: convert any Regexp or String pattern so "into" also matches "to"
+    flexible = if message.is_a?(Regexp)
+      src = message.source
+      # Replace literal "into" with a group matching both old and new formats
+      # e.g. /can't convert Foo into Bar/ → matches both "into Bar" and "to Bar (...)"
+      new_src = src.gsub(/(?<![a-z])into(?![a-z])/, '(?:into|to)')
+      Regexp.new(new_src, message.options)
+    elsif message.is_a?(String)
+      # Convert exact string match into a regex that accepts both formats
+      escaped = Regexp.escape(message)
+      new_src = escaped.gsub(/(?<![a-z])into(?![a-z])/, '(?:into|to)')
+      Regexp.new(new_src)
+    else
+      message
+    end
+    raise_error(exception, flexible, &block)
   end
 
   # Override ruby_cmd to use single-quoting so shell does not expand $variables
