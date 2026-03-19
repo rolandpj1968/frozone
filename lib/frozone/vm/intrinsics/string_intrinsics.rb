@@ -14,7 +14,7 @@ module Frozone
         def string_crypt(_, v, salt) = StringObject.new(v.raw.crypt(salt.raw))
         def string_hash(_, v) = IntegerObject.new(v.raw.hash)
         def string_eql(_, v1, v2) = n2f_bool(v2.is_a?(StringObject) && v1.raw == v2.raw)
-        def string_ord(_, v)               = IntegerObject.new(v.raw.ord)
+        def string_ord(_, v) = IntegerObject.new(v.raw.ord)
 
         def string_spaceship(context, v1, v2)
           if v2.is_a?(StringObject)
@@ -462,7 +462,7 @@ module Frozone
 
         public
 
-        def string_succ(_, v)          = StringObject.new(v.raw.succ)
+        def string_succ(_, v) = StringObject.new(v.raw.succ)
         def string_b(_, v) = StringObject.new(v.raw.b)
         def string_ascii_only(_, v) = n2f_bool(v.raw.ascii_only?)
 
@@ -1252,9 +1252,9 @@ module Frozone
         public
 
         def string_chilled_q(_, v) = n2f_bool(v.chilled?)
-        def string_frozen(_, v)           = n2f_bool(v.frozen_object?)
-        def string_to_sym(_, v)           = SymbolObject.from(v.raw.to_sym)
-        def string_to_f(_, v)             = FloatObject.new(v.raw.to_f)
+        def string_frozen(_, v) = n2f_bool(v.frozen_object?)
+        def string_to_sym(_, v) = SymbolObject.from(v.raw.to_sym)
+        def string_to_f(_, v) = FloatObject.new(v.raw.to_f)
 
         def string_force_encoding(context, v, enc)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v.raw.inspect}") if v.frozen_object?

@@ -2,8 +2,8 @@ class Process
   CLOCK_REALTIME  = 0
   CLOCK_MONOTONIC = 1
 
-  def self.pid   = Intrinsics.process_pid
-  def self.euid  = Intrinsics.process_euid
+  def self.pid = Intrinsics.process_pid
+  def self.euid = Intrinsics.process_euid
   def self.exit(code = true)  = Kernel.exit(code)
   def self.exit!(code = false) = Intrinsics.kernel_exit(self, code)
 
@@ -27,16 +27,16 @@ class Process
   end
   class Status
     def exitstatus = Intrinsics.process_status_exitstatus(self)
-    def success?   = exitstatus == 0
-    def pid        = Intrinsics.process_status_pid(self)
-    def termsig    = Intrinsics.process_status_termsig(self)
-    def signaled?  = !termsig.nil?
-    def stopped?   = false
-    def stopsig    = nil
-    def coredump?  = false
-    def exited?    = !signaled?
-    def to_i       = exitstatus.to_i
-    def to_s       = "#<Process::Status: pid #{pid} exit #{exitstatus}>"
-    def inspect    = to_s
+    def success? = exitstatus == 0
+    def pid = Intrinsics.process_status_pid(self)
+    def termsig = Intrinsics.process_status_termsig(self)
+    def signaled? = !termsig.nil?
+    def stopped? = false
+    def stopsig = nil
+    def coredump? = false
+    def exited? = !signaled?
+    def to_i = exitstatus.to_i
+    def to_s = "#<Process::Status: pid #{pid} exit #{exitstatus}>"
+    def inspect = to_s
   end
 end

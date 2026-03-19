@@ -1,9 +1,9 @@
 class Mutex
-  def lock          = (@locked = true; self)
-  def unlock        = (@locked = false; self)
-  def locked?       = @locked
-  def owned?        = @locked
-  def try_lock      = !@locked && (@locked = true)
+  def lock = (@locked = true; self)
+  def unlock = (@locked = false; self)
+  def locked? = @locked
+  def owned? = @locked
+  def try_lock = !@locked && (@locked = true)
 
   def initialize
     @locked = false

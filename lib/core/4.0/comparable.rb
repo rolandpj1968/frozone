@@ -1,7 +1,7 @@
 module Comparable
-  def <(other)  = __cmp__(other) <  0
+  def <(other) = __cmp__(other) <  0
   def <=(other) = __cmp__(other) <= 0
-  def >(other)  = __cmp__(other) >  0
+  def >(other) = __cmp__(other) >  0
   def >=(other) = __cmp__(other) >= 0
   def between?(min, max) = min <= self && self <= max
 

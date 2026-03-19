@@ -2,26 +2,26 @@ class Numeric
   include Comparable
 
   def integer? = false
-  def real?    = true
-  def zero?     = self == 0
+  def real? = true
+  def zero? = self == 0
   def positive? = self > 0
   def negative? = self < 0
-  def finite?   = true
+  def finite? = true
   def infinite? = nil
   def abs2 = self * self
   def +@() = self
-  def -@()  = 0 - self
+  def -@() = 0 - self
   def real = self
-  def conj      = self
+  def conj = self
   alias conjugate conj
-  def imag      = 0
+  def imag = 0
   alias imaginary imag
-  def polar       = [abs, arg]
-  def rect        = [self, 0]
+  def polar = [abs, arg]
+  def rect = [self, 0]
   alias rectangular rect
   def to_int = to_i
   def to_c = Complex(self, 0)
-  def i    = Complex(0, self)
+  def i  = Complex(0, self)
   def dup = self
 
   def singleton_method_added(id)

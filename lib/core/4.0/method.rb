@@ -3,13 +3,13 @@ class Method
   alias [] call
   alias === call
   alias yield call
-  def arity           = Intrinsics.bound_method_arity(self)
-  def parameters      = Intrinsics.bound_method_parameters(self)
-  def name            = Intrinsics.bound_method_name(self)
-  def original_name   = Intrinsics.bound_method_original_name(self)
-  def owner           = Intrinsics.bound_method_owner(self)
-  def receiver        = Intrinsics.bound_method_receiver(self)
-  def unbind          = Intrinsics.bound_method_unbind(self)
+  def arity = Intrinsics.bound_method_arity(self)
+  def parameters = Intrinsics.bound_method_parameters(self)
+  def name = Intrinsics.bound_method_name(self)
+  def original_name = Intrinsics.bound_method_original_name(self)
+  def owner = Intrinsics.bound_method_owner(self)
+  def receiver = Intrinsics.bound_method_receiver(self)
+  def unbind = Intrinsics.bound_method_unbind(self)
   def source_location = Intrinsics.bound_method_source_location(self)
   def ==(other) = Intrinsics.bound_method_eql(self, other)
   alias eql? ==

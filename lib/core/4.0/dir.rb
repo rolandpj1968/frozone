@@ -1,15 +1,15 @@
 class Dir
   include Enumerable
 
-  def self.pwd                    = Intrinsics.dir_pwd
-  def self.getwd                  = Intrinsics.dir_pwd
+  def self.pwd = Intrinsics.dir_pwd
+  def self.getwd = Intrinsics.dir_pwd
   def self.home(user = nil)       = Intrinsics.dir_home(user)
   def self.[](pattern) = glob(pattern)
   def self.chdir(path = nil, &block) = Intrinsics.dir_chdir(path, block)
   def self.mkdir(path, mode = 0o777) = Intrinsics.dir_mkdir(path, mode)
   def self.mktmpdir(prefix = nil, &block) = Intrinsics.dir_mktmpdir(prefix, block)
   def self.delete(path) = Intrinsics.dir_rmdir(_coerce_path(path))
-  def self.rmdir(path)  = Intrinsics.dir_rmdir(_coerce_path(path))
+  def self.rmdir(path) = Intrinsics.dir_rmdir(_coerce_path(path))
   def self.unlink(path) = Intrinsics.dir_rmdir(_coerce_path(path))
   def path = @path
   def to_path = @path

@@ -46,7 +46,7 @@ class Struct
         end
       end
 
-      def self.members       = @members || superclass.members
+      def self.members = @members || superclass.members
       def self.[](*args, **kwargs, &blk) = new(*args, **kwargs, &blk)
       def self.keyword_init? = @keyword_init ? true : @keyword_init
 
@@ -60,9 +60,9 @@ class Struct
   # and call super (matching MRI semantics).
   def self.members = []
   def members = self.class.members || []
-  def to_a    = members.map { |m| @struct_values&.fetch(m, nil) }
+  def to_a = members.map { |m| @struct_values&.fetch(m, nil) }
   def values = to_a
-  def size   = members.size
+  def size = members.size
   alias length size
   def instance_variables = super.reject { |v| v == :@struct_values }
 

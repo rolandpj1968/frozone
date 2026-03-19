@@ -1,7 +1,7 @@
 class Module
   # Define visibility methods first so they can be used to mark others private
-  def public(*names)    = Intrinsics.module_set_public(self, names)
-  def private(*names)   = Intrinsics.module_set_private(self, names)
+  def public(*names) = Intrinsics.module_set_public(self, names)
+  def private(*names) = Intrinsics.module_set_private(self, names)
   def protected(*names) = Intrinsics.module_set_protected(self, names)
   def module_function(*names) = Intrinsics.module_function(self, names)
   private :public, :private, :protected, :module_function
@@ -14,8 +14,8 @@ class Module
   def prepended(other); end
   private :append_features, :prepend_features, :included, :prepended
 
-  def attr_reader(*names)  = Intrinsics.module_attr_reader(self, names)
-  def attr_writer(*names)  = Intrinsics.module_attr_writer(self, names)
+  def attr_reader(*names) = Intrinsics.module_attr_reader(self, names)
+  def attr_writer(*names) = Intrinsics.module_attr_writer(self, names)
   def attr_accessor(*names) = Intrinsics.module_attr_accessor(self, names)
   def private_constant(*names) = Intrinsics.module_private_constant(self, *names)
   def public_constant(*names) = Intrinsics.module_public_constant(self, *names)
@@ -26,12 +26,12 @@ class Module
   def alias_method(new_name, old_name) = Intrinsics.module_alias_method(self, new_name, old_name)
   def ===(other) = other.is_a?(self)
   def dup = Intrinsics.module_dup(self)
-  def name            = Intrinsics.module_name(self)
-  def inspect         = to_s
+  def name = Intrinsics.module_name(self)
+  def inspect = to_s
   def const_defined?(name, inherit = true) = Intrinsics.module_const_defined(self, name, inherit)
   def const_get(name, inherit = true) = Intrinsics.module_const_get(self, name, inherit)
   def const_set(name, value) = Intrinsics.module_const_set(self, name, value)
-  def ancestors       = Intrinsics.module_ancestors(self)
+  def ancestors = Intrinsics.module_ancestors(self)
   def included_modules = ancestors.drop(1).select { |m| m.is_a?(Module) && !m.is_a?(Class) }
   def instance_methods(include_super = true) = Intrinsics.module_instance_methods(self, include_super)
   def undefined_instance_methods = Intrinsics.module_undefined_instance_methods(self)

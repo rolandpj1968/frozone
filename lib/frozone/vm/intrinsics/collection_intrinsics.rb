@@ -383,7 +383,7 @@ module Frozone
         def range_allocate(_, _klass) = RangeObject.new(NilObject::NIL, NilObject::NIL, false, initialized: false)
         def range_initialized_q(_, range) = n2f_bool(range.is_a?(RangeObject) && range.initialized?)
         def range_begin(_, range) = range.begin_val
-        def range_end(_, range)   = range.end_val
+        def range_end(_, range) = range.end_val
         def range_exclude_end(_, range) = n2f_bool(range.exclusive?)
 
         def range_set(_, range, b, e, excl)

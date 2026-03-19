@@ -20,9 +20,9 @@ class Range
   end
   private :initialize
 
-  def begin          = Intrinsics.range_begin(self)
-  def end            = Intrinsics.range_end(self)
-  def exclude_end?   = Intrinsics.range_exclude_end(self)
+  def begin = Intrinsics.range_begin(self)
+  def end = Intrinsics.range_end(self)
+  def exclude_end? = Intrinsics.range_exclude_end(self)
 
   def each(&block)
     return to_enum(:each) { size } unless block
@@ -229,8 +229,8 @@ class Range
   def each_with_index; i = 0; each { |x| yield x, i; i += 1 }; self; end
   def map;    r = []; each { |x| r << yield(x) };      r; end
   def select; r = []; each { |x| r << x if yield(x) }; r; end
-  def any?  = (each { |x| return true  if yield(x) }; false)
-  def all?  = (each { |x| return false unless yield(x) }; true)
+  def any? = (each { |x| return true  if yield(x) }; false)
+  def all? = (each { |x| return false unless yield(x) }; true)
   def none? = (each { |x| return false if yield(x) }; true)
   def to_s
     b = self.begin; e = self.end; sep = exclude_end? ? '...' : '..'

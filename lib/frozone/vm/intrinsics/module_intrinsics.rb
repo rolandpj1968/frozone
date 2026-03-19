@@ -8,8 +8,8 @@ module Frozone
 
         def module_singleton_class_q(_, receiver) = receiver.is_a?(ClassObject) && receiver.is_singleton_class ? TrueObject::TRUE : FalseObject::FALSE
         def module_public_only_instance_methods(ctx, receiver, include_super_obj = TrueObject::TRUE) = module_instance_methods(ctx, receiver, include_super_obj, :public)
-        def module_set_public(context, receiver, names)    = module_set_visibility(context, receiver, names, :public)
-        def module_set_private(context, receiver, names)   = module_set_visibility(context, receiver, names, :private)
+        def module_set_public(context, receiver, names) = module_set_visibility(context, receiver, names, :public)
+        def module_set_private(context, receiver, names) = module_set_visibility(context, receiver, names, :private)
         def module_set_protected(context, receiver, names) = module_set_visibility(context, receiver, names, :protected)
 
         def module_ruby2_keywords(context, receiver, names_array)
@@ -1751,8 +1751,8 @@ module Frozone
         end
 
         # Top-level 'main' proxy: delegate to Object
-        def toplevel_public(context, _, names)    = module_set_visibility(context, Core::OBJECT_CLASS, names, :public)
-        def toplevel_private(context, _, names)   = module_set_visibility(context, Core::OBJECT_CLASS, names, :private)
+        def toplevel_public(context, _, names) = module_set_visibility(context, Core::OBJECT_CLASS, names, :public)
+        def toplevel_private(context, _, names) = module_set_visibility(context, Core::OBJECT_CLASS, names, :private)
         def toplevel_protected(context, _, names) = module_set_visibility(context, Core::OBJECT_CLASS, names, :protected)
         def toplevel_ruby2_keywords(context, _, names) = module_ruby2_keywords(context, Core::OBJECT_CLASS, names)
 

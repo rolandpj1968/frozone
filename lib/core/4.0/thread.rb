@@ -31,8 +31,8 @@ class Thread
   # Single-threaded: defers block until Thread.pass/join/value.
   # thread_run_block invokes with thread_boundary:true so `break` raises
   # LocalJumpError rather than propagating out.
-  def status  = @done ? false : 'sleep'
-  def alive?  = !@done
+  def status = @done ? false : 'sleep'
+  def alive? = !@done
 
   def initialize(&block)
     @block       = block
@@ -118,10 +118,10 @@ class Thread
     @fiber_vars.keys.map { |k| k.to_s.to_sym }
   end
   class Mutex
-    def lock          = (@locked = true; self)
-    def unlock        = (@locked = false; self)
-    def locked?       = @locked
-    def try_lock      = !@locked && (@locked = true)
+    def lock = (@locked = true; self)
+    def unlock = (@locked = false; self)
+    def locked? = @locked
+    def try_lock = !@locked && (@locked = true)
 
     def initialize
       @locked = false
@@ -159,10 +159,10 @@ end
 
 # Queue: thread-safe FIFO queue with blocking pop (cooperative single-threaded)
 class Queue
-  def empty?  = @data.empty?
-  def size    = @data.size
+  def empty? = @data.empty?
+  def size = @data.size
   alias length size
-  def clear   = (@data.clear; self)
+  def clear = (@data.clear; self)
   def num_waiting = 0
 
   def initialize
@@ -194,7 +194,7 @@ class Queue
 end
 
 class SizedQueue < Queue
-  def max   = @max
+  def max = @max
 
   def initialize(max)
     super()

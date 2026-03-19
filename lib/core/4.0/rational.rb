@@ -290,19 +290,19 @@ class Complex
   alias imag imaginary
   def real? = false
   def abs2 = @real * @real + @imaginary * @imaginary
-  def abs  = Math.sqrt(abs2.to_f)
+  def abs = Math.sqrt(abs2.to_f)
   alias magnitude abs
-  def rect       = [@real, @imaginary]
+  def rect = [@real, @imaginary]
   alias rectangular rect
-  def conj      = Complex(@real, -@imaginary)
+  def conj = Complex(@real, -@imaginary)
   alias conjugate conj
   def to_c = self
   def dup = self
   def clone(freeze: nil) = self
-  def integer?  = false
-  def zero?     = @real == 0 && @imaginary == 0
-  def nonzero?  = zero? ? nil : self
-  def real?     = false
+  def integer? = false
+  def zero? = @real == 0 && @imaginary == 0
+  def nonzero? = zero? ? nil : self
+  def real? = false
   def quo(other) = self / other
   def hash = [@real, @imaginary].hash
 

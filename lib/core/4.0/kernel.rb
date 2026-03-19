@@ -21,12 +21,12 @@ module Kernel
     Intrinsics.kernel_raise(self, msg, message, backtrace, cause)
   end
 
-  def require(path)          = Intrinsics.kernel_require(self, path)
+  def require(path) = Intrinsics.kernel_require(self, path)
   def require_relative(path) = Intrinsics.kernel_require_relative(self, path)
   def load(path, wrap = false) = Intrinsics.kernel_load(self, path, wrap)
-  def __dir__                = Intrinsics.kernel_dir(self)
+  def __dir__ = Intrinsics.kernel_dir(self)
 
-  def proc   = Intrinsics.kernel_proc(self)
+  def proc = Intrinsics.kernel_proc(self)
   def lambda = Intrinsics.kernel_lambda(self)
 
   def eval(code, binding = nil, file = nil, line = nil) = Intrinsics.kernel_eval(self, code, binding, file, line)
@@ -36,9 +36,9 @@ module Kernel
   def format(fmt, *args) = fmt % args
 
   def Integer(val, base = 0, exception: true) = Intrinsics.kernel_integer(self, val, base, exception)
-  def Float(val)              = Intrinsics.kernel_float(self, val)
-  def String(val)             = val.to_s
-  def Array(val)              = Intrinsics.kernel_array(self, val)
+  def Float(val) = Intrinsics.kernel_float(self, val)
+  def String(val) = val.to_s
+  def Array(val) = Intrinsics.kernel_array(self, val)
 
   def loop(&block) = Intrinsics.kernel_loop(self, block)
 

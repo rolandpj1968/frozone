@@ -18,18 +18,18 @@ class Integer
   def equal?(v) = self == v
   def ord = self
   def even? = self % 2 == 0
-  def odd?  = self % 2 != 0
+  def odd? = self % 2 != 0
   def ceil(n = 0)  = n >= 0 ? self : (self.to_f.ceil(n).to_i rescue self)
   def floor(n = 0) = n >= 0 ? self : (self.to_f.floor(n).to_i rescue self)
   def fdiv(n) = Intrinsics.integer_fdiv(self, n)
-  def ~    = Intrinsics.integer_bitnot(self)
+  def ~  = Intrinsics.integer_bitnot(self)
   def size = [(bit_length + 7) / 8, 8].max
   def bit_length = Intrinsics.integer_bit_length(self)
   def to_r = Intrinsics.integer_to_r(self)
   def to_c = Intrinsics.integer_to_c(self)
   def integer? = true
   def nonzero? = self == 0 ? nil : self
-  def numerator   = self
+  def numerator = self
   def denominator = 1
   def rationalize(eps = nil) = Rational(self, 1)
   def between?(min, max) = self >= min && self <= max

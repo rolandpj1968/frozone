@@ -22,7 +22,7 @@ class Regexp
   def hash = Intrinsics.regexp_hash(self)
   def linear_time? = Intrinsics.regexp_linear_time_q(self)
   def self.escape(str) = Intrinsics.regexp_escape(str)
-  def self.quote(str)  = Intrinsics.regexp_escape(str)
+  def self.quote(str) = Intrinsics.regexp_escape(str)
   def self.union(*patterns) = Intrinsics.regexp_union(patterns)
   def self.last_match(n = nil) = Intrinsics.regexp_last_match(n)
   def self.linear_time?(pattern, flags = nil) = Intrinsics.regexp_class_linear_time_q(pattern, flags)
@@ -66,7 +66,7 @@ class Regexp
 
   def self.new(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options, kw_opts)
   def self.compile(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options, kw_opts)
-  def self.timeout     = Intrinsics.regexp_timeout(self)
+  def self.timeout = Intrinsics.regexp_timeout(self)
   def self.timeout=(v) = Intrinsics.regexp_set_timeout(self, v)
 
   def dup
