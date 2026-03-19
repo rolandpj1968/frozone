@@ -163,9 +163,9 @@ class Dir
 
   def fileno = Intrinsics.dir_fileno(@dir)
 
+  private
+
   def _load_entries
     @entries ||= Dir.entries(@path)
   end
-
-  private :_load_entries
 end

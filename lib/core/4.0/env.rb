@@ -6,51 +6,6 @@
 class ENVClass
   include Enumerable
 
-  def self.__coerce_env_string__(val, role)
-    return val if val.is_a?(String)
-    unless val.respond_to?(:to_str)
-      raise TypeError, "no implicit conversion of #{val.class} into String"
-    end
-    result = val.to_str
-    raise TypeError, "no implicit conversion of #{result.class} into String" unless result.is_a?(String)
-    result
-  end
-
-  def self.__coerce_key(key)   = __coerce_env_string__(key, :key)
-  def self.__coerce_value(val) = __coerce_env_string__(val, :value)
-
-  def self.__validate_key(key)
-    raise Errno::EINVAL, "Invalid argument - #{key}" if key.empty?
-    raise Errno::EINVAL, "Invalid argument - #{key}" if key.include?('=')
-  end
-
-  def self.__enc(str)
-    return str if str.nil?
-    locale = Encoding.find('locale')
-    begin
-      str = str.encode(locale)
-    rescue
-      str = str.dup.force_encoding(locale)
-    end
-    internal = Encoding.default_internal
-    if internal
-      begin
-        str = str.encode(internal)
-      rescue
-        # leave as-is
-      end
-    end
-    str
-  end
-
-  # Soft-coerce val to String via to_str; returns nil on failure (no raise).
-  def self.__soft_coerce_string__(val)
-    return val if val.is_a?(String)
-    return nil unless val.respond_to?(:to_str)
-    result = val.to_str
-    result.is_a?(String) ? result : nil
-  end
-
   def to_s = "ENV"
 
   def inspect
@@ -388,6 +343,55 @@ class ENVClass
       end
     end
     result
+  end
+
+  class << self
+    private
+
+    def __coerce_env_string__(val, role)
+      return val if val.is_a?(String)
+      unless val.respond_to?(:to_str)
+        raise TypeError, "no implicit conversion of #{val.class} into String"
+      end
+      result = val.to_str
+      raise TypeError, "no implicit conversion of #{result.class} into String" unless result.is_a?(String)
+      result
+    end
+
+    def __coerce_key(key)   = __coerce_env_string__(key, :key)
+    def __coerce_value(val) = __coerce_env_string__(val, :value)
+
+    def __validate_key(key)
+      raise Errno::EINVAL, "Invalid argument - #{key}" if key.empty?
+      raise Errno::EINVAL, "Invalid argument - #{key}" if key.include?('=')
+    end
+
+    def __enc(str)
+      return str if str.nil?
+      locale = Encoding.find('locale')
+      begin
+        str = str.encode(locale)
+      rescue
+        str = str.dup.force_encoding(locale)
+      end
+      internal = Encoding.default_internal
+      if internal
+        begin
+          str = str.encode(internal)
+        rescue
+          # leave as-is
+        end
+      end
+      str
+    end
+
+    # Soft-coerce val to String via to_str; returns nil on failure (no raise).
+    def __soft_coerce_string__(val)
+      return val if val.is_a?(String)
+      return nil unless val.respond_to?(:to_str)
+      result = val.to_str
+      result.is_a?(String) ? result : nil
+    end
   end
 end
 

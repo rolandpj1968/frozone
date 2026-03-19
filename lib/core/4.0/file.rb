@@ -57,22 +57,6 @@ class File
 
   include File::Constants
 
-  # Coerce path argument: try to_path first, then to_str, then to_s for String
-  def self._coerce_path(arg)
-    return arg if arg.is_a?(String)
-    if arg.respond_to?(:to_path)
-      r = arg.to_path
-      return r if r.is_a?(String)
-      raise TypeError, "no implicit conversion of #{arg.class} into String"
-    end
-    if arg.respond_to?(:to_str)
-      r = arg.to_str
-      return r if r.is_a?(String)
-      raise TypeError, "no implicit conversion of #{arg.class} into String"
-    end
-    raise TypeError, "no implicit conversion of #{arg.class} into String"
-  end
-
   def self.extname(path)
     p = _coerce_path(path)
     base = File.basename(p)
@@ -271,6 +255,26 @@ class File
 
     def inspect
       "#<File::Stat dev=#{dev}, ino=#{ino}, mode=#{mode}, nlink=#{nlink}, uid=#{uid}, gid=#{gid}, size=#{size}, atime=#{atime}, mtime=#{mtime}, ctime=#{ctime}>"
+    end
+  end
+
+  class << self
+    private
+
+    # Coerce path argument: try to_path first, then to_str, then to_s for String
+    def _coerce_path(arg)
+      return arg if arg.is_a?(String)
+      if arg.respond_to?(:to_path)
+        r = arg.to_path
+        return r if r.is_a?(String)
+        raise TypeError, "no implicit conversion of #{arg.class} into String"
+      end
+      if arg.respond_to?(:to_str)
+        r = arg.to_str
+        return r if r.is_a?(String)
+        raise TypeError, "no implicit conversion of #{arg.class} into String"
+      end
+      raise TypeError, "no implicit conversion of #{arg.class} into String"
     end
   end
 end
