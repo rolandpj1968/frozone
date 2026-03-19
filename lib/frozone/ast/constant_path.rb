@@ -62,12 +62,30 @@ module Frozone
           # Dispatch const_missing — default raises NameError with proper name/inspect message
           return parent.dispatch(context, :const_missing, [Vm::SymbolObject.from(@name)], {}, nil, private_ok: true) if c.nil?
         end
-        # Check privacy in the defining module — raise NameError with "private constant" message
+        # Check privacy in the defining module — dispatch const_missing (gives user-defined
+        # const_missing a chance to handle it); the default raises NameError.
         if owner&.constant_private?(@name)
           owner_name = owner.respond_to?(:name) ? owner.name : nil
           label = owner_name ? "#{owner_name}::#{@name}" : @name.to_s
-          exc = Vm::FrozoneException.make(:NameError, "private constant #{label} referenced", name: @name, receiver: owner)
-          raise exc
+          begin
+            return parent.dispatch(context, :const_missing, [Vm::SymbolObject.from(@name)], {}, nil, private_ok: true)
+          rescue Vm::FrozoneException => cm_exc
+            # Re-raise with the more specific private constant message if const_missing just raised NameError
+            vm_obj = cm_exc.vm_object
+            if vm_obj.is_a?(Vm::ObjectObject)
+              klass = vm_obj.class_object
+              is_name_error = false
+              while klass
+                is_name_error = true if klass.name == :NameError
+                klass = klass.superclass
+              end
+              if is_name_error
+                exc = Vm::FrozoneException.make(:NameError, "private constant #{label} referenced", name: @name, receiver: owner)
+                raise exc
+              end
+            end
+            raise
+          end
         end
         Vm::Intrinsics.maybe_warn_deprecated_constant(context, owner, @name)
         c
