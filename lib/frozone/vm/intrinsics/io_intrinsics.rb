@@ -359,7 +359,7 @@ module Frozone
           raise FrozoneException.make(:ArgumentError, e.message)
         end
 
-        def dir_glob(context, pattern, flags = nil, base: nil, sort: nil)
+        def dir_glob(context, pattern, flags = nil, base = nil, sort = nil)
           # pattern can be a String, Array, or object with to_path
           flag_int = flags.nil? || flags.is_a?(NilObject) ? 0 : flags.raw.to_i
           base_str = base.nil? || base.is_a?(NilObject) ? nil : base.raw

@@ -7,7 +7,7 @@ class Dir
   def self.home(user = nil)       = Intrinsics.dir_home(user)
 
   def self.glob(pattern, flags = 0, base: nil, sort: true, &block)
-    results = Intrinsics.dir_glob(pattern, flags, base: base ? base : nil, sort: sort)
+    results = Intrinsics.dir_glob(pattern, flags, base, sort)
     if block
       results.each { |p| block.call(p) }
       nil
