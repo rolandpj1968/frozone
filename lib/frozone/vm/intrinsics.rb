@@ -408,6 +408,19 @@ module Frozone
           val
         end
 
+        def io_chmod(_, receiver, mode_int)
+          native = receiver.is_a?(IOObject) ? receiver.native_io : nil
+          raise FrozoneException.make(:IOError, "closed stream") unless native
+          path = native.path rescue nil
+          raise FrozoneException.make(:IOError, "not a file") unless path
+          ::File.chmod(mode_int.raw, path)
+          IntegerObject.new(0)
+        rescue Errno::ENOENT => e
+          raise FrozoneException.make(:Errno__ENOENT, e.message)
+        rescue Errno::EACCES => e
+          raise FrozoneException.make(:Errno__EACCES, e.message)
+        end
+
         def io_popen_capture(_, cmd, opts_obj = NilObject::NIL)
           # Convert opts HashObject to MRI hash
           mri_opts = {}
