@@ -188,11 +188,7 @@ class String
   end
 
   def include?(s)
-    unless s.is_a?(String)
-      raise TypeError, "no implicit conversion of #{s.class} into String" unless s.respond_to?(:to_str)
-      s = s.to_str
-      raise TypeError, "can't convert to String" unless s.is_a?(String)
-    end
+    s = __coerce_to_str__(s) unless s.is_a?(String)
     !index(s).nil?
   end
   def lstrip = sub(/\A[[:space:]\x00]+/, '')
@@ -562,11 +558,7 @@ class String
   alias next! succ!
 
   def crypt(salt)
-    unless salt.is_a?(String)
-      raise TypeError, "no implicit conversion of #{salt.class} into String" unless salt.respond_to?(:to_str)
-      salt = salt.to_str
-      raise TypeError, "can't convert to String" unless salt.is_a?(String)
-    end
+    salt = __coerce_to_str__(salt) unless salt.is_a?(String)
     raise ArgumentError, "crypt: NUL in crypt" if include?("\0") || salt.include?("\0")
     raise ArgumentError, "salt is too short (need >=2 chars)" if salt.length < 2
     String.new(Intrinsics.string_crypt(self, salt))
@@ -600,11 +592,7 @@ class String
   end
 
   def each_line(sep = $/, chomp: false, &block)
-    if sep && !sep.is_a?(String)
-      raise TypeError, "no implicit conversion of #{sep.class} into String" unless sep.respond_to?(:to_str)
-      sep = sep.to_str
-      raise TypeError, "can't convert to String" unless sep.is_a?(String)
-    end
+    sep = __coerce_to_str__(sep) if sep && !sep.is_a?(String)
     return to_enum(:each_line, sep, chomp: chomp) unless block
     raw_lines = Intrinsics.string_each_line(self, sep, nil)
     raw_lines.each do |l|
@@ -651,20 +639,12 @@ class String
   def set_encoding(enc, *) = force_encoding(enc)
 
   def unpack(fmt, offset: nil)
-    unless fmt.is_a?(String)
-      raise TypeError, "no implicit conversion of #{fmt.class} into String" unless fmt.respond_to?(:to_str)
-      fmt = fmt.to_str
-      raise TypeError, "can't convert to String" unless fmt.is_a?(String)
-    end
+    fmt = __coerce_to_str__(fmt) unless fmt.is_a?(String)
     Intrinsics.string_unpack(self, fmt, offset)
   end
 
   def unpack1(fmt, offset: nil)
-    unless fmt.is_a?(String)
-      raise TypeError, "no implicit conversion of #{fmt.class} into String" unless fmt.respond_to?(:to_str)
-      fmt = fmt.to_str
-      raise TypeError, "can't convert to String" unless fmt.is_a?(String)
-    end
+    fmt = __coerce_to_str__(fmt) unless fmt.is_a?(String)
     Intrinsics.string_unpack1(self, fmt, offset)
   end
 
@@ -829,11 +809,7 @@ class String
       me = m.end(0)
       [String.new(self[0...ms]), String.new(self[ms...me]), String.new(self[me..] || '')]
     else
-      unless sep.is_a?(String)
-        raise TypeError, "no implicit conversion of #{sep.class} into String" unless sep.respond_to?(:to_str)
-        sep = sep.to_str
-        raise TypeError, "can't convert to String" unless sep.is_a?(String)
-      end
+      sep = __coerce_to_str__(sep) unless sep.is_a?(String)
       i = index(sep)
       unless i
         enc = encoding
@@ -863,11 +839,7 @@ class String
       return [String.new(''), String.new(''), String.new(self)] unless last_pos
       [String.new(self[0...last_pos] || ''), String.new(self[last_pos, last_len] || ''), String.new(self[(last_pos + last_len)..] || '')]
     else
-      unless sep.is_a?(String)
-        raise TypeError, "no implicit conversion of #{sep.class} into String" unless sep.respond_to?(:to_str)
-        sep = sep.to_str
-        raise TypeError, "can't convert to String" unless sep.is_a?(String)
-      end
+      sep = __coerce_to_str__(sep) unless sep.is_a?(String)
       enc = encoding
       i = rindex(sep)
       unless i
@@ -949,6 +921,14 @@ class String
 
   def __check_frozen__
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+  end
+
+  # Coerce obj to String via to_str, raising TypeError for missing or bad conversion.
+  def __coerce_to_str__(obj)
+    raise TypeError, "no implicit conversion of #{obj.class} into String" unless obj.respond_to?(:to_str)
+    result = obj.to_str
+    raise TypeError, "can't convert to String" unless result.is_a?(String)
+    result
   end
 
   # Return the string's bytes as a mutable Array of integers.
@@ -1064,11 +1044,7 @@ class String
       width = width.to_int
       raise TypeError, "can't convert to Integer" unless width.is_a?(Integer)
     end
-    unless padstr.is_a?(String)
-      raise TypeError, "no implicit conversion of #{padstr.class} into String" unless padstr.respond_to?(:to_str)
-      padstr = padstr.to_str
-      raise TypeError, "can't convert to String" unless padstr.is_a?(String)
-    end
+    padstr = __coerce_to_str__(padstr) unless padstr.is_a?(String)
     raise ArgumentError, "zero width padding" if padstr.empty?
     [width, padstr]
   end
