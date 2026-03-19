@@ -254,7 +254,7 @@ module Frozone
         def kernel_rand(context, _receiver, n) = random_rand(context, nil, n)
 
         def kernel_srand(_, _receiver, seed)
-          result = seed.is_a?(NilObject) ? srand : srand(seed.raw)
+          result = srand(seed.is_a?(NilObject) ? nil : seed.raw)
           IntegerObject.new(result)
         end
 

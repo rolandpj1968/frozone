@@ -15,9 +15,7 @@ module Frozone
 
         def integer_eql(_, v1, v2) = bool_object_for(v2.is_a?(IntegerObject) && v1.raw == v2.raw)
 
-        def integer_to_s(_, v, base = NilObject::NIL)
-          base.is_a?(NilObject) ? StringObject.new(v.raw.to_s) : StringObject.new(v.raw.to_s(base.raw))
-        end
+        def integer_to_s(_, v, base = NilObject::NIL) = StringObject.new(v.raw.to_s(base.is_a?(NilObject) ? 10 : base.raw))
 
         def integer_abs(_, v) = IntegerObject.new(v.raw.abs)
 

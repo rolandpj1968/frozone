@@ -1408,7 +1408,7 @@ module Frozone
         def string_match_q(_, v, pattern, pos)
           pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
           str = v.raw
-          result = pos.is_a?(NilObject) ? pat.match?(str) : pat.match?(str, pos.raw)
+          result = pat.match?(str, pos.is_a?(NilObject) ? nil : pos.raw)
           bool_object_for(result)
         end
 
