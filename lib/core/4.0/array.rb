@@ -253,7 +253,7 @@ class Array
     return true if ongoing.any? { |a, b| a == id1 && b == id2 }
     ongoing << [id1, id2]
     begin
-      i = 0; while i < length; return false unless self[i].equal?(other[i]) || self[i] == other[i]; i += 1; end
+      i = 0; while i < length; return false unless self[i] == other[i]; i += 1; end
       true
     ensure
       ongoing.pop
