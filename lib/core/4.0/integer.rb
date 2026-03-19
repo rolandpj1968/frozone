@@ -1,25 +1,4 @@
 class Integer
-  # Call coerce even if private; propagate non-NoMethodError exceptions
-  def _coerce_op(v, op)
-    begin
-      a, b = v.send(:coerce, self)
-    rescue NoMethodError
-      raise TypeError, "#{v.class} can't be coerced into Integer"
-    end
-    a.send(op, b)
-  end
-
-  private :_coerce_op
-
-  def __coerce_and_compare__(other, op)
-    a, b = other.coerce(self)
-    a.send(op, b)
-  rescue TypeError, NoMethodError
-    raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"
-  end
-
-  private :__coerce_and_compare__
-
   def < (v)
     return Intrinsics.integer__lt_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
     __coerce_and_compare__(v, :<)
@@ -242,6 +221,7 @@ class Integer
     q += 1 if self < 0 && r != 0
     q * factor
   end
+
   def divmod(n)
     if n.is_a?(Integer)
       [self / n, self % n]
@@ -424,19 +404,6 @@ class Integer
   def denominator = 1
   def rationalize(eps = nil) = Rational(self, 1)
 
-  def _coerce_to_int(mask)
-    return mask if mask.is_a?(Integer)
-    if mask.respond_to?(:to_int)
-      r = mask.to_int
-      raise TypeError, "to_int should return Integer" unless r.is_a?(Integer)
-      r
-    else
-      raise TypeError, "Integer expected"
-    end
-  end
-
-  private :_coerce_to_int
-
   def allbits?(mask)
     mask = _coerce_to_int(mask)
     (self & mask) == mask
@@ -514,5 +481,35 @@ class Integer
     end
     x -= 1 if x * x > n
     x
+  end
+
+  private
+
+  # Call coerce even if private; propagate non-NoMethodError exceptions
+  def _coerce_op(v, op)
+    begin
+      a, b = v.send(:coerce, self)
+    rescue NoMethodError
+      raise TypeError, "#{v.class} can't be coerced into Integer"
+    end
+    a.send(op, b)
+  end
+
+  def __coerce_and_compare__(other, op)
+    a, b = other.coerce(self)
+    a.send(op, b)
+  rescue TypeError, NoMethodError
+    raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"
+  end
+
+  def _coerce_to_int(mask)
+    return mask if mask.is_a?(Integer)
+    if mask.respond_to?(:to_int)
+      r = mask.to_int
+      raise TypeError, "to_int should return Integer" unless r.is_a?(Integer)
+      r
+    else
+      raise TypeError, "Integer expected"
+    end
   end
 end

@@ -13,18 +13,6 @@ class Hash
     end
   end
 
-  def __check_frozen__
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
-  end
-  private :__check_frozen__
-
-  def __coerce_to_hash__(other)
-    return other if other.is_a?(Hash)
-    return other.to_hash if other.respond_to?(:to_hash)
-    raise TypeError, "no implicit conversion of #{other.class} into Hash"
-  end
-  private :__coerce_to_hash__
-
   def initialize(default = nil, &block)
     __check_frozen__
     if block
@@ -167,56 +155,6 @@ class Hash
   end
 
   def deconstruct_keys(keys) = self
-
-  # Returns the key portion of an inspect pair: either "name: " (Symbol) or "repr => " (other).
-  def __inspect_key__(k)
-    if k.is_a?(Symbol)
-      name = k.to_s
-      ext_enc = Encoding.default_external
-      # Check if non-ASCII chars in the name are representable in the default external encoding.
-      # ASCII-only names are always representable.
-      needs_escape = !name.ascii_only? && begin
-        name.encode(ext_enc.name)
-        false
-      rescue
-        true
-      end
-      if needs_escape
-        # Encode to UTF-8 to get codepoints, then escape non-ASCII as \uXXXX
-        utf8_name = name.encode('UTF-8') rescue name
-        escaped = utf8_name.chars.map do |c|
-          if c.ord > 127
-            "\\u#{c.ord.to_s(16).rjust(4, '0')}"
-          elsif c == '"'
-            '\\"'
-          elsif c == '\\'
-            '\\\\'
-          else
-            c
-          end
-        end.join
-        "\"#{escaped}\": "
-      else
-        # Encode to UTF-8 for regex compatibility (e.g. Windows-31J name vs UTF-8 regex)
-        name_for_check = name.ascii_only? ? name : (name.encode('UTF-8') rescue name)
-        # Use bare-word syntax only for simple identifiers (letters/digits/underscore,
-        # optional ?/! suffix). Everything else (operators, setters, etc.) needs quoting.
-        if name_for_check =~ /\A[a-zA-Z_\u0080-\uFFFF][a-zA-Z0-9_\u0080-\uFFFF]*[?!]?\z/
-          "#{name}: "
-        else
-          "#{name.inspect}: "
-        end
-      end
-    else
-      k_s = k.inspect
-      unless k_s.is_a?(String)
-        k_s2 = k_s.to_s
-        k_s = k_s2.is_a?(String) ? k_s2 : "#<#{k_s.class.name}:0x#{k_s.__id__.to_s(16)}>"
-      end
-      "#{k_s} => "
-    end
-  end
-  private :__inspect_key__
 
   def to_s
     ongoing = (Fiber[:__hash_inspect__] ||= [])
@@ -725,5 +663,66 @@ class Hash
   def self.ruby2_keywords_hash?(h)
     raise TypeError, "not a hash" unless h.is_a?(Hash)
     Intrinsics.hash_ruby2_keywords_hash_q(h)
+  end
+
+  private
+
+  def __check_frozen__
+    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+  end
+
+  def __coerce_to_hash__(other)
+    return other if other.is_a?(Hash)
+    return other.to_hash if other.respond_to?(:to_hash)
+    raise TypeError, "no implicit conversion of #{other.class} into Hash"
+  end
+
+  # Returns the key portion of an inspect pair: either "name: " (Symbol) or "repr => " (other).
+  def __inspect_key__(k)
+    if k.is_a?(Symbol)
+      name = k.to_s
+      ext_enc = Encoding.default_external
+      # Check if non-ASCII chars in the name are representable in the default external encoding.
+      # ASCII-only names are always representable.
+      needs_escape = !name.ascii_only? && begin
+        name.encode(ext_enc.name)
+        false
+      rescue
+        true
+      end
+      if needs_escape
+        # Encode to UTF-8 to get codepoints, then escape non-ASCII as \uXXXX
+        utf8_name = name.encode('UTF-8') rescue name
+        escaped = utf8_name.chars.map do |c|
+          if c.ord > 127
+            "\\u#{c.ord.to_s(16).rjust(4, '0')}"
+          elsif c == '"'
+            '\\"'
+          elsif c == '\\'
+            '\\\\'
+          else
+            c
+          end
+        end.join
+        "\"#{escaped}\": "
+      else
+        # Encode to UTF-8 for regex compatibility (e.g. Windows-31J name vs UTF-8 regex)
+        name_for_check = name.ascii_only? ? name : (name.encode('UTF-8') rescue name)
+        # Use bare-word syntax only for simple identifiers (letters/digits/underscore,
+        # optional ?/! suffix). Everything else (operators, setters, etc.) needs quoting.
+        if name_for_check =~ /\A[a-zA-Z_\u0080-\uFFFF][a-zA-Z0-9_\u0080-\uFFFF]*[?!]?\z/
+          "#{name}: "
+        else
+          "#{name.inspect}: "
+        end
+      end
+    else
+      k_s = k.inspect
+      unless k_s.is_a?(String)
+        k_s2 = k_s.to_s
+        k_s = k_s2.is_a?(String) ? k_s2 : "#<#{k_s.class.name}:0x#{k_s.__id__.to_s(16)}>"
+      end
+      "#{k_s} => "
+    end
   end
 end
