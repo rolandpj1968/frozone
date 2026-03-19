@@ -6,6 +6,14 @@ module MSpec
   class SkipExampleError < StandardError; end
 end
 
+# mspec 1.9.1 defines bignum_value as 2^63 + plus, but ruby/spec tests were written
+# against an older mspec that used 2^64 + plus.  Override to match expectations.
+class Object
+  def bignum_value(plus = 0)
+    0x1_0000_0000_0000_0000 + plus  # 2^64 + plus
+  end
+end
+
 # Add max_long/min_long helpers not present in mspec 1.9.1 (platform C long limits)
 class Object
   def max_long
