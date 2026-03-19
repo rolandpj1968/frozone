@@ -50,100 +50,12 @@ class Array
   ARRAY_MAX_INDEX = (1 << 63)
 
   def [](i, len = nil)
-    n = length
     if len
-      i = __coerce_to_int__(i)
-      len = __coerce_to_int__(len)
-      raise RangeError, "length too large" if len.abs >= ARRAY_MAX_INDEX
-      return nil if len < 0
-      s = i < 0 ? i + n : i
-      return nil if s < 0 || s > n
-      stop = s + len > n ? n : s + len
-      r = []; j = s; while j < stop; r << Intrinsics.array_at(self, j); j += 1; end; r
+      __slice_int__(i, len)
     elsif i.is_a?(Enumerator::ArithmeticSequence)
-      seq = i
-      b = seq.begin
-      e = seq.end
-      st = seq.step
-      raise ArgumentError, "step can't be 0" if st == 0
-      abs_st = st.abs
-      if st > 0
-        # Positive step
-        b_int = b.nil? ? 0 : __coerce_to_int__(b)
-        b_int = b_int < 0 ? b_int + n : b_int
-        if e.nil?
-          # Endless range: OOB begin is nil (step=1) or RangeError (step>1) or [] (begin==n)
-          return [] if b_int == n
-          if b_int > n
-            return nil if st == 1
-            raise RangeError, "#{seq.inspect} out of range of array size #{n}"
-          end
-          result = []
-          j = b_int
-          while j < n; result << Intrinsics.array_at(self, j); j += st; end
-          result
-        else
-          e_int = __coerce_to_int__(e)
-          e_int = e_int < 0 ? e_int + n : e_int
-          e_int -= 1 if seq.exclude_end?
-          # RangeError if end is reachable from begin (same step alignment) and is OOB, unless step==1
-          if e_int >= n && st > 1 && (e_int - b_int) % st == 0
-            raise RangeError, "#{seq.inspect} out of range of array size #{n}"
-          end
-          result = []
-          j = b_int
-          while j <= e_int
-            result << Intrinsics.array_at(self, j) if j >= 0 && j < n
-            j += st
-          end
-          result
-        end
-      else
-        # Negative step
-        b_int = b.nil? ? n - 1 : __coerce_to_int__(b)
-        b_int = b_int < 0 ? b_int + n : b_int
-        if e.nil?
-          # Endless (beginless) with negative step: start from b_int, go down to 0
-          if b_int >= n
-            b_int = n - 1  # clamp
-          end
-          result = []
-          j = b_int
-          while j >= 0; result << Intrinsics.array_at(self, j); j += st; end
-          result
-        else
-          e_int = __coerce_to_int__(e)
-          e_int = e_int < 0 ? e_int + n : e_int
-          lower = seq.exclude_end? ? e_int + 1 : e_int
-          # RangeError if begin is OOB and reachable-aligned (same step modular alignment)
-          if b_int >= n && abs_st > 1 && (b_int - e_int) % abs_st == 0
-            raise RangeError, "#{seq.inspect} out of range of array size #{n}"
-          end
-          # Clamp b_int to n-1 if OOB
-          b_int = n - 1 if b_int >= n
-          result = []
-          j = b_int
-          while j >= lower
-            result << Intrinsics.array_at(self, j) if j >= 0 && j < n
-            j += st
-          end
-          result
-        end
-      end
+      __slice_arith_seq__(i)
     elsif i.is_a?(Range)
-      bi = i.begin
-      end_nil = i.end.nil?
-      bi_int = bi.nil? ? 0 : __coerce_to_int__(bi)
-      raise RangeError, "index too large" if bi_int.abs >= ARRAY_MAX_INDEX
-      ei_int = end_nil ? n - 1 : __coerce_to_int__(i.end)
-      raise RangeError, "index too large" if !end_nil && ei_int.abs >= ARRAY_MAX_INDEX
-      b = bi_int < 0 ? bi_int + n : bi_int
-      e = ei_int < 0 ? ei_int + n : ei_int
-      e -= 1 if i.exclude_end? && !end_nil
-      return nil if b > n || b < 0
-      return [] if b == n || e < b
-      e = n - 1 if e >= n
-      r = []; j = b; while j <= e; r << Intrinsics.array_at(self, j); j += 1; end; r
+      __slice_range__(i)
     else
       i_int = __coerce_to_int__(i)
       raise RangeError, "index too large" if i_int.abs >= ARRAY_MAX_INDEX
@@ -152,7 +64,7 @@ class Array
   end
 
   def []=(i, len_or_val, val = :__unset__)
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     if val.equal?(:__unset__)
       # 2-arg form: ary[index] = val or ary[range] = val
       if i.is_a?(Range)
@@ -181,7 +93,7 @@ class Array
   end
 
   def push(*vals)
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     vals.each { |v| Intrinsics.array_push(self, v) }
     self
   end
@@ -191,7 +103,7 @@ class Array
 
   def concat(*others)
     return self if others.empty?
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     # Coerce and snapshot all args before any mutation (handles concat(self, self))
     coerced = others.map { |other|
       arr = if other.is_a?(Array)
@@ -451,7 +363,7 @@ class Array
   private :_flatten_into
 
   def flatten!(depth = nil)
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     result = flatten(depth)
     return nil if result == self
     replace(result)
@@ -584,7 +496,7 @@ class Array
 
   def sort_by!(&block)
     return to_enum(:sort_by!) { size } unless block
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     replace(sort_by(&block))
     self
   end
@@ -740,7 +652,7 @@ class Array
 
   def include?(elem); any? { |x| x == elem }; end
   def pop(__native_n__ = :__none__)
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     if __native_n__.equal?(:__none__)
       Intrinsics.array_pop(self)
     else
@@ -755,7 +667,7 @@ class Array
   end
 
   def shift(n = :__none__)
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     if n.equal?(:__none__)
       Intrinsics.array_shift(self)
     else
@@ -782,7 +694,7 @@ class Array
   alias slice []
 
   def slice!(i, len = :__none__)
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     if len.equal?(:__none__)
       if i.is_a?(Range)
         bi = i.begin
@@ -924,7 +836,7 @@ class Array
   end
 
   def shuffle!(random: nil)
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     replace(shuffle(random: random))
     self
   end
@@ -1064,7 +976,7 @@ class Array
   end
 
   def insert(idx, *vals)
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     return self if vals.empty?
     idx = __coerce_to_int__(idx)
     n = length
@@ -1107,7 +1019,7 @@ class Array
         fill_len = 0 if fill_len && fill_len < 0
       end
     end
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     if fill_len
       raise RangeError, "fill length too large" if fill_len >= (1 << 63)
       raise ArgumentError, "fill length too large" if fill_len > (1 << 30)
@@ -1164,7 +1076,7 @@ class Array
 
   def map!(&block)
     return to_enum(:map!) { size } unless block
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     i = 0
     while i < length
       Intrinsics.array_index_write(self, i, block.call(Intrinsics.array_at(self, i)))
@@ -1191,7 +1103,7 @@ class Array
 
   def reject!(&block)
     return to_enum(:reject!) { size } unless block
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     n = length
     write_idx = 0
     read_idx = 0
@@ -1218,7 +1130,7 @@ class Array
 
   def select!(&block)
     return to_enum(:select!) { size } unless block
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     n = length
     write_idx = 0
     read_idx = 0
@@ -1247,7 +1159,7 @@ class Array
 
   def keep_if(&block)
     return to_enum(:keep_if) { size } unless block
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     write_idx = 0
     read_idx = 0
     begin
@@ -1753,7 +1665,7 @@ class Array
   end
 
   def uniq!(&block)
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     seen = {}; write_idx = 0; read_idx = 0
     while read_idx < length
       e = Intrinsics.array_at(self, read_idx)
@@ -1772,7 +1684,7 @@ class Array
   end
 
   def rotate!(n = 1)
-    raise FrozenError, "can't modify frozen Array" if frozen?
+    __check_frozen__
     replace(rotate(n))
     self
   end
@@ -1809,6 +1721,111 @@ class Array
   end
 
   private
+
+  def __check_frozen__
+    raise FrozenError, "can't modify frozen Array" if frozen?
+  end
+
+  def __slice_int__(i, len)
+    n = length
+    i = __coerce_to_int__(i)
+    len = __coerce_to_int__(len)
+    raise RangeError, "length too large" if len.abs >= ARRAY_MAX_INDEX
+    return nil if len < 0
+    s = i < 0 ? i + n : i
+    return nil if s < 0 || s > n
+    stop = s + len > n ? n : s + len
+    r = []; j = s; while j < stop; r << Intrinsics.array_at(self, j); j += 1; end; r
+  end
+
+  def __slice_range__(i)
+    n = length
+    bi = i.begin
+    end_nil = i.end.nil?
+    bi_int = bi.nil? ? 0 : __coerce_to_int__(bi)
+    raise RangeError, "index too large" if bi_int.abs >= ARRAY_MAX_INDEX
+    ei_int = end_nil ? n - 1 : __coerce_to_int__(i.end)
+    raise RangeError, "index too large" if !end_nil && ei_int.abs >= ARRAY_MAX_INDEX
+    b = bi_int < 0 ? bi_int + n : bi_int
+    e = ei_int < 0 ? ei_int + n : ei_int
+    e -= 1 if i.exclude_end? && !end_nil
+    return nil if b > n || b < 0
+    return [] if b == n || e < b
+    e = n - 1 if e >= n
+    r = []; j = b; while j <= e; r << Intrinsics.array_at(self, j); j += 1; end; r
+  end
+
+  def __slice_arith_seq__(seq)
+    n = length
+    b = seq.begin
+    e = seq.end
+    st = seq.step
+    raise ArgumentError, "step can't be 0" if st == 0
+    abs_st = st.abs
+    if st > 0
+      # Positive step
+      b_int = b.nil? ? 0 : __coerce_to_int__(b)
+      b_int = b_int < 0 ? b_int + n : b_int
+      if e.nil?
+        # Endless range: OOB begin is nil (step=1) or RangeError (step>1) or [] (begin==n)
+        return [] if b_int == n
+        if b_int > n
+          return nil if st == 1
+          raise RangeError, "#{seq.inspect} out of range of array size #{n}"
+        end
+        result = []
+        j = b_int
+        while j < n; result << Intrinsics.array_at(self, j); j += st; end
+        result
+      else
+        e_int = __coerce_to_int__(e)
+        e_int = e_int < 0 ? e_int + n : e_int
+        e_int -= 1 if seq.exclude_end?
+        # RangeError if end is reachable from begin (same step alignment) and is OOB, unless step==1
+        if e_int >= n && st > 1 && (e_int - b_int) % st == 0
+          raise RangeError, "#{seq.inspect} out of range of array size #{n}"
+        end
+        result = []
+        j = b_int
+        while j <= e_int
+          result << Intrinsics.array_at(self, j) if j >= 0 && j < n
+          j += st
+        end
+        result
+      end
+    else
+      # Negative step
+      b_int = b.nil? ? n - 1 : __coerce_to_int__(b)
+      b_int = b_int < 0 ? b_int + n : b_int
+      if e.nil?
+        # Endless (beginless) with negative step: start from b_int, go down to 0
+        if b_int >= n
+          b_int = n - 1  # clamp
+        end
+        result = []
+        j = b_int
+        while j >= 0; result << Intrinsics.array_at(self, j); j += st; end
+        result
+      else
+        e_int = __coerce_to_int__(e)
+        e_int = e_int < 0 ? e_int + n : e_int
+        lower = seq.exclude_end? ? e_int + 1 : e_int
+        # RangeError if begin is OOB and reachable-aligned (same step modular alignment)
+        if b_int >= n && abs_st > 1 && (b_int - e_int) % abs_st == 0
+          raise RangeError, "#{seq.inspect} out of range of array size #{n}"
+        end
+        # Clamp b_int to n-1 if OOB
+        b_int = n - 1 if b_int >= n
+        result = []
+        j = b_int
+        while j >= lower
+          result << Intrinsics.array_at(self, j) if j >= 0 && j < n
+          j += st
+        end
+        result
+      end
+    end
+  end
 
   def __array_coerce__(other)
     return other if other.is_a?(Array)
