@@ -66,13 +66,8 @@ class Symbol
     pos.equal?(:__unset__) ? to_s.match?(pattern) : to_s.match?(pattern, pos)
   end
 
-  def start_with?(*prefixes)
-    to_s.start_with?(*prefixes)
-  end
-
-  def end_with?(*suffixes)
-    to_s.end_with?(*suffixes)
-  end
+  def start_with?(*prefixes) = to_s.start_with?(*prefixes)
+  def end_with?(*suffixes) = to_s.end_with?(*suffixes)
 
   def [](idx, len = :__unset__)
     len.equal?(:__unset__) ? to_s[idx] : to_s[idx, len]

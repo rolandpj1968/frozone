@@ -1666,9 +1666,7 @@ module Frozone
           v
         end
 
-        def string_grapheme_clusters(_, v)
-          ArrayObject.new(v.raw.grapheme_clusters.map { |g| StringObject.new(g) })
-        end
+        def string_grapheme_clusters(_, v) = ArrayObject.new(v.raw.grapheme_clusters.map { |g| StringObject.new(g) })
 
         def string_each_grapheme_cluster(context, v, block)
           if block.is_a?(NilObject)
@@ -1785,15 +1783,11 @@ module Frozone
           ArrayObject.new(arr)
         end
 
-        def enum_for_no_block(context, v, method_name)
-          v.dispatch(context, :to_enum, [SymbolObject.from(method_name)], {})
-        end
+        def enum_for_no_block(context, v, method_name) = v.dispatch(context, :to_enum, [SymbolObject.from(method_name)], {})
 
         public
 
-        def locale_charmap(_)
-          StringObject.new(::Encoding.locale_charmap || "UTF-8")
-        end
+        def locale_charmap(_) = StringObject.new(::Encoding.locale_charmap || "UTF-8")
 
         def encoding_set_default_external(_, enc_name_obj)
           enc_name = enc_name_obj.is_a?(StringObject) ? enc_name_obj.raw : enc_name_obj.to_s
@@ -2279,9 +2273,7 @@ module Frozone
 
         def symbol_hash(_, v) = IntegerObject.new(v.raw.hash)
 
-        def symbol_all_symbols(_)
-          ArrayObject.new(SymbolObject::SymbolObjects.values)
-        end
+        def symbol_all_symbols(_) = ArrayObject.new(SymbolObject::SymbolObjects.values)
       end
     end
   end

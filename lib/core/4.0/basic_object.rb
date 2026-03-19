@@ -19,9 +19,7 @@ class BasicObject
 
   private
 
-  def method_missing(name, *args, **kwargs)
-    Intrinsics.basic_object_method_missing(self, name, args, kwargs)
-  end
+  def method_missing(name, *args, **kwargs) = Intrinsics.basic_object_method_missing(self, name, args, kwargs)
 
   def singleton_method_added(name)
   end
@@ -34,9 +32,7 @@ class BasicObject
 
   public
 
-  def __send__(name, *args, **kwargs, &block)
-    Intrinsics.basic_object___send__(self, name, args, kwargs, block)
-  end
+  def __send__(name, *args, **kwargs, &block) = Intrinsics.basic_object___send__(self, name, args, kwargs, block)
 
   def instance_eval(str = :__unset__, file = nil, line = nil, extra = :__unset__, &block)
     if block

@@ -391,9 +391,7 @@ module Enumerable
     [min_val, max_val]
   end
 
-  def sort(&block)
-    to_a.sort(&block)
-  end
+  def sort(&block) = to_a.sort(&block)
 
   def sort_by(&block)
     return to_enum(:sort_by) { respond_to?(:size) ? size : nil } unless block
@@ -783,17 +781,13 @@ module Enumerable
     end
   end
 
-  def lazy
-    Enumerator::Lazy.new(self)
-  end
+  def lazy = Enumerator::Lazy.new(self)
 
   def to_set(klass = Set, *args, &block)
     Intrinsics.kernel_deprecation_warn(self, "Enumerable#to_set is deprecated and will be removed in Ruby 4.2.")
     klass.new(self, *args, &block)
   end
 
-  def chain(*enums)
-    Enumerator::Chain.new(self, *enums)
-  end
+  def chain(*enums) = Enumerator::Chain.new(self, *enums)
   alias + chain
 end

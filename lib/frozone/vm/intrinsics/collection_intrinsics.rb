@@ -383,13 +383,8 @@ module Frozone
         def array_sample_n(_, v, n) = ArrayObject.new(v.raw.sample(n.raw))
 
         # Range
-        def range_allocate(_, _klass)
-          RangeObject.new(NilObject::NIL, NilObject::NIL, false, initialized: false)
-        end
-
-        def range_initialized_q(_, range)
-          bool_object_for(range.is_a?(RangeObject) && range.initialized?)
-        end
+        def range_allocate(_, _klass) = RangeObject.new(NilObject::NIL, NilObject::NIL, false, initialized: false)
+        def range_initialized_q(_, range) = bool_object_for(range.is_a?(RangeObject) && range.initialized?)
 
         def range_set(_, range, b, e, excl)
           excl = excl.is_a?(NilObject) ? false : excl.truthy?
@@ -435,9 +430,7 @@ module Frozone
           val
         end
 
-        def hash_get_default_proc(_, h)
-          h.default_block || NilObject::NIL
-        end
+        def hash_get_default_proc(_, h) = h.default_block || NilObject::NIL
 
         def hash_set_default_proc(_, h, prc)
           if prc.is_a?(NilObject)
@@ -519,18 +512,14 @@ module Frozone
           h
         end
 
-        def hash_compare_by_identity_q(_, h)
-          bool_object_for(h.is_a?(HashObject) && h.compare_by_identity_flag)
-        end
+        def hash_compare_by_identity_q(_, h) = bool_object_for(h.is_a?(HashObject) && h.compare_by_identity_flag)
 
         def hash_ruby2_keywords_hash(_, h)
           h.ruby2_keywords = true if h.is_a?(HashObject)
           h
         end
 
-        def hash_ruby2_keywords_hash_q(_, h)
-          bool_object_for(h.is_a?(HashObject) && h.ruby2_keywords)
-        end
+        def hash_ruby2_keywords_hash_q(_, h) = bool_object_for(h.is_a?(HashObject) && h.ruby2_keywords)
       end
     end
   end

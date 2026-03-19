@@ -159,13 +159,8 @@ class ConditionVariable
     self
   end
 
-  def signal
-    self
-  end
-
-  def broadcast
-    self
-  end
+  def signal = self
+  def broadcast = self
 end
 
 # Queue: thread-safe FIFO queue with blocking pop (cooperative single-threaded)

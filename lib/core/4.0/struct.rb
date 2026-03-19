@@ -278,9 +278,7 @@ class Struct
 
   alias to_s inspect
 
-  def instance_variables
-    super.reject { |v| v == :@struct_values }
-  end
+  def instance_variables = super.reject { |v| v == :@struct_values }
 
   def freeze
     @struct_values&.each_value(&:freeze) rescue nil

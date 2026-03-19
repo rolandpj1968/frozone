@@ -81,18 +81,14 @@ module Frozone
           fiber_obj.transfer(context, args.raw)
         end
 
-        def fiber_yield(_, _receiver, args)
-          ::Fiber.yield(args.raw.first || NilObject::NIL)
-        end
+        def fiber_yield(_, _receiver, args) = ::Fiber.yield(args.raw.first || NilObject::NIL)
 
         def fiber_current(_context, _receiver)
           # Return the current Frozone FiberObject if inside one, else the root fiber
           ::Fiber[:frozone_fiber_obj] || (::Fiber[:frozone_root_fiber] ||= FiberObject.root)
         end
 
-        def fiber_alive(_, fiber_obj)
-          bool_object_for(fiber_obj.is_a?(FiberObject) && fiber_obj.alive?)
-        end
+        def fiber_alive(_, fiber_obj) = bool_object_for(fiber_obj.is_a?(FiberObject) && fiber_obj.alive?)
 
         def fiber_blocking_q(_, fiber_obj)
           return FalseObject::FALSE unless fiber_obj.is_a?(FiberObject)

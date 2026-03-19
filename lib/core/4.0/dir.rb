@@ -151,21 +151,15 @@ class Dir
     self
   end
 
-  def children
-    __load_entries__.reject { |e| e == '.' || e == '..' }
-  end
+  def children = __load_entries__.reject { |e| e == '.' || e == '..' }
 
   def entries = __load_entries__.dup
 
-  def chdir(&block)
-    Intrinsics.dir_chdir(@path, block)
-  end
+  def chdir(&block) = Intrinsics.dir_chdir(@path, block)
 
   def fileno = Intrinsics.dir_fileno(@dir)
 
-  def __load_entries__
-    @entries ||= Dir.entries(@path)
-  end
+  private
 
-  private :__load_entries__
+  def __load_entries__ = (@entries ||= Dir.entries(@path))
 end

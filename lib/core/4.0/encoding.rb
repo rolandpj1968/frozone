@@ -46,21 +46,10 @@ class Encoding
     stateless-ISO-2022-JP
   ].freeze
 
-  def ascii_compatible?
-    !NON_ASCII_COMPATIBLE.include?(@name)
-  end
-
-  def dummy?
-    DUMMY_ENCODINGS.include?(@name)
-  end
-
-  def ascii_only?
-    @name == "US-ASCII"
-  end
-
-  def replicate(new_name)
-    Encoding.new(new_name)
-  end
+  def ascii_compatible? = !NON_ASCII_COMPATIBLE.include?(@name)
+  def dummy? = DUMMY_ENCODINGS.include?(@name)
+  def ascii_only? = @name == "US-ASCII"
+  def replicate(new_name) = Encoding.new(new_name)
 
   UTF_8    = new("UTF-8")
   US_ASCII = new("US-ASCII")
@@ -166,55 +155,21 @@ class Encoding
   UndefinedConversionError  = Class.new(EncodingError)
 
   class InvalidByteSequenceError
-    def source_encoding_name
-      @source_encoding_name&.to_s
-    end
-
-    def destination_encoding_name
-      @destination_encoding_name&.to_s
-    end
-
-    def source_encoding
-      @source_encoding
-    end
-
-    def destination_encoding
-      @destination_encoding
-    end
-
-    def error_bytes
-      @error_bytes
-    end
-
-    def readagain_bytes
-      @readagain_bytes
-    end
-
-    def incomplete_input?
-      @incomplete_input
-    end
+    def source_encoding_name = @source_encoding_name&.to_s
+    def destination_encoding_name = @destination_encoding_name&.to_s
+    def source_encoding = @source_encoding
+    def destination_encoding = @destination_encoding
+    def error_bytes = @error_bytes
+    def readagain_bytes = @readagain_bytes
+    def incomplete_input? = @incomplete_input
   end
 
   class UndefinedConversionError
-    def source_encoding_name
-      @source_encoding_name&.to_s
-    end
-
-    def destination_encoding_name
-      @destination_encoding_name&.to_s
-    end
-
-    def source_encoding
-      @source_encoding
-    end
-
-    def destination_encoding
-      @destination_encoding
-    end
-
-    def error_char
-      @error_char
-    end
+    def source_encoding_name = @source_encoding_name&.to_s
+    def destination_encoding_name = @destination_encoding_name&.to_s
+    def source_encoding = @source_encoding
+    def destination_encoding = @destination_encoding
+    def error_char = @error_char
   end
 
   ALL = [UTF_8, US_ASCII, BINARY, EUC_JP, ISO_8859_1, ISO_8859_2, ISO_8859_3,
@@ -424,38 +379,19 @@ class Encoding
       end
     end
 
-    def source_encoding
-      Intrinsics.encoding_converter_source_encoding(self)
-    end
-
-    def destination_encoding
-      Intrinsics.encoding_converter_destination_encoding(self)
-    end
-
-    def inspect
-      Intrinsics.encoding_converter_inspect(self)
-    end
-
-    def convpath
-      Intrinsics.encoding_converter_convpath(self)
-    end
-
-    def replacement
-      Intrinsics.encoding_converter_replacement(self)
-    end
+    def source_encoding = Intrinsics.encoding_converter_source_encoding(self)
+    def destination_encoding = Intrinsics.encoding_converter_destination_encoding(self)
+    def inspect = Intrinsics.encoding_converter_inspect(self)
+    def convpath = Intrinsics.encoding_converter_convpath(self)
+    def replacement = Intrinsics.encoding_converter_replacement(self)
 
     def replacement=(val)
       raise TypeError, "no implicit conversion of #{val.class} into String" unless val.is_a?(String)
       Intrinsics.encoding_converter_replacement_set(self, val)
     end
 
-    def convert(src)
-      Intrinsics.encoding_converter_convert(self, src)
-    end
-
-    def finish
-      Intrinsics.encoding_converter_finish(self)
-    end
+    def convert(src) = Intrinsics.encoding_converter_convert(self, src)
+    def finish = Intrinsics.encoding_converter_finish(self)
 
     def primitive_convert(src, dest, offset = nil, size = nil, opts = nil)
       if opts.nil?
@@ -465,17 +401,9 @@ class Encoding
       end
     end
 
-    def primitive_errinfo
-      Intrinsics.encoding_converter_primitive_errinfo(self)
-    end
-
-    def last_error
-      Intrinsics.encoding_converter_last_error(self)
-    end
-
-    def insert_output(str)
-      Intrinsics.encoding_converter_insert_output(self, str)
-    end
+    def primitive_errinfo = Intrinsics.encoding_converter_primitive_errinfo(self)
+    def last_error = Intrinsics.encoding_converter_last_error(self)
+    def insert_output(str) = Intrinsics.encoding_converter_insert_output(self, str)
 
     def putback(n = nil)
       if n.nil?

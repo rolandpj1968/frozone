@@ -1782,9 +1782,7 @@ module Frozone
           end
         end
 
-        def toplevel_ruby2_keywords(context, _, names)
-          module_ruby2_keywords(context, Core::OBJECT_CLASS, names)
-        end
+        def toplevel_ruby2_keywords(context, _, names) = module_ruby2_keywords(context, Core::OBJECT_CLASS, names)
 
         def toplevel_using(context, _receiver, mod_array)
           mod = mod_array.raw.first

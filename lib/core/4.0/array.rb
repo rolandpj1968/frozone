@@ -833,9 +833,7 @@ class Array
     end
   end
 
-  def fetch_values(*indices, &block)
-    indices.map { |i| fetch(i, &block) }
-  end
+  def fetch_values(*indices, &block) = indices.map { |i| fetch(i, &block) }
 
   def insert(idx, *vals)
     __check_frozen__

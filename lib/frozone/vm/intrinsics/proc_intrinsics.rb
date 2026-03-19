@@ -71,9 +71,7 @@ module Frozone
           proc_obj.call(context, args.raw, kw_args: kw_args, block: blk)
         end
 
-        def proc_lambda_p(_context, proc_obj)
-          proc_obj.lambda? ? TrueObject::TRUE : FalseObject::FALSE
-        end
+        def proc_lambda_p(_context, proc_obj) = proc_obj.lambda? ? TrueObject::TRUE : FalseObject::FALSE
 
         def proc_curry(context, proc_obj, arity_arg = NilObject::NIL)
           is_lambda = proc_obj.lambda?

@@ -568,43 +568,25 @@ module Frozone
           val.nil? ? NilObject::NIL : StringObject.new(val)
         end
 
-        def env_key?(_, key)
-          bool_object_for(ENV.key?(key.raw))
-        end
-
-        def env_value?(_, value)
-          bool_object_for(ENV.value?(value.raw))
-        end
+        def env_key?(_, key) = bool_object_for(ENV.key?(key.raw))
+        def env_value?(_, value) = bool_object_for(ENV.value?(value.raw))
 
         def env_key(_, value)
           k = ENV.key(value.raw)
           k.nil? ? NilObject::NIL : StringObject.new(k)
         end
 
-        def env_keys(_)
-          ArrayObject.new(ENV.keys.map { |k| StringObject.new(k) })
-        end
-
-        def env_values(_)
-          ArrayObject.new(ENV.values.map { |v| StringObject.new(v) })
-        end
-
-        def env_size(_)
-          IntegerObject.new(ENV.size)
-        end
+        def env_keys(_) = ArrayObject.new(ENV.keys.map { |k| StringObject.new(k) })
+        def env_values(_) = ArrayObject.new(ENV.values.map { |v| StringObject.new(v) })
+        def env_size(_) = IntegerObject.new(ENV.size)
 
         def env_clear(_)
           ENV.clear
           NilObject::NIL
         end
 
-        def env_pairs(_)
-          ArrayObject.new(ENV.map { |k, v| ArrayObject.new([StringObject.new(k), StringObject.new(v)]) })
-        end
-
-        def env_to_hash(_)
-          HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
-        end
+        def env_pairs(_) = ArrayObject.new(ENV.map { |k, v| ArrayObject.new([StringObject.new(k), StringObject.new(v)]) })
+        def env_to_hash(_) = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
       end
     end
   end

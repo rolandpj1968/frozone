@@ -174,9 +174,7 @@ class Data
     self.class.members.all? { |m| @data_values[m].eql?(other.__send__(m)) }
   end
 
-  def hash
-    [self.class, *self.class.members.map { |m| @data_values[m] }].hash
-  end
+  def hash = [self.class, *self.class.members.map { |m| @data_values[m] }].hash
 
   def with(**kwargs)
     return self if kwargs.empty?

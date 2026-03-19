@@ -251,9 +251,7 @@ module Frozone
           raise FrozoneException.new(exc_obj, "exit")
         end
 
-        def kernel_rand(context, _receiver, n)
-          random_rand(context, nil, n)
-        end
+        def kernel_rand(context, _receiver, n) = random_rand(context, nil, n)
 
         def kernel_srand(_, _receiver, seed)
           result = seed.is_a?(NilObject) ? srand : srand(seed.raw)
@@ -392,9 +390,7 @@ module Frozone
           end
         end
 
-        def kernel_float(_, _receiver, val)
-          FloatObject.new(val.is_a?(FloatObject) ? val.raw : Float(val.raw))
-        end
+        def kernel_float(_, _receiver, val) = FloatObject.new(val.is_a?(FloatObject) ? val.raw : Float(val.raw))
 
         def kernel_array(_, _receiver, val)
           return val if val.is_a?(ArrayObject)

@@ -81,9 +81,7 @@ class Enumerator
     vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals)
   end
 
-  def next_values
-    __next_values_raw__
-  end
+  def next_values = __next_values_raw__
 
   def peek
     vals = __peek_values_raw__
