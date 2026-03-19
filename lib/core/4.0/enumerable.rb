@@ -1,165 +1,11 @@
 module Enumerable
-  def to_a(*args)
-    r = []; each(*args) { |*x| r << (x.empty? ? nil : (x.length == 1 ? x[0] : x)) }; r
-  end
-  alias entries to_a
+  private
 
-  def to_h(*args, &block)
-    r = {}
-    each(*args) do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
-      pair = block ? block.call(v) : v
-      unless pair.is_a?(Array)
-        if pair.respond_to?(:to_ary)
-          pair = pair.to_ary
-          raise TypeError, "wrong element type #{pair.class} (expected Array)" unless pair.is_a?(Array)
-        else
-          raise TypeError, "wrong element type #{pair.nil? ? 'NilClass' : pair.class} (expected Array)"
-        end
-      end
-      raise ArgumentError, "element has wrong array length (expected 2, was #{pair.length})" unless pair.length == 2
-      r[pair[0]] = pair[1]
-    end
-    r
+  def __unpack_enum_args__(x)
+    x.empty? ? nil : (x.length == 1 ? x[0] : x)
   end
 
-  def map(&block)
-    return to_enum(:map) { respond_to?(:size) ? size : nil } unless block
-    r = []
-    case block.arity
-    when 1 then each { |x| r << block.call(x) }
-    when 2 then each { |x, y| r << block.call(x, y) }
-    else each { |*x| r << block.call(*x) }
-    end
-    r
-  end
-  alias collect map
-
-  def flat_map(&block)
-    return to_enum(:flat_map) { respond_to?(:size) ? size : nil } unless block
-    r = []
-    each { |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
-      w = block.call(v)
-      if w.is_a?(Array)
-        w.each { |e| r << e }
-      elsif w.respond_to?(:to_ary)
-        arr = w.to_ary
-        if arr.nil?
-          r << w
-        elsif arr.is_a?(Array)
-          arr.each { |e| r << e }
-        else
-          raise TypeError, "can't convert #{w.class} into Array (#{w.class}#to_ary gives #{arr.class})"
-        end
-      else
-        r << w
-      end
-    }
-    r
-  end
-  alias collect_concat flat_map
-
-  def select(&block)
-    return to_enum(:select) { respond_to?(:size) ? size : nil } unless block
-    r = []; each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); r << v if block.call(v) }; r
-  end
-  alias filter select
-  alias find_all select
-
-  def reject(&block)
-    return to_enum(:reject) { respond_to?(:size) ? size : nil } unless block
-    r = []; each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); r << v unless block.call(v) }; r
-  end
-
-  def find(ifnone = nil, &block)
-    return to_enum(:find, ifnone) unless block
-    each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); return v if block.call(v) }
-    ifnone ? ifnone.call : nil
-  end
-  alias detect find
-
-  def find_index(val = :__none__, &block)
-    if !val.equal?(:__none__)
-      warn "warning: given block not used" if block
-      i = 0; each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); return i if v == val; i += 1 }; nil
-    elsif block
-      i = 0; each { |*x| return i if block.call(*x); i += 1 }; nil
-    else
-      return to_enum(:find_index)
-    end
-  end
-
-  def include?(val)
-    each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); return true if v == val }
-    false
-  end
-  alias member? include?
-
-  def any?(pat = :__none__, &block)
-    if pat.equal?(:__none__)
-      each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); return true if (block ? block.call(*x) : v) }
-    else
-      warn "warning: given block not used" if block
-      each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); return true if pat === v }
-    end
-    false
-  end
-
-  def all?(pat = :__none__, &block)
-    if pat.equal?(:__none__)
-      each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); return false unless (block ? block.call(*x) : v) }
-    else
-      warn "warning: given block not used" if block
-      each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); return false unless pat === v }
-    end
-    true
-  end
-
-  def none?(pat = :__none__, &block)
-    if pat.equal?(:__none__)
-      each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); return false if (block ? block.call(*x) : v) }
-    else
-      warn "warning: given block not used" if block
-      each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); return false if pat === v }
-    end
-    true
-  end
-
-  def one?(pat = :__none__, &block)
-    found = false
-    if pat.equal?(:__none__)
-      each do |*x|
-        v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
-        if block ? block.call(*x) : v
-          return false if found
-          found = true
-        end
-      end
-    else
-      warn "warning: given block not used" if block
-      each do |*x|
-        v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
-        if pat === v
-          return false if found
-          found = true
-        end
-      end
-    end
-    found
-  end
-
-  def count(val = :__none__, &block)
-    if val.equal?(:__none__)
-      return to_a.length unless block
-      n = 0; each { |*x| n += 1 if block.call(*x) }; n
-    else
-      warn "warning: given block not used" if block
-      n = 0; each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); n += 1 if v == val }; n
-    end
-  end
-
-  def reduce(*args, &block)
+  def __parse_reduce_args__(args, block)
     sym = nil; has_initial = false; initial = nil
     case args.length
     when 0
@@ -201,9 +47,191 @@ module Enumerable
     else
       raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
     end
+    [sym, has_initial, initial]
+  end
+
+  def __coerce_count__(n, method_name)
+    unless n.is_a?(Integer)
+      begin
+        n2 = n.to_int
+      rescue NoMethodError
+        raise TypeError, "no implicit conversion of #{n.class} into Integer"
+      end
+      raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n2.is_a?(Integer)
+      n = n2
+    end
+    raise RangeError, "#{method_name}: integer #{n} too big to convert into `long'" if n > 2**62
+    raise ArgumentError, "#{method_name}: negative length (#{n})" if n < 0
+    n
+  end
+
+  public
+
+  def to_a(*args)
+    r = []; each(*args) { |*x| r << __unpack_enum_args__(x) }; r
+  end
+  alias entries to_a
+
+  def to_h(*args, &block)
+    r = {}
+    each(*args) do |*x|
+      v = __unpack_enum_args__(x)
+      pair = block ? block.call(v) : v
+      unless pair.is_a?(Array)
+        if pair.respond_to?(:to_ary)
+          pair = pair.to_ary
+          raise TypeError, "wrong element type #{pair.class} (expected Array)" unless pair.is_a?(Array)
+        else
+          raise TypeError, "wrong element type #{pair.nil? ? 'NilClass' : pair.class} (expected Array)"
+        end
+      end
+      raise ArgumentError, "element has wrong array length (expected 2, was #{pair.length})" unless pair.length == 2
+      r[pair[0]] = pair[1]
+    end
+    r
+  end
+
+  def map(&block)
+    return to_enum(:map) { respond_to?(:size) ? size : nil } unless block
+    r = []
+    case block.arity
+    when 1 then each { |x| r << block.call(x) }
+    when 2 then each { |x, y| r << block.call(x, y) }
+    else each { |*x| r << block.call(*x) }
+    end
+    r
+  end
+  alias collect map
+
+  def flat_map(&block)
+    return to_enum(:flat_map) { respond_to?(:size) ? size : nil } unless block
+    r = []
+    each { |*x|
+      v = __unpack_enum_args__(x)
+      w = block.call(v)
+      if w.is_a?(Array)
+        w.each { |e| r << e }
+      elsif w.respond_to?(:to_ary)
+        arr = w.to_ary
+        if arr.nil?
+          r << w
+        elsif arr.is_a?(Array)
+          arr.each { |e| r << e }
+        else
+          raise TypeError, "can't convert #{w.class} into Array (#{w.class}#to_ary gives #{arr.class})"
+        end
+      else
+        r << w
+      end
+    }
+    r
+  end
+  alias collect_concat flat_map
+
+  def select(&block)
+    return to_enum(:select) { respond_to?(:size) ? size : nil } unless block
+    r = []; each { |*x| v = __unpack_enum_args__(x); r << v if block.call(v) }; r
+  end
+  alias filter select
+  alias find_all select
+
+  def reject(&block)
+    return to_enum(:reject) { respond_to?(:size) ? size : nil } unless block
+    r = []; each { |*x| v = __unpack_enum_args__(x); r << v unless block.call(v) }; r
+  end
+
+  def find(ifnone = nil, &block)
+    return to_enum(:find, ifnone) unless block
+    each { |*x| v = __unpack_enum_args__(x); return v if block.call(v) }
+    ifnone ? ifnone.call : nil
+  end
+  alias detect find
+
+  def find_index(val = :__none__, &block)
+    if !val.equal?(:__none__)
+      warn "warning: given block not used" if block
+      i = 0; each { |*x| v = __unpack_enum_args__(x); return i if v == val; i += 1 }; nil
+    elsif block
+      i = 0; each { |*x| return i if block.call(*x); i += 1 }; nil
+    else
+      return to_enum(:find_index)
+    end
+  end
+
+  def include?(val)
+    each { |*x| v = __unpack_enum_args__(x); return true if v == val }
+    false
+  end
+  alias member? include?
+
+  def any?(pat = :__none__, &block)
+    if pat.equal?(:__none__)
+      each { |*x| v = __unpack_enum_args__(x); return true if (block ? block.call(*x) : v) }
+    else
+      warn "warning: given block not used" if block
+      each { |*x| v = __unpack_enum_args__(x); return true if pat === v }
+    end
+    false
+  end
+
+  def all?(pat = :__none__, &block)
+    if pat.equal?(:__none__)
+      each { |*x| v = __unpack_enum_args__(x); return false unless (block ? block.call(*x) : v) }
+    else
+      warn "warning: given block not used" if block
+      each { |*x| v = __unpack_enum_args__(x); return false unless pat === v }
+    end
+    true
+  end
+
+  def none?(pat = :__none__, &block)
+    if pat.equal?(:__none__)
+      each { |*x| v = __unpack_enum_args__(x); return false if (block ? block.call(*x) : v) }
+    else
+      warn "warning: given block not used" if block
+      each { |*x| v = __unpack_enum_args__(x); return false if pat === v }
+    end
+    true
+  end
+
+  def one?(pat = :__none__, &block)
+    found = false
+    if pat.equal?(:__none__)
+      each do |*x|
+        v = __unpack_enum_args__(x)
+        if block ? block.call(*x) : v
+          return false if found
+          found = true
+        end
+      end
+    else
+      warn "warning: given block not used" if block
+      each do |*x|
+        v = __unpack_enum_args__(x)
+        if pat === v
+          return false if found
+          found = true
+        end
+      end
+    end
+    found
+  end
+
+  def count(val = :__none__, &block)
+    if val.equal?(:__none__)
+      return to_a.length unless block
+      n = 0; each { |*x| n += 1 if block.call(*x) }; n
+    else
+      warn "warning: given block not used" if block
+      n = 0; each { |*x| v = __unpack_enum_args__(x); n += 1 if v == val }; n
+    end
+  end
+
+  def reduce(*args, &block)
+    sym, has_initial, initial = __parse_reduce_args__(args, block)
     acc = initial; first = !has_initial
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       if first
         acc = v; first = false
       elsif sym
@@ -221,7 +249,7 @@ module Enumerable
     using_kahan = r.is_a?(Float)
     c = 0.0
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       v = block.call(v) if block
       if !using_kahan && v.is_a?(Float)
         r = r.to_f
@@ -236,22 +264,6 @@ module Enumerable
     r
   end
 
-  def __coerce_count__(n, method_name)
-    unless n.is_a?(Integer)
-      begin
-        n2 = n.to_int
-      rescue NoMethodError
-        raise TypeError, "no implicit conversion of #{n.class} into Integer"
-      end
-      raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n2.is_a?(Integer)
-      n = n2
-    end
-    raise RangeError, "#{method_name}: integer #{n} too big to convert into `long'" if n > 2**62
-    raise ArgumentError, "#{method_name}: negative length (#{n})" if n < 0
-    n
-  end
-  private :__coerce_count__
-
   def min(n = nil, &block)
     if n
       n = __coerce_count__(n, "min")
@@ -260,7 +272,7 @@ module Enumerable
     else
       result = nil; first = true
       each do |*x|
-        v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+        v = __unpack_enum_args__(x)
         if first
           result = v; first = false
         elsif block
@@ -285,7 +297,7 @@ module Enumerable
     else
       result = nil; first = true
       each do |*x|
-        v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+        v = __unpack_enum_args__(x)
         if first
           result = v; first = false
         elsif block
@@ -310,7 +322,7 @@ module Enumerable
     else
       best = nil; best_key = nil; first = true
       each do |*x|
-        v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+        v = __unpack_enum_args__(x)
         k = block.call(v)
         if first || (k <=> best_key) < 0
           best = v; best_key = k; first = false
@@ -328,7 +340,7 @@ module Enumerable
     else
       best = nil; best_key = nil; first = true
       each do |*x|
-        v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+        v = __unpack_enum_args__(x)
         k = block.call(v)
         if first || (k <=> best_key) > 0
           best = v; best_key = k; first = false
@@ -341,7 +353,7 @@ module Enumerable
   def minmax(&block)
     min_val = nil; max_val = nil; first = true
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       if first
         min_val = max_val = v; first = false
       elsif block
@@ -367,7 +379,7 @@ module Enumerable
     return to_enum(:minmax_by) { respond_to?(:size) ? size : nil } unless block
     min_val = nil; max_val = nil; min_key = nil; max_key = nil; first = true
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       k = block.call(v)
       if first
         min_val = max_val = v; min_key = max_key = k; first = false
@@ -392,7 +404,7 @@ module Enumerable
     return to_enum(:each_with_index, *args) { respond_to?(:size) ? size : nil } unless block
     i = 0
     each(*args) do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       block.call(v, i); i += 1
     end
     self
@@ -401,7 +413,7 @@ module Enumerable
   def each_with_object(obj, &block)
     return to_enum(:each_with_object, obj) { respond_to?(:size) ? size : nil } unless block
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       block.call(v, obj)
     end
     obj
@@ -413,7 +425,7 @@ module Enumerable
     return to_enum(:each_slice, n) { s = respond_to?(:size) ? size : nil; s ? (s.zero? ? 0 : (s + n - 1) / n) : nil } unless block
     buf = []
     each do |*x|
-      buf << (x.empty? ? nil : (x.length == 1 ? x[0] : x))
+      buf << __unpack_enum_args__(x)
       if buf.length == n
         block.call(buf); buf = []
       end
@@ -428,7 +440,7 @@ module Enumerable
     return to_enum(:each_cons, n) { s = respond_to?(:size) ? size : nil; s ? [s - n + 1, 0].max : nil } unless block
     buf = []
     each do |*x|
-      buf << (x.empty? ? nil : (x.length == 1 ? x[0] : x))
+      buf << __unpack_enum_args__(x)
       buf.shift if buf.length > n
       block.call(buf.dup) if buf.length == n
     end
@@ -450,7 +462,7 @@ module Enumerable
     result = []
     i = 0
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       row = [v]
       arrays.each { |a| row << (i < a.length ? a[i] : nil) }
       if block_given?
@@ -467,7 +479,7 @@ module Enumerable
     return to_enum(:group_by) { respond_to?(:size) ? size : nil } unless block
     result = {}
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       k = block.call(v); result[k] ||= []; result[k] << v
     end
     result
@@ -484,7 +496,7 @@ module Enumerable
     end
     result = hash || {}
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       result.store(v, result.fetch(v, 0) + 1)
     end
     result
@@ -494,7 +506,7 @@ module Enumerable
     is_regexp = pattern.is_a?(Regexp) rescue false
     r = []
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       matched = block ? (pattern === v) : (is_regexp ? pattern.match?(v) : (pattern === v))
       r << (block ? block.call(v) : v) if matched
     end
@@ -505,7 +517,7 @@ module Enumerable
     is_regexp = pattern.is_a?(Regexp) rescue false
     r = []
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       matched = block ? (pattern === v) : (is_regexp ? pattern.match?(v) : (pattern === v))
       r << (block ? block.call(v) : v) unless matched
     end
@@ -514,7 +526,7 @@ module Enumerable
 
   def first(n = :__none__)
     if n.equal?(:__none__)
-      each { |*x| return x.empty? ? nil : (x.length == 1 ? x[0] : x) }
+      each { |*x| return __unpack_enum_args__(x) }
       nil
     else
       n = __coerce_count__(n, "first")
@@ -522,7 +534,7 @@ module Enumerable
       r = []
       catch(:__first_done__) do
         each do |*x|
-          r << (x.empty? ? nil : (x.length == 1 ? x[0] : x))
+          r << __unpack_enum_args__(x)
           throw :__first_done__ if r.length >= n
         end
       end
@@ -536,7 +548,7 @@ module Enumerable
     r = []
     catch(:__take_done__) do
       each do |*x|
-        r << (x.empty? ? nil : (x.length == 1 ? x[0] : x))
+        r << __unpack_enum_args__(x)
         throw :__take_done__ if r.length >= n
       end
     end
@@ -547,7 +559,7 @@ module Enumerable
     return to_enum(:take_while) unless block
     r = []
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       break unless block.call(*x)
       r << v
     end
@@ -566,7 +578,7 @@ module Enumerable
     end
     raise ArgumentError, "attempt to drop negative size" if n < 0
     r = []; i = 0
-    each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); i < n ? (i += 1) : (r << v) }
+    each { |*x| v = __unpack_enum_args__(x); i < n ? (i += 1) : (r << v) }
     r
   end
 
@@ -574,7 +586,7 @@ module Enumerable
     return to_enum(:drop_while) unless block
     r = []; dropping = true
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       dropping = false if dropping && !block.call(v)
       r << v unless dropping
     end
@@ -584,7 +596,7 @@ module Enumerable
   def uniq(&block)
     seen = {}; r = []
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       k = block ? block.call(v) : v
       r << v and seen[k] = true unless seen.key?(k)
     end
@@ -596,7 +608,7 @@ module Enumerable
     Enumerator.new do |y|
       last_key = nil; has_key = false; buf = []
       each do |*x|
-        v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+        v = __unpack_enum_args__(x)
         k = block.call(v)
         if k.nil? || k == :_separator
           y << [last_key, buf] if has_key && !buf.empty?
@@ -623,7 +635,7 @@ module Enumerable
     Enumerator.new do |y|
       buf = nil
       each do |*x|
-        v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+        v = __unpack_enum_args__(x)
         if buf.nil?
           buf = [v]
         elsif block.call(buf.last, v)
@@ -641,7 +653,7 @@ module Enumerable
     Enumerator.new do |y|
       buf = nil
       each do |*x|
-        v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+        v = __unpack_enum_args__(x)
         if buf.nil?
           buf = [v]
         elsif block.call(buf.last, v)
@@ -657,17 +669,17 @@ module Enumerable
   def filter_map(&block)
     return to_enum(:filter_map) unless block
     r = []
-    each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); w = block.call(v); r << w if w }
+    each { |*x| v = __unpack_enum_args__(x); w = block.call(v); r << w if w }
     r
   end
 
   def compact
-    r = []; each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); r << v unless v.nil? }; r
+    r = []; each { |*x| v = __unpack_enum_args__(x); r << v unless v.nil? }; r
   end
 
   def each_entry(*args, &block)
     return to_enum(:each_entry, *args) { respond_to?(:size) ? size : nil } unless block
-    each(*args) { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); block.call(v) }
+    each(*args) { |*x| v = __unpack_enum_args__(x); block.call(v) }
     self
   end
 
@@ -680,7 +692,7 @@ module Enumerable
   def partition(&block)
     return to_enum(:partition) { respond_to?(:size) ? size : nil } unless block
     yes = []; no = []
-    each { |*x| v = x.empty? ? nil : (x.length == 1 ? x[0] : x); (block.call(v) ? yes : no) << v }
+    each { |*x| v = __unpack_enum_args__(x); (block.call(v) ? yes : no) << v }
     [yes, no]
   end
 
@@ -713,7 +725,7 @@ module Enumerable
     # First pass: call each directly (lazy, break-safe), collect cache
     cache = []
     each do |*x|
-      v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+      v = __unpack_enum_args__(x)
       cache << v
       block.call(v)
     end
@@ -737,7 +749,7 @@ module Enumerable
     Enumerator.new do |y|
       buf = nil
       each do |*x|
-        v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+        v = __unpack_enum_args__(x)
         if block.call(v)
           y << buf if buf && !buf.empty?
           buf = [v]
@@ -760,7 +772,7 @@ module Enumerable
     Enumerator.new do |y|
       buf = []
       each do |*x|
-        v = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+        v = __unpack_enum_args__(x)
         buf << v
         if block.call(v)
           y << buf
