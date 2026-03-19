@@ -111,7 +111,7 @@ class Rational < Numeric
   def clone(freeze: nil) = self
 
   def floor(n = 0)
-    n = _validate_ndigits(n) unless n.is_a?(Integer)
+    n = __validate_ndigits__(n) unless n.is_a?(Integer)
     if n == 0
       @numerator / @denominator
     elsif n > 0
@@ -124,7 +124,7 @@ class Rational < Numeric
   end
 
   def ceil(n = 0)
-    n = _validate_ndigits(n) unless n.is_a?(Integer)
+    n = __validate_ndigits__(n) unless n.is_a?(Integer)
     if n == 0
       -(-@numerator / @denominator)
     elsif n > 0
@@ -137,12 +137,12 @@ class Rational < Numeric
   end
 
   def truncate(n = 0)
-    n = _validate_ndigits(n) unless n.is_a?(Integer)
+    n = __validate_ndigits__(n) unless n.is_a?(Integer)
     @numerator < 0 ? ceil(n) : floor(n)
   end
 
   def round(n = 0, half: :up)
-    n = _validate_ndigits(n) unless n.is_a?(Integer)
+    n = __validate_ndigits__(n) unless n.is_a?(Integer)
     # Scale numerator/denominator for the given precision
     num = n >= 0 ? @numerator * (10 ** n) : @numerator
     den = n >= 0 ? @denominator : @denominator * (10 ** (-n))
@@ -200,7 +200,7 @@ class Rational < Numeric
     eps = eps.is_a?(Rational) ? eps.abs : Rational(eps.abs)
     lo = self - eps
     hi = self + eps
-    _simplest_rational(lo, hi)
+    __simplest_rational__(lo, hi)
   end
 
   def self.new(*) = raise NoMethodError, "undefined method 'new' for class #{self}"
@@ -229,19 +229,19 @@ class Rational < Numeric
     raise TypeError, "#{other.class} can't be coerced into Rational"
   end
 
-  def _simplest_rational(lo, hi)
+  def __simplest_rational__(lo, hi)
     return Rational(0, 1) if lo <= 0 && hi >= 0
-    return -_simplest_rational(-hi, -lo) if hi < 0
+    return -__simplest_rational__(-hi, -lo) if hi < 0
     lo_ceil = lo.ceil
     return Rational(lo_ceil, 1) if lo_ceil <= hi
     k = lo.floor
     lo2 = Rational(1, 1) / (hi - k)
     hi2 = Rational(1, 1) / (lo - k)
-    y = _simplest_rational(lo2, hi2)
+    y = __simplest_rational__(lo2, hi2)
     Rational(k * y.numerator + y.denominator, y.numerator)
   end
 
-  def _validate_ndigits(n)
+  def __validate_ndigits__(n)
     raise TypeError, "not an integer" unless n.is_a?(Integer)
     n
   end
@@ -306,7 +306,7 @@ class Complex
   end
 
   def +(other)
-    _complex_coerce_op(other, :+) do |v|
+    __complex_coerce_op__(other, :+) do |v|
       if v.is_a?(Complex)
         Complex(@real + v.real, @imaginary + v.imaginary)
       else
@@ -316,7 +316,7 @@ class Complex
   end
 
   def -(other)
-    _complex_coerce_op(other, :-) do |v|
+    __complex_coerce_op__(other, :-) do |v|
       if v.is_a?(Complex)
         Complex(@real - v.real, @imaginary - v.imaginary)
       else
@@ -326,7 +326,7 @@ class Complex
   end
 
   def *(other)
-    _complex_coerce_op(other, :*) do |v|
+    __complex_coerce_op__(other, :*) do |v|
       if v.is_a?(Complex)
         Complex(@real * v.real - @imaginary * v.imaginary,
                 @real * v.imaginary + @imaginary * v.real)
@@ -536,7 +536,7 @@ class Complex
   def inspect
     re_s = @real.inspect
     im_s = @imaginary.inspect
-    sep, disp = _format_imag(im_s)
+    sep, disp = __format_imag__(im_s)
     star = (disp[-1] =~ /[0-9]/) ? '' : '*'
     "(#{re_s}#{sep}#{disp}#{star}i)"
   end
@@ -544,14 +544,14 @@ class Complex
   def to_s
     re_s = @real.to_s
     im_s = @imaginary.to_s
-    sep, disp = _format_imag(im_s)
+    sep, disp = __format_imag__(im_s)
     star = (disp[-1] =~ /[0-9]/) ? '' : '*'
     "#{re_s}#{sep}#{disp}#{star}i"
   end
 
   private
 
-  def _complex_coerce_op(other, op)
+  def __complex_coerce_op__(other, op)
     if other.is_a?(Complex)
       yield other
     else
@@ -576,7 +576,7 @@ class Complex
     end
   end
 
-  def _format_imag(im_s)
+  def __format_imag__(im_s)
     if im_s.start_with?('-')
       ['-', im_s[1..]]
     else

@@ -141,7 +141,7 @@ class Set
 
   def flatten
     result = self.class.new
-    _do_flatten(result, {})
+    __do_flatten__(result, {})
     result
   end
 
@@ -322,10 +322,10 @@ class Set
 
   protected
 
-  def _do_flatten(result, seen)
+  def __do_flatten__(result, seen)
     raise ArgumentError, "tried to flatten recursive Set" if seen.key?(object_id)
     seen[object_id] = true
-    each { |x| x.is_a?(Set) ? x._do_flatten(result, seen) : result.add(x) }
+    each { |x| x.is_a?(Set) ? x.__do_flatten__(result, seen) : result.add(x) }
     seen.delete(object_id)
   end
 end

@@ -17,25 +17,25 @@ module Random::Formatter
   # Negative numbers treated as if 0 (returns float).
   def random_number(n = nil)
     if n.nil?
-      _secure_float
+      __secure_float__
     elsif n.is_a?(Integer)
-      return _secure_float if n <= 0
-      _secure_int(n)
+      return __secure_float__ if n <= 0
+      __secure_int__(n)
     elsif n.is_a?(Float)
-      return _secure_float if n <= 0.0
-      _secure_float * n
+      return __secure_float__ if n <= 0.0
+      __secure_float__ * n
     elsif n.is_a?(Range)
       beg = n.begin
       fin = n.end
       if beg.is_a?(Integer) && fin.is_a?(Integer)
         span = fin - beg + (n.exclude_end? ? 0 : 1)
         return beg if span <= 0
-        beg + _secure_int(span)
+        beg + __secure_int__(span)
       else
         beg_f = beg.to_f
         fin_f = fin.to_f
         span  = fin_f - beg_f
-        beg_f + _secure_float * span
+        beg_f + __secure_float__ * span
       end
     else
       raise ArgumentError, "invalid argument - #{n.inspect}"
@@ -49,12 +49,12 @@ module Random::Formatter
 
   private
 
-  def _secure_float
+  def __secure_float__
     bytes = random_bytes(8).unpack1('Q>')
     bytes.to_f / (2**64)
   end
 
-  def _secure_int(n)
+  def __secure_int__(n)
     bits  = n.bit_length
     nbytes = (bits + 7) / 8
     mask  = (1 << bits) - 1

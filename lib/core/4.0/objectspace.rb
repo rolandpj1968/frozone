@@ -129,8 +129,8 @@ module ObjectSpace
     end
 
     def []=(key, value)
-      _check_key!(key)
-      idx = _find_index(key)
+      __check_key__!(key)
+      idx = __find_index__(key)
       if idx
         @pairs[idx][1] = value
       else
@@ -140,19 +140,19 @@ module ObjectSpace
     end
 
     def [](key)
-      return nil if _ungcable?(key)
-      pair = _find_pair(key)
+      return nil if __ungcable__?(key)
+      pair = __find_pair__(key)
       pair ? pair[1] : nil
     end
 
     def key?(key)
-      return false if _ungcable?(key)
-      !_find_pair(key).nil?
+      return false if __ungcable__?(key)
+      !__find_pair__(key).nil?
     end
 
     def delete(key)
-      return nil if _ungcable?(key)
-      idx = _find_index(key)
+      return nil if __ungcable__?(key)
+      idx = __find_index__(key)
       if idx
         @pairs.delete_at(idx)[1]
       elsif block_given?
@@ -163,8 +163,8 @@ module ObjectSpace
     end
 
     def getkey(key)
-      return nil if _ungcable?(key)
-      pair = _find_pair(key)
+      return nil if __ungcable__?(key)
+      pair = __find_pair__(key)
       pair ? pair[0] : nil
     end
 
@@ -179,7 +179,7 @@ module ObjectSpace
 
     private
 
-    def _ungcable?(key)
+    def __ungcable__?(key)
       # Check for nil/true/false using identity (works even for BasicObject)
       return true if key.equal?(nil) || key.equal?(true) || key.equal?(false)
       begin
@@ -190,7 +190,7 @@ module ObjectSpace
       end
     end
 
-    def _find_pair(key)
+    def __find_pair__(key)
       # Use send(:hash) to allow private #hash
       key_hash = key.__send__(:hash)
       @pairs.find do |k, _v|
@@ -200,14 +200,14 @@ module ObjectSpace
       nil
     end
 
-    def _find_index(key)
+    def __find_index__(key)
       key_hash = key.__send__(:hash)
       @pairs.index do |k, _v|
         k.equal?(key) || (k.__send__(:hash) == key_hash && key.__send__(:eql?, k))
       end
     end
 
-    def _check_key!(key)
+    def __check_key__!(key)
       # Check for ungcable primitive types using identity first (BasicObject-safe)
       if key.equal?(nil) || key.equal?(true) || key.equal?(false)
         raise ArgumentError, "WeakKeyMap keys must be garbage collectable"

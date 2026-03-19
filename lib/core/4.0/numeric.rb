@@ -186,7 +186,7 @@ class Numeric
 
     # Size computation lambda
     size_fn = proc do
-      _step_size(limit, step_v, int_step, float_any)
+      __step_size__(limit, step_v, int_step, float_any)
     end
 
     # No block: return ArithmeticSequence or Enumerator
@@ -200,13 +200,13 @@ class Numeric
       return to_enum(:step, *pos_args) { size_fn.call }
     end
 
-    _step_each(limit, step_v, int_step, float_any, &block)
+    __step_each__(limit, step_v, int_step, float_any, &block)
     self
   end
 
   private
 
-  def _step_size(limit, step_v, int_step, float_any)
+  def __step_size__(limit, step_v, int_step, float_any)
     return Float::INFINITY if limit.nil?
 
     sv = float_any ? step_v.to_f : step_v
@@ -244,7 +244,7 @@ class Numeric
     end
   end
 
-  def _step_each(limit, step_v, int_step, float_any, &block)
+  def __step_each__(limit, step_v, int_step, float_any, &block)
     if int_step && !float_any
       # Pure integer stepping: exact arithmetic
       i = self
@@ -289,7 +289,7 @@ class Numeric
         # Count-based: compute number of steps to avoid float accumulation errors.
         # MRI uses: n = floor((lim - start) / step), yields n+1 values (i=0..n),
         # and clamps the last value to lim if rounding causes it to exceed lim.
-        n = _step_size(limit, step_v, false, true)
+        n = __step_size__(limit, step_v, false, true)
         n = 0 if n < 0
         if n.is_a?(Float) && n.infinite?
           # Infinite n: iterate until manually stopped (shouldn't happen with finite step+limit)

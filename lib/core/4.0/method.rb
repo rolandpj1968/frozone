@@ -52,7 +52,7 @@ class Method
   def to_s
     recv = receiver
     own = owner
-    param_sig = _param_sig
+    param_sig = __param_sig__
     loc = source_location ? " #{source_location[0]}:#{source_location[1]}" : ""
 
     # Singleton method defined directly on receiver's singleton class
@@ -86,7 +86,7 @@ class Method
 
   alias inspect to_s
 
-  def _param_sig
+  def __param_sig__
     parts = []
     parameters.each do |type, pname|
       case type

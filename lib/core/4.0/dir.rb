@@ -147,15 +147,15 @@ class Dir
 
   def each(&block)
     return to_enum(:each) unless block
-    _load_entries.each { |e| block.call(e) }
+    __load_entries__.each { |e| block.call(e) }
     self
   end
 
   def children
-    _load_entries.reject { |e| e == '.' || e == '..' }
+    __load_entries__.reject { |e| e == '.' || e == '..' }
   end
 
-  def entries = _load_entries.dup
+  def entries = __load_entries__.dup
 
   def chdir(&block)
     Intrinsics.dir_chdir(@path, block)
@@ -163,9 +163,9 @@ class Dir
 
   def fileno = Intrinsics.dir_fileno(@dir)
 
-  private
-
-  def _load_entries
+  def __load_entries__
     @entries ||= Dir.entries(@path)
   end
+
+  private :__load_entries__
 end

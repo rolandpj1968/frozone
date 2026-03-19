@@ -141,28 +141,28 @@ class Exception
     actual_order = (order == ORDER_UNSET) ? :top : order
 
     # Get the detailed message, calling #detailed_message with all kwargs + highlight
-    dm = _full_message_dm(hl, **kwargs)
+    dm = __full_message_dm__(hl, **kwargs)
     dm = dm.nil? ? (hl ? "\e[1;4m#{self.class.name || self.class.inspect}\e[m" : (self.class.name || self.class.inspect).to_s) : dm.to_str rescue dm.to_s
     bt = backtrace
 
-    result = _format_single_full_message(bt, dm, hl, actual_order, explicit_bottom: explicit_bottom)
+    result = __format_single_full_message__(bt, dm, hl, actual_order, explicit_bottom: explicit_bottom)
 
     # Append cause chain
     c = cause
     seen = [self.object_id]
     while c && !seen.include?(c.object_id)
       seen << c.object_id
-      c_dm = c._full_message_dm(hl, **kwargs) rescue c.class.name.to_s
+      c_dm = c.__full_message_dm__(hl, **kwargs) rescue c.class.name.to_s
       c_dm = c_dm.nil? ? c.class.name.to_s : (c_dm.to_str rescue c_dm.to_s)
       c_bt = c.backtrace
-      result += _format_single_full_message(c_bt, c_dm, hl, actual_order, explicit_bottom: explicit_bottom)
+      result += __format_single_full_message__(c_bt, c_dm, hl, actual_order, explicit_bottom: explicit_bottom)
       c = c.cause rescue nil
     end
 
     result
   end
 
-  def _full_message_dm(hl, **kwargs)
+  def __full_message_dm__(hl, **kwargs)
     if respond_to?(:detailed_message)
       detailed_message(highlight: hl, **kwargs)
     else
@@ -172,7 +172,7 @@ class Exception
 
   private
 
-  def _format_single_full_message(bt, dm, hl, order, explicit_bottom: false)
+  def __format_single_full_message__(bt, dm, hl, order, explicit_bottom: false)
     if bt.nil? || bt.empty?
       caller_str = Intrinsics.exception_caller_string
       loc = caller_str || "(unknown)"

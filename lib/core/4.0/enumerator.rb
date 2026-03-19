@@ -65,7 +65,7 @@ class Enumerator
         rewind
         begin
           loop do
-            vals = _advance
+            vals = __advance__
             result = yield(vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals))
             @feed = result
           end
@@ -77,21 +77,21 @@ class Enumerator
   end
 
   def next
-    vals = _next_values_raw
+    vals = __next_values_raw__
     vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals)
   end
 
   def next_values
-    _next_values_raw
+    __next_values_raw__
   end
 
   def peek
-    vals = _peek_values_raw
+    vals = __peek_values_raw__
     vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals)
   end
 
   def peek_values
-    _peek_values_raw
+    __peek_values_raw__
   end
 
   def feed(val)
@@ -253,7 +253,7 @@ class Enumerator
     self
   end
 
-  def _ensure_fiber
+  def __ensure_fiber__
     return if @fiber
     if @block
       b = @block
@@ -276,8 +276,8 @@ class Enumerator
     end
   end
 
-  def _advance
-    _ensure_fiber
+  def __advance__
+    __ensure_fiber__
     unless @fiber.alive?
       exc = StopIteration.new("iteration reached an end")
       exc.instance_variable_set(:@result, @_enum_result)
@@ -294,7 +294,7 @@ class Enumerator
     vals
   end
 
-  def _next_values_raw
+  def __next_values_raw__
     if @peeked
       @peeked = false
       vals = @peeked_vals
@@ -302,7 +302,7 @@ class Enumerator
       return vals
     end
     begin
-      _advance
+      __advance__
     rescue StopIteration
       raise
     rescue => e
@@ -311,9 +311,9 @@ class Enumerator
     end
   end
 
-  def _peek_values_raw
+  def __peek_values_raw__
     unless @peeked
-      @peeked_vals = _advance
+      @peeked_vals = __advance__
       @peeked = true
     end
     @peeked_vals

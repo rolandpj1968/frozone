@@ -176,7 +176,7 @@ class Float
     if n.nil?
       Intrinsics.float_ceil(self, nil)
     else
-      n = _to_int(n)
+      n = __to_int__(n)
       Intrinsics.float_ceil(self, n)
     end
   end
@@ -185,7 +185,7 @@ class Float
     if n.nil?
       Intrinsics.float_floor(self, nil)
     else
-      n = _to_int(n)
+      n = __to_int__(n)
       Intrinsics.float_floor(self, n)
     end
   end
@@ -194,7 +194,7 @@ class Float
     if n.nil?
       Intrinsics.float_truncate(self, nil)
     else
-      n = _to_int(n)
+      n = __to_int__(n)
       Intrinsics.float_truncate(self, n)
     end
   end
@@ -204,7 +204,7 @@ class Float
       Intrinsics.float_round(self, nil, half)
     else
       raise TypeError, "no implicit conversion of #{n.class} into Integer" if n.nil?
-      n = _to_int(n)
+      n = __to_int__(n)
       Intrinsics.float_round(self, n, half)
     end
   end
@@ -258,7 +258,7 @@ class Float
     raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"
   end
 
-  def _to_int(n)
+  def __to_int__(n)
     if n.is_a?(Integer)
       n
     elsif n.respond_to?(:to_int)

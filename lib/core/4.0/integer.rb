@@ -33,27 +33,27 @@ class Integer
 
   def +(v)
     return Intrinsics.integer__plus_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    _coerce_op(v, :+)
+    __coerce_op__(v, :+)
   end
 
   def -(v)
     return Intrinsics.integer__minus_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    _coerce_op(v, :-)
+    __coerce_op__(v, :-)
   end
 
   def *(v)
     return Intrinsics.integer__mul_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    _coerce_op(v, :*)
+    __coerce_op__(v, :*)
   end
 
   def /(v)
     return Intrinsics.integer__div_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    _coerce_op(v, :/)
+    __coerce_op__(v, :/)
   end
 
   def %(v)
     return Intrinsics.integer__mod_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    _coerce_op(v, :%)
+    __coerce_op__(v, :%)
   end
 
   alias modulo %
@@ -73,7 +73,7 @@ class Integer
       return Intrinsics.integer__pow_(self, v)
     end
     raise ZeroDivisionError, "divided by 0" if self == 0 && v.respond_to?(:negative?) && v.negative?
-    _coerce_op(v, :**)
+    __coerce_op__(v, :**)
   end
 
   def succ = self + 1
@@ -405,17 +405,17 @@ class Integer
   def rationalize(eps = nil) = Rational(self, 1)
 
   def allbits?(mask)
-    mask = _coerce_to_int(mask)
+    mask = __coerce_to_int__(mask)
     (self & mask) == mask
   end
 
   def anybits?(mask)
-    mask = _coerce_to_int(mask)
+    mask = __coerce_to_int__(mask)
     (self & mask) != 0
   end
 
   def nobits?(mask)
-    mask = _coerce_to_int(mask)
+    mask = __coerce_to_int__(mask)
     (self & mask) == 0
   end
 
@@ -486,7 +486,7 @@ class Integer
   private
 
   # Call coerce even if private; propagate non-NoMethodError exceptions
-  def _coerce_op(v, op)
+  def __coerce_op__(v, op)
     begin
       a, b = v.send(:coerce, self)
     rescue NoMethodError
@@ -502,7 +502,7 @@ class Integer
     raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"
   end
 
-  def _coerce_to_int(mask)
+  def __coerce_to_int__(mask)
     return mask if mask.is_a?(Integer)
     if mask.respond_to?(:to_int)
       r = mask.to_int
