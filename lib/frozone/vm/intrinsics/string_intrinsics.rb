@@ -12,6 +12,9 @@ module Frozone
         def string_get_byte(_, v, i) = (b = v.raw.getbyte(i.is_a?(IntegerObject) ? i.raw : i.to_i); b ? IntegerObject.new(b) : NilObject::NIL)
         def string_inspect(_, v) = StringObject.new(v.raw.inspect)
         def string_crypt(_, v, salt) = StringObject.new(v.raw.crypt(salt.raw))
+        def string_hash(_, v) = IntegerObject.new(v.raw.hash)
+        def string_eql(_, v1, v2) = bool_object_for(v2.is_a?(StringObject) && v1.raw == v2.raw)
+        def string_ord(_, v)               = IntegerObject.new(v.raw.ord)
 
         def string_spaceship(context, v1, v2)
           if v2.is_a?(StringObject)
@@ -34,12 +37,6 @@ module Frozone
           end
           NilObject::NIL
         end
-
-        def string_hash(_, v) = IntegerObject.new(v.raw.hash)
-
-        def string_eql(_, v1, v2) = bool_object_for(v2.is_a?(StringObject) && v1.raw == v2.raw)
-
-        def string_ord(_, v)               = IntegerObject.new(v.raw.ord)
 
         def string_split(context, v, sep = NilObject::NIL, limit = NilObject::NIL)
           sep = nil if sep.is_a?(NilObject)
@@ -465,6 +462,10 @@ module Frozone
 
         public
 
+        def string_succ(_, v)          = StringObject.new(v.raw.succ)
+        def string_b(_, v) = StringObject.new(v.raw.b)
+        def string_ascii_only(_, v) = bool_object_for(v.raw.ascii_only?)
+
         def string_dedup(_, v)
           raw = v.raw
           # skip dedup for strings with instance variables
@@ -512,8 +513,6 @@ module Frozone
           v.raw = other_raw.dup
           v
         end
-
-        def string_succ(_, v)          = StringObject.new(v.raw.succ)
 
         def string_succ_bang(_, v)
           v.raw = v.raw.succ
@@ -714,9 +713,6 @@ module Frozone
             raise FrozoneException.new(wrapped, e.message)
           end
         end
-
-        def string_b(_, v) = StringObject.new(v.raw.b)
-        def string_ascii_only(_, v) = bool_object_for(v.raw.ascii_only?)
 
         def string_concat(context, v1, v2)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v1.raw.inspect}") if v1.frozen?
@@ -1255,6 +1251,11 @@ module Frozone
 
         public
 
+        def string_chilled_q(_, v) = bool_object_for(v.chilled?)
+        def string_frozen(_, v)           = bool_object_for(v.frozen_object?)
+        def string_to_sym(_, v)           = SymbolObject.from(v.raw.to_sym)
+        def string_to_f(_, v)             = FloatObject.new(v.raw.to_f)
+
         def string_force_encoding(context, v, enc)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v.raw.inspect}") if v.frozen_object?
           enc_name = if enc.is_a?(StringObject)
@@ -1335,14 +1336,10 @@ module Frozone
           enc_class.get_constant(const_name) || StringObject.new(enc_name)
         end
 
-        def string_chilled_q(_, v) = bool_object_for(v.chilled?)
-
         def string_freeze(_, v)
           v.freeze_object!
           v
         end
-
-        def string_frozen(_, v)           = bool_object_for(v.frozen_object?)
 
         def string_dup(context, v)
           copy = StringObject.new(v.raw.dup)
@@ -1351,9 +1348,6 @@ module Frozone
           copy.dispatch(context, :initialize_copy, [v], {}, nil, private_ok: true)
           copy
         end
-
-        def string_to_sym(_, v)           = SymbolObject.from(v.raw.to_sym)
-        def string_to_f(_, v)             = FloatObject.new(v.raw.to_f)
 
         def string_to_r(context, v)
           r = v.raw.to_r
@@ -1459,6 +1453,12 @@ module Frozone
         end
 
         # Byte-level primitives
+
+        def string_valid_encoding(_, v) = bool_object_for(v.raw.valid_encoding?)
+        def string_dump(_, v) = StringObject.new(v.raw.dump, frozen: true)
+        def string_oct(_, v) = IntegerObject.new(v.raw.oct)
+        def string_grapheme_clusters(_, v) = ArrayObject.new(v.raw.grapheme_clusters.map { |g| StringObject.new(g) })
+        def string_tr_s(_, v, from, to) = StringObject.new(v.raw.tr_s(from.raw, to.raw))
 
         def string_getbyte(_, v, i)
           result = v.raw.getbyte(i.is_a?(IntegerObject) ? i.raw : i.to_i)
@@ -1626,8 +1626,6 @@ module Frozone
           v
         end
 
-        def string_valid_encoding(_, v) = bool_object_for(v.raw.valid_encoding?)
-
         def string_scrub(context, v, replacement = NilObject::NIL, block = NilObject::NIL)
           has_block = block && !block.is_a?(NilObject)
           has_repl = replacement && !replacement.is_a?(NilObject)
@@ -1644,8 +1642,6 @@ module Frozone
           end
         end
 
-        def string_dump(_, v) = StringObject.new(v.raw.dump, frozen: true)
-
         def string_undump(_, v)
           begin
             StringObject.new(v.raw.undump)
@@ -1653,8 +1649,6 @@ module Frozone
           rescue ::Encoding::UndefinedConversionError => e then raise FrozoneException.make(:EncodingError, e.message)
           end
         end
-
-        def string_oct(_, v) = IntegerObject.new(v.raw.oct)
 
         def string_upto(context, v, other, exclusive, block)
           return enum_for_str_upto(v, other, exclusive) if block.is_a?(NilObject)
@@ -1665,8 +1659,6 @@ module Frozone
           end
           v
         end
-
-        def string_grapheme_clusters(_, v) = ArrayObject.new(v.raw.grapheme_clusters.map { |g| StringObject.new(g) })
 
         def string_each_grapheme_cluster(context, v, block)
           if block.is_a?(NilObject)
@@ -1697,8 +1689,6 @@ module Frozone
           v.raw.force_encoding(orig_enc)
           v
         end
-
-        def string_tr_s(_, v, from, to) = StringObject.new(v.raw.tr_s(from.raw, to.raw))
 
         def string_swapcase_opts(_, v, *args)
           opts = args.map { |a| a.is_a?(SymbolObject) ? a.raw : a.raw.to_sym }
@@ -1757,6 +1747,8 @@ module Frozone
 
         private
 
+        def enum_for_no_block(context, v, method_name) = v.dispatch(context, :to_enum, [SymbolObject.from(method_name)], {})
+
         def numeric_to_vm(context, n, rat_class)
           case n
           when ::Integer then IntegerObject.new(n)
@@ -1782,8 +1774,6 @@ module Frozone
           s.upto(o, excl) { |x| arr << StringObject.new(x) }
           ArrayObject.new(arr)
         end
-
-        def enum_for_no_block(context, v, method_name) = v.dispatch(context, :to_enum, [SymbolObject.from(method_name)], {})
 
         public
 
@@ -2270,9 +2260,7 @@ module Frozone
         # Symbol
         def symbol_to_s(_, v) = StringObject.new(v.raw.to_s, chilled_source: v.raw)
         def symbol_inspect(_, v) = StringObject.new(v.raw.inspect)
-
         def symbol_hash(_, v) = IntegerObject.new(v.raw.hash)
-
         def symbol_all_symbols(_) = ArrayObject.new(SymbolObject::SymbolObjects.values)
       end
     end
