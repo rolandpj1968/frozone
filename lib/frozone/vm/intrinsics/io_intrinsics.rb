@@ -20,11 +20,9 @@ module Frozone
           StringObject.new(result)
         end
 
-        def file_expand_path(_, path, base = NilObject::NIL)
+        def file_expand_path(_, path, base = NilObject::NIL) = reraise(ArgumentError) do
           result = base.is_a?(NilObject) ? File.expand_path(path.raw) : File.expand_path(path.raw, base.raw)
           StringObject.new(result)
-        rescue ArgumentError => e
-          raise FrozoneException.make(:ArgumentError, e.message)
         end
 
         def file_absolute_path(_, path, base = NilObject::NIL)
@@ -76,47 +74,21 @@ module Frozone
         def file_setgid(_, path) = bool_object_for(File.setgid?(path.raw)) rescue FalseObject::FALSE
         def file_sticky(_, path) = bool_object_for(File.sticky?(path.raw)) rescue FalseObject::FALSE
         def file_identical(_, a, b) = bool_object_for(File.identical?(a.raw, b.raw)) rescue FalseObject::FALSE
-        def file_ftype(_, path)
-          StringObject.new(File.ftype(path.raw))
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        end
+        def file_ftype(_, path)      = reraise(Errno::ENOENT)        { StringObject.new(File.ftype(path.raw)) }
+        def file_size_exact(_, path) = reraise(Errno::ENOENT)        { IntegerObject.new(File.size(path.raw)) }
+        def file_atime(_, path)      = reraise(Errno::ENOENT)        { TimeObject.new(File.atime(path.raw)) }
+        def file_mtime(_, path)      = reraise(Errno::ENOENT)        { TimeObject.new(File.mtime(path.raw)) }
+        def file_ctime(_, path)      = reraise(Errno::ENOENT)        { TimeObject.new(File.ctime(path.raw)) }
 
         def file_size(_, path)
           s = File.size?(path.raw)
           s ? IntegerObject.new(s) : NilObject::NIL
         end
 
-        def file_size_exact(_, path)
-          IntegerObject.new(File.size(path.raw))
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        end
-
-        def file_atime(_, path)
-          TimeObject.new(File.atime(path.raw))
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        end
-
-        def file_mtime(_, path)
-          TimeObject.new(File.mtime(path.raw))
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        end
-
-        def file_ctime(_, path)
-          TimeObject.new(File.ctime(path.raw))
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        end
-
         def file_birthtime(_, path)
           TimeObject.new(File.birthtime(path.raw))
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        rescue NotImplementedError => e
-          raise FrozoneException.make(:NotImplementedError, e.message)
+        rescue Errno::ENOENT        => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
+        rescue NotImplementedError  => e then raise FrozoneException.make(:NotImplementedError, e.message)
         end
 
         def file_read(_, path) = StringObject.new(File.read(path.raw))
@@ -163,43 +135,29 @@ module Frozone
             else
               raise FrozoneException.make(:TypeError, "no implicit conversion of #{p.class} into String")
             end
-            begin
-              File.delete(path_str)
-            rescue Errno::ENOENT => e
-              raise FrozoneException.make(:Errno__ENOENT, e.message)
-            end
+            reraise(Errno::ENOENT) { File.delete(path_str) }
           end
           IntegerObject.new(raw_paths.length)
         end
 
-        def file_rename(_, from, to)
+        def file_rename(_, from, to) = reraise(Errno::ENOENT) do
           File.rename(from.raw, to.raw)
           IntegerObject.new(0)
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
         end
 
         def file_symlink(_, path) = bool_object_for(File.symlink?(path.raw))
 
-        def file_symlink_create(_, target, link)
+        def file_symlink_create(_, target, link) = reraise(Errno::EEXIST) do
           File.symlink(target.raw, link.raw)
           IntegerObject.new(0)
-        rescue Errno::EEXIST => e
-          raise FrozoneException.make(:Errno__EEXIST, e.message)
         end
 
-        def file_link(_, target, link)
+        def file_link(_, target, link) = reraise(Errno::ENOENT) do
           File.link(target.raw, link.raw)
           IntegerObject.new(0)
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
         end
 
-        def file_readlink(_, path)
-          StringObject.new(File.readlink(path.raw))
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        end
+        def file_readlink(_, path) = reraise(Errno::ENOENT) { StringObject.new(File.readlink(path.raw)) }
 
         def file_zero(_, path) = bool_object_for(File.zero?(path.raw))
 
@@ -299,10 +257,8 @@ module Frozone
             count += 1
           end
           IntegerObject.new(count)
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        rescue RangeError => e
-          raise FrozoneException.make(:RangeError, e.message)
+        rescue Errno::ENOENT => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
+        rescue RangeError    => e then raise FrozoneException.make(:RangeError, e.message)
         end
 
         def file_truncate(_, path, length)
@@ -310,17 +266,13 @@ module Frozone
           raise FrozoneException.make(:Errno__EINVAL, "Invalid argument") if len < 0
           File.truncate(path.raw, len)
           IntegerObject.new(0)
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        rescue Errno::EINVAL => e
-          raise FrozoneException.make(:Errno__EINVAL, e.message)
+        rescue Errno::ENOENT  => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
+        rescue Errno::EINVAL  => e then raise FrozoneException.make(:Errno__EINVAL, e.message)
         end
 
-        def file_mkfifo(_, path, mode)
+        def file_mkfifo(_, path, mode) = reraise(NotImplementedError) do
           File.mkfifo(path.raw, mode.raw)
           IntegerObject.new(0)
-        rescue NotImplementedError => e
-          raise FrozoneException.make(:NotImplementedError, e.message)
         end
 
         def file_utime(_, atime, mtime, paths)
@@ -338,11 +290,9 @@ module Frozone
 
         def dir_pwd(_) = StringObject.new(Dir.pwd)
 
-        def dir_home(_, user = NilObject::NIL)
+        def dir_home(_, user = NilObject::NIL) = reraise(ArgumentError) do
           u = user.is_a?(NilObject) ? nil : user.raw
           StringObject.new(u ? Dir.home(u) : Dir.home)
-        rescue ArgumentError => e
-          raise FrozoneException.make(:ArgumentError, e.message)
         end
 
         def dir_glob(context, pattern, flags = NilObject::NIL, base = NilObject::NIL, sort = NilObject::NIL)
@@ -379,8 +329,7 @@ module Frozone
             Dir.glob(pats, flag_int, sort: sort_val)
           end
           ArrayObject.new(results.map { |p| StringObject.new(p) })
-        rescue ArgumentError => e
-          raise FrozoneException.make(:ArgumentError, e.message)
+        rescue ArgumentError => e then raise FrozoneException.make(:ArgumentError, e.message)
         end
 
         def dir_chdir(context, path, block)
@@ -405,20 +354,14 @@ module Frozone
             end
           end
           if block && !block.is_a?(NilObject)
-            begin
-              result = path_raw ? Dir.chdir(path_raw) { block.invoke(context, [StringObject.new(Dir.pwd)]) } :
-                                  Dir.chdir { block.invoke(context, [StringObject.new(Dir.pwd)]) }
-              result.is_a?(ObjectObject) ? result : NilObject::NIL
-            rescue Errno::ENOENT => e
-              raise FrozoneException.make(:Errno__ENOENT, e.message)
+            result = reraise(Errno::ENOENT) do
+              path_raw ? Dir.chdir(path_raw) { block.invoke(context, [StringObject.new(Dir.pwd)]) } :
+                         Dir.chdir { block.invoke(context, [StringObject.new(Dir.pwd)]) }
             end
+            result.is_a?(ObjectObject) ? result : NilObject::NIL
           else
-            begin
-              path_raw ? Dir.chdir(path_raw) : Dir.chdir
-              IntegerObject.new(0)
-            rescue Errno::ENOENT => e
-              raise FrozoneException.make(:Errno__ENOENT, e.message)
-            end
+            reraise(Errno::ENOENT) { path_raw ? Dir.chdir(path_raw) : Dir.chdir }
+            IntegerObject.new(0)
           end
         end
 
@@ -426,12 +369,9 @@ module Frozone
           m = mode.is_a?(NilObject) ? 0o777 : mode.raw
           Dir.mkdir(path.raw, m)
           IntegerObject.new(0)
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        rescue Errno::EEXIST => e
-          raise FrozoneException.make(:Errno__EEXIST, e.message)
-        rescue Errno::EACCES => e
-          raise FrozoneException.make(:Errno__EACCES, e.message)
+        rescue Errno::ENOENT  => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
+        rescue Errno::EEXIST  => e then raise FrozoneException.make(:Errno__EEXIST, e.message)
+        rescue Errno::EACCES  => e then raise FrozoneException.make(:Errno__EACCES, e.message)
         end
 
         def dir_entries(_, path)
@@ -442,26 +382,21 @@ module Frozone
         def dir_rmdir(_, path)
           Dir.rmdir(path.raw)
           IntegerObject.new(0)
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        rescue Errno::EACCES => e
-          raise FrozoneException.make(:Errno__EACCES, e.message)
-        rescue Errno::ENOTEMPTY => e
-          raise FrozoneException.make(:Errno__ENOTEMPTY, e.message)
+        rescue Errno::ENOENT    => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
+        rescue Errno::EACCES    => e then raise FrozoneException.make(:Errno__EACCES, e.message)
+        rescue Errno::ENOTEMPTY => e then raise FrozoneException.make(:Errno__ENOTEMPTY, e.message)
         end
 
         def dir_empty(_, path) = bool_object_for(Dir.empty?(path.raw))
-        def dir_exist(_, path) = path.raw && Dir.exist?(path.raw) ? TrueObject::TRUE : FalseObject::FALSE
+        def dir_exist(_, path) = bool_object_for(path.raw && Dir.exist?(path.raw))
 
         def dir_open(_, path)
           dir = ::Dir.new(path.raw)
           obj = ObjectObject.new(Core::OBJECT_CLASS)
           obj.instance_variable_set(:@__dir__, dir)
           obj
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        rescue Errno::ENOTDIR => e
-          raise FrozoneException.make(:Errno__ENOTDIR, e.message)
+        rescue Errno::ENOENT  => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
+        rescue Errno::ENOTDIR => e then raise FrozoneException.make(:Errno__ENOTDIR, e.message)
         end
 
         def dir_close(_, dir_obj)
@@ -500,12 +435,9 @@ module Frozone
         def dir_chroot(_, path)
           Dir.chroot(path.raw)
           IntegerObject.new(0)
-        rescue Errno::EPERM => e
-          raise FrozoneException.make(:Errno__EPERM, e.message)
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        rescue SystemCallError => e
-          raise FrozoneException.make(:SystemCallError, e.message)
+        rescue Errno::EPERM    => e then raise FrozoneException.make(:Errno__EPERM, e.message)
+        rescue Errno::ENOENT   => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
+        rescue SystemCallError => e then raise FrozoneException.make(:SystemCallError, e.message)
         end
 
         def dir_mktmpdir(context, prefix, block)
@@ -672,8 +604,7 @@ module Frozone
           end
           t = opts.empty? ? Time.new(mri_str) : Time.new(mri_str, **opts)
           time_make(context, t)
-        rescue ArgumentError, TypeError => e
-          raise FrozoneException.make(e.class.name.to_sym, e.message)
+        rescue ArgumentError, TypeError => e then raise FrozoneException.make(e.class.name.to_sym, e.message)
         end
 
         def time_minus(_, t, other)
@@ -684,14 +615,9 @@ module Frozone
           end
         end
 
-        def time_plus(_, t, secs)
-          if secs.is_a?(NilObject)
-            raise FrozoneException.make(:TypeError, "can't convert NilClass into an exact number")
-          end
-          mri_secs = frozone_to_mri_numeric(secs)
-          TimeObject.new(t.raw + mri_secs)
-        rescue TypeError => e
-          raise FrozoneException.make(:TypeError, e.message)
+        def time_plus(_, t, secs) = reraise(TypeError) do
+          raise FrozoneException.make(:TypeError, "can't convert NilClass into an exact number") if secs.is_a?(NilObject)
+          TimeObject.new(t.raw + frozone_to_mri_numeric(secs))
         end
 
         def time_to_f(_, t) = FloatObject.new(t.raw.to_f)
@@ -741,8 +667,7 @@ module Frozone
           t
         rescue FrozoneException
           raise
-        rescue TypeError, ArgumentError => e
-          raise FrozoneException.make(e.class.name.to_sym, e.message)
+        rescue TypeError, ArgumentError => e then raise FrozoneException.make(e.class.name.to_sym, e.message)
         end
 
         def time_utc(_, t)
@@ -869,8 +794,7 @@ module Frozone
             result.newly_created_for_subclass = false
           end
           result
-        rescue ::RegexpError => e
-          raise FrozoneException.make(:RegexpError, e.message)
+        rescue ::RegexpError => e then raise FrozoneException.make(:RegexpError, e.message)
         end
 
         def regexp_newly_created_q(_, r)
@@ -903,11 +827,7 @@ module Frozone
             raw_pat = pattern.raw
           elsif pattern.is_a?(StringObject)
             opts = flags.is_a?(IntegerObject) ? flags.raw : 0
-            begin
-              raw_pat = Regexp.new(pattern.raw, opts)
-            rescue ::RegexpError => e
-              raise FrozoneException.make(:RegexpError, e.message)
-            end
+            raw_pat = reraise(::RegexpError) { Regexp.new(pattern.raw, opts) }
           else
             return FalseObject::FALSE
           end
@@ -1000,8 +920,7 @@ module Frozone
             end
           end
           ::Regexp.union(*pats).then { |r| RegexpObject.new(r.source, r.options) }
-        rescue ::ArgumentError => e
-          raise FrozoneException.make(:ArgumentError, e.message)
+        rescue ::ArgumentError => e then raise FrozoneException.make(:ArgumentError, e.message)
         end
 
         def regexp_last_match(context, n = NilObject::NIL)
@@ -1121,13 +1040,10 @@ module Frozone
           ArrayObject.new(captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
         end
 
-        def match_data_index(context, md, idx)
-          raw = md.raw
+        def match_data_index(context, md, idx) = reraise(::IndexError) do
           key = match_data_group_key(context, idx)
-          val = raw[key]
+          val = md.raw[key]
           val ? StringObject.new(val) : NilObject::NIL
-        rescue ::IndexError => e
-          raise FrozoneException.make(:IndexError, e.message)
         end
 
         def match_data_slice(_, md, start_obj, len_obj)
@@ -1183,20 +1099,16 @@ module Frozone
           md.frozone_regexp || RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
         end
 
-        def match_data_begin(context, md, n)
+        def match_data_begin(context, md, n) = reraise(::IndexError) do
           key = match_data_group_key(context, n)
           v = md.raw.begin(key)
           v ? IntegerObject.new(v) : NilObject::NIL
-        rescue ::IndexError => e
-          raise FrozoneException.make(:IndexError, e.message)
         end
 
-        def match_data_end(context, md, n)
+        def match_data_end(context, md, n) = reraise(::IndexError) do
           key = match_data_group_key(context, n)
           v = md.raw.end(key)
           v ? IntegerObject.new(v) : NilObject::NIL
-        rescue ::IndexError => e
-          raise FrozoneException.make(:IndexError, e.message)
         end
 
         def match_data_captures(_, md)
@@ -1207,20 +1119,14 @@ module Frozone
           key = match_data_group_key(context, n)
           v = md.raw.bytebegin(key)
           v ? IntegerObject.new(v) : NilObject::NIL
-        rescue ::IndexError => e
-          raise FrozoneException.make(:IndexError, e.message)
-        rescue ::NameError => e
-          raise FrozoneException.make(:IndexError, e.message)
+        rescue ::IndexError, ::NameError => e then raise FrozoneException.make(:IndexError, e.message)
         end
 
         def match_data_byteend(context, md, n)
           key = match_data_group_key(context, n)
           v = md.raw.byteend(key)
           v ? IntegerObject.new(v) : NilObject::NIL
-        rescue ::IndexError => e
-          raise FrozoneException.make(:IndexError, e.message)
-        rescue ::NameError => e
-          raise FrozoneException.make(:IndexError, e.message)
+        rescue ::IndexError, ::NameError => e then raise FrozoneException.make(:IndexError, e.message)
         end
 
         def match_data_match_length(context, md, n)
@@ -1229,10 +1135,7 @@ module Frozone
           e = md.raw.end(key)
           return NilObject::NIL unless b && e
           IntegerObject.new(e - b)
-        rescue ::IndexError => e
-          raise FrozoneException.make(:IndexError, e.message)
-        rescue ::NameError => e
-          raise FrozoneException.make(:IndexError, e.message)
+        rescue ::IndexError, ::NameError => e then raise FrozoneException.make(:IndexError, e.message)
         end
 
         def match_data_hash(_, md)
