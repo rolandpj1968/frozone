@@ -786,7 +786,7 @@ module Frozone
         end
 
         def module_eval(context, receiver, block)
-          return NilObject::NIL if frozone_nil?(block)
+          return NilObject::NIL if block.is_a?(NilObject)
           prev_vis = receiver.is_a?(ModuleObject) ? receiver.current_visibility : nil
           receiver.current_visibility = :public if prev_vis
           context.scopes << receiver
@@ -799,7 +799,7 @@ module Frozone
         end
 
         def module_exec(context, receiver, args_obj, block)
-          return NilObject::NIL if frozone_nil?(block)
+          return NilObject::NIL if block.is_a?(NilObject)
           args = args_obj.is_a?(ArrayObject) ? args_obj.raw : []
           prev_vis = receiver.is_a?(ModuleObject) ? receiver.current_visibility : nil
           receiver.current_visibility = :public if prev_vis
@@ -1114,7 +1114,7 @@ module Frozone
         def bound_method_call(context, receiver, args, kwargs)
           return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
           blk = context.frame.block
-          blk = nil if frozone_nil?(blk)
+          blk = nil if blk.is_a?(NilObject)
           kw = kwargs.is_a?(HashObject) ? kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k.raw.to_sym } : {}
           if receiver.method_missing_dispatch
             receiver.bound_receiver.dispatch(context, :method_missing, [SymbolObject.from(receiver.bound_name)] + args.raw, kw, blk, private_ok: true)
@@ -1768,7 +1768,7 @@ module Frozone
           args = args_array.raw
           name_obj = args[0]
           callable = args.length > 1 ? args[1] : nil
-          effective = if frozone_nil?(callable)
+          effective = if callable.is_a?(NilObject)
             block
           else
             callable
@@ -1804,7 +1804,7 @@ module Frozone
         end
 
         def object_instance_eval(context, receiver, block)
-          return NilObject::NIL if frozone_nil?(block)
+          return NilObject::NIL if block.is_a?(NilObject)
           # Pass receiver as block arg so |obj| parameters receive self (MRI behaviour)
           return block.invoke(context, [receiver], receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(ProcObject)
           return block.invoke(context, [receiver], receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(BlockObject)
@@ -1900,7 +1900,7 @@ module Frozone
         end
 
         def object_instance_exec(context, receiver, args, block)
-          if frozone_nil?(block)
+          if block.is_a?(NilObject)
             raise FrozoneException.make(:LocalJumpError, "no block given")
           end
           return block.invoke(context, args.raw, receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(ProcObject)

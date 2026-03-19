@@ -8,9 +8,9 @@ module Frozone
         ARRAY_MAX_SIZE = 1_073_741_823  # 2**30 - 1; prevents allocation hangs for huge sizes
 
         def array_initialize(context, arr, size_or_array = NilObject::NIL, fill = NilObject::NIL, block = NilObject::NIL)
-          size_or_array = nil if frozone_nil?(size_or_array)
-          fill = nil if frozone_nil?(fill)
-          block = nil if frozone_nil?(block)
+          size_or_array = nil if size_or_array.is_a?(NilObject)
+          fill = nil if fill.is_a?(NilObject)
+          block = nil if block.is_a?(NilObject)
           arr.raw.clear
           if size_or_array.is_a?(ArrayObject)
             arr.raw.replace(size_or_array.raw.dup)
@@ -130,7 +130,7 @@ module Frozone
         end
 
         def array_flatten(context, arr, depth)
-          d = if frozone_nil?(depth)
+          d = if depth.is_a?(NilObject)
             nil
           elsif depth.is_a?(IntegerObject)
             n = depth.raw
@@ -213,7 +213,7 @@ module Frozone
 
           if r.is_a?(ArrayObject)
             r
-          elsif frozone_nil?(r)
+          elsif r.is_a?(NilObject)
             nil
           else
             raise FrozoneException.make(:TypeError, "can't convert #{elem.class_object.name} into Array (#{elem.class_object.name}#to_ary gives #{r.class_object.name})")
@@ -240,7 +240,7 @@ module Frozone
             i = 0
             while i < v.length && i < other.length
               c = v[i].dispatch(context, :<=>, [other[i]], {})
-              return NilObject::NIL if frozone_nil?(c)
+              return NilObject::NIL if c.is_a?(NilObject)
               return c if c.raw != 0
               i += 1
             end
@@ -281,7 +281,7 @@ module Frozone
           pairs = v.raw.map { |e| [block.invoke(context, [e]), e] }
           sorted = pairs.sort { |a, b|
             result = a[0].dispatch(context, :<=>, [b[0]], {})
-            frozone_nil?(result) ? 0 : result.raw
+            result.is_a?(NilObject) ? 0 : result.raw
           }
           ArrayObject.new(sorted.map { |_, e| e })
         end
@@ -548,15 +548,15 @@ module Frozone
 
         def array_combination(context, v, n, block = NilObject::NIL)
           combos = v.raw.combination(n.raw).map { |c| ArrayObject.new(c) }
-          return ArrayObject.new(combos) if frozone_nil?(block)
+          return ArrayObject.new(combos) if block.is_a?(NilObject)
           combos.each { |c| block.invoke(context, [c]) }
           v
         end
 
         def array_permutation(context, v, n = NilObject::NIL, block = NilObject::NIL)
-          n = frozone_nil?(n) ? v.raw.length : n.raw
+          n = n.is_a?(NilObject) ? v.raw.length : n.raw
           perms = v.raw.permutation(n).map { |p| ArrayObject.new(p) }
-          return ArrayObject.new(perms) if frozone_nil?(block)
+          return ArrayObject.new(perms) if block.is_a?(NilObject)
           perms.each { |p| block.invoke(context, [p]) }
           v
         end
@@ -565,7 +565,7 @@ module Frozone
           n_raw = n.is_a?(IntegerObject) ? n.raw : 0
           return v if n_raw < 0
           combos = v.raw.repeated_combination(n_raw).map { |c| ArrayObject.new(c) }
-          return ArrayObject.new(combos) if frozone_nil?(block)
+          return ArrayObject.new(combos) if block.is_a?(NilObject)
           combos.each { |c| block.invoke(context, [c]) }
           v
         end
@@ -574,7 +574,7 @@ module Frozone
           n_raw = n.is_a?(IntegerObject) ? n.raw : 0
           return v if n_raw < 0
           perms = v.raw.repeated_permutation(n_raw).map { |p| ArrayObject.new(p) }
-          return ArrayObject.new(perms) if frozone_nil?(block)
+          return ArrayObject.new(perms) if block.is_a?(NilObject)
           perms.each { |p| block.invoke(context, [p]) }
           v
         end
@@ -589,7 +589,7 @@ module Frozone
         end
 
         def range_set(_, range, b, e, excl)
-          excl = frozone_nil?(excl) ? false : excl.truthy?
+          excl = excl.is_a?(NilObject) ? false : excl.truthy?
           e = NilObject::NIL if e.nil?
           range.set_range(b, e, excl)
           range
@@ -618,7 +618,7 @@ module Frozone
 
         def hash_get_default(context, h, key = NilObject::NIL)
           if h.default_block
-            frozone_nil?(key) ? NilObject::NIL : h.default_block.invoke(context, [h, key])
+            key.is_a?(NilObject) ? NilObject::NIL : h.default_block.invoke(context, [h, key])
           elsif h.default_value
             h.default_value
           else

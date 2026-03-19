@@ -71,7 +71,7 @@ module Frozone
 
           cause = if no_cause_sentinel
             (current_exc && !current_exc.is_a?(NilObject)) ? current_exc : nil
-          elsif frozone_nil?(cause_arg)
+          elsif cause_arg.is_a?(NilObject)
             nil
           else
             cause_arg
@@ -103,7 +103,7 @@ module Frozone
             exc_obj.set_ivar(:@cause, effective_cause) if effective_cause
             apply_backtrace(exc_obj, backtrace_arg, context)
             raise FrozoneException.new(exc_obj, msg_str)
-          elsif msg.is_a?(StringObject) && frozone_nil?(message_arg)
+          elsif msg.is_a?(StringObject) && message_arg.is_a?(NilObject)
             # raise "message" — create RuntimeError with string
             exc = FrozoneException.make(:RuntimeError, msg.raw)
             effective_cause = (cause && !cause.equal?(exc.vm_object)) ? cause : nil
@@ -267,7 +267,7 @@ module Frozone
         end
 
         def kernel_loop(context, _receiver, block)
-          return NilObject::NIL if frozone_nil?(block)
+          return NilObject::NIL if block.is_a?(NilObject)
           loop do
             block.invoke(context, [])
           rescue Ast::BreakException => e
@@ -278,7 +278,7 @@ module Frozone
 
         def kernel_catch(context, _receiver, tag, block)
           tag_raw = tag.is_a?(NilObject) ? :__catch_nil__ : tag.respond_to?(:raw) ? tag.raw : tag
-          return NilObject::NIL if frozone_nil?(block)
+          return NilObject::NIL if block.is_a?(NilObject)
           result = catch(tag_raw) { block.invoke(context, [tag]) }
           result.is_a?(ObjectObject) ? result : NilObject::NIL
         end
@@ -345,7 +345,7 @@ module Frozone
         end
 
         def kernel_srand(_, _receiver, seed)
-          result = frozone_nil?(seed) ? srand : srand(seed.raw)
+          result = seed.is_a?(NilObject) ? srand : srand(seed.raw)
           IntegerObject.new(result)
         end
 
@@ -446,7 +446,7 @@ module Frozone
         end
 
         def kernel_integer(context, _receiver, val, base, exception = NilObject::NIL)
-          exc = frozone_nil?(exception) || exception.truthy?
+          exc = exception.is_a?(NilObject) || exception.truthy?
           b = base.respond_to?(:raw) ? base.raw : 0
           if val.is_a?(IntegerObject)
             return val

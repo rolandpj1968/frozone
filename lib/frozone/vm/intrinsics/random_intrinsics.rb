@@ -5,7 +5,7 @@ module Frozone
     module Intrinsics
       class << self
         def random_new(context, _receiver, seed)
-          if frozone_nil?(seed)
+          if seed.is_a?(NilObject)
             raw_seed = nil
           elsif seed.is_a?(IntegerObject)
             raw_seed = seed.raw
@@ -48,7 +48,7 @@ module Frozone
 
         def random_rand(context, v, n)
           rng = v.is_a?(RandomObject) ? v.rng : Random
-          if frozone_nil?(n)
+          if n.is_a?(NilObject)
             FloatObject.new(rng.rand)
           elsif n.is_a?(IntegerObject)
             IntegerObject.new(rng.rand(n.raw))
@@ -59,9 +59,9 @@ module Frozone
             end_val = n.end_val
             # If begin/end are native types, delegate to MRI rand
             if (beg_val.is_a?(IntegerObject) || beg_val.is_a?(FloatObject) ||
-                frozone_nil?(beg_val)) &&
+                beg_val.is_a?(NilObject)) &&
                (end_val.is_a?(IntegerObject) || end_val.is_a?(FloatObject) ||
-                frozone_nil?(end_val))
+                end_val.is_a?(NilObject))
               result = rng.rand(n.raw)
               result.is_a?(Integer) ? IntegerObject.new(result) : FloatObject.new(result)
             else

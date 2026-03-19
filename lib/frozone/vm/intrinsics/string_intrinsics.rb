@@ -27,7 +27,7 @@ module Frozone
             # Try v2 <=> v1, negate result
             begin
               r = v2.dispatch(context, :<=>, [v1], {})
-              return NilObject::NIL if frozone_nil?(r)
+              return NilObject::NIL if r.is_a?(NilObject)
               return IntegerObject.new(-r.raw)
             rescue FrozoneException
             end
@@ -112,7 +112,7 @@ module Frozone
           gs = nil
           if sep.is_a?(NilObject)
             gs = GLOBALS[:"$;"]
-            gs = nil if frozone_nil?(gs)
+            gs = nil if gs.is_a?(NilObject)
           end
 
           # Determine the raw separator
@@ -173,7 +173,7 @@ module Frozone
         def string_gsub(context, v, pattern, replacement = NilObject::NIL, block = NilObject::NIL)
           pat = extract_pattern(context, pattern)
           has_block = block && !block.is_a?(NilObject)
-          has_replacement = !frozone_nil?(replacement)
+          has_replacement = !replacement.is_a?(NilObject)
           if has_block && !has_replacement
             last_m = nil
             # Method references (BoundMethodObject) don't get $~ set (only Proc/lambda do)
@@ -200,7 +200,7 @@ module Frozone
             end
             update_match_globals(last_m)
             StringObject.new(result)
-          elsif frozone_nil?(replacement)
+          elsif replacement.is_a?(NilObject)
             # Explicit nil replacement → TypeError (no-replacement case handled in string.rb)
             raise FrozoneException.make(:TypeError, "no implicit conversion of nil into String")
           elsif replacement.is_a?(HashObject)
@@ -209,7 +209,7 @@ module Frozone
               last_m = $~
               key = StringObject.new(match)
               r = replacement.dispatch(context, :[], [key], {})
-              frozone_nil?(r) ? '' : block_result_to_s(context, r)
+              r.is_a?(NilObject) ? '' : block_result_to_s(context, r)
             end
             update_match_globals(last_m)
             StringObject.new(result)
@@ -230,7 +230,7 @@ module Frozone
         def string_sub(context, v, pattern, replacement = NilObject::NIL, block = NilObject::NIL)
           pat = extract_pattern(context, pattern)
           has_block = block && !block.is_a?(NilObject)
-          has_replacement = !frozone_nil?(replacement)
+          has_replacement = !replacement.is_a?(NilObject)
           if has_block && !has_replacement
             the_m = nil
             result = v.raw.sub(pat) do |_match|
@@ -244,7 +244,7 @@ module Frozone
             end
             update_match_globals(the_m)
             StringObject.new(result)
-          elsif frozone_nil?(replacement)
+          elsif replacement.is_a?(NilObject)
             raise FrozoneException.make(:TypeError, "no implicit conversion of nil into String")
           elsif replacement.is_a?(HashObject)
             first_m = nil
@@ -252,7 +252,7 @@ module Frozone
               first_m = $~
               key = StringObject.new(match)
               r = replacement.dispatch(context, :[], [key], {})
-              frozone_nil?(r) ? '' : block_result_to_s(context, r)
+              r.is_a?(NilObject) ? '' : block_result_to_s(context, r)
             end
             update_match_globals(first_m)
             StringObject.new(result)
@@ -357,8 +357,8 @@ module Frozone
             # Coerce range bounds if needed
             b = idx.begin_val
             e = idx.end_val
-            b_raw = frozone_nil?(b) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
-            e_raw = frozone_nil?(e) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
+            b_raw = b.is_a?(NilObject) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
+            e_raw = e.is_a?(NilObject) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
             range = Range.new(b_raw, e_raw, idx.exclusive?)
             begin
               result = v.raw[range]
@@ -495,7 +495,7 @@ module Frozone
         end
 
         def coerce_offset(context, offset)
-          return nil if frozone_nil?(offset)
+          return nil if offset.is_a?(NilObject)
           return nil if offset.is_a?(SymbolObject) && offset.raw == :__unset__
           return offset.raw if offset.is_a?(IntegerObject)
           str_vm_coerce_to_int(context, offset)
@@ -575,8 +575,8 @@ module Frozone
           if idx.is_a?(RangeObject)
             b = idx.begin_val
             e = idx.end_val
-            b_raw = frozone_nil?(b) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
-            e_raw = frozone_nil?(e) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
+            b_raw = b.is_a?(NilObject) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
+            e_raw = e.is_a?(NilObject) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
             idx_ruby = Range.new(b_raw, e_raw, idx.exclusive?)
           elsif idx.is_a?(IntegerObject)
             idx_ruby = idx.raw
@@ -587,7 +587,7 @@ module Frozone
           else
             idx_ruby = str_vm_coerce_to_int(context, idx)
           end
-          len_ruby = if frozone_nil?(len)
+          len_ruby = if len.is_a?(NilObject)
                        nil
                      elsif len.is_a?(IntegerObject)
                        len.raw
@@ -675,8 +675,8 @@ module Frozone
               elsif idx.is_a?(RangeObject)
                 b = idx.begin_val
                 e = idx.end_val
-                b_raw = frozone_nil?(b) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
-                e_raw = frozone_nil?(e) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
+                b_raw = b.is_a?(NilObject) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
+                e_raw = e.is_a?(NilObject) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
                 s[Range.new(b_raw, e_raw, idx.exclusive?)] = repl_raw
               else
                 i = str_vm_coerce_to_int(context, idx)
@@ -699,9 +699,9 @@ module Frozone
         end
 
         def string_each_line(context, v, sep, block)
-          if frozone_nil?(sep)
+          if sep.is_a?(NilObject)
             # nil separator: yield entire string as one chunk
-            if frozone_nil?(block)
+            if block.is_a?(NilObject)
               return ArrayObject.new([StringObject.new(v.raw.dup)])
             end
             block.invoke(context, [StringObject.new(v.raw.dup)])
@@ -728,7 +728,7 @@ module Frozone
                       raise FrozoneException.make(:TypeError, "no implicit conversion of #{sep.class} into String")
                     end
           begin
-            if frozone_nil?(block)
+            if block.is_a?(NilObject)
               ArrayObject.new(v.raw.each_line(sep_raw).map { |l| StringObject.new(l) })
             else
               v.raw.each_line(sep_raw) { |l| block.invoke(context, [StringObject.new(l)]) }
@@ -743,7 +743,7 @@ module Frozone
               raise FrozoneException.new(wrapped, e.message)
             end
             # BOM dummy encodings (UTF-16, UTF-32) — return/yield whole string
-            if frozone_nil?(block)
+            if block.is_a?(NilObject)
               ArrayObject.new([StringObject.new(v.raw.dup)])
             else
               block.invoke(context, [StringObject.new(v.raw.dup)])
@@ -989,8 +989,8 @@ module Frozone
           # Coerce options hash if it's a VM object
           opts = coerce_encode_opts(context, opts || {})
 
-          enc_nil = frozone_nil?(enc)
-          src_nil = frozone_nil?(src_enc)
+          enc_nil = enc.is_a?(NilObject)
+          src_nil = src_enc.is_a?(NilObject)
 
           enc_name = if enc_nil
                        # Use Encoding.default_internal
@@ -1039,7 +1039,7 @@ module Frozone
         def string_encode_bang(context, v, enc = NilObject::NIL, src_enc = NilObject::NIL, opts = NilObject::NIL)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String") if v.frozen?
           opts = coerce_encode_opts(context, opts || {})
-          enc_nil = frozone_nil?(enc)
+          enc_nil = enc.is_a?(NilObject)
           enc_opts = extract_encode_opts(opts)
           has_replace_opt = enc_opts[:invalid] == :replace || enc_opts[:undef] == :replace
           if enc_nil
@@ -1354,7 +1354,7 @@ module Frozone
             return 'ASCII-8BIT' unless enc_class
             begin
               int = enc_class.get_ivar(:@default_internal)
-              if frozone_nil?(int)
+              if int.is_a?(NilObject)
                 'ASCII-8BIT'
               else
                 int.is_a?(ObjectObject) ? (int.get_ivar(:@name)&.raw || name) : name
@@ -1444,7 +1444,7 @@ module Frozone
         def string_match_q(_, v, pattern, pos)
           pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
           str = v.raw
-          result = frozone_nil?(pos) ? pat.match?(str) : pat.match?(str, pos.raw)
+          result = pos.is_a?(NilObject) ? pat.match?(str) : pat.match?(str, pos.raw)
           bool_object_for(result)
         end
 
@@ -1540,8 +1540,8 @@ module Frozone
             if idx.is_a?(RangeObject)
               b = idx.begin_val
               e = idx.end_val
-              b_raw = frozone_nil?(b) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
-              e_raw = frozone_nil?(e) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
+              b_raw = b.is_a?(NilObject) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
+              e_raw = e.is_a?(NilObject) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
               v.raw.byteslice(Range.new(b_raw, e_raw, idx.exclusive?))
             elsif len
               idx_i = idx.is_a?(IntegerObject) ? idx.raw : str_vm_coerce_to_int(context, idx)
@@ -1650,8 +1650,8 @@ module Frozone
               if a.is_a?(RangeObject)
                 b = a.begin_val
                 e = a.end_val
-                b_raw = frozone_nil?(b) ? nil : b.raw
-                e_raw = frozone_nil?(e) ? nil : e.raw
+                b_raw = b.is_a?(NilObject) ? nil : b.raw
+                e_raw = e.is_a?(NilObject) ? nil : e.raw
                 Range.new(b_raw, e_raw, a.exclusive?)
               else
                 a.respond_to?(:raw) ? a.raw : a
@@ -1702,7 +1702,7 @@ module Frozone
         def string_oct(_, v) = IntegerObject.new(v.raw.oct)
 
         def string_upto(context, v, other, exclusive, block)
-          return enum_for_str_upto(v, other, exclusive) if frozone_nil?(block)
+          return enum_for_str_upto(v, other, exclusive) if block.is_a?(NilObject)
           excl = exclusive.truthy?
           other_raw = other.is_a?(StringObject) ? other.raw : other.dispatch(context, :to_str, [], {}).raw
           v.raw.upto(other_raw, excl) do |s|
@@ -1716,7 +1716,7 @@ module Frozone
         end
 
         def string_each_grapheme_cluster(context, v, block)
-          if frozone_nil?(block)
+          if block.is_a?(NilObject)
             return enum_for_no_block(context, v, :each_grapheme_cluster)
           end
           v.raw.each_grapheme_cluster { |g| block.invoke(context, [StringObject.new(g)]) }
@@ -1768,7 +1768,7 @@ module Frozone
         end
 
         def string_unicode_normalize(_, v, form = NilObject::NIL)
-          form_raw = frozone_nil?(form) ? :nfc : form.raw
+          form_raw = form.is_a?(NilObject) ? :nfc : form.raw
           begin
             StringObject.new(v.raw.unicode_normalize(form_raw))
           rescue ::Encoding::CompatibilityError => e
@@ -1777,7 +1777,7 @@ module Frozone
         end
 
         def string_unicode_normalized_q(_, v, form = NilObject::NIL)
-          form_raw = frozone_nil?(form) ? :nfc : form.raw
+          form_raw = form.is_a?(NilObject) ? :nfc : form.raw
           begin
             bool_object_for(v.raw.unicode_normalized?(form_raw))
           rescue ::Encoding::CompatibilityError => e
@@ -1855,7 +1855,7 @@ module Frozone
         end
 
         def encoding_set_default_internal(_, enc_name_obj)
-          if frozone_nil?(enc_name_obj)
+          if enc_name_obj.is_a?(NilObject)
             ::Encoding.default_internal = nil
           else
             enc_name = enc_name_obj.is_a?(StringObject) ? enc_name_obj.raw : enc_name_obj.to_s
@@ -2082,13 +2082,13 @@ module Frozone
           dest = dest_str.is_a?(StringObject) ? dest_str.raw : +"#{dest_str}"
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{dest.inspect}") if dest_str.is_a?(StringObject) && dest_str.frozen_object?
 
-          src = if frozone_nil?(src_arg)
+          src = if src_arg.is_a?(NilObject)
                   nil
                 else
                   src_arg.is_a?(StringObject) ? src_arg.raw : src_arg.to_s
                 end
 
-          offset = if frozone_nil?(offset_arg)
+          offset = if offset_arg.is_a?(NilObject)
                      nil
                    elsif offset_arg.respond_to?(:dispatch)
                      # Try to_int
@@ -2098,7 +2098,7 @@ module Frozone
                      offset_arg.raw
                    end
 
-          size = if frozone_nil?(size_arg)
+          size = if size_arg.is_a?(NilObject)
                    nil
                  elsif size_arg.respond_to?(:dispatch)
                    result = size_arg.dispatch(nil, :to_int, [], {}) rescue nil
@@ -2182,7 +2182,7 @@ module Frozone
         def encoding_converter_putback(_, receiver, n_arg = NilObject::NIL)
           conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
           return StringObject.new("") unless conv
-          result = if frozone_nil?(n_arg)
+          result = if n_arg.is_a?(NilObject)
                      conv.putback
                    else
                      n = n_arg.is_a?(IntegerObject) ? n_arg.raw : n_arg.to_i
@@ -2356,7 +2356,7 @@ module Frozone
             receiver = args[0]
             rest = args[1..]
             block_obj = block.is_a?(ProcObject) ? block.block_object : block
-            block_obj = nil if frozone_nil?(block_obj)
+            block_obj = nil if block_obj.is_a?(NilObject)
             receiver.dispatch(ctx, method_name, rest, {}, block_obj, private_ok: false, public_only: true)
           end
           ProcObject.new(native, lambda: true)

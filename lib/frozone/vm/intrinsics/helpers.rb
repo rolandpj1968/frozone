@@ -32,8 +32,13 @@ module Frozone
           raise FrozoneException.make(:FrozenError, "can't modify frozen #{frozone_class_name(v)}: #{v.inspect rescue v.object_id}")
         end
 
-        # True if v is Ruby nil or Frozone NilObject.
-        def frozone_nil?(v) = v.nil? || v.is_a?(NilObject)
+        # Rescue mri_exc and reraise as the equivalent FrozoneException.
+        # MRI class name maps to Frozone symbol via '::' -> '__' substitution.
+        def reraise(mri_exc)
+          yield
+        rescue mri_exc => e
+          raise FrozoneException.make(e.class.name.gsub('::', '__').to_sym, e.message)
+        end
 
         def collect_method_names(v, include_super, singleton_only_when_false: false, &visibility_ok)
           seen = {}
@@ -349,7 +354,7 @@ module Frozone
             c = cause
             while c && exception_instance?(c)
               c_cause = c.get_ivar(:@cause)
-              break if frozone_nil?(c_cause)
+              break if c_cause.is_a?(NilObject)
               if c_cause.equal?(exc_obj)
                 raise FrozoneException.make(:ArgumentError, "circular causes")
               end
@@ -380,7 +385,7 @@ module Frozone
         # ObjectSpace
 
         def objectspace_each_object(context, klass_obj, block)
-          return IntegerObject.new(0) if frozone_nil?(block)
+          return IntegerObject.new(0) if block.is_a?(NilObject)
           klass = klass_obj.is_a?(NilObject) ? nil : klass_obj
           count = 0
           ::ObjectSpace.each_object(Frozone::Vm::ObjectObject) do |obj|

@@ -30,7 +30,7 @@ module Frozone
             return proc_obj
           end
           # No block given
-          if frozone_nil?(block)
+          if block.is_a?(NilObject)
             raise FrozoneException.make(:ArgumentError, "tried to create Proc object without a block")
           end
           is_lam = block.is_a?(BoundMethodObject) || (block.is_a?(NativeBlock) && block.is_lambda)
@@ -66,7 +66,7 @@ module Frozone
 
         def proc_call(context, proc_obj, args, kw_args_obj = NilObject::NIL)
           blk = context.frame.block
-          blk = nil if frozone_nil?(blk)
+          blk = nil if blk.is_a?(NilObject)
           kw_args = kw_args_obj.is_a?(HashObject) ? kw_args_obj.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k } : {}
           proc_obj.call(context, args.raw, kw_args: kw_args, block: blk)
         end
