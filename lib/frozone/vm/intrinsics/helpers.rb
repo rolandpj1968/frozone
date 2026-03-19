@@ -4,6 +4,8 @@ module Frozone
   module Vm
     module Intrinsics
       class << self
+        def frozone_class_name(obj) = obj.is_a?(ObjectObject) ? (obj.class_object&.name || "Object") : obj.class.name
+
         def maybe_warn_deprecated_constant(context, owner, name)
           return unless owner.is_a?(ModuleObject)
           deprecated = owner.instance_variable_get(:@deprecated_constants)
@@ -397,8 +399,6 @@ module Frozone
           end
         end
 
-        def frozone_class_name(obj) = obj.is_a?(ObjectObject) ? (obj.class_object&.name || "Object") : obj.class.name
-
         # ObjectSpace
 
         def objectspace_each_object(context, klass_obj, block)
@@ -553,6 +553,14 @@ module Frozone
 
         # ENV intrinsics — direct MRI ENV access
 
+        def env_key?(_, key) = bool_object_for(ENV.key?(key.raw))
+        def env_value?(_, value) = bool_object_for(ENV.value?(value.raw))
+        def env_keys(_) = ArrayObject.new(ENV.keys.map { |k| StringObject.new(k) })
+        def env_values(_) = ArrayObject.new(ENV.values.map { |v| StringObject.new(v) })
+        def env_size(_) = IntegerObject.new(ENV.size)
+        def env_pairs(_) = ArrayObject.new(ENV.map { |k, v| ArrayObject.new([StringObject.new(k), StringObject.new(v)]) })
+        def env_to_hash(_) = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
+
         def env_get(_, key)
           val = ENV[key.raw]
           val.nil? ? NilObject::NIL : StringObject.new(val)
@@ -568,25 +576,15 @@ module Frozone
           val.nil? ? NilObject::NIL : StringObject.new(val)
         end
 
-        def env_key?(_, key) = bool_object_for(ENV.key?(key.raw))
-        def env_value?(_, value) = bool_object_for(ENV.value?(value.raw))
-
         def env_key(_, value)
           k = ENV.key(value.raw)
           k.nil? ? NilObject::NIL : StringObject.new(k)
         end
 
-        def env_keys(_) = ArrayObject.new(ENV.keys.map { |k| StringObject.new(k) })
-        def env_values(_) = ArrayObject.new(ENV.values.map { |v| StringObject.new(v) })
-        def env_size(_) = IntegerObject.new(ENV.size)
-
         def env_clear(_)
           ENV.clear
           NilObject::NIL
         end
-
-        def env_pairs(_) = ArrayObject.new(ENV.map { |k, v| ArrayObject.new([StringObject.new(k), StringObject.new(v)]) })
-        def env_to_hash(_) = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
       end
     end
   end

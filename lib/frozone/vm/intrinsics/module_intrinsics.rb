@@ -6,6 +6,12 @@ module Frozone
       class << self
         ALWAYS_PRIVATE_METHOD_NAMES = %i[initialize initialize_copy initialize_clone initialize_dup respond_to_missing?].freeze
 
+        def module_singleton_class_q(_, receiver) = receiver.is_a?(ClassObject) && receiver.is_singleton_class ? TrueObject::TRUE : FalseObject::FALSE
+        def module_public_only_instance_methods(ctx, receiver, include_super_obj = TrueObject::TRUE) = module_instance_methods(ctx, receiver, include_super_obj, :public)
+        def module_set_public(context, receiver, names)    = module_set_visibility(context, receiver, names, :public)
+        def module_set_private(context, receiver, names)   = module_set_visibility(context, receiver, names, :private)
+        def module_set_protected(context, receiver, names) = module_set_visibility(context, receiver, names, :protected)
+
         def module_ruby2_keywords(context, receiver, names_array)
           names_array.raw.each do |name_obj|
             name = sym_name(name_obj)
@@ -369,8 +375,6 @@ module Frozone
           receiver.instance_variable_set(:@cached_name_str, s)
           s
         end
-
-        def module_singleton_class_q(_, receiver) = receiver.is_a?(ClassObject) && receiver.is_singleton_class ? TrueObject::TRUE : FalseObject::FALSE
 
         def module_using(context, _receiver, mod)
           raise FrozoneException.make(:TypeError, "wrong argument type #{frozone_class_name(mod)} (expected Module)") unless mod.is_a?(ModuleObject)
@@ -911,8 +915,6 @@ module Frozone
           end
           ArrayObject.new(result)
         end
-
-        def module_public_only_instance_methods(ctx, receiver, include_super_obj = TrueObject::TRUE) = module_instance_methods(ctx, receiver, include_super_obj, :public)
 
         def module_undefined_instance_methods(_, receiver)
           result = []
@@ -1678,10 +1680,6 @@ module Frozone
           ArrayObject.new(result)
         end
 
-        def module_set_public(context, receiver, names)    = module_set_visibility(context, receiver, names, :public)
-        def module_set_private(context, receiver, names)   = module_set_visibility(context, receiver, names, :private)
-        def module_set_protected(context, receiver, names) = module_set_visibility(context, receiver, names, :protected)
-
         def module_set_class_method_visibility(context, receiver, names_obj, vis)
           sc = receiver.singleton_class
           # vis may come from Frozone-land as a SymbolObject — coerce to raw Symbol
@@ -1756,6 +1754,7 @@ module Frozone
         def toplevel_public(context, _, names)    = module_set_visibility(context, Core::OBJECT_CLASS, names, :public)
         def toplevel_private(context, _, names)   = module_set_visibility(context, Core::OBJECT_CLASS, names, :private)
         def toplevel_protected(context, _, names) = module_set_visibility(context, Core::OBJECT_CLASS, names, :protected)
+        def toplevel_ruby2_keywords(context, _, names) = module_ruby2_keywords(context, Core::OBJECT_CLASS, names)
 
         # main.define_method(name, callable_or_nil, &block) → delegates to Object.define_method
         # args_array collects [name] or [name, callable]; block is the block arg.
@@ -1781,8 +1780,6 @@ module Frozone
             Core::OBJECT_CLASS.current_visibility = prev_vis
           end
         end
-
-        def toplevel_ruby2_keywords(context, _, names) = module_ruby2_keywords(context, Core::OBJECT_CLASS, names)
 
         def toplevel_using(context, _receiver, mod_array)
           mod = mod_array.raw.first
@@ -2018,6 +2015,8 @@ module Frozone
         end
 
         # Class
+        def bool_object_for(bool) = bool ? TrueObject::TRUE : FalseObject::FALSE
+
         def class_new(context, klass, args, kwargs, block = NilObject::NIL)
           raise FrozoneException.make(:TypeError, "can't create instance of singleton class") if klass.is_singleton_class
           raise FrozoneException.make(:TypeError, "uninitialized class") if klass.is_a?(ClassObject) && klass.uninitialized_class
@@ -2124,7 +2123,6 @@ module Frozone
           klass.singleton_of
         end
 
-        def bool_object_for(bool) = bool ? TrueObject::TRUE : FalseObject::FALSE
       end
     end
   end

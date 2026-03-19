@@ -5,6 +5,11 @@ module Frozone
     module Intrinsics
       class << self
         # Kernel (on Object for now)
+        def process_status_exitstatus(_, obj) = IntegerObject.new(obj.native_status.exitstatus || 0)
+        def process_status_pid(_, obj) = IntegerObject.new(obj.native_status.pid || 0)
+        def emit_vm_warning(context, msg) = Frozone::Vm.emit_warning(context, msg)
+        def kernel_rand(context, _receiver, n) = random_rand(context, nil, n)
+
         def kernel_puts(context, _receiver, args)
           if args.raw.empty?
             $stdout.puts
@@ -225,16 +230,10 @@ module Frozone
           StringObject.new(filtered)
         end
 
-        def process_status_exitstatus(_, obj) = IntegerObject.new(obj.native_status.exitstatus || 0)
-
-        def process_status_pid(_, obj) = IntegerObject.new(obj.native_status.pid || 0)
-
         def process_status_termsig(_, obj)
           sig = obj.native_status.termsig
           sig ? IntegerObject.new(sig) : NilObject::NIL
         end
-
-        def emit_vm_warning(context, msg) = Frozone::Vm.emit_warning(context, msg)
 
         def kernel_abort(context, _receiver, msg)
           m = msg.is_a?(NilObject) ? nil : msg.dispatch(context, :to_s, [], {}).raw
@@ -251,8 +250,6 @@ module Frozone
           raise FrozoneException.new(exc_obj, "exit")
         end
 
-        def kernel_rand(context, _receiver, n) = random_rand(context, nil, n)
-
         def kernel_srand(_, _receiver, seed)
           result = srand(seed.is_a?(NilObject) ? nil : seed.raw)
           IntegerObject.new(result)
@@ -267,7 +264,6 @@ module Frozone
 
         # BasicObject
         def basic_object___id__(_, v) = IntegerObject.new(v.__id__)
-
         def basic_object__equal_equal_(_, v1, v2) = bool_object_for(v1.equal?(v2))
 
         def basic_object_method_missing(context, receiver, name, args, kwargs)
@@ -330,6 +326,18 @@ module Frozone
         end
 
         # Kernel require/load
+        def kernel_float(_, _receiver, val) = FloatObject.new(val.is_a?(FloatObject) ? val.raw : Float(val.raw))
+        def env_get(_, key) = (v = ENV[key.raw]) ? StringObject.new(v) : NilObject::NIL
+        def env_set(_, key, val) = (ENV[key.raw] = val.is_a?(NilObject) ? nil : val.raw; val)
+        def env_delete(_, key) = (v = ENV.delete(key.raw)) ? StringObject.new(v) : NilObject::NIL
+        def env_key?(_, key) = bool_object_for(ENV.key?(key.raw))
+        def env_keys(_) = ArrayObject.new(ENV.keys.map { |k| StringObject.new(k) })
+        def env_values(_) = ArrayObject.new(ENV.values.map { |v| StringObject.new(v) })
+        def env_size(_) = IntegerObject.new(ENV.size)
+        def env_clear(_) = (ENV.clear; NilObject::NIL)
+        def env_pairs(_) = ArrayObject.new(ENV.map { |k, v| ArrayObject.new([StringObject.new(k), StringObject.new(v)]) })
+        def env_to_hash(_) = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
+
         def kernel_require(_, _receiver, path_obj)
           path = path_obj.raw
           loaded = GLOBALS[:"$LOADED_FEATURES"]
@@ -389,8 +397,6 @@ module Frozone
             end
           end
         end
-
-        def kernel_float(_, _receiver, val) = FloatObject.new(val.is_a?(FloatObject) ? val.raw : Float(val.raw))
 
         def kernel_array(_, _receiver, val)
           return val if val.is_a?(ArrayObject)
@@ -567,17 +573,6 @@ module Frozone
             current_mod.current_visibility = prev_vis if current_mod && prev_vis
           end
         end
-
-        def env_get(_, key) = (v = ENV[key.raw]) ? StringObject.new(v) : NilObject::NIL
-        def env_set(_, key, val) = (ENV[key.raw] = val.is_a?(NilObject) ? nil : val.raw; val)
-        def env_delete(_, key) = (v = ENV.delete(key.raw)) ? StringObject.new(v) : NilObject::NIL
-        def env_key?(_, key) = bool_object_for(ENV.key?(key.raw))
-        def env_keys(_) = ArrayObject.new(ENV.keys.map { |k| StringObject.new(k) })
-        def env_values(_) = ArrayObject.new(ENV.values.map { |v| StringObject.new(v) })
-        def env_size(_) = IntegerObject.new(ENV.size)
-        def env_clear(_) = (ENV.clear; NilObject::NIL)
-        def env_pairs(_) = ArrayObject.new(ENV.map { |k, v| ArrayObject.new([StringObject.new(k), StringObject.new(v)]) })
-        def env_to_hash(_) = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
 
         private
 
