@@ -408,7 +408,47 @@ class Array
     end
   end
 
-  def flatten(depth = nil) = Intrinsics.array_flatten(self, depth)
+  def flatten(depth = nil)
+    d = if depth.nil?
+      nil
+    elsif depth.is_a?(Integer)
+      depth < 0 ? nil : depth
+    else
+      n = depth.to_int
+      raise TypeError, "no implicit conversion of #{depth.class} into Integer" unless n.is_a?(Integer)
+      n < 0 ? nil : n
+    end
+    result = []
+    _flatten_into(self, d, result, [])
+    result
+  end
+
+  def _flatten_into(arr, depth, result, seen_ids)
+    raise ArgumentError, "flatten: cannot flatten recursive array" if seen_ids.include?(arr.__id__)
+    seen_ids << arr.__id__
+    i = 0
+    while i < arr.length
+      elem = Intrinsics.array_at(arr, i)
+      if elem.is_a?(Array) && (depth.nil? || depth > 0)
+        _flatten_into(elem, depth.nil? ? nil : depth - 1, result, seen_ids)
+      elsif (depth.nil? || depth > 0) && !elem.nil? && elem.respond_to?(:to_ary)
+        converted = elem.to_ary
+        if converted.nil?
+          result << elem
+        elsif converted.is_a?(Array)
+          _flatten_into(converted, depth.nil? ? nil : depth - 1, result, seen_ids)
+        else
+          raise TypeError, "can't convert #{elem.class} into Array (#{elem.class}#to_ary gives #{converted.class})"
+        end
+      else
+        result << elem
+      end
+      i += 1
+    end
+    seen_ids.pop
+  end
+
+  private :_flatten_into
 
   def flatten!(depth = nil)
     raise FrozenError, "can't modify frozen Array" if frozen?
@@ -437,9 +477,49 @@ class Array
     end
     r
   end
-  def reverse = Intrinsics.array_reverse(self)
+  def reverse
+    n = length
+    result = []
+    i = n - 1
+    while i >= 0
+      result << Intrinsics.array_at(self, i)
+      i -= 1
+    end
+    result
+  end
+
   def reverse!; replace(reverse); self; end
-  def <=>(other) = Intrinsics.array_cmp(self, other)
+
+  def <=>(other)
+    unless other.is_a?(Array)
+      begin
+        converted = other.to_ary
+        return nil unless converted.is_a?(Array)
+        other = converted
+      rescue NoMethodError
+        return nil
+      rescue
+        return nil
+      end
+    end
+    ongoing = (Fiber[:__array_cmp__] ||= [])
+    id1, id2 = __id__, other.__id__
+    key = [id1, id2]
+    return 0 if ongoing.any? { |a, b| a == id1 && b == id2 }
+    ongoing << key
+    begin
+      i = 0
+      while i < length && i < other.length
+        c = self[i] <=> other[i]
+        return nil if c.nil?
+        return c if c != 0
+        i += 1
+      end
+      length <=> other.length
+    ensure
+      ongoing.pop
+    end
+  end
 
   def sort(&block)
     return dup if length <= 1
@@ -494,7 +574,12 @@ class Array
 
   def sort_by(&block)
     return to_enum(:sort_by) unless block
-    Intrinsics.array_sort_by(self, block)
+    pairs = map { |e| [block.call(e), e] }
+    pairs = _merge_sort(pairs, ->(a, b) {
+      c = a[0] <=> b[0]
+      c.nil? ? 0 : c
+    })
+    pairs.map { |_, e| e }
   end
 
   def sort_by!(&block)
@@ -868,14 +953,72 @@ class Array
   end
 
   def combination(n, &block)
-    return to_enum(:combination, n) { Intrinsics.array_combination(self, n, nil).length } unless block
-    Intrinsics.array_combination(self, n, block)
+    n = __coerce_to_int__(n)
+    unless block
+      sz = if n < 0
+        0
+      elsif n == 0
+        1
+      elsif n > length
+        0
+      else
+        __binomial_coeff__(length, n)
+      end
+      return to_enum(:combination, n) { sz }
+    end
+    _combination_r(self, n, 0, [], block)
+    self
   end
 
-  def permutation(n = nil, &block)
-    return to_enum(:permutation, n) { Intrinsics.array_permutation(self, n, nil).length } unless block
-    Intrinsics.array_permutation(self, n, block)
+  def _combination_r(arr, n, start, current, block)
+    if n == 0
+      block.call(current.dup)
+      return
+    end
+    i = start
+    while i <= arr.length - n
+      current << arr[i]
+      _combination_r(arr, n - 1, i + 1, current, block)
+      current.pop
+      i += 1
+    end
   end
+
+  private :_combination_r
+
+  def permutation(n = nil, &block)
+    n = n.nil? ? length : __coerce_to_int__(n)
+    unless block
+      sz = if n < 0 || n > length
+        0
+      else
+        p = 1; (length - n + 1..length).each { |k| p *= k }; p
+      end
+      return to_enum(:permutation, n) { sz }
+    end
+    _permutation_r(self, n, [], Array.new(length, false), block)
+    self
+  end
+
+  def _permutation_r(arr, n, current, used, block)
+    if current.length == n
+      block.call(current.dup)
+      return
+    end
+    i = 0
+    while i < arr.length
+      unless used[i]
+        used[i] = true
+        current << arr[i]
+        _permutation_r(arr, n, current, used, block)
+        current.pop
+        used[i] = false
+      end
+      i += 1
+    end
+  end
+
+  private :_permutation_r
 
   def each
     return to_enum(:each) { size } unless block_given?
@@ -1010,13 +1153,24 @@ class Array
 
   def map(&block)
     return to_enum(:map) { size } unless block
-    Intrinsics.array_map_with_block(self, block)
+    result = []
+    i = 0
+    while i < length
+      result << block.call(Intrinsics.array_at(self, i))
+      i += 1
+    end
+    result
   end
 
   def map!(&block)
     return to_enum(:map!) { size } unless block
     raise FrozenError, "can't modify frozen Array" if frozen?
-    Intrinsics.array_map_bang_with_block(self, block)
+    i = 0
+    while i < length
+      Intrinsics.array_index_write(self, i, block.call(Intrinsics.array_at(self, i)))
+      i += 1
+    end
+    self
   end
 
   alias collect map
@@ -1428,9 +1582,26 @@ class Array
       sz = n < 0 ? 0 : (n == 0 ? 1 : __binomial_coeff__(length + n - 1, n))
       return to_enum(:repeated_combination, n) { sz }
     end
-    Intrinsics.array_repeated_combination(self, n, block)
+    return self if n < 0
+    _repeated_combination_r(self, n, 0, [], block)
     self
   end
+
+  def _repeated_combination_r(arr, n, start, current, block)
+    if n == 0
+      block.call(current.dup)
+      return
+    end
+    i = start
+    while i < arr.length
+      current << arr[i]
+      _repeated_combination_r(arr, n - 1, i, current, block)
+      current.pop
+      i += 1
+    end
+  end
+
+  private :_repeated_combination_r
 
   def repeated_permutation(n, &block)
     n = __coerce_to_int__(n)
@@ -1438,9 +1609,26 @@ class Array
       sz = n < 0 ? 0 : (length == 0 ? (n == 0 ? 1 : 0) : length ** n)
       return to_enum(:repeated_permutation, n) { sz }
     end
-    Intrinsics.array_repeated_permutation(self, n, block)
+    return self if n < 0
+    _repeated_permutation_r(self, n, [], block)
     self
   end
+
+  def _repeated_permutation_r(arr, n, current, block)
+    if current.length == n
+      block.call(current.dup)
+      return
+    end
+    i = 0
+    while i < arr.length
+      current << arr[i]
+      _repeated_permutation_r(arr, n, current, block)
+      current.pop
+      i += 1
+    end
+  end
+
+  private :_repeated_permutation_r
 
   def __binomial_coeff__(n, k)
     return 0 if k < 0 || k > n
