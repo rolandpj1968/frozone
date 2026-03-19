@@ -5,48 +5,11 @@ module Frozone
     module Intrinsics
       class << self
         # File / Dir
-        def file_join(_, parts)
-          strs = parts.raw.flat_map { |p| p.is_a?(ArrayObject) ? p.raw.map(&:raw) : p.raw }
-          StringObject.new(File.join(*strs))
-        end
-
-        def file_dirname(_, path, level = NilObject::NIL)
-          lvl = level.is_a?(NilObject) ? 1 : level.raw
-          StringObject.new(File.dirname(path.raw, lvl))
-        end
-
         def file_basename(_, path, suffix = NilObject::NIL) = StringObject.new(File.basename(path.raw, suffix.is_a?(NilObject) ? nil : suffix.raw))
-
-        def file_expand_path(_, path, base = NilObject::NIL) = reraise(ArgumentError) do
-          StringObject.new(File.expand_path(path.raw, base.is_a?(NilObject) ? nil : base.raw))
-        end
-
         def file_absolute_path(_, path, base = NilObject::NIL) = StringObject.new(File.absolute_path(path.raw, base.is_a?(NilObject) ? nil : base.raw))
-
         def file_absolute_path_q(_, path) = bool_object_for(File.absolute_path?(path.raw))
-
-        def file_realpath(_, path, base = NilObject::NIL)
-          StringObject.new(File.realpath(path.raw, base.is_a?(NilObject) ? nil : base.raw))
-        rescue Errno::ENOENT => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
-        end
-
-        def file_realdirpath(_, path, base = NilObject::NIL)
-          StringObject.new(File.realdirpath(path.raw, base.is_a?(NilObject) ? nil : base.raw))
-        rescue Errno::ENOENT => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
-        end
-
         def file_exist(_, path) = bool_object_for(File.exist?(path.raw))
         def file_directory(_, path) = bool_object_for(File.directory?(path.raw))
-
-        def file_umask(_, new_mask)
-          if new_mask.is_a?(NilObject)
-            IntegerObject.new(File.umask)
-          else
-            old = File.umask(new_mask.is_a?(IntegerObject) ? new_mask.raw : new_mask.raw.to_i)
-            IntegerObject.new(old)
-          end
-        end
-
         def file_file(_, path) = bool_object_for(File.file?(path.raw))
         def file_readable(_, path) = bool_object_for(File.readable?(path.raw))
         def file_readable_real(_, path) = bool_object_for(File.readable_real?(path.raw))
@@ -69,6 +32,64 @@ module Frozone
         def file_atime(_, path)      = reraise(Errno::ENOENT)        { TimeObject.new(File.atime(path.raw)) }
         def file_mtime(_, path)      = reraise(Errno::ENOENT)        { TimeObject.new(File.mtime(path.raw)) }
         def file_ctime(_, path)      = reraise(Errno::ENOENT)        { TimeObject.new(File.ctime(path.raw)) }
+        def file_read(_, path) = StringObject.new(File.read(path.raw))
+        def file_symlink(_, path) = bool_object_for(File.symlink?(path.raw))
+        def file_readlink(_, path) = reraise(Errno::ENOENT) { StringObject.new(File.readlink(path.raw)) }
+        def file_zero(_, path) = bool_object_for(File.zero?(path.raw))
+        def file_fnmatch(_, pattern, path, flags) = bool_object_for(File.fnmatch(pattern.raw, path.raw, flags.raw))
+        # Returns nil - stat info accessed via individual methods
+        def file_stat_native(_, path) = reraise(Errno::ENOENT) { NilObject::NIL }
+        def file_stat_mode(_, path)      = stat_int_field(path) { |s| s.mode }
+        def file_stat_ino(_, path)       = stat_int_field(path) { |s| s.ino }
+        def file_stat_nlink(_, path)     = stat_int_field(path) { |s| s.nlink }
+        def file_stat_uid(_, path)       = stat_int_field(path) { |s| s.uid }
+        def file_stat_gid(_, path)       = stat_int_field(path) { |s| s.gid }
+        def file_stat_dev(_, path)       = stat_int_field(path) { |s| s.dev }
+        def file_stat_rdev(_, path)      = stat_int_field(path) { |s| s.rdev }
+        def file_stat_dev_major(_, path) = stat_int_field(path) { |s| s.dev_major }
+        def file_stat_dev_minor(_, path) = stat_int_field(path) { |s| s.dev_minor }
+        def file_stat_rdev_major(_, path) = stat_int_field(path) { |s| s.rdev_major }
+        def file_stat_rdev_minor(_, path) = stat_int_field(path) { |s| s.rdev_minor }
+        def file_stat_blocks(_, path)    = stat_int_field(path) { |s| s.blocks || 0 }
+        def file_stat_blksize(_, path)   = stat_int_field(path, default: 4096) { |s| s.blksize || 4096 }
+        def dir_pwd(_) = StringObject.new(Dir.pwd)
+        def dir_empty(_, path) = bool_object_for(Dir.empty?(path.raw))
+        def dir_exist(_, path) = bool_object_for(path.raw && Dir.exist?(path.raw))
+        def process_pid(_) = IntegerObject.new(Process.pid)
+        def process_euid(_) = IntegerObject.new(Process.euid)
+
+        def file_join(_, parts)
+          strs = parts.raw.flat_map { |p| p.is_a?(ArrayObject) ? p.raw.map(&:raw) : p.raw }
+          StringObject.new(File.join(*strs))
+        end
+
+        def file_dirname(_, path, level = NilObject::NIL)
+          lvl = level.is_a?(NilObject) ? 1 : level.raw
+          StringObject.new(File.dirname(path.raw, lvl))
+        end
+
+        def file_expand_path(_, path, base = NilObject::NIL) = reraise(ArgumentError) do
+          StringObject.new(File.expand_path(path.raw, base.is_a?(NilObject) ? nil : base.raw))
+        end
+
+        def file_realpath(_, path, base = NilObject::NIL)
+          StringObject.new(File.realpath(path.raw, base.is_a?(NilObject) ? nil : base.raw))
+        rescue Errno::ENOENT => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
+        end
+
+        def file_realdirpath(_, path, base = NilObject::NIL)
+          StringObject.new(File.realdirpath(path.raw, base.is_a?(NilObject) ? nil : base.raw))
+        rescue Errno::ENOENT => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
+        end
+
+        def file_umask(_, new_mask)
+          if new_mask.is_a?(NilObject)
+            IntegerObject.new(File.umask)
+          else
+            old = File.umask(new_mask.is_a?(IntegerObject) ? new_mask.raw : new_mask.raw.to_i)
+            IntegerObject.new(old)
+          end
+        end
 
         def file_size(_, path)
           s = File.size?(path.raw)
@@ -80,8 +101,6 @@ module Frozone
         rescue Errno::ENOENT        => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
         rescue NotImplementedError  => e then raise FrozoneException.make(:NotImplementedError, e.message)
         end
-
-        def file_read(_, path) = StringObject.new(File.read(path.raw))
 
         def file_write(_, path, content)
           File.write(path.raw, content.raw)
@@ -116,8 +135,6 @@ module Frozone
           IntegerObject.new(0)
         end
 
-        def file_symlink(_, path) = bool_object_for(File.symlink?(path.raw))
-
         def file_symlink_create(_, target, link) = reraise(Errno::EEXIST) do
           File.symlink(target.raw, link.raw)
           IntegerObject.new(0)
@@ -127,29 +144,6 @@ module Frozone
           File.link(target.raw, link.raw)
           IntegerObject.new(0)
         end
-
-        def file_readlink(_, path) = reraise(Errno::ENOENT) { StringObject.new(File.readlink(path.raw)) }
-
-        def file_zero(_, path) = bool_object_for(File.zero?(path.raw))
-
-        def file_fnmatch(_, pattern, path, flags) = bool_object_for(File.fnmatch(pattern.raw, path.raw, flags.raw))
-
-        # Returns nil - stat info accessed via individual methods
-        def file_stat_native(_, path) = reraise(Errno::ENOENT) { NilObject::NIL }
-
-        def file_stat_mode(_, path)      = stat_int_field(path) { |s| s.mode }
-        def file_stat_ino(_, path)       = stat_int_field(path) { |s| s.ino }
-        def file_stat_nlink(_, path)     = stat_int_field(path) { |s| s.nlink }
-        def file_stat_uid(_, path)       = stat_int_field(path) { |s| s.uid }
-        def file_stat_gid(_, path)       = stat_int_field(path) { |s| s.gid }
-        def file_stat_dev(_, path)       = stat_int_field(path) { |s| s.dev }
-        def file_stat_rdev(_, path)      = stat_int_field(path) { |s| s.rdev }
-        def file_stat_dev_major(_, path) = stat_int_field(path) { |s| s.dev_major }
-        def file_stat_dev_minor(_, path) = stat_int_field(path) { |s| s.dev_minor }
-        def file_stat_rdev_major(_, path) = stat_int_field(path) { |s| s.rdev_major }
-        def file_stat_rdev_minor(_, path) = stat_int_field(path) { |s| s.rdev_minor }
-        def file_stat_blocks(_, path)    = stat_int_field(path) { |s| s.blocks || 0 }
-        def file_stat_blksize(_, path)   = stat_int_field(path, default: 4096) { |s| s.blksize || 4096 }
 
         def file_chmod(_, mode_int, paths)
           count = 0
@@ -188,8 +182,6 @@ module Frozone
           parts = File.split(path.raw)
           ArrayObject.new(parts.map { |p| StringObject.new(p) })
         end
-
-        def dir_pwd(_) = StringObject.new(Dir.pwd)
 
         def dir_home(_, user = NilObject::NIL) = reraise(ArgumentError) do
           u = user.is_a?(NilObject) ? nil : user.raw
@@ -252,9 +244,6 @@ module Frozone
         rescue Errno::EACCES    => e then raise FrozoneException.make(:Errno__EACCES, e.message)
         rescue Errno::ENOTEMPTY => e then raise FrozoneException.make(:Errno__ENOTEMPTY, e.message)
         end
-
-        def dir_empty(_, path) = bool_object_for(Dir.empty?(path.raw))
-        def dir_exist(_, path) = bool_object_for(path.raw && Dir.exist?(path.raw))
 
         def dir_open(_, path)
           dir = ::Dir.new(path.raw)
@@ -321,9 +310,6 @@ module Frozone
           end
         end
 
-        def process_pid(_) = IntegerObject.new(Process.pid)
-        def process_euid(_) = IntegerObject.new(Process.euid)
-
         def process_kill(_, sig_obj, pid_obj)
           sig = sig_obj.is_a?(IntegerObject) ? sig_obj.raw : sig_obj.raw.to_i
           pid = pid_obj.is_a?(IntegerObject) ? pid_obj.raw : pid_obj.raw.to_i
@@ -340,6 +326,36 @@ module Frozone
 
         # Time
 
+        # Wrap MRI utc_offset (Integer or Rational) as a Frozone object.
+        def wrap_utc_offset(offset) = offset.is_a?(Integer) ? IntegerObject.new(offset) : make_rational(offset)
+
+        def time_now(context) = time_make(context, Time.now)
+        def time_to_f(_, t) = FloatObject.new(t.raw.to_f)
+        def time_to_i(_, t) = IntegerObject.new(t.raw.to_i)
+        def time_to_s(_, t) = StringObject.new(t.raw.to_s)
+        def time_inspect(_, t) = StringObject.new(t.raw.inspect)
+        def time_usec(_, t) = IntegerObject.new(t.raw.usec)
+        def time_nsec(_, t) = IntegerObject.new(t.raw.nsec)
+        def time_sec(_, t) = IntegerObject.new(t.raw.sec)
+        def time_min(_, t) = IntegerObject.new(t.raw.min)
+        def time_hour(_, t) = IntegerObject.new(t.raw.hour)
+        def time_mday(_, t) = IntegerObject.new(t.raw.mday)
+        def time_month(_, t) = IntegerObject.new(t.raw.month)
+        def time_year(_, t) = IntegerObject.new(t.raw.year)
+        def time_wday(_, t) = IntegerObject.new(t.raw.wday)
+        def time_yday(_, t) = IntegerObject.new(t.raw.yday)
+        def time_utc?(_, t) = bool_object_for(t.raw.utc?)
+        def time_dup(_, t) = time_preserve_class(t, t.raw.dup)
+        def time_utc_offset(_, t) = wrap_utc_offset(t.raw.utc_offset)
+        def time_asctime(_, t) = StringObject.new(t.raw.asctime)
+        def time_ceil(_, t, n) = TimeObject.new(t.raw.ceil(n.is_a?(IntegerObject) ? n.raw : 0))
+        def time_floor(_, t, n) = TimeObject.new(t.raw.floor(n.is_a?(IntegerObject) ? n.raw : 0))
+        def time_round(_, t, n) = TimeObject.new(t.raw.round(n.is_a?(IntegerObject) ? n.raw : 0))
+        def time_load(_, str) = TimeObject.new(Time.send(:_load, str.raw))
+        def time_strftime(_, t, format) = StringObject.new(t.raw.strftime(format.raw))
+        def time_dst?(_, t) = bool_object_for(t.raw.dst?)
+        def time_hash(_, t) = IntegerObject.new(t.raw.hash)
+
         # Extract an MRI Numeric from a Frozone value (Integer, Float, or Rational ObjectObject).
         # get_ivar returns NilObject::NIL (not MRI nil) when ivar is absent.
         def frozone_to_mri_numeric(obj)
@@ -353,9 +369,6 @@ module Frozone
           d = den.is_a?(IntegerObject) ? den.raw : (den.respond_to?(:raw) ? den.raw.to_i : 1)
           d == 1 ? n : Rational(n, d)
         end
-
-        # Wrap MRI utc_offset (Integer or Rational) as a Frozone object.
-        def wrap_utc_offset(offset) = offset.is_a?(Integer) ? IntegerObject.new(offset) : make_rational(offset)
 
         # Create a TimeObject, inheriting the subclass from context.the_self when called
         # from a class method (Time.at on a subclass, Time.new on a subclass, etc.).
@@ -374,8 +387,6 @@ module Frozone
           t.class_object = src.class_object unless src.class_object.equal?(t.class_object)
           t
         end
-
-        def time_now(context) = time_make(context, Time.now)
 
         # time_at_raw: called from pure-Ruby Time.at after argument coercion.
         # t_r: Frozone Numeric (Integer/Float/Rational) or TimeObject; tz: Frozone String/Integer or nil.
@@ -484,33 +495,15 @@ module Frozone
           TimeObject.new(t.raw + frozone_to_mri_numeric(secs))
         end
 
-        def time_to_f(_, t) = FloatObject.new(t.raw.to_f)
-        def time_to_i(_, t) = IntegerObject.new(t.raw.to_i)
-        def time_to_s(_, t) = StringObject.new(t.raw.to_s)
-
         def time_to_r(_, t)
           r = begin; t.raw.to_r; rescue; Rational(t.raw.to_i, 1); end
           make_rational(r)
         end
 
-        def time_inspect(_, t) = StringObject.new(t.raw.inspect)
-        def time_usec(_, t) = IntegerObject.new(t.raw.usec)
-        def time_nsec(_, t) = IntegerObject.new(t.raw.nsec)
-        def time_sec(_, t) = IntegerObject.new(t.raw.sec)
-        def time_min(_, t) = IntegerObject.new(t.raw.min)
-        def time_hour(_, t) = IntegerObject.new(t.raw.hour)
-        def time_mday(_, t) = IntegerObject.new(t.raw.mday)
-        def time_month(_, t) = IntegerObject.new(t.raw.month)
-        def time_year(_, t) = IntegerObject.new(t.raw.year)
-        def time_wday(_, t) = IntegerObject.new(t.raw.wday)
-        def time_yday(_, t) = IntegerObject.new(t.raw.yday)
-
         def time_zone(_, t)
           z = t.raw.zone
           z.nil? || z.empty? ? NilObject::NIL : StringObject.new(z)
         end
-
-        def time_utc?(_, t) = bool_object_for(t.raw.utc?)
 
         def time_localtime(_, t, tz = NilObject::NIL)
           if t.frozen_object?
@@ -548,18 +541,10 @@ module Frozone
           t
         end
 
-        def time_dup(_, t) = time_preserve_class(t, t.raw.dup)
-
         def time_subsec(_, t)
           r = t.raw.subsec
           r.is_a?(Integer) ? IntegerObject.new(r) : make_rational(r)
         end
-
-        def time_utc_offset(_, t) = wrap_utc_offset(t.raw.utc_offset)
-        def time_asctime(_, t) = StringObject.new(t.raw.asctime)
-        def time_ceil(_, t, n) = TimeObject.new(t.raw.ceil(n.is_a?(IntegerObject) ? n.raw : 0))
-        def time_floor(_, t, n) = TimeObject.new(t.raw.floor(n.is_a?(IntegerObject) ? n.raw : 0))
-        def time_round(_, t, n) = TimeObject.new(t.raw.round(n.is_a?(IntegerObject) ? n.raw : 0))
 
         def time_iso8601(_, t, n)
           ndigits = n.is_a?(IntegerObject) ? n.raw : 0
@@ -571,13 +556,24 @@ module Frozone
           StringObject.new(d)
         end
 
-        def time_load(_, str) = TimeObject.new(Time.send(:_load, str.raw))
-
-        def time_strftime(_, t, format) = StringObject.new(t.raw.strftime(format.raw))
-        def time_dst?(_, t) = bool_object_for(t.raw.dst?)
-        def time_hash(_, t) = IntegerObject.new(t.raw.hash)
-
         # Regexp
+        def regexp_newly_created_q(_, r) = r.is_a?(RegexpObject) ? bool_object_for(r.newly_created_for_subclass) : FalseObject::FALSE
+        def regexp_source(_, r) = StringObject.new(r.raw.source)
+        def regexp_inspect(_, r) = StringObject.new(r.raw.inspect)
+        def regexp_to_s(_, r) = StringObject.new(r.raw.to_s)
+        def regexp_casefold(_, r) = bool_object_for(r.raw.casefold?)
+        def regexp_fixed_encoding(_, r) = bool_object_for(r.raw.fixed_encoding?)
+        def regexp_escape(_, str) = StringObject.new(Regexp.escape(str.raw.to_s))
+        def regexp_hash(_, r) = IntegerObject.new(r.raw.hash)
+        def regexp_names(_, r) = ArrayObject.new(r.raw.names.map { |n| StringObject.new(n) })
+        def match_data_size(_, md)    = IntegerObject.new(md.raw.size)
+        def match_data_pre_match(_, md)  = StringObject.new(md.raw.pre_match)
+        def match_data_post_match(_, md) = StringObject.new(md.raw.post_match)
+        def match_data_regexp(_, md) = md.frozone_regexp || RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
+        def match_data_captures(_, md) = ArrayObject.new(md.raw.captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
+        def match_data_hash(_, md) = IntegerObject.new(md.raw.hash)
+        def match_data_names(_, md) = ArrayObject.new(md.raw.regexp.named_captures.keys.map { |k| StringObject.new(k) })
+
         def update_match_globals(m, regexp_obj = NilObject::NIL)
           Fiber[:last_match] = m
           if m
@@ -634,21 +630,10 @@ module Frozone
         rescue ::RegexpError => e then raise FrozoneException.make(:RegexpError, e.message)
         end
 
-        def regexp_newly_created_q(_, r) = r.is_a?(RegexpObject) ? bool_object_for(r.newly_created_for_subclass) : FalseObject::FALSE
-
-        def regexp_source(_, r) = StringObject.new(r.raw.source)
-
         def regexp_options(_, r)
           raise FrozoneException.make(:TypeError, "uninitialized Regexp") unless r.is_a?(RegexpObject)
           IntegerObject.new(r.raw.options)
         end
-
-        def regexp_inspect(_, r) = StringObject.new(r.raw.inspect)
-        def regexp_to_s(_, r) = StringObject.new(r.raw.to_s)
-        def regexp_casefold(_, r) = bool_object_for(r.raw.casefold?)
-        def regexp_fixed_encoding(_, r) = bool_object_for(r.raw.fixed_encoding?)
-        def regexp_escape(_, str) = StringObject.new(Regexp.escape(str.raw.to_s))
-        def regexp_hash(_, r) = IntegerObject.new(r.raw.hash)
 
         def regexp_linear_time_q(_, r)
           bool_object_for(Regexp.linear_time?(r.raw))
@@ -690,8 +675,6 @@ module Frozone
                       .transform_values { |indices| ArrayObject.new(indices.map { |i| IntegerObject.new(i) }) }
           HashObject.new(pairs)
         end
-
-        def regexp_names(_, r) = ArrayObject.new(r.raw.names.map { |n| StringObject.new(n) })
 
         def regexp_tilde(context, receiver)
           dollar_underscore = GLOBALS[:"$_"]
@@ -891,17 +874,11 @@ module Frozone
           ArrayObject.new(result)
         end
 
-        def match_data_size(_, md)    = IntegerObject.new(md.raw.size)
-        def match_data_pre_match(_, md)  = StringObject.new(md.raw.pre_match)
-        def match_data_post_match(_, md) = StringObject.new(md.raw.post_match)
-
         def match_data_string(_, md)
           s = StringObject.new(md.raw.string.dup)
           s.freeze
           s
         end
-
-        def match_data_regexp(_, md) = md.frozone_regexp || RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
 
         def match_data_begin(context, md, n) = reraise(::IndexError) do
           key = match_data_group_key(context, n)
@@ -914,8 +891,6 @@ module Frozone
           v = md.raw.end(key)
           v ? IntegerObject.new(v) : NilObject::NIL
         end
-
-        def match_data_captures(_, md) = ArrayObject.new(md.raw.captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
 
         def match_data_bytebegin(context, md, n)
           key = match_data_group_key(context, n)
@@ -940,15 +915,11 @@ module Frozone
         rescue ::IndexError, ::NameError => e then raise FrozoneException.make(:IndexError, e.message)
         end
 
-        def match_data_hash(_, md) = IntegerObject.new(md.raw.hash)
-
         def match_data_named_captures(_, md)
           h = md.raw.named_captures.transform_keys { |k| StringObject.new(k) }
                 .transform_values { |v| v ? StringObject.new(v) : NilObject::NIL }
           HashObject.new(h)
         end
-
-        def match_data_names(_, md) = ArrayObject.new(md.raw.regexp.named_captures.keys.map { |k| StringObject.new(k) })
 
         def io_popen_capture(_, cmd, opts_obj = NilObject::NIL)
           mri_opts = {}
@@ -1342,6 +1313,8 @@ module Frozone
 
         private
 
+        def native_io_for(receiver) = receiver.is_a?(IOObject) ? receiver.native_io : $stdout
+
         def stat_int_field(path, default: 0)
           IntegerObject.new(yield File.stat(path.raw))
         rescue Errno::ENOENT, Errno::EACCES
@@ -1364,8 +1337,6 @@ module Frozone
             raise FrozoneException.make(:TypeError, "no implicit conversion of #{obj.class_object&.name || obj.class} into String")
           end
         end
-
-        def native_io_for(receiver) = receiver.is_a?(IOObject) ? receiver.native_io : $stdout
 
         def extract_encoding_name(enc_obj)
           case enc_obj
