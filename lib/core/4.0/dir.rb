@@ -98,15 +98,7 @@ class Dir
   end
 
   def initialize(path, encoding: nil)
-    @path = if path.is_a?(String)
-      path
-    elsif path.respond_to?(:to_path)
-      path.to_path
-    elsif path.respond_to?(:to_str)
-      path.to_str
-    else
-      raise TypeError, "no implicit conversion of #{path.class} into String"
-    end
+    @path = Dir._coerce_path(path)
     @dir = Intrinsics.dir_open(@path)
     @closed = false
     @entries = nil

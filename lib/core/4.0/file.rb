@@ -140,7 +140,6 @@ class File
   def self.readlink(path)      = Intrinsics.file_readlink(_coerce_path(path))
 
   def self.truncate(path, length)
-    raise TypeError, "no implicit conversion into String" unless path.is_a?(String) || path.respond_to?(:to_path) || path.respond_to?(:to_str)
     raise TypeError, "no implicit conversion into Integer" unless length.is_a?(Integer) || length.respond_to?(:to_int)
     Intrinsics.file_truncate(_coerce_path(path), length.is_a?(Integer) ? length : length.to_int)
   end
@@ -154,18 +153,7 @@ class File
       raise TypeError, "no implicit conversion of #{mode.class} into Integer"
     end
     raise RangeError, "bignum too big to convert into 'long'" if mode_int > 2**32 || mode_int < -(2**31)
-    coerced_paths = paths.map do |p|
-      if p.is_a?(String)
-        p
-      elsif p.respond_to?(:to_path)
-        p.to_path
-      elsif p.respond_to?(:to_str)
-        p.to_str
-      else
-        raise TypeError, "no implicit conversion of #{p.class} into String"
-      end
-    end
-    Intrinsics.file_chmod(mode_int, coerced_paths)
+    Intrinsics.file_chmod(mode_int, paths.map { |p| _coerce_path(p) })
   end
 
   def self.chown(uid, gid, *paths) = paths.length
@@ -178,33 +166,17 @@ class File
 
   def self.lutime(atime, mtime, *paths) = paths.length
 
-  def self.stat(path)
-    p = if path.is_a?(String)
-      path
-    elsif path.respond_to?(:to_path)
-      path.to_path
-    elsif path.respond_to?(:to_str)
-      path.to_str
-    else
-      raise TypeError, "no implicit conversion of #{path.class} into String"
-    end
-    Stat.new(p)
-  end
+  def self.stat(path) = Stat.new(_coerce_path(path))
 
   def self.lstat(path) = Stat.new(_coerce_path(path))
   def self.binread(path, length = nil, offset = nil) = Intrinsics.file_read(_coerce_path(path))
   def self.binwrite(path, content, offset = nil) = Intrinsics.file_write(_coerce_path(path), content)
   def self.fnmatch(pattern, path, flags = 0)
-    p = if path.is_a?(String) then path
-          elsif path.respond_to?(:to_path) then path.to_path
-          elsif path.respond_to?(:to_str) then path.to_str
-          else raise TypeError, "no implicit conversion of #{path.class} into String"
-          end
     f = if flags.is_a?(Integer) then flags
           elsif flags.respond_to?(:to_int) then flags.to_int
           else raise TypeError, "no implicit conversion of #{flags.class} into Integer"
           end
-    Intrinsics.file_fnmatch(pattern, p, f)
+    Intrinsics.file_fnmatch(pattern, _coerce_path(path), f)
   end
 
   def self.fnmatch?(pattern, path, flags = 0) = fnmatch(pattern, path, flags)
