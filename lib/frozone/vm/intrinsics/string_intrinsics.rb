@@ -335,8 +335,7 @@ module Frozone
               if m
                 begin
                   cap = m[cap_idx]
-                rescue IndexError => e
-                  raise FrozoneException.make(:IndexError, e.message)
+                rescue IndexError => e then raise FrozoneException.make(:IndexError, e.message)
                 end
                 return cap ? StringObject.new(cap) : NilObject::NIL
               else
@@ -362,8 +361,7 @@ module Frozone
             range = Range.new(b_raw, e_raw, idx.exclusive?)
             begin
               result = v.raw[range]
-            rescue TypeError => err
-              raise FrozoneException.make(:TypeError, err.message)
+            rescue TypeError => err then raise FrozoneException.make(:TypeError, err.message)
             end
             return result.nil? ? NilObject::NIL : StringObject.new(result)
           end
@@ -377,20 +375,16 @@ module Frozone
           if len == :__unset__
             begin
               result = v.raw[idx_i]
-            rescue TypeError => e
-              raise FrozoneException.make(:TypeError, e.message)
-            rescue RangeError => e
-              raise FrozoneException.make(:RangeError, e.message)
+            rescue TypeError => e then raise FrozoneException.make(:TypeError, e.message)
+            rescue RangeError => e then raise FrozoneException.make(:RangeError, e.message)
             end
           else
             raise FrozoneException.make(:TypeError, "no implicit conversion of nil into Integer") if len.is_a?(NilObject)
             len_i = len.is_a?(IntegerObject) ? len.raw : str_vm_coerce_to_int(context, len)
             begin
               result = v.raw[idx_i, len_i]
-            rescue TypeError => e
-              raise FrozoneException.make(:TypeError, e.message)
-            rescue RangeError => e
-              raise FrozoneException.make(:RangeError, e.message)
+            rescue TypeError => e then raise FrozoneException.make(:TypeError, e.message)
+            rescue RangeError => e then raise FrozoneException.make(:RangeError, e.message)
             end
           end
           result.nil? ? NilObject::NIL : StringObject.new(result)
@@ -434,8 +428,7 @@ module Frozone
             result.nil? ? NilObject::NIL : IntegerObject.new(result)
           rescue ::Encoding::CompatibilityError => e
             raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
-          rescue ::TypeError => e
-            raise FrozoneException.make(:TypeError, e.message)
+          rescue ::TypeError => e then raise FrozoneException.make(:TypeError, e.message)
           end
         end
 
@@ -454,8 +447,7 @@ module Frozone
             result.nil? ? NilObject::NIL : IntegerObject.new(result)
           rescue ::Encoding::CompatibilityError => e
             raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
-          rescue ::TypeError => e
-            raise FrozoneException.make(:TypeError, e.message)
+          rescue ::TypeError => e then raise FrozoneException.make(:TypeError, e.message)
           end
         end
 
@@ -563,8 +555,7 @@ module Frozone
           s = str.is_a?(StringObject) ? str.raw : str.to_s
           begin
             v.raw = v.raw.dup.insert(idx, s)
-          rescue ::IndexError => e
-            raise FrozoneException.make(:IndexError, e.message)
+          rescue ::IndexError => e then raise FrozoneException.make(:IndexError, e.message)
           end
           v
         end
@@ -689,8 +680,7 @@ module Frozone
                 end
               end
             end
-          rescue ::IndexError => e
-            raise FrozoneException.make(:IndexError, e.message)
+          rescue ::IndexError => e then raise FrozoneException.make(:IndexError, e.message)
           rescue ::Encoding::CompatibilityError => e
             raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
           end
@@ -781,8 +771,7 @@ module Frozone
             else
               v1.raw << codepoint.chr(enc)
             end
-          rescue RangeError => e
-            raise FrozoneException.make(:RangeError, e.message)
+          rescue RangeError => e then raise FrozoneException.make(:RangeError, e.message)
           end
           v1
         end
@@ -818,8 +807,7 @@ module Frozone
               "no implicit conversion of #{$1} into #{$2.split.map(&:capitalize).join}"
             }
             raise FrozoneException.make(:TypeError, msg)
-          rescue ::ArgumentError => e
-            raise FrozoneException.make(:ArgumentError, e.message)
+          rescue ::ArgumentError => e then raise FrozoneException.make(:ArgumentError, e.message)
           rescue ::KeyError => e
             exc = FrozoneException.wrap_mri(e)
             # Set receiver to the original Frozone HashObject (not the MRI proxy)
@@ -1332,8 +1320,7 @@ module Frozone
           enc_name = resolve_special_encoding_name(enc_name)
           begin
             v.raw.force_encoding(enc_name)
-          rescue ::ArgumentError => e
-            raise FrozoneException.make(:ArgumentError, e.message)
+          rescue ::ArgumentError => e then raise FrozoneException.make(:ArgumentError, e.message)
           end
           v
         end
@@ -1507,8 +1494,7 @@ module Frozone
           b_raw = b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b)
           begin
             v.raw.setbyte(i_raw, b_raw)
-          rescue ::IndexError => e
-            raise FrozoneException.make(:IndexError, e.message)
+          rescue ::IndexError => e then raise FrozoneException.make(:IndexError, e.message)
           end
           b
         end
@@ -1551,8 +1537,7 @@ module Frozone
               idx_i = idx.is_a?(IntegerObject) ? idx.raw : str_vm_coerce_to_int(context, idx)
               v.raw.byteslice(idx_i)
             end
-          rescue ::RangeError => e
-            raise FrozoneException.make(:RangeError, e.message)
+          rescue ::RangeError => e then raise FrozoneException.make(:RangeError, e.message)
           end
           result.nil? ? NilObject::NIL : StringObject.new(result)
         end
@@ -1594,8 +1579,7 @@ module Frozone
             end
           rescue ::Encoding::CompatibilityError => e
             raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
-          rescue ::IndexError => e
-            raise FrozoneException.make(:IndexError, e.message)
+          rescue ::IndexError => e then raise FrozoneException.make(:IndexError, e.message)
           end
         end
 
@@ -1636,8 +1620,7 @@ module Frozone
             end
           rescue ::Encoding::CompatibilityError => e
             raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
-          rescue ::IndexError => e
-            raise FrozoneException.make(:IndexError, e.message)
+          rescue ::IndexError => e then raise FrozoneException.make(:IndexError, e.message)
           end
         end
 
@@ -1658,10 +1641,8 @@ module Frozone
               end
             end
             v.raw.bytesplice(*raw_args)
-          rescue ::IndexError => e
-            raise FrozoneException.make(:IndexError, e.message)
-          rescue ::TypeError => e
-            raise FrozoneException.make(:TypeError, e.message)
+          rescue ::IndexError => e then raise FrozoneException.make(:IndexError, e.message)
+          rescue ::TypeError => e then raise FrozoneException.make(:TypeError, e.message)
           rescue ::Encoding::CompatibilityError => e
             raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
           end
@@ -1682,8 +1663,7 @@ module Frozone
                        v.raw.scrub
                      end
             StringObject.new(result)
-          rescue ::EncodingError => e
-            raise FrozoneException.make(:EncodingError, e.message)
+          rescue ::EncodingError => e then raise FrozoneException.make(:EncodingError, e.message)
           end
         end
 
@@ -1692,10 +1672,8 @@ module Frozone
         def string_undump(_, v)
           begin
             StringObject.new(v.raw.undump)
-          rescue ::RuntimeError => e
-            raise FrozoneException.make(:RuntimeError, e.message)
-          rescue ::Encoding::UndefinedConversionError => e
-            raise FrozoneException.make(:EncodingError, e.message)
+          rescue ::RuntimeError => e then raise FrozoneException.make(:RuntimeError, e.message)
+          rescue ::Encoding::UndefinedConversionError => e then raise FrozoneException.make(:EncodingError, e.message)
           end
         end
 
@@ -1911,7 +1889,7 @@ module Frozone
 
         def string_unpack(context, v, fmt, offset_arg = NilObject::NIL)
           fmt_raw = fmt.is_a?(StringObject) ? fmt.raw : fmt.to_s
-          begin
+          reraise(::ArgumentError, ::TypeError) do
             results = if offset_arg && !offset_arg.is_a?(NilObject)
                         off = offset_arg.is_a?(IntegerObject) ? offset_arg.raw : offset_arg.to_i
                         v.raw.unpack(fmt_raw, offset: off)
@@ -1919,16 +1897,12 @@ module Frozone
                         v.raw.unpack(fmt_raw)
                       end
             ArrayObject.new(results.map { |r| unpack_result_to_vm(r) })
-          rescue ::ArgumentError => e
-            raise FrozoneException.make(:ArgumentError, e.message)
-          rescue ::TypeError => e
-            raise FrozoneException.make(:TypeError, e.message)
           end
         end
 
         def string_unpack1(context, v, fmt, offset_arg = NilObject::NIL)
           fmt_raw = fmt.is_a?(StringObject) ? fmt.raw : fmt.to_s
-          begin
+          reraise(::ArgumentError, ::TypeError) do
             result = if offset_arg && !offset_arg.is_a?(NilObject)
                        off = offset_arg.is_a?(IntegerObject) ? offset_arg.raw : offset_arg.to_i
                        v.raw.unpack1(fmt_raw, offset: off)
@@ -1936,10 +1910,6 @@ module Frozone
                        v.raw.unpack1(fmt_raw)
                      end
             unpack_result_to_vm(result)
-          rescue ::ArgumentError => e
-            raise FrozoneException.make(:ArgumentError, e.message)
-          rescue ::TypeError => e
-            raise FrozoneException.make(:TypeError, e.message)
           end
         end
 

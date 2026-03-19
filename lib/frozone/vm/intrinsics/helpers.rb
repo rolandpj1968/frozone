@@ -32,12 +32,13 @@ module Frozone
           raise FrozoneException.make(:FrozenError, "can't modify frozen #{frozone_class_name(v)}: #{v.inspect rescue v.object_id}")
         end
 
-        # Rescue mri_exc and reraise as the equivalent FrozoneException.
+        # Rescue mri_excs and reraise as the equivalent FrozoneException.
         # MRI class name maps to Frozone symbol via '::' -> '__' substitution.
-        def reraise(mri_exc)
+        # Use as: to override when multiple exceptions fold to one Frozone type.
+        def reraise(*mri_excs, as: nil)
           yield
-        rescue mri_exc => e
-          raise FrozoneException.make(e.class.name.gsub('::', '__').to_sym, e.message)
+        rescue *mri_excs => e
+          raise FrozoneException.make(as || e.class.name.gsub('::', '__').to_sym, e.message)
         end
 
         def collect_method_names(v, include_super, singleton_only_when_false: false, &visibility_ok)
@@ -447,11 +448,9 @@ module Frozone
 
         def objectspace_id2ref(_, id_obj)
           id = id_obj.is_a?(IntegerObject) ? id_obj.raw : id_obj.raw.to_i
-          begin
+          reraise(RangeError) do
             obj = ::ObjectSpace._id2ref(id)
             obj.is_a?(Frozone::Vm::ObjectObject) ? obj : NilObject::NIL
-          rescue RangeError => e
-            raise FrozoneException.make(:RangeError, e.message)
           end
         end
 

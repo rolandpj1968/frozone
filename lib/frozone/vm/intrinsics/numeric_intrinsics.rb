@@ -52,11 +52,7 @@ module Frozone
               enc.get_ivar(:@name)&.raw
             end
             enc_name ||= 'UTF-8'
-            begin
-              StringObject.new(v.raw.chr(enc_name))
-            rescue ::RangeError => e
-              raise FrozoneException.make(:RangeError, e.message)
-            end
+            reraise(::RangeError) { StringObject.new(v.raw.chr(enc_name)) }
           else
             StringObject.new(v.raw.chr)
           end

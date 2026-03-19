@@ -518,10 +518,8 @@ module Frozone
               msg = msg.sub(/#<[^>]+>::PackProxy|PackProxy/, proxy ? proxy.frozone_class_name : "Object") if proxy
             end
             raise FrozoneException.make(:TypeError, msg)
-          rescue ::ArgumentError => e
-            raise FrozoneException.make(:ArgumentError, e.message)
-          rescue ::RangeError => e
-            raise FrozoneException.make(:RangeError, e.message)
+          rescue ::ArgumentError => e then raise FrozoneException.make(:ArgumentError, e.message)
+          rescue ::RangeError => e then raise FrozoneException.make(:RangeError, e.message)
           end
         end
 
