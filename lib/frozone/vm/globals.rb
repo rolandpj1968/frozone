@@ -8,15 +8,23 @@ module Frozone
     # When a name is in GLOBAL_ALIASES, reads/writes are redirected to the canonical name.
     GLOBAL_ALIASES = {}
 
-    # Emit a warning to VM's $stderr (may be replaced by mspec's IOStub).
+    # Emit a warning via Warning.warn (routes through user-overrideable Warning.warn).
     # Optional +location+ is a "file:line" string prepended as "file:line: warning: msg".
-    def self.emit_warning(context, msg, location: nil)
-      stderr_vm = GLOBALS[:"$stderr"]
-      return unless stderr_vm
+    # Optional +category+ is a Symbol passed as keyword to Warning.warn.
+    def self.emit_warning(context, msg, location: nil, category: nil)
+      return unless context
       prefix = location ? "#{location}: " : ""
-      str_obj = StringObject.new("#{prefix}warning: #{msg}")
-      stderr_vm.dispatch(context, :puts, [str_obj], {})
-    rescue StandardError
+      full_msg = StringObject.new("#{prefix}warning: #{msg}\n")
+      warning_mod = Core::OBJECT_CLASS.get_constant(:Warning)
+      if warning_mod
+        kw_args = category ? { category: SymbolObject.from(category) } : {}
+        warning_mod.dispatch(context, :warn, [full_msg], kw_args)
+      else
+        stderr_vm = GLOBALS[:"$stderr"]
+        return unless stderr_vm
+        stderr_vm.dispatch(context, :write, [full_msg], {})
+      end
+    rescue StandardError, FrozoneException
       # Suppress any errors during warning emission
     end
 

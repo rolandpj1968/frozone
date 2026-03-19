@@ -602,7 +602,24 @@ class Array
     raise ArgumentError, "recursive array join" if guard.include?(__id__)
     guard << __id__
     begin
-      result = ''
+      # Initialize result with the encoding of the first string-like element,
+      # matching MRI behavior where the first element's encoding is used as base.
+      _join_first_enc = if sep_str && !sep_str.empty?
+        sep_str.encoding
+      else
+        _join_first_str = nil
+        each do |e|
+          if e.is_a?(String)
+            _join_first_str = e
+            break
+          elsif (s = begin; e.to_str; rescue NoMethodError; nil; end).is_a?(String)
+            _join_first_str = s
+            break
+          end
+        end
+        _join_first_str ? _join_first_str.encoding : Encoding::UTF_8
+      end
+      result = ''.force_encoding(_join_first_enc)
       first = true
       each { |e|
         result += sep_str unless first

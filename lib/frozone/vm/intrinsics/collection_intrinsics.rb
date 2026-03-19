@@ -87,25 +87,68 @@ module Frozone
 
         def array_length(_, v) = IntegerObject.new(v.length)
 
+        # Return the Frozone default_external encoding name (raw Ruby String), or 'UTF-8'.
+        def array_inspect_default_external_name
+          enc_class = Core::OBJECT_CLASS.get_constant(:Encoding)
+          return 'UTF-8' unless enc_class
+
+          ext = enc_class.get_ivar(:@default_external)
+          return 'UTF-8' unless ext&.is_a?(ObjectObject)
+
+          ext.get_ivar(:@name)&.raw || 'UTF-8'
+        rescue
+          'UTF-8'
+        end
+
+        # Determine the result encoding for Array#inspect/to_s, matching MRI:
+        # - If Encoding.default_external is ASCII-compatible, use it.
+        # - Otherwise, use US-ASCII.
+        def array_inspect_result_encoding
+          ext_name = array_inspect_default_external_name
+          enc = ::Encoding.find(ext_name) rescue ::Encoding::UTF_8
+          enc.ascii_compatible? ? enc : ::Encoding::US_ASCII
+        rescue
+          ::Encoding::US_ASCII
+        end
+
+        # Convert a raw Ruby String from an element's inspect result to be
+        # ASCII-8BIT-joinable. If the string is not ASCII-compatible, encode it
+        # to US-ASCII using unicode escapes (matching MRI behavior).
+        def array_inspect_normalize_str(s)
+          return s if s.encoding.ascii_compatible?
+
+          # Non-ASCII-compatible encoding (UTF-16BE, UTF-32, etc.):
+          # encode to US-ASCII with \uXXXX fallback, matching MRI output.
+          s.encode('US-ASCII', fallback: ->(c) { "\\u%04X" % c.ord })
+        rescue
+          s.force_encoding('ASCII-8BIT')
+        end
+
         ARRAY_TO_S_GUARD = :__array_inspect_guard__
+
         def array_to_s(context, v)
           seen = (Thread.current[ARRAY_TO_S_GUARD] ||= {})
           return StringObject.new("[...]") if seen.key?(v.object_id)
           return StringObject.new("[]".encode("US-ASCII")) if v.raw.empty?
+
           seen[v.object_id] = true
           begin
-            inner = v.raw.map do |e|
+            result_enc = array_inspect_result_encoding
+            inner_parts = v.raw.map do |e|
               r = e.dispatch(context, :inspect, [], {})
               r = r.dispatch(context, :to_s, [], {}) unless r.is_a?(StringObject)
               if r.is_a?(StringObject)
-                r.raw
+                array_inspect_normalize_str(r.raw)
               else
                 # inspect and to_s both failed to return a String — use default format
                 cls_name = e.class_object&.name || :Object
                 "#<#{cls_name}:0x#{e.__id__.to_s(16).rjust(16, '0')}>"
               end
-            end.join(", ")
-            StringObject.new("[#{inner}]")
+            end
+            inner = inner_parts.join(", ")
+            result = "[#{inner}]"
+            result = result.encode(result_enc) if result.encoding != result_enc && result.encoding.ascii_compatible?
+            StringObject.new(result)
           ensure
             seen.delete(v.object_id)
           end
@@ -405,7 +448,7 @@ module Frozone
         def pack_frozone_to_float(elem, context)
           return elem.raw if elem.is_a?(FloatObject)
           return elem.raw.to_f if elem.is_a?(IntegerObject)
-          return elem.raw.to_f if elem.is_a?(NilObject)  # let MRI raise TypeError
+          raise FrozoneException.make(:TypeError, "can't convert nil into Float") if elem.is_a?(NilObject)
 
           # Check if Frozone object is a Numeric subclass (e.g. Rational)
           c = elem.class_object
@@ -421,6 +464,61 @@ module Frozone
             c = c.is_a?(ClassObject) ? c.superclass : nil
           end
           PackProxy.new(elem, context)
+        end
+
+        # Float pack directives: these require Numeric coercion via to_f.
+        PACK_FLOAT_DIRECTIVES = /\A[dDfFeEgG]\z/
+
+        # Scan a pack format string and yield [directive_char, count_or_nil] pairs.
+        # count_or_nil is nil for '*', an Integer for explicit count, or 1 if no count.
+        # Directives that consume no array elements (x, X, @, %) are skipped.
+        def pack_scan_format(fmt)
+          return to_enum(:pack_scan_format, fmt) unless block_given?
+
+          i = 0
+          while i < fmt.length
+            c = fmt[i]
+            i += 1
+            # Skip comments
+            if c == '#'
+              i += 1 while i < fmt.length && fmt[i] != "\n"
+              next
+            end
+            # Skip whitespace
+            next if c == ' ' || c == "\t" || c == "\n" || c == "\r" || c == "\0"
+            # Directives that consume no array elements
+            next if c == 'x' || c == 'X' || c == '@' || c == '%'
+            # Parse optional count
+            if i < fmt.length && fmt[i] == '*'
+              count = :star
+              i += 1
+            elsif i < fmt.length && fmt[i] =~ /\d/
+              j = i
+              j += 1 while j < fmt.length && fmt[j] =~ /\d/
+              count = fmt[i...j].to_i
+              i = j
+            else
+              count = 1
+            end
+            yield c, count
+          end
+        end
+
+        # Build coercion list for pack: returns array of :float or :other symbols,
+        # one per array element consumed by the format.
+        def pack_coercion_types(fmt, n_elements)
+          types = []
+          pack_scan_format(fmt) do |dir, count|
+            # Directives that consume multiple elements per count
+            if count == :star
+              need = n_elements - types.length
+              need.times { types << (dir =~ PACK_FLOAT_DIRECTIVES ? :float : :other) }
+            else
+              count.times { types << (dir =~ PACK_FLOAT_DIRECTIVES ? :float : :other) }
+            end
+            break if types.length >= n_elements
+          end
+          types
         end
 
         def array_pack(context, v, fmt_obj, buffer_obj = nil)
@@ -439,8 +537,17 @@ module Frozone
             buf_str = buffer_obj.raw
           end
 
-          # For all elements, use raw values or PackProxy (MRI handles coercion/errors).
-          pack_args = elements.map { |elem| pack_frozone_to_ruby(elem, context) }
+          # Determine coercion type per element (float vs other).
+          coercion_types = pack_coercion_types(fmt, elements.length)
+
+          # Coerce each element appropriately.
+          pack_args = elements.each_with_index.map do |elem, i|
+            if coercion_types[i] == :float
+              pack_frozone_to_float(elem, context)
+            else
+              pack_frozone_to_ruby(elem, context)
+            end
+          end
 
           begin
             if buf_str

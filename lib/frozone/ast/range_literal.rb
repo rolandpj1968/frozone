@@ -13,19 +13,12 @@ module Frozone
       def evaluate(context)
         b = @begin_node ? @begin_node.evaluate(context) : Vm::NilObject::NIL
         e = @end_node   ? @end_node.evaluate(context)   : Vm::NilObject::NIL
-        # Call b <=> e to validate range (matches MRI Range.new behavior)
+        # MRI range literals call b <=> e (so mock expectations work) but do NOT raise
+        # ArgumentError when nil is returned — that only happens in Range.new/initialize.
         unless b.is_a?(Vm::NilObject) || e.is_a?(Vm::NilObject) ||
                b.is_a?(Vm::IntegerObject) || b.is_a?(Vm::FloatObject) ||
                b.is_a?(Vm::StringObject) || b.is_a?(Vm::SymbolObject)
-          begin
-            result = b.dispatch(context, :<=>, [e], {})
-            if result.is_a?(Vm::NilObject)
-              raise Vm::FrozoneException.make(:ArgumentError, "bad value for range")
-            end
-          rescue Vm::FrozoneException => exc
-            raise unless exc.vm_object&.class_object&.name == :NoMethodError
-            raise Vm::FrozoneException.make(:ArgumentError, "bad value for range")
-          end
+          b.dispatch(context, :<=>, [e], {}) rescue nil
         end
         Vm::RangeObject.new(b, e, @exclusive)
       end
