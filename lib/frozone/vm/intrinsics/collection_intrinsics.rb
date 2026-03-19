@@ -5,6 +5,11 @@ module Frozone
     module Intrinsics
       class << self
         # Array
+        def array_length(_, v) = IntegerObject.new(v.length)
+        def array_dup(_, v) = ArrayObject.new(v.raw.dup, v.class_object)
+        def array_sample(_, v) = v.raw.empty? ? NilObject::NIL : v.raw.sample
+        def array_sample_n(_, v, n) = ArrayObject.new(v.raw.sample(n.raw))
+
         ARRAY_MAX_SIZE = 1_073_741_823  # 2**30 - 1; prevents allocation hangs for huge sizes
 
         def array_initialize(context, arr, size_or_array = NilObject::NIL, fill = NilObject::NIL, block = NilObject::NIL)
@@ -58,8 +63,6 @@ module Frozone
           v.push(val)
           v
         end
-
-        def array_length(_, v) = IntegerObject.new(v.length)
 
         # Return the Frozone default_external encoding name (raw Ruby String), or 'UTF-8'.
         def array_inspect_default_external_name
@@ -363,8 +366,6 @@ module Frozone
           end
         end
 
-        def array_dup(_, v) = ArrayObject.new(v.raw.dup, v.class_object)
-
         def array_clone(_, v, freeze_opt = NilObject::NIL, klass = NilObject::NIL)
           cls = klass.is_a?(ClassObject) ? klass : nil
           cloned = ArrayObject.new(v.raw.dup, cls)
@@ -378,13 +379,12 @@ module Frozone
           cloned
         end
 
-        def array_sample(_, v) = v.raw.empty? ? NilObject::NIL : v.raw.sample
-
-        def array_sample_n(_, v, n) = ArrayObject.new(v.raw.sample(n.raw))
-
         # Range
         def range_allocate(_, _klass) = RangeObject.new(NilObject::NIL, NilObject::NIL, false, initialized: false)
         def range_initialized_q(_, range) = bool_object_for(range.is_a?(RangeObject) && range.initialized?)
+        def range_begin(_, range) = range.begin_val
+        def range_end(_, range)   = range.end_val
+        def range_exclude_end(_, range) = bool_object_for(range.exclusive?)
 
         def range_set(_, range, b, e, excl)
           excl = excl.is_a?(NilObject) ? false : excl.truthy?
@@ -393,19 +393,17 @@ module Frozone
           range
         end
 
-        def range_begin(_, range) = range.begin_val
-        def range_end(_, range)   = range.end_val
-        def range_exclude_end(_, range) = bool_object_for(range.exclusive?)
-
         # Hash
+        def hash_size(_, h) = IntegerObject.new(h.size)
+        def hash_key(_, h, key) = bool_object_for(h.key?(key))
+        def hash_get_default_proc(_, h) = h.default_block || NilObject::NIL
+        def hash_compare_by_identity_q(_, h) = bool_object_for(h.is_a?(HashObject) && h.compare_by_identity_flag)
+        def hash_ruby2_keywords_hash_q(_, h) = bool_object_for(h.is_a?(HashObject) && h.ruby2_keywords)
+
         def hash_index_write(_, h, key, value)
           h[key] = value
           value
         end
-
-        def hash_size(_, h) = IntegerObject.new(h.size)
-
-        def hash_key(_, h, key) = bool_object_for(h.key?(key))
 
         def hash_index(context, h, key)
           value = h[key]
@@ -429,8 +427,6 @@ module Frozone
           h.default_value = val.is_a?(NilObject) ? nil : val
           val
         end
-
-        def hash_get_default_proc(_, h) = h.default_block || NilObject::NIL
 
         def hash_set_default_proc(_, h, prc)
           if prc.is_a?(NilObject)
@@ -512,14 +508,10 @@ module Frozone
           h
         end
 
-        def hash_compare_by_identity_q(_, h) = bool_object_for(h.is_a?(HashObject) && h.compare_by_identity_flag)
-
         def hash_ruby2_keywords_hash(_, h)
           h.ruby2_keywords = true if h.is_a?(HashObject)
           h
         end
-
-        def hash_ruby2_keywords_hash_q(_, h) = bool_object_for(h.is_a?(HashObject) && h.ruby2_keywords)
       end
     end
   end

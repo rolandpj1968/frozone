@@ -4,6 +4,9 @@ module Frozone
   module Vm
     module Intrinsics
       class << self
+        def proc_lambda_p(_context, proc_obj) = proc_obj.lambda? ? TrueObject::TRUE : FalseObject::FALSE
+        def binding_receiver(_, binding_obj) = binding_obj.captured_frame.the_self
+
         def proc_class_new(context, klass, args)
           raw_args = args.raw
           block = context.frame.block
@@ -70,8 +73,6 @@ module Frozone
           kw_args = kw_args_obj.is_a?(HashObject) ? kw_args_obj.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k } : {}
           proc_obj.call(context, args.raw, kw_args: kw_args, block: blk)
         end
-
-        def proc_lambda_p(_context, proc_obj) = proc_obj.lambda? ? TrueObject::TRUE : FalseObject::FALSE
 
         def proc_curry(context, proc_obj, arity_arg = NilObject::NIL)
           is_lambda = proc_obj.lambda?
@@ -332,8 +333,6 @@ module Frozone
         def binding_eval(context, binding_obj, code_obj, filename_arg = NilObject::NIL, lineno_arg = NilObject::NIL)
           kernel_eval(context, NilObject::NIL, code_obj, binding_obj, filename_arg, lineno_arg)
         end
-
-        def binding_receiver(_, binding_obj) = binding_obj.captured_frame.the_self
 
         def binding_coerce_name(name_obj, context)
           if name_obj.is_a?(SymbolObject)
