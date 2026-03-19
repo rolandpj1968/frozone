@@ -6,29 +6,18 @@
 class ENVClass
   include Enumerable
 
-  def self.__coerce_key(key)
-    if key.is_a?(String)
-      key
-    elsif key.respond_to?(:to_str)
-      result = key.to_str
-      raise TypeError, "no implicit conversion of #{key.class} into String" unless result.is_a?(String)
-      result
-    else
-      raise TypeError, "no implicit conversion of #{key.class} into String"
+  def self.__coerce_env_string__(val, role)
+    return val if val.is_a?(String)
+    unless val.respond_to?(:to_str)
+      raise TypeError, "no implicit conversion of #{val.class} into String"
     end
+    result = val.to_str
+    raise TypeError, "no implicit conversion of #{result.class} into String" unless result.is_a?(String)
+    result
   end
 
-  def self.__coerce_value(value)
-    if value.is_a?(String)
-      value
-    elsif value.respond_to?(:to_str)
-      result = value.to_str
-      raise TypeError, "no implicit conversion of #{value.class} into String" unless result.is_a?(String)
-      result
-    else
-      raise TypeError, "no implicit conversion of #{value.class} into String"
-    end
-  end
+  def self.__coerce_key(key)   = __coerce_env_string__(key, :key)
+  def self.__coerce_value(val) = __coerce_env_string__(val, :value)
 
   def self.__validate_key(key)
     raise Errno::EINVAL, "Invalid argument - #{key}" if key.empty?
@@ -52,6 +41,14 @@ class ENVClass
       end
     end
     str
+  end
+
+  # Soft-coerce val to String via to_str; returns nil on failure (no raise).
+  def self.__soft_coerce_string__(val)
+    return val if val.is_a?(String)
+    return nil unless val.respond_to?(:to_str)
+    result = val.to_str
+    result.is_a?(String) ? result : nil
   end
 
   def to_s = "ENV"
@@ -145,15 +142,8 @@ class ENVClass
   alias member? key?
 
   def value?(val)
-    if val.is_a?(String)
-      # ok
-    elsif val.respond_to?(:to_str)
-      result = val.to_str
-      return nil unless result.is_a?(String)
-      val = result
-    else
-      return nil
-    end
+    val = ENVClass.__soft_coerce_string__(val)
+    return nil if val.nil?
     Intrinsics.env_value?(val)
   end
 
@@ -234,15 +224,8 @@ class ENVClass
   end
 
   def rassoc(value)
-    if value.is_a?(String)
-      # ok
-    elsif value.respond_to?(:to_str)
-      result = value.to_str
-      return nil unless result.is_a?(String)
-      value = result
-    else
-      return nil
-    end
+    value = ENVClass.__soft_coerce_string__(value)
+    return nil if value.nil?
     Intrinsics.env_pairs.each do |pair|
       return [ENVClass.__enc(pair[0]), ENVClass.__enc(pair[1])] if pair[1] == value
     end

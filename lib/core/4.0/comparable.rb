@@ -1,27 +1,14 @@
 module Comparable
-  def <(other)
+  def __cmp__(other)
     r = self <=> other
     raise ArgumentError, "comparison of #{self.class} with #{other} failed" if r.nil? || !r.is_a?(Numeric)
-    r < 0
+    r
   end
 
-  def <=(other)
-    r = self <=> other
-    raise ArgumentError, "comparison of #{self.class} with #{other} failed" if r.nil? || !r.is_a?(Numeric)
-    r <= 0
-  end
-
-  def >(other)
-    r = self <=> other
-    raise ArgumentError, "comparison of #{self.class} with #{other} failed" if r.nil? || !r.is_a?(Numeric)
-    r > 0
-  end
-
-  def >=(other)
-    r = self <=> other
-    raise ArgumentError, "comparison of #{self.class} with #{other} failed" if r.nil? || !r.is_a?(Numeric)
-    r >= 0
-  end
+  def <(other)  = __cmp__(other) <  0
+  def <=(other) = __cmp__(other) <= 0
+  def >(other)  = __cmp__(other) >  0
+  def >=(other) = __cmp__(other) >= 0
 
   def ==(other)
     return true if equal?(other)
