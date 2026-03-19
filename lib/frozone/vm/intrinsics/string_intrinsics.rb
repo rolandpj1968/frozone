@@ -91,7 +91,7 @@ module Frozone
             end
 
             # Coerce limit to integer
-            unless limit.nil? || limit.is_a?(IntegerObject)
+            unless limit.is_a?(NilObject) || limit.is_a?(IntegerObject)
               begin
                 limit = limit.dispatch(context, :to_int, [], {})
                 raise FrozoneException.make(:TypeError, "no implicit conversion into Integer") unless limit.is_a?(IntegerObject)
@@ -110,15 +110,15 @@ module Frozone
 
           # Use $; when sep is nil
           gs = nil
-          if sep.nil?
+          if sep.is_a?(NilObject)
             gs = GLOBALS[:"$;"]
             gs = nil if frozone_nil?(gs)
           end
 
           # Determine the raw separator
-          sep_raw = if sep.nil? && gs.nil?
+          sep_raw = if sep.is_a?(NilObject) && gs.nil?
             nil
-          elsif sep.nil?
+          elsif sep.is_a?(NilObject)
             gs.is_a?(StringObject) ? gs.raw : gs.raw
           elsif sep.is_a?(StringObject) || sep.is_a?(RegexpObject)
             sep.raw
@@ -318,12 +318,12 @@ module Frozone
 
         # Called as string_slice(v, idx) — no length — or string_slice(v, idx, len) — explicit length.
         # String#[] uses :__unset__ sentinel so explicit nil can be distinguished from absent len.
-        def string_slice(context, v, idx, len = NilObject::NIL)
+        def string_slice(context, v, idx, len = :__unset__)
           if idx.is_a?(RegexpObject)
-            raise FrozoneException.make(:TypeError, "no implicit conversion of nil into Integer") if !len.nil? && len.is_a?(NilObject)
+            raise FrozoneException.make(:TypeError, "no implicit conversion of nil into Integer") if len != :__unset__ && len.is_a?(NilObject)
             m = idx.raw.match(v.raw)
             update_match_globals(m)
-            unless len.nil?
+            unless len == :__unset__ || len.is_a?(NilObject)
               # len can be Integer (capture index), String/Symbol (named capture), or to_int-able
               cap_idx = if len.is_a?(IntegerObject)
                           len.raw
@@ -347,13 +347,13 @@ module Frozone
           end
           # String index: substring search
           if idx.is_a?(StringObject)
-            raise FrozoneException.make(:TypeError, "no implicit conversion of Integer into String") unless len.nil?
+            raise FrozoneException.make(:TypeError, "no implicit conversion of Integer into String") unless len == :__unset__
             result = v.raw[idx.raw]
             return result.nil? ? NilObject::NIL : StringObject.new(result)
           end
           # Range index
           if idx.is_a?(RangeObject)
-            raise FrozoneException.make(:TypeError, "no implicit conversion of Integer into Range") unless len.nil?
+            raise FrozoneException.make(:TypeError, "no implicit conversion of Integer into Range") unless len == :__unset__
             # Coerce range bounds if needed
             b = idx.begin_val
             e = idx.end_val
@@ -374,7 +374,7 @@ module Frozone
                     str_vm_coerce_to_int(context, idx)
                   end
           # Coerce len to Integer if provided
-          if len.nil?
+          if len == :__unset__
             begin
               result = v.raw[idx_i]
             rescue TypeError => e
@@ -1086,9 +1086,8 @@ module Frozone
         private
 
         def coerce_encode_opts(context, opts)
-          return {} if opts.nil?
-          return opts.raw if opts.is_a?(HashObject)
           return {} if opts.is_a?(NilObject)
+          return opts.raw if opts.is_a?(HashObject)
           return opts if opts.is_a?(::Hash)
           # Try to_hash coercion for mock objects
           begin
@@ -1559,7 +1558,7 @@ module Frozone
         end
 
         def string_byteindex(context, v, sub, offset = NilObject::NIL)
-          offset_raw = offset.nil? ? nil : (offset.is_a?(IntegerObject) ? offset.raw : str_vm_coerce_to_int(context, offset))
+          offset_raw = offset.is_a?(NilObject) ? nil : (offset.is_a?(IntegerObject) ? offset.raw : str_vm_coerce_to_int(context, offset))
           is_regexp = sub.is_a?(RegexpObject)
           pat = if sub.is_a?(StringObject)
                   sub.raw
@@ -1601,7 +1600,7 @@ module Frozone
         end
 
         def string_byterindex(context, v, sub, offset = NilObject::NIL)
-          offset_raw = offset.nil? ? nil : (offset.is_a?(IntegerObject) ? offset.raw : str_vm_coerce_to_int(context, offset))
+          offset_raw = offset.is_a?(NilObject) ? nil : (offset.is_a?(IntegerObject) ? offset.raw : str_vm_coerce_to_int(context, offset))
           is_regexp = sub.is_a?(RegexpObject)
           pat = if sub.is_a?(StringObject)
                   sub.raw

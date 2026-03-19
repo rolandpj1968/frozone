@@ -1043,7 +1043,7 @@ module Frozone
             first = backtrace_arg.raw.first
             has_locs = first.is_a?(ObjectObject) && !first.is_a?(StringObject)
             exc_obj.set_ivar(:@_has_locations, has_locs ? TrueObject::TRUE : FalseObject::FALSE)
-          elsif !backtrace_arg.nil? && !backtrace_arg.is_a?(NilObject)
+          elsif !backtrace_arg.is_a?(NilObject)
             exc_obj.set_ivar(:@backtrace, backtrace_arg)
             exc_obj.set_ivar(:@_has_locations, TrueObject::TRUE)
           else
@@ -1054,7 +1054,7 @@ module Frozone
         def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = NilObject::NIL, backtrace_arg = NilObject::NIL, cause_arg = NilObject::NIL)
           current_exc = GLOBALS[:"$!"]
           no_cause_sentinel = cause_arg.is_a?(SymbolObject) && cause_arg.raw == :__raise_no_cause__
-          explicit_cause = !cause_arg.nil? && !no_cause_sentinel
+          explicit_cause = !cause_arg.is_a?(NilObject) && !no_cause_sentinel
 
           # Distinguish bare `raise` (no args → :__raise_no_arg__ sentinel) from `raise(nil)` (explicit nil → TypeError)
           no_arg_sentinel = msg.is_a?(SymbolObject) && msg.raw == :__raise_no_arg__
@@ -1113,7 +1113,7 @@ module Frozone
           else
             # raise exception_object — first check if it responds to #exception
             # (this implements the exception protocol: any object with #exception can be raised)
-            has_message_arg = !message_arg.nil? && !message_arg.is_a?(NilObject)
+            has_message_arg = !message_arg.is_a?(NilObject)
             exc_obj = begin
               msg.dispatch(context, :exception, has_message_arg ? [message_arg] : [], {})
             rescue FrozoneException => nm_err
@@ -1949,7 +1949,7 @@ module Frozone
           # Validate cause: arg in calling context (TypeError/ArgumentError raised here, not in fiber)
           no_cause_sentinel = cause_arg.is_a?(SymbolObject) && cause_arg.raw == :__raise_no_cause__
           no_arg_sentinel = msg.is_a?(SymbolObject) && msg.raw == :__raise_no_arg__
-          explicit_cause = !cause_arg.nil? && !no_cause_sentinel
+          explicit_cause = !cause_arg.is_a?(NilObject) && !no_cause_sentinel
 
           if no_arg_sentinel && explicit_cause
             raise FrozoneException.make(:ArgumentError, "only cause is given with no arguments")
