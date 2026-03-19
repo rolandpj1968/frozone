@@ -13,8 +13,6 @@ module Frozone
           Frozone::Vm.emit_warning(context, "constant #{mod_name}::#{name} is deprecated")
         end
 
-        private
-
         def normalize_ivar(name)
           sym = name.is_a?(SymbolObject) ? name.raw : name.raw.to_sym
           :"@#{sym.to_s.delete_prefix('@')}"

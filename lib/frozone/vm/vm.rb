@@ -40,7 +40,7 @@ module Frozone
 
         ruby_version     = StringObject.new('4.0.1')
         ruby_platform    = StringObject.new(RUBY_PLATFORM)
-        ruby_engine      = StringObject.new('frozone')
+        ruby_engine      = StringObject.new('ruby')
         ruby_eng_version = StringObject.new('4.0.1')
         ruby_patchlevel  = IntegerObject.new(-1)
         ruby_revision    = StringObject.new('0')
