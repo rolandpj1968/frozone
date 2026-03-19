@@ -144,7 +144,7 @@ class Float
 
   def divmod(v) = Intrinsics.float_divmod(self, v)
   def div(v) = (self / v).floor
-  def remainder(n) = self - n * (self / n).truncate
+  def remainder(n) = Intrinsics.float_remainder(self, n)
 
   def coerce(v)
     return [v.to_f, self] if v.respond_to?(:to_f)

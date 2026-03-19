@@ -72,6 +72,8 @@ class Integer
     _coerce_op(v, :%)
   end
 
+  alias modulo %
+
   def **(v)
     if v.is_a?(Integer)
       raise ZeroDivisionError, "divided by 0" if self == 0 && v < 0
@@ -241,7 +243,7 @@ class Integer
       raise ZeroDivisionError, "divided by 0" if n == 0.0
       raise FloatDomainError, "NaN" if n.nan?
       q = (self.to_f / n).floor
-      [q, self.to_f - q * n]
+      [q, self.to_f % n]
     else
       begin
         a, b = n.send(:coerce, self)

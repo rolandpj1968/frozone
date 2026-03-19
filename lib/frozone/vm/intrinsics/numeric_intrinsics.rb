@@ -225,6 +225,8 @@ module Frozone
           ArrayObject.new([IntegerObject.new(q), FloatObject.new(r)])
         end
 
+        def float_remainder(_, v1, v2) = FloatObject.new(v1.raw.remainder(v2.raw))
+
         def float__lt_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? bool_object_for(v1.raw <  v2.raw) : FalseObject::FALSE
         def float__le_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? bool_object_for(v1.raw <= v2.raw) : FalseObject::FALSE
         def float__ge_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? bool_object_for(v1.raw >= v2.raw) : FalseObject::FALSE
