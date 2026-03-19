@@ -1879,6 +1879,43 @@ module Frozone
 
         public
 
+        def locale_charmap(_)
+          StringObject.new(::Encoding.locale_charmap || "UTF-8")
+        end
+
+        def encoding_set_default_external(_, enc_name_obj)
+          enc_name = enc_name_obj.is_a?(StringObject) ? enc_name_obj.raw : enc_name_obj.to_s
+          begin
+            ::Encoding.default_external = ::Encoding.find(enc_name)
+          rescue ::ArgumentError
+            nil
+          end
+          NilObject::NIL
+        end
+
+        def encoding_set_default_internal(_, enc_name_obj)
+          if enc_name_obj.is_a?(NilObject) || enc_name_obj.nil?
+            ::Encoding.default_internal = nil
+          else
+            enc_name = enc_name_obj.is_a?(StringObject) ? enc_name_obj.raw : enc_name_obj.to_s
+            begin
+              ::Encoding.default_internal = ::Encoding.find(enc_name)
+            rescue ::ArgumentError
+              nil
+            end
+          end
+          NilObject::NIL
+        end
+
+        def encoding_compatible(_, a, b)
+          mri_a = encoding_compatible_to_mri(a)
+          mri_b = encoding_compatible_to_mri(b)
+          return NilObject::NIL if mri_a.nil? || mri_b.nil?
+          enc = ::Encoding.compatible?(mri_a, mri_b)
+          return NilObject::NIL if enc.nil?
+          encoding_find_or_make(enc.name)
+        end
+
         def encoding_converter_check(_, from_str, to_str)
           from_raw = from_str.is_a?(StringObject) ? from_str.raw : from_str.to_s
           to_raw = to_str.is_a?(StringObject) ? to_str.raw : to_str.to_s
@@ -1954,6 +1991,378 @@ module Frozone
           when ::String then StringObject.new(r)
           when nil then NilObject::NIL
           else NilObject::NIL
+          end
+        end
+
+        public
+
+        # Encoding::Converter intrinsics — delegate to MRI Encoding::Converter
+        def encoding_converter_new(_, from_str, to_str, opts_hash = nil)
+          from_raw = from_str.is_a?(StringObject) ? from_str.raw : from_str.to_s
+          to_raw   = to_str.is_a?(StringObject) ? to_str.raw : to_str.to_s
+          opts = {}
+          if opts_hash.is_a?(HashObject)
+            opts_hash.raw.each do |k, v|
+              key = k.is_a?(SymbolObject) ? k.raw : k.to_s.to_sym
+              opts[key] = case v
+                          when StringObject then v.raw
+                          when TrueObject   then true
+                          when FalseObject  then false
+                          when IntegerObject then v.raw
+                          else v.is_a?(NilObject) ? nil : v
+                          end
+            end
+          elsif opts_hash.is_a?(IntegerObject)
+            opts = opts_hash.raw
+          end
+          begin
+            mri_conv = opts.is_a?(::Integer) ? ::Encoding::Converter.new(from_raw, to_raw, opts) : ::Encoding::Converter.new(from_raw, to_raw, **opts)
+          rescue ::Encoding::ConverterNotFoundError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          rescue ::TypeError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          end
+          EncodingConverterObject.new(mri_conv)
+        end
+
+        def encoding_converter_source_encoding(_, receiver)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          return NilObject::NIL unless conv
+          enc_name = conv.source_encoding.name
+          encoding_find_or_make(enc_name)
+        end
+
+        def encoding_converter_destination_encoding(_, receiver)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          return NilObject::NIL unless conv
+          enc_name = conv.destination_encoding.name
+          encoding_find_or_make(enc_name)
+        end
+
+        def encoding_converter_inspect(_, receiver)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          return StringObject.new("#<Encoding::Converter>") unless conv
+          src = conv.source_encoding.name
+          dst = conv.destination_encoding.name
+          StringObject.new("#<Encoding::Converter: #{src} to #{dst}>")
+        end
+
+        def encoding_converter_convpath(_, receiver)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          return ArrayObject.new([]) unless conv
+          path = conv.convpath.map do |pair|
+            if pair.is_a?(Array)
+              ArrayObject.new([encoding_find_or_make(pair[0].name), encoding_find_or_make(pair[1].name)])
+            else
+              StringObject.new(pair.to_s)
+            end
+          end
+          ArrayObject.new(path)
+        end
+
+        def encoding_converter_replacement(_, receiver)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          return NilObject::NIL unless conv
+          r = conv.replacement
+          StringObject.new(r)
+        end
+
+        def encoding_converter_replacement_set(_, receiver, val)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          return NilObject::NIL unless conv
+          str = val.is_a?(StringObject) ? val.raw : val.to_s
+          begin
+            conv.replacement = str
+          rescue ::Encoding::UndefinedConversionError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          rescue ::TypeError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          end
+          val
+        end
+
+        def encoding_converter_convert(_, receiver, src_str)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          raise FrozoneException.make(:ArgumentError, "converter is already finished") unless conv
+          src = src_str.is_a?(StringObject) ? src_str.raw : src_str.to_s
+          begin
+            result = conv.convert(src)
+          rescue ::Encoding::InvalidByteSequenceError => e
+            exc = FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+            enrich_encoding_error(exc.vm_object, e)
+            raise exc
+          rescue ::Encoding::UndefinedConversionError => e
+            exc = FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+            enrich_encoding_error(exc.vm_object, e)
+            raise exc
+          rescue ::ArgumentError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          end
+          StringObject.new(result)
+        end
+
+        def encoding_converter_finish(_, receiver)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          raise FrozoneException.make(:ArgumentError, "converter is already finished") unless conv
+          begin
+            result = conv.finish
+          rescue ::Encoding::InvalidByteSequenceError => e
+            exc = FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+            enrich_encoding_error(exc.vm_object, e)
+            raise exc
+          end
+          StringObject.new(result)
+        end
+
+        def encoding_converter_primitive_convert(_, receiver, src_arg, dest_str, offset_arg = nil, size_arg = nil, opts_arg = nil)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          raise FrozoneException.make(:ArgumentError, "converter is already finished") unless conv
+
+          dest = dest_str.is_a?(StringObject) ? dest_str.raw : +"#{dest_str}"
+          raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{dest.inspect}") if dest_str.is_a?(StringObject) && dest_str.frozen_object?
+
+          src = if src_arg.is_a?(NilObject) || src_arg.nil?
+                  nil
+                else
+                  src_arg.is_a?(StringObject) ? src_arg.raw : src_arg.to_s
+                end
+
+          offset = if offset_arg.nil? || offset_arg.is_a?(NilObject)
+                     nil
+                   elsif offset_arg.respond_to?(:dispatch)
+                     # Try to_int
+                     result = offset_arg.dispatch(nil, :to_int, [], {}) rescue nil
+                     result.is_a?(IntegerObject) ? result.raw : nil
+                   elsif offset_arg.is_a?(IntegerObject)
+                     offset_arg.raw
+                   end
+
+          size = if size_arg.nil? || size_arg.is_a?(NilObject)
+                   nil
+                 elsif size_arg.respond_to?(:dispatch)
+                   result = size_arg.dispatch(nil, :to_int, [], {}) rescue nil
+                   result.is_a?(IntegerObject) ? result.raw : nil
+                 elsif size_arg.is_a?(IntegerObject)
+                   size_arg.raw
+                 end
+
+          opts = {}
+          if opts_arg.is_a?(HashObject)
+            opts_arg.raw.each do |k, v|
+              key = k.is_a?(SymbolObject) ? k.raw : k.to_s.to_sym
+              opts[key] = case v
+                          when TrueObject  then true
+                          when FalseObject then false
+                          when IntegerObject then v.raw
+                          else v.is_a?(NilObject) ? nil : v
+                          end
+            end
+          elsif opts_arg.is_a?(IntegerObject)
+            opts = opts_arg.raw
+          end
+
+          begin
+            status = if opts.is_a?(::Integer)
+                       conv.primitive_convert(src, dest, offset, size, opts)
+                     elsif opts.empty?
+                       conv.primitive_convert(src, dest, offset, size)
+                     else
+                       conv.primitive_convert(src, dest, offset, size, **opts)
+                     end
+          rescue ::FrozenError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          rescue ::ArgumentError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          end
+
+          # Update Frozone dest StringObject's raw string
+          dest_str.raw = dest if dest_str.is_a?(StringObject)
+
+          SymbolObject.from(status)
+        end
+
+        def encoding_converter_primitive_errinfo(_, receiver)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          return ArrayObject.new([SymbolObject.from(:source_buffer_empty),
+                                  NilObject::NIL, NilObject::NIL, NilObject::NIL, NilObject::NIL]) unless conv
+          info = conv.primitive_errinfo
+          ArrayObject.new(info.map { |item|
+            case item
+            when ::Symbol then SymbolObject.from(item)
+            when ::String then StringObject.new(item)
+            when nil      then NilObject::NIL
+            else NilObject::NIL
+            end
+          })
+        end
+
+        def encoding_converter_last_error(_, receiver)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          return NilObject::NIL unless conv
+          err = conv.last_error
+          return NilObject::NIL if err.nil?
+          exc = FrozoneException.wrap_mri(err)
+          enrich_encoding_error(exc, err)
+          exc
+        end
+
+        def encoding_converter_insert_output(_, receiver, str)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          return NilObject::NIL unless conv
+          s = str.is_a?(StringObject) ? str.raw : str.to_s
+          begin
+            conv.insert_output(s)
+          rescue ::Encoding::InvalidByteSequenceError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          end
+          NilObject::NIL
+        end
+
+        def encoding_converter_putback(_, receiver, n_arg = nil)
+          conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
+          return StringObject.new("") unless conv
+          result = if n_arg.nil? || n_arg.is_a?(NilObject)
+                     conv.putback
+                   else
+                     n = n_arg.is_a?(IntegerObject) ? n_arg.raw : n_arg.to_i
+                     conv.putback(n)
+                   end
+          StringObject.new(result)
+        end
+
+        def encoding_converter_search_convpath(_, from_str, to_str, opts_arg = nil)
+          from_raw = from_str.is_a?(StringObject) ? from_str.raw : from_str.to_s
+          to_raw   = to_str.is_a?(StringObject) ? to_str.raw : to_str.to_s
+          opts = {}
+          if opts_arg.is_a?(HashObject)
+            opts_arg.raw.each do |k, v|
+              key = k.is_a?(SymbolObject) ? k.raw : k.to_s.to_sym
+              opts[key] = case v
+                          when TrueObject  then true
+                          when FalseObject then false
+                          else v.is_a?(NilObject) ? nil : v
+                          end
+            end
+          end
+          begin
+            path = opts.empty? ? ::Encoding::Converter.search_convpath(from_raw, to_raw) : ::Encoding::Converter.search_convpath(from_raw, to_raw, **opts)
+          rescue ::Encoding::ConverterNotFoundError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          end
+          ArrayObject.new(path.map { |pair|
+            if pair.is_a?(Array)
+              ArrayObject.new([encoding_find_or_make(pair[0].name), encoding_find_or_make(pair[1].name)])
+            else
+              StringObject.new(pair.to_s)
+            end
+          })
+        end
+
+        def encoding_converter_asciicompat_encoding(context, enc_arg)
+          # Resolve arg to MRI Encoding or String
+          mri_enc = if enc_arg.is_a?(StringObject)
+                      enc_arg.raw
+                    elsif enc_arg.respond_to?(:dispatch)
+                      # Frozone Encoding object or something with to_str
+                      name_obj = enc_arg.get_ivar(:@name) rescue nil
+                      if name_obj.is_a?(StringObject)
+                        mri_name = name_obj.raw
+                        begin
+                          ::Encoding.find(mri_name)
+                        rescue ::ArgumentError
+                          # "internal" alias with nil internal encoding
+                          nil
+                        end
+                      else
+                        nil
+                      end
+                    else
+                      enc_arg.to_s
+                    end
+          return NilObject::NIL if mri_enc.nil?
+          begin
+            result = ::Encoding::Converter.asciicompat_encoding(mri_enc)
+          rescue ::TypeError => e
+            # Try to_str on the Frozone object
+            if enc_arg.respond_to?(:dispatch) && context
+              str_obj = enc_arg.dispatch(context, :to_str, [], {}) rescue nil
+              if str_obj.is_a?(StringObject)
+                result = ::Encoding::Converter.asciicompat_encoding(str_obj.raw) rescue nil
+              end
+            end
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message) if result.nil?
+          end
+          return NilObject::NIL if result.nil?
+          encoding_find_or_make(result.name)
+        end
+
+        private
+
+        def encoding_compatible_to_mri(vm_obj)
+          case vm_obj
+          when StringObject
+            vm_obj.raw
+          when SymbolObject
+            vm_obj.raw
+          when RegexpObject
+            vm_obj.raw
+          else
+            # Check if it's an Encoding VM object (has @name ivar)
+            name_obj = vm_obj.is_a?(ObjectObject) ? (vm_obj.get_ivar(:@name) rescue nil) : nil
+            if name_obj.is_a?(StringObject)
+              begin
+                ::Encoding.find(name_obj.raw)
+              rescue ::ArgumentError
+                nil
+              end
+            else
+              nil
+            end
+          end
+        end
+
+        def encoding_find_or_make(enc_name)
+          enc_class = Core::OBJECT_CLASS.get_constant(:Encoding)
+          if enc_class
+            ctx = Fiber[:context]
+            begin
+              enc_class.dispatch(ctx, :find, [StringObject.new(enc_name)], {})
+            rescue FrozoneException
+              StringObject.new(enc_name)
+            rescue
+              StringObject.new(enc_name)
+            end
+          else
+            StringObject.new(enc_name)
+          end
+        end
+
+        def enrich_encoding_error(vm_obj, mri_err)
+          return unless vm_obj.respond_to?(:set_ivar)
+          if mri_err.respond_to?(:source_encoding)
+            src_enc = mri_err.source_encoding
+            vm_obj.set_ivar(:@source_encoding, encoding_find_or_make(src_enc.name)) if src_enc
+            vm_obj.set_ivar(:@source_encoding_name, StringObject.new(src_enc.name)) if src_enc
+          end
+          if mri_err.respond_to?(:destination_encoding)
+            dst_enc = mri_err.destination_encoding
+            vm_obj.set_ivar(:@destination_encoding, encoding_find_or_make(dst_enc.name)) if dst_enc
+            vm_obj.set_ivar(:@destination_encoding_name, StringObject.new(dst_enc.name)) if dst_enc
+          end
+          if mri_err.respond_to?(:error_bytes)
+            eb = mri_err.error_bytes
+            vm_obj.set_ivar(:@error_bytes, eb ? StringObject.new(eb) : NilObject::NIL)
+          end
+          if mri_err.respond_to?(:readagain_bytes)
+            rb = mri_err.readagain_bytes
+            vm_obj.set_ivar(:@readagain_bytes, rb ? StringObject.new(rb) : NilObject::NIL)
+          end
+          if mri_err.respond_to?(:incomplete_input?)
+            vm_obj.set_ivar(:@incomplete_input, bool_object_for(mri_err.incomplete_input?))
+          end
+          if mri_err.respond_to?(:error_char)
+            ec = mri_err.error_char rescue nil
+            vm_obj.set_ivar(:@error_char, ec ? StringObject.new(ec) : NilObject::NIL)
           end
         end
 

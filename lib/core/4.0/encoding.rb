@@ -27,6 +27,10 @@ class Encoding
     @name == "US-ASCII"
   end
 
+  def replicate(new_name)
+    Encoding.new(new_name)
+  end
+
   UTF_8    = new("UTF-8")
   US_ASCII = new("US-ASCII")
   ASCII    = US_ASCII
@@ -71,6 +75,7 @@ class Encoding
   UTF_32LE = new("UTF-32LE")
   SHIFT_JIS    = new("Shift_JIS")
   Shift_JIS    = SHIFT_JIS
+  SJIS         = SHIFT_JIS
   Windows_31J  = new("Windows-31J")
   CP932        = Windows_31J
   Windows_1250 = new("Windows-1250")
@@ -104,6 +109,7 @@ class Encoding
   CP65001     = new("CP65001")
   Emacs_Mule  = new("Emacs-Mule")
   ISO_2022_JP = new("ISO-2022-JP")
+  ISO2022_JP  = ISO_2022_JP
   ISO_2022_JP_2 = new("ISO-2022-JP-2")
   ISO_2022_JP_KDDI = new("ISO-2022-JP-KDDI")
   UTF8_MAC    = new("UTF8-MAC")
@@ -115,11 +121,67 @@ class Encoding
   TIS_620     = new("TIS-620")
   UTF_7       = new("UTF-7")
   CESU_8      = new("CESU-8")
+  Stateless_ISO_2022_JP = new("stateless-ISO-2022-JP")
+  MacCyrillic  = new("macCyrillic")
+  MacJapanese  = new("MacJapanese")
+  MacThai      = new("MacThai")
 
   CompatibilityError        = Class.new(EncodingError)
   ConverterNotFoundError    = Class.new(EncodingError)
   InvalidByteSequenceError  = Class.new(EncodingError)
   UndefinedConversionError  = Class.new(EncodingError)
+
+  class InvalidByteSequenceError
+    def source_encoding_name
+      @source_encoding_name&.to_s
+    end
+
+    def destination_encoding_name
+      @destination_encoding_name&.to_s
+    end
+
+    def source_encoding
+      @source_encoding
+    end
+
+    def destination_encoding
+      @destination_encoding
+    end
+
+    def error_bytes
+      @error_bytes
+    end
+
+    def readagain_bytes
+      @readagain_bytes
+    end
+
+    def incomplete_input?
+      @incomplete_input
+    end
+  end
+
+  class UndefinedConversionError
+    def source_encoding_name
+      @source_encoding_name&.to_s
+    end
+
+    def destination_encoding_name
+      @destination_encoding_name&.to_s
+    end
+
+    def source_encoding
+      @source_encoding
+    end
+
+    def destination_encoding
+      @destination_encoding
+    end
+
+    def error_char
+      @error_char
+    end
+  end
 
   ALL = [UTF_8, US_ASCII, BINARY, EUC_JP, ISO_8859_1, ISO_8859_2, ISO_8859_3,
          ISO_8859_4, ISO_8859_5, ISO_8859_6, ISO_8859_7, ISO_8859_8, ISO_8859_9,
@@ -132,7 +194,51 @@ class Encoding
          IBM863, IBM864, IBM865, IBM866, IBM869,
          KOI8_R, KOI8_U, CP65001,
          Emacs_Mule, ISO_2022_JP, ISO_2022_JP_2, ISO_2022_JP_KDDI,
-         UTF8_MAC, EUCJP_MS, CP51932, GB18030, GBK, GB2312, TIS_620, UTF_7, CESU_8].freeze
+         UTF8_MAC, EUCJP_MS, CP51932, GB18030, GBK, GB2312, TIS_620, UTF_7, CESU_8,
+         Stateless_ISO_2022_JP, MacCyrillic, MacJapanese, MacThai].freeze
+
+  # Complete alias table matching MRI Ruby
+  ALIASES = {
+    "ASCII"             => "US-ASCII",
+    "ANSI_X3.4-1968"   => "US-ASCII",
+    "646"               => "US-ASCII",
+    "BINARY"            => "ASCII-8BIT",
+    "CP65001"           => "UTF-8",
+    "UTF8"              => "UTF-8",
+    "SJIS"              => "Shift_JIS",
+    "Shift-JIS"         => "Shift_JIS",
+    "CP932"             => "Windows-31J",
+    "PCK"               => "Windows-31J",
+    "EUC_JP"            => "EUC-JP",
+    "eucJP"             => "EUC-JP",
+    "eucJP-ms"          => "eucJP-ms",
+    "UTF-16"            => "UTF-16",
+    "UCS-2BE"           => "UTF-16BE",
+    "UCS-4BE"           => "UTF-32BE",
+    "UCS-4LE"           => "UTF-32LE",
+    "ISO8859-1"         => "ISO-8859-1",
+    "ISO8859-2"         => "ISO-8859-2",
+    "ISO8859-3"         => "ISO-8859-3",
+    "ISO8859-4"         => "ISO-8859-4",
+    "ISO8859-5"         => "ISO-8859-5",
+    "ISO8859-6"         => "ISO-8859-6",
+    "ISO8859-7"         => "ISO-8859-7",
+    "ISO8859-8"         => "ISO-8859-8",
+    "ISO8859-9"         => "ISO-8859-9",
+    "ISO8859-10"        => "ISO-8859-10",
+    "ISO8859-11"        => "ISO-8859-11",
+    "ISO8859-13"        => "ISO-8859-13",
+    "ISO8859-14"        => "ISO-8859-14",
+    "ISO8859-15"        => "ISO-8859-15",
+    "ISO8859-16"        => "ISO-8859-16",
+    "ISO-8859-14"       => "ISO-8859-14",
+    "KOI8-R"            => "KOI8-R",
+    "KOI8-U"            => "KOI8-U",
+    "Big5-HKSCS"        => "Big5-HKSCS",
+    "GB2312"            => "GBK",
+    "macCyrillic"       => "macCyrillic",
+    "stateless-ISO-2022-JP" => "stateless-ISO-2022-JP",
+  }.freeze
 
   @default_external = UTF_8
   @default_internal = nil
@@ -143,6 +249,8 @@ class Encoding
 
   def self.default_external=(enc)
     @default_external = enc.is_a?(Encoding) ? enc : find(enc.to_s)
+    # Sync to MRI so that native Ruby IO objects track Frozone's default_external.
+    Intrinsics.encoding_set_default_external(@default_external.name)
   end
 
   def self.default_internal
@@ -151,15 +259,19 @@ class Encoding
 
   def self.default_internal=(enc)
     @default_internal = enc.is_a?(Encoding) ? enc : (enc ? find(enc.to_s) : nil)
+    # Sync to MRI so that native Ruby IO objects track Frozone's default_internal.
+    Intrinsics.encoding_set_default_internal(@default_internal&.name)
   end
 
   def self.find(name)
-    return default_external if name == "locale" || name == "external" || name == "filesystem"
-    return default_internal || UTF_8 if name == "internal"
-    name_s = name.to_s
+    raise TypeError, "no implicit conversion of #{name.class} into String" if name.is_a?(Symbol)
+    return name if name.is_a?(Encoding)
+    name_s = name.respond_to?(:to_str) ? name.to_str : name.to_s
+    return default_external if name_s == "locale" || name_s == "external" || name_s == "filesystem"
+    return default_internal if name_s == "internal"
     ALL.find { |e| e.name.casecmp(name_s) == 0 } ||
       begin
-        canonical = aliases[name_s] || aliases.find { |k, _| k.casecmp(name_s) == 0 }&.last
+        canonical = ALIASES[name_s] || ALIASES.find { |k, _| k.casecmp(name_s) == 0 }&.last
         if canonical
           ALL.find { |e| e.name.casecmp(canonical) == 0 } ||
             raise(ArgumentError, "unknown encoding name - #{name_s}")
@@ -170,22 +282,140 @@ class Encoding
   end
 
   def self.list = ALL
-  def self.aliases = {
-    "ASCII" => "US-ASCII", "ANSI_X3.4-1968" => "US-ASCII",
-    "BINARY" => "ASCII-8BIT", "CP65001" => "UTF-8"
-  }
+
+  def self.aliases
+    base = ALIASES.dup
+    base["external"] = default_external.name
+    base["locale"] = locale_charmap || default_external.name
+    base["filesystem"] = default_external.name
+    base["internal"] = default_internal ? default_internal.name : default_external.name
+    base
+  end
+
+  def self.name_list
+    names = ALL.map(&:name)
+    names + ALIASES.keys
+  end
+
+  def self.locale_charmap
+    Intrinsics.locale_charmap
+  end
+
+  def self.compatible?(a, b)
+    Intrinsics.encoding_compatible(a, b)
+  end
 
   class Converter
-    def self.new(from_enc, to_enc, *_opts)
+    INVALID_MASK               = 15
+    INVALID_REPLACE            = 2
+    UNDEF_MASK                 = 240
+    UNDEF_REPLACE              = 32
+    UNDEF_HEX_CHARREF          = 48
+    PARTIAL_INPUT              = 131072
+    AFTER_OUTPUT               = 262144
+    UNIVERSAL_NEWLINE_DECORATOR = 256
+    CRLF_NEWLINE_DECORATOR     = 4096
+    CR_NEWLINE_DECORATOR       = 8192
+    XML_TEXT_DECORATOR         = 32768
+    XML_ATTR_CONTENT_DECORATOR = 65536
+    XML_ATTR_QUOTE_DECORATOR   = 1048576
+
+    def self.new(from_enc, to_enc, opts = nil)
+      from = from_enc.is_a?(Encoding) ? from_enc.name : from_enc.to_str
+      to   = to_enc.is_a?(Encoding) ? to_enc.name : to_enc.to_str
+      # Validate replacement if provided
+      if opts.is_a?(Hash) && opts.key?(:replace)
+        repl = opts[:replace]
+        unless repl.nil? || repl.is_a?(String)
+          if repl.respond_to?(:to_str)
+            repl_s = repl.to_str
+            raise TypeError, "no implicit conversion of #{repl.class} into String" unless repl_s.is_a?(String)
+          else
+            raise TypeError, "no implicit conversion of #{repl.class} into String"
+          end
+        end
+      end
+      if opts.nil?
+        Intrinsics.encoding_converter_new(from, to)
+      else
+        Intrinsics.encoding_converter_new(from, to, opts)
+      end
+    end
+
+    def self.asciicompat_encoding(enc)
+      enc_arg = enc.is_a?(Encoding) ? enc : enc
+      Intrinsics.encoding_converter_asciicompat_encoding(enc_arg)
+    end
+
+    def self.search_convpath(from_enc, to_enc, opts = nil)
       from = from_enc.is_a?(Encoding) ? from_enc.name : from_enc.to_s
       to   = to_enc.is_a?(Encoding) ? to_enc.name : to_enc.to_s
-      begin
-        # Try creating the converter via MRI to see if it's possible
-        Intrinsics.encoding_converter_check(from, to)
-      rescue Encoding::ConverterNotFoundError => e
-        raise Encoding::ConverterNotFoundError, e.message
+      if opts.nil?
+        Intrinsics.encoding_converter_search_convpath(from, to)
+      else
+        Intrinsics.encoding_converter_search_convpath(from, to, opts)
       end
-      super()
+    end
+
+    def source_encoding
+      Intrinsics.encoding_converter_source_encoding(self)
+    end
+
+    def destination_encoding
+      Intrinsics.encoding_converter_destination_encoding(self)
+    end
+
+    def inspect
+      Intrinsics.encoding_converter_inspect(self)
+    end
+
+    def convpath
+      Intrinsics.encoding_converter_convpath(self)
+    end
+
+    def replacement
+      Intrinsics.encoding_converter_replacement(self)
+    end
+
+    def replacement=(val)
+      raise TypeError, "no implicit conversion of #{val.class} into String" unless val.is_a?(String)
+      Intrinsics.encoding_converter_replacement_set(self, val)
+    end
+
+    def convert(src)
+      Intrinsics.encoding_converter_convert(self, src)
+    end
+
+    def finish
+      Intrinsics.encoding_converter_finish(self)
+    end
+
+    def primitive_convert(src, dest, offset = nil, size = nil, opts = nil)
+      if opts.nil?
+        Intrinsics.encoding_converter_primitive_convert(self, src, dest, offset, size)
+      else
+        Intrinsics.encoding_converter_primitive_convert(self, src, dest, offset, size, opts)
+      end
+    end
+
+    def primitive_errinfo
+      Intrinsics.encoding_converter_primitive_errinfo(self)
+    end
+
+    def last_error
+      Intrinsics.encoding_converter_last_error(self)
+    end
+
+    def insert_output(str)
+      Intrinsics.encoding_converter_insert_output(self, str)
+    end
+
+    def putback(n = nil)
+      if n.nil?
+        Intrinsics.encoding_converter_putback(self)
+      else
+        Intrinsics.encoding_converter_putback(self, n)
+      end
     end
   end
 end
