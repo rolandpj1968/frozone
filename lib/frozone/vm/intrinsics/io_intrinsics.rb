@@ -5,38 +5,38 @@ module Frozone
     module Intrinsics
       class << self
         # File / Dir
-        def file_basename(_, path, suffix = NilObject::NIL) = StringObject.new(File.basename(path.raw, suffix.is_a?(NilObject) ? nil : suffix.raw))
-        def file_absolute_path(_, path, base = NilObject::NIL) = StringObject.new(File.absolute_path(path.raw, base.is_a?(NilObject) ? nil : base.raw))
-        def file_absolute_path_q(_, path) = bool_object_for(File.absolute_path?(path.raw))
-        def file_exist(_, path) = bool_object_for(File.exist?(path.raw))
-        def file_directory(_, path) = bool_object_for(File.directory?(path.raw))
-        def file_file(_, path) = bool_object_for(File.file?(path.raw))
-        def file_readable(_, path) = bool_object_for(File.readable?(path.raw))
-        def file_readable_real(_, path) = bool_object_for(File.readable_real?(path.raw))
-        def file_executable(_, path) = bool_object_for(File.executable?(path.raw))
-        def file_executable_real(_, path) = bool_object_for(File.executable_real?(path.raw))
-        def file_writable(_, path) = bool_object_for(File.writable?(path.raw))
-        def file_writable_real(_, path) = bool_object_for(File.writable_real?(path.raw))
-        def file_owned(_, path) = bool_object_for(File.owned?(path.raw)) rescue FalseObject::FALSE
-        def file_grpowned(_, path) = bool_object_for(File.grpowned?(path.raw)) rescue FalseObject::FALSE
-        def file_blockdev(_, path) = bool_object_for(File.blockdev?(path.raw)) rescue FalseObject::FALSE
-        def file_chardev(_, path) = bool_object_for(File.chardev?(path.raw)) rescue FalseObject::FALSE
-        def file_pipe(_, path) = bool_object_for(File.pipe?(path.raw)) rescue FalseObject::FALSE
-        def file_socket(_, path) = bool_object_for(File.socket?(path.raw)) rescue FalseObject::FALSE
-        def file_setuid(_, path) = bool_object_for(File.setuid?(path.raw)) rescue FalseObject::FALSE
-        def file_setgid(_, path) = bool_object_for(File.setgid?(path.raw)) rescue FalseObject::FALSE
-        def file_sticky(_, path) = bool_object_for(File.sticky?(path.raw)) rescue FalseObject::FALSE
-        def file_identical(_, a, b) = bool_object_for(File.identical?(a.raw, b.raw)) rescue FalseObject::FALSE
+        def file_basename(_, path, suffix = NilObject::NIL) = StringObject.new(File.basename(path.raw, f2n_raw(suffix)))
+        def file_absolute_path(_, path, base = NilObject::NIL) = StringObject.new(File.absolute_path(path.raw, f2n_raw(base)))
+        def file_absolute_path_q(_, path) = n2f_bool(File.absolute_path?(path.raw))
+        def file_exist(_, path) = n2f_bool(File.exist?(path.raw))
+        def file_directory(_, path) = n2f_bool(File.directory?(path.raw))
+        def file_file(_, path) = n2f_bool(File.file?(path.raw))
+        def file_readable(_, path) = n2f_bool(File.readable?(path.raw))
+        def file_readable_real(_, path) = n2f_bool(File.readable_real?(path.raw))
+        def file_executable(_, path) = n2f_bool(File.executable?(path.raw))
+        def file_executable_real(_, path) = n2f_bool(File.executable_real?(path.raw))
+        def file_writable(_, path) = n2f_bool(File.writable?(path.raw))
+        def file_writable_real(_, path) = n2f_bool(File.writable_real?(path.raw))
+        def file_owned(_, path) = n2f_bool(File.owned?(path.raw)) rescue FalseObject::FALSE
+        def file_grpowned(_, path) = n2f_bool(File.grpowned?(path.raw)) rescue FalseObject::FALSE
+        def file_blockdev(_, path) = n2f_bool(File.blockdev?(path.raw)) rescue FalseObject::FALSE
+        def file_chardev(_, path) = n2f_bool(File.chardev?(path.raw)) rescue FalseObject::FALSE
+        def file_pipe(_, path) = n2f_bool(File.pipe?(path.raw)) rescue FalseObject::FALSE
+        def file_socket(_, path) = n2f_bool(File.socket?(path.raw)) rescue FalseObject::FALSE
+        def file_setuid(_, path) = n2f_bool(File.setuid?(path.raw)) rescue FalseObject::FALSE
+        def file_setgid(_, path) = n2f_bool(File.setgid?(path.raw)) rescue FalseObject::FALSE
+        def file_sticky(_, path) = n2f_bool(File.sticky?(path.raw)) rescue FalseObject::FALSE
+        def file_identical(_, a, b) = n2f_bool(File.identical?(a.raw, b.raw)) rescue FalseObject::FALSE
         def file_ftype(_, path)      = reraise(Errno::ENOENT)        { StringObject.new(File.ftype(path.raw)) }
         def file_size_exact(_, path) = reraise(Errno::ENOENT)        { IntegerObject.new(File.size(path.raw)) }
         def file_atime(_, path)      = reraise(Errno::ENOENT)        { TimeObject.new(File.atime(path.raw)) }
         def file_mtime(_, path)      = reraise(Errno::ENOENT)        { TimeObject.new(File.mtime(path.raw)) }
         def file_ctime(_, path)      = reraise(Errno::ENOENT)        { TimeObject.new(File.ctime(path.raw)) }
         def file_read(_, path) = StringObject.new(File.read(path.raw))
-        def file_symlink(_, path) = bool_object_for(File.symlink?(path.raw))
+        def file_symlink(_, path) = n2f_bool(File.symlink?(path.raw))
         def file_readlink(_, path) = reraise(Errno::ENOENT) { StringObject.new(File.readlink(path.raw)) }
-        def file_zero(_, path) = bool_object_for(File.zero?(path.raw))
-        def file_fnmatch(_, pattern, path, flags) = bool_object_for(File.fnmatch(pattern.raw, path.raw, flags.raw))
+        def file_zero(_, path) = n2f_bool(File.zero?(path.raw))
+        def file_fnmatch(_, pattern, path, flags) = n2f_bool(File.fnmatch(pattern.raw, path.raw, flags.raw))
         # Returns nil - stat info accessed via individual methods
         def file_stat_native(_, path) = reraise(Errno::ENOENT) { NilObject::NIL }
         def file_stat_mode(_, path)      = stat_int_field(path) { |s| s.mode }
@@ -53,8 +53,8 @@ module Frozone
         def file_stat_blocks(_, path)    = stat_int_field(path) { |s| s.blocks || 0 }
         def file_stat_blksize(_, path)   = stat_int_field(path, default: 4096) { |s| s.blksize || 4096 }
         def dir_pwd(_) = StringObject.new(Dir.pwd)
-        def dir_empty(_, path) = bool_object_for(Dir.empty?(path.raw))
-        def dir_exist(_, path) = bool_object_for(path.raw && Dir.exist?(path.raw))
+        def dir_empty(_, path) = n2f_bool(Dir.empty?(path.raw))
+        def dir_exist(_, path) = n2f_bool(path.raw && Dir.exist?(path.raw))
         def process_pid(_) = IntegerObject.new(Process.pid)
         def process_euid(_) = IntegerObject.new(Process.euid)
 
@@ -69,16 +69,16 @@ module Frozone
         end
 
         def file_expand_path(_, path, base = NilObject::NIL) = reraise(ArgumentError) do
-          StringObject.new(File.expand_path(path.raw, base.is_a?(NilObject) ? nil : base.raw))
+          StringObject.new(File.expand_path(path.raw, f2n_raw(base)))
         end
 
         def file_realpath(_, path, base = NilObject::NIL)
-          StringObject.new(File.realpath(path.raw, base.is_a?(NilObject) ? nil : base.raw))
+          StringObject.new(File.realpath(path.raw, f2n_raw(base)))
         rescue Errno::ENOENT => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
         end
 
         def file_realdirpath(_, path, base = NilObject::NIL)
-          StringObject.new(File.realdirpath(path.raw, base.is_a?(NilObject) ? nil : base.raw))
+          StringObject.new(File.realdirpath(path.raw, f2n_raw(base)))
         rescue Errno::ENOENT => e then raise FrozoneException.make(:Errno__ENOENT, e.message)
         end
 
@@ -184,14 +184,14 @@ module Frozone
         end
 
         def dir_home(_, user = NilObject::NIL) = reraise(ArgumentError) do
-          u = user.is_a?(NilObject) ? nil : user.raw
+          u = f2n_raw(user)
           StringObject.new(u ? Dir.home(u) : Dir.home)
         end
 
         def dir_glob(context, pattern, flags = NilObject::NIL, base = NilObject::NIL, sort = NilObject::NIL)
           # pattern can be a String, Array, or object with to_path
           flag_int = flags.is_a?(NilObject) ? 0 : flags.raw.to_i
-          base_str = base.is_a?(NilObject) ? nil : base.raw
+          base_str = f2n_raw(base)
           sort_val = sort.is_a?(NilObject) || (sort.is_a?(TrueObject) || (sort.is_a?(FalseObject) ? false : sort.raw))
           pats = if pattern.is_a?(ArrayObject)
                    pattern.raw.map { |p| coerce_to_path(context, p) }
@@ -297,7 +297,7 @@ module Frozone
 
         def dir_mktmpdir(context, prefix, block)
           require 'tmpdir'
-          pfx = prefix.is_a?(NilObject) ? nil : prefix.raw
+          pfx = f2n_raw(prefix)
           path = pfx ? Dir.mktmpdir(pfx) : Dir.mktmpdir
           if block && !block.is_a?(NilObject)
             begin
@@ -344,7 +344,7 @@ module Frozone
         def time_year(_, t) = IntegerObject.new(t.raw.year)
         def time_wday(_, t) = IntegerObject.new(t.raw.wday)
         def time_yday(_, t) = IntegerObject.new(t.raw.yday)
-        def time_utc?(_, t) = bool_object_for(t.raw.utc?)
+        def time_utc?(_, t) = n2f_bool(t.raw.utc?)
         def time_dup(_, t) = time_preserve_class(t, t.raw.dup)
         def time_utc_offset(_, t) = wrap_utc_offset(t.raw.utc_offset)
         def time_asctime(_, t) = StringObject.new(t.raw.asctime)
@@ -353,7 +353,7 @@ module Frozone
         def time_round(_, t, n) = TimeObject.new(t.raw.round(n.is_a?(IntegerObject) ? n.raw : 0))
         def time_load(_, str) = TimeObject.new(Time.send(:_load, str.raw))
         def time_strftime(_, t, format) = StringObject.new(t.raw.strftime(format.raw))
-        def time_dst?(_, t) = bool_object_for(t.raw.dst?)
+        def time_dst?(_, t) = n2f_bool(t.raw.dst?)
         def time_hash(_, t) = IntegerObject.new(t.raw.hash)
 
         # Extract an MRI Numeric from a Frozone value (Integer, Float, or Rational ObjectObject).
@@ -557,12 +557,12 @@ module Frozone
         end
 
         # Regexp
-        def regexp_newly_created_q(_, r) = r.is_a?(RegexpObject) ? bool_object_for(r.newly_created_for_subclass) : FalseObject::FALSE
+        def regexp_newly_created_q(_, r) = r.is_a?(RegexpObject) ? n2f_bool(r.newly_created_for_subclass) : FalseObject::FALSE
         def regexp_source(_, r) = StringObject.new(r.raw.source)
         def regexp_inspect(_, r) = StringObject.new(r.raw.inspect)
         def regexp_to_s(_, r) = StringObject.new(r.raw.to_s)
-        def regexp_casefold(_, r) = bool_object_for(r.raw.casefold?)
-        def regexp_fixed_encoding(_, r) = bool_object_for(r.raw.fixed_encoding?)
+        def regexp_casefold(_, r) = n2f_bool(r.raw.casefold?)
+        def regexp_fixed_encoding(_, r) = n2f_bool(r.raw.fixed_encoding?)
         def regexp_escape(_, str) = StringObject.new(Regexp.escape(str.raw.to_s))
         def regexp_hash(_, r) = IntegerObject.new(r.raw.hash)
         def regexp_names(_, r) = ArrayObject.new(r.raw.names.map { |n| StringObject.new(n) })
@@ -599,7 +599,7 @@ module Frozone
         def regexp_eq(_, r1, r2)
           return TrueObject::TRUE if r1.equal?(r2)
           return FalseObject::FALSE unless r2.is_a?(RegexpObject)
-          bool_object_for(r1.raw == r2.raw)
+          n2f_bool(r1.raw == r2.raw)
         end
 
         def regexp_new(context, klass, pattern, options = NilObject::NIL, kw_opts = NilObject::NIL)
@@ -636,7 +636,7 @@ module Frozone
         end
 
         def regexp_linear_time_q(_, r)
-          bool_object_for(Regexp.linear_time?(r.raw))
+          n2f_bool(Regexp.linear_time?(r.raw))
         rescue
           FalseObject::FALSE
         end
@@ -653,7 +653,7 @@ module Frozone
           else
             return FalseObject::FALSE
           end
-          bool_object_for(Regexp.linear_time?(raw_pat))
+          n2f_bool(Regexp.linear_time?(raw_pat))
         rescue
           FalseObject::FALSE
         end
@@ -694,7 +694,7 @@ module Frozone
         end
 
         def regexp_set_timeout(_, _r, val)
-          raw_val = val.is_a?(NilObject) ? nil : val.raw
+          raw_val = f2n_raw(val)
           REGEXP_TIMEOUT[0] = raw_val
           ::Regexp.timeout = raw_val
           val
@@ -785,7 +785,7 @@ module Frozone
               end
           p = pos.is_a?(IntegerObject) ? pos.raw : 0
           begin
-            bool_object_for(p == 0 ? receiver.raw.match?(s) : receiver.raw.match?(s, p))
+            n2f_bool(p == 0 ? receiver.raw.match?(s) : receiver.raw.match?(s, p))
           rescue ::Regexp::TimeoutError => e
             vm_obj = FrozoneException.wrap_mri(e)
             raise FrozoneException.new(vm_obj, e.message)
@@ -955,7 +955,7 @@ module Frozone
 
         def io_explicit_encoding?(_, receiver)
           return FalseObject::FALSE unless receiver.is_a?(IOObject)
-          bool_object_for(receiver.explicit_encoding?)
+          n2f_bool(receiver.explicit_encoding?)
         end
 
         def io_mark_explicit_encoding(_, receiver)
@@ -1014,7 +1014,7 @@ module Frozone
 
         def io_read(_, receiver, len_obj = NilObject::NIL, buf_obj = NilObject::NIL)
           return NilObject::NIL unless receiver.is_a?(IOObject)
-          len = len_obj.is_a?(NilObject) ? nil : len_obj.raw
+          len = f2n_raw(len_obj)
           result = len ? receiver.native_io.read(len) : receiver.native_io.read
           result.nil? ? NilObject::NIL : StringObject.new(result)
         rescue ::IOError => e then raise FrozoneException.make(:IOError, e.message)
@@ -1051,7 +1051,7 @@ module Frozone
 
         def io_closed?(_, receiver)
           return TrueObject::TRUE unless receiver.is_a?(IOObject)
-          bool_object_for(receiver.native_io.closed?)
+          n2f_bool(receiver.native_io.closed?)
         end
 
         def io_fileno(_, receiver)
@@ -1062,7 +1062,7 @@ module Frozone
 
         def io_eof?(_, receiver)
           return TrueObject::TRUE unless receiver.is_a?(IOObject)
-          bool_object_for(receiver.native_io.eof?)
+          n2f_bool(receiver.native_io.eof?)
         rescue ::IOError => e then raise FrozoneException.make(:IOError, e.message)
         end
 
@@ -1099,7 +1099,7 @@ module Frozone
 
         def io_binmode?(_, receiver)
           return FalseObject::FALSE unless receiver.is_a?(IOObject)
-          bool_object_for(receiver.native_io.binmode?)
+          n2f_bool(receiver.native_io.binmode?)
         end
 
         def io_set_encoding(_, receiver, ext_obj, int_obj = NilObject::NIL)
@@ -1122,7 +1122,7 @@ module Frozone
 
         def io_isatty(_, receiver)
           return FalseObject::FALSE unless receiver.is_a?(IOObject)
-          bool_object_for(receiver.native_io.isatty)
+          n2f_bool(receiver.native_io.isatty)
         end
 
         def io_getbyte(_, receiver)
@@ -1233,7 +1233,7 @@ module Frozone
 
         def io_writable?(_, receiver)
           return FalseObject::FALSE unless receiver.is_a?(IOObject)
-          bool_object_for((receiver.native_io.stat.mode rescue 0) & 0o200 != 0)
+          n2f_bool((receiver.native_io.stat.mode rescue 0) & 0o200 != 0)
         rescue
           FalseObject::FALSE
         end

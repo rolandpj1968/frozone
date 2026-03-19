@@ -13,7 +13,7 @@ module Frozone
         def string_inspect(_, v) = StringObject.new(v.raw.inspect)
         def string_crypt(_, v, salt) = StringObject.new(v.raw.crypt(salt.raw))
         def string_hash(_, v) = IntegerObject.new(v.raw.hash)
-        def string_eql(_, v1, v2) = bool_object_for(v2.is_a?(StringObject) && v1.raw == v2.raw)
+        def string_eql(_, v1, v2) = n2f_bool(v2.is_a?(StringObject) && v1.raw == v2.raw)
         def string_ord(_, v)               = IntegerObject.new(v.raw.ord)
 
         def string_spaceship(context, v1, v2)
@@ -464,7 +464,7 @@ module Frozone
 
         def string_succ(_, v)          = StringObject.new(v.raw.succ)
         def string_b(_, v) = StringObject.new(v.raw.b)
-        def string_ascii_only(_, v) = bool_object_for(v.raw.ascii_only?)
+        def string_ascii_only(_, v) = n2f_bool(v.raw.ascii_only?)
 
         def string_dedup(_, v)
           raw = v.raw
@@ -1251,8 +1251,8 @@ module Frozone
 
         public
 
-        def string_chilled_q(_, v) = bool_object_for(v.chilled?)
-        def string_frozen(_, v)           = bool_object_for(v.frozen_object?)
+        def string_chilled_q(_, v) = n2f_bool(v.chilled?)
+        def string_frozen(_, v)           = n2f_bool(v.frozen_object?)
         def string_to_sym(_, v)           = SymbolObject.from(v.raw.to_sym)
         def string_to_f(_, v)             = FloatObject.new(v.raw.to_f)
 
@@ -1402,8 +1402,8 @@ module Frozone
         def string_match_q(_, v, pattern, pos)
           pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
           str = v.raw
-          result = pat.match?(str, pos.is_a?(NilObject) ? nil : pos.raw)
-          bool_object_for(result)
+          result = pat.match?(str, f2n_raw(pos))
+          n2f_bool(result)
         end
 
         def string_scan(context, v, pattern, block = NilObject::NIL)
@@ -1454,7 +1454,7 @@ module Frozone
 
         # Byte-level primitives
 
-        def string_valid_encoding(_, v) = bool_object_for(v.raw.valid_encoding?)
+        def string_valid_encoding(_, v) = n2f_bool(v.raw.valid_encoding?)
         def string_dump(_, v) = StringObject.new(v.raw.dump, frozen: true)
         def string_oct(_, v) = IntegerObject.new(v.raw.oct)
         def string_grapheme_clusters(_, v) = ArrayObject.new(v.raw.grapheme_clusters.map { |g| StringObject.new(g) })
@@ -1610,8 +1610,8 @@ module Frozone
               if a.is_a?(RangeObject)
                 b = a.begin_val
                 e = a.end_val
-                b_raw = b.is_a?(NilObject) ? nil : b.raw
-                e_raw = e.is_a?(NilObject) ? nil : e.raw
+                b_raw = f2n_raw(b)
+                e_raw = f2n_raw(e)
                 Range.new(b_raw, e_raw, a.exclusive?)
               else
                 a.respond_to?(:raw) ? a.raw : a
@@ -1722,7 +1722,7 @@ module Frozone
         def string_unicode_normalized_q(_, v, form = NilObject::NIL)
           form_raw = form.is_a?(NilObject) ? :nfc : form.raw
           begin
-            bool_object_for(v.raw.unicode_normalized?(form_raw))
+            n2f_bool(v.raw.unicode_normalized?(form_raw))
           rescue ::Encoding::CompatibilityError => e
             raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
           end
@@ -2247,7 +2247,7 @@ module Frozone
             vm_obj.set_ivar(:@readagain_bytes, rb ? StringObject.new(rb) : NilObject::NIL)
           end
           if mri_err.respond_to?(:incomplete_input?)
-            vm_obj.set_ivar(:@incomplete_input, bool_object_for(mri_err.incomplete_input?))
+            vm_obj.set_ivar(:@incomplete_input, n2f_bool(mri_err.incomplete_input?))
           end
           if mri_err.respond_to?(:error_char)
             ec = mri_err.error_char rescue nil

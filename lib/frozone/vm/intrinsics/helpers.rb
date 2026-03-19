@@ -553,8 +553,8 @@ module Frozone
 
         # ENV intrinsics — direct MRI ENV access
 
-        def env_key?(_, key) = bool_object_for(ENV.key?(key.raw))
-        def env_value?(_, value) = bool_object_for(ENV.value?(value.raw))
+        def env_key?(_, key) = n2f_bool(ENV.key?(key.raw))
+        def env_value?(_, value) = n2f_bool(ENV.value?(value.raw))
         def env_keys(_) = ArrayObject.new(ENV.keys.map { |k| StringObject.new(k) })
         def env_values(_) = ArrayObject.new(ENV.values.map { |v| StringObject.new(v) })
         def env_size(_) = IntegerObject.new(ENV.size)

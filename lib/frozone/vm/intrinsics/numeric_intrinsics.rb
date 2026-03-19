@@ -13,7 +13,7 @@ module Frozone
 
         def integer_hash(_, v) = IntegerObject.new(v.raw.hash)
 
-        def integer_eql(_, v1, v2) = bool_object_for(v2.is_a?(IntegerObject) && v1.raw == v2.raw)
+        def integer_eql(_, v1, v2) = n2f_bool(v2.is_a?(IntegerObject) && v1.raw == v2.raw)
 
         def integer_to_s(_, v, base = NilObject::NIL) = StringObject.new(v.raw.to_s(base.is_a?(NilObject) ? 10 : base.raw))
 
@@ -115,11 +115,11 @@ module Frozone
           obj
         end
 
-        def integer__lt_(_, v1, v2)  = bool_object_for(v1.raw <  integer_raw(v2))
-        def integer__le_(_, v1, v2)  = bool_object_for(v1.raw <= integer_raw(v2))
-        def integer__ge_(_, v1, v2)  = bool_object_for(v1.raw >= integer_raw(v2))
-        def integer__gt_(_, v1, v2)  = bool_object_for(v1.raw >  integer_raw(v2))
-        def integer__eq_(_, v1, v2)  = bool_object_for(v1.raw == (v2.is_a?(IntegerObject) || v2.is_a?(FloatObject) ? v2.raw : nil))
+        def integer__lt_(_, v1, v2)  = n2f_bool(v1.raw <  integer_raw(v2))
+        def integer__le_(_, v1, v2)  = n2f_bool(v1.raw <= integer_raw(v2))
+        def integer__ge_(_, v1, v2)  = n2f_bool(v1.raw >= integer_raw(v2))
+        def integer__gt_(_, v1, v2)  = n2f_bool(v1.raw >  integer_raw(v2))
+        def integer__eq_(_, v1, v2)  = n2f_bool(v1.raw == (v2.is_a?(IntegerObject) || v2.is_a?(FloatObject) ? v2.raw : nil))
 
         def integer__plus_(_, v1, v2)  = numeric_wrap(v1.raw + integer_raw(v2))
         def integer__minus_(_, v1, v2) = numeric_wrap(v1.raw - integer_raw(v2))
@@ -144,11 +144,11 @@ module Frozone
 
         # Float intrinsics
         def float_eq(_, v1, v2)
-          return bool_object_for(false) unless v2.is_a?(FloatObject) || v2.is_a?(IntegerObject)
-          bool_object_for(v1.raw == v2.raw)
+          return n2f_bool(false) unless v2.is_a?(FloatObject) || v2.is_a?(IntegerObject)
+          n2f_bool(v1.raw == v2.raw)
         end
 
-        def float_eql(_, v1, v2)       = bool_object_for(v2.is_a?(FloatObject) && v1.raw == v2.raw)
+        def float_eql(_, v1, v2)       = n2f_bool(v2.is_a?(FloatObject) && v1.raw == v2.raw)
         def float_hash(_, v)           = IntegerObject.new(v.raw.hash)
 
         def float_spaceship(_, v1, v2)
@@ -163,19 +163,19 @@ module Frozone
         def float_abs(_, v)            = FloatObject.new(v.raw.abs)
 
         def float_ceil(_, v, n = NilObject::NIL)
-          n_raw = n.is_a?(NilObject) ? nil : n.raw
+          n_raw = f2n_raw(n)
           result = n_raw.nil? ? v.raw.ceil : v.raw.ceil(n_raw)
           result.is_a?(::Integer) ? IntegerObject.new(result) : FloatObject.new(result)
         end
 
         def float_floor(_, v, n = NilObject::NIL)
-          n_raw = n.is_a?(NilObject) ? nil : n.raw
+          n_raw = f2n_raw(n)
           result = n_raw.nil? ? v.raw.floor : v.raw.floor(n_raw)
           result.is_a?(::Integer) ? IntegerObject.new(result) : FloatObject.new(result)
         end
 
         def float_round(_, v, n = NilObject::NIL, half = NilObject::NIL)
-          n_raw = n.is_a?(NilObject) ? nil : n.raw
+          n_raw = f2n_raw(n)
           half_raw = half.is_a?(NilObject) ? nil : (half.is_a?(SymbolObject) ? half.raw : half.raw.to_sym)
           opts = half_raw ? { half: half_raw } : {}
           result = n_raw.nil? ? v.raw.round(**opts) : v.raw.round(n_raw, **opts)
@@ -183,7 +183,7 @@ module Frozone
         end
 
         def float_truncate(_, v, n = NilObject::NIL)
-          n_raw = n.is_a?(NilObject) ? nil : n.raw
+          n_raw = f2n_raw(n)
           result = n_raw.nil? ? v.raw.truncate : v.raw.truncate(n_raw)
           result.is_a?(::Integer) ? IntegerObject.new(result) : FloatObject.new(result)
         end
@@ -208,17 +208,17 @@ module Frozone
           end
         end
 
-        def float_nan?(_, v)           = bool_object_for(v.raw.nan?)
+        def float_nan?(_, v)           = n2f_bool(v.raw.nan?)
 
         def float_infinite?(_, v)
           r = v.raw.infinite?
           r ? IntegerObject.new(r) : NilObject::NIL
         end
 
-        def float_finite?(_, v)        = bool_object_for(v.raw.finite?)
-        def float_zero?(_, v)          = bool_object_for(v.raw.zero?)
-        def float_positive?(_, v)      = bool_object_for(v.raw.positive?)
-        def float_negative?(_, v)      = bool_object_for(v.raw.negative?)
+        def float_finite?(_, v)        = n2f_bool(v.raw.finite?)
+        def float_zero?(_, v)          = n2f_bool(v.raw.zero?)
+        def float_positive?(_, v)      = n2f_bool(v.raw.positive?)
+        def float_negative?(_, v)      = n2f_bool(v.raw.negative?)
 
         def float_divmod(_, v1, v2)
           q, r = v1.raw.divmod(v2.raw)
@@ -227,10 +227,10 @@ module Frozone
 
         def float_remainder(_, v1, v2) = FloatObject.new(v1.raw.remainder(v2.raw))
 
-        def float__lt_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? bool_object_for(v1.raw <  v2.raw) : FalseObject::FALSE
-        def float__le_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? bool_object_for(v1.raw <= v2.raw) : FalseObject::FALSE
-        def float__ge_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? bool_object_for(v1.raw >= v2.raw) : FalseObject::FALSE
-        def float__gt_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? bool_object_for(v1.raw >  v2.raw) : FalseObject::FALSE
+        def float__lt_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? n2f_bool(v1.raw <  v2.raw) : FalseObject::FALSE
+        def float__le_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? n2f_bool(v1.raw <= v2.raw) : FalseObject::FALSE
+        def float__ge_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? n2f_bool(v1.raw >= v2.raw) : FalseObject::FALSE
+        def float__gt_(_, v1, v2) = v2.is_a?(FloatObject) || v2.is_a?(IntegerObject) ? n2f_bool(v1.raw >  v2.raw) : FalseObject::FALSE
 
         def float__plus_(_, v1, v2)  = FloatObject.new(v1.raw + v2.raw)
         def float__minus_(_, v1, v2) = FloatObject.new(v1.raw - v2.raw)

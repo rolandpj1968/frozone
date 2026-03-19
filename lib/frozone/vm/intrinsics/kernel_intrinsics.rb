@@ -185,7 +185,7 @@ module Frozone
           frames = context.frames
           caller_frame = frames.length >= 2 ? frames[-2] : nil
           b = caller_frame&.block
-          bool_object_for(!b.nil? && !b.is_a?(NilObject))
+          n2f_bool(!b.nil? && !b.is_a?(NilObject))
         end
 
         def kernel_loop(context, _receiver, block)
@@ -251,7 +251,7 @@ module Frozone
         end
 
         def kernel_srand(_, _receiver, seed)
-          result = srand(seed.is_a?(NilObject) ? nil : seed.raw)
+          result = srand(f2n_raw(seed))
           IntegerObject.new(result)
         end
 
@@ -264,7 +264,7 @@ module Frozone
 
         # BasicObject
         def basic_object___id__(_, v) = IntegerObject.new(v.__id__)
-        def basic_object__equal_equal_(_, v1, v2) = bool_object_for(v1.equal?(v2))
+        def basic_object__equal_equal_(_, v1, v2) = n2f_bool(v1.equal?(v2))
 
         def basic_object_method_missing(context, receiver, name, args, kwargs)
           name_sym = name.is_a?(SymbolObject) ? name.raw : name
@@ -328,9 +328,9 @@ module Frozone
         # Kernel require/load
         def kernel_float(_, _receiver, val) = FloatObject.new(val.is_a?(FloatObject) ? val.raw : Float(val.raw))
         def env_get(_, key) = (v = ENV[key.raw]) ? StringObject.new(v) : NilObject::NIL
-        def env_set(_, key, val) = (ENV[key.raw] = val.is_a?(NilObject) ? nil : val.raw; val)
+        def env_set(_, key, val) = (ENV[key.raw] = f2n_raw(val); val)
         def env_delete(_, key) = (v = ENV.delete(key.raw)) ? StringObject.new(v) : NilObject::NIL
-        def env_key?(_, key) = bool_object_for(ENV.key?(key.raw))
+        def env_key?(_, key) = n2f_bool(ENV.key?(key.raw))
         def env_keys(_) = ArrayObject.new(ENV.keys.map { |k| StringObject.new(k) })
         def env_values(_) = ArrayObject.new(ENV.values.map { |v| StringObject.new(v) })
         def env_size(_) = IntegerObject.new(ENV.size)

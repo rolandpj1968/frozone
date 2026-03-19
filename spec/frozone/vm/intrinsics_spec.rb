@@ -295,13 +295,13 @@ RSpec.describe Frozone::Vm::Intrinsics do
     end
   end
 
-  describe '.bool_object_for' do
+  describe '.n2f_bool' do
     it 'returns TrueObject::TRUE for true' do
-      expect(described_class.bool_object_for(true)).to equal(Frozone::Vm::TrueObject::TRUE)
+      expect(described_class.n2f_bool(true)).to equal(Frozone::Vm::TrueObject::TRUE)
     end
 
     it 'returns FalseObject::FALSE for false' do
-      expect(described_class.bool_object_for(false)).to equal(Frozone::Vm::FalseObject::FALSE)
+      expect(described_class.n2f_bool(false)).to equal(Frozone::Vm::FalseObject::FALSE)
     end
   end
 end

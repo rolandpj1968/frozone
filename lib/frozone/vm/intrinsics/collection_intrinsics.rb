@@ -381,10 +381,10 @@ module Frozone
 
         # Range
         def range_allocate(_, _klass) = RangeObject.new(NilObject::NIL, NilObject::NIL, false, initialized: false)
-        def range_initialized_q(_, range) = bool_object_for(range.is_a?(RangeObject) && range.initialized?)
+        def range_initialized_q(_, range) = n2f_bool(range.is_a?(RangeObject) && range.initialized?)
         def range_begin(_, range) = range.begin_val
         def range_end(_, range)   = range.end_val
-        def range_exclude_end(_, range) = bool_object_for(range.exclusive?)
+        def range_exclude_end(_, range) = n2f_bool(range.exclusive?)
 
         def range_set(_, range, b, e, excl)
           excl = excl.is_a?(NilObject) ? false : excl.truthy?
@@ -395,10 +395,10 @@ module Frozone
 
         # Hash
         def hash_size(_, h) = IntegerObject.new(h.size)
-        def hash_key(_, h, key) = bool_object_for(h.key?(key))
+        def hash_key(_, h, key) = n2f_bool(h.key?(key))
         def hash_get_default_proc(_, h) = h.default_block || NilObject::NIL
-        def hash_compare_by_identity_q(_, h) = bool_object_for(h.is_a?(HashObject) && h.compare_by_identity_flag)
-        def hash_ruby2_keywords_hash_q(_, h) = bool_object_for(h.is_a?(HashObject) && h.ruby2_keywords)
+        def hash_compare_by_identity_q(_, h) = n2f_bool(h.is_a?(HashObject) && h.compare_by_identity_flag)
+        def hash_ruby2_keywords_hash_q(_, h) = n2f_bool(h.is_a?(HashObject) && h.ruby2_keywords)
 
         def hash_index_write(_, h, key, value)
           h[key] = value

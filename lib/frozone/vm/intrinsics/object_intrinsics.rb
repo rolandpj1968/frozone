@@ -53,7 +53,7 @@ module Frozone
         end
 
         def object_ivar_get(_, v, name)    = v.get_ivar(validated_ivar(name, v))
-        def object_ivar_defined(_, v, name) = bool_object_for(v.ivar_defined?(validated_ivar(name, v)))
+        def object_ivar_defined(_, v, name) = n2f_bool(v.ivar_defined?(validated_ivar(name, v)))
 
         def object_ivar_set(_, v, name, value)
           check_frozen!(v)
@@ -245,7 +245,7 @@ module Frozone
           # Integers, Symbols, nil, true, false are always frozen
           return TrueObject::TRUE if v.is_a?(IntegerObject) || v.is_a?(SymbolObject) ||
                                      v.is_a?(NilObject) || v.is_a?(TrueObject) || v.is_a?(FalseObject)
-          bool_object_for(v.frozen_object?)
+          n2f_bool(v.frozen_object?)
         end
 
         def object_singleton_class(context, v)

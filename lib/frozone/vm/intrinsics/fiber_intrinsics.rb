@@ -8,7 +8,7 @@ module Frozone
 
       class << self
         def fiber_yield(_, _receiver, args) = ::Fiber.yield(args.raw.first || NilObject::NIL)
-        def fiber_alive(_, fiber_obj) = bool_object_for(fiber_obj.is_a?(FiberObject) && fiber_obj.alive?)
+        def fiber_alive(_, fiber_obj) = n2f_bool(fiber_obj.is_a?(FiberObject) && fiber_obj.alive?)
 
         def thread_save_reset_locals(_, thread_obj)
           THREAD_SAVED_LOCALS[thread_obj.object_id] = {
@@ -91,7 +91,7 @@ module Frozone
 
         def fiber_blocking_q(_, fiber_obj)
           return FalseObject::FALSE unless fiber_obj.is_a?(FiberObject)
-          bool_object_for(fiber_obj.blocking)
+          n2f_bool(fiber_obj.blocking)
         end
 
         def fiber_set_blocking(_, fiber_obj, val)

@@ -1335,7 +1335,7 @@ module Frozone
           # Two unbound methods are equal if they have the same owner and same underlying method body.
           # Aliases have different names but the same raw_method — they should compare equal.
           same = a.unbound_owner.equal?(b.unbound_owner) && a.raw_method.equal?(b.raw_method)
-          bool_object_for(same)
+          n2f_bool(same)
         end
 
         def unbound_method_parameters(_, receiver)
@@ -2015,7 +2015,8 @@ module Frozone
         end
 
         # Class
-        def bool_object_for(bool) = bool ? TrueObject::TRUE : FalseObject::FALSE
+        def n2f_bool(bool) = bool ? TrueObject::TRUE : FalseObject::FALSE
+        def f2n_raw(obj) = obj.is_a?(NilObject) ? nil : obj.raw
 
         def class_new(context, klass, args, kwargs, block = NilObject::NIL)
           raise FrozoneException.make(:TypeError, "can't create instance of singleton class") if klass.is_singleton_class

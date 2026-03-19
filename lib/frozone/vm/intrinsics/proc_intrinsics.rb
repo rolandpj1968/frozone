@@ -386,7 +386,7 @@ module Frozone
 
         def binding_local_variable_defined_q(context, binding_obj, name_obj)
           name = binding_coerce_name(name_obj, context)
-          bool_object_for(binding_obj.binding_local_names.include?(name))
+          n2f_bool(binding_obj.binding_local_names.include?(name))
         end
 
         def binding_source_location(_, binding_obj)
