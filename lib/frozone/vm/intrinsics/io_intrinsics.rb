@@ -618,7 +618,7 @@ module Frozone
           end
         end
 
-        def time_mktime(context, year, month, day, hour, min, sec, usec, use_utc)
+        def time_mktime(context, year, month, day, hour, min, sec, usec, use_utc, isdst = nil)
           y  = frozone_to_mri_numeric(year).to_i
           mo = frozone_to_mri_numeric(month).to_i
           d  = frozone_to_mri_numeric(day).to_i
@@ -626,6 +626,12 @@ module Frozone
           mi = frozone_to_mri_numeric(min).to_i
           s  = frozone_to_mri_numeric(sec)   # Rational preserved
           us = frozone_to_mri_numeric(usec)  # Rational preserved
+          # 10-arg C-style form with isdst hint for DST disambiguation (local only).
+          if !(use_utc.is_a?(TrueObject) || use_utc == true) &&
+              (isdst.is_a?(TrueObject) || isdst.is_a?(FalseObject) || isdst == true || isdst == false)
+            isdst_val = isdst.is_a?(TrueObject) || isdst == true
+            return time_make(context, Time.local(s, mi, h, d, mo, y, 0, 0, isdst_val, nil))
+          end
           # Passing usec=0 explicitly clobbers fractional seconds in sec (Rational).
           # Only pass usec if it's non-zero.
           args = us.zero? ? [y, mo, d, h, mi, s] : [y, mo, d, h, mi, s, us]
@@ -638,7 +644,13 @@ module Frozone
 
         def time_new(context, year, month, day, hour, min, sec, tz)
           if year.is_a?(NilObject)
-            return time_make(context, Time.now)
+            if tz.nil? || tz.is_a?(NilObject)
+              return time_make(context, Time.now)
+            else
+              tz_mri = tz.is_a?(StringObject) ? tz.raw : frozone_to_mri_numeric(tz)
+              tz_val = tz_mri.is_a?(String) || tz_mri.is_a?(Rational) || tz_mri.is_a?(Float) ? tz_mri : tz_mri.to_i
+              return time_make(context, Time.now.localtime(tz_val))
+            end
           end
           mri_args = [year, month, day, hour, min, sec].map { |a|
             a.is_a?(NilObject) ? nil : frozone_to_mri_numeric(a)
@@ -653,6 +665,29 @@ module Frozone
             tz_val = tz_mri.is_a?(String) || tz_mri.is_a?(Rational) || tz_mri.is_a?(Float) ? tz_mri : tz_mri.to_i
             time_make(context, Time.new(*mri_args, tz_val))
           end
+        end
+
+        # time_new_from_string: Time.new("2021-12-25 00:00:00 +09:00", precision:, in:)
+        # precision: IntegerObject (9 = ns default) or NilObject (unlimited)
+        # in_tz: Frozone String/Integer/Rational or NilObject
+        def time_new_from_string(context, str, precision, in_tz)
+          mri_str = str.is_a?(StringObject) ? str.raw : str.to_s
+          mri_prec = if precision.nil? || precision.is_a?(NilObject)
+            nil
+          elsif precision.is_a?(IntegerObject)
+            precision.raw
+          else
+            frozone_to_mri_numeric(precision).to_i
+          end
+          opts = {}
+          opts[:precision] = mri_prec unless mri_prec == 9
+          unless in_tz.nil? || in_tz.is_a?(NilObject)
+            opts[:in] = in_tz.is_a?(StringObject) ? in_tz.raw : frozone_to_mri_numeric(in_tz)
+          end
+          t = opts.empty? ? Time.new(mri_str) : Time.new(mri_str, **opts)
+          time_make(context, t)
+        rescue ArgumentError, TypeError => e
+          raise FrozoneException.make(e.class.name.to_sym, e.message)
         end
 
         def time_minus(_, t, other)

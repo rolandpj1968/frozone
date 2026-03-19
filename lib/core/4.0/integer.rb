@@ -111,6 +111,7 @@ class Integer
 
   def <=>(v)
     return Intrinsics.integer_spaceship(self, v) if v.is_a?(Integer) || v.is_a?(Float)
+    return nil unless v.respond_to?(:coerce)
     begin
       a, b = v.coerce(self)
     rescue TypeError, NoMethodError

@@ -2,9 +2,21 @@ class Time
   include Comparable
 
   def self.now(in: nil)
-    tz = binding.local_variable_get(:in)
+    tz = _coerce_tz_arg(binding.local_variable_get(:in))
     t = Intrinsics.time_now
-    tz ? Intrinsics.time_at_raw(t.to_r, tz) : t
+    return t unless tz
+    if tz.respond_to?(:utc_to_local) || tz.respond_to?(:local_to_utc)
+      unless tz.respond_to?(:utc_to_local)
+        raise TypeError, "can't convert #{tz.class} into an exact number"
+      end
+      utc_t   = t.utc
+      local_t = tz.utc_to_local(utc_t)
+      offset  = _utc_to_local_offset(local_t, utc_t)
+      r = Intrinsics.time_at_raw(t.to_r, offset)
+      r.instance_variable_set(:@frozone_timezone, tz)
+      return r
+    end
+    Intrinsics.time_at_raw(t.to_r, tz)
   end
 
   MONTH_NAMES = {
@@ -89,7 +101,16 @@ class Time
       t_r = t_r + sub_r
     end
 
-    tz = binding.local_variable_get(:in)
+    tz = _coerce_tz_arg(binding.local_variable_get(:in))
+    if tz.respond_to?(:utc_to_local)
+      raw_t_r = t_r.is_a?(Time) ? t_r.to_r : t_r.to_r
+      utc_t   = Intrinsics.time_at_raw(raw_t_r, nil).utc
+      local_t = tz.utc_to_local(utc_t)
+      offset  = _utc_to_local_offset(local_t, utc_t)
+      r = Intrinsics.time_at_raw(raw_t_r, offset)
+      r.instance_variable_set(:@frozone_timezone, tz)
+      return r
+    end
     Intrinsics.time_at_raw(t_r, tz)
   end
 
@@ -102,14 +123,15 @@ class Time
 
   def self._mktime_args(args, use_utc)
     if args.length == 10
-      # C-style: sec, min, hour, mday, mon, year, wday, yday, isdst, tz (last 4 ignored)
-      s = _coerce_time_arg(args[0])
+      # C-style: sec, min, hour, mday, mon, year, wday, yday, isdst, tz (wday/yday/tz ignored)
+      s  = _coerce_time_arg(args[0])
       mi = _coerce_time_arg(args[1])
       h  = _coerce_time_arg(args[2])
       d  = _coerce_time_arg(args[3])
       mo = _coerce_time_arg(args[4])
       y  = _coerce_time_arg(args[5])
-      Intrinsics.time_mktime(y, mo, d, h, mi, s, 0, use_utc)
+      isdst = args[8]  # pass isdst hint for DST disambiguation
+      Intrinsics.time_mktime(y, mo, d, h, mi, s, 0, use_utc, isdst)
     elsif args.length >= 1 && args.length <= 7
       y  = _coerce_time_arg(args[0])
       raise TypeError, "no implicit conversion of NilClass into Integer" if y.nil?
@@ -130,11 +152,46 @@ class Time
   def self.gm(*args)     = _mktime_args(args, true)
   def self.local(*args)  = _mktime_args(args, false)
 
-  NEW_NO_YEAR = Object.new.freeze
+  NEW_NO_YEAR      = Object.new.freeze
+  NEW_NO_PRECISION = Object.new.freeze
 
-  def self.new(year = NEW_NO_YEAR, month = nil, day = nil, hour = nil, min = nil, sec = nil, tz = nil, in: nil)
-    effective_tz = _coerce_tz_arg(tz || binding.local_variable_get(:in))
+  def self.new(year = NEW_NO_YEAR, month = nil, day = nil, hour = nil, min = nil, sec = nil, tz = nil, in: nil, precision: NEW_NO_PRECISION)
+    in_tz = binding.local_variable_get(:in)
+    if year.is_a?(String) && month.nil?
+      # Ruby 3.2+ ISO-8601 string parsing (only when year is the sole positional arg).
+      # Coerce precision to Integer if given.
+      prec = if precision.equal?(NEW_NO_PRECISION)
+        9   # MRI default: nanosecond precision
+      elsif precision.nil?
+        nil  # unlimited (keep full subsecond from string)
+      elsif precision.is_a?(Integer)
+        precision
+      elsif precision.respond_to?(:to_int)
+        precision.to_int
+      elsif precision.is_a?(Float) || precision.is_a?(Rational)
+        precision.to_i
+      else
+        raise TypeError, "no implicit conversion of #{precision.class} into Integer"
+      end
+      return Intrinsics.time_new_from_string(year, prec, _coerce_tz_arg(in_tz))
+    end
+    raise ArgumentError, "timezone argument given as positional and keyword arguments" if !tz.nil? && !in_tz.nil?
+    raw_tz = tz || in_tz
+    effective_tz = if raw_tz.is_a?(String) && respond_to?(:find_timezone)
+      find_timezone(raw_tz)
+    else
+      _coerce_tz_arg(raw_tz)
+    end
     if year.equal?(NEW_NO_YEAR)
+      # Time.new() or Time.new(in: tz_obj) — use now
+      if effective_tz.respond_to?(:utc_to_local)
+        utc_t   = Intrinsics.time_new(nil, nil, nil, nil, nil, nil, nil).utc
+        local_t = effective_tz.utc_to_local(utc_t)
+        offset  = _utc_to_local_offset(local_t, utc_t)
+        t = Intrinsics.time_new(nil, nil, nil, nil, nil, nil, offset)
+        t.instance_variable_set(:@frozone_timezone, effective_tz)
+        return t
+      end
       return Intrinsics.time_new(nil, nil, nil, nil, nil, nil, effective_tz)
     end
     raise TypeError, "no implicit conversion of NilClass into Integer" if year.nil?
@@ -144,6 +201,18 @@ class Time
     h  = _coerce_time_arg(hour)
     mi = _coerce_time_arg(min)
     s  = _coerce_time_arg(sec)
+    if effective_tz.respond_to?(:utc_to_local) || effective_tz.respond_to?(:local_to_utc)
+      unless effective_tz.respond_to?(:local_to_utc)
+        raise TypeError, "can't convert #{effective_tz.class} into an exact number"
+      end
+      # Use a UTC-tagged tentative time so to_i gives the raw calendar-value timestamp
+      tentative = Intrinsics.time_mktime(y, mo, d, h, mi, s, 0, true)
+      utc_t     = effective_tz.local_to_utc(tentative)
+      offset    = _local_to_utc_offset(tentative, utc_t)
+      t = Intrinsics.time_new(y, mo, d, h, mi, s, offset)
+      t.instance_variable_set(:@frozone_timezone, effective_tz)
+      return t
+    end
     Intrinsics.time_new(y, mo, d, h, mi, s, effective_tz)
   end
 
@@ -159,7 +228,10 @@ class Time
     else
       raise TypeError, "can't convert #{other.class} into an exact number"
     end
-    Intrinsics.time_minus(self, n)
+    result = Intrinsics.time_minus(self, n)
+    tz = @frozone_timezone
+    result.instance_variable_set(:@frozone_timezone, tz) if tz
+    result
   end
 
   def +(other)
@@ -175,7 +247,10 @@ class Time
     else
       raise TypeError, "can't convert #{other.class} into an exact number"
     end
-    Intrinsics.time_plus(self, n)
+    result = Intrinsics.time_plus(self, n)
+    tz = @frozone_timezone
+    result.instance_variable_set(:@frozone_timezone, tz) if tz
+    result
   end
   def to_f      = Intrinsics.time_to_f(self)
   def to_i      = Intrinsics.time_to_i(self)
@@ -194,11 +269,26 @@ class Time
   def year      = Intrinsics.time_year(self)
   def wday      = Intrinsics.time_wday(self)
   def yday      = Intrinsics.time_yday(self)
-  def zone      = Intrinsics.time_zone(self)
+  def zone
+    tz = @frozone_timezone
+    return tz if tz
+    Intrinsics.time_zone(self)
+  end
   def utc?      = Intrinsics.time_utc?(self)
   def gmt?      = utc?
   def subsec    = Intrinsics.time_subsec(self)
-  def strftime(format) = Intrinsics.time_strftime(self, format)
+  def strftime(format)
+    tz = @frozone_timezone
+    if tz&.respond_to?(:abbr)
+      abbr = tz.abbr(self)&.to_s
+      if abbr
+        escaped = abbr.gsub('%', '%%')
+        new_fmt = format.gsub(/%%|%Z/) { |m| m == '%%' ? '%%' : escaped }
+        return Intrinsics.time_strftime(self, new_fmt)
+      end
+    end
+    Intrinsics.time_strftime(self, format)
+  end
   def dst?      = Intrinsics.time_dst?(self)
   def isdst     = dst?
   def hash      = Intrinsics.time_hash(self)
@@ -215,15 +305,72 @@ class Time
   def gmtoff        = utc_offset
 
   def self._coerce_tz_arg(tz)
-    return tz if tz.nil? || tz.is_a?(Integer) || tz.is_a?(Float) || tz.is_a?(Rational) || tz.is_a?(String)
+    return nil if tz.nil?
+    return tz if tz.is_a?(Integer) || tz.is_a?(Float) || tz.is_a?(Rational) || tz.is_a?(String)
+    return tz if tz.respond_to?(:utc_to_local) || tz.respond_to?(:local_to_utc)  # timezone object
     return tz.to_str if tz.respond_to?(:to_str)
     return tz.to_r   if tz.respond_to?(:to_r)
     return tz.to_int if tz.respond_to?(:to_int)
-    tz
+    raise TypeError, "can't convert #{tz.class} into an exact number"
   end
 
-  def localtime(tz = nil) = Intrinsics.time_localtime(self, Time._coerce_tz_arg(tz))
-  def getlocal(tz = nil)  = Intrinsics.time_localtime(Intrinsics.time_dup(self), Time._coerce_tz_arg(tz))
+  # Offset from utc_to_local result: re-interpret result's wall-clock display as UTC,
+  # subtract the original UTC timestamp.  For non-Time results, use to_i directly.
+  def self._utc_to_local_offset(local_t, utc_t)
+    if local_t.is_a?(Time)
+      Time.utc(local_t.year, local_t.mon, local_t.mday,
+               local_t.hour, local_t.min, local_t.sec).to_i - utc_t.to_i
+    else
+      local_t.respond_to?(:to_i) ? local_t.to_i - utc_t.to_i : 0
+    end
+  end
+
+  # Offset from local_to_utc result: tentative - utc_result.
+  # tentative is a UTC-treated calendar time; utc_result is what local_to_utc returned.
+  def self._local_to_utc_offset(tentative, utc_result)
+    tentative.to_i - (utc_result.respond_to?(:to_i) ? utc_result.to_i : tentative.to_i)
+  end
+
+  def localtime(tz = nil)
+    resolved = if tz.is_a?(String) && self.class.respond_to?(:find_timezone)
+      self.class.find_timezone(tz)
+    else
+      Time._coerce_tz_arg(tz)
+    end
+    if resolved.respond_to?(:utc_to_local) || resolved.respond_to?(:local_to_utc)
+      unless resolved.respond_to?(:utc_to_local)
+        raise TypeError, "can't convert #{resolved.class} into an exact number"
+      end
+      utc_t   = getutc
+      local_t = resolved.utc_to_local(utc_t)
+      offset  = Time._utc_to_local_offset(local_t, utc_t)
+      Intrinsics.time_localtime(self, offset)
+      @frozone_timezone = resolved
+      return self
+    end
+    Intrinsics.time_localtime(self, resolved)
+  end
+
+  def getlocal(tz = nil)
+    t = Intrinsics.time_dup(self)
+    resolved = if tz.is_a?(String) && self.class.respond_to?(:find_timezone)
+      self.class.find_timezone(tz)
+    else
+      Time._coerce_tz_arg(tz)
+    end
+    if resolved.respond_to?(:utc_to_local) || resolved.respond_to?(:local_to_utc)
+      unless resolved.respond_to?(:utc_to_local)
+        raise TypeError, "can't convert #{resolved.class} into an exact number"
+      end
+      utc_t   = t.getutc
+      local_t = resolved.utc_to_local(utc_t)
+      offset  = Time._utc_to_local_offset(local_t, utc_t)
+      Intrinsics.time_localtime(t, offset)
+      t.instance_variable_set(:@frozone_timezone, resolved)
+      return t
+    end
+    Intrinsics.time_localtime(t, resolved)
+  end
 
   def dup = Intrinsics.time_dup(self)
 
