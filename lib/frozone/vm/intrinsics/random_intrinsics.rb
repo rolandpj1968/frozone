@@ -113,9 +113,7 @@ module Frozone
           IntegerObject.new(rng.seed)
         end
 
-        def random_new_seed(_, _receiver)
-          IntegerObject.new(Random.new_seed)
-        end
+        def random_new_seed(_, _receiver) = IntegerObject.new(Random.new_seed)
 
         def random_bytes(_, v, n_obj)
           rng = v.is_a?(RandomObject) ? v.rng : Random

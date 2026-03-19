@@ -225,22 +225,16 @@ module Frozone
           StringObject.new(filtered)
         end
 
-        def process_status_exitstatus(_, obj)
-          IntegerObject.new(obj.native_status.exitstatus || 0)
-        end
+        def process_status_exitstatus(_, obj) = IntegerObject.new(obj.native_status.exitstatus || 0)
 
-        def process_status_pid(_, obj)
-          IntegerObject.new(obj.native_status.pid || 0)
-        end
+        def process_status_pid(_, obj) = IntegerObject.new(obj.native_status.pid || 0)
 
         def process_status_termsig(_, obj)
           sig = obj.native_status.termsig
           sig ? IntegerObject.new(sig) : NilObject::NIL
         end
 
-        def emit_vm_warning(context, msg)
-          Frozone::Vm.emit_warning(context, msg)
-        end
+        def emit_vm_warning(context, msg) = Frozone::Vm.emit_warning(context, msg)
 
         def kernel_abort(context, _receiver, msg)
           m = msg.is_a?(NilObject) ? nil : msg.dispatch(context, :to_s, [], {}).raw

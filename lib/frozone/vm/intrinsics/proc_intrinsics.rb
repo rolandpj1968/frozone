@@ -335,9 +335,7 @@ module Frozone
           kernel_eval(context, NilObject::NIL, code_obj, binding_obj, filename_arg, lineno_arg)
         end
 
-        def binding_receiver(_, binding_obj)
-          binding_obj.captured_frame.the_self
-        end
+        def binding_receiver(_, binding_obj) = binding_obj.captured_frame.the_self
 
         def binding_coerce_name(name_obj, context)
           if name_obj.is_a?(SymbolObject)

@@ -25,14 +25,9 @@ module Frozone
           StringObject.new(result)
         end
 
-        def file_absolute_path(_, path, base = NilObject::NIL)
-          result = base.is_a?(NilObject) ? File.absolute_path(path.raw) : File.absolute_path(path.raw, base.raw)
-          StringObject.new(result)
-        end
+        def file_absolute_path(_, path, base = NilObject::NIL) = StringObject.new(base.is_a?(NilObject) ? File.absolute_path(path.raw) : File.absolute_path(path.raw, base.raw))
 
-        def file_absolute_path_q(_, path)
-          bool_object_for(File.absolute_path?(path.raw))
-        end
+        def file_absolute_path_q(_, path) = bool_object_for(File.absolute_path?(path.raw))
 
         def file_realpath(_, path, base = NilObject::NIL)
           result = base.is_a?(NilObject) ? File.realpath(path.raw) : File.realpath(path.raw, base.raw)
@@ -555,9 +550,7 @@ module Frozone
           t
         end
 
-        def time_dup(_, t)
-          time_preserve_class(t, t.raw.dup)
-        end
+        def time_dup(_, t) = time_preserve_class(t, t.raw.dup)
         def time_subsec(_, t)
           r = t.raw.subsec
           r.is_a?(Integer) ? IntegerObject.new(r) : make_rational(r)
@@ -906,9 +899,7 @@ module Frozone
           s.freeze
           s
         end
-        def match_data_regexp(_, md)
-          md.frozone_regexp || RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
-        end
+        def match_data_regexp(_, md) = md.frozone_regexp || RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
 
         def match_data_begin(context, md, n) = reraise(::IndexError) do
           key = match_data_group_key(context, n)
@@ -922,9 +913,7 @@ module Frozone
           v ? IntegerObject.new(v) : NilObject::NIL
         end
 
-        def match_data_captures(_, md)
-          ArrayObject.new(md.raw.captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
-        end
+        def match_data_captures(_, md) = ArrayObject.new(md.raw.captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
 
         def match_data_bytebegin(context, md, n)
           key = match_data_group_key(context, n)
@@ -949,9 +938,7 @@ module Frozone
         rescue ::IndexError, ::NameError => e then raise FrozoneException.make(:IndexError, e.message)
         end
 
-        def match_data_hash(_, md)
-          IntegerObject.new(md.raw.hash)
-        end
+        def match_data_hash(_, md) = IntegerObject.new(md.raw.hash)
 
         def match_data_named_captures(_, md)
           h = md.raw.named_captures.transform_keys { |k| StringObject.new(k) }
@@ -959,9 +946,7 @@ module Frozone
           HashObject.new(h)
         end
 
-        def match_data_names(_, md)
-          ArrayObject.new(md.raw.regexp.named_captures.keys.map { |k| StringObject.new(k) })
-        end
+        def match_data_names(_, md) = ArrayObject.new(md.raw.regexp.named_captures.keys.map { |k| StringObject.new(k) })
 
         def io_popen_capture(_, cmd, opts_obj = NilObject::NIL)
           mri_opts = {}

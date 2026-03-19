@@ -397,9 +397,7 @@ module Frozone
           end
         end
 
-        def frozone_class_name(obj)
-          obj.is_a?(ObjectObject) ? (obj.class_object&.name || "Object") : obj.class.name
-        end
+        def frozone_class_name(obj) = obj.is_a?(ObjectObject) ? (obj.class_object&.name || "Object") : obj.class.name
 
         # ObjectSpace
 

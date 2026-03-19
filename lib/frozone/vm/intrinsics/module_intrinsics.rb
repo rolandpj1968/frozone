@@ -370,9 +370,7 @@ module Frozone
           s
         end
 
-        def module_singleton_class_q(_, receiver)
-          receiver.is_a?(ClassObject) && receiver.is_singleton_class ? TrueObject::TRUE : FalseObject::FALSE
-        end
+        def module_singleton_class_q(_, receiver) = receiver.is_a?(ClassObject) && receiver.is_singleton_class ? TrueObject::TRUE : FalseObject::FALSE
 
         def module_using(context, _receiver, mod)
           raise FrozoneException.make(:TypeError, "wrong argument type #{frozone_class_name(mod)} (expected Module)") unless mod.is_a?(ModuleObject)
@@ -914,9 +912,7 @@ module Frozone
           ArrayObject.new(result)
         end
 
-        def module_public_only_instance_methods(ctx, receiver, include_super_obj = TrueObject::TRUE)
-          module_instance_methods(ctx, receiver, include_super_obj, :public)
-        end
+        def module_public_only_instance_methods(ctx, receiver, include_super_obj = TrueObject::TRUE) = module_instance_methods(ctx, receiver, include_super_obj, :public)
 
         def module_undefined_instance_methods(_, receiver)
           result = []

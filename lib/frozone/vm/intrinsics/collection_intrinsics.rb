@@ -381,9 +381,7 @@ module Frozone
 
         def array_sample(_, v) = v.raw.empty? ? NilObject::NIL : v.raw.sample
 
-        def array_sample_n(_, v, n)
-          ArrayObject.new(v.raw.sample(n.raw))
-        end
+        def array_sample_n(_, v, n) = ArrayObject.new(v.raw.sample(n.raw))
 
         # Range
         def range_allocate(_, _klass)
