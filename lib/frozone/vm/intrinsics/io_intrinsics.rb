@@ -153,83 +153,19 @@ module Frozone
           raise FrozoneException.make(:Errno__ENOENT, e.message)
         end
 
-        def file_stat_mode(_, path)
-          IntegerObject.new(File.stat(path.raw).mode)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(0)
-        end
-
-        def file_stat_ino(_, path)
-          IntegerObject.new(File.stat(path.raw).ino)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(0)
-        end
-
-        def file_stat_nlink(_, path)
-          IntegerObject.new(File.stat(path.raw).nlink)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(0)
-        end
-
-        def file_stat_uid(_, path)
-          IntegerObject.new(File.stat(path.raw).uid)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(0)
-        end
-
-        def file_stat_gid(_, path)
-          IntegerObject.new(File.stat(path.raw).gid)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(0)
-        end
-
-        def file_stat_dev(_, path)
-          IntegerObject.new(File.stat(path.raw).dev)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(0)
-        end
-
-        def file_stat_rdev(_, path)
-          IntegerObject.new(File.stat(path.raw).rdev)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(0)
-        end
-
-        def file_stat_dev_major(_, path)
-          IntegerObject.new(File.stat(path.raw).dev_major)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(0)
-        end
-
-        def file_stat_dev_minor(_, path)
-          IntegerObject.new(File.stat(path.raw).dev_minor)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(0)
-        end
-
-        def file_stat_rdev_major(_, path)
-          IntegerObject.new(File.stat(path.raw).rdev_major)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(0)
-        end
-
-        def file_stat_rdev_minor(_, path)
-          IntegerObject.new(File.stat(path.raw).rdev_minor)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(0)
-        end
-
-        def file_stat_blocks(_, path)
-          IntegerObject.new(File.stat(path.raw).blocks || 0)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(0)
-        end
-
-        def file_stat_blksize(_, path)
-          IntegerObject.new(File.stat(path.raw).blksize || 4096)
-        rescue Errno::ENOENT, Errno::EACCES
-          IntegerObject.new(4096)
-        end
+        def file_stat_mode(_, path)      = stat_int_field(path) { |s| s.mode }
+        def file_stat_ino(_, path)       = stat_int_field(path) { |s| s.ino }
+        def file_stat_nlink(_, path)     = stat_int_field(path) { |s| s.nlink }
+        def file_stat_uid(_, path)       = stat_int_field(path) { |s| s.uid }
+        def file_stat_gid(_, path)       = stat_int_field(path) { |s| s.gid }
+        def file_stat_dev(_, path)       = stat_int_field(path) { |s| s.dev }
+        def file_stat_rdev(_, path)      = stat_int_field(path) { |s| s.rdev }
+        def file_stat_dev_major(_, path) = stat_int_field(path) { |s| s.dev_major }
+        def file_stat_dev_minor(_, path) = stat_int_field(path) { |s| s.dev_minor }
+        def file_stat_rdev_major(_, path) = stat_int_field(path) { |s| s.rdev_major }
+        def file_stat_rdev_minor(_, path) = stat_int_field(path) { |s| s.rdev_minor }
+        def file_stat_blocks(_, path)    = stat_int_field(path) { |s| s.blocks || 0 }
+        def file_stat_blksize(_, path)   = stat_int_field(path, default: 4096) { |s| s.blksize || 4096 }
 
         def file_chmod(_, mode_int, paths)
           count = 0
@@ -1422,6 +1358,12 @@ module Frozone
         end
 
         private
+
+        def stat_int_field(path, default: 0)
+          IntegerObject.new(yield File.stat(path.raw))
+        rescue Errno::ENOENT, Errno::EACCES
+          IntegerObject.new(default)
+        end
 
         def coerce_to_path(context, obj)
           return obj.raw if obj.is_a?(StringObject)
