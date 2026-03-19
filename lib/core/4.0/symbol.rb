@@ -16,19 +16,20 @@ class Symbol
   def to_s = Intrinsics.symbol_to_s(self)
   alias id2name to_s
 
-  def name
-    Intrinsics.symbol_name(self)
-  end
+  def name = to_s.freeze
 
   def to_sym = self
   alias intern to_sym
 
-  def to_proc = Intrinsics.symbol_to_proc(self)
+  def to_proc
+    sym = self
+    ->(obj, *args, **kwargs, &block) { obj.public_send(sym, *args, **kwargs, &block) }
+  end
 
   def inspect = Intrinsics.symbol_inspect(self)
 
   def hash = Intrinsics.symbol_hash(self)
-  def eql?(v) = Intrinsics.symbol_eql(self, v)
+  def eql?(v) = self == v
   def ==(v) = v.is_a?(Symbol) && to_s == v.to_s
   def <=>(v) = v.is_a?(Symbol) ? to_s <=> v.to_s : nil
 

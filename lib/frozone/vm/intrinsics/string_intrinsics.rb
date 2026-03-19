@@ -2273,34 +2273,7 @@ module Frozone
         def symbol_to_s(_, v) = StringObject.new(v.raw.to_s, chilled_source: v.raw)
         def symbol_inspect(_, v) = StringObject.new(v.raw.inspect)
 
-        SYMBOL_NAME_CACHE = {}
-        def symbol_name(_, v)
-          SYMBOL_NAME_CACHE[v.raw] ||= StringObject.new(v.raw.to_s, frozen: true)
-        end
-
         def symbol_hash(_, v) = IntegerObject.new(v.raw.hash)
-
-        def symbol_eql(_, v1, v2) = bool_object_for(v2.is_a?(SymbolObject) && v1.raw == v2.raw)
-
-        def symbol_to_proc(context, sym)
-          method_name = sym.raw
-          native = NativeBlock.new(
-            source_location: nil,
-            parameters_override: [[:req], [:rest]],
-            is_lambda: true,
-            symbol_name: method_name
-          ) do |ctx, args, block: nil|
-            if args.empty?
-              raise FrozoneException.make(:ArgumentError, "no receiver given")
-            end
-            receiver = args[0]
-            rest = args[1..]
-            block_obj = block.is_a?(ProcObject) ? block.block_object : block
-            block_obj = nil if block_obj.is_a?(NilObject)
-            receiver.dispatch(ctx, method_name, rest, {}, block_obj, private_ok: false, public_only: true)
-          end
-          ProcObject.new(native, lambda: true)
-        end
 
         def symbol_all_symbols(_)
           ArrayObject.new(SymbolObject::SymbolObjects.values)
