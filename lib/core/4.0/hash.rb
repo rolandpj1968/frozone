@@ -18,6 +18,13 @@ class Hash
   end
   private :__check_frozen__
 
+  def __coerce_to_hash__(other)
+    return other if other.is_a?(Hash)
+    return other.to_hash if other.respond_to?(:to_hash)
+    raise TypeError, "no implicit conversion of #{other.class} into Hash"
+  end
+  private :__coerce_to_hash__
+
   def initialize(default = nil, &block)
     __check_frozen__
     if block
@@ -283,8 +290,7 @@ class Hash
   def merge(*others, &block)
     r = dup
     others.each do |other|
-      other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
-      raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
+      other = __coerce_to_hash__(other)
       if block
         other.each { |k, v| r[k] = r.key?(k) ? block.call(k, r[k], v) : v }
       else
@@ -297,8 +303,7 @@ class Hash
   def merge!(*others, &block)
     __check_frozen__
     others.each do |other|
-      other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
-      raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
+      other = __coerce_to_hash__(other)
       if block
         other.each { |k, v| self[k] = self.key?(k) ? block.call(k, self[k], v) : v }
       else
@@ -312,8 +317,7 @@ class Hash
 
   def replace(other)
     __check_frozen__
-    other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
-    raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
+    other = __coerce_to_hash__(other)
     Intrinsics.hash_clear(self)
     Intrinsics.hash_reset_compare_by_identity(self)
     other.each { |k, v| self[k] = v }
@@ -639,27 +643,23 @@ class Hash
   end
 
   def <=(other)
-    other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
-    raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
+    other = __coerce_to_hash__(other)
     each { |k, v| return false unless other.key?(k) && other[k] == v }
     true
   end
 
   def >=(other)
-    other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
-    raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
+    other = __coerce_to_hash__(other)
     other <= self
   end
 
   def <(other)
-    other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
-    raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
+    other = __coerce_to_hash__(other)
     self <= other && self != other
   end
 
   def >(other)
-    other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
-    raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
+    other = __coerce_to_hash__(other)
     self >= other && self != other
   end
 
