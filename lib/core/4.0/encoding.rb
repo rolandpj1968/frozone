@@ -6,14 +6,45 @@ class Encoding
   end
 
   def to_s = @name
-  def inspect = "#<Encoding:#{@name}>"
+  def inspect
+    if @name == "ASCII-8BIT"
+      "#<Encoding:BINARY (ASCII-8BIT)>"
+    elsif dummy?
+      "#<Encoding:#{@name} (dummy)>"
+    else
+      "#<Encoding:#{@name}>"
+    end
+  end
+
+  def names
+    result = [@name]
+    # Add all static aliases that point to this encoding's name
+    ALL_ALIASES.each do |a, canonical|
+      result << a if canonical == @name && !result.include?(a)
+    end
+    # Add dynamic aliases (external, locale, filesystem, internal)
+    dyn = Encoding.aliases
+    %w[external locale filesystem internal].each do |pseudo|
+      result << pseudo if dyn[pseudo] == @name && !result.include?(pseudo)
+    end
+    result
+  end
   def ==(other) = other.is_a?(Encoding) && other.name == @name
   alias eql? ==
 
-  # Non-ASCII-compatible encodings (UTF-16 and UTF-32 use multi-byte for ASCII chars)
-  NON_ASCII_COMPATIBLE = %w[UTF-16 UTF-16BE UTF-16LE UTF-32 UTF-32BE UTF-32LE].freeze
-  # Dummy encodings need BOM or explicit byte order to be usable
-  DUMMY_ENCODINGS = %w[UTF-16 UTF-32].freeze
+  # Non-ASCII-compatible encodings (multi-byte for ASCII chars, or stateful/escape-based)
+  NON_ASCII_COMPATIBLE = %w[
+    UTF-16 UTF-16BE UTF-16LE UTF-32 UTF-32BE UTF-32LE
+    UTF-7 ISO-2022-JP ISO-2022-JP-2 ISO-2022-JP-KDDI
+    stateless-ISO-2022-JP Emacs-Mule CP50220 CP50221 CP50222 CESU-8
+  ].freeze
+  # Dummy encodings: need BOM, byte order info, or are stateful
+  DUMMY_ENCODINGS = %w[
+    UTF-16 UTF-32
+    ISO-2022-JP ISO-2022-JP-2 ISO-2022-JP-KDDI
+    UTF-7 Emacs-Mule CP50220 CP50221 CP50222
+    stateless-ISO-2022-JP
+  ].freeze
 
   def ascii_compatible?
     !NON_ASCII_COMPATIBLE.include?(@name)
@@ -106,18 +137,21 @@ class Encoding
   IBM869   = new("IBM869")
   KOI8_R      = new("KOI8-R")
   KOI8_U      = new("KOI8-U")
-  CP65001     = new("CP65001")
+  CP65001     = UTF_8  # alias for UTF-8 (Windows code page 65001)
   Emacs_Mule  = new("Emacs-Mule")
   ISO_2022_JP = new("ISO-2022-JP")
   ISO2022_JP  = ISO_2022_JP
   ISO_2022_JP_2 = new("ISO-2022-JP-2")
   ISO_2022_JP_KDDI = new("ISO-2022-JP-KDDI")
+  CP50220     = new("CP50220")
+  CP50221     = new("CP50221")
+  CP50222     = new("CP50222")
   UTF8_MAC    = new("UTF8-MAC")
   EUCJP_MS    = new("eucJP-ms")
   CP51932     = new("CP51932")
   GB18030     = new("GB18030")
   GBK         = new("GBK")
-  GB2312      = new("GB2312")
+  GB2312      = GBK  # alias for GBK
   TIS_620     = new("TIS-620")
   UTF_7       = new("UTF-7")
   CESU_8      = new("CESU-8")
@@ -192,9 +226,9 @@ class Encoding
          Big5, Big5_HKSCS, Big5_UAO,
          IBM437, IBM775, IBM852, IBM855, IBM857, IBM860, IBM861, IBM862,
          IBM863, IBM864, IBM865, IBM866, IBM869,
-         KOI8_R, KOI8_U, CP65001,
-         Emacs_Mule, ISO_2022_JP, ISO_2022_JP_2, ISO_2022_JP_KDDI,
-         UTF8_MAC, EUCJP_MS, CP51932, GB18030, GBK, GB2312, TIS_620, UTF_7, CESU_8,
+         KOI8_R, KOI8_U,
+         Emacs_Mule, ISO_2022_JP, ISO_2022_JP_2, ISO_2022_JP_KDDI, CP50220, CP50221, CP50222,
+         UTF8_MAC, EUCJP_MS, CP51932, GB18030, GBK, TIS_620, UTF_7, CESU_8,
          Stateless_ISO_2022_JP, MacCyrillic, MacJapanese, MacThai].freeze
 
   # Complete alias table matching MRI Ruby
@@ -240,6 +274,9 @@ class Encoding
     "stateless-ISO-2022-JP" => "stateless-ISO-2022-JP",
   }.freeze
 
+  # Reverse alias table: canonical name → list of aliases (for #names method)
+  ALL_ALIASES = ALIASES.freeze
+
   @default_external = UTF_8
   @default_internal = nil
 
@@ -248,7 +285,16 @@ class Encoding
   end
 
   def self.default_external=(enc)
-    @default_external = enc.is_a?(Encoding) ? enc : find(enc.to_s)
+    raise ArgumentError, "default external encoding cannot be nil" if enc.nil?
+    if enc.is_a?(Encoding)
+      @default_external = enc
+    elsif enc.is_a?(String)
+      @default_external = find(enc)
+    elsif enc.respond_to?(:to_str)
+      @default_external = find(enc.to_str)
+    else
+      raise TypeError, "no implicit conversion of #{enc.class} into String"
+    end
     # Sync to MRI so that native Ruby IO objects track Frozone's default_external.
     Intrinsics.encoding_set_default_external(@default_external.name)
   end
@@ -258,7 +304,19 @@ class Encoding
   end
 
   def self.default_internal=(enc)
-    @default_internal = enc.is_a?(Encoding) ? enc : (enc ? find(enc.to_s) : nil)
+    if enc.nil?
+      @default_internal = nil
+    elsif enc.is_a?(Encoding)
+      @default_internal = enc
+    elsif enc.is_a?(String)
+      @default_internal = find(enc)
+    elsif enc.respond_to?(:to_str)
+      result = enc.to_str
+      raise TypeError, "no implicit conversion of #{result.class} into String" unless result.is_a?(String)
+      @default_internal = find(result)
+    else
+      raise TypeError, "no implicit conversion of #{enc.class} into String"
+    end
     # Sync to MRI so that native Ruby IO objects track Frozone's default_internal.
     Intrinsics.encoding_set_default_internal(@default_internal&.name)
   end
@@ -267,8 +325,9 @@ class Encoding
     raise TypeError, "no implicit conversion of #{name.class} into String" if name.is_a?(Symbol)
     return name if name.is_a?(Encoding)
     name_s = name.respond_to?(:to_str) ? name.to_str : name.to_s
-    return default_external if name_s == "locale" || name_s == "external" || name_s == "filesystem"
-    return default_internal if name_s == "internal"
+    name_lower = name_s.downcase
+    return default_external if name_lower == "locale" || name_lower == "external" || name_lower == "filesystem"
+    return default_internal if name_lower == "internal"
     ALL.find { |e| e.name.casecmp(name_s) == 0 } ||
       begin
         canonical = ALIASES[name_s] || ALIASES.find { |k, _| k.casecmp(name_s) == 0 }&.last
@@ -288,13 +347,15 @@ class Encoding
     base["external"] = default_external.name
     base["locale"] = locale_charmap || default_external.name
     base["filesystem"] = default_external.name
-    base["internal"] = default_internal ? default_internal.name : default_external.name
+    base["internal"] = default_internal.name if default_internal
     base
   end
 
   def self.name_list
     names = ALL.map(&:name)
-    names + ALIASES.keys
+    all_aliases = ALIASES.keys + ["external", "locale", "filesystem"]
+    all_aliases << "internal" if default_internal
+    names + all_aliases
   end
 
   def self.locale_charmap
@@ -343,7 +404,13 @@ class Encoding
     end
 
     def self.asciicompat_encoding(enc)
-      enc_arg = enc.is_a?(Encoding) ? enc : enc
+      enc_arg = if enc.is_a?(Encoding) || enc.is_a?(String)
+        enc
+      elsif enc.respond_to?(:to_str)
+        enc.to_str
+      else
+        enc
+      end
       Intrinsics.encoding_converter_asciicompat_encoding(enc_arg)
     end
 
