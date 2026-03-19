@@ -3,6 +3,7 @@ require_relative 'globals'
 require_relative 'proc_object'
 
 require_relative 'parser'
+require_relative 'ast_cache'
 
 require_relative 'context'
 require_relative 'frame'
@@ -13,6 +14,7 @@ require_relative 'fiber_object'
 require_relative 'unbound_method_object'
 require_relative 'bound_method_object'
 require_relative 'io_object'
+require_relative 'encoding_converter_object'
 require_relative 'nil_object'
 require_relative 'range_object'
 require_relative 'float_object'
@@ -325,6 +327,34 @@ module Frozone
 
       private
 
+      def parser_name
+        @parser_name ||= begin
+          defined?(WqParser) && Parser == WqParser ? "wq" : "prism"
+        end
+      end
+
+      def cached_parse(script, dump_ast = false, filepath: nil, raise_syntax_errors: false)
+        # Only cache when not dumping AST and caching is not disabled.
+        # eval() calls (with outer_locals) go through Parser directly, not here.
+        if !dump_ast && AstCache.enabled?
+          cached = AstCache.fetch(script, parser_name)
+          return cached if cached
+        end
+
+        parser = Parser.new(script, dump_ast, filepath: filepath)
+        ast = parser.ast(raise_syntax_errors: raise_syntax_errors)
+        result = AstCache::ParseResult.new(
+          ast,
+          parser.top_level_locals,
+          parser.prism_always_warnings,
+          parser.prism_verbose_warnings,
+        )
+
+        AstCache.store(script, parser_name, result) if !dump_ast && AstCache.enabled?
+
+        result
+      end
+
       def evaluate_file(path, raise_syntax_errors: false)
         full_path = File.expand_path(path)
         (Fiber[:file_stack] ||= []) << full_path
@@ -343,8 +373,8 @@ module Frozone
       end
 
       def evaluate(script, dump_ast = false, filepath: nil, raise_syntax_errors: false)
-        parser = Parser.new(script, dump_ast, filepath: filepath)
-        ast = parser.ast(raise_syntax_errors: raise_syntax_errors)
+        parse_result = cached_parse(script, dump_ast, filepath: filepath, raise_syntax_errors: raise_syntax_errors)
+        ast = parse_result.ast
 
         if dump_ast
           puts
@@ -361,7 +391,7 @@ module Frozone
         Fiber[:vm_evaluate] = method(:evaluate_file)
         Fiber[:vm_eval]     = method(:evaluate)
 
-        frame = Frame.new(top_level_object, parser.top_level_locals, [top_level_scope])
+        frame = Frame.new(top_level_object, parse_result.top_level_locals, [top_level_scope])
         # top-level frame acts as a method frame: procs defined here can `return`
         # from this scope (e.g. `proc { return }.call` in a loaded file exits the load).
         frame.method_frame = frame
