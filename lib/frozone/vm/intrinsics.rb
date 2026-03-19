@@ -10,10 +10,6 @@ module Frozone
         # Object
         def object_class(_, v) = v.class_object
 
-        def object_class_name(_, v)
-          StringObject.new(frozone_class_name(v))
-        end
-
         def object_is_a(_, v, klass)
           # Metaclass hierarchy: #<Class:Foo>.is_a?(#<Class:Bar>) iff Foo.is_a?(Bar's underlying class)
           if v.is_a?(ClassObject) && v.is_singleton_class &&
@@ -59,33 +55,13 @@ module Frozone
           FalseObject::FALSE
         end
 
-        def object_ivar_get(_, v, name)
-          ivar_name_str = name.is_a?(SymbolObject) ? name.raw.to_s : name.raw.to_s
-          unless ivar_name_str.start_with?('@') && ivar_name_str.length > 1
-            raise ivar_name_error("'#{ivar_name_str}' is not allowed as an instance variable name", name, v)
-          end
-          v.get_ivar(normalize_ivar(name))
-        end
+        def object_ivar_get(_, v, name)    = v.get_ivar(validated_ivar(name, v))
+        def object_ivar_defined(_, v, name) = bool_object_for(v.ivar_defined?(validated_ivar(name, v)))
 
         def object_ivar_set(_, v, name, value)
-          ivar_name_str = name.is_a?(SymbolObject) ? name.raw.to_s : name.raw.to_s
-          unless ivar_name_str.start_with?('@') && ivar_name_str.length > 1
-            raise ivar_name_error("'#{ivar_name_str}' is not allowed as an instance variable name", name, v)
-          end
-          if v.frozen_object?
-            type_name = frozone_class_name(v)
-            raise FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{v.inspect rescue v.object_id}")
-          end
-          v.set_ivar(normalize_ivar(name), value)
+          check_frozen!(v)
+          v.set_ivar(validated_ivar(name, v), value)
           value
-        end
-
-        def object_ivar_defined(_, v, name)
-          ivar_name_str = name.is_a?(SymbolObject) ? name.raw.to_s : name.raw.to_s
-          unless ivar_name_str.start_with?('@') && ivar_name_str.length > 1
-            raise ivar_name_error("'#{ivar_name_str}' is not allowed as an instance variable name", name, v)
-          end
-          bool_object_for(v.ivar_defined?(normalize_ivar(name)))
         end
 
         def ivar_name_error(msg, name_obj, receiver)
@@ -472,7 +448,7 @@ module Frozone
 
         # Sync Frozone's Encoding.default_external to MRI so native IO objects track it.
         def encoding_set_default_external(_, name_obj)
-          name = name_obj.is_a?(StringObject) ? name_obj.raw : (name_obj.nil? || name_obj.is_a?(NilObject) ? nil : name_obj.to_s)
+          name = name_obj.is_a?(StringObject) ? name_obj.raw : (frozone_nil?(name_obj) ? nil : name_obj.to_s)
           begin
             enc = name ? ::Encoding.find(name) : ::Encoding::UTF_8
             ::Encoding.default_external = enc
@@ -484,7 +460,7 @@ module Frozone
 
         # Sync Frozone's Encoding.default_internal to MRI so native IO objects track it.
         def encoding_set_default_internal(_, name_obj)
-          name = name_obj.is_a?(StringObject) ? name_obj.raw : (name_obj.nil? || name_obj.is_a?(NilObject) ? nil : name_obj.to_s)
+          name = name_obj.is_a?(StringObject) ? name_obj.raw : (frozone_nil?(name_obj) ? nil : name_obj.to_s)
           begin
             enc = name ? ::Encoding.find(name) : nil
             ::Encoding.default_internal = enc
@@ -497,7 +473,7 @@ module Frozone
         # IO.sysopen(path, mode_str = 'r', perm = 0666) → integer fd
         def io_sysopen(_, path_obj, mode_obj = nil, perm_obj = nil)
           path = path_obj.is_a?(StringObject) ? path_obj.raw : path_obj.to_s
-          mode = if mode_obj.nil? || mode_obj.is_a?(NilObject)
+          mode = if frozone_nil?(mode_obj)
             'r'
           elsif mode_obj.is_a?(StringObject)
             mode_obj.raw
@@ -530,7 +506,7 @@ module Frozone
         # IO.new(fd, mode_or_opts = 'r', **opts) → IOObject
         def io_new_from_fd(_, fd_obj, mode_obj = nil, opts_obj = nil)
           fd = fd_obj.is_a?(IntegerObject) ? fd_obj.raw : fd_obj.raw.to_i
-          mode = if mode_obj.nil? || mode_obj.is_a?(NilObject)
+          mode = if frozone_nil?(mode_obj)
             nil
           elsif mode_obj.is_a?(StringObject)
             mode_obj.raw
@@ -583,7 +559,7 @@ module Frozone
         def io_read(_, receiver, len_obj = nil, buf_obj = nil)
           return NilObject::NIL unless receiver.is_a?(IOObject)
           native = receiver.native_io
-          len = len_obj.nil? || len_obj.is_a?(NilObject) ? nil : len_obj.raw
+          len = frozone_nil?(len_obj) ? nil : len_obj.raw
           begin
             result = len ? native.read(len) : native.read
             result.nil? ? NilObject::NIL : StringObject.new(result)
@@ -595,7 +571,7 @@ module Frozone
         def io_gets(_, receiver, sep_obj = nil, limit_obj = nil)
           return NilObject::NIL unless receiver.is_a?(IOObject)
           native = receiver.native_io
-          sep = sep_obj.nil? || sep_obj.is_a?(NilObject) ? $/ : (sep_obj.is_a?(StringObject) ? sep_obj.raw : nil)
+          sep = frozone_nil?(sep_obj) ? $/ : (sep_obj.is_a?(StringObject) ? sep_obj.raw : nil)
           begin
             line = native.gets(sep)
             line.nil? ? NilObject::NIL : StringObject.new(line)
@@ -607,7 +583,7 @@ module Frozone
         def io_readline(_, receiver, sep_obj = nil)
           return NilObject::NIL unless receiver.is_a?(IOObject)
           native = receiver.native_io
-          sep = sep_obj.nil? || sep_obj.is_a?(NilObject) ? $/ : (sep_obj.is_a?(StringObject) ? sep_obj.raw : nil)
+          sep = frozone_nil?(sep_obj) ? $/ : (sep_obj.is_a?(StringObject) ? sep_obj.raw : nil)
           begin
             line = native.readline(sep)
             StringObject.new(line)
@@ -621,7 +597,7 @@ module Frozone
         def io_readlines(_, receiver, sep_obj = nil)
           return ArrayObject.new([]) unless receiver.is_a?(IOObject)
           native = receiver.native_io
-          sep = sep_obj.nil? || sep_obj.is_a?(NilObject) ? $/ : (sep_obj.is_a?(StringObject) ? sep_obj.raw : nil)
+          sep = frozone_nil?(sep_obj) ? $/ : (sep_obj.is_a?(StringObject) ? sep_obj.raw : nil)
           begin
             lines = native.readlines(sep)
             ArrayObject.new(lines.map { |l| StringObject.new(l) })
@@ -666,7 +642,7 @@ module Frozone
         def io_seek(_, receiver, offset_obj, whence_obj = nil)
           return IntegerObject.new(0) unless receiver.is_a?(IOObject)
           offset = offset_obj.is_a?(IntegerObject) ? offset_obj.raw : 0
-          whence = whence_obj.nil? || whence_obj.is_a?(NilObject) ? ::IO::SEEK_SET : whence_obj.raw
+          whence = frozone_nil?(whence_obj) ? ::IO::SEEK_SET : whence_obj.raw
           begin
             result = receiver.native_io.seek(offset, whence)
             IntegerObject.new(result)
@@ -813,7 +789,7 @@ module Frozone
         def io_each_line(context, receiver, sep_obj = nil, block = nil)
           return receiver unless receiver.is_a?(IOObject)
           native = receiver.native_io
-          sep = sep_obj.nil? || sep_obj.is_a?(NilObject) ? $/ : (sep_obj.is_a?(StringObject) ? sep_obj.raw : $/)
+          sep = frozone_nil?(sep_obj) ? $/ : (sep_obj.is_a?(StringObject) ? sep_obj.raw : $/)
           return receiver unless block && !block.is_a?(NilObject)
           begin
             native.each_line(sep) do |line|
@@ -1029,21 +1005,6 @@ module Frozone
           ArrayObject.new(sliced || [])
         end
 
-        # Build a FrozoneException from raise args without actually raising it.
-        NO_ARG_SENTINEL = SymbolObject.from(:__raise_no_arg__)
-
-        def build_frozone_exception(context, args)
-          begin
-            args_spread = args.is_a?(ArrayObject) ? args.raw : Array(args)
-            # Pass sentinel for empty args so kernel_raise treats it as bare re-raise
-            first_arg = args_spread.empty? ? NO_ARG_SENTINEL : args_spread[0]
-            kernel_raise(context, NilObject::NIL, first_arg, *args_spread[1..])
-            FrozoneException.make(:RuntimeError, "")  # fallback
-          rescue FrozoneException => e
-            e
-          end
-        end
-
         def exception_instance?(obj)
           frozone_exc_class = Core::OBJECT_CLASS.get_constant(:Exception)
           return false unless frozone_exc_class && obj.is_a?(ObjectObject)
@@ -1066,7 +1027,7 @@ module Frozone
             c = cause
             while c && exception_instance?(c)
               c_cause = c.get_ivar(:@cause)
-              break if c_cause.nil? || c_cause.is_a?(NilObject)
+              break if frozone_nil?(c_cause)
               if c_cause.equal?(exc_obj)
                 raise FrozoneException.make(:ArgumentError, "circular causes")
               end
@@ -1110,7 +1071,7 @@ module Frozone
 
           cause = if no_cause_sentinel
             (current_exc && !current_exc.is_a?(NilObject)) ? current_exc : nil
-          elsif cause_arg.nil? || cause_arg.is_a?(NilObject)
+          elsif frozone_nil?(cause_arg)
             nil
           else
             cause_arg
@@ -1142,7 +1103,7 @@ module Frozone
             exc_obj.set_ivar(:@cause, effective_cause) if effective_cause
             apply_backtrace(exc_obj, backtrace_arg, context)
             raise FrozoneException.new(exc_obj, msg_str)
-          elsif msg.is_a?(StringObject) && (message_arg.nil? || message_arg.is_a?(NilObject))
+          elsif msg.is_a?(StringObject) && frozone_nil?(message_arg)
             # raise "message" — create RuntimeError with string
             exc = FrozoneException.make(:RuntimeError, msg.raw)
             effective_cause = (cause && !cause.equal?(exc.vm_object)) ? cause : nil
@@ -1269,7 +1230,7 @@ module Frozone
         end
 
         def kernel_loop(context, _receiver, block)
-          return NilObject::NIL if block.nil? || block.is_a?(NilObject)
+          return NilObject::NIL if frozone_nil?(block)
           loop do
             block.invoke(context, [])
           rescue Ast::BreakException => e
@@ -1280,7 +1241,7 @@ module Frozone
 
         def kernel_catch(context, _receiver, tag, block)
           tag_raw = tag.is_a?(NilObject) ? :__catch_nil__ : tag.respond_to?(:raw) ? tag.raw : tag
-          return NilObject::NIL if block.nil? || block.is_a?(NilObject)
+          return NilObject::NIL if frozone_nil?(block)
           result = catch(tag_raw) { block.invoke(context, [tag]) }
           result.is_a?(ObjectObject) ? result : NilObject::NIL
         end
@@ -1347,12 +1308,12 @@ module Frozone
         end
 
         def kernel_srand(_, _receiver, seed)
-          result = seed.nil? || seed.is_a?(NilObject) ? srand : srand(seed.raw)
+          result = frozone_nil?(seed) ? srand : srand(seed.raw)
           IntegerObject.new(result)
         end
 
         def random_new(context, _receiver, seed)
-          if seed.nil? || seed.is_a?(NilObject)
+          if frozone_nil?(seed)
             raw_seed = nil
           elsif seed.is_a?(IntegerObject)
             raw_seed = seed.raw
@@ -1395,7 +1356,7 @@ module Frozone
 
         def random_rand(context, v, n)
           rng = v.is_a?(RandomObject) ? v.rng : Random
-          if n.nil? || n.is_a?(NilObject)
+          if frozone_nil?(n)
             FloatObject.new(rng.rand)
           elsif n.is_a?(IntegerObject)
             IntegerObject.new(rng.rand(n.raw))
@@ -1406,9 +1367,9 @@ module Frozone
             end_val = n.end_val
             # If begin/end are native types, delegate to MRI rand
             if (beg_val.is_a?(IntegerObject) || beg_val.is_a?(FloatObject) ||
-                beg_val.nil? || beg_val.is_a?(NilObject)) &&
+                frozone_nil?(beg_val)) &&
                (end_val.is_a?(IntegerObject) || end_val.is_a?(FloatObject) ||
-                end_val.nil? || end_val.is_a?(NilObject))
+                frozone_nil?(end_val))
               result = rng.rand(n.raw)
               result.is_a?(Integer) ? IntegerObject.new(result) : FloatObject.new(result)
             else
@@ -1603,12 +1564,6 @@ module Frozone
           end
         end
 
-        # Module
-        def module_include(_, receiver, mod)
-          receiver.add_module(mod)
-          receiver
-        end
-
         # Multi-module include: calls append_features + included hook for each module (reversed).
         def module_include_multi(context, receiver, mods_obj)
           raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given 0, expected 1+)") if mods_obj.raw.empty?
@@ -1704,13 +1659,8 @@ module Frozone
           target
         end
 
-        def module_prepend(_, receiver, mod)
-          receiver.prepend_module(mod)
-          receiver
-        end
-
         def object_instance_eval(context, receiver, block)
-          return NilObject::NIL if block.nil? || block.is_a?(NilObject)
+          return NilObject::NIL if frozone_nil?(block)
           # Pass receiver as block arg so |obj| parameters receive self (MRI behaviour)
           return block.invoke(context, [receiver], receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(ProcObject)
           return block.invoke(context, [receiver], receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(BlockObject)
@@ -1806,7 +1756,7 @@ module Frozone
         end
 
         def object_instance_exec(context, receiver, args, block)
-          if block.nil? || block.is_a?(NilObject)
+          if frozone_nil?(block)
             raise FrozoneException.make(:LocalJumpError, "no block given")
           end
           return block.invoke(context, args.raw, receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(ProcObject)
@@ -1953,11 +1903,6 @@ module Frozone
 
         def fiber_alive(_, fiber_obj)
           bool_object_for(fiber_obj.is_a?(FiberObject) && fiber_obj.alive?)
-        end
-
-        def fiber_status(_, fiber_obj)
-          return NilObject::NIL unless fiber_obj.is_a?(FiberObject)
-          SymbolObject.from(fiber_obj.status)
         end
 
         def fiber_blocking_q(_, fiber_obj)
@@ -2545,13 +2490,6 @@ module Frozone
           receiver.is_a?(ClassObject) && receiver.is_singleton_class ? TrueObject::TRUE : FalseObject::FALSE
         end
 
-        def module_in_method_scope_q(context, _receiver)
-          # Check the CALLER's frame (parent of using's own method frame).
-          # `using` itself has current_method set; we want to know if its caller does.
-          caller_frame = context.frame.parent_frame
-          caller_frame&.method_frame&.current_method ? TrueObject::TRUE : FalseObject::FALSE
-        end
-
         # Collect all refinements from mod and its ancestors (depth-first, included modules).
         # Returns a hash mapping klass.object_id => refinement_module.
         def collect_refinements_from_module(mod)
@@ -2990,7 +2928,7 @@ module Frozone
         end
 
         def module_eval(context, receiver, block)
-          return NilObject::NIL if block.nil? || block.is_a?(NilObject)
+          return NilObject::NIL if frozone_nil?(block)
           prev_vis = receiver.is_a?(ModuleObject) ? receiver.current_visibility : nil
           receiver.current_visibility = :public if prev_vis
           context.scopes << receiver
@@ -3003,7 +2941,7 @@ module Frozone
         end
 
         def module_exec(context, receiver, args_obj, block)
-          return NilObject::NIL if block.nil? || block.is_a?(NilObject)
+          return NilObject::NIL if frozone_nil?(block)
           args = args_obj.is_a?(ArrayObject) ? args_obj.raw : []
           prev_vis = receiver.is_a?(ModuleObject) ? receiver.current_visibility : nil
           receiver.current_visibility = :public if prev_vis
@@ -3318,7 +3256,7 @@ module Frozone
         def bound_method_call(context, receiver, args, kwargs)
           return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
           blk = context.frame.block
-          blk = nil if blk.nil? || blk.is_a?(NilObject)
+          blk = nil if frozone_nil?(blk)
           kw = kwargs.is_a?(HashObject) ? kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k.raw.to_sym } : {}
           if receiver.method_missing_dispatch
             receiver.bound_receiver.dispatch(context, :method_missing, [SymbolObject.from(receiver.bound_name)] + args.raw, kw, blk, private_ok: true)
@@ -3972,7 +3910,7 @@ module Frozone
           args = args_array.raw
           name_obj = args[0]
           callable = args.length > 1 ? args[1] : nil
-          effective = if callable.nil? || callable.is_a?(NilObject)
+          effective = if frozone_nil?(callable)
             block
           else
             callable
@@ -4027,7 +3965,7 @@ module Frozone
         end
 
         def kernel_integer(context, _receiver, val, base, exception = nil)
-          exc = exception.nil? || exception.is_a?(NilObject) || exception.truthy?
+          exc = frozone_nil?(exception) || exception.truthy?
           b = base.respond_to?(:raw) ? base.raw : 0
           if val.is_a?(IntegerObject)
             return val
@@ -4141,7 +4079,7 @@ module Frozone
             return proc_obj
           end
           # No block given
-          if block.nil? || block.is_a?(NilObject)
+          if frozone_nil?(block)
             raise FrozoneException.make(:ArgumentError, "tried to create Proc object without a block")
           end
           is_lam = block.is_a?(BoundMethodObject) || (block.is_a?(NativeBlock) && block.is_lambda)
@@ -4177,7 +4115,7 @@ module Frozone
 
         def proc_call(context, proc_obj, args, kw_args_obj = NilObject::NIL)
           blk = context.frame.block
-          blk = nil if blk.nil? || blk.is_a?(NilObject)
+          blk = nil if frozone_nil?(blk)
           kw_args = kw_args_obj.is_a?(HashObject) ? kw_args_obj.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k } : {}
           proc_obj.call(context, args.raw, kw_args: kw_args, block: blk)
         end
@@ -4478,19 +4416,6 @@ module Frozone
           nil
         end
 
-        def binding_all_locals(frame)
-          names = []
-          f = frame
-          while f
-            # If frame has own_locals set (eval frame), use only those for this level.
-            # Parent frame walk handles inherited locals.
-            locals_here = f.own_locals || f.local_names
-            locals_here.each { |n| names << n unless names.include?(n) }
-            f = f.parent_frame
-          end
-          names
-        end
-
         def binding_local_variable_get(context, binding_obj, name_obj)
           name = binding_coerce_name(name_obj, context)
           frame = binding_obj.captured_frame
@@ -4778,6 +4703,23 @@ module Frozone
           :"@#{sym.to_s.delete_prefix('@')}"
         end
 
+        # Validate ivar name and return the normalized ivar Symbol.
+        # Raises NameError if name is not a valid ivar name.
+        def validated_ivar(name, receiver = nil)
+          s = name.raw.to_s
+          raise ivar_name_error("'#{s}' is not allowed as an instance variable name", name, receiver) unless s.start_with?('@') && s.length > 1
+          normalize_ivar(name)
+        end
+
+        # Raise FrozenError if v is frozen.
+        def check_frozen!(v)
+          return unless v.frozen_object?
+          raise FrozoneException.make(:FrozenError, "can't modify frozen #{frozone_class_name(v)}: #{v.inspect rescue v.object_id}")
+        end
+
+        # True if v is Ruby nil or Frozone NilObject.
+        def frozone_nil?(v) = v.nil? || v.is_a?(NilObject)
+
         def collect_method_names(v, include_super, singleton_only_when_false: false, &visibility_ok)
           seen = {}
           result = []
@@ -4893,7 +4835,7 @@ module Frozone
         # ObjectSpace
 
         def objectspace_each_object(context, klass_obj, block)
-          return IntegerObject.new(0) if block.nil? || block.is_a?(NilObject)
+          return IntegerObject.new(0) if frozone_nil?(block)
           klass = klass_obj.is_a?(NilObject) ? nil : klass_obj
           count = 0
           ::ObjectSpace.each_object(Frozone::Vm::ObjectObject) do |obj|

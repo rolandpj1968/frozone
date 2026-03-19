@@ -118,6 +118,7 @@ class Enumerator
   end
 
   def rewind
+    @receiver.rewind if @receiver.respond_to?(:rewind)
     @fiber = nil
     @peeked = false
     @peeked_vals = nil
@@ -128,7 +129,7 @@ class Enumerator
   def size
     if @size_block
       @size_block.call
-    elsif @size.is_a?(Proc)
+    elsif @size.respond_to?(:call)
       @size.call
     else
       @size
@@ -207,11 +208,14 @@ class Enumerator
 
   alias collect map
 
-  def each_with_index
-    return to_enum(:each_with_index) unless block_given?
+  def each_with_index(&ewi_block)
+    return to_enum(:each_with_index) { size } unless ewi_block
     i = 0
-    each { |*x| yield (x.length == 1 ? x[0] : x), i; i += 1 }
-    self
+    each { |*x|
+      v = ewi_block.call(x.length == 1 ? x[0] : x, i)
+      i += 1
+      v
+    }
   end
 
   def each_with_object(obj, &block)
@@ -221,15 +225,24 @@ class Enumerator
   end
 
   def with_index(offset = 0, &block)
-    return to_enum(:with_index, offset) unless block
+    return to_enum(:with_index, offset) { size } unless block
+    offset = if offset.nil?
+      0
+    elsif offset.is_a?(Integer)
+      offset
+    elsif offset.is_a?(Float)
+      offset.to_i
+    elsif offset.respond_to?(:to_int)
+      offset.to_int
+    else
+      raise TypeError, "no implicit conversion of #{offset.class} into Integer"
+    end
     i = offset
-    result = each { |*x|
-      key = block.call(x.length == 1 ? x[0] : x, i)
+    each { |*x|
+      v = block.call(x.length == 1 ? x[0] : x, i)
       i += 1
-      key
+      v
     }
-    # For method-mode enumerators (e.g. chunk), each returns the method's result enumerator
-    result.is_a?(Enumerator) && !result.equal?(self) ? result : self
   end
 
   def with_object(obj, &block)
@@ -290,7 +303,14 @@ class Enumerator
       @peeked_vals = nil
       return vals
     end
-    _advance
+    begin
+      _advance
+    rescue StopIteration
+      raise
+    rescue => e
+      @fiber = nil  # fiber was killed by exception; restart on next call
+      raise
+    end
   end
 
   def _peek_values_raw

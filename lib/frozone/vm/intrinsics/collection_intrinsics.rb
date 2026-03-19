@@ -8,9 +8,9 @@ module Frozone
         ARRAY_MAX_SIZE = 1_073_741_823  # 2**30 - 1; prevents allocation hangs for huge sizes
 
         def array_initialize(context, arr, size_or_array = nil, fill = nil, block = nil)
-          size_or_array = nil if size_or_array.nil? || size_or_array.is_a?(NilObject)
-          fill = nil if fill.nil? || fill.is_a?(NilObject)
-          block = nil if block.nil? || block.is_a?(NilObject)
+          size_or_array = nil if frozone_nil?(size_or_array)
+          fill = nil if frozone_nil?(fill)
+          block = nil if frozone_nil?(block)
           arr.raw.clear
           if size_or_array.is_a?(ArrayObject)
             arr.raw.replace(size_or_array.raw.dup)
@@ -25,31 +25,6 @@ module Frozone
             end
           end
           arr
-        end
-
-        def array_new(context, klass, size_or_array = nil, fill = nil, block = nil)
-          size_or_array = nil if size_or_array.is_a?(NilObject)
-          fill = nil if fill.is_a?(NilObject)
-          block = nil if block.is_a?(NilObject)
-          # Use the calling class (for Array subclasses); default to ARRAY_CLASS
-          cls = klass.is_a?(ClassObject) ? klass : nil
-          if size_or_array.is_a?(ArrayObject)
-            # Array.new(arr) — copy
-            ArrayObject.new(size_or_array.raw.dup, cls)
-          elsif size_or_array.is_a?(IntegerObject)
-            n = size_or_array.raw
-            raise FrozoneException.make(:ArgumentError, "negative array size") if n < 0
-            raise FrozoneException.make(:ArgumentError, "array size too big") if n > ARRAY_MAX_SIZE
-            if block
-              elements = (0...n).map { |i| block.invoke(context, [IntegerObject.new(i)]) }
-              ArrayObject.new(elements, cls)
-            else
-              elements = Array.new(n, fill || NilObject::NIL)
-              ArrayObject.new(elements, cls)
-            end
-          else
-            ArrayObject.new([], cls)
-          end
         end
 
         def array_at(_, v, i)
@@ -155,7 +130,7 @@ module Frozone
         end
 
         def array_flatten(context, arr, depth)
-          d = if depth.nil? || depth.is_a?(NilObject)
+          d = if frozone_nil?(depth)
             nil
           elsif depth.is_a?(IntegerObject)
             n = depth.raw
@@ -238,7 +213,7 @@ module Frozone
 
           if r.is_a?(ArrayObject)
             r
-          elsif r.is_a?(NilObject) || r.nil?
+          elsif frozone_nil?(r)
             nil
           else
             raise FrozoneException.make(:TypeError, "can't convert #{elem.class_object.name} into Array (#{elem.class_object.name}#to_ary gives #{r.class_object.name})")
@@ -265,7 +240,7 @@ module Frozone
             i = 0
             while i < v.length && i < other.length
               c = v[i].dispatch(context, :<=>, [other[i]], {})
-              return NilObject::NIL if c.nil? || c.is_a?(NilObject)
+              return NilObject::NIL if frozone_nil?(c)
               return c if c.raw != 0
               i += 1
             end
@@ -273,14 +248,6 @@ module Frozone
           ensure
             seen.delete(key)
           end
-        end
-
-        def array_sort(context, v)
-          ArrayObject.new(v.raw.sort do |a, b|
-            result = a.dispatch(context, :<=>, [b], {})
-            raise FrozoneException.make(:ArgumentError, "comparison failed") if result.nil? || result.is_a?(NilObject)
-            result.raw
-          end)
         end
 
         def array_map_with_block(context, arr, block)
@@ -310,26 +277,11 @@ module Frozone
           arr
         end
 
-        def array_sort_block(context, v, block)
-          ArrayObject.new(v.raw.sort do |a, b|
-            result = block.invoke(context, [a, b])
-            if result.is_a?(IntegerObject)
-              result.raw
-            elsif result.is_a?(NilObject)
-              raise FrozoneException.make(:ArgumentError, "comparison failed")
-            else
-              cmp = result.dispatch(context, :<=>, [IntegerObject.new(0)], {})
-              raise FrozoneException.make(:ArgumentError, "comparison failed") if cmp.is_a?(NilObject) || cmp.nil?
-              cmp.raw
-            end
-          end)
-        end
-
         def array_sort_by(context, v, block)
           pairs = v.raw.map { |e| [block.invoke(context, [e]), e] }
           sorted = pairs.sort { |a, b|
             result = a[0].dispatch(context, :<=>, [b[0]], {})
-            (result.nil? || result.is_a?(NilObject)) ? 0 : result.raw
+            frozone_nil?(result) ? 0 : result.raw
           }
           ArrayObject.new(sorted.map { |_, e| e })
         end
@@ -594,19 +546,17 @@ module Frozone
           ArrayObject.new(v.raw.sample(n.raw))
         end
 
-        def array_shuffle(_, v) = ArrayObject.new(v.raw.shuffle)
-
         def array_combination(context, v, n, block = nil)
           combos = v.raw.combination(n.raw).map { |c| ArrayObject.new(c) }
-          return ArrayObject.new(combos) if block.nil? || block.is_a?(NilObject)
+          return ArrayObject.new(combos) if frozone_nil?(block)
           combos.each { |c| block.invoke(context, [c]) }
           v
         end
 
         def array_permutation(context, v, n = nil, block = nil)
-          n = n.nil? || n.is_a?(NilObject) ? v.raw.length : n.raw
+          n = frozone_nil?(n) ? v.raw.length : n.raw
           perms = v.raw.permutation(n).map { |p| ArrayObject.new(p) }
-          return ArrayObject.new(perms) if block.nil? || block.is_a?(NilObject)
+          return ArrayObject.new(perms) if frozone_nil?(block)
           perms.each { |p| block.invoke(context, [p]) }
           v
         end
@@ -615,7 +565,7 @@ module Frozone
           n_raw = n.is_a?(IntegerObject) ? n.raw : 0
           return v if n_raw < 0
           combos = v.raw.repeated_combination(n_raw).map { |c| ArrayObject.new(c) }
-          return ArrayObject.new(combos) if block.nil? || block.is_a?(NilObject)
+          return ArrayObject.new(combos) if frozone_nil?(block)
           combos.each { |c| block.invoke(context, [c]) }
           v
         end
@@ -624,18 +574,12 @@ module Frozone
           n_raw = n.is_a?(IntegerObject) ? n.raw : 0
           return v if n_raw < 0
           perms = v.raw.repeated_permutation(n_raw).map { |p| ArrayObject.new(p) }
-          return ArrayObject.new(perms) if block.nil? || block.is_a?(NilObject)
+          return ArrayObject.new(perms) if frozone_nil?(block)
           perms.each { |p| block.invoke(context, [p]) }
           v
         end
 
         # Range
-        def range_new(_, b, e, excl = nil)
-          excl = excl.nil? || excl.is_a?(NilObject) ? false : excl.truthy?
-          e = NilObject::NIL if e.nil?
-          RangeObject.new(b, e, excl)
-        end
-
         def range_allocate(_, _klass)
           RangeObject.new(NilObject::NIL, NilObject::NIL, false, initialized: false)
         end
@@ -645,7 +589,7 @@ module Frozone
         end
 
         def range_set(_, range, b, e, excl)
-          excl = excl.nil? || excl.is_a?(NilObject) ? false : excl.truthy?
+          excl = frozone_nil?(excl) ? false : excl.truthy?
           e = NilObject::NIL if e.nil?
           range.set_range(b, e, excl)
           range
@@ -665,11 +609,6 @@ module Frozone
 
         def hash_key(_, h, key) = bool_object_for(h.key?(key))
 
-        # Raw key lookup — returns nil (Ruby nil) if not found (no default applied).
-        def hash_raw_get(_, h, key)
-          h.is_a?(HashObject) ? h[key] : nil
-        end
-
         def hash_index(context, h, key)
           value = h[key]
           return value unless value.nil?
@@ -679,7 +618,7 @@ module Frozone
 
         def hash_get_default(context, h, key = nil)
           if h.default_block
-            key.nil? || key.is_a?(NilObject) ? NilObject::NIL : h.default_block.invoke(context, [h, key])
+            frozone_nil?(key) ? NilObject::NIL : h.default_block.invoke(context, [h, key])
           elsif h.default_value
             h.default_value
           else

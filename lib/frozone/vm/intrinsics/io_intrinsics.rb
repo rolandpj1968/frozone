@@ -11,24 +11,24 @@ module Frozone
         end
 
         def file_dirname(_, path, level = nil)
-          lvl = level.nil? || level.is_a?(NilObject) ? 1 : level.raw
+          lvl = frozone_nil?(level) ? 1 : level.raw
           StringObject.new(File.dirname(path.raw, lvl))
         end
 
         def file_basename(_, path, suffix = nil)
-          result = suffix.nil? || suffix.is_a?(NilObject) ? File.basename(path.raw) : File.basename(path.raw, suffix.raw)
+          result = frozone_nil?(suffix) ? File.basename(path.raw) : File.basename(path.raw, suffix.raw)
           StringObject.new(result)
         end
 
         def file_expand_path(_, path, base = nil)
-          result = base.nil? || base.is_a?(NilObject) ? File.expand_path(path.raw) : File.expand_path(path.raw, base.raw)
+          result = frozone_nil?(base) ? File.expand_path(path.raw) : File.expand_path(path.raw, base.raw)
           StringObject.new(result)
         rescue ArgumentError => e
           raise FrozoneException.make(:ArgumentError, e.message)
         end
 
         def file_absolute_path(_, path, base = nil)
-          result = base.nil? || base.is_a?(NilObject) ? File.absolute_path(path.raw) : File.absolute_path(path.raw, base.raw)
+          result = frozone_nil?(base) ? File.absolute_path(path.raw) : File.absolute_path(path.raw, base.raw)
           StringObject.new(result)
         end
 
@@ -37,14 +37,14 @@ module Frozone
         end
 
         def file_realpath(_, path, base = nil)
-          result = base.nil? || base.is_a?(NilObject) ? File.realpath(path.raw) : File.realpath(path.raw, base.raw)
+          result = frozone_nil?(base) ? File.realpath(path.raw) : File.realpath(path.raw, base.raw)
           StringObject.new(result)
         rescue Errno::ENOENT => e
           raise FrozoneException.make(:Errno__ENOENT, e.message)
         end
 
         def file_realdirpath(_, path, base = nil)
-          result = base.nil? || base.is_a?(NilObject) ? File.realdirpath(path.raw) : File.realdirpath(path.raw, base.raw)
+          result = frozone_nil?(base) ? File.realdirpath(path.raw) : File.realdirpath(path.raw, base.raw)
           StringObject.new(result)
         rescue Errno::ENOENT => e
           raise FrozoneException.make(:Errno__ENOENT, e.message)
@@ -54,7 +54,7 @@ module Frozone
         def file_directory(_, path) = bool_object_for(File.directory?(path.raw))
 
         def file_umask(_, new_mask)
-          if new_mask.nil? || new_mask.is_a?(NilObject)
+          if frozone_nil?(new_mask)
             IntegerObject.new(File.umask)
           else
             old = File.umask(new_mask.is_a?(IntegerObject) ? new_mask.raw : new_mask.raw.to_i)
@@ -129,7 +129,7 @@ module Frozone
         end
 
         def file_open(context, path, mode, block)
-          mode_str = mode.is_a?(NilObject) || mode.nil? ? 'r' : mode.raw
+          mode_str = frozone_nil?(mode) ? 'r' : mode.raw
           if block && !block.is_a?(NilObject)
             File.open(path.raw, mode_str) do |f|
               io_obj = IOObject.new(f, Core.io_class)
@@ -139,11 +139,6 @@ module Frozone
           else
             IOObject.new(File.open(path.raw, mode_str), Core.io_class)
           end
-        end
-
-        def file_delete(_, paths)
-          paths.raw.each { |p| File.delete(p.raw) rescue nil }
-          IntegerObject.new(paths.raw.length)
         end
 
         def file_delete_strict(_, paths)
@@ -212,13 +207,6 @@ module Frozone
 
         def file_fnmatch(_, pattern, path, flags)
           bool_object_for(File.fnmatch(pattern.raw, path.raw, flags.raw))
-        end
-
-        def file_stat(_, path)
-          st = File.stat(path.raw)
-          obj = ObjectObject.new(Core::OBJECT_CLASS)
-          obj.instance_variable_set(:@__stat__, st)
-          obj
         end
 
         def file_stat_native(_, path)
@@ -338,8 +326,8 @@ module Frozone
         end
 
         def file_utime(_, atime, mtime, paths)
-          a = atime.is_a?(NilObject) || atime.nil? ? Time.now : (atime.is_a?(TimeObject) ? atime.raw : Time.at(atime.raw.to_f))
-          m = mtime.is_a?(NilObject) || mtime.nil? ? Time.now : (mtime.is_a?(TimeObject) ? mtime.raw : Time.at(mtime.raw.to_f))
+          a = frozone_nil?(atime) ? Time.now : (atime.is_a?(TimeObject) ? atime.raw : Time.at(atime.raw.to_f))
+          m = frozone_nil?(mtime) ? Time.now : (mtime.is_a?(TimeObject) ? mtime.raw : Time.at(mtime.raw.to_f))
           path_strs = paths.raw.map { |p| p.is_a?(StringObject) ? p.raw : p.raw.to_s }
           File.utime(a, m, *path_strs)
           IntegerObject.new(path_strs.length)
@@ -353,7 +341,7 @@ module Frozone
         def dir_pwd(_) = StringObject.new(Dir.pwd)
 
         def dir_home(_, user = nil)
-          u = user.nil? || user.is_a?(NilObject) ? nil : user.raw
+          u = frozone_nil?(user) ? nil : user.raw
           StringObject.new(u ? Dir.home(u) : Dir.home)
         rescue ArgumentError => e
           raise FrozoneException.make(:ArgumentError, e.message)
@@ -361,9 +349,9 @@ module Frozone
 
         def dir_glob(context, pattern, flags = nil, base = nil, sort = nil)
           # pattern can be a String, Array, or object with to_path
-          flag_int = flags.nil? || flags.is_a?(NilObject) ? 0 : flags.raw.to_i
-          base_str = base.nil? || base.is_a?(NilObject) ? nil : base.raw
-          sort_val = sort.nil? || sort.is_a?(NilObject) ? true : (sort.is_a?(TrueObject) ? true : (sort.is_a?(FalseObject) ? false : sort.raw))
+          flag_int = frozone_nil?(flags) ? 0 : flags.raw.to_i
+          base_str = frozone_nil?(base) ? nil : base.raw
+          sort_val = frozone_nil?(sort) ? true : (sort.is_a?(TrueObject) ? true : (sort.is_a?(FalseObject) ? false : sort.raw))
           pats = if pattern.is_a?(ArrayObject)
             pattern.raw.map do |p|
               if p.is_a?(StringObject)
@@ -398,7 +386,7 @@ module Frozone
         end
 
         def dir_chdir(context, path, block)
-          path_raw = if path.nil? || path.is_a?(NilObject)
+          path_raw = if frozone_nil?(path)
             nil
           elsif path.is_a?(StringObject)
             path.raw
@@ -437,7 +425,7 @@ module Frozone
         end
 
         def dir_mkdir(_, path, mode = nil)
-          m = mode.nil? || mode.is_a?(NilObject) ? 0o777 : mode.raw
+          m = frozone_nil?(mode) ? 0o777 : mode.raw
           Dir.mkdir(path.raw, m)
           IntegerObject.new(0)
         rescue Errno::ENOENT => e
@@ -524,7 +512,7 @@ module Frozone
 
         def dir_mktmpdir(context, prefix, block)
           require 'tmpdir'
-          pfx = prefix.is_a?(NilObject) || prefix.nil? ? nil : prefix.raw
+          pfx = frozone_nil?(prefix) ? nil : prefix.raw
           path = pfx ? Dir.mktmpdir(pfx) : Dir.mktmpdir
           if block && !block.is_a?(NilObject)
             begin
@@ -560,7 +548,7 @@ module Frozone
         # get_ivar returns NilObject::NIL (not MRI nil) when ivar is absent.
         def frozone_to_mri_numeric(obj)
           return obj.raw if obj.is_a?(IntegerObject) || obj.is_a?(FloatObject)
-          return 0 if obj.nil? || obj.is_a?(NilObject)
+          return 0 if frozone_nil?(obj)
           num = obj.get_ivar(:@numerator)
           den = obj.get_ivar(:@denominator)
           # NilObject::NIL means the ivar is not set — not a Rational ObjectObject
@@ -601,7 +589,7 @@ module Frozone
           # Pass TimeObject.raw directly so MRI Time.at(time) preserves the UTC flag.
           mri_r = t_r.is_a?(TimeObject) ? t_r.raw : frozone_to_mri_numeric(t_r)
           t = Time.at(mri_r)
-          unless tz.nil? || tz.is_a?(NilObject)
+          unless frozone_nil?(tz)
             tz_raw = tz.is_a?(StringObject) ? tz.raw : frozone_to_mri_numeric(tz).to_i
             t = t.localtime(tz_raw)
           end
@@ -611,7 +599,7 @@ module Frozone
         # Legacy: still used when time_at is called without keyword args.
         def time_at(context, t, subsec = nil)
           raw_t = t.is_a?(TimeObject) ? t.raw : Time.at(frozone_to_mri_numeric(t))
-          if subsec.nil? || subsec.is_a?(NilObject)
+          if frozone_nil?(subsec)
             time_make(context, Time.at(raw_t))
           else
             time_make(context, Time.at(raw_t, subsec.raw.to_f))
@@ -644,7 +632,7 @@ module Frozone
 
         def time_new(context, year, month, day, hour, min, sec, tz)
           if year.is_a?(NilObject)
-            if tz.nil? || tz.is_a?(NilObject)
+            if frozone_nil?(tz)
               return time_make(context, Time.now)
             else
               tz_mri = tz.is_a?(StringObject) ? tz.raw : frozone_to_mri_numeric(tz)
@@ -672,7 +660,7 @@ module Frozone
         # in_tz: Frozone String/Integer/Rational or NilObject
         def time_new_from_string(context, str, precision, in_tz)
           mri_str = str.is_a?(StringObject) ? str.raw : str.to_s
-          mri_prec = if precision.nil? || precision.is_a?(NilObject)
+          mri_prec = if frozone_nil?(precision)
             nil
           elsif precision.is_a?(IntegerObject)
             precision.raw
@@ -681,7 +669,7 @@ module Frozone
           end
           opts = {}
           opts[:precision] = mri_prec unless mri_prec == 9
-          unless in_tz.nil? || in_tz.is_a?(NilObject)
+          unless frozone_nil?(in_tz)
             opts[:in] = in_tz.is_a?(StringObject) ? in_tz.raw : frozone_to_mri_numeric(in_tz)
           end
           t = opts.empty? ? Time.new(mri_str) : Time.new(mri_str, **opts)
@@ -699,7 +687,7 @@ module Frozone
         end
 
         def time_plus(_, t, secs)
-          if secs.nil? || secs.is_a?(NilObject)
+          if frozone_nil?(secs)
             raise FrozoneException.make(:TypeError, "can't convert NilClass into an exact number")
           end
           mri_secs = frozone_to_mri_numeric(secs)
@@ -734,12 +722,11 @@ module Frozone
         def time_localtime(_, t, tz = nil)
           if t.frozen_object?
             # localtime() with no arg on an already-local frozen time is a no-op (no error)
-            no_tz = tz.nil? || tz.is_a?(NilObject)
-            return t if no_tz && !t.raw.utc?
+            return t if frozone_nil?(tz) && !t.raw.utc?
             raise FrozoneException.make(:FrozenError, "can't modify frozen Time")
           end
 
-          if tz.nil? || tz.is_a?(NilObject)
+          if frozone_nil?(tz)
             t.raw.localtime
           elsif tz.is_a?(StringObject)
             t.raw.localtime(tz.raw)
@@ -856,7 +843,7 @@ module Frozone
               raise FrozoneException.make(:TypeError, "no implicit conversion of #{pat_klass} into String")
             end
           end
-          flags = if options.nil? || options.is_a?(NilObject) || options.is_a?(FalseObject)
+          flags = if frozone_nil?(options) || options.is_a?(FalseObject)
             0
           elsif options.is_a?(IntegerObject)
             options.raw
@@ -912,7 +899,7 @@ module Frozone
 
         def regexp_class_linear_time_q(context, pattern, flags = NilObject::NIL)
           if pattern.is_a?(RegexpObject)
-            unless flags.is_a?(NilObject) || flags.nil?
+            unless frozone_nil?(flags)
               kernel_warn(context, NilObject::NIL, ArrayObject.new([StringObject.new("warning: flags ignored")]))
             end
             raw_pat = pattern.raw
@@ -1022,7 +1009,7 @@ module Frozone
         def regexp_last_match(context, n = nil)
           md = Fiber[:last_match]
           return NilObject::NIL unless md
-          if n.nil? || n.is_a?(NilObject)
+          if frozone_nil?(n)
             GLOBALS[:"$~"] || NilObject::NIL
           else
             idx = if n.is_a?(IntegerObject)

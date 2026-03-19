@@ -16,7 +16,7 @@ module Frozone
         def integer_eql(_, v1, v2) = bool_object_for(v2.is_a?(IntegerObject) && v1.raw == v2.raw)
 
         def integer_to_s(_, v, base = nil)
-          base.nil? || base.is_a?(NilObject) ? StringObject.new(v.raw.to_s) : StringObject.new(v.raw.to_s(base.raw))
+          frozone_nil?(base) ? StringObject.new(v.raw.to_s) : StringObject.new(v.raw.to_s(base.raw))
         end
 
         def integer_abs(_, v) = IntegerObject.new(v.raw.abs)
@@ -39,7 +39,7 @@ module Frozone
           end
         end
         def integer_chr(context, v, enc = nil)
-          if enc.nil? || enc.is_a?(NilObject)
+          if frozone_nil?(enc)
             StringObject.new(v.raw.chr)
           elsif enc.is_a?(StringObject)
             StringObject.new(v.raw.chr(enc.raw))
@@ -161,32 +161,31 @@ module Frozone
 
         def float_to_s(_, v)           = StringObject.new(v.raw.inspect)
         def float_to_i(_, v)           = IntegerObject.new(v.raw.to_i)
-        def float_to_f(_, v)           = v
         def float_to_r(_, v)           = make_rational(v.raw.to_r)
         def float_abs(_, v)            = FloatObject.new(v.raw.abs)
 
         def float_ceil(_, v, n = nil)
-          n_raw = n.nil? || n.is_a?(NilObject) ? nil : n.raw
+          n_raw = frozone_nil?(n) ? nil : n.raw
           result = n_raw.nil? ? v.raw.ceil : v.raw.ceil(n_raw)
           result.is_a?(::Integer) ? IntegerObject.new(result) : FloatObject.new(result)
         end
 
         def float_floor(_, v, n = nil)
-          n_raw = n.nil? || n.is_a?(NilObject) ? nil : n.raw
+          n_raw = frozone_nil?(n) ? nil : n.raw
           result = n_raw.nil? ? v.raw.floor : v.raw.floor(n_raw)
           result.is_a?(::Integer) ? IntegerObject.new(result) : FloatObject.new(result)
         end
 
         def float_round(_, v, n = nil, half = nil)
-          n_raw = n.nil? || n.is_a?(NilObject) ? nil : n.raw
-          half_raw = half.nil? || half.is_a?(NilObject) ? nil : (half.is_a?(SymbolObject) ? half.raw : half.raw.to_sym)
+          n_raw = frozone_nil?(n) ? nil : n.raw
+          half_raw = frozone_nil?(half) ? nil : (half.is_a?(SymbolObject) ? half.raw : half.raw.to_sym)
           opts = half_raw ? { half: half_raw } : {}
           result = n_raw.nil? ? v.raw.round(**opts) : v.raw.round(n_raw, **opts)
           result.is_a?(::Integer) ? IntegerObject.new(result) : FloatObject.new(result)
         end
 
         def float_truncate(_, v, n = nil)
-          n_raw = n.nil? || n.is_a?(NilObject) ? nil : n.raw
+          n_raw = frozone_nil?(n) ? nil : n.raw
           result = n_raw.nil? ? v.raw.truncate : v.raw.truncate(n_raw)
           result.is_a?(::Integer) ? IntegerObject.new(result) : FloatObject.new(result)
         end
@@ -195,7 +194,7 @@ module Frozone
         def float_next_float(_, v) = FloatObject.new(v.raw.next_float)
         def float_prev_float(_, v) = FloatObject.new(v.raw.prev_float)
         def float_rationalize(context, v, eps = nil)
-          if eps.nil? || eps.is_a?(NilObject)
+          if frozone_nil?(eps)
             make_rational(v.raw.rationalize)
           elsif eps.is_a?(FloatObject) || eps.is_a?(IntegerObject)
             eps_raw = eps.raw < 0 ? -eps.raw : eps.raw
