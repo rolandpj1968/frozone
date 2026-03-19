@@ -110,7 +110,7 @@ task :core do
         begin
           system("timeout 300 bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile.path} 2>/dev/null")
           output = File.read(tmpfile.path, encoding: 'binary')
-          if output =~ /(\d+) files, (\d+) examples, \d+ expectations, (\d+) failures, (\d+) errors/
+          if output =~ /(\d+) files, (\d+) examples, \d+ expectations, (\d+) failures?, (\d+) errors?/
             ex = $2.to_i; fl = $3.to_i; er = $4.to_i; pass = ex - fl - er
             mutex.synchronize { results[name] = { examples: ex, passing: pass, failures: fl, errors: er } }
           else
