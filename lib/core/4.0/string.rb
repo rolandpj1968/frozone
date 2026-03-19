@@ -12,7 +12,7 @@ class String
   def initialize(str = :__unset__, encoding: nil, capacity: nil)
     return self if str.equal?(:__unset__)
     raise TypeError, "no implicit conversion of #{str.class} into String" if str.nil?
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     Intrinsics.string_initialize(self, str, encoding)
     force_encoding(encoding) if encoding
     self
@@ -44,7 +44,7 @@ class String
   end
   def %(args) = Intrinsics.string_format(self, args)
   def <<(v)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     if v.is_a?(Integer)
       Intrinsics.string_concat_codepoint(self, v)
     elsif v.is_a?(String)
@@ -251,7 +251,7 @@ class String
   end
 
   def chomp!(sep = :__unset__)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     r = chomp(sep.equal?(:__unset__) ? :__unset__ : sep)
     return nil if r.equal?(self) || r == self
     Intrinsics.string_replace(self, r)
@@ -269,47 +269,47 @@ class String
   end
 
   def chop!
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     return nil if empty?; r = chop; Intrinsics.string_replace(self, r)
   end
 
   def strip!
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     r = strip; return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def lstrip!
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     r = lstrip; return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def rstrip!
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     r = rstrip; return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def upcase!(*args)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     r = upcase(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def downcase!(*args)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     r = downcase(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def capitalize!(*args)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     r = capitalize(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def reverse!
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     Intrinsics.string_replace(self, reverse)
   end
 
   def gsub!(pattern, replacement = :__unset__, &block)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     if replacement.equal?(:__unset__)
       return to_enum(:gsub!, pattern) unless block
       r = Intrinsics.string_gsub(self, pattern, nil, block)
@@ -323,7 +323,7 @@ class String
   end
 
   def sub!(pattern, replacement = :__unset__, &block)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     if replacement.equal?(:__unset__)
       raise ArgumentError, "wrong number of arguments (given 1, expected 2)" unless block
       snap = bytesize
@@ -339,12 +339,12 @@ class String
   end
 
   def squeeze!(*args)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     r = squeeze(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
   def delete!(*__native_args__)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     r = delete(*__native_args__); return nil if r == self; Intrinsics.string_replace(self, r)
   end
   def casecmp(other)
@@ -435,7 +435,7 @@ class String
     }.join.force_encoding(encoding)
   end
   def swapcase!(*args)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     r = swapcase(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
   def reverse
@@ -497,7 +497,7 @@ class String
   end
   def tr(from, to) = Intrinsics.string_tr(self, from, to)
   def tr!(from, to)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     r = tr(from, to); return nil if r == self; Intrinsics.string_replace(self, r)
   end
   def squeeze(*args) = Intrinsics.string_squeeze(self, *args)
@@ -509,7 +509,7 @@ class String
   alias slice []
 
   def []=(idx, *rest)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     Intrinsics.string_store(self, idx, *rest)
   end
   def index(sub, offset = :__unset__) = Intrinsics.string_index(self, sub, offset)
@@ -523,7 +523,7 @@ class String
   def replace(other) = Intrinsics.string_replace(self, other)
 
   def clear
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     enc = encoding
     Intrinsics.string_replace(self, "")
     force_encoding(enc)
@@ -553,7 +553,7 @@ class String
   alias next succ
 
   def succ!
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     r = succ
     Intrinsics.string_replace(self, r)
     self
@@ -573,7 +573,7 @@ class String
   end
 
   def insert(index, str)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     index = index.to_int unless index.is_a?(Integer)
     unless str.is_a?(String)
       begin
@@ -726,7 +726,7 @@ class String
   end
 
   def tr_s!(from, to)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     from = from.to_str unless from.is_a?(String)
     to = to.to_str unless to.is_a?(String)
     r = tr_s(from, to); return nil if r == self; Intrinsics.string_replace(self, r)
@@ -886,7 +886,7 @@ class String
   alias next_bang succ_bang
 
   def prepend(*others)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     prefix = others.map do |s|
       next s if s.is_a?(String)
       begin
@@ -907,7 +907,7 @@ class String
   end
 
   def delete_prefix!(prefix)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     prefix = prefix.to_str unless prefix.is_a?(String)
     return nil if prefix.empty? || !start_with?(prefix)
     Intrinsics.string_replace(self, self[prefix.length..])
@@ -920,7 +920,7 @@ class String
   end
 
   def delete_suffix!(suffix)
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+    __check_frozen__
     suffix = suffix.to_str unless suffix.is_a?(String)
     return nil if suffix.empty? || !end_with?(suffix)
     Intrinsics.string_replace(self, self[0...(length - suffix.length)])
@@ -946,6 +946,10 @@ class String
   end
 
   private
+
+  def __check_frozen__
+    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
+  end
 
   # Return the string's bytes as a mutable Array of integers.
   def __succ_bytes_array__
