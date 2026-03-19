@@ -1,7 +1,57 @@
 class File
   SEPARATOR     = '/'
+  Separator      = '/'
   ALT_SEPARATOR = nil
   PATH_SEPARATOR = ':'
+
+  # File open/lock/fnmatch mode constants
+  RDONLY    = 0
+  WRONLY    = 1
+  RDWR      = 2
+  APPEND    = 1024
+  CREAT     = 64
+  EXCL      = 128
+  TRUNC     = 512
+  NONBLOCK  = 2048
+  NOCTTY    = 256
+  SYNC      = 1052672
+  SHARE_DELETE = 0
+
+  LOCK_SH   = 1
+  LOCK_EX   = 2
+  LOCK_NB   = 4
+  LOCK_UN   = 8
+
+  FNM_NOESCAPE = 1
+  FNM_PATHNAME = 2
+  FNM_DOTMATCH = 4
+  FNM_CASEFOLD = 8
+  FNM_SYSCASE  = 0
+  FNM_EXTGLOB  = 16
+
+  module Constants
+    RDONLY    = File::RDONLY
+    WRONLY    = File::WRONLY
+    RDWR      = File::RDWR
+    APPEND    = File::APPEND
+    CREAT     = File::CREAT
+    EXCL      = File::EXCL
+    TRUNC     = File::TRUNC
+    NONBLOCK  = File::NONBLOCK
+    NOCTTY    = File::NOCTTY
+    SYNC      = File::SYNC
+    SHARE_DELETE = File::SHARE_DELETE
+    LOCK_SH   = File::LOCK_SH
+    LOCK_EX   = File::LOCK_EX
+    LOCK_NB   = File::LOCK_NB
+    LOCK_UN   = File::LOCK_UN
+    FNM_NOESCAPE = File::FNM_NOESCAPE
+    FNM_PATHNAME = File::FNM_PATHNAME
+    FNM_DOTMATCH = File::FNM_DOTMATCH
+    FNM_CASEFOLD = File::FNM_CASEFOLD
+    FNM_SYSCASE  = File::FNM_SYSCASE
+    FNM_EXTGLOB  = File::FNM_EXTGLOB
+  end
 
   # Coerce path argument: try to_path first, then to_str, then to_s for String
   def self._coerce_path(arg)
