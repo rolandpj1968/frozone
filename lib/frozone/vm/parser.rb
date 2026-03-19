@@ -15,9 +15,18 @@ module Frozone
       def ast(raise_syntax_errors: false)
         require 'prism'
         parse_opts = @filepath ? { filepath: @filepath } : {}
-        parse_opts[:scopes] = [@outer_locals] if @outer_locals&.any?
         parse_opts[:encoding] = @encoding if @encoding
         parse_opts[:line] = @line if @line
+        # When outer_locals are present (eval context), Prism suppresses invalid_yield detection.
+        # Do a preliminary parse without scopes to catch yield-related syntax errors first.
+        if raise_syntax_errors && @outer_locals&.any?
+          pre_result = Prism.parse(@text, **parse_opts)
+          if pre_result.errors.any? { |e| e.message.include?("yield") }
+            msg = pre_result.errors.map(&:message).first
+            raise FrozoneException.make(:SyntaxError, msg)
+          end
+        end
+        parse_opts[:scopes] = [@outer_locals] if @outer_locals&.any?
         result = Prism.parse(@text, **parse_opts)
 
         if raise_syntax_errors && result.errors.any?

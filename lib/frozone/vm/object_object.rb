@@ -153,6 +153,7 @@ module Frozone
           lookup_instance_method(name)
         end
 
+        prev_violation = Fiber[:mm_visibility_violation]
         unless method.nil? || method == ModuleObject::UNDEF_SENTINEL
           visibility_ok = case method.visibility
           when :private
@@ -175,7 +176,6 @@ module Frozone
         end
         # Track whether this is an implicit-self call so method_missing can raise NameError vs NoMethodError
         prev = Fiber[:mm_implicit_self]
-        prev_violation = Fiber[:mm_visibility_violation]
         Fiber[:mm_implicit_self] = implicit_self
         begin
           mm.invoke(context, self, [SymbolObject.from(name)] + args, kw_args, block)

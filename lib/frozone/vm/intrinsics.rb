@@ -3014,7 +3014,7 @@ module Frozone
             origin = (raw.is_a?(Method) && raw.original_owner) || owner
           end
           m = lookup_klass.lookup_method_after(lookup_name, origin)
-          return NilObject::NIL unless m
+          return NilObject::NIL unless m && m != ClassObject::UNDEF_FOUND
           super_owner = lookup_klass.lookup_method_owner_after(lookup_name, origin) || lookup_klass
           BoundMethodObject.new(m, lookup_name, recv, super_owner)
         end
@@ -3044,9 +3044,9 @@ module Frozone
 
         def unbound_method_eq(_, a, b)
           return FalseObject::FALSE unless a.is_a?(UnboundMethodObject) && b.is_a?(UnboundMethodObject)
-          same = a.unbound_owner.equal?(b.unbound_owner) &&
-                 a.unbound_name == b.unbound_name &&
-                 a.raw_method.equal?(b.raw_method)
+          # Two unbound methods are equal if they have the same owner and same underlying method body.
+          # Aliases have different names but the same raw_method — they should compare equal.
+          same = a.unbound_owner.equal?(b.unbound_owner) && a.raw_method.equal?(b.raw_method)
           bool_object_for(same)
         end
 
@@ -3124,7 +3124,7 @@ module Frozone
             origin = (raw.is_a?(Method) && raw.original_owner) || owner
           end
           m = owner.lookup_method_after(lookup_name, origin)
-          return NilObject::NIL unless m
+          return NilObject::NIL unless m && m != ClassObject::UNDEF_FOUND
           super_owner = owner.lookup_method_owner_after(lookup_name, origin) || owner
           UnboundMethodObject.new(m, lookup_name, super_owner)
         end

@@ -81,13 +81,15 @@ module Frozone
         result
       end
 
+      UNDEF_FOUND = :__undef_found__
+
       def lookup_method_after(name, origin)
         ancs = ancestors_list
         idx = ancs.index { |a| a.equal?(origin) }
         return nil if idx.nil?
         ancs[(idx + 1)..].each do |ancestor|
           m = ancestor.get_method(name)
-          return nil if m == ModuleObject::UNDEF_SENTINEL
+          return UNDEF_FOUND if m == ModuleObject::UNDEF_SENTINEL
           return m unless m.nil?
         end
         nil

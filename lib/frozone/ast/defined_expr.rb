@@ -115,7 +115,7 @@ module Frozone
           klass = receiver.is_a?(Vm::ClassObject) ? receiver.singleton_class : receiver.class_object
           origin = receiver.is_a?(Vm::ClassObject) ? defining_class.singleton_class : defining_class
           super_method = klass.lookup_method_after(method_name, origin)
-          super_method ? "super" : nil
+          (super_method && super_method != Vm::ClassObject::UNDEF_FOUND) ? "super" : nil
         end
 
         result ? Vm::StringObject.new(result, frozen: true) : Vm::NilObject::NIL

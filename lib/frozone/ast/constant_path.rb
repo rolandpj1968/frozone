@@ -66,8 +66,7 @@ module Frozone
         if owner&.constant_private?(@name)
           owner_name = owner.respond_to?(:name) ? owner.name : nil
           label = owner_name ? "#{owner_name}::#{@name}" : @name.to_s
-          exc = Vm::FrozoneException.make(:NameError, "private constant #{label} referenced")
-          exc.vm_object.set_ivar(:@receiver, owner)
+          exc = Vm::FrozoneException.make(:NameError, "private constant #{label} referenced", name: @name, receiver: owner)
           raise exc
         end
         Vm::Intrinsics.maybe_warn_deprecated_constant(context, owner, @name)

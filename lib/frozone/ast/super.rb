@@ -52,10 +52,6 @@ module Frozone
           end
           super_method = klass.lookup_method_after(method_name, origin)
         end
-        if super_method.nil?
-          raise Vm::FrozoneException.make(:NoMethodError, "super: no superclass method '#{method_name}' for an instance of #{receiver.class_object.name}")
-        end
-
         args = if @forwarding
           # Read CURRENT values of params from the METHOD frame (not current block/closure frame).
           # super from inside a block/closure forwards the enclosing METHOD's params.
@@ -112,6 +108,15 @@ module Frozone
             splatted.raw.each { |k, v| result[k.is_a?(Vm::SymbolObject) ? k.raw : k] = v }
           end
           result
+        end
+
+        if super_method.nil?
+          raise Vm::FrozoneException.make(:NoMethodError, "super: no superclass method '#{method_name}' for an instance of #{receiver.class_object.name}")
+        elsif super_method == Vm::ClassObject::UNDEF_FOUND
+          mm = receiver.lookup_instance_method(:method_missing)
+          raise Vm::FrozoneException.make(:NoMethodError, "super: no superclass method '#{method_name}' for an instance of #{receiver.class_object.name}") unless mm
+          block = @block_node ? @block_node.evaluate(context) : mf.block
+          return mm.invoke(context, receiver, [Vm::SymbolObject.from(method_name)] + args, kw_args, block)
         end
 
         # Ruby always passes the current block to super unless explicitly overridden (&node).
