@@ -314,33 +314,6 @@ class Array
     result
   end
 
-  def _flatten_into(arr, depth, result, seen_ids)
-    raise ArgumentError, "flatten: cannot flatten recursive array" if seen_ids.include?(arr.__id__)
-    seen_ids << arr.__id__
-    i = 0
-    while i < arr.length
-      elem = Intrinsics.array_at(arr, i)
-      if elem.is_a?(Array) && (depth.nil? || depth > 0)
-        _flatten_into(elem, depth.nil? ? nil : depth - 1, result, seen_ids)
-      elsif (depth.nil? || depth > 0) && !elem.nil? && elem.respond_to?(:to_ary)
-        converted = elem.to_ary
-        if converted.nil?
-          result << elem
-        elsif converted.is_a?(Array)
-          _flatten_into(converted, depth.nil? ? nil : depth - 1, result, seen_ids)
-        else
-          raise TypeError, "can't convert #{elem.class} into Array (#{elem.class}#to_ary gives #{converted.class})"
-        end
-      else
-        result << elem
-      end
-      i += 1
-    end
-    seen_ids.pop
-  end
-
-  private :_flatten_into
-
   def flatten!(depth = nil)
     __check_frozen__
     result = flatten(depth)
@@ -417,49 +390,6 @@ class Array
     cmp = block || method(:_default_cmp)
     _merge_sort(dup, cmp)
   end
-
-  def _default_cmp(a, b)
-    r = a <=> b
-    raise ArgumentError, "comparison failed" if r.nil?
-    r
-  end
-
-  def _merge_sort(arr, cmp)
-    n = arr.length
-    return arr if n <= 1
-    mid = n / 2
-    left = _merge_sort(arr[0...mid], cmp)
-    right = _merge_sort(arr[mid..], cmp)
-    _merge(left, right, cmp)
-  end
-
-  def _merge(left, right, cmp)
-    result = []
-    i = 0
-    j = 0
-    while i < left.length && j < right.length
-      c = cmp.call(left[i], right[j])
-      raise ArgumentError, "comparison failed" if c.nil?
-      if c <= 0
-        result << left[i]
-        i += 1
-      else
-        result << right[j]
-        j += 1
-      end
-    end
-    while i < left.length
-      result << left[i]
-      i += 1
-    end
-    while j < right.length
-      result << right[j]
-      j += 1
-    end
-    result
-  end
-
-  private :_default_cmp, :_merge_sort, :_merge
 
   def sort!(&block); replace(sort(&block)); self; end
 
@@ -861,22 +791,6 @@ class Array
     self
   end
 
-  def _combination_r(arr, n, start, current, block)
-    if n == 0
-      block.call(current.dup)
-      return
-    end
-    i = start
-    while i <= arr.length - n
-      current << arr[i]
-      _combination_r(arr, n - 1, i + 1, current, block)
-      current.pop
-      i += 1
-    end
-  end
-
-  private :_combination_r
-
   def permutation(n = nil, &block)
     n = n.nil? ? length : __coerce_to_int__(n)
     unless block
@@ -890,26 +804,6 @@ class Array
     _permutation_r(self, n, [], Array.new(length, false), block)
     self
   end
-
-  def _permutation_r(arr, n, current, used, block)
-    if current.length == n
-      block.call(current.dup)
-      return
-    end
-    i = 0
-    while i < arr.length
-      unless used[i]
-        used[i] = true
-        current << arr[i]
-        _permutation_r(arr, n, current, used, block)
-        current.pop
-        used[i] = false
-      end
-      i += 1
-    end
-  end
-
-  private :_permutation_r
 
   def each
     return to_enum(:each) { size } unless block_given?
@@ -1012,21 +906,6 @@ class Array
     end
     self
   end
-
-  def __fill_range_bounds__(r)
-    n = length
-    b = r.begin.nil? ? 0 : __coerce_to_int__(r.begin)
-    b_adj = b < 0 ? b + n : b
-    raise RangeError, "#{b} is out of range" if b_adj < 0
-    end_nil = r.end.nil?
-    e = end_nil ? n - 1 : __coerce_to_int__(r.end)
-    e_adj = e < 0 ? e + n : e
-    e_adj -= 1 if r.exclude_end? && !end_nil
-    rlen = e_adj < b_adj ? 0 : e_adj - b_adj + 1
-    [b_adj, rlen]
-  end
-
-  private :__fill_range_bounds__
 
   def intersect?(other)
     unless other.is_a?(Array)
@@ -1409,22 +1288,6 @@ class Array
     self
   end
 
-  def _repeated_combination_r(arr, n, start, current, block)
-    if n == 0
-      block.call(current.dup)
-      return
-    end
-    i = start
-    while i < arr.length
-      current << arr[i]
-      _repeated_combination_r(arr, n - 1, i, current, block)
-      current.pop
-      i += 1
-    end
-  end
-
-  private :_repeated_combination_r
-
   def repeated_permutation(n, &block)
     n = __coerce_to_int__(n)
     unless block
@@ -1435,22 +1298,6 @@ class Array
     _repeated_permutation_r(self, n, [], block)
     self
   end
-
-  def _repeated_permutation_r(arr, n, current, block)
-    if current.length == n
-      block.call(current.dup)
-      return
-    end
-    i = 0
-    while i < arr.length
-      current << arr[i]
-      _repeated_permutation_r(arr, n, current, block)
-      current.pop
-      i += 1
-    end
-  end
-
-  private :_repeated_permutation_r
 
   def __binomial_coeff__(n, k)
     return 0 if k < 0 || k > n
@@ -1768,6 +1615,145 @@ class Array
       result
     rescue NoMethodError
       raise TypeError, "no implicit conversion of #{n.class} into Integer"
+    end
+  end
+
+  def _flatten_into(arr, depth, result, seen_ids)
+    raise ArgumentError, "flatten: cannot flatten recursive array" if seen_ids.include?(arr.__id__)
+    seen_ids << arr.__id__
+    i = 0
+    while i < arr.length
+      elem = Intrinsics.array_at(arr, i)
+      if elem.is_a?(Array) && (depth.nil? || depth > 0)
+        _flatten_into(elem, depth.nil? ? nil : depth - 1, result, seen_ids)
+      elsif (depth.nil? || depth > 0) && !elem.nil? && elem.respond_to?(:to_ary)
+        converted = elem.to_ary
+        if converted.nil?
+          result << elem
+        elsif converted.is_a?(Array)
+          _flatten_into(converted, depth.nil? ? nil : depth - 1, result, seen_ids)
+        else
+          raise TypeError, "can't convert #{elem.class} into Array (#{elem.class}#to_ary gives #{converted.class})"
+        end
+      else
+        result << elem
+      end
+      i += 1
+    end
+    seen_ids.pop
+  end
+
+  def _default_cmp(a, b)
+    r = a <=> b
+    raise ArgumentError, "comparison failed" if r.nil?
+    r
+  end
+
+  def _merge_sort(arr, cmp)
+    n = arr.length
+    return arr if n <= 1
+    mid = n / 2
+    left = _merge_sort(arr[0...mid], cmp)
+    right = _merge_sort(arr[mid..], cmp)
+    _merge(left, right, cmp)
+  end
+
+  def _merge(left, right, cmp)
+    result = []
+    i = 0
+    j = 0
+    while i < left.length && j < right.length
+      c = cmp.call(left[i], right[j])
+      raise ArgumentError, "comparison failed" if c.nil?
+      if c <= 0
+        result << left[i]
+        i += 1
+      else
+        result << right[j]
+        j += 1
+      end
+    end
+    while i < left.length
+      result << left[i]
+      i += 1
+    end
+    while j < right.length
+      result << right[j]
+      j += 1
+    end
+    result
+  end
+
+  def __fill_range_bounds__(r)
+    n = length
+    b = r.begin.nil? ? 0 : __coerce_to_int__(r.begin)
+    b_adj = b < 0 ? b + n : b
+    raise RangeError, "#{b} is out of range" if b_adj < 0
+    end_nil = r.end.nil?
+    e = end_nil ? n - 1 : __coerce_to_int__(r.end)
+    e_adj = e < 0 ? e + n : e
+    e_adj -= 1 if r.exclude_end? && !end_nil
+    rlen = e_adj < b_adj ? 0 : e_adj - b_adj + 1
+    [b_adj, rlen]
+  end
+
+  def _combination_r(arr, n, start, current, block)
+    if n == 0
+      block.call(current.dup)
+      return
+    end
+    i = start
+    while i <= arr.length - n
+      current << arr[i]
+      _combination_r(arr, n - 1, i + 1, current, block)
+      current.pop
+      i += 1
+    end
+  end
+
+  def _permutation_r(arr, n, current, used, block)
+    if current.length == n
+      block.call(current.dup)
+      return
+    end
+    i = 0
+    while i < arr.length
+      unless used[i]
+        used[i] = true
+        current << arr[i]
+        _permutation_r(arr, n, current, used, block)
+        current.pop
+        used[i] = false
+      end
+      i += 1
+    end
+  end
+
+  def _repeated_combination_r(arr, n, start, current, block)
+    if n == 0
+      block.call(current.dup)
+      return
+    end
+    i = start
+    while i < arr.length
+      current << arr[i]
+      _repeated_combination_r(arr, n - 1, i, current, block)
+      current.pop
+      i += 1
+    end
+  end
+
+  def _repeated_permutation_r(arr, n, current, block)
+    if current.length == n
+      block.call(current.dup)
+      return
+    end
+    i = 0
+    while i < arr.length
+      current << arr[i]
+      _repeated_permutation_r(arr, n, current, block)
+      current.pop
+      i += 1
     end
   end
 end
