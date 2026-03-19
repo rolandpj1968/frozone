@@ -10,24 +10,24 @@ module Frozone
           StringObject.new(File.join(*strs))
         end
 
-        def file_dirname(_, path, level = nil)
+        def file_dirname(_, path, level = NilObject::NIL)
           lvl = frozone_nil?(level) ? 1 : level.raw
           StringObject.new(File.dirname(path.raw, lvl))
         end
 
-        def file_basename(_, path, suffix = nil)
+        def file_basename(_, path, suffix = NilObject::NIL)
           result = frozone_nil?(suffix) ? File.basename(path.raw) : File.basename(path.raw, suffix.raw)
           StringObject.new(result)
         end
 
-        def file_expand_path(_, path, base = nil)
+        def file_expand_path(_, path, base = NilObject::NIL)
           result = frozone_nil?(base) ? File.expand_path(path.raw) : File.expand_path(path.raw, base.raw)
           StringObject.new(result)
         rescue ArgumentError => e
           raise FrozoneException.make(:ArgumentError, e.message)
         end
 
-        def file_absolute_path(_, path, base = nil)
+        def file_absolute_path(_, path, base = NilObject::NIL)
           result = frozone_nil?(base) ? File.absolute_path(path.raw) : File.absolute_path(path.raw, base.raw)
           StringObject.new(result)
         end
@@ -36,14 +36,14 @@ module Frozone
           bool_object_for(File.absolute_path?(path.raw))
         end
 
-        def file_realpath(_, path, base = nil)
+        def file_realpath(_, path, base = NilObject::NIL)
           result = frozone_nil?(base) ? File.realpath(path.raw) : File.realpath(path.raw, base.raw)
           StringObject.new(result)
         rescue Errno::ENOENT => e
           raise FrozoneException.make(:Errno__ENOENT, e.message)
         end
 
-        def file_realdirpath(_, path, base = nil)
+        def file_realdirpath(_, path, base = NilObject::NIL)
           result = frozone_nil?(base) ? File.realdirpath(path.raw) : File.realdirpath(path.raw, base.raw)
           StringObject.new(result)
         rescue Errno::ENOENT => e
@@ -340,14 +340,14 @@ module Frozone
 
         def dir_pwd(_) = StringObject.new(Dir.pwd)
 
-        def dir_home(_, user = nil)
+        def dir_home(_, user = NilObject::NIL)
           u = frozone_nil?(user) ? nil : user.raw
           StringObject.new(u ? Dir.home(u) : Dir.home)
         rescue ArgumentError => e
           raise FrozoneException.make(:ArgumentError, e.message)
         end
 
-        def dir_glob(context, pattern, flags = nil, base = nil, sort = nil)
+        def dir_glob(context, pattern, flags = NilObject::NIL, base = NilObject::NIL, sort = NilObject::NIL)
           # pattern can be a String, Array, or object with to_path
           flag_int = frozone_nil?(flags) ? 0 : flags.raw.to_i
           base_str = frozone_nil?(base) ? nil : base.raw
@@ -424,7 +424,7 @@ module Frozone
           end
         end
 
-        def dir_mkdir(_, path, mode = nil)
+        def dir_mkdir(_, path, mode = NilObject::NIL)
           m = frozone_nil?(mode) ? 0o777 : mode.raw
           Dir.mkdir(path.raw, m)
           IntegerObject.new(0)
@@ -597,7 +597,7 @@ module Frozone
         end
 
         # Legacy: still used when time_at is called without keyword args.
-        def time_at(context, t, subsec = nil)
+        def time_at(context, t, subsec = NilObject::NIL)
           raw_t = t.is_a?(TimeObject) ? t.raw : Time.at(frozone_to_mri_numeric(t))
           if frozone_nil?(subsec)
             time_make(context, Time.at(raw_t))
@@ -606,7 +606,7 @@ module Frozone
           end
         end
 
-        def time_mktime(context, year, month, day, hour, min, sec, usec, use_utc, isdst = nil)
+        def time_mktime(context, year, month, day, hour, min, sec, usec, use_utc, isdst = NilObject::NIL)
           y  = frozone_to_mri_numeric(year).to_i
           mo = frozone_to_mri_numeric(month).to_i
           d  = frozone_to_mri_numeric(day).to_i
@@ -719,7 +719,7 @@ module Frozone
           z.nil? || z.empty? ? NilObject::NIL : StringObject.new(z)
         end
         def time_utc?(_, t) = bool_object_for(t.raw.utc?)
-        def time_localtime(_, t, tz = nil)
+        def time_localtime(_, t, tz = NilObject::NIL)
           if t.frozen_object?
             # localtime() with no arg on an already-local frozen time is a no-op (no error)
             return t if frozone_nil?(tz) && !t.raw.utc?
@@ -784,7 +784,7 @@ module Frozone
         def time_hash(_, t) = IntegerObject.new(t.raw.hash)
 
         # Regexp
-        def update_match_globals(m, regexp_obj = nil)
+        def update_match_globals(m, regexp_obj = NilObject::NIL)
           Fiber[:last_match] = m
           if m
             md = MatchDataObject.new(m, regexp_obj)
@@ -812,7 +812,7 @@ module Frozone
           bool_object_for(r1.raw == r2.raw)
         end
 
-        def regexp_new(context, klass, pattern, options = nil, kw_opts = nil)
+        def regexp_new(context, klass, pattern, options = NilObject::NIL, kw_opts = NilObject::NIL)
           regexp_class = Core::OBJECT_CLASS.get_constant(:Regexp)
           if pattern.is_a?(RegexpObject)
             # When given a Regexp, use its source+options; warn and ignore extra options
@@ -1006,7 +1006,7 @@ module Frozone
           raise FrozoneException.make(:ArgumentError, e.message)
         end
 
-        def regexp_last_match(context, n = nil)
+        def regexp_last_match(context, n = NilObject::NIL)
           md = Fiber[:last_match]
           return NilObject::NIL unless md
           if frozone_nil?(n)

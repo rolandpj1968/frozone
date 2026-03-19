@@ -471,7 +471,7 @@ module Frozone
         end
 
         # IO.sysopen(path, mode_str = 'r', perm = 0666) → integer fd
-        def io_sysopen(_, path_obj, mode_obj = nil, perm_obj = nil)
+        def io_sysopen(_, path_obj, mode_obj = NilObject::NIL, perm_obj = NilObject::NIL)
           path = path_obj.is_a?(StringObject) ? path_obj.raw : path_obj.to_s
           mode = if frozone_nil?(mode_obj)
             'r'
@@ -504,7 +504,7 @@ module Frozone
         end
 
         # IO.new(fd, mode_or_opts = 'r', **opts) → IOObject
-        def io_new_from_fd(_, fd_obj, mode_obj = nil, opts_obj = nil)
+        def io_new_from_fd(_, fd_obj, mode_obj = NilObject::NIL, opts_obj = NilObject::NIL)
           fd = fd_obj.is_a?(IntegerObject) ? fd_obj.raw : fd_obj.raw.to_i
           mode = if frozone_nil?(mode_obj)
             nil
@@ -556,7 +556,7 @@ module Frozone
         end
 
         # IO instance read methods - delegate to native IO
-        def io_read(_, receiver, len_obj = nil, buf_obj = nil)
+        def io_read(_, receiver, len_obj = NilObject::NIL, buf_obj = NilObject::NIL)
           return NilObject::NIL unless receiver.is_a?(IOObject)
           native = receiver.native_io
           len = frozone_nil?(len_obj) ? nil : len_obj.raw
@@ -568,7 +568,7 @@ module Frozone
           end
         end
 
-        def io_gets(_, receiver, sep_obj = nil, limit_obj = nil)
+        def io_gets(_, receiver, sep_obj = NilObject::NIL, limit_obj = NilObject::NIL)
           return NilObject::NIL unless receiver.is_a?(IOObject)
           native = receiver.native_io
           sep = frozone_nil?(sep_obj) ? $/ : (sep_obj.is_a?(StringObject) ? sep_obj.raw : nil)
@@ -580,7 +580,7 @@ module Frozone
           end
         end
 
-        def io_readline(_, receiver, sep_obj = nil)
+        def io_readline(_, receiver, sep_obj = NilObject::NIL)
           return NilObject::NIL unless receiver.is_a?(IOObject)
           native = receiver.native_io
           sep = frozone_nil?(sep_obj) ? $/ : (sep_obj.is_a?(StringObject) ? sep_obj.raw : nil)
@@ -594,7 +594,7 @@ module Frozone
           end
         end
 
-        def io_readlines(_, receiver, sep_obj = nil)
+        def io_readlines(_, receiver, sep_obj = NilObject::NIL)
           return ArrayObject.new([]) unless receiver.is_a?(IOObject)
           native = receiver.native_io
           sep = frozone_nil?(sep_obj) ? $/ : (sep_obj.is_a?(StringObject) ? sep_obj.raw : nil)
@@ -639,7 +639,7 @@ module Frozone
           end
         end
 
-        def io_seek(_, receiver, offset_obj, whence_obj = nil)
+        def io_seek(_, receiver, offset_obj, whence_obj = NilObject::NIL)
           return IntegerObject.new(0) unless receiver.is_a?(IOObject)
           offset = offset_obj.is_a?(IntegerObject) ? offset_obj.raw : 0
           whence = frozone_nil?(whence_obj) ? ::IO::SEEK_SET : whence_obj.raw
@@ -680,7 +680,7 @@ module Frozone
           receiver.native_io.binmode? ? TrueObject::TRUE : FalseObject::FALSE
         end
 
-        def io_set_encoding(_, receiver, ext_obj, int_obj = nil)
+        def io_set_encoding(_, receiver, ext_obj, int_obj = NilObject::NIL)
           return receiver unless receiver.is_a?(IOObject)
           native = receiver.native_io
           ext_enc = case ext_obj
@@ -766,7 +766,7 @@ module Frozone
           NilObject::NIL
         end
 
-        def io_sysread(_, receiver, len_obj, buf_obj = nil)
+        def io_sysread(_, receiver, len_obj, buf_obj = NilObject::NIL)
           return NilObject::NIL unless receiver.is_a?(IOObject)
           len = len_obj.is_a?(IntegerObject) ? len_obj.raw : 0
           begin
@@ -786,7 +786,7 @@ module Frozone
           raise FrozoneException.make(:IOError, e.message)
         end
 
-        def io_each_line(context, receiver, sep_obj = nil, block = nil)
+        def io_each_line(context, receiver, sep_obj = NilObject::NIL, block = NilObject::NIL)
           return receiver unless receiver.is_a?(IOObject)
           native = receiver.native_io
           sep = frozone_nil?(sep_obj) ? $/ : (sep_obj.is_a?(StringObject) ? sep_obj.raw : $/)
@@ -801,7 +801,7 @@ module Frozone
           receiver
         end
 
-        def io_each_byte(context, receiver, block = nil)
+        def io_each_byte(context, receiver, block = NilObject::NIL)
           return receiver unless receiver.is_a?(IOObject)
           native = receiver.native_io
           return receiver unless block && !block.is_a?(NilObject)
@@ -809,7 +809,7 @@ module Frozone
           receiver
         end
 
-        def io_each_char(context, receiver, block = nil)
+        def io_each_char(context, receiver, block = NilObject::NIL)
           return receiver unless receiver.is_a?(IOObject)
           native = receiver.native_io
           return receiver unless block && !block.is_a?(NilObject)
@@ -1051,7 +1051,7 @@ module Frozone
           end
         end
 
-        def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = nil, backtrace_arg = nil, cause_arg = nil)
+        def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = NilObject::NIL, backtrace_arg = NilObject::NIL, cause_arg = NilObject::NIL)
           current_exc = GLOBALS[:"$!"]
           no_cause_sentinel = cause_arg.is_a?(SymbolObject) && cause_arg.raw == :__raise_no_cause__
           explicit_cause = !cause_arg.nil? && !no_cause_sentinel
@@ -1164,7 +1164,7 @@ module Frozone
           StringObject.new("#{loc}:in '#{outer_name}'")
         end
 
-        def exception_tty_check(_context = nil)
+        def exception_tty_check(_context = NilObject::NIL)
           $stderr.isatty ? TrueObject::TRUE : FalseObject::FALSE
         end
 
@@ -1528,7 +1528,7 @@ module Frozone
           end
         end
 
-        def basic_object___send__(context, receiver, name, args, kwargs, block_arg = nil)
+        def basic_object___send__(context, receiver, name, args, kwargs, block_arg = NilObject::NIL)
           method_name = send_method_name(name)
           raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
           block_obj = block_arg.is_a?(ProcObject) ? block_arg.block_object : block_arg
@@ -1546,7 +1546,7 @@ module Frozone
           end
         end
 
-        def object_public_send(context, receiver, name, args, kwargs, block_arg = nil)
+        def object_public_send(context, receiver, name, args, kwargs, block_arg = NilObject::NIL)
           method_name = send_method_name(name)
           raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
           block_obj = block_arg.is_a?(ProcObject) ? block_arg.block_object : block_arg
@@ -1943,7 +1943,7 @@ module Frozone
           end
         end
 
-        def fiber_raise(context, fiber_obj, msg = NilObject::NIL, message_arg = nil, backtrace_arg = nil, cause_arg = nil)
+        def fiber_raise(context, fiber_obj, msg = NilObject::NIL, message_arg = NilObject::NIL, backtrace_arg = NilObject::NIL, cause_arg = NilObject::NIL)
           raise FrozoneException.make(:FiberError, "cannot raise exception on unborn fiber") if fiber_obj.is_a?(FiberObject) && fiber_obj.status == :created
 
           # Validate cause: arg in calling context (TypeError/ArgumentError raised here, not in fiber)
@@ -3023,7 +3023,7 @@ module Frozone
           ArrayObject.new(result)
         end
 
-        def module_instance_methods(_, receiver, include_super_obj = TrueObject::TRUE, vis_filter = nil)
+        def module_instance_methods(_, receiver, include_super_obj = TrueObject::TRUE, vis_filter = NilObject::NIL)
           include_super = include_super_obj.truthy?
           seen = {}
           result = []
@@ -3964,7 +3964,7 @@ module Frozone
           TrueObject::TRUE
         end
 
-        def kernel_integer(context, _receiver, val, base, exception = nil)
+        def kernel_integer(context, _receiver, val, base, exception = NilObject::NIL)
           exc = frozone_nil?(exception) || exception.truthy?
           b = base.respond_to?(:raw) ? base.raw : 0
           if val.is_a?(IntegerObject)
@@ -4029,7 +4029,7 @@ module Frozone
           TrueObject::TRUE
         end
 
-        def kernel_load(_, _receiver, path_obj, wrap_obj = nil)
+        def kernel_load(_, _receiver, path_obj, wrap_obj = NilObject::NIL)
           path = path_obj.raw
           full_path = File.exist?(path) ? path : resolve_load_path(path)
           if full_path.nil?
@@ -4588,7 +4588,7 @@ module Frozone
         end
 
         # Class
-        def class_new(context, klass, args, kwargs, block = nil)
+        def class_new(context, klass, args, kwargs, block = NilObject::NIL)
           raise FrozoneException.make(:TypeError, "can't create instance of singleton class") if klass.is_singleton_class
           raise FrozoneException.make(:TypeError, "uninitialized class") if klass.is_a?(ClassObject) && klass.uninitialized_class
           raw_args = args.raw
@@ -4705,7 +4705,7 @@ module Frozone
 
         # Validate ivar name and return the normalized ivar Symbol.
         # Raises NameError if name is not a valid ivar name.
-        def validated_ivar(name, receiver = nil)
+        def validated_ivar(name, receiver = NilObject::NIL)
           s = name.raw.to_s
           raise ivar_name_error("'#{s}' is not allowed as an instance variable name", name, receiver) unless s.start_with?('@') && s.length > 1
           normalize_ivar(name)

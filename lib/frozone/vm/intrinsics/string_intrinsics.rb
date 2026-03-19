@@ -78,7 +78,7 @@ module Frozone
         def string_chars(_, v)             = ArrayObject.new(v.raw.chars.map { |c| StringObject.new(c) })
         def string_ord(_, v)               = IntegerObject.new(v.raw.ord)
 
-        def string_split(context, v, sep = nil, limit = nil)
+        def string_split(context, v, sep = NilObject::NIL, limit = NilObject::NIL)
           sep = nil if sep.is_a?(NilObject)
 
           # Detect :__unset__ sentinel (limit not provided)
@@ -170,7 +170,7 @@ module Frozone
           r.is_a?(StringObject) ? r.raw : val.to_s
         end
 
-        def string_gsub(context, v, pattern, replacement = nil, block = nil)
+        def string_gsub(context, v, pattern, replacement = NilObject::NIL, block = NilObject::NIL)
           pat = extract_pattern(context, pattern)
           has_block = block && !block.is_a?(NilObject)
           has_replacement = !frozone_nil?(replacement)
@@ -227,7 +227,7 @@ module Frozone
           end
         end
 
-        def string_sub(context, v, pattern, replacement = nil, block = nil)
+        def string_sub(context, v, pattern, replacement = NilObject::NIL, block = NilObject::NIL)
           pat = extract_pattern(context, pattern)
           has_block = block && !block.is_a?(NilObject)
           has_replacement = !frozone_nil?(replacement)
@@ -318,7 +318,7 @@ module Frozone
 
         # Called as string_slice(v, idx) — no length — or string_slice(v, idx, len) — explicit length.
         # String#[] uses :__unset__ sentinel so explicit nil can be distinguished from absent len.
-        def string_slice(context, v, idx, len = nil)
+        def string_slice(context, v, idx, len = NilObject::NIL)
           if idx.is_a?(RegexpObject)
             raise FrozoneException.make(:TypeError, "no implicit conversion of nil into Integer") if !len.nil? && len.is_a?(NilObject)
             m = idx.raw.match(v.raw)
@@ -422,7 +422,7 @@ module Frozone
           end
         end
 
-        def string_index(context, v, sub, offset = nil)
+        def string_index(context, v, sub, offset = NilObject::NIL)
           pat = coerce_str_or_regexp(context, sub)
           off_raw = coerce_offset(context, offset)
           begin
@@ -439,7 +439,7 @@ module Frozone
           end
         end
 
-        def string_rindex(context, v, sub, offset = nil)
+        def string_rindex(context, v, sub, offset = NilObject::NIL)
           if sub.is_a?(IntegerObject) || (sub.is_a?(ObjectObject) && sub.class_object&.name == :Integer)
             raise FrozoneException.make(:TypeError, "no implicit conversion of Integer into String")
           end
@@ -569,7 +569,7 @@ module Frozone
           v
         end
 
-        def string_slice_bang(context, v, idx, len = nil)
+        def string_slice_bang(context, v, idx, len = NilObject::NIL)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v.raw.inspect}") if v.frozen?
           # Coerce idx
           if idx.is_a?(RangeObject)
@@ -978,14 +978,14 @@ module Frozone
         class HashFormatProxy < ::Hash
           attr_reader :frozone_vm_hash
 
-          def initialize(h, vm_hash = nil)
+          def initialize(h, vm_hash = NilObject::NIL)
             @frozone_vm_hash = vm_hash
             super()
             update(h)
           end
         end
 
-        def string_encode(context, v, enc = nil, src_enc = nil, opts = nil)
+        def string_encode(context, v, enc = NilObject::NIL, src_enc = NilObject::NIL, opts = NilObject::NIL)
           # Coerce options hash if it's a VM object
           opts = coerce_encode_opts(context, opts || {})
 
@@ -1036,7 +1036,7 @@ module Frozone
           end
         end
 
-        def string_encode_bang(context, v, enc = nil, src_enc = nil, opts = nil)
+        def string_encode_bang(context, v, enc = NilObject::NIL, src_enc = NilObject::NIL, opts = NilObject::NIL)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String") if v.frozen?
           opts = coerce_encode_opts(context, opts || {})
           enc_nil = frozone_nil?(enc)
@@ -1449,7 +1449,7 @@ module Frozone
           bool_object_for(result)
         end
 
-        def string_scan(context, v, pattern, block = nil)
+        def string_scan(context, v, pattern, block = NilObject::NIL)
           has_block = block && !block.is_a?(NilObject)
           # For string pattern: use raw string (literal match). For regexp: use raw regexp.
           pat = if pattern.is_a?(StringObject)
@@ -1536,7 +1536,7 @@ module Frozone
           v
         end
 
-        def string_byteslice(context, v, idx, len = nil)
+        def string_byteslice(context, v, idx, len = NilObject::NIL)
           result = begin
             if idx.is_a?(RangeObject)
               b = idx.begin_val
@@ -1558,7 +1558,7 @@ module Frozone
           result.nil? ? NilObject::NIL : StringObject.new(result)
         end
 
-        def string_byteindex(context, v, sub, offset = nil)
+        def string_byteindex(context, v, sub, offset = NilObject::NIL)
           offset_raw = offset.nil? ? nil : (offset.is_a?(IntegerObject) ? offset.raw : str_vm_coerce_to_int(context, offset))
           is_regexp = sub.is_a?(RegexpObject)
           pat = if sub.is_a?(StringObject)
@@ -1600,7 +1600,7 @@ module Frozone
           end
         end
 
-        def string_byterindex(context, v, sub, offset = nil)
+        def string_byterindex(context, v, sub, offset = NilObject::NIL)
           offset_raw = offset.nil? ? nil : (offset.is_a?(IntegerObject) ? offset.raw : str_vm_coerce_to_int(context, offset))
           is_regexp = sub.is_a?(RegexpObject)
           pat = if sub.is_a?(StringObject)
@@ -1671,7 +1671,7 @@ module Frozone
 
         def string_valid_encoding(_, v) = bool_object_for(v.raw.valid_encoding?)
 
-        def string_scrub(context, v, replacement = nil, block = nil)
+        def string_scrub(context, v, replacement = NilObject::NIL, block = NilObject::NIL)
           has_block = block && !block.is_a?(NilObject)
           has_repl = replacement && !replacement.is_a?(NilObject)
           begin
@@ -1768,7 +1768,7 @@ module Frozone
           StringObject.new(opts.empty? ? v.raw.capitalize : v.raw.capitalize(*opts))
         end
 
-        def string_unicode_normalize(_, v, form = nil)
+        def string_unicode_normalize(_, v, form = NilObject::NIL)
           form_raw = frozone_nil?(form) ? :nfc : form.raw
           begin
             StringObject.new(v.raw.unicode_normalize(form_raw))
@@ -1777,7 +1777,7 @@ module Frozone
           end
         end
 
-        def string_unicode_normalized_q(_, v, form = nil)
+        def string_unicode_normalized_q(_, v, form = NilObject::NIL)
           form_raw = frozone_nil?(form) ? :nfc : form.raw
           begin
             bool_object_for(v.raw.unicode_normalized?(form_raw))
@@ -1910,7 +1910,7 @@ module Frozone
           end
         end
 
-        def string_unpack(context, v, fmt, offset_arg = nil)
+        def string_unpack(context, v, fmt, offset_arg = NilObject::NIL)
           fmt_raw = fmt.is_a?(StringObject) ? fmt.raw : fmt.to_s
           begin
             results = if offset_arg && !offset_arg.is_a?(NilObject)
@@ -1927,7 +1927,7 @@ module Frozone
           end
         end
 
-        def string_unpack1(context, v, fmt, offset_arg = nil)
+        def string_unpack1(context, v, fmt, offset_arg = NilObject::NIL)
           fmt_raw = fmt.is_a?(StringObject) ? fmt.raw : fmt.to_s
           begin
             result = if offset_arg && !offset_arg.is_a?(NilObject)
@@ -1959,7 +1959,7 @@ module Frozone
         public
 
         # Encoding::Converter intrinsics — delegate to MRI Encoding::Converter
-        def encoding_converter_new(_, from_str, to_str, opts_hash = nil)
+        def encoding_converter_new(_, from_str, to_str, opts_hash = NilObject::NIL)
           from_raw = from_str.is_a?(StringObject) ? from_str.raw : from_str.to_s
           to_raw   = to_str.is_a?(StringObject) ? to_str.raw : to_str.to_s
           opts = {}
@@ -2076,7 +2076,7 @@ module Frozone
           StringObject.new(result)
         end
 
-        def encoding_converter_primitive_convert(_, receiver, src_arg, dest_str, offset_arg = nil, size_arg = nil, opts_arg = nil)
+        def encoding_converter_primitive_convert(_, receiver, src_arg, dest_str, offset_arg = NilObject::NIL, size_arg = NilObject::NIL, opts_arg = NilObject::NIL)
           conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
           raise FrozoneException.make(:ArgumentError, "converter is already finished") unless conv
 
@@ -2180,7 +2180,7 @@ module Frozone
           NilObject::NIL
         end
 
-        def encoding_converter_putback(_, receiver, n_arg = nil)
+        def encoding_converter_putback(_, receiver, n_arg = NilObject::NIL)
           conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
           return StringObject.new("") unless conv
           result = if frozone_nil?(n_arg)
@@ -2192,7 +2192,7 @@ module Frozone
           StringObject.new(result)
         end
 
-        def encoding_converter_search_convpath(_, from_str, to_str, opts_arg = nil)
+        def encoding_converter_search_convpath(_, from_str, to_str, opts_arg = NilObject::NIL)
           from_raw = from_str.is_a?(StringObject) ? from_str.raw : from_str.to_s
           to_raw   = to_str.is_a?(StringObject) ? to_str.raw : to_str.to_s
           opts = {}

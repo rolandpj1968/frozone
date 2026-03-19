@@ -7,7 +7,7 @@ module Frozone
         # Array
         ARRAY_MAX_SIZE = 1_073_741_823  # 2**30 - 1; prevents allocation hangs for huge sizes
 
-        def array_initialize(context, arr, size_or_array = nil, fill = nil, block = nil)
+        def array_initialize(context, arr, size_or_array = NilObject::NIL, fill = NilObject::NIL, block = NilObject::NIL)
           size_or_array = nil if frozone_nil?(size_or_array)
           fill = nil if frozone_nil?(fill)
           block = nil if frozone_nil?(block)
@@ -473,7 +473,7 @@ module Frozone
           types
         end
 
-        def array_pack(context, v, fmt_obj, buffer_obj = nil)
+        def array_pack(context, v, fmt_obj, buffer_obj = NilObject::NIL)
           fmt = pack_coerce_fmt(context, fmt_obj)
           elements = v.raw
 
@@ -527,7 +527,7 @@ module Frozone
 
         def array_dup(_, v) = ArrayObject.new(v.raw.dup, v.class_object)
 
-        def array_clone(_, v, freeze_opt = NilObject::NIL, klass = nil)
+        def array_clone(_, v, freeze_opt = NilObject::NIL, klass = NilObject::NIL)
           cls = klass.is_a?(ClassObject) ? klass : nil
           cloned = ArrayObject.new(v.raw.dup, cls)
           # Copy singleton class (eigenclass) including its methods
@@ -546,14 +546,14 @@ module Frozone
           ArrayObject.new(v.raw.sample(n.raw))
         end
 
-        def array_combination(context, v, n, block = nil)
+        def array_combination(context, v, n, block = NilObject::NIL)
           combos = v.raw.combination(n.raw).map { |c| ArrayObject.new(c) }
           return ArrayObject.new(combos) if frozone_nil?(block)
           combos.each { |c| block.invoke(context, [c]) }
           v
         end
 
-        def array_permutation(context, v, n = nil, block = nil)
+        def array_permutation(context, v, n = NilObject::NIL, block = NilObject::NIL)
           n = frozone_nil?(n) ? v.raw.length : n.raw
           perms = v.raw.permutation(n).map { |p| ArrayObject.new(p) }
           return ArrayObject.new(perms) if frozone_nil?(block)
@@ -561,7 +561,7 @@ module Frozone
           v
         end
 
-        def array_repeated_combination(context, v, n, block = nil)
+        def array_repeated_combination(context, v, n, block = NilObject::NIL)
           n_raw = n.is_a?(IntegerObject) ? n.raw : 0
           return v if n_raw < 0
           combos = v.raw.repeated_combination(n_raw).map { |c| ArrayObject.new(c) }
@@ -570,7 +570,7 @@ module Frozone
           v
         end
 
-        def array_repeated_permutation(context, v, n, block = nil)
+        def array_repeated_permutation(context, v, n, block = NilObject::NIL)
           n_raw = n.is_a?(IntegerObject) ? n.raw : 0
           return v if n_raw < 0
           perms = v.raw.repeated_permutation(n_raw).map { |p| ArrayObject.new(p) }
@@ -616,7 +616,7 @@ module Frozone
           h.dispatch(context, :default, [key], {})
         end
 
-        def hash_get_default(context, h, key = nil)
+        def hash_get_default(context, h, key = NilObject::NIL)
           if h.default_block
             frozone_nil?(key) ? NilObject::NIL : h.default_block.invoke(context, [h, key])
           elsif h.default_value
@@ -649,7 +649,7 @@ module Frozone
           prc
         end
 
-        def hash_new(_, default = nil, block = nil)
+        def hash_new(_, default = NilObject::NIL, block = NilObject::NIL)
           proc_obj = if block.is_a?(ProcObject)
             block
           elsif block.is_a?(BlockObject)
