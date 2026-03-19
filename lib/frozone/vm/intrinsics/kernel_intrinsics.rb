@@ -60,9 +60,7 @@ module Frozone
           no_arg_sentinel = msg.is_a?(SymbolObject) && msg.raw == :__raise_no_arg__
 
           # ArgumentError: only cause: given with no positional args
-          if no_arg_sentinel && explicit_cause
-            raise FrozoneException.make(:ArgumentError, "only cause is given with no arguments")
-          end
+          raise FrozoneException.make(:ArgumentError, "only cause is given with no arguments") if no_arg_sentinel && explicit_cause
 
           # Validate explicit cause type before building exception
           if explicit_cause && !cause_arg.is_a?(NilObject)
@@ -78,72 +76,13 @@ module Frozone
           end
 
           if no_arg_sentinel
-            # bare `raise` re-raises current exception or raises RuntimeError with empty message
-            if cause
-              set_exc_backtrace(cause, context) unless cause.get_ivar(:@backtrace).is_a?(ArrayObject)
-              raise FrozoneException.new(cause, cause.get_ivar(:@message)&.raw || "")
-            end
-            exc = FrozoneException.make(:RuntimeError, "")
-            set_exc_backtrace(exc.vm_object, context)
-            raise exc
+            reraise_current_or_runtime(cause, context)
           elsif msg.is_a?(ClassObject) || msg.is_a?(ModuleObject)
-            # raise SomeClass[, "message"] — call SomeClass.exception(message) to build instance
-            exc_obj = if message_arg && !message_arg.is_a?(NilObject)
-              msg.dispatch(context, :exception, [message_arg], {})
-            else
-              msg.dispatch(context, :exception, [], {})
-            end
-            msg_str = begin
-              exc_obj.dispatch(context, :message, [], {}).raw
-            rescue StandardError
-              msg.name.to_s
-            end
-            effective_cause = (cause && !cause.equal?(exc_obj)) ? cause : nil
-            validate_cause(effective_cause, exc_obj)
-            exc_obj.set_ivar(:@cause, effective_cause) if effective_cause
-            apply_backtrace(exc_obj, backtrace_arg, context)
-            raise FrozoneException.new(exc_obj, msg_str)
+            raise_from_exception_class(context, msg, message_arg, backtrace_arg, cause)
           elsif msg.is_a?(StringObject) && message_arg.is_a?(NilObject)
-            # raise "message" — create RuntimeError with string
-            exc = FrozoneException.make(:RuntimeError, msg.raw)
-            effective_cause = (cause && !cause.equal?(exc.vm_object)) ? cause : nil
-            exc.vm_object.set_ivar(:@cause, effective_cause) if effective_cause
-            apply_backtrace(exc.vm_object, backtrace_arg, context)
-            raise exc
+            raise_from_string(context, msg, backtrace_arg, cause)
           else
-            # raise exception_object — first check if it responds to #exception
-            # (this implements the exception protocol: any object with #exception can be raised)
-            has_message_arg = !message_arg.is_a?(NilObject)
-            exc_obj = begin
-              msg.dispatch(context, :exception, has_message_arg ? [message_arg] : [], {})
-            rescue FrozoneException => nm_err
-              # NoMethodError or similar — try using msg directly if it's Exception subclass
-              is_exc = exception_instance?(msg)
-              is_exc ? msg : (raise FrozoneException.make(:TypeError, "exception class/object expected"))
-            rescue
-              raise FrozoneException.make(:TypeError, "exception class/object expected")
-            end
-            # Verify the result is an exception instance
-            if exc_obj.is_a?(ObjectObject)
-              raise FrozoneException.make(:TypeError, "exception object expected") unless exception_instance?(exc_obj)
-            elsif !exc_obj.is_a?(FrozoneException)
-              raise FrozoneException.make(:TypeError, "exception object expected")
-            end
-            msg_str = begin
-              exc_obj.dispatch(context, :message, [], {})
-            rescue
-              nil
-            end
-            msg_str = msg_str.is_a?(StringObject) ? msg_str.raw : "exception"
-            effective_cause = (cause && !cause.equal?(exc_obj)) ? cause : nil
-            validate_cause(effective_cause, exc_obj)
-            exc_obj.set_ivar(:@cause, effective_cause) if effective_cause && exc_obj.is_a?(ObjectObject)
-            # Only set backtrace if explicitly provided or exception has no backtrace yet
-            already_has_bt = exc_obj.is_a?(ObjectObject) && exc_obj.get_ivar(:@backtrace).is_a?(ArrayObject)
-            unless already_has_bt
-              apply_backtrace(exc_obj, backtrace_arg, context)
-            end
-            raise FrozoneException.new(exc_obj, msg_str)
+            raise_from_exception_protocol(context, msg, message_arg, backtrace_arg, cause)
           end
         end
 
@@ -648,6 +587,78 @@ module Frozone
         def env_clear(_) = (ENV.clear; NilObject::NIL)
         def env_pairs(_) = ArrayObject.new(ENV.map { |k, v| ArrayObject.new([StringObject.new(k), StringObject.new(v)]) })
         def env_to_hash(_) = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
+
+        private
+
+        # Bare `raise` with no args: re-raise the current exception, or raise RuntimeError("").
+        def reraise_current_or_runtime(cause, context)
+          if cause
+            set_exc_backtrace(cause, context) unless cause.get_ivar(:@backtrace).is_a?(ArrayObject)
+            raise FrozoneException.new(cause, cause.get_ivar(:@message)&.raw || "")
+          end
+          exc = FrozoneException.make(:RuntimeError, "")
+          set_exc_backtrace(exc.vm_object, context)
+          raise exc
+        end
+
+        # `raise SomeClass[, "message"]` — call SomeClass.exception(message) to build instance.
+        def raise_from_exception_class(context, klass, message_arg, backtrace_arg, cause)
+          exc_obj = if message_arg && !message_arg.is_a?(NilObject)
+            klass.dispatch(context, :exception, [message_arg], {})
+          else
+            klass.dispatch(context, :exception, [], {})
+          end
+          msg_str = begin
+            exc_obj.dispatch(context, :message, [], {}).raw
+          rescue StandardError
+            klass.name.to_s
+          end
+          effective_cause = (cause && !cause.equal?(exc_obj)) ? cause : nil
+          validate_cause(effective_cause, exc_obj)
+          exc_obj.set_ivar(:@cause, effective_cause) if effective_cause
+          apply_backtrace(exc_obj, backtrace_arg, context)
+          raise FrozoneException.new(exc_obj, msg_str)
+        end
+
+        # `raise "message"` — create RuntimeError with string.
+        def raise_from_string(context, msg, backtrace_arg, cause)
+          exc = FrozoneException.make(:RuntimeError, msg.raw)
+          effective_cause = (cause && !cause.equal?(exc.vm_object)) ? cause : nil
+          exc.vm_object.set_ivar(:@cause, effective_cause) if effective_cause
+          apply_backtrace(exc.vm_object, backtrace_arg, context)
+          raise exc
+        end
+
+        # `raise exception_object` — use the #exception protocol.
+        def raise_from_exception_protocol(context, msg, message_arg, backtrace_arg, cause)
+          has_message_arg = !message_arg.is_a?(NilObject)
+          exc_obj = begin
+            msg.dispatch(context, :exception, has_message_arg ? [message_arg] : [], {})
+          rescue FrozoneException => _nm_err
+            # NoMethodError or similar — try using msg directly if it's Exception subclass
+            exception_instance?(msg) ? msg : (raise FrozoneException.make(:TypeError, "exception class/object expected"))
+          rescue
+            raise FrozoneException.make(:TypeError, "exception class/object expected")
+          end
+          # Verify the result is an exception instance
+          if exc_obj.is_a?(ObjectObject)
+            raise FrozoneException.make(:TypeError, "exception object expected") unless exception_instance?(exc_obj)
+          elsif !exc_obj.is_a?(FrozoneException)
+            raise FrozoneException.make(:TypeError, "exception object expected")
+          end
+          msg_str = begin
+            exc_obj.dispatch(context, :message, [], {})
+          rescue
+            nil
+          end
+          msg_str = msg_str.is_a?(StringObject) ? msg_str.raw : "exception"
+          effective_cause = (cause && !cause.equal?(exc_obj)) ? cause : nil
+          validate_cause(effective_cause, exc_obj)
+          exc_obj.set_ivar(:@cause, effective_cause) if effective_cause && exc_obj.is_a?(ObjectObject)
+          # Only set backtrace if explicitly provided or exception has no backtrace yet
+          apply_backtrace(exc_obj, backtrace_arg, context) unless exc_obj.is_a?(ObjectObject) && exc_obj.get_ivar(:@backtrace).is_a?(ArrayObject)
+          raise FrozoneException.new(exc_obj, msg_str)
+        end
       end
     end
   end

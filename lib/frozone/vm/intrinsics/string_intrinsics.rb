@@ -182,21 +182,8 @@ module Frozone
             set_match_for_block = !inner.is_a?(BoundMethodObject)
             result = v.raw.gsub(pat) do |_match|
               m = $~
-              update_match_globals(m) if set_match_for_block
               last_m = m
-              match_obj = StringObject.new($&)
-              if set_match_for_block
-                ret = block_result_to_s(context, block.invoke(context, [match_obj]))
-                # Restore $~ to the gsub match after block runs (block may have changed it)
-                update_match_globals(m)
-              else
-                # BoundMethodObject: $~ is method-local in MRI; clear before invoke, restore after
-                saved_md = GLOBALS[:"$~"]
-                update_match_globals(nil)
-                ret = block_result_to_s(context, block.invoke(context, [match_obj]))
-                GLOBALS[:"$~"] = saved_md
-              end
-              ret
+              gsub_apply_block(context, block, set_match_for_block, m)
             end
             update_match_globals(last_m)
             StringObject.new(result)
@@ -291,6 +278,26 @@ module Frozone
         end
 
         private
+
+        # Called inside a native gsub/sub block to invoke the Frozone block and return the replacement string.
+        # Handles $~ lifecycle for Proc blocks (set and restore) vs BoundMethod blocks (clear/restore).
+        def gsub_apply_block(context, block, set_match_for_block, m)
+          match_obj = StringObject.new(m[0])
+          if set_match_for_block
+            update_match_globals(m)
+            ret = block_result_to_s(context, block.invoke(context, [match_obj]))
+            # Restore $~ to the gsub match after block runs (block may have changed it)
+            update_match_globals(m)
+            ret
+          else
+            # BoundMethodObject: $~ is method-local in MRI; clear before invoke, restore after
+            saved_md = GLOBALS[:"$~"]
+            update_match_globals(nil)
+            ret = block_result_to_s(context, block.invoke(context, [match_obj]))
+            GLOBALS[:"$~"] = saved_md
+            ret
+          end
+        end
 
         def coerce_str_args(context, args)
           args.map do |a|

@@ -696,43 +696,9 @@ module Frozone
             end
             return result
           end
-          # Coerce to String
-          pat_klass = pattern.respond_to?(:class_object) ? (pattern.class_object&.name || pattern.class) : pattern.class
-          pat_raw = if pattern.is_a?(StringObject)
-            pattern.raw
-          else
-            begin
-              result = pattern.dispatch(context, :to_str, [], {})
-              unless result.is_a?(StringObject)
-                raise FrozoneException.make(:TypeError, "can't convert #{pat_klass} into String")
-              end
-              result.raw
-            rescue FrozoneException => e
-              raise unless e.frozone_class_name == :NoMethodError
-              raise FrozoneException.make(:TypeError, "no implicit conversion of #{pat_klass} into String")
-            end
-          end
-          flags = if options.is_a?(NilObject) || options.is_a?(FalseObject)
-            0
-          elsif options.is_a?(IntegerObject)
-            options.raw
-          elsif options.is_a?(StringObject)
-            options.raw
-          elsif options.is_a?(TrueObject)
-            Regexp::IGNORECASE
-          else
-            kernel_warn(context, NilObject::NIL, ArrayObject.new([StringObject.new("warning: expected true or false as ignorecase")]))
-            Regexp::IGNORECASE
-          end
-          # Extract timeout keyword arg if present
-          timeout_val = nil
-          if kw_opts.is_a?(HashObject)
-            kw_opts.raw.each do |k, v|
-              if k.is_a?(SymbolObject) && k.raw == :timeout
-                timeout_val = v.is_a?(FloatObject) ? v.raw : (v.is_a?(IntegerObject) ? v.raw.to_f : nil)
-              end
-            end
-          end
+          pat_raw = coerce_regexp_pattern(context, pattern)
+          flags = regexp_flags_from_options(context, options)
+          timeout_val = regexp_timeout_from_kw_opts(kw_opts)
           result = RegexpObject.new(pat_raw, flags, klass: klass, timeout: timeout_val)
           unless klass.equal?(regexp_class)
             result.newly_created_for_subclass = true
@@ -833,38 +799,7 @@ module Frozone
           # Unwrap single array argument: Regexp.union(["a", "b"]) → treat as Regexp.union("a", "b")
           raw_pats = raw_pats[0].raw if raw_pats.length == 1 && raw_pats[0].is_a?(ArrayObject)
           return RegexpObject.new('(?!)', 0) if raw_pats.empty?
-          pats = raw_pats.map do |p|
-            if p.is_a?(RegexpObject)
-              p.raw
-            elsif p.is_a?(StringObject)
-              # Pass raw string to ::Regexp.union — it will escape internally
-              p.raw
-            elsif p.is_a?(SymbolObject)
-              # Symbols are converted to strings and escaped
-              p.raw.to_s
-            else
-              # Try to_regexp first
-              klass = p.respond_to?(:class_object) ? (p.class_object&.name || p.class) : p.class
-              begin
-                result = p.dispatch(context, :to_regexp, [], {})
-                if result.is_a?(RegexpObject)
-                  result.raw
-                else
-                  raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into Regexp")
-                end
-              rescue FrozoneException => e
-                raise unless e.frozone_class_name == :NoMethodError
-                # Try to_str
-                begin
-                  str_result = p.dispatch(context, :to_str, [], {})
-                  str_result.is_a?(StringObject) ? str_result.raw : str_result.raw.to_s
-                rescue FrozoneException => e2
-                  raise unless e2.frozone_class_name == :NoMethodError
-                  raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
-                end
-              end
-            end
-          end
+          pats = raw_pats.map { |p| coerce_union_element(context, p) }
           ::Regexp.union(*pats).then { |r| RegexpObject.new(r.source, r.options) }
         rescue ::ArgumentError => e then raise FrozoneException.make(:ArgumentError, e.message)
         end
@@ -1173,25 +1108,7 @@ module Frozone
 
         def io_new_from_fd(_, fd_obj, mode_obj = NilObject::NIL, opts_obj = NilObject::NIL)
           fd = fd_obj.is_a?(IntegerObject) ? fd_obj.raw : fd_obj.raw.to_i
-          mode = if mode_obj.is_a?(NilObject) then nil
-                 elsif mode_obj.is_a?(StringObject) then mode_obj.raw
-                 elsif mode_obj.is_a?(IntegerObject) then mode_obj.raw
-                 elsif mode_obj.is_a?(HashObject) then (opts_obj = mode_obj; nil)
-                 else nil
-                 end
-          opts = {}
-          if opts_obj.is_a?(HashObject)
-            opts_obj.raw.each do |k, v|
-              opts[k.is_a?(SymbolObject) ? k.raw : k.to_s.to_sym] = case v
-                when StringObject  then v.raw
-                when IntegerObject then v.raw
-                when TrueObject    then true
-                when FalseObject   then false
-                when NilObject     then nil
-                else v
-                end
-            end
-          end
+          mode, opts = parse_io_mode(mode_obj, opts_obj)
           explicit_enc = (mode.is_a?(::String) && mode.include?(':')) ||
                          opts.key?(:encoding) || opts.key?(:external_encoding)
           native_io = if mode && opts.empty? then ::IO.new(fd, mode)
@@ -1536,6 +1453,94 @@ module Frozone
             n.is_a?(StringObject) ? n.raw : nil
           else nil
           end
+        end
+
+        # Coerce a Regexp pattern argument (non-Regexp) to a raw String.
+        def coerce_regexp_pattern(context, pattern)
+          pat_klass = pattern.respond_to?(:class_object) ? (pattern.class_object&.name || pattern.class) : pattern.class
+          return pattern.raw if pattern.is_a?(StringObject)
+          begin
+            result = pattern.dispatch(context, :to_str, [], {})
+            raise FrozoneException.make(:TypeError, "can't convert #{pat_klass} into String") unless result.is_a?(StringObject)
+            result.raw
+          rescue FrozoneException => e
+            raise unless e.frozone_class_name == :NoMethodError
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{pat_klass} into String")
+          end
+        end
+
+        # Convert Regexp.new options argument to raw flags (Integer or String).
+        def regexp_flags_from_options(context, options)
+          if options.is_a?(NilObject) || options.is_a?(FalseObject)
+            0
+          elsif options.is_a?(IntegerObject)
+            options.raw
+          elsif options.is_a?(StringObject)
+            options.raw
+          elsif options.is_a?(TrueObject)
+            Regexp::IGNORECASE
+          else
+            kernel_warn(context, NilObject::NIL, ArrayObject.new([StringObject.new("warning: expected true or false as ignorecase")]))
+            Regexp::IGNORECASE
+          end
+        end
+
+        # Extract :timeout from Regexp.new keyword options hash.
+        def regexp_timeout_from_kw_opts(kw_opts)
+          return nil unless kw_opts.is_a?(HashObject)
+          kw_opts.raw.each do |k, v|
+            if k.is_a?(SymbolObject) && k.raw == :timeout
+              return v.is_a?(FloatObject) ? v.raw : (v.is_a?(IntegerObject) ? v.raw.to_f : nil)
+            end
+          end
+          nil
+        end
+
+        # Coerce a single element of Regexp.union arguments to a raw String or Regexp.
+        def coerce_union_element(context, p)
+          return p.raw if p.is_a?(RegexpObject)
+          return p.raw if p.is_a?(StringObject)
+          return p.raw.to_s if p.is_a?(SymbolObject)
+          klass = p.respond_to?(:class_object) ? (p.class_object&.name || p.class) : p.class
+          begin
+            result = p.dispatch(context, :to_regexp, [], {})
+            return result.raw if result.is_a?(RegexpObject)
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into Regexp")
+          rescue FrozoneException => e
+            raise unless e.frozone_class_name == :NoMethodError
+          end
+          begin
+            str_result = p.dispatch(context, :to_str, [], {})
+            return str_result.is_a?(StringObject) ? str_result.raw : str_result.raw.to_s
+          rescue FrozoneException => e2
+            raise unless e2.frozone_class_name == :NoMethodError
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
+          end
+        end
+
+        # Parse IO.new mode and opts arguments.
+        # Returns [mode, opts_hash] where mode is nil/String/Integer and opts_hash is a Ruby Hash.
+        def parse_io_mode(mode_obj, opts_obj)
+          mode = if mode_obj.is_a?(NilObject) then nil
+                 elsif mode_obj.is_a?(StringObject) then mode_obj.raw
+                 elsif mode_obj.is_a?(IntegerObject) then mode_obj.raw
+                 elsif mode_obj.is_a?(HashObject) then (opts_obj = mode_obj; nil)
+                 else nil
+                 end
+          opts = {}
+          if opts_obj.is_a?(HashObject)
+            opts_obj.raw.each do |k, v|
+              opts[k.is_a?(SymbolObject) ? k.raw : k.to_s.to_sym] = case v
+                when StringObject  then v.raw
+                when IntegerObject then v.raw
+                when TrueObject    then true
+                when FalseObject   then false
+                when NilObject     then nil
+                else v
+                end
+            end
+          end
+          [mode, opts]
         end
       end
     end
