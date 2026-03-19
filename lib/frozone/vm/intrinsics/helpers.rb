@@ -278,6 +278,24 @@ module Frozone
           context&.frame&.parent_frame&.active_refinements
         end
 
+        # Collect raw caller frame data for kernel_caller / kernel_caller_locations.
+        # Returns an array of [call_site, method_name] pairs, starting from the
+        # last frame whose current_method name matches `anchor_method_name`.
+        def collect_caller_frames(context, anchor_method_name)
+          all_frames = context.frames.reverse
+          last_anchor_idx = all_frames.rindex { |f| f.current_method&.name == anchor_method_name } || -1
+          base = [last_anchor_idx, 0].max
+          frames = []
+          i = base
+          while i < all_frames.length - 1
+            call_site = all_frames[i].incoming_call_site || "unknown:0"
+            meth = all_frames[i + 1].current_method&.name&.to_s || "block"
+            frames << [call_site, meth]
+            i += 1
+          end
+          frames
+        end
+
         def exception_caller_string(context)
           # Return a caller location string for full_message when exception has no backtrace.
           # We want the call site where full_message was invoked, which is stored as the

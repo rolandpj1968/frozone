@@ -111,30 +111,11 @@ module Frozone
           end
         end
 
-        def file_delete_strict(_, paths)
+        def file_delete_strict(context, paths)
           raw_paths = paths.raw
           return IntegerObject.new(0) if raw_paths.empty?
           raw_paths.each do |p|
-            path_str = if p.is_a?(StringObject)
-              p.raw
-            elsif p.respond_to?(:dispatch)
-              # Try to_path, then to_str
-              begin
-                r = p.dispatch(Fiber[:context], :to_path, [], {})
-                r.is_a?(StringObject) ? r.raw : raise(FrozoneException.make(:TypeError, "no implicit conversion into String"))
-              rescue FrozoneException => e
-                raise unless e.frozone_class_name == :NoMethodError
-                begin
-                  r = p.dispatch(Fiber[:context], :to_str, [], {})
-                  r.is_a?(StringObject) ? r.raw : raise(FrozoneException.make(:TypeError, "no implicit conversion into String"))
-                rescue FrozoneException => e2
-                  raise unless e2.frozone_class_name == :NoMethodError
-                  raise FrozoneException.make(:TypeError, "no implicit conversion of #{p.class_object&.name || p.class} into String")
-                end
-              end
-            else
-              raise FrozoneException.make(:TypeError, "no implicit conversion of #{p.class} into String")
-            end
+            path_str = coerce_to_path(context, p)
             reraise(Errno::ENOENT) { File.delete(path_str) }
           end
           IntegerObject.new(raw_paths.length)
@@ -301,27 +282,11 @@ module Frozone
           base_str = base.is_a?(NilObject) ? nil : base.raw
           sort_val = sort.is_a?(NilObject) ? true : (sort.is_a?(TrueObject) ? true : (sort.is_a?(FalseObject) ? false : sort.raw))
           pats = if pattern.is_a?(ArrayObject)
-            pattern.raw.map do |p|
-              if p.is_a?(StringObject)
-                p.raw
-              else
-                begin
-                  r = p.dispatch(context, :to_path, [], {})
-                  r.is_a?(StringObject) ? r.raw : p.raw.to_s
-                rescue FrozoneException
-                  p.raw.to_s
-                end
-              end
-            end
+            pattern.raw.map { |p| coerce_to_path(context, p) }
           elsif pattern.is_a?(StringObject)
             pattern.raw
           else
-            begin
-              r = pattern.dispatch(context, :to_path, [], {})
-              r.is_a?(StringObject) ? r.raw : pattern.raw.to_s
-            rescue FrozoneException
-              pattern.raw.to_s
-            end
+            coerce_to_path(context, pattern)
           end
           results = if base_str
             Dir.glob(pats, flag_int, base: base_str, sort: sort_val)
@@ -333,26 +298,7 @@ module Frozone
         end
 
         def dir_chdir(context, path, block)
-          path_raw = if path.is_a?(NilObject)
-            nil
-          elsif path.is_a?(StringObject)
-            path.raw
-          else
-            # Try to_path first, then to_str
-            begin
-              r = path.dispatch(context, :to_path, [], {})
-              r.is_a?(StringObject) ? r.raw : path.raw.to_s
-            rescue FrozoneException => e
-              raise unless e.frozone_class_name == :NoMethodError
-              begin
-                r = path.dispatch(context, :to_str, [], {})
-                r.is_a?(StringObject) ? r.raw : path.raw.to_s
-              rescue FrozoneException => e2
-                raise unless e2.frozone_class_name == :NoMethodError
-                raise FrozoneException.make(:TypeError, "no implicit conversion of #{path.class_object&.name || path.class} into String")
-              end
-            end
-          end
+          path_raw = path.is_a?(NilObject) ? nil : coerce_to_path(context, path)
           if block && !block.is_a?(NilObject)
             result = reraise(Errno::ENOENT) do
               path_raw ? Dir.chdir(path_raw) { block.invoke(context, [StringObject.new(Dir.pwd)]) } :
@@ -1559,6 +1505,23 @@ module Frozone
         end
 
         private
+
+        def coerce_to_path(context, obj)
+          return obj.raw if obj.is_a?(StringObject)
+          begin
+            r = obj.dispatch(context, :to_path, [], {})
+            return r.is_a?(StringObject) ? r.raw : r.raw.to_s
+          rescue FrozoneException => e
+            raise unless e.frozone_class_name == :NoMethodError
+          end
+          begin
+            r = obj.dispatch(context, :to_str, [], {})
+            r.is_a?(StringObject) ? r.raw : r.raw.to_s
+          rescue FrozoneException => e
+            raise unless e.frozone_class_name == :NoMethodError
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{obj.class_object&.name || obj.class} into String")
+          end
+        end
 
         def native_io_for(receiver)
           receiver.is_a?(IOObject) ? receiver.native_io : $stdout

@@ -150,25 +150,16 @@ module Frozone
         def kernel_caller_locations(context, _receiver, start_obj = NilObject::NIL, length_obj = NilObject::NIL)
           start  = start_obj.is_a?(IntegerObject)  ? start_obj.raw : 1
           length = length_obj.is_a?(IntegerObject) ? length_obj.raw : nil
-
-          all_frames = context.frames.reverse
-          last_caller_idx = all_frames.rindex { |f| f.current_method&.name == :caller_locations } || -1
-          base = [last_caller_idx, 0].max
+          frames = collect_caller_frames(context, :caller_locations)
 
           location_class = Core::OBJECT_CLASS.get_constant(:Thread)&.get_constant(:Backtrace)&.get_constant(:Location)
-          entries = []
-          i = base
-          while i < all_frames.length - 1
-            call_site = all_frames[i].incoming_call_site || "unknown:0"
-            meth = all_frames[i + 1].current_method&.name&.to_s || "block"
+          entries = frames.map do |call_site, meth|
             str_obj = StringObject.new("#{call_site}:in '#{meth}'", frozen: true)
             if location_class
-              loc_obj = location_class.dispatch(context, :_from_string, [str_obj], {}, nil, private_ok: true)
-              entries << loc_obj
+              location_class.dispatch(context, :_from_string, [str_obj], {}, nil, private_ok: true)
             else
-              entries << str_obj
+              str_obj
             end
-            i += 1
           end
 
           sliced = length ? entries[start, length] : entries[start..]
@@ -181,23 +172,10 @@ module Frozone
         def kernel_caller(context, _receiver, start_obj = NilObject::NIL, length_obj = NilObject::NIL)
           start  = start_obj.is_a?(IntegerObject)  ? start_obj.raw : 1
           length = length_obj.is_a?(IntegerObject) ? length_obj.raw : nil
+          frames = collect_caller_frames(context, :caller)
 
-          all_frames = context.frames.reverse  # most recent first
-
-          # Find the last :caller frame — that's where entries begin
-          last_caller_idx = all_frames.rindex { |f| f.current_method&.name == :caller } || -1
-          base = [last_caller_idx, 0].max
-
-          # Each entry i (0-based) represents:
-          #   line/file  = all_frames[base + i].incoming_call_site  (where the call originated)
-          #   method     = all_frames[base + i + 1].current_method.name (method that was running)
-          entries = []
-          i = base
-          while i < all_frames.length - 1
-            loc  = all_frames[i].incoming_call_site || "unknown:0"
-            meth = all_frames[i + 1].current_method&.name&.to_s || "block"
-            entries << StringObject.new("#{loc}:in '#{meth}'", frozen: true)
-            i += 1
+          entries = frames.map do |call_site, meth|
+            StringObject.new("#{call_site}:in '#{meth}'", frozen: true)
           end
 
           # Apply start offset and length
