@@ -39,43 +39,6 @@ module Frozone
 
         def string_eql(_, v1, v2) = bool_object_for(v2.is_a?(StringObject) && v1.raw == v2.raw)
 
-        def string_casecmp(_, v1, v2)
-          return NilObject::NIL unless v2.is_a?(StringObject)
-          # Return nil for incompatible encodings
-          return NilObject::NIL if ::Encoding.compatible?(v1.raw, v2.raw).nil?
-          begin
-            result = v1.raw.downcase(:ascii) <=> v2.raw.downcase(:ascii)
-            result.nil? ? NilObject::NIL : IntegerObject.new(result)
-          rescue ::ArgumentError
-            # Invalid byte sequence — compare raw bytes
-            begin
-              result = v1.raw.b <=> v2.raw.b
-              result.nil? ? NilObject::NIL : IntegerObject.new(result)
-            rescue
-              NilObject::NIL
-            end
-          end
-        end
-
-        def string_casecmp_q(_, v1, v2)
-          return NilObject::NIL unless v2.is_a?(StringObject)
-          # Return nil for incompatible encodings
-          return NilObject::NIL if ::Encoding.compatible?(v1.raw, v2.raw).nil?
-          begin
-            result = v1.raw.downcase(:fold) <=> v2.raw.downcase(:fold)
-            result.nil? ? NilObject::NIL : bool_object_for(result == 0)
-          rescue ::ArgumentError
-            # Invalid byte sequence — compare raw bytes
-            begin
-              result = v1.raw.b <=> v2.raw.b
-              result.nil? ? NilObject::NIL : bool_object_for(result == 0)
-            rescue
-              NilObject::NIL
-            end
-          end
-        end
-
-        def string_chars(_, v)             = ArrayObject.new(v.raw.chars.map { |c| StringObject.new(c) })
         def string_ord(_, v)               = IntegerObject.new(v.raw.ord)
 
         def string_split(context, v, sep = NilObject::NIL, limit = NilObject::NIL)

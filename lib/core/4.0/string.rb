@@ -354,7 +354,16 @@ class String
       return nil
     end
     return nil unless other.is_a?(String)
-    Intrinsics.string_casecmp(self, other)
+    return nil if Encoding.compatible?(self, other).nil?
+    begin
+      downcase(:ascii) <=> other.downcase(:ascii)
+    rescue ArgumentError
+      begin
+        b <=> other.b
+      rescue
+        nil
+      end
+    end
   end
 
   def casecmp?(other)
@@ -364,7 +373,18 @@ class String
       return nil
     end
     return nil unless other.is_a?(String)
-    Intrinsics.string_casecmp_q(self, other)
+    return nil if Encoding.compatible?(self, other).nil?
+    begin
+      result = downcase(:fold) <=> other.downcase(:fold)
+      result.nil? ? nil : result == 0
+    rescue ArgumentError
+      begin
+        result = b <=> other.b
+        result.nil? ? nil : result == 0
+      rescue
+        nil
+      end
+    end
   end
   def upcase(*args)
     return Intrinsics.string_upcase_opts(self, *args) unless args.empty?
@@ -424,7 +444,7 @@ class String
     r
   end
   def chars(&block)
-    arr = Intrinsics.string_chars(self)
+    arr = split('')
     return arr unless block
     arr.each(&block)
     self
