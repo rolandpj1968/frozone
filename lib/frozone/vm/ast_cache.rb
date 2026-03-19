@@ -18,8 +18,13 @@ module Frozone
 
         def git_sha
           @git_sha ||= begin
-            sha = `git -C #{File.expand_path('../../..', __dir__).shellescape} rev-parse HEAD 2>/dev/null`.strip
-            sha.empty? ? "unknown" : sha
+            dir = File.expand_path('../../..', __dir__).shellescape
+            sha = `git -C #{dir} rev-parse HEAD 2>/dev/null`.strip
+            return "unknown" if sha.empty?
+            # Append -dirty if working tree has uncommitted changes so stale
+            # dev-time cache entries don't persist under the committed SHA.
+            dirty = !`git -C #{dir} status --porcelain 2>/dev/null`.strip.empty?
+            dirty ? "#{sha}-dirty" : sha
           rescue StandardError
             "unknown"
           end
