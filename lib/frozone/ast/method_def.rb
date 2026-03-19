@@ -44,19 +44,19 @@ module Frozone
           # This handles both `class Foo; def bar; end; end` and `Class.new { def bar; end }`.
           # Inside a method, use def_scope (set by Method#invoke to method's defining class).
           scope = if inside_method
-            def_scope || frame_scopes.last
-          else
-            def_scope || (frame.the_self.is_a?(Vm::ModuleObject) ? frame.the_self : frame_scopes.last)
-          end
+                    def_scope || frame_scopes.last
+                  else
+                    def_scope || (frame.the_self.is_a?(Vm::ModuleObject) ? frame.the_self : frame_scopes.last)
+                  end
           # Method's lexical scopes: use frame's scopes (definition-site), but ensure
           # the actual defining scope is included at the end (for super to work correctly).
           method_scopes = if !scope.equal?(frame_scopes.last)
-            frame_scopes + [scope]
-          elsif def_scope && !def_scope.equal?(frame_scopes.last)
-            frame_scopes + [def_scope]
-          else
-            frame_scopes
-          end
+                            frame_scopes + [scope]
+                          elsif def_scope && !def_scope.equal?(frame_scopes.last)
+                            frame_scopes + [def_scope]
+                          else
+                            frame_scopes
+                          end
           method = Vm::Method.new(method_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
           method.active_refinements = frame.active_refinements if frame.active_refinements
           method.refining_module = frame.current_refining_module if frame.current_refining_module
@@ -105,25 +105,25 @@ module Frozone
           # Check if receiver (or its singleton class) is frozen, and raise FrozenError with correct type name
           receiver_sc = receiver_val.eigenclass
           if receiver_val.frozen_object? || (receiver_sc && receiver_sc.frozen_object?)
-            if receiver_val.is_a?(Vm::ClassObject)
-              type_name = "Class"
-            elsif receiver_val.is_a?(Vm::ModuleObject)
-              type_name = "Module"
-            else
-              type_name = receiver_val.class_object&.name&.to_s || "Object"
-            end
+            type_name = if receiver_val.is_a?(Vm::ClassObject)
+                          "Class"
+                        elsif receiver_val.is_a?(Vm::ModuleObject)
+                          "Module"
+                        else
+                          receiver_val.class_object&.name&.to_s || "Object"
+                        end
             repr = begin; receiver_val.dispatch(context, :inspect, [], {}).raw; rescue StandardError; receiver_val.to_s; end
             raise Vm::FrozoneException.make(:FrozenError, "can't modify frozen #{type_name}: #{repr}", receiver: receiver_val)
           end
           method_scopes = if receiver_val.is_a?(Vm::ClassObject)
-            # Class-level singleton method (def ClassName.foo / def self.foo in class body):
-            # keep lexical scopes so super.rb can map ClassObject → singleton class.
-            def_scope && !def_scope.equal?(frame_scopes.last) ? frame_scopes + [def_scope] : frame_scopes
-          else
-            # Instance-level singleton method (def obj.foo for non-class objects):
-            # set defining scope to obj's singleton class so super searches from there.
-            frame_scopes + [receiver_val.singleton_class]
-          end
+                            # Class-level singleton method (def ClassName.foo / def self.foo in class body):
+                            # keep lexical scopes so super.rb can map ClassObject → singleton class.
+                            def_scope && !def_scope.equal?(frame_scopes.last) ? frame_scopes + [def_scope] : frame_scopes
+                          else
+                            # Instance-level singleton method (def obj.foo for non-class objects):
+                            # set defining scope to obj's singleton class so super searches from there.
+                            frame_scopes + [receiver_val.singleton_class]
+                          end
           method = Vm::Method.new(method_scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
           method.active_refinements = frame.active_refinements if frame.active_refinements
           method.refining_module = frame.current_refining_module if frame.current_refining_module

@@ -68,12 +68,12 @@ module Frozone
           end
 
           cause = if no_cause_sentinel
-            (current_exc && !current_exc.is_a?(NilObject)) ? current_exc : nil
-          elsif cause_arg.is_a?(NilObject)
-            nil
-          else
-            cause_arg
-          end
+                    (current_exc && !current_exc.is_a?(NilObject)) ? current_exc : nil
+                  elsif cause_arg.is_a?(NilObject)
+                    nil
+                  else
+                    cause_arg
+                  end
 
           if no_arg_sentinel
             reraise_current_or_runtime(cause, context)
@@ -216,7 +216,7 @@ module Frozone
         end
 
         # Bundler reinitialization warnings appear in subprocess output when running under bundle exec.
-        BUNDLER_NOISE_RE = /\A.+(?:bundler\/rubygems_ext\.rb|rubygems\/platform\.rb):\d+: warning: (?:already initialized constant|previous definition of) /
+        BUNDLER_NOISE_RE = %r{\A.+(?:bundler/rubygems_ext\.rb|rubygems/platform\.rb):\d+: warning: (?:already initialized constant|previous definition of) }
 
         def kernel_backtick(_, _receiver, cmd_obj)
           result = `#{cmd_obj.raw}`
@@ -385,7 +385,7 @@ module Frozone
                 return val.dispatch(context, :to_int, [], {})
               end
               return val.dispatch(context, :to_i, [], {})
-            rescue FrozoneException => e
+            rescue FrozoneException
               raise if exc
               return NilObject::NIL
             end
@@ -460,10 +460,10 @@ module Frozone
           eval_lineno = lineno_arg.is_a?(IntegerObject) ? lineno_arg.raw : nil
           # If a BindingObject is passed, use its captured frame; otherwise use the caller's frame.
           binding_frame = if binding_arg.is_a?(BindingObject)
-                           binding_arg.captured_frame
-                         else
-                           context.frames.length >= 2 ? context.frames[-2] : context.frame
-                         end
+                            binding_arg.captured_frame
+                          else
+                            context.frames.length >= 2 ? context.frames[-2] : context.frame
+                          end
 
           # Build closure chain: binding_frame + parent frames.
           # Used for reading/writing variables from enclosing block scopes.
@@ -571,6 +571,7 @@ module Frozone
             current_mod.current_visibility = prev_vis if current_mod && prev_vis
           end
         end
+
         def env_get(_, key) = (v = ENV[key.raw]) ? StringObject.new(v) : NilObject::NIL
         def env_set(_, key, val) = (ENV[key.raw] = val.is_a?(NilObject) ? nil : val.raw; val)
         def env_delete(_, key) = (v = ENV.delete(key.raw)) ? StringObject.new(v) : NilObject::NIL
@@ -598,10 +599,10 @@ module Frozone
         # `raise SomeClass[, "message"]` — call SomeClass.exception(message) to build instance.
         def raise_from_exception_class(context, klass, message_arg, backtrace_arg, cause)
           exc_obj = if message_arg && !message_arg.is_a?(NilObject)
-            klass.dispatch(context, :exception, [message_arg], {})
-          else
-            klass.dispatch(context, :exception, [], {})
-          end
+                      klass.dispatch(context, :exception, [message_arg], {})
+                    else
+                      klass.dispatch(context, :exception, [], {})
+                    end
           msg_str = begin
             exc_obj.dispatch(context, :message, [], {}).raw
           rescue StandardError
@@ -628,7 +629,7 @@ module Frozone
           has_message_arg = !message_arg.is_a?(NilObject)
           exc_obj = begin
             msg.dispatch(context, :exception, has_message_arg ? [message_arg] : [], {})
-          rescue FrozoneException => _nm_err
+          rescue FrozoneException => _e
             # NoMethodError or similar — try using msg directly if it's Exception subclass
             exception_instance?(msg) ? msg : (raise FrozoneException.make(:TypeError, "exception class/object expected"))
           rescue

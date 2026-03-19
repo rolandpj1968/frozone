@@ -69,7 +69,8 @@ module Frozone
         elsif @name == :"$VERBOSE" || @name == :"$-v" || @name == :"$-w"
           coerced = if value.is_a?(Vm::NilObject) then Vm::NilObject::NIL
                     elsif !value.truthy? then Vm::FalseObject::FALSE
-                    else Vm::TrueObject::TRUE
+                    else
+                      Vm::TrueObject::TRUE
                     end
           Vm::GLOBALS[:"$VERBOSE"] = coerced
         elsif @name == :"$0" || @name == :"$PROGRAM_NAME"
@@ -112,11 +113,11 @@ module Frozone
 
       def coerce_to_string(context, value)
         raw_val = if value.respond_to?(:raw)
-          value.raw
-        else
-          str = value.dispatch(context, :to_s, [], {})
-          str.respond_to?(:raw) ? str.raw : str.to_s
-        end
+                    value.raw
+                  else
+                    str = value.dispatch(context, :to_s, [], {})
+                    str.respond_to?(:raw) ? str.raw : str.to_s
+                  end
         s = Vm::StringObject.new(raw_val.to_s)
         s.freeze_object!
         s
@@ -147,7 +148,11 @@ module Frozone
       end
 
       def set_io_global(context, name, value)
-        unless value.is_a?(Vm::NilObject)
+        if value.is_a?(Vm::NilObject)
+          type_name = 'NilClass'
+          gname = name.to_s[1..]
+          raise Vm::FrozoneException.make(:TypeError, "$#{gname} must have write method, #{type_name} given")
+        else
           has_write = begin
             value.dispatch(context, :respond_to?, [Vm::SymbolObject.from(:write)], {}).truthy?
           rescue
@@ -160,10 +165,6 @@ module Frozone
           end
           Vm::GLOBALS[name] = value
           Vm::GLOBALS[:"$>"] = value if name == :"$stdout"
-        else
-          type_name = 'NilClass'
-          gname = name.to_s[1..]
-          raise Vm::FrozoneException.make(:TypeError, "$#{gname} must have write method, #{type_name} given")
         end
         value
       end

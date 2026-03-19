@@ -29,7 +29,8 @@ module Frozone
             has_coerce = n.dispatch(context, :respond_to?, [SymbolObject.from(:coerce)], {}).truthy? rescue false
             if has_coerce
               pair = n.dispatch(context, :coerce, [v], {})
-              a, b = pair.raw[0], pair.raw[1]
+              a = pair.raw[0]
+              b = pair.raw[1]
               a.dispatch(context, :fdiv, [b], {})
             else
               raise FrozoneException.make(:TypeError, "#{n.class_object&.name} can't be coerced into Integer")
@@ -38,6 +39,7 @@ module Frozone
             raise FrozoneException.make(:TypeError, "#{n.class} can't be coerced into Integer")
           end
         end
+
         def integer_chr(context, v, enc = NilObject::NIL)
           if enc.is_a?(NilObject)
             StringObject.new(v.raw.chr)
@@ -57,6 +59,7 @@ module Frozone
             StringObject.new(v.raw.chr)
           end
         end
+
         def integer_bitand(_, v1, v2) = IntegerObject.new(v1.raw & v2.raw)
         def integer_bitor(_, v1, v2)  = IntegerObject.new(v1.raw | v2.raw)
         def integer_bitxor(_, v1, v2) = IntegerObject.new(v1.raw ^ v2.raw)
@@ -88,6 +91,7 @@ module Frozone
             IntegerObject.new(n >> m)
           end
         end
+
         def integer_bit(_, v, n)      = IntegerObject.new(v.raw[n.raw])
         def integer_bit_length(_, v)  = IntegerObject.new(v.raw.bit_length)
 
@@ -124,7 +128,7 @@ module Frozone
         def integer__mul_(_, v1, v2)   = numeric_wrap(v1.raw * integer_raw(v2))
         def integer__div_(_, v1, v2)   = numeric_wrap(v1.raw / integer_raw(v2))
         def integer__mod_(_, v1, v2)   = numeric_wrap(v1.raw % integer_raw(v2))
-        def integer__pow_(_, v1, v2)   = numeric_wrap(v1.raw ** integer_raw(v2))
+        def integer__pow_(_, v1, v2)   = numeric_wrap(v1.raw**integer_raw(v2))
 
         def integer_to_f(_, v) = FloatObject.new(v.raw.to_f)
 
@@ -185,10 +189,12 @@ module Frozone
           result = n_raw.nil? ? v.raw.truncate : v.raw.truncate(n_raw)
           result.is_a?(::Integer) ? IntegerObject.new(result) : FloatObject.new(result)
         end
+
         def float_infinity(_)    = FloatObject.new(::Float::INFINITY)
         def float_nan(_)         = FloatObject.new(::Float::NAN)
         def float_next_float(_, v) = FloatObject.new(v.raw.next_float)
         def float_prev_float(_, v) = FloatObject.new(v.raw.prev_float)
+
         def float_rationalize(context, v, eps = NilObject::NIL)
           if eps.is_a?(NilObject)
             make_rational(v.raw.rationalize)
@@ -203,6 +209,7 @@ module Frozone
             make_rational(v.raw.rationalize(eps_r))
           end
         end
+
         def float_nan?(_, v)           = bool_object_for(v.raw.nan?)
 
         def float_infinite?(_, v)
@@ -232,7 +239,7 @@ module Frozone
         def float__mul_(_, v1, v2)   = FloatObject.new(v1.raw * v2.raw)
         def float__div_(_, v1, v2)   = FloatObject.new(v1.raw / v2.raw)
         def float__mod_(_, v1, v2)   = FloatObject.new(v1.raw % v2.raw)
-        def float__pow_(_, v1, v2)   = FloatObject.new(v1.raw ** v2.raw)
+        def float__pow_(_, v1, v2)   = FloatObject.new(v1.raw**v2.raw)
 
         # Math module functions
         def float_sqrt(_, v)  = FloatObject.new(::Math.sqrt(v.raw))
@@ -255,15 +262,18 @@ module Frozone
         def float_acosh(_, v) = FloatObject.new(::Math.acosh(v.raw))
         def float_atanh(_, v) = FloatObject.new(::Math.atanh(v.raw))
         def float_hypot(_, a, b) = FloatObject.new(::Math.hypot(a.raw, b.raw))
+
         def float_frexp(_, v)
           m, e = ::Math.frexp(v.raw)
           ArrayObject.new([FloatObject.new(m), IntegerObject.new(e)])
         end
+
         def float_ldexp(_, v, n) = FloatObject.new(::Math.ldexp(v.raw, n.raw))
         def float_erf(_, v)      = FloatObject.new(::Math.erf(v.raw))
         def float_erfc(_, v)     = FloatObject.new(::Math.erfc(v.raw))
         def float_expm1(_, v)    = FloatObject.new(::Math.expm1(v.raw))
         def float_log1p(_, v)    = FloatObject.new(::Math.log1p(v.raw))
+
         def float_gamma(_, v)
           begin
             FloatObject.new(::Math.gamma(v.raw))
@@ -271,6 +281,7 @@ module Frozone
             raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
           end
         end
+
         def float_lgamma(_, v)
           result, sign = ::Math.lgamma(v.raw)
           ArrayObject.new([FloatObject.new(result), IntegerObject.new(sign)])

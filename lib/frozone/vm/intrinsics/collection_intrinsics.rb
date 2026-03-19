@@ -32,7 +32,6 @@ module Frozone
           element.nil? ? NilObject::NIL : element
         end
 
-
         def array_index_write(_, v, i, val)
           raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v) if v.frozen_object?
           if i.is_a?(IntegerObject)
@@ -177,7 +176,7 @@ module Frozone
             return result.raw if result.is_a?(StringObject)
 
             raise ::TypeError, "no implicit conversion of #{frozone_class_name} into String"
-          rescue FrozoneException => e
+          rescue FrozoneException
             raise ::TypeError, "no implicit conversion of #{frozone_class_name} into String"
           end
 
@@ -195,7 +194,7 @@ module Frozone
             return result.raw if result.is_a?(IntegerObject)
 
             raise ::TypeError, "no implicit conversion of #{frozone_class_name} into Integer"
-          rescue FrozoneException => e
+          rescue FrozoneException
             raise ::TypeError, "no implicit conversion of #{frozone_class_name} into Integer"
           end
 
@@ -204,7 +203,7 @@ module Frozone
             return result.raw if result.is_a?(FloatObject)
 
             raise ::TypeError, "can't convert #{frozone_class_name} into Float"
-          rescue FrozoneException => e
+          rescue FrozoneException
             raise ::TypeError, "can't convert #{frozone_class_name} into Float"
           end
         end
@@ -436,7 +435,6 @@ module Frozone
           val
         end
 
-
         def hash_get_default_proc(_, h)
           h.default_block || NilObject::NIL
         end
@@ -455,12 +453,12 @@ module Frozone
 
         def hash_new(_, default = NilObject::NIL, block = NilObject::NIL)
           proc_obj = if block.is_a?(ProcObject)
-            block
-          elsif block.is_a?(BlockObject)
-            ProcObject.new(block)
-          elsif block && !block.is_a?(NilObject)
-            ProcObject.new(block)
-          end
+                       block
+                     elsif block.is_a?(BlockObject)
+                       ProcObject.new(block)
+                     elsif block && !block.is_a?(NilObject)
+                       ProcObject.new(block)
+                     end
           if proc_obj
             HashObject.new({}, default_block: proc_obj)
           elsif default && !default.is_a?(NilObject)
@@ -493,12 +491,12 @@ module Frozone
           begin
             original_pairs.each do |k, v|
               nk = if hash_arg && !hash_arg.is_a?(NilObject) && hash_arg.key?(k)
-                hash_arg[k]
-              elsif block_arg && !block_arg.is_a?(NilObject)
-                block_arg.invoke(context, [k])
-              else
-                k
-              end
+                     hash_arg[k]
+                   elsif block_arg && !block_arg.is_a?(NilObject)
+                     block_arg.invoke(context, [k])
+                   else
+                     k
+                   end
               new_pairs << [nk, v]
               processed += 1
             end

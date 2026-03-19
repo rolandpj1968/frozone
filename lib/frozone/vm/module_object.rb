@@ -238,7 +238,7 @@ module Frozone
               found_value = c.class_variables[name]
             else
               raise FrozoneException.make(:RuntimeError,
-                "class variable #{name} of #{found_in.name || '#<Class>'} is overtaken by #{c.name || '#<Class>'}")
+                                          "class variable #{name} of #{found_in.name || '#<Class>'} is overtaken by #{c.name || '#<Class>'}")
             end
           end
           c = c.is_a?(ClassObject) ? c.superclass : nil

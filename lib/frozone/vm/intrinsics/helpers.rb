@@ -423,12 +423,12 @@ module Frozone
             raise FrozoneException.make(:ArgumentError, "wrong argument type #{klass} (expected non-immediate)")
           end
           callable = if !block.nil? && !block.is_a?(NilObject)
-            block
-          elsif !proc_arg.nil? && !proc_arg.is_a?(NilObject)
-            proc_arg
-          else
-            raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given 1, expected 2)")
-          end
+                       block
+                     elsif !proc_arg.nil? && !proc_arg.is_a?(NilObject)
+                       proc_arg
+                     else
+                       raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given 1, expected 2)")
+                     end
           # Check respond_to?(:call)
           responds = begin
             result = callable.dispatch(context, :respond_to?, [SymbolObject.from(:call)], {})

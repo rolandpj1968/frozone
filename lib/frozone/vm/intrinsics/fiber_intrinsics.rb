@@ -10,7 +10,7 @@ module Frozone
         def thread_save_reset_locals(_, thread_obj)
           THREAD_SAVED_LOCALS[thread_obj.object_id] = {
             dollar_underscore: GLOBALS.fetch(:"$_", NilObject::NIL),
-            dollar_question:   GLOBALS.fetch(:"$?", NilObject::NIL),
+            dollar_question: GLOBALS.fetch(:"$?", NilObject::NIL),
             frozone_thread_id: CURRENT_FROZONE_THREAD_ID[0]
           }
           GLOBALS[:"$_"] = NilObject::NIL
@@ -44,29 +44,29 @@ module Frozone
 
           # Process storage: SymbolObject(:__unset__) = inherit, NilObject = empty/lazy, HashObject = explicit
           init_storage = if storage_val.is_a?(SymbolObject) && storage_val.raw == :__unset__
-            # Default: inherit parent's storage by copying
-            current_storage = ::Fiber[:__frozone_storage__]
-            (current_storage && !current_storage.empty?) ? current_storage.dup : nil
-          elsif storage_val.is_a?(NilObject)
-            # storage: nil means start with empty (lazily initialized on first write)
-            nil
-          elsif storage_val.is_a?(HashObject)
-            raise FrozoneException.make(:FrozenError, "can't modify frozen Hash") if storage_val.frozen_object?
-            mri_hash = {}
-            storage_val.raw.each do |k, v|
-              key_obj = k.is_a?(SymbolObject) ? k : nil
-              unless key_obj
-                raise FrozoneException.make(:TypeError, "storage key must be a Symbol, not #{k.class_object&.name || 'Object'}")
-              end
-              mri_hash[key_obj.raw] = v
-            end
-            mri_hash
-          else
-            raise FrozoneException.make(:TypeError, "storage must be a Hash")
-          end
+                           # Default: inherit parent's storage by copying
+                           current_storage = ::Fiber[:__frozone_storage__]
+                           (current_storage && !current_storage.empty?) ? current_storage.dup : nil
+                         elsif storage_val.is_a?(NilObject)
+                           # storage: nil means start with empty (lazily initialized on first write)
+                           nil
+                         elsif storage_val.is_a?(HashObject)
+                           raise FrozoneException.make(:FrozenError, "can't modify frozen Hash") if storage_val.frozen_object?
+                           mri_hash = {}
+                           storage_val.raw.each do |k, v|
+                             key_obj = k.is_a?(SymbolObject) ? k : nil
+                             unless key_obj
+                               raise FrozoneException.make(:TypeError, "storage key must be a Symbol, not #{k.class_object&.name || 'Object'}")
+                             end
+                             mri_hash[key_obj.raw] = v
+                           end
+                           mri_hash
+                         else
+                           raise FrozoneException.make(:TypeError, "storage must be a Hash")
+                         end
 
           fo = FiberObject.new(bo, blocking: blocking, initial_storage: init_storage,
-                               frozone_thread_id: CURRENT_FROZONE_THREAD_ID[0])
+                                   frozone_thread_id: CURRENT_FROZONE_THREAD_ID[0])
           fo.instance_variable_set(:@class_object, fiber_klass) if fiber_klass != (Core.fiber_class || Core::OBJECT_CLASS)
           fo
         end

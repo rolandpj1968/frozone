@@ -1,5 +1,4 @@
 require 'parser/ruby40'
-require 'set'
 
 require_relative '../ast'
 
@@ -69,10 +68,10 @@ module Frozone
         # Re-encode the source bytes with the detected encoding so the parser
         # emits string literals with the correct encoding.
         src = if magic_enc && magic_enc != Encoding::UTF_8 && @text.encoding == Encoding::UTF_8
-          @text.dup.force_encoding(magic_enc)
-        else
-          @text
-        end
+                @text.dup.force_encoding(magic_enc)
+              else
+                @text
+              end
 
         buf = ::Parser::Source::Buffer.new(@filepath || '(string)', source: src)
         ::Parser::Builders::Default.modernize
@@ -172,12 +171,12 @@ module Frozone
           patched_buf = ::Parser::Source::Buffer.new(@filepath || '(string)', source: patched)
           begin
             return wq_r.parse(patched_buf)
-          rescue => e2
-            if e2.message.include?("circular argument reference")
-              arg_name = e2.message.split.last
+          rescue => e
+            if e.message.include?("circular argument reference")
+              arg_name = e.message.split.last
               patched = patched.sub(/\b#{Regexp.escape(arg_name)}\s*=\s*#{Regexp.escape(arg_name)}\b/, "#{arg_name} = nil")
             else
-              return raise_or_recover(e2, patched_buf, raise_syntax_errors)
+              return raise_or_recover(e, patched_buf, raise_syntax_errors)
             end
           end
         end
@@ -525,7 +524,8 @@ module Frozone
         # --- Constants -------------------------------------------------------
 
         when :const
-          parent, name = c[0], c[1]
+          parent = c[0]
+          name = c[1]
           if parent.nil?
             Ast::ConstantRead.new(name)
           elsif parent.type == :cbase
@@ -539,7 +539,9 @@ module Frozone
           Ast::RootNamespaceNode::INSTANCE
 
         when :casgn
-          parent, name, value_node = c[0], c[1], c[2]
+          parent = c[0]
+          name = c[1]
+          value_node = c[2]
           if parent.nil? || parent.type == :cbase
             Ast::ConstantWrite.new(name, transform(value_node))
           else
@@ -585,7 +587,7 @@ module Frozone
         # --- Defs ------------------------------------------------------------
 
         when :def
-          name     = c[0]
+          name = c[0]
           args_node = c[1]
           body_node = c[2]
           def_line = node.location&.line
@@ -602,7 +604,9 @@ module Frozone
         # --- Classes / Modules -----------------------------------------------
 
         when :class
-          const_node, superclass_node, body_node = c[0], c[1], c[2]
+          const_node = c[0]
+          superclass_node = c[1]
+          body_node = c[2]
           name, namespace_node = extract_const_name(const_node)
           @scope_chain.push(:method, [])
           body_ast = transform(body_node)
@@ -611,7 +615,8 @@ module Frozone
           Ast::ClassDef.new(name, locals, superclass_ast, body_ast, namespace_node: namespace_node)
 
         when :module
-          const_node, body_node = c[0], c[1]
+          const_node = c[0]
+          body_node = c[1]
           name, namespace_node = extract_const_name(const_node)
           @scope_chain.push(:method, [])
           body_ast = transform(body_node)
@@ -619,7 +624,8 @@ module Frozone
           Ast::ModuleDef.new(name, locals, body_ast, namespace_node: namespace_node)
 
         when :sclass
-          expr_node, body_node = c[0], c[1]
+          expr_node = c[0]
+          body_node = c[1]
           @scope_chain.push(:method, [])
           body_ast = transform(body_node)
           locals = @scope_chain.pop.claimed.to_a
@@ -628,34 +634,44 @@ module Frozone
         # --- Control flow ----------------------------------------------------
 
         when :if
-          cond_node, then_node, else_node = c[0], c[1], c[2]
+          cond_node = c[0]
+          then_node = c[1]
+          else_node = c[2]
           Ast::If.new(transform(cond_node), transform(then_node), transform(else_node))
 
         when :unless
-          cond_node, then_node, else_node = c[0], c[1], c[2]
+          cond_node = c[0]
+          then_node = c[1]
+          else_node = c[2]
           # unless cond; body; else alt; end == if cond; alt; else body; end
           Ast::If.new(transform(cond_node), transform(else_node), transform(then_node))
 
         when :while
-          cond, body = c[0], c[1]
+          cond = c[0]
+          body = c[1]
           body_ast = body.nil? ? Ast::NilLiteral::NIL : transform(body)
           Ast::While.new(transform(cond), body_ast, begin_modifier: false)
 
         when :while_post
-          cond, body = c[0], c[1]
+          cond = c[0]
+          body = c[1]
           Ast::While.new(transform(cond), transform_kwbegin_body(body), begin_modifier: true)
 
         when :until
-          cond, body = c[0], c[1]
+          cond = c[0]
+          body = c[1]
           body_ast = body.nil? ? Ast::NilLiteral::NIL : transform(body)
           Ast::Until.new(transform(cond), body_ast, begin_modifier: false)
 
         when :until_post
-          cond, body = c[0], c[1]
+          cond = c[0]
+          body = c[1]
           Ast::Until.new(transform(cond), transform_kwbegin_body(body), begin_modifier: true)
 
         when :for
-          target_node, collection_node, body_node = c[0], c[1], c[2]
+          target_node = c[0]
+          collection_node = c[1]
+          body_node = c[2]
           target = parse_for_target(target_node)
           body_ast = body_node.nil? ? Ast::NilLiteral::NIL : transform(body_node)
           Ast::ForLoop.new(target, transform(collection_node), body_ast)
@@ -665,7 +681,7 @@ module Frozone
 
         when :case_match
           raise FrozoneException.make(:NotImplementedError,
-            "pattern matching not yet supported in WqParser")
+                                      "pattern matching not yet supported in WqParser")
 
         # --- Exception handling ----------------------------------------------
 
@@ -702,22 +718,22 @@ module Frozone
 
         when :break
           value_node = if c.empty?
-            nil
-          elsif c.length == 1
-            transform_first_arg(c[0])
-          else
-            Ast::ArrayLiteral.new(c.map { |a| transform(a) })
-          end
+                         nil
+                       elsif c.length == 1
+                         transform_first_arg(c[0])
+                       else
+                         Ast::ArrayLiteral.new(c.map { |a| transform(a) })
+                       end
           Ast::Break.new(value_node)
 
         when :next
           value_node = if c.empty?
-            nil
-          elsif c.length == 1
-            transform_first_arg(c[0])
-          else
-            Ast::ArrayLiteral.new(c.map { |a| transform(a) })
-          end
+                         nil
+                       elsif c.length == 1
+                         transform_first_arg(c[0])
+                       else
+                         Ast::ArrayLiteral.new(c.map { |a| transform(a) })
+                       end
           Ast::Next.new(value_node)
 
         when :redo
@@ -731,7 +747,7 @@ module Frozone
           Ast::Yield.new(arg_nodes, kw_args)
 
         when :super
-          arg_nodes, kw_args, kw_splats, block_node = parse_call_args(c)
+          arg_nodes, _, kw_splats, block_node = parse_call_args(c)
           Ast::Super.new(arg_nodes, block_node, forwarding: false, kw_splat_nodes: kw_splats)
 
         when :zsuper
@@ -777,33 +793,34 @@ module Frozone
             Ast::GlobalAlias.new(new_gvar.to_sym, old_gvar.to_sym)
           else
             new_name = if new_name_node.type == :sym
-              new_name_node.children[0]
-            else
-              transform(new_name_node)
-            end
+                         new_name_node.children[0]
+                       else
+                         transform(new_name_node)
+                       end
             old_name = if old_name_node.type == :sym
-              old_name_node.children[0]
-            else
-              transform(old_name_node)
-            end
+                         old_name_node.children[0]
+                       else
+                         transform(old_name_node)
+                       end
             Ast::MethodAlias.new(new_name, old_name)
           end
 
         when :undef
           stmts = c.map do |sym_node|
             name_node = if sym_node.type == :sym
-              Ast::SymbolLiteral.from(sym_node.children[0])
-            else
-              # Dynamic: dsym — evaluate interpolation
-              transform(sym_node)
-            end
+                          Ast::SymbolLiteral.from(sym_node.children[0])
+                        else
+                          # Dynamic: dsym — evaluate interpolation
+                          transform(sym_node)
+                        end
             Ast::IntrinsicCall.new(:module_undef_method, [Ast::SelfLiteral::SELF, name_node])
           end
           stmts.length == 1 ? stmts[0] : Ast::Sequence.new(stmts)
 
         when :match_with_lvasgn
           # /(?<name>...)/ =~ string — assign named captures to local variables
-          regexp_node, str_node = c[0], c[1]
+          regexp_node = c[0]
+          str_node = c[1]
           call_node = Ast::MethodCall.new(:=~, transform(regexp_node), [transform(str_node)], {})
           # Extract named captures from the regexp pattern
           pattern = regexp_node.children.select { |ch| ch.is_a?(::Parser::AST::Node) && ch.type == :str }
@@ -824,9 +841,9 @@ module Frozone
           # Emit warning: "regex literal in condition" (matches Prism's literal_in_condition_default)
           @prism_always_warnings << "regex literal in condition"
           Ast::MethodCall.new(:=~,
-            Ast::GlobalVariableRead.new(:"$_"),
-            [transform(c[0])],
-            {})
+                              Ast::GlobalVariableRead.new(:"$_"),
+                              [transform(c[0])],
+                              {})
 
         when :iflipflop, :eflipflop
           left_node  = c[0] ? transform(c[0]) : Ast::NilLiteral::NIL
@@ -837,7 +854,7 @@ module Frozone
           @prism_always_warnings << "integer literal in flip-flop" if left_int
           @prism_always_warnings << "integer literal in flip-flop" if right_int
           Ast::FlipFlop.new(left_node, right_node, exclude_end,
-                            left_int_literal:  left_int,
+                            left_int_literal: left_int,
                             right_int_literal: right_int)
 
         when :preexe
@@ -897,19 +914,19 @@ module Frozone
 
         when :in_match
           raise FrozoneException.make(:NotImplementedError,
-            "pattern matching not yet supported in WqParser")
+                                      "pattern matching not yet supported in WqParser")
 
         when :pin
           raise FrozoneException.make(:NotImplementedError,
-            "pattern matching not yet supported in WqParser")
+                                      "pattern matching not yet supported in WqParser")
 
         when :match_as
           raise FrozoneException.make(:NotImplementedError,
-            "pattern matching not yet supported in WqParser")
+                                      "pattern matching not yet supported in WqParser")
 
         else
           raise FrozoneException.make(:NotImplementedError,
-            "Unsupported Ruby feature in WqParser: #{type}")
+                                      "Unsupported Ruby feature in WqParser: #{type}")
         end
       end
 
@@ -967,7 +984,7 @@ module Frozone
 
         # Numbered params _10+ are invalid in Ruby (only _1.._9 are supported).
         # Whitequark emits them as bare method calls. Convert to a runtime NameError.
-        if recv_node.nil? && raw_args.empty? && name.to_s =~ /\A_(\d+)\z/ && $1.to_i >= 10
+        if recv_node.nil? && raw_args.empty? && name.to_s =~ /\A_(\d+)\z/ && ::Regexp.last_match(1).to_i >= 10
           n = name
           exc_class = FrozoneException
           return Class.new(Ast::Node) {
@@ -987,10 +1004,10 @@ module Frozone
 
         # Build receiver (nil if implicit self, also treat explicit self as implicit)
         receiver_ast = if recv_node.nil? || recv_node.type == :self
-          nil
-        else
-          transform(recv_node)
-        end
+                         nil
+                       else
+                         transform(recv_node)
+                       end
 
         # Parse args (positional, keyword, block)
         arg_nodes, kw_args, kw_splats, block_node = parse_call_args(raw_args)
@@ -1012,7 +1029,9 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def transform_block(node)
-        send_node, args_node, body_node = node.children[0], node.children[1], node.children[2]
+        send_node = node.children[0]
+        args_node = node.children[1]
+        body_node = node.children[2]
 
         # Detect arrow lambda: s(:block, s(:lambda), ...) — from `-> { }` syntax.
         # With Builder::Default.modernize, `->` lambdas emit s(:lambda) as the block send node.
@@ -1076,13 +1095,15 @@ module Frozone
           # For `lambda { }`, Kernel#lambda will receive the block and make it a lambda-style proc.
           block_obj = Ast::Block.new(required, optional, rest, post, req_kw, opt_kw, kw_rest,
                                      block_param, auto_splat, locals, body_ast, it_param: it_param,
-                                     source_location: src_loc)
+                                                                                source_location: src_loc)
           transform_send_with_block(send_node, block_obj)
         end
       end
 
       def transform_numblock(node)
-        send_node, count, body_node = node.children[0], node.children[1], node.children[2]
+        send_node = node.children[0]
+        count = node.children[1]
+        body_node = node.children[2]
 
         # `it` cannot be mixed with numbered parameters
         if @raise_syntax_errors && body_uses_it?(body_node)
@@ -1137,10 +1158,10 @@ module Frozone
           end
 
           receiver_ast = if recv_node.nil? || recv_node.type == :self
-            nil
-          else
-            transform(recv_node)
-          end
+                           nil
+                         else
+                           transform(recv_node)
+                         end
 
           arg_nodes, kw_args, kw_splats, _existing_block = parse_call_args(raw_args)
           call_loc = @filepath && send_node.location ? "#{@filepath}:#{send_node.location.line}" : nil
@@ -1148,7 +1169,7 @@ module Frozone
                               kw_splat_nodes: kw_splats, safe_nav: safe_nav, source_location: call_loc)
 
         elsif send_node.type == :super
-          arg_nodes, kw_args, kw_splats, _blk = parse_call_args(send_node.children)
+          arg_nodes, _, kw_splats, _blk = parse_call_args(send_node.children)
           Ast::Super.new(arg_nodes, block_obj, forwarding: false, kw_splat_nodes: kw_splats)
 
         elsif send_node.type == :zsuper
@@ -1357,11 +1378,11 @@ module Frozone
           when :procarg0
             # |(x)| single-arg destructuring in a method? unusual but handle
             inner = arg.children[0]
-            if inner.type == :mlhs
-              required << parse_multi_target_param(inner)
-            else
-              required << inner.children[0]
-            end
+            required << if inner.type == :mlhs
+                          parse_multi_target_param(inner)
+                        else
+                          inner.children[0]
+                        end
           when :forward_args, :forward_arg
             rest      = :__forward_args__
             kw_rest   = :__forward_kwargs__
@@ -1400,10 +1421,10 @@ module Frozone
         seen_param_names = {}
 
         args_to_parse = if args_node.type == :args
-          args_node.children
-        else
-          [args_node]
-        end
+                          args_node.children
+                        else
+                          [args_node]
+                        end
 
         args_to_parse.each do |arg|
           next if arg.nil?
@@ -1567,7 +1588,8 @@ module Frozone
             arg.children.each do |pair|
               case pair.type
               when :pair
-                key_node, val_node = pair.children[0], pair.children[1]
+                key_node = pair.children[0]
+                val_node = pair.children[1]
                 if key_node.type == :sym
                   kw_args[transform(key_node)] = transform(val_node)
                 else
@@ -1601,7 +1623,7 @@ module Frozone
         return false if hash_node.children.empty?
         hash_node.children.any? do |pair|
           pair.type == :kwsplat ||
-          (pair.type == :pair && pair.children[0].type == :sym)
+            (pair.type == :pair && pair.children[0].type == :sym)
         end
       end
 
@@ -1660,7 +1682,8 @@ module Frozone
         when :cvasgn
           [:cvar, node.children[0]]
         when :casgn
-          parent, name = node.children[0], node.children[1]
+          parent = node.children[0]
+          name = node.children[1]
           if parent.nil? || parent.type == :cbase
             [:const, name]
           else
@@ -1713,7 +1736,8 @@ module Frozone
       end
 
       def transform_masgn(node)
-        lhs_node, rhs_node = node.children[0], node.children[1]
+        lhs_node = node.children[0]
+        rhs_node = node.children[1]
         targets = lhs_node.children.map { |t| parse_masgn_target(t) }
         Ast::MultipleAssignment.new(targets, transform(rhs_node))
       end
@@ -1723,7 +1747,9 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def transform_op_asgn(node)
-        target_node, op, value_node = node.children[0], node.children[1], node.children[2]
+        target_node = node.children[0]
+        op = node.children[1]
+        value_node = node.children[2]
 
         case target_node.type
         when :lvasgn
@@ -1752,7 +1778,8 @@ module Frozone
           Ast::GlobalVariableWrite.new(name, rhs)
 
         when :casgn
-          parent, name = target_node.children[0], target_node.children[1]
+          parent = target_node.children[0]
+          name = target_node.children[1]
           if parent.nil? || parent.type == :cbase
             read = Ast::ConstantRead.new(name)
             rhs  = Ast::MethodCall.new(op, read, [transform(value_node)], {})
@@ -1792,7 +1819,8 @@ module Frozone
       end
 
       def transform_or_asgn(node)
-        target_node, value_node = node.children[0], node.children[1]
+        target_node = node.children[0]
+        value_node = node.children[1]
 
         case target_node.type
         when :lvasgn
@@ -1818,7 +1846,8 @@ module Frozone
                       Ast::GlobalVariableWrite.new(name, transform(value_node)))
 
         when :casgn
-          parent, name = target_node.children[0], target_node.children[1]
+          parent = target_node.children[0]
+          name = target_node.children[1]
           if parent.nil? || parent.type == :cbase
             Ast::ConstantOrWrite.new(name, transform(value_node))
           else
@@ -1849,7 +1878,8 @@ module Frozone
       end
 
       def transform_and_asgn(node)
-        target_node, value_node = node.children[0], node.children[1]
+        target_node = node.children[0]
+        value_node = node.children[1]
 
         case target_node.type
         when :lvasgn
@@ -1875,7 +1905,8 @@ module Frozone
                        Ast::GlobalVariableWrite.new(name, transform(value_node)))
 
         when :casgn
-          parent, name = target_node.children[0], target_node.children[1]
+          parent = target_node.children[0]
+          name = target_node.children[1]
           if parent.nil? || parent.type == :cbase
             Ast::ConstantAndWrite.new(name, transform(value_node))
           else
@@ -1979,7 +2010,8 @@ module Frozone
       end
 
       def transform_ensure_node(ensure_node)
-        body_node, ensure_clause_node = ensure_node.children[0], ensure_node.children[1]
+        body_node = ensure_node.children[0]
+        ensure_clause_node = ensure_node.children[1]
         ensure_ast = transform(ensure_clause_node)
 
         if body_node.nil?
@@ -1995,15 +2027,15 @@ module Frozone
       end
 
       def transform_resbody(resbody_node)
-        exc_node, var_node, body_node = resbody_node.children[0],
-                                        resbody_node.children[1],
-                                        resbody_node.children[2]
+        exc_node = resbody_node.children[0]
+        var_node = resbody_node.children[1]
+        body_node = resbody_node.children[2]
 
         exc_nodes = if exc_node.nil?
-          []
-        else
-          exc_node.children.map { |e| transform(e) }
-        end
+                      []
+                    else
+                      exc_node.children.map { |e| transform(e) }
+                    end
 
         var_name   = nil
         var_depth  = nil
@@ -2132,7 +2164,8 @@ module Frozone
           if val_node.location&.expression&.source == "__ENCODING__"
             return Ast::DefinedExpr.new(:expression)
           end
-          parent, name = val_node.children[0], val_node.children[1]
+          parent = val_node.children[0]
+          name = val_node.children[1]
           if parent.nil?
             Ast::DefinedExpr.new(:constant, Ast::ConstantRead.new(name))
           else
@@ -2239,11 +2272,13 @@ module Frozone
           [:index, recv_ast, idx_nodes.map { |a| transform(a) }]
 
         when :send
-          recv_node, mname = node.children[0], node.children[1]
+          recv_node = node.children[0]
+          mname = node.children[1]
           recv_ast = recv_node.nil? || recv_node.type == :self ? nil : transform(recv_node)
           [:call, recv_ast, mname, false]
         when :csend
-          recv_node, mname = node.children[0], node.children[1]
+          recv_node = node.children[0]
+          mname = node.children[1]
           recv_ast = recv_node.nil? || recv_node.type == :self ? nil : transform(recv_node)
           [:call, recv_ast, mname, true]
         else
@@ -2364,7 +2399,7 @@ module Frozone
         # Grab first two lines as binary (newline is 0x0a in all encodings we care about).
         first_two_bytes = binary.slice(/\A[^\n]*\n[^\n]*\n?/)
         return nil unless first_two_bytes
-        match = first_two_bytes.match(/\A(?:#[^\n]*\n)?#.*coding\s*[:=]\s*([a-zA-Z0-9\-]+)/mi)
+        match = first_two_bytes.match(/\A(?:#[^\n]*\n)?#.*coding\s*[:=]\s*([a-zA-Z0-9-]+)/mi)
         return nil unless match
         Encoding.find(match[1].force_encoding(Encoding::UTF_8))
       rescue ArgumentError, Encoding::CompatibilityError

@@ -4,8 +4,7 @@ require_relative '../ast/return'
 module Frozone
   module Vm
     class ProcObject < ObjectObject
-      attr_reader :block_object
-      attr_writer :block_object
+      attr_accessor :block_object
 
       def initialize(block_object, lambda: false, klass: nil)
         super(klass || Core::OBJECT_CLASS.get_constant(:Proc))

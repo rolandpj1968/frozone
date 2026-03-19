@@ -34,6 +34,7 @@ module Frozone
           end
         end
       end
+
       private
 
       # Integer LITERAL flip-flop conditions compare against $. (current line number).

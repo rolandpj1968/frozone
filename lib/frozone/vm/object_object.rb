@@ -148,21 +148,21 @@ module Frozone
         # Otherwise, use the standard lookup.
         active_refinements = context&.frame&.active_refinements
         method = if active_refinements && !active_refinements.empty?
-          lookup_method_with_refinements(name, active_refinements)
-        else
-          lookup_instance_method(name)
-        end
+                   lookup_method_with_refinements(name, active_refinements)
+                 else
+                   lookup_instance_method(name)
+                 end
 
         prev_violation = Fiber[:mm_visibility_violation]
         unless method.nil? || method == ModuleObject::UNDEF_SENTINEL
           visibility_ok = case method.visibility
-          when :private
-            private_ok
-          when :protected
-            !public_only && subclass_of?(context&.frame&.the_self&.class_object, @class_object)
-          else
-            true
-          end
+                          when :private
+                            private_ok
+                          when :protected
+                            !public_only && subclass_of?(context&.frame&.the_self&.class_object, @class_object)
+                          else
+                            true
+                          end
           if visibility_ok
             return method.invoke(context, self, args, kw_args, block, callee_name: name)
           end

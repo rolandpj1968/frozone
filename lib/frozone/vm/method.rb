@@ -317,8 +317,6 @@ module Frozone
         refinements
       end
 
-      public
-
       # TODO - thread-safety
       # TODO - surely this does not belong here? There must be other uses of unique scopes?
       UniqueScopes = {}

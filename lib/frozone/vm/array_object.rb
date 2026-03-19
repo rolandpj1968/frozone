@@ -23,6 +23,7 @@ module Frozone
         raise FrozoneException.make(:FrozenError, "can't modify frozen Array: #{array_inspect_for_error}", receiver: self) if frozen_object?
         @elements.push(value)
       end
+
       def length = @elements.length
 
       def to_s = "[#{@elements.join(', ')}]"

@@ -49,15 +49,15 @@ module Frozone
         verbose_warn_types = %i[void_statement duplicated_when_clause]
         @prism_always_warnings  = result.warnings.select { |w| always_warn_types.include?(w.type) }.map(&:message)
         @prism_verbose_warnings = result.warnings
-          .select { |w| verbose_warn_types.include?(w.type) }
-          .map(&:message)
+                                        .select { |w| verbose_warn_types.include?(w.type) }
+                                        .map(&:message)
         # Collect void_statement [offset, length] pairs for DefinedNode in void context → no-op.
         # We match BOTH offset and length so that a DefinedNode used as receiver of a void
         # expression (e.g. defined?(x).should == y in void context) is not treated as void.
         @void_defined_spans = result.warnings
-          .select { |w| w.type == :void_statement }
-          .map { |w| [w.location.start_offset, w.location.length] }
-          .to_set
+                                    .select { |w| w.type == :void_statement }
+                                    .map { |w| [w.location.start_offset, w.location.length] }
+                                    .to_set
         transform(program_node.statements)
       end
 
@@ -425,18 +425,18 @@ module Frozone
           flags |= Regexp::MULTILINE  if prism_node.multi_line?
           flags |= Regexp::EXTENDED   if prism_node.extended?
           enc_name = if prism_node.utf_8?
-            flags |= Regexp::FIXEDENCODING
-            'UTF-8'
-          elsif prism_node.euc_jp?
-            flags |= Regexp::FIXEDENCODING
-            'EUC-JP'
-          elsif prism_node.windows_31j?
-            flags |= Regexp::FIXEDENCODING
-            'Windows-31J'
-          elsif prism_node.ascii_8bit?
-            flags |= Regexp::NOENCODING
-            nil
-          end
+                       flags |= Regexp::FIXEDENCODING
+                       'UTF-8'
+                     elsif prism_node.euc_jp?
+                       flags |= Regexp::FIXEDENCODING
+                       'EUC-JP'
+                     elsif prism_node.windows_31j?
+                       flags |= Regexp::FIXEDENCODING
+                       'Windows-31J'
+                     elsif prism_node.ascii_8bit?
+                       flags |= Regexp::NOENCODING
+                       nil
+                     end
           Ast::RegexpLiteral.new(prism_node.unescaped, flags, enc_name)
 
         when Prism::MatchLastLineNode
@@ -446,14 +446,14 @@ module Frozone
           flags |= Regexp::MULTILINE  if prism_node.multi_line?
           flags |= Regexp::EXTENDED   if prism_node.extended?
           enc_name = if prism_node.utf_8?
-            flags |= Regexp::FIXEDENCODING; 'UTF-8'
-          elsif prism_node.euc_jp?
-            flags |= Regexp::FIXEDENCODING; 'EUC-JP'
-          elsif prism_node.windows_31j?
-            flags |= Regexp::FIXEDENCODING; 'Windows-31J'
-          elsif prism_node.ascii_8bit?
-            flags |= Regexp::NOENCODING; nil
-          end
+                       flags |= Regexp::FIXEDENCODING; 'UTF-8'
+                     elsif prism_node.euc_jp?
+                       flags |= Regexp::FIXEDENCODING; 'EUC-JP'
+                     elsif prism_node.windows_31j?
+                       flags |= Regexp::FIXEDENCODING; 'Windows-31J'
+                     elsif prism_node.ascii_8bit?
+                       flags |= Regexp::NOENCODING; nil
+                     end
           regexp = Ast::RegexpLiteral.new(prism_node.unescaped, flags, enc_name)
           dollar_underscore = Ast::GlobalVariableRead.new(:"$_")
           Ast::MethodCall.new(:=~, regexp, [dollar_underscore], {}, nil)
@@ -674,7 +674,7 @@ module Frozone
 
             # Check if ForwardingArgumentsNode was used — if so, use __forward_block__ as block
             has_forwarding = !prism_node.arguments.nil? &&
-              prism_node.arguments.arguments.any? { |a| a.is_a?(Prism::ForwardingArgumentsNode) }
+                             prism_node.arguments.arguments.any? { |a| a.is_a?(Prism::ForwardingArgumentsNode) }
 
             block_node =
               if has_forwarding
@@ -802,12 +802,12 @@ module Frozone
         when Prism::NextNode
           args = prism_node.arguments&.arguments || []
           value_node = if args.empty?
-            nil
-          elsif args.length == 1
-            transform(args.first)
-          else
-            Ast::ArrayLiteral.new(args.map { |a| transform(a) })
-          end
+                         nil
+                       elsif args.length == 1
+                         transform(args.first)
+                       else
+                         Ast::ArrayLiteral.new(args.map { |a| transform(a) })
+                       end
           Ast::Next.new(value_node)
 
         when Prism::RedoNode
@@ -900,12 +900,12 @@ module Frozone
         when Prism::BreakNode
           args = prism_node.arguments&.arguments || []
           value_node = if args.empty?
-            nil
-          elsif args.length == 1
-            transform(args.first)
-          else
-            Ast::ArrayLiteral.new(args.map { |a| transform(a) })
-          end
+                         nil
+                       elsif args.length == 1
+                         transform(args.first)
+                       else
+                         Ast::ArrayLiteral.new(args.map { |a| transform(a) })
+                       end
           Ast::Break.new(value_node)
 
         when Prism::XStringNode
@@ -977,8 +977,8 @@ module Frozone
                        when nil then nil
                        when Prism::BlockNode then parse_block(prism_node.block)
                        when Prism::BlockArgumentNode
-                expr = prism_node.block.expression
-                expr.nil? ? Ast::ForwardBlock::INSTANCE : Ast::BlockArg.new(transform(expr))
+                         expr = prism_node.block.expression
+                         expr.nil? ? Ast::ForwardBlock::INSTANCE : Ast::BlockArg.new(transform(expr))
                        else raise "Unsupported super block type: #{prism_node.block.class}"
                        end
           Ast::Super.new([], block_node, forwarding: true)
@@ -1196,7 +1196,7 @@ module Frozone
             prism_node.left ? transform(prism_node.left) : Ast::NilLiteral::NIL,
             prism_node.right ? transform(prism_node.right) : Ast::NilLiteral::NIL,
             prism_node.exclude_end?,
-            left_int_literal:  prism_node.left.is_a?(Prism::IntegerNode),
+            left_int_literal: prism_node.left.is_a?(Prism::IntegerNode),
             right_int_literal: prism_node.right.is_a?(Prism::IntegerNode)
           )
 

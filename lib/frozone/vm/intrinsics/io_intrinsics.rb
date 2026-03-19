@@ -25,9 +25,14 @@ module Frozone
           StringObject.new(result)
         end
 
-        def file_absolute_path(_, path, base = NilObject::NIL) = StringObject.new(base.is_a?(NilObject) ? File.absolute_path(path.raw) : File.absolute_path(path.raw, base.raw))
+        def file_absolute_path(_, path, base = NilObject::NIL)
+          result = base.is_a?(NilObject) ? File.absolute_path(path.raw) : File.absolute_path(path.raw, base.raw)
+          StringObject.new(result)
+        end
 
-        def file_absolute_path_q(_, path) = bool_object_for(File.absolute_path?(path.raw))
+        def file_absolute_path_q(_, path)
+          bool_object_for(File.absolute_path?(path.raw))
+        end
 
         def file_realpath(_, path, base = NilObject::NIL)
           result = base.is_a?(NilObject) ? File.realpath(path.raw) : File.realpath(path.raw, base.raw)
@@ -52,6 +57,7 @@ module Frozone
             IntegerObject.new(old)
           end
         end
+
         def file_file(_, path) = bool_object_for(File.file?(path.raw))
         def file_readable(_, path) = bool_object_for(File.readable?(path.raw))
         def file_readable_real(_, path) = bool_object_for(File.readable_real?(path.raw))
@@ -205,19 +211,19 @@ module Frozone
           # pattern can be a String, Array, or object with to_path
           flag_int = flags.is_a?(NilObject) ? 0 : flags.raw.to_i
           base_str = base.is_a?(NilObject) ? nil : base.raw
-          sort_val = sort.is_a?(NilObject) ? true : (sort.is_a?(TrueObject) ? true : (sort.is_a?(FalseObject) ? false : sort.raw))
+          sort_val = sort.is_a?(NilObject) || (sort.is_a?(TrueObject) || (sort.is_a?(FalseObject) ? false : sort.raw))
           pats = if pattern.is_a?(ArrayObject)
-            pattern.raw.map { |p| coerce_to_path(context, p) }
-          elsif pattern.is_a?(StringObject)
-            pattern.raw
-          else
-            coerce_to_path(context, pattern)
-          end
+                   pattern.raw.map { |p| coerce_to_path(context, p) }
+                 elsif pattern.is_a?(StringObject)
+                   pattern.raw
+                 else
+                   coerce_to_path(context, pattern)
+                 end
           results = if base_str
-            Dir.glob(pats, flag_int, base: base_str, sort: sort_val)
-          else
-            Dir.glob(pats, flag_int, sort: sort_val)
-          end
+                      Dir.glob(pats, flag_int, base: base_str, sort: sort_val)
+                    else
+                      Dir.glob(pats, flag_int, sort: sort_val)
+                    end
           ArrayObject.new(results.map { |p| StringObject.new(p) })
         rescue ArgumentError => e then raise FrozoneException.make(:ArgumentError, e.message)
         end
@@ -417,7 +423,7 @@ module Frozone
           us = frozone_to_mri_numeric(usec)  # Rational preserved
           # 10-arg C-style form with isdst hint for DST disambiguation (local only).
           if !(use_utc.is_a?(TrueObject) || use_utc == true) &&
-              (isdst.is_a?(TrueObject) || isdst.is_a?(FalseObject) || isdst == true || isdst == false)
+             (isdst.is_a?(TrueObject) || isdst.is_a?(FalseObject) || isdst == true || isdst == false)
             isdst_val = isdst.is_a?(TrueObject) || isdst == true
             return time_make(context, Time.local(s, mi, h, d, mo, y, 0, 0, isdst_val, nil))
           end
@@ -462,12 +468,12 @@ module Frozone
         def time_new_from_string(context, str, precision, in_tz)
           mri_str = str.is_a?(StringObject) ? str.raw : str.to_s
           mri_prec = if precision.is_a?(NilObject)
-            nil
-          elsif precision.is_a?(IntegerObject)
-            precision.raw
-          else
-            frozone_to_mri_numeric(precision).to_i
-          end
+                       nil
+                     elsif precision.is_a?(IntegerObject)
+                       precision.raw
+                     else
+                       frozone_to_mri_numeric(precision).to_i
+                     end
           opts = {}
           opts[:precision] = mri_prec unless mri_prec == 9
           unless in_tz.is_a?(NilObject)
@@ -494,10 +500,12 @@ module Frozone
         def time_to_f(_, t) = FloatObject.new(t.raw.to_f)
         def time_to_i(_, t) = IntegerObject.new(t.raw.to_i)
         def time_to_s(_, t) = StringObject.new(t.raw.to_s)
+
         def time_to_r(_, t)
           r = begin; t.raw.to_r; rescue; Rational(t.raw.to_i, 1); end
           make_rational(r)
         end
+
         def time_inspect(_, t) = StringObject.new(t.raw.inspect)
         def time_usec(_, t) = IntegerObject.new(t.raw.usec)
         def time_nsec(_, t) = IntegerObject.new(t.raw.nsec)
@@ -509,11 +517,14 @@ module Frozone
         def time_year(_, t) = IntegerObject.new(t.raw.year)
         def time_wday(_, t) = IntegerObject.new(t.raw.wday)
         def time_yday(_, t) = IntegerObject.new(t.raw.yday)
+
         def time_zone(_, t)
           z = t.raw.zone
           z.nil? || z.empty? ? NilObject::NIL : StringObject.new(z)
         end
+
         def time_utc?(_, t) = bool_object_for(t.raw.utc?)
+
         def time_localtime(_, t, tz = NilObject::NIL)
           if t.frozen_object?
             # localtime() with no arg on an already-local frozen time is a no-op (no error)
@@ -550,27 +561,35 @@ module Frozone
           t
         end
 
-        def time_dup(_, t) = time_preserve_class(t, t.raw.dup)
+        def time_dup(_, t)
+          time_preserve_class(t, t.raw.dup)
+        end
+
         def time_subsec(_, t)
           r = t.raw.subsec
           r.is_a?(Integer) ? IntegerObject.new(r) : make_rational(r)
         end
+
         def time_utc_offset(_, t) = wrap_utc_offset(t.raw.utc_offset)
         def time_asctime(_, t) = StringObject.new(t.raw.asctime)
         def time_ceil(_, t, n) = TimeObject.new(t.raw.ceil(n.is_a?(IntegerObject) ? n.raw : 0))
         def time_floor(_, t, n) = TimeObject.new(t.raw.floor(n.is_a?(IntegerObject) ? n.raw : 0))
         def time_round(_, t, n) = TimeObject.new(t.raw.round(n.is_a?(IntegerObject) ? n.raw : 0))
+
         def time_iso8601(_, t, n)
           ndigits = n.is_a?(IntegerObject) ? n.raw : 0
           StringObject.new(t.raw.iso8601(ndigits))
         end
+
         def time_dump(_, t)
           d = t.raw.send(:_dump, -1)
           StringObject.new(d)
         end
+
         def time_load(_, str)
           TimeObject.new(Time.send(:_load, str.raw))
         end
+
         def time_strftime(_, t, format) = StringObject.new(t.raw.strftime(format.raw))
         def time_dst?(_, t) = bool_object_for(t.raw.dst?)
         def time_hash(_, t) = IntegerObject.new(t.raw.hash)
@@ -642,12 +661,14 @@ module Frozone
           raise FrozoneException.make(:TypeError, "uninitialized Regexp") unless r.is_a?(RegexpObject)
           IntegerObject.new(r.raw.options)
         end
+
         def regexp_inspect(_, r) = StringObject.new(r.raw.inspect)
         def regexp_to_s(_, r) = StringObject.new(r.raw.to_s)
         def regexp_casefold(_, r) = bool_object_for(r.raw.casefold?)
         def regexp_fixed_encoding(_, r) = bool_object_for(r.raw.fixed_encoding?)
         def regexp_escape(_, str) = StringObject.new(Regexp.escape(str.raw.to_s))
         def regexp_hash(_, r) = IntegerObject.new(r.raw.hash)
+
         def regexp_linear_time_q(_, r)
           bool_object_for(Regexp.linear_time?(r.raw))
         rescue
@@ -685,7 +706,7 @@ module Frozone
         def regexp_named_captures(_, r)
           caps = r.raw.named_captures
           pairs = caps.transform_keys { |name| StringObject.new(name) }
-                     .transform_values { |indices| ArrayObject.new(indices.map { |i| IntegerObject.new(i) }) }
+                      .transform_values { |indices| ArrayObject.new(indices.map { |i| IntegerObject.new(i) }) }
           HashObject.new(pairs)
         end
 
@@ -734,19 +755,19 @@ module Frozone
             GLOBALS[:"$~"] || NilObject::NIL
           else
             idx = if n.is_a?(IntegerObject)
-              n.raw
-            elsif n.is_a?(StringObject) || n.is_a?(SymbolObject)
-              n.raw.to_s
-            else
-              klass = n.respond_to?(:class_object) ? (n.class_object&.name || n.class) : n.class
-              begin
-                result = n.dispatch(context, :to_int, [], {})
-                result.is_a?(IntegerObject) ? result.raw : result.raw.to_i
-              rescue FrozoneException => e
-                raise unless e.frozone_class_name == :NoMethodError
-                raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into Integer")
-              end
-            end
+                    n.raw
+                  elsif n.is_a?(StringObject) || n.is_a?(SymbolObject)
+                    n.raw.to_s
+                  else
+                    klass = n.respond_to?(:class_object) ? (n.class_object&.name || n.class) : n.class
+                    begin
+                      result = n.dispatch(context, :to_int, [], {})
+                      result.is_a?(IntegerObject) ? result.raw : result.raw.to_i
+                    rescue FrozoneException => e
+                      raise unless e.frozone_class_name == :NoMethodError
+                      raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into Integer")
+                    end
+                  end
             cap = md[idx]
             cap ? StringObject.new(cap) : NilObject::NIL
           end
@@ -759,22 +780,22 @@ module Frozone
             return NilObject::NIL
           end
           s = if str.is_a?(StringObject)
-            str.raw
-          elsif str.is_a?(SymbolObject)
-            str.raw.to_s
-          else
-            klass = str.respond_to?(:class_object) ? (str.class_object&.name || str.class) : str.class
-            begin
-              result = str.dispatch(context, :to_str, [], {})
-              unless result.is_a?(StringObject)
-                raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
+                str.raw
+              elsif str.is_a?(SymbolObject)
+                str.raw.to_s
+              else
+                klass = str.respond_to?(:class_object) ? (str.class_object&.name || str.class) : str.class
+                begin
+                  result = str.dispatch(context, :to_str, [], {})
+                  unless result.is_a?(StringObject)
+                    raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
+                  end
+                  result.raw
+                rescue FrozoneException => e
+                  raise unless e.frozone_class_name == :NoMethodError
+                  raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
+                end
               end
-              result.raw
-            rescue FrozoneException => e
-              raise unless e.frozone_class_name == :NoMethodError
-              raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
-            end
-          end
           p = pos.is_a?(IntegerObject) ? pos.raw : 0
           begin
             m = p == 0 ? receiver.raw.match(s) : receiver.raw.match(s, p)
@@ -881,11 +902,11 @@ module Frozone
           start = rb.nil? ? 0 : (rb < 0 ? [rb + size, 0].max : rb)
           # Compute absolute finish (inclusive), extending beyond size to fill nil
           finish = if re.nil?
-            size - 1
-          else
-            f = re < 0 ? re + size : re
-            r.exclude_end? ? f - 1 : f
-          end
+                     size - 1
+                   else
+                     f = re < 0 ? re + size : re
+                     r.exclude_end? ? f - 1 : f
+                   end
           indices = start > finish ? [] : (start..finish).to_a
           result = indices.map { |i| i < size ? (all[i] ? StringObject.new(all[i]) : NilObject::NIL) : NilObject::NIL }
           ArrayObject.new(result)
@@ -894,12 +915,16 @@ module Frozone
         def match_data_size(_, md)    = IntegerObject.new(md.raw.size)
         def match_data_pre_match(_, md)  = StringObject.new(md.raw.pre_match)
         def match_data_post_match(_, md) = StringObject.new(md.raw.post_match)
+
         def match_data_string(_, md)
           s = StringObject.new(md.raw.string.dup)
           s.freeze
           s
         end
-        def match_data_regexp(_, md) = md.frozone_regexp || RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
+
+        def match_data_regexp(_, md)
+          md.frozone_regexp || RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
+        end
 
         def match_data_begin(context, md, n) = reraise(::IndexError) do
           key = match_data_group_key(context, n)
@@ -913,7 +938,9 @@ module Frozone
           v ? IntegerObject.new(v) : NilObject::NIL
         end
 
-        def match_data_captures(_, md) = ArrayObject.new(md.raw.captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
+        def match_data_captures(_, md)
+          ArrayObject.new(md.raw.captures.map { |c| c ? StringObject.new(c) : NilObject::NIL })
+        end
 
         def match_data_bytebegin(context, md, n)
           key = match_data_group_key(context, n)
@@ -938,15 +965,19 @@ module Frozone
         rescue ::IndexError, ::NameError => e then raise FrozoneException.make(:IndexError, e.message)
         end
 
-        def match_data_hash(_, md) = IntegerObject.new(md.raw.hash)
+        def match_data_hash(_, md)
+          IntegerObject.new(md.raw.hash)
+        end
 
         def match_data_named_captures(_, md)
           h = md.raw.named_captures.transform_keys { |k| StringObject.new(k) }
-                                    .transform_values { |v| v ? StringObject.new(v) : NilObject::NIL }
+                .transform_values { |v| v ? StringObject.new(v) : NilObject::NIL }
           HashObject.new(h)
         end
 
-        def match_data_names(_, md) = ArrayObject.new(md.raw.regexp.named_captures.keys.map { |k| StringObject.new(k) })
+        def match_data_names(_, md)
+          ArrayObject.new(md.raw.regexp.named_captures.keys.map { |k| StringObject.new(k) })
+        end
 
         def io_popen_capture(_, cmd, opts_obj = NilObject::NIL)
           mri_opts = {}
@@ -963,12 +994,12 @@ module Frozone
             end
           end
           output = if cmd.is_a?(ArrayObject)
-            ::IO.popen(cmd.raw.map { |a| a.is_a?(StringObject) ? a.raw : a.to_s }, 'r', **mri_opts, &:read) rescue ""
-          elsif cmd.is_a?(StringObject)
-            ::IO.popen(cmd.raw, 'r', **mri_opts, &:read) rescue ""
-          else
-            ::IO.popen(cmd.to_s, 'r', **mri_opts, &:read) rescue ""
-          end
+                     ::IO.popen(cmd.raw.map { |a| a.is_a?(StringObject) ? a.raw : a.to_s }, 'r', **mri_opts, &:read) rescue ""
+                   elsif cmd.is_a?(StringObject)
+                     ::IO.popen(cmd.raw, 'r', **mri_opts, &:read) rescue ""
+                   else
+                     ::IO.popen(cmd.to_s, 'r', **mri_opts, &:read) rescue ""
+                   end
           GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
           StringObject.new(output || "")
         end
@@ -1010,7 +1041,8 @@ module Frozone
           mode = if mode_obj.is_a?(NilObject) then 'r'
                  elsif mode_obj.is_a?(StringObject) then mode_obj.raw
                  elsif mode_obj.is_a?(IntegerObject) then mode_obj.raw
-                 else 'r'
+                 else
+                   'r'
                  end
           perm = perm_obj.is_a?(IntegerObject) ? perm_obj.raw : 0o666
           IntegerObject.new(::IO.sysopen(path, mode, perm))
@@ -1029,7 +1061,8 @@ module Frozone
           native_io = if mode && opts.empty? then ::IO.new(fd, mode)
                       elsif mode             then ::IO.new(fd, mode, **opts)
                       elsif opts.empty?      then ::IO.new(fd)
-                      else                       ::IO.new(fd, **opts)
+                      else
+                        ::IO.new(fd, **opts)
                       end
           IOObject.new(native_io, Core.io_class, explicit_encoding: explicit_enc)
         rescue ::ArgumentError => e   then raise FrozoneException.make(:ArgumentError, e.message)
@@ -1433,8 +1466,8 @@ module Frozone
           begin
             str_result = p.dispatch(context, :to_str, [], {})
             return str_result.is_a?(StringObject) ? str_result.raw : str_result.raw.to_s
-          rescue FrozoneException => e2
-            raise unless e2.frozone_class_name == :NoMethodError
+          rescue FrozoneException => e
+            raise unless e.frozone_class_name == :NoMethodError
             raise FrozoneException.make(:TypeError, "no implicit conversion of #{klass} into String")
           end
         end
@@ -1446,19 +1479,20 @@ module Frozone
                  elsif mode_obj.is_a?(StringObject) then mode_obj.raw
                  elsif mode_obj.is_a?(IntegerObject) then mode_obj.raw
                  elsif mode_obj.is_a?(HashObject) then (opts_obj = mode_obj; nil)
-                 else nil
+                 else
+                   nil
                  end
           opts = {}
           if opts_obj.is_a?(HashObject)
             opts_obj.raw.each do |k, v|
               opts[k.is_a?(SymbolObject) ? k.raw : k.to_s.to_sym] = case v
-                when StringObject  then v.raw
-                when IntegerObject then v.raw
-                when TrueObject    then true
-                when FalseObject   then false
-                when NilObject     then nil
-                else v
-                end
+                                                                    when StringObject  then v.raw
+                                                                    when IntegerObject then v.raw
+                                                                    when TrueObject    then true
+                                                                    when FalseObject   then false
+                                                                    when NilObject     then nil
+                                                                    else v
+                                                                    end
             end
           end
           [mode, opts]

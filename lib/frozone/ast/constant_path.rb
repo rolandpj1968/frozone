@@ -69,9 +69,9 @@ module Frozone
           label = owner_name ? "#{owner_name}::#{@name}" : @name.to_s
           begin
             return parent.dispatch(context, :const_missing, [Vm::SymbolObject.from(@name)], {}, nil, private_ok: true)
-          rescue Vm::FrozoneException => cm_exc
+          rescue Vm::FrozoneException => e
             # Re-raise with the more specific private constant message if const_missing just raised NameError
-            vm_obj = cm_exc.vm_object
+            vm_obj = e.vm_object
             if vm_obj.is_a?(Vm::ObjectObject)
               klass = vm_obj.class_object
               is_name_error = false
@@ -111,6 +111,7 @@ module Frozone
         value
       end
     end
+
     # A::B += val — evaluates parent module expression exactly once.
     class ConstantPathOperatorWrite < Node
       def initialize(parent_node, name, operator, value_node)

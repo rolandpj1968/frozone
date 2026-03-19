@@ -80,30 +80,30 @@ module Frozone
 
           # Determine the raw separator
           sep_raw = if sep.is_a?(NilObject) && gs.nil?
-            nil
-          elsif sep.is_a?(NilObject)
-            gs.is_a?(StringObject) ? gs.raw : gs.raw
-          elsif sep.is_a?(StringObject) || sep.is_a?(RegexpObject)
-            sep.raw
-          else
-            begin
-              coerced = sep.dispatch(context, :to_str, [], {})
-              raise FrozoneException.make(:TypeError, "no implicit conversion of #{sep.class_object&.name || 'Object'} into String") unless coerced.is_a?(StringObject)
-              coerced.raw
-            rescue FrozoneException => e
-              vm_obj = e.vm_object
-              if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
-                raise FrozoneException.make(:TypeError, "no implicit conversion of #{sep.class_object&.name || 'Object'} into String")
-              end
-              raise
-            end
-          end
+                      nil
+                    elsif sep.is_a?(NilObject)
+                      gs.is_a?(StringObject) ? gs.raw : gs.raw
+                    elsif sep.is_a?(StringObject) || sep.is_a?(RegexpObject)
+                      sep.raw
+                    else
+                      begin
+                        coerced = sep.dispatch(context, :to_str, [], {})
+                        raise FrozoneException.make(:TypeError, "no implicit conversion of #{sep.class_object&.name || 'Object'} into String") unless coerced.is_a?(StringObject)
+                        coerced.raw
+                      rescue FrozoneException => e
+                        vm_obj = e.vm_object
+                        if vm_obj.is_a?(ObjectObject) && vm_obj.class_object&.name == :NoMethodError
+                          raise FrozoneException.make(:TypeError, "no implicit conversion of #{sep.class_object&.name || 'Object'} into String")
+                        end
+                        raise
+                      end
+                    end
 
           parts = if sep_raw.nil?
-            limit_raw ? v.raw.split(nil, limit_raw) : v.raw.split
-          else
-            limit_raw ? v.raw.split(sep_raw, limit_raw) : v.raw.split(sep_raw)
-          end
+                    limit_raw ? v.raw.split(nil, limit_raw) : v.raw.split
+                  else
+                    limit_raw ? v.raw.split(sep_raw, limit_raw) : v.raw.split(sep_raw)
+                  end
           ArrayObject.new(parts.map { |p| StringObject.new(p) })
         end
 
@@ -187,7 +187,7 @@ module Frozone
               m = $~
               update_match_globals(m)
               the_m = m
-              match_obj = StringObject.new($&)
+              match_obj = StringObject.new(::Regexp.last_match(0))
               ret = block_result_to_s(context, block.invoke(context, [match_obj]))
               update_match_globals(m)
               ret
@@ -331,7 +331,7 @@ module Frozone
             range = Range.new(b_raw, e_raw, idx.exclusive?)
             begin
               result = v.raw[range]
-            rescue TypeError => err then raise FrozoneException.make(:TypeError, err.message)
+            rescue TypeError => e then raise FrozoneException.make(:TypeError, e.message)
             end
             return result.nil? ? NilObject::NIL : StringObject.new(result)
           end
@@ -717,6 +717,7 @@ module Frozone
 
         def string_b(_, v) = StringObject.new(v.raw.b)
         def string_ascii_only(_, v) = bool_object_for(v.raw.ascii_only?)
+
         def string_concat(context, v1, v2)
           raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{v1.raw.inspect}") if v1.frozen?
           if v1.chilled? && deprecated_warnings_enabled?
@@ -745,6 +746,7 @@ module Frozone
           end
           v1
         end
+
         def string_multiply(_, v, n)
           count = n.is_a?(IntegerObject) ? n.raw : (n.respond_to?(:raw) ? n.raw.to_i : n.to_i)
           raise FrozoneException.make(:ArgumentError, "negative string size (or exceeds maximum allowed string size)") if count < 0
@@ -774,7 +776,7 @@ module Frozone
           rescue ::TypeError => e
             # Normalize MRI's "no implicit conversion from X to Y" to "no implicit conversion of X into Y"
             msg = e.message.gsub(/\Ano implicit conversion from (.+) to (.+)\z/) {
-              "no implicit conversion of #{$1} into #{$2.split.map(&:capitalize).join}"
+              "no implicit conversion of #{::Regexp.last_match(1)} into #{::Regexp.last_match(2).split.map(&:capitalize).join}"
             }
             raise FrozoneException.make(:TypeError, msg)
           rescue ::ArgumentError => e then raise FrozoneException.make(:ArgumentError, e.message)
@@ -782,10 +784,10 @@ module Frozone
             exc = FrozoneException.wrap_mri(e)
             # Set receiver to the original Frozone HashObject (not the MRI proxy)
             frozone_receiver = if args.is_a?(HashObject)
-              args
-            elsif e.respond_to?(:receiver) && e.receiver.is_a?(HashFormatProxy)
-              e.receiver.frozone_vm_hash
-            end
+                                 args
+                               elsif e.respond_to?(:receiver) && e.receiver.is_a?(HashFormatProxy)
+                                 e.receiver.frozone_vm_hash
+                               end
             exc.set_ivar(:@receiver, frozone_receiver) if frozone_receiver
             if e.respond_to?(:key) && e.key
               mri_key = e.key
@@ -1068,7 +1070,8 @@ module Frozone
                   elsif v.is_a?(TrueObject) then true
                   elsif v.is_a?(FalseObject) then false
                   elsif v.is_a?(IntegerObject) then v.raw
-                  else v
+                  else
+                    v
                   end
             result[key] = val
           end
@@ -1087,26 +1090,26 @@ module Frozone
               begin
                 ch.encode(enc_name, **enc_opts)
                 # char is encodable — apply XML entity encoding
-                case ch
-                when '&' then result << '&amp;'
-                when '<' then result << '&lt;'
-                when '>' then result << '&gt;'
-                when '"' then xml_opt == :attr ? result << '&quot;' : result << ch
-                else result << ch
-                end
+                result << case ch
+                          when '&' then '&amp;'
+                          when '<' then '&lt;'
+                          when '>' then '&gt;'
+                          when '"' then (xml_opt == :attr ? '&quot;' : ch)
+                          else ch
+                          end
               rescue ::Encoding::UndefinedConversionError
                 # Replace with hex numeric character reference (not entity-encoded)
                 codepoint = ch.ord
                 result << "&#x#{codepoint.to_s(16).upcase};"
               end
             else
-              case ch
-              when '&' then result << '&amp;'
-              when '<' then result << '&lt;'
-              when '>' then result << '&gt;'
-              when '"' then xml_opt == :attr ? result << '&quot;' : result << ch
-              else result << ch
-              end
+              result << case ch
+                        when '&' then '&amp;'
+                        when '<' then '&lt;'
+                        when '>' then '&gt;'
+                        when '"' then (xml_opt == :attr ? '&quot;' : ch)
+                        else ch
+                        end
             end
           end
           result = "\"#{result}\"" if xml_opt == :attr
@@ -1132,7 +1135,7 @@ module Frozone
             begin
               encoded_ch = ch.encode(enc_name || ch.encoding, **fallback_enc_opts)
               result << encoded_ch
-            rescue ::Encoding::UndefinedConversionError => undef_err
+            rescue ::Encoding::UndefinedConversionError
               # Apply fallback to get replacement for undefined char
               replacement_vm = call_fallback(context, fallback, ch)
               if replacement_vm
@@ -1338,7 +1341,9 @@ module Frozone
           v.freeze_object!
           v
         end
+
         def string_frozen(_, v)           = bool_object_for(v.frozen_object?)
+
         def string_dup(context, v)
           copy = StringObject.new(v.raw.dup)
           copy.class_object = v.class_object
@@ -1346,8 +1351,10 @@ module Frozone
           copy.dispatch(context, :initialize_copy, [v], {}, nil, private_ok: true)
           copy
         end
+
         def string_to_sym(_, v)           = SymbolObject.from(v.raw.to_sym)
         def string_to_f(_, v)             = FloatObject.new(v.raw.to_f)
+
         def string_to_r(context, v)
           r = v.raw.to_r
           make_rational(r)
@@ -1764,15 +1771,11 @@ module Frozone
           end
         end
 
-        public
-
-        private
-
         def enum_for_str_upto(v, other, exclusive)
           # Return a bare Enumerator — reuse kernel_to_enum pattern
           excl = exclusive.truthy?
           other_str = other.is_a?(StringObject) ? other : NilObject::NIL
-          NativeBlock.new(source_location: nil, parameters_override: []) { }
+          NativeBlock.new(source_location: nil, parameters_override: []) {}
           # Minimal: return an enumerator object via the VM's to_enum mechanism
           # For now, fall back to building the array and wrapping
           arr = []
@@ -1841,7 +1844,8 @@ module Frozone
           enc = ::Encoding.compatible?(v1.raw, v2.raw)
           if enc.nil?
             err = ::Encoding::CompatibilityError.new(
-              "incompatible character encodings: #{v1.raw.encoding} and #{v2.raw.encoding}")
+              "incompatible character encodings: #{v1.raw.encoding} and #{v2.raw.encoding}"
+            )
             raise FrozoneException.new(FrozoneException.wrap_mri(err), err.message)
           end
           # Return a Frozone encoding object (just need the name; force_encoding accepts strings)

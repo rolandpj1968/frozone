@@ -102,19 +102,19 @@ module Frozone
           max_accepted = has_rest ? Float::INFINITY : min_required + opt_count
 
           target = if arity_arg.is_a?(NilObject)
-            min_required
-          else
-            a = arity_arg.raw
-            if is_lambda
-              if a < min_required
-                raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given #{a}, expected #{min_required}+)")
-              end
-              if a > max_accepted
-                raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given #{a}, expected #{min_required}..#{max_accepted == Float::INFINITY ? '*' : max_accepted})")
-              end
-            end
-            a
-          end
+                     min_required
+                   else
+                     a = arity_arg.raw
+                     if is_lambda
+                       if a < min_required
+                         raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given #{a}, expected #{min_required}+)")
+                       end
+                       if a > max_accepted
+                         raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given #{a}, expected #{min_required}..#{max_accepted == Float::INFINITY ? '*' : max_accepted})")
+                       end
+                     end
+                     a
+                   end
 
           make_curried = lambda do |accumulated|
             NativeBlock.new(
@@ -164,12 +164,12 @@ module Frozone
               blk.ruby2_keywords = true
             else
               reason = if !has_rest
-                "does not accept splat"
-              elsif has_kw
-                "accepts keyword"
-              elsif has_post
-                "accepts post-argument"
-              end
+                         "does not accept splat"
+                       elsif has_kw
+                         "accepts keyword"
+                       elsif has_post
+                         "accepts post-argument"
+                       end
               src = blk.source_location ? " #{blk.source_location[0]}:#{blk.source_location[1]}" : ""
               msg = StringObject.new("warning: Skipping set of ruby2_keywords flag for #{blk.is_lambda ? 'lambda' : 'proc'} at#{src}: #{reason}")
               kernel_warn(context, NilObject::NIL, ArrayObject.new([msg]))
@@ -232,10 +232,10 @@ module Frozone
           # Determine effective lambda status (may be overridden by lambda: kwarg)
           base_lambda = blk.is_lambda
           is_lambda = if lambda_override.is_a?(NilObject)
-            base_lambda
-          else
-            lambda_override.truthy?
-          end
+                        base_lambda
+                      else
+                        lambda_override.truthy?
+                      end
           # `it` implicit parameter: return [[:req]] for lambda, [[:opt]] for proc (Ruby 4.0+)
           if blk.it_param
             return ArrayObject.new([ArrayObject.new([SymbolObject.from(is_lambda ? :req : :opt)])])
@@ -259,11 +259,11 @@ module Frozone
           req_kw.each      { |n| params << ArrayObject.new([SymbolObject.from(:keyreq), SymbolObject.from(n)]) }
           opt_kw.each      { |n, _| params << ArrayObject.new([SymbolObject.from(:key), SymbolObject.from(n)]) }
           if kw_rest
-            if kw_rest == :__no_kwargs__
-              params << ArrayObject.new([SymbolObject.from(:nokey)])
-            else
-              params << param_entry(:keyrest, kw_rest, for_proc: true)
-            end
+            params << if kw_rest == :__no_kwargs__
+                        ArrayObject.new([SymbolObject.from(:nokey)])
+                      else
+                        param_entry(:keyrest, kw_rest, for_proc: true)
+                      end
           end
           params << param_entry(:block, blk_param, for_proc: true) if blk_param
           ArrayObject.new(params)
@@ -279,7 +279,7 @@ module Frozone
             result = bound_method_source_location(context, blk)
             # For core library methods (internal), return nil (like C-implemented MRI methods)
             return NilObject::NIL if result.is_a?(ArrayObject) &&
-              result.raw[0].is_a?(StringObject) && result.raw[0].raw.start_with?('<internal:')
+                                     result.raw[0].is_a?(StringObject) && result.raw[0].raw.start_with?('<internal:')
             result
           else
             NilObject::NIL
@@ -296,10 +296,10 @@ module Frozone
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
           is_lam = proc_obj.is_a?(ProcObject) ? proc_obj.lambda? : false
           sym_name = if blk.is_a?(SymbolProcObject)
-            blk.symbol_name
-          elsif blk.is_a?(NativeBlock) && blk.symbol_name
-            blk.symbol_name
-          end
+                       blk.symbol_name
+                     elsif blk.is_a?(NativeBlock) && blk.symbol_name
+                       blk.symbol_name
+                     end
           loc_str = sym_name ? "" : begin
             loc = proc_source_location(context, proc_obj)
             loc.is_a?(ArrayObject) ? " #{loc.raw[0].raw}:#{loc.raw[1].raw}" : ""

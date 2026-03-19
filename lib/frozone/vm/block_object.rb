@@ -106,13 +106,13 @@ module Frozone
         # If block has an explicit &b param, the passed block goes to b; yield uses enclosing block.
         # Otherwise, the passed block is used for yield (standard block propagation).
         new_frame.block = @block_param ? @enclosing_frame.block : (block || @enclosing_frame.block)
-        if @is_lambda || as_method
-          # Lambdas and define_method-invoked blocks act like methods.
-          new_frame.method_frame = new_frame
-        else
-          # `return` inside a block exits the enclosing method, not the method that invoked yield.
-          new_frame.method_frame = @enclosing_frame.method_frame
-        end
+        new_frame.method_frame = if @is_lambda || as_method
+                                   # Lambdas and define_method-invoked blocks act like methods.
+                                   new_frame
+                                 else
+                                   # `return` inside a block exits the enclosing method, not the method that invoked yield.
+                                   @enclosing_frame.method_frame
+                                 end
 
         new_frame.def_scope = def_scope || instance_eval_receiver&.singleton_class
         # For lambda blocks in instance_eval, preserve lexical cvar scope from enclosing frame

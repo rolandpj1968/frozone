@@ -2,7 +2,7 @@ module Frozone
   module Vm
     # Lightweight VM binding object — wraps a captured frame for use with eval/local_variables.
     class BindingObject < ObjectObject
-      NUMBERED_PARAM_RE = /\A_[1-9]\z/.freeze
+      NUMBERED_PARAM_RE = /\A_[1-9]\z/
 
       attr_reader :captured_frame, :binding_call_site
       attr_accessor :binding_local_names

@@ -103,10 +103,10 @@ module Frozone
           # Check active refinements first (refinements can add methods visible to respond_to?)
           active_refinements = context&.frame&.active_refinements
           m = if active_refinements && !active_refinements.empty?
-            v.lookup_method_with_refinements(method_name, active_refinements)
-          else
-            v.lookup_instance_method(method_name)
-          end
+                v.lookup_method_with_refinements(method_name, active_refinements)
+              else
+                v.lookup_instance_method(method_name)
+              end
           # Method is visible if include_private is true, or if it's a public method
           visible = m && (include_private || m.visibility == :public)
           if visible
@@ -275,17 +275,17 @@ module Frozone
           # - Modules/instances: only include the singleton class itself and modules explicitly
           #   extended into the object (NOT the meta-class chain like #<Class:Module>)
           sources = if include_super
-            if v.is_a?(ClassObject)
-              sc.ancestors_list.take_while { |mod| !mod.is_a?(ClassObject) || mod.is_singleton_class }
-            else
-              # Only sc and explicitly-extended modules (sc.modules and their ancestors, no ClassObjects)
-              explicit_mods = []
-              sc.modules.each { |m| explicit_mods.concat(m.ancestors_list.reject { |a| a.is_a?(ClassObject) }) }
-              [sc] + explicit_mods
-            end
-          else
-            [sc]
-          end
+                      if v.is_a?(ClassObject)
+                        sc.ancestors_list.take_while { |mod| !mod.is_a?(ClassObject) || mod.is_singleton_class }
+                      else
+                        # Only sc and explicitly-extended modules (sc.modules and their ancestors, no ClassObjects)
+                        explicit_mods = []
+                        sc.modules.each { |m| explicit_mods.concat(m.ancestors_list.reject { |a| a.is_a?(ClassObject) }) }
+                        [sc] + explicit_mods
+                      end
+                    else
+                      [sc]
+                    end
           sources.each do |mod|
             mod.methods_table.each do |name, meth|
               next if seen[name]

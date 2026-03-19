@@ -30,8 +30,8 @@ module Frozone
 
         if is_refinement
           # For refinement methods, super looks up the method in the refined class's hierarchy.
-          refined_class = defining_class.get_ivar(:@__refined_class__)
-          klass  = if receiver.is_a?(Vm::ClassObject) then receiver.singleton_class else receiver.class_object end
+          defining_class.get_ivar(:@__refined_class__)
+          klass = receiver.is_a?(Vm::ClassObject) ? receiver.singleton_class : receiver.class_object
           # Use the refined class itself as the "start" point and look from beginning of its hierarchy.
           # We want the first method matching method_name in the class ancestry (not the refinement).
           super_method = klass.lookup_method(method_name)
@@ -53,26 +53,26 @@ module Frozone
           super_method = klass.lookup_method_after(method_name, origin)
         end
         args = if @forwarding
-          # Read CURRENT values of params from the METHOD frame (not current block/closure frame).
-          # super from inside a block/closure forwards the enclosing METHOD's params.
-          m = current_method
-          if m.respond_to?(:required_params)
-            fwd_args = m.required_params.map { |p| mf.get_local(p) }
-            m.optional_params.each { |p, _| fwd_args << mf.get_local(p) }
-            if m.rest_param
-              rest_val = mf.get_local(m.rest_param)
-              fwd_args += rest_val.is_a?(Vm::ArrayObject) ? rest_val.raw : [rest_val]
-            end
-            m.post_params.each { |p| fwd_args << mf.get_local(p) }
-            fwd_args
-          else
-            raise Vm::FrozoneException.make(:RuntimeError, "implicit argument passing of super from method defined by define_method() is not supported. Specify all arguments explicitly.")
-          end
-        else
-          @arg_nodes.flat_map do |n|
-            n.is_a?(SplatArg) ? n.evaluate(context).raw : [n.evaluate(context)]
-          end
-        end
+                 # Read CURRENT values of params from the METHOD frame (not current block/closure frame).
+                 # super from inside a block/closure forwards the enclosing METHOD's params.
+                 m = current_method
+                 if m.respond_to?(:required_params)
+                   fwd_args = m.required_params.map { |p| mf.get_local(p) }
+                   m.optional_params.each { |p, _| fwd_args << mf.get_local(p) }
+                   if m.rest_param
+                     rest_val = mf.get_local(m.rest_param)
+                     fwd_args += rest_val.is_a?(Vm::ArrayObject) ? rest_val.raw : [rest_val]
+                   end
+                   m.post_params.each { |p| fwd_args << mf.get_local(p) }
+                   fwd_args
+                 else
+                   raise Vm::FrozoneException.make(:RuntimeError, "implicit argument passing of super from method defined by define_method() is not supported. Specify all arguments explicitly.")
+                 end
+               else
+                 @arg_nodes.flat_map do |n|
+                   n.is_a?(SplatArg) ? n.evaluate(context).raw : [n.evaluate(context)]
+                 end
+               end
 
         # ruby2_keywords delegation: forward r2k-marked last arg as kwargs
         # For explicit super(*args): check if last arg is r2k
@@ -80,35 +80,35 @@ module Frozone
         fwd_method = @forwarding ? (current_method.respond_to?(:ruby2_keywords) ? current_method : nil) : nil
         has_splat = !@forwarding && @arg_nodes.any? { |n| n.is_a?(SplatArg) }
         r2k_kwargs = if (has_splat || (fwd_method&.ruby2_keywords)) && @kw_splat_nodes.empty? && args.last.is_a?(Vm::HashObject) && args.last.ruby2_keywords
-          r2k = args.pop
-          r2k.raw.transform_keys { |k| k.is_a?(Vm::SymbolObject) ? k.raw : k }
-        end
+                       r2k = args.pop
+                       r2k.raw.transform_keys { |k| k.is_a?(Vm::SymbolObject) ? k.raw : k }
+                     end
 
         kw_args = if @forwarding
-          m = current_method
-          if m.respond_to?(:required_kw_params)
-            fwd_kw = r2k_kwargs || {}
-            m.required_kw_params.each { |k| fwd_kw[k] = mf.get_local(k) }
-            m.optional_kw_params.each { |k, _| fwd_kw[k] = mf.get_local(k) }
-            if m.kw_rest_param
-              rest_hash = mf.get_local(m.kw_rest_param)
-              if rest_hash.is_a?(Vm::HashObject)
-                rest_hash.raw.each { |k, v| fwd_kw[k.is_a?(Vm::SymbolObject) ? k.raw : k] = v }
-              end
-            end
-            fwd_kw
-          else
-            mf.method_kwargs || {}
-          end
-        else
-          result = r2k_kwargs || {}
-          @kw_splat_nodes.each do |splat_node|
-            splatted = splat_node.evaluate(context)
-            next if splatted.is_a?(Vm::NilObject)
-            splatted.raw.each { |k, v| result[k.is_a?(Vm::SymbolObject) ? k.raw : k] = v }
-          end
-          result
-        end
+                    m = current_method
+                    if m.respond_to?(:required_kw_params)
+                      fwd_kw = r2k_kwargs || {}
+                      m.required_kw_params.each { |k| fwd_kw[k] = mf.get_local(k) }
+                      m.optional_kw_params.each { |k, _| fwd_kw[k] = mf.get_local(k) }
+                      if m.kw_rest_param
+                        rest_hash = mf.get_local(m.kw_rest_param)
+                        if rest_hash.is_a?(Vm::HashObject)
+                          rest_hash.raw.each { |k, v| fwd_kw[k.is_a?(Vm::SymbolObject) ? k.raw : k] = v }
+                        end
+                      end
+                      fwd_kw
+                    else
+                      mf.method_kwargs || {}
+                    end
+                  else
+                    result = r2k_kwargs || {}
+                    @kw_splat_nodes.each do |splat_node|
+                      splatted = splat_node.evaluate(context)
+                      next if splatted.is_a?(Vm::NilObject)
+                      splatted.raw.each { |k, v| result[k.is_a?(Vm::SymbolObject) ? k.raw : k] = v }
+                    end
+                    result
+                  end
 
         if super_method.nil?
           raise Vm::FrozoneException.make(:NoMethodError, "super: no superclass method '#{method_name}' for an instance of #{receiver.class_object.name}")

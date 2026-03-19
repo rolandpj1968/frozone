@@ -13,7 +13,7 @@ module Frozone
         super(Core.fiber_class || Core::OBJECT_CLASS)
         @block_obj = block_obj
         # Per-fiber snapshots of $! and $@ (start as nil)
-        @fiber_globals = { :"$!" => NilObject::NIL, :"$@" => NilObject::NIL }
+        @fiber_globals = { "$!": NilObject::NIL, "$@": NilObject::NIL }
         @ruby_fiber = nil
         @alive = true
         @status = :created  # :created, :running, :suspended, :dead
@@ -36,7 +36,7 @@ module Frozone
         fo = allocate
         fo.instance_variable_set(:@class_object, Core.fiber_class || Core::OBJECT_CLASS)
         fo.instance_variable_set(:@block_obj, nil)
-        fo.instance_variable_set(:@fiber_globals, { :"$!" => NilObject::NIL, :"$@" => NilObject::NIL })
+        fo.instance_variable_set(:@fiber_globals, { "$!": NilObject::NIL, "$@": NilObject::NIL })
         fo.instance_variable_set(:@ruby_fiber, ::Fiber.current)
         fo.instance_variable_set(:@alive, true)
         fo.instance_variable_set(:@status, :running)
@@ -185,7 +185,7 @@ module Frozone
           @alive = @ruby_fiber.alive?
           @status = @alive ? :suspended : :dead
           result.is_a?(ObjectObject) ? result : NilObject::NIL
-        rescue FrozoneException => e
+        rescue FrozoneException
           @alive = false
           @status = :dead
           raise
@@ -196,11 +196,11 @@ module Frozone
         rescue ::FiberError => e
           # Cross-thread errors don't kill the fiber — it remains usable from the correct thread
           cross_thread = e.message.include?("across thread") || e.message.include?("called across")
-          unless cross_thread
+          if cross_thread
+            @status = :suspended
+          else
             @alive = false
             @status = :dead
-          else
-            @status = :suspended
           end
           raise FrozoneException.make(:FiberError, e.message)
         ensure
@@ -263,18 +263,18 @@ module Frozone
           @status = @alive ? :suspended : :dead
           @suspended_by_transfer = @alive
           result.is_a?(ObjectObject) ? result : NilObject::NIL
-        rescue FrozoneException => e
+        rescue FrozoneException
           @alive = false
           @status = :dead
           raise
         rescue ::FiberError => e
           cross_thread = e.message.include?("across thread") || e.message.include?("called across")
-          unless cross_thread
-            @alive = false
-            @status = :dead
-          else
+          if cross_thread
             @status = :suspended
             @suspended_by_transfer = true
+          else
+            @alive = false
+            @status = :dead
           end
           raise FrozoneException.make(:FiberError, e.message)
         ensure
