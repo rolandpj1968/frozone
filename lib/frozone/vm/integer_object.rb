@@ -17,6 +17,18 @@ module Frozone
 
       def to_s = @raw.to_s
       def inspect_for_error = @raw.inspect
+
+      # Marshal support: serialize just the raw integer and restore with the
+      # live Core::INTEGER_CLASS so deserialized objects dispatch correctly.
+      def marshal_dump = @raw
+
+      def marshal_load(data)
+        @raw = data
+        @class_object = Core::INTEGER_CLASS
+        @frozen_object = true
+        @instance_variables_hash = {}
+        @eigenclass = nil
+      end
     end
   end
 end

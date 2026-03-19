@@ -23,6 +23,16 @@ module Frozone
         @method.call(context, *args)
       end
 
+      def marshal_dump
+        [@method.name, @param_nodes]
+      end
+
+      def marshal_load(data)
+        name, param_nodes = data
+        @method = self.class.method_for(name)
+        @param_nodes = param_nodes
+      end
+
       # TODO - thread safety
       Methods = {}
 

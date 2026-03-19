@@ -30,6 +30,12 @@ module Frozone
 
         SymbolObjects[value] ||= new(value)
       end
+
+      # Marshal support: serialize as the raw symbol name so the intern table
+      # is consulted on load, restoring the correct singleton instance.
+      def _dump(_) = @raw.to_s
+
+      def self._load(data) = from(data.to_sym)
     end
   end
 end

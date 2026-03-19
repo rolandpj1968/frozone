@@ -59,6 +59,28 @@ module Frozone
           File.join(cache_dir(parser_name), "#{sha256}.ast")
         end
 
+        # Level-1: in-process memory cache keyed by [filepath, mtime, parser_name].
+        # Avoids SHA256 and disk I/O for files loaded repeatedly within one process
+        # (e.g. load_core called for each new Vm in the test suite).
+        def fetch_file(filepath, parser_name)
+          return nil unless @enabled
+
+          mtime = File.mtime(filepath).to_f
+          @memory_cache[[filepath, mtime, parser_name]]
+        rescue StandardError
+          nil
+        end
+
+        def store_file(filepath, parser_name, result)
+          return unless @enabled
+
+          mtime = File.mtime(filepath).to_f
+          @memory_cache[[filepath, mtime, parser_name]] = result
+        rescue StandardError
+          nil
+        end
+
+        # Level-2: on-disk content-addressed cache keyed by SHA256(source).
         def fetch(source, parser_name)
           return nil unless @enabled
 
@@ -82,6 +104,7 @@ module Frozone
       end
 
       @enabled = true
+      @memory_cache = {}
     end
   end
 end

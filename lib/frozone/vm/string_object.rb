@@ -44,6 +44,22 @@ module Frozone
       end
 
       def to_s = @raw
+
+      # Marshal support: serialize just the raw string and frozen state,
+      # restoring with the live Core::STRING_CLASS so deserialized objects dispatch correctly.
+      def marshal_dump
+        [@raw, @frozen_object, @chilled_source]
+      end
+
+      def marshal_load(data)
+        raw, frozen, chilled_source = data
+        @raw = raw
+        @class_object = Core::STRING_CLASS
+        @frozen_object = frozen
+        @chilled_source = chilled_source
+        @instance_variables_hash = {}
+        @eigenclass = nil
+      end
     end
   end
 end

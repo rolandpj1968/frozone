@@ -337,6 +337,11 @@ module Frozone
         # Only cache when not dumping AST and caching is not disabled.
         # eval() calls (with outer_locals) go through Parser directly, not here.
         if !dump_ast && AstCache.enabled?
+          # L1: in-memory cache by [filepath, mtime] — no SHA256 needed, no disk I/O.
+          if filepath && (cached = AstCache.fetch_file(filepath, parser_name))
+            return cached
+          end
+          # L2: on-disk content-addressed cache by SHA256(source).
           cached = AstCache.fetch(script, parser_name)
           return cached if cached
         end
@@ -350,7 +355,10 @@ module Frozone
           parser.prism_verbose_warnings,
         )
 
-        AstCache.store(script, parser_name, result) if !dump_ast && AstCache.enabled?
+        if !dump_ast && AstCache.enabled?
+          AstCache.store(script, parser_name, result)
+          AstCache.store_file(filepath, parser_name, result) if filepath
+        end
 
         result
       end
