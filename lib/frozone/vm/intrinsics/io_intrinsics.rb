@@ -142,16 +142,10 @@ module Frozone
 
         def file_zero(_, path) = bool_object_for(File.zero?(path.raw))
 
-        def file_fnmatch(_, pattern, path, flags)
-          bool_object_for(File.fnmatch(pattern.raw, path.raw, flags.raw))
-        end
+        def file_fnmatch(_, pattern, path, flags) = bool_object_for(File.fnmatch(pattern.raw, path.raw, flags.raw))
 
-        def file_stat_native(_, path)
-          # Returns nil - stat info accessed via individual methods
-          NilObject::NIL
-        rescue Errno::ENOENT => e
-          raise FrozoneException.make(:Errno__ENOENT, e.message)
-        end
+        # Returns nil - stat info accessed via individual methods
+        def file_stat_native(_, path) = reraise(Errno::ENOENT) { NilObject::NIL }
 
         def file_stat_mode(_, path)      = stat_int_field(path) { |s| s.mode }
         def file_stat_ino(_, path)       = stat_int_field(path) { |s| s.ino }
