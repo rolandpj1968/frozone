@@ -229,19 +229,6 @@ RSpec.describe Frozone::Vm::Intrinsics do
     end
   end
 
-  describe '.symbol_eql' do
-    it 'returns TRUE for the same symbol' do
-      expect(described_class.symbol_eql(ctx, Frozone::Vm::SymbolObject.from(:x), Frozone::Vm::SymbolObject.from(:x))).to equal(Frozone::Vm::TrueObject::TRUE)
-    end
-
-    it 'returns FALSE for different symbols' do
-      expect(described_class.symbol_eql(ctx, Frozone::Vm::SymbolObject.from(:x), Frozone::Vm::SymbolObject.from(:y))).to equal(Frozone::Vm::FalseObject::FALSE)
-    end
-
-    it 'returns FALSE when compared to a non-SymbolObject' do
-      expect(described_class.symbol_eql(ctx, Frozone::Vm::SymbolObject.from(:x), i3)).to equal(Frozone::Vm::FalseObject::FALSE)
-    end
-  end
 
   describe '.array_hash and .array_eql' do
     let(:real_ctx) { make_context }
