@@ -534,108 +534,17 @@ class String
     enc = encoding
     return String.new(''.force_encoding(enc)) if empty?
 
-    # Work with raw byte array for correctness with all encodings (incl. BINARY)
-    bs = bytesize
-    result = []
-    i = 0
-    while i < bs
-      result << Intrinsics.string_get_byte(self, i)
-      i += 1
-    end
+    result = __succ_bytes_array__
 
-    # Find rightmost alphanumeric byte position
-    alnum_right = -1
-    bi = bs - 1
-    while bi >= 0
-      b = result[bi]
-      if (b >= 48 && b <= 57) || (b >= 65 && b <= 90) || (b >= 97 && b <= 122)
-        alnum_right = bi
-        break
-      end
-      bi -= 1
-    end
+    alnum_right = __succ_find_rightmost_alnum__(result)
 
     if alnum_right < 0
-      # No alphanumeric: increment rightmost byte with byte-level carry
-      carry = true
-      j = bs - 1
-      while carry && j >= 0
-        b = result[j]
-        if b < 255
-          result[j] = b + 1
-          carry = false
-        else
-          result[j] = 0
-          j -= 1
-        end
-      end
-      result.unshift(1) if carry
-      r = result.map { |b| b.chr }.join
-      return r.force_encoding(enc)
+      return __succ_carry_non_alnum__(result, enc)
     end
 
-    # Find leftmost alphanumeric byte position (for carry prepend)
-    leftmost_alnum = 0
-    bi2 = 0
-    while bi2 < bs
-      b = result[bi2]
-      if (b >= 48 && b <= 57) || (b >= 65 && b <= 90) || (b >= 97 && b <= 122)
-        leftmost_alnum = bi2
-        break
-      end
-      bi2 += 1
-    end
+    leftmost_alnum = __succ_find_leftmost_alnum__(result)
 
-    # Alphanumeric carry pass: start from rightmost alnum
-    carry = true
-    j = alnum_right
-    while carry && j >= 0
-      b = result[j]
-      if b >= 48 && b <= 57       # '0'..'9'
-        if b < 57
-          result[j] = b + 1
-          carry = false
-        else
-          result[j] = 48  # '0'
-          # seek left for next alnum
-          j -= 1
-          j -= 1 while j >= 0 && !((result[j] >= 48 && result[j] <= 57) || (result[j] >= 65 && result[j] <= 90) || (result[j] >= 97 && result[j] <= 122))
-        end
-      elsif b >= 65 && b <= 90    # 'A'..'Z'
-        if b < 90
-          result[j] = b + 1
-          carry = false
-        else
-          result[j] = 65  # 'A'
-          j -= 1
-          j -= 1 while j >= 0 && !((result[j] >= 48 && result[j] <= 57) || (result[j] >= 65 && result[j] <= 90) || (result[j] >= 97 && result[j] <= 122))
-        end
-      elsif b >= 97 && b <= 122   # 'a'..'z'
-        if b < 122
-          result[j] = b + 1
-          carry = false
-        else
-          result[j] = 97  # 'a'
-          j -= 1
-          j -= 1 while j >= 0 && !((result[j] >= 48 && result[j] <= 57) || (result[j] >= 65 && result[j] <= 90) || (result[j] >= 97 && result[j] <= 122))
-        end
-      else
-        carry = false
-      end
-    end
-
-    if carry
-      # Prepend carry char based on type of leftmost alnum
-      b0 = result[leftmost_alnum]
-      carry_byte = if b0 >= 48 && b0 <= 57
-        49  # '1'
-      elsif b0 >= 65 && b0 <= 90
-        65  # 'A'
-      else
-        97  # 'a'
-      end
-      result.insert(leftmost_alnum, carry_byte)
-    end
+    __succ_carry_alnum__(result, alnum_right, leftmost_alnum)
 
     r = result.map { |b| b.chr }.join
     r.force_encoding(enc)
@@ -873,69 +782,37 @@ class String
   def chr = self[0] || self
 
   def center(width, padstr = ' ')
-    unless width.is_a?(Integer)
-      raise TypeError, "no implicit conversion of #{width.class} into Integer" unless width.respond_to?(:to_int)
-      width = width.to_int
-      raise TypeError, "can't convert to Integer" unless width.is_a?(Integer)
-    end
-    unless padstr.is_a?(String)
-      raise TypeError, "no implicit conversion of #{padstr.class} into String" unless padstr.respond_to?(:to_str)
-      padstr = padstr.to_str
-      raise TypeError, "can't convert to String" unless padstr.is_a?(String)
-    end
-    raise ArgumentError, "zero width padding" if padstr.empty?
+    width, padstr = __just_coerce_args__(width, padstr)
     len = length
     return dup if len >= width
     total = width - len
     left = total / 2
     right = total - left
     compat_enc = Intrinsics.string_encoding_compat(self, padstr)
-    lpad = (padstr * ((left / padstr.length) + 1))[0, left]
-    rpad = (padstr * ((right / padstr.length) + 1))[0, right]
+    lpad = __just_build_pad__(padstr, left)
+    rpad = __just_build_pad__(padstr, right)
     r = lpad + self + rpad
     r.force_encoding(compat_enc) unless r.encoding == compat_enc
     r
   end
 
   def ljust(width, padstr = ' ')
-    unless width.is_a?(Integer)
-      raise TypeError, "no implicit conversion of #{width.class} into Integer" unless width.respond_to?(:to_int)
-      width = width.to_int
-      raise TypeError, "can't convert to Integer" unless width.is_a?(Integer)
-    end
-    unless padstr.is_a?(String)
-      raise TypeError, "no implicit conversion of #{padstr.class} into String" unless padstr.respond_to?(:to_str)
-      padstr = padstr.to_str
-      raise TypeError, "can't convert to String" unless padstr.is_a?(String)
-    end
-    raise ArgumentError, "zero width padding" if padstr.empty?
+    width, padstr = __just_coerce_args__(width, padstr)
     compat_enc = Intrinsics.string_encoding_compat(self, padstr)
     len = length
     return dup if len >= width
-    total = width - len
-    pad = (padstr * ((total / padstr.length) + 1))[0, total]
+    pad = __just_build_pad__(padstr, width - len)
     r = self + pad
     r.force_encoding(compat_enc) unless r.encoding == compat_enc
     r
   end
 
   def rjust(width, padstr = ' ')
-    unless width.is_a?(Integer)
-      raise TypeError, "no implicit conversion of #{width.class} into Integer" unless width.respond_to?(:to_int)
-      width = width.to_int
-      raise TypeError, "can't convert to Integer" unless width.is_a?(Integer)
-    end
-    unless padstr.is_a?(String)
-      raise TypeError, "no implicit conversion of #{padstr.class} into String" unless padstr.respond_to?(:to_str)
-      padstr = padstr.to_str
-      raise TypeError, "can't convert to String" unless padstr.is_a?(String)
-    end
-    raise ArgumentError, "zero width padding" if padstr.empty?
+    width, padstr = __just_coerce_args__(width, padstr)
     compat_enc = Intrinsics.string_encoding_compat(self, padstr)
     len = length
     return dup if len >= width
-    total = width - len
-    pad = (padstr * ((total / padstr.length) + 1))[0, total]
+    pad = __just_build_pad__(padstr, width - len)
     r = pad + self
     r.force_encoding(compat_enc) unless r.encoding == compat_enc
     r
@@ -1066,6 +943,135 @@ class String
     bits = bits.to_int unless bits.is_a?(Integer)
     total = bytes.reduce(0) { |s, b| s + b }
     bits <= 0 ? total : total % (1 << bits)
+  end
+
+  private
+
+  # Return the string's bytes as a mutable Array of integers.
+  def __succ_bytes_array__
+    bs = bytesize
+    result = []
+    i = 0
+    while i < bs
+      result << Intrinsics.string_get_byte(self, i)
+      i += 1
+    end
+    result
+  end
+
+  # Return the index of the rightmost alphanumeric byte, or -1 if none.
+  def __succ_find_rightmost_alnum__(bytes)
+    j = bytes.length - 1
+    while j >= 0
+      b = bytes[j]
+      return j if (b >= 48 && b <= 57) || (b >= 65 && b <= 90) || (b >= 97 && b <= 122)
+      j -= 1
+    end
+    -1
+  end
+
+  # Return the index of the leftmost alphanumeric byte (caller guarantees one exists).
+  def __succ_find_leftmost_alnum__(bytes)
+    j = 0
+    while j < bytes.length
+      b = bytes[j]
+      return j if (b >= 48 && b <= 57) || (b >= 65 && b <= 90) || (b >= 97 && b <= 122)
+      j += 1
+    end
+    0
+  end
+
+  # Handle the no-alphanumeric case: plain byte-level carry from the right.
+  # Mutates +bytes+ in place (or prepends 0x01), then returns a new String.
+  def __succ_carry_non_alnum__(bytes, enc)
+    carry = true
+    j = bytes.length - 1
+    while carry && j >= 0
+      b = bytes[j]
+      if b < 255
+        bytes[j] = b + 1
+        carry = false
+      else
+        bytes[j] = 0
+        j -= 1
+      end
+    end
+    bytes.unshift(1) if carry
+    bytes.map { |b| b.chr }.join.force_encoding(enc)
+  end
+
+  # Perform the alphanumeric carry pass starting at +alnum_right+.
+  # Mutates +bytes+ in place, inserting a carry character before +leftmost_alnum+ if needed.
+  def __succ_carry_alnum__(bytes, alnum_right, leftmost_alnum)
+    carry = true
+    j = alnum_right
+    while carry && j >= 0
+      b = bytes[j]
+      if b >= 48 && b <= 57         # '0'..'9'
+        if b < 57
+          bytes[j] = b + 1
+          carry = false
+        else
+          bytes[j] = 48             # wrap to '0'
+          j -= 1
+          j -= 1 while j >= 0 && !((bytes[j] >= 48 && bytes[j] <= 57) || (bytes[j] >= 65 && bytes[j] <= 90) || (bytes[j] >= 97 && bytes[j] <= 122))
+        end
+      elsif b >= 65 && b <= 90      # 'A'..'Z'
+        if b < 90
+          bytes[j] = b + 1
+          carry = false
+        else
+          bytes[j] = 65             # wrap to 'A'
+          j -= 1
+          j -= 1 while j >= 0 && !((bytes[j] >= 48 && bytes[j] <= 57) || (bytes[j] >= 65 && bytes[j] <= 90) || (bytes[j] >= 97 && bytes[j] <= 122))
+        end
+      elsif b >= 97 && b <= 122     # 'a'..'z'
+        if b < 122
+          bytes[j] = b + 1
+          carry = false
+        else
+          bytes[j] = 97             # wrap to 'a'
+          j -= 1
+          j -= 1 while j >= 0 && !((bytes[j] >= 48 && bytes[j] <= 57) || (bytes[j] >= 65 && bytes[j] <= 90) || (bytes[j] >= 97 && bytes[j] <= 122))
+        end
+      else
+        carry = false
+      end
+    end
+
+    return unless carry
+
+    # Prepend carry character matching the class of the leftmost alnum
+    b0 = bytes[leftmost_alnum]
+    carry_byte = if b0 >= 48 && b0 <= 57
+      49   # '1'
+    elsif b0 >= 65 && b0 <= 90
+      65   # 'A'
+    else
+      97   # 'a'
+    end
+    bytes.insert(leftmost_alnum, carry_byte)
+  end
+
+  # Coerce and validate the width and padstr arguments shared by ljust/rjust/center.
+  def __just_coerce_args__(width, padstr)
+    unless width.is_a?(Integer)
+      raise TypeError, "no implicit conversion of #{width.class} into Integer" unless width.respond_to?(:to_int)
+      width = width.to_int
+      raise TypeError, "can't convert to Integer" unless width.is_a?(Integer)
+    end
+    unless padstr.is_a?(String)
+      raise TypeError, "no implicit conversion of #{padstr.class} into String" unless padstr.respond_to?(:to_str)
+      padstr = padstr.to_str
+      raise TypeError, "can't convert to String" unless padstr.is_a?(String)
+    end
+    raise ArgumentError, "zero width padding" if padstr.empty?
+    [width, padstr]
+  end
+
+  # Build a pad string of exactly +total+ characters by repeating +padstr+.
+  def __just_build_pad__(padstr, total)
+    (padstr * ((total / padstr.length) + 1))[0, total]
   end
 
 end
