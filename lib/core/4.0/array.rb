@@ -184,29 +184,8 @@ class Array
     r = {}
     idx = 0
     each { |e|
-      if block
-        pair = block.call(e)
-        if !pair.is_a?(Array)
-          if pair.respond_to?(:to_ary)
-            pair = pair.to_ary
-            raise TypeError, "wrong element type #{pair.class} at #{idx} (expected Array)" unless pair.is_a?(Array)
-          else
-            raise TypeError, "wrong element type #{pair.class} at #{idx} (expected Array)"
-          end
-        end
-        raise ArgumentError, "wrong array length at #{idx} (expected 2, was #{pair.length})" unless pair.length == 2
-      else
-        pair = e
-        if !pair.is_a?(Array)
-          if pair.respond_to?(:to_ary)
-            pair = pair.to_ary
-            raise TypeError, "wrong element type #{pair.class} at #{idx} (expected Array)" unless pair.is_a?(Array)
-          else
-            raise TypeError, "wrong element type #{pair.class} at #{idx} (expected Array)"
-          end
-        end
-        raise ArgumentError, "wrong array length at #{idx} (expected 2, was #{pair.length})" unless pair.length == 2
-      end
+      pair = block ? block.call(e) : e
+      pair = __coerce_to_pair__(pair, idx)
       r[pair[0]] = pair[1]
       idx += 1
     }
@@ -1227,93 +1206,23 @@ class Array
   alias detect find
 
   def any?(pat = :__none__, &block)
-    if pat.equal?(:__none__)
-      each { |x| return true if (block ? block.call(x) : x) }
-    else
-      warn "warning: given block not used" if block
-      each { |x| return true if pat === x }
-    end
-    false
+    pat.equal?(:__none__) ? super(&block) : super(pat, &block)
   end
 
   def all?(pat = :__none__, &block)
-    if pat.equal?(:__none__)
-      each { |x| return false unless (block ? block.call(x) : x) }
-    else
-      warn "warning: given block not used" if block
-      each { |x| return false unless pat === x }
-    end
-    true
+    pat.equal?(:__none__) ? super(&block) : super(pat, &block)
   end
 
   def none?(pat = :__none__, &block)
-    if pat.equal?(:__none__)
-      each { |x| return false if (block ? block.call(x) : x) }
-    else
-      warn "warning: given block not used" if block
-      each { |x| return false if pat === x }
-    end
-    true
+    pat.equal?(:__none__) ? super(&block) : super(pat, &block)
   end
 
   def one?(pat = :__none__, &block)
-    found = false
-    if pat.equal?(:__none__)
-      each do |x|
-        if block ? block.call(x) : x
-          return false if found
-          found = true
-        end
-      end
-    else
-      warn "warning: given block not used" if block
-      each do |x|
-        if pat === x
-          return false if found
-          found = true
-        end
-      end
-    end
-    found
+    pat.equal?(:__none__) ? super(&block) : super(pat, &block)
   end
 
   def reduce(*args, &block)
-    sym = nil; has_initial = false; initial = nil
-    case args.length
-    when 0
-      raise ArgumentError, "no block given (yield)" unless block
-    when 1
-      arg = args[0]
-      if block
-        has_initial = true; initial = arg
-        Intrinsics.kernel_verbose_warn(self, "given block not used") if arg.is_a?(Symbol)
-      elsif arg.is_a?(Symbol)
-        sym = arg
-      elsif arg.is_a?(String)
-        sym = arg.to_sym
-      elsif arg.respond_to?(:to_str)
-        str = arg.to_str
-        raise TypeError, "#{arg.inspect} is not a symbol nor a string" unless str.is_a?(String)
-        sym = str.to_sym
-      else
-        raise TypeError, "#{arg.inspect} is not a symbol nor a string"
-      end
-    when 2
-      initial = args[0]; has_initial = true
-      arg1 = args[1]
-      if arg1.is_a?(Symbol)
-        sym = arg1.to_sym
-      elsif arg1.is_a?(String)
-        sym = arg1.to_sym
-      elsif arg1.respond_to?(:to_str)
-        sym = arg1.to_str.to_sym
-      else
-        raise TypeError, "#{arg1.inspect} is not a symbol nor a string"
-      end
-      Intrinsics.kernel_verbose_warn(self, "given block not used") if block
-    else
-      raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
-    end
+    sym, has_initial, initial = __parse_reduce_args__(args, block)
     acc = initial; first = !has_initial
     each do |x|
       if first
@@ -1326,6 +1235,7 @@ class Array
     end
     acc
   end
+
   alias inject reduce
 
   # each_slice and each_cons are defined later with block/enumerator support
@@ -1825,6 +1735,19 @@ class Array
         result
       end
     end
+  end
+
+  def __coerce_to_pair__(pair, idx)
+    unless pair.is_a?(Array)
+      if pair.respond_to?(:to_ary)
+        pair = pair.to_ary
+        raise TypeError, "wrong element type #{pair.class} at #{idx} (expected Array)" unless pair.is_a?(Array)
+      else
+        raise TypeError, "wrong element type #{pair.class} at #{idx} (expected Array)"
+      end
+    end
+    raise ArgumentError, "wrong array length at #{idx} (expected 2, was #{pair.length})" unless pair.length == 2
+    pair
   end
 
   def __array_coerce__(other)
