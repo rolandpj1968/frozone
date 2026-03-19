@@ -13,8 +13,13 @@ class Hash
     end
   end
 
-  def initialize(default = nil, &block)
+  def __check_frozen__
     raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+  end
+  private :__check_frozen__
+
+  def initialize(default = nil, &block)
+    __check_frozen__
     if block
       Intrinsics.hash_set_default_proc(self, block)
     else
@@ -95,13 +100,13 @@ class Hash
   end
 
   def default=(val)
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     Intrinsics.hash_set_default(self, val)
   end
   def default_proc = Intrinsics.hash_get_default_proc(self)
 
   def default_proc=(prc)
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     if !prc.nil? && !prc.is_a?(Proc)
       raise TypeError, "#{prc.class} is not a Proc" unless prc.respond_to?(:to_proc)
       prc = prc.to_proc
@@ -156,6 +161,56 @@ class Hash
 
   def deconstruct_keys(keys) = self
 
+  # Returns the key portion of an inspect pair: either "name: " (Symbol) or "repr => " (other).
+  def __inspect_key__(k)
+    if k.is_a?(Symbol)
+      name = k.to_s
+      ext_enc = Encoding.default_external
+      # Check if non-ASCII chars in the name are representable in the default external encoding.
+      # ASCII-only names are always representable.
+      needs_escape = !name.ascii_only? && begin
+        name.encode(ext_enc.name)
+        false
+      rescue
+        true
+      end
+      if needs_escape
+        # Encode to UTF-8 to get codepoints, then escape non-ASCII as \uXXXX
+        utf8_name = name.encode('UTF-8') rescue name
+        escaped = utf8_name.chars.map do |c|
+          if c.ord > 127
+            "\\u#{c.ord.to_s(16).rjust(4, '0')}"
+          elsif c == '"'
+            '\\"'
+          elsif c == '\\'
+            '\\\\'
+          else
+            c
+          end
+        end.join
+        "\"#{escaped}\": "
+      else
+        # Encode to UTF-8 for regex compatibility (e.g. Windows-31J name vs UTF-8 regex)
+        name_for_check = name.ascii_only? ? name : (name.encode('UTF-8') rescue name)
+        # Use bare-word syntax only for simple identifiers (letters/digits/underscore,
+        # optional ?/! suffix). Everything else (operators, setters, etc.) needs quoting.
+        if name_for_check =~ /\A[a-zA-Z_\u0080-\uFFFF][a-zA-Z0-9_\u0080-\uFFFF]*[?!]?\z/
+          "#{name}: "
+        else
+          "#{name.inspect}: "
+        end
+      end
+    else
+      k_s = k.inspect
+      unless k_s.is_a?(String)
+        k_s2 = k_s.to_s
+        k_s = k_s2.is_a?(String) ? k_s2 : "#<#{k_s.class.name}:0x#{k_s.__id__.to_s(16)}>"
+      end
+      "#{k_s} => "
+    end
+  end
+  private :__inspect_key__
+
   def to_s
     ongoing = (Fiber[:__hash_inspect__] ||= [])
     return '{...}' if ongoing.include?(__id__)
@@ -175,51 +230,7 @@ class Hash
             c.ord > 127 ? "\\u#{c.ord.to_s(16).rjust(4, '0')}" : c
           }.join
         end
-        if k.is_a?(Symbol)
-          name = k.to_s
-          ext_enc = Encoding.default_external
-          # Check if non-ASCII chars in the name are representable in the default external encoding.
-          # ASCII-only names are always representable.
-          needs_escape = !name.ascii_only? && begin
-            name.encode(ext_enc.name)
-            false
-          rescue
-            true
-          end
-          if needs_escape
-            # Encode to UTF-8 to get codepoints, then escape non-ASCII as \uXXXX
-            utf8_name = name.encode('UTF-8') rescue name
-            escaped = utf8_name.chars.map do |c|
-              if c.ord > 127
-                "\\u#{c.ord.to_s(16).rjust(4, '0')}"
-              elsif c == '"'
-                '\\"'
-              elsif c == '\\'
-                '\\\\'
-              else
-                c
-              end
-            end.join
-            pairs << "\"#{escaped}\": #{v_s}"
-          else
-            # Encode to UTF-8 for regex compatibility (e.g. Windows-31J name vs UTF-8 regex)
-            name_for_check = name.ascii_only? ? name : (name.encode('UTF-8') rescue name)
-            # Use bare-word syntax only for simple identifiers (letters/digits/underscore,
-            # optional ?/! suffix). Everything else (operators, setters, etc.) needs quoting.
-            if name_for_check =~ /\A[a-zA-Z_\u0080-\uFFFF][a-zA-Z0-9_\u0080-\uFFFF]*[?!]?\z/
-              pairs << "#{name}: #{v_s}"
-            else
-              pairs << "#{name.inspect}: #{v_s}"
-            end
-          end
-        else
-          k_s = k.inspect
-          unless k_s.is_a?(String)
-            k_s2 = k_s.to_s
-            k_s = k_s2.is_a?(String) ? k_s2 : "#<#{k_s.class.name}:0x#{k_s.__id__.to_s(16)}>"
-          end
-          pairs << "#{k_s} => #{v_s}"
-        end
+        pairs << "#{__inspect_key__(k)}#{v_s}"
       end
       "{#{pairs.join(', ')}}"
     ensure
@@ -284,7 +295,7 @@ class Hash
   end
 
   def merge!(*others, &block)
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     others.each do |other|
       other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
       raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
@@ -300,7 +311,7 @@ class Hash
   alias update merge!
 
   def replace(other)
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     other = other.to_hash if !other.is_a?(Hash) && other.respond_to?(:to_hash)
     raise TypeError, "no implicit conversion of #{other.class} into Hash" unless other.is_a?(Hash)
     Intrinsics.hash_clear(self)
@@ -316,21 +327,21 @@ class Hash
   end
 
   def delete(key, &block)
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     return Intrinsics.hash_delete(self, key) if key?(key)
     block ? block.call(key) : nil
   end
 
   def delete_if(&block)
     return to_enum(:delete_if) { size } unless block
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     each { |k, v| Intrinsics.hash_delete(self, k) if block.call(k, v) }
     self
   end
 
   def keep_if(&block)
     return to_enum(:keep_if) { size } unless block
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     each { |k, v| Intrinsics.hash_delete(self, k) unless block.call(k, v) }
     self
   end
@@ -368,7 +379,7 @@ class Hash
 
   def select!(&block)
     return to_enum(:select!) { size } unless block
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     changed = false
     each { |k, v| unless block.call(k, v); Intrinsics.hash_delete(self, k); changed = true; end }
     changed ? self : nil
@@ -386,7 +397,7 @@ class Hash
 
   def reject!(&block)
     return to_enum(:reject!) { size } unless block
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     changed = false
     each { |k, v| if block.call(k, v); Intrinsics.hash_delete(self, k); changed = true; end }
     changed ? self : nil
@@ -432,7 +443,7 @@ class Hash
 
   def transform_keys!(hash = nil, &block)
     return to_enum(:transform_keys!) { size } if hash.nil? && !block
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     Intrinsics.hash_transform_keys_bang(self, hash, block)
   end
 
@@ -446,7 +457,7 @@ class Hash
 
   def transform_values!(&block)
     return to_enum(:transform_values!) { size } unless block
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     each { |k, v| self[k] = block.call(v) }
     self
   end
@@ -464,7 +475,7 @@ class Hash
   end
 
   def shift
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     return nil if empty?
     k = keys.first
     v = Intrinsics.hash_delete(self, k)
@@ -577,7 +588,7 @@ class Hash
   def compare_by_identity? = Intrinsics.hash_compare_by_identity_q(self)
 
   def clear
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     Intrinsics.hash_clear(self)
   end
 
@@ -600,7 +611,7 @@ class Hash
   end
 
   def rehash
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
+    __check_frozen__
     pairs = map { |k, v| [k, v] }
     Intrinsics.hash_clear(self)
     pairs.each { |k, v| self[k] = v }
