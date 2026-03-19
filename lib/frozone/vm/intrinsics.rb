@@ -3070,6 +3070,7 @@ module Frozone
         def unbound_method_arity(_, receiver)
           return IntegerObject.new(0) unless receiver.is_a?(UnboundMethodObject)
           m = receiver.raw_method
+          return IntegerObject.new(-1) if m.nil?  # method_missing synthetic method
           return IntegerObject.new(0) unless m.is_a?(Method)
           req = m.required_params.length
           opt = m.optional_params.length

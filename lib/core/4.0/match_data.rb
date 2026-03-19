@@ -1,4 +1,8 @@
 class MatchData
+  def self.allocate
+    raise NoMethodError, "undefined method 'allocate' for class 'MatchData'"
+  end
+
   def to_a = Intrinsics.match_data_to_a(self)
 
   def [](index, length = nil)
