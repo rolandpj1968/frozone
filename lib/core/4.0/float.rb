@@ -87,26 +87,22 @@ class Float
   # Comparison with coerce; no coerce or TypeError from coerce raises ArgumentError
   def <(other)
     return Intrinsics.float__lt_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    begin; a, b = other.coerce(self); rescue TypeError, NoMethodError; raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"; end
-    a < b
+    __coerce_and_compare__(other, :<)
   end
 
   def <=(other)
     return Intrinsics.float__le_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    begin; a, b = other.coerce(self); rescue TypeError, NoMethodError; raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"; end
-    a <= b
+    __coerce_and_compare__(other, :<=)
   end
 
   def >=(other)
     return Intrinsics.float__ge_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    begin; a, b = other.coerce(self); rescue TypeError, NoMethodError; raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"; end
-    a >= b
+    __coerce_and_compare__(other, :>=)
   end
 
   def >(other)
     return Intrinsics.float__gt_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    begin; a, b = other.coerce(self); rescue TypeError, NoMethodError; raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"; end
-    a > b
+    __coerce_and_compare__(other, :>)
   end
 
   # == calls other == self if coercion fails (TypeError/NoMethodError rescue)
@@ -254,6 +250,13 @@ class Float
   alias phase arg
 
   private
+
+  def __coerce_and_compare__(other, op)
+    a, b = other.coerce(self)
+    a.send(op, b)
+  rescue TypeError, NoMethodError
+    raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"
+  end
 
   def _to_int(n)
     if n.is_a?(Integer)

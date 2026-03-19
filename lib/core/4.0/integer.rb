@@ -11,28 +11,33 @@ class Integer
 
   private :_coerce_op
 
+  def __coerce_and_compare__(other, op)
+    a, b = other.coerce(self)
+    a.send(op, b)
+  rescue TypeError, NoMethodError
+    raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"
+  end
+
+  private :__coerce_and_compare__
+
   def < (v)
     return Intrinsics.integer__lt_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    begin; a, b = v.coerce(self); rescue TypeError, NoMethodError; raise ArgumentError, "comparison of #{self.class} with #{v.class} failed"; end
-    a < b
+    __coerce_and_compare__(v, :<)
   end
 
   def <=(v)
     return Intrinsics.integer__le_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    begin; a, b = v.coerce(self); rescue TypeError, NoMethodError; raise ArgumentError, "comparison of #{self.class} with #{v.class} failed"; end
-    a <= b
+    __coerce_and_compare__(v, :<=)
   end
 
   def >=(v)
     return Intrinsics.integer__ge_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    begin; a, b = v.coerce(self); rescue TypeError, NoMethodError; raise ArgumentError, "comparison of #{self.class} with #{v.class} failed"; end
-    a >= b
+    __coerce_and_compare__(v, :>=)
   end
 
   def > (v)
     return Intrinsics.integer__gt_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    begin; a, b = v.coerce(self); rescue TypeError, NoMethodError; raise ArgumentError, "comparison of #{self.class} with #{v.class} failed"; end
-    a > b
+    __coerce_and_compare__(v, :>)
   end
 
   def ==(v)
