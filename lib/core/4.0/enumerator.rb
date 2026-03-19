@@ -25,24 +25,6 @@ class Enumerator
     end
   end
 
-  def initialize(size = nil, &block)
-    raise FrozenError, "can't modify frozen Enumerator" if frozen?
-    @block = block
-    @size = size
-    @receiver = nil
-    @method_name = nil
-    @method_args = []
-    @method_kwargs = {}
-    @size_block = nil
-    @fiber = nil
-    @peeked = false
-    @peeked_vals = nil
-    @feed = nil
-    self
-  end
-
-  private :initialize
-
   def self._from_method(receiver, method_name, method_args, size_block = nil, method_kwargs = {})
     e = allocate
     e.instance_variable_set(:@receiver, receiver)
@@ -255,6 +237,22 @@ class Enumerator
 
   private
 
+  def initialize(size = nil, &block)
+    raise FrozenError, "can't modify frozen Enumerator" if frozen?
+    @block = block
+    @size = size
+    @receiver = nil
+    @method_name = nil
+    @method_args = []
+    @method_kwargs = {}
+    @size_block = nil
+    @fiber = nil
+    @peeked = false
+    @peeked_vals = nil
+    @feed = nil
+    self
+  end
+
   def _ensure_fiber
     return if @fiber
     if @block
@@ -325,19 +323,19 @@ end
 class Enumerator::Generator
   include Enumerable
 
+  def each(*args, &block)
+    raise LocalJumpError, "no block given (yield)" unless block
+    yielder = Enumerator::Yielder.new(&block)
+    @block.call(yielder, *args)
+  end
+
+  private
+
   def initialize(&block)
     raise FrozenError, "can't modify frozen Enumerator::Generator" if frozen?
     raise LocalJumpError, "no block given" unless block
     @block = block
     self
-  end
-
-  private :initialize
-
-  def each(*args, &block)
-    raise LocalJumpError, "no block given (yield)" unless block
-    yielder = Enumerator::Yielder.new(&block)
-    @block.call(yielder, *args)
   end
 end
 
@@ -356,14 +354,6 @@ end
 
 class Enumerator::Chain
   include Enumerable
-
-  def initialize(*enums)
-    raise FrozenError, "can't modify frozen Enumerator::Chain" if frozen?
-    @enums = enums
-    self
-  end
-
-  private :initialize
 
   def each(&block)
     return to_enum(:each) unless block
@@ -389,6 +379,14 @@ class Enumerator::Chain
 
   def inspect
     "#<Enumerator::Chain: #{@enums.inspect}>"
+  end
+
+  private
+
+  def initialize(*enums)
+    raise FrozenError, "can't modify frozen Enumerator::Chain" if frozen?
+    @enums = enums
+    self
   end
 end
 

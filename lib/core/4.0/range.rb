@@ -9,18 +9,6 @@ class Range
 
   def self.allocate = Intrinsics.range_allocate(self)
 
-  def initialize(b, e, excl = false)
-    raise FrozenError, "can't modify frozen Range" if Intrinsics.range_initialized_q(self)
-    unless b.nil? || e.nil?
-      # Validate that b and e are comparable; propagate any exception from <=>
-      cmp = b <=> e
-      raise ArgumentError, "bad value for range" if cmp.nil?
-    end
-    Intrinsics.range_set(self, b, e, excl)
-  end
-
-  private :initialize
-
   def begin          = Intrinsics.range_begin(self)
   def end            = Intrinsics.range_end(self)
   def exclude_end?   = Intrinsics.range_exclude_end(self)
@@ -322,46 +310,6 @@ class Range
     self
   end
 
-  private def _step_size(n)
-    b = self.begin; e = self.end; excl = exclude_end?
-    return nil unless b.is_a?(Integer) || b.is_a?(Float)
-    return nil unless n.is_a?(Numeric)
-    return Float::INFINITY if e.nil?
-    return nil unless e.is_a?(Integer) || e.is_a?(Float)
-    return 0 if n == 0
-
-    n_f = n.to_f
-    if n_f > 0
-      diff = e.to_f - b.to_f
-      return 0 if diff < 0
-      if n.is_a?(Integer) && b.is_a?(Integer) && e.is_a?(Integer)
-        diff_i = e - b
-        excl ? (diff_i <= 0 ? 0 : (diff_i - 1) / n + 1) : diff_i / n + 1
-      else
-        count = excl ? (diff / n_f).ceil : (diff / n_f).floor + 1
-        # For exclusive: check if one more element fits (float precision)
-        if excl && count > 0
-          last = n_f * (count - 1) + b.to_f
-          next_el = n_f * count + b.to_f
-          count += 1 if last < e.to_f && next_el < e.to_f
-        end
-        # For inclusive: trust floor+1 (boundary snap handles slight overshoot in iteration)
-        [count, 0].max
-      end
-    else
-      diff = b.to_f - e.to_f
-      return 0 if diff < 0
-      n_abs = (-n_f)
-      if n.is_a?(Integer) && b.is_a?(Integer) && e.is_a?(Integer)
-        diff_i = b - e
-        excl ? (diff_i <= 0 ? 0 : (diff_i - 1) / (-n) + 1) : diff_i / (-n) + 1
-      else
-        count = excl ? (diff / n_abs).ceil : (diff / n_abs).floor + 1
-        [count, 0].max
-      end
-    end
-  end
-
   def reduce(init = nil, &block)
     if init.nil?
       acc = nil
@@ -437,29 +385,6 @@ class Range
       to_a.reverse_each(&block)
     end
     self
-  end
-
-  private def _reverse_each_size
-    b = self.begin; e = self.end
-    if b.nil?
-      # Beginless: only Integer end is iterable
-      return Float::INFINITY if e.is_a?(Integer)
-      raise TypeError, "can't iterate from #{e.nil? ? 'NilClass' : e.class}"
-    end
-    if b.is_a?(Float)
-      raise TypeError, "can't iterate from #{e.nil? ? 'NilClass' : e.class}"
-    end
-    return nil unless b.is_a?(Integer)
-    return Float::INFINITY if e.nil?
-    if e.is_a?(Integer)
-      n = exclude_end? ? e - b : e - b + 1
-    elsif e.is_a?(Float)
-      hi = exclude_end? ? e.ceil - 1 : e.floor
-      n = hi - b + 1
-    else
-      raise TypeError, "can't iterate from #{e.class}"
-    end
-    n < 0 ? 0 : n
   end
 
   def sort; to_a.sort; end
@@ -559,7 +484,88 @@ class Range
     end
   end
 
+  # SpecVersion (mspec) may call split on a Range when given a range version like ""..."3.4".
+  # Fall back to splitting the end value's string representation.
+  def split(sep = nil, limit = nil)
+    v = self.end
+    v = v.nil? ? '' : v.to_s
+    limit.nil? ? v.split(sep) : v.split(sep, limit)
+  end
+
   private
+
+  def initialize(b, e, excl = false)
+    raise FrozenError, "can't modify frozen Range" if Intrinsics.range_initialized_q(self)
+    unless b.nil? || e.nil?
+      # Validate that b and e are comparable; propagate any exception from <=>
+      cmp = b <=> e
+      raise ArgumentError, "bad value for range" if cmp.nil?
+    end
+    Intrinsics.range_set(self, b, e, excl)
+  end
+
+  def _step_size(n)
+    b = self.begin; e = self.end; excl = exclude_end?
+    return nil unless b.is_a?(Integer) || b.is_a?(Float)
+    return nil unless n.is_a?(Numeric)
+    return Float::INFINITY if e.nil?
+    return nil unless e.is_a?(Integer) || e.is_a?(Float)
+    return 0 if n == 0
+
+    n_f = n.to_f
+    if n_f > 0
+      diff = e.to_f - b.to_f
+      return 0 if diff < 0
+      if n.is_a?(Integer) && b.is_a?(Integer) && e.is_a?(Integer)
+        diff_i = e - b
+        excl ? (diff_i <= 0 ? 0 : (diff_i - 1) / n + 1) : diff_i / n + 1
+      else
+        count = excl ? (diff / n_f).ceil : (diff / n_f).floor + 1
+        # For exclusive: check if one more element fits (float precision)
+        if excl && count > 0
+          last = n_f * (count - 1) + b.to_f
+          next_el = n_f * count + b.to_f
+          count += 1 if last < e.to_f && next_el < e.to_f
+        end
+        # For inclusive: trust floor+1 (boundary snap handles slight overshoot in iteration)
+        [count, 0].max
+      end
+    else
+      diff = b.to_f - e.to_f
+      return 0 if diff < 0
+      n_abs = (-n_f)
+      if n.is_a?(Integer) && b.is_a?(Integer) && e.is_a?(Integer)
+        diff_i = b - e
+        excl ? (diff_i <= 0 ? 0 : (diff_i - 1) / (-n) + 1) : diff_i / (-n) + 1
+      else
+        count = excl ? (diff / n_abs).ceil : (diff / n_abs).floor + 1
+        [count, 0].max
+      end
+    end
+  end
+
+  def _reverse_each_size
+    b = self.begin; e = self.end
+    if b.nil?
+      # Beginless: only Integer end is iterable
+      return Float::INFINITY if e.is_a?(Integer)
+      raise TypeError, "can't iterate from #{e.nil? ? 'NilClass' : e.class}"
+    end
+    if b.is_a?(Float)
+      raise TypeError, "can't iterate from #{e.nil? ? 'NilClass' : e.class}"
+    end
+    return nil unless b.is_a?(Integer)
+    return Float::INFINITY if e.nil?
+    if e.is_a?(Integer)
+      n = exclude_end? ? e - b : e - b + 1
+    elsif e.is_a?(Float)
+      hi = exclude_end? ? e.ceil - 1 : e.floor
+      n = hi - b + 1
+    else
+      raise TypeError, "can't iterate from #{e.class}"
+    end
+    n < 0 ? 0 : n
+  end
 
   # Float step over a numeric range. b_f and e_f are already converted to Float.
   # e_f is nil for an endless range.
@@ -827,15 +833,5 @@ class Range
       end
       result
     end
-  end
-
-  public
-
-  # SpecVersion (mspec) may call split on a Range when given a range version like ""..."3.4".
-  # Fall back to splitting the end value's string representation.
-  def split(sep = nil, limit = nil)
-    v = self.end
-    v = v.nil? ? '' : v.to_s
-    limit.nil? ? v.split(sep) : v.split(sep, limit)
   end
 end

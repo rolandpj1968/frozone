@@ -1,28 +1,7 @@
 class Rational < Numeric
 
-  def initialize(numerator, denominator = 1)
-    raise ZeroDivisionError, "divided by 0" if denominator == 0
-    g = numerator.gcd(denominator)
-    @numerator = numerator / g
-    @denominator = denominator / g
-    if @denominator < 0
-      @numerator = -@numerator
-      @denominator = -@denominator
-    end
-    freeze
-  end
-
   def numerator = @numerator
   def denominator = @denominator
-
-  def __coerce_op__(other, op)
-    a, b = other.coerce(self)
-    a.send(op, b)
-  rescue NoMethodError
-    raise TypeError, "#{other.class} can't be coerced into Rational"
-  end
-
-  private :__coerce_op__
 
   def +(other)
     case other
@@ -224,6 +203,32 @@ class Rational < Numeric
     _simplest_rational(lo, hi)
   end
 
+  def self.new(*) = raise NoMethodError, "undefined method 'new' for class #{self}"
+
+  def inspect = "(#{@numerator}/#{@denominator})"
+  def to_s = "#{@numerator}/#{@denominator}"
+
+  private
+
+  def initialize(numerator, denominator = 1)
+    raise ZeroDivisionError, "divided by 0" if denominator == 0
+    g = numerator.gcd(denominator)
+    @numerator = numerator / g
+    @denominator = denominator / g
+    if @denominator < 0
+      @numerator = -@numerator
+      @denominator = -@denominator
+    end
+    freeze
+  end
+
+  def __coerce_op__(other, op)
+    a, b = other.coerce(self)
+    a.send(op, b)
+  rescue NoMethodError
+    raise TypeError, "#{other.class} can't be coerced into Rational"
+  end
+
   def _simplest_rational(lo, hi)
     return Rational(0, 1) if lo <= 0 && hi >= 0
     return -_simplest_rational(-hi, -lo) if hi < 0
@@ -236,6 +241,11 @@ class Rational < Numeric
     Rational(k * y.numerator + y.denominator, y.numerator)
   end
 
+  def _validate_ndigits(n)
+    raise TypeError, "not an integer" unless n.is_a?(Integer)
+    n
+  end
+
   def marshal_dump
     [@numerator, @denominator]
   end
@@ -245,18 +255,6 @@ class Rational < Numeric
     @numerator = ary[0] / g
     @denominator = ary[1] / g
   end
-
-  def _validate_ndigits(n)
-    raise TypeError, "not an integer" unless n.is_a?(Integer)
-    n
-  end
-
-  private :initialize, :marshal_dump, :marshal_load, :_simplest_rational, :_validate_ndigits
-
-  def self.new(*) = raise NoMethodError, "undefined method 'new' for class #{self}"
-
-  def inspect = "(#{@numerator}/#{@denominator})"
-  def to_s = "#{@numerator}/#{@denominator}"
 end
 
 class Complex
@@ -306,33 +304,6 @@ class Complex
   def -@
     Complex(-@real, -@imaginary)
   end
-
-  def _complex_coerce_op(other, op)
-    if other.is_a?(Complex)
-      yield other
-    else
-      real_q = other.respond_to?(:real?) ? other.real? : nil
-      if real_q == false
-        begin
-          a, b = other.coerce(self)
-          a.send(op, b)
-        rescue NoMethodError
-          raise TypeError, "#{other.class} can't be coerced into Complex"
-        end
-      elsif other.is_a?(Numeric) || real_q
-        yield other
-      else
-        begin
-          a, b = other.coerce(self)
-          a.send(op, b)
-        rescue NoMethodError
-          raise TypeError, "#{other.class} can't be coerced into Complex"
-        end
-      end
-    end
-  end
-
-  private :_complex_coerce_op
 
   def +(other)
     _complex_coerce_op(other, :+) do |v|
@@ -562,24 +533,6 @@ class Complex
     self == other
   end
 
-  def _format_imag(im_s)
-    if im_s.start_with?('-')
-      ['-', im_s[1..]]
-    else
-      ['+', im_s]
-    end
-  end
-
-  def marshal_dump
-    [@real, @imaginary]
-  end
-
-  def marshal_load(ary)
-    @real, @imaginary = ary
-  end
-
-  private :_format_imag, :marshal_dump, :marshal_load
-
   def inspect
     re_s = @real.inspect
     im_s = @imaginary.inspect
@@ -594,6 +547,49 @@ class Complex
     sep, disp = _format_imag(im_s)
     star = (disp[-1] =~ /[0-9]/) ? '' : '*'
     "#{re_s}#{sep}#{disp}#{star}i"
+  end
+
+  private
+
+  def _complex_coerce_op(other, op)
+    if other.is_a?(Complex)
+      yield other
+    else
+      real_q = other.respond_to?(:real?) ? other.real? : nil
+      if real_q == false
+        begin
+          a, b = other.coerce(self)
+          a.send(op, b)
+        rescue NoMethodError
+          raise TypeError, "#{other.class} can't be coerced into Complex"
+        end
+      elsif other.is_a?(Numeric) || real_q
+        yield other
+      else
+        begin
+          a, b = other.coerce(self)
+          a.send(op, b)
+        rescue NoMethodError
+          raise TypeError, "#{other.class} can't be coerced into Complex"
+        end
+      end
+    end
+  end
+
+  def _format_imag(im_s)
+    if im_s.start_with?('-')
+      ['-', im_s[1..]]
+    else
+      ['+', im_s]
+    end
+  end
+
+  def marshal_dump
+    [@real, @imaginary]
+  end
+
+  def marshal_load(ary)
+    @real, @imaginary = ary
   end
 end
 
