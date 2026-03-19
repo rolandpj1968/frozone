@@ -56,9 +56,16 @@ class Struct
     self.const_set(const_name, klass) if const_name
     klass
   end
-
   # Struct#initialize is on the base class so subclasses can override it
   # and call super (matching MRI semantics).
+  def self.members = []
+  def members = self.class.members || []
+  def to_a    = members.map { |m| @struct_values&.fetch(m, nil) }
+  def values = to_a
+  def size   = members.size
+  alias length size
+  def instance_variables = super.reject { |v| v == :@struct_values }
+
   def initialize(*args, **kwargs)
     mems = self.class.members || []
     @struct_values ||= {}
@@ -84,18 +91,7 @@ class Struct
       end
     end
   end
-
-  def self.members = []
-
-  def members = self.class.members || []
-  def to_a    = members.map { |m| @struct_values&.fetch(m, nil) }
-
   alias deconstruct to_a
-
-  def values = to_a
-  def size   = members.size
-
-  alias length size
 
   def to_h(&block)
     h = {}
@@ -275,10 +271,7 @@ class Struct
     pairs = members.map { |m| "#{m}=#{(@struct_values&.fetch(m, nil)).inspect}" }.join(', ')
     name ? "#<struct #{name} #{pairs}>" : "#<struct #{pairs}>"
   end
-
   alias to_s inspect
-
-  def instance_variables = super.reject { |v| v == :@struct_values }
 
   def freeze
     @struct_values&.each_value(&:freeze) rescue nil

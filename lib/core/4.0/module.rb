@@ -3,24 +3,53 @@ class Module
   def public(*names)    = Intrinsics.module_set_public(self, names)
   def private(*names)   = Intrinsics.module_set_private(self, names)
   def protected(*names) = Intrinsics.module_set_protected(self, names)
-
   def module_function(*names) = Intrinsics.module_function(self, names)
-
   private :public, :private, :protected, :module_function
 
   def include(*mods) = Intrinsics.module_include_multi(self, mods)
   def prepend(*mods) = Intrinsics.module_prepend_multi(self, mods)
-
   def append_features(other) = Intrinsics.module_append_features(self, other)
   def prepend_features(other) = Intrinsics.module_prepend_features(self, other)
   def included(other); end
   def prepended(other); end
-
   private :append_features, :prepend_features, :included, :prepended
 
   def attr_reader(*names)  = Intrinsics.module_attr_reader(self, names)
   def attr_writer(*names)  = Intrinsics.module_attr_writer(self, names)
   def attr_accessor(*names) = Intrinsics.module_attr_accessor(self, names)
+  def private_constant(*names) = Intrinsics.module_private_constant(self, *names)
+  def public_constant(*names) = Intrinsics.module_public_constant(self, *names)
+  def private_class_method(*names) = Intrinsics.module_set_class_method_visibility(self, names, :private)
+  def public_class_method(*names) = Intrinsics.module_set_class_method_visibility(self, names, :public)
+  def remove_method(*names) = Intrinsics.module_remove_methods(self, names)
+  def undef_method(*names) = Intrinsics.module_undef_methods(self, names)
+  def alias_method(new_name, old_name) = Intrinsics.module_alias_method(self, new_name, old_name)
+  def ===(other) = other.is_a?(self)
+  def dup = Intrinsics.module_dup(self)
+  def name            = Intrinsics.module_name(self)
+  def inspect         = to_s
+  def const_defined?(name, inherit = true) = Intrinsics.module_const_defined(self, name, inherit)
+  def const_get(name, inherit = true) = Intrinsics.module_const_get(self, name, inherit)
+  def const_set(name, value) = Intrinsics.module_const_set(self, name, value)
+  def ancestors       = Intrinsics.module_ancestors(self)
+  def included_modules = ancestors.drop(1).select { |m| m.is_a?(Module) && !m.is_a?(Class) }
+  def instance_methods(include_super = true) = Intrinsics.module_instance_methods(self, include_super)
+  def undefined_instance_methods = Intrinsics.module_undefined_instance_methods(self)
+  def public_instance_methods(include_super = true) = Intrinsics.module_public_only_instance_methods(self, include_super)
+  def private_instance_methods(include_super = true) = Intrinsics.module_private_instance_methods(self, include_super)
+  def protected_instance_methods(include_super = true) = Intrinsics.module_protected_instance_methods(self, include_super)
+  def instance_method(name) = Intrinsics.module_instance_method(self, name)
+  def public_instance_method(name) = Intrinsics.module_public_instance_method(self, name)
+  def method_defined?(name, inherit = true) = Intrinsics.module_method_defined(self, name, inherit)
+  def public_method_defined?(name, inherit = true) = Intrinsics.module_public_method_defined(self, name, inherit)
+  def private_method_defined?(name, inherit = true) = Intrinsics.module_private_method_defined(self, name, inherit)
+  def protected_method_defined?(name, inherit = true) = Intrinsics.module_protected_method_defined(self, name, inherit)
+  def constants(inherit = true) = Intrinsics.module_constants(self, inherit)
+  def class_variable_defined?(name) = Intrinsics.module_class_variable_defined(self, name)
+  def class_variable_get(name) = Intrinsics.module_class_variable_get(self, name)
+  def class_variable_set(name, value) = Intrinsics.module_class_variable_set(self, name, value)
+  def class_variables(inherit = true) = Intrinsics.module_class_variables(self, inherit)
+  def remove_const(name) = Intrinsics.module_remove_const(self, name)
 
   def attr(*names_and_writable)
     # Handle legacy form: attr :name, true/false
@@ -68,7 +97,6 @@ class Module
       Intrinsics.module_eval_string(self, code, file, line)
     end
   end
-
   alias class_eval module_eval
 
   def module_exec(*args, &block)
@@ -76,13 +104,7 @@ class Module
     Intrinsics.module_exec(self, args, block)
   end
   alias class_exec module_exec
-  def private_constant(*names) = Intrinsics.module_private_constant(self, *names)
-  def public_constant(*names) = Intrinsics.module_public_constant(self, *names)
-  def private_class_method(*names) = Intrinsics.module_set_class_method_visibility(self, names, :private)
-  def public_class_method(*names) = Intrinsics.module_set_class_method_visibility(self, names, :public)
-  def remove_method(*names) = Intrinsics.module_remove_methods(self, names)
-  def undef_method(*names) = Intrinsics.module_undef_methods(self, names)
-  def alias_method(new_name, old_name) = Intrinsics.module_alias_method(self, new_name, old_name)
+
   def define_method(name, callable = :__unset__, &block)
     if callable.equal?(:__unset__)
       raise ArgumentError, "tried to create Proc object without a block" unless block
@@ -94,12 +116,6 @@ class Module
       Intrinsics.module_define_method(self, name, callable)
     end
   end
-
-  def ===(other) = other.is_a?(self)
-
-  def dup = Intrinsics.module_dup(self)
-
-  def name            = Intrinsics.module_name(self)
 
   def to_s
     if @__refinement__
@@ -116,53 +132,26 @@ class Module
     "#<Class:#{target_str}>"
   end
 
-  def inspect         = to_s
-  def const_defined?(name, inherit = true) = Intrinsics.module_const_defined(self, name, inherit)
-  def const_get(name, inherit = true) = Intrinsics.module_const_get(self, name, inherit)
-  def const_set(name, value) = Intrinsics.module_const_set(self, name, value)
-  def ancestors       = Intrinsics.module_ancestors(self)
-  def included_modules = ancestors.drop(1).select { |m| m.is_a?(Module) && !m.is_a?(Class) }
   def include?(mod)
     raise TypeError, "wrong argument type #{mod.class} (expected Module)" unless mod.is_a?(Module) && !mod.is_a?(Class)
     ancestors.drop(1).include?(mod)
   end
-  def instance_methods(include_super = true) = Intrinsics.module_instance_methods(self, include_super)
-  def undefined_instance_methods = Intrinsics.module_undefined_instance_methods(self)
-  def public_instance_methods(include_super = true) = Intrinsics.module_public_only_instance_methods(self, include_super)
-  def private_instance_methods(include_super = true) = Intrinsics.module_private_instance_methods(self, include_super)
-  def protected_instance_methods(include_super = true) = Intrinsics.module_protected_instance_methods(self, include_super)
-  def instance_method(name) = Intrinsics.module_instance_method(self, name)
-  def public_instance_method(name) = Intrinsics.module_public_instance_method(self, name)
-  def method_defined?(name, inherit = true) = Intrinsics.module_method_defined(self, name, inherit)
-  def public_method_defined?(name, inherit = true) = Intrinsics.module_public_method_defined(self, name, inherit)
-  def private_method_defined?(name, inherit = true) = Intrinsics.module_private_method_defined(self, name, inherit)
-  def protected_method_defined?(name, inherit = true) = Intrinsics.module_protected_method_defined(self, name, inherit)
-
-  def constants(inherit = true) = Intrinsics.module_constants(self, inherit)
-  def class_variable_defined?(name) = Intrinsics.module_class_variable_defined(self, name)
-  def class_variable_get(name) = Intrinsics.module_class_variable_get(self, name)
-  def class_variable_set(name, value) = Intrinsics.module_class_variable_set(self, name, value)
-  def class_variables(inherit = true) = Intrinsics.module_class_variables(self, inherit)
-  def remove_const(name) = Intrinsics.module_remove_const(self, name)
   private :remove_const
   def remove_class_variable(name) = Intrinsics.module_remove_class_variable(self, name)
   def ruby2_keywords(*names) = Intrinsics.module_ruby2_keywords(self, names)
-
   def self.nesting = Intrinsics.module_nesting(self)
-
   # Module.constants (no args) returns all accessible top-level constants (MRI singleton method).
   # Module.constants(true/false) uses the normal Module#constants instance-method semantics.
-  def self.constants(*args)
-    args.empty? ? Object.constants : Intrinsics.module_constants(self, args.first)
-  end
-
   def autoload(name, path) = Intrinsics.module_autoload(self, name, path)
   def autoload?(name, inherit = true) = Intrinsics.module_autoload_q(self, name, inherit)
   def singleton_class? = Intrinsics.module_singleton_class_q(self)
   def set_temporary_name(name) = Intrinsics.module_set_temporary_name(self, name)
   def const_source_location(name, inherit = true) = Intrinsics.module_const_source_location(self, name, inherit)
-
   def const_added(name); end
+
+  def self.constants(*args)
+    args.empty? ? Object.constants : Intrinsics.module_constants(self, args.first)
+  end
   private :const_added
 
   def method_added(name); end
@@ -175,7 +164,6 @@ class Module
   private :singleton_method_added, :singleton_method_removed, :singleton_method_undefined
 
   def deprecate_constant(*names) = Intrinsics.module_deprecate_constant(self, names)
-
   def extend_object(obj) = Intrinsics.module_extend_object(self, obj)
   private :extend_object
 
@@ -261,7 +249,6 @@ class Module
     Intrinsics.module_using(self, mod)
     self
   end
-
   private :using
 
   def self.used_refinements = Intrinsics.module_used_refinements(self)

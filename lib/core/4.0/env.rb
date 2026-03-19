@@ -56,7 +56,6 @@ class ENVClass
     Intrinsics.env_set(key, value)
     value
   end
-
   alias store []=
 
   def delete(key, &block)
@@ -91,7 +90,6 @@ class ENVClass
     key = ENVClass.__coerce_key(key)
     Intrinsics.env_key?(key)
   end
-
   alias has_key? key?
   alias include? key?
   alias member? key?
@@ -101,7 +99,6 @@ class ENVClass
     return nil if val.nil?
     Intrinsics.env_value?(val)
   end
-
   alias has_value? value?
 
   def keys
@@ -115,7 +112,6 @@ class ENVClass
   def size
     Intrinsics.env_size
   end
-
   alias length size
 
   def empty?
@@ -129,7 +125,6 @@ class ENVClass
     end
     self
   end
-
   alias each_pair each
 
   def each_key(&block)
@@ -227,7 +222,6 @@ class ENVClass
     end
     self
   end
-
   alias merge! update
 
   def shift
@@ -273,7 +267,6 @@ class ENVClass
     each { |k, v| h[k] = v if block.call(k, v) }
     h
   end
-
   alias filter select
 
   def select!(&block)
@@ -287,7 +280,6 @@ class ENVClass
     end
     changed ? self : nil
   end
-
   alias filter! select!
 
   def reject(&block)
@@ -344,9 +336,11 @@ class ENVClass
     end
     result
   end
-
   class << self
     private
+
+    def __coerce_key(key)   = __coerce_env_string__(key, :key)
+    def __coerce_value(val) = __coerce_env_string__(val, :value)
 
     def __coerce_env_string__(val, role)
       return val if val.is_a?(String)
@@ -357,9 +351,6 @@ class ENVClass
       raise TypeError, "no implicit conversion of #{result.class} into String" unless result.is_a?(String)
       result
     end
-
-    def __coerce_key(key)   = __coerce_env_string__(key, :key)
-    def __coerce_value(val) = __coerce_env_string__(val, :value)
 
     def __validate_key(key)
       raise Errno::EINVAL, "Invalid argument - #{key}" if key.empty?
@@ -384,7 +375,6 @@ class ENVClass
       end
       str
     end
-
     # Soft-coerce val to String via to_str; returns nil on failure (no raise).
     def __soft_coerce_string__(val)
       return val if val.is_a?(String)

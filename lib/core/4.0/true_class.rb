@@ -3,7 +3,6 @@ class TrueClass
 
   def to_s = TRUE_STR
   def inspect = TRUE_STR
-
   def &(other) = other ? true : false
   def |(other) = true
   def ^(other) = other ? false : true

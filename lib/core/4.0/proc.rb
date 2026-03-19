@@ -11,6 +11,13 @@ class Proc
   def source_location = Intrinsics.proc_source_location(self)
   def dup = Intrinsics.proc_dup(self)
   def clone(freeze: nil) = Intrinsics.proc_clone(self, freeze)
+  def to_s    = Intrinsics.proc_inspect(self)
+  def inspect = Intrinsics.proc_inspect(self)
+  def to_proc = self
+  def ==(other)  = Intrinsics.proc_eql(self, other)
+  def eql?(other) = Intrinsics.proc_eql(self, other)
+  def hash = Intrinsics.proc_hash(self)
+  def ruby2_keywords = Intrinsics.proc_ruby2_keywords(self)
 
   def <<(other)
     raise TypeError, "callable object is expected" unless other.respond_to?(:call)
@@ -44,14 +51,4 @@ class Proc
     raise ArgumentError, "can't create Binding from curried Proc" if Intrinsics.proc_is_curried(self)
     Intrinsics.proc_binding(self)
   end
-
-  def to_s    = Intrinsics.proc_inspect(self)
-  def inspect = Intrinsics.proc_inspect(self)
-  def to_proc = self
-
-  def ==(other)  = Intrinsics.proc_eql(self, other)
-  def eql?(other) = Intrinsics.proc_eql(self, other)
-  def hash = Intrinsics.proc_hash(self)
-
-  def ruby2_keywords = Intrinsics.proc_ruby2_keywords(self)
 end

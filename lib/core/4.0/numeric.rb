@@ -1,57 +1,47 @@
 class Numeric
   include Comparable
 
-  def singleton_method_added(id)
-    raise TypeError, "can't define singleton"
-  end
-
   def integer? = false
   def real?    = true
-
   def zero?     = self == 0
   def positive? = self > 0
   def negative? = self < 0
+  def finite?   = true
+  def infinite? = nil
+  def abs2 = self * self
+  def +@() = self
+  def -@()  = 0 - self
+  def real = self
+  def conj      = self
+  alias conjugate conj
+  def imag      = 0
+  alias imaginary imag
+  def polar       = [abs, arg]
+  def rect        = [self, 0]
+  alias rectangular rect
+  def to_int = to_i
+  def to_c = Complex(self, 0)
+  def i    = Complex(0, self)
+  def dup = self
+
+  def singleton_method_added(id)
+    raise TypeError, "can't define singleton"
+  end
 
   def nonzero?
     zero? ? nil : self
   end
 
-  def finite?   = true
-  def infinite? = nil
-
   def abs
     self < 0 ? -self : self
   end
-
   alias magnitude abs
-
-  def abs2 = self * self
-
-  def +@() = self
-  def -@()  = 0 - self
-
-  def real = self
-
-  def conj      = self
-  alias conjugate conj
-
-  def imag      = 0
-  alias imaginary imag
 
   def angle
     self < 0 ? Math::PI : 0.0
   end
-
   alias arg   angle
   alias phase angle
-
-  def polar       = [abs, arg]
-  def rect        = [self, 0]
-  alias rectangular rect
-
-  def to_int = to_i
-  def to_c = Complex(self, 0)
-  def i    = Complex(0, self)
 
   def eql?(other)
     other.instance_of?(self.class) && self == other
@@ -65,8 +55,6 @@ class Numeric
     raise ArgumentError, "can't unfreeze #{self.class}" if freeze == false
     self
   end
-
-  def dup = self
 
   def ceil(ndigits = 0)
     to_f.ceil(ndigits)
@@ -96,7 +84,6 @@ class Numeric
   def modulo(other)
     self - other * div(other)
   end
-
   alias % modulo
 
   def remainder(other)
@@ -148,7 +135,6 @@ class Numeric
       raise TypeError, "#{other.class} can't be coerced into #{self.class}"
     end
   end
-
   # Numeric#step
   def step(to_arg = :__unset__, by_arg = :__unset__, to: :__unset__, by: :__unset__, &block)
     # --- Argument parsing ---
@@ -203,7 +189,6 @@ class Numeric
     __step_each__(limit, step_v, int_step, float_any, &block)
     self
   end
-
   private
 
   def __step_size__(limit, step_v, int_step, float_any)

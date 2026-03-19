@@ -25,6 +25,8 @@ class Enumerator
     end
   end
 
+  def next_values = __next_values_raw__
+
   def self._from_method(receiver, method_name, method_args, size_block = nil, method_kwargs = {})
     e = allocate
     e.instance_variable_set(:@receiver, receiver)
@@ -81,8 +83,6 @@ class Enumerator
     vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals)
   end
 
-  def next_values = __next_values_raw__
-
   def peek
     vals = __peek_values_raw__
     vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals)
@@ -132,7 +132,6 @@ class Enumerator
       "#<Enumerator: generator>"
     end
   end
-
   alias to_s inspect
 
   def self.produce(initial = nil, &block)
@@ -154,7 +153,6 @@ class Enumerator
     each { |*x| result << (x.length == 1 ? x[0] : x) }
     result
   end
-
   alias entries to_a
 
   def first(n = nil)
@@ -185,7 +183,6 @@ class Enumerator
     each { |*x| result << block.call(*x) }
     result
   end
-
   alias collect map
 
   def each_with_index(&ewi_block)
@@ -232,7 +229,6 @@ class Enumerator
   def +(other)
     Enumerator::Chain.new(self, other)
   end
-
   private
 
   def initialize(size = nil, &block)
@@ -326,7 +322,6 @@ class Enumerator::Generator
     yielder = Enumerator::Yielder.new(&block)
     @block.call(yielder, *args)
   end
-
   private
 
   def initialize(&block)
@@ -378,7 +373,6 @@ class Enumerator::Chain
   def inspect
     "#<Enumerator::Chain: #{@enums.inspect}>"
   end
-
   private
 
   def initialize(*enums)
@@ -391,11 +385,11 @@ end
 class Enumerator
   class ArithmeticSequence < Enumerator
     # Supports both Range#step (receiver is a Range) and Numeric#step (receiver is a Numeric).
+    def end
+
     def begin
       @receiver.is_a?(Range) ? @receiver.begin : @receiver
     end
-
-    def end
       if @receiver.is_a?(Range)
         @receiver.end
       else
@@ -438,7 +432,6 @@ class Enumerator
         "((#{@receiver.inspect}).#{@method_name}#{args_str})"
       end
     end
-
     alias to_s inspect
   end
 end

@@ -1,6 +1,22 @@
 class String
   include Comparable
 
+  def %(args) = Intrinsics.string_format(self, args)
+  def length = chars.length
+  alias size length
+  def bytesize = Intrinsics.string_bytesize(self)
+  def to_f = Intrinsics.string_to_f(self)
+  def to_r = Intrinsics.string_to_r(self)
+  def to_sym = Intrinsics.string_to_sym(self)
+  alias intern to_sym
+  def inspect = Intrinsics.string_inspect(self)
+  def dup = Intrinsics.string_dup(self)
+  def clone(freeze: nil) = Intrinsics.string_clone(self, freeze)
+  def freeze = Intrinsics.string_freeze(self)
+  def frozen? = Intrinsics.string_frozen(self)
+  def encoding = Intrinsics.string_encoding(self)
+  def <=>(v) = Intrinsics.string_spaceship(self, v)
+
   def self.try_convert(obj)
     return obj if obj.is_a?(String)
     return nil unless obj.respond_to?(:to_str)
@@ -28,6 +44,7 @@ class String
     result << __native_v__
     result
   end
+
   def *(n)
     n = n.to_int unless n.is_a?(Integer)
     raise RangeError, "bignum too big to convert into 'long'" if n > 9_223_372_036_854_775_807
@@ -42,7 +59,7 @@ class String
     end
     result
   end
-  def %(args) = Intrinsics.string_format(self, args)
+
   def <<(v)
     __check_frozen__
     if v.is_a?(Integer)
@@ -66,29 +83,18 @@ class String
     strs.each { |v| self << v }
     self
   end
-  def length = chars.length
-  alias size length
-  def bytesize = Intrinsics.string_bytesize(self)
+
   def to_s
     return self if self.class == String
     String.new(self)
   end
-
   alias to_str to_s
+
   def to_i(base = 10)
     base = base.to_int unless base.is_a?(Integer)
     Intrinsics.string_to_i_base(self, base)
   end
-  def to_f = Intrinsics.string_to_f(self)
-  def to_r = Intrinsics.string_to_r(self)
-  def to_sym = Intrinsics.string_to_sym(self)
-  alias intern to_sym
-  def inspect = Intrinsics.string_inspect(self)
-  def dup = Intrinsics.string_dup(self)
-  def clone(freeze: nil) = Intrinsics.string_clone(self, freeze)
-  def freeze = Intrinsics.string_freeze(self)
-  def frozen? = Intrinsics.string_frozen(self)
-  def encoding = Intrinsics.string_encoding(self)
+
   def encode(enc = nil, src_enc = nil, **opts)
     Intrinsics.string_encode(self, enc, src_enc, opts)
   end
@@ -97,20 +103,48 @@ class String
     Intrinsics.string_encode_bang(self, enc, src_enc, opts)
   end
 
-  def <=>(v) = Intrinsics.string_spaceship(self, v)
   def ==(v)
     return Intrinsics.string_eql(self, v) if v.is_a?(String)
     return v == self if v.respond_to?(:to_str)
     false
   end
-
   # Exception duck-typing (String can be used as exception proxy)
   def message = self
   def backtrace = []
   def exception(msg = nil) = msg ? self.class.new(msg) : self
-
   def hash = Intrinsics.string_hash(self)
   def eql?(v) = Intrinsics.string_eql(self, v)
+  def empty? = bytesize == 0
+  def lstrip = sub(/\A[[:space:]\x00]+/, '')
+  def strip = lstrip.rstrip
+  def ord = Intrinsics.string_ord(self)
+  def tr(from, to) = Intrinsics.string_tr(self, from, to)
+  def squeeze(*args) = Intrinsics.string_squeeze(self, *args)
+  def count(*args) = Intrinsics.string_count(self, *args)
+  def delete(*args) = Intrinsics.string_delete(self, *args)
+  def index(sub, offset = :__unset__) = Intrinsics.string_index(self, sub, offset)
+  def replace(other) = Intrinsics.string_replace(self, other)
+  def force_encoding(enc) = Intrinsics.string_force_encoding(self, enc)
+  def valid_encoding? = Intrinsics.string_valid_encoding(self)
+  def ascii_only? = Intrinsics.string_ascii_only(self)
+  def set_encoding(enc, *) = force_encoding(enc)
+  def setbyte(i, b) = Intrinsics.string_setbyte(self, i, b)
+  def append_as_bytes(*args) = Intrinsics.string_append_as_bytes(self, *args)
+  def bytesplice(*args) = Intrinsics.string_bytesplice(self, *args)
+  def scrub(replacement = nil, &block) = Intrinsics.string_scrub(self, replacement, block)
+  def dump = Intrinsics.string_dump(self)
+  def undump = Intrinsics.string_undump(self)
+  def oct = Intrinsics.string_oct(self)
+  def append_bytes(*args) = Intrinsics.string_append_bytes(self, *args)
+  def unicode_normalize(form = :nfc) = Intrinsics.string_unicode_normalize(self, form)
+  def unicode_normalized?(form = :nfc) = Intrinsics.string_unicode_normalized_q(self, form)
+  def chr = self[0] || self
+  def to_c = Intrinsics.string_to_c(self)
+  def hex = to_i(16)
+  def succ_bang = succ!
+  alias next_bang succ_bang
+  def dedup = -self
+
   def =~(pattern)
     raise TypeError, "type mismatch: String given" if pattern.is_a?(String)
     return pattern =~ self unless pattern.is_a?(Regexp)
@@ -141,11 +175,10 @@ class String
       Intrinsics.string_match_q(self, pattern, pos)
     end
   end
+
   def scan(pattern, &block)
     Intrinsics.string_scan(self, pattern, block)
   end
-
-  def empty? = bytesize == 0
 
   def start_with?(*prefixes)
     prefixes.each do |prefix|
@@ -191,7 +224,6 @@ class String
     s = __coerce_to_str__(s) unless s.is_a?(String)
     !index(s).nil?
   end
-  def lstrip = sub(/\A[[:space:]\x00]+/, '')
 
   def rstrip
     begin
@@ -201,7 +233,6 @@ class String
     end
   end
 
-  def strip = lstrip.rstrip
   def chomp(sep = :__unset__)
     if sep.equal?(:__unset__)
       sep = $/
@@ -343,6 +374,7 @@ class String
     __check_frozen__
     r = delete(*__native_args__); return nil if r == self; Intrinsics.string_replace(self, r)
   end
+
   def casecmp(other)
     begin
       other = other.to_str unless other.is_a?(String)
@@ -382,6 +414,7 @@ class String
       end
     end
   end
+
   def upcase(*args)
     return Intrinsics.string_upcase_opts(self, *args) unless args.empty?
     return Intrinsics.string_upcase_opts(self) unless ascii_only?
@@ -430,15 +463,18 @@ class String
       end
     }.join.force_encoding(encoding)
   end
+
   def swapcase!(*args)
     __check_frozen__
     r = swapcase(*args); return nil if r == self; Intrinsics.string_replace(self, r)
   end
+
   def reverse
     r = chars.reverse.join
     r.force_encoding(encoding)
     r
   end
+
   def chars(&block)
     arr = split('')
     return arr unless block
@@ -457,7 +493,7 @@ class String
     arr.each(&block)
     self
   end
-  def ord = Intrinsics.string_ord(self)
+
   def split(sep = nil, limit = :__unset__, &block)
     if sep.nil? && $; && !Fiber[:__split_warn_guard__]
       Fiber[:__split_warn_guard__] = true
@@ -474,6 +510,7 @@ class String
     end
     result
   end
+
   def gsub(pattern, replacement = :__unset__, &block)
     if replacement.equal?(:__unset__)
       return to_enum(:gsub, pattern) unless block
@@ -491,14 +528,12 @@ class String
       Intrinsics.string_sub(self, pattern, replacement, block)
     end
   end
-  def tr(from, to) = Intrinsics.string_tr(self, from, to)
+
   def tr!(from, to)
     __check_frozen__
     r = tr(from, to); return nil if r == self; Intrinsics.string_replace(self, r)
   end
-  def squeeze(*args) = Intrinsics.string_squeeze(self, *args)
-  def count(*args) = Intrinsics.string_count(self, *args)
-  def delete(*args) = Intrinsics.string_delete(self, *args)
+
   def [](idx, len = :__unset__)
     len.equal?(:__unset__) ? Intrinsics.string_slice(self, idx) : Intrinsics.string_slice(self, idx, len)
   end
@@ -508,7 +543,6 @@ class String
     __check_frozen__
     Intrinsics.string_store(self, idx, *rest)
   end
-  def index(sub, offset = :__unset__) = Intrinsics.string_index(self, sub, offset)
 
   def rindex(sub, offset = :__unset__)
     if !offset.equal?(:__unset__) && offset.nil?
@@ -516,7 +550,6 @@ class String
     end
     Intrinsics.string_rindex(self, sub, offset)
   end
-  def replace(other) = Intrinsics.string_replace(self, other)
 
   def clear
     __check_frozen__
@@ -525,6 +558,7 @@ class String
     force_encoding(enc)
     self
   end
+
   def succ
     # Always return String (not subclass), matching MRI behaviour
     enc = encoding
@@ -545,7 +579,6 @@ class String
     r = result.map { |b| b.chr }.join
     r.force_encoding(enc)
   end
-
   alias next succ
 
   def succ!
@@ -554,7 +587,6 @@ class String
     Intrinsics.string_replace(self, r)
     self
   end
-
   alias next! succ!
 
   def crypt(salt)
@@ -587,6 +619,7 @@ class String
     Intrinsics.string_replace(self, new_str)
     self
   end
+
   def slice!(idx, len = :__unset__)
     len.equal?(:__unset__) ? Intrinsics.string_slice_bang(self, idx) : Intrinsics.string_slice_bang(self, idx, len)
   end
@@ -619,6 +652,7 @@ class String
     end
     result
   end
+
   def b
     r = dup
     r.force_encoding(Encoding::BINARY)
@@ -629,14 +663,10 @@ class String
     # Ruby 4.0: chilled strings (literals) return a non-chilled dup; frozen strings also dup; mutable non-chilled return self
     frozen? || Intrinsics.string_chilled_q(self) ? dup : self
   end
+
   def -@
     Intrinsics.string_dedup(self)
   end
-
-  def force_encoding(enc) = Intrinsics.string_force_encoding(self, enc)
-  def valid_encoding? = Intrinsics.string_valid_encoding(self)
-  def ascii_only? = Intrinsics.string_ascii_only(self)
-  def set_encoding(enc, *) = force_encoding(enc)
 
   def unpack(fmt, offset: nil)
     fmt = __coerce_to_str__(fmt) unless fmt.is_a?(String)
@@ -659,8 +689,6 @@ class String
     return nil if i < 0 || i >= bs
     Intrinsics.string_get_byte(self, i)
   end
-  def setbyte(i, b) = Intrinsics.string_setbyte(self, i, b)
-  def append_as_bytes(*args) = Intrinsics.string_append_as_bytes(self, *args)
 
   def byteslice(idx, len = :__unset__)
     if !len.equal?(:__unset__) && idx.is_a?(Range)
@@ -678,13 +706,6 @@ class String
     raise TypeError, "no implicit conversion of nil into Integer" if offset.nil?
     offset.equal?(:__unset__) ? Intrinsics.string_byterindex(self, sub) : Intrinsics.string_byterindex(self, sub, offset)
   end
-
-  def bytesplice(*args) = Intrinsics.string_bytesplice(self, *args)
-
-  def scrub(replacement = nil, &block) = Intrinsics.string_scrub(self, replacement, block)
-  def dump = Intrinsics.string_dump(self)
-  def undump = Intrinsics.string_undump(self)
-  def oct = Intrinsics.string_oct(self)
 
   def upto(other, exclusive = false, &block)
     unless other.is_a?(String)
@@ -725,11 +746,6 @@ class String
     self
   end
 
-  def append_bytes(*args) = Intrinsics.string_append_bytes(self, *args)
-
-  def unicode_normalize(form = :nfc) = Intrinsics.string_unicode_normalize(self, form)
-  def unicode_normalized?(form = :nfc) = Intrinsics.string_unicode_normalized_q(self, form)
-
   def each_char(&block)
     return to_enum(:each_char) { length } unless block
     chars.each(&block)
@@ -758,8 +774,6 @@ class String
     arr.each(&block)
     self
   end
-
-  def chr = self[0] || self
 
   def center(width, padstr = ' ')
     width, padstr = __just_coerce_args__(width, padstr)
@@ -850,13 +864,6 @@ class String
     end
   end
 
-  def to_c = Intrinsics.string_to_c(self)
-
-  def hex = to_i(16)
-
-  def succ_bang = succ!
-  alias next_bang succ_bang
-
   def prepend(*others)
     __check_frozen__
     prefix = others.map do |s|
@@ -898,8 +905,6 @@ class String
     Intrinsics.string_replace(self, self[0...(length - suffix.length)])
   end
 
-  def dedup = -self
-
   def scrub!(replacement = nil, &block)
     r = scrub(replacement, &block)
     return nil if r == self
@@ -916,13 +921,11 @@ class String
     total = bytes.reduce(0) { |s, b| s + b }
     bits <= 0 ? total : total % (1 << bits)
   end
-
   private
 
   def __check_frozen__
     raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
   end
-
   # Coerce obj to String via to_str, raising TypeError for missing or bad conversion.
   def __coerce_to_str__(obj)
     raise TypeError, "no implicit conversion of #{obj.class} into String" unless obj.respond_to?(:to_str)
@@ -930,7 +933,6 @@ class String
     raise TypeError, "can't convert to String" unless result.is_a?(String)
     result
   end
-
   # Return the string's bytes as a mutable Array of integers.
   def __succ_bytes_array__
     bs = bytesize
@@ -942,7 +944,6 @@ class String
     end
     result
   end
-
   # Return the index of the rightmost alphanumeric byte, or -1 if none.
   def __succ_find_rightmost_alnum__(bytes)
     j = bytes.length - 1
@@ -953,7 +954,6 @@ class String
     end
     -1
   end
-
   # Return the index of the leftmost alphanumeric byte (caller guarantees one exists).
   def __succ_find_leftmost_alnum__(bytes)
     j = 0
@@ -964,7 +964,6 @@ class String
     end
     0
   end
-
   # Handle the no-alphanumeric case: plain byte-level carry from the right.
   # Mutates +bytes+ in place (or prepends 0x01), then returns a new String.
   def __succ_carry_non_alnum__(bytes, enc)
@@ -983,7 +982,6 @@ class String
     bytes.unshift(1) if carry
     bytes.map { |b| b.chr }.join.force_encoding(enc)
   end
-
   # Perform the alphanumeric carry pass starting at +alnum_right+.
   # Mutates +bytes+ in place, inserting a carry character before +leftmost_alnum+ if needed.
   def __succ_carry_alnum__(bytes, alnum_right, leftmost_alnum)
@@ -1036,7 +1034,6 @@ class String
     end
     bytes.insert(leftmost_alnum, carry_byte)
   end
-
   # Coerce and validate the width and padstr arguments shared by ljust/rjust/center.
   def __just_coerce_args__(width, padstr)
     unless width.is_a?(Integer)
@@ -1048,12 +1045,10 @@ class String
     raise ArgumentError, "zero width padding" if padstr.empty?
     [width, padstr]
   end
-
   # Build a pad string of exactly +total+ characters by repeating +padstr+.
   def __just_build_pad__(padstr, total)
     (padstr * ((total / padstr.length) + 1))[0, total]
   end
-
 end
 
 class Regexp

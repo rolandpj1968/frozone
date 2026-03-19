@@ -1,13 +1,13 @@
 class Range
   include Enumerable
 
+  def self.allocate = Intrinsics.range_allocate(self)
+
   def self.new(b, e, excl = false)
     r = allocate
     r.__send__(:initialize, b, e, excl)
     r
   end
-
-  def self.allocate = Intrinsics.range_allocate(self)
 
   def initialize(b, e, excl = false)
     raise FrozenError, "can't modify frozen Range" if Intrinsics.range_initialized_q(self)
@@ -18,7 +18,6 @@ class Range
     end
     Intrinsics.range_set(self, b, e, excl)
   end
-
   private :initialize
 
   def begin          = Intrinsics.range_begin(self)

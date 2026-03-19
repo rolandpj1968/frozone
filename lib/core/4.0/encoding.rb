@@ -1,11 +1,14 @@
 class Encoding
   attr_reader :name
 
+  def to_s = @name
+  def ==(other) = other.is_a?(Encoding) && other.name == @name
+  alias eql? ==
+
   def initialize(name)
     @name = name
   end
 
-  def to_s = @name
   def inspect
     if @name == "ASCII-8BIT"
       "#<Encoding:BINARY (ASCII-8BIT)>"
@@ -29,9 +32,6 @@ class Encoding
     end
     result
   end
-  def ==(other) = other.is_a?(Encoding) && other.name == @name
-  alias eql? ==
-
   # Non-ASCII-compatible encodings (multi-byte for ASCII chars, or stateful/escape-based)
   NON_ASCII_COMPATIBLE = %w[
     UTF-16 UTF-16BE UTF-16LE UTF-32 UTF-32BE UTF-32LE
@@ -50,7 +50,6 @@ class Encoding
   def dummy? = DUMMY_ENCODINGS.include?(@name)
   def ascii_only? = @name == "US-ASCII"
   def replicate(new_name) = Encoding.new(new_name)
-
   UTF_8    = new("UTF-8")
   US_ASCII = new("US-ASCII")
   ASCII    = US_ASCII
@@ -235,6 +234,8 @@ class Encoding
   @default_external = UTF_8
   @default_internal = nil
 
+  def self.list = ALL
+
   def self.default_external
     @default_external || UTF_8
   end
@@ -295,8 +296,6 @@ class Encoding
       end
   end
 
-  def self.list = ALL
-
   def self.aliases
     base = ALIASES.dup
     base["external"] = default_external.name
@@ -320,7 +319,6 @@ class Encoding
   def self.compatible?(a, b)
     Intrinsics.encoding_compatible(a, b)
   end
-
   class Converter
     INVALID_MASK               = 15
     INVALID_REPLACE            = 2
@@ -335,6 +333,17 @@ class Encoding
     XML_TEXT_DECORATOR         = 32768
     XML_ATTR_CONTENT_DECORATOR = 65536
     XML_ATTR_QUOTE_DECORATOR   = 1048576
+
+    def source_encoding = Intrinsics.encoding_converter_source_encoding(self)
+    def destination_encoding = Intrinsics.encoding_converter_destination_encoding(self)
+    def inspect = Intrinsics.encoding_converter_inspect(self)
+    def convpath = Intrinsics.encoding_converter_convpath(self)
+    def replacement = Intrinsics.encoding_converter_replacement(self)
+    def convert(src) = Intrinsics.encoding_converter_convert(self, src)
+    def finish = Intrinsics.encoding_converter_finish(self)
+    def primitive_errinfo = Intrinsics.encoding_converter_primitive_errinfo(self)
+    def last_error = Intrinsics.encoding_converter_last_error(self)
+    def insert_output(str) = Intrinsics.encoding_converter_insert_output(self, str)
 
     def self.new(from_enc, to_enc, opts = nil)
       from = from_enc.is_a?(Encoding) ? from_enc.name : from_enc.to_str
@@ -379,19 +388,10 @@ class Encoding
       end
     end
 
-    def source_encoding = Intrinsics.encoding_converter_source_encoding(self)
-    def destination_encoding = Intrinsics.encoding_converter_destination_encoding(self)
-    def inspect = Intrinsics.encoding_converter_inspect(self)
-    def convpath = Intrinsics.encoding_converter_convpath(self)
-    def replacement = Intrinsics.encoding_converter_replacement(self)
-
     def replacement=(val)
       raise TypeError, "no implicit conversion of #{val.class} into String" unless val.is_a?(String)
       Intrinsics.encoding_converter_replacement_set(self, val)
     end
-
-    def convert(src) = Intrinsics.encoding_converter_convert(self, src)
-    def finish = Intrinsics.encoding_converter_finish(self)
 
     def primitive_convert(src, dest, offset = nil, size = nil, opts = nil)
       if opts.nil?
@@ -400,10 +400,6 @@ class Encoding
         Intrinsics.encoding_converter_primitive_convert(self, src, dest, offset, size, opts)
       end
     end
-
-    def primitive_errinfo = Intrinsics.encoding_converter_primitive_errinfo(self)
-    def last_error = Intrinsics.encoding_converter_last_error(self)
-    def insert_output(str) = Intrinsics.encoding_converter_insert_output(self, str)
 
     def putback(n = nil)
       if n.nil?

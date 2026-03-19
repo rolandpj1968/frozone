@@ -3,6 +3,7 @@ module Comparable
   def <=(other) = __cmp__(other) <= 0
   def >(other)  = __cmp__(other) >  0
   def >=(other) = __cmp__(other) >= 0
+  def between?(min, max) = min <= self && self <= max
 
   def ==(other)
     return true if equal?(other)
@@ -15,8 +16,6 @@ module Comparable
     raise ArgumentError, "comparison of #{self.class} with #{other} failed" unless r.is_a?(Numeric)
     r == 0
   end
-
-  def between?(min, max) = min <= self && self <= max
 
   def clamp(min_or_range, max = :__undefined__)
     if max.equal?(:__undefined__)
@@ -54,7 +53,6 @@ module Comparable
       self
     end
   end
-
   private
 
   def __cmp__(other)

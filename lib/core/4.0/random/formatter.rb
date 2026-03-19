@@ -41,12 +41,10 @@ module Random::Formatter
       raise ArgumentError, "invalid argument - #{n.inspect}"
     end
   end
-
   # rand delegates to random_number
   def rand(n = nil)
     random_number(n)
   end
-
   private
 
   def __secure_float__

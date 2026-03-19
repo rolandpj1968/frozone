@@ -1,6 +1,20 @@
 class Hash
   include Enumerable
 
+  def [](key) = Intrinsics.hash_index(self, key)
+  def default_proc = Intrinsics.hash_get_default_proc(self)
+  def size = Intrinsics.hash_size(self)
+  alias length size
+  def empty?; size == 0; end
+  def key?(key) = Intrinsics.hash_key(self, key)
+  alias has_key? key?
+  alias include? key?
+  alias member? key?
+  def value?(v); each { |_, val| return true if val == v }; false; end
+  alias has_value? value?
+  def key(val); each { |k, v| return k if v == val }; nil; end
+  alias index key
+
   def self.new(*args, capacity: nil, &block)
     if self.equal?(Hash)
       raise ArgumentError, "wrong number of arguments (given #{args.size}, expected 0..1)" if args.size > 1
@@ -81,7 +95,6 @@ class Hash
     end
   end
 
-  def [](key) = Intrinsics.hash_index(self, key)
   def []=(key, value)
     Intrinsics.hash_index_write(self, key, value)
   end
@@ -100,7 +113,6 @@ class Hash
     __check_frozen__
     Intrinsics.hash_set_default(self, val)
   end
-  def default_proc = Intrinsics.hash_get_default_proc(self)
 
   def default_proc=(prc)
     __check_frozen__
@@ -113,17 +125,6 @@ class Hash
     end
     Intrinsics.hash_set_default_proc(self, prc)
   end
-  def size = Intrinsics.hash_size(self)
-  alias length size
-  def empty?; size == 0; end
-  def key?(key) = Intrinsics.hash_key(self, key)
-  alias has_key? key?
-  alias include? key?
-  alias member? key?
-  def value?(v); each { |_, val| return true if val == v }; false; end
-  alias has_value? value?
-  def key(val); each { |k, v| return k if v == val }; nil; end
-  alias index key
   def keys;   r = []; each { |k, _| r << k }; r; end
   def values; r = []; each { |_, v| r << v }; r; end
   def to_a;   r = []; each { |k, v| r << [k, v] }; r; end

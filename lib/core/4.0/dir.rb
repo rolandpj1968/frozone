@@ -3,8 +3,24 @@ class Dir
 
   def self.pwd                    = Intrinsics.dir_pwd
   def self.getwd                  = Intrinsics.dir_pwd
-
   def self.home(user = nil)       = Intrinsics.dir_home(user)
+  def self.[](pattern) = glob(pattern)
+  def self.chdir(path = nil, &block) = Intrinsics.dir_chdir(path, block)
+  def self.mkdir(path, mode = 0o777) = Intrinsics.dir_mkdir(path, mode)
+  def self.mktmpdir(prefix = nil, &block) = Intrinsics.dir_mktmpdir(prefix, block)
+  def self.delete(path) = Intrinsics.dir_rmdir(_coerce_path(path))
+  def self.rmdir(path)  = Intrinsics.dir_rmdir(_coerce_path(path))
+  def self.unlink(path) = Intrinsics.dir_rmdir(_coerce_path(path))
+  def path = @path
+  def to_path = @path
+  def inspect = "#<Dir:#{@path}>"
+  def closed? = @closed
+  def pos = @pos
+  def tell = @pos
+  def children = __load_entries__.reject { |e| e == '.' || e == '..' }
+  def entries = __load_entries__.dup
+  def chdir(&block) = Intrinsics.dir_chdir(@path, block)
+  def fileno = Intrinsics.dir_fileno(@dir)
 
   def self.glob(pattern, flags = 0, base: nil, sort: true, &block)
     results = Intrinsics.dir_glob(pattern, flags, base, sort)
@@ -15,12 +31,6 @@ class Dir
       results
     end
   end
-
-  def self.[](pattern) = glob(pattern)
-
-  def self.chdir(path = nil, &block) = Intrinsics.dir_chdir(path, block)
-
-  def self.mkdir(path, mode = 0o777) = Intrinsics.dir_mkdir(path, mode)
 
   def self.exist?(path)
     p = if path.is_a?(String)
@@ -34,8 +44,6 @@ class Dir
     end
     Intrinsics.dir_exist(p)
   end
-
-  def self.mktmpdir(prefix = nil, &block) = Intrinsics.dir_mktmpdir(prefix, block)
 
   def self.entries(path, encoding: nil)
     p = _coerce_path(path)
@@ -54,10 +62,6 @@ class Dir
   def self.each_child(path, encoding: nil, &block)
     children(path).each { |e| block.call(e) }
   end
-
-  def self.delete(path) = Intrinsics.dir_rmdir(_coerce_path(path))
-  def self.rmdir(path)  = Intrinsics.dir_rmdir(_coerce_path(path))
-  def self.unlink(path) = Intrinsics.dir_rmdir(_coerce_path(path))
 
   def self.empty?(path)
     p = _coerce_path(path)
@@ -105,22 +109,12 @@ class Dir
     @pos = 0
   end
 
-  def path = @path
-  def to_path = @path
-
-  def inspect = "#<Dir:#{@path}>"
-
   def close
     return if @closed
     Intrinsics.dir_close(@dir)
     @closed = true
     nil
   end
-
-  def closed? = @closed
-
-  def pos = @pos
-  def tell = @pos
 
   def pos=(n)
     @pos = n
@@ -150,15 +144,6 @@ class Dir
     __load_entries__.each { |e| block.call(e) }
     self
   end
-
-  def children = __load_entries__.reject { |e| e == '.' || e == '..' }
-
-  def entries = __load_entries__.dup
-
-  def chdir(&block) = Intrinsics.dir_chdir(@path, block)
-
-  def fileno = Intrinsics.dir_fileno(@dir)
-
   private
 
   def __load_entries__ = (@entries ||= Dir.entries(@path))

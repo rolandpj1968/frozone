@@ -1,6 +1,11 @@
 class Data
   include Comparable
 
+  def self.members = @data_members || []
+  def self.[](*args, **kwargs) = new(*args, **kwargs)
+  def members = self.class.members
+  def deconstruct = self.class.members.map { |m| @data_values[m] }
+
   def self.define(*members, &block)
     syms = members.map do |m|
       case m
@@ -44,10 +49,6 @@ class Data
     klass
   end
 
-  def self.members = @data_members || []
-
-  def self.[](*args, **kwargs) = new(*args, **kwargs)
-
   def initialize(*args, **kwargs)
     mems = self.class.members
     @data_values = {}
@@ -90,8 +91,6 @@ class Data
     end
   end
 
-  def members = self.class.members
-
   def to_h(&block)
     if block
       h = {}
@@ -115,8 +114,6 @@ class Data
       h
     end
   end
-
-  def deconstruct = self.class.members.map { |m| @data_values[m] }
 
   def deconstruct_keys(keys)
     raise TypeError, "expected Array or nil" unless keys.nil? || keys.is_a?(Array)
@@ -153,8 +150,9 @@ class Data
     end
     result
   end
-
   EQ_GUARD = []
+
+  def hash = [self.class, *self.class.members.map { |m| @data_values[m] }].hash
 
   def ==(other)
     return true if equal?(other)
@@ -174,8 +172,6 @@ class Data
     self.class.members.all? { |m| @data_values[m].eql?(other.__send__(m)) }
   end
 
-  def hash = [self.class, *self.class.members.map { |m| @data_values[m] }].hash
-
   def with(**kwargs)
     return self if kwargs.empty?
     kwargs = kwargs.transform_keys { |k| k.is_a?(String) ? k.to_sym : k }
@@ -187,7 +183,6 @@ class Data
       obj.freeze
     end
   end
-
   INSPECT_GUARD = []
 
   def inspect
@@ -211,6 +206,5 @@ class Data
       INSPECT_GUARD.delete(oid)
     end
   end
-
   alias to_s inspect
 end

@@ -5,7 +5,6 @@ module Gem
   def self.path = []
   def self.dir = ''
   def self.loaded_specs = {}
-
   class Specification
     def self.flat_map(*) = []
     def self.each(*) = nil

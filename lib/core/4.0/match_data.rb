@@ -1,9 +1,15 @@
 class MatchData
+  def to_a = Intrinsics.match_data_to_a(self)
+  def size = Intrinsics.match_data_size(self)
+  def length = size
+  def captures = Intrinsics.match_data_captures(self)
+  def pre_match = Intrinsics.match_data_pre_match(self)
+  def post_match = Intrinsics.match_data_post_match(self)
+  def begin(n) = Intrinsics.match_data_begin(self, n)
+
   def self.allocate
     raise NoMethodError, "undefined method 'allocate' for class 'MatchData'"
   end
-
-  def to_a = Intrinsics.match_data_to_a(self)
 
   def [](index, length = nil)
     if length
@@ -15,11 +21,6 @@ class MatchData
     end
   end
 
-  def size = Intrinsics.match_data_size(self)
-  def length = size
-  def captures = Intrinsics.match_data_captures(self)
-  def pre_match = Intrinsics.match_data_pre_match(self)
-  def post_match = Intrinsics.match_data_post_match(self)
   def string
     @string ||= Intrinsics.match_data_string(self)
   end
@@ -27,8 +28,6 @@ class MatchData
   def regexp
     @regexp ||= Intrinsics.match_data_regexp(self)
   end
-
-  def begin(n) = Intrinsics.match_data_begin(self, n)
   def end(n) = Intrinsics.match_data_end(self, n)
   def offset(n) = [self.begin(n), self.end(n)]
 

@@ -10,9 +10,7 @@ class NilClass
   def to_h = {}
   def to_r = Rational(0, 1)
   def to_c = Complex(0, 0)
-
   def rationalize(eps = nil) = Rational(0, 1)
-
   def &(_) = false
   def |(other) = other ? true : false
   def ^(other) = other ? true : false

@@ -2,6 +2,8 @@
 # because it uses default-param tricks Frozone's evaluator cannot handle.
 # mspec only needs pretty_inspect (defined on Object in object.rb) and PP.pp.
 class PP
+  def self.width_for(_out) = 80
+
   def self.pp(obj, out = nil, width = 80)
     str = obj.pretty_inspect
     str = "#{str}\n" unless str.end_with?("\n")
@@ -12,7 +14,5 @@ class PP
     end
     obj
   end
-
-  def self.width_for(_out) = 80
 end
 

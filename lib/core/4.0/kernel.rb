@@ -64,27 +64,23 @@ module Kernel
   alias kind_of? is_a?
   def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name, include_all)
   def instance_of?(klass) = Intrinsics.object_class(self).equal?(klass)
-
   def suppress_warning; yield; end
   def suppress_keyword_warning; yield; end
-
   def caller(start = 1, length = nil) = Intrinsics.kernel_caller(self, start, length)
   def caller_locations(start = 1, length = nil) = Intrinsics.kernel_caller_locations(self, start, length)
   def __method__ = Intrinsics.kernel__method__(self)
   def __callee__ = Intrinsics.kernel__callee__(self)
   def local_variables = Intrinsics.kernel_local_variables(self)
-
-  def to_enum(method_name = :each, *args, **kwargs, &size_block)
-    Enumerator._from_method(self, method_name, args, size_block, kwargs)
-  end
-
-  alias enum_for to_enum
-
   def instance_variable_get(name) = Intrinsics.object_ivar_get(self, name)
   def instance_variable_set(name, value) = Intrinsics.object_ivar_set(self, name, value)
   def instance_variable_defined?(name) = Intrinsics.object_ivar_defined(self, name)
   def instance_variables = Intrinsics.object_ivar_names(self)
   def remove_instance_variable(name) = Intrinsics.object_ivar_remove(self, name)
+
+  def to_enum(method_name = :each, *args, **kwargs, &size_block)
+    Enumerator._from_method(self, method_name, args, size_block, kwargs)
+  end
+  alias enum_for to_enum
 
   def initialize_copy(source)
     source.instance_variables.each do |ivar|
@@ -102,13 +98,11 @@ module Kernel
     initialize_copy(other)
     self
   end
-
   private :initialize_copy, :initialize_dup, :initialize_clone
 
   def respond_to_missing?(name, include_private = false)
     false
   end
-
   private :respond_to_missing?
 
   # Make these available as module functions: private instance methods AND public Kernel.method calls
@@ -120,7 +114,6 @@ module Kernel
   def autoload?(name)
     Object.autoload?(name)
   end
-
   module_function :puts, :print, :warn, :p, :raise, :fail, :require, :require_relative, :load, :__dir__,
                   :proc, :lambda, :eval, :binding, :sprintf, :format,
                   :Integer, :Float, :String, :Array,

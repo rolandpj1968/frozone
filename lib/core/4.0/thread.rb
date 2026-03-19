@@ -1,7 +1,6 @@
 class Thread
   def self.report_on_exception=(val); nil; end
   def self.report_on_exception = false
-
   @@pending = []
   @@main = nil
 
@@ -29,10 +28,12 @@ class Thread
     t.__run_block if t
     t
   end
-
   # Single-threaded: defers block until Thread.pass/join/value.
   # thread_run_block invokes with thread_boundary:true so `break` raises
   # LocalJumpError rather than propagating out.
+  def status  = @done ? false : 'sleep'
+  def alive?  = !@done
+
   def initialize(&block)
     @block       = block
     @result      = nil
@@ -53,9 +54,6 @@ class Thread
     raise @exception if @exception
     @result
   end
-
-  def status  = @done ? false : 'sleep'
-  def alive?  = !@done
 
   def __init_main
     @block     = nil
@@ -79,7 +77,6 @@ class Thread
       Intrinsics.thread_restore_locals(self)
     end
   end
-
   # Thread-local variables (not fiber-local)
   def thread_variable_set(key, value)
     @thread_vars ||= {}
@@ -100,7 +97,6 @@ class Thread
     @thread_vars ||= {}
     @thread_vars.keys.map { |k| k.to_s.to_sym }
   end
-
   # Fiber-local variables (Thread#[] / Thread#[]=)
   def [](key)
     @fiber_vars ||= {}
@@ -121,16 +117,15 @@ class Thread
     @fiber_vars ||= {}
     @fiber_vars.keys.map { |k| k.to_s.to_sym }
   end
-
   class Mutex
-    def initialize
-      @locked = false
-    end
-
     def lock          = (@locked = true; self)
     def unlock        = (@locked = false; self)
     def locked?       = @locked
     def try_lock      = !@locked && (@locked = true)
+
+    def initialize
+      @locked = false
+    end
 
     def synchronize(&block)
       lock
@@ -148,9 +143,11 @@ class ConditionVariable
   def initialize
     @waiters = 0
   end
-
   # In single-threaded model: wait runs pending threads until signalled.
   # Since we're cooperative, just run pending threads and return.
+  def signal = self
+  def broadcast = self
+
   def wait(mutex, timeout = nil)
     mutex.unlock
     # Run pending threads to allow broadcast/signal to be called
@@ -158,13 +155,16 @@ class ConditionVariable
     mutex.lock
     self
   end
-
-  def signal = self
-  def broadcast = self
 end
 
 # Queue: thread-safe FIFO queue with blocking pop (cooperative single-threaded)
 class Queue
+  def empty?  = @data.empty?
+  def size    = @data.size
+  alias length size
+  def clear   = (@data.clear; self)
+  def num_waiting = 0
+
   def initialize
     @data = []
   end
@@ -173,7 +173,6 @@ class Queue
     @data.push(obj)
     self
   end
-
   alias enq push
   alias << push
 
@@ -190,23 +189,16 @@ class Queue
     end
     @data.shift
   end
-
   alias deq pop
   alias shift pop
-
-  def empty?  = @data.empty?
-  def size    = @data.size
-  alias length size
-  def clear   = (@data.clear; self)
-  def num_waiting = 0
 end
 
 class SizedQueue < Queue
+  def max   = @max
+
   def initialize(max)
     super()
     @max = max
   end
-
-  def max   = @max
   def max=(v); @max = v; end
 end

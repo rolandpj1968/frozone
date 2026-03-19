@@ -46,8 +46,28 @@ class Array
     i = __coerce_to_int__(i)
     Intrinsics.array_at(self, i)
   end
-
   ARRAY_MAX_INDEX = (1 << 63)
+
+  def <<(v); Intrinsics.array_push(self, v); self; end
+  def clear; replace([]); self; end
+  def length = Intrinsics.array_length(self)
+  alias size length
+  def empty? = length == 0
+  def to_s = Intrinsics.array_to_s(self)
+  alias inspect to_s
+  def to_ary = self
+  def dup = Intrinsics.array_dup(self)
+  def clone(freeze: nil) = Intrinsics.array_clone(self, freeze, self.class)
+  def pack(fmt, buffer: nil) = Intrinsics.array_pack(self, fmt, buffer)
+  def compact;  reject { |x| x.nil? }; end
+  def compact!; reject! { |x| x.nil? }; end
+  def reverse!; replace(reverse); self; end
+  def sort!(&block); replace(sort(&block)); self; end
+  def include?(elem); any? { |x| x == elem }; end
+  def unshift(*elems) = Intrinsics.array_unshift(self, *elems)
+  alias prepend unshift
+  def deconstruct = self
+  def fetch_values(*indices, &block) = indices.map { |i| fetch(i, &block) }
 
   def [](i, len = nil)
     if len
@@ -97,9 +117,7 @@ class Array
     vals.each { |v| Intrinsics.array_push(self, v) }
     self
   end
-
   alias append push
-  def <<(v); Intrinsics.array_push(self, v); self; end
 
   def concat(*others)
     return self if others.empty?
@@ -122,13 +140,12 @@ class Array
     coerced.each { |other| Intrinsics.array_concat(self, other) }
     self
   end
+
   def replace(other)
     other = __array_coerce__(other) unless other.is_a?(Array)
     Intrinsics.array_replace(self, other)
   end
-  def clear; replace([]); self; end
-  def length = Intrinsics.array_length(self)
-  alias size length
+
   def count(val = :__undefined__, &block)
     if val.equal?(:__undefined__)
       return length unless block
@@ -138,7 +155,7 @@ class Array
       n = 0; each { |x| n += 1 if x == val }; n
     end
   end
-  def empty? = length == 0
+
   def first(n = :__none__)
     return self[0] if n.equal?(:__none__)
     n = __coerce_to_int__(n)
@@ -172,13 +189,10 @@ class Array
     end
   end
 
-  def to_s = Intrinsics.array_to_s(self)
-  alias inspect to_s
   def to_a
     return self if instance_of?(Array)
     Array.new(self)
   end
-  def to_ary = self
 
   def to_h(&block)
     r = {}
@@ -191,9 +205,6 @@ class Array
     }
     r
   end
-
-  def dup = Intrinsics.array_dup(self)
-  def clone(freeze: nil) = Intrinsics.array_clone(self, freeze, self.class)
 
   def hash
     ongoing = (Fiber[:__array_hash__] ||= [])
@@ -322,10 +333,6 @@ class Array
     self
   end
 
-  def pack(fmt, buffer: nil) = Intrinsics.array_pack(self, fmt, buffer)
-
-  def compact;  reject { |x| x.nil? }; end
-  def compact!; reject! { |x| x.nil? }; end
   def uniq(&block)
     seen = {}
     r = []
@@ -341,6 +348,7 @@ class Array
     end
     r
   end
+
   def reverse
     n = length
     result = []
@@ -351,8 +359,6 @@ class Array
     end
     result
   end
-
-  def reverse!; replace(reverse); self; end
 
   def <=>(other)
     unless other.is_a?(Array)
@@ -391,8 +397,6 @@ class Array
     __merge_sort__(dup, cmp)
   end
 
-  def sort!(&block); replace(sort(&block)); self; end
-
   def sort_by(&block)
     return to_enum(:sort_by) unless block
     pairs = map { |e| [block.call(e), e] }
@@ -409,6 +413,7 @@ class Array
     replace(sort_by(&block))
     self
   end
+
   def min(&block)
     return nil if empty?
     if block
@@ -559,7 +564,6 @@ class Array
     end
   end
 
-  def include?(elem); any? { |x| x == elem }; end
   def pop(__native_n__ = :__none__)
     __check_frozen__
     if __native_n__.equal?(:__none__)
@@ -590,8 +594,6 @@ class Array
     end
   end
 
-  def unshift(*elems) = Intrinsics.array_unshift(self, *elems)
-  alias prepend unshift
   def dig(idx, *rest)
     val = self[idx]
     return val if rest.empty?
@@ -599,7 +601,6 @@ class Array
     raise TypeError, "#{val.class} does not have #dig method" unless val.respond_to?(:dig)
     val.dig(*rest)
   end
-
   alias slice []
 
   def slice!(i, len = :__none__)
@@ -661,6 +662,7 @@ class Array
     reject!(&block)
     self
   end
+
   def index(elem = :__none__, &block)
     if !elem.equal?(:__none__)
       warn "warning: given block not used" if block
@@ -814,8 +816,6 @@ class Array
     self
   end
 
-  def deconstruct = self
-
   def fetch(i, default = :__unset__, &block)
     orig_i = i
     i = __coerce_to_int__(i)
@@ -832,8 +832,6 @@ class Array
       raise IndexError, "index #{orig_i} outside of array bounds: #{-n}...#{n}"
     end
   end
-
-  def fetch_values(*indices, &block) = indices.map { |i| fetch(i, &block) }
 
   def insert(idx, *vals)
     __check_frozen__
@@ -929,7 +927,6 @@ class Array
     end
     self
   end
-
   alias collect map
   alias collect! map!
 
@@ -937,7 +934,6 @@ class Array
     return to_enum(:select) { size } unless block
     r = []; each { |x| r << x if block.call(x) }; r
   end
-
   alias filter select
   alias find_all select
 
@@ -999,7 +995,6 @@ class Array
     end
     write_idx == n ? nil : self
   end
-
   alias filter! select!
 
   def keep_if(&block)
@@ -1050,7 +1045,6 @@ class Array
     }
     r
   end
-
   alias collect_concat flat_map
 
   def each_with_index(&block)
@@ -1101,9 +1095,7 @@ class Array
     end
     acc
   end
-
   alias inject reduce
-
   # each_slice and each_cons are defined later with block/enumerator support
 
   def grep(pattern, &block)
@@ -1450,7 +1442,6 @@ class Array
     others.each { |other| result = result & other }
     result
   end
-
   # $LOAD_PATH.resolve_feature_path(feature) — return [:rb, path] or [:so, path] or nil
   def resolve_feature_path(feature)
     each do |dir|
@@ -1463,7 +1454,6 @@ class Array
     end
     nil
   end
-
   private
 
   def __check_frozen__
@@ -1762,5 +1752,4 @@ class Array
       raise TypeError, "no implicit conversion of #{n.class} into Integer"
     end
   end
-
 end

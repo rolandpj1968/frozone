@@ -11,20 +11,17 @@ class Method
   def receiver        = Intrinsics.bound_method_receiver(self)
   def unbind          = Intrinsics.bound_method_unbind(self)
   def source_location = Intrinsics.bound_method_source_location(self)
-
   def ==(other) = Intrinsics.bound_method_eql(self, other)
   alias eql? ==
-
   def dup = Intrinsics.bound_method_dup(self)
+  def hash = Intrinsics.bound_method_hash(self)
+  def to_proc = Intrinsics.bound_method_to_proc(self)
+  def super_method = Intrinsics.bound_method_super(self)
 
   def clone(freeze: nil)
     frozen_val = freeze.nil? ? frozen? : freeze
     Intrinsics.bound_method_dup(self, frozen_val)
   end
-
-  def hash = Intrinsics.bound_method_hash(self)
-
-  def to_proc = Intrinsics.bound_method_to_proc(self)
 
   def <<(other)
     raise TypeError, "callable object is expected" unless other.respond_to?(:call)
@@ -83,7 +80,6 @@ class Method
       end
     end
   end
-
   alias inspect to_s
 
   def __param_sig__
@@ -101,6 +97,4 @@ class Method
     end
     parts.join(", ")
   end
-
-  def super_method = Intrinsics.bound_method_super(self)
 end

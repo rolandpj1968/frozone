@@ -1,11 +1,13 @@
 class StringIO
+  def string = @data
+  def readline = gets || raise(EOFError, "end of file reached")
+  def eof? = @pos >= @data.length
+
   def initialize(str = "", mode = "r+")
     @data = str.dup
     @pos = 0
     @mode = mode
   end
-
-  def string = @data
 
   def gets(sep = $/, limit = nil)
     if @pos >= @data.length
@@ -28,9 +30,6 @@ class StringIO
     $_ = result
     result
   end
-
-  def readline = gets || raise(EOFError, "end of file reached")
-  def eof? = @pos >= @data.length
   def rewind; @pos = 0; self; end
   def pos = @pos
   def pos=(n); @pos = n; end

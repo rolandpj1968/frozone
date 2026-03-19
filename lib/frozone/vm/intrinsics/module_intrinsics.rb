@@ -2122,7 +2122,6 @@ module Frozone
           end
           klass.singleton_of
         end
-
       end
     end
   end

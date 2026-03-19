@@ -25,7 +25,6 @@ class Process
     end
     pids.length
   end
-
   class Status
     def exitstatus = Intrinsics.process_status_exitstatus(self)
     def success?   = exitstatus == 0

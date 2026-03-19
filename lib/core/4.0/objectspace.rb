@@ -1,21 +1,18 @@
 module ObjectSpace
+  def self.define_finalizer(obj, proc_arg = nil, &block) = Intrinsics.objectspace_define_finalizer(obj, proc_arg, block)
+  def self.undefine_finalizer(obj) = Intrinsics.objectspace_undefine_finalizer(obj)
+  def self.garbage_collect(**opts) = Intrinsics.objectspace_garbage_collect
+  def self.count_objects(result = nil) = Intrinsics.objectspace_count_objects(result)
+
   def self.each_object(klass = nil, &block)
     return to_enum(:each_object, klass) unless block
     Intrinsics.objectspace_each_object(klass, block)
   end
 
-  def self.define_finalizer(obj, proc_arg = nil, &block) = Intrinsics.objectspace_define_finalizer(obj, proc_arg, block)
-  def self.undefine_finalizer(obj) = Intrinsics.objectspace_undefine_finalizer(obj)
-
   def self._id2ref(id)
     warn "warning: ObjectSpace._id2ref is deprecated and will be removed in future"
     Intrinsics.objectspace_id2ref(id)
   end
-
-  def self.garbage_collect(**opts) = Intrinsics.objectspace_garbage_collect
-
-  def self.count_objects(result = nil) = Intrinsics.objectspace_count_objects(result)
-
   # WeakMap: identity-keyed map (keys compared by object_id, not equality).
   # In a single-process interpreter without real GC pressure, we don't
   # implement actual weak references — entries persist until explicitly removed.
@@ -45,7 +42,6 @@ module ObjectSpace
     def key?(key)
       @pairs.any? { |k, _v| k.equal?(key) }
     end
-
     alias include? key?
     alias member? key?
 
@@ -66,7 +62,6 @@ module ObjectSpace
       @pairs.each { |k, v| block.call(k, v) }
       self
     end
-
     alias each_pair each
 
     def each_key
@@ -94,7 +89,6 @@ module ObjectSpace
     def size
       @pairs.size
     end
-
     alias length size
 
     def inspect
@@ -109,7 +103,6 @@ module ObjectSpace
         "#<ObjectSpace::WeakMap:0x#{object_id.to_s(16)}: #{entries}>"
       end
     end
-
     private
 
     def _weakmap_inspect_obj(obj)
@@ -176,7 +169,6 @@ module ObjectSpace
     def inspect
       "#<ObjectSpace::WeakKeyMap:0x#{object_id.to_s(16)} size=#{@pairs.size}>"
     end
-
     private
 
     def __ungcable__?(key)

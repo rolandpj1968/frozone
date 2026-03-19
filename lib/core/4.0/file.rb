@@ -57,27 +57,11 @@ class File
 
   include File::Constants
 
-  def self.extname(path)
-    p = _coerce_path(path)
-    base = File.basename(p)
-    # Hidden files (starting with a dot) with no other dot have no extension
-    # Edge cases: 'file' → '', '.hidden' → '', 'file.' → '.', 'file.rb' → '.rb'
-    dot = base.rindex('.')
-    return '' if dot.nil? || dot == 0
-    base[dot..]
-  end
-
   def self.join(*parts)        = Intrinsics.file_join(parts)
   def self.dirname(path, level = 1) = Intrinsics.file_dirname(_coerce_path(path), level)
-  def self.basename(path, suffix = nil)
-    p = _coerce_path(path)
-    suffix.nil? ? Intrinsics.file_basename(p, nil) : Intrinsics.file_basename(p, suffix)
-  end
-
   def self.expand_path(path, base = nil) = Intrinsics.file_expand_path(_coerce_path(path), base)
   def self.absolute_path(path, base = nil) = Intrinsics.file_absolute_path(_coerce_path(path), base)
   def self.absolute_path?(path) = Intrinsics.file_absolute_path_q(_coerce_path(path))
-
   def self.exist?(path)        = Intrinsics.file_exist(_coerce_path(path))
   def self.exists?(path)       = Intrinsics.file_exist(_coerce_path(path))
   def self.directory?(path)    = Intrinsics.file_directory(_coerce_path(path))
@@ -104,12 +88,10 @@ class File
   def self.sticky?(path)       = Intrinsics.file_sticky(_coerce_path(path))
   def self.identical?(a, b)    = Intrinsics.file_identical(_coerce_path(a), _coerce_path(b))
   def self.ftype(path)         = Intrinsics.file_ftype(_coerce_path(path))
-
   def self.atime(path)         = Intrinsics.file_atime(_coerce_path(path))
   def self.mtime(path)         = Intrinsics.file_mtime(_coerce_path(path))
   def self.ctime(path)         = Intrinsics.file_ctime(_coerce_path(path))
   def self.birthtime(path)     = Intrinsics.file_birthtime(_coerce_path(path))
-
   def self.read(path, length = nil, offset = nil, **opts) = Intrinsics.file_read(_coerce_path(path))
   def self.realpath(path, base = nil) = Intrinsics.file_realpath(_coerce_path(path), base)
   def self.realdirpath(path, base = nil) = Intrinsics.file_realdirpath(_coerce_path(path), base)
@@ -122,6 +104,32 @@ class File
   def self.symlink(target, link) = Intrinsics.file_symlink_create(_coerce_path(target), _coerce_path(link))
   def self.link(target, link)  = Intrinsics.file_link(_coerce_path(target), _coerce_path(link))
   def self.readlink(path)      = Intrinsics.file_readlink(_coerce_path(path))
+  def self.chown(uid, gid, *paths) = paths.length
+  def self.lchown(uid, gid, *paths) = paths.length
+  def self.lchmod(mode, *paths)    = paths.length
+  def self.lutime(atime, mtime, *paths) = paths.length
+  def self.stat(path) = Stat.new(_coerce_path(path))
+  def self.lstat(path) = Stat.new(_coerce_path(path))
+  def self.binread(path, length = nil, offset = nil) = Intrinsics.file_read(_coerce_path(path))
+  def self.binwrite(path, content, offset = nil) = Intrinsics.file_write(_coerce_path(path), content)
+  def self.fnmatch?(pattern, path, flags = 0) = fnmatch(pattern, path, flags)
+  def self.mkfifo(path, mode = 0o666)         = Intrinsics.file_mkfifo(_coerce_path(path), mode)
+  def self.umask(new_mask = nil) = Intrinsics.file_umask(new_mask)
+
+  def self.extname(path)
+    p = _coerce_path(path)
+    base = File.basename(p)
+    # Hidden files (starting with a dot) with no other dot have no extension
+    # Edge cases: 'file' → '', '.hidden' → '', 'file.' → '.', 'file.rb' → '.rb'
+    dot = base.rindex('.')
+    return '' if dot.nil? || dot == 0
+    base[dot..]
+  end
+
+  def self.basename(path, suffix = nil)
+    p = _coerce_path(path)
+    suffix.nil? ? Intrinsics.file_basename(p, nil) : Intrinsics.file_basename(p, suffix)
+  end
 
   def self.truncate(path, length)
     raise TypeError, "no implicit conversion into Integer" unless length.is_a?(Integer) || length.respond_to?(:to_int)
@@ -140,21 +148,10 @@ class File
     Intrinsics.file_chmod(mode_int, paths.map { |p| _coerce_path(p) })
   end
 
-  def self.chown(uid, gid, *paths) = paths.length
-  def self.lchown(uid, gid, *paths) = paths.length
-  def self.lchmod(mode, *paths)    = paths.length
-
   def self.utime(atime, mtime, *paths)
     Intrinsics.file_utime(atime, mtime, paths)
   end
 
-  def self.lutime(atime, mtime, *paths) = paths.length
-
-  def self.stat(path) = Stat.new(_coerce_path(path))
-
-  def self.lstat(path) = Stat.new(_coerce_path(path))
-  def self.binread(path, length = nil, offset = nil) = Intrinsics.file_read(_coerce_path(path))
-  def self.binwrite(path, content, offset = nil) = Intrinsics.file_write(_coerce_path(path), content)
   def self.fnmatch(pattern, path, flags = 0)
     f = if flags.is_a?(Integer) then flags
           elsif flags.respond_to?(:to_int) then flags.to_int
@@ -162,9 +159,6 @@ class File
           end
     Intrinsics.file_fnmatch(pattern, _coerce_path(path), f)
   end
-
-  def self.fnmatch?(pattern, path, flags = 0) = fnmatch(pattern, path, flags)
-  def self.mkfifo(path, mode = 0o666)         = Intrinsics.file_mkfifo(_coerce_path(path), mode)
 
   def self.world_readable?(path)
     begin
@@ -183,23 +177,10 @@ class File
       nil
     end
   end
-
-  def self.umask(new_mask = nil) = Intrinsics.file_umask(new_mask)
-
   NULL = '/dev/null'
 
   class Stat
     include Comparable
-
-    def initialize(path)
-      @path = path
-      @stat = Intrinsics.file_stat_native(path)
-    end
-
-    def <=>(other)
-      return nil unless other.is_a?(Stat)
-      mtime <=> other.mtime
-    end
 
     def directory?    = File.directory?(@path)
     def file?         = File.file?(@path)
@@ -223,12 +204,10 @@ class File
     def setgid?       = File.setgid?(@path)
     def sticky?       = File.sticky?(@path)
     def ftype         = File.ftype(@path)
-
     def atime         = File.atime(@path)
     def mtime         = File.mtime(@path)
     def ctime         = File.ctime(@path)
     def birthtime     = File.birthtime(@path)
-
     def mode          = Intrinsics.file_stat_mode(@path)
     def ino           = Intrinsics.file_stat_ino(@path)
     def nlink         = Intrinsics.file_stat_nlink(@path)
@@ -242,6 +221,16 @@ class File
     def rdev_minor    = Intrinsics.file_stat_rdev_minor(@path)
     def blocks        = Intrinsics.file_stat_blocks(@path)
     def blksize       = Intrinsics.file_stat_blksize(@path)
+
+    def initialize(path)
+      @path = path
+      @stat = Intrinsics.file_stat_native(path)
+    end
+
+    def <=>(other)
+      return nil unless other.is_a?(Stat)
+      mtime <=> other.mtime
+    end
 
     def world_readable?
       mode = Intrinsics.file_stat_mode(@path)

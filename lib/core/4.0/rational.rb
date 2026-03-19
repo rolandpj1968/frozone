@@ -2,6 +2,23 @@ class Rational < Numeric
 
   def numerator = @numerator
   def denominator = @denominator
+  def to_i = @numerator < 0 ? -(-@numerator / @denominator) : @numerator / @denominator
+  def to_r = self
+  def to_c = Complex(self, 0)
+  def dup = self
+  def clone(freeze: nil) = self
+  def divmod(other) = [div(other), self - other * div(other)]
+  def abs = @numerator < 0 ? Rational(-@numerator, @denominator) : self
+  def negative? = @numerator < 0
+  def positive? = @numerator > 0
+  def zero? = @numerator == 0
+  def nonzero? = @numerator == 0 ? nil : self
+  def hash = [@numerator, @denominator].hash
+  def eql?(other) = other.is_a?(Rational) && @numerator == other.numerator && @denominator == other.denominator
+  def quo(other) = self / other
+  def self.new(*) = raise NoMethodError, "undefined method 'new' for class #{self}"
+  def inspect = "(#{@numerator}/#{@denominator})"
+  def to_s = "#{@numerator}/#{@denominator}"
 
   def +(other)
     case other
@@ -103,13 +120,6 @@ class Rational < Numeric
     end
   end
 
-  def to_i = @numerator < 0 ? -(-@numerator / @denominator) : @numerator / @denominator
-  def to_r = self
-  def to_c = Complex(self, 0)
-
-  def dup = self
-  def clone(freeze: nil) = self
-
   def floor(n = 0)
     n = __validate_ndigits__(n) unless n.is_a?(Integer)
     if n == 0
@@ -176,24 +186,11 @@ class Rational < Numeric
     (self / other).floor
   end
 
-  def divmod(other) = [div(other), self - other * div(other)]
-
   def %(other)
     raise ZeroDivisionError, "divided by 0" if other.respond_to?(:zero?) && other.zero?
     self - other * (self / other).floor
   end
   alias modulo %
-
-  def abs = @numerator < 0 ? Rational(-@numerator, @denominator) : self
-  def negative? = @numerator < 0
-  def positive? = @numerator > 0
-  def zero? = @numerator == 0
-  def nonzero? = @numerator == 0 ? nil : self
-
-  def hash = [@numerator, @denominator].hash
-  def eql?(other) = other.is_a?(Rational) && @numerator == other.numerator && @denominator == other.denominator
-
-  def quo(other) = self / other
 
   def rationalize(eps = nil)
     return self if eps.nil?
@@ -202,12 +199,6 @@ class Rational < Numeric
     hi = self + eps
     __simplest_rational__(lo, hi)
   end
-
-  def self.new(*) = raise NoMethodError, "undefined method 'new' for class #{self}"
-
-  def inspect = "(#{@numerator}/#{@denominator})"
-  def to_s = "#{@numerator}/#{@denominator}"
-
   private
 
   def initialize(numerator, denominator = 1)
@@ -267,7 +258,6 @@ class Complex
     raise TypeError, "not a real" if v.respond_to?(:real?) && v.real? == false
     v
   end
-
   private_class_method :_real_check
 
   def self.polar(r, theta = 0)
@@ -293,13 +283,28 @@ class Complex
     @imaginary = imaginary
     freeze
   end
-
   I = Complex.new(0, 1)
 
   def real = @real
   def imaginary = @imaginary
   alias imag imaginary
   def real? = false
+  def abs2 = @real * @real + @imaginary * @imaginary
+  def abs  = Math.sqrt(abs2.to_f)
+  alias magnitude abs
+  def rect       = [@real, @imaginary]
+  alias rectangular rect
+  def conj      = Complex(@real, -@imaginary)
+  alias conjugate conj
+  def to_c = self
+  def dup = self
+  def clone(freeze: nil) = self
+  def integer?  = false
+  def zero?     = @real == 0 && @imaginary == 0
+  def nonzero?  = zero? ? nil : self
+  def real?     = false
+  def quo(other) = self / other
+  def hash = [@real, @imaginary].hash
 
   def -@
     Complex(-@real, -@imaginary)
@@ -427,10 +432,6 @@ class Complex
     end
   end
 
-  def abs2 = @real * @real + @imaginary * @imaginary
-  def abs  = Math.sqrt(abs2.to_f)
-  alias magnitude abs
-
   def angle
     Math.atan2(@imaginary.to_f, @real.to_f)
   end
@@ -440,12 +441,6 @@ class Complex
   def polar
     [abs, angle]
   end
-
-  def rect       = [@real, @imaginary]
-  alias rectangular rect
-
-  def conj      = Complex(@real, -@imaginary)
-  alias conjugate conj
 
   def numerator
     cd = denominator
@@ -484,16 +479,6 @@ class Complex
     @real.to_r
   end
 
-  def to_c = self
-
-  def dup = self
-  def clone(freeze: nil) = self
-
-  def integer?  = false
-  def zero?     = @real == 0 && @imaginary == 0
-  def nonzero?  = zero? ? nil : self
-  def real?     = false
-
   def finite?
     @real.respond_to?(:finite?) && @real.finite? &&
     @imaginary.respond_to?(:finite?) && @imaginary.finite?
@@ -522,10 +507,6 @@ class Complex
     Complex(@real.fdiv(other), @imaginary.fdiv(other))
   end
 
-  def quo(other) = self / other
-
-  def hash = [@real, @imaginary].hash
-
   def eql?(other)
     return false unless other.instance_of?(Complex)
     @real.class == other.real.class &&
@@ -548,7 +529,6 @@ class Complex
     star = (disp[-1] =~ /[0-9]/) ? '' : '*'
     "#{re_s}#{sep}#{disp}#{star}i"
   end
-
   private
 
   def __complex_coerce_op__(other, op)

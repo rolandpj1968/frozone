@@ -16,6 +16,12 @@ module GC
                  remembered_wb_unprotected_objects_limit old_objects old_objects_limit
                  oldmalloc_increase_bytes oldmalloc_increase_bytes_limit].freeze
 
+  def self.count = @gc_count
+  def self.auto_compact = @auto_compact
+  def self.measure_total_time = @measure_total_time
+  def self.total_time = 0
+  def self.stress = @stress
+
   def self.start(**opts)
     @gc_count += 1
     @major_gc_count += 1
@@ -33,8 +39,6 @@ module GC
     @disabled = true
     was_disabled
   end
-
-  def self.count = @gc_count
 
   def self.stat(key = nil)
     values = {
@@ -65,19 +69,13 @@ module GC
     end
   end
 
-  def self.auto_compact = @auto_compact
-
   def self.auto_compact=(val)
     @auto_compact = val ? true : false
   end
 
-  def self.measure_total_time = @measure_total_time
-
   def self.measure_total_time=(val)
     @measure_total_time = val ? true : false
   end
-
-  def self.total_time = 0
 
   def self.compact
     { considered: {}, moved: {} }
@@ -108,8 +106,6 @@ module GC
     raise ArgumentError, "wrong argument type #{opts.class} (expected Hash or nil)"
   end
 
-  def self.stress = @stress
-
   def self.stress=(val)
     @stress = val ? true : false
   end
@@ -118,9 +114,14 @@ module GC
     GC.start
     nil
   end
-
   module Profiler
     @enabled = false
+
+    def self.enabled? = @enabled
+    def self.clear; end
+    def self.result = ""
+    def self.report(io = nil); end
+    def self.total_time = 0.0
 
     def self.enable
       @enabled = true
@@ -129,11 +130,5 @@ module GC
     def self.disable
       @enabled = false
     end
-
-    def self.enabled? = @enabled
-    def self.clear; end
-    def self.result = ""
-    def self.report(io = nil); end
-    def self.total_time = 0.0
   end
 end

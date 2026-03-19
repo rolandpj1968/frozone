@@ -5,14 +5,67 @@ class IO
 
   # A read-only IO-like object backed by a captured string (used by IO.popen block form).
   class CapturedOutput
-    def initialize(str)
-      @str = str
-    end
-
     def read(len = nil) = len ? @str[0, len] : @str
     def gets             = @str
     def close            = self
+
+    def initialize(str)
+      @str = str
+    end
   end
+
+  def print(*args)     = Intrinsics.io_print(self, args)
+  def puts(*args)      = Intrinsics.io_puts(self, args)
+  def write(*args)     = Intrinsics.io_write(self, args)
+  def flush            = Intrinsics.io_flush(self)
+  def sync=(val)       = Intrinsics.io_sync_set(self, val)
+  def sync             = true
+  def <<(str); write(str); self; end
+  def close            = Intrinsics.io_close(self)
+  def closed?          = Intrinsics.io_closed?(self)
+  def fileno           = Intrinsics.io_fileno(self)
+  def eof?             = Intrinsics.io_eof?(self)
+  def eof              = eof?
+  def isatty           = Intrinsics.io_isatty(self)
+  def tty?             = isatty
+  def binmode          = Intrinsics.io_binmode(self)
+  def binmode?         = Intrinsics.io_binmode?(self)
+  def pos              = Intrinsics.io_pos(self)
+  def pos=(p)          = Intrinsics.io_pos_set(self, p)
+  def tell             = pos
+  def rewind           = Intrinsics.io_rewind(self)
+  def stat             = Intrinsics.io_stat(self)
+  def inspect          = Intrinsics.io_inspect(self)
+  def read(len = nil, buf = nil) = Intrinsics.io_read(self, len, buf)
+  def gets(sep = $/, limit = nil) = Intrinsics.io_gets(self, sep, limit)
+  def readline(sep = $/) = Intrinsics.io_readline(self, sep)
+  def readlines(sep = $/) = Intrinsics.io_readlines(self, sep)
+  def getbyte           = Intrinsics.io_getbyte(self)
+  def getc              = Intrinsics.io_getc(self)
+  def readbyte          = Intrinsics.io_readbyte(self)
+  def readchar          = Intrinsics.io_readchar(self)
+  def ungetbyte(b)      = Intrinsics.io_ungetbyte(self, b)
+  def ungetc(s)         = Intrinsics.io_ungetc(self, s)
+  def sysread(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
+  def syswrite(str)     = Intrinsics.io_syswrite(self, str)
+  def seek(offset, whence = SEEK_SET) = Intrinsics.io_seek(self, offset, whence)
+  def read_nonblock(len, buf = nil, exception: true) = nil
+  def readpartial(len, buf = nil) = nil
+  def each_line(sep = $/, &block) = Intrinsics.io_each_line(self, sep, block)
+  def each_byte(&block)           = Intrinsics.io_each_byte(self, block)
+  def each_char(&block)           = Intrinsics.io_each_char(self, block)
+  def each(sep = $/, &block)      = each_line(sep, &block)
+  def atime       = Intrinsics.io_atime(self)
+  def mtime       = Intrinsics.io_mtime(self)
+  def ctime       = Intrinsics.io_ctime(self)
+  def birthtime   = Intrinsics.io_birthtime(self)
+  def path        = Intrinsics.io_path(self)
+  def to_path     = path
+  def to_io       = self
+  def printf(*args) = (write(sprintf(*args)); nil)
+  def putc(c)     = (write(c.is_a?(Integer) ? c.chr : c.to_s[0]); c)
+  def flock(lock_op) = Intrinsics.io_flock(self, lock_op)
+  def advise(advice, offset = 0, len = 0) = nil
 
   def self.popen(cmd, mode = 'r', **opts, &block)
     output = Intrinsics.io_popen_capture(cmd, opts)
@@ -127,48 +180,6 @@ class IO
     end
   end
 
-  def print(*args)     = Intrinsics.io_print(self, args)
-  def puts(*args)      = Intrinsics.io_puts(self, args)
-  def write(*args)     = Intrinsics.io_write(self, args)
-  def flush            = Intrinsics.io_flush(self)
-  def sync=(val)       = Intrinsics.io_sync_set(self, val)
-  def sync             = true
-  def <<(str); write(str); self; end
-  def close            = Intrinsics.io_close(self)
-  def closed?          = Intrinsics.io_closed?(self)
-  def fileno           = Intrinsics.io_fileno(self)
-  def eof?             = Intrinsics.io_eof?(self)
-  def eof              = eof?
-  def isatty           = Intrinsics.io_isatty(self)
-  def tty?             = isatty
-  def binmode          = Intrinsics.io_binmode(self)
-  def binmode?         = Intrinsics.io_binmode?(self)
-  def pos              = Intrinsics.io_pos(self)
-  def pos=(p)          = Intrinsics.io_pos_set(self, p)
-  def tell             = pos
-  def rewind           = Intrinsics.io_rewind(self)
-  def stat             = Intrinsics.io_stat(self)
-  def inspect          = Intrinsics.io_inspect(self)
-  def read(len = nil, buf = nil) = Intrinsics.io_read(self, len, buf)
-  def gets(sep = $/, limit = nil) = Intrinsics.io_gets(self, sep, limit)
-  def readline(sep = $/) = Intrinsics.io_readline(self, sep)
-  def readlines(sep = $/) = Intrinsics.io_readlines(self, sep)
-  def getbyte           = Intrinsics.io_getbyte(self)
-  def getc              = Intrinsics.io_getc(self)
-  def readbyte          = Intrinsics.io_readbyte(self)
-  def readchar          = Intrinsics.io_readchar(self)
-  def ungetbyte(b)      = Intrinsics.io_ungetbyte(self, b)
-  def ungetc(s)         = Intrinsics.io_ungetc(self, s)
-  def sysread(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
-  def syswrite(str)     = Intrinsics.io_syswrite(self, str)
-  def seek(offset, whence = SEEK_SET) = Intrinsics.io_seek(self, offset, whence)
-  def read_nonblock(len, buf = nil, exception: true) = nil
-  def readpartial(len, buf = nil) = nil
-  def each_line(sep = $/, &block) = Intrinsics.io_each_line(self, sep, block)
-  def each_byte(&block)           = Intrinsics.io_each_byte(self, block)
-  def each_char(&block)           = Intrinsics.io_each_char(self, block)
-  def each(sep = $/, &block)      = each_line(sep, &block)
-
   def chmod(mode)
     mode_int = if mode.is_a?(Integer)
       mode
@@ -187,18 +198,6 @@ class IO
     l = len.is_a?(Integer) ? len : len.to_int
     Intrinsics.io_truncate(self, l)
   end
-
-  def atime       = Intrinsics.io_atime(self)
-  def mtime       = Intrinsics.io_mtime(self)
-  def ctime       = Intrinsics.io_ctime(self)
-  def birthtime   = Intrinsics.io_birthtime(self)
-  def path        = Intrinsics.io_path(self)
-  def to_path     = path
-  def to_io       = self
-  def printf(*args) = (write(sprintf(*args)); nil)
-  def putc(c)     = (write(c.is_a?(Integer) ? c.chr : c.to_s[0]); c)
-  def flock(lock_op) = Intrinsics.io_flock(self, lock_op)
-  def advise(advice, offset = 0, len = 0) = nil
 
   def external_encoding
     name = Intrinsics.io_external_encoding(self)
@@ -222,7 +221,6 @@ class IO
     Intrinsics.io_mark_explicit_encoding(self)
     self
   end
-
   module WaitReadable; end
   module WaitWritable; end
 

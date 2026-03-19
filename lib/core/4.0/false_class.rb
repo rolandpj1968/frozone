@@ -3,7 +3,6 @@ class FalseClass
 
   def to_s = FALSE_STR
   def inspect = FALSE_STR
-
   def &(other) = false
   def |(other) = other ? true : false
   def ^(other) = other ? true : false

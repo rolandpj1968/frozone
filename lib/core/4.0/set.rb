@@ -2,6 +2,16 @@ class Set
   include Enumerable
   include Comparable
 
+  def include?(obj) = @hash.key?(obj)
+  alias member? include?
+  alias === include?
+  def size = @hash.size
+  alias length size
+  def empty? = @hash.empty?
+  def to_a = @hash.keys
+  def hash = to_a.sort_by(&:hash).hash
+  def eql?(other) = self == other
+
   def self.[](*args)
     new(args)
   end
@@ -40,10 +50,6 @@ class Set
     add(obj)
     self
   end
-
-  def include?(obj) = @hash.key?(obj)
-  alias member? include?
-  alias === include?
 
   def delete(obj)
     @hash.delete(obj)
@@ -98,17 +104,10 @@ class Set
     self
   end
 
-  def size = @hash.size
-  alias length size
-
-  def empty? = @hash.empty?
-
   def clear
     @hash.clear
     self
   end
-
-  def to_a = @hash.keys
 
   def replace(enum)
     raise RuntimeError, "can't replace set during iteration" if @iterating
@@ -316,10 +315,6 @@ class Set
     s.compare_by_identity if compare_by_identity?
     s
   end
-
-  def hash = to_a.sort_by(&:hash).hash
-  def eql?(other) = self == other
-
   protected
 
   def __do_flatten__(result, seen)

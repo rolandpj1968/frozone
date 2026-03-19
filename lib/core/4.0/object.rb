@@ -5,10 +5,29 @@ class Object < BasicObject
   def !=(other) = !(self == other)
   def !~(other) = !(self =~ other)
   def ===(other) = self == other
-
   def <=>(other) = equal?(other) ? 0 : nil
-
   def extend(*mods) = Intrinsics.object_extend_multi(self, mods)
+  def instance_exec(*args, &block) = Intrinsics.object_instance_exec(self, args, block)
+  def freeze = Intrinsics.object_freeze(self)
+  def frozen? = Intrinsics.object_frozen(self)
+  def dup = Intrinsics.object_dup(self)
+  def clone(freeze: nil) = Intrinsics.object_clone(self, freeze)
+  def itself = self
+  def then(&block) = block ? block.call(self) : self
+  alias yield_self then
+  def methods(include_super = true) = Intrinsics.object_methods(self, include_super)
+  def public_methods(include_super = true) = Intrinsics.object_public_methods(self, include_super)
+  def private_methods(include_super = true) = Intrinsics.object_private_methods(self, include_super)
+  def protected_methods(include_super = true) = Intrinsics.object_protected_methods(self, include_super)
+  def singleton_methods(include_super = true) = Intrinsics.object_singleton_methods(self, include_super)
+  def singleton_class = Intrinsics.object_singleton_class(self)
+  def to_s = "#<#{self.class}:0x#{__id__.to_s(16)}>"
+  def pretty_inspect = inspect
+  def method(name) = Intrinsics.object_method(self, name)
+  def public_method(name) = Intrinsics.object_public_method(self, name)
+  def singleton_method(name) = Intrinsics.object_singleton_method(self, name)
+  def suppress_warning; yield; end
+  def suppress_keyword_warning; yield; end
 
   def instance_eval(str = :__unset__, file = nil, line = nil, extra = :__unset__, &block)
     if block
@@ -23,26 +42,10 @@ class Object < BasicObject
     end
   end
 
-  def instance_exec(*args, &block) = Intrinsics.object_instance_exec(self, args, block)
-
-  def freeze = Intrinsics.object_freeze(self)
-  def frozen? = Intrinsics.object_frozen(self)
-  def dup = Intrinsics.object_dup(self)
-  def clone(freeze: nil) = Intrinsics.object_clone(self, freeze)
   def tap
     yield self if block_given?
     self
   end
-  def itself = self
-  def then(&block) = block ? block.call(self) : self
-  alias yield_self then
-
-  def methods(include_super = true) = Intrinsics.object_methods(self, include_super)
-  def public_methods(include_super = true) = Intrinsics.object_public_methods(self, include_super)
-  def private_methods(include_super = true) = Intrinsics.object_private_methods(self, include_super)
-  def protected_methods(include_super = true) = Intrinsics.object_protected_methods(self, include_super)
-  def singleton_methods(include_super = true) = Intrinsics.object_singleton_methods(self, include_super)
-  def singleton_class = Intrinsics.object_singleton_class(self)
 
   def define_singleton_method(name, callable = :__unset__, &block)
     if callable.equal?(:__unset__)
@@ -51,8 +54,6 @@ class Object < BasicObject
       singleton_class.define_method(name, callable)
     end
   end
-
-  def to_s = "#<#{self.class}:0x#{__id__.to_s(16)}>"
 
   def inspect
     klass = begin; self.class; rescue NameError; nil; end
@@ -77,21 +78,11 @@ class Object < BasicObject
       "#{base} #{ivar_strs.join(', ')}>"
     end
   end
-
-  def pretty_inspect = inspect
-
-  def method(name) = Intrinsics.object_method(self, name)
-  def public_method(name) = Intrinsics.object_public_method(self, name)
-  def singleton_method(name) = Intrinsics.object_singleton_method(self, name)
-
   alias send __send__
 
   def public_send(name, *args, **kwargs, &block)
     Intrinsics.object_public_send(self, name, args, kwargs, block)
   end
-
-  def suppress_warning; yield; end
-  def suppress_keyword_warning; yield; end
 end
 
 class UnboundMethod
@@ -125,7 +116,6 @@ class UnboundMethod
     loc = source_location ? " #{source_location[0]}:#{source_location[1]}" : ""
     "#<UnboundMethod: #{own_name}##{name}#{loc}>"
   end
-
   alias to_s inspect
 end
 
@@ -138,6 +128,8 @@ module Warning
   @cat_vals = [true, true, false, false, false]
 
   extend self
+
+  def self.categories = KNOWN_CATEGORIES
 
   def self.[](category)
     raise TypeError, "wrong argument type #{category.class} (expected Symbol)" unless category.is_a?(Symbol)
@@ -152,8 +144,6 @@ module Warning
     raise ArgumentError, "unknown category: #{category}" unless idx
     @cat_vals[idx] = value ? true : false
   end
-
-  def self.categories = KNOWN_CATEGORIES
 
   def self.warn(msg, category: nil)
     return nil if category && !self[category]

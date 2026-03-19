@@ -1,4 +1,39 @@
 class Integer
+  def succ = self + 1
+  alias next succ
+  def pred = self - 1
+  def -@ = 0 - self
+  def +@ = self
+  def abs = Intrinsics.integer_abs(self)
+  def zero? = self == 0
+  def positive? = self > 0
+  def negative? = self < 0
+  def to_i = self
+  alias to_int to_i
+  def to_f = Intrinsics.integer_to_f(self)
+  def to_s(base = nil) = Intrinsics.integer_to_s(self, base)
+  def inspect = to_s
+  def hash = Intrinsics.integer_hash(self)
+  def eql?(v) = Intrinsics.integer_eql(self, v)
+  def equal?(v) = self == v
+  def ord = self
+  def even? = self % 2 == 0
+  def odd?  = self % 2 != 0
+  def ceil(n = 0)  = n >= 0 ? self : (self.to_f.ceil(n).to_i rescue self)
+  def floor(n = 0) = n >= 0 ? self : (self.to_f.floor(n).to_i rescue self)
+  def fdiv(n) = Intrinsics.integer_fdiv(self, n)
+  def ~    = Intrinsics.integer_bitnot(self)
+  def size = [(bit_length + 7) / 8, 8].max
+  def bit_length = Intrinsics.integer_bit_length(self)
+  def to_r = Intrinsics.integer_to_r(self)
+  def to_c = Intrinsics.integer_to_c(self)
+  def integer? = true
+  def nonzero? = self == 0 ? nil : self
+  def numerator   = self
+  def denominator = 1
+  def rationalize(eps = nil) = Rational(self, 1)
+  def between?(min, max) = self >= min && self <= max
+
   def < (v)
     return Intrinsics.integer__lt_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
     __coerce_and_compare__(v, :<)
@@ -55,7 +90,6 @@ class Integer
     return Intrinsics.integer__mod_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
     __coerce_op__(v, :%)
   end
-
   alias modulo %
 
   def **(v)
@@ -76,23 +110,6 @@ class Integer
     __coerce_op__(v, :**)
   end
 
-  def succ = self + 1
-  alias next succ
-  def pred = self - 1
-
-  def -@ = 0 - self
-  def +@ = self
-
-  def abs = Intrinsics.integer_abs(self)
-  def zero? = self == 0
-  def positive? = self > 0
-  def negative? = self < 0
-  def to_i = self
-  alias to_int to_i
-  def to_f = Intrinsics.integer_to_f(self)
-  def to_s(base = nil) = Intrinsics.integer_to_s(self, base)
-  def inspect = to_s
-
   def <=>(v)
     return Intrinsics.integer_spaceship(self, v) if v.is_a?(Integer) || v.is_a?(Float)
     return nil unless v.respond_to?(:coerce)
@@ -103,10 +120,6 @@ class Integer
     end
     a <=> b
   end
-
-  def hash = Intrinsics.integer_hash(self)
-  def eql?(v) = Intrinsics.integer_eql(self, v)
-  def equal?(v) = self == v
 
   def times
     unless block_given?
@@ -174,11 +187,6 @@ class Integer
       Intrinsics.integer_chr(self, resolved)
     end
   end
-  def ord = self
-  def even? = self % 2 == 0
-  def odd?  = self % 2 != 0
-  def ceil(n = 0)  = n >= 0 ? self : (self.to_f.ceil(n).to_i rescue self)
-  def floor(n = 0) = n >= 0 ? self : (self.to_f.floor(n).to_i rescue self)
 
   def round(n = 0, half: nil)
     unless n.is_a?(Integer)
@@ -255,8 +263,6 @@ class Integer
     end
   end
 
-  def fdiv(n) = Intrinsics.integer_fdiv(self, n)
-
   def remainder(n)
     raise TypeError, "#{n.class} can't be coerced into Integer" unless n.is_a?(Integer) || n.is_a?(Float) || n.respond_to?(:coerce)
     raise ZeroDivisionError, "divided by 0" if n == 0
@@ -330,8 +336,6 @@ class Integer
     raise TypeError, "no implicit conversion of #{n.class} into Integer"
   end
 
-  def ~    = Intrinsics.integer_bitnot(self)
-
   def <<(n)
     n = n.to_int if !n.is_a?(Integer) && n.respond_to?(:to_int)
     raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.is_a?(Integer)
@@ -393,16 +397,6 @@ class Integer
       end
     end
   end
-  def size = [(bit_length + 7) / 8, 8].max
-  def bit_length = Intrinsics.integer_bit_length(self)
-  def to_r = Intrinsics.integer_to_r(self)
-  def to_c = Intrinsics.integer_to_c(self)
-  def integer? = true
-  def nonzero? = self == 0 ? nil : self
-
-  def numerator   = self
-  def denominator = 1
-  def rationalize(eps = nil) = Rational(self, 1)
 
   def allbits?(mask)
     mask = __coerce_to_int__(mask)
@@ -455,8 +449,6 @@ class Integer
     end
   end
 
-  def between?(min, max) = self >= min && self <= max
-
   def self.try_convert(val)
     return val if val.is_a?(Integer)
     return nil unless val.respond_to?(:to_int)
@@ -482,7 +474,6 @@ class Integer
     x -= 1 if x * x > n
     x
   end
-
   private
 
   # Call coerce even if private; propagate non-NoMethodError exceptions

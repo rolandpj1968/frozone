@@ -1,4 +1,9 @@
 class Exception
+  def message = to_s
+  def backtrace = @backtrace
+  def self.exception(message = nil) = message.nil? ? new : new(message)
+  def cause = @cause
+
   def initialize(message = nil)
     @message = message
   end
@@ -6,10 +11,6 @@ class Exception
   def to_s
     @message ? @message.to_s : self.class.to_s
   end
-
-  def message = to_s
-
-  def backtrace = @backtrace
 
   def backtrace_locations
     return nil unless @_has_locations
@@ -43,8 +44,6 @@ class Exception
     @backtrace
   end
 
-  def self.exception(message = nil) = message.nil? ? new : new(message)
-
   def exception(message = nil)
     return self if message.nil? || message.equal?(self)
     copy = self.class.allocate
@@ -56,8 +55,6 @@ class Exception
   def initialize_copy(other)
     super
   end
-
-  def cause = @cause
 
   def ==(other)
     return true if equal?(other)
@@ -129,7 +126,6 @@ class Exception
   def self.to_tty?
     Intrinsics.exception_tty_check
   end
-
   ORDER_UNSET = :__order_unset__
   private_constant :ORDER_UNSET
 
@@ -169,7 +165,6 @@ class Exception
       hl ? "\e[1;4m#{self.class.name || self.class.inspect}\e[m" : (self.class.name || self.class.inspect).to_s
     end
   end
-
   private
 
   def __format_single_full_message__(bt, dm, hl, order, explicit_bottom: false)
@@ -198,21 +193,21 @@ end
 class ScriptError < Exception; end
 
 class LoadError < ScriptError
+  def path = @path
+
   def initialize(message = nil, path: nil)
     super(message)
     @path = path
   end
-
-  def path = @path
 end
 
 class SyntaxError < ScriptError
+  def path = @path
+
   def initialize(message = nil, path: nil)
     super(message)
     @path = path
   end
-
-  def path = @path
 end
 
 class NotImplementedError < ScriptError; end
@@ -239,6 +234,9 @@ module Signal
 end
 
 class SignalException < Exception
+  def signo = @signo
+  def signm = @signm
+
   def initialize(sig, message = nil)
     if sig.is_a?(Integer)
       @signo = sig
@@ -263,9 +261,6 @@ class SignalException < Exception
     end
     super(message || @signm)
   end
-
-  def signo = @signo
-  def signm = @signm
 end
 
 class Interrupt < SignalException
@@ -277,6 +272,9 @@ class Interrupt < SignalException
 end
 
 class SystemExit < Exception
+  def status = @status
+  def success? = @status == 0
+
   def initialize(status = 0, message = nil)
     if status.is_a?(String)
       @status = 0
@@ -286,9 +284,6 @@ class SystemExit < Exception
       super(message)
     end
   end
-
-  def status = @status
-  def success? = @status == 0
 end
 
 class StandardError < Exception; end
@@ -296,22 +291,22 @@ class StandardError < Exception; end
 class RuntimeError < StandardError; end
 
 class FrozenError < RuntimeError
+  def receiver = @receiver
+
   def initialize(message = nil, receiver: nil)
     super(message)
     @receiver = receiver
   end
-
-  def receiver = @receiver
 end
 
 class NameError < StandardError
+  def name = @name
+
   def initialize(message = nil, name = nil, receiver: :__no_receiver__)
     @name = name
     @receiver = receiver unless receiver.equal?(:__no_receiver__)
     super(message)
   end
-
-  def name = @name
 
   def receiver
     raise ArgumentError, "no receiver is available" unless instance_variable_defined?(:@receiver)
@@ -320,12 +315,12 @@ class NameError < StandardError
 end
 
 class NoMethodError < NameError
+  def args = @args || []
+
   def initialize(message = nil, name = nil, args = nil, receiver: :__no_receiver__)
     @args = args.nil? ? [] : args
     super(message, name, receiver: receiver)
   end
-
-  def args = @args || []
 end
 
 class TypeError < StandardError; end
@@ -340,14 +335,14 @@ class NoMemoryError < Exception; end
 class SecurityError < Exception; end
 class SystemStackError < Exception; end
 class KeyError < IndexError
+  def receiver = @receiver
+  def key = @key
+
   def initialize(message = nil, receiver: nil, key: nil)
     super(message)
     @receiver = receiver
     @key = key
   end
-
-  def receiver = @receiver
-  def key = @key
 end
 class StopIteration < IndexError
   def result = @result
@@ -357,16 +352,18 @@ class UncaughtThrowError < ArgumentError
   def tag = @tag
 end
 class LocalJumpError < StandardError
+  def exit_value = @exit_value
+  def reason = @reason
+
   def initialize(message = nil, exit_value: nil, reason: :return)
     super(message)
     @exit_value = exit_value
     @reason = reason
   end
-
-  def exit_value = @exit_value
-  def reason = @reason
 end
 class SystemCallError < StandardError
+  def errno = @errno
+
   def self.new(message = :__no_arg__, second = nil, third = nil)
     # Non-SystemCallError subclasses: build the instance
     unless equal?(SystemCallError)
@@ -434,8 +431,6 @@ class SystemCallError < StandardError
       super(base)
     end
   end
-
-  def errno = @errno
 end
 class IOError < StandardError; end
 class EOFError < IOError; end
@@ -458,7 +453,6 @@ module Errno
       const_set(name, klass)
     end
   end
-
   _define :E2BIG,          7,  "Argument list too long"
   _define :EACCES,        13,  "Permission denied"
   _define :EADDRINUSE,    98,  "Address already in use"
@@ -548,6 +542,28 @@ module Math
   def self.sqrt(x)     = Intrinsics.float_sqrt(_coerce_float(x, :sqrt))
   def self.cbrt(x)     = Intrinsics.float_cbrt(_coerce_float(x, :cbrt))
   def self.exp(x)      = Intrinsics.float_exp(_coerce_float(x, :exp))
+  def self.log10(x)    = Intrinsics.float_log10(_coerce_float(x, :log10))
+  def self.sin(x)      = Intrinsics.float_sin(_coerce_float(x, :sin))
+  def self.cos(x)      = Intrinsics.float_cos(_coerce_float(x, :cos))
+  def self.tan(x)      = Intrinsics.float_tan(_coerce_float(x, :tan))
+  def self.asin(x)     = Intrinsics.float_asin(_coerce_float(x, :asin))
+  def self.acos(x)     = Intrinsics.float_acos(_coerce_float(x, :acos))
+  def self.atan(x)     = Intrinsics.float_atan(_coerce_float(x, :atan))
+  def self.atan2(y, x) = Intrinsics.float_atan2(_coerce_float(y, :atan2), _coerce_float(x, :atan2))
+  def self.sinh(x)     = Intrinsics.float_sinh(_coerce_float(x, :sinh))
+  def self.cosh(x)     = Intrinsics.float_cosh(_coerce_float(x, :cosh))
+  def self.tanh(x)     = Intrinsics.float_tanh(_coerce_float(x, :tanh))
+  def self.asinh(x)    = Intrinsics.float_asinh(_coerce_float(x, :asinh))
+  def self.acosh(x)    = Intrinsics.float_acosh(_coerce_float(x, :acosh))
+  def self.atanh(x)    = Intrinsics.float_atanh(_coerce_float(x, :atanh))
+  def self.hypot(a, b) = Intrinsics.float_hypot(_coerce_float(a, :hypot), _coerce_float(b, :hypot))
+  def self.frexp(x)    = Intrinsics.float_frexp(_coerce_float(x, :frexp))
+  def self.erf(x)      = Intrinsics.float_erf(_coerce_float(x, :erf))
+  def self.erfc(x)     = Intrinsics.float_erfc(_coerce_float(x, :erfc))
+  def self.expm1(x)    = Intrinsics.float_expm1(_coerce_float(x, :expm1))
+  def self.log1p(x)    = Intrinsics.float_log1p(_coerce_float(x, :log1p))
+  def self.gamma(x)    = Intrinsics.float_gamma(_coerce_float(x, :gamma))
+  def self.lgamma(x)   = Intrinsics.float_lgamma(_coerce_float(x, :lgamma))
 
   def self.log(x, base = :__no_base__)
     xf = _coerce_float(x, :log)
@@ -567,22 +583,6 @@ module Math
     Intrinsics.float_log2(_coerce_float(x, :log2))
   end
 
-  def self.log10(x)    = Intrinsics.float_log10(_coerce_float(x, :log10))
-  def self.sin(x)      = Intrinsics.float_sin(_coerce_float(x, :sin))
-  def self.cos(x)      = Intrinsics.float_cos(_coerce_float(x, :cos))
-  def self.tan(x)      = Intrinsics.float_tan(_coerce_float(x, :tan))
-  def self.asin(x)     = Intrinsics.float_asin(_coerce_float(x, :asin))
-  def self.acos(x)     = Intrinsics.float_acos(_coerce_float(x, :acos))
-  def self.atan(x)     = Intrinsics.float_atan(_coerce_float(x, :atan))
-  def self.atan2(y, x) = Intrinsics.float_atan2(_coerce_float(y, :atan2), _coerce_float(x, :atan2))
-  def self.sinh(x)     = Intrinsics.float_sinh(_coerce_float(x, :sinh))
-  def self.cosh(x)     = Intrinsics.float_cosh(_coerce_float(x, :cosh))
-  def self.tanh(x)     = Intrinsics.float_tanh(_coerce_float(x, :tanh))
-  def self.asinh(x)    = Intrinsics.float_asinh(_coerce_float(x, :asinh))
-  def self.acosh(x)    = Intrinsics.float_acosh(_coerce_float(x, :acosh))
-  def self.atanh(x)    = Intrinsics.float_atanh(_coerce_float(x, :atanh))
-  def self.hypot(a, b) = Intrinsics.float_hypot(_coerce_float(a, :hypot), _coerce_float(b, :hypot))
-  def self.frexp(x)    = Intrinsics.float_frexp(_coerce_float(x, :frexp))
   def self.ldexp(x, n)
     xf = _coerce_float(x, :ldexp)
     ni = if n.is_a?(Float)
@@ -593,13 +593,6 @@ module Math
     end
     Intrinsics.float_ldexp(xf, ni)
   end
-  def self.erf(x)      = Intrinsics.float_erf(_coerce_float(x, :erf))
-  def self.erfc(x)     = Intrinsics.float_erfc(_coerce_float(x, :erfc))
-  def self.expm1(x)    = Intrinsics.float_expm1(_coerce_float(x, :expm1))
-  def self.log1p(x)    = Intrinsics.float_log1p(_coerce_float(x, :log1p))
-  def self.gamma(x)    = Intrinsics.float_gamma(_coerce_float(x, :gamma))
-  def self.lgamma(x)   = Intrinsics.float_lgamma(_coerce_float(x, :lgamma))
-
   # Also define instance methods for when Math is included
   def sqrt(x)     = Math.sqrt(x)
   def cbrt(x)     = Math.cbrt(x)
@@ -635,6 +628,9 @@ module Math
 end
 
 class SystemExit < Exception
+  def status   = @status
+  def success? = @status == 0
+
   def initialize(code = true, msg = nil)
     if code.is_a?(String)
       @status = 0
@@ -644,9 +640,6 @@ class SystemExit < Exception
       super(msg || self.class.name)
     end
   end
-
-  def status   = @status
-  def success? = @status == 0
 end
 
 class FrozenError
@@ -656,6 +649,11 @@ end
 class Thread
   class Backtrace
     class Location
+      def path = @path
+      def lineno = @lineno
+      def label = @label || "<main>"
+      def inspect = to_s
+
       def self._from_string(str)
         loc = allocate
         m = str.match(/\A(.*):(\d+):in '(.*)'\z/)
@@ -678,10 +676,6 @@ class Thread
         loc
       end
 
-      def path = @path
-      def lineno = @lineno
-      def label = @label || "<main>"
-
       def base_label
         (@label || "<main>").sub(/\Ablock( \(\d+\))? in /, "")
       end
@@ -694,8 +688,6 @@ class Thread
       def to_s
         @label ? "#{@path}:#{@lineno}:in '#{@label}'" : "#{@path}:#{@lineno}"
       end
-
-      def inspect = to_s
     end
   end
 end

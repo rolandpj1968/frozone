@@ -75,7 +75,6 @@ class Time
     return tz.to_int if tz.respond_to?(:to_int)
     raise TypeError, "can't convert #{tz.class} into an exact number"
   end
-
   # Offset from utc_to_local result: re-interpret result's wall-clock display as UTC,
   # subtract the original UTC timestamp.  For non-Time results, use to_i directly.
   def self._utc_to_local_offset(local_t, utc_t)
@@ -86,9 +85,13 @@ class Time
       local_t.respond_to?(:to_i) ? local_t.to_i - utc_t.to_i : 0
     end
   end
-
   # Offset from local_to_utc result: tentative - utc_result.
   # tentative is a UTC-treated calendar time; utc_result is what local_to_utc returned.
+  def self.mktime(*args) = _mktime_args(args, false)
+  def self.utc(*args)    = _mktime_args(args, true)
+  def self.gm(*args)     = _mktime_args(args, true)
+  def self.local(*args)  = _mktime_args(args, false)
+
   def self._local_to_utc_offset(tentative, utc_result)
     tentative.to_i - (utc_result.respond_to?(:to_i) ? utc_result.to_i : tentative.to_i)
   end
@@ -177,11 +180,6 @@ class Time
     Intrinsics.time_at_raw(t_r, tz)
   end
 
-  def self.mktime(*args) = _mktime_args(args, false)
-  def self.utc(*args)    = _mktime_args(args, true)
-  def self.gm(*args)     = _mktime_args(args, true)
-  def self.local(*args)  = _mktime_args(args, false)
-
   def self.new(year = NEW_NO_YEAR, month = nil, day = nil, hour = nil, min = nil, sec = nil, tz = nil, in: nil, precision: NEW_NO_PRECISION)
     in_tz = binding.local_variable_get(:in)
     if year.is_a?(String) && month.nil?
@@ -248,6 +246,55 @@ class Time
   end
   private_class_method :_load
 
+  def to_f      = Intrinsics.time_to_f(self)
+  def to_i      = Intrinsics.time_to_i(self)
+  def to_s      = Intrinsics.time_to_s(self)
+  def to_r      = Intrinsics.time_to_r(self)
+  def inspect   = Intrinsics.time_inspect(self)
+  def usec      = Intrinsics.time_usec(self)
+  def nsec      = Intrinsics.time_nsec(self)
+  def sec       = Intrinsics.time_sec(self)
+  def min       = Intrinsics.time_min(self)
+  def hour      = Intrinsics.time_hour(self)
+  def mday      = Intrinsics.time_mday(self)
+  def day       = mday
+  def month     = Intrinsics.time_month(self)
+  def mon       = month
+  def year      = Intrinsics.time_year(self)
+  def wday      = Intrinsics.time_wday(self)
+  def yday      = Intrinsics.time_yday(self)
+  def utc?      = Intrinsics.time_utc?(self)
+  def gmt?      = utc?
+  def subsec    = Intrinsics.time_subsec(self)
+  def dst?      = Intrinsics.time_dst?(self)
+  def isdst     = dst?
+  def hash      = Intrinsics.time_hash(self)
+  def tv_sec    = to_i
+  def tv_usec   = usec
+  def tv_nsec   = nsec
+  def utc           = Intrinsics.time_utc(self)
+  def gmtime        = utc
+  def getutc        = Intrinsics.time_dup(self).utc
+  def getgm         = getutc
+  def utc_offset    = Intrinsics.time_utc_offset(self)
+  def gmt_offset    = utc_offset
+  def gmtoff        = utc_offset
+  def dup = Intrinsics.time_dup(self)
+  def asctime = Intrinsics.time_asctime(self)
+  def ctime   = asctime
+  def ceil(ndigits = 0)  = Intrinsics.time_ceil(self, ndigits)
+  def floor(ndigits = 0) = Intrinsics.time_floor(self, ndigits)
+  def round(ndigits = 0) = Intrinsics.time_round(self, ndigits)
+  def iso8601(fraction_digits = 0)   = Intrinsics.time_iso8601(self, fraction_digits)
+  def xmlschema(fraction_digits = 0) = iso8601(fraction_digits)
+  def monday?    = wday == 1
+  def tuesday?   = wday == 2
+  def wednesday? = wday == 3
+  def thursday?  = wday == 4
+  def friday?    = wday == 5
+  def saturday?  = wday == 6
+  def sunday?    = wday == 0
+
   def -(other)
     return Intrinsics.time_minus(self, other) if other.is_a?(Time)
     raise TypeError, "can't convert #{other.class} into an exact number" if other.nil? || other.is_a?(String)
@@ -285,33 +332,11 @@ class Time
     result
   end
 
-  def to_f      = Intrinsics.time_to_f(self)
-  def to_i      = Intrinsics.time_to_i(self)
-  def to_s      = Intrinsics.time_to_s(self)
-  def to_r      = Intrinsics.time_to_r(self)
-  def inspect   = Intrinsics.time_inspect(self)
-  def usec      = Intrinsics.time_usec(self)
-  def nsec      = Intrinsics.time_nsec(self)
-  def sec       = Intrinsics.time_sec(self)
-  def min       = Intrinsics.time_min(self)
-  def hour      = Intrinsics.time_hour(self)
-  def mday      = Intrinsics.time_mday(self)
-  def day       = mday
-  def month     = Intrinsics.time_month(self)
-  def mon       = month
-  def year      = Intrinsics.time_year(self)
-  def wday      = Intrinsics.time_wday(self)
-  def yday      = Intrinsics.time_yday(self)
-
   def zone
     tz = @frozone_timezone
     return tz if tz
     Intrinsics.time_zone(self)
   end
-
-  def utc?      = Intrinsics.time_utc?(self)
-  def gmt?      = utc?
-  def subsec    = Intrinsics.time_subsec(self)
 
   def strftime(format)
     tz = @frozone_timezone
@@ -325,21 +350,6 @@ class Time
     end
     Intrinsics.time_strftime(self, format)
   end
-
-  def dst?      = Intrinsics.time_dst?(self)
-  def isdst     = dst?
-  def hash      = Intrinsics.time_hash(self)
-  def tv_sec    = to_i
-  def tv_usec   = usec
-  def tv_nsec   = nsec
-
-  def utc           = Intrinsics.time_utc(self)
-  def gmtime        = utc
-  def getutc        = Intrinsics.time_dup(self).utc
-  def getgm         = getutc
-  def utc_offset    = Intrinsics.time_utc_offset(self)
-  def gmt_offset    = utc_offset
-  def gmtoff        = utc_offset
 
   def localtime(tz = nil)
     resolved = if tz.is_a?(String) && self.class.respond_to?(:find_timezone)
@@ -382,26 +392,6 @@ class Time
     Intrinsics.time_localtime(t, resolved)
   end
 
-  def dup = Intrinsics.time_dup(self)
-
-  def asctime = Intrinsics.time_asctime(self)
-  def ctime   = asctime
-
-  def ceil(ndigits = 0)  = Intrinsics.time_ceil(self, ndigits)
-  def floor(ndigits = 0) = Intrinsics.time_floor(self, ndigits)
-  def round(ndigits = 0) = Intrinsics.time_round(self, ndigits)
-
-  def iso8601(fraction_digits = 0)   = Intrinsics.time_iso8601(self, fraction_digits)
-  def xmlschema(fraction_digits = 0) = iso8601(fraction_digits)
-
-  def monday?    = wday == 1
-  def tuesday?   = wday == 2
-  def wednesday? = wday == 3
-  def thursday?  = wday == 4
-  def friday?    = wday == 5
-  def saturday?  = wday == 6
-  def sunday?    = wday == 0
-
   def to_a
     [sec, min, hour, mday, month, year, wday, yday, dst?, zone]
   end
@@ -434,7 +424,6 @@ class Time
     return false unless other.is_a?(Time)
     to_r == other.to_r
   end
-
   private
 
   def _dump(limit = -1)
