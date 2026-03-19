@@ -12,6 +12,10 @@ class Object
   def bignum_value(plus = 0)
     0x1_0000_0000_0000_0000 + plus  # 2^64 + plus
   end
+
+  # TIME_TOLERANCE is used by several time/file specs for approximate time comparisons.
+  # Not defined in mspec 1.9.1; define it globally here.
+  TIME_TOLERANCE = 2.0
 end
 
 # Add max_long/min_long helpers not present in mspec 1.9.1 (platform C long limits)
@@ -179,6 +183,33 @@ class Object
       verbose = opts[:verbose] if opts.key?(:verbose)
     end
     ComplainMatcher.new(complaint, verbose: verbose)
+  end
+
+  # Override ruby_bug to handle Range version arguments (newer ruby-spec style).
+  # mspec 1.9.1 only accepts String versions; newer specs pass e.g. ''...'3.4'.
+  def ruby_bug(bug, version, &block)
+    in_affected_range = if version.is_a?(Range)
+      b_str = version.begin.to_s
+      e_str = version.end.to_s
+      b = b_str.empty? ? nil : SpecVersion.new(b_str)
+      e = e_str.empty? ? nil : SpecVersion.new(e_str)
+      current = VersionGuard::FULL_RUBY_VERSION
+      above_start = b.nil? || current >= b
+      below_end = if e.nil?
+        true
+      elsif version.exclude_end?
+        current < e
+      else
+        current <= e
+      end
+      above_start && below_end
+    else
+      g = BugGuard.new(bug, version)
+      result = g.yield?
+      g.unregister
+      result
+    end
+    yield if in_affected_range && block_given?
   end
 
   # Override ruby_version_is to handle no-block usage (ternary context).

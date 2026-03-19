@@ -555,47 +555,124 @@ module Frozone
         end
 
         # Time
-        def time_now(_) = TimeObject.new(Time.now)
 
-        def time_at(_, t, subsec = nil)
-          raw_t = t.is_a?(TimeObject) ? t.raw.to_f : t.raw.to_f
+        # Extract an MRI Numeric from a Frozone value (Integer, Float, or Rational ObjectObject).
+        # get_ivar returns NilObject::NIL (not MRI nil) when ivar is absent.
+        def frozone_to_mri_numeric(obj)
+          return obj.raw if obj.is_a?(IntegerObject) || obj.is_a?(FloatObject)
+          return 0 if obj.nil? || obj.is_a?(NilObject)
+          num = obj.get_ivar(:@numerator)
+          den = obj.get_ivar(:@denominator)
+          # NilObject::NIL means the ivar is not set — not a Rational ObjectObject
+          return obj.respond_to?(:raw) ? obj.raw : 0 if num.is_a?(NilObject) || den.is_a?(NilObject)
+          n = num.is_a?(IntegerObject) ? num.raw : (num.respond_to?(:raw) ? num.raw.to_i : 0)
+          d = den.is_a?(IntegerObject) ? den.raw : (den.respond_to?(:raw) ? den.raw.to_i : 1)
+          d == 1 ? n : Rational(n, d)
+        end
+
+        # Wrap MRI utc_offset (Integer or Rational) as a Frozone object.
+        def wrap_utc_offset(offset)
+          offset.is_a?(Integer) ? IntegerObject.new(offset) : make_rational(offset)
+        end
+
+        # Create a TimeObject, inheriting the subclass from context.the_self when called
+        # from a class method (Time.at on a subclass, Time.new on a subclass, etc.).
+        def time_make(context, mri_time)
+          t = TimeObject.new(mri_time)
+          the_self = context.respond_to?(:the_self) ? context.the_self : context.frame&.the_self
+          if the_self.is_a?(ClassObject) && !the_self.equal?(t.class_object)
+            t.class_object = the_self
+          end
+          t
+        end
+
+        # Create a TimeObject preserving the class of an existing TimeObject (for instance methods).
+        def time_preserve_class(src, mri_time)
+          t = TimeObject.new(mri_time)
+          t.class_object = src.class_object unless src.class_object.equal?(t.class_object)
+          t
+        end
+
+        def time_now(context) = time_make(context, Time.now)
+
+        # time_at_raw: called from pure-Ruby Time.at after argument coercion.
+        # t_r: Frozone Numeric (Integer/Float/Rational) or TimeObject; tz: Frozone String/Integer or nil.
+        def time_at_raw(context, t_r, tz)
+          # Pass TimeObject.raw directly so MRI Time.at(time) preserves the UTC flag.
+          mri_r = t_r.is_a?(TimeObject) ? t_r.raw : frozone_to_mri_numeric(t_r)
+          t = Time.at(mri_r)
+          unless tz.nil? || tz.is_a?(NilObject)
+            tz_raw = tz.is_a?(StringObject) ? tz.raw : frozone_to_mri_numeric(tz).to_i
+            t = t.localtime(tz_raw)
+          end
+          time_make(context, t)
+        end
+
+        # Legacy: still used when time_at is called without keyword args.
+        def time_at(context, t, subsec = nil)
+          raw_t = t.is_a?(TimeObject) ? t.raw : Time.at(frozone_to_mri_numeric(t))
           if subsec.nil? || subsec.is_a?(NilObject)
-            TimeObject.new(Time.at(raw_t))
+            time_make(context, Time.at(raw_t))
           else
-            TimeObject.new(Time.at(raw_t, subsec.raw.to_f))
+            time_make(context, Time.at(raw_t, subsec.raw.to_f))
           end
         end
 
-        def time_mktime(_, year, month, day, hour, min, sec, usec, use_utc)
-          y = year.raw.to_i
-          mo = month.raw.to_i
-          d = day.raw.to_i
-          h = hour.raw.to_i
-          mi = min.raw.to_i
-          s = sec.raw.to_i
-          us = usec.raw.to_f
+        def time_mktime(context, year, month, day, hour, min, sec, usec, use_utc)
+          y  = frozone_to_mri_numeric(year).to_i
+          mo = frozone_to_mri_numeric(month).to_i
+          d  = frozone_to_mri_numeric(day).to_i
+          h  = frozone_to_mri_numeric(hour).to_i
+          mi = frozone_to_mri_numeric(min).to_i
+          s  = frozone_to_mri_numeric(sec)   # Rational preserved
+          us = frozone_to_mri_numeric(usec)  # Rational preserved
+          # Passing usec=0 explicitly clobbers fractional seconds in sec (Rational).
+          # Only pass usec if it's non-zero.
+          args = us.zero? ? [y, mo, d, h, mi, s] : [y, mo, d, h, mi, s, us]
           if use_utc.is_a?(TrueObject) || use_utc == true
-            TimeObject.new(Time.utc(y, mo, d, h, mi, s, us))
+            time_make(context, Time.utc(*args))
           else
-            TimeObject.new(Time.local(y, mo, d, h, mi, s, us))
+            time_make(context, Time.local(*args))
           end
         end
 
-        def time_new(_, year, month, day, hour, min, sec, tz)
-          if year.nil? || year.is_a?(NilObject)
-            return TimeObject.new(Time.now)
+        def time_new(context, year, month, day, hour, min, sec, tz)
+          if year.is_a?(NilObject)
+            return time_make(context, Time.now)
           end
-          args = [year, month, day, hour, min, sec].map { |a|
-            (a.nil? || a.is_a?(NilObject)) ? nil : a.raw.to_i
-          }.compact
-          TimeObject.new(Time.new(*args))
+          mri_args = [year, month, day, hour, min, sec].map { |a|
+            a.is_a?(NilObject) ? nil : frozone_to_mri_numeric(a)
+          }
+          if tz.is_a?(NilObject)
+            # Drop trailing nils to use MRI defaults
+            trimmed = mri_args.reverse.drop_while(&:nil?).reverse
+            time_make(context, Time.new(*trimmed))
+          else
+            tz_mri = tz.is_a?(StringObject) ? tz.raw : frozone_to_mri_numeric(tz)
+            # Strings, Rationals, Floats pass through as-is; other numerics → int
+            tz_val = tz_mri.is_a?(String) || tz_mri.is_a?(Rational) || tz_mri.is_a?(Float) ? tz_mri : tz_mri.to_i
+            time_make(context, Time.new(*mri_args, tz_val))
+          end
         end
 
         def time_minus(_, t, other)
-          other.is_a?(TimeObject) ? FloatObject.new(t.raw - other.raw) : TimeObject.new(t.raw - other.raw)
+          if other.is_a?(TimeObject)
+            FloatObject.new(t.raw - other.raw)
+          else
+            TimeObject.new(t.raw - frozone_to_mri_numeric(other))
+          end
         end
 
-        def time_plus(_, t, secs) = TimeObject.new(t.raw + secs.raw)
+        def time_plus(_, t, secs)
+          if secs.nil? || secs.is_a?(NilObject)
+            raise FrozoneException.make(:TypeError, "can't convert NilClass into an exact number")
+          end
+          mri_secs = frozone_to_mri_numeric(secs)
+          TimeObject.new(t.raw + mri_secs)
+        rescue TypeError => e
+          raise FrozoneException.make(:TypeError, e.message)
+        end
+
         def time_to_f(_, t) = FloatObject.new(t.raw.to_f)
         def time_to_i(_, t) = IntegerObject.new(t.raw.to_i)
         def time_to_s(_, t) = StringObject.new(t.raw.to_s)
@@ -614,13 +691,71 @@ module Frozone
         def time_year(_, t) = IntegerObject.new(t.raw.year)
         def time_wday(_, t) = IntegerObject.new(t.raw.wday)
         def time_yday(_, t) = IntegerObject.new(t.raw.yday)
-        def time_zone(_, t) = StringObject.new(t.raw.zone || '')
+        def time_zone(_, t)
+          z = t.raw.zone
+          z.nil? || z.empty? ? NilObject::NIL : StringObject.new(z)
+        end
         def time_utc?(_, t) = bool_object_for(t.raw.utc?)
-        def time_localtime(_, t) = TimeObject.new(t.raw.localtime)
-        def time_utc(_, t) = TimeObject.new(t.raw.utc)
+        def time_localtime(_, t, tz = nil)
+          if t.frozen_object?
+            # localtime() with no arg on an already-local frozen time is a no-op (no error)
+            no_tz = tz.nil? || tz.is_a?(NilObject)
+            return t if no_tz && !t.raw.utc?
+            raise FrozoneException.make(:FrozenError, "can't modify frozen Time")
+          end
+
+          if tz.nil? || tz.is_a?(NilObject)
+            t.raw.localtime
+          elsif tz.is_a?(StringObject)
+            t.raw.localtime(tz.raw)
+          elsif tz.is_a?(IntegerObject)
+            t.raw.localtime(tz.raw)
+          elsif tz.is_a?(FloatObject)
+            t.raw.localtime(tz.raw.to_i)
+          else
+            mri_tz = frozone_to_mri_numeric(tz)
+            # Preserve Rational offsets; fall back to integer for other numerics
+            tz_val = mri_tz.is_a?(Rational) ? mri_tz : mri_tz.to_i
+            t.raw.localtime(tz_val)
+          end
+          t
+        rescue FrozoneException
+          raise
+        rescue TypeError, ArgumentError => e
+          raise FrozoneException.make(e.class.name.to_sym, e.message)
+        end
+
+        def time_utc(_, t)
+          if t.frozen_object?
+            return t if t.raw.utc?
+            raise FrozoneException.make(:FrozenError, "can't modify frozen Time")
+          end
+          t.raw.utc
+          t
+        end
+
+        def time_dup(_, t)
+          time_preserve_class(t, t.raw.dup)
+        end
         def time_subsec(_, t)
           r = t.raw.subsec
           r.is_a?(Integer) ? IntegerObject.new(r) : make_rational(r)
+        end
+        def time_utc_offset(_, t) = wrap_utc_offset(t.raw.utc_offset)
+        def time_asctime(_, t) = StringObject.new(t.raw.asctime)
+        def time_ceil(_, t, n) = TimeObject.new(t.raw.ceil(n.is_a?(IntegerObject) ? n.raw : 0))
+        def time_floor(_, t, n) = TimeObject.new(t.raw.floor(n.is_a?(IntegerObject) ? n.raw : 0))
+        def time_round(_, t, n) = TimeObject.new(t.raw.round(n.is_a?(IntegerObject) ? n.raw : 0))
+        def time_iso8601(_, t, n)
+          ndigits = n.is_a?(IntegerObject) ? n.raw : 0
+          StringObject.new(t.raw.iso8601(ndigits))
+        end
+        def time_dump(_, t)
+          d = t.raw.send(:_dump, -1)
+          StringObject.new(d)
+        end
+        def time_load(_, str)
+          TimeObject.new(Time.send(:_load, str.raw))
         end
         def time_strftime(_, t, format) = StringObject.new(t.raw.strftime(format.raw))
         def time_dst?(_, t) = bool_object_for(t.raw.dst?)

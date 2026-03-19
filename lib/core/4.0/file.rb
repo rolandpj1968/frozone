@@ -1,4 +1,6 @@
 class File
+  include Enumerable
+
   SEPARATOR     = '/'
   Separator      = '/'
   ALT_SEPARATOR = nil
@@ -53,6 +55,8 @@ class File
     FNM_EXTGLOB  = File::FNM_EXTGLOB
   end
 
+  include File::Constants
+
   # Coerce path argument: try to_path first, then to_str, then to_s for String
   def self._coerce_path(arg)
     return arg if arg.is_a?(String)
@@ -67,6 +71,16 @@ class File
       raise TypeError, "no implicit conversion of #{arg.class} into String"
     end
     raise TypeError, "no implicit conversion of #{arg.class} into String"
+  end
+
+  def self.extname(path)
+    p = _coerce_path(path)
+    base = File.basename(p)
+    # Hidden files (starting with a dot) with no other dot have no extension
+    # Edge cases: 'file' → '', '.hidden' → '', 'file.' → '.', 'file.rb' → '.rb'
+    dot = base.rindex('.')
+    return '' if dot.nil? || dot == 0
+    base[dot..]
   end
 
   def self.join(*parts)        = Intrinsics.file_join(parts)
@@ -180,8 +194,20 @@ class File
   def self.lstat(path) = Stat.new(_coerce_path(path))
   def self.binread(path, length = nil, offset = nil) = Intrinsics.file_read(_coerce_path(path))
   def self.binwrite(path, content, offset = nil) = Intrinsics.file_write(_coerce_path(path), content)
-  def self.fnmatch(pattern, path, flags = 0)  = Intrinsics.file_fnmatch(pattern, path, flags)
-  def self.fnmatch?(pattern, path, flags = 0) = Intrinsics.file_fnmatch(pattern, path, flags)
+  def self.fnmatch(pattern, path, flags = 0)
+    p = if path.is_a?(String) then path
+          elsif path.respond_to?(:to_path) then path.to_path
+          elsif path.respond_to?(:to_str) then path.to_str
+          else raise TypeError, "no implicit conversion of #{path.class} into String"
+          end
+    f = if flags.is_a?(Integer) then flags
+          elsif flags.respond_to?(:to_int) then flags.to_int
+          else raise TypeError, "no implicit conversion of #{flags.class} into Integer"
+          end
+    Intrinsics.file_fnmatch(pattern, p, f)
+  end
+
+  def self.fnmatch?(pattern, path, flags = 0) = fnmatch(pattern, path, flags)
   def self.mkfifo(path, mode = 0o666)         = Intrinsics.file_mkfifo(_coerce_path(path), mode)
 
   def self.world_readable?(path)

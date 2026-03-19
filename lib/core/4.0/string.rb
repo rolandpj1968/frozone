@@ -75,7 +75,7 @@ class String
   end
 
   alias to_str to_s
-  def to_i(base = 0)
+  def to_i(base = 10)
     base = base.to_int unless base.is_a?(Integer)
     Intrinsics.string_to_i_base(self, base)
   end

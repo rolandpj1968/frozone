@@ -21,10 +21,14 @@ module Frozone
             dir = File.expand_path('../../..', __dir__).shellescape
             sha = `git -C #{dir} rev-parse HEAD 2>/dev/null`.strip
             return "unknown" if sha.empty?
-            # Append -dirty if working tree has uncommitted changes so stale
-            # dev-time cache entries don't persist under the committed SHA.
+            # Disable cache entirely on a dirty working tree: any AST change
+            # mid-session would silently serve stale entries under the same key.
             dirty = !`git -C #{dir} status --porcelain 2>/dev/null`.strip.empty?
-            dirty ? "#{sha}-dirty" : sha
+            if dirty
+              @enabled = false
+              return "dirty"
+            end
+            sha
           rescue StandardError
             "unknown"
           end
