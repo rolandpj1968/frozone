@@ -307,126 +307,17 @@ class Range
     if numeric
       use_float = n.is_a?(Float) || b.is_a?(Float) || (!e.nil? && e_numeric_val && e.is_a?(Float))
       if use_float
-        b_f = b.to_f; step_f = n.to_f; e_f = e.nil? ? nil : e.to_f
-        if e_f.nil? || (e_f.respond_to?(:infinite?) && e_f.infinite?) ||
-           (b_f.respond_to?(:infinite?) && b_f.infinite?)
-          # Endless or infinite boundary: simple loop
-          k = 0
-          loop do
-            i = step_f * k + b_f
-            if e_f.nil?
-              yield i
-            elsif step_f > 0
-              break if excl ? i >= e_f : i > e_f
-              yield i
-            else
-              break if excl ? i <= e_f : i < e_f
-              yield i
-            end
-            k += 1
-          end
-        elsif step_f > 0
-          if excl
-            # Loop-based for exclusive: naturally handles float precision
-            k = 0
-            loop do
-              i = step_f * k + b_f
-              break if i >= e_f
-              yield i
-              k += 1
-            end
-          else
-            # Count-based for inclusive with boundary snap
-            n_long = ((e_f - b_f) / step_f).floor.to_i + 1
-            n_long.times do |ki|
-              i = step_f * ki + b_f
-              if i > e_f
-                yield e_f; break  # snap to end if slightly over (float precision)
-              end
-              yield i
-            end
-          end
-        else
-          if excl
-            k = 0
-            loop do
-              i = step_f * k + b_f
-              break if i <= e_f
-              yield i
-              k += 1
-            end
-          else
-            n_long = ((b_f - e_f) / (-step_f)).floor.to_i + 1
-            n_long.times do |ki|
-              i = step_f * ki + b_f
-              if i < e_f
-                yield e_f; break
-              end
-              yield i
-            end
-          end
-        end
+        _step_float(b.to_f, e.nil? ? nil : e.to_f, n.to_f, excl, &block)
       else
-        i = b
-        loop do
-          if e.nil?
-            yield i
-          elsif n > 0
-            break if excl ? i >= e : i > e
-            yield i
-          else
-            break if excl ? i <= e : i < e
-            yield i
-          end
-          i += n
-        end
+        _step_integer(b, e, n, excl, &block)
       end
     elsif n.is_a?(Float)
       raise TypeError, "no implicit conversion of Float into String" if b.is_a?(String)
       raise TypeError, "no implicit conversion of Float into #{b.class}"
     elsif n.is_a?(Integer)
-      # Non-numeric range with integer step: use succ n times
-      abs_n = n.abs
-      i = b
-      loop do
-        if e.nil?
-          yield i
-          abs_n.times { i = i.succ }
-        else
-          cmp = i <=> e
-          break if cmp.nil?
-          break if excl ? cmp >= 0 : cmp > 0
-          yield i
-          break if cmp == 0
-          abs_n.times { i = i.succ }
-        end
-      end
+      _step_succ(b, e, n, excl, &block)
     else
-      # Ruby 3.4: non-numeric range with non-integer step — use + on each element
-      if e.nil?
-        i = b
-        loop { yield i; i = i + n }
-      else
-        dir = b <=> e
-        first_next = b + n
-        step_dir = b <=> first_next
-        # Check direction alignment (done before loop, but loop also calls i<=>e once)
-        aligned = dir.nil? || dir == 0 || step_dir.nil? || (dir < 0) == (step_dir < 0)
-        i = b; first_iter = true
-        loop do
-          cmp = i <=> e
-          break if cmp.nil?
-          if dir.nil? || dir <= 0
-            break if excl ? cmp >= 0 : cmp > 0
-          else
-            break if excl ? cmp <= 0 : cmp < 0
-          end
-          break unless aligned  # no iteration if step direction doesn't match range
-          yield i
-          break if cmp == 0
-          i = first_iter ? (first_iter = false; first_next) : i + n
-        end
-      end
+      _step_plus(b, e, n, excl, &block)
     end
     self
   end
@@ -669,6 +560,147 @@ class Range
   end
 
   private
+
+  # Float step over a numeric range. b_f and e_f are already converted to Float.
+  # e_f is nil for an endless range.
+  def _step_float(b_f, e_f, step_f, excl, &block)
+    if e_f.nil? || (e_f.respond_to?(:infinite?) && e_f.infinite?) ||
+       (b_f.respond_to?(:infinite?) && b_f.infinite?)
+      _step_float_unbounded(b_f, e_f, step_f, excl, &block)
+    elsif step_f > 0
+      _step_float_positive(b_f, e_f, step_f, excl, &block)
+    else
+      _step_float_negative(b_f, e_f, step_f, excl, &block)
+    end
+  end
+
+  # Float step: endless or infinite-boundary — simple loop with no count pre-computation.
+  def _step_float_unbounded(b_f, e_f, step_f, excl, &block)
+    k = 0
+    loop do
+      i = step_f * k + b_f
+      if e_f.nil?
+        yield i
+      elsif step_f > 0
+        break if excl ? i >= e_f : i > e_f
+        yield i
+      else
+        break if excl ? i <= e_f : i < e_f
+        yield i
+      end
+      k += 1
+    end
+  end
+
+  # Float step: positive step, bounded range.
+  def _step_float_positive(b_f, e_f, step_f, excl, &block)
+    if excl
+      # Loop-based for exclusive: naturally handles float precision
+      k = 0
+      loop do
+        i = step_f * k + b_f
+        break if i >= e_f
+        yield i
+        k += 1
+      end
+    else
+      # Count-based for inclusive with boundary snap
+      n_long = ((e_f - b_f) / step_f).floor.to_i + 1
+      n_long.times do |ki|
+        i = step_f * ki + b_f
+        if i > e_f
+          yield e_f; break  # snap to end if slightly over (float precision)
+        end
+        yield i
+      end
+    end
+  end
+
+  # Float step: negative step, bounded range.
+  def _step_float_negative(b_f, e_f, step_f, excl, &block)
+    if excl
+      k = 0
+      loop do
+        i = step_f * k + b_f
+        break if i <= e_f
+        yield i
+        k += 1
+      end
+    else
+      n_long = ((b_f - e_f) / (-step_f)).floor.to_i + 1
+      n_long.times do |ki|
+        i = step_f * ki + b_f
+        if i < e_f
+          yield e_f; break
+        end
+        yield i
+      end
+    end
+  end
+
+  # Integer step over a numeric (integer-only) range.
+  def _step_integer(b, e, n, excl, &block)
+    i = b
+    loop do
+      if e.nil?
+        yield i
+      elsif n > 0
+        break if excl ? i >= e : i > e
+        yield i
+      else
+        break if excl ? i <= e : i < e
+        yield i
+      end
+      i += n
+    end
+  end
+
+  # Non-numeric range with an integer step: advance via succ abs(n) times per step.
+  def _step_succ(b, e, n, excl, &block)
+    abs_n = n.abs
+    i = b
+    loop do
+      if e.nil?
+        yield i
+        abs_n.times { i = i.succ }
+      else
+        cmp = i <=> e
+        break if cmp.nil?
+        break if excl ? cmp >= 0 : cmp > 0
+        yield i
+        break if cmp == 0
+        abs_n.times { i = i.succ }
+      end
+    end
+  end
+
+  # Non-numeric range with a non-integer step: advance via + operator.
+  def _step_plus(b, e, n, excl, &block)
+    if e.nil?
+      i = b
+      loop { yield i; i = i + n }
+    else
+      dir = b <=> e
+      first_next = b + n
+      step_dir = b <=> first_next
+      # Check direction alignment (done before loop, but loop also calls i<=>e once)
+      aligned = dir.nil? || dir == 0 || step_dir.nil? || (dir < 0) == (step_dir < 0)
+      i = b; first_iter = true
+      loop do
+        cmp = i <=> e
+        break if cmp.nil?
+        if dir.nil? || dir <= 0
+          break if excl ? cmp >= 0 : cmp > 0
+        else
+          break if excl ? cmp <= 0 : cmp < 0
+        end
+        break unless aligned  # no iteration if step direction doesn't match range
+        yield i
+        break if cmp == 0
+        i = first_iter ? (first_iter = false; first_next) : i + n
+      end
+    end
+  end
 
   def _bsearch_size = nil
 
