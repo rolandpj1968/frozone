@@ -15,13 +15,21 @@ class Rational < Numeric
   def numerator = @numerator
   def denominator = @denominator
 
+  def __coerce_op__(other, op)
+    a, b = other.coerce(self)
+    a.send(op, b)
+  rescue NoMethodError
+    raise TypeError, "#{other.class} can't be coerced into Rational"
+  end
+
+  private :__coerce_op__
+
   def +(other)
     case other
     when Rational then Rational(@numerator * other.denominator + other.numerator * @denominator, @denominator * other.denominator)
     when Integer  then Rational(@numerator + other * @denominator, @denominator)
     when Float    then to_f + other
-    else
-      begin; a, b = other.coerce(self); a + b; rescue NoMethodError; raise TypeError, "#{other.class} can't be coerced into Rational"; end
+    else __coerce_op__(other, :+)
     end
   end
 
@@ -30,8 +38,7 @@ class Rational < Numeric
     when Rational then Rational(@numerator * other.denominator - other.numerator * @denominator, @denominator * other.denominator)
     when Integer  then Rational(@numerator - other * @denominator, @denominator)
     when Float    then to_f - other
-    else
-      begin; a, b = other.coerce(self); a - b; rescue NoMethodError; raise TypeError, "#{other.class} can't be coerced into Rational"; end
+    else __coerce_op__(other, :-)
     end
   end
 
@@ -40,8 +47,7 @@ class Rational < Numeric
     when Rational then Rational(@numerator * other.numerator, @denominator * other.denominator)
     when Integer  then Rational(@numerator * other, @denominator)
     when Float    then to_f * other
-    else
-      begin; a, b = other.coerce(self); a * b; rescue NoMethodError; raise TypeError, "#{other.class} can't be coerced into Rational"; end
+    else __coerce_op__(other, :*)
     end
   end
 
@@ -50,8 +56,7 @@ class Rational < Numeric
     when Rational then Rational(@numerator * other.denominator, @denominator * other.numerator)
     when Integer  then Rational(@numerator, @denominator * other)
     when Float    then to_f / other
-    else
-      begin; a, b = other.coerce(self); a / b; rescue NoMethodError; raise TypeError, "#{other.class} can't be coerced into Rational"; end
+    else __coerce_op__(other, :/)
     end
   end
 
@@ -72,8 +77,7 @@ class Rational < Numeric
       else
         to_f ** other.to_f
       end
-    else
-      begin; a, b = other.coerce(self); a ** b; rescue NoMethodError; raise TypeError, "#{other.class} can't be coerced into Rational"; end
+    else __coerce_op__(other, :**)
     end
   end
 
