@@ -82,7 +82,9 @@ class Hash
   end
 
   def [](key) = Intrinsics.hash_index(self, key)
-  def []=(key, value) = Intrinsics.hash_index_write(self, key, value)
+  def []=(key, value)
+    Intrinsics.hash_index_write(self, key, value)
+  end
   alias store []=
 
   def default(key = :__no_key__)

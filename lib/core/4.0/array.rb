@@ -310,7 +310,7 @@ class Array
       n < 0 ? nil : n
     end
     result = []
-    _flatten_into(self, d, result, [])
+    __flatten_into__(self, d, result, [])
     result
   end
 
@@ -387,8 +387,8 @@ class Array
 
   def sort(&block)
     return dup if length <= 1
-    cmp = block || method(:_default_cmp)
-    _merge_sort(dup, cmp)
+    cmp = block || method(:__default_cmp__)
+    __merge_sort__(dup, cmp)
   end
 
   def sort!(&block); replace(sort(&block)); self; end
@@ -396,7 +396,7 @@ class Array
   def sort_by(&block)
     return to_enum(:sort_by) unless block
     pairs = map { |e| [block.call(e), e] }
-    pairs = _merge_sort(pairs, ->(a, b) {
+    pairs = __merge_sort__(pairs, ->(a, b) {
       c = a[0] <=> b[0]
       c.nil? ? 0 : c
     })
@@ -697,17 +697,6 @@ class Array
     self[n, length - n] + self[0, n]
   end
 
-  def __array_rand_int__(rng, n)
-    v = rng.rand(n)
-    unless v.is_a?(Integer)
-      v = v.to_int
-      raise TypeError, "to_int should return Integer" unless v.is_a?(Integer)
-    end
-    raise RangeError, "random number too small #{v}" if v < 0
-    raise RangeError, "random number too large #{v}" if v >= n
-    v
-  end
-
   def sample(n = :__none__, random: nil)
     if n.equal?(:__none__)
       return nil if empty?
@@ -787,7 +776,7 @@ class Array
       end
       return to_enum(:combination, n) { sz }
     end
-    _combination_r(self, n, 0, [], block)
+    __combination_r__(self, n, 0, [], block)
     self
   end
 
@@ -801,7 +790,7 @@ class Array
       end
       return to_enum(:permutation, n) { sz }
     end
-    _permutation_r(self, n, [], Array.new(length, false), block)
+    __permutation_r__(self, n, [], Array.new(length, false), block)
     self
   end
 
@@ -1284,7 +1273,7 @@ class Array
       return to_enum(:repeated_combination, n) { sz }
     end
     return self if n < 0
-    _repeated_combination_r(self, n, 0, [], block)
+    __repeated_combination_r__(self, n, 0, [], block)
     self
   end
 
@@ -1295,7 +1284,7 @@ class Array
       return to_enum(:repeated_permutation, n) { sz }
     end
     return self if n < 0
-    _repeated_permutation_r(self, n, [], block)
+    __repeated_permutation_r__(self, n, [], block)
     self
   end
 
@@ -1481,6 +1470,164 @@ class Array
 
   def __check_frozen__
     raise FrozenError, "can't modify frozen Array" if frozen?
+  end
+
+  def __flatten_into__(arr, depth, result, seen_ids)
+    raise ArgumentError, "flatten: cannot flatten recursive array" if seen_ids.include?(arr.__id__)
+    seen_ids << arr.__id__
+    i = 0
+    while i < arr.length
+      elem = Intrinsics.array_at(arr, i)
+      if elem.is_a?(Array) && (depth.nil? || depth > 0)
+        __flatten_into__(elem, depth.nil? ? nil : depth - 1, result, seen_ids)
+      elsif (depth.nil? || depth > 0) && !elem.nil? && elem.respond_to?(:to_ary)
+        converted = elem.to_ary
+        if converted.nil?
+          result << elem
+        elsif converted.is_a?(Array)
+          __flatten_into__(converted, depth.nil? ? nil : depth - 1, result, seen_ids)
+        else
+          raise TypeError, "can't convert #{elem.class} into Array (#{elem.class}#to_ary gives #{converted.class})"
+        end
+      else
+        result << elem
+      end
+      i += 1
+    end
+    seen_ids.pop
+  end
+
+  def __default_cmp__(a, b)
+    r = a <=> b
+    raise ArgumentError, "comparison failed" if r.nil?
+    r
+  end
+
+  def __merge_sort__(arr, cmp)
+    n = arr.length
+    return arr if n <= 1
+    mid = n / 2
+    left = __merge_sort__(arr[0...mid], cmp)
+    right = __merge_sort__(arr[mid..], cmp)
+    __merge__(left, right, cmp)
+  end
+
+  def __merge__(left, right, cmp)
+    result = []
+    i = 0
+    j = 0
+    while i < left.length && j < right.length
+      c = cmp.call(left[i], right[j])
+      raise ArgumentError, "comparison failed" if c.nil?
+      if c <= 0
+        result << left[i]
+        i += 1
+      else
+        result << right[j]
+        j += 1
+      end
+    end
+    while i < left.length
+      result << left[i]
+      i += 1
+    end
+    while j < right.length
+      result << right[j]
+      j += 1
+    end
+    result
+  end
+
+  def __combination_r__(arr, n, start, current, block)
+    if n == 0
+      block.call(current.dup)
+      return
+    end
+    i = start
+    while i <= arr.length - n
+      current << arr[i]
+      __combination_r__(arr, n - 1, i + 1, current, block)
+      current.pop
+      i += 1
+    end
+  end
+
+  def __permutation_r__(arr, n, current, used, block)
+    if current.length == n
+      block.call(current.dup)
+      return
+    end
+    i = 0
+    while i < arr.length
+      unless used[i]
+        used[i] = true
+        current << arr[i]
+        __permutation_r__(arr, n, current, used, block)
+        current.pop
+        used[i] = false
+      end
+      i += 1
+    end
+  end
+
+  def __repeated_combination_r__(arr, n, start, current, block)
+    if n == 0
+      block.call(current.dup)
+      return
+    end
+    i = start
+    while i < arr.length
+      current << arr[i]
+      __repeated_combination_r__(arr, n - 1, i, current, block)
+      current.pop
+      i += 1
+    end
+  end
+
+  def __repeated_permutation_r__(arr, n, current, block)
+    if current.length == n
+      block.call(current.dup)
+      return
+    end
+    i = 0
+    while i < arr.length
+      current << arr[i]
+      __repeated_permutation_r__(arr, n, current, block)
+      current.pop
+      i += 1
+    end
+  end
+
+  def __fill_range_bounds__(r)
+    n = length
+    b = r.begin.nil? ? 0 : __coerce_to_int__(r.begin)
+    b_adj = b < 0 ? b + n : b
+    raise RangeError, "#{b} is out of range" if b_adj < 0
+    end_nil = r.end.nil?
+    e = end_nil ? n - 1 : __coerce_to_int__(r.end)
+    e_adj = e < 0 ? e + n : e
+    e_adj -= 1 if r.exclude_end? && !end_nil
+    rlen = e_adj < b_adj ? 0 : e_adj - b_adj + 1
+    [b_adj, rlen]
+  end
+
+  def __binomial_coeff__(n, k)
+    return 0 if k < 0 || k > n
+    k = n - k if k > n - k
+    result = 1
+    k.times { |i| result = result * (n - i) / (i + 1) }
+    result
+  end
+
+  def __array_rand_int__(rng, n)
+    v = rng.rand(n)
+    unless v.is_a?(Integer)
+      v = v.to_int
+      raise TypeError, "to_int should return Integer" unless v.is_a?(Integer)
+    end
+    raise RangeError, "random number too small #{v}" if v < 0
+    raise RangeError, "random number too large #{v}" if v >= n
+    v
   end
 
   def __slice_int__(i, len)

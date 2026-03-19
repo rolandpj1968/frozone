@@ -9,6 +9,18 @@ class Range
 
   def self.allocate = Intrinsics.range_allocate(self)
 
+  def initialize(b, e, excl = false)
+    raise FrozenError, "can't modify frozen Range" if Intrinsics.range_initialized_q(self)
+    unless b.nil? || e.nil?
+      # Validate that b and e are comparable; propagate any exception from <=>
+      cmp = b <=> e
+      raise ArgumentError, "bad value for range" if cmp.nil?
+    end
+    Intrinsics.range_set(self, b, e, excl)
+  end
+
+  private :initialize
+
   def begin          = Intrinsics.range_begin(self)
   def end            = Intrinsics.range_end(self)
   def exclude_end?   = Intrinsics.range_exclude_end(self)
@@ -69,13 +81,6 @@ class Range
     r
   end
 
-  def _cover_value?(val)
-    b = self.begin; e = self.end
-    return false if !b.nil? && ((cmp = b <=> val).nil? || cmp > 0)
-    return false if !e.nil? && ((cmp2 = val <=> e).nil? || (exclude_end? ? cmp2 >= 0 : cmp2 > 0))
-    true
-  end
-
   def cover?(val)
     if val.is_a?(Range)
       # Subrange check: both begin and end of val must be covered by self
@@ -83,14 +88,14 @@ class Range
       # If val is endless, self must also be endless
       if ve.nil?
         return false unless self.end.nil?
-        return vb.nil? || _cover_value?(vb)
+        return vb.nil? || __cover_value__?(vb)
       end
       # If val is beginless, self must also be beginless
       if vb.nil?
-        return self.begin.nil? && _cover_value?(ve)
+        return self.begin.nil? && __cover_value__?(ve)
       end
       # Check val's begin is covered
-      return false unless _cover_value?(vb)
+      return false unless __cover_value__?(vb)
       # Check val's end is covered
       e = self.end
       if vexcl && !e.nil?
@@ -108,10 +113,10 @@ class Range
           end
         end
       else
-        return _cover_value?(ve)
+        return __cover_value__?(ve)
       end
     else
-      _cover_value?(val)
+      __cover_value__?(val)
     end
   end
 
@@ -274,9 +279,9 @@ class Range
       raise ArgumentError, "step can't be 0" if numeric && (n == 0 || n == 0.0)
       rng = self
       if arithmetic
-        return Enumerator::ArithmeticSequence._from_method(self, :step, [n], proc { rng.send(:_step_size, n) })
+        return Enumerator::ArithmeticSequence._from_method(self, :step, [n], proc { rng.send(:__step_size__, n) })
       end
-      return to_enum(:step, n) { _step_size(n) }
+      return to_enum(:step, n) { __step_size__(n) }
     end
 
     # With block: coerce or validate step for numeric ranges
@@ -295,17 +300,17 @@ class Range
     if numeric
       use_float = n.is_a?(Float) || b.is_a?(Float) || (!e.nil? && e_numeric_val && e.is_a?(Float))
       if use_float
-        _step_float(b.to_f, e.nil? ? nil : e.to_f, n.to_f, excl, &block)
+        __step_float__(b.to_f, e.nil? ? nil : e.to_f, n.to_f, excl, &block)
       else
-        _step_integer(b, e, n, excl, &block)
+        __step_integer__(b, e, n, excl, &block)
       end
     elsif n.is_a?(Float)
       raise TypeError, "no implicit conversion of Float into String" if b.is_a?(String)
       raise TypeError, "no implicit conversion of Float into #{b.class}"
     elsif n.is_a?(Integer)
-      _step_succ(b, e, n, excl, &block)
+      __step_succ__(b, e, n, excl, &block)
     else
-      _step_plus(b, e, n, excl, &block)
+      __step_plus__(b, e, n, excl, &block)
     end
     self
   end
@@ -364,7 +369,7 @@ class Range
   end
 
   def reverse_each(&block)
-    return to_enum(:reverse_each) { _reverse_each_size } unless block
+    return to_enum(:reverse_each) { __reverse_each_size__ } unless block
     b    = self.begin
     e    = self.end
     excl = exclude_end?
@@ -436,9 +441,9 @@ class Range
     raise ArgumentError, "step can't be 0" if numeric && (n == 0 || n == 0.0)
     rng = self
     if arithmetic
-      return Enumerator::ArithmeticSequence._from_method(self, :%, [n], proc { rng.send(:_step_size, n) })
+      return Enumerator::ArithmeticSequence._from_method(self, :%, [n], proc { rng.send(:__step_size__, n) })
     end
-    to_enum(:%, n) { _step_size(n) }
+    to_enum(:%, n) { __step_size__(n) }
   end
 
   def overlap?(other)
@@ -474,37 +479,26 @@ class Range
     unless b_ok && e_ok
       raise TypeError, "can't do binary search for #{b_ok ? e.class : b.class}"
     end
-    return to_enum(:bsearch) { _bsearch_size } unless block
+    return to_enum(:bsearch) { __bsearch_size__ } unless block
     if (b.nil? || b.is_a?(Integer)) && (e.nil? || e.is_a?(Integer))
-      _bsearch_integer(b, e, exclude_end?, &block)
+      __bsearch_integer__(b, e, exclude_end?, &block)
     else
       bf = b.nil? ? -Float::INFINITY : b.to_f
       ef = e.nil? ?  Float::INFINITY : e.to_f
-      _bsearch_float(bf, ef, exclude_end?, &block)
+      __bsearch_float__(bf, ef, exclude_end?, &block)
     end
-  end
-
-  # SpecVersion (mspec) may call split on a Range when given a range version like ""..."3.4".
-  # Fall back to splitting the end value's string representation.
-  def split(sep = nil, limit = nil)
-    v = self.end
-    v = v.nil? ? '' : v.to_s
-    limit.nil? ? v.split(sep) : v.split(sep, limit)
   end
 
   private
 
-  def initialize(b, e, excl = false)
-    raise FrozenError, "can't modify frozen Range" if Intrinsics.range_initialized_q(self)
-    unless b.nil? || e.nil?
-      # Validate that b and e are comparable; propagate any exception from <=>
-      cmp = b <=> e
-      raise ArgumentError, "bad value for range" if cmp.nil?
-    end
-    Intrinsics.range_set(self, b, e, excl)
+  def __cover_value__?(val)
+    b = self.begin; e = self.end
+    return false if !b.nil? && ((cmp = b <=> val).nil? || cmp > 0)
+    return false if !e.nil? && ((cmp2 = val <=> e).nil? || (exclude_end? ? cmp2 >= 0 : cmp2 > 0))
+    true
   end
 
-  def _step_size(n)
+  def __step_size__(n)
     b = self.begin; e = self.end; excl = exclude_end?
     return nil unless b.is_a?(Integer) || b.is_a?(Float)
     return nil unless n.is_a?(Numeric)
@@ -544,7 +538,7 @@ class Range
     end
   end
 
-  def _reverse_each_size
+  def __reverse_each_size__
     b = self.begin; e = self.end
     if b.nil?
       # Beginless: only Integer end is iterable
@@ -569,19 +563,19 @@ class Range
 
   # Float step over a numeric range. b_f and e_f are already converted to Float.
   # e_f is nil for an endless range.
-  def _step_float(b_f, e_f, step_f, excl, &block)
+  def __step_float__(b_f, e_f, step_f, excl, &block)
     if e_f.nil? || (e_f.respond_to?(:infinite?) && e_f.infinite?) ||
        (b_f.respond_to?(:infinite?) && b_f.infinite?)
-      _step_float_unbounded(b_f, e_f, step_f, excl, &block)
+      __step_float_unbounded__(b_f, e_f, step_f, excl, &block)
     elsif step_f > 0
-      _step_float_positive(b_f, e_f, step_f, excl, &block)
+      __step_float_positive__(b_f, e_f, step_f, excl, &block)
     else
-      _step_float_negative(b_f, e_f, step_f, excl, &block)
+      __step_float_negative__(b_f, e_f, step_f, excl, &block)
     end
   end
 
   # Float step: endless or infinite-boundary — simple loop with no count pre-computation.
-  def _step_float_unbounded(b_f, e_f, step_f, excl, &block)
+  def __step_float_unbounded__(b_f, e_f, step_f, excl, &block)
     k = 0
     loop do
       i = step_f * k + b_f
@@ -599,7 +593,7 @@ class Range
   end
 
   # Float step: positive step, bounded range.
-  def _step_float_positive(b_f, e_f, step_f, excl, &block)
+  def __step_float_positive__(b_f, e_f, step_f, excl, &block)
     if excl
       # Loop-based for exclusive: naturally handles float precision
       k = 0
@@ -623,7 +617,7 @@ class Range
   end
 
   # Float step: negative step, bounded range.
-  def _step_float_negative(b_f, e_f, step_f, excl, &block)
+  def __step_float_negative__(b_f, e_f, step_f, excl, &block)
     if excl
       k = 0
       loop do
@@ -645,7 +639,7 @@ class Range
   end
 
   # Integer step over a numeric (integer-only) range.
-  def _step_integer(b, e, n, excl, &block)
+  def __step_integer__(b, e, n, excl, &block)
     i = b
     loop do
       if e.nil?
@@ -662,7 +656,7 @@ class Range
   end
 
   # Non-numeric range with an integer step: advance via succ abs(n) times per step.
-  def _step_succ(b, e, n, excl, &block)
+  def __step_succ__(b, e, n, excl, &block)
     abs_n = n.abs
     i = b
     loop do
@@ -681,7 +675,7 @@ class Range
   end
 
   # Non-numeric range with a non-integer step: advance via + operator.
-  def _step_plus(b, e, n, excl, &block)
+  def __step_plus__(b, e, n, excl, &block)
     if e.nil?
       i = b
       loop { yield i; i = i + n }
@@ -708,27 +702,27 @@ class Range
     end
   end
 
-  def _bsearch_size = nil
+  def __bsearch_size__ = nil
 
-  def _bsearch_validate(r)
+  def __bsearch_validate__(r)
     return if r == true || r == false || r.nil? || r.is_a?(Numeric)
     raise TypeError, "wrong argument type #{r.class} (must be numeric, true, false or nil)"
   end
 
   # Integer bsearch
-  def _bsearch_integer(lo, hi, excl, &block)
+  def __bsearch_integer__(lo, hi, excl, &block)
     lo_val = lo.nil? ? (-(2**62)) : lo
     hi_val = hi.nil? ? (2**62) : (excl ? hi - 1 : hi)
     return nil if lo_val > hi_val
     r0 = block.call(lo_val)
-    _bsearch_validate(r0)
-    r0.is_a?(Numeric) ? _bsearch_int_any(lo_val, hi_val, r0, &block)
-                      : _bsearch_int_min(lo_val, hi_val, r0, &block)
+    __bsearch_validate__(r0)
+    r0.is_a?(Numeric) ? __bsearch_int_any__(lo_val, hi_val, r0, &block)
+                      : __bsearch_int_min__(lo_val, hi_val, r0, &block)
   end
 
   # Integer find-minimum (true/false mode)
   # Convention: find leftmost element where block returns truthy
-  def _bsearch_int_min(lo, hi, r0, &block)
+  def __bsearch_int_min__(lo, hi, r0, &block)
     result = r0 ? lo : nil
     left = r0 ? lo : lo + 1
     right = hi
@@ -736,7 +730,7 @@ class Range
       mid = left + (right - left) / 2
       r = block.call(mid)
       raise TypeError, "wrong argument type #{r.class} (must be true, false or nil)" if r.is_a?(Numeric)
-      _bsearch_validate(r)
+      __bsearch_validate__(r)
       if r
         result = mid
         right = mid - 1
@@ -750,7 +744,7 @@ class Range
   # Integer find-any (numeric mode)
   # Convention: block returns positive if element is too small (go right),
   #             negative if too large (go left), zero if found
-  def _bsearch_int_any(lo, hi, r0, &block)
+  def __bsearch_int_any__(lo, hi, r0, &block)
     n0 = r0.is_a?(Numeric) ? r0 : (r0 ? 1 : -1)
     return lo if n0 == 0
     return nil if n0 < 0  # lo is already too large, answer is left of range
@@ -758,7 +752,7 @@ class Range
     while left <= right
       mid = left + (right - left) / 2
       r = block.call(mid)
-      _bsearch_validate(r)
+      __bsearch_validate__(r)
       n = r.is_a?(Numeric) ? r : (r ? 1 : -1)
       if n == 0
         return mid
@@ -775,26 +769,26 @@ class Range
   FLOAT_SIGN_BIT = 1 << 63
   FLOAT_UINT64_MASK = (1 << 64) - 1
 
-  def _float_to_ord(f)
+  def __float_to_ord__(f)
     bits = [f].pack('G').unpack1('Q>')
     (bits & FLOAT_SIGN_BIT) != 0 ? (~bits & FLOAT_UINT64_MASK) : (bits | FLOAT_SIGN_BIT)
   end
 
-  def _ord_to_float(ord)
+  def __ord_to_float__(ord)
     bits = (ord & FLOAT_SIGN_BIT) != 0 ? (ord ^ FLOAT_SIGN_BIT) : (~ord & FLOAT_UINT64_MASK)
     [bits].pack('Q>').unpack1('G')
   end
 
-  def _bsearch_float(lo, hi, excl, &block)
-    lo_ord = _float_to_ord(lo)
-    hi_ord = _float_to_ord(hi)
+  def __bsearch_float__(lo, hi, excl, &block)
+    lo_ord = __float_to_ord__(lo)
+    hi_ord = __float_to_ord__(hi)
     hi_ord -= 1 if excl
     return nil if lo_ord > hi_ord
 
     # Probe at lo to detect mode
-    lo_f = _ord_to_float(lo_ord)
+    lo_f = __ord_to_float__(lo_ord)
     r0 = block.call(lo_f)
-    _bsearch_validate(r0)
+    __bsearch_validate__(r0)
 
     if r0.is_a?(Numeric)
       # Find-any mode: block returns positive=too small, negative=too large, 0=found
@@ -805,9 +799,9 @@ class Range
       left = lo_ord + 1; right = hi_ord
       while left <= right
         mid_ord = left + (right - left) / 2
-        mid = _ord_to_float(mid_ord)
+        mid = __ord_to_float__(mid_ord)
         r = block.call(mid)
-        _bsearch_validate(r)
+        __bsearch_validate__(r)
         n = r.is_a?(Numeric) ? r.to_f : (r ? 1.0 : -1.0)
         return mid if n == 0.0
         n > 0.0 ? (left = mid_ord + 1) : (right = mid_ord - 1)
@@ -820,10 +814,10 @@ class Range
       right = hi_ord
       while left <= right
         mid_ord = left + (right - left) / 2
-        mid = _ord_to_float(mid_ord)
+        mid = __ord_to_float__(mid_ord)
         r = block.call(mid)
         raise TypeError, "wrong argument type #{r.class} (must be true, false or nil)" if r.is_a?(Numeric)
-        _bsearch_validate(r)
+        __bsearch_validate__(r)
         if r
           result = mid
           right = mid_ord - 1
@@ -833,5 +827,15 @@ class Range
       end
       result
     end
+  end
+
+  public
+
+  # SpecVersion (mspec) may call split on a Range when given a range version like ""..."3.4".
+  # Fall back to splitting the end value's string representation.
+  def split(sep = nil, limit = nil)
+    v = self.end
+    v = v.nil? ? '' : v.to_s
+    limit.nil? ? v.split(sep) : v.split(sep, limit)
   end
 end
