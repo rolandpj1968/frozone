@@ -38,8 +38,9 @@ module Marshal
   # ─── Dumper ────────────────────────────────────────────────────────────────
 
   class Dumper
-    def initialize(depth)
-      @depth   = depth   # ignored in current impl (Ruby also ignores it now)
+    def initialize(limit)
+      @limit   = limit   # recursion depth limit (-1 = unlimited)
+      @depth   = 0       # current recursion depth
       @symbols = {}      # symbol → index
       @objects = {}      # object_id → index; index 0 = first object after symbols
       @out     = ''.b
@@ -54,8 +55,21 @@ module Marshal
     private
 
     def write_object(obj)
+      if @limit >= 0
+        raise ArgumentError, "exceed depth limit" if @depth >= @limit
+        @depth += 1
+        result = write_object_inner(obj)
+        @depth -= 1
+        result
+      else
+        write_object_inner(obj)
+      end
+    end
+
+    def write_object_inner(obj)
       # Nil / true / false — not tracked in object table
-      if obj.nil?
+      # Use .equal?(nil) to support BasicObject subclasses that don't define nil?
+      if obj.equal?(nil)
         @out << TYPE_NIL
         return
       end
@@ -68,8 +82,8 @@ module Marshal
         return
       end
 
-      # Integer — not tracked
-      if obj.is_a?(Integer)
+      # Integer (fixnum) — not tracked
+      if obj.is_a?(Integer) && !(obj > 0x3fffffff || obj < -0x40000000)
         write_integer(obj)
         return
       end
@@ -124,6 +138,8 @@ module Marshal
         write_exception(obj)
       elsif obj.is_a?(Struct)
         write_struct_with_wraps(obj)
+      elsif defined?(Data) && obj.is_a?(Data)
+        write_data_as_struct(obj)
       elsif respond_to_marshal_dump?(obj)
         write_user_marshal(obj)
       elsif respond_to__dump?(obj)
@@ -154,10 +170,6 @@ module Marshal
     # ── Integers ──────────────────────────────────────────────────────────────
 
     def write_integer(n)
-      if n > 0x3fffffff || n < -0x40000000
-        write_bignum(n)
-        return
-      end
       @out << TYPE_INTEGER
       write_long(n)
     end
@@ -267,9 +279,17 @@ module Marshal
         write_long(@symbols[str])
       else
         @symbols[str] = @symbols.size
+        enc_ivar = begin; encoding_ivar(str.encoding); rescue; nil; end
+        if enc_ivar
+          @out << TYPE_IVAR
+        end
         @out << TYPE_SYMBOL
         write_long(str.bytesize)
         @out << str.b
+        if enc_ivar
+          write_long(1)
+          write_enc_ivar(enc_ivar)
+        end
       end
     end
 
@@ -295,24 +315,14 @@ module Marshal
       enc = obj.encoding
       enc_ivar = encoding_ivar(enc)
 
-      all_ivars = ivars.dup
-      all_ivars = [enc_ivar[0], enc_ivar[1]] + all_ivars if enc_ivar
-
       subclass = (obj.class != String)
-      needs_ivar = !all_ivars.empty?
+      n_ivars = ivars.size / 2 + (enc_ivar ? 1 : 0)
+      needs_ivar = n_ivars > 0
 
-      # Write extensions first (outermost)
+      # TYPE_IVAR must come before TYPE_EXTENDED/TYPE_UCLASS wrappers (MRI ordering)
+      @out << TYPE_IVAR if needs_ivar
       mods.each { |m| write_extension_prefix(m) }
-
-      # Subclass wrapper?
-      if subclass
-        write_uclass(obj.class)
-      end
-
-      # Ivar wrapper?
-      if needs_ivar
-        @out << TYPE_IVAR
-      end
+      write_uclass(obj.class) if subclass
 
       # Track object (object table entry for the string itself)
       track(obj)
@@ -321,11 +331,12 @@ module Marshal
 
       # Write ivars after
       if needs_ivar
-        write_long(all_ivars.size / 2)
+        write_long(n_ivars)
+        write_enc_ivar(enc_ivar) if enc_ivar
         i = 0
-        while i < all_ivars.size
-          write_symbol(all_ivars[i])
-          write_object(all_ivars[i + 1])
+        while i < ivars.size
+          write_symbol(ivars[i])
+          write_object(ivars[i + 1])
           i += 2
         end
       end
@@ -349,6 +360,22 @@ module Marshal
         nil  # binary strings don't need encoding ivar
       else
         [:encoding, name]
+      end
+    end
+
+    # Write an encoding ivar key+value pair.
+    # The value is written as a raw binary string (no IVAR wrapper) — MRI behavior.
+    def write_enc_ivar(enc_ivar)
+      key, val = enc_ivar
+      write_symbol(key)
+      if val.equal?(true) || val.equal?(false)
+        @out << (val ? TYPE_TRUE : TYPE_FALSE)
+      else
+        # Encoding name: write as plain binary string without IVAR wrapping
+        bytes = val.b rescue val.to_s.b
+        @out << TYPE_STRING
+        write_long(bytes.bytesize)
+        @out << bytes
       end
     end
 
@@ -427,6 +454,8 @@ module Marshal
       compare_by_id = obj.compare_by_identity?
       needs_ivar = !ivars.empty?
 
+      # TYPE_IVAR must come before TYPE_EXTENDED/TYPE_UCLASS wrappers (MRI ordering)
+      @out << TYPE_IVAR if needs_ivar
       mods.each { |m| write_extension_prefix(m) }
 
       if compare_by_id && subclass
@@ -438,8 +467,6 @@ module Marshal
       elsif subclass
         write_uclass(obj.class)
       end
-
-      @out << TYPE_IVAR if needs_ivar
 
       track(obj)
       write_raw_hash(obj)
@@ -472,24 +499,24 @@ module Marshal
       enc = obj.source.encoding
       enc_ivar = encoding_ivar(enc)
 
-      all_ivars = ivars.dup
-      all_ivars = [enc_ivar[0], enc_ivar[1]] + all_ivars if enc_ivar
+      n_ivars = ivars.size / 2 + (enc_ivar ? 1 : 0)
+      needs_ivar = n_ivars > 0
 
-      needs_ivar = !all_ivars.empty?
-
+      # TYPE_IVAR must come before TYPE_EXTENDED/TYPE_UCLASS wrappers (MRI ordering)
+      @out << TYPE_IVAR if needs_ivar
       mods.each { |m| write_extension_prefix(m) }
       write_uclass(obj.class) if subclass
-      @out << TYPE_IVAR if needs_ivar
 
       track(obj)
       write_raw_regexp(obj)
 
       if needs_ivar
-        write_long(all_ivars.size / 2)
+        write_long(n_ivars)
+        write_enc_ivar(enc_ivar) if enc_ivar
         i = 0
-        while i < all_ivars.size
-          write_symbol(all_ivars[i])
-          write_object(all_ivars[i + 1])
+        while i < ivars.size
+          write_symbol(ivars[i])
+          write_object(ivars[i + 1])
           i += 2
         end
       end
@@ -506,14 +533,30 @@ module Marshal
 
     def write_class(klass)
       check_anonymous(klass)
+      name = real_class_name(klass)
+      needs_ivar = name.bytes.any? { |b| b > 127 }
+      @out << TYPE_IVAR if needs_ivar
       @out << TYPE_CLASS
-      write_class_name(klass)
+      write_long(name.bytesize)
+      @out << name.b
+      if needs_ivar
+        write_long(1)
+        write_enc_ivar([:E, true])
+      end
     end
 
     def write_module(mod)
       check_anonymous(mod)
+      name = real_module_name(mod)
+      needs_ivar = name.bytes.any? { |b| b > 127 }
+      @out << TYPE_IVAR if needs_ivar
       @out << TYPE_MODULE
-      write_module_name(mod)
+      write_long(name.bytesize)
+      @out << name.b
+      if needs_ivar
+        write_long(1)
+        write_enc_ivar([:E, true])
+      end
     end
 
     def write_class_name(klass)
@@ -549,7 +592,10 @@ module Marshal
           nil
         end
       end
-      raise TypeError, "can't dump anonymous class #{mod.inspect}" if name.nil? || name.empty?
+      if name.nil? || name.empty?
+        kind = mod.is_a?(Class) ? 'class' : 'module'
+        raise TypeError, "can't dump anonymous #{kind} #{mod.inspect}"
+      end
     end
     # ── Struct ────────────────────────────────────────────────────────────────
 
@@ -587,6 +633,22 @@ module Marshal
         write_object(obj[m])
       end
     end
+
+    def write_data_as_struct(obj)
+      klass = obj.class
+      check_anonymous(klass)
+      mods = extended_modules(obj)
+      mods.each { |m| write_extension_prefix(m) }
+      track(obj)
+      @out << TYPE_STRUCT
+      write_symbol_str(real_class_name(klass))
+      members = obj.members
+      write_long(members.size)
+      members.each do |m|
+        write_symbol(m)
+        write_object(obj.send(m))
+      end
+    end
     # ── User-defined (_dump/_load) ────────────────────────────────────────────
 
     def write_user_defined(obj)
@@ -602,12 +664,13 @@ module Marshal
       # This includes the string's encoding ivar and any string instance variables
       str_ivars = collect_ivars(data)
       enc_ivar = encoding_ivar(data.encoding)
-      all_ivars = enc_ivar ? [enc_ivar[0], enc_ivar[1]] + str_ivars : str_ivars
 
-      needs_ivar = !all_ivars.empty?
+      n_ivars = str_ivars.size / 2 + (enc_ivar ? 1 : 0)
+      needs_ivar = n_ivars > 0
 
-      mods.each { |m| write_extension_prefix(m) }
+      # TYPE_IVAR must come before TYPE_EXTENDED wrappers (MRI ordering)
       @out << TYPE_IVAR if needs_ivar
+      mods.each { |m| write_extension_prefix(m) }
 
       track(obj)
 
@@ -617,11 +680,12 @@ module Marshal
       @out << data.b
 
       if needs_ivar
-        write_long(all_ivars.size / 2)
+        write_long(n_ivars)
+        write_enc_ivar(enc_ivar) if enc_ivar
         i = 0
-        while i < all_ivars.size
-          write_symbol(all_ivars[i])
-          write_object(all_ivars[i + 1])
+        while i < str_ivars.size
+          write_symbol(str_ivars[i])
+          write_object(str_ivars[i + 1])
           i += 2
         end
       end
@@ -645,14 +709,21 @@ module Marshal
     end
     # ── Exception ─────────────────────────────────────────────────────────────
 
+    EXCEPTION_SKIP_IVARS = %i[@mesg @message @bt @backtrace @_has_locations @backtrace_locations].freeze
+
     def write_exception(obj)
       klass = obj.class
+      check_anonymous(klass)
       mods = extended_modules(obj)
-      ivars = collect_ivars(obj)
 
-      # Remove @message if present in ivars (it becomes :mesg)
-      # MRI marshal uses :mesg and :bt synthetic ivars
-      obj_ivars = ivars.reject { |v| v == :@mesg || v == :@message || v == :@bt || v == :@backtrace }
+      # MRI marshal uses :mesg and :bt synthetic ivars; collect other ivars as pairs
+      # Filter out the exception-internal ivars that become synthetic keys
+      extra_pairs = []
+      obj.instance_variables.each do |iv|
+        next if EXCEPTION_SKIP_IVARS.include?(iv)
+
+        extra_pairs << iv << obj.instance_variable_get(iv)
+      end
 
       mods.each { |m| write_extension_prefix(m) }
 
@@ -674,8 +745,7 @@ module Marshal
       end
 
       all_ivars = [:mesg, mesg, :bt, bt]
-      # Add any additional instance variables
-      all_ivars += obj_ivars
+      all_ivars += extra_pairs
 
       @out << TYPE_OBJECT
       write_symbol_str(real_class_name(klass))
@@ -696,14 +766,11 @@ module Marshal
       mods = extended_modules(obj)
       ivars = collect_ivars(obj)
 
+      check_anonymous(klass) if is_subclass
       mods.each { |m| write_extension_prefix(m) }
       write_uclass(klass) if is_subclass
 
       track(obj)
-
-      if is_subclass
-        raise TypeError, "can't dump anonymous class #{klass.inspect}" if klass.name.nil? || klass.name.empty?
-      end
 
       # Range stores begin, end, excl as synthetic ivars
       # Collected ivars from the range itself (if any)
@@ -727,6 +794,10 @@ module Marshal
       check_no_singleton(obj)
 
       mods = extended_modules(obj)
+      mods.each do |m|
+        name = begin; real_module_name(m); rescue; nil; end
+        raise TypeError, "can't dump anonymous class #{obj.class}" if name.nil? || name.empty?
+      end
       ivars = collect_ivars(obj)
 
       mods.each { |m| write_extension_prefix(m) }
@@ -1462,9 +1533,13 @@ module Marshal
       limit = io
       io = nil
     end
+    if io && !io.respond_to?(:write)
+      raise TypeError, "instance of #{io.class} needs to have method `write'"
+    end
     d = Dumper.new(limit)
     result = d.dump(obj)
     if io
+      io.binmode if io.respond_to?(:binmode)
       io.write(result)
       io
     else
