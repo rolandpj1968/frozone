@@ -935,12 +935,6 @@ module Marshal
       b = read_byte
       if b == 0
         0
-      elsif b > 4
-        b - 5
-      elsif b < 252
-        # negative
-        n = b - 256
-        n + 5
       elsif b == 1
         read_byte
       elsif b == 2
@@ -952,21 +946,27 @@ module Marshal
       elsif b == 4
         a = read_byte; bb = read_byte; c = read_byte; d = read_byte
         a | (bb << 8) | (c << 16) | (d << 24)
+      elsif b < 128
+        # small positive: b = n + 5, so n = b - 5 (range 5..127 → n 0..122)
+        b - 5
+      elsif b < 252
+        # small negative: b = 256 + n - 5, so n = b - 251 (range 128..251 → n -123..-5)
+        b - 251
+      elsif b == 252
+        # 4-byte negative: stored as n + 2^32 (little-endian unsigned), decode by subtracting
+        a = read_byte; bb = read_byte; c = read_byte; d = read_byte
+        (a | (bb << 8) | (c << 16) | (d << 24)) - 0x100000000
+      elsif b == 253
+        # 3-byte negative: stored as n + 2^24
+        a = read_byte; bb = read_byte; c = read_byte
+        (a | (bb << 8) | (c << 16)) - 0x1000000
+      elsif b == 254
+        # 2-byte negative: stored as n + 2^16
+        a = read_byte; bb = read_byte
+        (a | (bb << 8)) - 0x10000
       elsif b == 255
         a = read_byte
         a - 256
-      elsif b == 254
-        a = read_byte; bb = read_byte
-        v = a | (bb << 8)
-        v >= 0x8000 ? v - 0x10000 : v
-      elsif b == 253
-        a = read_byte; bb = read_byte; c = read_byte
-        v = a | (bb << 8) | (c << 16)
-        v >= 0x800000 ? v - 0x1000000 : v
-      elsif b == 252
-        a = read_byte; bb = read_byte; c = read_byte; d = read_byte
-        v = a | (bb << 8) | (c << 16) | (d << 24)
-        v >= 0x80000000 ? v - 0x100000000 : v
       else
         raise ArgumentError, "marshal data too short"
       end

@@ -59,16 +59,17 @@ module Frozone
         def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = NilObject::NIL, backtrace_arg = NilObject::NIL, cause_arg = NilObject::NIL)
           current_exc = GLOBALS[:"$!"]
           no_cause_sentinel = cause_arg.is_a?(SymbolObject) && cause_arg.raw == :__raise_no_cause__
-          explicit_cause = !cause_arg.is_a?(NilObject) && !no_cause_sentinel
+          cause_was_given  = !no_cause_sentinel  # true if cause: was explicitly passed (even as nil)
+          explicit_cause   = cause_was_given && !cause_arg.is_a?(NilObject)
 
           # Distinguish bare `raise` (no args → :__raise_no_arg__ sentinel) from `raise(nil)` (explicit nil → TypeError)
           no_arg_sentinel = msg.is_a?(SymbolObject) && msg.raw == :__raise_no_arg__
 
-          # ArgumentError: only cause: given with no positional args
-          raise FrozoneException.make(:ArgumentError, "only cause is given with no arguments") if no_arg_sentinel && explicit_cause
+          # ArgumentError: only cause: given (even nil) with no positional args
+          raise FrozoneException.make(:ArgumentError, "only cause is given with no arguments") if no_arg_sentinel && cause_was_given
 
           # Validate explicit cause type before building exception
-          if explicit_cause && !cause_arg.is_a?(NilObject)
+          if explicit_cause
             raise FrozoneException.make(:TypeError, "exception object expected") unless exception_instance?(cause_arg)
           end
 
@@ -251,7 +252,8 @@ module Frozone
         end
 
         def kernel_srand(_, _receiver, seed)
-          result = srand(f2n_raw(seed))
+          raw = f2n_raw(seed)
+          result = raw.nil? ? srand : srand(raw)
           IntegerObject.new(result)
         end
 

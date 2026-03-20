@@ -41,8 +41,9 @@ module Frozone
             end
             return proc_obj
           end
-          # No block given
-          if block.is_a?(NilObject)
+          # No block given — Ruby 4.0: Proc.new always requires an explicit block;
+          # block inheritance from calling method was removed.
+          if block.nil? || block.is_a?(NilObject)
             raise FrozoneException.make(:ArgumentError, "tried to create Proc object without a block")
           end
           is_lam = block.is_a?(BoundMethodObject) || (block.is_a?(NativeBlock) && block.is_lambda)
