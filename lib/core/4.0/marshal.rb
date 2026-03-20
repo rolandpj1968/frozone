@@ -83,13 +83,15 @@ module Marshal
       end
 
       # Integer (fixnum) — not tracked
-      if obj.is_a?(Integer) && !(obj > 0x3fffffff || obj < -0x40000000)
+      is_int = begin; obj.is_a?(Integer); rescue NoMethodError; false; end
+      if is_int && !(obj > 0x3fffffff || obj < -0x40000000)
         write_integer(obj)
         return
       end
 
       # Symbol — use symbol link table, not object table
-      if obj.is_a?(Symbol)
+      is_sym = begin; obj.is_a?(Symbol); rescue NoMethodError; false; end
+      if is_sym
         write_symbol(obj)
         return
       end
@@ -102,49 +104,61 @@ module Marshal
       end
 
       # Before writing, we may need to wrap with TYPE_IVAR or TYPE_EXTENDED
-      # Dispatch to the right serializer based on class
-      if obj.is_a?(Float)
+      # Dispatch to the right serializer based on class.
+      # Use rescue NoMethodError to handle BasicObject subclasses without is_a?
+      dispatch_obj(obj)
+    end
+
+    def isa?(obj, klass)
+      obj.is_a?(klass)
+    rescue NoMethodError
+      false
+    end
+
+    def dispatch_obj(obj)
+      if isa?(obj, Float)
         track(obj)
         write_float(obj)
-      elsif obj.is_a?(Integer) && (obj > 0x3fffffff || obj < -0x40000000)
+      elsif isa?(obj, Integer) && (obj > 0x3fffffff || obj < -0x40000000)
         track(obj)
         write_bignum(obj)
-      elsif obj.is_a?(String)
+      elsif isa?(obj, String)
         write_string_with_ivar(obj)
-      elsif obj.is_a?(Symbol)
+      elsif isa?(obj, Symbol)
         # handled above, but just in case
         write_symbol(obj)
-      elsif obj.is_a?(IO) || obj.is_a?(File)
+      elsif isa?(obj, IO) || isa?(obj, File) ||
+            (defined?(StringIO) && isa?(obj, StringIO))
         raise TypeError, "no _dump_data is defined for class #{obj.class}"
-      elsif obj.is_a?(MatchData)
+      elsif isa?(obj, MatchData)
         raise TypeError, "no _dump_data is defined for class #{obj.class}"
-      elsif obj.is_a?(Method) || obj.is_a?(UnboundMethod) || obj.is_a?(Proc)
+      elsif isa?(obj, Method) || isa?(obj, UnboundMethod) || isa?(obj, Proc)
         raise TypeError, "no _dump_data is defined for class #{obj.class}"
-      elsif defined?(Mutex) && obj.is_a?(Mutex)
+      elsif defined?(Mutex) && isa?(obj, Mutex)
         raise TypeError, "no _dump_data is defined for class #{obj.class}"
-      elsif obj.is_a?(Array)
+      elsif isa?(obj, Array)
         write_array_with_wraps(obj)
-      elsif obj.is_a?(Hash)
+      elsif isa?(obj, Hash)
         write_hash_with_wraps(obj)
-      elsif obj.is_a?(Regexp)
+      elsif isa?(obj, Regexp)
         write_regexp_with_ivar(obj)
-      elsif obj.is_a?(Class)
+      elsif isa?(obj, Class)
         track(obj)
         write_class(obj)
-      elsif obj.is_a?(Module)
+      elsif isa?(obj, Module)
         track(obj)
         write_module(obj)
-      elsif obj.is_a?(Exception)
+      elsif isa?(obj, Exception)
         write_exception(obj)
-      elsif obj.is_a?(Struct)
+      elsif isa?(obj, Struct)
         write_struct_with_wraps(obj)
-      elsif defined?(Data) && obj.is_a?(Data)
+      elsif defined?(Data) && isa?(obj, Data)
         write_data_as_struct(obj)
       elsif respond_to_marshal_dump?(obj)
         write_user_marshal(obj)
       elsif respond_to__dump?(obj)
         write_user_defined(obj)
-      elsif obj.is_a?(Range)
+      elsif isa?(obj, Range)
         write_range(obj)
       else
         write_generic_object(obj)
