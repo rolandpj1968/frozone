@@ -7,6 +7,15 @@ module Frozone
         def proc_lambda_p(_context, proc_obj) = proc_obj.lambda? ? TrueObject::TRUE : FalseObject::FALSE
         def binding_receiver(_, binding_obj) = binding_obj.captured_frame.the_self
 
+        def proc_set_parameters_override(_, proc_obj, params_arr)
+          blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
+          if blk.respond_to?(:parameters_override=)
+            raw = params_arr.raw.map { |p| p.raw.map { |s| s.is_a?(SymbolObject) ? s.raw : s } }
+            blk.parameters_override = raw
+          end
+          proc_obj
+        end
+
         def proc_class_new(context, klass, args)
           raw_args = args.raw
           block = context.frame.block
@@ -192,7 +201,7 @@ module Frozone
 
         def proc_arity(_, proc_obj)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
-          if blk.is_a?(NativeBlock) && blk.parameters_override
+          if blk.respond_to?(:parameters_override) && blk.parameters_override
             params = blk.parameters_override
             req = params.count { |p| p[0] == :req || p[0] == :keyreq }
             has_rest = params.any? { |p| p[0] == :rest || p[0] == :keyrest }
@@ -224,7 +233,7 @@ module Frozone
 
         def proc_parameters(_, proc_obj, lambda_override = NilObject::NIL)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
-          if blk.is_a?(NativeBlock) && blk.parameters_override
+          if blk.respond_to?(:parameters_override) && blk.parameters_override
             return ArrayObject.new(blk.parameters_override.map { |p| ArrayObject.new(p.map { |s| SymbolObject.from(s) }) })
           end
           return ArrayObject.new([]) unless blk.is_a?(BlockObject)
@@ -271,6 +280,7 @@ module Frozone
         def proc_source_location(context, proc_obj)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
           if blk.is_a?(BlockObject) || blk.is_a?(NativeBlock)
+            return NilObject::NIL if blk.respond_to?(:parameters_override) && blk.parameters_override
             loc = blk.source_location
             return NilObject::NIL unless loc
             ArrayObject.new([StringObject.new(loc[0]), IntegerObject.new(loc[1])])

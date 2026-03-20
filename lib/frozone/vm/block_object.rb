@@ -8,7 +8,7 @@ module Frozone
       attr_reader :required_params, :optional_params, :rest_param, :post_params
       attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
       attr_reader :enclosing_frame
-      attr_accessor :ruby2_keywords
+      attr_accessor :ruby2_keywords, :parameters_override
 
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,

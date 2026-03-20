@@ -36,14 +36,13 @@ class Encoding
   NON_ASCII_COMPATIBLE = %w[
     UTF-16 UTF-16BE UTF-16LE UTF-32 UTF-32BE UTF-32LE
     UTF-7 ISO-2022-JP ISO-2022-JP-2 ISO-2022-JP-KDDI
-    stateless-ISO-2022-JP Emacs-Mule CP50220 CP50221 CP50222 CESU-8
+    CP50220 CP50221 IBM037
   ].freeze
   # Dummy encodings: need BOM, byte order info, or are stateful
   DUMMY_ENCODINGS = %w[
     UTF-16 UTF-32
     ISO-2022-JP ISO-2022-JP-2 ISO-2022-JP-KDDI
-    UTF-7 Emacs-Mule CP50220 CP50221 CP50222
-    stateless-ISO-2022-JP
+    UTF-7 CP50220 CP50221 IBM037
   ].freeze
 
   def ascii_compatible? = !NON_ASCII_COMPATIBLE.include?(@name)
@@ -133,7 +132,7 @@ class Encoding
   ISO_2022_JP_KDDI = new("ISO-2022-JP-KDDI")
   CP50220     = new("CP50220")
   CP50221     = new("CP50221")
-  CP50222     = new("CP50222")
+  IBM037      = new("IBM037")
   UTF8_MAC    = new("UTF8-MAC")
   EUCJP_MS    = new("eucJP-ms")
   CP51932     = new("CP51932")
@@ -181,7 +180,7 @@ class Encoding
          IBM437, IBM775, IBM852, IBM855, IBM857, IBM860, IBM861, IBM862,
          IBM863, IBM864, IBM865, IBM866, IBM869,
          KOI8_R, KOI8_U,
-         Emacs_Mule, ISO_2022_JP, ISO_2022_JP_2, ISO_2022_JP_KDDI, CP50220, CP50221, CP50222,
+         Emacs_Mule, ISO_2022_JP, ISO_2022_JP_2, ISO_2022_JP_KDDI, CP50220, CP50221, IBM037,
          UTF8_MAC, EUCJP_MS, CP51932, GB18030, GBK, TIS_620, UTF_7, CESU_8,
          Stateless_ISO_2022_JP, MacCyrillic, MacJapanese, MacThai].freeze
 

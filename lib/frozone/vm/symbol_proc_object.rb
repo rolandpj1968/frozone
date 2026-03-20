@@ -13,6 +13,7 @@ module Frozone
       def symbol_name = @symbol_obj.raw
 
       def invoke(context, args, block: nil, **_kwargs)
+        raise FrozoneException.make(:ArgumentError, "no receiver given") if args.empty?
         receiver = args[0]
         rest = args[1..]
         block_obj = block.is_a?(ProcObject) ? block.block_object : block

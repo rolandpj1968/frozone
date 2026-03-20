@@ -1761,8 +1761,8 @@ module Frozone
         def toplevel_define_method(context, _, args_array, block)
           args = args_array.raw
           name_obj = args[0]
-          callable = args.length > 1 ? args[1] : nil
-          effective = if callable.is_a?(NilObject)
+          callable = args.length > 1 ? args[1] : NilObject::NIL
+          effective = if callable.nil? || callable.is_a?(NilObject)
                         block
                       else
                         callable

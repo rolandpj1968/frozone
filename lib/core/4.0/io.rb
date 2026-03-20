@@ -15,7 +15,44 @@ class IO
   end
 
   def print(*args) = Intrinsics.io_print(self, args)
-  def puts(*args) = Intrinsics.io_puts(self, args)
+
+  def puts(*args)
+    if args.empty?
+      write("
+")
+    else
+      args.each do |arg|
+        if arg.nil?
+          write("
+")
+        elsif arg.is_a?(Array)
+          __puts_array__(arg)
+        elsif arg.respond_to?(:to_ary)
+          ary = arg.to_ary
+          ary.is_a?(Array) ? __puts_array__(ary) : __puts_scalar__(arg)
+        else
+          __puts_scalar__(arg)
+        end
+      end
+    end
+    nil
+  end
+
+  def __puts_array__(arr)
+    arr.each { |elem| puts(elem) }
+  end
+  private :__puts_array__
+
+  def __puts_scalar__(arg)
+    str = arg.to_s
+    str = "#<\#{arg.class}:0x\#{arg.__id__.to_s(16)}>" unless str.is_a?(String)
+    write(str)
+    write("
+") unless str.end_with?("
+")
+  end
+  private :__puts_scalar__
+
   def write(*args) = Intrinsics.io_write(self, args)
   def flush = Intrinsics.io_flush(self)
   def sync=(val)       = Intrinsics.io_sync_set(self, val)

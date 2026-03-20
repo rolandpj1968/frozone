@@ -337,8 +337,6 @@ class ENVClass
     result
   end
   class << self
-    private
-
     def __coerce_key(key) = __coerce_env_string__(key, :key)
     def __coerce_value(val) = __coerce_env_string__(val, :value)
 

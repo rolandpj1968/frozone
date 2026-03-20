@@ -39,7 +39,9 @@ class Symbol
 
   def to_proc
     sym = self
-    ->(obj, *args, **kwargs, &block) { obj.public_send(sym, *args, **kwargs, &block) }
+    pr = ->(obj, *args, **kwargs, &block) { obj.public_send(sym, *args, **kwargs, &block) }
+    Intrinsics.proc_set_parameters_override(pr, [[:req], [:rest]])
+    pr
   end
 
   def casecmp(other)

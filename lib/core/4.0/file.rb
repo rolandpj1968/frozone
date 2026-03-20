@@ -253,6 +253,9 @@ class File
     # Coerce path argument: try to_path first, then to_str, then to_s for String
     def _coerce_path(arg)
       return arg if arg.is_a?(String)
+      if !arg.respond_to?(:to_path) && arg.respond_to?(:to_io)
+        arg = arg.to_io
+      end
       if arg.respond_to?(:to_path)
         r = arg.to_path
         return r if r.is_a?(String)
