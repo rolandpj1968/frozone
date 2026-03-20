@@ -279,13 +279,18 @@ module Marshal
         write_long(@symbols[str])
       else
         @symbols[str] = @symbols.size
-        enc_ivar = begin; encoding_ivar(str.encoding); rescue; nil; end
-        if enc_ivar
-          @out << TYPE_IVAR
-        end
+        # Only wrap with IVAR if symbol bytes contain non-ASCII (> 127)
+        # and the encoding is not ASCII-8BIT/BINARY (already binary, no need)
+        bytes = str.b
+        needs_enc = bytes.bytes.any? { |b| b > 127 }
+        enc_name = begin; str.encoding.name; rescue; 'ASCII-8BIT'; end
+        enc_ivar = if needs_enc && enc_name != 'ASCII-8BIT' && enc_name != 'BINARY'
+                     enc_name == 'UTF-8' ? [:E, true] : [:encoding, enc_name]
+                   end
+        @out << TYPE_IVAR if enc_ivar
         @out << TYPE_SYMBOL
-        write_long(str.bytesize)
-        @out << str.b
+        write_long(bytes.bytesize)
+        @out << bytes
         if enc_ivar
           write_long(1)
           write_enc_ivar(enc_ivar)
