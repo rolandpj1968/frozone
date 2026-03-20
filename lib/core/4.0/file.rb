@@ -98,6 +98,7 @@ class File
   def self.split(path) = Intrinsics.file_split(_coerce_path(path))
   def self.write(path, content, **opts) = Intrinsics.file_write(_coerce_path(path), content)
   def self.open(path, mode = 'r', **opts, &block) = Intrinsics.file_open(_coerce_path(path), mode, block)
+  def self.new(path, mode = 'r', **opts) = Intrinsics.file_open(_coerce_path(path), mode, nil)
   def self.delete(*paths) = Intrinsics.file_delete_strict(paths)
   def self.unlink(*paths) = Intrinsics.file_delete_strict(paths)
   def self.rename(from, to) = Intrinsics.file_rename(_coerce_path(from), _coerce_path(to))

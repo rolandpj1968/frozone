@@ -427,6 +427,13 @@ class Time
     to_r == other.to_r
   end
 
+  # Hide @frozone_timezone from instance_variables — it is an implementation
+  # detail of Frozone's Time, not a user-visible ivar (MRI stores the zone at
+  # the C level and Time#instance_variables returns []).
+  def instance_variables
+    super.reject { |iv| iv == :@frozone_timezone }
+  end
+
   private
 
   def _dump(limit = -1)

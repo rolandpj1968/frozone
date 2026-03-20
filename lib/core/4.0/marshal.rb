@@ -896,6 +896,8 @@ module Marshal
       @objects  = []   # index → object
       @proc     = proc_arg
       @freeze   = freeze
+      @no_link_proc = {}  # set of object indices for which link proc should NOT be called
+      @completed = {}  # set of object indices that have been fully loaded (proc already called)
     end
 
     def load
@@ -1030,17 +1032,25 @@ module Marshal
         read_regexp
       when 'd'
         read_data_object
+      when 'M'
+        read_old_module_ref
       else
         raise ArgumentError, "dump format error for type #{type.inspect} (#{type.ord})"
       end
     end
 
-    def call_proc(obj)
+    # Call proc for obj. If tracked_idx is given, mark the object table slot as
+    # "completed" so that future TYPE_LINK references to it will re-invoke proc
+    # (matching MRI behavior where links call proc for already-completed objects
+    # but not for objects still being constructed, e.g. circular references).
+    def call_proc(obj, tracked_idx = nil)
       if @freeze
         freeze_object(obj)
       end
       if @proc
-        @proc.call(obj)
+        result = @proc.call(obj)
+        @completed[tracked_idx] = true if tracked_idx
+        result
       else
         obj
       end
@@ -1064,8 +1074,11 @@ module Marshal
         n |= (b << (i * 8))
       end
       n = -n if sign == '-'
-      obj = call_proc(n)
-      @objects << obj
+      idx = @objects.size
+      @objects << n
+      @completed[idx] = true
+      obj = call_proc(n, idx)
+      @objects[idx] = obj
       obj
     end
 
@@ -1078,8 +1091,8 @@ module Marshal
           when '-inf' then -Float::INFINITY
           else             str.to_f
           end
-      track(f)
-      call_proc(f)
+      idx = track(f)
+      call_proc(f, idx)
     end
 
     def read_symbol
@@ -1087,36 +1100,56 @@ module Marshal
       str = read_bytes(len)
       sym = str.to_sym
       @symbols << sym
-      sym  # symbols not passed to proc
+      call_proc(sym)
+    end
+
+    # Read a symbol used as an ivar/struct member name — does not call proc.
+    def read_ivar_name
+      type = read_byte.chr
+      case type
+      when TYPE_SYMBOL
+        len = read_long
+        str = read_bytes(len)
+        sym = str.to_sym
+        @symbols << sym
+        sym
+      when TYPE_SYMLINK
+        idx = read_long
+        raise ArgumentError, "bad symbol link" if idx >= @symbols.size
+        @symbols[idx]
+      else
+        @pos -= 1
+        read_object
+      end
     end
 
     def read_string
       len = read_long
       str = read_bytes(len)
       s = str.dup.force_encoding(Encoding::ASCII_8BIT)
-      track(s)
-      call_proc(s)
+      idx = track(s)
+      call_proc(s, idx)
     end
 
     def read_array
       len = read_long
       arr = Array.new(len)
-      track(arr)
+      idx = track(arr)
       len.times { |i| arr[i] = read_object }
-      call_proc(arr)
+      call_proc(arr, idx)
     end
 
     def read_hash(has_default)
       len = read_long
       h = {}
-      track(h)
+      idx = track(h)
       len.times do
         k = read_object
         v = read_object
         h[k] = v
       end
       h.default = read_object if has_default
-      call_proc(h)
+      call_proc(h, idx)
     end
 
     def read_object_generic
@@ -1134,31 +1167,36 @@ module Marshal
       end
       num_ivars = read_long
 
-      # Read all ivar name-value pairs first
-      ivars = {}
-      num_ivars.times do
-        name = read_object  # symbol
-        val = read_object
-        ivars[name] = val
-      end
-
       # Special handling for Range (uses synthetic :excl, :begin, :end ivars)
       if klass <= Range
+        # Read all ivar name-value pairs
+        ivars = {}
+        num_ivars.times do
+          name = read_ivar_name
+          val = read_object
+          ivars[name] = val
+        end
         excl = ivars.delete(:excl)
         range_begin = ivars.delete(:begin)
         range_end = ivars.delete(:end)
         obj = Range.new(range_begin, range_end, excl)
-        track(obj)
+        idx = track(obj)
         ivars.each { |k, v| obj.instance_variable_set(:"@#{k.to_s.delete_prefix('@')}", v) rescue nil }
-        return call_proc(obj)
+        return call_proc(obj, idx)
       end
 
       # Special handling for Exception (uses synthetic :mesg, :bt ivars)
       if klass <= Exception
+        obj = klass.allocate
+        idx = track(obj)
+        ivars = {}
+        num_ivars.times do
+          name = read_ivar_name
+          val = read_object
+          ivars[name] = val
+        end
         mesg = ivars.delete(:mesg)
         bt = ivars.delete(:bt)
-        obj = klass.allocate
-        track(obj)
         begin
           obj.__send__(:initialize_copy, klass.new(mesg))
         rescue
@@ -1166,17 +1204,25 @@ module Marshal
         end
         obj.set_backtrace(bt) rescue nil
         ivars.each { |k, v| obj.instance_variable_set(k.to_s.start_with?('@') ? k : :"@#{k}", v) rescue nil }
-        return call_proc(obj)
+        return call_proc(obj, idx)
       end
 
+      # Generic object: allocate and track BEFORE reading ivars so that
+      # any back-links to this object during ivar loading work correctly.
       obj = klass.allocate
-      track(obj)
-      ivars.each do |name, val|
+      idx = track(obj)
+      num_ivars.times do
+        name = read_ivar_name
+        val = read_object
         # Ensure ivar name starts with @
         ivar_name = name.to_s.start_with?('@') ? name : :"@#{name}"
-        obj.instance_variable_set(ivar_name, val) rescue nil
+        begin
+          obj.instance_variable_set(ivar_name, val)
+        rescue
+          nil
+        end
       end
-      call_proc(obj)
+      call_proc(obj, idx)
     end
 
     def read_struct
@@ -1184,21 +1230,24 @@ module Marshal
       num_members = read_long
       # Allocate without calling initialize
       obj = klass.allocate
-      track(obj)
+      idx = track(obj)
       num_members.times do
-        name = read_object  # symbol
+        name = read_ivar_name
         val = read_object
         obj[name] = val rescue (obj.send(:"#{name}=", val) rescue nil)
       end
-      call_proc(obj)
+      call_proc(obj, idx)
     end
 
     def read_class_ref
       len = read_long
       name = read_bytes(len)
       klass = const_from_name(name)
-      obj = call_proc(klass)
-      @objects << obj
+      raise ArgumentError, "#{name} does not refer to a Class" unless klass.is_a?(Class)
+      obj_idx = @objects.size
+      @objects << klass
+      obj = call_proc(klass, obj_idx)
+      @objects[obj_idx] = obj
       obj
     end
 
@@ -1206,8 +1255,23 @@ module Marshal
       len = read_long
       name = read_bytes(len)
       mod = const_from_name(name)
-      obj = call_proc(mod)
-      @objects << obj
+      raise ArgumentError, "#{name} does not refer to a Module" unless mod.is_a?(Module) && !mod.is_a?(Class)
+      obj_idx = @objects.size
+      @objects << mod
+      obj = call_proc(mod, obj_idx)
+      @objects[obj_idx] = obj
+      obj
+    end
+
+    def read_old_module_ref
+      # 'M' type: old-style module/class reference (loads either)
+      len = read_long
+      name = read_bytes(len)
+      mod = const_from_name(name)
+      obj_idx = @objects.size
+      @objects << mod
+      obj = call_proc(mod, obj_idx)
+      @objects[obj_idx] = obj
       obj
     end
 
@@ -1231,7 +1295,12 @@ module Marshal
         begin
           parts = n.split('::')
           mod = Object
-          parts.each { |part| mod = mod.const_get(part) }
+          parts.each_with_index do |part, i|
+            # For the first segment, allow inherited lookup from Object.
+            # For nested segments, restrict to the direct namespace (no inheritance).
+            inherit = (mod == Object && i == 0)
+            mod = mod.const_get(part, inherit)
+          end
           return mod
         rescue NameError
           nil
@@ -1241,7 +1310,8 @@ module Marshal
     end
 
     def read_class_by_symbol
-      sym = read_object  # reads TYPE_SYMBOL or TYPE_SYMLINK
+      # Class name symbols are structural, not data — don't call proc.
+      sym = read_ivar_name
       const_from_name(sym.to_s)
     end
 
@@ -1254,23 +1324,43 @@ module Marshal
     def read_object_for_ivar
       type = read_byte.chr
 
+      # Track the symbol table index before reading symbol, so we can update
+      # @symbols after applying encoding.
+      sym_idx = nil
+      # For body types (USERDEFINED, STRUCT, OBJECT inside IVAR), defer tracking
+      # until after ivars are read (to match MRI object table ordering).
+      defer_track = false
+      # Object table index for call_proc_at (marks object as completed for link proc)
+      obj_track_idx = nil
+      # For USERDEFINED: store klass + raw bytes so encoding can be applied before _load
+      userdefined_klass = nil
+      userdefined_raw = nil
+
       obj = case type
             when TYPE_STRING
               len = read_long
               str = read_bytes(len)
               s = str.dup.force_encoding(Encoding::ASCII_8BIT)
-              track(s)
+              obj_track_idx = track(s)
               s
+            when TYPE_SYMBOL
+              # Encoded symbol — read raw bytes, defer encoding until ivars processed
+              len = read_long
+              str = read_bytes(len)
+              sym_idx = @symbols.size
+              raw_sym = str.dup.force_encoding(Encoding::ASCII_8BIT).to_sym
+              @symbols << raw_sym
+              raw_sym
             when TYPE_ARRAY
               len = read_long
               arr = Array.new(len)
-              track(arr)
+              obj_track_idx = track(arr)
               len.times { |i| arr[i] = read_object }
               arr
             when TYPE_HASH
               len = read_long
               h = {}
-              track(h)
+              obj_track_idx = track(h)
               len.times do
                 k = read_object
                 v = read_object
@@ -1282,13 +1372,20 @@ module Marshal
               src = read_bytes(len)
               opts = read_byte
               r = Regexp.new(src, opts)
-              track(r)
+              obj_track_idx = track(r)
               r
             when TYPE_USERDEFINED
-              read_user_defined_body
+              defer_track = true
+              # Read klass and raw bytes; defer _load call until after ivars (for encoding)
+              userdefined_klass = read_class_by_symbol
+              len = read_long
+              userdefined_raw = read_bytes(len)
+              nil  # placeholder; obj set after ivars processed
             when TYPE_STRUCT
+              defer_track = true
               read_struct_body
             when TYPE_OBJECT
+              defer_track = true
               read_generic_object_body
             else
               # Push back and re-read
@@ -1298,32 +1395,136 @@ module Marshal
 
       num_ivars = read_long
       enc_applied = false
+      regexp_enc = nil
+      userdefined_enc = nil
+      userdefined_extra_ivars = nil  # non-encoding ivars for userdefined
       num_ivars.times do
-        name = read_object  # symbol
+        name = read_ivar_name
         val = read_object
         if name == :E
           enc_applied = true
           enc = val ? Encoding::UTF_8 : Encoding::US_ASCII
-          if obj.is_a?(String)
+          if userdefined_klass
+            userdefined_enc = enc
+          elsif obj.is_a?(String)
             obj.force_encoding(enc)
           elsif obj.is_a?(Regexp)
-            # Encoding is already set via source
-          elsif obj.is_a?(Symbol)
-            # ignore
+            regexp_enc = enc
+          elsif !sym_idx.nil?
+            # Apply encoding to the symbol's string bytes and re-intern
+            encoded_str = obj.to_s.dup.force_encoding(enc)
+            encoded_sym = encoded_str.to_sym
+            @symbols[sym_idx] = encoded_sym
+            obj = encoded_sym
           end
         elsif name == :encoding
           enc_applied = true
           enc_name = val.is_a?(String) ? val : val.to_s
           enc = Encoding.find(enc_name) rescue Encoding::ASCII_8BIT
-          if obj.is_a?(String)
+          if userdefined_klass
+            userdefined_enc = enc
+          elsif obj.is_a?(String)
             obj.force_encoding(enc)
+          elsif obj.is_a?(Regexp)
+            regexp_enc = enc
+          elsif !sym_idx.nil?
+            # Apply encoding to the symbol's string bytes and re-intern
+            encoded_str = obj.to_s.dup.force_encoding(enc)
+            encoded_sym = encoded_str.to_sym
+            @symbols[sym_idx] = encoded_sym
+            obj = encoded_sym
           end
         else
-          obj.instance_variable_set(name, val) rescue nil
+          if userdefined_klass
+            # Collect non-encoding ivars for userdefined; applied after _load
+            userdefined_extra_ivars ||= []
+            userdefined_extra_ivars << name << val
+          elsif obj.is_a?(Time)
+            # Time marshal ivars: :offset (utc offset in seconds), :zone (tz name)
+            # Apply the UTC offset to reconstitute the correct local time.
+            if name == :offset && val.is_a?(Integer)
+              begin
+                obj = obj.localtime(val)
+              rescue
+                nil
+              end
+            elsif name == :zone && !val.nil?
+              # Store zone name for retrieval; set after offset is applied.
+              # We set @frozone_timezone so Time#zone can return it.
+              begin
+                obj.instance_variable_set(:@frozone_timezone, val.to_s)
+              rescue
+                nil
+              end
+            else
+              obj.instance_variable_set(name, val) rescue nil
+            end
+          else
+            obj.instance_variable_set(name, val) rescue nil
+          end
         end
       end
 
-      call_proc(obj)
+      # For USERDEFINED: apply encoding to raw bytes, call _load, then apply ivars.
+      if userdefined_klass
+        data = userdefined_raw.dup.force_encoding(userdefined_enc || Encoding::ASCII_8BIT)
+        obj = userdefined_klass.send(:_load, data)
+        # Apply any non-encoding ivars (e.g., Time :offset, :zone)
+        if userdefined_extra_ivars
+          i = 0
+          while i < userdefined_extra_ivars.size
+            name = userdefined_extra_ivars[i]
+            val  = userdefined_extra_ivars[i + 1]
+            i += 2
+            if obj.is_a?(Time)
+              if name == :offset && val.is_a?(Integer)
+                begin; obj = obj.localtime(val); rescue; nil; end
+              elsif name == :zone && !val.nil?
+                begin; obj.instance_variable_set(:@frozone_timezone, val.to_s); rescue; nil; end
+              else
+                obj.instance_variable_set(name, val) rescue nil
+              end
+            else
+              obj.instance_variable_set(name, val) rescue nil
+            end
+          end
+        end
+      end
+
+      # Track deferred objects now (after ivars), so ivar values appear
+      # in the object table before the wrapping object (matches MRI ordering).
+      # User-defined types (USERDEFINED wrapped in IVAR) don't call proc via links.
+      if defer_track
+        obj_track_idx = @objects.size
+        track(obj)
+        @no_link_proc[obj_track_idx] = true if type == TYPE_USERDEFINED
+      end
+
+      # If the inner object was a Regexp and we have an encoding to apply,
+      # recreate with the correct encoding applied to the source.
+      if regexp_enc && obj.is_a?(Regexp)
+        begin
+          new_src = obj.source.dup.force_encoding(regexp_enc)
+          new_regexp = Regexp.new(new_src, obj.options)
+          # Copy any instance variables from old regexp to new (e.g., @regexp_ivar)
+          begin
+            obj.instance_variables.each do |iv|
+              new_regexp.instance_variable_set(iv, obj.instance_variable_get(iv))
+            end
+          rescue
+            nil
+          end
+          # Update the object table entry
+          if obj_track_idx
+            @objects[obj_track_idx] = new_regexp
+          end
+          obj = new_regexp
+        rescue
+          nil
+        end
+      end
+
+      call_proc(obj, obj_track_idx)
     end
 
     def read_user_defined_body
@@ -1331,7 +1532,8 @@ module Marshal
       len = read_long
       data = read_bytes(len)
       obj = klass.send(:_load, data)
-      @objects << obj
+      # NOTE: tracking is deferred to the caller (read_object_for_ivar does it
+      # AFTER processing ivars to match MRI's object table ordering).
       obj
     end
 
@@ -1339,9 +1541,9 @@ module Marshal
       klass = read_class_by_symbol
       num_members = read_long
       obj = klass.allocate
-      @objects << obj
+      # NOTE: caller (read_object_for_ivar) handles tracking after ivars.
       num_members.times do
-        name = read_object
+        name = read_ivar_name
         val = read_object
         obj[name] = val rescue (obj.send(:"#{name}=", val) rescue nil)
       end
@@ -1352,9 +1554,9 @@ module Marshal
       klass = read_class_by_symbol
       num_ivars = read_long
       obj = klass.allocate
-      @objects << obj
+      # NOTE: caller (read_object_for_ivar) handles tracking after ivars.
       num_ivars.times do
-        name = read_object
+        name = read_ivar_name
         val = read_object
         obj.instance_variable_set(name, val)
       end
@@ -1365,7 +1567,9 @@ module Marshal
       idx = read_long
       raise ArgumentError, "bad link" if idx < 0 || idx >= @objects.size
       obj = @objects[idx]
-      if @proc
+      # Call proc for completed objects (fully loaded), but not for objects
+      # currently being constructed (circular references) or user-defined types.
+      if @proc && @completed[idx] && !@no_link_proc[idx]
         @proc.call(obj)
       else
         obj
@@ -1373,9 +1577,19 @@ module Marshal
     end
 
     def read_uclass
-      # C: subclass wrapper — the next object should be of this class
+      # C: subclass wrapper — the next object should be of this class.
+      # When klass == Hash exactly, this signals compare_by_identity.
       klass = read_class_by_symbol
-      read_object_with_class(klass)
+      compare_by_id = (klass == Hash)
+      obj = read_object_with_class(klass)
+      if compare_by_id && obj.is_a?(Hash)
+        obj.compare_by_identity
+        # Find the tracked index for this object to mark it completed.
+        obj_idx = @objects.size - 1 # hash was just tracked by read_object_with_class
+        call_proc(obj, obj_idx)
+      else
+        obj
+      end
     end
 
     def read_object_with_class(klass)
@@ -1385,7 +1599,9 @@ module Marshal
       when TYPE_STRING
         len = read_long
         str = read_bytes(len)
-        if klass == String || (klass.ancestors rescue []).include?(String)
+        klass_is_string = (klass <= String rescue false)
+        raise ArgumentError, "class #{klass} needs to have method `_load'" unless klass_is_string || klass == String
+        if klass_is_string
           # Allocate instance of subclass
           obj = klass.allocate
           obj.replace(str.force_encoding(Encoding::ASCII_8BIT)) rescue nil
@@ -1398,62 +1614,39 @@ module Marshal
         end
       when TYPE_ARRAY
         len = read_long
-        if klass == Array || (klass.ancestors rescue []).include?(Array)
-          arr = klass.allocate
-          arr_backing = arr
-          track(arr)
-          len.times { arr_backing << read_object }
-          arr
-        else
-          arr = Array.new(len)
-          track(arr)
-          len.times { |i| arr[i] = read_object }
-          arr
-        end
+        klass_is_array = (klass <= Array rescue false)
+        raise ArgumentError, "class #{klass} needs to have method `_load'" unless klass_is_array
+        arr = klass.allocate
+        track(arr)
+        # Use Array's core push (bypass any overridden << or push in subclass)
+        array_push = Array.instance_method(:<<)
+        len.times { array_push.bind(arr).call(read_object) }
+        arr
       when TYPE_HASH
         len = read_long
-        if klass == Hash || (klass.ancestors rescue []).include?(Hash)
-          h = klass.allocate
-          track(h)
-          len.times do
-            k = read_object
-            v = read_object
-            h[k] = v
-          end
-          h
-        else
-          h = {}
-          track(h)
-          len.times do
-            k = read_object
-            v = read_object
-            h[k] = v
-          end
-          h
+        klass_is_hash = (klass <= Hash rescue false)
+        raise ArgumentError, "class #{klass} needs to have method `_load'" unless klass_is_hash
+        h = klass.allocate
+        track(h)
+        len.times do
+          k = read_object
+          v = read_object
+          h[k] = v
         end
+        h
       when TYPE_HASH_DEF
         len = read_long
-        if klass == Hash || (klass.ancestors rescue []).include?(Hash)
-          h = klass.allocate
-          track(h)
-          len.times do
-            k = read_object
-            v = read_object
-            h[k] = v
-          end
-          h.default = read_object
-          h
-        else
-          h = {}
-          track(h)
-          len.times do
-            k = read_object
-            v = read_object
-            h[k] = v
-          end
-          read_object  # discard default
-          h
+        klass_is_hash = (klass <= Hash rescue false)
+        raise ArgumentError, "class #{klass} needs to have method `_load'" unless klass_is_hash
+        h = klass.allocate
+        track(h)
+        len.times do
+          k = read_object
+          v = read_object
+          h[k] = v
         end
+        h.default = read_object
+        h
       when TYPE_REGEXP
         len = read_long
         src = read_bytes(len)
@@ -1466,9 +1659,19 @@ module Marshal
         track(obj)
         obj
       when TYPE_UCLASS
-        # Nested C: — read inner class, combine with outer
+        # Nested C: — read inner class, combine with outer.
+        # When the inner class is exactly Hash, it signals compare_by_identity.
+        # In that case use the outer klass to allocate (it's the real subclass).
         inner_klass = read_class_by_symbol
-        read_object_with_class(inner_klass)
+        if inner_klass == Hash && (klass.ancestors rescue []).include?(Hash)
+          # compare_by_identity Hash subclass: outer=SubClass, inner=Hash
+          # Read the hash content using klass (the subclass) as the allocator
+          obj = read_object_with_class(klass)
+          obj.compare_by_identity if obj.is_a?(Hash)
+          obj
+        else
+          read_object_with_class(inner_klass)
+        end
       when TYPE_IVAR
         # The uclass object has ivars
         read_object_with_class_ivar(klass)
@@ -1481,6 +1684,7 @@ module Marshal
 
     def read_object_with_class_ivar(klass)
       type = read_byte.chr
+      obj_track_idx = nil
       obj = case type
             when TYPE_STRING
               len = read_long
@@ -1489,17 +1693,17 @@ module Marshal
               if klass_is_string
                 o = klass.allocate
                 begin; o.replace(str.force_encoding(Encoding::ASCII_8BIT)); rescue; end # rubocop:disable Lint/SuppressedException
-                track(o)
+                obj_track_idx = track(o)
                 o
               else
                 o = str.dup.force_encoding(Encoding::ASCII_8BIT)
-                track(o)
+                obj_track_idx = track(o)
                 o
               end
             when TYPE_HASH
               len = read_long
               h = klass <= Hash ? klass.allocate : {}
-              track(h)
+              obj_track_idx = track(h)
               len.times do
                 k = read_object
                 v = read_object
@@ -1513,7 +1717,7 @@ module Marshal
 
       num_ivars = read_long
       num_ivars.times do
-        name = read_object
+        name = read_ivar_name
         val = read_object
         if name == :E
           enc = val ? Encoding::UTF_8 : Encoding::US_ASCII
@@ -1526,7 +1730,7 @@ module Marshal
           obj.instance_variable_set(name, val) rescue nil
         end
       end
-      call_proc(obj)
+      call_proc(obj, obj_track_idx)
     end
 
     def read_user_defined
@@ -1534,17 +1738,43 @@ module Marshal
       len = read_long
       data = read_bytes(len)
       obj = klass.send(:_load, data)
-      # If _load returns nil/immediate, treat it as nil
+      idx = @objects.size
       @objects << obj
+      @no_link_proc[idx] = true  # links to user-defined objects don't call proc
       call_proc(obj)
     end
 
     def read_user_marshal
       klass = read_class_by_symbol
+      data = nil
+
+      # Rational and Complex can't be allocated normally; reconstruct via factory.
+      if klass == Rational
+        placeholder_idx = @objects.size
+        @objects << nil
+        @no_link_proc[placeholder_idx] = true
+        data = read_object
+        obj = Rational(*data)
+        @objects[placeholder_idx] = obj
+        return call_proc(obj)
+      end
+
+      if klass == Complex
+        placeholder_idx = @objects.size
+        @objects << nil
+        @no_link_proc[placeholder_idx] = true
+        data = read_object
+        obj = Complex(*data)
+        @objects[placeholder_idx] = obj
+        return call_proc(obj)
+      end
+
       obj = klass.allocate
+      idx = @objects.size
       track(obj)
+      @no_link_proc[idx] = true  # links to user-marshal objects don't call proc
       data = read_object
-      obj.marshal_load(data)
+      obj.__send__(:marshal_load, data)
       call_proc(obj)
     end
 
@@ -1562,8 +1792,8 @@ module Marshal
       src = read_bytes(len)
       opts = read_byte
       r = Regexp.new(src.force_encoding(Encoding::ASCII_8BIT), opts)
-      track(r)
-      call_proc(r)
+      idx = track(r)
+      call_proc(r, idx)
     end
 
     def read_data_object
@@ -1578,8 +1808,8 @@ module Marshal
         kwargs[name] = val
       end
       obj = klass.new(**kwargs)
-      track(obj)
-      call_proc(obj)
+      idx = track(obj)
+      call_proc(obj, idx)
     end
   end
 

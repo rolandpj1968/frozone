@@ -93,8 +93,8 @@ class Encoding
   UTF_32LE = new("UTF-32LE")
   SHIFT_JIS    = new("Shift_JIS")
   Shift_JIS    = SHIFT_JIS
-  SJIS         = SHIFT_JIS
   Windows_31J  = new("Windows-31J")
+  SJIS         = Windows_31J  # MRI: Encoding::SJIS is Windows-31J, not Shift_JIS
   CP932        = Windows_31J
   Windows_1250 = new("Windows-1250")
   Windows_1251 = new("Windows-1251")
