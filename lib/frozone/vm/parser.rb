@@ -75,6 +75,148 @@ module Frozone
         [required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, prism_node.locals, body, it_param]
       end
 
+      # -----------------------------------------------------------------------
+      # Pattern matching: transform Prism pattern nodes into Ast::Pattern::*
+      # -----------------------------------------------------------------------
+      def transform_pattern(prism_pat) # rubocop:disable Metrics/MethodLength, Metrics/CyclomaticComplexity
+        case prism_pat
+        when Prism::LocalVariableTargetNode
+          # Bare local variable in pattern — always matches, binds value
+          Ast::Pattern::LocalBind.new(prism_pat.name, prism_pat.depth)
+
+        when Prism::NilNode
+          Ast::Pattern::Literal.new(Ast::NilLiteral::NIL)
+
+        when Prism::TrueNode
+          Ast::Pattern::Literal.new(Ast::TrueLiteral::TRUE)
+
+        when Prism::FalseNode
+          Ast::Pattern::Literal.new(Ast::FalseLiteral::FALSE)
+
+        when Prism::IntegerNode, Prism::FloatNode, Prism::StringNode,
+             Prism::SymbolNode, Prism::InterpolatedStringNode,
+             Prism::InterpolatedSymbolNode, Prism::RationalNode, Prism::ImaginaryNode,
+             Prism::RegularExpressionNode, Prism::InterpolatedRegularExpressionNode
+          Ast::Pattern::Literal.new(transform(prism_pat))
+
+        when Prism::ConstantReadNode, Prism::ConstantPathNode
+          # Class constant used as pattern: Integer, String, MyClass, etc.
+          Ast::Pattern::Literal.new(transform(prism_pat))
+
+        when Prism::RangeNode
+          Ast::Pattern::Literal.new(transform(prism_pat))
+
+        when Prism::SelfNode
+          Ast::Pattern::Literal.new(Ast::SelfLiteral::SELF)
+
+        when Prism::PinnedVariableNode
+          Ast::Pattern::Pin.new(transform(prism_pat.variable))
+
+        when Prism::PinnedExpressionNode
+          Ast::Pattern::Pin.new(transform(prism_pat.expression))
+
+        when Prism::AlternationPatternNode
+          Ast::Pattern::Alternation.new(
+            transform_pattern(prism_pat.left),
+            transform_pattern(prism_pat.right)
+          )
+
+        when Prism::CapturePatternNode
+          target = prism_pat.target
+          Ast::Pattern::Capture.new(
+            transform_pattern(prism_pat.value),
+            target.name,
+            target.depth
+          )
+
+        when Prism::ArrayPatternNode
+          const    = prism_pat.constant ? transform(prism_pat.constant) : nil
+          reqs     = prism_pat.requireds.map { |r| transform_pattern(r) }
+          rest     = prism_pat.rest
+          posts    = prism_pat.posts.map { |p| transform_pattern(p) }
+          has_rest = !rest.nil?  # includes ImplicitRestNode (trailing comma)
+          rest_name, rest_depth = extract_splat_binding(rest)
+          Ast::Pattern::Array.new(const, reqs, has_rest, rest_name, rest_depth, posts)
+
+        when Prism::FindPatternNode
+          const = prism_pat.constant ? transform(prism_pat.constant) : nil
+          reqs  = prism_pat.requireds.map { |r| transform_pattern(r) }
+          left_name, left_depth   = extract_splat_binding(prism_pat.left)
+          right_name, right_depth = extract_splat_binding(prism_pat.right)
+          Ast::Pattern::Find.new(const, left_name, left_depth, reqs, right_name, right_depth)
+
+        when Prism::HashPatternNode
+          const = prism_pat.constant ? transform(prism_pat.constant) : nil
+          pairs = prism_pat.elements.map do |assoc|
+            key = assoc.key
+            sym = case key
+                  when Prism::SymbolNode then key.unescaped.to_sym
+                  else raise "Unsupported hash pattern key type: #{key.class}"
+                  end
+            val_pat = case assoc.value
+                      when Prism::ImplicitNode
+                        inner = assoc.value.value
+                        Ast::Pattern::LocalBind.new(inner.name, inner.depth)
+                      else
+                        transform_pattern(assoc.value)
+                      end
+            { key: sym, pattern: val_pat }
+          end
+          rest_name, rest_depth = extract_hash_rest_binding(prism_pat.rest)
+          Ast::Pattern::Hash.new(const, pairs, rest_name, rest_depth)
+
+        when Prism::IfNode
+          # guard clause: `in Pattern if guard` — IfNode wraps pattern + guard
+          # IfNode#statements = the actual pattern node(s)
+          # IfNode#predicate  = the guard expression
+          inner_prism_pat = prism_pat.statements.body.first
+          transform_pattern(inner_prism_pat)
+          # NOTE: caller extracts guard from IfNode separately
+
+        else
+          # Fallback: treat as literal evaluated via ===
+          Ast::Pattern::Literal.new(transform(prism_pat))
+        end
+      end
+
+      def extract_splat_binding(splat_node)
+        return [nil, nil] if splat_node.nil?
+        return [nil, nil] if splat_node.is_a?(Prism::ImplicitRestNode)
+        expr = splat_node.is_a?(Prism::SplatNode) ? splat_node.expression : splat_node
+        return [nil, nil] if expr.nil?
+        return [nil, nil] unless expr.is_a?(Prism::LocalVariableTargetNode)
+        [expr.name, expr.depth]
+      end
+
+      def extract_hash_rest_binding(rest_node)
+        return [nil, nil] if rest_node.nil?
+        return [:__no_extra_keys__, 0] if rest_node.is_a?(Prism::NoKeywordsParameterNode)
+        return [nil, nil] unless rest_node.is_a?(Prism::AssocSplatNode)
+        expr = rest_node.value
+        # **  (unnamed rest) — allow extra keys but don't bind
+        return [:__unnamed_rest__, 0] if expr.nil?
+        return [nil, nil] unless expr.is_a?(Prism::LocalVariableTargetNode)
+        [expr.name, expr.depth]
+      end
+
+      def transform_in_node(in_node)
+        prism_pat = in_node.pattern
+        body      = in_node.statements.nil? ? nil : transform(in_node.statements)
+
+        # Guard clause: the pattern is wrapped in an IfNode
+        if prism_pat.is_a?(Prism::IfNode)
+          guard   = transform(prism_pat.predicate)
+          pattern = transform_pattern(prism_pat.statements.body.first)
+        else
+          guard   = nil
+          pattern = transform_pattern(prism_pat)
+        end
+
+        { pattern: pattern, guard: guard, body: body }
+      end
+
+      # -----------------------------------------------------------------------
+
       def parse_multi_write_target(target)
         case target
         when Prism::LocalVariableTargetNode
@@ -537,6 +679,18 @@ module Frozone
           end
           else_node = prism_node.consequent.nil? ? nil : transform(prism_node.consequent)
           Ast::Case.new(subject_node, whens, else_node)
+
+        when Prism::CaseMatchNode
+          predicate = transform(prism_node.predicate)
+          arms      = prism_node.conditions.map { |in_node| transform_in_node(in_node) }
+          else_node = prism_node.else_clause.nil? ? nil : transform(prism_node.else_clause)
+          Ast::PatternMatch.new(predicate, arms, else_node)
+
+        when Prism::MatchRequiredNode
+          Ast::MatchRequired.new(transform(prism_node.value), transform_pattern(prism_node.pattern))
+
+        when Prism::MatchPredicateNode
+          Ast::MatchPredicate.new(transform(prism_node.value), transform_pattern(prism_node.pattern))
 
         when Prism::InterpolatedStringNode
           parts = prism_node.parts.map do |part|

@@ -783,18 +783,19 @@ class Array
     self
   end
 
-  def permutation(n = nil, &block)
-    n = n.nil? ? length : __coerce_to_int__(n)
+  def permutation(n_arg = nil, &block)
+    n = n_arg.nil? ? length : __coerce_to_int__(n_arg)
     unless block
       sz = if n < 0 || n > length
         0
       else
         p = 1; (length - n + 1..length).each { |k| p *= k }; p
       end
-      return to_enum(:permutation, n) { sz }
+      return n_arg.nil? ? to_enum(:permutation) { sz } : to_enum(:permutation, n) { sz }
     end
     return self if n < 0 || n > length
-    __permutation_r__(self, n, [], Array.new(length, false), block)
+    arr = self.dup
+    __permutation_r__(arr, n, [], Array.new(arr.length, false), block)
     self
   end
 
@@ -1276,7 +1277,7 @@ class Array
       return to_enum(:repeated_permutation, n) { sz }
     end
     return self if n < 0
-    __repeated_permutation_r__(self, n, [], block)
+    __repeated_permutation_r__(self.dup, n, [], block)
     self
   end
 

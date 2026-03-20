@@ -228,6 +228,25 @@ class Object
     end
   end
 
+  # be_true_or_false — custom matcher for specs that check a value is boolean.
+  def be_true_or_false
+    Class.new do
+      def matches?(actual)
+        actual == true || actual == false
+      end
+
+      def failure_message
+        ["Expected", "to be true or false"]
+      end
+
+      def negative_failure_message
+        ["Expected", "not to be true or false"]
+      end
+
+      def to_s = "be true or false"
+    end.new
+  end
+
   # raise_consistent_error — mspec 1.9.1 lacks this.
   # Ruby 4 changed some TypeError/ArgumentError messages from "into" to "to"
   # with added context (e.g., "can't convert Foo to Bar (Foo#to_x gives Baz)").

@@ -334,6 +334,7 @@ class ThreadError < StandardError; end
 class NoMemoryError < Exception; end
 class SecurityError < Exception; end
 class SystemStackError < Exception; end
+class NoMatchingPatternError < StandardError; end
 class KeyError < IndexError
   def receiver = @receiver
   def key = @key

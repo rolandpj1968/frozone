@@ -94,7 +94,7 @@ benchmark suite (status as of 2026-03-20).
 | `Struct` | 182/182 passing | No blockers |
 | `Fiber` | 160/160 passing | No blockers |
 | `Regexp` | 260/262 (2 minor failures) | Negligible |
-| `Process.clock_gettime` | Needed for harness timing | Must be verified / added |
+| `Process.clock_gettime` | Works (confirmed 2026-03-20) | No blocker |
 | `StringScanner` | Not checked | Blocks `ruby-json/benchmark.rb` |
 | `Process` (general) | Partial (large error count) | May affect harness edge cases |
 | `Signal` | Partial (36 failures) | Low impact for benchmarks |
@@ -103,6 +103,94 @@ benchmark suite (status as of 2026-03-20).
 Priority items before running the benchmark suite:
 
 1. Confirm `Process.clock_gettime(Process::CLOCK_MONOTONIC)` works — required by every
-   benchmark via the harness.
+   benchmark via the harness. **Confirmed working (2026-03-20).**
 2. Check `StringScanner` availability if `ruby-json/benchmark.rb` is desired.
 3. All Tier 1 benchmarks should otherwise run without further changes.
+
+---
+
+## Infrastructure Notes
+
+### Frozone argument handling
+
+`frozone.rb` evaluates the **first positional file only** when no `-e` flag is given (matching
+MRI semantics). To load two files in sequence use a thin runner script:
+
+```ruby
+# bench/run_bench.rb
+harness_path = File.expand_path('harness.rb', __dir__)
+bench_path   = File.expand_path(ARGV[0])
+load harness_path
+load bench_path
+```
+
+Run via:
+```
+bundle exec ruby frozone.rb bench/run_bench.rb bench/benchmarks/fib.rb
+```
+
+### Scale-down requirement
+
+Frozone is a tree-walking interpreter running on top of MRI. In the first run (see below)
+the geometric mean slowdown versus MRI 4.0.1 was approximately **500-1000x**.
+Each AST node dispatch costs ~15 µs of wall time, so yjit-bench's standard iteration
+counts (500K–1M) would take hours. The benchmarks in `bench/benchmarks/` use
+problem sizes scaled down 100–1000x to keep each run under ~5 seconds in Frozone
+while remaining comparable across runs.
+
+---
+
+## Benchmark Results
+
+### Run 1 — 2026-03-20, commit db16601
+
+**Environment**: Ruby 4.0.1 (MRI host + Frozone guest), Linux x86-64
+**MRI**: `/home/rolandpj/.rbenv/versions/4.0.1/bin/ruby` (no YJIT flag)
+**Frozone**: tree-walking interpreter, `bundle exec ruby frozone.rb`
+**Benchmarks**: yjit-bench @ HEAD (Shopify/yjit-bench), scaled-down variants in `bench/benchmarks/`
+**Harness**: `bench/harness.rb` (simple wall-clock, no warmup)
+
+Problem sizes are reduced so that Frozone takes 30 ms – 3 s per iteration.
+All figures are **ms per benchmark iteration** (lower is better).
+
+| Benchmark | Problem size | MRI ms/iter | Frozone ms/iter | Ratio (F/M) |
+|---|---|---|---|---|
+| `fib.rb` | fib(20), N=3 | 0.68 | 735 | 1081x |
+| `nqueens.rb` | N=8, N=3 | 1.11 | 2187 | 1971x |
+| `nbody.rb` | 50 steps, N=3 | 0.099 | 101 | 1020x |
+| `getivar.rb` | 10 K ivar reads, N=3 | 0.44 | 620 | 1409x |
+| `setivar.rb` | 10 K ivar writes, N=3 | 0.43 | 183 | 426x |
+| `attr_accessor.rb` | 10 K accessor calls, N=3 | 1.13 | 705 | 624x |
+| `keyword_args.rb` | 5 K kw-arg calls, N=3 | 1.60 | 370 | 231x |
+| `object_new.rb` | 1 K Object.new, N=3 | 0.12 | 31.7 | 264x |
+| `object_new_initialize.rb` | 1 K C.new(a,b,c,d), N=3 | 0.19 | 38.8 | 204x |
+
+**Geometric mean ratio: ~600x slower than MRI**
+
+### Hotspots from stackprof — Run 1
+
+Profiled via `bench/profile_run.rb` (StackProf cpu mode, interval=500 µs)
+while running fib(20) × 5 inside Frozone.
+
+| Self% | Total% | Frame |
+|---|---|---|
+| 14.2% | 20.5% | `Frozone::Ast::Return#evaluate` |
+| 7.7% | 13.2% | `Frozone::Vm::ModuleObject#lookup_autoload` |
+| 7.0% | 92.4% | `Frozone::Vm::Method#invoke` |
+| 5.2% | 92.3% | `Frozone::Ast::MethodCall#evaluate` |
+| 4.8% | 92.0% | `Enumerable#flat_map` (inside method lookup) |
+| 3.7% | 7.6% | `Frozone::Vm::ClassObject#lookup_method` |
+| 3.1% | — | (GC sweeping) |
+| 2.9% | 92.9% | `Array#each` |
+| 2.9% | 2.9% | `Frozone::Vm::ModuleObject#get_method` |
+| 2.8% | 92.5% | `Frozone::Vm::ObjectObject#dispatch` |
+
+**Top optimisation targets identified:**
+
+1. `Return#evaluate` (14% self) — `return n if n < 2` fires on every leaf call; the
+   `ReturnException` raise/rescue cycle dominates leaf fib nodes.
+2. `lookup_autoload` / `lookup_autoload_for_const_with_scope` (~10% combined self) —
+   called on every method lookup even when no autoload is registered; cheap early-exit
+   would eliminate most of this cost.
+3. `flat_map` inside method lookup — MRO traversal allocates intermediary arrays on
+   every dispatch; caching the method-resolution result would eliminate repeated work.
