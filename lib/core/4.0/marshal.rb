@@ -683,18 +683,19 @@ module Marshal
       raise TypeError, "_dump must return a String, got #{data.class}" unless data.is_a?(String)
 
       # Collect ivars from the string returned by _dump (not from the object itself)
-      # This includes the string's encoding ivar and any string instance variables
+      # This includes the string's encoding ivar and any string instance variables.
+      # Also collect bare-name ivars (no @ prefix) via __marshal_time_ivars__ if present.
       str_ivars = collect_ivars(data)
+      extra_bare_ivars = (data.respond_to?(:__marshal_time_ivars__, true) &&
+                          data.__marshal_time_ivars__) || []
       enc_ivar = encoding_ivar(data.encoding)
 
-      n_ivars = str_ivars.size / 2 + (enc_ivar ? 1 : 0)
+      n_ivars = str_ivars.size / 2 + extra_bare_ivars.size / 2 + (enc_ivar ? 1 : 0)
       needs_ivar = n_ivars > 0
 
       # TYPE_IVAR must come before TYPE_EXTENDED wrappers (MRI ordering)
       @out << TYPE_IVAR if needs_ivar
       mods.each { |m| write_extension_prefix(m) }
-
-      track(obj)
 
       @out << TYPE_USERDEFINED
       write_symbol_str(real_class_name(klass))
@@ -710,7 +711,16 @@ module Marshal
           write_object(str_ivars[i + 1])
           i += 2
         end
+        i = 0
+        while i < extra_bare_ivars.size
+          write_symbol(extra_bare_ivars[i])
+          write_object(extra_bare_ivars[i + 1])
+          i += 2
+        end
       end
+
+      # Track the object itself AFTER writing ivar values (matches MRI ordering).
+      track(obj)
     end
     # ── User-marshal (marshal_dump/marshal_load) ───────────────────────────────
 
@@ -788,7 +798,16 @@ module Marshal
       mods = extended_modules(obj)
       ivars = collect_ivars(obj)
 
-      check_anonymous(klass) if is_subclass
+      if is_subclass
+        # Frozone bug: anonymous Range subclasses report name == "Range" (superclass name).
+        # Detect truly anonymous class by checking it is not reachable via its own name.
+        name = begin; real_class_name(klass); rescue; nil; end
+        anonymous = name.nil? || name.empty? ||
+                    (begin; const_from_name(name) != klass; rescue; true; end)
+        if anonymous
+          raise TypeError, "can't dump anonymous class #{klass.inspect}"
+        end
+      end
       mods.each { |m| write_extension_prefix(m) }
       write_uclass(klass) if is_subclass
 
@@ -811,7 +830,11 @@ module Marshal
     # ── Generic object ────────────────────────────────────────────────────────
 
     def write_generic_object(obj)
-      klass = obj.class
+      klass = begin
+        obj.class
+      rescue NoMethodError
+        Object.instance_method(:class).bind(obj).call
+      end
       check_anonymous(klass)
       check_no_singleton(obj)
 
@@ -1195,13 +1218,25 @@ module Marshal
     end
 
     def const_from_name(name)
-      parts = name.split('::')
-      mod = Object
-      parts.each do |part|
-        mod = mod.const_get(part)
+      # Name bytes may be in binary encoding (written as .b); try UTF-8 as well.
+      names_to_try = [name]
+      if name.encoding == Encoding::ASCII_8BIT || name.encoding == Encoding::BINARY
+        begin
+          names_to_try << name.dup.force_encoding(Encoding::UTF_8)
+        rescue
+          nil
+        end
       end
-      mod
-    rescue NameError
+      names_to_try.each do |n|
+        begin
+          parts = n.split('::')
+          mod = Object
+          parts.each { |part| mod = mod.const_get(part) }
+          return mod
+        rescue NameError
+          nil
+        end
+      end
       raise ArgumentError, "undefined class/module #{name}"
     end
 
