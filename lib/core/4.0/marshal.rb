@@ -97,7 +97,8 @@ module Marshal
       end
 
       # For all other objects, check the object link table first
-      oid = obj.object_id
+      # Use __id__ as a fallback since BasicObject subclasses may not have object_id
+      oid = begin; obj.object_id; rescue NoMethodError; obj.__id__; end
       if @objects.key?(oid)
         write_link(@objects[oid])
         return
@@ -174,7 +175,8 @@ module Marshal
     end
 
     def track(obj)
-      @objects[obj.object_id] = @objects.size
+      oid = begin; obj.object_id; rescue NoMethodError; obj.__id__; end
+      @objects[oid] = @objects.size
     end
 
     def write_link(index)
@@ -399,8 +401,9 @@ module Marshal
     end
 
     def collect_ivars(obj)
+      ivs = begin; obj.instance_variables; rescue NoMethodError; []; end
       result = []
-      obj.instance_variables.each do |iv|
+      ivs.each do |iv|
         result << iv
         result << obj.instance_variable_get(iv)
       end
