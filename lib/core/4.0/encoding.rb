@@ -283,11 +283,12 @@ class Encoding
     name_lower = name_s.downcase
     return default_external if name_lower == "locale" || name_lower == "external" || name_lower == "filesystem"
     return default_internal if name_lower == "internal"
-    ALL.find { |e| e.name.casecmp(name_s) == 0 } ||
+    ALL.find { |e| e.name.downcase == name_lower } ||
       begin
-        canonical = ALIASES[name_s] || ALIASES.find { |k, _| k.casecmp(name_s) == 0 }&.last
+        canonical = ALIASES[name_s] || ALIASES.find { |k, _| k.downcase == name_lower }&.last
         if canonical
-          ALL.find { |e| e.name.casecmp(canonical) == 0 } ||
+          canonical_lower = canonical.downcase
+          ALL.find { |e| e.name.downcase == canonical_lower } ||
             raise(ArgumentError, "unknown encoding name - #{name_s}")
         else
           raise(ArgumentError, "unknown encoding name - #{name_s}")
