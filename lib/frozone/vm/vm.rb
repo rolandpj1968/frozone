@@ -192,6 +192,7 @@ module Frozone
         evaluate_file("#{core_path}/gc.rb")
         evaluate_file("#{core_path}/env.rb")
         evaluate_file("#{core_path}/rubygems.rb")
+        evaluate_file("#{core_path}/marshal.rb")
         init_globals
       end
 
@@ -255,7 +256,7 @@ module Frozone
         GLOBALS[:"$stdin"]           = IOObject.new($stdin,  io_class)
         GLOBALS[:"$>"]               = GLOBALS[:"$stdout"]
         GLOBALS[:"$<"]               = GLOBALS[:"$stdin"]
-        GLOBALS[:"$0"]               = StringObject.new($0.to_s)
+        GLOBALS[:"$0"]               = StringObject.new($PROGRAM_NAME.to_s)
         GLOBALS[:"$PROGRAM_NAME"]    = GLOBALS[:"$0"]
         setup_frozone_land
       end
