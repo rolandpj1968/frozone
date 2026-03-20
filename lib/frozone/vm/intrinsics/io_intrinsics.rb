@@ -5,7 +5,7 @@ module Frozone
     module Intrinsics
       class << self
         # File / Dir
-        def file_basename(_, path, suffix = NilObject::NIL) = StringObject.new(File.basename(path.raw, f2n_raw(suffix)))
+        def file_basename(_, path, suffix = NilObject::NIL) = suffix.is_a?(NilObject) ? StringObject.new(File.basename(path.raw)) : StringObject.new(File.basename(path.raw, suffix.raw))
         def file_absolute_path(_, path, base = NilObject::NIL) = StringObject.new(File.absolute_path(path.raw, f2n_raw(base)))
         def file_absolute_path_q(_, path) = n2f_bool(File.absolute_path?(path.raw))
         def file_exist(_, path) = n2f_bool(File.exist?(path.raw))
