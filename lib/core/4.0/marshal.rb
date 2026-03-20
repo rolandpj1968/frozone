@@ -331,8 +331,10 @@ module Marshal
       name = enc.name
       if name == 'UTF-8'
         [:E, true]
-      elsif name == 'US-ASCII' || name == 'ASCII' || name == 'ASCII-8BIT' || name == 'BINARY'
+      elsif name == 'US-ASCII' || name == 'ASCII'
         [:E, false]
+      elsif name == 'ASCII-8BIT' || name == 'BINARY'
+        nil  # binary strings don't need encoding ivar
       else
         [:encoding, name]
       end
@@ -968,9 +970,8 @@ module Marshal
     end
 
     def read_class_by_name
-      len = read_long
-      raise ArgumentError, "marshal data too short" if @pos + len > @data.bytesize
-      name = read_bytes(len)
+      sym = read_object
+      name = sym.is_a?(Symbol) ? sym.to_s : sym.to_s
       const_from_name(name)
     end
 
@@ -1075,7 +1076,7 @@ module Marshal
       klass = read_class_by_symbol
       len = read_long
       data = read_bytes(len)
-      obj = klass._load(data)
+      obj = klass.send(:_load, data)
       @objects << obj
       obj
     end
@@ -1278,7 +1279,7 @@ module Marshal
       klass = read_class_by_symbol
       len = read_long
       data = read_bytes(len)
-      obj = klass._load(data)
+      obj = klass.send(:_load, data)
       # If _load returns nil/immediate, treat it as nil
       @objects << obj
       call_proc(obj)
