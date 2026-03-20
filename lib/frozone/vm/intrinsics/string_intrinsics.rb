@@ -1506,7 +1506,7 @@ module Frozone
               b_raw = b.is_a?(NilObject) ? nil : (b.is_a?(IntegerObject) ? b.raw : str_vm_coerce_to_int(context, b))
               e_raw = e.is_a?(NilObject) ? nil : (e.is_a?(IntegerObject) ? e.raw : str_vm_coerce_to_int(context, e))
               v.raw.byteslice(Range.new(b_raw, e_raw, idx.exclusive?))
-            elsif len
+            elsif !len.is_a?(NilObject)
               idx_i = idx.is_a?(IntegerObject) ? idx.raw : str_vm_coerce_to_int(context, idx)
               len_i = len.is_a?(IntegerObject) ? len.raw : str_vm_coerce_to_int(context, len)
               v.raw.byteslice(idx_i, len_i)
