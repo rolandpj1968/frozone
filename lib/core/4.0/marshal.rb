@@ -100,6 +100,14 @@ module Marshal
       elsif obj.is_a?(Symbol)
         # handled above, but just in case
         write_symbol(obj)
+      elsif obj.is_a?(IO) || obj.is_a?(File)
+        raise TypeError, "no _dump_data is defined for class #{obj.class}"
+      elsif obj.is_a?(MatchData)
+        raise TypeError, "no _dump_data is defined for class #{obj.class}"
+      elsif obj.is_a?(Method) || obj.is_a?(UnboundMethod) || obj.is_a?(Proc)
+        raise TypeError, "no _dump_data is defined for class #{obj.class}"
+      elsif defined?(Mutex) && obj.is_a?(Mutex)
+        raise TypeError, "no _dump_data is defined for class #{obj.class}"
       elsif obj.is_a?(Array)
         write_array_with_wraps(obj)
       elsif obj.is_a?(Hash)
@@ -112,23 +120,27 @@ module Marshal
       elsif obj.is_a?(Module)
         track(obj)
         write_module(obj)
+      elsif obj.is_a?(Exception)
+        write_exception(obj)
       elsif obj.is_a?(Struct)
         write_struct_with_wraps(obj)
       elsif respond_to_marshal_dump?(obj)
         write_user_marshal(obj)
       elsif respond_to__dump?(obj)
         write_user_defined(obj)
+      elsif obj.is_a?(Range)
+        write_range(obj)
       else
         write_generic_object(obj)
       end
     end
 
     def respond_to_marshal_dump?(obj)
-      obj.respond_to?(:marshal_dump)
+      obj.respond_to?(:marshal_dump, true)
     end
 
     def respond_to__dump?(obj)
-      obj.respond_to?(:_dump)
+      obj.respond_to?(:_dump, true)
     end
 
     def track(obj)
@@ -579,16 +591,18 @@ module Marshal
 
     def write_user_defined(obj)
       mods = extended_modules(obj)
-      ivars = collect_ivars(obj)
 
       klass = obj.class
       check_anonymous(klass)
 
-      data = obj._dump(@depth)
+      data = obj.__send__(:_dump, @depth)
       raise TypeError, "_dump must return a String, got #{data.class}" unless data.is_a?(String)
 
-      # Check if the string from _dump has ivars
-      all_ivars = ivars.dup
+      # Collect ivars from the string returned by _dump (not from the object itself)
+      # This includes the string's encoding ivar and any string instance variables
+      str_ivars = collect_ivars(data)
+      enc_ivar = encoding_ivar(data.encoding)
+      all_ivars = enc_ivar ? [enc_ivar[0], enc_ivar[1]] + str_ivars : str_ivars
 
       needs_ivar = !all_ivars.empty?
 
@@ -626,9 +640,85 @@ module Marshal
 
       @out << TYPE_USERMARSH
       write_symbol_str(real_class_name(klass))
-      data = obj.marshal_dump
+      data = obj.__send__(:marshal_dump)
       write_object(data)
     end
+    # ── Exception ─────────────────────────────────────────────────────────────
+
+    def write_exception(obj)
+      klass = obj.class
+      mods = extended_modules(obj)
+      ivars = collect_ivars(obj)
+
+      # Remove @message if present in ivars (it becomes :mesg)
+      # MRI marshal uses :mesg and :bt synthetic ivars
+      obj_ivars = ivars.reject { |v| v == :@mesg || v == :@message || v == :@bt || v == :@backtrace }
+
+      mods.each { |m| write_extension_prefix(m) }
+
+      track(obj)
+
+      # mesg = the exception message (nil if default)
+      mesg = begin
+        msg = obj.message
+        msg == klass.to_s ? nil : msg
+      rescue
+        nil
+      end
+
+      # bt = backtrace (nil if none)
+      bt = begin
+        obj.backtrace
+      rescue
+        nil
+      end
+
+      all_ivars = [:mesg, mesg, :bt, bt]
+      # Add any additional instance variables
+      all_ivars += obj_ivars
+
+      @out << TYPE_OBJECT
+      write_symbol_str(real_class_name(klass))
+      write_long(all_ivars.size / 2)
+      i = 0
+      while i < all_ivars.size
+        write_symbol(all_ivars[i])
+        write_object(all_ivars[i + 1])
+        i += 2
+      end
+    end
+
+    # ── Range ────────────────────────────────────────────────────────────────
+
+    def write_range(obj)
+      klass = obj.class
+      is_subclass = (klass != Range)
+      mods = extended_modules(obj)
+      ivars = collect_ivars(obj)
+
+      mods.each { |m| write_extension_prefix(m) }
+      write_uclass(klass) if is_subclass
+
+      track(obj)
+
+      if is_subclass
+        raise TypeError, "can't dump anonymous class #{klass.inspect}" if klass.name.nil? || klass.name.empty?
+      end
+
+      # Range stores begin, end, excl as synthetic ivars
+      # Collected ivars from the range itself (if any)
+      all_ivars = [:excl, obj.exclude_end?, :begin, obj.first, :end, obj.last] + ivars
+      @out << TYPE_OBJECT
+      write_symbol_str('Range')
+      write_long(all_ivars.size / 2)
+      i = 0
+      while i < all_ivars.size
+        write_symbol(all_ivars[i])
+        write_object(all_ivars[i + 1])
+        i += 2
+      end
+    end
+
     # ── Generic object ────────────────────────────────────────────────────────
 
     def write_generic_object(obj)
@@ -927,12 +1017,48 @@ module Marshal
         raise ArgumentError, "can't load class: #{klass}"
       end
       num_ivars = read_long
-      obj = klass.allocate
-      track(obj)
+
+      # Read all ivar name-value pairs first
+      ivars = {}
       num_ivars.times do
         name = read_object  # symbol
         val = read_object
-        obj.instance_variable_set(name, val)
+        ivars[name] = val
+      end
+
+      # Special handling for Range (uses synthetic :excl, :begin, :end ivars)
+      if klass <= Range
+        excl = ivars.delete(:excl)
+        range_begin = ivars.delete(:begin)
+        range_end = ivars.delete(:end)
+        obj = Range.new(range_begin, range_end, excl)
+        track(obj)
+        ivars.each { |k, v| obj.instance_variable_set(:"@#{k.to_s.delete_prefix('@')}", v) rescue nil }
+        return call_proc(obj)
+      end
+
+      # Special handling for Exception (uses synthetic :mesg, :bt ivars)
+      if klass <= Exception
+        mesg = ivars.delete(:mesg)
+        bt = ivars.delete(:bt)
+        obj = klass.allocate
+        track(obj)
+        begin
+          obj.__send__(:initialize_copy, klass.new(mesg))
+        rescue
+          obj.instance_variable_set(:@mesg, mesg) rescue nil
+        end
+        obj.set_backtrace(bt) rescue nil
+        ivars.each { |k, v| obj.instance_variable_set(k.to_s.start_with?('@') ? k : :"@#{k}", v) rescue nil }
+        return call_proc(obj)
+      end
+
+      obj = klass.allocate
+      track(obj)
+      ivars.each do |name, val|
+        # Ensure ivar name starts with @
+        ivar_name = name.to_s.start_with?('@') ? name : :"@#{name}"
+        obj.instance_variable_set(ivar_name, val) rescue nil
       end
       call_proc(obj)
     end
