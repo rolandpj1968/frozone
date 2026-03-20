@@ -1,4 +1,5 @@
 # encoding: binary
+
 # Marshal - Ruby object serialization/deserialization
 # Implements the Marshal binary format (version 4.8)
 
@@ -6,7 +7,7 @@ module Marshal
   MAJOR_VERSION = 4
   MINOR_VERSION = 8
 
-  extend self
+  extend self # rubocop:disable Style/ModuleFunction
 
   # Type codes
   TYPE_NIL      = '0'
@@ -49,6 +50,7 @@ module Marshal
       write_object(obj)
       @out
     end
+
     private
 
     def write_object(obj)
@@ -135,7 +137,7 @@ module Marshal
 
     def write_link(index)
       @out << TYPE_LINK
-      write_long(index + 1)  # +1 because links are 1-indexed
+      write_long(index)
     end
     # ── Integers ──────────────────────────────────────────────────────────────
 
@@ -240,8 +242,8 @@ module Marshal
         # Remove trailing .0 for integer-valued floats (not in scientific notation)
         s = s.sub(/\.0$/, '') unless s.include?('e') || s.include?('E')
         # Normalize exponent: remove leading zeros in exponent
-        s = s.sub(/e([+-])0+(\d)/, 'e\1\2')
-        s
+        s.sub(/e([+-])0+(\d)/, 'e\1\2')
+
       end
     end
     # ── Symbol ────────────────────────────────────────────────────────────────
@@ -361,12 +363,12 @@ module Marshal
 
     def write_extension_prefix(mod)
       @out << TYPE_EXTENDED
-      write_module_name(mod)
+      write_symbol_str(real_module_name(mod))
     end
 
     def write_uclass(klass)
       @out << TYPE_UCLASS
-      write_class_name(klass)
+      write_symbol_str(real_class_name(klass))
     end
     # ── Array ─────────────────────────────────────────────────────────────────
 
@@ -451,7 +453,7 @@ module Marshal
     def write_regexp_with_ivar(obj)
       mods = extended_modules(obj)
       ivars = collect_ivars(obj)
-      subclass = !(obj.class == Regexp)
+      subclass = !(obj.instance_of?(Regexp))
 
       enc = obj.source.encoding
       enc_ivar = encoding_ivar(enc)
@@ -563,7 +565,7 @@ module Marshal
       klass = obj.class
       check_anonymous(klass)
       @out << TYPE_STRUCT
-      write_class_name(klass)
+      write_symbol_str(real_class_name(klass))
       members = obj.members
       write_long(members.size)
       members.each do |m|
@@ -584,7 +586,6 @@ module Marshal
       raise TypeError, "_dump must return a String, got #{data.class}" unless data.is_a?(String)
 
       # Check if the string from _dump has ivars
-      has_ivar_enc = false
       all_ivars = ivars.dup
 
       needs_ivar = !all_ivars.empty?
@@ -595,7 +596,7 @@ module Marshal
       track(obj)
 
       @out << TYPE_USERDEFINED
-      write_class_name(klass)
+      write_symbol_str(real_class_name(klass))
       write_long(data.b.bytesize)
       @out << data.b
 
@@ -622,7 +623,7 @@ module Marshal
       track(obj)
 
       @out << TYPE_USERMARSH
-      write_class_name(klass)
+      write_symbol_str(real_class_name(klass))
       data = obj.marshal_dump
       write_object(data)
     end
@@ -641,7 +642,7 @@ module Marshal
       track(obj)
 
       @out << TYPE_OBJECT
-      write_class_name(klass)
+      write_symbol_str(real_class_name(klass))
       write_long(ivars.size / 2)
       i = 0
       while i < ivars.size
@@ -700,6 +701,7 @@ module Marshal
       end
       read_object
     end
+
     private
 
     def read_byte
@@ -840,7 +842,7 @@ module Marshal
       return obj if obj.nil? || obj.equal?(true) || obj.equal?(false)
       return obj if obj.is_a?(Integer) || obj.is_a?(Symbol) || obj.is_a?(Float)
       return obj if obj.is_a?(Module) # don't freeze classes/modules
-      begin; obj.freeze; rescue; end
+      begin; obj.freeze; rescue; end # rubocop:disable Lint/SuppressedException
       obj
     end
 
@@ -910,7 +912,7 @@ module Marshal
     end
 
     def read_object_generic
-      klass = read_class_by_name
+      klass = read_class_by_symbol
       # Validate that this is a safe type to load as 'o'
       ancestors = (klass.ancestors rescue [])
       has_io = (ancestors.include?(IO) rescue false)
@@ -934,7 +936,7 @@ module Marshal
     end
 
     def read_struct
-      klass = read_class_by_name
+      klass = read_class_by_symbol
       num_members = read_long
       # Allocate without calling initialize
       obj = klass.allocate
@@ -983,11 +985,16 @@ module Marshal
       raise ArgumentError, "undefined class/module #{name}"
     end
 
+    def read_class_by_symbol
+      sym = read_object  # reads TYPE_SYMBOL or TYPE_SYMLINK
+      const_from_name(sym.to_s)
+    end
+
     def read_ivar
       # The next object has instance variables attached
-      obj = read_object_for_ivar
-      obj
+      read_object_for_ivar
     end
+
     # Read an object that has ivar wrapper — special handling to set ivars
     def read_object_for_ivar
       type = read_byte.chr
@@ -1065,7 +1072,7 @@ module Marshal
     end
 
     def read_user_defined_body
-      klass = read_class_by_name
+      klass = read_class_by_symbol
       len = read_long
       data = read_bytes(len)
       obj = klass._load(data)
@@ -1074,7 +1081,7 @@ module Marshal
     end
 
     def read_struct_body
-      klass = read_class_by_name
+      klass = read_class_by_symbol
       num_members = read_long
       obj = klass.allocate
       @objects << obj
@@ -1087,7 +1094,7 @@ module Marshal
     end
 
     def read_generic_object_body
-      klass = read_class_by_name
+      klass = read_class_by_symbol
       num_ivars = read_long
       obj = klass.allocate
       @objects << obj
@@ -1100,7 +1107,7 @@ module Marshal
     end
 
     def read_link
-      idx = read_long - 1
+      idx = read_long
       raise ArgumentError, "bad link" if idx < 0 || idx >= @objects.size
       obj = @objects[idx]
       if @proc
@@ -1112,9 +1119,8 @@ module Marshal
 
     def read_uclass
       # C: subclass wrapper — the next object should be of this class
-      klass = read_class_by_name
-      obj = read_object_with_class(klass)
-      obj
+      klass = read_class_by_symbol
+      read_object_with_class(klass)
     end
 
     def read_object_with_class(klass)
@@ -1197,21 +1203,21 @@ module Marshal
         len = read_long
         src = read_bytes(len)
         opts = read_byte
-        if klass == Regexp || (klass.ancestors rescue []).include?(Regexp)
-          obj = klass.new(src, opts)
-        else
-          obj = Regexp.new(src, opts)
-        end
+        obj = if klass == Regexp || (klass.ancestors rescue []).include?(Regexp)
+                klass.new(src, opts)
+              else
+                Regexp.new(src, opts)
+              end
         track(obj)
         obj
       when TYPE_UCLASS
         # Nested C: — read inner class, combine with outer
-        inner_klass = read_class_by_name
+        inner_klass = read_class_by_symbol
         read_object_with_class(inner_klass)
       when TYPE_IVAR
         # The uclass object has ivars
-        obj = read_object_with_class_ivar(klass)
-        obj
+        read_object_with_class_ivar(klass)
+
       else
         @pos -= 1
         read_object
@@ -1227,7 +1233,7 @@ module Marshal
               klass_is_string = (klass <= String rescue false)
               if klass_is_string
                 o = klass.allocate
-                begin; o.replace(str.force_encoding(Encoding::ASCII_8BIT)); rescue; end
+                begin; o.replace(str.force_encoding(Encoding::ASCII_8BIT)); rescue; end # rubocop:disable Lint/SuppressedException
                 track(o)
                 o
               else
@@ -1269,7 +1275,7 @@ module Marshal
     end
 
     def read_user_defined
-      klass = read_class_by_name
+      klass = read_class_by_symbol
       len = read_long
       data = read_bytes(len)
       obj = klass._load(data)
@@ -1279,7 +1285,7 @@ module Marshal
     end
 
     def read_user_marshal
-      klass = read_class_by_name
+      klass = read_class_by_symbol
       obj = klass.allocate
       track(obj)
       data = read_object
@@ -1288,10 +1294,8 @@ module Marshal
     end
 
     def read_extended
-      # e: module name, then the object
-      mod_len = read_long
-      mod_name = read_bytes(mod_len)
-      mod = const_from_name(mod_name)
+      # e: module name is a symbol, then the object
+      mod = read_class_by_symbol
 
       obj = read_object
       obj.extend(mod) rescue nil
@@ -1310,7 +1314,7 @@ module Marshal
     def read_data_object
       # Data class (Ruby 3.2+) — stored like Struct with 'S' type in newer formats
       # or as 'd' in some versions
-      klass = read_class_by_name
+      klass = read_class_by_symbol
       num_members = read_long
       kwargs = {}
       num_members.times do
