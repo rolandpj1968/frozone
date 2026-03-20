@@ -476,7 +476,7 @@ class String
   end
 
   def chars(&block)
-    arr = split('')
+    arr = Intrinsics.string_chars(self)
     return arr unless block
     arr.each(&block)
     self
@@ -691,8 +691,9 @@ class String
   end
 
   def byteslice(idx, len = :__unset__)
-    if !len.equal?(:__unset__) && idx.is_a?(Range)
-      raise TypeError, "wrong argument type Range (expected Integer)"
+    if !len.equal?(:__unset__)
+      raise TypeError, "wrong argument type Range (expected Integer)" if idx.is_a?(Range)
+      raise TypeError, "no implicit conversion of nil into Integer" if idx.nil? || len.nil?
     end
     len.equal?(:__unset__) ? Intrinsics.string_byteslice(self, idx) : Intrinsics.string_byteslice(self, idx, len)
   end

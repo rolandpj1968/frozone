@@ -305,7 +305,7 @@ module Frozone
           all_frames = context.frames.reverse
           # Skip internal frames (full_message, detailed_message, exception_caller_string)
           i = 0
-          skip = %i[full_message detailed_message exception_caller_string _full_message_dm _format_single_full_message]
+          skip = %i[full_message detailed_message exception_caller_string __full_message_dm__ __format_single_full_message__]
           i += 1 while i < all_frames.length && skip.include?(all_frames[i].current_method&.name)
           return NilObject::NIL if i.zero?
           # The last skipped frame (i-1) has incoming_call_site = where full_message was called from

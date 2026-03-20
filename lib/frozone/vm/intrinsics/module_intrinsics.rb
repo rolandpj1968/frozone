@@ -892,7 +892,7 @@ module Frozone
               next if seen[name]
               seen[name] = true
               next if m == ModuleObject::UNDEF_SENTINEL
-              next if vis_filter && m.visibility != vis_filter
+              next if vis_filter && !vis_filter.is_a?(NilObject) && m.visibility != vis_filter
               result << SymbolObject.from(name) if m.visibility == :public || m.visibility == :protected
             end
           end

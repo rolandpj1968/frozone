@@ -70,15 +70,15 @@ module Frozone
 
           # Use $; when sep is nil
           gs = nil
-          if sep.is_a?(NilObject)
+          if sep.nil? || sep.is_a?(NilObject)
             gs = GLOBALS[:"$;"]
             gs = nil if gs.is_a?(NilObject)
           end
 
           # Determine the raw separator
-          sep_raw = if sep.is_a?(NilObject) && gs.nil?
+          sep_raw = if (sep.nil? || sep.is_a?(NilObject)) && gs.nil?
                       nil
-                    elsif sep.is_a?(NilObject)
+                    elsif sep.nil? || sep.is_a?(NilObject)
                       gs.is_a?(StringObject) ? gs.raw : gs.raw
                     elsif sep.is_a?(StringObject) || sep.is_a?(RegexpObject)
                       sep.raw
@@ -101,6 +101,11 @@ module Frozone
                   else
                     limit_raw ? v.raw.split(sep_raw, limit_raw) : v.raw.split(sep_raw)
                   end
+          ArrayObject.new(parts.map { |p| StringObject.new(p) })
+        end
+
+        def string_chars(_, v)
+          parts = v.raw.chars
           ArrayObject.new(parts.map { |p| StringObject.new(p) })
         end
 
@@ -1402,7 +1407,8 @@ module Frozone
         def string_match_q(_, v, pattern, pos)
           pat = pattern.is_a?(StringObject) ? Regexp.new(pattern.raw) : pattern.raw
           str = v.raw
-          result = pat.match?(str, f2n_raw(pos))
+          raw_pos = f2n_raw(pos)
+          result = raw_pos.nil? ? pat.match?(str) : pat.match?(str, raw_pos)
           n2f_bool(result)
         end
 

@@ -778,6 +778,7 @@ class Array
       end
       return to_enum(:combination, n) { sz }
     end
+    return self if n < 0 || n > length
     __combination_r__(self, n, 0, [], block)
     self
   end
@@ -792,6 +793,7 @@ class Array
       end
       return to_enum(:permutation, n) { sz }
     end
+    return self if n < 0 || n > length
     __permutation_r__(self, n, [], Array.new(length, false), block)
     self
   end
