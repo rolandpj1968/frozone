@@ -37,25 +37,34 @@ module Frozone
           return e.value
         end
 
-        # Iterate directly in the enclosing frame (no new scope for for loops).
-        all_args.each do |args|
-          assign_target(context, enclosing_frame, args)
-          # Support redo: re-run body with same args (don't re-assign target)
-          loop do
-            begin
-              @body_node.evaluate(context)
-              break
-            rescue Ast::BreakException => e
-              return e.value
-            rescue Ast::NextException
-              break
-            rescue Ast::RedoException
-              # redo: re-run body with same iteration variable values
+        # Temporarily clear thread_boundary so break inside the loop raises BreakException
+        # (caught by the loop itself) rather than LocalJumpError (thread-boundary behavior).
+        old_thread_boundary = enclosing_frame.thread_boundary
+        enclosing_frame.thread_boundary = false if old_thread_boundary
+
+        begin
+          # Iterate directly in the enclosing frame (no new scope for for loops).
+          all_args.each do |args|
+            assign_target(context, enclosing_frame, args)
+            # Support redo: re-run body with same args (don't re-assign target)
+            loop do
+              begin
+                @body_node.evaluate(context)
+                break
+              rescue Ast::BreakException => e
+                return e.value
+              rescue Ast::NextException
+                break
+              rescue Ast::RedoException
+                # redo: re-run body with same iteration variable values
+              end
             end
           end
-        end
 
-        collection
+          collection
+        ensure
+          enclosing_frame.thread_boundary = old_thread_boundary
+        end
       end
 
       private
