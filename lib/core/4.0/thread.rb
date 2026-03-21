@@ -279,9 +279,17 @@ class Thread
 
   def backtrace           = nil
   def backtrace_locations = nil
-  def priority            = 0
-  def priority=(v)        = 0
-  def native_thread_id    = nil
+  def priority = (@priority || 0)
+
+  def priority=(v)
+    unless v.is_a?(Integer)
+      v = v.to_int if v.respond_to?(:to_int)
+      Kernel.raise TypeError, "can't convert #{v.class} into Integer" unless v.is_a?(Integer)
+    end
+    @priority = v.clamp(-3, 3)
+    v
+  end
+  def native_thread_id = alive? ? object_id : nil
   def name                = @name
   def name=(v)            = (@name = v.nil? ? nil : v.to_str)
   def group               = @group
@@ -462,6 +470,24 @@ class Thread
 
   def keys
     (@fiber_vars || {}).keys
+  end
+
+  def fetch(key, *rest, &block)
+    Kernel.raise ArgumentError, "wrong number of arguments (given #{1 + rest.size}, expected 1..2)" if rest.size > 1
+    if block && rest.size == 1
+      warn "warning: block supersedes default value argument"
+    end
+    k = __coerce_var_key(key)
+    vars = @fiber_vars || {}
+    if vars.key?(k)
+      vars[k]
+    elsif block
+      block.call(key)
+    elsif rest.size == 1
+      rest[0]
+    else
+      Kernel.raise KeyError, "key not found: #{key.inspect}"
+    end
   end
 
   Mutex = ::Mutex
