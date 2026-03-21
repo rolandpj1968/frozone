@@ -282,6 +282,8 @@ module Signal
               end
     old_raw = @handlers.fetch(name, UNSET)
     @handlers[name] = handler
+    # Register with MRI's signal handling
+    Intrinsics.signal_register(name, handler)
     if old_raw.equal?(UNSET)
       SYSTEM_DEFAULT_INITIAL.include?(name) ? "SYSTEM_DEFAULT" : "DEFAULT"
     else

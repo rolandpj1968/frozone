@@ -19,12 +19,7 @@ class Process
     sigstr = signal.is_a?(Integer) ? nil : signal.to_s.sub(/\ASIG/, '')
     sig = signal.is_a?(Integer) ? signal : Signal.list[sigstr]
     raise ArgumentError, "unsupported signal #{signal}" unless sig
-    our_pid = Process.pid
-    int_sig = Signal.list["INT"] || 2
     pids.each do |pid|
-      if pid == our_pid
-        raise(sig == int_sig ? Interrupt.new : SignalException.new(sig))
-      end
       Intrinsics.process_kill(sig, pid)
     end
     pids.length

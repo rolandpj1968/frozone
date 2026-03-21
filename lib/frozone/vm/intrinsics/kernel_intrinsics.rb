@@ -11,6 +11,29 @@ module Frozone
         def emit_vm_warning(context, msg) = Frozone::Vm.emit_warning(context, msg)
         def kernel_rand(context, _receiver, n) = random_rand(context, nil, n)
         def signal_trap(_, _signal, _block_arg = FNIL) = FNIL
+
+        def signal_register(context, signal_name, handler)
+          name = fstr?(signal_name) ? signal_name.raw : signal_name.raw.to_s
+          if fnil?(handler)
+            Signal.trap(name, "IGNORE")
+          elsif handler.is_a?(::String)
+            Signal.trap(name, handler)
+          elsif handler.respond_to?(:raw) && handler.raw.is_a?(::String)
+            Signal.trap(name, handler.raw)
+          else
+            callable = handler
+            Signal.trap(name) do |signo|
+              ctx = Fiber[:context] || context
+              signo_obj = n2f_int(signo)
+              if callable.respond_to?(:invoke)
+                callable.invoke(ctx, [signo_obj])
+              else
+                callable.dispatch(ctx, :call, [signo_obj], {})
+              end
+            end
+          end
+          FNIL
+        end
         def basic_object___id__(_, v) = n2f_int(v.__id__)
         def basic_object__equal_equal_(_, v1, v2) = n2f_bool(v1.equal?(v2))
         def kernel_float(_, _receiver, val) = n2f_float(ffloat?(val) ? val.raw : Float(val.raw))
