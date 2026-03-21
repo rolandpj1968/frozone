@@ -90,7 +90,22 @@ module Kernel
   def rand(n = nil) = Intrinsics.kernel_rand(self, n)
   def srand(seed = nil) = Intrinsics.kernel_srand(self, seed)
   def sleep(secs = nil)
-    Thread.stop if secs.nil?
+    if secs.nil?
+      # Check for cross-thread injection before blocking: Thread#raise sets
+      # @raise_exception and replays the block. Injecting here gives 'sleep'
+      # as the backtrace frame rather than 'stop'.
+      current = Thread.current
+      exc = current.__raise_exception
+      if exc
+        cause = current.__raise_cause
+        raise_bt = current.__raise_backtrace
+        current.__raise_exception = nil
+        current.__raise_cause = nil
+        current.__raise_backtrace = nil
+        Kernel.raise exc, nil, raise_bt, cause: cause
+      end
+      Thread.stop
+    end
     0
   end
   def system(*args) = false

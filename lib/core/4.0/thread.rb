@@ -53,9 +53,11 @@ class Thread
       exc = current.__raise_exception
       if exc
         cause = current.__raise_cause
+        raise_bt = current.__raise_backtrace
         current.__raise_exception = nil
         current.__raise_cause = nil
-        raise exc, nil, nil, cause: cause
+        current.__raise_backtrace = nil
+        raise exc, nil, raise_bt, cause: cause
       end
       raise Blocked
     end
@@ -97,16 +99,6 @@ class Thread
       current.__stop_seen = seen + 1
       return nil
     end
-    # If Thread#raise was called on this sleeping thread, inject the exception here
-    exc = current.__raise_exception
-    if exc
-      cause = current.__raise_cause
-      current.__raise_exception = nil
-      current.__raise_cause = nil
-      # Use explicit cause: nil to prevent auto-chaining from target thread's $!
-      # (cross-thread raises never inherit the target thread's rescue context)
-      raise exc, nil, nil, cause: cause
-    end
     raise Blocked
   end
 
@@ -119,6 +111,8 @@ class Thread
   def __raise_exception=(v); @raise_exception = v; end
   def __raise_cause;    @raise_cause;    end
   def __raise_cause=(v); @raise_cause = v; end
+  def __raise_backtrace;    @raise_backtrace;    end
+  def __raise_backtrace=(v); @raise_backtrace = v; end
 
   # Status reflects execution state:
   #   'run'      — currently executing OR blocked via Thread.pass (cooperative yield)
@@ -155,6 +149,7 @@ class Thread
     @stop_seen           = 0
     @raise_exception     = nil
     @raise_cause         = nil
+    @raise_backtrace     = nil
     @report_on_exception = nil  # nil means inherit from Thread.report_on_exception
     @name                = nil
     @thread_vars         = {}
@@ -259,12 +254,15 @@ class Thread
       Kernel.raise TypeError, "exception class/object expected"
     end
 
+    # Backtrace override: args[2] if present (array of strings or Location objects).
+    backtrace = args.size >= 3 ? args[2] : nil
+
     # Raising on the current thread: inject immediately into the live call stack.
     if equal?(Thread.current)
       if cause_given
-        Kernel.raise exc, nil, nil, cause: cause
+        Kernel.raise exc, nil, backtrace, cause: cause
       else
-        Kernel.raise exc
+        Kernel.raise exc, nil, backtrace
       end
     end
     # Inject exception into a sleeping/running thread via replay mechanism.
@@ -272,6 +270,7 @@ class Thread
     # Store explicit cause (nil means "no auto-chain"; :__not_given means use default).
     @raise_exception = exc
     @raise_cause = cause_given ? cause : nil
+    @raise_backtrace = backtrace
     __run_block
     self
   end
@@ -315,6 +314,7 @@ class Thread
     @stop_seen           = 0
     @raise_exception     = nil
     @raise_cause         = nil
+    @raise_backtrace     = nil
     @report_on_exception = nil  # nil means inherit from Thread.report_on_exception
     @name                = nil
     @thread_vars         = {}
