@@ -1,10 +1,3 @@
-begin
-  RubyVM::YJIT.enable
-rescue NameError
-  # YJIT not available, no-op
-end
-
-
 require 'optparse'
 
 require_relative 'lib/frozone/vm/vm'
