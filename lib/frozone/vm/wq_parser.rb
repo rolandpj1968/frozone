@@ -67,11 +67,12 @@ module Frozone
 
         # Re-encode the source bytes with the detected encoding so the parser
         # emits string literals with the correct encoding.
-        src = if magic_enc && magic_enc != Encoding::UTF_8 && @text.encoding == Encoding::UTF_8
-                @text.dup.force_encoding(magic_enc)
-              else
-                @text
-              end
+        src =
+          if magic_enc && magic_enc != Encoding::UTF_8 && @text.encoding == Encoding::UTF_8
+            @text.dup.force_encoding(magic_enc)
+          else
+            @text
+          end
 
         buf = ::Parser::Source::Buffer.new(@filepath || '(string)', source: src)
         ::Parser::Builders::Default.modernize
@@ -717,23 +718,25 @@ module Frozone
           Ast::Return.new(value_node)
 
         when :break
-          value_node = if c.empty?
-                         nil
-                       elsif c.length == 1
-                         transform_first_arg(c[0])
-                       else
-                         Ast::ArrayLiteral.new(c.map { |a| transform(a) })
-                       end
+          value_node =
+            if c.empty?
+              nil
+            elsif c.length == 1
+              transform_first_arg(c[0])
+            else
+              Ast::ArrayLiteral.new(c.map { |a| transform(a) })
+            end
           Ast::Break.new(value_node)
 
         when :next
-          value_node = if c.empty?
-                         nil
-                       elsif c.length == 1
-                         transform_first_arg(c[0])
-                       else
-                         Ast::ArrayLiteral.new(c.map { |a| transform(a) })
-                       end
+          value_node =
+            if c.empty?
+              nil
+            elsif c.length == 1
+              transform_first_arg(c[0])
+            else
+              Ast::ArrayLiteral.new(c.map { |a| transform(a) })
+            end
           Ast::Next.new(value_node)
 
         when :redo
@@ -792,27 +795,30 @@ module Frozone
             old_gvar = old_name_node.children[0]
             Ast::GlobalAlias.new(new_gvar.to_sym, old_gvar.to_sym)
           else
-            new_name = if new_name_node.type == :sym
-                         new_name_node.children[0]
-                       else
-                         transform(new_name_node)
-                       end
-            old_name = if old_name_node.type == :sym
-                         old_name_node.children[0]
-                       else
-                         transform(old_name_node)
-                       end
+            new_name =
+              if new_name_node.type == :sym
+                new_name_node.children[0]
+              else
+                transform(new_name_node)
+              end
+            old_name =
+              if old_name_node.type == :sym
+                old_name_node.children[0]
+              else
+                transform(old_name_node)
+              end
             Ast::MethodAlias.new(new_name, old_name)
           end
 
         when :undef
           stmts = c.map do |sym_node|
-            name_node = if sym_node.type == :sym
-                          Ast::SymbolLiteral.from(sym_node.children[0])
-                        else
-                          # Dynamic: dsym — evaluate interpolation
-                          transform(sym_node)
-                        end
+            name_node =
+              if sym_node.type == :sym
+                Ast::SymbolLiteral.from(sym_node.children[0])
+              else
+                # Dynamic: dsym — evaluate interpolation
+                transform(sym_node)
+              end
             Ast::IntrinsicCall.new(:module_undef_method, [Ast::SelfLiteral::SELF, name_node])
           end
           stmts.length == 1 ? stmts[0] : Ast::Sequence.new(stmts)
@@ -1003,11 +1009,12 @@ module Frozone
         end
 
         # Build receiver (nil if implicit self, also treat explicit self as implicit)
-        receiver_ast = if recv_node.nil? || recv_node.type == :self
-                         nil
-                       else
-                         transform(recv_node)
-                       end
+        receiver_ast =
+          if recv_node.nil? || recv_node.type == :self
+            nil
+          else
+            transform(recv_node)
+          end
 
         # Parse args (positional, keyword, block)
         arg_nodes, kw_args, kw_splats, block_node = parse_call_args(raw_args)
@@ -1157,11 +1164,12 @@ module Frozone
             return Ast::IntrinsicCall.new(name, arg_nodes)
           end
 
-          receiver_ast = if recv_node.nil? || recv_node.type == :self
-                           nil
-                         else
-                           transform(recv_node)
-                         end
+          receiver_ast =
+            if recv_node.nil? || recv_node.type == :self
+              nil
+            else
+              transform(recv_node)
+            end
 
           arg_nodes, kw_args, kw_splats, _existing_block = parse_call_args(raw_args)
           call_loc = @filepath && send_node.location ? "#{@filepath}:#{send_node.location.line}" : nil
@@ -1420,11 +1428,12 @@ module Frozone
         seen_rest     = false
         seen_param_names = {}
 
-        args_to_parse = if args_node.type == :args
-                          args_node.children
-                        else
-                          [args_node]
-                        end
+        args_to_parse =
+          if args_node.type == :args
+            args_node.children
+          else
+            [args_node]
+          end
 
         args_to_parse.each do |arg|
           next if arg.nil?
@@ -1701,23 +1710,25 @@ module Frozone
           # With Builder::Default.modernize: b[0] in mlhs → s(:indexasgn, recv, idx...)
           recv_node = node.children[0]
           idx_nodes = node.children[1..]
-          receiver_ast = if recv_node.nil?
-                           nil
-                         elsif recv_node.type == :self
-                           Ast::SelfLiteral::SELF
-                         else
-                           transform(recv_node)
-                         end
+          receiver_ast =
+            if recv_node.nil?
+              nil
+            elsif recv_node.type == :self
+              Ast::SelfLiteral::SELF
+            else
+              transform(recv_node)
+            end
           [:index, receiver_ast, idx_nodes.map { |a| transform(a) }]
 
         when :send
           recv_node, mname, *arg_nodes = node.children
-          receiver_ast = if recv_node.nil?
-                           nil
-                         elsif recv_node.type == :self
-                           Ast::SelfLiteral::SELF
-                         else
-                           transform(recv_node)
+          receiver_ast =
+            if recv_node.nil?
+              nil
+            elsif recv_node.type == :self
+              Ast::SelfLiteral::SELF
+            else
+              transform(recv_node)
                          end
           if mname == :[]=
             # Index assignment: object[k] = val — include index args
@@ -2031,11 +2042,12 @@ module Frozone
         var_node = resbody_node.children[1]
         body_node = resbody_node.children[2]
 
-        exc_nodes = if exc_node.nil?
-                      []
-                    else
-                      exc_node.children.map { |e| transform(e) }
-                    end
+        exc_nodes =
+          if exc_node.nil?
+            []
+          else
+            exc_node.children.map { |e| transform(e) }
+          end
 
         var_name   = nil
         var_depth  = nil

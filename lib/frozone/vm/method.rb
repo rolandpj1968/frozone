@@ -219,17 +219,18 @@ module Frozone
           populate_kw_params(context, new_frame, kw_args)
 
           if @block_param
-            proc_obj = if block.is_a?(ProcObject)
-                         block  # already a ProcObject — don't double-wrap
-                       elsif block.is_a?(BoundMethodObject)
-                         ProcObject.new(block, lambda: true)
-                       elsif block.is_a?(NativeBlock) && block.is_lambda
-                         ProcObject.new(block, lambda: true)
-                       elsif block && !block.is_a?(NilObject)
-                         ProcObject.new(block)
-                       else
-                         NilObject::NIL
-                       end
+            proc_obj =
+              if block.is_a?(ProcObject)
+                block  # already a ProcObject — don't double-wrap
+              elsif block.is_a?(BoundMethodObject)
+                ProcObject.new(block, lambda: true)
+              elsif block.is_a?(NativeBlock) && block.is_lambda
+                ProcObject.new(block, lambda: true)
+              elsif block && !block.is_a?(NilObject)
+                ProcObject.new(block)
+              else
+                NilObject::NIL
+              end
             new_frame.set_local(@block_param, proc_obj)
           end
 
@@ -238,21 +239,23 @@ module Frozone
           if e.method_frame.nil? || !e.method_frame.alive?
             # No enclosing method context, or the defining scope has already exited:
             # proc/block return escaping its defining scope
-            exc = FrozoneException.make(:LocalJumpError, "unexpected return")
-            exc.vm_object.set_ivar(:@exit_value, e.value)
-            exc.vm_object.set_ivar(:@reason, SymbolObject.from(:return))
-            raise exc
+            raise FrozoneException.make(:LocalJumpError, "unexpected return").tap { |exc|
+              exc.vm_object.set_ivar(:@exit_value, e.value)
+              exc.vm_object.set_ivar(:@reason, SymbolObject.from(:return))
+            }
           end
           raise e unless e.method_frame.equal?(new_frame)
           e.value
         rescue Ast::BreakException => e
-          # Convert to LocalJumpError if break targets this frame (captured block called within
-          # its defining scope) or if the defining frame is already dead (scope has returned).
-          if e.method_frame.equal?(new_frame) || (e.method_frame && !e.method_frame.alive?)
-            exc2 = FrozoneException.make(:LocalJumpError, "break from proc-closure")
-            exc2.vm_object.set_ivar(:@exit_value, e.value)
-            exc2.vm_object.set_ivar(:@reason, SymbolObject.from(:break))
-            raise exc2
+          # Convert to LocalJumpError only if break explicitly targets this method's frame
+          # (rare case — normally break propagates up to the MethodCall that had the inline block).
+          # Escaped-proc detection (dead frame) is handled in MethodCall#evaluate instead,
+          # where we can check break_enclosing_frame to distinguish live-block from escaped-proc.
+          if e.method_frame.equal?(new_frame)
+            raise FrozoneException.make(:LocalJumpError, "break from proc-closure").tap { |exc2|
+              exc2.vm_object.set_ivar(:@exit_value, e.value)
+              exc2.vm_object.set_ivar(:@reason, SymbolObject.from(:break))
+            }
           end
           raise
         ensure
@@ -265,29 +268,29 @@ module Frozone
       def to_s = "method(#{@scopes.map(&:to_s)}, :#{@name}, #{@required_params} -> #{@body})"
 
       def alias_as(name)
-        m = Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
-        m.original_owner = @original_owner
-        m.visibility = @visibility
-        m.active_refinements = @active_refinements
-        m.refining_module = @refining_module
-        m.instance_variable_set(:@ruby2_keywords_holder, @ruby2_keywords_holder)
-        m
+        Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location).tap do |m|
+          m.original_owner = @original_owner
+          m.visibility = @visibility
+          m.active_refinements = @active_refinements
+          m.refining_module = @refining_module
+          m.instance_variable_set(:@ruby2_keywords_holder, @ruby2_keywords_holder)
+        end
       end
 
       def dup_with_visibility(vis, original_owner: nil)
-        m = Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
-        m.visibility = vis
-        m.original_owner = original_owner || @original_owner
-        m.active_refinements = @active_refinements
-        m.refining_module = @refining_module
-        m
+        Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location).tap do |m|
+          m.visibility = vis
+          m.original_owner = original_owner || @original_owner
+          m.active_refinements = @active_refinements
+          m.refining_module = @refining_module
+        end
       end
 
       def bound_copy(name, new_scope)
-        m = Method.new([new_scope], name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location)
-        m.active_refinements = @active_refinements
-        m.refining_module = @refining_module
-        m
+        Method.new([new_scope], name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location).tap do |m|
+          m.active_refinements = @active_refinements
+          m.refining_module = @refining_module
+        end
       end
 
       private
@@ -348,7 +351,7 @@ module Frozone
         end
         # Use the block's def_scope (from its definition context) so that `def` inside
         # a define_method block defines in the correct class (not the call-site class).
-        block_def_scope = @block_obj.respond_to?(:enclosing_frame) ? @block_obj.enclosing_frame&.def_scope : nil
+        block_def_scope = @block_obj.is_a?(BlockObject) ? @block_obj.enclosing_frame&.def_scope : nil
         @block_obj.invoke(context, args, kw_args: kwargs, receiver: receiver, block: block, current_method: self, as_method: true, def_scope: block_def_scope, callee_name: callee_name || @name)
       rescue Ast::ReturnException => e
         # Absorb return from a proc used as a method body (define_method semantics).
@@ -360,9 +363,7 @@ module Frozone
       def alias_as(name) = DefinedMethod.new(name, @block_obj, @scopes.first)
 
       def dup_with_visibility(vis)
-        m = DefinedMethod.new(@name, @block_obj, @scopes.first)
-        m.visibility = vis
-        m
+        DefinedMethod.new(@name, @block_obj, @scopes.first).tap { |m| m.visibility = vis }
       end
     end
   end

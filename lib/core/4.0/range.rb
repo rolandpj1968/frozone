@@ -218,10 +218,13 @@ class Range
     end
   end
 
-  def to_set(&block)
+  def to_set(klass = Set, *args, &block)
     raise RangeError, "cannot convert endless range to a set" if self.end.nil?
     raise TypeError, "can't iterate from NilClass" if self.begin.nil?
-    s = Set.new
+    if klass != Set || !args.empty?
+      Intrinsics.kernel_deprecation_warn(self, "passing arguments to Enumerable#to_set is deprecated and will be removed in Ruby 4.2")
+    end
+    s = klass.new(*args)
     each { |x| s.add(block ? block.call(x) : x) }
     s
   end

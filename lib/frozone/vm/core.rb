@@ -39,6 +39,7 @@ module Frozone
       def self.unbound_method_class  = OBJECT_CLASS.get_constant(:UnboundMethod)
       def self.method_class          = OBJECT_CLASS.get_constant(:Method)
       def self.io_class              = OBJECT_CLASS.get_constant(:IO)
+      def self.file_class            = OBJECT_CLASS.get_constant(:File)
       def self.process_status_class  = OBJECT_CLASS.get_constant(:Process).get_constant(:Status)
       def self.fiber_class           = OBJECT_CLASS.get_constant(:Fiber)
 

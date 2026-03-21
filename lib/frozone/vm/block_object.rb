@@ -8,7 +8,7 @@ module Frozone
       attr_reader :required_params, :optional_params, :rest_param, :post_params
       attr_reader :required_kw_params, :optional_kw_params, :kw_rest_param, :block_param
       attr_reader :enclosing_frame
-      attr_accessor :ruby2_keywords, :parameters_override
+      attr_accessor :ruby2_keywords, :parameters_override, :symbol_name
 
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
@@ -88,17 +88,18 @@ module Frozone
         end
 
         if @block_param
-          proc_obj = if block.is_a?(ProcObject)
-                       block
-                     elsif block.is_a?(BoundMethodObject)
-                       ProcObject.new(block, lambda: true)
-                     elsif block.is_a?(NativeBlock) && block.is_lambda
-                       ProcObject.new(block, lambda: true)
-                     elsif block && !block.is_a?(NilObject)
-                       ProcObject.new(block)
-                     else
-                       NilObject::NIL
-                     end
+          proc_obj =
+            if block.is_a?(ProcObject)
+              block
+            elsif block.is_a?(BoundMethodObject)
+              ProcObject.new(block, lambda: true)
+            elsif block.is_a?(NativeBlock) && block.is_lambda
+              ProcObject.new(block, lambda: true)
+            elsif block && !block.is_a?(NilObject)
+              ProcObject.new(block)
+            else
+              NilObject::NIL
+            end
           new_frame.set_local(@block_param, proc_obj)
         end
 
@@ -106,13 +107,14 @@ module Frozone
         # If block has an explicit &b param, the passed block goes to b; yield uses enclosing block.
         # Otherwise, the passed block is used for yield (standard block propagation).
         new_frame.block = @block_param ? @enclosing_frame.block : (block || @enclosing_frame.block)
-        new_frame.method_frame = if @is_lambda || as_method
-                                   # Lambdas and define_method-invoked blocks act like methods.
-                                   new_frame
-                                 else
-                                   # `return` inside a block exits the enclosing method, not the method that invoked yield.
-                                   @enclosing_frame.method_frame
-                                 end
+        new_frame.method_frame =
+          if @is_lambda || as_method
+            # Lambdas and define_method-invoked blocks act like methods.
+            new_frame
+          else
+            # `return` inside a block exits the enclosing method, not the method that invoked yield.
+            @enclosing_frame.method_frame
+          end
 
         new_frame.def_scope = def_scope || instance_eval_receiver&.singleton_class
         # For lambda blocks in instance_eval, preserve lexical cvar scope from enclosing frame
@@ -152,6 +154,10 @@ module Frozone
           if (@is_lambda || as_method) && e.method_frame&.equal?(new_frame)
             e.value  # break in lambda/define_method exits the method
           else
+            # Record the innermost block's enclosing frame (first re-raise only).
+            # This lets callers distinguish a live-context block (alive enclosing frame)
+            # from an escaped proc (dead enclosing frame → method already returned).
+            e.break_enclosing_frame ||= @enclosing_frame
             e.from_block = true
             raise
           end

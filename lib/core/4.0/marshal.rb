@@ -886,6 +886,7 @@ module Marshal
   class Loader
     def initialize(data, proc_arg, freeze: false)
       if data.respond_to?(:read)
+        data.binmode if data.respond_to?(:binmode)
         @data = data.read.b rescue ''.b
         raise EOFError, "end of file reached" if @data.empty?
       else
@@ -1468,6 +1469,19 @@ module Marshal
       # For USERDEFINED: apply encoding to raw bytes, call _load, then apply ivars.
       if userdefined_klass
         data = userdefined_raw.dup.force_encoding(userdefined_enc || Encoding::ASCII_8BIT)
+        # Attach non-encoding ivars to data before _load so _load (e.g. Time._load)
+        # can read them (MRI's Time._load reads @nano_num/@nano_den for nanoseconds).
+        if userdefined_extra_ivars
+          i = 0
+          while i < userdefined_extra_ivars.size
+            ivar_name = userdefined_extra_ivars[i]
+            ivar_val  = userdefined_extra_ivars[i + 1]
+            i += 2
+            # Convert bare name to @-prefixed ivar (nano_num → @nano_num)
+            prefixed = ivar_name.to_s.start_with?('@') ? ivar_name : :"@#{ivar_name}"
+            data.instance_variable_set(prefixed, ivar_val) rescue nil
+          end
+        end
         obj = userdefined_klass.send(:_load, data)
         # Apply any non-encoding ivars (e.g., Time :offset, :zone)
         if userdefined_extra_ivars

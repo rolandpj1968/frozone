@@ -3,7 +3,10 @@ class Process
   CLOCK_MONOTONIC = 1
 
   def self.pid = Intrinsics.process_pid
+  def self.uid = Intrinsics.process_uid
+  def self.gid = Intrinsics.process_gid
   def self.euid = Intrinsics.process_euid
+  def self.egid = Intrinsics.process_egid
   def self.exit(code = true)  = Kernel.exit(code)
   def self.exit!(code = false) = Intrinsics.kernel_exit(self, code)
 
@@ -25,6 +28,61 @@ class Process
     end
     pids.length
   end
+  def self.uid=(id)
+    raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer)
+    raise Errno::EPERM, "Operation not permitted"
+  end
+
+  def self.gid=(id)
+    raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer)
+    raise Errno::EPERM, "Operation not permitted"
+  end
+
+  def self.euid=(id)
+    raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer)
+    raise Errno::EPERM, "Operation not permitted"
+  end
+
+  def self.egid=(id)
+    raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer)
+    raise Errno::EPERM, "Operation not permitted"
+  end
+
+  module UID
+    def self.rid = Process.uid
+    def self.eid = Process.euid
+    def self.eid=(id) = Process.euid = id
+    def self.rid=(id) = Process.uid = id
+    def self.sid_available? = false
+    def self.switch; raise NotImplementedError; end
+    def self.grant_privilege(id) = Process.uid = id
+  end
+
+  module GID
+    def self.rid = Process.gid
+    def self.eid = Process.egid
+    def self.eid=(id) = Process.egid = id
+    def self.rid=(id) = Process.gid = id
+    def self.sid_available? = false
+    def self.switch; raise NotImplementedError; end
+    def self.grant_privilege(id) = Process.gid = id
+  end
+
+  module Sys
+    def self.getuid = Process.uid
+    def self.getgid = Process.gid
+    def self.geteuid = Process.euid
+    def self.getegid = Process.egid
+    def self.setuid(id) = Process.uid = id
+    def self.setgid(id) = Process.gid = id
+    def self.seteuid(id) = Process.euid = id
+    def self.setegid(id) = Process.egid = id
+    def self.setruid(id); raise NotImplementedError; end
+    def self.setrgid(id); raise NotImplementedError; end
+    def self.setsid; raise NotImplementedError; end
+    def self.issetugid = false
+  end
+
   class Status
     def exitstatus = Intrinsics.process_status_exitstatus(self)
     def success? = exitstatus == 0

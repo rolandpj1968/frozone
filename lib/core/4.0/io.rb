@@ -57,6 +57,8 @@ class IO
   def flush = Intrinsics.io_flush(self)
   def sync=(val)       = Intrinsics.io_sync_set(self, val)
   def sync = true
+  def autoclose=(val)  = Intrinsics.io_autoclose_set(self, val)
+  def autoclose?       = Intrinsics.io_autoclose?(self)
   def <<(str); write(str); self; end
   def close = Intrinsics.io_close(self)
   def closed? = Intrinsics.io_closed?(self)
@@ -99,10 +101,22 @@ class IO
   def path = Intrinsics.io_path(self)
   def to_path = path
   def to_io = self
+  def size = stat.size
   def printf(*args) = (write(sprintf(*args)); nil)
   def putc(c) = (write(c.is_a?(Integer) ? c.chr : c.to_s[0]); c)
   def flock(lock_op) = Intrinsics.io_flock(self, lock_op)
   def advise(advice, offset = 0, len = 0) = nil
+  def reopen(path_or_io, mode = nil)
+    if path_or_io.respond_to?(:to_io)
+      Intrinsics.io_reopen(self, path_or_io.to_io)
+    elsif path_or_io.respond_to?(:to_path)
+      Intrinsics.io_reopen(self, path_or_io.to_path, mode || 'r')
+    elsif path_or_io.respond_to?(:to_str)
+      Intrinsics.io_reopen(self, path_or_io.to_str, mode || 'r')
+    else
+      raise TypeError, "no implicit conversion of #{path_or_io.class} into String"
+    end
+  end
 
   def self.popen(cmd, mode = 'r', **opts, &block)
     output = Intrinsics.io_popen_capture(cmd, opts)
@@ -132,6 +146,10 @@ class IO
     else
       io
     end
+  end
+
+  def self.for_fd(fd, mode = 'r', **opts, &block)
+    self.new(fd, mode, **opts, &block)
   end
 
   def self.open(fd_or_path, mode = 'r', **opts, &block)

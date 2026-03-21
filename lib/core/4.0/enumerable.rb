@@ -6,7 +6,7 @@ module Enumerable
   end
 
   def __parse_reduce_args__(args, block)
-    sym = nil; has_initial = false; initial = nil
+    sym = nil; has_initial = false; initial = nil; should_warn = false
     case args.length
     when 0
       raise ArgumentError, "no block given (yield)" unless block
@@ -16,7 +16,7 @@ module Enumerable
         # With block: treat any single arg as initial value
         has_initial = true; initial = arg
         # Warn if it's a Symbol (would normally be op, but block takes precedence)
-        Intrinsics.kernel_verbose_warn(self, "given block not used") if arg.is_a?(Symbol)
+        should_warn = true if arg.is_a?(Symbol)
       else
         # Without block: arg must be a method name
         if arg.is_a?(Symbol)
@@ -43,11 +43,11 @@ module Enumerable
       else
         raise TypeError, "#{arg1.inspect} is not a symbol nor a string"
       end
-      Intrinsics.kernel_verbose_warn(self, "given block not used") if block
+      should_warn = true if block
     else
       raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
     end
-    [sym, has_initial, initial]
+    [sym, has_initial, initial, should_warn]
   end
 
   def __coerce_count__(n, method_name)
@@ -232,7 +232,8 @@ module Enumerable
   end
 
   def reduce(*args, &block)
-    sym, has_initial, initial = __parse_reduce_args__(args, block)
+    sym, has_initial, initial, should_warn = __parse_reduce_args__(args, block)
+    Intrinsics.kernel_verbose_warn(self, "given block not used") if should_warn
     acc = initial; first = !has_initial
     each do |*x|
       v = __unpack_enum_args__(x)
@@ -503,23 +504,19 @@ module Enumerable
   end
 
   def grep(pattern, &block)
-    is_regexp = pattern.is_a?(Regexp) rescue false
     r = []
     each do |*x|
       v = __unpack_enum_args__(x)
-      matched = block ? (pattern === v) : (is_regexp ? pattern.match?(v) : (pattern === v))
-      r << (block ? block.call(v) : v) if matched
+      r << (block ? block.call(v) : v) if pattern === v
     end
     r
   end
 
   def grep_v(pattern, &block)
-    is_regexp = pattern.is_a?(Regexp) rescue false
     r = []
     each do |*x|
       v = __unpack_enum_args__(x)
-      matched = block ? (pattern === v) : (is_regexp ? pattern.match?(v) : (pattern === v))
-      r << (block ? block.call(v) : v) unless matched
+      r << (block ? block.call(v) : v) unless pattern === v
     end
     r
   end

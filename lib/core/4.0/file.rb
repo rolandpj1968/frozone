@@ -1,4 +1,4 @@
-class File
+class File < IO
   include Enumerable
 
   SEPARATOR     = '/'
@@ -57,8 +57,30 @@ class File
 
   include File::Constants
 
-  def self.join(*parts) = Intrinsics.file_join(parts)
-  def self.dirname(path, level = 1) = Intrinsics.file_dirname(_coerce_path(path), level)
+  def self.join(*parts)
+    return '' if parts.empty?
+    segs = []
+    _join_parts(parts, segs, [])
+    return '' if segs.empty?
+    result = +segs[0]  # dup to ensure a new string even for single-arg case
+    segs[1..].each do |s|
+      if s.start_with?('/')
+        # Right side starts with slash(es): strip trailing slashes from left, keep right's leading slashes
+        result.sub!(/\/+\z/, '')
+        result += s
+      elsif result.end_with?('/')
+        # Left already ends with slash: just append right
+        result += s
+      else
+        result += '/' + s
+      end
+    end
+    result
+  end
+  def self.dirname(path, level = 1)
+    l = level.is_a?(Integer) ? level : (level.respond_to?(:to_int) ? level.to_int : raise(TypeError, "no implicit conversion of #{level.class} into Integer"))
+    Intrinsics.file_dirname(_coerce_path(path), l)
+  end
   def self.expand_path(path, base = nil) = Intrinsics.file_expand_path(_coerce_path(path), base)
   def self.absolute_path(path, base = nil) = Intrinsics.file_absolute_path(_coerce_path(path), base)
   def self.absolute_path?(path) = Intrinsics.file_absolute_path_q(_coerce_path(path))
@@ -97,20 +119,86 @@ class File
   def self.realdirpath(path, base = nil) = Intrinsics.file_realdirpath(_coerce_path(path), base)
   def self.split(path) = Intrinsics.file_split(_coerce_path(path))
   def self.write(path, content, **opts) = Intrinsics.file_write(_coerce_path(path), content)
-  def self.open(path, mode = 'r', **opts, &block) = Intrinsics.file_open(_coerce_path(path), mode, block)
-  def self.new(path, mode = 'r', **opts) = Intrinsics.file_open(_coerce_path(path), mode, nil)
+  def self.open(path, mode = nil, perm = 0o666, **opts, &block)
+    mode = opts.delete(:mode) || mode || 'r'
+    raise ArgumentError, "newline decorator with binary mode" if opts[:newline] && mode.to_s.include?('b')
+    mode = __mode_with_encoding__(mode, opts)
+    if path.is_a?(Integer)
+      io = Intrinsics.file_new_from_fd(path, mode, opts.empty? ? nil : opts)
+      if block
+        begin
+          block.call(io)
+        ensure
+          io.close rescue nil
+        end
+      else
+        io
+      end
+    else
+      flags = opts[:flags]
+      Intrinsics.file_open(_coerce_path(path), mode, block, perm, flags)
+    end
+  end
+
+  def self.new(path, mode = nil, perm = 0o666, **opts, &block)
+    if block_given?
+      Intrinsics.kernel_deprecation_warn(self, "File::new() does not take block; use File::open() instead")
+    end
+    mode = opts.delete(:mode) || mode || 'r'
+    mode = __mode_with_encoding__(mode, opts)
+    if path.is_a?(Integer)
+      Intrinsics.file_new_from_fd(path, mode, opts.empty? ? nil : opts)
+    else
+      flags = opts[:flags]
+      Intrinsics.file_open(_coerce_path(path), mode, nil, perm, flags)
+    end
+  end
+
+  def self.__mode_with_encoding__(mode, opts)
+    mode_str = mode.is_a?(Integer) ? mode : mode.to_s
+    return mode_str if mode.is_a?(Integer) || mode_str.include?(':')
+    if (enc = opts[:encoding])
+      mode_str + ':' + enc.to_s
+    elsif (ext = opts[:external_encoding])
+      int_enc = opts[:internal_encoding]
+      mode_str + ':' + ext.to_s + (int_enc ? ':' + int_enc.to_s : '')
+    else
+      mode_str
+    end
+  end
+  private_class_method :__mode_with_encoding__
   def self.delete(*paths) = Intrinsics.file_delete_strict(paths)
   def self.unlink(*paths) = Intrinsics.file_delete_strict(paths)
   def self.rename(from, to) = Intrinsics.file_rename(_coerce_path(from), _coerce_path(to))
   def self.symlink(target, link) = Intrinsics.file_symlink_create(_coerce_path(target), _coerce_path(link))
   def self.link(target, link) = Intrinsics.file_link(_coerce_path(target), _coerce_path(link))
   def self.readlink(path) = Intrinsics.file_readlink(_coerce_path(path))
-  def self.chown(uid, gid, *paths) = paths.length
+  def self.chown(uid, gid, *paths)
+    paths.each { |p| raise Errno::ENOENT, _coerce_path(p) unless exist?(_coerce_path(p)) }
+    paths.length
+  end
+
   def self.lchown(uid, gid, *paths) = paths.length
   def self.lchmod(mode, *paths) = paths.length
-  def self.lutime(atime, mtime, *paths) = paths.length
+  def self.lutime(atime, mtime, *paths) = Intrinsics.file_lutime(atime, mtime, paths.map { |p| _coerce_path(p) })
   def self.stat(path) = Stat.new(_coerce_path(path))
-  def self.lstat(path) = Stat.new(_coerce_path(path))
+  def self.lstat(path) = Stat.new(_coerce_path(path), lstat: true)
+
+  def self.path(path)
+    if path.is_a?(String)
+      raise ArgumentError, "path name contains null byte" if path.include?("\0")
+      path
+    elsif path.respond_to?(:to_path)
+      result = path.to_path
+      raise TypeError, "no implicit conversion of #{path.class} into String" unless result.is_a?(String)
+      raise ArgumentError, "path name contains null byte" if result.include?("\0")
+      result
+    elsif path.is_a?(IO)
+      path.path
+    else
+      raise TypeError, "no implicit conversion of #{path.class} into String"
+    end
+  end
   def self.binread(path, length = nil, offset = nil) = Intrinsics.file_read(_coerce_path(path))
   def self.binwrite(path, content, offset = nil) = Intrinsics.file_write(_coerce_path(path), content)
   def self.fnmatch?(pattern, path, flags = 0) = fnmatch(pattern, path, flags)
@@ -120,10 +208,12 @@ class File
   def self.extname(path)
     p = _coerce_path(path)
     base = File.basename(p)
-    # Hidden files (starting with a dot) with no other dot have no extension
+    # Hidden files (starting with a dot) with no other dot have no extension.
+    # All-dot names like '.', '..', '...' have no extension.
     # Edge cases: 'file' → '', '.hidden' → '', 'file.' → '.', 'file.rb' → '.rb'
     dot = base.rindex('.')
     return '' if dot.nil? || dot == 0
+    return '' if base.chars.all? { |c| c == '.' }
     base[dot..]
   end
 
@@ -150,7 +240,7 @@ class File
   end
 
   def self.utime(atime, mtime, *paths)
-    Intrinsics.file_utime(atime, mtime, paths)
+    Intrinsics.file_utime(atime, mtime, paths.map { |p| _coerce_path(p) })
   end
 
   def self.fnmatch(pattern, path, flags = 0)
@@ -183,49 +273,88 @@ class File
   class Stat
     include Comparable
 
-    def directory? = File.directory?(@path)
-    def file? = File.file?(@path)
+    # Mode-based type predicates (correct for both stat and lstat)
+    def file?      = (mode & 0o170000) == 0o100000
+    def directory? = (mode & 0o170000) == 0o040000
+    def symlink?   = (mode & 0o170000) == 0o120000
+    def pipe?      = (mode & 0o170000) == 0o010000
+    def socket?    = (mode & 0o170000) == 0o140000
+    def blockdev?  = (mode & 0o170000) == 0o060000
+    def chardev?   = (mode & 0o170000) == 0o020000
+    def setuid?    = (mode & 0o004000) != 0
+    def setgid?    = (mode & 0o002000) != 0
+    def sticky?    = (mode & 0o001000) != 0
+    def zero?      = size == 0
+    def empty?     = size == 0
+    def size?      = size == 0 ? nil : size
+
     def readable? = File.readable?(@path)
     def readable_real? = File.readable_real?(@path)
     def writable? = File.writable?(@path)
     def writable_real? = File.writable_real?(@path)
     def executable? = File.executable?(@path)
     def executable_real? = File.executable_real?(@path)
-    def symlink? = File.symlink?(@path)
-    def zero? = File.zero?(@path)
-    def empty? = File.zero?(@path)
-    def size = File.size(@path)
     def owned? = File.owned?(@path)
     def grpowned? = File.grpowned?(@path)
-    def pipe? = File.pipe?(@path)
-    def socket? = File.socket?(@path)
-    def blockdev? = File.blockdev?(@path)
-    def chardev? = File.chardev?(@path)
-    def setuid? = File.setuid?(@path)
-    def setgid? = File.setgid?(@path)
-    def sticky? = File.sticky?(@path)
-    def ftype = File.ftype(@path)
-    def atime = File.atime(@path)
-    def mtime = File.mtime(@path)
-    def ctime = File.ctime(@path)
-    def birthtime = File.birthtime(@path)
-    def mode = Intrinsics.file_stat_mode(@path)
-    def ino = Intrinsics.file_stat_ino(@path)
-    def nlink = Intrinsics.file_stat_nlink(@path)
-    def uid = Intrinsics.file_stat_uid(@path)
-    def gid = Intrinsics.file_stat_gid(@path)
-    def dev = Intrinsics.file_stat_dev(@path)
-    def rdev = Intrinsics.file_stat_rdev(@path)
-    def dev_major = Intrinsics.file_stat_dev_major(@path)
-    def dev_minor = Intrinsics.file_stat_dev_minor(@path)
-    def rdev_major = Intrinsics.file_stat_rdev_major(@path)
-    def rdev_minor = Intrinsics.file_stat_rdev_minor(@path)
-    def blocks = Intrinsics.file_stat_blocks(@path)
-    def blksize = Intrinsics.file_stat_blksize(@path)
+    def atime
+      return Intrinsics.file_lstat_atime(@path) if @lstat
+      @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :atime) : File.atime(@path)
+    end
 
-    def initialize(path)
-      @path = path
-      @stat = Intrinsics.file_stat_native(path)
+    def mtime
+      return Intrinsics.file_lstat_mtime(@path) if @lstat
+      @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :mtime) : File.mtime(@path)
+    end
+
+    def ctime
+      @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :ctime) : File.ctime(@path)
+    end
+
+    def birthtime
+      @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :birthtime) : File.birthtime(@path)
+    end
+
+    def size = @native_stat ? Intrinsics.file_native_stat_size(@native_stat) : File.size(@path)
+    def mode = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :mode) :
+                (@lstat ? Intrinsics.file_lstat_mode(@path) : Intrinsics.file_stat_mode(@path))
+    def ino = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :ino) : Intrinsics.file_stat_ino(@path)
+    def nlink = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :nlink) : Intrinsics.file_stat_nlink(@path)
+    def uid = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :uid) : Intrinsics.file_stat_uid(@path)
+    def gid = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :gid) : Intrinsics.file_stat_gid(@path)
+    def dev = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :dev) : Intrinsics.file_stat_dev(@path)
+    def rdev = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :rdev) : Intrinsics.file_stat_rdev(@path)
+    def dev_major = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :dev_major) : Intrinsics.file_stat_dev_major(@path)
+    def dev_minor = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :dev_minor) : Intrinsics.file_stat_dev_minor(@path)
+    def rdev_major = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :rdev_major) : Intrinsics.file_stat_rdev_major(@path)
+    def rdev_minor = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :rdev_minor) : Intrinsics.file_stat_rdev_minor(@path)
+    def blocks = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :blocks) : Intrinsics.file_stat_blocks(@path)
+    def blksize = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :blksize) : Intrinsics.file_stat_blksize(@path)
+
+    def ftype
+      case mode & 0o170000
+      when 0o100000 then 'file'
+      when 0o040000 then 'directory'
+      when 0o120000 then 'link'
+      when 0o010000 then 'fifo'
+      when 0o140000 then 'socket'
+      when 0o060000 then 'blockSpecial'
+      when 0o020000 then 'characterSpecial'
+      else 'unknown'
+      end
+    end
+
+    def initialize(path, lstat: false)
+      @path = if path.is_a?(String)
+        path
+      elsif path.respond_to?(:to_path)
+        r = path.to_path
+        raise TypeError, "no implicit conversion of #{path.class} into String" unless r.is_a?(String)
+        r
+      else
+        raise TypeError, "no implicit conversion of #{path.class} into String"
+      end
+      @lstat = lstat
+      @stat = lstat ? Intrinsics.file_lstat_native(@path) : Intrinsics.file_stat_native(@path)
     end
 
     def <=>(other)
@@ -234,22 +363,67 @@ class File
     end
 
     def world_readable?
-      mode = Intrinsics.file_stat_mode(@path)
-      (mode & 0o004) != 0 ? mode & 0o777 : nil
+      m = mode
+      (m & 0o004) != 0 ? m & 0o777 : nil
     end
 
     def world_writable?
-      mode = Intrinsics.file_stat_mode(@path)
-      (mode & 0o002) != 0 ? mode & 0o777 : nil
+      m = mode
+      (m & 0o002) != 0 ? m & 0o777 : nil
     end
 
     def inspect
-      "#<File::Stat dev=#{dev}, ino=#{ino}, mode=#{mode}, nlink=#{nlink}, uid=#{uid}, gid=#{gid}, size=#{size}, atime=#{atime}, mtime=#{mtime}, ctime=#{ctime}>"
+      "#<File::Stat dev=0x#{dev.to_s(16)}, ino=#{ino}, mode=0#{mode.to_s(8)}, nlink=#{nlink}, uid=#{uid}, gid=#{gid}, rdev=0x#{rdev.to_s(16)}, size=#{size}, blksize=#{blksize}, blocks=#{blocks}, atime=#{atime.inspect}, mtime=#{mtime.inspect}, ctime=#{ctime.inspect}>"
     end
   end
 
+  def chown(uid, gid) = 0
+  def lstat = File::Stat.new(path, lstat: true)
+
   class << self
     private
+
+    # Recursive helper for File.join — populates segs with string segments.
+    # seen is an array used for cycle detection (identity comparison).
+    def _join_parts(parts, segs, seen)
+      parts.each do |p|
+        if p.is_a?(String)
+          raise ArgumentError, 'string contains null byte' if p.include?("\0")
+          segs << p
+        elsif p.is_a?(Array)
+          raise ArgumentError, "recursive array" if seen.any? { |s| s.equal?(p) }
+          seen.push(p)
+          sub = []
+          _join_parts(p, sub, seen)
+          seen.pop
+          if sub.empty?
+            segs << ''
+          else
+            joined = sub[0]
+            sub[1..].each do |s|
+              if s.start_with?('/')
+                joined = joined.sub(/\/+\z/, '') + s
+              elsif joined.end_with?('/')
+                joined += s
+              else
+                joined += '/' + s
+              end
+            end
+            segs << joined
+          end
+        elsif p.respond_to?(:to_path)
+          r = p.to_path
+          raise TypeError, "no implicit conversion of #{p.class} into String" unless r.is_a?(String)
+          segs << r
+        elsif p.respond_to?(:to_str)
+          r = p.to_str
+          raise TypeError, "no implicit conversion of #{p.class} into String" unless r.is_a?(String)
+          segs << r
+        else
+          raise TypeError, "no implicit conversion of #{p.class} into String"
+        end
+      end
+    end
 
     # Coerce path argument: try to_path first, then to_str, then to_s for String
     def _coerce_path(arg)

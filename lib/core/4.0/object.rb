@@ -23,9 +23,6 @@ class Object < BasicObject
   def singleton_class = Intrinsics.object_singleton_class(self)
   def to_s = "#<#{self.class}:0x#{__id__.to_s(16)}>"
   def pretty_inspect = inspect
-  def method(name) = Intrinsics.object_method(self, name)
-  def public_method(name) = Intrinsics.object_public_method(self, name)
-  def singleton_method(name) = Intrinsics.object_singleton_method(self, name)
   def suppress_warning; yield; end
   def suppress_keyword_warning; yield; end
 

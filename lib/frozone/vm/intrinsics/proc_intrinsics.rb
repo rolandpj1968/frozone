@@ -4,15 +4,23 @@ module Frozone
   module Vm
     module Intrinsics
       class << self
-        def proc_lambda_p(_context, proc_obj) = proc_obj.lambda? ? TrueObject::TRUE : FalseObject::FALSE
+        def proc_lambda_p(_context, proc_obj) = proc_obj.lambda? ? FTRUE : FFALSE
         def binding_receiver(_, binding_obj) = binding_obj.captured_frame.the_self
+        def binding_eval(context, binding_obj, code_obj, filename_arg = FNIL, lineno_arg = FNIL) =
+          kernel_eval(context, FNIL, code_obj, binding_obj, filename_arg, lineno_arg)
 
         def proc_set_parameters_override(_, proc_obj, params_arr)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
           if blk.respond_to?(:parameters_override=)
-            raw = params_arr.raw.map { |p| p.raw.map { |s| s.is_a?(SymbolObject) ? s.raw : s } }
+            raw = params_arr.raw.map { |p| p.raw.map { |s| fsym?(s) ? s.raw : s } }
             blk.parameters_override = raw
           end
+          proc_obj
+        end
+
+        def proc_set_symbol_name(_, proc_obj, sym_obj)
+          blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
+          blk.symbol_name = sym_obj.raw if blk.respond_to?(:symbol_name=) && fsym?(sym_obj)
           proc_obj
         end
 
@@ -43,7 +51,7 @@ module Frozone
           end
           # No block given — Ruby 4.0: Proc.new always requires an explicit block;
           # block inheritance from calling method was removed.
-          if block.nil? || block.is_a?(NilObject)
+          if block.nil? || fnil?(block)
             raise FrozoneException.make(:ArgumentError, "tried to create Proc object without a block")
           end
           is_lam = block.is_a?(BoundMethodObject) || (block.is_a?(NativeBlock) && block.is_lambda)
@@ -77,14 +85,14 @@ module Frozone
           ProcObject.new(block, lambda: true)
         end
 
-        def proc_call(context, proc_obj, args, kw_args_obj = NilObject::NIL)
+        def proc_call(context, proc_obj, args, kw_args_obj = FNIL)
           blk = context.frame.block
-          blk = nil if blk.is_a?(NilObject)
-          kw_args = kw_args_obj.is_a?(HashObject) ? kw_args_obj.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k } : {}
+          blk = nil if fnil?(blk)
+          kw_args = fhash?(kw_args_obj) ? kw_args_obj.raw.transform_keys { |k| fsym?(k) ? k.raw : k } : {}
           proc_obj.call(context, args.raw, kw_args: kw_args, block: blk)
         end
 
-        def proc_curry(context, proc_obj, arity_arg = NilObject::NIL)
+        def proc_curry(context, proc_obj, arity_arg = FNIL)
           is_lambda = proc_obj.lambda?
           # Determine the target arity for currying
           base_arity = proc_arity(context, proc_obj).raw
@@ -110,7 +118,7 @@ module Frozone
           end
           max_accepted = has_rest ? Float::INFINITY : min_required + opt_count
 
-          target = if arity_arg.is_a?(NilObject)
+          target = if fnil?(arity_arg)
                      min_required
                    else
                      a = arity_arg.raw
@@ -152,14 +160,14 @@ module Frozone
           copy
         end
 
-        def proc_clone(context, proc_obj, freeze_opt = NilObject::NIL)
+        def proc_clone(context, proc_obj, freeze_opt = FNIL)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
           copy = ProcObject.new(blk, lambda: proc_obj.lambda?, klass: proc_obj.class_object)
           sc_copy = proc_obj.eigenclass ? ClassObject.clone_singleton(proc_obj.eigenclass, copy) : nil
-          freeze_val = freeze_opt.is_a?(NilObject) ? nil : freeze_opt.truthy?
+          freeze_val = fnil?(freeze_opt) ? nil : freeze_opt.truthy?
           frozen = freeze_val == false ? false : freeze_val.nil? ? proc_obj.frozen_object? : true
           copy.copy_fields_from(proc_obj, eigenclass: sc_copy, frozen: frozen)
-          copy.dispatch(context, :initialize_clone, [proc_obj], { freeze: frozen ? TrueObject::TRUE : FalseObject::FALSE }, nil, private_ok: true)
+          copy.dispatch(context, :initialize_clone, [proc_obj], { freeze: frozen ? FTRUE : FFALSE }, nil, private_ok: true)
           copy
         end
 
@@ -180,24 +188,24 @@ module Frozone
                          "accepts post-argument"
                        end
               src = blk.source_location ? " #{blk.source_location[0]}:#{blk.source_location[1]}" : ""
-              msg = StringObject.new("warning: Skipping set of ruby2_keywords flag for #{blk.is_lambda ? 'lambda' : 'proc'} at#{src}: #{reason}")
-              kernel_warn(context, NilObject::NIL, ArrayObject.new([msg]))
+              msg = n2f_str("warning: Skipping set of ruby2_keywords flag for #{blk.is_lambda ? 'lambda' : 'proc'} at#{src}: #{reason}")
+              kernel_warn(context, FNIL, n2f_arr([msg]))
             end
           end
           proc_obj
         end
 
         def proc_eql(_, p1, p2)
-          return FalseObject::FALSE unless p2.is_a?(ProcObject)
-          return FalseObject::FALSE unless p1.lambda? == p2.lambda?
+          return FFALSE unless p2.is_a?(ProcObject)
+          return FFALSE unless p1.lambda? == p2.lambda?
           b1 = p1.is_a?(ProcObject) ? p1.block_object : p1
           b2 = p2.is_a?(ProcObject) ? p2.block_object : p2
-          b1.equal?(b2) ? TrueObject::TRUE : FalseObject::FALSE
+          b1.equal?(b2) ? FTRUE : FFALSE
         end
 
         def proc_hash(_, proc_obj)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
-          IntegerObject.new(blk.__id__)
+          n2f_int(blk.__id__)
         end
 
         def proc_arity(_, proc_obj)
@@ -206,10 +214,10 @@ module Frozone
             params = blk.parameters_override
             req = params.count { |p| p[0] == :req || p[0] == :keyreq }
             has_rest = params.any? { |p| p[0] == :rest || p[0] == :keyrest }
-            return has_rest ? IntegerObject.new(-(req + 1)) : IntegerObject.new(req)
+            return has_rest ? n2f_int(-(req + 1)) : n2f_int(req)
           end
           return bound_method_arity(nil, blk) if blk.is_a?(BoundMethodObject)
-          return IntegerObject.new(0) unless blk.is_a?(BlockObject)
+          return n2f_int(0) unless blk.is_a?(BlockObject)
           is_lambda = blk.is_lambda
           req = blk.required_params&.length || 0
           opt = blk.optional_params&.length || 0
@@ -226,28 +234,28 @@ module Frozone
           # For procs, only rest/post make arity negative (opt positional and kw_optional ignored).
           has_opt = rest || post > 0 || (is_lambda && (opt > 0 || kw_optional))
           if has_opt
-            IntegerObject.new(-(req + post + req_kw_count + 1))
+            n2f_int(-(req + post + req_kw_count + 1))
           else
-            IntegerObject.new(req + post + req_kw_count)
+            n2f_int(req + post + req_kw_count)
           end
         end
 
-        def proc_parameters(_, proc_obj, lambda_override = NilObject::NIL)
+        def proc_parameters(_, proc_obj, lambda_override = FNIL)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
           if blk.respond_to?(:parameters_override) && blk.parameters_override
-            return ArrayObject.new(blk.parameters_override.map { |p| ArrayObject.new(p.map { |s| SymbolObject.from(s) }) })
+            return n2f_arr(blk.parameters_override.map { |p| n2f_arr(p.map { |s| n2f_sym(s) }) })
           end
-          return ArrayObject.new([]) unless blk.is_a?(BlockObject)
+          return n2f_arr([]) unless blk.is_a?(BlockObject)
           # Determine effective lambda status (may be overridden by lambda: kwarg)
           base_lambda = blk.is_lambda
-          is_lambda = if lambda_override.is_a?(NilObject)
+          is_lambda = if fnil?(lambda_override)
                         base_lambda
                       else
                         lambda_override.truthy?
                       end
           # `it` implicit parameter: return [[:req]] for lambda, [[:opt]] for proc (Ruby 4.0+)
           if blk.it_param
-            return ArrayObject.new([ArrayObject.new([SymbolObject.from(is_lambda ? :req : :opt)])])
+            return n2f_arr([n2f_arr([n2f_sym(is_lambda ? :req : :opt)])])
           end
           params = []
           req_type = is_lambda ? :req : :opt
@@ -262,43 +270,43 @@ module Frozone
           req_params.each  { |n| params << param_entry(req_type, n.is_a?(Hash) ? :* : n, for_proc: true) }
           opt_params.each  { |n, _| params << param_entry(:opt, n, for_proc: true) }
           if rest_param || blk.rest_param == :__implicit_rest__
-            params << (rest_param ? param_entry(:rest, rest_param, for_proc: true) : ArrayObject.new([SymbolObject.from(:rest)]))
+            params << (rest_param ? param_entry(:rest, rest_param, for_proc: true) : n2f_arr([n2f_sym(:rest)]))
           end
           post_params.each { |n| params << param_entry(req_type, n, for_proc: true) }
-          req_kw.each      { |n| params << ArrayObject.new([SymbolObject.from(:keyreq), SymbolObject.from(n)]) }
-          opt_kw.each      { |n, _| params << ArrayObject.new([SymbolObject.from(:key), SymbolObject.from(n)]) }
+          req_kw.each      { |n| params << n2f_arr([n2f_sym(:keyreq), n2f_sym(n)]) }
+          opt_kw.each      { |n, _| params << n2f_arr([n2f_sym(:key), n2f_sym(n)]) }
           if kw_rest
             params << if kw_rest == :__no_kwargs__
-                        ArrayObject.new([SymbolObject.from(:nokey)])
+                        n2f_arr([n2f_sym(:nokey)])
                       else
                         param_entry(:keyrest, kw_rest, for_proc: true)
                       end
           end
           params << param_entry(:block, blk_param, for_proc: true) if blk_param
-          ArrayObject.new(params)
+          n2f_arr(params)
         end
 
         def proc_source_location(context, proc_obj)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
           if blk.is_a?(BlockObject) || blk.is_a?(NativeBlock)
-            return NilObject::NIL if blk.respond_to?(:parameters_override) && blk.parameters_override
+            return FNIL if blk.respond_to?(:parameters_override) && blk.parameters_override
             loc = blk.source_location
-            return NilObject::NIL unless loc
-            ArrayObject.new([StringObject.new(loc[0]), IntegerObject.new(loc[1])])
+            return FNIL unless loc
+            n2f_arr([n2f_str(loc[0]), n2f_int(loc[1])])
           elsif blk.is_a?(BoundMethodObject)
             result = bound_method_source_location(context, blk)
             # For core library methods (internal), return nil (like C-implemented MRI methods)
-            return NilObject::NIL if result.is_a?(ArrayObject) &&
+            return FNIL if farray?(result) &&
                                      result.raw[0].is_a?(StringObject) && result.raw[0].raw.start_with?('<internal:')
             result
           else
-            NilObject::NIL
+            FNIL
           end
         end
 
         def proc_is_curried(_, proc_obj)
           blk = proc_obj.is_a?(ProcObject) ? proc_obj.block_object : proc_obj
-          blk.is_a?(NativeBlock) && blk.is_curried ? TrueObject::TRUE : FalseObject::FALSE
+          blk.is_a?(NativeBlock) && blk.is_curried ? FTRUE : FFALSE
         end
 
         def proc_inspect(context, proc_obj)
@@ -307,17 +315,17 @@ module Frozone
           is_lam = proc_obj.is_a?(ProcObject) ? proc_obj.lambda? : false
           sym_name = if blk.is_a?(SymbolProcObject)
                        blk.symbol_name
-                     elsif blk.is_a?(NativeBlock) && blk.symbol_name
+                     elsif blk.respond_to?(:symbol_name) && blk.symbol_name
                        blk.symbol_name
                      end
           loc_str = sym_name ? "" : begin
             loc = proc_source_location(context, proc_obj)
-            loc.is_a?(ArrayObject) ? " #{loc.raw[0].raw}:#{loc.raw[1].raw}" : ""
+            farray?(loc) ? " #{loc.raw[0].raw}:#{loc.raw[1].raw}" : ""
           end
           lam_str = is_lam ? " (lambda)" : ""
           sym_str = sym_name ? " (&:#{sym_name})" : ""
           str = "#<Proc:#{id_str}#{loc_str}#{lam_str}#{sym_str}>"
-          StringObject.new(str.b)
+          n2f_str(str.b)
         end
 
         def proc_binding(_, proc_obj)
@@ -330,7 +338,7 @@ module Frozone
             return BindingObject.new(frame)
           end
           frame = blk.is_a?(BlockObject) ? blk.enclosing_frame : nil
-          return NilObject::NIL unless frame
+          return FNIL unless frame
           BindingObject.new(frame)
         end
 
@@ -338,17 +346,13 @@ module Frozone
           all = binding_obj.binding_local_names
           # Filter out numbered params, :it, etc.
           visible = all.reject { |n| n == :it || /\A_[1-9]\z/.match?(n.to_s) }
-          ArrayObject.new(visible.map { |n| SymbolObject.from(n) })
-        end
-
-        def binding_eval(context, binding_obj, code_obj, filename_arg = NilObject::NIL, lineno_arg = NilObject::NIL)
-          kernel_eval(context, NilObject::NIL, code_obj, binding_obj, filename_arg, lineno_arg)
+          n2f_arr(visible.map { |n| n2f_sym(n) })
         end
 
         def binding_coerce_name(name_obj, context)
-          if name_obj.is_a?(SymbolObject)
+          if fsym?(name_obj)
             name_obj.raw
-          elsif name_obj.is_a?(StringObject)
+          elsif fstr?(name_obj)
             name_obj.raw.to_sym
           else
             result = name_obj.dispatch(context, :to_str, [], {})
@@ -402,10 +406,10 @@ module Frozone
 
         def binding_source_location(_, binding_obj)
           loc = binding_obj.binding_call_site || binding_obj.captured_frame&.incoming_call_site
-          return NilObject::NIL unless loc
+          return FNIL unless loc
           parts = loc.split(":")
-          return NilObject::NIL unless parts.length >= 2
-          ArrayObject.new([StringObject.new(parts[0...-1].join(":")), IntegerObject.new(parts[-1].to_i)])
+          return FNIL unless parts.length >= 2
+          n2f_arr([n2f_str(parts[0...-1].join(":")), n2f_int(parts[-1].to_i)])
         end
 
         def binding_dup(_, binding_obj)

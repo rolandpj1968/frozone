@@ -385,11 +385,11 @@ end
 class Enumerator
   class ArithmeticSequence < Enumerator
     # Supports both Range#step (receiver is a Range) and Numeric#step (receiver is a Numeric).
-    def end
-
     def begin
       @receiver.is_a?(Range) ? @receiver.begin : @receiver
     end
+
+    def end
       if @receiver.is_a?(Range)
         @receiver.end
       else

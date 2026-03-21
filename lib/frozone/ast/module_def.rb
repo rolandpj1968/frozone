@@ -27,7 +27,7 @@ module Frozone
           container = @namespace_node.evaluate(context)
           namespace = container.is_a?(Vm::ModuleObject) ? container : nil
           if container.is_a?(Vm::ModuleObject) && container.constant_private?(@name)
-            container_name = container.respond_to?(:name) ? container.name : nil
+            container_name = container.is_a?(Vm::ModuleObject) ? container.name : nil
             label = container_name ? "#{container_name}::#{@name}" : @name.to_s
             raise Vm::FrozoneException.make(:NameError, "private constant #{label} referenced")
           end

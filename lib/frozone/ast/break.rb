@@ -4,7 +4,7 @@ module Frozone
   module Ast
     class BreakException < StandardError
       attr_reader :value, :method_frame
-      attr_accessor :from_block
+      attr_accessor :from_block, :break_enclosing_frame
       def initialize(value, method_frame = nil)
         @value = value
         @method_frame = method_frame

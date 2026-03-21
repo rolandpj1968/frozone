@@ -10,6 +10,7 @@ module Frozone
       end
 
       def native_io = @native_io
+      def native_io=(io); @native_io = io; end
       def explicit_encoding? = @explicit_encoding
 
       def patch_class_object(io_class)

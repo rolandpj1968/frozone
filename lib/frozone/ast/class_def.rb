@@ -29,7 +29,7 @@ module Frozone
           raise Vm::FrozoneException.make(:TypeError, "#{@namespace_node} is not a class/module") unless container.is_a?(Vm::ModuleObject)
           namespace = container
           if container.constant_private?(@name)
-            container_name = container.respond_to?(:name) ? container.name : nil
+            container_name = container.is_a?(Vm::ModuleObject) ? container.name : nil
             label = container_name ? "#{container_name}::#{@name}" : @name.to_s
             raise Vm::FrozoneException.make(:NameError, "private constant #{label} referenced")
           end

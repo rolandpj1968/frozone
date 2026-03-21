@@ -464,6 +464,7 @@ module Errno
   _define :EBADF,          9,  "Bad file descriptor"
   _define :EBUSY,         16,  "Device or resource busy"
   _define :ECHILD,        10,  "No child processes"
+  _define :EILSEQ,        84,  "Invalid or incomplete multibyte or wide character"
   _define :ECONNABORTED, 103,  "Software caused connection abort"
   _define :ECONNREFUSED, 111,  "Connection refused"
   _define :ECONNRESET,   104,  "Connection reset by peer"

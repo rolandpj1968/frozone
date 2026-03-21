@@ -74,9 +74,19 @@ module Frozone
           receiver.dispatch(context, @name, args, kw_args, block, private_ok: implicit_receiver, implicit_self: implicit_receiver && @ambiguous)
         rescue Ast::BreakException => e
           # Absorb break only if: this call had an inline block AND the break came from that block's context
-          raise unless calling_method_frame&.equal?(e.method_frame) ||
-                       (calling_method_frame.nil? && e.method_frame.nil? && @block_node.is_a?(Block))
-          e.value
+          if calling_method_frame&.equal?(e.method_frame) ||
+             (calling_method_frame.nil? && e.method_frame.nil? && @block_node.is_a?(Block))
+            e.value
+          elsif e.method_frame && !e.method_frame.alive? &&
+                (e.break_enclosing_frame.nil? || !e.break_enclosing_frame.alive?)
+            # Escaped proc: both the defining method and the block's enclosing scope have returned.
+            raise Vm::FrozoneException.make(:LocalJumpError, "break from proc-closure").tap { |exc2|
+              exc2.vm_object.set_ivar(:@exit_value, e.value)
+              exc2.vm_object.set_ivar(:@reason, Vm::SymbolObject.from(:break))
+            }
+          else
+            raise
+          end
         ensure
           context.call_site = prev_call_site
         end

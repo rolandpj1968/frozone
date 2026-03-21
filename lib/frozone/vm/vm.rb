@@ -230,9 +230,7 @@ module Frozone
         sitelibdir = RbConfig::CONFIG['sitelibdir']
         site_idx = sitelibdir ? all_load_paths.index(sitelibdir) : nil
         load_path_objs = all_load_paths.each_with_index.map do |p, i|
-          s = StringObject.new(p)
-          s.set_ivar(:@gem_prelude_index, TrueObject::TRUE) if site_idx && i >= site_idx
-          s
+          StringObject.new(p).tap { |s| s.set_ivar(:@gem_prelude_index, TrueObject::TRUE) if site_idx && i >= site_idx }
         end
         GLOBALS[:"$LOAD_PATH"] = ArrayObject.new(load_path_objs)
         # Pre-stub pp.rb: Frozone provides pretty_inspect/pp directly in core,

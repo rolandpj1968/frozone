@@ -3,11 +3,17 @@
 module Frozone
   module Vm
     module Intrinsics
+      # Frozone singleton value constants — shorthand for the three universal singletons.
+      # Read as "Frozone nil/true/false" — complement to the fnil?/ftrue?/ffalse? predicates.
+      FNIL   = NilObject::NIL
+      FTRUE  = TrueObject::TRUE
+      FFALSE = FalseObject::FALSE
+
       class << self
         ALWAYS_PRIVATE_METHOD_NAMES = %i[initialize initialize_copy initialize_clone initialize_dup respond_to_missing?].freeze
 
-        def module_singleton_class_q(_, receiver) = receiver.is_a?(ClassObject) && receiver.is_singleton_class ? TrueObject::TRUE : FalseObject::FALSE
-        def module_public_only_instance_methods(ctx, receiver, include_super_obj = TrueObject::TRUE) = module_instance_methods(ctx, receiver, include_super_obj, :public)
+        def module_singleton_class_q(_, receiver) = receiver.is_a?(ClassObject) && receiver.is_singleton_class ? FTRUE : FFALSE
+        def module_public_only_instance_methods(ctx, receiver, include_super_obj = FTRUE) = module_instance_methods(ctx, receiver, include_super_obj, :public)
         def module_set_public(context, receiver, names) = module_set_visibility(context, receiver, names, :public)
         def module_set_private(context, receiver, names) = module_set_visibility(context, receiver, names, :private)
         def module_set_protected(context, receiver, names) = module_set_visibility(context, receiver, names, :protected)
@@ -34,14 +40,14 @@ module Frozone
                            "accepts post-argument"
                          end
                 src = m.source_location ? " #{m.source_location}" : ""
-                msg = StringObject.new("warning: Skipping set of ruby2_keywords flag for #{name}#{src}: #{reason}")
-                kernel_warn(context, NilObject::NIL, ArrayObject.new([msg]))
+                msg = n2f_str("warning: Skipping set of ruby2_keywords flag for #{name}#{src}: #{reason}")
+                kernel_warn(context, FNIL, n2f_arr([msg]))
               end
             elsif m.is_a?(DefinedMethod)
               m.ruby2_keywords = true
             end
           end
-          NilObject::NIL
+          FNIL
         end
 
         def module_undef_method(_, receiver, name_obj)
@@ -104,7 +110,7 @@ module Frozone
           # when inside `refine Array do ... end`).
           if method.nil?
             refined_class_obj = receiver.get_ivar(:@__refined_class__)
-            if refined_class_obj && !refined_class_obj.is_a?(NilObject)
+            if refined_class_obj && !fnil?(refined_class_obj)
               method = refined_class_obj.lookup_method(old_name)
             end
           end
@@ -113,7 +119,7 @@ module Frozone
           aliased.visibility = :private if ALWAYS_PRIVATE_METHOD_NAMES.include?(new_name)
           receiver.set_method(new_name, aliased)
           trigger_method_added(context, receiver, new_name)
-          SymbolObject.from(new_name)
+          n2f_sym(new_name)
         end
 
         def module_define_method(context, receiver, name_obj, block)
@@ -154,7 +160,7 @@ module Frozone
                      raw.is_a?(Method) ? raw.bound_copy(name, receiver) : DefinedMethod.new(name, raw.block_obj, receiver)
                    elsif block.is_a?(ProcObject)
                      DefinedMethod.new(name, block.block_object, receiver)
-                   elsif block.respond_to?(:invoke)
+                   elsif fblock?(block)
                      DefinedMethod.new(name, block, receiver)
                    else
                      type_name = block.is_a?(ObjectObject) ? (block.class_object&.name || "Object") : block.class.name
@@ -165,7 +171,7 @@ module Frozone
             method.visibility = :private
             receiver.set_method(name, method)
             trigger_method_added(context, receiver, name)
-            sm = method.respond_to?(:bound_copy) ? method.bound_copy(name, receiver.singleton_class) : method.dup
+            sm = fbound?(method) ? method.bound_copy(name, receiver.singleton_class) : method.dup
             sm.visibility = :public
             receiver.singleton_class.set_method(name, sm)
             trigger_method_added(context, receiver.singleton_class, name)
@@ -174,10 +180,10 @@ module Frozone
             receiver.set_method(name, method)
             trigger_method_added(context, receiver, name)
           end
-          SymbolObject.from(name)
+          n2f_sym(name)
         end
 
-        def module_constants(_, receiver, inherit_obj = TrueObject::TRUE)
+        def module_constants(_, receiver, inherit_obj = FTRUE)
           inherit = inherit_obj.truthy?
           seen = {}
           result = []
@@ -194,7 +200,7 @@ module Frozone
                 next if seen[k]
                 next if mod.constant_private?(k)
                 seen[k] = true
-                result << SymbolObject.from(k)
+                result << n2f_sym(k)
               end
               mod.modules.each { |m| collect_consts.call(m) }
               sup = mod.is_a?(ClassObject) ? mod.superclass : nil
@@ -208,10 +214,10 @@ module Frozone
             keys = receiver.constants_table.keys | receiver.instance_variable_get(:@autoloads).keys
             keys.each do |k|
               next if receiver.constant_private?(k)
-              result << SymbolObject.from(k)
+              result << n2f_sym(k)
             end
           end
-          ArrayObject.new(result)
+          n2f_arr(result)
         end
 
         CVAR_NAME_RE = /\A@@[^@!? ][^!? ]*\z/
@@ -226,14 +232,14 @@ module Frozone
         end
 
         def coerce_cvar_name(context, name_obj)
-          if name_obj.is_a?(SymbolObject)
+          if fsym?(name_obj)
             name_obj.raw.to_s
-          elsif name_obj.is_a?(StringObject)
+          elsif fstr?(name_obj)
             name_obj.raw
           else
             # Try to_str
             has_to_str = begin
-              name_obj.dispatch(context, :respond_to?, [SymbolObject.from(:to_str)], {}).truthy?
+              name_obj.dispatch(context, :respond_to?, [n2f_sym(:to_str)], {}).truthy?
             rescue FrozoneException
               false
             end
@@ -242,7 +248,7 @@ module Frozone
               raise FrozoneException.make(:TypeError, "#{type_name} is not a symbol nor a string")
             end
             result = name_obj.dispatch(context, :to_str, [], {})
-            raise FrozoneException.make(:TypeError, "to_str must return String") unless result.is_a?(StringObject)
+            raise FrozoneException.make(:TypeError, "to_str must return String") unless fstr?(result)
             result.raw
           end
         end
@@ -250,13 +256,13 @@ module Frozone
         def class_var_defined_in_ancestors?(receiver, name)
           # Also check the eigenclass (singleton class) for class variables set inside `class << self`
           return true if receiver.eigenclass&.class_variables&.key?(name)
-          ancestors = receiver.respond_to?(:ancestors_list) ? receiver.ancestors_list : [receiver]
+          ancestors = fmod?(receiver) ? receiver.ancestors_list : [receiver]
           ancestors.any? { |a| a.class_variables.key?(name) }
         end
 
         def get_class_var_from_ancestors(receiver, name)
           return receiver.eigenclass.class_variables[name] if receiver.eigenclass&.class_variables&.key?(name)
-          ancestors = receiver.respond_to?(:ancestors_list) ? receiver.ancestors_list : [receiver]
+          ancestors = fmod?(receiver) ? receiver.ancestors_list : [receiver]
           ancestors.each do |a|
             return a.class_variables[name] if a.class_variables.key?(name)
           end
@@ -267,10 +273,10 @@ module Frozone
           name_str = coerce_cvar_name(context, name_obj)
           validate_cvar_name!(name_str, name_obj)
           name = name_str.to_sym
-          class_var_defined_in_ancestors?(receiver, name) ? TrueObject::TRUE : FalseObject::FALSE
+          class_var_defined_in_ancestors?(receiver, name) ? FTRUE : FFALSE
         end
 
-        def module_class_variables(_, receiver, inherit_obj = TrueObject::TRUE)
+        def module_class_variables(_, receiver, inherit_obj = FTRUE)
           inherit = inherit_obj.truthy?
           seen = {}
           if inherit
@@ -286,7 +292,7 @@ module Frozone
             receiver.eigenclass&.class_variables&.each_key { |k| seen[k] = true }
             receiver.class_variables.each_key { |k| seen[k] = true }
           end
-          ArrayObject.new(seen.keys.map { |k| SymbolObject.from(k) })
+          n2f_arr(seen.keys.map { |k| n2f_sym(k) })
         end
 
         def module_class_variable_get(context, receiver, name_obj)
@@ -296,7 +302,7 @@ module Frozone
           val = get_class_var_from_ancestors(receiver, name)
           if val.nil?
             exc = FrozoneException.make(:NameError, "uninitialized class variable #{name} in #{receiver.name || '#<Module>'}")
-            exc.vm_object.set_ivar(:@name, SymbolObject.from(name))
+            exc.vm_object.set_ivar(:@name, n2f_sym(name))
             exc.vm_object.set_ivar(:@receiver, receiver)
             raise exc
           end
@@ -339,7 +345,7 @@ module Frozone
             # Check if it's an autoload registration
             if receiver.get_autoload(name)
               receiver.remove_autoload(name)
-              return NilObject::NIL
+              return FNIL
             end
             raise FrozoneException.make(:NameError, "constant #{name} not defined")
           end
@@ -351,7 +357,7 @@ module Frozone
         def module_remove_class_variable(_, receiver, name_obj)
           name = sym_name(name_obj)
           raise FrozoneException.make(:NameError, "class variable #{name} not defined for #{receiver.name}") unless receiver.class_variables.key?(name)
-          receiver.class_variables.delete(name) || NilObject::NIL
+          receiver.class_variables.delete(name) || FNIL
         end
 
         def module_name(_, receiver)
@@ -361,17 +367,17 @@ module Frozone
               # Cached temp name string — keyed by temp string value
               cached = receiver.instance_variable_get(:@cached_name_str)
               return cached if cached&.raw == temp
-              s = StringObject.new(temp)
+              s = n2f_str(temp)
               receiver.instance_variable_set(:@cached_name_str, s)
               return s
             end
           end
-          return NilObject::NIL unless receiver.name
+          return FNIL unless receiver.name
           # Cache the name string for identity stability
           full = receiver.full_name.to_s
           cached = receiver.instance_variable_get(:@cached_name_str)
           return cached if cached&.raw == full
-          s = StringObject.new(full)
+          s = n2f_str(full)
           receiver.instance_variable_set(:@cached_name_str, s)
           s
         end
@@ -387,7 +393,7 @@ module Frozone
             target_frame.active_refinements ||= {}
             target_frame.active_refinements.merge!(new_refs)
           end
-          NilObject::NIL
+          FNIL
         end
 
         def module_used_refinements(context, _klass)
@@ -401,8 +407,8 @@ module Frozone
           if (refs.nil? || refs.empty?) && frame
             refs = frame.parent_frame&.active_refinements
           end
-          return ArrayObject.new([]) unless refs && !refs.empty?
-          ArrayObject.new(refs.values)
+          return n2f_arr([]) unless refs && !refs.empty?
+          n2f_arr(refs.values)
         end
 
         # Evaluate a refine block with all the refining module's own refinements active.
@@ -411,22 +417,22 @@ module Frozone
           # Collect the refining module's own refinements (NOT ancestors), using Frozone's get_ivar
           own_refs_obj = refining_mod.get_ivar(:@__refinements__)
           own_refs = {}
-          unless own_refs_obj.is_a?(NilObject) || !own_refs_obj.is_a?(HashObject)
+          unless fnil?(own_refs_obj) || !fhash?(own_refs_obj)
             own_refs_obj.raw.each do |k, v|
-              key = k.is_a?(IntegerObject) ? k.raw : k
+              key = fint?(k) ? k.raw : k
               own_refs[key] = v if v.is_a?(ModuleObject)
             end
           end
           # Also include the refinement_mod itself (for the class being refined)
           refined_class_obj = refinement_mod.get_ivar(:@__refined_class__)
-          refined_class = refined_class_obj.is_a?(NilObject) ? nil : refined_class_obj
+          refined_class = fnil?(refined_class_obj) ? nil : refined_class_obj
           all_refs = own_refs.dup
           all_refs[refined_class.object_id] = refinement_mod if refined_class
 
           block_obj = block.is_a?(BlockObject) ? block : (block.is_a?(ProcObject) ? block.block_object : block)
           unless block_obj.is_a?(BlockObject)
             module_eval(context, refinement_mod, block)
-            return NilObject::NIL
+            return FNIL
           end
 
           # Temporarily install refinements and refining_module on the block's enclosing frame.
@@ -450,7 +456,7 @@ module Frozone
             enc_frame.active_refinements = prev_enc_refs
             enc_frame.current_refining_module = prev_enc_refining_mod
           end
-          NilObject::NIL
+          FNIL
         end
 
         def module_set_temporary_name(_, receiver, name_obj)
@@ -469,13 +475,13 @@ module Frozone
                          else
                            false
                          end
-          if name_obj.is_a?(NilObject)
+          if fnil?(name_obj)
             raise FrozoneException.make(:RuntimeError, "can't change permanent name") if is_permanent
             receiver.instance_variable_set(:@temporary_name, nil)
             receiver.clear_name! unless is_permanent
             return receiver
           end
-          raise FrozoneException.make(:TypeError, "#{frozone_class_name(name_obj)} is not a String") unless name_obj.is_a?(StringObject)
+          raise FrozoneException.make(:TypeError, "#{frozone_class_name(name_obj)} is not a String") unless fstr?(name_obj)
           name_s = name_obj.raw
           raise FrozoneException.make(:ArgumentError, "empty class/module name") if name_s.empty?
           # Reject valid constant paths: all :: components are valid constant names
@@ -495,17 +501,17 @@ module Frozone
         CONST_NAME_RE = /\A[A-Z\p{Lu}][\p{L}\p{N}_]*\z/u
 
         def validate_const_name!(name_s, orig_name_obj)
-          orig_s = orig_name_obj.is_a?(SymbolObject) ? orig_name_obj.raw.to_s : (orig_name_obj.is_a?(StringObject) ? orig_name_obj.raw : name_s)
+          orig_s = fsym?(orig_name_obj) ? orig_name_obj.raw.to_s : (fstr?(orig_name_obj) ? orig_name_obj.raw : name_s)
           # Encode to UTF-8 for Unicode regex matching (handles EUC-JP etc.)
           check_s = name_s.encoding == Encoding::UTF_8 ? name_s : name_s.encode("UTF-8", invalid: :replace, undef: :replace)
           raise FrozoneException.make(:NameError, "wrong constant name #{orig_s}") unless check_s =~ CONST_NAME_RE
         end
 
         def resolve_const_path(context, name_obj, receiver, inherit)
-          is_symbol = name_obj.is_a?(SymbolObject)
+          is_symbol = fsym?(name_obj)
           name_str = if is_symbol
                        name_obj.raw.to_s
-                     elsif name_obj.is_a?(StringObject)
+                     elsif fstr?(name_obj)
                        name_obj.raw
                      else
                        r = sym_name_coercing(context, name_obj)
@@ -526,14 +532,14 @@ module Frozone
           parts = remaining.split("::", -1)
           # '::' alone (or leading :: with empty remainder) should raise NameError
           if parts.empty? || parts.any?(&:empty?)
-            orig_s = name_obj.is_a?(SymbolObject) ? name_obj.raw.to_s : (name_obj.is_a?(StringObject) ? name_obj.raw : remaining)
+            orig_s = fsym?(name_obj) ? name_obj.raw.to_s : (fstr?(name_obj) ? name_obj.raw : remaining)
             raise FrozoneException.make(:NameError, "wrong constant name #{orig_s}")
           end
           [start, parts]
         end
 
-        def module_const_defined(context, receiver, name_obj, inherit = TrueObject::TRUE)
-          inherit_b = inherit.is_a?(FalseObject) || inherit.equal?(NilObject::NIL) ? false : true
+        def module_const_defined(context, receiver, name_obj, inherit = FTRUE)
+          inherit_b = ffalse?(inherit) || inherit.equal?(FNIL) ? false : true
           start, parts = resolve_const_path(context, name_obj, receiver, inherit_b)
           parts.each_with_index do |part, i|
             validate_const_name!(part, name_obj)
@@ -556,7 +562,7 @@ module Frozone
                 resolved = resolve_load_path(c)
                 c = nil if resolved && GLOBALS[:"$LOADED_FEATURES"].raw.any? { |s| s.raw == resolved }
               end
-              return !c.nil? && c != false ? TrueObject::TRUE : FalseObject::FALSE
+              return !c.nil? && c != false ? FTRUE : FFALSE
             else
               # For non-last parts: inherit=false means only search own constants
               val = if inherit_b
@@ -565,16 +571,16 @@ module Frozone
                     else
                       start.get_constant(sym)
                     end
-              return FalseObject::FALSE if val.nil?
-              return FalseObject::FALSE unless val.is_a?(ModuleObject)
+              return FFALSE if val.nil?
+              return FFALSE unless val.is_a?(ModuleObject)
               start = val
             end
           end
-          FalseObject::FALSE
+          FFALSE
         end
 
-        def module_const_get(context, receiver, name_obj, inherit = TrueObject::TRUE)
-          inherit_b = inherit.is_a?(FalseObject) || inherit.equal?(NilObject::NIL) ? false : true
+        def module_const_get(context, receiver, name_obj, inherit = FTRUE)
+          inherit_b = ffalse?(inherit) || inherit.equal?(FNIL) ? false : true
           start, parts = resolve_const_path(context, name_obj, receiver, inherit_b)
           orig_name_obj = name_obj
           scoped = parts.size > 1  # multi-component path like A::B
@@ -600,7 +606,7 @@ module Frozone
                 autoload_path ||= (!inherit_b ? nil : (!start.equal?(Core::OBJECT_CLASS) && Core::OBJECT_CLASS.lookup_autoload(sym, inherit: true)))
                 if autoload_path
                   begin
-                    kernel_require(context, nil, StringObject.new(autoload_path))
+                    kernel_require(context, nil, n2f_str(autoload_path))
                   rescue FrozoneException, StandardError
                     # If require fails, fall through to const_missing
                   end
@@ -612,7 +618,7 @@ module Frozone
                         start.lookup_constant(sym)
                       end
                 end
-                return start.dispatch(context, :const_missing, [SymbolObject.from(sym)], {}, nil, private_ok: true) if !c || c.equal?(false)
+                return start.dispatch(context, :const_missing, [n2f_sym(sym)], {}, nil, private_ok: true) if !c || c.equal?(false)
               end
               _, owner = start.lookup_constant_with_owner(sym)
               maybe_warn_deprecated_constant(context, owner, sym)
@@ -627,23 +633,23 @@ module Frozone
                 autoload_path ||= Core::OBJECT_CLASS.lookup_autoload(sym, inherit: true) unless start.equal?(Core::OBJECT_CLASS)
                 if autoload_path
                   begin
-                    kernel_require(context, nil, StringObject.new(autoload_path))
+                    kernel_require(context, nil, n2f_str(autoload_path))
                     c = start.lookup_constant(sym)
                     c ||= Core::OBJECT_CLASS.lookup_constant(sym) unless start.equal?(Core::OBJECT_CLASS)
                   rescue FrozoneException, StandardError
                     # fall through to const_missing
                   end
                 end
-                return start.dispatch(context, :const_missing, [SymbolObject.from(sym)], {}) if c.nil?
+                return start.dispatch(context, :const_missing, [n2f_sym(sym)], {}) if c.nil?
               end
               raise FrozoneException.make(:TypeError, "#{part} is not a module") unless c.is_a?(ModuleObject)
               start = c
             end
           end
-          NilObject::NIL
+          FNIL
         end
 
-        def module_const_source_location(context, receiver, name_obj, inherit_obj = TrueObject::TRUE)
+        def module_const_source_location(context, receiver, name_obj, inherit_obj = FTRUE)
           inherit_b = inherit_obj.truthy?
           start, parts = resolve_const_path(context, name_obj, receiver, inherit_b)
           scoped = parts.size > 1
@@ -654,7 +660,7 @@ module Frozone
             sym = part.to_sym
             c = start.lookup_constant(sym)
             c ||= Core::OBJECT_CLASS.lookup_constant(sym) unless start.equal?(Core::OBJECT_CLASS)
-            return NilObject::NIL unless c.is_a?(ModuleObject)
+            return FNIL unless c.is_a?(ModuleObject)
             start = c
           end
 
@@ -688,31 +694,31 @@ module Frozone
             if mod.get_autoload(name)
               loc = mod.get_autoload_location(name)
               if loc
-                return ArrayObject.new([StringObject.new(loc[0]), IntegerObject.new(loc[1])])
+                return n2f_arr([n2f_str(loc[0]), n2f_int(loc[1])])
               else
-                return ArrayObject.new([])
+                return n2f_arr([])
               end
             end
             next unless mod.constants_table.key?(name)
             loc = mod.get_constant_location(name)
             if loc
-              return ArrayObject.new([StringObject.new(loc[0]), IntegerObject.new(loc[1])])
+              return n2f_arr([n2f_str(loc[0]), n2f_int(loc[1])])
             else
-              return ArrayObject.new([])
+              return n2f_arr([])
             end
           end
-          NilObject::NIL
+          FNIL
         end
 
         def module_autoload(context, receiver, name_obj, path_obj)
           raise FrozoneException.make(:FrozenError, "can't modify frozen #{frozone_class_name(receiver)}: #{receiver.full_name}") if receiver.frozen_object?
           name = sym_name(name_obj)
-          path = if path_obj.is_a?(StringObject)
+          path = if fstr?(path_obj)
                    path_obj.raw
                  else
                    to_path_result = begin
                      r = path_obj.dispatch(context, :to_path, [], {})
-                     r.is_a?(StringObject) ? r.raw : nil
+                     f2n_raw(r)
                    rescue FrozoneException
                      nil
                    end
@@ -721,7 +727,7 @@ module Frozone
                    else
                      begin
                        r2 = path_obj.dispatch(context, :to_str, [], {})
-                       raise FrozoneException.make(:TypeError, "no implicit conversion of #{frozone_class_name(path_obj)} into String") unless r2.is_a?(StringObject)
+                       raise FrozoneException.make(:TypeError, "no implicit conversion of #{frozone_class_name(path_obj)} into String") unless fstr?(r2)
                        r2.raw
                      rescue FrozoneException => e
                        raise if e.frozone_class_name == :TypeError
@@ -736,25 +742,25 @@ module Frozone
           src_loc = context.call_site ? context.call_site.split(':').then { |parts| parts.length >= 2 ? [parts[0..-2].join(':'), parts[-1].to_i] : nil } : nil
           receiver.set_autoload(name, path, source_location: src_loc)
           Frozone::Vm.trigger_const_added(context, receiver, name)
-          NilObject::NIL
+          FNIL
         end
 
-        def module_autoload_q(context, receiver, name_obj, inherit_obj = TrueObject::TRUE)
+        def module_autoload_q(context, receiver, name_obj, inherit_obj = FTRUE)
           name = sym_name(name_obj)
           inherit = inherit_obj.truthy?
           path = receiver.lookup_autoload(name, inherit: inherit)
-          return NilObject::NIL unless path
+          return FNIL unless path
           # Return nil if file is already in $LOADED_FEATURES (treated as already loaded)
           loaded = GLOBALS[:"$LOADED_FEATURES"]
           resolved = resolve_load_path(path)
-          return NilObject::NIL if resolved && loaded.raw.any? { |s| s.raw == resolved }
-          StringObject.new(path)
+          return FNIL if resolved && loaded.raw.any? { |s| s.raw == resolved }
+          n2f_str(path)
         end
 
         def module_const_set(context, receiver, name_obj, value)
           raise FrozoneException.make(:FrozenError, "can't modify frozen #{frozone_class_name(receiver)}: #{receiver.full_name}") if receiver.frozen_object?
           # Try to_str coercion for non-Symbol/String name
-          name_obj = if name_obj.is_a?(SymbolObject) || name_obj.is_a?(StringObject)
+          name_obj = if fsym?(name_obj) || fstr?(name_obj)
                        name_obj
                      else
                        coerced = begin
@@ -762,7 +768,7 @@ module Frozone
                        rescue FrozoneException
                          raise FrozoneException.make(:TypeError, "#{frozone_class_name(name_obj)} is not a symbol nor a string")
                        end
-                       raise FrozoneException.make(:TypeError, "can't convert #{frozone_class_name(name_obj)} into String (to_str gives #{frozone_class_name(coerced)})") unless coerced.is_a?(StringObject)
+                       raise FrozoneException.make(:TypeError, "can't convert #{frozone_class_name(name_obj)} into String (to_str gives #{frozone_class_name(coerced)})") unless fstr?(coerced)
                        coerced
                      end
           name = sym_name(name_obj)
@@ -788,7 +794,7 @@ module Frozone
         end
 
         def module_eval(context, receiver, block)
-          return NilObject::NIL if block.is_a?(NilObject)
+          return FNIL if fnil?(block)
           prev_vis = receiver.is_a?(ModuleObject) ? receiver.current_visibility : nil
           receiver.current_visibility = :public if prev_vis
           context.scopes << receiver
@@ -801,8 +807,8 @@ module Frozone
         end
 
         def module_exec(context, receiver, args_obj, block)
-          return NilObject::NIL if block.is_a?(NilObject)
-          args = args_obj.is_a?(ArrayObject) ? args_obj.raw : []
+          return FNIL if fnil?(block)
+          args = farray?(args_obj) ? args_obj.raw : []
           prev_vis = receiver.is_a?(ModuleObject) ? receiver.current_visibility : nil
           receiver.current_visibility = :public if prev_vis
           context.scopes << receiver
@@ -814,10 +820,10 @@ module Frozone
           end
         end
 
-        def module_eval_string(context, receiver, code_obj, file_obj = NilObject::NIL, line_obj = NilObject::NIL)
-          code = code_obj.is_a?(StringObject) ? code_obj.raw : code_obj.to_s
-          file = file_obj.is_a?(StringObject) ? file_obj.raw : nil
-          line = line_obj.is_a?(IntegerObject) ? line_obj.raw : nil
+        def module_eval_string(context, receiver, code_obj, file_obj = FNIL, line_obj = FNIL)
+          code = fstr?(code_obj) ? code_obj.raw : code_obj.to_s
+          file = f2n_raw(file_obj)
+          line = fint?(line_obj) ? line_obj.raw : nil
           # Build caller location string if no file given
           file ||= (context.call_site ? "(eval at #{context.call_site})" : "(eval)")
           line ||= 1
@@ -866,7 +872,7 @@ module Frozone
             scopes = scopes.reject { |s| s.is_a?(ClassObject) && s.is_singleton_class }
           end
           lex = (!scopes.empty? && scopes[0].equal?(Core::OBJECT_CLASS)) ? scopes[1..] : scopes
-          ArrayObject.new(lex.reverse)
+          n2f_arr(lex.reverse)
         end
 
         def module_ancestors(_, receiver)
@@ -880,10 +886,10 @@ module Frozone
             end
           end
           walk.call(receiver)
-          ArrayObject.new(result)
+          n2f_arr(result)
         end
 
-        def module_instance_methods(_, receiver, include_super_obj = TrueObject::TRUE, vis_filter = NilObject::NIL)
+        def module_instance_methods(_, receiver, include_super_obj = FTRUE, vis_filter = FNIL)
           include_super = include_super_obj.truthy?
           seen = {}
           result = []
@@ -892,8 +898,8 @@ module Frozone
               next if seen[name]
               seen[name] = true
               next if m == ModuleObject::UNDEF_SENTINEL
-              next if vis_filter && !vis_filter.is_a?(NilObject) && m.visibility != vis_filter
-              result << SymbolObject.from(name) if m.visibility == :public || m.visibility == :protected
+              next if vis_filter && !fnil?(vis_filter) && m.visibility != vis_filter
+              result << n2f_sym(name) if m.visibility == :public || m.visibility == :protected
             end
           end
           walk = lambda do |mod|
@@ -910,28 +916,28 @@ module Frozone
           # For refinement modules: include the refined class's instance methods.
           # MRI's Refinement#instance_methods returns methods including those of the refined module.
           refined_class_obj = receiver.get_ivar(:@__refined_class__)
-          if refined_class_obj && !refined_class_obj.is_a?(NilObject)
+          if refined_class_obj && !fnil?(refined_class_obj)
             walk.call(refined_class_obj)
           end
-          ArrayObject.new(result)
+          n2f_arr(result)
         end
 
         def module_undefined_instance_methods(_, receiver)
           result = []
           receiver.methods_table.each do |name, m|
-            result << SymbolObject.from(name) if m == ModuleObject::UNDEF_SENTINEL
+            result << n2f_sym(name) if m == ModuleObject::UNDEF_SENTINEL
           end
-          ArrayObject.new(result)
+          n2f_arr(result)
         end
 
-        def module_method_defined(context, receiver, name_obj, inherit_obj = TrueObject::TRUE)
+        def module_method_defined(context, receiver, name_obj, inherit_obj = FTRUE)
           name = sym_name_coercing(context, name_obj)
           inherit = inherit_obj.truthy?
           m = inherit ? receiver.lookup_method(name) : receiver.get_method(name)
-          m && m != ModuleObject::UNDEF_SENTINEL && (m.visibility == :public || m.visibility == :protected) ? TrueObject::TRUE : FalseObject::FALSE
+          m && m != ModuleObject::UNDEF_SENTINEL && (m.visibility == :public || m.visibility == :protected) ? FTRUE : FFALSE
         end
 
-        def module_private_instance_methods(_, receiver, include_super_obj = TrueObject::TRUE)
+        def module_private_instance_methods(_, receiver, include_super_obj = FTRUE)
           include_super = include_super_obj.truthy?
           seen = {}
           result = []
@@ -940,7 +946,7 @@ module Frozone
               next if seen[name]
               seen[name] = true
               next if m == ModuleObject::UNDEF_SENTINEL
-              result << SymbolObject.from(name) if m.visibility == :private
+              result << n2f_sym(name) if m.visibility == :private
             end
           end
           if include_super
@@ -954,10 +960,10 @@ module Frozone
           else
             collect.call(receiver)
           end
-          ArrayObject.new(result)
+          n2f_arr(result)
         end
 
-        def module_protected_instance_methods(_, receiver, include_super_obj = TrueObject::TRUE)
+        def module_protected_instance_methods(_, receiver, include_super_obj = FTRUE)
           include_super = include_super_obj.truthy?
           seen = {}
           result = []
@@ -966,7 +972,7 @@ module Frozone
               next if seen[name]
               seen[name] = true
               next if m == ModuleObject::UNDEF_SENTINEL
-              result << SymbolObject.from(name) if m.visibility == :protected
+              result << n2f_sym(name) if m.visibility == :protected
             end
           end
           if include_super
@@ -980,7 +986,7 @@ module Frozone
           else
             collect.call(receiver)
           end
-          ArrayObject.new(result)
+          n2f_arr(result)
         end
 
         def module_instance_method(context, receiver, name_obj)
@@ -1003,7 +1009,7 @@ module Frozone
           m = receiver.lookup_method(name)
           if m.nil? || m == ModuleObject::UNDEF_SENTINEL
             exc = FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.name}'")
-            exc.vm_object.set_ivar(:@name, SymbolObject.from(name))
+            exc.vm_object.set_ivar(:@name, n2f_sym(name))
             raise exc
           end
           owner = receiver.lookup_method_owner(name) || receiver
@@ -1015,12 +1021,12 @@ module Frozone
           m = receiver.lookup_method(name)
           if m.nil? || m == ModuleObject::UNDEF_SENTINEL
             exc = FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.name}'")
-            exc.vm_object.set_ivar(:@name, SymbolObject.from(name))
+            exc.vm_object.set_ivar(:@name, n2f_sym(name))
             raise exc
           end
           unless m.visibility == :public
             exc = FrozoneException.make(:NameError, "method '#{name}' for class '#{receiver.name}' is #{m.visibility}")
-            exc.vm_object.set_ivar(:@name, SymbolObject.from(name))
+            exc.vm_object.set_ivar(:@name, n2f_sym(name))
             raise exc
           end
           owner = receiver.lookup_method_owner(name) || receiver
@@ -1040,9 +1046,9 @@ module Frozone
           unless m
             # Check respond_to_missing?
             rtm = begin
-              receiver.dispatch(context, :respond_to_missing?, [SymbolObject.from(name), TrueObject::TRUE], {}, nil, private_ok: true)
+              receiver.dispatch(context, :respond_to_missing?, [n2f_sym(name), FTRUE], {}, nil, private_ok: true)
             rescue FrozoneException
-              FalseObject::FALSE
+              FFALSE
             end
             if rtm.truthy?
               owner = receiver.class_object
@@ -1084,9 +1090,9 @@ module Frozone
           unless m
             # public_method checks respond_to_missing? with include_all=false (public only)
             rtm = begin
-              receiver.dispatch(context, :respond_to_missing?, [SymbolObject.from(name), FalseObject::FALSE], {}, nil, private_ok: true)
+              receiver.dispatch(context, :respond_to_missing?, [n2f_sym(name), FFALSE], {}, nil, private_ok: true)
             rescue FrozoneException
-              FalseObject::FALSE
+              FFALSE
             end
             if rtm.truthy?
               owner = receiver.class_object
@@ -1109,12 +1115,12 @@ module Frozone
         end
 
         def bound_method_call(context, receiver, args, kwargs)
-          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          return FNIL unless receiver.is_a?(BoundMethodObject)
           blk = context.frame.block
-          blk = nil if blk.is_a?(NilObject)
-          kw = kwargs.is_a?(HashObject) ? kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k.raw.to_sym } : {}
+          blk = nil if fnil?(blk)
+          kw = fhash?(kwargs) ? kwargs.raw.transform_keys { |k| fsym?(k) ? k.raw : k.raw.to_sym } : {}
           if receiver.method_missing_dispatch
-            receiver.bound_receiver.dispatch(context, :method_missing, [SymbolObject.from(receiver.bound_name)] + args.raw, kw, blk, private_ok: true)
+            receiver.bound_receiver.dispatch(context, :method_missing, [n2f_sym(receiver.bound_name)] + args.raw, kw, blk, private_ok: true)
           elsif receiver.raw_method
             # Directly invoke the captured method, bypassing normal lookup (correct for UnboundMethod.bind.call)
             receiver.raw_method.invoke(context, receiver.bound_receiver, args.raw, kw, blk)
@@ -1124,10 +1130,10 @@ module Frozone
         end
 
         def bound_method_arity(_, receiver)
-          return IntegerObject.new(0) unless receiver.is_a?(BoundMethodObject)
+          return n2f_int(0) unless receiver.is_a?(BoundMethodObject)
           m = receiver.raw_method
-          return IntegerObject.new(-1) unless m  # method_missing synthetic method
-          return IntegerObject.new(0) unless m.is_a?(Method)
+          return n2f_int(-1) unless m  # method_missing synthetic method
+          return n2f_int(0) unless m.is_a?(Method)
           req = m.required_params.length
           opt = m.optional_params.length
           rest = m.rest_param && m.rest_param != :__no_rest__
@@ -1139,9 +1145,9 @@ module Frozone
           kw_optional = req_kw == 0 && (opt_kw > 0 || (kw_rest && kw_rest != :__no_kwargs__))
           has_opt = rest || post > 0 || opt > 0 || kw_optional
           if has_opt
-            IntegerObject.new(-(req + post + req_kw_count + 1))
+            n2f_int(-(req + post + req_kw_count + 1))
           else
-            IntegerObject.new(req + post + req_kw_count)
+            n2f_int(req + post + req_kw_count)
           end
         end
 
@@ -1167,10 +1173,8 @@ module Frozone
           end
         end
 
-        def param_entry(type, name, for_proc: false)
-          n = normalize_param_name(name, for_proc: for_proc)
-          n ? ArrayObject.new([SymbolObject.from(type), SymbolObject.from(n)]) : ArrayObject.new([SymbolObject.from(type)])
-        end
+        def param_entry(type, name, for_proc: false) =
+          (n = normalize_param_name(name, for_proc: for_proc); n ? n2f_arr([n2f_sym(type), n2f_sym(n)]) : n2f_arr([n2f_sym(type)]))
 
         def extract_method_params(m)
           # Resolve DefinedMethod to its underlying block_obj
@@ -1183,10 +1187,10 @@ module Frozone
             params << param_entry(:rest, m.rest_param)
           end
           m.post_params.each { |p| params << param_entry(:req, p) }
-          m.required_kw_params.each { |p| params << ArrayObject.new([SymbolObject.from(:keyreq), SymbolObject.from(p)]) }
-          m.optional_kw_params.each { |p, _| params << ArrayObject.new([SymbolObject.from(:key), SymbolObject.from(p)]) }
+          m.required_kw_params.each { |p| params << n2f_arr([n2f_sym(:keyreq), n2f_sym(p)]) }
+          m.optional_kw_params.each { |p, _| params << n2f_arr([n2f_sym(:key), n2f_sym(p)]) }
           if m.kw_rest_param == :__no_kwargs__
-            params << ArrayObject.new([SymbolObject.from(:nokey)])
+            params << n2f_arr([n2f_sym(:nokey)])
           elsif m.kw_rest_param
             params << param_entry(:keyrest, m.kw_rest_param)
           end
@@ -1197,43 +1201,43 @@ module Frozone
         end
 
         def bound_method_parameters(_, receiver)
-          return ArrayObject.new([]) unless receiver.is_a?(BoundMethodObject)
+          return n2f_arr([]) unless receiver.is_a?(BoundMethodObject)
           m = receiver.raw_method
-          return ArrayObject.new([ArrayObject.new([SymbolObject.from(:rest)])]) if m.nil?
-          ArrayObject.new(extract_method_params(m))
+          return n2f_arr([n2f_arr([n2f_sym(:rest)])]) if m.nil?
+          n2f_arr(extract_method_params(m))
         end
 
         def bound_method_name(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
-          SymbolObject.from(receiver.bound_name)
+          return FNIL unless receiver.is_a?(BoundMethodObject)
+          n2f_sym(receiver.bound_name)
         end
 
         def bound_method_original_name(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          return FNIL unless receiver.is_a?(BoundMethodObject)
           m = receiver.raw_method
           orig = m.is_a?(Method) ? m.name : receiver.bound_name
-          SymbolObject.from(orig)
+          n2f_sym(orig)
         end
 
         def bound_method_owner(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          return FNIL unless receiver.is_a?(BoundMethodObject)
           receiver.bound_owner
         end
 
         def bound_method_receiver(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          return FNIL unless receiver.is_a?(BoundMethodObject)
           receiver.bound_receiver
         end
 
         def bound_method_unbind(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          return FNIL unless receiver.is_a?(BoundMethodObject)
           UnboundMethodObject.new(receiver.raw_method, receiver.bound_name, receiver.bound_owner)
         end
 
-        FROZONE_CORE_LIB = File.expand_path('../../core', __dir__).freeze
+        FROZONE_CORE_LIB = File.expand_path('../../../core', __dir__).freeze
 
         def bound_method_source_location(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          return FNIL unless receiver.is_a?(BoundMethodObject)
           m = receiver.raw_method
           # Resolve VisibilityOverride to the underlying method
           m = m.original_owner.lookup_method(m.method_name) if m.is_a?(ModuleObject::VisibilityOverride)
@@ -1242,28 +1246,28 @@ module Frozone
             file, line = m.source_location.split(":")
             if file.start_with?(FROZONE_CORE_LIB)
               rel = file[FROZONE_CORE_LIB.length + 1..]
-              ArrayObject.new([StringObject.new("<internal:#{rel}>"), IntegerObject.new(line.to_i)])
+              n2f_arr([n2f_str("<internal:#{rel}>"), n2f_int(line.to_i)])
             else
-              ArrayObject.new([StringObject.new(file), IntegerObject.new(line.to_i)])
+              n2f_arr([n2f_str(file), n2f_int(line.to_i)])
             end
           elsif m.is_a?(BlockObject) && m.source_location
             file, line = m.source_location
-            ArrayObject.new([StringObject.new(file), IntegerObject.new(line)])
+            n2f_arr([n2f_str(file), n2f_int(line)])
           else
-            NilObject::NIL
+            FNIL
           end
         end
 
-        def bound_method_dup(_, receiver, freeze_opt = NilObject::NIL)
-          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+        def bound_method_dup(_, receiver, freeze_opt = FNIL)
+          return FNIL unless receiver.is_a?(BoundMethodObject)
           copy = BoundMethodObject.new(receiver.raw_method, receiver.bound_name, receiver.bound_receiver, receiver.bound_owner)
-          frozen = freeze_opt.is_a?(NilObject) ? false : freeze_opt.truthy?
+          frozen = fnil?(freeze_opt) ? false : freeze_opt.truthy?
           copy.copy_fields_from(receiver, eigenclass: nil, frozen: frozen)
           copy
         end
 
         def bound_method_hash(_, receiver)
-          return IntegerObject.new(0) unless receiver.is_a?(BoundMethodObject)
+          return n2f_int(0) unless receiver.is_a?(BoundMethodObject)
           m = receiver.raw_method
           body_id = if m.is_a?(Method)
                       m.body.object_id
@@ -1273,18 +1277,18 @@ module Frozone
                       m.object_id
                     end
           h = receiver.bound_receiver.object_id ^ body_id
-          IntegerObject.new(h)
+          n2f_int(h)
         end
 
         def bound_method_super(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          return FNIL unless receiver.is_a?(BoundMethodObject)
           owner = receiver.bound_owner
-          return NilObject::NIL unless owner
+          return FNIL unless owner
           recv = receiver.bound_receiver
           # Determine the lookup class: eigenclass (for extended objects) or class_object
           lookup_klass = recv.is_a?(ObjectObject) ? (recv.eigenclass || recv.class_object) : nil
           lookup_klass ||= owner.is_a?(ClassObject) ? owner : nil
-          return NilObject::NIL unless lookup_klass&.respond_to?(:lookup_method_after)
+          return FNIL unless fclass?(lookup_klass)
           # For aliased methods, the raw Method preserves its original name (alias_as keeps @name).
           # Use that original name for the ancestor lookup so we find the right super method.
           orig_raw = receiver.raw_method
@@ -1302,19 +1306,19 @@ module Frozone
             origin = (raw.is_a?(Method) && raw.original_owner) || owner
           end
           m = lookup_klass.lookup_method_after(lookup_name, origin)
-          return NilObject::NIL unless m && m != ClassObject::UNDEF_FOUND
+          return FNIL unless m && m != ClassObject::UNDEF_FOUND
           super_owner = lookup_klass.lookup_method_owner_after(lookup_name, origin) || lookup_klass
           BoundMethodObject.new(m, lookup_name, recv, super_owner)
         end
 
         def bound_method_to_proc(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(BoundMethodObject)
+          return FNIL unless receiver.is_a?(BoundMethodObject)
           ProcObject.new(receiver, lambda: true)
         end
 
         def bound_method_eql(_, m1, m2)
-          return FalseObject::FALSE unless m1.is_a?(BoundMethodObject) && m2.is_a?(BoundMethodObject)
-          return FalseObject::FALSE unless m1.bound_receiver.equal?(m2.bound_receiver)
+          return FFALSE unless m1.is_a?(BoundMethodObject) && m2.is_a?(BoundMethodObject)
+          return FFALSE unless m1.bound_receiver.equal?(m2.bound_receiver)
           m1m = m1.raw_method; m2m = m2.raw_method
           # Methods are equal if they share the same implementation body/block
           same = if m1m.nil? && m2m.nil?
@@ -1327,11 +1331,11 @@ module Frozone
                  else
                    m1m.equal?(m2m)
                  end
-          same ? TrueObject::TRUE : FalseObject::FALSE
+          same ? FTRUE : FFALSE
         end
 
         def unbound_method_eq(_, a, b)
-          return FalseObject::FALSE unless a.is_a?(UnboundMethodObject) && b.is_a?(UnboundMethodObject)
+          return FFALSE unless a.is_a?(UnboundMethodObject) && b.is_a?(UnboundMethodObject)
           # Two unbound methods are equal if they have the same owner and same underlying method body.
           # Aliases have different names but the same raw_method — they should compare equal.
           same = a.unbound_owner.equal?(b.unbound_owner) && a.raw_method.equal?(b.raw_method)
@@ -1339,27 +1343,27 @@ module Frozone
         end
 
         def unbound_method_parameters(_, receiver)
-          return ArrayObject.new([]) unless receiver.is_a?(UnboundMethodObject)
-          ArrayObject.new(extract_method_params(receiver.raw_method))
+          return n2f_arr([]) unless receiver.is_a?(UnboundMethodObject)
+          n2f_arr(extract_method_params(receiver.raw_method))
         end
 
         def unbound_method_name(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
-          SymbolObject.from(receiver.unbound_name)
+          return FNIL unless receiver.is_a?(UnboundMethodObject)
+          n2f_sym(receiver.unbound_name)
         end
 
         def unbound_method_original_name(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          return FNIL unless receiver.is_a?(UnboundMethodObject)
           m = receiver.raw_method
           orig = m.is_a?(Method) ? m.name : receiver.unbound_name
-          SymbolObject.from(orig)
+          n2f_sym(orig)
         end
 
         def unbound_method_arity(_, receiver)
-          return IntegerObject.new(0) unless receiver.is_a?(UnboundMethodObject)
+          return n2f_int(0) unless receiver.is_a?(UnboundMethodObject)
           m = receiver.raw_method
-          return IntegerObject.new(-1) if m.nil?  # method_missing synthetic method
-          return IntegerObject.new(0) unless m.is_a?(Method)
+          return n2f_int(-1) if m.nil?  # method_missing synthetic method
+          return n2f_int(0) unless m.is_a?(Method)
           req = m.required_params.length
           opt = m.optional_params.length
           rest = m.rest_param && m.rest_param != :__no_rest__
@@ -1371,14 +1375,14 @@ module Frozone
           kw_optional = req_kw == 0 && (opt_kw > 0 || (kw_rest && kw_rest != :__no_kwargs__))
           has_opt = rest || post > 0 || opt > 0 || kw_optional
           if has_opt
-            IntegerObject.new(-(req + post + req_kw_count + 1))
+            n2f_int(-(req + post + req_kw_count + 1))
           else
-            IntegerObject.new(req + post + req_kw_count)
+            n2f_int(req + post + req_kw_count)
           end
         end
 
         def unbound_method_source_location(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          return FNIL unless receiver.is_a?(UnboundMethodObject)
           m = receiver.raw_method
           # Resolve VisibilityOverride to underlying method
           m = m.original_owner.lookup_method(m.method_name) if m.is_a?(ModuleObject::VisibilityOverride)
@@ -1387,22 +1391,22 @@ module Frozone
             file, line = m.source_location.split(":")
             if file.start_with?(FROZONE_CORE_LIB)
               rel = file[FROZONE_CORE_LIB.length + 1..]
-              ArrayObject.new([StringObject.new("<internal:#{rel}>"), IntegerObject.new(line.to_i)])
+              n2f_arr([n2f_str("<internal:#{rel}>"), n2f_int(line.to_i)])
             else
-              ArrayObject.new([StringObject.new(file), IntegerObject.new(line.to_i)])
+              n2f_arr([n2f_str(file), n2f_int(line.to_i)])
             end
           elsif m.is_a?(BlockObject) && m.source_location
             file, line = m.source_location
-            ArrayObject.new([StringObject.new(file), IntegerObject.new(line)])
+            n2f_arr([n2f_str(file), n2f_int(line)])
           else
-            NilObject::NIL
+            FNIL
           end
         end
 
         def unbound_method_super(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          return FNIL unless receiver.is_a?(UnboundMethodObject)
           owner = receiver.unbound_owner
-          return NilObject::NIL unless owner&.respond_to?(:lookup_method_after)
+          return FNIL unless fclass?(owner)
           orig_raw = receiver.raw_method
           if orig_raw.is_a?(ModuleObject::VisibilityOverride)
             lookup_name = orig_raw.method_name
@@ -1413,13 +1417,13 @@ module Frozone
             origin = (raw.is_a?(Method) && raw.original_owner) || owner
           end
           m = owner.lookup_method_after(lookup_name, origin)
-          return NilObject::NIL unless m && m != ClassObject::UNDEF_FOUND
+          return FNIL unless m && m != ClassObject::UNDEF_FOUND
           super_owner = owner.lookup_method_owner_after(lookup_name, origin) || owner
           UnboundMethodObject.new(m, lookup_name, super_owner)
         end
 
         def unbound_method_dup(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          return FNIL unless receiver.is_a?(UnboundMethodObject)
           copy = UnboundMethodObject.new(receiver.raw_method, receiver.unbound_name, receiver.unbound_owner)
           receiver.instance_variables_hash.each do |ivar, val|
             copy.set_ivar(ivar, val)
@@ -1428,7 +1432,7 @@ module Frozone
         end
 
         def unbound_method_hash(_, receiver)
-          return IntegerObject.new(0) unless receiver.is_a?(UnboundMethodObject)
+          return n2f_int(0) unless receiver.is_a?(UnboundMethodObject)
           m = receiver.raw_method
           body_id = if m.is_a?(Method)
                       m.body.object_id
@@ -1437,11 +1441,11 @@ module Frozone
                     else
                       m.object_id
                     end
-          IntegerObject.new(receiver.unbound_owner.object_id ^ body_id)
+          n2f_int(receiver.unbound_owner.object_id ^ body_id)
         end
 
         def unbound_method_bind(_, receiver, new_receiver)
-          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          return FNIL unless receiver.is_a?(UnboundMethodObject)
           owner = receiver.unbound_owner
           if owner.is_a?(ClassObject) && owner.is_singleton_class
             # Singleton class method: check based on what the singleton belongs to
@@ -1468,7 +1472,7 @@ module Frozone
         end
 
         def unbound_method_owner(_, receiver)
-          return NilObject::NIL unless receiver.is_a?(UnboundMethodObject)
+          return FNIL unless receiver.is_a?(UnboundMethodObject)
           receiver.unbound_owner
         end
 
@@ -1490,21 +1494,21 @@ module Frozone
         # Check if a method (UnboundMethodObject) is "defined in Ruby code" (not an intrinsic).
         # A method whose body is a bare IntrinsicCall (or a Sequence wrapping one) is NOT Ruby code.
         def method_ruby_defined_q(_, receiver)
-          return FalseObject::FALSE unless receiver.is_a?(UnboundMethodObject)
+          return FFALSE unless receiver.is_a?(UnboundMethodObject)
           m = receiver.raw_method
-          return FalseObject::FALSE unless m.is_a?(Method)
+          return FFALSE unless m.is_a?(Method)
           body = m.body
-          return FalseObject::FALSE if intrinsic_only_body?(body)
-          TrueObject::TRUE
+          return FFALSE if intrinsic_only_body?(body)
+          FTRUE
         end
 
         # Copy an UnboundMethod into a refinement module as an owned method.
         # Sets refining_module so the imported method can see other refinements from the same module.
         # Updates scopes so that super() resolves through the refinement module's refined class.
         def refinement_import_method(_, refinement, name_obj, unbound_method_obj)
-          return NilObject::NIL unless refinement.is_a?(ModuleObject)
-          return NilObject::NIL unless unbound_method_obj.is_a?(UnboundMethodObject)
-          name = name_obj.is_a?(SymbolObject) ? name_obj.raw : name_obj.to_s.to_sym
+          return FNIL unless refinement.is_a?(ModuleObject)
+          return FNIL unless unbound_method_obj.is_a?(UnboundMethodObject)
+          name = fsym?(name_obj) ? name_obj.raw : name_obj.to_s.to_sym
           raw_m = unbound_method_obj.raw_method
           # Use refinement as the last scope so super resolves through the refinement's class hierarchy.
           new_scopes = (raw_m.scopes || []).dup
@@ -1525,28 +1529,28 @@ module Frozone
           refining_mod = refinement.get_ivar(:@__refining_module__)
           imported.refining_module = refining_mod if refining_mod.is_a?(ModuleObject)
           refinement.set_method(name, imported)
-          NilObject::NIL
+          FNIL
         end
 
-        def module_private_method_defined(context, receiver, name_obj, inherit_obj = TrueObject::TRUE)
+        def module_private_method_defined(context, receiver, name_obj, inherit_obj = FTRUE)
           name = sym_name_coercing(context, name_obj)
           inherit = inherit_obj.truthy?
           m = inherit ? receiver.lookup_method(name) : receiver.get_method(name)
-          m && m != ModuleObject::UNDEF_SENTINEL && m.visibility == :private ? TrueObject::TRUE : FalseObject::FALSE
+          m && m != ModuleObject::UNDEF_SENTINEL && m.visibility == :private ? FTRUE : FFALSE
         end
 
-        def module_public_method_defined(context, receiver, name_obj, inherit_obj = TrueObject::TRUE)
+        def module_public_method_defined(context, receiver, name_obj, inherit_obj = FTRUE)
           name = sym_name_coercing(context, name_obj)
           inherit = inherit_obj.truthy?
           m = inherit ? receiver.lookup_method(name) : receiver.get_method(name)
-          m && m != ModuleObject::UNDEF_SENTINEL && m.visibility == :public ? TrueObject::TRUE : FalseObject::FALSE
+          m && m != ModuleObject::UNDEF_SENTINEL && m.visibility == :public ? FTRUE : FFALSE
         end
 
-        def module_protected_method_defined(context, receiver, name_obj, inherit_obj = TrueObject::TRUE)
+        def module_protected_method_defined(context, receiver, name_obj, inherit_obj = FTRUE)
           name = sym_name_coercing(context, name_obj)
           inherit = inherit_obj.truthy?
           m = inherit ? receiver.lookup_method(name) : receiver.get_method(name)
-          m && m != ModuleObject::UNDEF_SENTINEL && m.visibility == :protected ? TrueObject::TRUE : FalseObject::FALSE
+          m && m != ModuleObject::UNDEF_SENTINEL && m.visibility == :protected ? FTRUE : FFALSE
         end
 
         def trigger_method_added(context, receiver, name)
@@ -1554,10 +1558,10 @@ module Frozone
           if receiver.is_a?(ClassObject) && receiver.is_singleton_class && receiver.singleton_of
             # Adding to a singleton class → call singleton_method_added on original object
             orig = receiver.singleton_of
-            orig.dispatch(context, :singleton_method_added, [SymbolObject.from(name)], {}, nil, private_ok: true)
+            orig.dispatch(context, :singleton_method_added, [n2f_sym(name)], {}, nil, private_ok: true)
           else
             # Regular class/module → call method_added on the class/module itself
-            receiver.dispatch(context, :method_added, [SymbolObject.from(name)], {}, nil, private_ok: true)
+            receiver.dispatch(context, :method_added, [n2f_sym(name)], {}, nil, private_ok: true)
           end
         rescue FrozoneException
           raise  # propagate Frozone exceptions (e.g. NoMethodError when hook is undefined)
@@ -1576,7 +1580,7 @@ module Frozone
             else
               begin
                 s = receiver.dispatch(context, :to_s, [], {})
-                s.is_a?(StringObject) ? s.raw : s.to_s
+                fstr?(s) ? s.raw : s.to_s
               rescue FrozoneException, StandardError
                 "#<Class>"
               end
@@ -1590,9 +1594,9 @@ module Frozone
           return unless context
           if receiver.is_a?(ClassObject) && receiver.is_singleton_class && receiver.singleton_of
             orig = receiver.singleton_of
-            orig.dispatch(context, :singleton_method_removed, [SymbolObject.from(name)], {}, nil, private_ok: true)
+            orig.dispatch(context, :singleton_method_removed, [n2f_sym(name)], {}, nil, private_ok: true)
           else
-            receiver.dispatch(context, :method_removed, [SymbolObject.from(name)], {}, nil, private_ok: true)
+            receiver.dispatch(context, :method_removed, [n2f_sym(name)], {}, nil, private_ok: true)
           end
         rescue FrozoneException
           raise
@@ -1603,9 +1607,9 @@ module Frozone
           return unless context
           if receiver.is_a?(ClassObject) && receiver.is_singleton_class && receiver.singleton_of
             orig = receiver.singleton_of
-            orig.dispatch(context, :singleton_method_undefined, [SymbolObject.from(name)], {}, nil, private_ok: true)
+            orig.dispatch(context, :singleton_method_undefined, [n2f_sym(name)], {}, nil, private_ok: true)
           else
-            receiver.dispatch(context, :method_undefined, [SymbolObject.from(name)], {}, nil, private_ok: true)
+            receiver.dispatch(context, :method_undefined, [n2f_sym(name)], {}, nil, private_ok: true)
           end
         rescue FrozoneException
           raise
@@ -1613,20 +1617,20 @@ module Frozone
         end
 
         def coerce_attr_name(context, name_obj)
-          if name_obj.is_a?(SymbolObject)
+          if fsym?(name_obj)
             name_obj.raw
-          elsif name_obj.is_a?(StringObject)
+          elsif fstr?(name_obj)
             name_obj.raw.to_sym
           else
             type_name = name_obj.is_a?(ObjectObject) ? name_obj.class_object&.name : name_obj.class.name
             has_to_str = begin
-              name_obj.dispatch(context, :respond_to?, [SymbolObject.from(:to_str)], {}).truthy?
+              name_obj.dispatch(context, :respond_to?, [n2f_sym(:to_str)], {}).truthy?
             rescue FrozoneException
               false
             end
             raise FrozoneException.make(:TypeError, "#{type_name} is not a symbol nor a string") unless has_to_str
             result = name_obj.dispatch(context, :to_str, [], {})
-            raise FrozoneException.make(:TypeError, "#{type_name} is not a symbol nor a string") unless result.is_a?(StringObject)
+            raise FrozoneException.make(:TypeError, "#{type_name} is not a symbol nor a string") unless fstr?(result)
             result.raw.to_sym
           end
         end
@@ -1640,9 +1644,9 @@ module Frozone
             m.visibility = receiver.current_visibility
             receiver.set_method(name, m)
             trigger_method_added(context, receiver, name)
-            SymbolObject.from(name)
+            n2f_sym(name)
           end
-          ArrayObject.new(result)
+          n2f_arr(result)
         end
 
         def module_attr_writer(context, receiver, names)
@@ -1655,9 +1659,9 @@ module Frozone
             m.visibility = receiver.current_visibility
             receiver.set_method(setter, m)
             trigger_method_added(context, receiver, setter)
-            SymbolObject.from(setter)
+            n2f_sym(setter)
           end
-          ArrayObject.new(result)
+          n2f_arr(result)
         end
 
         def module_attr_accessor(context, receiver, names)
@@ -1675,17 +1679,17 @@ module Frozone
             wm.visibility = receiver.current_visibility
             receiver.set_method(setter, wm)
             trigger_method_added(context, receiver, setter)
-            [SymbolObject.from(name), SymbolObject.from(setter)]
+            [n2f_sym(name), n2f_sym(setter)]
           end
-          ArrayObject.new(result)
+          n2f_arr(result)
         end
 
         def module_set_class_method_visibility(context, receiver, names_obj, vis)
           sc = receiver.singleton_class
           # vis may come from Frozone-land as a SymbolObject — coerce to raw Symbol
-          vis_sym = vis.is_a?(SymbolObject) ? vis.raw : vis
+          vis_sym = fsym?(vis) ? vis.raw : vis
           # Handle array as single argument: private_class_method([:foo, :bar]) → flatten
-          name_list = if names_obj.is_a?(ArrayObject)
+          name_list = if farray?(names_obj)
                         nl = names_obj.raw
                         nl.size == 1 && nl[0].is_a?(ArrayObject) ? nl[0].raw : nl
                       else
@@ -1709,7 +1713,7 @@ module Frozone
               end
               if found.nil?
                 exc = FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.name}'")
-                exc.vm_object.set_ivar(:@name, SymbolObject.from(name))
+                exc.vm_object.set_ivar(:@name, n2f_sym(name))
                 raise exc
               end
               inherited_m, orig_sc = found
@@ -1724,10 +1728,10 @@ module Frozone
 
         def module_function(context, receiver, names)
           raise FrozoneException.make(:TypeError, "module_function is not permitted on classes") if receiver.is_a?(ClassObject)
-          name_list = names.is_a?(ArrayObject) ? names.raw : [names]
+          name_list = farray?(names) ? names.raw : [names]
           if name_list.empty?
             receiver.current_visibility = :module_function
-            return NilObject::NIL
+            return FNIL
           end
           result_names = name_list.map do |name_obj|
             name = sym_name_coercing(context, name_obj)
@@ -1738,16 +1742,16 @@ module Frozone
               m.visibility = :private
               receiver.set_method(name, m)
               # Add as public singleton method (bound to singleton class for super resolution)
-              sm = m.respond_to?(:bound_copy) ? m.bound_copy(name, receiver.singleton_class) : m.dup
+              sm = fbound?(m) ? m.bound_copy(name, receiver.singleton_class) : m.dup
               sm.visibility = :public
               receiver.singleton_class.set_method(name, sm)
               # Only call singleton_method_added (not method_added) for the copy
               trigger_method_added(context, receiver.singleton_class, name)
             end
-            SymbolObject.from(name)
+            n2f_sym(name)
           end
           # Return single symbol or array of symbols
-          result_names.size == 1 ? result_names[0] : ArrayObject.new(result_names)
+          result_names.size == 1 ? result_names[0] : n2f_arr(result_names)
         end
 
         # Top-level 'main' proxy: delegate to Object
@@ -1761,13 +1765,13 @@ module Frozone
         def toplevel_define_method(context, _, args_array, block)
           args = args_array.raw
           name_obj = args[0]
-          callable = args.length > 1 ? args[1] : NilObject::NIL
-          effective = if callable.nil? || callable.is_a?(NilObject)
+          callable = args.length > 1 ? args[1] : FNIL
+          effective = if callable.nil? || fnil?(callable)
                         block
                       else
                         callable
                       end
-          unless effective && !effective.is_a?(NilObject)
+          unless effective && !fnil?(effective)
             raise FrozoneException.make(:ArgumentError, "tried to create Proc object without a block")
           end
           # top-level define_method always creates a public method on Object
@@ -1794,22 +1798,22 @@ module Frozone
         end
 
         def object_instance_eval(context, receiver, block)
-          return NilObject::NIL if block.is_a?(NilObject)
+          return FNIL if fnil?(block)
           # Pass receiver as block arg so |obj| parameters receive self (MRI behaviour)
           return block.invoke(context, [receiver], receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(ProcObject)
           return block.invoke(context, [receiver], receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(BlockObject)
-          NilObject::NIL
+          FNIL
         end
 
-        def object_instance_eval_string(context, receiver, code_obj, file_obj = NilObject::NIL, line_obj = NilObject::NIL)
+        def object_instance_eval_string(context, receiver, code_obj, file_obj = FNIL, line_obj = FNIL)
           # Coerce code to String via to_str
-          code = if code_obj.is_a?(StringObject)
+          code = if fstr?(code_obj)
                    code_obj.raw
                  else
-                   klass = code_obj.respond_to?(:class_object) ? (code_obj.class_object&.name || code_obj.class) : code_obj.class
+                   klass = frozone_class_name(code_obj)
                    begin
                      result = code_obj.dispatch(context, :to_str, [], {})
-                     raise FrozoneException.make(:TypeError, "can't convert #{klass} into String") unless result.is_a?(StringObject)
+                     raise FrozoneException.make(:TypeError, "can't convert #{klass} into String") unless fstr?(result)
                      result.raw
                    rescue FrozoneException => e
                      raise unless e.frozone_class_name == :NoMethodError
@@ -1817,13 +1821,13 @@ module Frozone
                    end
                  end
           # Coerce filename via to_str
-          fname = if file_obj.is_a?(StringObject)
+          fname = if fstr?(file_obj)
                     file_obj.raw
-                  elsif !file_obj.is_a?(NilObject)
-                    klass = file_obj.respond_to?(:class_object) ? (file_obj.class_object&.name || file_obj.class) : file_obj.class
+                  elsif !fnil?(file_obj)
+                    klass = frozone_class_name(file_obj)
                     begin
                       result = file_obj.dispatch(context, :to_str, [], {})
-                      raise FrozoneException.make(:TypeError, "can't convert #{klass} into String") unless result.is_a?(StringObject)
+                      raise FrozoneException.make(:TypeError, "can't convert #{klass} into String") unless fstr?(result)
                       result.raw
                     rescue FrozoneException => e
                       raise unless e.frozone_class_name == :NoMethodError
@@ -1831,13 +1835,13 @@ module Frozone
                     end
                   end
           # Coerce line number via to_int
-          lnum = if line_obj.is_a?(IntegerObject)
+          lnum = if fint?(line_obj)
                    line_obj.raw
-                 elsif !line_obj.is_a?(NilObject)
-                   klass = line_obj.respond_to?(:class_object) ? (line_obj.class_object&.name || line_obj.class) : line_obj.class
+                 elsif !fnil?(line_obj)
+                   klass = frozone_class_name(line_obj)
                    begin
                      result = line_obj.dispatch(context, :to_int, [], {})
-                     raise FrozoneException.make(:TypeError, "can't convert #{klass} into Integer") unless result.is_a?(IntegerObject)
+                     raise FrozoneException.make(:TypeError, "can't convert #{klass} into Integer") unless fint?(result)
                      result.raw
                    rescue FrozoneException => e
                      raise unless e.frozone_class_name == :NoMethodError
@@ -1890,12 +1894,12 @@ module Frozone
         end
 
         def object_instance_exec(context, receiver, args, block)
-          if block.is_a?(NilObject)
+          if fnil?(block)
             raise FrozoneException.make(:LocalJumpError, "no block given")
           end
           return block.invoke(context, args.raw, receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(ProcObject)
           return block.invoke(context, args.raw, receiver: receiver, instance_eval_receiver: receiver) if block.is_a?(BlockObject)
-          NilObject::NIL
+          FNIL
         end
 
         def object_extend_multi(context, receiver, mods_arr)
@@ -1928,7 +1932,7 @@ module Frozone
         end
 
         def module_deprecate_constant(_, receiver, names_obj)
-          names = names_obj.is_a?(ArrayObject) ? names_obj.raw : [names_obj]
+          names = farray?(names_obj) ? names_obj.raw : [names_obj]
           names.each do |name_obj|
             name = sym_name(name_obj)
             val, = receiver.lookup_constant_with_owner(name)
@@ -1995,7 +1999,7 @@ module Frozone
           raise FrozoneException.make(:TypeError, "wrong argument type #{frozone_class_name(other)} (expected Module)") unless other.is_a?(ModuleObject)
           raise FrozoneException.make(:FrozenError, "can't modify frozen #{frozone_class_name(other)}: #{other.full_name || other.object_id}") if other.frozen_object?
           # Cyclic include check
-          if other.equal?(self_mod) || (self_mod.respond_to?(:ancestors_list) && self_mod.ancestors_list.any? { |a| a.equal?(other) })
+          if other.equal?(self_mod) || (fmod?(self_mod) && self_mod.ancestors_list.any? { |a| a.equal?(other) })
             raise FrozoneException.make(:ArgumentError, "cyclic include detected")
           end
           other.add_module(self_mod)
@@ -2007,26 +2011,52 @@ module Frozone
           raise FrozoneException.make(:TypeError, "prepend_features is not permitted on classes") if self_mod.is_a?(ClassObject)
           raise FrozoneException.make(:TypeError, "wrong argument type #{frozone_class_name(other)} (expected Module)") unless other.is_a?(ModuleObject)
           # Cyclic prepend check
-          if other.equal?(self_mod) || (self_mod.respond_to?(:ancestors_list) && self_mod.ancestors_list.any? { |a| a.equal?(other) })
+          if other.equal?(self_mod) || (fmod?(self_mod) && self_mod.ancestors_list.any? { |a| a.equal?(other) })
             raise FrozoneException.make(:ArgumentError, "cyclic prepend detected")
           end
           other.prepend_module(self_mod)
           other
         end
 
-        # Class
-        def n2f_bool(bool) = bool ? TrueObject::TRUE : FalseObject::FALSE
-        def f2n_raw(obj) = obj.is_a?(NilObject) ? nil : obj.raw
+        # Conversion helpers: native → Frozone and back
+        def n2f_bool(bool) = bool ? FTRUE : FFALSE
+        def n2f_str(str, frozen: false, class_obj: nil, chilled_source: nil) = StringObject.new(str, frozen: frozen, class_obj: class_obj, chilled_source: chilled_source)
+        def n2f_int(n) = IntegerObject.new(n)
+        def n2f_float(f) = FloatObject.new(f)
+        def n2f_sym(sym) = SymbolObject.from(sym)
+        def n2f_time(t) = TimeObject.new(t)
+        def n2f_arr(elements, class_obj = nil) = ArrayObject.new(elements, class_obj)
+        def n2f_hash(elements = {}, default_value: nil, default_block: nil) = HashObject.new(elements, default_value: default_value, default_block: default_block)
+        # Type predicates: check Frozone object type
+        def fnil?(obj)   = obj.equal?(FNIL)
+        def fint?(obj)   = obj.is_a?(IntegerObject)
+        def ffloat?(obj) = obj.is_a?(FloatObject)
+        def fstr?(obj)   = obj.is_a?(StringObject)
+        def fsym?(obj)   = obj.is_a?(SymbolObject)
+        def farray?(obj) = obj.is_a?(ArrayObject)
+        def fhash?(obj)  = obj.is_a?(HashObject)
+        def ftrue?(obj)  = obj.is_a?(TrueObject)
+        def ffalse?(obj)  = obj.is_a?(FalseObject)
+        def fobj?(obj)    = obj.is_a?(ObjectObject)
+        def fproc?(obj)   = obj.is_a?(ProcObject)
+        def fblock?(obj)  = obj.is_a?(BlockObject) || obj.is_a?(NativeBlock) || obj.is_a?(SymbolProcObject)
+        def fbound?(obj)  = obj.is_a?(BoundMethodObject)
+        def fmod?(obj)    = obj.is_a?(ModuleObject)
+        def fclass?(obj)  = obj.is_a?(ClassObject)
+        def ftime?(obj)   = obj.is_a?(TimeObject)
+        def frange?(obj)  = obj.is_a?(RangeObject)
+        def fio?(obj)     = obj.is_a?(IOObject)
+        def f2n_raw(obj)  = fnil?(obj) ? nil : obj.raw
 
-        def class_new(context, klass, args, kwargs, block = NilObject::NIL)
+        def class_new(context, klass, args, kwargs, block = FNIL)
           raise FrozoneException.make(:TypeError, "can't create instance of singleton class") if klass.is_singleton_class
           raise FrozoneException.make(:TypeError, "uninitialized class") if klass.is_a?(ClassObject) && klass.uninitialized_class
           raw_args = args.raw
-          raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
-          has_block = block && !block.is_a?(NilObject)
+          raw_kwargs = kwargs.raw.transform_keys { |k| fsym?(k) ? k.raw : k }
+          has_block = block && !fnil?(block)
           if klass.equal?(Core::CLASS_CLASS)
             sc_arg = raw_args.first
-            if sc_arg && !sc_arg.is_a?(NilObject)
+            if sc_arg && !fnil?(sc_arg)
               raise FrozoneException.make(:TypeError, "superclass must be a Class (#{sc_arg.class_object&.name || sc_arg.class} given)") unless sc_arg.is_a?(ClassObject)
               raise FrozoneException.make(:TypeError, "can't make subclass of singleton class") if sc_arg.is_singleton_class
               superclass = sc_arg
@@ -2092,27 +2122,27 @@ module Frozone
         def class_superclass(_, klass)
           raise FrozoneException.make(:TypeError, "uninitialized class") if klass.is_a?(ClassObject) && klass.uninitialized_class
           sc = klass.is_a?(ClassObject) ? klass.superclass : nil
-          sc.nil? ? NilObject::NIL : sc
+          sc.nil? ? FNIL : sc
         end
 
         def class_subclasses(_, klass)
-          return ArrayObject.new([]) unless klass.is_a?(ClassObject)
-          ArrayObject.new(klass.direct_subclasses)
+          return n2f_arr([]) unless klass.is_a?(ClassObject)
+          n2f_arr(klass.direct_subclasses)
         end
 
         # Returns the safe string representation of a singleton class's target without dispatching inspect/to_s
         def module_singleton_class_safe_target_str(_, receiver)
           target = receiver.singleton_of
-          return StringObject.new("") unless target
+          return n2f_str("") unless target
           if target.is_a?(ModuleObject)
             n = target.full_name
             s = n ? n.to_s : "#<#{target.is_a?(ClassObject) ? 'Class' : 'Module'}:0x#{target.object_id.to_s(16)}>"
-            StringObject.new(s)
+            n2f_str(s)
           else
             klass = target.class_object
             # Match Object#to_s: use class.to_s (full_name for named, #<Class:0x...> for anonymous)
             class_str = klass ? (klass.name ? klass.full_name.to_s : "#<Class:0x#{klass.object_id.to_s(16)}>") : ""
-            StringObject.new("#<#{class_str}:0x#{target.object_id.to_s(16)}>")
+            n2f_str("#<#{class_str}:0x#{target.object_id.to_s(16)}>")
           end
         end
 

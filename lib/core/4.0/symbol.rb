@@ -41,6 +41,7 @@ class Symbol
     sym = self
     pr = ->(obj, *args, **kwargs, &block) { obj.public_send(sym, *args, **kwargs, &block) }
     Intrinsics.proc_set_parameters_override(pr, [[:req], [:rest]])
+    Intrinsics.proc_set_symbol_name(pr, sym)
     pr
   end
 

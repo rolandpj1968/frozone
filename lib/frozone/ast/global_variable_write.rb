@@ -67,11 +67,12 @@ module Frozone
         elsif @name == :"$@"
           set_dollar_at(context, value)
         elsif @name == :"$VERBOSE" || @name == :"$-v" || @name == :"$-w"
-          coerced = if value.is_a?(Vm::NilObject) then Vm::NilObject::NIL
-                    elsif !value.truthy? then Vm::FalseObject::FALSE
-                    else
-                      Vm::TrueObject::TRUE
-                    end
+          coerced =
+            if value.is_a?(Vm::NilObject) then Vm::NilObject::NIL
+            elsif !value.truthy? then Vm::FalseObject::FALSE
+            else
+              Vm::TrueObject::TRUE
+            end
           Vm::GLOBALS[:"$VERBOSE"] = coerced
         elsif @name == :"$0" || @name == :"$PROGRAM_NAME"
           unless value.is_a?(Vm::StringObject)
@@ -100,50 +101,52 @@ module Frozone
 
       def string_subclass?(value)
         # Returns true only for String subclass instances (not plain String instances)
-        return false unless value.respond_to?(:class_object) && value.class_object
+        return false unless value.is_a?(Vm::ObjectObject) && value.class_object
         return false if value.class_object.equal?(Vm::Core::STRING_CLASS)
         # Check if any ancestor is STRING_CLASS (i.e. it's a subclass)
         klass = value.class_object
         while klass
           return true if klass.equal?(Vm::Core::STRING_CLASS)
-          klass = klass.respond_to?(:superclass) ? klass.superclass : nil
+          klass = klass.is_a?(Vm::ClassObject) ? klass.superclass : nil
         end
         false
       end
 
       def coerce_to_string(context, value)
-        raw_val = if value.respond_to?(:raw)
-                    value.raw
-                  else
-                    str = value.dispatch(context, :to_s, [], {})
-                    str.respond_to?(:raw) ? str.raw : str.to_s
-                  end
+        raw_val =
+          if value.is_a?(Vm::StringObject)
+            value.raw
+          else
+            str = value.dispatch(context, :to_s, [], {})
+            str.is_a?(Vm::StringObject) ? str.raw : str.to_s
+          end
         s = Vm::StringObject.new(raw_val.to_s)
         s.freeze_object!
         s
       end
 
       def vm_type_name(value)
-        value.respond_to?(:class_object) && value.class_object ? value.class_object.name : value.class.name
+        value.is_a?(Vm::ObjectObject) && value.class_object ? value.class_object.name : value.class.name
       end
 
       def set_dollar_dot(context, value)
-        int_val = if value.is_a?(Vm::IntegerObject)
-                    value
-                  elsif value.is_a?(Vm::FloatObject)
-                    Vm::IntegerObject.new(value.raw.to_i)
-                  else
-                    # Try to_int
-                    begin
-                      result = value.dispatch(context, :to_int, [], {})
-                      raise Vm::FrozoneException.make(:TypeError, "can't convert #{vm_type_name(value)} into Integer") unless result.is_a?(Vm::IntegerObject)
-                      result
-                    rescue Vm::FrozoneException => e
-                      raise e
-                    rescue
-                      raise Vm::FrozoneException.make(:TypeError, "can't convert #{vm_type_name(value)} into Integer")
-                    end
-                  end
+        int_val =
+          if value.is_a?(Vm::IntegerObject)
+            value
+          elsif value.is_a?(Vm::FloatObject)
+            Vm::IntegerObject.new(value.raw.to_i)
+          else
+            # Try to_int
+            begin
+              result = value.dispatch(context, :to_int, [], {})
+              raise Vm::FrozoneException.make(:TypeError, "can't convert #{vm_type_name(value)} into Integer") unless result.is_a?(Vm::IntegerObject)
+              result
+            rescue Vm::FrozoneException => e
+              raise e
+            rescue
+              raise Vm::FrozoneException.make(:TypeError, "can't convert #{vm_type_name(value)} into Integer")
+            end
+          end
         Vm::GLOBALS[:"$."] = int_val
       end
 
@@ -229,7 +232,7 @@ module Frozone
           Vm::GLOBALS[:"$`"] = Vm::StringObject.new(m.pre_match)
           Vm::GLOBALS[:"$'"] = Vm::StringObject.new(m.post_match)
         else
-          type_name = value.respond_to?(:class_object) && value.class_object ? value.class_object.name : value.class.name
+          type_name = value.is_a?(Vm::ObjectObject) && value.class_object ? value.class_object.name : value.class.name
           raise Vm::FrozoneException.make(:TypeError, "wrong argument type #{type_name} (expected MatchData)")
         end
       end

@@ -347,11 +347,12 @@ module Frozone
           next unless pattern_match?(arm[:pattern], subject, context, bindings, dcache)
 
           # Apply bindings before guard so guard can read pattern variables
-          guard_ok = if arm[:guard]
-                       with_temp_bindings(bindings, context) { arm[:guard].evaluate(context).truthy? }
-                     else
-                       true
-                     end
+          guard_ok =
+            if arm[:guard]
+              with_temp_bindings(bindings, context) { arm[:guard].evaluate(context).truthy? }
+            else
+              true
+            end
           next unless guard_ok
 
           apply_bindings(bindings, context)

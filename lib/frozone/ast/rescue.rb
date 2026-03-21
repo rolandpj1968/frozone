@@ -46,7 +46,7 @@ module Frozone
         vm_obj = e.is_a?(Vm::FrozoneException) ? e.vm_object : nil
 
         # Try VM dispatch of === if frozone_class is a VM object with dispatch
-        if frozone_class.respond_to?(:dispatch) && vm_obj
+        if frozone_class.is_a?(Vm::ObjectObject) && vm_obj
           begin
             result = frozone_class.dispatch(context, :===, [vm_obj], {}, nil, private_ok: true)
             return result.truthy?
@@ -63,7 +63,7 @@ module Frozone
 
       # Check whether exception e is an instance of (or subclass of) frozone_class.
       def exception_is_a?(e, frozone_class)
-        frozone_name = frozone_class.respond_to?(:name) ? frozone_class.name : nil
+        frozone_name = frozone_class.is_a?(Vm::ModuleObject) ? frozone_class.name : nil
 
         if e.is_a?(Vm::FrozoneException)
           vm_obj = e.vm_object
@@ -71,7 +71,7 @@ module Frozone
           c = vm_obj.is_a?(Vm::ObjectObject) ? vm_obj.class_object : nil
           while c
             return true if c.equal?(frozone_class)
-            c = c.respond_to?(:superclass) ? c.superclass : nil
+            c = c.is_a?(Vm::ClassObject) ? c.superclass : nil
           end
           return false
         end

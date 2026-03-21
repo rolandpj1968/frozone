@@ -5,44 +5,41 @@ module Frozone
     module Intrinsics
       class << self
         # Array
-        def array_length(_, v) = IntegerObject.new(v.length)
-        def array_dup(_, v) = ArrayObject.new(v.raw.dup, v.class_object)
-        def array_sample(_, v) = v.raw.empty? ? NilObject::NIL : v.raw.sample
-        def array_sample_n(_, v, n) = ArrayObject.new(v.raw.sample(n.raw))
+        def array_length(_, v) = n2f_int(v.length)
+        def array_dup(_, v) = n2f_arr(v.raw.dup, v.class_object)
+        def array_sample(_, v) = v.raw.empty? ? FNIL : v.raw.sample
+        def array_sample_n(_, v, n) = n2f_arr(v.raw.sample(n.raw))
+        def array_at(_, v, i) = (e = v[i.raw]; e.nil? ? FNIL : e)
+        def array_push(_, v, val) = (v.push(val); v)
 
         ARRAY_MAX_SIZE = 1_073_741_823  # 2**30 - 1; prevents allocation hangs for huge sizes
 
-        def array_initialize(context, arr, size_or_array = NilObject::NIL, fill = NilObject::NIL, block = NilObject::NIL)
-          size_or_array = nil if size_or_array.is_a?(NilObject)
-          fill = nil if fill.is_a?(NilObject)
-          block = nil if block.is_a?(NilObject)
+        def array_initialize(context, arr, size_or_array = FNIL, fill = FNIL, block = FNIL)
+          size_or_array = nil if fnil?(size_or_array)
+          fill = nil if fnil?(fill)
+          block = nil if fnil?(block)
           arr.raw.clear
-          if size_or_array.is_a?(ArrayObject)
+          if farray?(size_or_array)
             arr.raw.replace(size_or_array.raw.dup)
-          elsif size_or_array.is_a?(IntegerObject)
+          elsif fint?(size_or_array)
             n = size_or_array.raw
             raise FrozoneException.make(:ArgumentError, "negative array size") if n < 0
             raise FrozoneException.make(:ArgumentError, "array size too big") if n > ARRAY_MAX_SIZE
             if block
-              n.times { |i| arr.push(block.invoke(context, [IntegerObject.new(i)])) }
+              n.times { |i| arr.push(block.invoke(context, [n2f_int(i)])) }
             else
-              arr.raw.replace(Array.new(n, fill || NilObject::NIL))
+              arr.raw.replace(Array.new(n, fill || FNIL))
             end
           end
           arr
         end
 
-        def array_at(_, v, i)
-          element = v[i.raw]
-          element.nil? ? NilObject::NIL : element
-        end
-
         def array_index_write(_, v, i, val)
           raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v) if v.frozen_object?
-          if i.is_a?(IntegerObject)
+          if fint?(i)
             v.raw[i.raw] = val
           elsif i.is_a?(RangeObject)
-            replacement = val.is_a?(ArrayObject) ? val.raw : [val]
+            replacement = farray?(val) ? val.raw : [val]
             v.raw[i.raw] = replacement
           else
             raise "Array#[]= index must be an Integer or Range"
@@ -52,16 +49,11 @@ module Frozone
 
         def array_slice_write(_, v, start, length, val)
           raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v) if v.frozen_object?
-          raise "Array#[]= start must be an Integer" unless start.is_a?(IntegerObject)
-          raise "Array#[]= length must be an Integer" unless length.is_a?(IntegerObject)
-          replacement = val.is_a?(ArrayObject) ? val.raw : [val]
+          raise "Array#[]= start must be an Integer" unless fint?(start)
+          raise "Array#[]= length must be an Integer" unless fint?(length)
+          replacement = farray?(val) ? val.raw : [val]
           v.raw[start.raw, length.raw] = replacement
           val
-        end
-
-        def array_push(_, v, val)
-          v.push(val)
-          v
         end
 
         # Return the Frozone default_external encoding name (raw Ruby String), or 'UTF-8'.
@@ -105,16 +97,16 @@ module Frozone
 
         def array_to_s(context, v)
           seen = (Thread.current[ARRAY_TO_S_GUARD] ||= {})
-          return StringObject.new("[...]") if seen.key?(v.object_id)
-          return StringObject.new("[]".encode("US-ASCII")) if v.raw.empty?
+          return n2f_str("[...]") if seen.key?(v.object_id)
+          return n2f_str("[]".encode("US-ASCII")) if v.raw.empty?
 
           seen[v.object_id] = true
           begin
             result_enc = array_inspect_result_encoding
             inner_parts = v.raw.map do |e|
               r = e.dispatch(context, :inspect, [], {})
-              r = r.dispatch(context, :to_s, [], {}) unless r.is_a?(StringObject)
-              if r.is_a?(StringObject)
+              r = r.dispatch(context, :to_s, [], {}) unless fstr?(r)
+              if fstr?(r)
                 array_inspect_normalize_str(r.raw)
               else
                 # inspect and to_s both failed to return a String — use default format
@@ -125,7 +117,7 @@ module Frozone
             inner = inner_parts.join(", ")
             result = "[#{inner}]"
             result = result.encode(result_enc) if result.encoding != result_enc && result.encoding.ascii_compatible?
-            StringObject.new(result)
+            n2f_str(result)
           ensure
             seen.delete(v.object_id)
           end
@@ -134,13 +126,13 @@ module Frozone
         def array_pop(_, v)
           raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v) if v.frozen_object?
           val = v.raw.pop
-          val.nil? ? NilObject::NIL : val
+          val.nil? ? FNIL : val
         end
 
         def array_shift(_, v)
           raise FrozoneException.make(:FrozenError, "can't modify frozen Array", receiver: v) if v.frozen_object?
           val = v.raw.shift
-          val.nil? ? NilObject::NIL : val
+          val.nil? ? FNIL : val
         end
 
         def array_unshift(_, v, *elems)
@@ -176,7 +168,7 @@ module Frozone
 
           def to_str
             result = @obj.dispatch(@ctx, :to_str, [], {})
-            return result.raw if result.is_a?(StringObject)
+            return result.raw if Intrinsics.fstr?(result)
 
             raise ::TypeError, "no implicit conversion of #{frozone_class_name} into String"
           rescue FrozoneException
@@ -185,7 +177,7 @@ module Frozone
 
           def to_s
             result = @obj.dispatch(@ctx, :to_s, [], {})
-            return result.raw if result.is_a?(StringObject)
+            return result.raw if Intrinsics.fstr?(result)
 
             frozone_class_name
           rescue FrozoneException
@@ -194,7 +186,7 @@ module Frozone
 
           def to_int
             result = @obj.dispatch(@ctx, :to_int, [], {})
-            return result.raw if result.is_a?(IntegerObject)
+            return result.raw if Intrinsics.fint?(result)
 
             raise ::TypeError, "no implicit conversion of #{frozone_class_name} into Integer"
           rescue FrozoneException
@@ -203,7 +195,7 @@ module Frozone
 
           def to_f
             result = @obj.dispatch(@ctx, :to_f, [], {})
-            return result.raw if result.is_a?(FloatObject)
+            return result.raw if Intrinsics.ffloat?(result)
 
             raise ::TypeError, "can't convert #{frozone_class_name} into Float"
           rescue FrozoneException
@@ -219,7 +211,7 @@ module Frozone
           end
           begin
             result = fmt_obj.dispatch(context, :to_str, [], {}, nil, public_only: true)
-            raise FrozoneException.make(:TypeError, "no implicit conversion of #{fmt_obj.class_object&.name} into String") unless result.is_a?(StringObject)
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{fmt_obj.class_object&.name} into String") unless fstr?(result)
 
             result.raw
           rescue FrozoneException => e
@@ -241,16 +233,16 @@ module Frozone
         # For float directives: pre-coerce Frozone Numeric subclasses to Ruby Float.
         # Non-Numeric objects stay as PackProxy so MRI raises proper TypeError.
         def pack_frozone_to_float(elem, context)
-          return elem.raw if elem.is_a?(FloatObject)
-          return elem.raw.to_f if elem.is_a?(IntegerObject)
-          raise FrozoneException.make(:TypeError, "can't convert nil into Float") if elem.is_a?(NilObject)
+          return elem.raw if ffloat?(elem)
+          return elem.raw.to_f if fint?(elem)
+          raise FrozoneException.make(:TypeError, "can't convert nil into Float") if fnil?(elem)
 
           # Check if Frozone object is a Numeric subclass (e.g. Rational)
           c = elem.class_object
           while c
             return begin
               result = elem.dispatch(context, :to_f, [], {})
-              result.is_a?(FloatObject) ? result.raw : PackProxy.new(elem, context)
+              ffloat?(result) ? result.raw : PackProxy.new(elem, context)
             rescue FrozoneException
               class_name = elem.class_object&.name.to_s
               raise FrozoneException.make(:TypeError, "can't convert #{class_name} into Float")
@@ -316,14 +308,14 @@ module Frozone
           types
         end
 
-        def array_pack(context, v, fmt_obj, buffer_obj = NilObject::NIL)
+        def array_pack(context, v, fmt_obj, buffer_obj = FNIL)
           fmt = pack_coerce_fmt(context, fmt_obj)
           elements = v.raw
 
           # Validate buffer if provided
           buf_str = nil
-          if buffer_obj && !buffer_obj.is_a?(NilObject)
-            unless buffer_obj.is_a?(StringObject)
+          if buffer_obj && !fnil?(buffer_obj)
+            unless fstr?(buffer_obj)
               class_name = buffer_obj.class_object&.name.to_s
               raise FrozoneException.make(:TypeError, "buffer must be String, not #{class_name}")
             end
@@ -351,7 +343,7 @@ module Frozone
               buffer_obj.raw = buf_str
               buffer_obj
             else
-              StringObject.new(pack_args.pack(fmt))
+              n2f_str(pack_args.pack(fmt))
             end
           rescue ::TypeError => e
             msg = e.message
@@ -366,9 +358,9 @@ module Frozone
           end
         end
 
-        def array_clone(_, v, freeze_opt = NilObject::NIL, klass = NilObject::NIL)
+        def array_clone(_, v, freeze_opt = FNIL, klass = FNIL)
           cls = klass.is_a?(ClassObject) ? klass : nil
-          cloned = ArrayObject.new(v.raw.dup, cls)
+          cloned = n2f_arr(v.raw.dup, cls)
           # Copy singleton class (eigenclass) including its methods
           if v.eigenclass
             new_sc = ClassObject.clone_singleton(v.eigenclass, cloned)
@@ -380,30 +372,31 @@ module Frozone
         end
 
         # Range
-        def range_allocate(_, _klass) = RangeObject.new(NilObject::NIL, NilObject::NIL, false, initialized: false)
+        def range_allocate(_, _klass) = RangeObject.new(FNIL, FNIL, false, initialized: false)
         def range_initialized_q(_, range) = n2f_bool(range.is_a?(RangeObject) && range.initialized?)
         def range_begin(_, range) = range.begin_val
         def range_end(_, range) = range.end_val
         def range_exclude_end(_, range) = n2f_bool(range.exclusive?)
 
         def range_set(_, range, b, e, excl)
-          excl = excl.is_a?(NilObject) ? false : excl.truthy?
-          e = NilObject::NIL if e.nil?
+          excl = fnil?(excl) ? false : excl.truthy?
+          e = FNIL if e.nil?
           range.set_range(b, e, excl)
           range
         end
 
         # Hash
-        def hash_size(_, h) = IntegerObject.new(h.size)
+        def hash_size(_, h) = n2f_int(h.size)
         def hash_key(_, h, key) = n2f_bool(h.key?(key))
-        def hash_get_default_proc(_, h) = h.default_block || NilObject::NIL
-        def hash_compare_by_identity_q(_, h) = n2f_bool(h.is_a?(HashObject) && h.compare_by_identity_flag)
-        def hash_ruby2_keywords_hash_q(_, h) = n2f_bool(h.is_a?(HashObject) && h.ruby2_keywords)
+        def hash_get_default_proc(_, h) = h.default_block || FNIL
+        def hash_compare_by_identity_q(_, h) = n2f_bool(fhash?(h) && h.compare_by_identity_flag)
+        def hash_ruby2_keywords_hash_q(_, h) = n2f_bool(fhash?(h) && h.ruby2_keywords)
 
-        def hash_index_write(_, h, key, value)
-          h[key] = value
-          value
-        end
+        def hash_index_write(_, h, key, value) = (h[key] = value; value)
+        def hash_each(context, h, block) = (h.raw.each { |k, v| block.invoke(context, [n2f_arr([k, v])]) }; h)
+        def hash_compare_by_identity(_, h) = (h.compare_by_identity! if fhash?(h); h)
+        def hash_reset_compare_by_identity(_, h) = (h.reset_compare_by_identity! if fhash?(h); h)
+        def hash_ruby2_keywords_hash(_, h) = (h.ruby2_keywords = true if fhash?(h); h)
 
         def hash_index(context, h, key)
           value = h[key]
@@ -412,24 +405,24 @@ module Frozone
           h.dispatch(context, :default, [key], {})
         end
 
-        def hash_get_default(context, h, key = NilObject::NIL)
+        def hash_get_default(context, h, key = FNIL)
           if h.default_block
-            key.is_a?(NilObject) ? NilObject::NIL : h.default_block.invoke(context, [h, key])
+            fnil?(key) ? FNIL : h.default_block.invoke(context, [h, key])
           elsif h.default_value
             h.default_value
           else
-            NilObject::NIL
+            FNIL
           end
         end
 
         def hash_set_default(_, h, val)
           h.default_block = nil
-          h.default_value = val.is_a?(NilObject) ? nil : val
+          h.default_value = fnil?(val) ? nil : val
           val
         end
 
         def hash_set_default_proc(_, h, prc)
-          if prc.is_a?(NilObject)
+          if fnil?(prc)
             h.default_block = nil
           elsif prc.is_a?(ProcObject)
             h.default_block = prc
@@ -440,36 +433,31 @@ module Frozone
           prc
         end
 
-        def hash_new(_, default = NilObject::NIL, block = NilObject::NIL)
+        def hash_new(_, default = FNIL, block = FNIL)
           proc_obj = if block.is_a?(ProcObject)
                        block
                      elsif block.is_a?(BlockObject)
                        ProcObject.new(block)
-                     elsif block && !block.is_a?(NilObject)
+                     elsif block && !fnil?(block)
                        ProcObject.new(block)
                      end
           if proc_obj
-            HashObject.new({}, default_block: proc_obj)
-          elsif default && !default.is_a?(NilObject)
-            HashObject.new({}, default_value: default)
+            n2f_hash({}, default_block: proc_obj)
+          elsif default && !fnil?(default)
+            n2f_hash({}, default_value: default)
           else
-            HashObject.new({})
+            n2f_hash({})
           end
-        end
-
-        def hash_each(context, h, block)
-          h.raw.each { |k, v| block.invoke(context, [ArrayObject.new([k, v])]) }
-          h
         end
 
         def hash_delete(_, h, key)
           val = h[key]
           h.delete(key)
-          val.nil? ? NilObject::NIL : val
+          val.nil? ? FNIL : val
         end
 
         def hash_clear(_, h)
-          h.clear_elements if h.is_a?(HashObject)
+          h.clear_elements if fhash?(h)
           h
         end
 
@@ -479,9 +467,9 @@ module Frozone
           processed = 0
           begin
             original_pairs.each do |k, v|
-              nk = if hash_arg && !hash_arg.is_a?(NilObject) && hash_arg.key?(k)
+              nk = if hash_arg && !fnil?(hash_arg) && hash_arg.key?(k)
                      hash_arg[k]
-                   elsif block_arg && !block_arg.is_a?(NilObject)
+                   elsif block_arg && !fnil?(block_arg)
                      block_arg.invoke(context, [k])
                    else
                      k
@@ -498,20 +486,6 @@ module Frozone
           h
         end
 
-        def hash_compare_by_identity(_, h)
-          h.compare_by_identity! if h.is_a?(HashObject)
-          h
-        end
-
-        def hash_reset_compare_by_identity(_, h)
-          h.reset_compare_by_identity! if h.is_a?(HashObject)
-          h
-        end
-
-        def hash_ruby2_keywords_hash(_, h)
-          h.ruby2_keywords = true if h.is_a?(HashObject)
-          h
-        end
       end
     end
   end

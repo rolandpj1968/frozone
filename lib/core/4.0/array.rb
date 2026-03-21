@@ -182,7 +182,7 @@ class Array
     return true if ongoing.any? { |a, b| a == id1 && b == id2 }
     ongoing << [id1, id2]
     begin
-      i = 0; while i < length; return false unless self[i] == other[i]; i += 1; end
+      i = 0; while i < length; e1 = self[i]; e2 = other[i]; return false unless e1.__id__ == e2.__id__ || e1 == e2; i += 1; end
       true
     ensure
       ongoing.pop
@@ -316,7 +316,11 @@ class Array
     elsif depth.is_a?(Integer)
       depth < 0 ? nil : depth
     else
-      n = depth.to_int
+      begin
+        n = depth.to_int
+      rescue NoMethodError
+        raise TypeError, "no implicit conversion of #{depth.class} into Integer"
+      end
       raise TypeError, "no implicit conversion of #{depth.class} into Integer" unless n.is_a?(Integer)
       n < 0 ? nil : n
     end
@@ -1085,7 +1089,8 @@ class Array
   end
 
   def reduce(*args, &block)
-    sym, has_initial, initial = __parse_reduce_args__(args, block)
+    sym, has_initial, initial, should_warn = __parse_reduce_args__(args, block)
+    Intrinsics.kernel_verbose_warn(self, "given block not used") if should_warn
     acc = initial; first = !has_initial
     each do |x|
       if first
@@ -1469,16 +1474,49 @@ class Array
     i = 0
     while i < arr.length
       elem = Intrinsics.array_at(arr, i)
-      if elem.is_a?(Array) && (depth.nil? || depth > 0)
+      # Use Intrinsics.object_is_a (bypasses method dispatch) so that elements with
+      # catch-all method_missing don't masquerade as Array.
+      if Intrinsics.object_is_a(elem, Array) && (depth.nil? || depth > 0)
         __flatten_into__(elem, depth.nil? ? nil : depth - 1, result, seen_ids)
-      elsif (depth.nil? || depth > 0) && !elem.nil? && elem.respond_to?(:to_ary)
-        converted = elem.to_ary
-        if converted.nil?
-          result << elem
-        elsif converted.is_a?(Array)
-          __flatten_into__(converted, depth.nil? ? nil : depth - 1, result, seen_ids)
+      elsif depth.nil? || depth > 0
+        # MRI (rb_check_funcall): checks respond_to?(:to_ary, true) ONLY when the object's
+        # singleton class explicitly defines respond_to? or respond_to_missing?. Otherwise,
+        # calls to_ary directly (which may succeed via method_missing). This matches the
+        # behavior where explicit respond_to?→false gates the call, but inherited respond_to?
+        # returning false does not prevent method_missing from handling to_ary.
+        if Intrinsics.object_eigenclass_has_respond_to_guard(elem)
+          has_to_ary = begin
+            elem.respond_to?(:to_ary, true)
+          rescue NoMethodError
+            false
+          end
+          if has_to_ary
+            converted = elem.to_ary
+            if converted.nil?
+              result << elem
+            elsif Intrinsics.object_is_a(converted, Array)
+              __flatten_into__(converted, depth.nil? ? nil : depth - 1, result, seen_ids)
+            else
+              raise TypeError, "can't convert #{elem.class} into Array (#{elem.class}#to_ary gives #{converted.class})"
+            end
+          else
+            result << elem
+          end
         else
-          raise TypeError, "can't convert #{elem.class} into Array (#{elem.class}#to_ary gives #{converted.class})"
+          converted = begin
+            elem.to_ary
+          rescue NoMethodError
+            :__no_to_ary__
+          end
+          if converted == :__no_to_ary__
+            result << elem
+          elsif converted.nil?
+            result << elem
+          elsif Intrinsics.object_is_a(converted, Array)
+            __flatten_into__(converted, depth.nil? ? nil : depth - 1, result, seen_ids)
+          else
+            raise TypeError, "can't convert #{elem.class} into Array (#{elem.class}#to_ary gives #{converted.class})"
+          end
         end
       else
         result << elem

@@ -6,6 +6,18 @@ module Frozone
       class << self
         # Object
         def object_class(_, v) = v.class_object
+        def object_ivar_get(_, v, name)    = v.get_ivar(validated_ivar(name, v))
+        def object_ivar_defined(_, v, name) = n2f_bool(v.ivar_defined?(validated_ivar(name, v)))
+        def object_ivar_names(_, v) = n2f_arr((v.instance_variables_hash&.keys || []).map { |k| n2f_sym(k) })
+        def object_freeze(_, v) = (v.freeze_object!; v)
+        def object_methods(_, v, include_super_obj = FTRUE) =
+          collect_method_names(v, include_super_obj.truthy?, singleton_only_when_false: true) { |vis| vis != :private }
+        def object_public_methods(_, v, include_super_obj = FTRUE) =
+          collect_method_names(v, include_super_obj.truthy?) { |vis| vis == :public }
+        def object_private_methods(_, v, include_super_obj = FTRUE) =
+          collect_method_names(v, include_super_obj.truthy?) { |vis| vis == :private }
+        def object_protected_methods(_, v, include_super_obj = FTRUE) =
+          collect_method_names(v, include_super_obj.truthy?) { |vis| vis == :protected }
 
         def object_is_a(_, v, klass)
           # Metaclass hierarchy: #<Class:Foo>.is_a?(#<Class:Bar>) iff Foo.is_a?(Bar's underlying class)
@@ -22,10 +34,10 @@ module Frozone
               # Check if instance's class is sc_of_k or a subclass of it (walk superclass chain)
               c2 = sc_of_v.class_object
               until c2.nil?
-                return TrueObject::TRUE if c2.ancestors_include?(sc_of_k)
+                return FTRUE if c2.ancestors_include?(sc_of_k)
                 c2 = c2.is_a?(ClassObject) ? c2.superclass : nil
               end
-              return FalseObject::FALSE
+              return FFALSE
             end
           end
           # A non-singleton class is_a? a singleton class iff the class <= singleton class's singleton_of.
@@ -36,24 +48,21 @@ module Frozone
             if sc_of_k.is_a?(ClassObject)
               c2 = v
               until c2.nil?
-                return TrueObject::TRUE if c2.ancestors_include?(sc_of_k)
+                return FTRUE if c2.ancestors_include?(sc_of_k)
                 c2 = c2.is_a?(ClassObject) ? c2.superclass : nil
               end
-              return FalseObject::FALSE
+              return FFALSE
             end
           end
           # Walk from lookup_class (eigenclass if materialised, else class_object).
           # ancestors_include? short-circuits and handles transitive prepend/include at each level.
           c = v.lookup_class
           until c.nil?
-            return TrueObject::TRUE if c.ancestors_include?(klass)
+            return FTRUE if c.ancestors_include?(klass)
             c = c.is_a?(ClassObject) ? c.superclass : nil
           end
-          FalseObject::FALSE
+          FFALSE
         end
-
-        def object_ivar_get(_, v, name)    = v.get_ivar(validated_ivar(name, v))
-        def object_ivar_defined(_, v, name) = n2f_bool(v.ivar_defined?(validated_ivar(name, v)))
 
         def object_ivar_set(_, v, name, value)
           check_frozen!(v)
@@ -69,11 +78,6 @@ module Frozone
           exc
         end
 
-        def object_ivar_names(_, v)
-          names = v.instance_variables_hash&.keys || []
-          ArrayObject.new(names.map { |k| SymbolObject.from(k) })
-        end
-
         def object_ivar_remove(_, v, name)
           k = normalize_ivar(name)
           ivars = v.instance_variables_hash
@@ -81,17 +85,17 @@ module Frozone
           ivars.delete(k)
         end
 
-        def object_respond_to(context, v, name, include_private_obj = FalseObject::FALSE)
+        def object_respond_to(context, v, name, include_private_obj = FFALSE)
           include_private = include_private_obj.truthy?
-          if name.is_a?(SymbolObject)
+          if fsym?(name)
             method_name = name.raw
-          elsif name.is_a?(StringObject)
+          elsif fstr?(name)
             method_name = name.raw.to_sym
           else
             # Try to_str coercion
-            if name.respond_to?(:dispatch)
+            if fobj?(name)
               converted = begin; name.dispatch(context, :to_str, [], {}, nil, private_ok: false); rescue FrozoneException; nil; end
-              if converted.is_a?(StringObject)
+              if fstr?(converted)
                 method_name = converted.raw.to_sym
               else
                 raise FrozoneException.make(:TypeError, "#{name.class_object&.name || 'Object'} is not a symbol nor a string")
@@ -110,32 +114,16 @@ module Frozone
           # Method is visible if include_private is true, or if it's a public method
           visible = m && (include_private || m.visibility == :public)
           if visible
-            TrueObject::TRUE
+            FTRUE
           else
             # Method not found or not visible — call respond_to_missing?
             begin
               result = v.dispatch(context, :respond_to_missing?, [name, include_private_obj], {}, nil, private_ok: true)
-              result.truthy? ? TrueObject::TRUE : FalseObject::FALSE
+              result.truthy? ? FTRUE : FFALSE
             rescue FrozoneException
-              FalseObject::FALSE
+              FFALSE
             end
           end
-        end
-
-        def object_methods(_, v, include_super_obj = TrueObject::TRUE)
-          collect_method_names(v, include_super_obj.truthy?, singleton_only_when_false: true) { |vis| vis != :private }
-        end
-
-        def object_public_methods(_, v, include_super_obj = TrueObject::TRUE)
-          collect_method_names(v, include_super_obj.truthy?) { |vis| vis == :public }
-        end
-
-        def object_private_methods(_, v, include_super_obj = TrueObject::TRUE)
-          collect_method_names(v, include_super_obj.truthy?) { |vis| vis == :private }
-        end
-
-        def object_protected_methods(_, v, include_super_obj = TrueObject::TRUE)
-          collect_method_names(v, include_super_obj.truthy?) { |vis| vis == :protected }
         end
 
         def object_dup(context, v)
@@ -184,18 +172,18 @@ module Frozone
           copy
         end
 
-        def object_clone(context, v, freeze_opt = NilObject::NIL)
+        def object_clone(context, v, freeze_opt = FNIL)
           # Only works for plain ObjectObject instances — specialized types define their own clone.
           return v unless v.class == ObjectObject
           # Validate freeze: argument — only nil, true, false allowed
-          unless freeze_opt.is_a?(NilObject) || freeze_opt.is_a?(TrueObject) || freeze_opt.is_a?(FalseObject)
+          unless fnil?(freeze_opt) || ftrue?(freeze_opt) || ffalse?(freeze_opt)
             type_name = freeze_opt.is_a?(ObjectObject) ? (freeze_opt.class_object&.name || 'Object') : freeze_opt.class.name
             raise FrozoneException.make(:ArgumentError, "unexpected value for freeze: #{type_name}")
           end
           copy = ObjectObject.allocate
           copy.class_object = v.class_object
           sc_copy = v.eigenclass ? ClassObject.clone_singleton(v.eigenclass, copy) : nil
-          freeze_val = freeze_opt.is_a?(NilObject) ? nil : freeze_opt.truthy?
+          freeze_val = fnil?(freeze_opt) ? nil : freeze_opt.truthy?
           frozen = freeze_val == false ? false : freeze_val.nil? ? v.frozen_object? : true
           copy.copy_fields_from(v, eigenclass: sc_copy, frozen: false)
           # Call initialize_clone(original, freeze: freeze_opt) — may call initialize_copy
@@ -204,13 +192,13 @@ module Frozone
           copy
         end
 
-        def string_initialize(context, receiver, str_arg, _encoding = NilObject::NIL)
-          str_val = if str_arg.is_a?(StringObject)
+        def string_initialize(context, receiver, str_arg, _encoding = FNIL)
+          str_val = if fstr?(str_arg)
                       str_arg.raw
                     else
                       begin
                         r = str_arg.dispatch(context, :to_str, [], {})
-                        raise FrozoneException.make(:TypeError, "no implicit conversion of #{str_arg.class_object&.name} into String") unless r.is_a?(StringObject)
+                        raise FrozoneException.make(:TypeError, "no implicit conversion of #{str_arg.class_object&.name} into String") unless fstr?(r)
                         r.raw
                       rescue FrozoneException => e
                         vm_obj = e.vm_object
@@ -221,14 +209,14 @@ module Frozone
                       end
                     end
           receiver.raw = str_val.dup
-          NilObject::NIL
+          FNIL
         end
 
-        def string_clone(context, v, freeze_opt = NilObject::NIL)
-          copy = StringObject.new(v.raw.dup)
+        def string_clone(context, v, freeze_opt = FNIL)
+          copy = n2f_str(v.raw.dup)
           copy.class_object = v.class_object
           sc_copy = v.eigenclass ? ClassObject.clone_singleton(v.eigenclass, copy) : nil
-          freeze_val = freeze_opt.is_a?(NilObject) ? nil : freeze_opt.truthy?
+          freeze_val = fnil?(freeze_opt) ? nil : freeze_opt.truthy?
           frozen = freeze_val == false ? false : freeze_val.nil? ? v.frozen_object? : true
           copy.copy_fields_from(v, eigenclass: sc_copy, frozen: frozen)
           copy.chilled_source = v.chilled_source unless frozen  # clone preserves chilled status
@@ -236,36 +224,38 @@ module Frozone
           copy
         end
 
-        def object_freeze(_, v)
-          v.freeze_object!
-          v
-        end
-
         def object_frozen(_, v)
           # Integers, Symbols, nil, true, false are always frozen
-          return TrueObject::TRUE if v.is_a?(IntegerObject) || v.is_a?(SymbolObject) ||
-                                     v.is_a?(NilObject) || v.is_a?(TrueObject) || v.is_a?(FalseObject)
+          return FTRUE if fint?(v) || fsym?(v) ||
+                                     fnil?(v) || ftrue?(v) || ffalse?(v)
           n2f_bool(v.frozen_object?)
         end
 
         def object_singleton_class(context, v)
           # Integer and Symbol don't have singleton classes
-          if v.is_a?(IntegerObject) || v.is_a?(SymbolObject)
+          if fint?(v) || fsym?(v)
             raise FrozoneException.make(:TypeError, "can't define singleton for #{v.class_object.name}")
           end
           # true/false/nil return their class (they are singleton instances)
-          if v.is_a?(TrueObject) || v.is_a?(FalseObject) || v.is_a?(NilObject)
+          if ftrue?(v) || ffalse?(v) || fnil?(v)
             return v.class_object
           end
-          if v.is_a?(StringObject) && v.chilled?
+          if fstr?(v) && v.chilled?
             Frozone::Vm.emit_warning(context, v.chilled_warning)
             v.unchilled!
           end
           v.singleton_class
         end
 
-        def object_singleton_methods(_, v, include_super_obj = TrueObject::TRUE)
-          return ArrayObject.new([]) if v.eigenclass.nil?
+        def object_eigenclass_has_respond_to_guard(_, v)
+          sc = fobj?(v) ? v.eigenclass : nil
+          return FFALSE if sc.nil?
+          has = sc.get_method(:respond_to?) || sc.get_method(:respond_to_missing?)
+          n2f_bool(!has.nil? && has != ModuleObject::UNDEF_SENTINEL)
+        end
+
+        def object_singleton_methods(_, v, include_super_obj = FTRUE)
+          return n2f_arr([]) if v.eigenclass.nil?
           include_super = include_super_obj.truthy?
           seen = {}
           result = []
@@ -292,10 +282,10 @@ module Frozone
               seen[name] = true
               next if meth == ModuleObject::UNDEF_SENTINEL
               next if meth.visibility == :private
-              result << SymbolObject.from(name)
+              result << n2f_sym(name)
             end
           end
-          ArrayObject.new(result)
+          n2f_arr(result)
         end
       end
     end

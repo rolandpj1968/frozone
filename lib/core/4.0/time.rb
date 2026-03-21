@@ -448,9 +448,20 @@ class Time
     # written as :zone/:offset (not :@zone/:@offset) in the IVAR list.
     z = zone
     off = utc? ? nil : utc_offset
+    nano_ns = nsec % 1000
     pairs = []
     pairs << :zone << z if z && !z.empty?
     pairs << :offset << off if off && off != 0
+    if nano_ns != 0
+      d0 = nano_ns / 100
+      d1 = (nano_ns / 10) % 10
+      d2 = nano_ns % 10
+      b0 = (d0 << 4) | d1
+      b1 = d2 << 4
+      # Packed BCD: each digit in a nibble, right-padded with 0, trailing zero bytes stripped.
+      submicro = b1 == 0 ? b0.chr(Encoding::ASCII_8BIT) : (b0.chr(Encoding::ASCII_8BIT) + b1.chr(Encoding::ASCII_8BIT))
+      pairs << :nano_num << nano_ns << :nano_den << 1 << :submicro << submicro
+    end
     unless pairs.empty?
       str.define_singleton_method(:__marshal_time_ivars__) { pairs }
     end

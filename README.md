@@ -4,11 +4,11 @@ A Ruby VM implemented in Ruby. Parses Ruby source via the [Prism](https://github
 
 ## Project Status (v4.0.1)
 
-Frozone targets Ruby 4.0 semantics and passes **2519/2520** ruby/spec language examples.
-Pattern matching is not yet implemented (excluded from the count above).
+Frozone targets Ruby 4.0 semantics and passes **2620/2630** ruby/spec language examples,
+including full pattern matching support.
 
-Core library spec coverage: **16176 / 17482 passing (92.5%)** across 47 of 58 core modules
-(11 modules hang indefinitely due to unimplemented Thread/Mutex/IO concurrency primitives).
+Core library spec coverage: **15587 / 16761 passing (93.0%)** across 49 of 58 core modules
+(9 modules time out due to Thread/Mutex/IO concurrency or codec primitives not yet implemented).
 
 ### Frozone² — Self-hosting (sort of)
 
@@ -39,8 +39,8 @@ Frozone ships two independent front-ends that produce the same AST:
 
 | Parser | Gem | Status |
 |--------|-----|--------|
-| **Prism** (default) | `prism` (Ruby stdlib) | 2519/2520 — 0F 1E |
-| **WqParser** (`--parser=wq`) | `parser` gem (whitequark/parser fork) | 2518/2520 — 0F 2E |
+| **Prism** (default) | `prism` (Ruby stdlib) | 2620/2630 — 3F 7E |
+| **WqParser** (`--parser=wq`) | `parser` gem (whitequark/parser fork) | ~2618/2630 — similar |
 
 Switch parsers with `PARSER=wq bundle exec rake language` or `--parser=wq` on the CLI.
 
@@ -65,25 +65,28 @@ Both parsers are otherwise at full parity on the language spec suite.
 Tested against [ruby/spec](https://github.com/ruby/spec) language specs.
 Run with `bundle exec rake language` (or `rake language:NAME` for a single spec).
 
-**Prism parser: 2519 / 2520 passing** — as of 2026-03-19 (v4.0.1)
+**Prism parser: 2620 / 2630 passing** — as of 2026-03-21 (v4.0.1)
 
-All 58 language specs pass perfectly except:
+Pattern matching is now fully implemented. Remaining failures/errors:
 
 | Spec | Result | Notes |
 |------|--------|-------|
-| magic_comment | 53/54 (1 error) | magic comment in `-e` argument (not implemented) |
-| pattern_matching | excluded | not yet implemented |
+| class_variable | 1 failure | class variable overtaken in ancestor edge case |
+| execution | 1 failure | `$LOAD_PATH` sitelibdir `@gem_prelude_index` |
+| predefined | 1 failure | `$LOAD_PATH.resolve_feature_path` for `.so` files |
+| magic_comment | 1 error | magic comment in `-e` argument |
+| pattern_matching | 5 errors | refinements + deconstruct edge cases |
+| source_encoding | 2 errors | UTF-16 BOM with invalid byte sequence |
 
-**WqParser: 2518 / 2520 passing** — as of 2026-03-19 (v4.0.1)
+**WqParser:** similar pass rate (2 additional errors for non-ASCII constant lexing)
 
 Switch parsers with `PARSER=wq bundle exec rake language` or `--parser=wq` on the CLI.
 
-Additional WqParser differences (both are whitequark lexer limitations):
+WqParser-specific differences (whitequark lexer limitations):
 
 | Spec | Prism | WqParser | Notes |
 |------|-------|----------|-------|
 | constants | 100/100 | 99/100 | `mod::ἍBB` — non-ASCII uppercase not lexed as constant |
-| magic_comment | 53/54 | 53/54 | same `-e` edge case as Prism |
 
 ## ruby/spec Core Spec Status
 
@@ -91,68 +94,68 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 16176 / 17482 passing (92.5%)** — as of 2026-03-19 (Prism parser, 47 of 58 modules measured)
+**Overall: 15587 / 16761 passing (93.0%)** — as of 2026-03-21 (Prism parser, 49 of 58 modules measured)
 
 Note: Negative "passing" counts indicate errors exceed examples (mspec counts some errors as extra failures).
-`(hangs)` = module hangs indefinitely (Thread/Mutex/IO/concurrent primitives not yet implemented).
+`(timeout)` = module times out in parallel runner (Thread/Mutex/IO/codec concurrency not yet implemented).
 
 | Module | Examples | Passing | Failures | Errors |
 |---|---:|---:|---:|---:|
-| argf | 105 | -28 | 3 | 130 |
-| array | 2925 | 2920 | 5 | 0 |
-| basicobject | 178 | 178 | 0 | 0 |
-| binding | (hangs) | — | — | — |
+| argf | 101 | -36 | 3 | 134 |
+| array | 2925 | 2925 | 0 | 0 |
+| basicobject | 178 | 176 | 2 | 0 |
+| binding | 58 | 56 | 1 | 1 |
 | builtin_constants | 27 | 27 | 0 | 0 |
 | class | 54 | 54 | 0 | 0 |
 | comparable | 54 | 54 | 0 | 0 |
 | complex | 186 | 186 | 0 | 0 |
-| conditionvariable | 11 | -1 | 2 | 10 |
+| conditionvariable | 11 | 5 | 3 | 3 |
 | data | 92 | 92 | 0 | 0 |
-| dir | 338 | 133 | 27 | 178 |
-| encoding | 631 | 595 | 25 | 11 |
-| enumerable | 574 | 574 | 0 | 0 |
-| enumerator | (hangs) | — | — | — |
+| dir | 21 | -61 | 0 | 82 |
+| encoding | (timeout) | — | — | — |
+| enumerable | 574 | 572 | 0 | 2 |
+| enumerator | (timeout) | — | — | — |
 | env | 239 | 239 | 0 | 0 |
-| exception | 248 | 245 | 3 | 0 |
+| exception | 248 | 240 | 8 | 0 |
 | false | 13 | 13 | 0 | 0 |
-| fiber | 163 | 163 | 0 | 0 |
-| file | 796 | 465 | 60 | 271 |
-| filetest | (hangs) | — | — | — |
-| float | 328 | 323 | 5 | 0 |
+| fiber | (timeout) | — | — | — |
+| file | 465 | -162 | 19 | 608 |
+| filetest | 31 | -38 | 0 | 69 |
+| float | 328 | 328 | 0 | 0 |
 | gc | 41 | 41 | 0 | 0 |
 | hash | 633 | 633 | 0 | 0 |
-| integer | 603 | 555 | 48 | 0 |
-| io | (hangs) | — | — | — |
-| kernel | (hangs) | — | — | — |
-| main | 27 | 27 | 0 | 0 |
-| marshal | 110 | -3 | 6 | 107 |
-| matchdata | 186 | 186 | 0 | 0 |
+| integer | 603 | 603 | 0 | 0 |
+| io | (timeout) | — | — | — |
+| kernel | (timeout) | — | — | — |
+| main | 27 | 21 | 4 | 2 |
+| marshal | 713 | 689 | 12 | 12 |
+| matchdata | 186 | 185 | 1 | 0 |
 | math | 243 | 243 | 0 | 0 |
-| method | 223 | 223 | 0 | 0 |
-| module | 982 | 975 | 2 | 5 |
-| mutex | (hangs) | — | — | — |
+| method | 223 | 222 | 1 | 0 |
+| module | 980 | 942 | 18 | 20 |
+| mutex | 24 | 12 | 10 | 2 |
 | nil | 27 | 27 | 0 | 0 |
 | numeric | 338 | 338 | 0 | 0 |
-| objectspace | 112 | 112 | 0 | 0 |
-| proc | 303 | 303 | 0 | 0 |
-| process | 205 | 3 | 69 | 133 |
-| queue | (hangs) | — | — | — |
-| random | 87 | 87 | 0 | 0 |
-| range | 459 | 457 | 0 | 2 |
-| rational | 159 | 156 | 3 | 0 |
-| refinement | (hangs) | — | — | — |
-| regexp | 262 | 260 | 2 | 0 |
+| objectspace | 112 | 111 | 1 | 0 |
+| proc | 302 | 299 | 3 | 0 |
+| process | (timeout) | — | — | — |
+| queue | (timeout) | — | — | — |
+| random | 87 | 82 | 2 | 3 |
+| range | 459 | 459 | 0 | 0 |
+| rational | 159 | 159 | 0 | 0 |
+| refinement | 25 | 19 | 1 | 5 |
+| regexp | 264 | 264 | 0 | 0 |
 | set | 179 | 179 | 0 | 0 |
 | signal | 52 | 5 | 36 | 11 |
-| sizedqueue | (hangs) | — | — | — |
-| string | 3976 | 3973 | 3 | 0 |
-| struct | (hangs) | — | — | — |
+| sizedqueue | (timeout) | — | — | — |
+| string | 3976 | 3974 | 1 | 1 |
+| struct | 182 | 181 | 1 | 0 |
 | symbol | 330 | 330 | 0 | 0 |
 | systemexit | 6 | 6 | 0 | 0 |
-| thread | (hangs) | — | — | — |
-| threadgroup | (hangs) | — | — | — |
-| time | 772 | 704 | 61 | 7 |
+| thread | (timeout) | — | — | — |
+| threadgroup | 8 | 0 | 1 | 7 |
+| time | 774 | 771 | 1 | 2 |
 | tracepoint | 75 | -1 | 5 | 71 |
 | true | 13 | 13 | 0 | 0 |
 | unboundmethod | 86 | 82 | 0 | 4 |
-| warning | 31 | 30 | 0 | 1 |
+| warning | 29 | 28 | 0 | 1 |

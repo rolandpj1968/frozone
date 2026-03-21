@@ -16,11 +16,12 @@ module Frozone
           raise Vm::FrozoneException.make(:TypeError, "can't define singleton for #{obj.class_object.name}")
         end
         # true/false/nil are singleton instances — their "singleton class" is their actual class
-        sc = if obj.is_a?(Vm::TrueObject) || obj.is_a?(Vm::FalseObject) || obj.is_a?(Vm::NilObject)
-               obj.class_object
-             else
-               obj.singleton_class
-             end
+        sc =
+          if obj.is_a?(Vm::TrueObject) || obj.is_a?(Vm::FalseObject) || obj.is_a?(Vm::NilObject)
+            obj.class_object
+          else
+            obj.singleton_class
+          end
 
         context.scopes << sc
         prev_visibility = sc.current_visibility

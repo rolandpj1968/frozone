@@ -17,7 +17,7 @@ module Frozone
         return val if val.is_a?(Vm::ProcObject) || val.is_a?(Vm::BlockObject)
         return val if val.is_a?(Vm::BoundMethodObject)
         # Try to_proc coercion for other objects
-        if val.respond_to?(:dispatch)
+        if val.is_a?(Vm::ObjectObject)
           has_to_proc = begin
             val.dispatch(context, :respond_to?, [Vm::SymbolObject.from(:to_proc)], {}).truthy?
           rescue
@@ -28,7 +28,7 @@ module Frozone
             return proc_val if proc_val.is_a?(Vm::ProcObject) || proc_val.is_a?(Vm::BlockObject)
             # to_proc returned a non-Proc
             val_class = val.class_object.full_name.to_s
-            ret_class = proc_val.respond_to?(:class_object) ? proc_val.class_object.name.to_s : proc_val.class.name
+            ret_class = proc_val.is_a?(Vm::ObjectObject) ? proc_val.class_object.name.to_s : proc_val.class.name
             raise Vm::FrozoneException.make(:TypeError, "can't convert #{val_class} into Proc (#{val_class}#to_proc gives #{ret_class})")
           end
         end

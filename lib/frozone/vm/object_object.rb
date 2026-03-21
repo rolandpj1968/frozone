@@ -50,11 +50,12 @@ module Frozone
             else
               @class_object
             end
-          @eigenclass = ClassObject.new(nil, nil, sc_superclass)
-          @eigenclass.is_singleton_class = true
-          @eigenclass.singleton_of = self
-          # Propagate frozen state to newly-created singleton class
-          @eigenclass.freeze_object! if @frozen_object
+          @eigenclass = ClassObject.new(nil, nil, sc_superclass).tap do |sc|
+            sc.is_singleton_class = true
+            sc.singleton_of = self
+            # Propagate frozen state to newly-created singleton class
+            sc.freeze_object! if @frozen_object
+          end
         end
         @eigenclass
       end
@@ -147,11 +148,12 @@ module Frozone
         # prioritizes: singleton class > (refinement for each ancestor, then ancestor's own methods).
         # Otherwise, use the standard lookup.
         active_refinements = context&.frame&.active_refinements
-        method = if active_refinements && !active_refinements.empty?
-                   lookup_method_with_refinements(name, active_refinements)
-                 else
-                   lookup_instance_method(name)
-                 end
+        method =
+          if active_refinements && !active_refinements.empty?
+            lookup_method_with_refinements(name, active_refinements)
+          else
+            lookup_instance_method(name)
+          end
 
         prev_violation = Fiber[:mm_visibility_violation]
         unless method.nil? || method == ModuleObject::UNDEF_SENTINEL

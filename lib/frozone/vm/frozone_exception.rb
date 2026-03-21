@@ -18,6 +18,8 @@ module Frozone
         # Support "Errno__ENOENT" style names as namespace separators (Errno::ENOENT)
         parts = class_name.to_s.split('__').map(&:to_sym)
         exc_class = parts.reduce(Core::OBJECT_CLASS) { |scope, const| scope&.get_constant(const) }
+        # NOTE: tap would be awkward here — exc_obj is used as an argument to new(), not returned,
+        # and the conditional set_ivar guards make the block body non-trivial.
         exc_obj = exc_class ? ObjectObject.new(exc_class) : NilObject::NIL
         unless exc_obj.is_a?(NilObject)
           exc_obj.set_ivar(:@message, StringObject.new(message))
@@ -36,9 +38,7 @@ module Frozone
         exc_class = parts.reduce(Core::OBJECT_CLASS) { |scope, const| scope&.get_constant(const) }
         exc_class ||= Core::OBJECT_CLASS.get_constant(:RuntimeError)
         return NilObject::NIL unless exc_class
-        exc_obj = ObjectObject.new(exc_class)
-        exc_obj.set_ivar(:@message, StringObject.new(e.message))
-        exc_obj
+        ObjectObject.new(exc_class).tap { |exc_obj| exc_obj.set_ivar(:@message, StringObject.new(e.message)) }
       end
     end
   end

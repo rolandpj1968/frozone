@@ -25,10 +25,12 @@ module Frozone
       def evaluate(context)
         source = @parts.map do |p|
           val = p.evaluate(context)
-          if val.respond_to?(:raw)
+          if val.is_a?(Vm::StringObject)
             val.raw.to_s
           else
             str_result = val.dispatch(context, :to_s, [], {})
+            # NOTE: respond_to?(:raw) here covers all raw-bearing VM types (Integer, Symbol, etc.)
+            # returned from to_s; no shared superclass, so duck-typing is appropriate.
             str_result.respond_to?(:raw) ? str_result.raw.to_s : val.inspect
           end
         end.join

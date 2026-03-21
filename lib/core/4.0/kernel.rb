@@ -2,13 +2,22 @@ module Kernel
   def puts(*args) = Intrinsics.kernel_puts(self, args)
   def print(*args) = Intrinsics.kernel_print(self, args)
   def warn(*args, category: nil, uplevel: nil)
+    return nil if $VERBOSE.nil?
     return nil if args.empty?
     category = category.to_sym if category.is_a?(String)
     return nil if category && !Warning[category]
     args.each do |msg|
-      str = msg.to_s
-      str += "\n" unless str.end_with?("\n")
-      Warning.warn(str, category: category)
+      if msg.is_a?(Array)
+        msg.each do |m|
+          str = m.to_s
+          str += "\n" unless str.end_with?("\n")
+          begin; Warning.warn(str, category: category); rescue ArgumentError; Warning.warn(str); end
+        end
+      else
+        str = msg.to_s
+        str += "\n" unless str.end_with?("\n")
+        begin; Warning.warn(str, category: category); rescue ArgumentError; Warning.warn(str); end
+      end
     end
     nil
   end
@@ -32,8 +41,13 @@ module Kernel
   def eval(code, binding = nil, file = nil, line = nil) = Intrinsics.kernel_eval(self, code, binding, file, line)
   def binding = Intrinsics.kernel_binding(self)
 
-  def sprintf(fmt, *args) = fmt % args
-  def format(fmt, *args) = fmt % args
+  def sprintf(fmt, *args)
+    fmt = fmt.to_str if !fmt.is_a?(String) && fmt.respond_to?(:to_str)
+    raise TypeError, "no implicit conversion of #{fmt.class} into String" unless fmt.is_a?(String)
+    fmt % args
+  end
+
+  def format(fmt, *args) = sprintf(fmt, *args)
 
   def Integer(val, base = 0, exception: true) = Intrinsics.kernel_integer(self, val, base, exception)
   def Float(val) = Intrinsics.kernel_float(self, val)
@@ -44,6 +58,30 @@ module Kernel
 
   def catch(tag = nil, &block) = Intrinsics.kernel_catch(self, tag || :__catch_anon__, block)
   def throw(tag, value = nil) = Intrinsics.kernel_throw(self, tag, value)
+
+  def open(name, *rest, **kw, &block)
+    if name.respond_to?(:to_open)
+      result = name.to_open(*rest, **kw)
+      block ? block.call(result) : result
+    else
+      if rest.length > 2
+        raise ArgumentError, "wrong number of arguments (given #{1 + rest.length}, expected 1..3)"
+      end
+      name = if name.respond_to?(:to_path)
+               name.to_path
+             elsif name.respond_to?(:to_str)
+               name.to_str
+             elsif name.is_a?(String)
+               name
+             else
+               raise TypeError, "no implicit conversion of #{name.class} into String"
+             end
+      mode = rest[0]
+      perm = rest[1] || 0o666
+      File.open(name, mode || 'r', perm, **kw, &block)
+    end
+  end
+  private :open
 
   def at_exit(&block) = nil  # stub: at_exit blocks not executed in frozone
   def abort(msg = nil) = Intrinsics.kernel_abort(self, msg)
@@ -105,6 +143,10 @@ module Kernel
   end
   private :respond_to_missing?
 
+  def method(name) = Intrinsics.object_method(self, name)
+  def public_method(name) = Intrinsics.object_public_method(self, name)
+  def singleton_method(name) = Intrinsics.object_singleton_method(self, name)
+
   # Make these available as module functions: private instance methods AND public Kernel.method calls
   def autoload(name, path)
     # At the top level, autoload registers on Object (same as Module#autoload called on Object)
@@ -119,5 +161,5 @@ module Kernel
                   :Integer, :Float, :String, :Array,
                   :loop, :catch, :throw, :abort, :exit, :exit!, :sleep, :system,
                   :block_given?, :at_exit, :caller, :caller_locations, :__method__,
-                  :local_variables, :rand, :srand
+                  :local_variables, :rand, :srand, :open
 end

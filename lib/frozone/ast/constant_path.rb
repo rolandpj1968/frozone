@@ -24,7 +24,7 @@ module Frozone
 
       def defined_check?(context)
         # Avoid const_missing when checking parent — use defined_check? if available.
-        if @parent_node.respond_to?(:defined_check?)
+        if @parent_node.is_a?(ConstantPath) || @parent_node.is_a?(ConstantRead)
           return false unless @parent_node.defined_check?(context)
         end
         parent = @parent_node.evaluate(context)
@@ -65,7 +65,7 @@ module Frozone
         # Check privacy in the defining module — dispatch const_missing (gives user-defined
         # const_missing a chance to handle it); the default raises NameError.
         if owner&.constant_private?(@name)
-          owner_name = owner.respond_to?(:name) ? owner.name : nil
+          owner_name = owner.is_a?(Vm::ModuleObject) ? owner.name : nil
           label = owner_name ? "#{owner_name}::#{@name}" : @name.to_s
           begin
             return parent.dispatch(context, :const_missing, [Vm::SymbolObject.from(@name)], {}, nil, private_ok: true)
@@ -80,8 +80,7 @@ module Frozone
                 klass = klass.superclass
               end
               if is_name_error
-                exc = Vm::FrozoneException.make(:NameError, "private constant #{label} referenced", name: @name, receiver: owner)
-                raise exc
+                raise Vm::FrozoneException.make(:NameError, "private constant #{label} referenced", name: @name, receiver: owner)
               end
             end
             raise

@@ -36,19 +36,17 @@ module Frozone
       # Create a singleton-class copy of original_sc, owned by new_owner.
       # Used by dup/clone implementations to copy singleton-class state.
       def self.clone_singleton(original_sc, new_owner)
-        sc = new(nil, nil, original_sc.superclass)
-        sc.is_singleton_class = true
-        sc.singleton_of = new_owner
-        sc.methods_table.replace(original_sc.methods_table.dup)
-        sc.constants_table.replace(original_sc.constants_table.dup)
-        original_sc.modules.reverse_each { |mod| sc.add_module(mod) }
-        sc
+        new(nil, nil, original_sc.superclass).tap do |sc|
+          sc.is_singleton_class = true
+          sc.singleton_of = new_owner
+          sc.methods_table.replace(original_sc.methods_table.dup)
+          sc.constants_table.replace(original_sc.constants_table.dup)
+          original_sc.modules.reverse_each { |mod| sc.add_module(mod) }
+        end
       end
 
       def new_instance(context, args, kwargs, block = nil)
-        o = allocate_instance
-        o.dispatch(context, :initialize, args, kwargs, block, private_ok: true)
-        o
+        allocate_instance.tap { |o| o.dispatch(context, :initialize, args, kwargs, block, private_ok: true) }
       end
 
       def allocate_instance

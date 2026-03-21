@@ -5,10 +5,25 @@ module Frozone
     module Intrinsics
       class << self
         # Kernel (on Object for now)
-        def process_status_exitstatus(_, obj) = IntegerObject.new(obj.native_status.exitstatus || 0)
-        def process_status_pid(_, obj) = IntegerObject.new(obj.native_status.pid || 0)
+        def process_status_exitstatus(_, obj) = n2f_int(obj.native_status.exitstatus || 0)
+        def process_status_pid(_, obj) = n2f_int(obj.native_status.pid || 0)
+        def process_status_termsig(_, obj) = (sig = obj.native_status.termsig; sig ? n2f_int(sig) : FNIL)
         def emit_vm_warning(context, msg) = Frozone::Vm.emit_warning(context, msg)
         def kernel_rand(context, _receiver, n) = random_rand(context, nil, n)
+        def signal_trap(_, _signal, _block_arg = FNIL) = FNIL
+        def basic_object___id__(_, v) = n2f_int(v.__id__)
+        def basic_object__equal_equal_(_, v1, v2) = n2f_bool(v1.equal?(v2))
+        def kernel_float(_, _receiver, val) = n2f_float(ffloat?(val) ? val.raw : Float(val.raw))
+        def env_get(_, key) = (v = ENV[key.raw]) ? n2f_str(v) : FNIL
+        def env_set(_, key, val) = (ENV[key.raw] = f2n_raw(val); val)
+        def env_delete(_, key) = (v = ENV.delete(key.raw)) ? n2f_str(v) : FNIL
+        def env_key?(_, key) = n2f_bool(ENV.key?(key.raw))
+        def env_keys(_) = n2f_arr(ENV.keys.map { |k| n2f_str(k) })
+        def env_values(_) = n2f_arr(ENV.values.map { |v| n2f_str(v) })
+        def env_size(_) = n2f_int(ENV.size)
+        def env_clear(_) = (ENV.clear; FNIL)
+        def env_pairs(_) = n2f_arr(ENV.map { |k, v| n2f_arr([n2f_str(k), n2f_str(v)]) })
+        def env_to_hash(_) = n2f_hash(ENV.to_h { |k, v| [n2f_str(k), n2f_str(v)] })
 
         def kernel_puts(context, _receiver, args)
           if args.raw.empty?
@@ -16,12 +31,12 @@ module Frozone
           else
             args.raw.each { |a| $stdout.puts(a.dispatch(context, :to_s, [], {}).raw) }
           end
-          NilObject::NIL
+          FNIL
         end
 
         def kernel_print(context, _receiver, args)
           args.raw.each { |a| $stdout.print(a.dispatch(context, :to_s, [], {}).raw) }
-          NilObject::NIL
+          FNIL
         end
 
         def kernel_warn(context, _receiver, args)
@@ -32,38 +47,38 @@ module Frozone
           else
             stderr_vm.dispatch(context, :puts, strs, {})
           end
-          NilObject::NIL
+          FNIL
         end
 
         # Emit a verbose-only warning (e.g. "given block not used") with the caller's call-site.
         # Uses the incoming_call_site of the current frame (where the Ruby method was called from).
         # Output format: "file:line: warning: msg"
         def kernel_verbose_warn(context, _receiver, msg_obj)
-          verbose = GLOBALS.fetch(:"$VERBOSE", FalseObject::FALSE).truthy?
-          return NilObject::NIL unless verbose
-          msg = msg_obj.is_a?(StringObject) ? msg_obj.raw : msg_obj.dispatch(context, :to_s, [], {}).raw
+          verbose = GLOBALS.fetch(:"$VERBOSE", FFALSE).truthy?
+          return FNIL unless verbose
+          msg = fstr?(msg_obj) ? msg_obj.raw : msg_obj.dispatch(context, :to_s, [], {}).raw
           location = context.frame&.incoming_call_site
           Frozone::Vm.emit_warning(context, msg, location: location)
-          NilObject::NIL
+          FNIL
         end
 
         # Emit an unconditional warning with the caller's call-site (for deprecation warnings).
         # Output format: "file:line: warning: msg"
         def kernel_deprecation_warn(context, _receiver, msg_obj)
-          msg = msg_obj.is_a?(StringObject) ? msg_obj.raw : msg_obj.dispatch(context, :to_s, [], {}).raw
+          msg = fstr?(msg_obj) ? msg_obj.raw : msg_obj.dispatch(context, :to_s, [], {}).raw
           location = context.frame&.incoming_call_site
           Frozone::Vm.emit_warning(context, msg, location: location)
-          NilObject::NIL
+          FNIL
         end
 
-        def kernel_raise(context, _receiver, msg = NilObject::NIL, message_arg = NilObject::NIL, backtrace_arg = NilObject::NIL, cause_arg = NilObject::NIL)
+        def kernel_raise(context, _receiver, msg = FNIL, message_arg = FNIL, backtrace_arg = FNIL, cause_arg = FNIL)
           current_exc = GLOBALS[:"$!"]
-          no_cause_sentinel = cause_arg.is_a?(SymbolObject) && cause_arg.raw == :__raise_no_cause__
+          no_cause_sentinel = fsym?(cause_arg) && cause_arg.raw == :__raise_no_cause__
           cause_was_given  = !no_cause_sentinel  # true if cause: was explicitly passed (even as nil)
-          explicit_cause   = cause_was_given && !cause_arg.is_a?(NilObject)
+          explicit_cause   = cause_was_given && !fnil?(cause_arg)
 
           # Distinguish bare `raise` (no args → :__raise_no_arg__ sentinel) from `raise(nil)` (explicit nil → TypeError)
-          no_arg_sentinel = msg.is_a?(SymbolObject) && msg.raw == :__raise_no_arg__
+          no_arg_sentinel = fsym?(msg) && msg.raw == :__raise_no_arg__
 
           # ArgumentError: only cause: given (even nil) with no positional args
           raise FrozoneException.make(:ArgumentError, "only cause is given with no arguments") if no_arg_sentinel && cause_was_given
@@ -74,8 +89,8 @@ module Frozone
           end
 
           cause = if no_cause_sentinel
-                    (current_exc && !current_exc.is_a?(NilObject)) ? current_exc : nil
-                  elsif cause_arg.is_a?(NilObject)
+                    (current_exc && !fnil?(current_exc)) ? current_exc : nil
+                  elsif fnil?(cause_arg)
                     nil
                   else
                     cause_arg
@@ -85,21 +100,21 @@ module Frozone
             reraise_current_or_runtime(cause, context)
           elsif msg.is_a?(ClassObject) || msg.is_a?(ModuleObject)
             raise_from_exception_class(context, msg, message_arg, backtrace_arg, cause)
-          elsif msg.is_a?(StringObject) && message_arg.is_a?(NilObject)
+          elsif fstr?(msg) && fnil?(message_arg)
             raise_from_string(context, msg, backtrace_arg, cause)
           else
             raise_from_exception_protocol(context, msg, message_arg, backtrace_arg, cause)
           end
         end
 
-        def kernel_caller_locations(context, _receiver, start_obj = NilObject::NIL, length_obj = NilObject::NIL)
-          start  = start_obj.is_a?(IntegerObject)  ? start_obj.raw : 1
-          length = length_obj.is_a?(IntegerObject) ? length_obj.raw : nil
+        def kernel_caller_locations(context, _receiver, start_obj = FNIL, length_obj = FNIL)
+          start  = fint?(start_obj)  ? start_obj.raw : 1
+          length = fint?(length_obj) ? length_obj.raw : nil
           frames = collect_caller_frames(context, :caller_locations)
 
           location_class = Core::OBJECT_CLASS.get_constant(:Thread)&.get_constant(:Backtrace)&.get_constant(:Location)
           entries = frames.map do |call_site, meth|
-            str_obj = StringObject.new("#{call_site}:in '#{meth}'", frozen: true)
+            str_obj = n2f_str("#{call_site}:in '#{meth}'", frozen: true)
             if location_class
               location_class.dispatch(context, :_from_string, [str_obj], {}, nil, private_ok: true)
             else
@@ -108,29 +123,24 @@ module Frozone
           end
 
           sliced = length ? entries[start, length] : entries[start..]
-          ArrayObject.new(sliced || [])
+          n2f_arr(sliced || [])
         end
 
         # Build the Ruby caller() array from the current frame stack.
         # `start` — how many logical entries to skip (0 = include the frame that called caller)
         # `length` — max entries to return (nil = all)
-        def kernel_caller(context, _receiver, start_obj = NilObject::NIL, length_obj = NilObject::NIL)
-          start  = start_obj.is_a?(IntegerObject)  ? start_obj.raw : 1
-          length = length_obj.is_a?(IntegerObject) ? length_obj.raw : nil
+        def kernel_caller(context, _receiver, start_obj = FNIL, length_obj = FNIL)
+          start  = fint?(start_obj)  ? start_obj.raw : 1
+          length = fint?(length_obj) ? length_obj.raw : nil
           frames = collect_caller_frames(context, :caller)
 
           entries = frames.map do |call_site, meth|
-            StringObject.new("#{call_site}:in '#{meth}'", frozen: true)
+            n2f_str("#{call_site}:in '#{meth}'", frozen: true)
           end
 
           # Apply start offset and length
           sliced = length ? entries[start, length] : entries[start..]
-          ArrayObject.new(sliced || [])
-        end
-
-        def signal_trap(context, signal, block_arg = NilObject::NIL)
-          # Stub: signal trapping not fully implemented
-          NilObject::NIL
+          n2f_arr(sliced || [])
         end
 
         def kernel_p(context, _receiver, args)
@@ -149,16 +159,16 @@ module Frozone
           i = frames.length - 2
           while i >= 0
             mf = frames[i].method_frame
-            return NilObject::NIL unless mf
+            return FNIL unless mf
             m = mf.current_method
-            return NilObject::NIL unless m
+            return FNIL unless m
             callee = mf.callee_name
             unless callee && SEND_TRANSPARENT_CALLEE_NAMES.include?(callee)
-              return SymbolObject.from(m.name)
+              return n2f_sym(m.name)
             end
             i -= 1
           end
-          NilObject::NIL
+          FNIL
         end
 
         def kernel__callee__(context, _receiver)
@@ -168,16 +178,16 @@ module Frozone
           i = frames.length - 2
           while i >= 0
             mf = frames[i].method_frame
-            return NilObject::NIL unless mf
+            return FNIL unless mf
             cn = mf.callee_name
             break unless cn && SEND_TRANSPARENT_CALLEE_NAMES.include?(cn)
             i -= 1
           end
-          return NilObject::NIL if i < 0
+          return FNIL if i < 0
           mf = frames[i].method_frame
-          return NilObject::NIL unless mf
+          return FNIL unless mf
           cn = mf.callee_name
-          cn ? SymbolObject.from(cn) : NilObject::NIL
+          cn ? n2f_sym(cn) : FNIL
         end
 
         def kernel_block_given(context, _receiver)
@@ -186,29 +196,29 @@ module Frozone
           frames = context.frames
           caller_frame = frames.length >= 2 ? frames[-2] : nil
           b = caller_frame&.block
-          n2f_bool(!b.nil? && !b.is_a?(NilObject))
+          n2f_bool(!b.nil? && !fnil?(b))
         end
 
         def kernel_loop(context, _receiver, block)
-          return NilObject::NIL if block.is_a?(NilObject)
+          return FNIL if fnil?(block)
           loop do
             block.invoke(context, [])
           rescue Ast::BreakException => e
             return e.value
           end
-          NilObject::NIL
+          FNIL
         end
 
         def kernel_catch(context, _receiver, tag, block)
-          tag_raw = tag.is_a?(NilObject) ? :__catch_nil__ : tag.respond_to?(:raw) ? tag.raw : tag
-          return NilObject::NIL if block.is_a?(NilObject)
+          tag_raw = fnil?(tag) ? :__catch_nil__ : tag.respond_to?(:raw) ? tag.raw : tag
+          return FNIL if fnil?(block)
           result = catch(tag_raw) { block.invoke(context, [tag]) }
-          result.is_a?(ObjectObject) ? result : NilObject::NIL
+          result.is_a?(ObjectObject) ? result : FNIL
         end
 
-        def kernel_throw(_, _receiver, tag, value = NilObject::NIL)
+        def kernel_throw(_, _receiver, tag, value = FNIL)
           # In Ruby, throw with a String tag raises ArgumentError
-          if tag.is_a?(StringObject)
+          if fstr?(tag)
             raise FrozoneException.make(:ArgumentError, "no implicit conversion of String into Symbol")
           end
           tag_raw = tag.respond_to?(:raw) ? tag.raw : tag
@@ -228,48 +238,39 @@ module Frozone
           result = `#{cmd_obj.raw}`
           GLOBALS[:"$?"] = ProcessStatusObject.new($?)
           filtered = result.lines.reject { |l| BUNDLER_NOISE_RE.match?(l) }.join
-          StringObject.new(filtered)
-        end
-
-        def process_status_termsig(_, obj)
-          sig = obj.native_status.termsig
-          sig ? IntegerObject.new(sig) : NilObject::NIL
+          n2f_str(filtered)
         end
 
         def kernel_abort(context, _receiver, msg)
-          m = msg.is_a?(NilObject) ? nil : msg.dispatch(context, :to_s, [], {}).raw
+          m = fnil?(msg) ? nil : msg.dispatch(context, :to_s, [], {}).raw
           $stderr.puts(m) if m
           exit(1)
         end
 
         def kernel_exit(_, _receiver, code)
-          status = code.is_a?(TrueObject) ? 0 : code.is_a?(FalseObject) ? 1 : code.is_a?(IntegerObject) ? code.raw : 0
+          status = ftrue?(code) ? 0 : ffalse?(code) ? 1 : fint?(code) ? code.raw : 0
           exc_class = Core::OBJECT_CLASS.get_constant(:SystemExit)
           exc_obj = ObjectObject.new(exc_class)
-          exc_obj.set_ivar(:@status, IntegerObject.new(status))
-          exc_obj.set_ivar(:@message, StringObject.new("exit"))
+          exc_obj.set_ivar(:@status, n2f_int(status))
+          exc_obj.set_ivar(:@message, n2f_str("exit"))
           raise FrozoneException.new(exc_obj, "exit")
         end
 
         def kernel_srand(_, _receiver, seed)
           raw = f2n_raw(seed)
           result = raw.nil? ? srand : srand(raw)
-          IntegerObject.new(result)
+          n2f_int(result)
         end
 
         def kernel_local_variables(context, _receiver)
           # local_variables is called from a kernel method frame; the caller's frame has the actual locals
           caller_frame = context.frames[-2] || context.frame
-          names = caller_frame.local_names.map { |n| SymbolObject.from(n) }
-          ArrayObject.new(names)
+          names = caller_frame.local_names.map { |n| n2f_sym(n) }
+          n2f_arr(names)
         end
 
-        # BasicObject
-        def basic_object___id__(_, v) = IntegerObject.new(v.__id__)
-        def basic_object__equal_equal_(_, v1, v2) = n2f_bool(v1.equal?(v2))
-
         def basic_object_method_missing(context, receiver, name, args, kwargs)
-          name_sym = name.is_a?(SymbolObject) ? name.raw : name
+          name_sym = fsym?(name) ? name.raw : name
           receiver_desc = no_method_receiver_desc(receiver)
           violation = Fiber[:mm_visibility_violation]
           Fiber[:mm_visibility_violation] = nil
@@ -277,25 +278,25 @@ module Frozone
                   vis_word = violation[0] == :private ? "private" : "protected"
                   class_name = violation[2]
                   e = FrozoneException.make(:NoMethodError, "#{vis_word} method '#{name_sym}' called for an instance of #{class_name}", name: name_sym, receiver: receiver)
-                  e.vm_object.set_ivar(:@args, args.is_a?(ArrayObject) ? args : ArrayObject.new([]))
+                  e.vm_object.set_ivar(:@args, farray?(args) ? args : n2f_arr([]))
                   e
                 elsif Fiber[:mm_implicit_self]
                   class_name = receiver.class_object.name
                   FrozoneException.make(:NameError, "undefined local variable or method '#{name_sym}' for an instance of #{class_name}", name: name_sym, receiver: receiver)
                 else
                   e = FrozoneException.make(:NoMethodError, "undefined method '#{name_sym}' for #{receiver_desc}", name: name_sym, receiver: receiver)
-                  e.vm_object.set_ivar(:@args, args.is_a?(ArrayObject) ? args : ArrayObject.new([]))
+                  e.vm_object.set_ivar(:@args, farray?(args) ? args : n2f_arr([]))
                   e
                 end
           set_exc_backtrace(exc.vm_object, context)
           raise exc
         end
 
-        def basic_object___send__(context, receiver, name, args, kwargs, block_arg = NilObject::NIL)
+        def basic_object___send__(context, receiver, name, args, kwargs, block_arg = FNIL)
           method_name = send_method_name(name)
-          raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
+          raw_kwargs = kwargs.raw.transform_keys { |k| fsym?(k) ? k.raw : k }
           block_obj = block_arg.is_a?(ProcObject) ? block_arg.block_object : block_arg
-          block_obj = nil if block_obj.is_a?(NilObject)
+          block_obj = nil if fnil?(block_obj)
           # Propagate caller's active refinements: send/public_send honor refinements
           # active at the call site (the frame that invoked send, which is our parent frame).
           frame = context.frame
@@ -309,11 +310,11 @@ module Frozone
           end
         end
 
-        def object_public_send(context, receiver, name, args, kwargs, block_arg = NilObject::NIL)
+        def object_public_send(context, receiver, name, args, kwargs, block_arg = FNIL)
           method_name = send_method_name(name)
-          raw_kwargs = kwargs.raw.transform_keys { |k| k.is_a?(SymbolObject) ? k.raw : k }
+          raw_kwargs = kwargs.raw.transform_keys { |k| fsym?(k) ? k.raw : k }
           block_obj = block_arg.is_a?(ProcObject) ? block_arg.block_object : block_arg
-          block_obj = nil if block_obj.is_a?(NilObject)
+          block_obj = nil if fnil?(block_obj)
           # Propagate caller's active refinements: send/public_send honor refinements
           # active at the call site (the frame that invoked send, which is our parent frame).
           frame = context.frame
@@ -328,18 +329,6 @@ module Frozone
         end
 
         # Kernel require/load
-        def kernel_float(_, _receiver, val) = FloatObject.new(val.is_a?(FloatObject) ? val.raw : Float(val.raw))
-        def env_get(_, key) = (v = ENV[key.raw]) ? StringObject.new(v) : NilObject::NIL
-        def env_set(_, key, val) = (ENV[key.raw] = f2n_raw(val); val)
-        def env_delete(_, key) = (v = ENV.delete(key.raw)) ? StringObject.new(v) : NilObject::NIL
-        def env_key?(_, key) = n2f_bool(ENV.key?(key.raw))
-        def env_keys(_) = ArrayObject.new(ENV.keys.map { |k| StringObject.new(k) })
-        def env_values(_) = ArrayObject.new(ENV.values.map { |v| StringObject.new(v) })
-        def env_size(_) = IntegerObject.new(ENV.size)
-        def env_clear(_) = (ENV.clear; NilObject::NIL)
-        def env_pairs(_) = ArrayObject.new(ENV.map { |k, v| ArrayObject.new([StringObject.new(k), StringObject.new(v)]) })
-        def env_to_hash(_) = HashObject.new(ENV.to_h { |k, v| [StringObject.new(k), StringObject.new(v)] })
-
         def kernel_require(_, _receiver, path_obj)
           path = path_obj.raw
           loaded = GLOBALS[:"$LOADED_FEATURES"]
@@ -347,11 +336,11 @@ module Frozone
           full_path = resolve_load_path(path)
           if full_path.nil?
             exc = FrozoneException.make(:LoadError, "cannot load such file -- #{path}")
-            exc.vm_object.set_ivar(:@path, StringObject.new(path))
+            exc.vm_object.set_ivar(:@path, n2f_str(path))
             raise exc
           end
-          return FalseObject::FALSE if loaded_paths.include?(full_path)
-          loaded.push(StringObject.new(full_path))
+          return FFALSE if loaded_paths.include?(full_path)
+          loaded.push(n2f_str(full_path))
           begin
             Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
           rescue Ast::ReturnException
@@ -361,31 +350,31 @@ module Frozone
             loaded.raw.delete_if { |s| s.raw == full_path }
             raise
           end
-          TrueObject::TRUE
+          FTRUE
         end
 
-        def kernel_integer(context, _receiver, val, base, exception = NilObject::NIL)
-          exc = exception.is_a?(NilObject) || exception.truthy?
-          b = base.respond_to?(:raw) ? base.raw : 0
-          if val.is_a?(IntegerObject)
+        def kernel_integer(context, _receiver, val, base, exception = FNIL)
+          exc = fnil?(exception) || exception.truthy?
+          b = fobj?(base) ? base.raw : 0
+          if fint?(val)
             return val
-          elsif val.is_a?(FloatObject)
+          elsif ffloat?(val)
             begin
-              return IntegerObject.new(Integer(val.raw))
+              return n2f_int(Integer(val.raw))
             rescue ::TypeError => e
               raise FrozoneException.make(:TypeError, e.message) if exc
-              return NilObject::NIL
+              return FNIL
             end
-          elsif val.is_a?(StringObject)
+          elsif fstr?(val)
             begin
-              return IntegerObject.new(Integer(val.raw, b))
+              return n2f_int(Integer(val.raw, b))
             rescue ::ArgumentError => e
               raise FrozoneException.make(:ArgumentError, e.message) if exc
-              return NilObject::NIL
+              return FNIL
             end
-          elsif val.is_a?(NilObject)
+          elsif fnil?(val)
             raise FrozoneException.make(:TypeError, "can't convert nil into Integer") if exc
-            return NilObject::NIL
+            return FNIL
           else
             # Object with to_int or to_i
             begin
@@ -395,20 +384,20 @@ module Frozone
               return val.dispatch(context, :to_i, [], {})
             rescue FrozoneException
               raise if exc
-              return NilObject::NIL
+              return FNIL
             end
           end
         end
 
         def kernel_array(_, _receiver, val)
-          return val if val.is_a?(ArrayObject)
-          return NilObject::NIL.equal?(val) ? ArrayObject.new([]) : ArrayObject.new([val])
+          return val if farray?(val)
+          return FNIL.equal?(val) ? n2f_arr([]) : n2f_arr([val])
         end
 
         def kernel_dir(_, _receiver)
           stack = Fiber[:file_stack]
-          return NilObject::NIL if stack.nil? || stack.empty?
-          StringObject.new(File.dirname(stack.last))
+          return FNIL if stack.nil? || stack.empty?
+          n2f_str(File.dirname(stack.last))
         end
 
         def kernel_require_relative(_, _receiver, path_obj)
@@ -419,21 +408,21 @@ module Frozone
           full_path += '.rb' unless full_path.end_with?('.rb')
           loaded = GLOBALS[:"$LOADED_FEATURES"]
           loaded_paths = loaded.raw.map(&:raw)
-          return FalseObject::FALSE if loaded_paths.include?(full_path)
-          loaded.push(StringObject.new(full_path))
+          return FFALSE if loaded_paths.include?(full_path)
+          loaded.push(n2f_str(full_path))
           Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
-          TrueObject::TRUE
+          FTRUE
         end
 
-        def kernel_load(_, _receiver, path_obj, wrap_obj = NilObject::NIL)
+        def kernel_load(_, _receiver, path_obj, wrap_obj = FNIL)
           path = path_obj.raw
           full_path = File.exist?(path) ? path : resolve_load_path(path)
           if full_path.nil?
             exc = FrozoneException.make(:LoadError, "cannot load such file -- #{path}")
-            exc.vm_object.set_ivar(:@path, StringObject.new(path))
+            exc.vm_object.set_ivar(:@path, n2f_str(path))
             raise exc
           end
-          wrap = wrap_obj && !wrap_obj.is_a?(NilObject) && !wrap_obj.is_a?(FalseObject)
+          wrap = wrap_obj && !fnil?(wrap_obj) && !ffalse?(wrap_obj)
           prev_wrap_mod = Fiber[:load_wrap_module]
           if wrap
             wrap_mod = ModuleObject.new(nil, nil)
@@ -446,7 +435,7 @@ module Frozone
           ensure
             Fiber[:load_wrap_module] = prev_wrap_mod if wrap
           end
-          TrueObject::TRUE
+          FTRUE
         end
 
         def kernel_binding(context, _receiver)
@@ -457,11 +446,11 @@ module Frozone
           BindingObject.new(captured_frame, binding_call_site)
         end
 
-        def kernel_eval(context, _receiver, code_obj, binding_arg = NilObject::NIL, filename_arg = NilObject::NIL, lineno_arg = NilObject::NIL)
-          return NilObject::NIL unless code_obj.is_a?(StringObject)
+        def kernel_eval(context, _receiver, code_obj, binding_arg = FNIL, filename_arg = FNIL, lineno_arg = FNIL)
+          return FNIL unless fstr?(code_obj)
           code = code_obj.raw
-          eval_filename = filename_arg.is_a?(StringObject) ? filename_arg.raw : nil
-          eval_lineno = lineno_arg.is_a?(IntegerObject) ? lineno_arg.raw : nil
+          eval_filename = f2n_raw(filename_arg)
+          eval_lineno = fint?(lineno_arg) ? lineno_arg.raw : nil
           # If a BindingObject is passed, use its captured frame; otherwise use the caller's frame.
           binding_frame = if binding_arg.is_a?(BindingObject)
                             binding_arg.captured_frame
@@ -492,12 +481,12 @@ module Frozone
           begin
             ast = parser.ast(raise_syntax_errors: true)
           rescue FrozoneException => e
-            e.vm_object.set_ivar(:@path, StringObject.new(eval_filename)) if eval_filename
+            e.vm_object.set_ivar(:@path, n2f_str(eval_filename)) if eval_filename
             raise
           end
           # Emit Prism warnings: always-level (e.g. integer_in_flip_flop) and verbose-level when $VERBOSE
           parser.prism_always_warnings.each { |msg| Frozone::Vm.emit_warning(context, msg) }
-          if GLOBALS.fetch(:"$VERBOSE", FalseObject::FALSE).truthy?
+          if GLOBALS.fetch(:"$VERBOSE", FFALSE).truthy?
             parser.prism_verbose_warnings.each { |msg| Frozone::Vm.emit_warning(context, msg) }
           end
           # Create eval frame using binding_frame's self/scopes (not the eval method frame),
@@ -591,7 +580,7 @@ module Frozone
 
         # `raise SomeClass[, "message"]` — call SomeClass.exception(message) to build instance.
         def raise_from_exception_class(context, klass, message_arg, backtrace_arg, cause)
-          exc_obj = if message_arg && !message_arg.is_a?(NilObject)
+          exc_obj = if message_arg && !fnil?(message_arg)
                       klass.dispatch(context, :exception, [message_arg], {})
                     else
                       klass.dispatch(context, :exception, [], {})
@@ -619,7 +608,7 @@ module Frozone
 
         # `raise exception_object` — use the #exception protocol.
         def raise_from_exception_protocol(context, msg, message_arg, backtrace_arg, cause)
-          has_message_arg = !message_arg.is_a?(NilObject)
+          has_message_arg = !fnil?(message_arg)
           exc_obj = begin
             msg.dispatch(context, :exception, has_message_arg ? [message_arg] : [], {})
           rescue FrozoneException => _e
@@ -639,7 +628,7 @@ module Frozone
           rescue
             nil
           end
-          msg_str = msg_str.is_a?(StringObject) ? msg_str.raw : "exception"
+          msg_str = fstr?(msg_str) ? msg_str.raw : "exception"
           effective_cause = (cause && !cause.equal?(exc_obj)) ? cause : nil
           validate_cause(effective_cause, exc_obj)
           exc_obj.set_ivar(:@cause, effective_cause) if effective_cause && exc_obj.is_a?(ObjectObject)

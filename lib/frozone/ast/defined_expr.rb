@@ -27,7 +27,7 @@ module Frozone
                  when :constant
                    # @extra is the AST node to evaluate the constant lookup.
                    # Use defined_check? if available to avoid triggering const_missing.
-                   if @extra.respond_to?(:defined_check?)
+                   if @extra.is_a?(ConstantRead) || @extra.is_a?(ConstantPath)
                      @extra.defined_check?(context) ? "constant" : nil
                    else
                      begin

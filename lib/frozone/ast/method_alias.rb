@@ -36,7 +36,7 @@ module Frozone
           end
         end
         if method.nil?
-          clazz_name = clazz.respond_to?(:name) ? clazz.name : nil
+          clazz_name = clazz.is_a?(Vm::ModuleObject) ? clazz.name : nil
           raise Vm::FrozoneException.make(:NameError, "undefined method '#{old_name}' for class '#{clazz_name}'")
         end
         clazz.set_method(new_name, method.alias_as(new_name))
