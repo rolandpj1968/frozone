@@ -37,9 +37,16 @@ module Frozone
         def file_readlink(_, path) = reraise(Errno::ENOENT) { n2f_str(File.readlink(path.raw)) }
         def file_zero(_, path) = n2f_bool(File.zero?(path.raw))
         def file_fnmatch(_, pattern, path, flags) = n2f_bool(File.fnmatch(pattern.raw, path.raw, flags.raw))
-        # Returns nil - stat info accessed via individual methods (path-based)
-        def file_stat_native(_, path) = reraise(Errno::ENOENT) { FNIL }
-        def file_lstat_native(_, path) = reraise(Errno::ENOENT) { FNIL }
+        # Validate path exists; stat info is accessed lazily via individual methods (path-based)
+        def file_stat_native(_, path)
+          reraise(Errno::ENOENT, Errno::ENOTDIR) { File.stat(path.raw) }
+          FNIL
+        end
+
+        def file_lstat_native(_, path)
+          reraise(Errno::ENOENT, Errno::ENOTDIR) { File.lstat(path.raw) }
+          FNIL
+        end
         def file_stat_mode(_, path) = stat_int_field(path) { |s| s.mode }
         def file_stat_ino(_, path) = stat_int_field(path) { |s| s.ino }
         def file_stat_nlink(_, path) = stat_int_field(path) { |s| s.nlink }
@@ -131,17 +138,20 @@ module Frozone
           if mode_raw.is_a?(Integer) && flags_int
             mode_combined = mode_raw | flags_int
             open_args = [path.raw, mode_combined, perm_int]
+            open_kwargs = {}
           elsif flags_int
             # String mode + flags: use File.open with flags: keyword
             mode_str = mode_raw || 'r'
-            open_args = [path.raw, mode_str, perm_int, { flags: flags_int }]
+            open_args = [path.raw, mode_str, perm_int]
+            open_kwargs = { flags: flags_int }
           else
             mode_str = mode_raw || 'r'
             open_args = [path.raw, mode_str, perm_int]
+            open_kwargs = {}
           end
           file_klass = Core.file_class || Core.io_class
           if !fnil?(block)
-            f = File.open(*open_args)
+            f = File.open(*open_args, **open_kwargs)
             io_obj = IOObject.new(f, file_klass)
             close_error = nil
             result = begin
@@ -163,7 +173,7 @@ module Frozone
             raise close_error if close_error
             result
           else
-            IOObject.new(File.open(*open_args), file_klass)
+            IOObject.new(File.open(*open_args, **open_kwargs), file_klass)
           end
         end
 

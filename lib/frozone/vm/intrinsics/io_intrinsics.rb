@@ -401,19 +401,16 @@ module Frozone
 
         def file_new_from_fd(context, path_or_fd, mode_obj, opts_obj = FNIL)
           mode = fnil?(mode_obj) ? 'r' : mode_obj.raw
-          opts = {}
-          if fhash?(opts_obj)
-            opts_obj.raw.each { |k, v| opts[k.raw] = v.raw rescue v }
-          end
           reraise(Errno::ENOENT, Errno::EACCES) do
             if fint?(path_or_fd)
-              native = ::IO.new(path_or_fd.raw, mode)
+              native = ::File.new(path_or_fd.raw, mode)
+              file_klass = Core.file_class || Core.io_class || Core::OBJECT_CLASS
             else
               p = fstr?(path_or_fd) ? path_or_fd.raw : coerce_to_path(context, path_or_fd)
               native = ::File.open(p, mode)
+              file_klass = Core.file_class || Core.io_class || Core::OBJECT_CLASS
             end
-            io_klass = Core.io_class || Core::OBJECT_CLASS
-            IOObject.new(native, io_klass)
+            IOObject.new(native, file_klass)
           end
         end
 
@@ -421,12 +418,14 @@ module Frozone
           fd = fint?(fd_obj) ? fd_obj.raw : (native_io_for(fd_obj).fileno rescue nil)
           if fnil?(block_obj)
             Dir.fchdir(fd) if fd
+            n2f_int(0)
           else
+            result = nil
             Dir.fchdir(fd) do
-              block_obj.invoke(context, [])
+              result = block_obj.invoke(context, [])
             end
+            result
           end
-          n2f_int(0)
         end
 
 
