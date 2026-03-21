@@ -339,6 +339,7 @@ class Thread
 
   def __run_block(timeout_mode: false)
     return if @done && !@aborting
+    return if frozen?
     return if @executing
     @@pending.delete(self)
     @executing    = true
@@ -351,21 +352,25 @@ class Thread
     Intrinsics.thread_save_reset_locals(self)
     begin
       ret = Intrinsics.thread_run_block(@block)
-      @done      = true
-      @aborting  = false
-      @result    = @self_killed ? nil : ret
+      unless frozen?
+        @done     = true
+        @aborting = false
+        @result   = @self_killed ? nil : ret
+      end
     rescue Blocked
       # Thread blocked; record whether this was a cooperative yield (Thread.pass)
       # or a resource block (mutex, queue, Thread.stop), then re-queue.
-      @run_yielded = @@last_blocked_as_yield
-      @@last_blocked_as_yield = false
-      @@pending << self
+      unless frozen?
+        @run_yielded = @@last_blocked_as_yield
+        @@last_blocked_as_yield = false
+        @@pending << self
+      end
     rescue => e
-      if timeout_mode && e.is_a?(ThreadError) && e.message.start_with?("deadlock")
+      if !frozen? && timeout_mode && e.is_a?(ThreadError) && e.message.start_with?("deadlock")
         # Cooperative deadlock during timeout join: reset for retry
         @run_yielded = false
         @@pending << self
-      else
+      elsif !frozen?
         @done      = true
         @aborting  = false
         @exception = e
@@ -379,58 +384,84 @@ class Thread
         end
       end
     ensure
-      if @done
-        # Release all mutexes held by this thread (MRI releases them on thread exit)
-        (@owned_mutexes || []).each { |m| m.__force_unlock }
-        @owned_mutexes = []
+      unless frozen?
+        if @done
+          # Release all mutexes held by this thread (MRI releases them on thread exit)
+          (@owned_mutexes || []).each { |m| m.__force_unlock }
+          @owned_mutexes = []
+        end
+        @executing = false
       end
-      @executing  = false
       @@run_depth -= 1
       @@current   = prev
       Intrinsics.thread_restore_locals(self)
     end
   end
 
+  # Coerce a key to Symbol; raise TypeError for invalid types.
+  # Accepts: Symbol (as-is), String (#to_sym), or object with #to_str.
+  # Uses Kernel.raise to bypass Thread#raise (which swallows errors on done threads).
+  def __coerce_var_key(key)
+    return key if key.is_a?(Symbol)
+    if key.is_a?(String)
+      return key.to_sym
+    end
+    if key.respond_to?(:to_str)
+      str = key.to_str
+      Kernel.raise TypeError, "can't convert #{key.class} into String" unless str.is_a?(String)
+      return str.to_sym
+    end
+    Kernel.raise TypeError, "#{key.inspect} is not a symbol nor a string"
+  end
+  private :__coerce_var_key
+
   # Thread-local variables (not fiber-local)
   def thread_variable_set(key, value)
+    Kernel.raise FrozenError, "can't modify frozen thread locals" if frozen?
+    k = __coerce_var_key(key)
     @thread_vars ||= {}
-    @thread_vars[key.to_sym] = value
+    if value.nil?
+      @thread_vars.delete(k)
+    else
+      @thread_vars[k] = value
+    end
+    value
   end
 
   def thread_variable_get(key)
-    @thread_vars ||= {}
-    @thread_vars[key.to_sym]
+    k = __coerce_var_key(key)
+    (@thread_vars || {})[k]
   end
 
   def thread_variable?(key)
-    @thread_vars ||= {}
-    @thread_vars.key?(key.to_sym)
+    k = __coerce_var_key(key)
+    (@thread_vars || {}).key?(k)
   end
 
   def thread_variables
-    @thread_vars ||= {}
-    @thread_vars.keys.map { |k| k.to_s.to_sym }
+    (@thread_vars || {}).keys
   end
 
   # Fiber-local variables (Thread#[] / Thread#[]=)
   def [](key)
-    @fiber_vars ||= {}
-    @fiber_vars[key.to_sym]
+    k = __coerce_var_key(key)
+    (@fiber_vars || {})[k]
   end
 
   def []=(key, value)
+    Kernel.raise FrozenError, "can't modify frozen thread locals" if frozen?
+    k = __coerce_var_key(key)
     @fiber_vars ||= {}
-    @fiber_vars[key.to_sym] = value
+    @fiber_vars[k] = value
   end
 
   def key?(key)
-    @fiber_vars ||= {}
-    @fiber_vars.key?(key.to_sym)
+    k = __coerce_var_key(key)
+    (@fiber_vars || {}).key?(k)
   end
 
   def keys
-    @fiber_vars ||= {}
-    @fiber_vars.keys.map { |k| k.to_s.to_sym }
+    (@fiber_vars || {}).keys
   end
 
   Mutex = ::Mutex
