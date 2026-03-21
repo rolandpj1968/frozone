@@ -22,6 +22,16 @@ class Thread
     t
   end
 
+  def self.start(*args, &block)
+    Kernel.raise ArgumentError, "tried to create Thread object without a block" unless block
+    t = allocate
+    t.__start_init(block, args)
+    t
+  end
+  class << self
+    alias fork start
+  end
+
   def self.current
     @@current || (@@main ||= new_main_thread)
   end
@@ -134,8 +144,7 @@ class Thread
   def report_on_exception=(val); @report_on_exception = val; end
   def report_on_exception = @report_on_exception.nil? ? Thread.report_on_exception : @report_on_exception
 
-  def initialize(*args, &block)
-    return unless block  # Thread.new will detect missing block and raise ThreadError
+  def __start_init(block, args)
     sl = block.source_location
     @source_location_str = sl ? "#{sl[0]}:#{sl[1]}" : nil
     @block               = args.empty? ? block : proc { block.call(*args) }
@@ -150,7 +159,7 @@ class Thread
     @raise_exception     = nil
     @raise_cause         = nil
     @raise_backtrace     = nil
-    @report_on_exception = nil  # nil means inherit from Thread.report_on_exception
+    @report_on_exception = nil
     @name                = nil
     @thread_vars         = {}
     @fiber_vars          = {}
@@ -159,6 +168,11 @@ class Thread
     ThreadGroup::Default.__add_thread(self)
     @@pending << self
     @@all << self
+  end
+
+  def initialize(*args, &block)
+    return unless block  # Thread.new will detect missing block and raise ThreadError
+    __start_init(block, args)
   end
 
   # Raised (and caught internally) when a thread blocks on an unavailable resource.
@@ -277,8 +291,31 @@ class Thread
     self
   end
 
-  def backtrace           = nil
-  def backtrace_locations = nil
+  def backtrace(start_or_range = 0, length = nil)
+    return nil if @done && !@aborting
+    return [] unless equal?(Thread.current)
+    full = caller(1)
+    if start_or_range.is_a?(Range)
+      full[start_or_range]
+    else
+      start = start_or_range
+      return nil if start > full.size
+      length.nil? ? full[start..] : full[start, length]
+    end
+  end
+
+  def backtrace_locations(start_or_range = 0, length = nil)
+    return nil if @done && !@aborting
+    return [] unless equal?(Thread.current)
+    full = caller_locations(1)
+    if start_or_range.is_a?(Range)
+      full[start_or_range]
+    else
+      start = start_or_range
+      return nil if start > full.size
+      length.nil? ? full[start..] : full[start, length]
+    end
+  end
   def priority = (@priority || 0)
 
   def priority=(v)
