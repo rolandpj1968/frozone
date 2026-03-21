@@ -10,6 +10,17 @@ class Thread
   @@run_depth            = 0     # incremented while a thread block is executing
   @@last_blocked_as_yield = false # set by Thread.pass before raising Blocked
 
+  def self.new(*args, &block)
+    t = super
+    # After initialize: if @block was not set, the subclass didn't call super with a block.
+    unless t.instance_variable_defined?(:@block)
+      @@pending.delete(t)
+      @@all.delete(t)
+      fail ThreadError, "must be called with a block"
+    end
+    t
+  end
+
   def self.current
     @@current || (@@main ||= new_main_thread)
   end
@@ -99,8 +110,9 @@ class Thread
   def report_on_exception=(val); @report_on_exception = val; end
   def report_on_exception = @report_on_exception.nil? ? false : @report_on_exception
 
-  def initialize(&block)
-    @block               = block
+  def initialize(*args, &block)
+    return unless block  # Thread.new will detect missing block and raise ThreadError
+    @block               = args.empty? ? block : proc { block.call(*args) }
     @result              = nil
     @exception           = nil
     @done                = false
@@ -157,14 +169,17 @@ class Thread
 
   def wakeup
     fail ThreadError, "dead thread called wakeup" if @done && !@aborting
-    @wakeup_count = (@wakeup_count || 0) + 1
+    # Only bank wakeup count when thread is truly sleeping (Thread.stop blocked),
+    # not when it's in run state (Thread.pass yielded). Mirrors MRI semantics where
+    # wakeup on a running/yielded thread does not bank for future Thread.stop calls.
+    @wakeup_count = (@wakeup_count || 0) + 1 unless @run_yielded || @executing
     __run_block
     self
   end
 
   def run
     fail ThreadError, "dead thread called wakeup" if @done && !@aborting
-    @wakeup_count = (@wakeup_count || 0) + 1
+    @wakeup_count = (@wakeup_count || 0) + 1 unless @run_yielded || @executing
     __run_block
     self
   end

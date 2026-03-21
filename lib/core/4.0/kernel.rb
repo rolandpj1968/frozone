@@ -89,7 +89,10 @@ module Kernel
   def exit!(code = 1) = Intrinsics.kernel_exit(self, code)
   def rand(n = nil) = Intrinsics.kernel_rand(self, n)
   def srand(seed = nil) = Intrinsics.kernel_srand(self, seed)
-  def sleep(secs = nil) = nil
+  def sleep(secs = nil)
+    Thread.stop if secs.nil?
+    0
+  end
   def system(*args) = false
   def fork(&block) = nil  # not supported; block given to fork is never executed
   def `(cmd) = Intrinsics.kernel_backtick(self, cmd)
