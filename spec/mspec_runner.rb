@@ -284,10 +284,10 @@ class Object
     [CLEAR_BUNDLER_ENV, RUBY_EXE, ENV['RUBY_FLAGS'], opts[:options], body, opts[:args]].compact.join(' ')
   end
 
-  # ruby_exe with no args returns the RUBY_EXE path (used for IO.popen([*ruby_exe, ...]) pattern).
+  # ruby_exe with no args returns the RUBY_EXE args array (used for IO.popen([*ruby_exe, ...]) pattern).
   # ruby_exe(nil, opts) with opts runs ruby from stdin/file (code=nil = no -e or file arg).
   def ruby_exe(code = nil, opts = {})
-    return RUBY_EXE if code.nil? && opts.empty?
+    return [RUBY_EXE] if code.nil? && opts.empty?
     `#{ruby_cmd(code, opts)}`
   end
 end
