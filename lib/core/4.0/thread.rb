@@ -36,6 +36,9 @@ class Thread
     t
   end
 
+  # Returns true if the thread is currently in the pending queue (blocked/waiting).
+  def self.__pending_include?(t) = @@pending.include?(t)
+
   # Single-threaded: pending threads are "sleeping", done threads are "dead".
   def status = @done ? false : 'sleep'
   def alive? = !@done
@@ -239,12 +242,14 @@ class Queue
   def size        = @data.size
   alias length size
   def clear       = (@data.clear; self)
-  def num_waiting = 0
+  def num_waiting = @waiters.size
   def closed?     = @closed
 
   def initialize
-    @data   = []
-    @closed = false
+    @data      = []
+    @closed    = false
+    @waiters   = Set.new
+    @deadlines = {}  # thread.object_id => Float (absolute Time deadline)
   end
 
   def close
@@ -260,18 +265,40 @@ class Queue
   alias enq push
   alias << push
 
-  def pop(non_block = false)
+  def pop(non_block = false, timeout: nil)
     if @data.empty?
-      raise ClosedQueueError, "queue closed" if @closed
-      if non_block
-        raise ThreadError, "queue empty"
+      return nil if @closed
+      raise ThreadError, "queue empty" if non_block
+      return nil if !timeout.nil? && timeout == 0
+      # Cooperative blocking: run pending threads until data arrives.
+      # @waiters uses Set for idempotency across Blocked re-runs.
+      # @deadlines persists the deadline across re-runs (||= won't reset it).
+      current = Thread.current
+      tid = current.object_id
+      @deadlines[tid] ||= Time.now.to_f + timeout if !timeout.nil?
+      @waiters.add(current)
+      blocked = false
+      begin
+        loop do
+          t = Thread.__run_next_pending
+          break unless @data.empty?
+          return nil if @closed
+          return nil if @deadlines[tid] && Time.now.to_f >= @deadlines[tid]
+          # No pending thread, or the thread we ran immediately blocked again:
+          # neither case can unblock us, so we must suspend too.
+          (blocked = true; raise Thread::Blocked) if t.nil? || Thread.__pending_include?(t)
+        end
+      rescue Thread::Blocked
+        raise  # re-raise, keeping thread in @waiters and @deadlines
+      ensure
+        unless blocked
+          @waiters.delete(current)
+          @deadlines.delete(tid)
+        end
       end
-      # In cooperative single-threaded model: run pending threads until data arrives
-      loop do
-        t = Thread.__run_next_pending
-        break unless @data.empty?
-        raise Thread::Blocked if t.nil?  # no thread can unblock us; suspend
-      end
+    else
+      # Data available without entering blocking section: clean up any stale deadline
+      @deadlines.delete(Thread.current.object_id)
     end
     @data.shift
   end
