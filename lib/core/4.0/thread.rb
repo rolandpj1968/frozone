@@ -1,6 +1,7 @@
 class Thread
-  def self.report_on_exception=(val); nil; end
-  def self.report_on_exception = false
+  @@report_on_exception = true
+  def self.report_on_exception=(val); @@report_on_exception = val; end
+  def self.report_on_exception = @@report_on_exception
   def self.abort_on_exception=(val); nil; end
   def self.abort_on_exception = false
   @@pending              = []
@@ -108,7 +109,7 @@ class Thread
   def stop?  = !@aborting && (@done || (!@executing && !@run_yielded))
 
   def report_on_exception=(val); @report_on_exception = val; end
-  def report_on_exception = @report_on_exception.nil? ? false : @report_on_exception
+  def report_on_exception = @report_on_exception.nil? ? Thread.report_on_exception : @report_on_exception
 
   def initialize(*args, &block)
     return unless block  # Thread.new will detect missing block and raise ThreadError
@@ -123,7 +124,7 @@ class Thread
     @aborting            = false
     @wakeup_count        = 0
     @stop_seen           = 0
-    @report_on_exception = false
+    @report_on_exception = nil  # nil means inherit from Thread.report_on_exception
     @name                = nil
     @thread_vars         = {}
     @fiber_vars          = {}
@@ -149,6 +150,7 @@ class Thread
       return @done ? self : nil
     end
     __run_block
+    Kernel.raise @exception if @exception
     self
   end
 
@@ -232,7 +234,7 @@ class Thread
     @aborting            = false
     @wakeup_count        = 0
     @stop_seen           = 0
-    @report_on_exception = false
+    @report_on_exception = nil  # nil means inherit from Thread.report_on_exception
     @name                = nil
     @thread_vars         = {}
     @fiber_vars          = {}
@@ -282,6 +284,14 @@ class Thread
         @done      = true
         @aborting  = false
         @exception = e
+        if report_on_exception
+          begin
+            $stderr.puts "#{inspect} terminated with exception (report_on_exception is true):"
+            $stderr.puts "#{e.message} (#{e.class})"
+          rescue
+            nil
+          end
+        end
       end
     ensure
       if @done
