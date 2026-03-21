@@ -308,10 +308,49 @@ end
 
 class SizedQueue < Queue
   def max = @max
+  def num_waiting = @waiters.size + @push_waiters.size
 
   def initialize(max)
     super()
-    @max = max
+    @max          = max
+    @push_waiters = Set.new
+    @push_deadlines = {}
   end
+
   def max=(v); @max = v; end
+
+  def push(obj, non_block = false, timeout: nil)
+    raise ClosedQueueError, "queue closed" if @closed
+    raise ArgumentError, "can't set a timeout if non_block is enabled" if non_block && !timeout.nil?
+    if @data.size >= @max
+      raise ThreadError, "queue full" if non_block
+      return nil if !timeout.nil? && timeout == 0
+      current = Thread.current
+      tid = current.object_id
+      @push_deadlines[tid] ||= Time.now.to_f + timeout if !timeout.nil?
+      @push_waiters.add(current)
+      blocked = false
+      begin
+        loop do
+          t = Thread.__run_next_pending
+          break if @data.size < @max
+          raise ClosedQueueError, "queue closed" if @closed
+          return nil if @push_deadlines[tid] && Time.now.to_f >= @push_deadlines[tid]
+          (blocked = true; raise Thread::Blocked) if t.nil? || Thread.__pending_include?(t)
+        end
+      rescue Thread::Blocked
+        raise
+      ensure
+        unless blocked
+          @push_waiters.delete(current)
+          @push_deadlines.delete(tid)
+        end
+      end
+    end
+    raise ClosedQueueError, "queue closed" if @closed
+    @data.push(obj)
+    self
+  end
+  alias enq push
+  alias << push
 end
