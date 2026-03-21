@@ -450,7 +450,8 @@ class Time
     off = utc? ? nil : utc_offset
     nano_ns = nsec % 1000
     pairs = []
-    pairs << :zone << z if z && !z.empty?
+    z_str = z.is_a?(String) ? z : (z ? z.name : nil)
+    pairs << :zone << z_str if z_str && !z_str.empty?
     pairs << :offset << off if off && off != 0
     if nano_ns != 0
       d0 = nano_ns / 100
