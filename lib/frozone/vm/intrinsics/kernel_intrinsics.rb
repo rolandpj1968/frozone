@@ -242,9 +242,16 @@ module Frozone
         end
 
         def kernel_abort(context, _receiver, msg)
-          m = fnil?(msg) ? nil : msg.dispatch(context, :to_s, [], {}).raw
-          $stderr.puts(m) if m
-          exit(1)
+          unless fnil?(msg)
+            m = msg.dispatch(context, :to_str, [], {}) rescue msg.dispatch(context, :to_s, [], {})
+            stderr = context.get_global_variable(:$stderr)
+            stderr.dispatch(context, :puts, [m], {}) rescue nil
+          end
+          exc_class = Core::OBJECT_CLASS.get_constant(:SystemExit)
+          exc_obj = ObjectObject.new(exc_class)
+          exc_obj.set_ivar(:@status, n2f_int(1))
+          exc_obj.set_ivar(:@message, fnil?(msg) ? n2f_str("") : msg.dispatch(context, :to_s, [], {}))
+          raise FrozoneException.new(exc_obj, "exit")
         end
 
         def kernel_exit(_, _receiver, code)
