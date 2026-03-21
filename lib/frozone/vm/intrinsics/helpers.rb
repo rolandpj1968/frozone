@@ -364,7 +364,17 @@ module Frozone
           false
         end
 
-        def validate_cause(cause, exc_obj)
+        # Apply auto-cause ($!) to an exception before raising it internally.
+        # Skips if: no current exception, self-cause, or circular.
+        def apply_auto_cause(exc_obj)
+          current_exc = GLOBALS[:"$!"]
+          return unless current_exc && !fnil?(current_exc)
+          return if current_exc.equal?(exc_obj)
+          return if validate_cause(current_exc, exc_obj, auto_cause: true) == :skip
+          exc_obj.set_ivar(:@cause, current_exc)
+        end
+
+        def validate_cause(cause, exc_obj, auto_cause: false)
           return if cause.nil?
           # cause must be an Exception instance or NilObject (nil)
           raise FrozoneException.make(:TypeError, "exception object expected") unless exception_instance?(cause)
@@ -377,6 +387,7 @@ module Frozone
               c_cause = c.get_ivar(:@cause)
               break if fnil?(c_cause)
               if c_cause.equal?(exc_obj)
+                return :skip if auto_cause
                 raise FrozoneException.make(:ArgumentError, "circular causes")
               end
               c = c_cause

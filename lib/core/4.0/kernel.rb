@@ -22,11 +22,15 @@ module Kernel
     nil
   end
   def p(*args) = Intrinsics.kernel_p(self, args)
-  def raise(msg = :__raise_no_arg__, message = nil, backtrace = nil, cause: :__raise_no_cause__)
+  def raise(msg = :__raise_no_arg__, message = nil, backtrace = nil, **kwargs)
+    cause = kwargs.key?(:cause) ? kwargs.delete(:cause) : :__raise_no_cause__
+    message = kwargs if message.nil? && !kwargs.empty?
     Intrinsics.kernel_raise(self, msg, message, backtrace, cause)
   end
 
-  def fail(msg = :__raise_no_arg__, message = nil, backtrace = nil, cause: :__raise_no_cause__)
+  def fail(msg = :__raise_no_arg__, message = nil, backtrace = nil, **kwargs)
+    cause = kwargs.key?(:cause) ? kwargs.delete(:cause) : :__raise_no_cause__
+    message = kwargs if message.nil? && !kwargs.empty?
     Intrinsics.kernel_raise(self, msg, message, backtrace, cause)
   end
 

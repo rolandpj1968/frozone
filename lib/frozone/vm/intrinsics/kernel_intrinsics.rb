@@ -99,11 +99,11 @@ module Frozone
           if no_arg_sentinel
             reraise_current_or_runtime(cause, context)
           elsif msg.is_a?(ClassObject) || msg.is_a?(ModuleObject)
-            raise_from_exception_class(context, msg, message_arg, backtrace_arg, cause)
+            raise_from_exception_class(context, msg, message_arg, backtrace_arg, cause, auto_cause: no_cause_sentinel)
           elsif fstr?(msg) && fnil?(message_arg)
-            raise_from_string(context, msg, backtrace_arg, cause)
+            raise_from_string(context, msg, backtrace_arg, cause, auto_cause: no_cause_sentinel)
           else
-            raise_from_exception_protocol(context, msg, message_arg, backtrace_arg, cause)
+            raise_from_exception_protocol(context, msg, message_arg, backtrace_arg, cause, auto_cause: no_cause_sentinel)
           end
         end
 
@@ -296,6 +296,7 @@ module Frozone
                   e
                 end
           set_exc_backtrace(exc.vm_object, context)
+          apply_auto_cause(exc.vm_object)
           raise exc
         end
 
@@ -586,7 +587,7 @@ module Frozone
         end
 
         # `raise SomeClass[, "message"]` — call SomeClass.exception(message) to build instance.
-        def raise_from_exception_class(context, klass, message_arg, backtrace_arg, cause)
+        def raise_from_exception_class(context, klass, message_arg, backtrace_arg, cause, auto_cause: false)
           exc_obj = if message_arg && !fnil?(message_arg)
                       klass.dispatch(context, :exception, [message_arg], {})
                     else
@@ -598,23 +599,30 @@ module Frozone
             klass.name.to_s
           end
           effective_cause = (cause && !cause.equal?(exc_obj)) ? cause : nil
-          validate_cause(effective_cause, exc_obj)
+          if auto_cause && effective_cause && exc_obj.is_a?(ObjectObject)
+            existing = exc_obj.get_ivar(:@cause)
+            effective_cause = nil if existing && !fnil?(existing)
+          end
+          result = validate_cause(effective_cause, exc_obj, auto_cause: auto_cause)
+          effective_cause = nil if result == :skip
           exc_obj.set_ivar(:@cause, effective_cause) if effective_cause
           apply_backtrace(exc_obj, backtrace_arg, context)
           raise FrozoneException.new(exc_obj, msg_str)
         end
 
         # `raise "message"` — create RuntimeError with string.
-        def raise_from_string(context, msg, backtrace_arg, cause)
+        def raise_from_string(context, msg, backtrace_arg, cause, auto_cause: false)
           exc = FrozoneException.make(:RuntimeError, msg.raw)
           effective_cause = (cause && !cause.equal?(exc.vm_object)) ? cause : nil
+          result = validate_cause(effective_cause, exc.vm_object, auto_cause: auto_cause)
+          effective_cause = nil if result == :skip
           exc.vm_object.set_ivar(:@cause, effective_cause) if effective_cause
           apply_backtrace(exc.vm_object, backtrace_arg, context)
           raise exc
         end
 
         # `raise exception_object` — use the #exception protocol.
-        def raise_from_exception_protocol(context, msg, message_arg, backtrace_arg, cause)
+        def raise_from_exception_protocol(context, msg, message_arg, backtrace_arg, cause, auto_cause: false)
           has_message_arg = !fnil?(message_arg)
           exc_obj = begin
             msg.dispatch(context, :exception, has_message_arg ? [message_arg] : [], {})
@@ -637,7 +645,12 @@ module Frozone
           end
           msg_str = fstr?(msg_str) ? msg_str.raw : "exception"
           effective_cause = (cause && !cause.equal?(exc_obj)) ? cause : nil
-          validate_cause(effective_cause, exc_obj)
+          if auto_cause && effective_cause && exc_obj.is_a?(ObjectObject)
+            existing = exc_obj.get_ivar(:@cause)
+            effective_cause = nil if existing && !fnil?(existing)
+          end
+          result = validate_cause(effective_cause, exc_obj, auto_cause: auto_cause)
+          effective_cause = nil if result == :skip
           exc_obj.set_ivar(:@cause, effective_cause) if effective_cause && exc_obj.is_a?(ObjectObject)
           # Only set backtrace if explicitly provided or exception has no backtrace yet
           apply_backtrace(exc_obj, backtrace_arg, context) unless exc_obj.is_a?(ObjectObject) && farray?(exc_obj.get_ivar(:@backtrace))
