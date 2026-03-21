@@ -1691,7 +1691,7 @@ module Frozone
           # Handle array as single argument: private_class_method([:foo, :bar]) → flatten
           name_list = if farray?(names_obj)
                         nl = names_obj.raw
-                        nl.size == 1 && nl[0].is_a?(ArrayObject) ? nl[0].raw : nl
+                        nl.size == 1 && farray?(nl[0]) ? nl[0].raw : nl
                       else
                         [names_obj]
                       end
@@ -2053,7 +2053,7 @@ module Frozone
           raise FrozoneException.make(:TypeError, "uninitialized class") if klass.is_a?(ClassObject) && klass.uninitialized_class
           raw_args = args.raw
           raw_kwargs = kwargs.raw.transform_keys { |k| fsym?(k) ? k.raw : k }
-          has_block = block && !fnil?(block)
+          has_block = !fnil?(block)
           if klass.equal?(Core::CLASS_CLASS)
             sc_arg = raw_args.first
             if sc_arg && !fnil?(sc_arg)

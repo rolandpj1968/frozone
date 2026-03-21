@@ -82,7 +82,7 @@ module Frozone
               rescue FrozoneException
                 nil
               end
-              if int_diff&.is_a?(IntegerObject)
+              if int_diff && fint?(int_diff)
                 size = int_diff.raw
                 size -= 1 if n.exclusive? && size > 0
                 rand_int = rng.rand(size + 1)

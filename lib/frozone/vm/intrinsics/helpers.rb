@@ -113,7 +113,7 @@ module Frozone
             return FNIL
           end
           # Handle array as single argument: private([:foo, :bar]) → flatten one level
-          if name_list.size == 1 && name_list[0].is_a?(ArrayObject)
+          if name_list.size == 1 && farray?(name_list[0])
             name_list = name_list[0].raw
           end
           result = name_list.map do |name_obj|

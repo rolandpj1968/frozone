@@ -76,6 +76,7 @@ module Frozone
           field = fstr?(field_sym) ? field_sym.raw.to_sym : (fsym?(field_sym) ? field_sym.raw : field_sym)
           n2f_time(stat.send(field))
         end
+
         def dir_pwd(_) = n2f_str(Dir.pwd)
         def dir_empty(_, path) = n2f_bool(Dir.empty?(path.raw))
         def dir_exist(_, path) = n2f_bool(path.raw && Dir.exist?(path.raw))
@@ -139,7 +140,7 @@ module Frozone
             open_args = [path.raw, mode_str, perm_int]
           end
           file_klass = Core.file_class || Core.io_class
-          if block && !fnil?(block)
+          if !fnil?(block)
             f = File.open(*open_args)
             io_obj = IOObject.new(f, file_klass)
             close_error = nil
@@ -253,7 +254,7 @@ module Frozone
 
         def dir_chdir(context, path, block)
           path_raw = fnil?(path) ? nil : coerce_to_path(context, path)
-          if block && !fnil?(block)
+          if !fnil?(block)
             result = reraise(Errno::ENOENT) do
               path_raw ? Dir.chdir(path_raw) { block.invoke(context, [n2f_str(Dir.pwd)]) } :
                          Dir.chdir { block.invoke(context, [n2f_str(Dir.pwd)]) }
@@ -329,7 +330,7 @@ module Frozone
           require 'tmpdir'
           pfx = f2n_raw(prefix)
           path = pfx ? Dir.mktmpdir(pfx) : Dir.mktmpdir
-          if block && !fnil?(block)
+          if !fnil?(block)
             begin
               block.invoke(context, [n2f_str(path)])
             ensure
@@ -381,6 +382,7 @@ module Frozone
         def time_ceil(_, t, n) = n2f_time(t.raw.ceil(fint?(n) ? n.raw : 0))
         def time_floor(_, t, n) = n2f_time(t.raw.floor(fint?(n) ? n.raw : 0))
         def time_round(_, t, n) = n2f_time(t.raw.round(fint?(n) ? n.raw : 0))
+
         def time_load(_, str)
           raw = str.raw
           # MRI's Time._load reads @submicro via C-level internal ivars that can't
@@ -398,6 +400,7 @@ module Frozone
           end
           n2f_time(t)
         end
+
         def time_strftime(_, t, format) = n2f_str(t.raw.strftime(format.raw))
         def time_dst?(_, t) = n2f_bool(t.raw.dst?)
         def time_hash(_, t) = n2f_int(t.raw.hash)
@@ -617,7 +620,7 @@ module Frozone
         def update_match_globals(m, regexp_obj = nil)
           Fiber[:last_match] = m
           if m
-            md = MatchDataObject.new(m, regexp_obj.is_a?(NilObject) ? nil : regexp_obj)
+            md = MatchDataObject.new(m, fnil?(regexp_obj) ? nil : regexp_obj)
             GLOBALS[:"$~"] = md
             m.captures.each_with_index do |cap, i|
               GLOBALS[:"$#{i + 1}"] = cap ? n2f_str(cap) : FNIL
@@ -744,7 +747,7 @@ module Frozone
         def regexp_union(context, patterns)
           raw_pats = patterns.raw
           # Unwrap single array argument: Regexp.union(["a", "b"]) → treat as Regexp.union("a", "b")
-          raw_pats = raw_pats[0].raw if raw_pats.length == 1 && raw_pats[0].is_a?(ArrayObject)
+          raw_pats = raw_pats[0].raw if raw_pats.length == 1 && farray?(raw_pats[0])
           return RegexpObject.new('(?!)', 0) if raw_pats.empty?
           pats = raw_pats.map { |p| coerce_union_element(context, p) }
           reraise(::ArgumentError) { ::Regexp.union(*pats).then { |r| RegexpObject.new(r.source, r.options) } }
@@ -977,19 +980,19 @@ module Frozone
         end
 
         def io_external_encoding(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           enc = receiver.native_io.external_encoding rescue nil
           return FNIL if enc.nil?
           n2f_str(enc.name)
         end
 
         def io_explicit_encoding?(_, receiver)
-          return FFALSE unless receiver.is_a?(IOObject)
+          return FFALSE unless fio?(receiver)
           n2f_bool(receiver.explicit_encoding?)
         end
 
         def io_mark_explicit_encoding(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           receiver.instance_variable_set(:@explicit_encoding, true)
           FNIL
         end
@@ -1039,7 +1042,7 @@ module Frozone
         end
 
         def io_read(_, receiver, len_obj = FNIL, buf_obj = FNIL)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           len = f2n_raw(len_obj)
           reraise(::IOError) do
             result = len ? receiver.native_io.read(len) : receiver.native_io.read
@@ -1048,7 +1051,7 @@ module Frozone
         end
 
         def io_gets(_, receiver, sep_obj = FNIL, limit_obj = FNIL)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           sep = fnil?(sep_obj) ? $/ : f2n_raw(sep_obj)
           reraise(::IOError) do
             line = receiver.native_io.gets(sep)
@@ -1057,75 +1060,75 @@ module Frozone
         end
 
         def io_readline(_, receiver, sep_obj = FNIL)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           sep = fnil?(sep_obj) ? $/ : f2n_raw(sep_obj)
           reraise(::EOFError, ::IOError) { n2f_str(receiver.native_io.readline(sep)) }
         end
 
         def io_readlines(_, receiver, sep_obj = FNIL)
-          return n2f_arr([]) unless receiver.is_a?(IOObject)
+          return n2f_arr([]) unless fio?(receiver)
           sep = fnil?(sep_obj) ? $/ : f2n_raw(sep_obj)
           reraise(::IOError) { n2f_arr(receiver.native_io.readlines(sep).map { |l| n2f_str(l) }) }
         end
 
         def io_close(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           receiver.native_io.close rescue nil
           FNIL
         end
 
         def io_closed?(_, receiver)
-          return FTRUE unless receiver.is_a?(IOObject)
+          return FTRUE unless fio?(receiver)
           n2f_bool(receiver.native_io.closed?)
         end
 
         def io_fileno(_, receiver)
-          return n2f_int(1) unless receiver.is_a?(IOObject)
+          return n2f_int(1) unless fio?(receiver)
           reraise(::IOError) { n2f_int(receiver.native_io.fileno) }
         end
 
         def io_eof?(_, receiver)
-          return FTRUE unless receiver.is_a?(IOObject)
+          return FTRUE unless fio?(receiver)
           reraise(::IOError) { n2f_bool(receiver.native_io.eof?) }
         end
 
         def io_seek(_, receiver, offset_obj, whence_obj = FNIL)
-          return n2f_int(0) unless receiver.is_a?(IOObject)
+          return n2f_int(0) unless fio?(receiver)
           offset = fint?(offset_obj) ? offset_obj.raw : 0
           whence = fnil?(whence_obj) ? ::IO::SEEK_SET : whence_obj.raw
           reraise(::IOError) { n2f_int(receiver.native_io.seek(offset, whence)) }
         end
 
         def io_pos(_, receiver)
-          return n2f_int(0) unless receiver.is_a?(IOObject)
+          return n2f_int(0) unless fio?(receiver)
           n2f_int(receiver.native_io.pos)
         end
 
         def io_pos_set(_, receiver, pos_obj)
-          return pos_obj unless receiver.is_a?(IOObject)
+          return pos_obj unless fio?(receiver)
           receiver.native_io.pos = fint?(pos_obj) ? pos_obj.raw : 0
           pos_obj
         end
 
         def io_rewind(_, receiver)
-          return n2f_int(0) unless receiver.is_a?(IOObject)
+          return n2f_int(0) unless fio?(receiver)
           receiver.native_io.rewind
           n2f_int(0)
         end
 
         def io_binmode(_, receiver)
-          return receiver unless receiver.is_a?(IOObject)
+          return receiver unless fio?(receiver)
           receiver.native_io.binmode
           receiver
         end
 
         def io_binmode?(_, receiver)
-          return FFALSE unless receiver.is_a?(IOObject)
+          return FFALSE unless fio?(receiver)
           n2f_bool(receiver.native_io.binmode?)
         end
 
         def io_set_encoding(_, receiver, ext_obj, int_obj = FNIL)
-          return receiver unless receiver.is_a?(IOObject)
+          return receiver unless fio?(receiver)
           ext_enc = extract_encoding_name(ext_obj)
           int_enc = extract_encoding_name(int_obj)
           if int_enc
@@ -1137,63 +1140,63 @@ module Frozone
         end
 
         def io_internal_encoding(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           enc = receiver.native_io.internal_encoding rescue nil
           enc ? n2f_str(enc.name) : FNIL
         end
 
         def io_isatty(_, receiver)
-          return FFALSE unless receiver.is_a?(IOObject)
+          return FFALSE unless fio?(receiver)
           n2f_bool(receiver.native_io.isatty)
         end
 
         def io_getbyte(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           b = receiver.native_io.getbyte
           b.nil? ? FNIL : n2f_int(b)
         end
 
         def io_getc(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           c = receiver.native_io.getc
           c.nil? ? FNIL : n2f_str(c)
         end
 
         def io_readbyte(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           reraise(::EOFError) { n2f_int(receiver.native_io.readbyte) }
         end
 
         def io_readchar(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           reraise(::EOFError) { n2f_str(receiver.native_io.readchar) }
         end
 
         def io_ungetbyte(_, receiver, byte_obj)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           byte = f2n_raw(byte_obj)
           receiver.native_io.ungetbyte(byte) if byte
           FNIL
         end
 
         def io_ungetc(_, receiver, str_obj)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           receiver.native_io.ungetc(fstr?(str_obj) ? str_obj.raw : str_obj.to_s)
           FNIL
         end
 
         def io_sysread(_, receiver, len_obj, buf_obj = FNIL)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           reraise(::EOFError, ::IOError) { n2f_str(receiver.native_io.sysread(fint?(len_obj) ? len_obj.raw : 0)) }
         end
 
         def io_syswrite(_, receiver, str_obj)
-          return n2f_int(0) unless receiver.is_a?(IOObject)
+          return n2f_int(0) unless fio?(receiver)
           reraise(::IOError) { n2f_int(receiver.native_io.syswrite(fstr?(str_obj) ? str_obj.raw : str_obj.to_s)) }
         end
 
         def io_each_line(context, receiver, sep_obj = FNIL, block = FNIL)
-          return receiver unless receiver.is_a?(IOObject) && block && !fnil?(block)
+          return receiver unless fio?(receiver) && !fnil?(block)
           sep = fnil?(sep_obj) ? $/ : (fstr?(sep_obj) ? sep_obj.raw : $/)
           reraise(::IOError) do
             receiver.native_io.each_line(sep) { |line| block.invoke(context, [n2f_str(line)]) }
@@ -1202,19 +1205,19 @@ module Frozone
         end
 
         def io_each_byte(context, receiver, block = FNIL)
-          return receiver unless receiver.is_a?(IOObject) && block && !fnil?(block)
+          return receiver unless fio?(receiver) && !fnil?(block)
           receiver.native_io.each_byte { |b| block.invoke(context, [n2f_int(b)]) }
           receiver
         end
 
         def io_each_char(context, receiver, block = FNIL)
-          return receiver unless receiver.is_a?(IOObject) && block && !fnil?(block)
+          return receiver unless fio?(receiver) && !fnil?(block)
           receiver.native_io.each_char { |c| block.invoke(context, [n2f_str(c)]) }
           receiver
         end
 
         def io_stat(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           reraise(::IOError) do
             stat = receiver.native_io.stat
             stat_obj = ObjectObject.new(Core::OBJECT_CLASS.get_constant(:File)&.get_constant(:Stat) || Core::OBJECT_CLASS)
@@ -1224,14 +1227,14 @@ module Frozone
         end
 
         def io_inspect(_, receiver)
-          return n2f_str("#<IO>") unless receiver.is_a?(IOObject)
+          return n2f_str("#<IO>") unless fio?(receiver)
           n2f_str(receiver.native_io.inspect)
         rescue
           n2f_str("#<IO>")
         end
 
         def io_chmod(_, receiver, mode_obj)
-          return n2f_int(0) unless receiver.is_a?(IOObject)
+          return n2f_int(0) unless fio?(receiver)
           mode = fint?(mode_obj) ? mode_obj.raw : mode_obj.raw.to_i
           raise FrozoneException.make(:RangeError, "bignum too big to convert into 'long'") if mode > 2**32 || mode < -(2**31)
           reraise(::RangeError, ::Errno::EBADF) do
@@ -1241,7 +1244,7 @@ module Frozone
         end
 
         def io_truncate(_, receiver, len_obj)
-          return n2f_int(0) unless receiver.is_a?(IOObject)
+          return n2f_int(0) unless fio?(receiver)
           len = fint?(len_obj) ? len_obj.raw : len_obj.raw.to_i
           raise FrozoneException.make(:Errno__EINVAL, "Invalid argument") if len < 0
           reraise(::IOError, ::Errno::EINVAL) do
@@ -1251,34 +1254,34 @@ module Frozone
         end
 
         def io_writable?(_, receiver)
-          return FFALSE unless receiver.is_a?(IOObject)
+          return FFALSE unless fio?(receiver)
           n2f_bool((receiver.native_io.stat.mode rescue 0) & 0o200 != 0)
         rescue
           FFALSE
         end
 
         def io_atime(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           reraise(::IOError) { n2f_time(receiver.native_io.stat.atime) }
         end
 
         def io_mtime(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           reraise(::IOError) { n2f_time(receiver.native_io.stat.mtime) }
         end
 
         def io_ctime(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           reraise(::IOError) { n2f_time(receiver.native_io.stat.ctime) }
         end
 
         def io_birthtime(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           reraise(::IOError, ::NotImplementedError) { n2f_time(receiver.native_io.stat.birthtime) }
         end
 
         def io_path(_, receiver)
-          return FNIL unless receiver.is_a?(IOObject)
+          return FNIL unless fio?(receiver)
           path = receiver.native_io.path rescue nil
           path ? n2f_str(path) : FNIL
         rescue
@@ -1286,7 +1289,7 @@ module Frozone
         end
 
         def io_flock(_, receiver, lock_op_obj)
-          return n2f_int(0) unless receiver.is_a?(IOObject)
+          return n2f_int(0) unless fio?(receiver)
           reraise(::IOError) { n2f_int(receiver.native_io.flock(fint?(lock_op_obj) ? lock_op_obj.raw : 0)) }
         end
 
@@ -1336,7 +1339,7 @@ module Frozone
 
         def io_reopen(context, receiver, target, mode = FNIL)
           native = native_io_for(receiver)
-          if target.is_a?(IOObject)
+          if fio?(target)
             native.reopen(target.native_io) rescue nil
           else
             path = fstr?(target) ? target.raw : coerce_to_path(context, target)
@@ -1366,7 +1369,7 @@ module Frozone
 
         def dir_fchdir(context, fd_obj, block_obj = FNIL)
           fd = fint?(fd_obj) ? fd_obj.raw : (native_io_for(fd_obj).fileno rescue nil)
-          if fnil?(block_obj) || block_obj.nil?
+          if fnil?(block_obj)
             Dir.fchdir(fd) if fd
           else
             Dir.fchdir(fd) do
@@ -1378,7 +1381,7 @@ module Frozone
 
         private
 
-        def native_io_for(receiver) = receiver.is_a?(IOObject) ? receiver.native_io : $stdout
+        def native_io_for(receiver) = fio?(receiver) ? receiver.native_io : $stdout
 
         def stat_int_field(path, default: 0)
           n2f_int(yield File.stat(path.raw))

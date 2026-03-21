@@ -133,7 +133,7 @@ module Frozone
 
         def string_gsub(context, v, pattern, replacement = FNIL, block = FNIL)
           pat = extract_pattern(context, pattern)
-          has_block = block && !fnil?(block)
+          has_block = !fnil?(block)
           has_replacement = !fnil?(replacement)
           if has_block && !has_replacement
             last_m = nil
@@ -177,7 +177,7 @@ module Frozone
 
         def string_sub(context, v, pattern, replacement = FNIL, block = FNIL)
           pat = extract_pattern(context, pattern)
-          has_block = block && !fnil?(block)
+          has_block = !fnil?(block)
           has_replacement = !fnil?(replacement)
           if has_block && !has_replacement
             the_m = nil
@@ -1385,7 +1385,7 @@ module Frozone
         end
 
         def string_scan(context, v, pattern, block = FNIL)
-          has_block = block && !fnil?(block)
+          has_block = !fnil?(block)
           # For string pattern: use raw string (literal match). For regexp: use raw regexp.
           pat = if fstr?(pattern)
                   pattern.raw
@@ -1597,7 +1597,7 @@ module Frozone
         end
 
         def string_scrub(context, v, replacement = FNIL, block = FNIL)
-          has_block = block && !fnil?(block)
+          has_block = !fnil?(block)
           has_repl = replacement && !fnil?(replacement)
           reraise(::EncodingError) do
             result = if has_block

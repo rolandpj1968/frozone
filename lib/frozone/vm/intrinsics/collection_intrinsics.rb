@@ -438,7 +438,7 @@ module Frozone
                        block
                      elsif block.is_a?(BlockObject)
                        ProcObject.new(block)
-                     elsif block && !fnil?(block)
+                     elsif !fnil?(block)
                        ProcObject.new(block)
                      end
           if proc_obj

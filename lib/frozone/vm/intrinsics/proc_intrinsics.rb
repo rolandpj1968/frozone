@@ -297,7 +297,7 @@ module Frozone
             result = bound_method_source_location(context, blk)
             # For core library methods (internal), return nil (like C-implemented MRI methods)
             return FNIL if farray?(result) &&
-                                     result.raw[0].is_a?(StringObject) && result.raw[0].raw.start_with?('<internal:')
+                                     fstr?(result.raw[0]) && result.raw[0].raw.start_with?('<internal:')
             result
           else
             FNIL

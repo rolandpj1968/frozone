@@ -570,7 +570,7 @@ module Frozone
         # Bare `raise` with no args: re-raise the current exception, or raise RuntimeError("").
         def reraise_current_or_runtime(cause, context)
           if cause
-            set_exc_backtrace(cause, context) unless cause.get_ivar(:@backtrace).is_a?(ArrayObject)
+            set_exc_backtrace(cause, context) unless farray?(cause.get_ivar(:@backtrace))
             raise FrozoneException.new(cause, cause.get_ivar(:@message)&.raw || "")
           end
           exc = FrozoneException.make(:RuntimeError, "")
@@ -633,7 +633,7 @@ module Frozone
           validate_cause(effective_cause, exc_obj)
           exc_obj.set_ivar(:@cause, effective_cause) if effective_cause && exc_obj.is_a?(ObjectObject)
           # Only set backtrace if explicitly provided or exception has no backtrace yet
-          apply_backtrace(exc_obj, backtrace_arg, context) unless exc_obj.is_a?(ObjectObject) && exc_obj.get_ivar(:@backtrace).is_a?(ArrayObject)
+          apply_backtrace(exc_obj, backtrace_arg, context) unless exc_obj.is_a?(ObjectObject) && farray?(exc_obj.get_ivar(:@backtrace))
           raise FrozoneException.new(exc_obj, msg_str)
         end
       end
