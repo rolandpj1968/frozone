@@ -82,15 +82,9 @@ task :core do
     array/sort_spec.rb
     module/autoload_spec.rb
     regexp/timeout_spec.rb
-    thread/alive_spec.rb
-    thread/inspect_spec.rb
+    thread/list_spec.rb
     thread/raise_spec.rb
-    thread/report_on_exception_spec.rb
-    thread/status_spec.rb
-    thread/stop_spec.rb
-    thread/to_s_spec.rb
     mutex/lock_spec.rb
-    mutex/owned_spec.rb
   ].map { |f| "#{RUBY_SPEC_DIR}/core/#{f}" }.freeze
 
   # Build list of (name, args) pairs for non-empty modules

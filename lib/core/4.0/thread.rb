@@ -3,10 +3,12 @@ class Thread
   def self.report_on_exception = false
   def self.abort_on_exception=(val); nil; end
   def self.abort_on_exception = false
-  @@pending = []
-  @@all     = []
-  @@main    = nil
-  @@current = nil
+  @@pending              = []
+  @@all                  = []
+  @@main                 = nil
+  @@current              = nil
+  @@run_depth            = 0     # incremented while a thread block is executing
+  @@last_blocked_as_yield = false # set by Thread.pass before raising Blocked
 
   def self.current
     @@current || (@@main ||= new_main_thread)
@@ -22,40 +24,95 @@ class Thread
   end
   private_class_method :new_main_thread
 
-  # Thread.pass runs the next pending thread so that spin-loops like
-  # `Thread.pass until flag` work in single-threaded VM.
+  # Thread.pass runs the next pending thread.
+  # When called from inside a running thread (run_depth > 0) with nothing pending,
+  # raises Thread::Blocked so loops like `loop { Thread.pass }` terminate.
+  # This marks the thread as "run-yielded" so status remains 'run' (not 'sleep').
   def self.pass
+    if @@pending.empty?
+      if @@run_depth > 0
+        @@last_blocked_as_yield = true
+        raise Blocked
+      end
+      return nil
+    end
     t = @@pending.shift
-    t.__run_block if t
+    t.__run_block
     nil
   end
 
   def self.__run_next_pending
+    if @@pending.empty?
+      if @@run_depth > 0
+        @@last_blocked_as_yield = true
+        raise Blocked
+      end
+      return nil
+    end
     t = @@pending.shift
-    t.__run_block if t
+    t.__run_block
     t
   end
 
   # Returns true if the thread is currently in the pending queue (blocked/waiting).
   def self.__pending_include?(t) = @@pending.include?(t)
 
-  # Single-threaded: pending threads are "sleeping", done threads are "dead".
-  def status = @done ? false : 'sleep'
-  def alive? = !@done
-  def stop?  = true   # always sleeping or dead in cooperative model
+  # Thread.stop puts the current thread to sleep until woken by #run or #wakeup.
+  # Uses @wakeup_count (total wakeups received) and @stop_seen (Thread.stop calls
+  # seen in current replay run) to replay past the stopped positions:
+  # if @stop_seen < @wakeup_count, increment @stop_seen and return (skip this stop).
+  # Otherwise raise Blocked so the thread is re-queued.
+  # Does NOT set @@last_blocked_as_yield — so status stays 'sleep' (not 'run').
+  def self.stop
+    current = Thread.current
+    seen = (current.__stop_seen || 0)
+    if seen < (current.__wakeup_count || 0)
+      current.__stop_seen = seen + 1
+      return nil
+    end
+    raise Blocked
+  end
+
+  # Exposed for Thread.stop replay mechanism
+  def __stop_seen;    @stop_seen;    end
+  def __stop_seen=(v); @stop_seen = v; end
+  def __wakeup_count;    @wakeup_count;    end
+  def __wakeup_count=(v); @wakeup_count = v; end
+
+  # Status reflects execution state:
+  #   'run'      — currently executing OR blocked via Thread.pass (cooperative yield)
+  #   'sleep'    — new/unstarted, waiting for a resource, or Thread.stop'd
+  #   'aborting' — kill called on self while executing (in ensure block)
+  #   false      — completed normally or killed (no exception)
+  #   nil        — completed with uncaught exception
+  def status
+    return 'aborting' if @aborting
+    return nil        if @done && @exception
+    return false      if @done
+    return 'run'      if @executing || @run_yielded
+    'sleep'
+  end
+
+  def alive? = !@done || @aborting
+  def stop?  = !@aborting && (@done || (!@executing && !@run_yielded))
 
   def report_on_exception=(val); @report_on_exception = val; end
   def report_on_exception = @report_on_exception.nil? ? false : @report_on_exception
 
   def initialize(&block)
-    @block              = block
-    @result             = nil
-    @exception          = nil
-    @done               = false
+    @block               = block
+    @result              = nil
+    @exception           = nil
+    @done                = false
+    @executing           = false
+    @run_yielded         = false
+    @aborting            = false
+    @wakeup_count        = 0
+    @stop_seen           = 0
     @report_on_exception = false
-    @name               = nil
-    @thread_vars        = {}
-    @fiber_vars         = {}
+    @name                = nil
+    @thread_vars         = {}
+    @fiber_vars          = {}
     @@pending << self
     @@all << self
   end
@@ -89,18 +146,25 @@ class Thread
   def kill
     @@pending.delete(self)
     @done = true
-    @self_killed = true if equal?(@@current)
+    if equal?(@@current)
+      @self_killed = true
+      @aborting    = true
+    end
     self
   end
   alias terminate kill
   alias exit      kill
 
   def wakeup
+    fail ThreadError, "dead thread called wakeup" if @done && !@aborting
+    @wakeup_count = (@wakeup_count || 0) + 1
     __run_block
     self
   end
 
   def run
+    fail ThreadError, "dead thread called wakeup" if @done && !@aborting
+    @wakeup_count = (@wakeup_count || 0) + 1
     __run_block
     self
   end
@@ -113,61 +177,85 @@ class Thread
     self
   end
 
-  def backtrace         = nil
+  def backtrace           = nil
   def backtrace_locations = nil
-  def priority          = 0
-  def priority=(v)      = 0
-  def native_thread_id  = nil
-  def name              = @name
-  def name=(v)          = (@name = v.nil? ? nil : v.to_str)
-  def group             = nil
+  def priority            = 0
+  def priority=(v)        = 0
+  def native_thread_id    = nil
+  def name                = @name
+  def name=(v)            = (@name = v.nil? ? nil : v.to_str)
+  def group               = nil
   def pending_interrupt?(exc = nil) = false
-  def add_trace_func(f) = f
-  def set_trace_func(f) = f
+  def add_trace_func(f)   = f
+  def set_trace_func(f)   = f
 
   def inspect
     id_str = ('0x%016x' % (__id__ * 2))
-    status_str = @done ? 'dead' : 'sleep'
+    status_str = case status
+                 when 'run'      then 'run'
+                 when 'sleep'    then 'sleep'
+                 when 'aborting' then 'aborting'
+                 when false      then 'dead'
+                 when nil        then 'dead'
+                 else                 'dead'
+                 end
     "#<Thread:#{id_str} #{status_str}>"
   end
   alias to_s inspect
 
   def __init_main
-    @block              = nil
-    @result             = nil
-    @exception          = nil
-    @done               = false
+    @block               = nil
+    @result              = nil
+    @exception           = nil
+    @done                = false
+    @executing           = false
+    @run_yielded         = false
+    @aborting            = false
+    @wakeup_count        = 0
+    @stop_seen           = 0
     @report_on_exception = false
-    @name               = nil
-    @thread_vars        = {}
-    @fiber_vars         = {}
+    @name                = nil
+    @thread_vars         = {}
+    @fiber_vars          = {}
   end
 
   def __run_block(timeout_mode: false)
-    return if @done
+    return if @done && !@aborting
+    return if @executing
     @@pending.delete(self)
-    @done = true
-    @self_killed = false
-    prev = @@current
-    @@current = self
+    @executing    = true
+    @run_yielded  = false
+    @stop_seen    = 0          # reset replay counter at start of each run
+    @self_killed  = false
+    prev          = @@current
+    @@current     = self
+    @@run_depth  += 1
     Intrinsics.thread_save_reset_locals(self)
     begin
       ret = Intrinsics.thread_run_block(@block)
-      @result = @self_killed ? nil : ret
+      @done      = true
+      @aborting  = false
+      @result    = @self_killed ? nil : ret
     rescue Blocked
-      # Thread blocked on unavailable resource; reset to pending for retry
-      @done = false
+      # Thread blocked; record whether this was a cooperative yield (Thread.pass)
+      # or a resource block (mutex, queue, Thread.stop), then re-queue.
+      @run_yielded = @@last_blocked_as_yield
+      @@last_blocked_as_yield = false
       @@pending << self
     rescue => e
       if timeout_mode && e.is_a?(ThreadError) && e.message.start_with?("deadlock")
         # Cooperative deadlock during timeout join: reset for retry
-        @done = false
+        @run_yielded = false
         @@pending << self
       else
+        @done      = true
+        @aborting  = false
         @exception = e
       end
     ensure
-      @@current = prev
+      @executing  = false
+      @@run_depth -= 1
+      @@current   = prev
       Intrinsics.thread_restore_locals(self)
     end
   end

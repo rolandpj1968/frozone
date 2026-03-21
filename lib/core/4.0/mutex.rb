@@ -1,16 +1,36 @@
 class Mutex
-  def lock = (@locked = true; self)
-  def unlock = (@locked = false; self)
   def locked? = @locked
-  def owned? = @locked   # single-threaded: if locked, owner is always current
-  def try_lock = !@locked && (@locked = true)
+  def owned?  = @owner.equal?(Thread.current)
 
   def initialize
     @locked = false
+    @owner  = nil
+  end
+
+  def lock
+    if @locked
+      raise ThreadError, "deadlock; recursive locking" if @owner.equal?(Thread.current)
+      raise Thread::Blocked
+    end
+    @locked = true
+    @owner  = Thread.current
+    self
+  end
+
+  def unlock
+    @locked = false
+    @owner  = nil
+    self
+  end
+
+  def try_lock
+    return false if @locked
+    @locked = true
+    @owner  = Thread.current
+    true
   end
 
   def synchronize(&block)
-    Kernel.raise ThreadError, "deadlock; recursive locking" if @locked
     lock
     begin
       block.call

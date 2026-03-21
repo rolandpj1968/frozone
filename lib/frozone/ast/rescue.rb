@@ -17,6 +17,24 @@ module Frozone
 
       # Does this clause match the given host-Ruby exception in context?
       def matches?(e, context)
+        # Thread::Blocked is cooperative threading control flow: only a clause that
+        # explicitly names Thread::Blocked (exact full-name match) may catch it.
+        # `rescue Object`, `rescue Exception`, bare rescue, etc. must NOT catch it.
+        if Ast.thread_blocked_exception?(e)
+          return @exception_nodes.any? do |exc_node|
+            begin
+              fc = exc_node.evaluate(context)
+              if fc.is_a?(Vm::ArrayObject)
+                fc.raw.any? { |c| Ast.thread_blocked_class?(c) }
+              else
+                Ast.thread_blocked_class?(fc)
+              end
+            rescue
+              false
+            end
+          end
+        end
+
         # bare rescue catches StandardError and subclasses (not Exception)
         if @exception_nodes.empty?
           std_error = Vm::Core::OBJECT_CLASS.get_constant(:StandardError)
@@ -154,6 +172,7 @@ module Frozone
               raise
             rescue => body_exc
               raise if CONTROL_FLOW.any? { |k| body_exc.is_a?(k) }
+              raise if Ast.thread_blocked_exception?(body_exc)
               # Native MRI exception raised inside rescue body — wrap it and set cause.
               wrapped = Vm::FrozoneException.wrap_mri(body_exc)
               current_exc = Vm::GLOBALS[:"$!"]
@@ -191,6 +210,18 @@ module Frozone
 
         result
       end
+    end
+    # Helpers for Thread::Blocked cooperative-threading control flow detection.
+    # Thread::Blocked is only catchable by rescue clauses that explicitly name it.
+
+    def self.thread_blocked_exception?(e)
+      return false unless e.is_a?(Vm::FrozoneException)
+      klass = e.vm_object.is_a?(Vm::ObjectObject) ? e.vm_object.class_object : nil
+      klass&.full_name == :"Thread::Blocked"
+    end
+
+    def self.thread_blocked_class?(fc)
+      fc.is_a?(Vm::ModuleObject) && fc.full_name == :"Thread::Blocked"
     end
   end
 end
