@@ -52,8 +52,10 @@ class Thread
       current = Thread.current
       exc = current.__raise_exception
       if exc
+        cause = current.__raise_cause
         current.__raise_exception = nil
-        raise exc
+        current.__raise_cause = nil
+        raise exc, nil, nil, cause: cause
       end
       raise Blocked
     end
@@ -98,8 +100,12 @@ class Thread
     # If Thread#raise was called on this sleeping thread, inject the exception here
     exc = current.__raise_exception
     if exc
+      cause = current.__raise_cause
       current.__raise_exception = nil
-      raise exc
+      current.__raise_cause = nil
+      # Use explicit cause: nil to prevent auto-chaining from target thread's $!
+      # (cross-thread raises never inherit the target thread's rescue context)
+      raise exc, nil, nil, cause: cause
     end
     raise Blocked
   end
@@ -111,6 +117,8 @@ class Thread
   def __wakeup_count=(v); @wakeup_count = v; end
   def __raise_exception;    @raise_exception;    end
   def __raise_exception=(v); @raise_exception = v; end
+  def __raise_cause;    @raise_cause;    end
+  def __raise_cause=(v); @raise_cause = v; end
 
   # Status reflects execution state:
   #   'run'      — currently executing OR blocked via Thread.pass (cooperative yield)
@@ -146,6 +154,7 @@ class Thread
     @wakeup_count        = 0
     @stop_seen           = 0
     @raise_exception     = nil
+    @raise_cause         = nil
     @report_on_exception = nil  # nil means inherit from Thread.report_on_exception
     @name                = nil
     @thread_vars         = {}
@@ -211,26 +220,58 @@ class Thread
     self
   end
 
-  def raise(*args)
+  def raise(*args, **kwargs)
     return nil if @done && !@aborting
-    exc = if args.empty?
+
+    # Extract cause: keyword; remaining kwargs become the message hash
+    cause_given = kwargs.key?(:cause)
+    cause = kwargs.delete(:cause)
+    msg_hash = kwargs.empty? ? nil : kwargs
+
+    # Validate explicit cause type
+    if cause_given && !cause.nil? && !cause.is_a?(Exception)
+      Kernel.raise TypeError, "exception object expected"
+    end
+
+    # ArgumentError when only cause: is given with no positional args and no other kwargs
+    if args.empty? && msg_hash.nil? && cause_given
+      Kernel.raise ArgumentError, "only cause is given with no arguments"
+    end
+
+    exc = if args.empty? && msg_hash.nil?
       RuntimeError.new("")
-    elsif args[0].is_a?(String)
+    elsif args[0].is_a?(String) && args.size == 1 && msg_hash.nil?
       RuntimeError.new(args[0])
-    elsif args[0].is_a?(Exception)
+    elsif args[0].is_a?(String)
+      # String with extra args (positional or keyword) is always TypeError
+      Kernel.raise TypeError, "exception class/object expected"
+    elsif args[0].is_a?(Exception) && args.size <= 1 && msg_hash.nil?
       args[0]
-    elsif args[0].respond_to?(:exception)
-      args[0].exception(*args[1..])
+    elsif args.size >= 1 && args[0].respond_to?(:exception)
+      # Pass message (args[1] or msg_hash) but NOT backtrace (args[2]) to exception
+      message = args.size >= 2 ? args[1] : msg_hash
+      result = message.nil? ? args[0].exception : args[0].exception(message)
+      unless result.is_a?(Exception)
+        Kernel.raise TypeError, "exception object expected"
+      end
+      result
     else
       Kernel.raise TypeError, "exception class/object expected"
     end
+
     # Raising on the current thread: inject immediately into the live call stack.
     if equal?(Thread.current)
-      Kernel.raise exc
+      if cause_given
+        Kernel.raise exc, nil, nil, cause: cause
+      else
+        Kernel.raise exc
+      end
     end
     # Inject exception into a sleeping/running thread via replay mechanism.
     # Thread.stop and Thread.pass both check @raise_exception before blocking.
+    # Store explicit cause (nil means "no auto-chain"; :__not_given means use default).
     @raise_exception = exc
+    @raise_cause = cause_given ? cause : nil
     __run_block
     self
   end
@@ -273,6 +314,7 @@ class Thread
     @wakeup_count        = 0
     @stop_seen           = 0
     @raise_exception     = nil
+    @raise_cause         = nil
     @report_on_exception = nil  # nil means inherit from Thread.report_on_exception
     @name                = nil
     @thread_vars         = {}
