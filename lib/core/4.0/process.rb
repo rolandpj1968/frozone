@@ -7,6 +7,7 @@ class Process
   def self.gid = Intrinsics.process_gid
   def self.euid = Intrinsics.process_euid
   def self.egid = Intrinsics.process_egid
+  def self.groups = Intrinsics.process_groups
   def self.exit(code = true)  = Kernel.exit(code)
   def self.exit!(code = false) = Intrinsics.kernel_exit(self, code)
 

@@ -99,6 +99,17 @@ class Dir
     Intrinsics.dir_chroot(p)
   end
 
+  def self.for_fd(fd)
+    dir = allocate
+    dir.instance_variable_set(:@path, nil)
+    dir.instance_variable_set(:@encoding, nil)
+    dir.instance_variable_set(:@dir, Intrinsics.dir_for_fd(fd))
+    dir.instance_variable_set(:@closed, false)
+    dir.instance_variable_set(:@entries, nil)
+    dir.instance_variable_set(:@pos, 0)
+    dir
+  end
+
   def self.open(path, encoding: nil, &block)
     dir = new(path)
     if block

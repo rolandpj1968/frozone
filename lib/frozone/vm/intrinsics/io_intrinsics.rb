@@ -137,6 +137,17 @@ module Frozone
           reraise(::IOError) { n2f_int(receiver.native_io.fileno) }
         end
 
+        def io_close_on_exec_q(_, receiver)
+          return FTRUE unless fio?(receiver)
+          reraise(::IOError) { n2f_bool(receiver.native_io.close_on_exec?) }
+        end
+
+        def io_close_on_exec_set(_, receiver, val)
+          return FNIL unless fio?(receiver)
+          reraise(::IOError) { receiver.native_io.close_on_exec = ftrue?(val) }
+          val
+        end
+
         def io_eof?(_, receiver)
           return FTRUE unless fio?(receiver)
           reraise(::IOError) { n2f_bool(receiver.native_io.eof?) }

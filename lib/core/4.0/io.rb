@@ -65,6 +65,8 @@ class IO
   def fileno = Intrinsics.io_fileno(self)
   def eof? = Intrinsics.io_eof?(self)
   def eof = eof?
+  def close_on_exec? = Intrinsics.io_close_on_exec_q(self)
+  def close_on_exec=(val) = Intrinsics.io_close_on_exec_set(self, val)
   def isatty = Intrinsics.io_isatty(self)
   def tty? = isatty
   def binmode = Intrinsics.io_binmode(self)

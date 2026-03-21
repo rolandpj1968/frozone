@@ -92,6 +92,7 @@ module Frozone
         def process_gid(_) = n2f_int(Process.gid)
         def process_euid(_) = n2f_int(Process.euid)
         def process_egid(_) = n2f_int(Process.egid)
+        def process_groups(_) = n2f_arr(Process.groups.map { |g| n2f_int(g) })
         def file_join(_, parts) = n2f_str(File.join(*parts.raw.flat_map { |p| farray?(p) ? p.raw.map(&:raw) : p.raw }))
         def file_split(_, path) = n2f_arr(File.split(path.raw).map { |p| n2f_str(p) })
         def file_dirname(_, path, level = FNIL) = n2f_str(File.dirname(path.raw, fnil?(level) ? 1 : level.raw))
@@ -110,12 +111,19 @@ module Frozone
           n2f_str(File.expand_path(path.raw, f2n_raw(base)))
         end
 
-        def file_umask(_, new_mask)
+        def file_umask(context, new_mask)
           if fnil?(new_mask)
             n2f_int(File.umask)
           else
-            old = File.umask(fint?(new_mask) ? new_mask.raw : new_mask.raw.to_i)
-            n2f_int(old)
+            int_val = if fint?(new_mask)
+              new_mask.raw
+            elsif new_mask.respond_to?(:raw) && new_mask.raw.is_a?(Integer)
+              new_mask.raw
+            else
+              result = new_mask.dispatch(context, :to_int, [], {})
+              fint?(result) ? result.raw : result.raw.to_i
+            end
+            n2f_int(File.umask(int_val))
           end
         end
 
@@ -245,7 +253,7 @@ module Frozone
         def dir_glob(context, pattern, flags = FNIL, base = FNIL, sort = FNIL)
           # pattern can be a String, Array, or object with to_path
           flag_int = fnil?(flags) ? 0 : flags.raw.to_i
-          base_str = f2n_raw(base)
+          base_str = fnil?(base) ? nil : (fstr?(base) ? base.raw : coerce_to_path(context, base))
           sort_val = fnil?(sort) || (ftrue?(sort) || (ffalse?(sort) ? false : sort.raw))
           pats = if farray?(pattern)
                    pattern.raw.map { |p| coerce_to_path(context, p) }
@@ -329,6 +337,14 @@ module Frozone
           n2f_int(d.fileno)
         rescue NotImplementedError
           n2f_int(0)
+        end
+
+        def dir_for_fd(_, fd_obj)
+          fd = fint?(fd_obj) ? fd_obj.raw : fd_obj.raw.to_i
+          dir = ::Dir.for_fd(fd)
+          obj = ObjectObject.new(Core::OBJECT_CLASS)
+          obj.instance_variable_set(:@__dir__, dir)
+          obj
         end
 
         def dir_chroot(_, path) = reraise(Errno::EPERM, Errno::ENOENT, SystemCallError) do
