@@ -155,6 +155,8 @@ class Thread
     @thread_vars         = {}
     @fiber_vars          = {}
     @owned_mutexes       = []
+    @group               = ThreadGroup::Default
+    ThreadGroup::Default.__add_thread(self)
     @@pending << self
     @@all << self
   end
@@ -282,7 +284,8 @@ class Thread
   def native_thread_id    = nil
   def name                = @name
   def name=(v)            = (@name = v.nil? ? nil : v.to_str)
-  def group               = nil
+  def group               = @group
+  def __set_group(g)      = (@group = g)
   def pending_interrupt?(exc = nil) = false
   def add_trace_func(f)   = f
   def set_trace_func(f)   = f
@@ -321,6 +324,7 @@ class Thread
     @fiber_vars          = {}
     @owned_mutexes       = []
     @source_location_str = nil
+    @group               = nil  # set to ThreadGroup::Default after ThreadGroup is defined
   end
 
   def __add_owned_mutex(m)
@@ -432,6 +436,47 @@ class Thread
   Mutex = ::Mutex
 
 end
+
+class ThreadGroup
+  def initialize
+    @threads  = []
+    @enclosed = false
+  end
+
+  def list
+    @threads.select(&:alive?)
+  end
+
+  def enclose
+    @enclosed = true
+    self
+  end
+
+  def enclosed? = @enclosed
+
+  def add(thread)
+    raise ThreadError, "can't move from the enclosed thread group" if thread.group&.enclosed?
+    raise ThreadError, "can't move to the enclosed thread group" if @enclosed
+    thread.group.__remove_thread(thread) if thread.group
+    thread.__set_group(self)
+    @threads << thread unless @threads.include?(thread)
+    self
+  end
+
+  def __add_thread(thread)
+    @threads << thread unless @threads.include?(thread)
+  end
+
+  def __remove_thread(thread)
+    @threads.delete(thread)
+  end
+
+  Default = new
+end
+
+# Set main thread group after ThreadGroup is defined
+Thread.main.__set_group(ThreadGroup::Default)
+ThreadGroup::Default.__add_thread(Thread.main)
 
 class ConditionVariable
   def initialize
