@@ -40,14 +40,24 @@ class Thread
   # When called from inside a running thread (run_depth > 0) with nothing pending,
   # raises Thread::Blocked so loops like `loop { Thread.pass }` terminate.
   # This marks the thread as "run-yielded" so status remains 'run' (not 'sleep').
+  # Thread.pass cooperatively yields the current thread.
+  # From inside a running thread (run_depth > 0): always suspends (raises Blocked),
+  # never runs other pending threads. This prevents nested thread loops from
+  # starving the main scheduler.
+  # From the main thread (run_depth == 0): runs the next pending thread.
   def self.pass
-    if @@pending.empty?
-      if @@run_depth > 0
-        @@last_blocked_as_yield = true
-        raise Blocked
+    if @@run_depth > 0
+      @@last_blocked_as_yield = true
+      # If the current thread has a pending raise, inject it now instead of blocking.
+      current = Thread.current
+      exc = current.__raise_exception
+      if exc
+        current.__raise_exception = nil
+        raise exc
       end
-      return nil
+      raise Blocked
     end
+    return nil if @@pending.empty?
     t = @@pending.shift
     t.__run_block
     nil
@@ -69,6 +79,9 @@ class Thread
   # Returns true if the thread is currently in the pending queue (blocked/waiting).
   def self.__pending_include?(t) = @@pending.include?(t)
 
+  # Returns number of threads in the pending queue.
+  def self.__pending_size = @@pending.size
+
   # Thread.stop puts the current thread to sleep until woken by #run or #wakeup.
   # Uses @wakeup_count (total wakeups received) and @stop_seen (Thread.stop calls
   # seen in current replay run) to replay past the stopped positions:
@@ -82,6 +95,12 @@ class Thread
       current.__stop_seen = seen + 1
       return nil
     end
+    # If Thread#raise was called on this sleeping thread, inject the exception here
+    exc = current.__raise_exception
+    if exc
+      current.__raise_exception = nil
+      raise exc
+    end
     raise Blocked
   end
 
@@ -90,6 +109,8 @@ class Thread
   def __stop_seen=(v); @stop_seen = v; end
   def __wakeup_count;    @wakeup_count;    end
   def __wakeup_count=(v); @wakeup_count = v; end
+  def __raise_exception;    @raise_exception;    end
+  def __raise_exception=(v); @raise_exception = v; end
 
   # Status reflects execution state:
   #   'run'      — currently executing OR blocked via Thread.pass (cooperative yield)
@@ -124,6 +145,7 @@ class Thread
     @aborting            = false
     @wakeup_count        = 0
     @stop_seen           = 0
+    @raise_exception     = nil
     @report_on_exception = nil  # nil means inherit from Thread.report_on_exception
     @name                = nil
     @thread_vars         = {}
@@ -190,10 +212,24 @@ class Thread
   end
 
   def raise(*args)
-    # Mark thread as done with an exception (no actual raise in cooperative model)
-    @done = true
-    exc = args.empty? ? RuntimeError.new : (args[0].is_a?(Exception) ? args[0] : args[0].new(*args[1..]))
-    @exception = exc
+    return nil if @done && !@aborting
+    exc = if args.empty?
+      RuntimeError.new("")
+    elsif args[0].is_a?(String)
+      RuntimeError.new(args[0])
+    elsif args[0].is_a?(Exception)
+      args[0]
+    else
+      args[0].new(*args[1..])
+    end
+    # Raising on the current thread: inject immediately into the live call stack.
+    if equal?(Thread.current)
+      Kernel.raise exc
+    end
+    # Inject exception into a sleeping/running thread via replay mechanism.
+    # Thread.stop and Thread.pass both check @raise_exception before blocking.
+    @raise_exception = exc
+    __run_block
     self
   end
 
@@ -234,6 +270,7 @@ class Thread
     @aborting            = false
     @wakeup_count        = 0
     @stop_seen           = 0
+    @raise_exception     = nil
     @report_on_exception = nil  # nil means inherit from Thread.report_on_exception
     @name                = nil
     @thread_vars         = {}
@@ -418,9 +455,9 @@ class Queue
           break unless @data.empty?
           return nil if @closed
           return nil if @deadlines[tid] && Time.now.to_f >= @deadlines[tid]
-          # No pending thread, or the thread we ran immediately blocked again:
-          # neither case can unblock us, so we must suspend too.
-          (blocked = true; raise Thread::Blocked) if t.nil? || Thread.__pending_include?(t)
+          # No pending thread available, or the thread we ran immediately re-blocked
+          # AND there are no other pending threads that might push data: suspend.
+          (blocked = true; raise Thread::Blocked) if t.nil? || (Thread.__pending_include?(t) && Thread.__pending_size <= 1)
         end
       rescue Thread::Blocked
         raise  # re-raise, keeping thread in @waiters and @deadlines
@@ -470,7 +507,7 @@ class SizedQueue < Queue
           break if @data.size < @max
           raise ClosedQueueError, "queue closed" if @closed
           return nil if @push_deadlines[tid] && Time.now.to_f >= @push_deadlines[tid]
-          (blocked = true; raise Thread::Blocked) if t.nil? || Thread.__pending_include?(t)
+          (blocked = true; raise Thread::Blocked) if t.nil? || (Thread.__pending_include?(t) && Thread.__pending_size <= 1)
         end
       rescue Thread::Blocked
         raise
