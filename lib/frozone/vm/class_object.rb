@@ -1,6 +1,7 @@
 require_relative 'module_object'
 require_relative 'object_object'
 require_relative 'string_object'
+require_relative 'random_object'
 
 module Frozone
   module Vm
@@ -58,6 +59,10 @@ module Frozone
           h = HashObject.new({})
           h.class_object = self
           h
+        elsif ancestors_list.any? { |a| a.name == :Random }
+          obj = RandomObject.new(nil)
+          obj.class_object = self
+          obj
         else
           ObjectObject.new(self)
         end

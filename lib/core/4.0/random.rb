@@ -28,6 +28,8 @@ class Random
     Kernel.srand(seed)
   end
 
+  def marshal_load(data) = Intrinsics.random_marshal_load(self, data)
+
   def ==(other)
     return false unless other.is_a?(Random)
     seed == other.seed && state == other.state

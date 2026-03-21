@@ -1232,10 +1232,30 @@ module Marshal
       # Allocate without calling initialize
       obj = klass.allocate
       idx = track(obj)
-      num_members.times do
-        name = read_ivar_name
-        val = read_object
-        obj[name] = val rescue (obj.send(:"#{name}=", val) rescue nil)
+      if defined?(::Data) && klass < ::Data
+        # Data is an immutable value class; members are stored in @data_values hash
+        values = {}
+        num_members.times do
+          name = read_ivar_name
+          val = read_object
+          values[name] = val
+        end
+        obj.instance_variable_set(:@data_values, values)
+        obj.freeze
+      else
+        num_members.times do
+          name = read_ivar_name
+          val = read_object
+          begin
+            obj[name] = val
+          rescue
+            begin
+              obj.send(:"#{name}=", val)
+            rescue
+              obj.instance_variable_set(:"@#{name}", val) rescue nil
+            end
+          end
+        end
       end
       call_proc(obj, idx)
     end
@@ -1811,18 +1831,20 @@ module Marshal
     end
 
     def read_data_object
-      # Data class (Ruby 3.2+) — stored like Struct with 'S' type in newer formats
-      # or as 'd' in some versions
+      # 'd' type = wrapped C pointer object; stored as class + single data payload
+      # The class must implement _load_data(data) to restore state
       klass = read_class_by_symbol
-      num_members = read_long
-      kwargs = {}
-      num_members.times do
-        name = read_object
-        val = read_object
-        kwargs[name] = val
-      end
-      obj = klass.new(**kwargs)
+      obj = klass.allocate
       idx = track(obj)
+      data = read_object
+      unless obj.respond_to?(:_load_data, true)
+        raise TypeError, "class #{klass} needs to have method '_load_data'"
+      end
+      unless obj.is_a?(klass) && klass.instance_methods(false).include?(:_load_data) ||
+             klass.private_instance_methods(false).include?(:_load_data)
+        raise TypeError, "class #{klass} needs to have method '_load_data'"
+      end
+      obj.__send__(:_load_data, data)
       call_proc(obj, idx)
     end
   end
