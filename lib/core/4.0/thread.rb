@@ -112,6 +112,8 @@ class Thread
 
   def initialize(*args, &block)
     return unless block  # Thread.new will detect missing block and raise ThreadError
+    sl = block.source_location
+    @source_location_str = sl ? "#{sl[0]}:#{sl[1]}" : nil
     @block               = args.empty? ? block : proc { block.call(*args) }
     @result              = nil
     @exception           = nil
@@ -125,6 +127,7 @@ class Thread
     @name                = nil
     @thread_vars         = {}
     @fiber_vars          = {}
+    @owned_mutexes       = []
     @@pending << self
     @@all << self
   end
@@ -214,7 +217,8 @@ class Thread
                  when nil        then 'dead'
                  else                 'dead'
                  end
-    "#<Thread:#{id_str} #{status_str}>"
+    loc = @source_location_str ? " #{@source_location_str}" : ''
+    "#<Thread:#{id_str}#{loc} #{status_str}>".b
   end
   alias to_s inspect
 
@@ -232,6 +236,18 @@ class Thread
     @name                = nil
     @thread_vars         = {}
     @fiber_vars          = {}
+    @owned_mutexes       = []
+    @source_location_str = nil
+  end
+
+  def __add_owned_mutex(m)
+    @owned_mutexes ||= []
+    @owned_mutexes << m unless @owned_mutexes.include?(m)
+  end
+
+  def __remove_owned_mutex(m)
+    @owned_mutexes ||= []
+    @owned_mutexes.delete(m)
   end
 
   def __run_block(timeout_mode: false)
@@ -268,6 +284,11 @@ class Thread
         @exception = e
       end
     ensure
+      if @done
+        # Release all mutexes held by this thread (MRI releases them on thread exit)
+        (@owned_mutexes || []).each { |m| m.__force_unlock }
+        @owned_mutexes = []
+      end
       @executing  = false
       @@run_depth -= 1
       @@current   = prev

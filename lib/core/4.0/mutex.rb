@@ -14,10 +14,19 @@ class Mutex
     end
     @locked = true
     @owner  = Thread.current
+    Thread.current.__add_owned_mutex(self)
     self
   end
 
   def unlock
+    owner = @owner
+    @locked = false
+    @owner  = nil
+    owner.__remove_owned_mutex(self) if owner
+    self
+  end
+
+  def __force_unlock
     @locked = false
     @owner  = nil
     self
