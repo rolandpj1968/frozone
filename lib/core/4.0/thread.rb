@@ -219,8 +219,10 @@ class Thread
       RuntimeError.new(args[0])
     elsif args[0].is_a?(Exception)
       args[0]
+    elsif args[0].respond_to?(:exception)
+      args[0].exception(*args[1..])
     else
-      args[0].new(*args[1..])
+      Kernel.raise TypeError, "exception class/object expected"
     end
     # Raising on the current thread: inject immediately into the live call stack.
     if equal?(Thread.current)
