@@ -83,7 +83,6 @@ task :core do
     module/autoload_spec.rb
     regexp/timeout_spec.rb
     thread/list_spec.rb
-    thread/raise_spec.rb
     mutex/lock_spec.rb
   ].map { |f| "#{RUBY_SPEC_DIR}/core/#{f}" }.freeze
 
