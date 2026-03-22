@@ -186,6 +186,38 @@ class Object
   def guard(condition, &block)
     block.call if condition.call
   end
+end
+
+# Patch platform_is / platform_is_not to support no-block usage (boolean return).
+# mspec 1.9.1 always calls yield, but newer ruby-spec calls these inside lambdas
+# (via `guard -> { platform_is_not :windows } do ... end`) where no block is available.
+class Object
+  def platform_is(*args)
+    g = PlatformGuard.new(*args)
+    g.name = :platform_is
+    if block_given?
+      yield if g.yield?
+    else
+      g.yield?
+    end
+  ensure
+    g.unregister
+  end
+
+  def platform_is_not(*args)
+    g = PlatformGuard.new(*args)
+    g.name = :platform_is_not
+    if block_given?
+      yield if g.yield?(true)
+    else
+      g.yield?(true)
+    end
+  ensure
+    g.unregister
+  end
+end
+
+class Object
 
   # skip — skip the current example at runtime (mspec 1.9.1 lacks this).
   def skip(reason = nil)

@@ -5,8 +5,8 @@ class Thread
   def self.abort_on_exception=(val); @@abort_on_exception = !!val; end
   def self.abort_on_exception = (defined?(@@abort_on_exception) ? @@abort_on_exception : false)
   def self.handle_interrupt(_config, &block); block.call; end
-  def self.ignore_deadlock=(val); nil; end
-  def self.ignore_deadlock = false
+  def self.ignore_deadlock=(val); @@ignore_deadlock = !!val; end
+  def self.ignore_deadlock = (defined?(@@ignore_deadlock) ? @@ignore_deadlock : false)
   def self.exit; Thread.current.kill; end
   @@pending              = []
   @@all                  = []
