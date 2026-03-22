@@ -125,9 +125,17 @@ module Frozone
 
         def io_gets(_, receiver, sep_obj = FNIL, limit_obj = FNIL)
           return FNIL unless fio?(receiver)
-          sep = fnil?(sep_obj) ? $/ : f2n_raw(sep_obj)
+          # sep_obj: FNIL means nil (no separator = read to EOF), otherwise use raw value
+          sep = fnil?(sep_obj) ? nil : f2n_raw(sep_obj)
+          limit = fnil?(limit_obj) ? nil : (limit_obj.is_a?(IntegerObject) ? limit_obj.raw : nil)
           reraise(::IOError) do
-            line = receiver.native_io.gets(sep)
+            line = if limit.nil?
+              receiver.native_io.gets(sep)
+            elsif sep.nil?
+              receiver.native_io.read(limit)
+            else
+              receiver.native_io.gets(sep, limit)
+            end
             line.nil? ? FNIL : n2f_str(line)
           end
         end

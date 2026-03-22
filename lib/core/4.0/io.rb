@@ -78,7 +78,51 @@ class IO
   def stat = Intrinsics.io_stat(self)
   def inspect = Intrinsics.io_inspect(self)
   def read(len = nil, buf = nil) = Intrinsics.io_read(self, len, buf)
-  def gets(sep = $/, limit = nil) = Intrinsics.io_gets(self, sep, limit)
+  def lineno
+    @lineno ||= 0
+  end
+
+  def lineno=(n)
+    @lineno = n.to_int
+  end
+
+  def gets(*args, chomp: false)
+    # Disambiguate: gets() → sep=$/, lim=nil
+    #               gets(Integer) → sep=$/, lim=n
+    #               gets(String/nil) → sep=arg, lim=nil
+    #               gets(String/nil, Integer) → sep=arg, lim=n
+    case args.length
+    when 0
+      sep = $/
+      lim = nil
+    when 1
+      arg = args[0]
+      if arg.is_a?(Integer)
+        sep = $/; lim = arg
+      elsif arg.nil?
+        sep = nil; lim = nil  # nil sep = read to EOF
+      elsif arg.respond_to?(:to_int) && !arg.respond_to?(:to_str)
+        sep = $/; lim = arg.to_int  # responds to to_int but not to_str → treat as limit
+      else
+        sep = arg.respond_to?(:to_str) ? arg.to_str : arg; lim = nil
+      end
+    when 2
+      sep = args[0].nil? ? nil : (args[0].respond_to?(:to_str) ? args[0].to_str : args[0])
+      lim = args[1].nil? ? nil : args[1].to_int
+    else
+      raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
+    end
+    line = Intrinsics.io_gets(self, sep, lim)
+    line = line.chomp if chomp && !line.nil?
+    if line.nil?
+      $_ = nil
+    else
+      @lineno = (@lineno || 0) + 1
+      $. = @lineno
+      $_ = line
+    end
+    line
+  end
   def readline(sep = $/) = Intrinsics.io_readline(self, sep)
   def readlines(sep = $/) = Intrinsics.io_readlines(self, sep)
   def getbyte = Intrinsics.io_getbyte(self)
