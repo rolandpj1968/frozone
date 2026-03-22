@@ -418,6 +418,9 @@ specs.each do |f|
   # singleton methods defined on @env inside one spec's `it` blocks don't
   # contaminate later spec files.
   MSpec.instance_variable_set(:@env, Object.new.extend(MSpec))
+  # Kill any threads left over from the previous spec file to prevent thread
+  # leaks causing O(n²) slowdown in the cooperative scheduler.
+  Thread.__kill_all_non_main! if Thread.respond_to?(:__kill_all_non_main!, true)
   begin
     require_relative f
   rescue Exception => e

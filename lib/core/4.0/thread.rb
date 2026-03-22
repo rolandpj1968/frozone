@@ -43,6 +43,17 @@ class Thread
   def self.main = (@@main ||= new_main_thread)
   def self.list = [Thread.main] + @@pending + @@all.select(&:alive?)
 
+  # Kill all non-main pending/running threads and reset scheduler state.
+  # Used between spec files to prevent thread leaks causing O(n²) slowdown.
+  def self.__kill_all_non_main!
+    @@pending.each { |t| t.instance_variable_set(:@done, true) rescue nil }
+    @@pending.clear
+    @@all.each { |t| t.instance_variable_set(:@done, true) rescue nil }
+    @@all.clear
+    @@current = nil
+    @@run_depth = 0
+  end
+
   def self.new_main_thread
     t = allocate
     t.__init_main
