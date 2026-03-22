@@ -105,6 +105,15 @@ class Encoding
   Windows_1256 = new("Windows-1256")
   Windows_1257 = new("Windows-1257")
   Windows_1258 = new("Windows-1258")
+  CP1250 = Windows_1250
+  CP1251 = Windows_1251
+  CP1252 = Windows_1252
+  CP1253 = Windows_1253
+  CP1254 = Windows_1254
+  CP1255 = Windows_1255
+  CP1256 = Windows_1256
+  CP1257 = Windows_1257
+  CP1258 = Windows_1258
   Big5     = new("Big5")
   BIG5     = Big5
   Big5_HKSCS = new("Big5-HKSCS")

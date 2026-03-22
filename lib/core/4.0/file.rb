@@ -81,8 +81,8 @@ class File < IO
     l = level.is_a?(Integer) ? level : (level.respond_to?(:to_int) ? level.to_int : raise(TypeError, "no implicit conversion of #{level.class} into Integer"))
     Intrinsics.file_dirname(_coerce_path(path), l)
   end
-  def self.expand_path(path, base = nil) = Intrinsics.file_expand_path(_coerce_path(path), base)
-  def self.absolute_path(path, base = nil) = Intrinsics.file_absolute_path(_coerce_path(path), base)
+  def self.expand_path(path, base = nil) = Intrinsics.file_expand_path(_coerce_path(path), base.nil? ? nil : _coerce_path(base))
+  def self.absolute_path(path, base = nil) = Intrinsics.file_absolute_path(_coerce_path(path), base.nil? ? nil : _coerce_path(base))
   def self.absolute_path?(path) = Intrinsics.file_absolute_path_q(_coerce_path(path))
   def self.exist?(path) = Intrinsics.file_exist(_coerce_path(path))
   def self.exists?(path) = Intrinsics.file_exist(_coerce_path(path))
