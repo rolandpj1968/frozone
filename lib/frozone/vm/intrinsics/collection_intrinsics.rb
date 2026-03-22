@@ -372,7 +372,12 @@ module Frozone
         end
 
         # Range
-        def range_allocate(_, _klass) = RangeObject.new(FNIL, FNIL, false, initialized: false)
+        def range_allocate(_, klass)
+          obj = RangeObject.new(FNIL, FNIL, false, initialized: false)
+          range_class = Core::OBJECT_CLASS.get_constant(:Range)
+          obj.instance_variable_set(:@class_object, klass) if klass && !klass.equal?(range_class)
+          obj
+        end
         def range_initialized_q(_, range) = n2f_bool(range.is_a?(RangeObject) && range.initialized?)
         def range_begin(_, range) = range.begin_val
         def range_end(_, range) = range.end_val
