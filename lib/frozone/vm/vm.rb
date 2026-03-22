@@ -108,12 +108,21 @@ module Frozone
           if vm_obj.is_a?(ObjectObject)
             cls = vm_obj.class_object
             while cls
-              break if cls.name == :SystemExit
+              if cls.name == :SystemExit
+                status_obj = vm_obj.get_ivar(:@status)
+                exit(status_obj.is_a?(IntegerObject) ? status_obj.raw : 0)
+              end
+              if cls.name == :SignalException || cls.name == :Interrupt
+                signo_obj = vm_obj.get_ivar(:@signo)
+                signo = signo_obj.is_a?(IntegerObject) ? signo_obj.raw : nil
+                if signo
+                  Signal.trap(signo, "DEFAULT") rescue nil
+                  ::Process.kill(signo, ::Process.pid) rescue nil
+                  sleep  # wait for the signal to kill us
+                end
+                exit(1)
+              end
               cls = cls.superclass
-            end
-            if cls
-              status_obj = vm_obj.get_ivar(:@status)
-              exit(status_obj.is_a?(IntegerObject) ? status_obj.raw : 0)
             end
           end
           raise

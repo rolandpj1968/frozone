@@ -6,24 +6,45 @@ module Frozone
       class << self
         def io_popen_capture(_, cmd, opts_obj = FNIL)
           mri_opts = {}
+          env_hash = nil
           if fhash?(opts_obj) && !opts_obj.raw.empty?
             opts_obj.raw.each do |k, v|
               key = fsym?(k) ? k.raw : k.raw.to_sym
-              val = case v
-                    when ArrayObject then v.raw.map { |e| fsym?(e) ? e.raw : e.raw }
-                    when SymbolObject then v.raw
-                    when IntegerObject then v.raw
-                    else v.raw
-                    end
-              mri_opts[key] = val
+              if key == :env && v.is_a?(HashObject)
+                env_hash = v.raw.each_with_object({}) do |(ek, ev), h|
+                  h[fstr?(ek) ? ek.raw : ek.raw.to_s] = fnil?(ev) ? nil : (fstr?(ev) ? ev.raw : ev.raw.to_s)
+                end
+              else
+                val = case v
+                      when ArrayObject then v.raw.map { |e| fsym?(e) ? e.raw : e.raw }
+                      when SymbolObject then v.raw
+                      when IntegerObject then v.raw
+                      else v.raw
+                      end
+                mri_opts[key] = val
+              end
             end
           end
-          output = if farray?(cmd)
-                     ::IO.popen(cmd.raw.map { |a| fstr?(a) ? a.raw : a.to_s }, 'r', **mri_opts, &:read) rescue ""
-                   elsif fstr?(cmd)
-                     ::IO.popen(cmd.raw, 'r', **mri_opts, &:read) rescue ""
+          # When cmd is a HashObject, it's an env hash (IO.popen(env, cmd, ...))
+          actual_cmd, actual_env = if fhash?(cmd)
+            env_h = cmd.raw.each_with_object({}) do |(k, v), h|
+              h[fstr?(k) ? k.raw : k.raw.to_s] = fnil?(v) ? nil : (fstr?(v) ? v.raw : v.raw.to_s)
+            end
+            [opts_obj, env_h]  # cmd is actually the second arg (not supported this way, use env: opt)
+          else
+            [cmd, env_hash]
+          end
+          output = if farray?(actual_cmd)
+                     arr = actual_cmd.raw.map { |a| fstr?(a) ? a.raw : a.to_s }
+                     begin
+                       actual_env ? ::IO.popen(actual_env, arr, 'r', &:read) : ::IO.popen(arr, 'r', &:read)
+                     rescue => e
+                       ""
+                     end
+                   elsif fstr?(actual_cmd)
+                     ::IO.popen(actual_cmd.raw, 'r', **mri_opts, &:read) rescue ""
                    else
-                     ::IO.popen(cmd.to_s, 'r', **mri_opts, &:read) rescue ""
+                     ::IO.popen(actual_cmd.to_s, 'r', **mri_opts, &:read) rescue ""
                    end
           GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
           n2f_str(output || "")

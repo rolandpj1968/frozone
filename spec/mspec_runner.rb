@@ -273,6 +273,10 @@ class Object
   # Override ruby_cmd to use single-quoting so shell does not expand $variables
   # in code snippets (mspec 1.9.1 uses code.inspect → double-quoted, breaks $a, $b, etc.)
   # Unset bundler env vars so subprocesses don't load bundler (which causes spurious warnings).
+  CLEAR_BUNDLER_ENV_VARS = {
+    'BUNDLER_SETUP' => nil, 'RUBYOPT' => '', 'BUNDLE_GEMFILE' => '',
+    'BUNDLE_BIN_PATH' => '', 'RUBYLIB' => '', 'BUNDLER_VERSION' => ''
+  }.freeze
   CLEAR_BUNDLER_ENV = "env -u BUNDLER_SETUP RUBYOPT= BUNDLE_GEMFILE= BUNDLE_BIN_PATH= RUBYLIB= BUNDLER_VERSION="
 
   def ruby_cmd(code, opts = {})
@@ -284,11 +288,27 @@ class Object
     [CLEAR_BUNDLER_ENV, RUBY_EXE, ENV['RUBY_FLAGS'], opts[:options], body, opts[:args]].compact.join(' ')
   end
 
+  def ruby_cmd_argv(code, opts = {})
+    argv = [RUBY_EXE]
+    argv << ENV['RUBY_FLAGS'] if ENV['RUBY_FLAGS']
+    argv += opts[:options].split(' ') if opts[:options]
+    if code && !::File.exist?(code)
+      argv << '-e' << code
+    elsif code
+      argv << code
+    end
+    argv += opts[:args].split(' ') if opts[:args]
+    argv
+  end
+
   # ruby_exe with no args returns the RUBY_EXE args array (used for IO.popen([*ruby_exe, ...]) pattern).
   # ruby_exe(nil, opts) with opts runs ruby from stdin/file (code=nil = no -e or file arg).
   def ruby_exe(code = nil, opts = {})
     return [RUBY_EXE] if code.nil? && opts.empty?
-    `#{ruby_cmd(code, opts)}`
+    # Use IO.popen with array form to bypass shell so $?.termsig is set correctly
+    # when the subprocess is killed by a signal.
+    argv = ruby_cmd_argv(code, opts)
+    IO.popen(argv, env: CLEAR_BUNDLER_ENV_VARS, &:read)
   end
 end
 
