@@ -390,13 +390,25 @@ module Frozone
         lex_scopes.reverse_each do |class_or_module|
           constant = class_or_module.get_constant(name)
           return constant unless constant.nil?
+          # For singleton classes, also search the attached class (singleton_of) directly.
+          # In MRI, constant lookup inside `class << SomeModule` can see SomeModule's constants.
+          if class_or_module.is_a?(ClassObject) && class_or_module.is_singleton_class && class_or_module.singleton_of.is_a?(ModuleObject)
+            constant = class_or_module.singleton_of.get_constant(name)
+            return constant unless constant.nil?
+          end
         end
 
         # 2. Class/module hierarchy look-up for each lexical scope (innermost first).
         # Walk each scope's ancestor chain (superclass + included modules).
         # Use same filtered scopes to avoid double-searching ambient OBJECT_CLASS.
         lex_scopes.reverse_each do |class_or_module|
-          constant = class_or_module.lookup_constant(name)
+          # For singleton classes, search the attached class's hierarchy (not singleton's hierarchy).
+          search_scope = if class_or_module.is_a?(ClassObject) && class_or_module.is_singleton_class && class_or_module.singleton_of.is_a?(ModuleObject)
+            class_or_module.singleton_of
+          else
+            class_or_module
+          end
+          constant = search_scope.lookup_constant(name)
           return constant unless constant.nil?
         end
 

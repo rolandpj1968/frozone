@@ -35,7 +35,10 @@ class Dir
   end
   def children = __load_entries__.reject { |e| e == '.' || e == '..' }
   def entries = __load_entries__.dup
-  def chdir(&block) = Intrinsics.dir_chdir(@path, block)
+  def chdir(&block)
+    fd = Intrinsics.dir_fileno(@dir)
+    Intrinsics.dir_fchdir(fd, block)
+  end
   def fileno = Intrinsics.dir_fileno(@dir)
 
   def self.glob(pattern, flags = 0, base: nil, sort: true, &block)

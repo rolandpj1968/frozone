@@ -55,6 +55,9 @@ class Encoding
   BINARY   = new("ASCII-8BIT")
   ASCII_8BIT = BINARY
   EUC_JP   = new("EUC-JP")
+  EUC_KR   = new("EUC-KR")
+  EUC_TW   = new("EUC-TW")
+  EUC_CN   = new("EUC-CN")
   ISO_8859_1  = new("ISO-8859-1")
   ISO8859_1   = ISO_8859_1
   ISO_8859_2  = new("ISO-8859-2")
