@@ -2,9 +2,12 @@ class Thread
   @@report_on_exception = true
   def self.report_on_exception=(val); @@report_on_exception = val; end
   def self.report_on_exception = @@report_on_exception
-  def self.abort_on_exception=(val); nil; end
-  def self.abort_on_exception = false
+  def self.abort_on_exception=(val); @@abort_on_exception = !!val; end
+  def self.abort_on_exception = (defined?(@@abort_on_exception) ? @@abort_on_exception : false)
   def self.handle_interrupt(_config, &block); block.call; end
+  def self.ignore_deadlock=(val); nil; end
+  def self.ignore_deadlock = false
+  def self.exit; Thread.current.kill; end
   @@pending              = []
   @@all                  = []
   @@main                 = nil
@@ -128,22 +131,25 @@ class Thread
   # Status reflects execution state:
   #   'run'      — currently executing OR blocked via Thread.pass (cooperative yield)
   #   'sleep'    — new/unstarted, waiting for a resource, or Thread.stop'd
-  #   'aborting' — kill called on self while executing (in ensure block)
+  #   'aborting' — kill called on self while actively executing (in ensure block)
   #   false      — completed normally or killed (no exception)
   #   nil        — completed with uncaught exception
   def status
-    return 'aborting' if @aborting
     return nil        if @done && @exception
     return false      if @done
+    # 'aborting' only when actively running (not blocked/sleeping)
+    return 'aborting' if @aborting && (@executing || @run_yielded)
     return 'run'      if @executing || @run_yielded
     'sleep'
   end
 
-  def alive? = !@done || @aborting
-  def stop?  = !@aborting && (@done || (!@executing && !@run_yielded))
+  def alive? = !@done
+  def stop?  = @done || (!@executing && !@run_yielded)
 
   def report_on_exception=(val); @report_on_exception = val; end
   def report_on_exception = @report_on_exception.nil? ? Thread.report_on_exception : @report_on_exception
+  def abort_on_exception=(val); @abort_on_exception = !!val; end
+  def abort_on_exception = @abort_on_exception.nil? ? Thread.abort_on_exception : @abort_on_exception
 
   def __start_init(block, args)
     sl = block.source_location
@@ -216,7 +222,7 @@ class Thread
   alias exit      kill
 
   def wakeup
-    fail ThreadError, "dead thread called wakeup" if @done && !@aborting
+    fail ThreadError, "dead thread called wakeup" if @done
     # Only bank wakeup count when thread is truly sleeping (Thread.stop blocked),
     # not when it's in run state (Thread.pass yielded). Mirrors MRI semantics where
     # wakeup on a running/yielded thread does not bank for future Thread.stop calls.
@@ -226,14 +232,14 @@ class Thread
   end
 
   def run
-    fail ThreadError, "dead thread called wakeup" if @done && !@aborting
+    fail ThreadError, "dead thread called wakeup" if @done
     @wakeup_count = (@wakeup_count || 0) + 1 unless @run_yielded || @executing
     __run_block
     self
   end
 
   def raise(*args, **kwargs)
-    return nil if @done && !@aborting
+    return nil if @done
 
     # Extract cause: keyword; remaining kwargs become the message hash
     cause_given = kwargs.key?(:cause)
@@ -293,7 +299,7 @@ class Thread
   end
 
   def backtrace(start_or_range = 0, length = nil)
-    return nil if @done && !@aborting
+    return nil if @done
     return [] unless equal?(Thread.current)
     full = caller(1)
     if start_or_range.is_a?(Range)
@@ -306,7 +312,7 @@ class Thread
   end
 
   def backtrace_locations(start_or_range = 0, length = nil)
-    return nil if @done && !@aborting
+    return nil if @done
     return [] unless equal?(Thread.current)
     full = caller_locations(1)
     if start_or_range.is_a?(Range)
@@ -384,7 +390,7 @@ class Thread
   end
 
   def __run_block(timeout_mode: false)
-    return if @done && !@aborting
+    return if @done
     return if frozen?
     return if @executing
     @@pending.delete(self)

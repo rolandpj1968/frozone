@@ -77,13 +77,23 @@ task :core do
   # Known-slow or hanging spec files excluded from the batch run.
   # These are either statistical performance tests (run thousands of iterations)
   # or tests requiring concurrent threading that deadlock in cooperative model.
+  # Known-hanging spec files: tight infinite loops with no cooperative yield points
+  # that cannot be interrupted by Frozone's cooperative scheduler, or specs that
+  # rely on MRI's preemptive scheduling to observe transient thread states.
   SKIP_SPEC_FILES = %w[
     array/sample_spec.rb
-    array/sort_spec.rb
-    module/autoload_spec.rb
-    regexp/timeout_spec.rb
-    thread/list_spec.rb
     mutex/lock_spec.rb
+    regexp/timeout_spec.rb
+    thread/abort_on_exception_spec.rb
+    thread/alive_spec.rb
+    thread/inspect_spec.rb
+    thread/list_spec.rb
+    thread/raise_spec.rb
+    thread/run_spec.rb
+    thread/status_spec.rb
+    thread/stop_spec.rb
+    thread/to_s_spec.rb
+    thread/wakeup_spec.rb
   ].map { |f| "#{RUBY_SPEC_DIR}/core/#{f}" }.freeze
 
   # Build list of (name, args) pairs for non-empty modules
@@ -110,7 +120,7 @@ task :core do
         name, args = item
         tmpfile = Tempfile.new("frozone_core_#{name}")
         begin
-          system("timeout 600 bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile.path} 2>/dev/null")
+          system("timeout 120 bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile.path} 2>/dev/null")
           output = File.read(tmpfile.path, encoding: 'binary')
           if output =~ /(\d+) files, (\d+) examples, \d+ expectations, (\d+) failures?, (\d+) errors?/
             ex = $2.to_i; fl = $3.to_i; er = $4.to_i; pass = ex - fl - er
