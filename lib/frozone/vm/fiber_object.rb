@@ -161,6 +161,8 @@ module Frozone
             self_fiber.instance_variable_set(:@status, :running)
             begin
               bo.invoke(fc, args)
+            rescue Ast::BreakException, Ast::ReturnException
+              raise FrozoneException.make(:LocalJumpError, "break from proc-closure")
             end
           end
         end
@@ -241,6 +243,8 @@ module Frozone
             self_fiber.instance_variable_set(:@status, :running)
             begin
               bo.invoke(fc, args)
+            rescue Ast::BreakException, Ast::ReturnException
+              raise FrozoneException.make(:LocalJumpError, "break from proc-closure")
             end
           end
         end

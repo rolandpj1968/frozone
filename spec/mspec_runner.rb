@@ -1,9 +1,35 @@
 require 'mspec'
 require 'mspec/runner/formatters/dotted'
+require 'timeout'
 
 # Define SkipExampleError for mspec 1.9.1 which lacks skip support
 module MSpec
   class SkipExampleError < StandardError; end
+end
+
+# Per-example timeout: kill any single example that hangs for more than N seconds.
+# This prevents infinite loops in cooperative-threading specs from hanging the runner.
+MSPEC_EXAMPLE_TIMEOUT = 15
+
+module MSpec
+  class << self
+    alias_method :protect_orig, :protect
+
+    def protect(location, &block)
+      # Only apply timeout to example blocks (location is nil for those).
+      if location.nil?
+        begin
+          Timeout.timeout(MSPEC_EXAMPLE_TIMEOUT, &block)
+        rescue Timeout::Error
+          exc = Timeout::Error.new("example timed out after #{MSPEC_EXAMPLE_TIMEOUT}s")
+          actions :exception, ExceptionState.new(current && current.state, "timeout", exc)
+          false
+        end
+      else
+        protect_orig(location, &block)
+      end
+    end
+  end
 end
 
 # mspec 1.9.1 defines bignum_value as 2^63 + plus, but ruby/spec tests were written

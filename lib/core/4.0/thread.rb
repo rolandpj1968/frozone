@@ -4,6 +4,7 @@ class Thread
   def self.report_on_exception = @@report_on_exception
   def self.abort_on_exception=(val); nil; end
   def self.abort_on_exception = false
+  def self.handle_interrupt(_config, &block); block.call; end
   @@pending              = []
   @@all                  = []
   @@main                 = nil
