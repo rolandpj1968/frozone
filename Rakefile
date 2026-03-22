@@ -85,6 +85,10 @@ task :core do
     kernel/system_spec.rb
     mutex/lock_spec.rb
     process/spawn_spec.rb
+    queue/deq_spec.rb
+    queue/num_waiting_spec.rb
+    queue/pop_spec.rb
+    queue/shift_spec.rb
     regexp/timeout_spec.rb
     thread/abort_on_exception_spec.rb
     thread/alive_spec.rb

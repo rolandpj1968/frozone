@@ -606,11 +606,23 @@ class Queue
   def num_waiting = @waiters.size
   def closed?     = @closed
 
-  def initialize
+  def initialize(enumerable = nil)
     @data      = []
     @closed    = false
     @waiters   = Set.new
     @deadlines = {}  # thread.object_id => Float (absolute Time deadline)
+    if !enumerable.nil?
+      unless enumerable.respond_to?(:to_a)
+        raise TypeError, "can't convert #{enumerable.class} into Array"
+      end
+      arr = enumerable.to_a
+      raise TypeError, "can't convert #{enumerable.class} into Array (#{enumerable.class}#to_a gives #{arr.class})" unless arr.is_a?(Array)
+      arr.each { |item| @data.push(item) }
+    end
+  end
+
+  def freeze
+    raise TypeError, "cannot freeze #{inspect}"
   end
 
   def close
