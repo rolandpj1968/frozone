@@ -36,8 +36,10 @@ module Frozone
           end
           output = if farray?(actual_cmd)
                      arr = actual_cmd.raw.map { |a| fstr?(a) ? a.raw : a.to_s }
+                     # Prepend env hash inside array if provided (MRI convention)
+                     arr = [actual_env, *arr] if actual_env
                      begin
-                       actual_env ? ::IO.popen(actual_env, arr, 'r', &:read) : ::IO.popen(arr, 'r', &:read)
+                       ::IO.popen(arr, 'r', **mri_opts, &:read)
                      rescue => e
                        ""
                      end

@@ -336,8 +336,10 @@ module Frozone
             bt << n2f_str("#{loc}:in '#{meth}'", frozen: true)
             i += 1
           end
-          # Outermost frame: use its incoming_call_site with <main>
-          if i < all_frames.length
+          # Outermost frame: only include if no other entries added (single-frame case).
+          # In multi-frame cases, the outermost (main) frame has no meaningful call site
+          # and its location is already captured by the inner frame's call-site entry.
+          if bt.empty? && i < all_frames.length
             outer = all_frames[i]
             loc = outer.incoming_call_site || (outer.current_method&.source_location) || "unknown:0"
             bt << n2f_str("#{loc}:in '<main>'", frozen: true)

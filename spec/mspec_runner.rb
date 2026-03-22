@@ -303,7 +303,12 @@ class Object
     elsif code
       argv << code
     end
-    argv += opts[:args].split(' ') if opts[:args]
+    # Skip shell redirects (2>&1, 2>/dev/null) — handled separately in ruby_exe
+    if opts[:args]
+      opts[:args].split(' ').each do |arg|
+        argv << arg unless arg =~ /\A\d*>&?\d*\z|\A\d*>\/dev\/null\z/
+      end
+    end
     argv
   end
 
@@ -314,7 +319,11 @@ class Object
     # Use IO.popen with array form to bypass shell so $?.termsig is set correctly
     # when the subprocess is killed by a signal.
     argv = ruby_cmd_argv(code, opts)
-    IO.popen(argv, env: CLEAR_BUNDLER_ENV_VARS, &:read)
+    # Detect stderr redirect: args: "2>&1" means merge stderr into stdout
+    args_str = opts[:args].to_s
+    popen_opts = { err: [:child, :out] } if args_str.include?('2>&1')
+    popen_opts ||= {}
+    IO.popen(argv, env: CLEAR_BUNDLER_ENV_VARS, **popen_opts, &:read)
   end
 end
 

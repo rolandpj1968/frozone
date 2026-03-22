@@ -124,8 +124,43 @@ module Frozone
               end
               cls = cls.superclass
             end
+            # Print unhandled exception in MRI format to stderr
+            print_unhandled_exception(vm_obj)
+            exit(1)
           end
           raise
+        end
+      end
+
+      # Print an unhandled exception in MRI format to $stderr.
+      # MRI format: backtrace entries already contain "in 'method'", so:
+      #   path:line:in 'method': message (ClassName)
+      #   \tfrom path:line:in 'method'
+      #   ...
+      # Causes are appended (main exception first, then its cause, recursively).
+      def print_unhandled_exception(vm_obj)
+        print_exception_with_backtrace(vm_obj)
+        # Append cause chain after (MRI prints cause after main exception)
+        seen = { vm_obj.__id__ => true }
+        cause_obj = vm_obj.get_ivar(:@cause)
+        while cause_obj.is_a?(ObjectObject) && !cause_obj.is_a?(NilObject) && !seen[cause_obj.__id__]
+          seen[cause_obj.__id__] = true
+          print_exception_with_backtrace(cause_obj)
+          cause_obj = cause_obj.get_ivar(:@cause)
+        end
+      end
+
+      def print_exception_with_backtrace(vm_obj)
+        cls_name = vm_obj.class_object&.full_name || "Exception"
+        msg_obj = vm_obj.get_ivar(:@message)
+        msg = msg_obj.is_a?(StringObject) ? msg_obj.raw : cls_name
+        bt_obj = vm_obj.get_ivar(:@backtrace)
+        bt = bt_obj.is_a?(ArrayObject) ? bt_obj.raw.map { |e| e.is_a?(StringObject) ? e.raw : e.to_s } : []
+        if bt.empty?
+          $stderr.puts "#{msg} (#{cls_name})"
+        else
+          $stderr.puts "#{bt[0]}: #{msg} (#{cls_name})"
+          bt[1..].each { |line| $stderr.puts "\tfrom #{line}" }
         end
       end
 
@@ -330,7 +365,7 @@ module Frozone
 
       # Evaluate a Ruby snippet and return the resulting VM object.
       def eval_snippet(code, dump_ast = false)
-        evaluate(code, dump_ast)
+        evaluate(code, dump_ast, filepath: "-e")
       end
 
       private
