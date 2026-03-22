@@ -19,7 +19,7 @@ module MSpec
       # Only apply timeout to example blocks (location is nil for those).
       if location.nil?
         begin
-          Timeout.timeout(MSPEC_EXAMPLE_TIMEOUT, &block)
+          Timeout.timeout(MSPEC_EXAMPLE_TIMEOUT) { @env.instance_eval(&block) }
         rescue Timeout::Error
           exc = Timeout::Error.new("example timed out after #{MSPEC_EXAMPLE_TIMEOUT}s")
           actions :exception, ExceptionState.new(current && current.state, "timeout", exc)
