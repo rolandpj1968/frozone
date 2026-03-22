@@ -112,7 +112,7 @@ module Kernel
     end
     0
   end
-  def system(*args) = false
+  def system(*args) = Intrinsics.kernel_system(self, *args)
   def fork(&block) = nil  # not supported; block given to fork is never executed
   def `(cmd) = Intrinsics.kernel_backtick(self, cmd)
   def block_given? = Intrinsics.kernel_block_given(self)

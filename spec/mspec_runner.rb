@@ -166,6 +166,12 @@ class Object
     raise MSpec::SkipExampleError, reason.to_s
   end
 
+  # as_real_superuser — run block only when the real user is root (uid 0).
+  # mspec 1.9.1 lacks this helper.
+  def as_real_superuser(&block)
+    block.call if Process.uid == 0
+  end
+
   # suppress_warning — run block with $VERBOSE = nil to suppress warnings.
   # mspec 1.9.1 lacks this helper.
   def suppress_warning

@@ -264,6 +264,14 @@ module Frozone
           n2f_str(filtered)
         end
 
+        def kernel_system(context, _receiver, *args)
+          # Build env hash and argv similarly to spawn/exec
+          argv = args.map { |a| fstr?(a) ? a.raw : a.raw.to_s }
+          result = ::Kernel.system(*argv)
+          GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
+          result ? FTRUE : (result.nil? ? FNIL : FFALSE)
+        end
+
         def kernel_abort(context, _receiver, msg)
           unless fnil?(msg)
             m = msg.dispatch(context, :to_str, [], {}) rescue msg.dispatch(context, :to_s, [], {})
