@@ -357,11 +357,11 @@ class ENVClass
 
     def __enc(str)
       return str if str.nil?
-      locale = Encoding.find('locale')
+      @_locale_enc ||= Encoding.find('locale')
       begin
-        str = str.encode(locale)
+        str = str.encode(@_locale_enc)
       rescue
-        str = str.dup.force_encoding(locale)
+        str = str.dup.force_encoding(@_locale_enc)
       end
       internal = Encoding.default_internal
       if internal

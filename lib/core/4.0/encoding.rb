@@ -242,6 +242,23 @@ class Encoding
   # Reverse alias table: canonical name → list of aliases (for #names method)
   ALL_ALIASES = ALIASES.freeze
 
+  # Fast O(1) lookup table: downcased name/alias → Encoding object (built lazily)
+  def self.__build_find_map__
+    m = {}
+    i = 0
+    while i < ALL.size
+      e = ALL[i]
+      m[e.name.downcase] = e
+      i += 1
+    end
+    ALIASES.each do |alias_name, canonical|
+      enc = m[canonical.downcase]
+      key = alias_name.downcase
+      m[key] = enc if enc && !m.key?(key)
+    end
+    m.freeze
+  end
+
   @default_external = UTF_8
   @default_internal = nil
 
@@ -295,17 +312,8 @@ class Encoding
     name_lower = name_s.downcase
     return default_external if name_lower == "locale" || name_lower == "external" || name_lower == "filesystem"
     return default_internal if name_lower == "internal"
-    ALL.find { |e| e.name.downcase == name_lower } ||
-      begin
-        canonical = ALIASES[name_s] || ALIASES.find { |k, _| k.downcase == name_lower }&.last
-        if canonical
-          canonical_lower = canonical.downcase
-          ALL.find { |e| e.name.downcase == canonical_lower } ||
-            raise(ArgumentError, "unknown encoding name - #{name_s}")
-        else
-          raise(ArgumentError, "unknown encoding name - #{name_s}")
-        end
-      end
+    @find_map ||= __build_find_map__
+    @find_map[name_lower] || raise(ArgumentError, "unknown encoding name - #{name_s}")
   end
 
   def self.aliases
