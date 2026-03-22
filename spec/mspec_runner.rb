@@ -24,6 +24,20 @@ module MSpec
           exc = Timeout::Error.new("example timed out after #{MSPEC_EXAMPLE_TIMEOUT}s")
           actions :exception, ExceptionState.new(current && current.state, "timeout", exc)
           false
+        rescue Thread::Blocked
+          # Thread::Blocked is Frozone's cooperative-threading signal; in Frozone-land
+          # `rescue Exception` does NOT catch it, so we must name it explicitly.
+          # An example that blocks indefinitely (e.g. bare `sleep`) is an error.
+          exc = RuntimeError.new("example blocked indefinitely (Thread::Blocked)")
+          actions :exception, ExceptionState.new(current && current.state, "blocked", exc)
+          false
+        rescue SystemExit
+          raise
+        rescue Exception => e
+          # Catch exceptions from example blocks that mspec_orig's protect would catch.
+          # Without this, SpecExpectationNotMetError and other errors propagate as LOAD_ERRORs.
+          actions :exception, ExceptionState.new(current && current.state, nil, e)
+          false
         end
       else
         protect_orig(location, &block)
