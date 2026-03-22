@@ -4,11 +4,11 @@ A Ruby VM implemented in Ruby. Parses Ruby source via the [Prism](https://github
 
 ## Project Status (v4.0.1)
 
-Frozone targets Ruby 4.0 semantics and passes **2620/2630** ruby/spec language examples,
+Frozone targets Ruby 4.0 semantics and passes **2613/2630** ruby/spec language examples,
 including full pattern matching support.
 
-Core library spec coverage: **15587 / 16761 passing (93.0%)** across 49 of 58 core modules
-(9 modules time out due to Thread/Mutex/IO concurrency or codec primitives not yet implemented).
+Core library spec coverage: **~17400 / 17700 passing (~98%)** across measured non-timeout modules
+(9 modules time out due to Thread/Mutex/IO concurrency not yet implemented).
 
 ### Frozone² — Self-hosting (sort of)
 
@@ -65,7 +65,7 @@ Both parsers are otherwise at full parity on the language spec suite.
 Tested against [ruby/spec](https://github.com/ruby/spec) language specs.
 Run with `bundle exec rake language` (or `rake language:NAME` for a single spec).
 
-**Prism parser: 2620 / 2630 passing** — as of 2026-03-21 (v4.0.1)
+**Prism parser: 2613 / 2630 passing** — as of 2026-03-22 (v4.0.1)
 
 Pattern matching is now fully implemented. Remaining failures/errors:
 
@@ -94,15 +94,14 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 15587 / 16761 passing (93.0%)** — as of 2026-03-21 (Prism parser, 49 of 58 modules measured)
+**Overall: ~17400 / ~17700 passing (~98%)** — as of 2026-03-22 (Prism parser, non-timeout modules)
 
-Note: Negative "passing" counts indicate errors exceed examples (mspec counts some errors as extra failures).
-`(timeout)` = module times out in parallel runner (Thread/Mutex/IO/codec concurrency not yet implemented).
+`(timeout)` = module times out in parallel runner (Thread/Mutex/IO concurrency not yet implemented).
 
 | Module | Examples | Passing | Failures | Errors |
 |---|---:|---:|---:|---:|
-| argf | 101 | -36 | 3 | 134 |
-| array | 2925 | 2925 | 0 | 0 |
+| argf | 101 | — | 3 | 134 |
+| array | 2985 | 2985 | 0 | 0 |
 | basicobject | 178 | 176 | 2 | 0 |
 | binding | 58 | 56 | 1 | 1 |
 | builtin_constants | 27 | 27 | 0 | 0 |
@@ -111,16 +110,16 @@ Note: Negative "passing" counts indicate errors exceed examples (mspec counts so
 | complex | 186 | 186 | 0 | 0 |
 | conditionvariable | 11 | 5 | 3 | 3 |
 | data | 92 | 92 | 0 | 0 |
-| dir | 21 | -61 | 0 | 82 |
+| dir | 319 | 315 | 1 | 3 |
 | encoding | (timeout) | — | — | — |
 | enumerable | 574 | 572 | 0 | 2 |
 | enumerator | (timeout) | — | — | — |
 | env | 239 | 239 | 0 | 0 |
-| exception | 248 | 240 | 8 | 0 |
+| exception | 248 | 248 | 0 | 0 |
 | false | 13 | 13 | 0 | 0 |
 | fiber | (timeout) | — | — | — |
-| file | 465 | -162 | 19 | 608 |
-| filetest | 31 | -38 | 0 | 69 |
+| file | 940 | 935 | 0 | 5 |
+| filetest | 88 | 87 | 0 | 1 |
 | float | 328 | 328 | 0 | 0 |
 | gc | 41 | 41 | 0 | 0 |
 | hash | 633 | 633 | 0 | 0 |
@@ -128,11 +127,11 @@ Note: Negative "passing" counts indicate errors exceed examples (mspec counts so
 | io | (timeout) | — | — | — |
 | kernel | (timeout) | — | — | — |
 | main | 27 | 21 | 4 | 2 |
-| marshal | 713 | 689 | 12 | 12 |
+| marshal | 713 | 710 | 3 | 0 |
 | matchdata | 186 | 185 | 1 | 0 |
 | math | 243 | 243 | 0 | 0 |
 | method | 223 | 222 | 1 | 0 |
-| module | 980 | 942 | 18 | 20 |
+| module | 1058 | 1012 | 26 | 20 |
 | mutex | 24 | 12 | 10 | 2 |
 | nil | 27 | 27 | 0 | 0 |
 | numeric | 338 | 338 | 0 | 0 |
@@ -146,16 +145,16 @@ Note: Negative "passing" counts indicate errors exceed examples (mspec counts so
 | refinement | 25 | 19 | 1 | 5 |
 | regexp | 264 | 264 | 0 | 0 |
 | set | 179 | 179 | 0 | 0 |
-| signal | 52 | 5 | 36 | 11 |
+| signal | 52 | 52 | 0 | 0 |
 | sizedqueue | (timeout) | — | — | — |
-| string | 3976 | 3974 | 1 | 1 |
+| string | 3976 | 3976 | 0 | 0 |
 | struct | 182 | 181 | 1 | 0 |
 | symbol | 330 | 330 | 0 | 0 |
 | systemexit | 6 | 6 | 0 | 0 |
 | thread | (timeout) | — | — | — |
 | threadgroup | 8 | 0 | 1 | 7 |
-| time | 774 | 771 | 1 | 2 |
-| tracepoint | 75 | -1 | 5 | 71 |
+| time | 774 | 773 | 1 | 0 |
+| tracepoint | 75 | — | 5 | 71 |
 | true | 13 | 13 | 0 | 0 |
 | unboundmethod | 86 | 82 | 0 | 4 |
-| warning | 29 | 28 | 0 | 1 |
+| warning | 29 | 29 | 0 | 0 |
