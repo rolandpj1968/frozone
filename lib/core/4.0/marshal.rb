@@ -899,6 +899,7 @@ module Marshal
       @freeze   = freeze
       @no_link_proc = {}  # set of object indices for which link proc should NOT be called
       @completed = {}  # set of object indices that have been fully loaded (proc already called)
+      @string_dedup = {} if freeze  # content → canonical frozen string for deduplication
     end
 
     def load
@@ -1128,6 +1129,15 @@ module Marshal
       len = read_long
       str = read_bytes(len)
       s = str.dup.force_encoding(Encoding::ASCII_8BIT)
+      if @string_dedup
+        canonical = @string_dedup[s]
+        if canonical
+          idx = track(canonical)
+          return call_proc(canonical, idx)
+        end
+        s.freeze
+        @string_dedup[s] = s
+      end
       idx = track(s)
       call_proc(s, idx)
     end
