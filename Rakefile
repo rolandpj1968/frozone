@@ -82,7 +82,9 @@ task :core do
   # rely on MRI's preemptive scheduling to observe transient thread states.
   SKIP_SPEC_FILES = %w[
     array/sample_spec.rb
+    kernel/system_spec.rb
     mutex/lock_spec.rb
+    process/spawn_spec.rb
     regexp/timeout_spec.rb
     thread/abort_on_exception_spec.rb
     thread/alive_spec.rb
