@@ -411,16 +411,22 @@ module Frozone
         # Note to Claude - this was just Parser.new but get 'const_missing': uninitialized constant Parser (NameError) either way
         parser = ::Frozone::Vm::Parser.new(script, dump_ast, filepath: filepath)
         ast = parser.ast(raise_syntax_errors: raise_syntax_errors)
-        result = AstCache::ParseResult.new(
-          ast,
-          parser.top_level_locals,
-          parser.prism_always_warnings,
-          parser.prism_verbose_warnings,
-        )
-
-        if !dump_ast && AstCache.enabled?
-          AstCache.store(script, parser_name, result)
-          AstCache.store_file(filepath, parser_name, result) if filepath
+        result = if $is_inner
+          Struct.new(:ast, :top_level_locals, :prism_always_warnings, :prism_verbose_warnings).new(
+            ast, parser.top_level_locals, parser.prism_always_warnings, parser.prism_verbose_warnings
+          )
+        else
+          r = AstCache::ParseResult.new(
+            ast,
+            parser.top_level_locals,
+            parser.prism_always_warnings,
+            parser.prism_verbose_warnings,
+          )
+          if !dump_ast && AstCache.enabled?
+            AstCache.store(script, parser_name, r)
+            AstCache.store_file(filepath, parser_name, r) if filepath
+          end
+          r
         end
 
         result
