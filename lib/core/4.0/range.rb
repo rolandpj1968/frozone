@@ -414,7 +414,7 @@ class Range
     raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.is_a?(Integer)
     raise ArgumentError, "negative array size (or exceeds maximum)" if n < 0
     result = []
-    each { |v| result << v; break if result.length >= n }
+    each { |v| break if result.length >= n; result << v }
     result
   end
 

@@ -526,7 +526,28 @@ module Frozone
 
         def kernel_load(_, _receiver, path_obj, wrap_obj = FNIL)
           path = path_obj.raw
-          full_path = File.exist?(path) ? path : resolve_load_path(path)
+          path = ::File.expand_path(path) if path.start_with?('~')
+          # load is strict: does NOT add .rb extension automatically
+          # load DOES check CWD for bare paths (unlike require)
+          full_path = if path.start_with?('/') || path.start_with?('./') || path.start_with?('../')
+            expanded = ::File.expand_path(path)
+            expanded if ::File.exist?(expanded)
+          elsif ::File.exist?(path)
+            path
+          else
+            load_path = GLOBALS[:"$LOAD_PATH"]
+            found = nil
+            load_path&.raw&.each do |dir_obj|
+              dir = load_path_dir_str(dir_obj)
+              next unless dir
+              candidate = ::File.expand_path(::File.join(dir, path))
+              if ::File.exist?(candidate)
+                found = candidate
+                break
+              end
+            end
+            found
+          end
           if full_path.nil?
             exc = FrozoneException.make(:LoadError, "cannot load such file -- #{path}")
             exc.vm_object.set_ivar(:@path, n2f_str(path))

@@ -288,7 +288,7 @@ module Kernel
   private :open
 
   def at_exit(&block)
-    raise ArgumentError, "tried to create Proc object without a block" unless block
+    raise ArgumentError, "called without a block" unless block
     nil  # stub: at_exit blocks not executed in frozone
   end
   def abort(msg = nil) = Intrinsics.kernel_abort(self, msg)
