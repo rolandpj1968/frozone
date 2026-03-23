@@ -316,7 +316,23 @@ module Kernel
     Intrinsics.kernel_exit(self, code)
   end
   def rand(n = nil) = Intrinsics.kernel_rand(self, n)
-  def srand(seed = nil) = Intrinsics.kernel_srand(self, seed)
+  def srand(*args)
+    if args.empty?
+      return Intrinsics.kernel_srand(self, nil)
+    end
+    seed = args[0]
+    if seed.nil?
+      raise TypeError, "no implicit conversion of nil into Integer"
+    elsif seed.is_a?(Integer)
+      Intrinsics.kernel_srand(self, seed)
+    elsif seed.respond_to?(:to_int)
+      coerced = seed.to_int
+      raise TypeError, "to_int should return Integer" unless coerced.is_a?(Integer)
+      Intrinsics.kernel_srand(self, coerced)
+    else
+      raise TypeError, "no implicit conversion of #{seed.class} into Integer"
+    end
+  end
   def sleep(secs = nil)
     if secs.nil?
       # Check for cross-thread injection before blocking: Thread#raise sets
