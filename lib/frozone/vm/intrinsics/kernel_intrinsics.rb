@@ -240,10 +240,6 @@ module Frozone
         end
 
         def kernel_throw(_, _receiver, tag, value = FNIL)
-          # In Ruby, throw with a String tag raises ArgumentError
-          if fstr?(tag)
-            raise FrozoneException.make(:ArgumentError, "no implicit conversion of String into Symbol")
-          end
           tag_raw = tag.respond_to?(:raw) ? tag.raw : tag
           begin
             throw(tag_raw, value)

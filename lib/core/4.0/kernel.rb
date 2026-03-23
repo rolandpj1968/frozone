@@ -255,7 +255,12 @@ module Kernel
     Intrinsics.kernel_loop(self, block)
   end
 
-  def catch(tag = nil, &block) = Intrinsics.kernel_catch(self, tag || :__catch_anon__, block)
+  def catch(tag = nil, &block)
+    raise LocalJumpError, "no block given" unless block
+    # Without tag, create a new Object to use as the unique tag
+    tag = Object.new if tag.nil?
+    Intrinsics.kernel_catch(self, tag, block)
+  end
   def throw(tag, value = nil) = Intrinsics.kernel_throw(self, tag, value)
 
   def open(name, *rest, **kw, &block)
@@ -282,7 +287,10 @@ module Kernel
   end
   private :open
 
-  def at_exit(&block) = nil  # stub: at_exit blocks not executed in frozone
+  def at_exit(&block)
+    raise ArgumentError, "tried to create Proc object without a block" unless block
+    nil  # stub: at_exit blocks not executed in frozone
+  end
   def abort(msg = nil) = Intrinsics.kernel_abort(self, msg)
   def exit(code = true)
     unless code.is_a?(TrueClass) || code.is_a?(FalseClass) || code.is_a?(Integer)
