@@ -273,15 +273,28 @@ module Frozone
         end
 
         def kernel_abort(context, _receiver, msg)
+          str_msg = nil
           unless fnil?(msg)
-            m = msg.dispatch(context, :to_str, [], {}) rescue msg.dispatch(context, :to_s, [], {})
-            stderr = context.get_global_variable(:$stderr)
-            stderr.dispatch(context, :puts, [m], {}) rescue nil
+            if fstr?(msg)
+              str_msg = msg
+            else
+              begin
+                result = msg.dispatch(context, :to_str, [], {})
+                raise FrozoneException.make(:TypeError, "no implicit conversion of #{msg.class_object.name} into String") unless fstr?(result)
+                str_msg = result
+              rescue FrozoneException => e
+                # Re-raise non-NoMethodError Frozone exceptions; convert NoMethodError to TypeError
+                raise unless e.frozone_class_name == :NoMethodError
+                raise FrozoneException.make(:TypeError, "no implicit conversion of #{msg.class_object.name} into String")
+              end
+            end
+            stderr = GLOBALS[:"$stderr"]
+            stderr.dispatch(context, :puts, [str_msg], {}) rescue nil
           end
           exc_class = Core::OBJECT_CLASS.get_constant(:SystemExit)
           exc_obj = ObjectObject.new(exc_class)
           exc_obj.set_ivar(:@status, n2f_int(1))
-          exc_obj.set_ivar(:@message, fnil?(msg) ? n2f_str("") : msg.dispatch(context, :to_s, [], {}))
+          exc_obj.set_ivar(:@message, str_msg || n2f_str(""))
           raise FrozoneException.new(exc_obj, "exit")
         end
 
