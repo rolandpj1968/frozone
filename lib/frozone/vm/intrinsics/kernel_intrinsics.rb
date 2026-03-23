@@ -49,7 +49,10 @@ module Frozone
         def env_to_hash(_) = n2f_hash(ENV.to_h { |k, v| [n2f_str(k), n2f_str(v)] })
 
         def kernel_puts(context, _receiver, args)
-          if args.raw.empty?
+          stdout_vm = GLOBALS[:"$stdout"]
+          if frozone_stdout_replaced?(stdout_vm)
+            stdout_vm.dispatch(context, :puts, args.raw, {})
+          elsif args.raw.empty?
             $stdout.puts
           else
             args.raw.each { |a| $stdout.puts(a.dispatch(context, :to_s, [], {}).raw) }
@@ -58,7 +61,20 @@ module Frozone
         end
 
         def kernel_print(context, _receiver, args)
-          args.raw.each { |a| $stdout.print(a.dispatch(context, :to_s, [], {}).raw) }
+          stdout_vm = GLOBALS[:"$stdout"]
+          if frozone_stdout_replaced?(stdout_vm)
+            if args.raw.empty?
+              dollar_under = GLOBALS[:"$_"] || FNIL
+              stdout_vm.dispatch(context, :print, [dollar_under], {}) unless fnil?(dollar_under)
+            else
+              stdout_vm.dispatch(context, :print, args.raw, {})
+            end
+          elsif args.raw.empty?
+            dollar_under = GLOBALS[:"$_"] || FNIL
+            $stdout.print(dollar_under.dispatch(context, :to_s, [], {}).raw) unless fnil?(dollar_under)
+          else
+            args.raw.each { |a| $stdout.print(a.dispatch(context, :to_s, [], {}).raw) }
+          end
           FNIL
         end
 
@@ -176,8 +192,24 @@ module Frozone
         end
 
         def kernel_p(context, _receiver, args)
-          args.raw.each { |a| $stdout.puts(a.dispatch(context, :inspect, [], {}).raw) }
+          stdout_vm = GLOBALS[:"$stdout"]
+          if frozone_stdout_replaced?(stdout_vm)
+            inspected = args.raw.map { |a| a.dispatch(context, :inspect, [], {}) }
+            inspected.each { |s| stdout_vm.dispatch(context, :puts, [s], {}) }
+            stdout_vm.dispatch(context, :flush, [], {})
+          else
+            args.raw.each { |a| $stdout.puts(a.dispatch(context, :inspect, [], {}).raw) }
+            $stdout.flush
+          end
           args.raw.length == 1 ? args.raw.first : args
+        end
+
+        # Returns true if Frozone's $stdout has been replaced with something
+        # other than the initial MRI stdout (e.g. a file, IOStub, or mock in specs).
+        def frozone_stdout_replaced?(stdout_vm)
+          return false if stdout_vm.nil?
+          return true unless fio?(stdout_vm)  # non-IO Frozone object (e.g. IOStub) = replaced
+          !stdout_vm.native_io.equal?(STDOUT) # IO not wrapping original STDOUT = replaced
         end
 
         SEND_TRANSPARENT_CALLEE_NAMES = %i[send __send__ public_send].freeze

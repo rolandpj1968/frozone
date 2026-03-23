@@ -115,6 +115,16 @@ module Kernel
 
   def format(fmt, *args) = sprintf(fmt, *args)
 
+  def printf(*args)
+    if !args.empty? && !args.first.is_a?(String)
+      io = args.shift
+      io.write(sprintf(*args))
+    else
+      $stdout.write(sprintf(*args))
+    end
+    nil
+  end
+
   def Integer(val, *base_args, exception: true)
     no_base = base_args.empty?
     raw_base = no_base ? 0 : base_args[0]
@@ -589,7 +599,7 @@ module Kernel
   private :trap
 
   module_function :puts, :print, :warn, :p, :raise, :fail, :require, :require_relative, :load, :__dir__,
-                  :proc, :lambda, :eval, :binding, :sprintf, :format,
+                  :proc, :lambda, :eval, :binding, :sprintf, :format, :printf,
                   :Integer, :Float, :String, :Array, :Hash, :putc,
                   :loop, :catch, :throw, :abort, :exit, :exit!, :sleep, :system,
                   :block_given?, :at_exit, :caller, :caller_locations, :__method__,
