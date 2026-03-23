@@ -130,9 +130,20 @@ module Frozone
           end
         end
 
+        def caller_slice(entries, start_obj, length_obj)
+          if start_obj.is_a?(RangeObject)
+            r_begin = fnil?(start_obj.begin_val) ? 0 : start_obj.begin_val.raw
+            r_end   = fnil?(start_obj.end_val)   ? nil : start_obj.end_val.raw
+            mri_range = r_end.nil? ? (r_begin..) : (start_obj.exclusive? ? (r_begin...r_end) : (r_begin..r_end))
+            entries[mri_range]
+          else
+            start  = fint?(start_obj)  ? start_obj.raw : 1
+            length = fint?(length_obj) ? length_obj.raw : nil
+            length ? entries[start, length] : entries[start..]
+          end
+        end
+
         def kernel_caller_locations(context, _receiver, start_obj = FNIL, length_obj = FNIL)
-          start  = fint?(start_obj)  ? start_obj.raw : 1
-          length = fint?(length_obj) ? length_obj.raw : nil
           frames = collect_caller_frames(context, :caller_locations)
 
           location_class = Core::OBJECT_CLASS.get_constant(:Thread)&.get_constant(:Backtrace)&.get_constant(:Location)
@@ -145,16 +156,14 @@ module Frozone
             end
           end
 
-          sliced = length ? entries[start, length] : entries[start..]
-          n2f_arr(sliced || [])
+          sliced = caller_slice(entries, start_obj, length_obj)
+          sliced ? n2f_arr(sliced) : FNIL
         end
 
         # Build the Ruby caller() array from the current frame stack.
         # `start` — how many logical entries to skip (0 = include the frame that called caller)
         # `length` — max entries to return (nil = all)
         def kernel_caller(context, _receiver, start_obj = FNIL, length_obj = FNIL)
-          start  = fint?(start_obj)  ? start_obj.raw : 1
-          length = fint?(length_obj) ? length_obj.raw : nil
           frames = collect_caller_frames(context, :caller)
 
           entries = frames.map do |call_site, meth|
@@ -162,8 +171,8 @@ module Frozone
           end
 
           # Apply start offset and length
-          sliced = length ? entries[start, length] : entries[start..]
-          n2f_arr(sliced || [])
+          sliced = caller_slice(entries, start_obj, length_obj)
+          sliced ? n2f_arr(sliced) : FNIL
         end
 
         def kernel_p(context, _receiver, args)

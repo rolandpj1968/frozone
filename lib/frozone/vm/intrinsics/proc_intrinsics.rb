@@ -70,10 +70,9 @@ module Frozone
         def kernel_proc(context, _receiver)
           block = context.frame.block
           raise FrozoneException.make(:ArgumentError, "tried to create Proc object without a block") if block.nil?
-          # Preserve lambda status before unwrapping (proc(&lambda) stays lambda)
-          is_lam = block.is_a?(ProcObject) && block.lambda?
-          block = block.block_object if block.is_a?(ProcObject)
-          ProcObject.new(block, lambda: is_lam)
+          # proc(&existing_proc) returns the same object (identity)
+          return block if block.is_a?(ProcObject)
+          ProcObject.new(block, lambda: false)
         end
 
         def kernel_lambda(context, _receiver)

@@ -228,6 +228,11 @@ module Kernel
   end
   def String(val)
     return val if val.is_a?(String)
+    # Try to_str first
+    if val.respond_to?(:to_str)
+      result = val.to_str
+      return result if result.is_a?(String)
+    end
     begin
       result = val.to_s
       raise TypeError, "no implicit conversion of #{val.class} into String" unless result.is_a?(String)
@@ -471,6 +476,8 @@ module Kernel
   alias enum_for to_enum
 
   def initialize_copy(source)
+    raise FrozenError, "can't modify frozen #{self.class}: #{self.inspect}" if frozen?
+    raise TypeError, "initialize_copy should take same class object" unless source.is_a?(self.class)
     source.instance_variables.each do |ivar|
       instance_variable_set(ivar, source.instance_variable_get(ivar))
     end
