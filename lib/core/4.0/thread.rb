@@ -599,6 +599,10 @@ class ConditionVariable
   def signal    = self
   def broadcast = self
 
+  def marshal_dump
+    raise TypeError, "can't dump ConditionVariable"
+  end
+
   def wait(mutex, timeout = nil)
     mutex.unlock
     # Run pending threads to allow broadcast/signal to be called
