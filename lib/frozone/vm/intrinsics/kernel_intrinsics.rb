@@ -254,9 +254,15 @@ module Frozone
         BUNDLER_NOISE_RE = %r{\A.+(?:bundler/rubygems_ext\.rb|rubygems/platform\.rb):\d+: warning: (?:already initialized constant|previous definition of) }
 
         def kernel_backtick(_, _receiver, cmd_obj)
-          result = `#{cmd_obj.raw}`
+          cmd = cmd_obj.raw
+          # Force binary to avoid ArgumentError on invalid UTF-8 bytes in command
+          cmd_binary = cmd.b
+          result = `#{cmd_binary}`
           GLOBALS[:"$?"] = ProcessStatusObject.new($?)
-          filtered = result.lines.reject { |l| BUNDLER_NOISE_RE.match?(l) }.join
+          enc = result.encoding
+          filtered = result.lines.reject { |l|
+            begin; BUNDLER_NOISE_RE.match?(l); rescue ::ArgumentError; false; end
+          }.join
           n2f_str(filtered)
         end
 

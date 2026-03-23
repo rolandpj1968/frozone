@@ -273,9 +273,15 @@ module Kernel
     $stdout.putc(c)
   end
 
-  def loop(&block)
-    return Enumerator.new(Float::INFINITY) { |_y| } unless block
-    Intrinsics.kernel_loop(self, block)
+  def loop
+    return to_enum(:loop) { Float::INFINITY } unless block_given?
+    begin
+      while true
+        yield
+      end
+    rescue StopIteration => e
+      e.result
+    end
   end
 
   def catch(tag = nil, &block)
@@ -392,13 +398,24 @@ module Kernel
   end
   def system(*args) = Intrinsics.kernel_system(self, *args)
   def fork(&block) = nil  # not supported; block given to fork is never executed
-  def `(cmd) = Intrinsics.kernel_backtick(self, cmd)
+  def `(cmd)
+    cmd = cmd.is_a?(String) ? cmd : cmd.to_str
+    Intrinsics.kernel_backtick(self, cmd)
+  end
+  private :"`"
+  def exec(*args)
+    raise NotImplementedError, "exec is not supported in Frozone"
+  end
+  private :exec
   def block_given? = Intrinsics.kernel_block_given(self)
   def hash = __id__
   def object_id = __id__
   def class = Intrinsics.object_class(self)
   def nil? = false
-  def is_a?(klass) = Intrinsics.object_is_a(self, klass)
+  def is_a?(klass)
+    raise TypeError, "class or module required" unless Intrinsics.object_is_a(klass, Module)
+    Intrinsics.object_is_a(self, klass)
+  end
   alias kind_of? is_a?
   def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name, include_all)
   def instance_of?(klass) = Intrinsics.object_class(self).equal?(klass)
@@ -493,5 +510,5 @@ module Kernel
                   :Integer, :Float, :String, :Array, :Hash, :putc,
                   :loop, :catch, :throw, :abort, :exit, :exit!, :sleep, :system,
                   :block_given?, :at_exit, :caller, :caller_locations, :__method__,
-                  :local_variables, :rand, :srand, :open
+                  :local_variables, :rand, :srand, :open, :"`"
 end

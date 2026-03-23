@@ -262,7 +262,8 @@ class Enumerator
     return if @fiber
     if @block
       b = @block
-      @fiber = Fiber.new { b.call(Yielder.new { |*args| Fiber.yield(args) }); nil }
+      enum = self
+      @fiber = Fiber.new { enum.instance_variable_set(:@_enum_result, b.call(Yielder.new { |*args| Fiber.yield(args) })); nil }
     else
       recv = @receiver
       meth = @method_name
