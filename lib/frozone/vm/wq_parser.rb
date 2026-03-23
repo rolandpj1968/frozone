@@ -1,6 +1,13 @@
-require 'parser/ruby40'
+puts "RPJ -                                                                         $is_inner is #{$is_inner} top of wq_parser.rb"
+
+# Note to Claude - this causes load failure...
+#require 'parser/ruby40'
+
+puts "RPJ -                                                                         $is_inner is #{$is_inner} wq_parser.rb - after require 'parser/ruby40'"
 
 require_relative '../ast'
+
+puts "RPJ -                                                                         $is_inner is #{$is_inner} wq_parser.rb - after require_relative '../ast'"
 
 module Frozone
   module Vm

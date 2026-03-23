@@ -1,13 +1,24 @@
+puts "RPJ -                                                                         $is_inner is #{$is_inner} top of vm.rb"
+
 require_relative 'core'
+puts "RPJ -                                                                         $is_inner is #{$is_inner} vm.rb - after require_relative 'core'"
 require_relative 'globals'
+puts "RPJ -                                                                         $is_inner is #{$is_inner} vm.rb - after require_relative 'globals'"
 require_relative 'proc_object'
 
+puts "RPJ -                                                                         $is_inner is #{$is_inner} vm.rb - after require_relative set 1"
+
 require_relative 'parser'
-require_relative 'ast_cache'
+puts "RPJ -                                                                         $is_inner is #{$is_inner} vm.rb - after require_relative set 2.1"
+require_relative 'ast_cache' unless $is_inner
+
+puts "RPJ -                                                                         $is_inner is #{$is_inner} vm.rb - after require_relative set 2"
 
 require_relative 'context'
 require_relative 'frame'
 require_relative 'method'
+
+puts "RPJ -                                                                         $is_inner is #{$is_inner} vm.rb - after require_relative set 3"
 
 require_relative 'binding_object'
 require_relative 'fiber_object'
@@ -23,6 +34,8 @@ require_relative 'regexp_object'
 require_relative 'random_object'
 require_relative 'match_data_object'
 require_relative 'process_status_object'
+
+puts "RPJ -                                                                         $is_inner is #{$is_inner} vm.rb - end of requires"
 
 module Frozone
   module Vm
@@ -89,6 +102,8 @@ module Frozone
 
         scripts = @options[:scripts]
 
+        puts "RPJ -                                                                         $is_inner is #{$is_inner} about to run scripts..."
+        
         # if -e is present then ruby DOES NOT evaluate an ARGV file
         # Note: ruby -e 'ARGV.each {|f| load f}' file1.rb file2.rb file3.rb
         begin
@@ -300,7 +315,7 @@ module Frozone
         GLOBALS[:"$<"]               = GLOBALS[:"$stdin"]
         GLOBALS[:"$0"]               = StringObject.new($PROGRAM_NAME.to_s)
         GLOBALS[:"$PROGRAM_NAME"]    = GLOBALS[:"$0"]
-        setup_frozone_land
+        #setup_frozone_land
       end
 
       # Set up the minimal Frozone-land infrastructure needed for self-hosting (Frozone²).
@@ -377,6 +392,7 @@ module Frozone
       end
 
       def cached_parse(script, dump_ast = false, filepath: nil, raise_syntax_errors: false)
+        unless $is_inner
         # Only cache when not dumping AST and caching is not disabled.
         # eval() calls (with outer_locals) go through Parser directly, not here.
         if !dump_ast && AstCache.enabled?
@@ -388,8 +404,12 @@ module Frozone
           cached = AstCache.fetch(script, parser_name)
           return cached if cached
         end
+        end
 
-        parser = Parser.new(script, dump_ast, filepath: filepath)
+        puts "RPJ -                         $is_inner is #{$is_inner} about to do Parser.new(..., filepath: #{filepath})"
+
+        # Note to Claude - this was just Parser.new but get 'const_missing': uninitialized constant Parser (NameError) either way
+        parser = ::Frozone::Vm::Parser.new(script, dump_ast, filepath: filepath)
         ast = parser.ast(raise_syntax_errors: raise_syntax_errors)
         result = AstCache::ParseResult.new(
           ast,

@@ -1,6 +1,11 @@
+puts "RPJ -                                                                         $is_inner is #{$is_inner} ast_cache.rb - after require_relative 'core'"
+
 require 'digest'
+puts "RPJ -                                                                         $is_inner is #{$is_inner} ast_cache.rb - after require_relative 'digest'"
 require 'fileutils'
+puts "RPJ -                                                                         $is_inner is #{$is_inner} ast_cache.rb - after require_relative 'fileutils'"
 require 'shellwords'
+puts "RPJ -                                                                         $is_inner is #{$is_inner} ast_cache.rb - after require_relative 'shellwords'"
 
 module Frozone
   module Vm
