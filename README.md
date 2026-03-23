@@ -7,8 +7,8 @@ A Ruby VM implemented in Ruby. Parses Ruby source via the [Prism](https://github
 Frozone targets Ruby 4.0 semantics and passes **2613/2630** ruby/spec language examples,
 including full pattern matching support.
 
-Core library spec coverage: **~17400 / 17700 passing (~98%)** across measured non-timeout modules
-(9 modules time out due to Thread/Mutex/IO concurrency not yet implemented).
+Core library spec coverage: **17654 / 18277 passing (96.6%)** — only `io` times out
+(Thread/Mutex/IO concurrency not yet fully implemented).
 
 ### Frozone² — Self-hosting (sort of)
 
