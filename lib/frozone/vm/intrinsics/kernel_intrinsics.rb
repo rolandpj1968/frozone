@@ -441,6 +441,18 @@ module Frozone
           end
         end
 
+        def kernel_rational_from_string(context, _receiver, str_obj, exception_obj)
+          exc = exception_obj.truthy?
+          r = begin
+            ::Kernel.Rational(str_obj.raw, exception: exc)
+          rescue ::ArgumentError => e
+            raise FrozoneException.make(:ArgumentError, e.message)
+          end
+          return FNIL if r.nil?
+          rat_class = Core::OBJECT_CLASS.get_constant(:Rational)
+          numeric_to_vm(context, r, rat_class)
+        end
+
         def kernel_complex_from_string(context, _receiver, str_obj, exception_obj)
           exc = exception_obj.truthy?
           c = begin
@@ -473,11 +485,23 @@ module Frozone
           raise "require_relative called outside of a file" if stack.nil? || stack.empty?
           full_path = File.expand_path(rel, File.dirname(stack.last))
           full_path += '.rb' unless full_path.end_with?('.rb')
+          unless File.exist?(full_path)
+            exc = FrozoneException.make(:LoadError, "cannot load such file -- #{full_path}")
+            exc.vm_object.set_ivar(:@path, n2f_str(full_path))
+            raise exc
+          end
           loaded = GLOBALS[:"$LOADED_FEATURES"]
           loaded_paths = loaded.raw.map(&:raw)
           return FFALSE if loaded_paths.include?(full_path)
           loaded.push(n2f_str(full_path))
-          Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
+          begin
+            Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
+          rescue Ast::ReturnException
+            # return at top level of required file stops loading gracefully
+          rescue FrozoneException
+            loaded.raw.delete_if { |s| s.raw == full_path }
+            raise
+          end
           FTRUE
         end
 

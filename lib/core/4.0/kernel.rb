@@ -34,9 +34,48 @@ module Kernel
     Intrinsics.kernel_raise(self, msg, message, backtrace, cause)
   end
 
-  def require(path) = Intrinsics.kernel_require(self, path)
-  def require_relative(path) = Intrinsics.kernel_require_relative(self, path)
-  def load(path, wrap = false) = Intrinsics.kernel_load(self, path, wrap)
+  def require(path)
+    path = __coerce_load_path__(path)
+    Intrinsics.kernel_require(self, path)
+  end
+
+  def require_relative(path)
+    path = __coerce_load_path__(path)
+    Intrinsics.kernel_require_relative(self, path)
+  end
+
+  def load(path, wrap = false)
+    path = __coerce_load_path__(path)
+    Intrinsics.kernel_load(self, path, wrap)
+  end
+
+  def __coerce_load_path__(path)
+    if path.is_a?(String)
+      path
+    elsif path.nil?
+      raise TypeError, "no implicit conversion of nil into String"
+    elsif path.is_a?(Integer)
+      raise TypeError, "no implicit conversion of Integer into String"
+    elsif path.respond_to?(:to_path)
+      p = path.to_path
+      unless p.is_a?(String)
+        if p.respond_to?(:to_str)
+          p = p.to_str
+          raise TypeError, "no implicit conversion of #{path.class} into String" unless p.is_a?(String)
+        else
+          raise TypeError, "no implicit conversion of #{path.class} into String"
+        end
+      end
+      p
+    elsif path.respond_to?(:to_str)
+      p = path.to_str
+      raise TypeError, "no implicit conversion of #{path.class} into String" unless p.is_a?(String)
+      p
+    else
+      raise TypeError, "no implicit conversion of #{path.class} into String"
+    end
+  end
+  private :__coerce_load_path__
   def __dir__ = Intrinsics.kernel_dir(self)
 
   def proc = Intrinsics.kernel_proc(self)
