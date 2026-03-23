@@ -24,7 +24,8 @@ class Thread
   @@last_blocked_as_yield = false # set by Thread.pass before raising Blocked
 
   def self.new(*args, &block)
-    t = super
+    t = __allocate_thread
+    t.send(:initialize, *args, &block)
     # After initialize: if @block was not set, the subclass didn't call super with a block.
     unless t.instance_variable_defined?(:@block)
       @@pending.delete(t)
@@ -34,9 +35,18 @@ class Thread
     t
   end
 
+  def self.allocate
+    raise TypeError, "allocating Thread is not allowed"
+  end
+
+  def self.__allocate_thread
+    Intrinsics.class_allocate(self)
+  end
+  private_class_method :__allocate_thread
+
   def self.start(*args, &block)
     Kernel.raise ArgumentError, "tried to create Thread object without a block" unless block
-    t = allocate
+    t = __allocate_thread
     t.__start_init(block, args)
     t
   end
@@ -63,7 +73,7 @@ class Thread
   end
 
   def self.new_main_thread
-    t = allocate
+    t = __allocate_thread
     t.__init_main
     t
   end
