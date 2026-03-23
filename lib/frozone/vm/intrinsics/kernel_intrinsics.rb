@@ -274,6 +274,16 @@ module Frozone
           result ? FTRUE : (result.nil? ? FNIL : FFALSE)
         end
 
+        def kernel_spawn(_, _receiver, *args)
+          argv = args.map { |a| fstr?(a) ? a.raw : a.raw.to_s }
+          n2f_int(::Kernel.spawn(*argv))
+        end
+
+        def kernel_global_variables(_, _receiver)
+          keys = GLOBALS.keys.map { |k| n2f_sym(k) }
+          ArrayObject.new(keys)
+        end
+
         def kernel_abort(context, _receiver, msg)
           str_msg = nil
           unless fnil?(msg)

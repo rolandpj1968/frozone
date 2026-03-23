@@ -417,6 +417,7 @@ module Kernel
     Intrinsics.object_is_a(self, klass)
   end
   alias kind_of? is_a?
+  def eql?(other) = equal?(other)
   def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name, include_all)
   def instance_of?(klass) = Intrinsics.object_class(self).equal?(klass)
   def suppress_warning; yield; end
@@ -505,10 +506,86 @@ module Kernel
   def autoload?(name)
     Object.autoload?(name)
   end
+
+  def global_variables = Intrinsics.kernel_global_variables(self)
+
+  def spawn(*args) = Intrinsics.kernel_spawn(self, *args)
+
+  def gets(*args) = ARGF.gets(*args)
+
+  def readline(*args) = ARGF.readline(*args)
+
+  def readlines(*args) = ARGF.readlines(*args)
+
+  def select(read_ios, write_ios = nil, error_ios = nil, timeout = nil)
+    IO.select(read_ios, write_ios, error_ios, timeout)
+  end
+
+  def test(cmd, file, file2 = nil)
+    cmd = cmd.ord if cmd.is_a?(String)
+    case cmd
+    when ?f.ord then File.file?(file)
+    when ?e.ord then File.exist?(file)
+    when ?d.ord then File.directory?(file)
+    when ?l.ord then File.symlink?(file)
+    when ?r.ord then File.readable?(file)
+    when ?R.ord then File.readable_real?(file)
+    when ?w.ord then File.writable?(file)
+    when ?W.ord then File.writable_real?(file)
+    when ?x.ord then File.executable?(file)
+    when ?X.ord then File.executable_real?(file)
+    when ?z.ord then File.zero?(file)
+    when ?s.ord then (sz = File.size?(file); sz && sz > 0 ? sz : nil)
+    when ?S.ord then File.socket?(file)
+    when ?p.ord then File.pipe?(file)
+    when ?b.ord then File.blockdev?(file)
+    when ?c.ord then File.chardev?(file)
+    when ?A.ord then File.atime(file)
+    when ?C.ord then File.ctime(file)
+    when ?M.ord then File.mtime(file)
+    when ?=.ord then file2 ? File.mtime(file) == File.mtime(file2) : false
+    when ?<.ord then file2 ? File.mtime(file) < File.mtime(file2) : false
+    when ?>.ord then file2 ? File.mtime(file) > File.mtime(file2) : false
+    when ?-.ord then file2 ? File.identical?(file, file2) : false
+    else raise ArgumentError, "unknown command ?#{cmd.chr}"
+    end
+  end
+
+  def trace_var(symbol, cmd = nil, &block)
+    raise ArgumentError, "tried to create Proc object without a block" if cmd.nil? && !block
+    # stub: global variable tracing not supported
+    nil
+  end
+  private :trace_var
+
+  def untrace_var(symbol, cmd = nil)
+    # stub: global variable tracing not supported
+    []
+  end
+  private :untrace_var
+
+  def set_trace_func(proc_obj)
+    # stub: set_trace_func not supported
+    nil
+  end
+  private :set_trace_func
+
+  def syscall(*args)
+    raise NotImplementedError, "syscall is not supported in Frozone"
+  end
+  private :syscall
+
+  def trap(signal, cmd = nil, &block)
+    Intrinsics.signal_register(self, signal, block || cmd)
+  end
+  private :trap
+
   module_function :puts, :print, :warn, :p, :raise, :fail, :require, :require_relative, :load, :__dir__,
                   :proc, :lambda, :eval, :binding, :sprintf, :format,
                   :Integer, :Float, :String, :Array, :Hash, :putc,
                   :loop, :catch, :throw, :abort, :exit, :exit!, :sleep, :system,
                   :block_given?, :at_exit, :caller, :caller_locations, :__method__,
-                  :local_variables, :rand, :srand, :open, :"`"
+                  :local_variables, :rand, :srand, :open, :"`",
+                  :autoload, :autoload?, :global_variables, :spawn,
+                  :gets, :readline, :readlines, :select, :test
 end

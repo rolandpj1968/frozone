@@ -79,6 +79,7 @@ module Frozone
         end
 
         def object_ivar_remove(_, v, name)
+          check_frozen!(v)
           k = normalize_ivar(name)
           ivars = v.instance_variables_hash
           raise FrozoneException.make(:NameError, "instance variable #{k} not defined") unless ivars&.key?(k)
