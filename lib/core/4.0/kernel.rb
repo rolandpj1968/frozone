@@ -54,7 +54,48 @@ module Kernel
   def format(fmt, *args) = sprintf(fmt, *args)
 
   def Integer(val, base = 0, exception: true) = Intrinsics.kernel_integer(self, val, base, exception)
-  def Float(val) = Intrinsics.kernel_float(self, val)
+  def Float(val, exception: true)
+    if val.is_a?(Float)
+      return val
+    elsif val.is_a?(Integer)
+      return val.to_f
+    elsif val.is_a?(Rational)
+      return val.to_f
+    elsif val.is_a?(Complex)
+      if val.imaginary == 0
+        return val.real.to_f
+      else
+        return nil unless exception
+        raise RangeError, "can't convert #{val.inspect} into Float"
+      end
+    elsif val.is_a?(String)
+      begin
+        return Intrinsics.kernel_float(self, val)
+      rescue TypeError, ArgumentError
+        return nil unless exception
+        raise
+      end
+    elsif val.nil?
+      return nil unless exception
+      raise TypeError, "can't convert nil into Float"
+    else
+      if val.respond_to?(:to_f)
+        begin
+          f = val.to_f
+        rescue
+          return nil unless exception
+          raise TypeError, "can't convert #{val.class} into Float"
+        end
+        unless f.is_a?(Float)
+          return nil unless exception
+          raise TypeError, "can't convert #{val.class} into Float (#{val.class}#to_f gives #{f.class})"
+        end
+        return f
+      end
+      return nil unless exception
+      raise TypeError, "can't convert #{val.class} into Float"
+    end
+  end
   def String(val)
     return val if val.is_a?(String)
     begin
