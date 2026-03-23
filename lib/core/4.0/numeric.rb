@@ -193,7 +193,10 @@ class Numeric
           # Positional call: store as positional args (omit default step=1 if not given)
           as_args = pos_to_given ? [limit] : []
           as_args << step_v if pos_by_given
+          # Mixed: keyword by: was given alongside positional to — store in kwargs
           as_kwargs = {}
+          as_kwargs[:by] = step_v if kw_by_given && !pos_by_given
+          as_kwargs[:to] = limit  if kw_to_given && !pos_to_given
         elsif kw_to_given || kw_by_given
           # Keyword call: store as keyword args
           as_args = []

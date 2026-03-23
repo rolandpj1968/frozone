@@ -1028,6 +1028,9 @@ class Enumerator
     end
 
     def size
+      # Numeric#step passes a size_block that handles all edge cases correctly.
+      return @size_block.call if @size_block
+      # Range#step falls through to arithmetic calculation.
       b = self.begin
       e = self.end
       s = self.step
