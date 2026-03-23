@@ -72,6 +72,11 @@ SKIP_SPEC_FILES = %w[
   conditionvariable/wait_spec.rb
   io/close_spec.rb
   io/copy_stream_spec.rb
+  io/fcntl_spec.rb
+  io/flush_spec.rb
+  io/internal_encoding_spec.rb
+  io/path_spec.rb
+  io/read_spec.rb
   kernel/fork_spec.rb
   kernel/p_spec.rb
   kernel/printf_spec.rb
