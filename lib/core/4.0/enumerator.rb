@@ -333,15 +333,540 @@ class Enumerator::Generator
 end
 
 class Enumerator::Lazy < Enumerator
+  def initialize(obj, size = nil, &block)
+    raise FrozenError, "can't modify frozen Enumerator::Lazy" if frozen?
+    raise ArgumentError, "tried to create Proc object without a block" unless block
+    @receiver       = obj
+    @_lazy_xform    = block   # proc { |yielder, *vals| ... } transform
+    @_xform_factory = nil     # when set: called to produce a fresh xform per _lazy_eval
+    @_grouped_eval  = nil     # when set: replaces _lazy_eval entirely (for chunk/slice etc.)
+    @_lazy_size     = size    # explicit size
+    # Inherited Enumerator ivars (unused in lazy path)
+    @method_name = nil
+    @method_args = []
+    @method_kwargs = {}
+    @size_block  = nil
+    @size        = size
+    @block       = nil
+    @fiber       = nil
+    @peeked      = false
+    @peeked_vals = nil
+    @feed        = nil
+    self
+  end
+
+  # Internal evaluation — does NOT rescue StopIteration (callers do).
+  # Calls output block with *vals for each element in the lazy chain.
+  def _lazy_eval(*extra_args, &output)
+    # Grouped eval (chunk, slice_*): completely custom evaluation strategy
+    if @_grouped_eval
+      @_grouped_eval.call(output, *extra_args)
+      return
+    end
+    # Per-element transform: factory produces a fresh xform for stateful methods
+    xform = @_xform_factory ? @_xform_factory.call : @_lazy_xform
+    yielder = Enumerator::Yielder.new { |*vals| output.call(*vals) }
+    if @receiver.is_a?(Enumerator::Lazy)
+      @receiver._lazy_eval(*extra_args) { |*args| xform.call(yielder, *args) }
+    else
+      @receiver.each(*extra_args) { |*args| xform.call(yielder, *args) }
+    end
+  end
+  protected :_lazy_eval
+
+  def each(*args, &block)
+    return self unless block
+    begin
+      _lazy_eval(*args) { |*vals| block.call(*vals) }
+    rescue StopIteration
+    end
+    self
+  end
+
+  def force(*args)
+    result = []
+    begin
+      _lazy_eval(*args) { |*vals| result << (vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals)) }
+    rescue StopIteration
+    end
+    result
+  end
+  alias to_a force
+  alias entries force
+
+  def first(n = nil)
+    if n.nil?
+      take(1).to_a[0]
+    else
+      take(n).to_a
+    end
+  end
+
+  def size
+    return @_lazy_size.call if @_lazy_size.respond_to?(:call)
+    @_lazy_size
+  end
+
+  def lazy = self
+
+  def map(&block)
+    return to_enum(:map) { size } unless block
+    Enumerator::Lazy.new(self, size) { |y, *args| y << block.call(*args) }
+  end
+  alias collect map
+
+  def select(&block)
+    raise ArgumentError, "tried to create Proc object without a block" unless block
+    Enumerator::Lazy.new(self) do |y, *args|
+      val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+      y << val if block.call(val)
+    end
+  end
+  alias filter select
+  alias find_all select
+
+  def reject(&block)
+    raise ArgumentError, "tried to create Proc object without a block" unless block
+    Enumerator::Lazy.new(self) do |y, *args|
+      val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+      y << val unless block.call(val)
+    end
+  end
+
+  def flat_map(&block)
+    raise ArgumentError, "tried to create Proc object without a block" unless block
+    Enumerator::Lazy.new(self) do |y, *args|
+      result = block.call(*args)  # initial form: pass *args to block
+      if result.is_a?(Enumerator::Lazy)
+        # Use _lazy_eval so StopIteration propagates through the chain
+        result._lazy_eval { |v| y << v }
+      elsif result.is_a?(Array)
+        # Array#each propagates StopIteration from the block
+        result.each { |v| y << v }
+      else
+        y << result
+      end
+    end
+  end
+  alias collect_concat flat_map
+
+  def take(n)
+    n = n.to_int if n.respond_to?(:to_int) && !n.is_a?(Integer)
+    raise ArgumentError, "attempt to take negative size" if n < 0
+    sz = size
+    new_size = sz ? [sz, n].min : n
+    return Enumerator::Lazy.new([], 0) { |y, *args| } if n == 0
+    the_n = n
+    lazy = Enumerator::Lazy.new(self, new_size) { }
+    lazy.instance_variable_set(:@_xform_factory, proc {
+      remaining = the_n
+      proc { |y, *args|
+        raise StopIteration if remaining <= 0
+        val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+        y << val
+        remaining -= 1
+        raise StopIteration if remaining <= 0
+      }
+    })
+    lazy
+  end
+
+  def take_while(&block)
+    raise ArgumentError, "tried to create Proc object without a block" unless block
+    Enumerator::Lazy.new(self) do |y, *args|
+      val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+      raise StopIteration unless block.call(*args)  # initial form for block call
+      y << val
+    end
+  end
+
+  def drop(n)
+    n = n.to_int if n.respond_to?(:to_int) && !n.is_a?(Integer)
+    raise ArgumentError, "attempt to drop negative size" if n < 0
+    sz = size
+    new_size = sz ? [sz - n, 0].max : nil
+    the_n = n
+    lazy = Enumerator::Lazy.new(self, new_size) { }
+    lazy.instance_variable_set(:@_xform_factory, proc {
+      skipped = 0
+      proc { |y, *args|
+        val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+        if skipped < the_n
+          skipped += 1
+        else
+          y << val
+        end
+      }
+    })
+    lazy
+  end
+
+  def drop_while(&block)
+    raise ArgumentError, "tried to create Proc object without a block" unless block
+    the_block = block
+    lazy = Enumerator::Lazy.new(self) { }
+    lazy.instance_variable_set(:@_xform_factory, proc {
+      dropping = true
+      proc { |y, *args|
+        val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+        if dropping
+          unless the_block.call(*args)
+            dropping = false
+            y << val
+          end
+        else
+          y << val
+        end
+      }
+    })
+    lazy
+  end
+
+  def filter_map(&block)
+    raise ArgumentError, "tried to create Proc object without a block" unless block
+    Enumerator::Lazy.new(self) do |y, *args|
+      val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+      result = block.call(val)
+      y << result if result
+    end
+  end
+
+  def uniq(&block)
+    the_block = block
+    lazy = Enumerator::Lazy.new(self) { }
+    lazy.instance_variable_set(:@_xform_factory, proc {
+      seen = {}
+      proc { |y, *args|
+        val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+        key = the_block ? the_block.call(val) : val
+        unless seen.key?(key)
+          seen[key] = true
+          y << val
+        end
+      }
+    })
+    lazy
+  end
+
+  def compact
+    Enumerator::Lazy.new(self) do |y, *args|
+      val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+      y << val unless val.nil?
+    end
+  end
+
+  def grep(pattern, &block)
+    if block
+      Enumerator::Lazy.new(self) do |y, *args|
+        val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+        y << block.call(val) if pattern === val
+      end
+    else
+      Enumerator::Lazy.new(self) do |y, *args|
+        val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+        y << val if pattern === val
+      end
+    end
+  end
+
+  def grep_v(pattern, &block)
+    if block
+      Enumerator::Lazy.new(self) do |y, *args|
+        val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+        y << block.call(val) unless pattern === val
+      end
+    else
+      Enumerator::Lazy.new(self) do |y, *args|
+        val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+        y << val unless pattern === val
+      end
+    end
+  end
+
+  def zip(*others, &block)
+    others_arrays = others.map do |o|
+      if o.respond_to?(:force)
+        o.force
+      elsif o.respond_to?(:to_a)
+        o.to_a
+      else
+        raise TypeError, "wrong argument type #{o.class} (must respond to :each)"
+      end
+    end
+    if block
+      # Block form: evaluate immediately like non-lazy Enumerable#zip
+      each_with_index { |v, i| block.call([v] + others_arrays.map { |a| a[i] }) }
+      return nil
+    end
+    the_others = others_arrays
+    lazy = Enumerator::Lazy.new(self, size) { }
+    lazy.instance_variable_set(:@_xform_factory, proc {
+      i = 0
+      proc { |y, *args|
+        val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+        y << ([val] + the_others.map { |a| a[i] })
+        i += 1
+      }
+    })
+    lazy
+  end
+
+  def chunk(&block)
+    unless block
+      # Without a block: return a Lazy where each { pred } uses pred as chunk key
+      source = self
+      lazy = Enumerator::Lazy.new(self) { }
+      lazy.instance_variable_set(:@_lazy_size, nil)
+      lazy.define_singleton_method(:each) do |*args, &pred|
+        return self unless pred
+        # pred is the chunk key function — return the resulting chunked lazy
+        source.chunk(&pred)
+      end
+      return lazy
+    end
+    source = self
+    the_block = block
+    lazy = Enumerator::Lazy.new(self) { }
+    lazy.instance_variable_set(:@_lazy_size, nil)
+    lazy.instance_variable_set(:@_grouped_eval, proc { |output, *extra_args|
+      current_key = nil
+      current_group = nil
+      begin
+        source._lazy_eval(*extra_args) do |*args|
+          val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+          key = the_block.call(val)
+          if current_group.nil?
+            current_key = key
+            current_group = [val]
+          elsif key == current_key
+            current_group << val
+          else
+            output.call(current_key, current_group)
+            current_key = key
+            current_group = [val]
+          end
+        end
+      rescue StopIteration
+        raise
+      end
+      output.call(current_key, current_group) if current_group
+    })
+    lazy
+  end
+
+  def chunk_while(&block)
+    return to_enum(:chunk_while) unless block
+    source = self
+    the_block = block
+    lazy = Enumerator::Lazy.new(self) { }
+    lazy.instance_variable_set(:@_lazy_size, nil)
+    lazy.instance_variable_set(:@_grouped_eval, proc { |output, *extra_args|
+      current_group = nil
+      prev_val = nil
+      begin
+        source._lazy_eval(*extra_args) do |*args|
+          val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+          if current_group.nil?
+            current_group = [val]
+          elsif the_block.call(prev_val, val)
+            current_group << val
+          else
+            output.call(current_group)
+            current_group = [val]
+          end
+          prev_val = val
+        end
+      rescue StopIteration
+        raise
+      end
+      output.call(current_group) if current_group
+    })
+    lazy
+  end
+
+  def slice_before(pattern = nil, &block)
+    return to_enum(:slice_before) unless pattern || block
+    source = self
+    pred = if block
+      block
+    else
+      proc { |val| pattern === val }
+    end
+    lazy = Enumerator::Lazy.new(self) { }
+    lazy.instance_variable_set(:@_lazy_size, nil)
+    lazy.instance_variable_set(:@_grouped_eval, proc { |output, *extra_args|
+      current_group = nil
+      begin
+        source._lazy_eval(*extra_args) do |*args|
+          val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+          if pred.call(val)
+            output.call(current_group) if current_group
+            current_group = [val]
+          else
+            (current_group ||= []) << val
+          end
+        end
+      rescue StopIteration
+        raise
+      end
+      output.call(current_group) if current_group
+    })
+    lazy
+  end
+
+  def slice_after(pattern = nil, &block)
+    return to_enum(:slice_after) unless pattern || block
+    source = self
+    pred = if block
+      block
+    else
+      proc { |val| pattern === val }
+    end
+    lazy = Enumerator::Lazy.new(self) { }
+    lazy.instance_variable_set(:@_lazy_size, nil)
+    lazy.instance_variable_set(:@_grouped_eval, proc { |output, *extra_args|
+      current_group = []
+      begin
+        source._lazy_eval(*extra_args) do |*args|
+          val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+          current_group << val
+          if pred.call(val)
+            output.call(current_group)
+            current_group = []
+          end
+        end
+      rescue StopIteration
+        raise
+      end
+      output.call(current_group) unless current_group.empty?
+    })
+    lazy
+  end
+
+  def slice_when(&block)
+    return to_enum(:slice_when) unless block
+    source = self
+    the_block = block
+    lazy = Enumerator::Lazy.new(self) { }
+    lazy.instance_variable_set(:@_lazy_size, nil)
+    lazy.instance_variable_set(:@_grouped_eval, proc { |output, *extra_args|
+      current_group = nil
+      prev_val = nil
+      begin
+        source._lazy_eval(*extra_args) do |*args|
+          val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+          if current_group.nil?
+            current_group = [val]
+          elsif the_block.call(prev_val, val)
+            output.call(current_group)
+            current_group = [val]
+          else
+            current_group << val
+          end
+          prev_val = val
+        end
+      rescue StopIteration
+        raise
+      end
+      output.call(current_group) if current_group
+    })
+    lazy
+  end
+
+  def each_with_object(obj, &block)
+    return to_enum(:each_with_object, obj) unless block
+    each { |v| block.call(v, obj) }
+    obj
+  end
+
+  def each_with_index(&block)
+    return to_enum(:each_with_index) { size } unless block
+    i = 0
+    each { |v| block.call(v, i); i += 1 }
+  end
+
+  def with_index(offset = 0, &block)
+    if offset.nil?
+      offset = 0
+    elsif !offset.is_a?(Integer)
+      begin
+        offset = offset.to_int
+      rescue NoMethodError
+        raise TypeError, "no implicit conversion into Integer"
+      end
+    end
+    if block
+      the_block = block
+      the_offset = offset
+      lazy = Enumerator::Lazy.new(self, size) { }
+      lazy.instance_variable_set(:@_xform_factory, proc {
+        i = the_offset
+        proc { |y, *args|
+          val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+          the_block.call(val, i)
+          i += 1
+          y << val
+        }
+      })
+      lazy
+    else
+      the_offset = offset
+      lazy = Enumerator::Lazy.new(self, size) { }
+      lazy.instance_variable_set(:@_xform_factory, proc {
+        i = the_offset
+        proc { |y, *args|
+          val = args.empty? ? nil : (args.length == 1 ? args[0] : args)
+          y.yield(val, i)
+          i += 1
+        }
+      })
+      lazy
+    end
+  end
+
+  def eager
+    Enumerator.new { |y| each { |*v| y.yield(*v) } }
+  end
+
+  def with_object(obj, &block)
+    each_with_object(obj, &block)
+  end
+
+  def count(val = (no_arg = true), &block)
+    if block
+      n = 0
+      each { |v| n += 1 if block.call(v) }
+      n
+    elsif !no_arg
+      n = 0
+      each { |v| n += 1 if v == val }
+      n
+    else
+      s = size
+      s.nil? ? to_a.length : s
+    end
+  end
+
+  def to_enum(method_name = :each, *args, **kwargs, &size_block)
+    Enumerator._from_method(self, method_name, args, size_block, kwargs)
+  end
+  alias enum_for to_enum
+
   def inspect
-    if @receiver.nil? && @block.nil?
+    if @receiver.nil? && @_lazy_xform.nil?
       "#<Enumerator::Lazy: uninitialized>"
     elsif @receiver
-      args_str = @method_args.empty? ? "" : "(#{@method_args.map(&:inspect).join(', ')})"
-      "#<Enumerator::Lazy: #{@receiver.inspect}:#{@method_name}#{args_str}>"
+      "#<Enumerator::Lazy: #{@receiver.inspect}>"
     else
       "#<Enumerator::Lazy: generator>"
     end
+  end
+
+  private
+
+  def initialize_copy(source)
+    super
+    self
   end
 end
 

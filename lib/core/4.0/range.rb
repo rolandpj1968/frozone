@@ -402,7 +402,6 @@ class Range
     return Float::INFINITY if !block && (self.begin.nil? || self.end.nil?)
     block ? to_a.count(&block) : (size || to_a.size)
   end
-  def take(n); to_a.take(n); end
   def drop(n); to_a.drop(n); end
   def first(*args)
     if args.empty?
@@ -414,7 +413,9 @@ class Range
     n = n.to_int if !n.is_a?(Integer) && n.respond_to?(:to_int)
     raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.is_a?(Integer)
     raise ArgumentError, "negative array size (or exceeds maximum)" if n < 0
-    to_a.first(n)
+    result = []
+    each { |v| result << v; break if result.length >= n }
+    result
   end
 
   def last(*args)

@@ -102,7 +102,10 @@ module Kernel
     $stdout.putc(c)
   end
 
-  def loop(&block) = Intrinsics.kernel_loop(self, block)
+  def loop(&block)
+    return Enumerator.new(Float::INFINITY) { |_y| } unless block
+    Intrinsics.kernel_loop(self, block)
+  end
 
   def catch(tag = nil, &block) = Intrinsics.kernel_catch(self, tag || :__catch_anon__, block)
   def throw(tag, value = nil) = Intrinsics.kernel_throw(self, tag, value)

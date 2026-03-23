@@ -94,6 +94,8 @@ task :core do
     kernel/rand_spec.rb
     kernel/sleep_spec.rb
     kernel/system_spec.rb
+    enumerator/lazy/enum_for_spec.rb
+    enumerator/lazy/to_enum_spec.rb
     enumerator/lazy/zip_spec.rb
     mutex/lock_spec.rb
     mutex/unlock_spec.rb
