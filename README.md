@@ -7,8 +7,10 @@ A Ruby VM implemented in Ruby. Parses Ruby source via the [Prism](https://github
 Frozone targets Ruby 4.0 semantics and passes **2613/2630** ruby/spec language examples,
 including full pattern matching support.
 
-Core library spec coverage: **17654 / 18277 passing (96.6%)** — only `io` times out
-(Thread/Mutex/IO concurrency not yet fully implemented).
+Core library spec coverage: **20859 / 22265 passing (93.7%)** — all modules now run;
+`io` has many failures (Thread/Mutex/IO concurrency not yet fully implemented);
+`conditionvariable` times out (remaining 1 spec after 3 skips still hangs);
+53 spec files are excluded from the parallel runner (native-level hangs — see Skipped column).
 
 ### Frozone² — Self-hosting (sort of)
 
@@ -94,65 +96,68 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 17654 / 18277 passing (96.6%)** — as of 2026-03-23 (Prism parser, parallel run)
+**Overall: 20859 / 22265 passing (93.7%)** — as of 2026-03-23 (Prism parser, parallel run)
 
-`(timeout)` = module times out in parallel runner (Thread/Mutex/IO concurrency not yet fully implemented).
+`Skipped` = spec files excluded from the parallel runner (hang/timeout at native level).
+`(timeout)` = entire module times out despite per-file skips.
 
-| Module | Examples | Passing | Failures | Errors |
-|---|---:|---:|---:|---:|
-| argf | 146 | 4 | 12 | 130 |
-| basicobject | 178 | 178 | 0 | 0 |
-| binding | 58 | 56 | 1 | 1 |
-| builtin_constants | 27 | 27 | 0 | 0 |
-| class | 54 | 54 | 0 | 0 |
-| comparable | 54 | 54 | 0 | 0 |
-| complex | 186 | 186 | 0 | 0 |
-| conditionvariable | 11 | 5 | 3 | 3 |
-| data | 92 | 92 | 0 | 0 |
-| encoding | 631 | 616 | 11 | 4 |
-| enumerable | 574 | 574 | 0 | 0 |
-| enumerator | 413 | 165 | 41 | 207 |
-| env | 239 | 237 | 2 | 0 |
-| exception | 248 | 248 | 0 | 0 |
-| false | 13 | 13 | 0 | 0 |
-| fiber | 160 | 160 | 0 | 0 |
-| file | 940 | 935 | 0 | 5 |
-| filetest | 88 | 87 | 0 | 1 |
-| float | 328 | 328 | 0 | 0 |
-| gc | 41 | 41 | 0 | 0 |
-| hash | 633 | 633 | 0 | 0 |
-| integer | 603 | 603 | 0 | 0 |
-| io | (timeout) | — | — | — |
-| kernel | 2449 | 2359 | 65 | 25 |
-| main | 27 | 21 | 4 | 2 |
-| marshal | 713 | 713 | 0 | 0 |
-| matchdata | 186 | 186 | 0 | 0 |
-| math | 243 | 243 | 0 | 0 |
-| method | 223 | 223 | 0 | 0 |
-| module | 1058 | 1012 | 25 | 21 |
-| mutex | 25 | 16 | 5 | 4 |
-| nil | 27 | 27 | 0 | 0 |
-| numeric | 338 | 338 | 0 | 0 |
-| objectspace | 112 | 112 | 0 | 0 |
-| proc | 302 | 302 | 0 | 0 |
-| process | 86 | 17 | 18 | 51 |
-| queue | 24 | 23 | 1 | 0 |
-| random | 87 | 84 | 0 | 3 |
-| range | 459 | 458 | 1 | 0 |
-| rational | 159 | 156 | 2 | 1 |
-| refinement | 25 | 19 | 1 | 5 |
-| regexp | 264 | 264 | 0 | 0 |
-| set | 179 | 179 | 0 | 0 |
-| signal | 52 | 52 | 0 | 0 |
-| sizedqueue | 129 | 97 | 32 | 0 |
-| string | 3976 | 3976 | 0 | 0 |
-| struct | 182 | 181 | 1 | 0 |
-| symbol | 330 | 330 | 0 | 0 |
-| systemexit | 6 | 6 | 0 | 0 |
-| thread | 227 | 152 | 60 | 15 |
-| threadgroup | 8 | 8 | 0 | 0 |
-| time | 774 | 773 | 1 | 0 |
-| tracepoint | 75 | — | 5 | 71 |
-| true | 13 | 13 | 0 | 0 |
-| unboundmethod | 86 | 83 | 0 | 3 |
-| warning | 29 | 29 | 0 | 0 |
+| Module | Examples | Passing | Failures | Errors | Skipped |
+|---|---:|---:|---:|---:|---:|
+| argf | 148 | 6 | 12 | 130 | |
+| array | 2925 | 2925 | 0 | 0 | 2 |
+| basicobject | 178 | 178 | 0 | 0 | |
+| binding | 58 | 56 | 1 | 1 | |
+| builtin_constants | 27 | 27 | 0 | 0 | |
+| class | 54 | 54 | 0 | 0 | |
+| comparable | 54 | 54 | 0 | 0 | |
+| complex | 186 | 186 | 0 | 0 | |
+| conditionvariable | (timeout) | — | — | — | 3 |
+| data | 92 | 92 | 0 | 0 | |
+| dir | 151 | 151 | 0 | 0 | 5 |
+| encoding | 221 | 206 | 11 | 4 | 6 |
+| enumerable | 574 | 574 | 0 | 0 | |
+| enumerator | 423 | 423 | 0 | 0 | 3 |
+| env | 239 | 237 | 2 | 0 | |
+| exception | 248 | 248 | 0 | 0 | |
+| false | 13 | 13 | 0 | 0 | |
+| fiber | 160 | 160 | 0 | 0 | |
+| file | 939 | 933 | 0 | 6 | |
+| filetest | 88 | 87 | 0 | 1 | |
+| float | 328 | 328 | 0 | 0 | |
+| gc | 41 | 41 | 0 | 0 | |
+| hash | 633 | 633 | 0 | 0 | |
+| integer | 603 | 603 | 0 | 0 | |
+| io | 1009 | 210 | 272 | 527 | 7 |
+| kernel | 2449 | 2360 | 65 | 24 | 6 |
+| main | 27 | 21 | 4 | 2 | |
+| marshal | 713 | 713 | 0 | 0 | |
+| matchdata | 186 | 186 | 0 | 0 | |
+| math | 243 | 243 | 0 | 0 | |
+| method | 223 | 223 | 0 | 0 | |
+| module | 1058 | 1012 | 25 | 21 | |
+| mutex | 25 | 16 | 5 | 4 | 2 |
+| nil | 27 | 27 | 0 | 0 | |
+| numeric | 338 | 322 | 14 | 2 | |
+| objectspace | 112 | 112 | 0 | 0 | |
+| proc | 302 | 302 | 0 | 0 | |
+| process | 86 | 17 | 18 | 51 | 1 |
+| queue | 24 | 23 | 1 | 0 | 4 |
+| random | 87 | 84 | 0 | 3 | |
+| range | 459 | 458 | 1 | 0 | |
+| rational | 159 | 156 | 2 | 1 | |
+| refinement | 25 | 19 | 1 | 5 | |
+| regexp | 264 | 264 | 0 | 0 | 1 |
+| set | 179 | 179 | 0 | 0 | |
+| signal | 52 | 52 | 0 | 0 | |
+| sizedqueue | 129 | 97 | 32 | 0 | |
+| string | 3976 | 3975 | 0 | 1 | |
+| struct | 182 | 181 | 1 | 0 | |
+| symbol | 330 | 330 | 0 | 0 | |
+| systemexit | 6 | 6 | 0 | 0 | |
+| thread | 227 | 151 | 62 | 14 | 12 |
+| threadgroup | 8 | 8 | 0 | 0 | |
+| time | 774 | 773 | 1 | 0 | |
+| tracepoint | 75 | — | 5 | 71 | |
+| true | 13 | 13 | 0 | 0 | |
+| unboundmethod | 86 | 83 | 0 | 3 | |
+| warning | 29 | 29 | 0 | 0 | |
