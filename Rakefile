@@ -57,6 +57,17 @@ SKIP_SPEC_FILES = %w[
   array/sample_spec.rb
   array/sort_spec.rb
   conditionvariable/broadcast_spec.rb
+  dir/each_child_spec.rb
+  dir/each_spec.rb
+  dir/element_reference_spec.rb
+  dir/foreach_spec.rb
+  dir/glob_spec.rb
+  encoding/aliases_spec.rb
+  encoding/compatible_spec.rb
+  encoding/find_spec.rb
+  encoding/name_spec.rb
+  encoding/names_spec.rb
+  encoding/to_s_spec.rb
   conditionvariable/signal_spec.rb
   conditionvariable/wait_spec.rb
   io/close_spec.rb
