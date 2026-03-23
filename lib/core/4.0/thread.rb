@@ -633,7 +633,7 @@ class Queue
   end
 
   def freeze
-    raise TypeError, "cannot freeze #{inspect}"
+    raise TypeError, "cannot freeze #{self}"
   end
 
   def close
@@ -650,9 +650,17 @@ class Queue
   alias << push
 
   def pop(non_block = false, timeout: nil)
+    raise ArgumentError, "can't set a timeout if non_block is enabled" if non_block && !timeout.nil?
+    unless timeout.nil?
+      unless timeout.is_a?(Numeric)
+        type_name = (timeout.equal?(true) || timeout.equal?(false)) ? timeout.inspect : timeout.class.to_s
+        raise TypeError, "no implicit conversion of #{type_name} into Float"
+      end
+      timeout = timeout.to_f
+    end
     if @data.empty?
-      return nil if @closed
       raise ThreadError, "queue empty" if non_block
+      return nil if @closed
       return nil if !timeout.nil? && timeout == 0
       # Cooperative blocking: run pending threads until data arrives.
       # @waiters uses Set for idempotency across Blocked re-runs.
@@ -695,17 +703,32 @@ class SizedQueue < Queue
   def num_waiting = @waiters.size + @push_waiters.size
 
   def initialize(max)
+    max = max.to_int if !max.is_a?(Integer) && max.respond_to?(:to_int)
+    raise TypeError, "no implicit conversion of #{max.class} into Integer" unless max.is_a?(Integer)
+    raise ArgumentError, "queue size must be positive" if max <= 0
     super()
     @max          = max
     @push_waiters = Set.new
     @push_deadlines = {}
   end
 
-  def max=(v); @max = v; end
+  def max=(v)
+    v = v.to_int if !v.is_a?(Integer) && v.respond_to?(:to_int)
+    raise TypeError, "no implicit conversion of #{v.class} into Integer" unless v.is_a?(Integer)
+    raise ArgumentError, "queue size must be positive" if v <= 0
+    @max = v
+  end
 
   def push(obj, non_block = false, timeout: nil)
     raise ClosedQueueError, "queue closed" if @closed
     raise ArgumentError, "can't set a timeout if non_block is enabled" if non_block && !timeout.nil?
+    unless timeout.nil?
+      unless timeout.is_a?(Numeric)
+        type_name = (timeout.equal?(true) || timeout.equal?(false)) ? timeout.inspect : timeout.class.to_s
+        raise TypeError, "no implicit conversion of #{type_name} into Float"
+      end
+      timeout = timeout.to_f
+    end
     if @data.size >= @max
       raise ThreadError, "queue full" if non_block
       return nil if !timeout.nil? && timeout == 0
