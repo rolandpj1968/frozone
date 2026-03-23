@@ -315,10 +315,60 @@ class IO
   end
 
   def self.write(path, content, offset = nil, **opts)
-    mode = opts[:mode] || 'w'
-    open(path, mode) do |f|
-      f.seek(offset) if offset
-      f.write(content)
+    if opts.key?(:open_args)
+      open_args = opts[:open_args]
+      # open_args: array of positional/keyword args to File.open
+      # Extract mode and kwargs from open_args
+      open_mode = nil
+      open_kwargs = {}
+      open_args.each do |arg|
+        if arg.is_a?(String)
+          open_mode = arg
+        elsif arg.is_a?(Hash)
+          open_kwargs = arg
+          open_mode ||= open_kwargs.delete(:mode)
+        end
+      end
+      # When open_args is given: if no mode specified, open read-only (raises IOError on write)
+      open_mode ||= 'r'
+      open(path, open_mode, **open_kwargs) do |f|
+        f.seek(offset) if offset
+        return f.write(content)
+      end
+    else
+      # Check for encoding specified both in mode string and :encoding option
+      if opts[:mode].is_a?(String) && opts[:mode].include?(':') && opts.key?(:encoding)
+        raise ArgumentError, "encoding specified twice"
+      end
+      mode = opts[:mode]
+      enc = opts[:encoding]
+      flags = opts[:flags]
+      open_kwargs = {}
+      open_kwargs[:encoding] = enc if enc
+      open_kwargs[:flags] = flags if flags
+      if mode.nil?
+        if offset
+          # Read-write without truncate; create if missing
+          begin
+            open(path, 'r+', **open_kwargs) do |f|
+              f.seek(offset)
+              return f.write(content)
+            end
+          rescue Errno::ENOENT
+            # File doesn't exist: create it
+            open(path, 'w', **open_kwargs) do |f|
+              f.seek(offset)
+              return f.write(content)
+            end
+          end
+        else
+          mode = 'w'
+        end
+      end
+      open(path, mode, **open_kwargs) do |f|
+        f.seek(offset) if offset
+        f.write(content)
+      end
     end
   end
 

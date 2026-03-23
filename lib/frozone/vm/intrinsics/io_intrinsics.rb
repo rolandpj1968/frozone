@@ -512,9 +512,12 @@ module Frozone
 
         def io_write(context, receiver, args)
           native = native_io_for(receiver)
-          s = args.raw.first.dispatch(context, :to_s, [], {}).raw
-          native.write(s)
-          n2f_int(s.bytesize)
+          total = 0
+          args.raw.each do |arg|
+            s = arg.dispatch(context, :to_s, [], {}).raw
+            total += native.write(s)
+          end
+          n2f_int(total)
         end
 
         def io_flush(_, receiver)
