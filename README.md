@@ -94,15 +94,14 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: ~17400 / ~17700 passing (~98%)** — as of 2026-03-22 (Prism parser, non-timeout modules)
+**Overall: 17654 / 18277 passing (96.6%)** — as of 2026-03-23 (Prism parser, parallel run)
 
-`(timeout)` = module times out in parallel runner (Thread/Mutex/IO concurrency not yet implemented).
+`(timeout)` = module times out in parallel runner (Thread/Mutex/IO concurrency not yet fully implemented).
 
 | Module | Examples | Passing | Failures | Errors |
 |---|---:|---:|---:|---:|
-| argf | 101 | — | 3 | 134 |
-| array | 2985 | 2985 | 0 | 0 |
-| basicobject | 178 | 176 | 2 | 0 |
+| argf | 146 | 4 | 12 | 130 |
+| basicobject | 178 | 178 | 0 | 0 |
 | binding | 58 | 56 | 1 | 1 |
 | builtin_constants | 27 | 27 | 0 | 0 |
 | class | 54 | 54 | 0 | 0 |
@@ -110,14 +109,13 @@ Core specs run in parallel (`JOBS=N`, default: nprocessors).
 | complex | 186 | 186 | 0 | 0 |
 | conditionvariable | 11 | 5 | 3 | 3 |
 | data | 92 | 92 | 0 | 0 |
-| dir | 319 | 315 | 1 | 3 |
-| encoding | (timeout) | — | — | — |
-| enumerable | 574 | 572 | 0 | 2 |
-| enumerator | (timeout) | — | — | — |
-| env | 239 | 239 | 0 | 0 |
+| encoding | 631 | 616 | 11 | 4 |
+| enumerable | 574 | 574 | 0 | 0 |
+| enumerator | 413 | 165 | 41 | 207 |
+| env | 239 | 237 | 2 | 0 |
 | exception | 248 | 248 | 0 | 0 |
 | false | 13 | 13 | 0 | 0 |
-| fiber | (timeout) | — | — | — |
+| fiber | 160 | 160 | 0 | 0 |
 | file | 940 | 935 | 0 | 5 |
 | filetest | 88 | 87 | 0 | 1 |
 | float | 328 | 328 | 0 | 0 |
@@ -125,36 +123,36 @@ Core specs run in parallel (`JOBS=N`, default: nprocessors).
 | hash | 633 | 633 | 0 | 0 |
 | integer | 603 | 603 | 0 | 0 |
 | io | (timeout) | — | — | — |
-| kernel | (timeout) | — | — | — |
+| kernel | 2449 | 2359 | 65 | 25 |
 | main | 27 | 21 | 4 | 2 |
-| marshal | 713 | 710 | 3 | 0 |
-| matchdata | 186 | 185 | 1 | 0 |
+| marshal | 713 | 713 | 0 | 0 |
+| matchdata | 186 | 186 | 0 | 0 |
 | math | 243 | 243 | 0 | 0 |
-| method | 223 | 222 | 1 | 0 |
-| module | 1058 | 1012 | 26 | 20 |
-| mutex | 24 | 12 | 10 | 2 |
+| method | 223 | 223 | 0 | 0 |
+| module | 1058 | 1012 | 25 | 21 |
+| mutex | 25 | 16 | 5 | 4 |
 | nil | 27 | 27 | 0 | 0 |
 | numeric | 338 | 338 | 0 | 0 |
-| objectspace | 112 | 111 | 1 | 0 |
-| proc | 302 | 299 | 3 | 0 |
-| process | (timeout) | — | — | — |
-| queue | (timeout) | — | — | — |
-| random | 87 | 82 | 2 | 3 |
-| range | 459 | 459 | 0 | 0 |
-| rational | 159 | 159 | 0 | 0 |
+| objectspace | 112 | 112 | 0 | 0 |
+| proc | 302 | 302 | 0 | 0 |
+| process | 86 | 17 | 18 | 51 |
+| queue | 24 | 23 | 1 | 0 |
+| random | 87 | 84 | 0 | 3 |
+| range | 459 | 458 | 1 | 0 |
+| rational | 159 | 156 | 2 | 1 |
 | refinement | 25 | 19 | 1 | 5 |
 | regexp | 264 | 264 | 0 | 0 |
 | set | 179 | 179 | 0 | 0 |
 | signal | 52 | 52 | 0 | 0 |
-| sizedqueue | (timeout) | — | — | — |
+| sizedqueue | 129 | 97 | 32 | 0 |
 | string | 3976 | 3976 | 0 | 0 |
 | struct | 182 | 181 | 1 | 0 |
 | symbol | 330 | 330 | 0 | 0 |
 | systemexit | 6 | 6 | 0 | 0 |
-| thread | (timeout) | — | — | — |
-| threadgroup | 8 | 0 | 1 | 7 |
+| thread | 227 | 152 | 60 | 15 |
+| threadgroup | 8 | 8 | 0 | 0 |
 | time | 774 | 773 | 1 | 0 |
 | tracepoint | 75 | — | 5 | 71 |
 | true | 13 | 13 | 0 | 0 |
-| unboundmethod | 86 | 82 | 0 | 4 |
+| unboundmethod | 86 | 83 | 0 | 3 |
 | warning | 29 | 29 | 0 | 0 |
