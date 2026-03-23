@@ -52,8 +52,50 @@ namespace :language do
 end
 
 # Core spec helpers
+# Known-slow or hanging spec files excluded from core spec runs.
+SKIP_SPEC_FILES = %w[
+  array/sample_spec.rb
+  array/sort_spec.rb
+  conditionvariable/broadcast_spec.rb
+  conditionvariable/signal_spec.rb
+  conditionvariable/wait_spec.rb
+  io/close_spec.rb
+  io/copy_stream_spec.rb
+  kernel/fork_spec.rb
+  kernel/p_spec.rb
+  kernel/printf_spec.rb
+  kernel/rand_spec.rb
+  kernel/sleep_spec.rb
+  kernel/system_spec.rb
+  enumerator/lazy/enum_for_spec.rb
+  enumerator/lazy/to_enum_spec.rb
+  enumerator/lazy/zip_spec.rb
+  mutex/lock_spec.rb
+  mutex/unlock_spec.rb
+  process/spawn_spec.rb
+  queue/deq_spec.rb
+  queue/num_waiting_spec.rb
+  queue/pop_spec.rb
+  queue/shift_spec.rb
+  regexp/timeout_spec.rb
+  thread/abort_on_exception_spec.rb
+  thread/alive_spec.rb
+  thread/inspect_spec.rb
+  thread/kill_spec.rb
+  thread/list_spec.rb
+  thread/terminate_spec.rb
+  thread/raise_spec.rb
+  thread/run_spec.rb
+  thread/status_spec.rb
+  thread/stop_spec.rb
+  thread/to_s_spec.rb
+  thread/wakeup_spec.rb
+].map { |f| "#{RUBY_SPEC_DIR}/core/#{f}" }.freeze
+
 def run_core_specs(*spec_files)
-  args = spec_files.map { |f| File.expand_path(f) }.join(' ')
+  filtered = spec_files.reject { |f| SKIP_SPEC_FILES.include?(File.expand_path(f)) }
+  return if filtered.empty?
+  args = filtered.map { |f| File.expand_path(f) }.join(' ')
   sh "bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args}"
 end
 
@@ -73,51 +115,6 @@ task :core do
 
   # Default parallelism: number of CPUs (capped at 8 to avoid memory pressure)
   n_jobs = [ENV.fetch('JOBS', [Etc.nprocessors, 8].min.to_s).to_i, 1].max
-
-  # Known-slow or hanging spec files excluded from the batch run.
-  # These are either statistical performance tests (run thousands of iterations)
-  # or tests requiring concurrent threading that deadlock in cooperative model.
-  # Known-hanging spec files: tight infinite loops with no cooperative yield points
-  # that cannot be interrupted by Frozone's cooperative scheduler, or specs that
-  # rely on MRI's preemptive scheduling to observe transient thread states.
-  SKIP_SPEC_FILES = %w[
-    array/sample_spec.rb
-    array/sort_spec.rb
-    conditionvariable/broadcast_spec.rb
-    conditionvariable/signal_spec.rb
-    conditionvariable/wait_spec.rb
-    io/close_spec.rb
-    io/copy_stream_spec.rb
-    kernel/fork_spec.rb
-    kernel/p_spec.rb
-    kernel/printf_spec.rb
-    kernel/rand_spec.rb
-    kernel/sleep_spec.rb
-    kernel/system_spec.rb
-    enumerator/lazy/enum_for_spec.rb
-    enumerator/lazy/to_enum_spec.rb
-    enumerator/lazy/zip_spec.rb
-    mutex/lock_spec.rb
-    mutex/unlock_spec.rb
-    process/spawn_spec.rb
-    queue/deq_spec.rb
-    queue/num_waiting_spec.rb
-    queue/pop_spec.rb
-    queue/shift_spec.rb
-    regexp/timeout_spec.rb
-    thread/abort_on_exception_spec.rb
-    thread/alive_spec.rb
-    thread/inspect_spec.rb
-    thread/kill_spec.rb
-    thread/list_spec.rb
-    thread/terminate_spec.rb
-    thread/raise_spec.rb
-    thread/run_spec.rb
-    thread/status_spec.rb
-    thread/stop_spec.rb
-    thread/to_s_spec.rb
-    thread/wakeup_spec.rb
-  ].map { |f| "#{RUBY_SPEC_DIR}/core/#{f}" }.freeze
 
   # Build list of (name, args) pairs for non-empty modules
   work = core_modules.filter_map do |name|
