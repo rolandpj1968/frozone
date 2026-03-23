@@ -621,28 +621,44 @@ module Kernel
   end
 
   def __rational_coerce__(val)
-    return val if val.is_a?(Integer) || val.is_a?(Rational)
-    return val if val.is_a?(Float)
-    raise TypeError, "can't convert nil into Rational" if val.nil?
-    if val.is_a?(String)
-      return Intrinsics.kernel_rational_from_string(self, val, true)
-    end
-    if val.respond_to?(:to_r)
+    # Use rescue NoMethodError to handle BasicObject subclasses that lack is_a?, respond_to?, etc.
+    begin
+      return val if val.is_a?(Integer) || val.is_a?(Rational)
+      return val if val.is_a?(Float)
+      raise TypeError, "can't convert nil into Rational" if val.nil?
+      if val.is_a?(String)
+        return Intrinsics.kernel_rational_from_string(self, val, true)
+      end
+      if val.respond_to?(:to_r)
+        begin
+          r = val.to_r
+        rescue RangeError
+          raise
+        rescue
+          raise TypeError, "can't convert #{val.class} into Rational"
+        end
+        return r if r.is_a?(Integer) || r.is_a?(Rational) || r.is_a?(Float)
+        raise TypeError, "can't convert #{val.class} into Rational (#{val.class}#to_r gives #{r.class})"
+      end
+      if val.respond_to?(:to_int)
+        begin
+          return val.to_int
+        rescue
+          raise TypeError, "can't convert #{val.class} into Rational"
+        end
+      end
+    rescue TypeError, RangeError
+      raise
+    rescue NoMethodError
+      # BasicObject or similar: doesn't have is_a?/respond_to?/class — try to_r directly
+      val_cls_name = Intrinsics.object_class(val).name
       begin
         r = val.to_r
-      rescue RangeError
-        raise
-      rescue
-        raise TypeError, "can't convert #{val.class} into Rational"
-      end
-      return r if r.is_a?(Integer) || r.is_a?(Rational) || r.is_a?(Float)
-      raise TypeError, "can't convert #{val.class} into Rational (#{val.class}#to_r gives #{r.class})"
-    end
-    if val.respond_to?(:to_int)
-      begin
-        return val.to_int
-      rescue
-        raise TypeError, "can't convert #{val.class} into Rational"
+        return r if r.is_a?(Rational)
+        r_cls_name = begin r.class.name rescue Intrinsics.object_class(r).name end
+        raise TypeError, "can't convert #{val_cls_name} to Rational (#{val_cls_name}#to_r gives #{r_cls_name})"
+      rescue NoMethodError
+        raise TypeError, "can't convert #{val_cls_name} into Rational"
       end
     end
     raise TypeError, "can't convert #{val.class} into Rational"
