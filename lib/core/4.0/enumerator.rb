@@ -40,6 +40,8 @@ class Enumerator
     e.instance_variable_set(:@peeked, false)
     e.instance_variable_set(:@peeked_vals, nil)
     e.instance_variable_set(:@feed, nil)
+    e.instance_variable_set(:@_feed_pending, false)
+    e.instance_variable_set(:@_fiber_started, false)
     e
   end
 
@@ -93,7 +95,9 @@ class Enumerator
   end
 
   def feed(val)
+    raise TypeError, "feed value already set" if @_fiber_started && @_feed_pending
     @feed = val
+    @_feed_pending = true
     nil
   end
 
@@ -103,6 +107,8 @@ class Enumerator
     @peeked = false
     @peeked_vals = nil
     @feed = nil
+    @_feed_pending = false
+    @_fiber_started = false
     self
   end
 
@@ -134,16 +140,19 @@ class Enumerator
   end
   alias to_s inspect
 
-  def self.produce(initial = nil, &block)
+  def self.produce(*initial_args, &block)
+    raise ArgumentError, "wrong number of arguments (given #{initial_args.size}, expected 0..1)" if initial_args.size > 1
+    has_initial = !initial_args.empty?
     Enumerator.new do |y|
-      val = initial
+      val = has_initial ? initial_args[0] : nil
+      y << val if has_initial
       loop do
-        y << val
         begin
           val = block.call(val)
         rescue StopIteration
           break
         end
+        y << val
       end
     end
   end
@@ -244,6 +253,8 @@ class Enumerator
     @peeked = false
     @peeked_vals = nil
     @feed = nil
+    @_feed_pending = false
+    @_fiber_started = false
     self
   end
 
@@ -268,6 +279,7 @@ class Enumerator
         nil
       end
     end
+    @_fiber_started = false
   end
 
   def __advance__
@@ -277,9 +289,15 @@ class Enumerator
       exc.instance_variable_set(:@result, @_enum_result)
       raise exc
     end
-    feed_val = @feed
-    @feed = nil
-    vals = @fiber.resume(feed_val)
+    unless @_fiber_started
+      @_fiber_started = true
+      vals = @fiber.resume(nil)
+    else
+      feed_val = @feed
+      @feed = nil
+      @_feed_pending = false
+      vals = @fiber.resume(feed_val)
+    end
     if vals.nil?
       exc = StopIteration.new("iteration reached an end")
       exc.instance_variable_set(:@result, @_enum_result)
@@ -352,6 +370,8 @@ class Enumerator::Lazy < Enumerator
     @peeked      = false
     @peeked_vals = nil
     @feed        = nil
+    @_feed_pending = false
+    @_fiber_started = false
     self
   end
 
@@ -958,5 +978,53 @@ class Enumerator
       end
     end
     alias to_s inspect
+  end
+
+  class Product < Enumerator
+    def initialize(*enumerables)
+      @enumerables = enumerables
+      super() do |yielder|
+        if @enumerables.empty?
+          yielder << []
+        else
+          __product_each__(0, [], yielder)
+        end
+      end
+    end
+
+    def size
+      return 1 if @enumerables.empty?
+      @enumerables.reduce(1) do |acc, e|
+        s = e.respond_to?(:size) ? e.size : nil
+        return Float::INFINITY if s == Float::INFINITY
+        s ? acc * s : Float::INFINITY
+      end
+    end
+
+    private
+
+    def __product_each__(idx, current, yielder)
+      if idx == @enumerables.size
+        yielder << current.dup
+        return
+      end
+      @enumerables[idx].each_entry do |item|
+        current.push(item)
+        __product_each__(idx + 1, current, yielder)
+        current.pop
+      end
+    end
+  end
+
+  def self.product(*enumerables, **kwargs, &block)
+    unless kwargs.empty?
+      raise ArgumentError, "unknown keywords: #{kwargs.keys.map { |k| ":#{k}" }.join(", ")}"
+    end
+    prod = Product.new(*enumerables)
+    if block
+      prod.each(&block)
+      return nil
+    end
+    prod
   end
 end
