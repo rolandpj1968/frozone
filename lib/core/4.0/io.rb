@@ -171,7 +171,18 @@ class IO
   def to_io = self
   def size = stat.size
   def printf(*args) = (write(sprintf(*args)); nil)
-  def putc(c) = (write(c.is_a?(Integer) ? c.chr : c.to_s[0]); c)
+  def putc(c)
+    if c.is_a?(String)
+      write(c[0] || "")
+    elsif c.is_a?(Integer)
+      write((c & 0xFF).chr)
+    elsif c.respond_to?(:to_int)
+      write((c.to_int & 0xFF).chr)
+    else
+      raise TypeError, "no implicit conversion of #{c.class} into Integer"
+    end
+    c
+  end
   def flock(lock_op) = Intrinsics.io_flock(self, lock_op)
   def advise(advice, offset = 0, len = 0) = nil
   def dup = Intrinsics.io_dup(self)

@@ -86,6 +86,22 @@ module Kernel
     end
   end
 
+  def Hash(val)
+    return {} if val.nil? || val == []
+    return val if val.is_a?(Hash)
+    begin
+      result = val.to_hash
+      return result if result.is_a?(Hash)
+      raise TypeError, "can't convert #{val.class} into Hash (#{val.class}#to_hash gives #{result.class})" unless result.nil?
+    rescue NoMethodError
+    end
+    raise TypeError, "no implicit conversion of #{val.class} into Hash"
+  end
+
+  def putc(c)
+    $stdout.putc(c)
+  end
+
   def loop(&block) = Intrinsics.kernel_loop(self, block)
 
   def catch(tag = nil, &block) = Intrinsics.kernel_catch(self, tag || :__catch_anon__, block)
@@ -208,7 +224,7 @@ module Kernel
   end
   module_function :puts, :print, :warn, :p, :raise, :fail, :require, :require_relative, :load, :__dir__,
                   :proc, :lambda, :eval, :binding, :sprintf, :format,
-                  :Integer, :Float, :String, :Array,
+                  :Integer, :Float, :String, :Array, :Hash, :putc,
                   :loop, :catch, :throw, :abort, :exit, :exit!, :sleep, :system,
                   :block_given?, :at_exit, :caller, :caller_locations, :__method__,
                   :local_variables, :rand, :srand, :open
