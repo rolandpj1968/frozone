@@ -27,11 +27,13 @@ class IO
 ")
         elsif arg.is_a?(Array)
           __puts_array__(arg)
-        elsif arg.respond_to?(:to_ary)
-          ary = arg.to_ary
-          ary.is_a?(Array) ? __puts_array__(ary) : __puts_scalar__(arg)
         else
-          __puts_scalar__(arg)
+          begin
+            ary = arg.to_ary
+            ary.nil? ? __puts_scalar__(arg) : (ary.is_a?(Array) ? __puts_array__(ary) : __puts_scalar__(arg))
+          rescue NoMethodError
+            __puts_scalar__(arg)
+          end
         end
       end
     end
@@ -48,11 +50,13 @@ class IO
     arr.each do |elem|
       if elem.is_a?(Array)
         __puts_array__(elem, seen)
-      elsif elem.respond_to?(:to_ary)
-        ary = elem.to_ary
-        ary.is_a?(Array) ? __puts_array__(ary, seen) : __puts_scalar__(elem)
       else
-        __puts_scalar__(elem)
+        begin
+          ary = elem.to_ary
+          ary.nil? ? __puts_scalar__(elem) : (ary.is_a?(Array) ? __puts_array__(ary, seen) : __puts_scalar__(elem))
+        rescue NoMethodError
+          __puts_scalar__(elem)
+        end
       end
     end
   end
@@ -60,7 +64,7 @@ class IO
 
   def __puts_scalar__(arg)
     str = arg.to_s
-    str = "#<\#{arg.class}:0x\#{arg.__id__.to_s(16)}>" unless str.is_a?(String)
+    str = "#<#{arg.class}:0x#{arg.__id__.to_s(16)}>" unless str.is_a?(String)
     write(str)
     write("
 ") unless str.end_with?("
