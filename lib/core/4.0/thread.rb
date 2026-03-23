@@ -6,6 +6,13 @@ class Thread
   def self.abort_on_exception = (defined?(@@abort_on_exception) ? @@abort_on_exception : false)
   def self.handle_interrupt(_config, &block); block.call; end
   def self.pending_interrupt?(_exc = nil) = false
+
+  def self.each_caller_location(&block)
+    raise LocalJumpError, "no block given" unless block
+    locs = caller_locations(1)
+    locs.each { |loc| block.call(loc) }
+    nil
+  end
   def self.ignore_deadlock=(val); @@ignore_deadlock = !!val; end
   def self.ignore_deadlock = (defined?(@@ignore_deadlock) ? @@ignore_deadlock : false)
   def self.exit; Thread.current.kill; end
