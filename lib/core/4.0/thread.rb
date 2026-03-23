@@ -148,9 +148,10 @@ class Thread
   #   nil        — completed with uncaught exception
   def status
     return nil        if @done && @exception
-    return false      if @done
-    # 'aborting' only when actively running (not blocked/sleeping)
+    # 'aborting' takes priority over 'done' — self-kill sets both @done and @aborting,
+    # and ensure blocks must see 'aborting' while the thread is still executing.
     return 'aborting' if @aborting && (@executing || @run_yielded)
+    return false      if @done
     return 'run'      if @executing || @run_yielded
     'sleep'
   end
