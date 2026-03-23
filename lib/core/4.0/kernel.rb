@@ -308,11 +308,41 @@ module Kernel
   def __method__ = Intrinsics.kernel__method__(self)
   def __callee__ = Intrinsics.kernel__callee__(self)
   def local_variables = Intrinsics.kernel_local_variables(self)
-  def instance_variable_get(name) = Intrinsics.object_ivar_get(self, name)
-  def instance_variable_set(name, value) = Intrinsics.object_ivar_set(self, name, value)
-  def instance_variable_defined?(name) = Intrinsics.object_ivar_defined(self, name)
+  def instance_variable_get(name)
+    Intrinsics.object_ivar_get(self, __coerce_ivar_name__(name))
+  end
+
+  def instance_variable_set(name, value)
+    Intrinsics.object_ivar_set(self, __coerce_ivar_name__(name), value)
+  end
+
+  def instance_variable_defined?(name)
+    Intrinsics.object_ivar_defined(self, __coerce_ivar_name__(name))
+  end
+
   def instance_variables = Intrinsics.object_ivar_names(self)
-  def remove_instance_variable(name) = Intrinsics.object_ivar_remove(self, name)
+
+  def remove_instance_variable(name)
+    Intrinsics.object_ivar_remove(self, __coerce_ivar_name__(name))
+  end
+
+  def __coerce_ivar_name__(name)
+    if name.is_a?(Symbol)
+      s = name.to_s
+    elsif name.is_a?(String)
+      s = name
+    elsif name.is_a?(Integer)
+      raise TypeError, "#{name.class} is not a symbol nor a string"
+    elsif name.respond_to?(:to_str)
+      s = name.to_str
+      raise TypeError, "#{name.class}#to_str should return String" unless s.is_a?(String)
+    else
+      raise TypeError, "#{name.class} is not a symbol nor a string"
+    end
+    raise NameError, "'#{s}' is not allowed as an instance variable name" unless s.match?(/\A@[a-zA-Z_\u{0080}-\u{10FFFF}][a-zA-Z0-9_\u{0080}-\u{10FFFF}]*\z/)
+    s.to_sym
+  end
+  private :__coerce_ivar_name__
 
   def to_enum(method_name = :each, *args, **kwargs, &size_block)
     Enumerator._from_method(self, method_name, args, size_block, kwargs)
