@@ -372,24 +372,24 @@ module Kernel
   def __callee__ = Intrinsics.kernel__callee__(self)
   def local_variables = Intrinsics.kernel_local_variables(self)
   def instance_variable_get(name)
-    Intrinsics.object_ivar_get(self, __coerce_ivar_name__(name))
+    Intrinsics.object_ivar_get(self, __coerce_ivar_name__(name, self))
   end
 
   def instance_variable_set(name, value)
-    Intrinsics.object_ivar_set(self, __coerce_ivar_name__(name), value)
+    Intrinsics.object_ivar_set(self, __coerce_ivar_name__(name, self), value)
   end
 
   def instance_variable_defined?(name)
-    Intrinsics.object_ivar_defined(self, __coerce_ivar_name__(name))
+    Intrinsics.object_ivar_defined(self, __coerce_ivar_name__(name, self))
   end
 
   def instance_variables = Intrinsics.object_ivar_names(self)
 
   def remove_instance_variable(name)
-    Intrinsics.object_ivar_remove(self, __coerce_ivar_name__(name))
+    Intrinsics.object_ivar_remove(self, __coerce_ivar_name__(name, self))
   end
 
-  def __coerce_ivar_name__(name)
+  def __coerce_ivar_name__(name, receiver)
     if name.is_a?(Symbol)
       s = name.to_s
     elsif name.is_a?(String)
@@ -402,7 +402,9 @@ module Kernel
     else
       raise TypeError, "#{name.class} is not a symbol nor a string"
     end
-    raise NameError, "'#{s}' is not allowed as an instance variable name" unless s.match?(/\A@[a-zA-Z_\u{0080}-\u{10FFFF}][a-zA-Z0-9_\u{0080}-\u{10FFFF}]*\z/)
+    unless s.match?(/\A@[a-zA-Z_\u{0080}-\u{10FFFF}][a-zA-Z0-9_\u{0080}-\u{10FFFF}]*\z/)
+      raise NameError.new("'#{s}' is not allowed as an instance variable name", s, receiver: receiver)
+    end
     s.to_sym
   end
   private :__coerce_ivar_name__
