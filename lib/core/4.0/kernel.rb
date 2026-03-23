@@ -238,10 +238,20 @@ module Kernel
   end
   def String(val)
     return val if val.is_a?(String)
-    # Try to_str first
     if val.respond_to?(:to_str)
       result = val.to_str
       return result if result.is_a?(String)
+    end
+    # MRI checks respond_to?(:to_s) only when to_s is actually defined (not undef'd).
+    # When undef'd, MRI calls to_s directly (may go through method_missing).
+    # Objects that can't have singleton classes (e.g. Integer, Float) always have to_s defined.
+    to_s_defined = begin
+      val.singleton_class.method_defined?(:to_s)
+    rescue TypeError
+      true
+    end
+    if to_s_defined
+      raise TypeError, "no implicit conversion of #{val.class} into String" unless val.respond_to?(:to_s)
     end
     begin
       result = val.to_s
