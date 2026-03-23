@@ -55,8 +55,36 @@ module Kernel
 
   def Integer(val, base = 0, exception: true) = Intrinsics.kernel_integer(self, val, base, exception)
   def Float(val) = Intrinsics.kernel_float(self, val)
-  def String(val) = val.to_s
-  def Array(val) = Intrinsics.kernel_array(self, val)
+  def String(val)
+    return val if val.is_a?(String)
+    begin
+      result = val.send(:to_s)
+      raise TypeError, "no implicit conversion of #{val.class} into String" unless result.is_a?(String)
+      result
+    rescue NoMethodError
+      raise TypeError, "no implicit conversion of #{val.class} into String"
+    end
+  end
+  def Array(val)
+    return [] if val.nil?
+    return val if val.is_a?(Array)
+    skip_to_ary = false
+    begin
+      result = val.send(:to_ary)
+      return result if result.is_a?(Array)
+      skip_to_ary = result.nil?  # nil → fall through to to_a
+      raise TypeError, "can't convert #{val.class} into Array (#{val.class}#to_ary gives #{result.class})" unless skip_to_ary
+    rescue NoMethodError
+    end
+    begin
+      result = val.send(:to_a)
+      return result if result.is_a?(Array)
+      return [val] if result.nil?
+      raise TypeError, "can't convert #{val.class} into Array (#{val.class}#to_a gives #{result.class})"
+    rescue NoMethodError
+      [val]
+    end
+  end
 
   def loop(&block) = Intrinsics.kernel_loop(self, block)
 
