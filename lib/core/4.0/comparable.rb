@@ -7,10 +7,16 @@ module Comparable
 
   def ==(other)
     return true if equal?(other)
-    r = begin
-      self <=> other
+    # Guard against infinite recursion when <=> calls == (e.g. via Object#<=>)
+    seen = (Fiber[:__comparable_eq__] ||= {})
+    return false if seen[object_id]
+    seen[object_id] = true
+    begin
+      r = self <=> other
     rescue NoMethodError
       return false
+    ensure
+      seen.delete(object_id)
     end
     return false if r.nil?
     raise ArgumentError, "comparison of #{self.class} with #{other} failed" unless r.is_a?(Numeric)
