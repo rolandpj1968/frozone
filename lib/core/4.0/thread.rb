@@ -156,8 +156,8 @@ class Thread
     'sleep'
   end
 
-  def alive? = !@done
-  def stop?  = @done || (!@executing && !@run_yielded)
+  def alive? = !@done || (@aborting && (@executing || @run_yielded))
+  def stop?  = !alive? || (!@executing && !@run_yielded)
 
   def report_on_exception=(val); @report_on_exception = val; end
   def report_on_exception = @report_on_exception.nil? ? Thread.report_on_exception : @report_on_exception
