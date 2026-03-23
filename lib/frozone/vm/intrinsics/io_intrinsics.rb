@@ -98,6 +98,34 @@ module Frozone
           end
         end
 
+        def io_pipe(_, ext_enc_obj = FNIL, int_enc_obj = FNIL)
+          reraise(::SystemCallError) do
+            r_native, w_native = ::IO.pipe
+            r_io = IOObject.new(r_native, Core.io_class)
+            w_io = IOObject.new(w_native, Core.io_class)
+            unless fnil?(ext_enc_obj)
+              ext_name = fstr?(ext_enc_obj) ? ext_enc_obj.raw : ext_enc_obj.get_ivar(:@name)&.then { |n| fstr?(n) ? n.raw : n.to_s }
+              if ext_name
+                int_name = if fnil?(int_enc_obj) then nil
+                           elsif fstr?(int_enc_obj) then int_enc_obj.raw
+                           else int_enc_obj.get_ivar(:@name)&.then { |n| fstr?(n) ? n.raw : n.to_s }
+                           end
+                r_native.set_encoding(ext_name, int_name)
+              end
+            end
+            n2f_arr([r_io, w_io])
+          end
+        end
+
+        def io_dup(_, receiver)
+          return FNIL unless fio?(receiver)
+          native = receiver.native_io
+          reraise(::IOError, ::SystemCallError) do
+            duped_native = native.dup
+            IOObject.new(duped_native, receiver.class_object)
+          end
+        end
+
         def io_new_from_fd(_, fd_obj, mode_obj = FNIL, opts_obj = FNIL)
           fd = fint?(fd_obj) ? fd_obj.raw : fd_obj.raw.to_i
           mode, opts = parse_io_mode(mode_obj, opts_obj)

@@ -85,6 +85,7 @@ task :core do
     array/sort_spec.rb
     conditionvariable/broadcast_spec.rb
     conditionvariable/signal_spec.rb
+    conditionvariable/wait_spec.rb
     io/close_spec.rb
     io/copy_stream_spec.rb
     io/popen_spec.rb

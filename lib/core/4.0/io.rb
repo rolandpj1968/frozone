@@ -185,6 +185,20 @@ class IO
     end
   end
 
+  def self.pipe(ext_enc = nil, int_enc = nil, **opts, &block)
+    pair = Intrinsics.io_pipe(ext_enc, int_enc)
+    if block
+      begin
+        block.call(*pair)
+      ensure
+        pair[0].close unless pair[0].closed?
+        pair[1].close unless pair[1].closed?
+      end
+    else
+      pair
+    end
+  end
+
   def self.popen(cmd, mode = 'r', **opts, &block)
     output = Intrinsics.io_popen_capture(cmd, opts)
     io = CapturedOutput.new(output)
