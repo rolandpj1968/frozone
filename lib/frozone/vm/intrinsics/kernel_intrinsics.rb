@@ -643,6 +643,28 @@ module Frozone
           BindingObject.new(captured_frame, binding_call_site)
         end
 
+        def globals_trace_var_add(_context, _receiver, sym_obj, hook)
+          name = fsym?(sym_obj) ? sym_obj.raw : sym_obj.raw.to_sym
+          (TRACE_VAR_HOOKS[name] ||= []) << hook
+          FNIL
+        end
+
+        def globals_trace_var_remove(_context, _receiver, sym_obj, cmd)
+          name = fsym?(sym_obj) ? sym_obj.raw : sym_obj.raw.to_sym
+          removed = if fnil?(cmd)
+                      TRACE_VAR_HOOKS.delete(name) || []
+                    else
+                      hooks = TRACE_VAR_HOOKS[name] || []
+                      hooks.reject! { |h| h.equal?(cmd) }
+                      TRACE_VAR_HOOKS.delete(name) if hooks.empty?
+                      hooks
+                    end
+          # Return array of removed hooks as ArrayObject
+          arr = ArrayObject.new([])
+          Array(removed).each { |h| arr.raw << h }
+          arr
+        end
+
         def kernel_eval(context, _receiver, code_obj, binding_arg = FNIL, filename_arg = FNIL, lineno_arg = FNIL)
           return FNIL unless fstr?(code_obj)
           code = code_obj.raw

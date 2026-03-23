@@ -8,6 +8,9 @@ module Frozone
     # When a name is in GLOBAL_ALIASES, reads/writes are redirected to the canonical name.
     GLOBAL_ALIASES = {}
 
+    # trace_var hooks: Symbol => Array of ProcObject/BlockObject or StringObject
+    TRACE_VAR_HOOKS = {}
+
     # Emit a warning via Warning.warn (routes through user-overrideable Warning.warn).
     # Optional +location+ is a "file:line" string prepended as "file:line: warning: msg".
     # Optional +category+ is a Symbol passed as keyword to Warning.warn.

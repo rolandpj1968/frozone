@@ -28,6 +28,7 @@ module Frozone
             raise Vm::FrozoneException.make(:NameError, "#{@name} is a read-only variable")
           end
           Vm::GLOBALS[canonical] = value
+          fire_trace_var_hooks(context, canonical, value)
           return value
         end
 
@@ -93,11 +94,25 @@ module Frozone
           Vm::GLOBALS[:"$DEBUG"] = value.truthy? ? Vm::TrueObject::TRUE : Vm::FalseObject::FALSE
         else
           Vm::GLOBALS[@name] = value
+          fire_trace_var_hooks(context, @name, value)
         end
         value
       end
 
       private
+
+      def fire_trace_var_hooks(context, name, value)
+        hooks = Vm::TRACE_VAR_HOOKS[name]
+        return unless hooks && !hooks.empty?
+        hooks.each do |hook|
+          if hook.is_a?(Vm::StringObject)
+            Vm::Intrinsics.kernel_eval(context, Vm::NilObject::NIL, hook)
+          else
+            bo = hook.is_a?(Vm::ProcObject) ? hook.block_object : hook
+            bo.invoke(context, [value])
+          end
+        end
+      end
 
       def string_subclass?(value)
         # Returns true only for String subclass instances (not plain String instances)

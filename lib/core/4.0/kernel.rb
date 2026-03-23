@@ -581,14 +581,16 @@ module Kernel
 
   def trace_var(symbol, cmd = nil, &block)
     raise ArgumentError, "tried to create Proc object without a block" if cmd.nil? && !block
-    # stub: global variable tracing not supported
+    symbol = symbol.to_sym if symbol.is_a?(String)
+    hook = cmd || block
+    Intrinsics.globals_trace_var_add(self, symbol, hook)
     nil
   end
   private :trace_var
 
   def untrace_var(symbol, cmd = nil)
-    # stub: global variable tracing not supported
-    []
+    symbol = symbol.to_sym if symbol.is_a?(String)
+    Intrinsics.globals_trace_var_remove(self, symbol, cmd)
   end
   private :untrace_var
 
