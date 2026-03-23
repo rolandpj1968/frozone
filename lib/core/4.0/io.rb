@@ -38,8 +38,23 @@ class IO
     nil
   end
 
-  def __puts_array__(arr)
-    arr.each { |elem| puts(elem) }
+  def __puts_array__(arr, seen = nil)
+    seen ||= {}
+    if seen.key?(arr.__id__)
+      write("[...]\n")
+      return
+    end
+    seen[arr.__id__] = true
+    arr.each do |elem|
+      if elem.is_a?(Array)
+        __puts_array__(elem, seen)
+      elsif elem.respond_to?(:to_ary)
+        ary = elem.to_ary
+        ary.is_a?(Array) ? __puts_array__(ary, seen) : __puts_scalar__(elem)
+      else
+        __puts_scalar__(elem)
+      end
+    end
   end
   private :__puts_array__
 
@@ -152,6 +167,8 @@ class IO
   def putc(c) = (write(c.is_a?(Integer) ? c.chr : c.to_s[0]); c)
   def flock(lock_op) = Intrinsics.io_flock(self, lock_op)
   def advise(advice, offset = 0, len = 0) = nil
+  def dup = Intrinsics.io_dup(self)
+
   def reopen(path_or_io, mode = nil)
     if path_or_io.respond_to?(:to_io)
       Intrinsics.io_reopen(self, path_or_io.to_io)

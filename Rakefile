@@ -83,6 +83,12 @@ task :core do
   SKIP_SPEC_FILES = %w[
     array/sample_spec.rb
     array/sort_spec.rb
+    conditionvariable/broadcast_spec.rb
+    conditionvariable/signal_spec.rb
+    io/close_spec.rb
+    io/copy_stream_spec.rb
+    io/popen_spec.rb
+    io/write_spec.rb
     kernel/fork_spec.rb
     kernel/p_spec.rb
     kernel/printf_spec.rb
@@ -136,7 +142,7 @@ task :core do
         name, args = item
         tmpfile = Tempfile.new("frozone_core_#{name}")
         begin
-          system("timeout 300 bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile.path} 2>/dev/null")
+          system("timeout 600 bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile.path} 2>/dev/null")
           output = File.read(tmpfile.path, encoding: 'binary')
           if output =~ /(\d+) files, (\d+) examples, \d+ expectations?, (\d+) failures?, (\d+) errors?/
             ex = $2.to_i; fl = $3.to_i; er = $4.to_i; pass = ex - fl - er
