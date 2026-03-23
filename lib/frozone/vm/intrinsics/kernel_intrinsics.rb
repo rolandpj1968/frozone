@@ -254,11 +254,20 @@ module Frozone
           cn ? n2f_sym(cn) : FNIL
         end
 
+        SEND_METHOD_NAMES = %i[send __send__ public_send].freeze
+
         def kernel_block_given(context, _receiver)
-          # block_given? is a Ruby method call (adds one frame), so check the
-          # CALLING frame (one below current) to find the actual method's block.
+          # block_given? is a Ruby method call (adds one frame), so start one below current.
+          # Skip send/__send__/public_send frames — they're transparent for block_given? purposes.
           frames = context.frames
-          caller_frame = frames.length >= 2 ? frames[-2] : nil
+          idx = frames.length - 2
+          while idx >= 0 && SEND_METHOD_NAMES.include?(frames[idx].current_method&.name)
+            idx -= 1
+          end
+          caller_frame = idx >= 0 ? frames[idx] : nil
+          # define_method bodies always see block_given? == false (Ruby semantics), even inside
+          # nested blocks (which inherit the define_method frame as their method_frame).
+          return FFALSE if caller_frame&.method_frame&.current_method.is_a?(DefinedMethod)
           b = caller_frame&.block
           n2f_bool(!b.nil? && !fnil?(b))
         end
