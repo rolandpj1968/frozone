@@ -224,9 +224,36 @@ class IO
   end
 
   def self.read(path, length = nil, offset = nil, **opts)
-    open(path, opts[:mode] || 'r') do |f|
-      f.seek(offset) if offset
-      length ? f.read(length) : f.read
+    path = if path.respond_to?(:to_path)
+      path.to_path
+    elsif path.respond_to?(:to_str)
+      path.to_str
+    else
+      raise TypeError, "no implicit conversion of #{path.class} into String"
+    end
+    if offset
+      offset = offset.respond_to?(:to_int) ? offset.to_int : Integer(offset)
+      raise ArgumentError, "negative offset" if offset < 0
+    end
+    open_args = opts[:open_args]
+    if open_args
+      # open_args may be [mode] or [mode, {opts}] or [{opts}]
+      args = open_args.dup
+      kw = (args.last.is_a?(Hash) ? args.pop : {})
+      mode = args.shift || 'r'
+      open(path, mode, **kw) do |f|
+        f.seek(offset) if offset
+        length ? f.read(length) : f.read
+      end
+    else
+      mode = opts[:mode] || 'r'
+      enc_opt = {}
+      enc_opt[:external_encoding] = opts[:external_encoding] || opts[:encoding] if opts[:external_encoding] || opts[:encoding]
+      enc_opt[:internal_encoding] = opts[:internal_encoding] if opts[:internal_encoding]
+      open(path, mode, **enc_opt) do |f|
+        f.seek(offset) if offset
+        length ? f.read(length) : f.read
+      end
     end
   end
 

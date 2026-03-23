@@ -117,9 +117,22 @@ module Frozone
         def io_read(_, receiver, len_obj = FNIL, buf_obj = FNIL)
           return FNIL unless fio?(receiver)
           len = f2n_raw(len_obj)
+          has_buf = fstr?(buf_obj)
+          if has_buf && buf_obj.frozen_object?
+            raise FrozoneException.make(:FrozenError, "can't modify frozen String: #{buf_obj.raw.inspect}")
+          end
           reraise(::IOError) do
             result = len ? receiver.native_io.read(len) : receiver.native_io.read
-            result.nil? ? FNIL : n2f_str(result)
+            if has_buf
+              # Modify buffer in-place, preserving encoding when reading with a length limit.
+              # When reading all (len=nil), buffer encoding follows the IO encoding.
+              orig_enc = len ? buf_obj.raw.encoding : nil
+              buf_obj.raw.replace(result || "")
+              buf_obj.raw.force_encoding(orig_enc) if orig_enc
+              result.nil? ? FNIL : buf_obj
+            else
+              result.nil? ? FNIL : n2f_str(result)
+            end
           end
         end
 
@@ -500,13 +513,21 @@ module Frozone
           if fhash?(opts_obj)
             opts_obj.raw.each do |k, v|
               opts[fsym?(k) ? k.raw : k.to_s.to_sym] = case v
-                                                                    when StringObject  then v.raw
-                                                                    when IntegerObject then v.raw
-                                                                    when TrueObject    then true
-                                                                    when FalseObject   then false
-                                                                    when NilObject     then nil
-                                                                    else v
-                                                                    end
+                                                         when StringObject  then v.raw
+                                                         when IntegerObject then v.raw
+                                                         when TrueObject    then true
+                                                         when FalseObject   then false
+                                                         when NilObject     then nil
+                                                         when ObjectObject
+                                                           # Encoding objects passed as option values: extract name string
+                                                           if v.class_object&.name == :Encoding
+                                                             name_ivar = v.get_ivar(:@name)
+                                                             name_ivar && fstr?(name_ivar) ? name_ivar.raw : v
+                                                           else
+                                                             v
+                                                           end
+                                                         else v
+                                                         end
             end
           end
           [mode, opts]
