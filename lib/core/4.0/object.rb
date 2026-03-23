@@ -13,7 +13,13 @@ class Object < BasicObject
   def dup = Intrinsics.object_dup(self)
   def clone(freeze: nil) = Intrinsics.object_clone(self, freeze)
   def itself = self
-  def then(&block) = block ? block.call(self) : self
+  def then
+    unless block_given?
+      val = self
+      return Enumerator.new(1) { |y| y << val }
+    end
+    yield self
+  end
   alias yield_self then
   def methods(include_super = true) = Intrinsics.object_methods(self, include_super)
   def public_methods(include_super = true) = Intrinsics.object_public_methods(self, include_super)
@@ -40,7 +46,8 @@ class Object < BasicObject
   end
 
   def tap
-    yield self if block_given?
+    raise LocalJumpError, "no block given" unless block_given?
+    yield self
     self
   end
 
