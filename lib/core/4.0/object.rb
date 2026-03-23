@@ -5,7 +5,10 @@ class Object < BasicObject
   def !=(other) = !(self == other)
   def !~(other) = !(self =~ other)
   def ===(other) = self == other
-  def <=>(other) = equal?(other) ? 0 : nil
+  def <=>(other)
+    eq = (self == other)
+    eq.nil? ? nil : (eq ? 0 : nil)
+  end
   def extend(*mods) = Intrinsics.object_extend_multi(self, mods)
   def instance_exec(*args, &block) = Intrinsics.object_instance_exec(self, args, block)
   def freeze = Intrinsics.object_freeze(self)

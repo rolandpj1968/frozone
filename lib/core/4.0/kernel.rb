@@ -167,7 +167,7 @@ module Kernel
   def String(val)
     return val if val.is_a?(String)
     begin
-      result = val.send(:to_s)
+      result = val.to_s
       raise TypeError, "no implicit conversion of #{val.class} into String" unless result.is_a?(String)
       result
     rescue NoMethodError
