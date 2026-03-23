@@ -244,6 +244,7 @@ module Frozone
         def io_close(_, receiver)
           return FNIL unless fio?(receiver)
           receiver.native_io.close rescue nil
+          GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
           FNIL
         end
 

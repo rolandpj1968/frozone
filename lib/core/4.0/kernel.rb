@@ -136,8 +136,29 @@ module Kernel
 
   def at_exit(&block) = nil  # stub: at_exit blocks not executed in frozone
   def abort(msg = nil) = Intrinsics.kernel_abort(self, msg)
-  def exit(code = 0) = Intrinsics.kernel_exit(self, code)
-  def exit!(code = 1) = Intrinsics.kernel_exit(self, code)
+  def exit(code = true)
+    unless code.is_a?(TrueClass) || code.is_a?(FalseClass) || code.is_a?(Integer)
+      if code.respond_to?(:to_int)
+        code = code.to_int
+        raise TypeError, "to_int should return Integer" unless code.is_a?(Integer)
+      else
+        raise TypeError, "no implicit conversion of #{code.class} into Integer"
+      end
+    end
+    Intrinsics.kernel_exit(self, code)
+  end
+
+  def exit!(code = false)
+    unless code.is_a?(TrueClass) || code.is_a?(FalseClass) || code.is_a?(Integer)
+      if code.respond_to?(:to_int)
+        code = code.to_int
+        raise TypeError, "to_int should return Integer" unless code.is_a?(Integer)
+      else
+        raise TypeError, "no implicit conversion of #{code.class} into Integer"
+      end
+    end
+    Intrinsics.kernel_exit(self, code)
+  end
   def rand(n = nil) = Intrinsics.kernel_rand(self, n)
   def srand(seed = nil) = Intrinsics.kernel_srand(self, seed)
   def sleep(secs = nil)
