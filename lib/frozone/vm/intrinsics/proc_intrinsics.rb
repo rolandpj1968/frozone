@@ -78,7 +78,11 @@ module Frozone
         def kernel_lambda(context, _receiver)
           block = context.frame.block
           raise FrozoneException.make(:ArgumentError, "tried to create Proc object without a block") if block.nil?
-          # If block is already a ProcObject (from &proc_arg), unwrap to its BlockObject
+          # lambda(&proc{}) is not allowed — only literal blocks or existing lambdas
+          if block.is_a?(ProcObject) && !block.lambda?
+            raise FrozoneException.make(:ArgumentError, "the lambda method requires a literal block")
+          end
+          # If block is already a ProcObject (from &lambda_arg), unwrap to its BlockObject
           block = block.block_object if block.is_a?(ProcObject)
           block.make_lambda! if block.is_a?(BlockObject)
           ProcObject.new(block, lambda: true)

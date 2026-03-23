@@ -101,8 +101,8 @@ module Kernel
   private :__coerce_load_path__
   def __dir__ = Intrinsics.kernel_dir(self)
 
-  def proc = Intrinsics.kernel_proc(self)
-  def lambda = Intrinsics.kernel_lambda(self)
+  def proc(&_block) = Intrinsics.kernel_proc(self)
+  def lambda(&_block) = Intrinsics.kernel_lambda(self)
 
   def eval(code, binding = nil, file = nil, line = nil) = Intrinsics.kernel_eval(self, code, binding, file, line)
   def binding = Intrinsics.kernel_binding(self)
