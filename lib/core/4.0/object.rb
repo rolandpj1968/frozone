@@ -16,14 +16,6 @@ class Object < BasicObject
   def dup = Intrinsics.object_dup(self)
   def clone(freeze: nil) = Intrinsics.object_clone(self, freeze)
   def itself = self
-  def then
-    unless block_given?
-      val = self
-      return Enumerator.new(1) { |y| y << val }
-    end
-    yield self
-  end
-  alias yield_self then
   def methods(include_super = true) = Intrinsics.object_methods(self, include_super)
   def public_methods(include_super = true) = Intrinsics.object_public_methods(self, include_super)
   def private_methods(include_super = true) = Intrinsics.object_private_methods(self, include_super)
@@ -46,12 +38,6 @@ class Object < BasicObject
     else
       Intrinsics.object_instance_eval_string(self, str, file, line)
     end
-  end
-
-  def tap
-    raise LocalJumpError, "no block given" unless block_given?
-    yield self
-    self
   end
 
   def define_singleton_method(name, callable = :__unset__, &block)

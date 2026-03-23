@@ -4,19 +4,42 @@ module Kernel
   def warn(*args, category: nil, uplevel: nil)
     return nil if $VERBOSE.nil?
     return nil if args.empty?
-    category = category.to_sym if category.is_a?(String)
-    return nil if category && !Warning[category]
+    if !category.nil?
+      if category.is_a?(Symbol)
+        # ok
+      elsif category.respond_to?(:to_sym)
+        category = category.to_sym
+      else
+        raise TypeError, "no implicit conversion of #{category.class} into Symbol"
+      end
+      return nil if !Warning[category]
+    end
+    prefix = if uplevel.nil?
+      nil
+    else
+      unless uplevel.is_a?(Integer)
+        if uplevel.respond_to?(:to_int)
+          uplevel = uplevel.to_int
+          raise TypeError, "no implicit conversion into Integer" unless uplevel.is_a?(Integer)
+        else
+          raise TypeError, "no implicit conversion of #{uplevel.class} into Integer"
+        end
+      end
+      raise ArgumentError, "negative level (#{uplevel})" if uplevel < 0
+      locs = caller_locations(uplevel + 1, 1)
+      loc = locs&.first
+      loc ? "#{loc.path}:#{loc.lineno}: warning: " : "warning: "
+    end
+    emit = ->(str) {
+      str = "#{prefix}#{str}" if prefix
+      str += "\n" unless str.end_with?("\n")
+      begin; Warning.warn(str, category: category); rescue ArgumentError; Warning.warn(str); end
+    }
     args.each do |msg|
       if msg.is_a?(Array)
-        msg.each do |m|
-          str = m.to_s
-          str += "\n" unless str.end_with?("\n")
-          begin; Warning.warn(str, category: category); rescue ArgumentError; Warning.warn(str); end
-        end
+        msg.each { |m| emit.(m.to_s) }
       else
-        str = msg.to_s
-        str += "\n" unless str.end_with?("\n")
-        begin; Warning.warn(str, category: category); rescue ArgumentError; Warning.warn(str); end
+        emit.(msg.to_s)
       end
     end
     nil
@@ -286,6 +309,21 @@ module Kernel
     end
   end
   private :open
+
+  def tap
+    raise LocalJumpError, "no block given" unless block_given?
+    yield self
+    self
+  end
+
+  def then
+    unless block_given?
+      val = self
+      return Enumerator.new(1) { |y| y << val }
+    end
+    yield self
+  end
+  alias yield_self then
 
   def at_exit(&block)
     raise ArgumentError, "called without a block" unless block
