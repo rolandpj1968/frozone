@@ -475,7 +475,7 @@ class Complex
   end
 
   def to_r
-    raise RangeError, "can't convert #{inspect} into Rational" unless @imaginary == 0
+    raise RangeError, "can't convert #{to_s} into Rational" unless @imaginary == 0
     @real.to_r
   end
 
@@ -574,46 +574,80 @@ class Complex
 end
 
 module Kernel
-  def Rational(numerator, denominator = 1)
-    # Handle non-standard objects (e.g. BasicObject) that may not have is_a?
+  def Rational(numerator, *denom_args, exception: true)
+    no_denom = denom_args.empty?
+    denominator = no_denom ? 1 : denom_args[0]
+
+    # Special case: Complex denominator with non-zero imaginary part
+    # Result is n / d (complex division), not a pure Rational
+    if denominator.is_a?(Complex) && denominator.imaginary != 0
+      begin
+        n = __rational_coerce__(numerator)
+      rescue StandardError
+        return nil unless exception
+        raise
+      end
+      return n / denominator
+    end
+
     begin
-      n_float = numerator.is_a?(Float)
-      n_int   = numerator.is_a?(Integer)
-      n_rat   = numerator.is_a?(Rational)
-    rescue NoMethodError
-      begin
-        numerator = numerator.to_r
-      rescue NoMethodError
-        raise TypeError, "can't convert BasicObject into Rational"
-      end
-      raise TypeError, "to_r must return Rational (#{numerator.class} given)" unless numerator.is_a?(Rational)
-      return denominator == 1 ? numerator : Rational(numerator, denominator)
+      n = __rational_coerce__(numerator)
+      d = __rational_coerce__(denominator)
+    rescue StandardError
+      return nil unless exception
+      raise
     end
 
-    # Convert non-numeric numerator via to_r
-    unless n_float || n_int || n_rat
-      begin
-        numerator = numerator.to_r
-      rescue NoMethodError
-        raise TypeError, "can't convert #{numerator.class} into Rational"
-      end
-      raise TypeError, "to_r must return Rational (#{numerator.class} given)" unless numerator.is_a?(Rational)
-      return denominator == 1 ? numerator : Rational(numerator, denominator)
+    # Handle Float
+    if n.is_a?(Float)
+      n = n.to_r
+    end
+    if d.is_a?(Float)
+      d = d.to_r
     end
 
-    # Handle Float arguments by converting to Rational first
-    if n_float
-      r = numerator.to_r
-      return denominator == 1 ? r : Rational(r.numerator, r.denominator * denominator)
-    end
-    if denominator.is_a?(Float)
-      r = denominator.to_r
-      return Rational(numerator * r.denominator, r.numerator)
-    end
-    r = Rational.allocate
-    r.__send__(:initialize, numerator, denominator)
-    r
+    # Reduce: result = (n_num/n_den) / (d_num/d_den) = n_num*d_den / (n_den*d_num)
+    n_num = n.is_a?(Rational) ? n.numerator : n
+    n_den = n.is_a?(Rational) ? n.denominator : 1
+    d_num = d.is_a?(Rational) ? d.numerator : d
+    d_den = d.is_a?(Rational) ? d.denominator : 1
+
+    final_num = n_num * d_den
+    final_den = n_den * d_num
+
+    result = Rational.allocate
+    result.__send__(:initialize, final_num, final_den)
+    result
   end
+
+  def __rational_coerce__(val)
+    return val if val.is_a?(Integer) || val.is_a?(Rational)
+    return val if val.is_a?(Float)
+    raise TypeError, "can't convert nil into Rational" if val.nil?
+    if val.is_a?(String)
+      return Intrinsics.kernel_rational_from_string(self, val, true)
+    end
+    if val.respond_to?(:to_r)
+      begin
+        r = val.to_r
+      rescue RangeError
+        raise
+      rescue
+        raise TypeError, "can't convert #{val.class} into Rational"
+      end
+      return r if r.is_a?(Integer) || r.is_a?(Rational) || r.is_a?(Float)
+      raise TypeError, "can't convert #{val.class} into Rational (#{val.class}#to_r gives #{r.class})"
+    end
+    if val.respond_to?(:to_int)
+      begin
+        return val.to_int
+      rescue
+        raise TypeError, "can't convert #{val.class} into Rational"
+      end
+    end
+    raise TypeError, "can't convert #{val.class} into Rational"
+  end
+  private :__rational_coerce__
 
   def Complex(real, *imag_args, exception: true)
     no_imag = imag_args.empty?
