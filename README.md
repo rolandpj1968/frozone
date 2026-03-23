@@ -54,6 +54,62 @@ The WqParser's two extra errors are fundamental whitequark lexer limitations:
 
 Both parsers are otherwise at full parity on the language spec suite.
 
+## Setup
+
+### Prerequisites
+
+- **Ruby 4.0.1** — the `.ruby-version` file pins this. Install via [rbenv](https://github.com/rbenv/rbenv) or your preferred version manager:
+  ```bash
+  rbenv install 4.0.1
+  ```
+
+### Clone
+
+The repo has two submodules:
+- `spec/ruby-spec` — the [ruby/spec](https://github.com/ruby/spec) test suite
+- `vendor/parser` — a [fork of whitequark/parser](https://github.com/rolandpj1968/parser) with Ruby 4.0 parsing support
+
+Clone with `--recursive` to get both:
+
+```bash
+git clone --recursive https://github.com/rolandpj1968/frozone.git
+cd frozone
+```
+
+If you already cloned without `--recursive`:
+```bash
+git submodule update --init --recursive
+```
+
+### Install gems
+
+```bash
+bundle install
+```
+
+### Smoke test
+
+```bash
+bundle exec ruby frozone.rb -e "puts 'hello from Frozone'"
+# => hello from Frozone
+```
+
+### Running specs
+
+```bash
+bundle exec rspec                        # 652 RSpec unit tests
+bundle exec rake language                # ruby/spec language suite (~2630 examples)
+bundle exec rake core                    # ruby/spec core suite (~22000 examples, parallel)
+bundle exec rake language:NAME           # single language spec, e.g. rake language:string
+bundle exec rake core:NAME               # single core spec, e.g. rake core:array
+```
+
+Switch to the WqParser front-end with `--parser=wq` or `PARSER=wq`:
+```bash
+PARSER=wq bundle exec rake language
+bundle exec ruby frozone.rb --parser=wq -e "puts 'hello'"
+```
+
 ### Architecture
 
 - **`lib/frozone/vm/`** — VM runtime: `ClassObject`, `ModuleObject`, `Method`, `Frame`, `Context`, intrinsics
