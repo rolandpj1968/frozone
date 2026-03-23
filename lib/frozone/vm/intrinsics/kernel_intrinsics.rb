@@ -637,7 +637,14 @@ module Frozone
 
         def kernel_binding(context, _receiver)
           # Capture the calling frame (frames[-2] since we're inside a kernel method call).
-          captured_frame = context.frames.length >= 2 ? context.frames[-2] : context.frame
+          # Skip send/__send__/public_send frames — they are transparent for binding purposes,
+          # so m.send(:binding) captures the caller's binding (self), not the send-dispatched self.
+          frames = context.frames
+          idx = frames.length - 2
+          while idx >= 0 && SEND_METHOD_NAMES.include?(frames[idx].current_method&.name)
+            idx -= 1
+          end
+          captured_frame = idx >= 0 ? frames[idx] : context.frame
           # Source location: where `binding` was called (context.call_site set by MethodCall.evaluate)
           binding_call_site = context.call_site || captured_frame&.incoming_call_site
           BindingObject.new(captured_frame, binding_call_site)
