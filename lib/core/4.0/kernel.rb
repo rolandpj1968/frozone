@@ -476,6 +476,7 @@ module Kernel
   alias enum_for to_enum
 
   def initialize_copy(source)
+    return self if source.equal?(self)
     raise FrozenError, "can't modify frozen #{self.class}: #{self.inspect}" if frozen?
     raise TypeError, "initialize_copy should take same class object" unless source.is_a?(self.class)
     source.instance_variables.each do |ivar|

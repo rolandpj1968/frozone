@@ -137,13 +137,23 @@ class Numeric
   end
   # Numeric#step
   def step(to_arg = :__unset__, by_arg = :__unset__, to: :__unset__, by: :__unset__, &block)
+    # Track how args were supplied (for ArithmeticSequence#inspect reconstruction)
+    pos_to_given = !to_arg.equal?(:__unset__)
+    pos_by_given = !by_arg.equal?(:__unset__)
+    kw_to_given  = !to.equal?(:__unset__)
+    kw_by_given  = !by.equal?(:__unset__)
+
     # --- Argument parsing ---
     # Positional `to_arg` and `by_arg` conflict with keyword `to:` and `by:`.
-    unless to_arg.equal?(:__unset__)
+    unless pos_to_given
+      nil # no-op
+    else
       raise ArgumentError, "to is given twice" unless to.equal?(:__unset__)
       to = to_arg
     end
-    unless by_arg.equal?(:__unset__)
+    unless pos_by_given
+      nil # no-op
+    else
       raise ArgumentError, "step is given twice" unless by.equal?(:__unset__)
       by = by_arg
     end
@@ -176,11 +186,26 @@ class Numeric
     end
 
     # No block: return ArithmeticSequence or Enumerator
-    # Use keyword args to avoid nil-limit ambiguity when replaying the call via Fiber.
     unless block
-      step_kwargs = { to: limit, by: step_v }
       if int_step || float_any
-        return Enumerator::ArithmeticSequence._from_method(self, :step, [], size_fn, step_kwargs)
+        # Preserve original call style for inspect reconstruction
+        if pos_to_given || pos_by_given
+          # Positional call: store as positional args (omit default step=1 if not given)
+          as_args = pos_to_given ? [limit] : []
+          as_args << step_v if pos_by_given
+          as_kwargs = {}
+        elsif kw_to_given || kw_by_given
+          # Keyword call: store as keyword args
+          as_args = []
+          as_kwargs = {}
+          as_kwargs[:by] = step_v if kw_by_given
+          as_kwargs[:to] = limit if kw_to_given
+        else
+          # No args at all (infinite: 1.step)
+          as_args = []
+          as_kwargs = {}
+        end
+        return Enumerator::ArithmeticSequence._from_method(self, :step, as_args, size_fn, as_kwargs)
       end
       pos_args = [limit, step_v].compact
       return to_enum(:step, *pos_args) { size_fn.call }

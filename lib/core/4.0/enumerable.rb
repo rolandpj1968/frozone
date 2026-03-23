@@ -67,7 +67,7 @@ module Enumerable
   public
 
   def sort(&block) = to_a.sort(&block)
-  def lazy = Enumerator::Lazy.new(self) { |y, *vals| y.<<(*vals) }
+  def lazy = Enumerator::Lazy.new(self) { |y, *vals| y.yield(*vals) }
   def chain(*enums) = Enumerator::Chain.new(self, *enums)
   alias + chain
 

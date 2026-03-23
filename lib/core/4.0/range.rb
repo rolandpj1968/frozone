@@ -263,7 +263,10 @@ class Range
     self.begin.eql?(other.begin) && self.end.eql?(other.end) && self.exclude_end? == other.exclude_end?
   end
 
-  def step(n = 1, &block)
+  def step(n = :__unset__, &block)
+    n_given = !n.equal?(:__unset__)
+    n = 1 unless n_given
+
     b = self.begin
     e = self.end
     excl = exclude_end?
@@ -281,7 +284,9 @@ class Range
       raise ArgumentError, "step can't be 0" if numeric && (n == 0 || n == 0.0)
       rng = self
       if arithmetic
-        return Enumerator::ArithmeticSequence._from_method(self, :step, [n], proc { rng.send(:__step_size__, n) })
+        # Only include step in args if explicitly given (affects inspect output)
+        as_args = n_given ? [n] : []
+        return Enumerator::ArithmeticSequence._from_method(self, :step, as_args, proc { rng.send(:__step_size__, n) })
       end
       return to_enum(:step, n) { __step_size__(n) }
     end

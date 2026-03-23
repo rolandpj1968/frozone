@@ -4,6 +4,7 @@ class Enumerator
   class Yielder
     def initialize(&block)
       @block = block
+      self
     end
 
     def yield(*args)
@@ -14,8 +15,8 @@ class Enumerator
       end
     end
 
-    def <<(*args)
-      self.yield(*args)
+    def <<(arg)
+      self.yield(arg)
       self
     end
 
@@ -889,6 +890,19 @@ class Enumerator::Lazy < Enumerator
     super
     self
   end
+
+  def __ensure_fiber__
+    return if @fiber
+    enum = self
+    @fiber = Fiber.new do
+      begin
+        enum.send(:_lazy_eval) { |*vals| Fiber.yield(vals) }
+      rescue StopIteration
+      end
+      nil
+    end
+    @_fiber_started = false
+  end
 end
 
 class Enumerator::Chain
@@ -896,7 +910,11 @@ class Enumerator::Chain
 
   def each(&block)
     return to_enum(:each) unless block
-    @enums.each { |e| e.each(&block) }
+    @_iterated_count = 0
+    @enums.each do |e|
+      @_iterated_count += 1
+      e.each(&block)
+    end
     self
   end
 
@@ -912,11 +930,14 @@ class Enumerator::Chain
   end
 
   def rewind
-    @enums.each { |e| e.rewind if e.respond_to?(:rewind) }
+    count = @_iterated_count || 0
+    @enums.first(count).reverse_each { |e| e.rewind if e.respond_to?(:rewind) }
+    @_iterated_count = 0
     self
   end
 
   def inspect
+    return "#<Enumerator::Chain: uninitialized>" if @enums.nil?
     "#<Enumerator::Chain: #{@enums.inspect}>"
   end
   private
@@ -924,12 +945,30 @@ class Enumerator::Chain
   def initialize(*enums)
     raise FrozenError, "can't modify frozen Enumerator::Chain" if frozen?
     @enums = enums
+    @_iterated_count = 0
     self
   end
 end
 
 class Enumerator
   class ArithmeticSequence < Enumerator
+    @_internal_allocate = false
+
+    def self.new(...)
+      raise NoMethodError, "undefined method 'new' for Enumerator::ArithmeticSequence:Class"
+    end
+
+    def self.allocate
+      raise TypeError, "allocator undefined for Enumerator::ArithmeticSequence" unless @_internal_allocate
+      @_internal_allocate = false
+      super
+    end
+
+    def self._from_method(receiver, method_name, method_args, size_block = nil, method_kwargs = {})
+      @_internal_allocate = true
+      super
+    end
+
     # Supports both Range#step (receiver is a Range) and Numeric#step (receiver is a Numeric).
     def begin
       @receiver.is_a?(Range) ? @receiver.begin : @receiver
@@ -940,16 +979,22 @@ class Enumerator
         @receiver.end
       else
         kw = @method_kwargs || {}
-        kw[:to]
+        kw.key?(:to) ? kw[:to] : @method_args[0]
       end
     end
 
     def step
       if @receiver.is_a?(Range)
-        @method_args.first
+        @method_args.first || 1
       else
         kw = @method_kwargs || {}
-        kw[:by] || @method_args.first || 1
+        if kw.key?(:by)
+          kw[:by]
+        elsif @method_args.length >= 2
+          @method_args[1]
+        else
+          1
+        end
       end
     end
 
@@ -957,10 +1002,38 @@ class Enumerator
       @receiver.is_a?(Range) ? @receiver.exclude_end? : false
     end
 
+    def each(&block)
+      return self unless block
+      super(&block)
+      self
+    end
+
     def ==(other)
       return false unless other.is_a?(ArithmeticSequence)
       self.begin == other.begin && self.end == other.end &&
         self.step == other.step && exclude_end? == other.exclude_end?
+    end
+
+    def hash
+      [self.begin, self.end, self.step, exclude_end?].hash
+    end
+
+    def last
+      b = self.begin
+      e = self.end
+      s = self.step
+      return nil if e.nil?
+      n = exclude_end? ? ((e - b) / s.to_f).ceil - 1 : ((e - b) / s.to_f).floor
+      n < 0 ? nil : b + n * s
+    end
+
+    def size
+      b = self.begin
+      e = self.end
+      s = self.step
+      return Float::INFINITY if e.nil? || (e.respond_to?(:infinite?) && e.infinite? == 1)
+      n = exclude_end? ? ((e - b) / s.to_f).ceil : ((e - b) / s.to_f).floor + 1
+      [n, 0].max
     end
 
     def inspect
@@ -975,7 +1048,7 @@ class Enumerator
         args_part = @method_args.map(&:inspect)
         all_args = args_part + parts
         args_str = all_args.empty? ? "" : "(#{all_args.join(', ')})"
-        "((#{@receiver.inspect}).#{@method_name}#{args_str})"
+        "(#{@receiver.inspect}.#{@method_name}#{args_str})"
       end
     end
     alias to_s inspect
@@ -983,13 +1056,49 @@ class Enumerator
 
   class Product < Enumerator
     def initialize(*enumerables)
+      raise FrozenError, "can't modify frozen Enumerator::Product" if frozen?
       @enumerables = enumerables
-      super() do |yielder|
-        if @enumerables.empty?
-          yielder << []
-        else
-          __product_each__(0, [], yielder)
-        end
+      # Set inherited Enumerator ivars directly (don't call super with a block)
+      @block = nil
+      @receiver = nil
+      @method_name = nil
+      @method_args = []
+      @method_kwargs = {}
+      @size_block = nil
+      @size = nil
+      @fiber = nil
+      @peeked = false
+      @peeked_vals = nil
+      @feed = nil
+      @_feed_pending = false
+      @_fiber_started = false
+      self
+    end
+
+    def each(&block)
+      return to_enum(:each) { size } unless block
+      if @enumerables.empty?
+        block.call([])
+      else
+        __product_each__(0, [], block)
+      end
+      self
+    end
+
+    def rewind
+      @enumerables&.each { |e| e.rewind if e.respond_to?(:rewind) }
+      self
+    end
+
+    def inspect
+      return "#<Enumerator::Product: uninitialized>" if @enumerables.nil?
+      seen = (Fiber[:__product_inspect__] ||= {})
+      return "#<Enumerator::Product: ...>" if seen[object_id]
+      seen[object_id] = true
+      begin
+        "#<Enumerator::Product: #{@enumerables.inspect}>"
+      ensure
+        seen.delete(object_id)
       end
     end
 
@@ -997,21 +1106,38 @@ class Enumerator
       return 1 if @enumerables.empty?
       @enumerables.reduce(1) do |acc, e|
         s = e.respond_to?(:size) ? e.size : nil
+        return nil if s.nil?
         return Float::INFINITY if s == Float::INFINITY
-        s ? acc * s : Float::INFINITY
+        return nil unless s.is_a?(Integer)
+        acc * s
       end
     end
 
     private
 
-    def __product_each__(idx, current, yielder)
+    def initialize_copy(source)
+      return self if source.equal?(self)
+      raise FrozenError, "can't modify frozen Enumerator::Product" if frozen?
+      raise TypeError, "initialize_copy should take same class object" unless source.class == self.class
+      raise ArgumentError, "uninitialized product" if source.instance_variable_get(:@enumerables).nil?
+      @enumerables = source.instance_variable_get(:@enumerables).dup
+      @fiber = nil
+      @peeked = false
+      @peeked_vals = nil
+      @feed = nil
+      @_feed_pending = false
+      @_fiber_started = false
+      self
+    end
+
+    def __product_each__(idx, current, block)
       if idx == @enumerables.size
-        yielder << current.dup
+        block.call(current.dup)
         return
       end
       @enumerables[idx].each_entry do |item|
         current.push(item)
-        __product_each__(idx + 1, current, yielder)
+        __product_each__(idx + 1, current, block)
         current.pop
       end
     end
