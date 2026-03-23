@@ -441,6 +441,21 @@ module Frozone
           end
         end
 
+        def kernel_complex_from_string(context, _receiver, str_obj, exception_obj)
+          exc = exception_obj.truthy?
+          c = begin
+            ::Kernel.Complex(str_obj.raw, exception: exc)
+          rescue ::ArgumentError, ::Encoding::CompatibilityError => e
+            raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+          end
+          return FNIL if c.nil?
+          c_class = Core::OBJECT_CLASS.get_constant(:Complex)
+          rat_class = Core::OBJECT_CLASS.get_constant(:Rational)
+          real_vm = numeric_to_vm(context, c.real, rat_class)
+          imag_vm = numeric_to_vm(context, c.imaginary, rat_class)
+          c_class.dispatch(context, :new, [real_vm, imag_vm], {})
+        end
+
         def kernel_array(_, _receiver, val)
           return val if farray?(val)
           return FNIL.equal?(val) ? n2f_arr([]) : n2f_arr([val])

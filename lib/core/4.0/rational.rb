@@ -615,7 +615,64 @@ module Kernel
     r
   end
 
-  def Complex(real, imaginary = 0)
+  def Complex(real, *imag_args, exception: true)
+    no_imag = imag_args.empty?
+    imaginary = no_imag ? 0 : imag_args[0]
+
+    # String real: delegate strict parsing to intrinsic
+    if real.is_a?(String)
+      c = Intrinsics.kernel_complex_from_string(self, real, exception ? true : false)
+      return nil if c.nil?
+      return no_imag ? c : Complex.new(c.real - c.imaginary * 0, c.imaginary + imaginary)
+    end
+    # nil real
+    if real.nil?
+      return nil unless exception
+      raise TypeError, "can't convert nil into Complex"
+    end
+    real_numeric = real.is_a?(Numeric) || real.is_a?(Complex) || real.is_a?(Rational)
+
+    # Non-Numeric real: try to_c
+    unless real_numeric
+      if no_imag
+        begin
+          return real.to_c
+        rescue NoMethodError, TypeError
+          return nil unless exception
+          raise TypeError, "not a real"
+        end
+      else
+        imag_numeric = imaginary.is_a?(Numeric) || imaginary.is_a?(Complex) || imaginary.is_a?(Rational)
+        # With explicit imaginary: raise regardless of exception: if imaginary is Numeric
+        raise TypeError, "not a real" if imag_numeric
+        return nil unless exception
+        raise TypeError, "not a real"
+      end
+    end
+    # String imaginary
+    if imaginary.is_a?(String)
+      c = Intrinsics.kernel_complex_from_string(self, imaginary, exception ? true : false)
+      return nil if c.nil?
+      return Complex.new(real, c.real + c.imaginary)
+    end
+    # nil imaginary
+    if imaginary.nil?
+      return nil unless exception
+      raise TypeError, "can't convert nil into Complex"
+    end
+    # Non-Numeric imaginary
+    imag_numeric = imaginary.is_a?(Numeric) || imaginary.is_a?(Complex) || imaginary.is_a?(Rational)
+    unless imag_numeric
+      return nil unless exception
+      raise TypeError, "not a real"
+    end
+    # If either arg is not "real" (responds to real? with false), use n1 + n2*i formula
+    real_is_complex = real.respond_to?(:real?) && !real.real?
+    imag_is_complex = imaginary.respond_to?(:real?) && !imaginary.real?
+    if real_is_complex || imag_is_complex
+      return real if no_imag  # single non-real Numeric: return as-is
+      return real + imaginary * Complex(0, 1)
+    end
     Complex.new(real, imaginary)
   end
 end
