@@ -3,4 +3,4 @@
 	url = https://github.com/ruby/spec
 [submodule "vendor/parser"]
 	path = vendor/parser
-	url = https://github.com/whitequark/parser
+	url = https://github.com/rolandpj1968/parser
