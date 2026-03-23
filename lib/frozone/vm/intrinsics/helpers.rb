@@ -144,15 +144,57 @@ module Frozone
           result.size == 1 ? result[0] : n2f_arr(result)
         end
 
+        LOAD_EXTENSIONS = %w[.rb .so .bundle .dylib].freeze
+
+        def load_path_dir_str(dir_obj)
+          if dir_obj.respond_to?(:raw) && dir_obj.raw.is_a?(::String)
+            dir_obj.raw
+          else
+            ctx = Fiber[:context]
+            return nil unless ctx
+            begin
+              result = dir_obj.dispatch(ctx, :to_path, [], {})
+              result.respond_to?(:raw) ? result.raw : nil
+            rescue StandardError
+              nil
+            end
+          end
+        end
+
+        def load_add_rb(path)
+          LOAD_EXTENSIONS.any? { |ext| path.end_with?(ext) } ? path : "#{path}.rb"
+        end
+
         def resolve_load_path(path)
-          path_rb = path.end_with?('.rb') ? path : "#{path}.rb"
-          return path_rb if File.exist?(path_rb)
+          path = ::File.expand_path(path) if path.start_with?('~')
+          path_rb = load_add_rb(path)
+
+          if path.start_with?('/') || path.start_with?('./') || path.start_with?('../')
+            # Absolute or explicit CWD-relative path: expand, don't search $LOAD_PATH
+            expanded = ::File.expand_path(path_rb)
+            return expanded if ::File.exist?(expanded)
+            return nil
+          end
+
+          # Bare/relative path: search $LOAD_PATH only (NOT CWD)
           load_path = GLOBALS[:"$LOAD_PATH"]
           load_path&.raw&.each do |dir_obj|
-            full = File.join(dir_obj.raw, path_rb)
-            return full if File.exist?(full)
+            dir = load_path_dir_str(dir_obj)
+            next unless dir
+            full = ::File.expand_path(::File.join(dir, path_rb))
+            return full if ::File.exist?(full)
           end
           nil
+        end
+
+        def load_path_candidates(path_rb)
+          load_path = GLOBALS[:"$LOAD_PATH"]
+          return [] unless load_path
+          load_path.raw.filter_map do |dir_obj|
+            dir = load_path_dir_str(dir_obj)
+            next unless dir
+            ::File.expand_path(::File.join(dir, path_rb))
+          end
         end
 
         def no_method_receiver_desc(receiver)

@@ -380,22 +380,45 @@ module Frozone
         def kernel_require(_, _receiver, path_obj)
           path = path_obj.raw
           loaded = GLOBALS[:"$LOADED_FEATURES"]
-          loaded_paths = loaded.raw.map(&:raw)
-          full_path = resolve_load_path(path)
+          loaded_paths = loaded.raw.map { |s| s.respond_to?(:raw) ? s.raw : s.to_s }
+          path_rb = load_add_rb(path)
+
+          # Check exact input strings first (handles non-canonical paths stored as-is)
+          return FFALSE if loaded_paths.include?(path_rb)
+
+          is_explicit = path.start_with?('/') || path.start_with?('./') || path.start_with?('../') || path.start_with?('~')
+          unless is_explicit
+            # For bare/relative paths: check all $LOAD_PATH candidates against $LOADED_FEATURES
+            # This handles "don't load feature twice when $LOAD_PATH is modified"
+            candidates = load_path_candidates(path_rb)
+            return FFALSE if candidates.any? { |c| loaded_paths.include?(c) }
+          end
+
+          full_path = begin
+            resolve_load_path(path)
+          rescue ::Errno::EACCES => e
+            raise FrozoneException.make(:LoadError, e.message)
+          end
           if full_path.nil?
+            # If the non-extensioned path (no .rb) is in $LOADED_FEATURES, return false instead of LoadError
+            return FFALSE if path != path_rb && loaded_paths.include?(path)
             exc = FrozoneException.make(:LoadError, "cannot load such file -- #{path}")
             exc.vm_object.set_ivar(:@path, n2f_str(path))
             raise exc
           end
           return FFALSE if loaded_paths.include?(full_path)
+          # Guard against recursive require: add to $LOADED_FEATURES before loading
           loaded.push(n2f_str(full_path))
           begin
             Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
           rescue Ast::ReturnException
             # return at top level of required file stops loading gracefully
+          rescue ::Errno::EACCES => e
+            loaded.raw.delete_if { |s| s.respond_to?(:raw) && s.raw == full_path }
+            raise FrozoneException.make(:LoadError, e.message)
           rescue FrozoneException
             # Loading failed — remove from $LOADED_FEATURES so next require/autoload can retry
-            loaded.raw.delete_if { |s| s.raw == full_path }
+            loaded.raw.delete_if { |s| s.respond_to?(:raw) && s.raw == full_path }
             raise
           end
           FTRUE
