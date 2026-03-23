@@ -80,6 +80,9 @@ class IO
   def autoclose?       = Intrinsics.io_autoclose?(self)
   def <<(str); write(str); self; end
   def close = Intrinsics.io_close(self)
+  def close_read = Intrinsics.io_close_read(self)
+  def close_write = Intrinsics.io_close_write(self)
+  def pid = Intrinsics.io_pid(self)
   def closed? = Intrinsics.io_closed?(self)
   def fileno = Intrinsics.io_fileno(self)
   def eof? = Intrinsics.io_eof?(self)
@@ -200,12 +203,14 @@ class IO
   end
 
   def self.popen(cmd, mode = 'r', **opts, &block)
-    output = Intrinsics.io_popen_capture(cmd, opts)
-    io = CapturedOutput.new(output)
+    opts_arg = opts.empty? ? nil : opts
+    io = Intrinsics.io_popen(cmd, mode, opts_arg)
     if block
-      result = block.call(io)
-      io.close
-      result
+      begin
+        block.call(io)
+      ensure
+        io.close rescue nil
+      end
     else
       io
     end

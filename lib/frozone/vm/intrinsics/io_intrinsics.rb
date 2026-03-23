@@ -52,6 +52,54 @@ module Frozone
           n2f_str(output || "")
         end
 
+        def io_popen(_, cmd, mode_obj = FNIL, opts_obj = FNIL)
+          mode = fnil?(mode_obj) ? 'r' : (fstr?(mode_obj) ? mode_obj.raw : 'r')
+          mri_opts = {}
+          env_hash = nil
+          if fhash?(opts_obj) && !opts_obj.raw.empty?
+            opts_obj.raw.each do |k, v|
+              key = fsym?(k) ? k.raw : k.raw.to_sym
+              if key == :env && v.is_a?(HashObject)
+                env_hash = v.raw.each_with_object({}) do |(ek, ev), h|
+                  h[fstr?(ek) ? ek.raw : ek.raw.to_s] = fnil?(ev) ? nil : (fstr?(ev) ? ev.raw : ev.raw.to_s)
+                end
+              else
+                val = case v
+                      when ArrayObject then v.raw.map { |e| fsym?(e) ? e.raw : e.raw }
+                      when SymbolObject then v.raw
+                      when IntegerObject then v.raw
+                      else v.raw
+                      end
+                mri_opts[key] = val
+              end
+            end
+          end
+          # Resolve env from HashObject cmd (IO.popen(env, cmd, ...)) or opts :env key
+          actual_cmd, actual_env = if fhash?(cmd)
+            env_h = cmd.raw.each_with_object({}) do |(k, v), h|
+              h[fstr?(k) ? k.raw : k.raw.to_s] = fnil?(v) ? nil : (fstr?(v) ? v.raw : v.raw.to_s)
+            end
+            [opts_obj, env_h]
+          else
+            [cmd, env_hash]
+          end
+          native_io = if farray?(actual_cmd)
+            arr = actual_cmd.raw.map { |a| fstr?(a) ? a.raw : a.to_s }
+            arr = [actual_env, *arr] if actual_env
+            reraise(::Errno::ENOENT, ::Errno::EACCES, ::ArgumentError, ::SystemCallError) do
+              ::IO.popen(arr, mode, **mri_opts)
+            end
+          elsif fstr?(actual_cmd)
+            reraise(::Errno::ENOENT, ::ArgumentError, ::SystemCallError) do
+              ::IO.popen(actual_cmd.raw, mode, **mri_opts)
+            end
+          else
+            reraise(::ArgumentError) { ::IO.popen(actual_cmd.to_s, mode, **mri_opts) }
+          end
+          GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
+          IOObject.new(native_io, Core.io_class)
+        end
+
         def io_external_encoding(_, receiver)
           return FNIL unless fio?(receiver)
           enc = receiver.native_io.external_encoding rescue nil
@@ -196,6 +244,24 @@ module Frozone
         def io_close(_, receiver)
           return FNIL unless fio?(receiver)
           receiver.native_io.close rescue nil
+          FNIL
+        end
+
+        def io_pid(_, receiver)
+          return FNIL unless fio?(receiver)
+          pid = receiver.native_io.pid rescue nil
+          pid ? n2f_int(pid) : FNIL
+        end
+
+        def io_close_read(_, receiver)
+          return FNIL unless fio?(receiver)
+          reraise(::IOError) { receiver.native_io.close_read }
+          FNIL
+        end
+
+        def io_close_write(_, receiver)
+          return FNIL unless fio?(receiver)
+          reraise(::IOError) { receiver.native_io.close_write }
           FNIL
         end
 

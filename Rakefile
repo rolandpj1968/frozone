@@ -88,8 +88,6 @@ task :core do
     conditionvariable/wait_spec.rb
     io/close_spec.rb
     io/copy_stream_spec.rb
-    io/popen_spec.rb
-    io/write_spec.rb
     kernel/fork_spec.rb
     kernel/p_spec.rb
     kernel/printf_spec.rb
