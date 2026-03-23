@@ -3,4 +3,6 @@
 
 # ruby-spec temp files
 rubyspec_temp/
-.claude/worktrees/
+
+# Claude Code agent state (worktrees, plans, memory)
+.claude/
