@@ -16,6 +16,7 @@ module Frozone
 
         @raw = value.frozen? ? value.dup : value
         @frozen_object = frozen
+        @deduped = false
         @chilled_source = chilled_source
       end
 
@@ -23,10 +24,13 @@ module Frozone
         super
         @raw = @raw.dup
         @frozen_object = false
+        @deduped = false
         @chilled_source = nil  # dup clears chilled status
       end
 
       def frozen? = @frozen_object
+      def deduped? = @deduped
+      def mark_deduped! = @deduped = true
 
       def chilled? = !@chilled_source.nil? && !@frozen_object
 

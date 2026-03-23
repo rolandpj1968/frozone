@@ -463,11 +463,13 @@ module Frozone
             existing
           else
             if v.frozen_object?
+              v.mark_deduped!
               STRING_DEDUP_TABLE[key] = v
               v
             else
               new_str = n2f_str(raw.dup)
               new_str.freeze_object!
+              new_str.mark_deduped!
               STRING_DEDUP_TABLE[key] = new_str
               new_str
             end

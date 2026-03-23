@@ -232,13 +232,17 @@ module Frozone
         end
 
         def object_singleton_class(context, v)
-          # Integer and Symbol don't have singleton classes
-          if fint?(v) || fsym?(v)
-            raise FrozoneException.make(:TypeError, "can't define singleton for #{v.class_object.name}")
+          # Integer, Float, and Symbol don't have singleton classes
+          if fint?(v) || ffloat?(v) || fsym?(v)
+            raise FrozoneException.make(:TypeError, "can't define singleton")
           end
           # true/false/nil return their class (they are singleton instances)
           if ftrue?(v) || ffalse?(v) || fnil?(v)
             return v.class_object
+          end
+          # Frozen deduplicated strings don't have singleton classes
+          if fstr?(v) && v.frozen? && v.deduped?
+            raise FrozoneException.make(:TypeError, "can't define singleton")
           end
           if fstr?(v) && v.chilled?
             Frozone::Vm.emit_warning(context, v.chilled_warning)
