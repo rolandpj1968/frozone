@@ -53,7 +53,75 @@ module Kernel
 
   def format(fmt, *args) = sprintf(fmt, *args)
 
-  def Integer(val, base = 0, exception: true) = Intrinsics.kernel_integer(self, val, base, exception)
+  def Integer(val, *base_args, exception: true)
+    no_base = base_args.empty?
+    raw_base = no_base ? 0 : base_args[0]
+
+    # Coerce base to integer
+    base = if raw_base.is_a?(Integer)
+      raw_base
+    elsif raw_base.respond_to?(:to_int)
+      raw_base.to_int
+    else
+      return nil unless exception
+      raise TypeError, "no implicit conversion of #{raw_base.class} into Integer"
+    end
+
+    if val.is_a?(Integer)
+      unless no_base || base == 0
+        return nil unless exception
+        raise ArgumentError, "wrong number of arguments (given 2, expected 1)"
+      end
+      return val
+    elsif val.is_a?(Float)
+      unless no_base || base == 0
+        return nil unless exception
+        raise ArgumentError, "wrong number of arguments (given 2, expected 1)"
+      end
+      if val.infinite? || val.nan?
+        return nil unless exception
+        raise FloatDomainError, val.to_s
+      end
+      return val.to_i
+    elsif val.is_a?(String)
+      return Intrinsics.kernel_integer(self, val, base, exception)
+    elsif val.nil?
+      return nil unless exception
+      raise TypeError, "can't convert nil into Integer"
+    else
+      unless no_base || base == 0
+        return nil unless exception
+        raise ArgumentError, "wrong number of arguments (given 2, expected 1)"
+      end
+      # Try to_int first; if it returns non-Integer, fall through to to_i
+      to_int_result = nil
+      if val.respond_to?(:to_int)
+        to_int_result = val.to_int
+        return to_int_result if to_int_result.is_a?(Integer)
+        # to_int returned nil or non-Integer: fall through to to_i
+      end
+      # Try to_i
+      if val.respond_to?(:to_i)
+        result = val.to_i
+        if result.is_a?(Integer)
+          return result
+        elsif result.nil?
+          return nil unless exception
+          raise TypeError, "can't convert #{val.class} into Integer"
+        else
+          return nil unless exception
+          raise TypeError, "can't convert #{val.class} into Integer (#{val.class}#to_i gives #{result.class})"
+        end
+      end
+      # to_int returned non-Integer and no to_i — raise TypeError about to_int
+      if !to_int_result.nil? && val.respond_to?(:to_int)
+        return nil unless exception
+        raise TypeError, "can't convert #{val.class} into Integer (#{val.class}#to_int gives #{to_int_result.class})"
+      end
+      return nil unless exception
+      raise TypeError, "can't convert #{val.class} into Integer"
+    end
+  end
   def Float(val, exception: true)
     if val.is_a?(Float)
       return val
