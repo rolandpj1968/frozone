@@ -472,9 +472,16 @@ module Frozone
             exc.vm_object.set_ivar(:@path, n2f_str(path))
             raise exc
           end
+          # Check for circular require before general "already loaded" check
+          currently_loading = (Fiber[:currently_loading_files] ||= ::Set.new)
+          if loaded_paths.include?(full_path) && currently_loading.include?(full_path)
+            Frozone::Vm.emit_warning(_, "loading in progress, circular require considered harmful - #{full_path}")
+            return FFALSE
+          end
           return FFALSE if loaded_paths.include?(full_path)
           # Guard against recursive require: add to $LOADED_FEATURES before loading
           loaded.push(n2f_str(full_path))
+          currently_loading.add(full_path)
           begin
             Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
           rescue Ast::ReturnException
@@ -486,6 +493,8 @@ module Frozone
             # Loading failed — remove from $LOADED_FEATURES so next require/autoload can retry
             loaded.raw.delete_if { |s| s.respond_to?(:raw) && s.raw == full_path }
             raise
+          ensure
+            currently_loading.delete(full_path)
           end
           FTRUE
         end
@@ -577,8 +586,14 @@ module Frozone
           end
           loaded = GLOBALS[:"$LOADED_FEATURES"]
           loaded_paths = loaded.raw.map(&:raw)
+          currently_loading = (Fiber[:currently_loading_files] ||= ::Set.new)
+          if loaded_paths.include?(full_path) && currently_loading.include?(full_path)
+            Frozone::Vm.emit_warning(_, "loading in progress, circular require considered harmful - #{full_path}")
+            return FFALSE
+          end
           return FFALSE if loaded_paths.include?(full_path)
           loaded.push(n2f_str(full_path))
+          currently_loading.add(full_path)
           begin
             Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
           rescue Ast::ReturnException
@@ -586,6 +601,8 @@ module Frozone
           rescue FrozoneException
             loaded.raw.delete_if { |s| s.raw == full_path }
             raise
+          ensure
+            currently_loading.delete(full_path)
           end
           FTRUE
         end
@@ -626,13 +643,19 @@ module Frozone
             # If a Module was passed, use it directly; otherwise create an anonymous module.
             wrap_mod = (fmod?(wrap_obj) && !fclass?(wrap_obj)) ? wrap_obj : ModuleObject.new(nil, nil)
             Fiber[:load_wrap_module] = wrap_mod
-            # Pass caller's singleton class modules so they appear in the wrapped self's ancestor chain.
-            Fiber[:load_wrap_receiver_sc_mods] = _receiver.eigenclass&.modules || []
+            # Pass the top-level self's singleton class modules so they appear in the wrapped self's ancestor chain.
+            # Use bottom frame's the_self (the file-level main, same as MRI's rb_vm_top_self()).
+            main_obj = _.frames.first&.the_self
+            Fiber[:load_wrap_receiver_sc_mods] = main_obj&.eigenclass&.modules || []
           end
           begin
             Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
           rescue Ast::ReturnException
             # return at top level of loaded file stops loading gracefully
+          rescue ::Errno::EACCES, ::Errno::EPERM => e
+            exc = FrozoneException.make(:LoadError, "cannot load such file -- #{full_path}")
+            exc.vm_object.set_ivar(:@path, n2f_str(full_path))
+            raise exc
           ensure
             Fiber[:load_wrap_module] = prev_wrap_mod if wrap
             Fiber[:load_wrap_receiver_sc_mods] = prev_wrap_receiver_sc_mods if wrap

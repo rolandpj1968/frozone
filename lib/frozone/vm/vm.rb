@@ -440,6 +440,8 @@ module Frozone
         # methods defined in the file are callable without explicit receiver during load,
         # but are NOT accessible on the caller's main object afterward.
         wrap_mod = Fiber[:load_wrap_module]
+        # Track the primary (first) top-level main object for load(path,true) module inheritance.
+        Fiber[:main_object] ||= top_level_object unless wrap_mod
         Core::OBJECT_CLASS.current_visibility = :private
         setup_main(top_level_object)
         if wrap_mod
@@ -447,7 +449,8 @@ module Frozone
           # Copy caller's singleton class modules so they appear in the wrapped self's ancestor chain:
           # [singleton_class, wrap_mod, *caller_sc_modules, Object, Kernel, BasicObject]
           receiver_sc_mods = Fiber[:load_wrap_receiver_sc_mods] || []
-          receiver_sc_mods.each { |m| top_level_object.singleton_class.add_module(m) }
+          # add_module uses unshift; add oldest-first so newest ends up first (after wrap_mod)
+          receiver_sc_mods.reverse_each { |m| top_level_object.singleton_class.add_module(m) }
           top_level_object.singleton_class.add_module(wrap_mod)  # prepended last → first in chain
         end
 
