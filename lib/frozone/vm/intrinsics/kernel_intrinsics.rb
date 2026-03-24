@@ -621,9 +621,13 @@ module Frozone
           end
           wrap = wrap_obj && !fnil?(wrap_obj) && !ffalse?(wrap_obj)
           prev_wrap_mod = Fiber[:load_wrap_module]
+          prev_wrap_receiver_sc_mods = Fiber[:load_wrap_receiver_sc_mods]
           if wrap
-            wrap_mod = ModuleObject.new(nil, nil)
+            # If a Module was passed, use it directly; otherwise create an anonymous module.
+            wrap_mod = (fmod?(wrap_obj) && !fclass?(wrap_obj)) ? wrap_obj : ModuleObject.new(nil, nil)
             Fiber[:load_wrap_module] = wrap_mod
+            # Pass caller's singleton class modules so they appear in the wrapped self's ancestor chain.
+            Fiber[:load_wrap_receiver_sc_mods] = _receiver.eigenclass&.modules || []
           end
           begin
             Fiber[:vm_evaluate].call(full_path, raise_syntax_errors: true)
@@ -631,6 +635,7 @@ module Frozone
             # return at top level of loaded file stops loading gracefully
           ensure
             Fiber[:load_wrap_module] = prev_wrap_mod if wrap
+            Fiber[:load_wrap_receiver_sc_mods] = prev_wrap_receiver_sc_mods if wrap
           end
           FTRUE
         end

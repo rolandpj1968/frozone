@@ -434,20 +434,35 @@ module Frozone
 
         top_level_scope = Core::OBJECT_CLASS
         top_level_object = ObjectObject.new(Core::OBJECT_CLASS)
+        # When load(path, true/mod) is used, wrap the loaded file in an anonymous module.
+        # Constants and method definitions go into wrap_mod (innermost scope).
+        # The wrap_mod is extended into top_level_object's singleton class so that
+        # methods defined in the file are callable without explicit receiver during load,
+        # but are NOT accessible on the caller's main object afterward.
+        wrap_mod = Fiber[:load_wrap_module]
         Core::OBJECT_CLASS.current_visibility = :private
         setup_main(top_level_object)
+        if wrap_mod
+          wrap_mod.current_visibility = :private  # top-level defs in wrapped files are private
+          # Copy caller's singleton class modules so they appear in the wrapped self's ancestor chain:
+          # [singleton_class, wrap_mod, *caller_sc_modules, Object, Kernel, BasicObject]
+          receiver_sc_mods = Fiber[:load_wrap_receiver_sc_mods] || []
+          receiver_sc_mods.each { |m| top_level_object.singleton_class.add_module(m) }
+          top_level_object.singleton_class.add_module(wrap_mod)  # prepended last → first in chain
+        end
 
         context = Context.new
         Fiber[:context] = context
         Fiber[:vm_evaluate] = method(:evaluate_file)
         Fiber[:vm_eval]     = method(:evaluate)
 
-        frame = Frame.new(top_level_object, parse_result.top_level_locals, [top_level_scope])
+        frame = Frame.new(top_level_object, parse_result.top_level_locals, wrap_mod ? [Core::OBJECT_CLASS, wrap_mod] : [top_level_scope])
         # top-level frame acts as a method frame: procs defined here can `return`
         # from this scope (e.g. `proc { return }.call` in a loaded file exits the load).
         frame.method_frame = frame
         context.push_frame(frame)
         context.push_scope(top_level_scope)
+        context.push_scope(wrap_mod) if wrap_mod
         # Set TOPLEVEL_BINDING to the top-level frame binding
         Core::OBJECT_CLASS.set_constant(:TOPLEVEL_BINDING, BindingObject.new(frame))
 
