@@ -56,7 +56,8 @@ module Kernel
   def exit(code = true)  = __kernel_exit__(code)
   def exit!(code = false) = __kernel_exit__(code)
   def srand(*args)
-    seed = args.empty? || args[0].nil? ? nil : __coerce_to_int__(args[0])
+    raise TypeError, "no implicit conversion of nil into Integer" if args.size == 1 && args[0].nil?
+    seed = args.empty? ? nil : __coerce_to_int__(args[0])
     Intrinsics.kernel_srand(self, seed)
   end
   def to_enum(method_name = :each, *args, **kwargs, &size_block) = Enumerator._from_method(self, method_name, args, size_block, kwargs)
@@ -279,13 +280,14 @@ module Kernel
   def Array(val)
     return [] if val.nil?
     return val if val.is_a?(Array)
-    if val.respond_to?(:to_ary)
-      result = val.to_ary
+    if val.respond_to?(:to_ary, true)
+      result = val.__send__(:to_ary)
       return result if result.is_a?(Array)
       raise TypeError, "can't convert #{val.class} into Array (#{val.class}#to_ary gives #{result.class})" unless result.nil?
     end
-    if val.respond_to?(:to_a)
-      result = val.to_a
+    if val.respond_to?(:to_a, true)
+      result = val.__send__(:to_a)
+      return [val] if result.nil?
       raise TypeError, "can't convert #{val.class} into Array (#{val.class}#to_a gives #{result.class})" unless result.is_a?(Array)
       return result
     end
