@@ -51,6 +51,13 @@ module Kernel
   def require_relative(path) = Intrinsics.kernel_require_relative(self, __coerce_load_path__(path))
   def load(path, wrap = false) = Intrinsics.kernel_load(self, __coerce_load_path__(path), wrap)
   def autoload?(name) = Object.autoload?(name)
+  def autoload(name, path) = Object.autoload(name, path)
+  def select(read_ios, write_ios = nil, error_ios = nil, timeout = nil) = IO.select(read_ios, write_ios, error_ios, timeout)
+  def exit(code = true)  = __kernel_exit__(code)
+  def exit!(code = false) = __kernel_exit__(code)
+  def srand(*args) = Intrinsics.kernel_srand(self, args.empty? ? nil : __coerce_to_int__(args[0]))
+  def to_enum(method_name = :each, *args, **kwargs, &size_block) = Enumerator._from_method(self, method_name, args, size_block, kwargs)
+  alias enum_for to_enum
 
   def warn(*args, category: nil, uplevel: nil)
     return nil if $VERBOSE.nil? || args.empty?
@@ -317,11 +324,6 @@ module Kernel
     Intrinsics.kernel_catch(self, tag, block)
   end
 
-  def to_enum(method_name = :each, *args, **kwargs, &size_block)
-    Enumerator._from_method(self, method_name, args, size_block, kwargs)
-  end
-  alias enum_for to_enum
-
   def tap
     raise LocalJumpError, "no block given" unless block_given?
     yield self
@@ -342,10 +344,6 @@ module Kernel
     nil  # stub: at_exit blocks not executed in frozone
   end
 
-  def exit(code = true)  = __kernel_exit__(code)
-  def exit!(code = false) = __kernel_exit__(code)
-  def srand(*args) = Intrinsics.kernel_srand(self, args.empty? ? nil : __coerce_to_int__(args[0]))
-
   def sleep(secs = nil)
     if secs.nil?
       # Check for cross-thread injection before blocking: Thread#raise sets
@@ -364,15 +362,6 @@ module Kernel
       Thread.stop
     end
     0
-  end
-
-  def autoload(name, path)
-    # At the top level, autoload registers on Object (same as Module#autoload called on Object)
-    Object.autoload(name, path)
-  end
-
-  def select(read_ios, write_ios = nil, error_ios = nil, timeout = nil)
-    IO.select(read_ios, write_ios, error_ios, timeout)
   end
 
   def test(cmd, file, file2 = nil)
@@ -445,6 +434,14 @@ module Kernel
 
   private
 
+  def exec(*args) = raise NotImplementedError, "exec is not supported in Frozone"
+  def syscall(*args) = raise NotImplementedError, "syscall is not supported in Frozone"
+  def set_trace_func(proc_obj) = nil  # stub: set_trace_func not supported
+  def trap(signal, cmd = nil, &block) = Intrinsics.signal_register(self, signal, block || cmd)
+  def initialize_dup(other) = initialize_copy(other)
+  def initialize_clone(other, freeze: nil) = initialize_copy(other)
+  def respond_to_missing?(name, include_private = false) = false
+
   def __coerce_to_int__(val)
     return val if val.is_a?(Integer)
     if val.respond_to?(:to_int)
@@ -460,16 +457,7 @@ module Kernel
     Intrinsics.kernel_exit(self, code)
   end
 
-  def exec(*args) = raise NotImplementedError, "exec is not supported in Frozone"
-  def syscall(*args) = raise NotImplementedError, "syscall is not supported in Frozone"
-  def set_trace_func(proc_obj) = nil  # stub: set_trace_func not supported
-  def trap(signal, cmd = nil, &block) = Intrinsics.signal_register(self, signal, block || cmd)
-  def initialize_dup(other) = initialize_copy(other)
-  def initialize_clone(other, freeze: nil) = initialize_copy(other)
-  def respond_to_missing?(name, include_private = false) = false
-
   def __coerce_load_path__(path)
-
     if path.is_a?(String)
       path
     elsif path.nil?

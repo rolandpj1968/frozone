@@ -60,30 +60,6 @@ class File < IO
   # IO should also directly include File::Constants (MRI: IO.include?(File::Constants) == true)
   IO.include File::Constants
 
-  def self.join(*parts)
-    return '' if parts.empty?
-    segs = []
-    _join_parts(parts, segs, [])
-    return '' if segs.empty?
-    result = +segs[0]  # dup to ensure a new string even for single-arg case
-    segs[1..].each do |s|
-      if s.start_with?('/')
-        # Right side starts with slash(es): strip trailing slashes from left, keep right's leading slashes
-        result.sub!(/\/+\z/, '')
-        result += s
-      elsif result.end_with?('/')
-        # Left already ends with slash: just append right
-        result += s
-      else
-        result += '/' + s
-      end
-    end
-    result
-  end
-  def self.dirname(path, level = 1)
-    l = level.is_a?(Integer) ? level : (level.respond_to?(:to_int) ? level.to_int : raise(TypeError, "no implicit conversion of #{level.class} into Integer"))
-    Intrinsics.file_dirname(_coerce_path(path), l)
-  end
   def self.expand_path(path, base = nil) = Intrinsics.file_expand_path(_coerce_path(path), base.nil? ? nil : _coerce_path(base))
   def self.absolute_path(path, base = nil) = Intrinsics.file_absolute_path(_coerce_path(path), base.nil? ? nil : _coerce_path(base))
   def self.absolute_path?(path) = Intrinsics.file_absolute_path_q(_coerce_path(path))
@@ -117,6 +93,54 @@ class File < IO
   def self.mtime(path) = Intrinsics.file_mtime(_coerce_path(path))
   def self.ctime(path) = Intrinsics.file_ctime(_coerce_path(path))
   def self.birthtime(path) = Intrinsics.file_birthtime(_coerce_path(path))
+  def self.realpath(path, base = nil) = Intrinsics.file_realpath(_coerce_path(path), base)
+  def self.realdirpath(path, base = nil) = Intrinsics.file_realdirpath(_coerce_path(path), base)
+  def self.split(path) = Intrinsics.file_split(_coerce_path(path))
+  def self.write(path, content, **opts) = Intrinsics.file_write(_coerce_path(path), content)
+  def self.delete(*paths) = Intrinsics.file_delete_strict(paths)
+  def self.unlink(*paths) = Intrinsics.file_delete_strict(paths)
+  def self.rename(from, to) = Intrinsics.file_rename(_coerce_path(from), _coerce_path(to))
+  def self.symlink(target, link) = Intrinsics.file_symlink_create(_coerce_path(target), _coerce_path(link))
+  def self.link(target, link) = Intrinsics.file_link(_coerce_path(target), _coerce_path(link))
+  def self.readlink(path) = Intrinsics.file_readlink(_coerce_path(path))
+  def self.lchown(uid, gid, *paths) = paths.length
+  def self.lchmod(mode, *paths) = paths.length
+  def self.lutime(atime, mtime, *paths) = Intrinsics.file_lutime(atime, mtime, paths.map { |p| _coerce_path(p) })
+  def self.stat(path) = Stat.new(_coerce_path(path))
+  def self.lstat(path) = Stat.new(_coerce_path(path), lstat: true)
+  def self.binread(path, length = nil, offset = nil) = Intrinsics.file_read(_coerce_path(path))
+  def self.binwrite(path, content, offset = nil) = Intrinsics.file_write(_coerce_path(path), content)
+  def self.fnmatch?(pattern, path, flags = 0) = fnmatch(pattern, path, flags)
+  def self.mkfifo(path, mode = 0o666)         = Intrinsics.file_mkfifo(_coerce_path(path), mode)
+  def self.umask(new_mask = nil) = Intrinsics.file_umask(new_mask)
+  def self.utime(atime, mtime, *paths) = Intrinsics.file_utime(atime, mtime, paths.map { |p| _coerce_path(p) })
+
+  def self.join(*parts)
+    return '' if parts.empty?
+    segs = []
+    _join_parts(parts, segs, [])
+    return '' if segs.empty?
+    result = +segs[0]  # dup to ensure a new string even for single-arg case
+    segs[1..].each do |s|
+      if s.start_with?('/')
+        # Right side starts with slash(es): strip trailing slashes from left, keep right's leading slashes
+        result.sub!(/\/+\z/, '')
+        result += s
+      elsif result.end_with?('/')
+        # Left already ends with slash: just append right
+        result += s
+      else
+        result += '/' + s
+      end
+    end
+    result
+  end
+
+  def self.dirname(path, level = 1)
+    l = level.is_a?(Integer) ? level : (level.respond_to?(:to_int) ? level.to_int : raise(TypeError, "no implicit conversion of #{level.class} into Integer"))
+    Intrinsics.file_dirname(_coerce_path(path), l)
+  end
+
   def self.read(path, length = nil, offset = nil, **opts)
     mode = opts.delete(:mode)
     open_opts = opts
@@ -135,10 +159,7 @@ class File < IO
       Intrinsics.file_read(_coerce_path(path))
     end
   end
-  def self.realpath(path, base = nil) = Intrinsics.file_realpath(_coerce_path(path), base)
-  def self.realdirpath(path, base = nil) = Intrinsics.file_realdirpath(_coerce_path(path), base)
-  def self.split(path) = Intrinsics.file_split(_coerce_path(path))
-  def self.write(path, content, **opts) = Intrinsics.file_write(_coerce_path(path), content)
+
   def self.open(path, mode = nil, perm = 0o666, **opts, &block)
     mode = opts.delete(:mode) || mode || 'r'
     raise ArgumentError, "newline decorator with binary mode" if opts[:newline] && mode.to_s.include?('b')
@@ -199,22 +220,11 @@ class File < IO
     end
   end
   private_class_method :__mode_with_encoding__
-  def self.delete(*paths) = Intrinsics.file_delete_strict(paths)
-  def self.unlink(*paths) = Intrinsics.file_delete_strict(paths)
-  def self.rename(from, to) = Intrinsics.file_rename(_coerce_path(from), _coerce_path(to))
-  def self.symlink(target, link) = Intrinsics.file_symlink_create(_coerce_path(target), _coerce_path(link))
-  def self.link(target, link) = Intrinsics.file_link(_coerce_path(target), _coerce_path(link))
-  def self.readlink(path) = Intrinsics.file_readlink(_coerce_path(path))
+
   def self.chown(uid, gid, *paths)
     paths.each { |p| raise Errno::ENOENT, _coerce_path(p) unless exist?(_coerce_path(p)) }
     paths.length
   end
-
-  def self.lchown(uid, gid, *paths) = paths.length
-  def self.lchmod(mode, *paths) = paths.length
-  def self.lutime(atime, mtime, *paths) = Intrinsics.file_lutime(atime, mtime, paths.map { |p| _coerce_path(p) })
-  def self.stat(path) = Stat.new(_coerce_path(path))
-  def self.lstat(path) = Stat.new(_coerce_path(path), lstat: true)
 
   def self.path(path)
     if path.is_a?(String)
@@ -231,11 +241,6 @@ class File < IO
       raise TypeError, "no implicit conversion of #{path.class} into String"
     end
   end
-  def self.binread(path, length = nil, offset = nil) = Intrinsics.file_read(_coerce_path(path))
-  def self.binwrite(path, content, offset = nil) = Intrinsics.file_write(_coerce_path(path), content)
-  def self.fnmatch?(pattern, path, flags = 0) = fnmatch(pattern, path, flags)
-  def self.mkfifo(path, mode = 0o666)         = Intrinsics.file_mkfifo(_coerce_path(path), mode)
-  def self.umask(new_mask = nil) = Intrinsics.file_umask(new_mask)
 
   def self.extname(path)
     p = _coerce_path(path)
@@ -260,26 +265,24 @@ class File < IO
   end
 
   def self.chmod(mode, *paths)
-    mode_int = if mode.is_a?(Integer)
-      mode
-    elsif mode.respond_to?(:to_int)
-      mode.to_int
-    else
-      raise TypeError, "no implicit conversion of #{mode.class} into Integer"
-    end
+    mode_int =
+      if mode.is_a?(Integer)
+        mode
+      elsif mode.respond_to?(:to_int)
+        mode.to_int
+      else
+        raise TypeError, "no implicit conversion of #{mode.class} into Integer"
+      end
     raise RangeError, "bignum too big to convert into 'long'" if mode_int > 2**32 || mode_int < -(2**31)
     Intrinsics.file_chmod(mode_int, paths.map { |p| _coerce_path(p) })
   end
 
-  def self.utime(atime, mtime, *paths)
-    Intrinsics.file_utime(atime, mtime, paths.map { |p| _coerce_path(p) })
-  end
-
   def self.fnmatch(pattern, path, flags = 0)
-    f = if flags.is_a?(Integer) then flags
-          elsif flags.respond_to?(:to_int) then flags.to_int
-          else raise TypeError, "no implicit conversion of #{flags.class} into Integer"
-          end
+    f =
+      if flags.is_a?(Integer) then flags
+      elsif flags.respond_to?(:to_int) then flags.to_int
+      else raise TypeError, "no implicit conversion of #{flags.class} into Integer"
+      end
     Intrinsics.file_fnmatch(pattern, _coerce_path(path), f)
   end
 
@@ -300,6 +303,7 @@ class File < IO
       nil
     end
   end
+
   NULL = '/dev/null'
 
   class Stat
@@ -319,7 +323,6 @@ class File < IO
     def zero?      = size == 0
     def empty?     = size == 0
     def size?      = size == 0 ? nil : size
-
     def readable? = File.readable?(@path)
     def readable_real? = File.readable_real?(@path)
     def writable? = File.writable?(@path)
@@ -328,24 +331,8 @@ class File < IO
     def executable_real? = File.executable_real?(@path)
     def owned? = File.owned?(@path)
     def grpowned? = File.grpowned?(@path)
-    def atime
-      return Intrinsics.file_lstat_atime(@path) if @lstat
-      @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :atime) : File.atime(@path)
-    end
-
-    def mtime
-      return Intrinsics.file_lstat_mtime(@path) if @lstat
-      @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :mtime) : File.mtime(@path)
-    end
-
-    def ctime
-      @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :ctime) : File.ctime(@path)
-    end
-
-    def birthtime
-      @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :birthtime) : File.birthtime(@path)
-    end
-
+    def ctime = @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :ctime) : File.ctime(@path)
+    def birthtime = @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :birthtime) : File.birthtime(@path)
     def size = @native_stat ? Intrinsics.file_native_stat_size(@native_stat) : File.size(@path)
     def mode = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :mode) :
                 (@lstat ? Intrinsics.file_lstat_mode(@path) : Intrinsics.file_stat_mode(@path))
@@ -361,6 +348,17 @@ class File < IO
     def rdev_minor = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :rdev_minor) : Intrinsics.file_stat_rdev_minor(@path)
     def blocks = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :blocks) : Intrinsics.file_stat_blocks(@path)
     def blksize = @native_stat ? Intrinsics.file_native_stat_int(@native_stat, :blksize) : Intrinsics.file_stat_blksize(@path)
+    def inspect = "#<File::Stat dev=0x#{dev.to_s(16)}, ino=#{ino}, mode=0#{mode.to_s(8)}, nlink=#{nlink}, uid=#{uid}, gid=#{gid}, rdev=0x#{rdev.to_s(16)}, size=#{size}, blksize=#{blksize}, blocks=#{blocks}, atime=#{atime.inspect}, mtime=#{mtime.inspect}, ctime=#{ctime.inspect}>"
+
+    def atime
+      return Intrinsics.file_lstat_atime(@path) if @lstat
+      @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :atime) : File.atime(@path)
+    end
+
+    def mtime
+      return Intrinsics.file_lstat_mtime(@path) if @lstat
+      @native_stat ? Intrinsics.file_native_stat_time(@native_stat, :mtime) : File.mtime(@path)
+    end
 
     def ftype
       case mode & 0o170000
@@ -376,15 +374,16 @@ class File < IO
     end
 
     def initialize(path, lstat: false)
-      @path = if path.is_a?(String)
-        path
-      elsif path.respond_to?(:to_path)
-        r = path.to_path
-        raise TypeError, "no implicit conversion of #{path.class} into String" unless r.is_a?(String)
-        r
-      else
-        raise TypeError, "no implicit conversion of #{path.class} into String"
-      end
+      @path =
+        if path.is_a?(String)
+          path
+        elsif path.respond_to?(:to_path)
+          r = path.to_path
+          raise TypeError, "no implicit conversion of #{path.class} into String" unless r.is_a?(String)
+          r
+        else
+          raise TypeError, "no implicit conversion of #{path.class} into String"
+        end
       @lstat = lstat
       @stat = lstat ? Intrinsics.file_lstat_native(@path) : Intrinsics.file_stat_native(@path)
     end
@@ -402,10 +401,6 @@ class File < IO
     def world_writable?
       m = mode
       (m & 0o002) != 0 ? m & 0o777 : nil
-    end
-
-    def inspect
-      "#<File::Stat dev=0x#{dev.to_s(16)}, ino=#{ino}, mode=0#{mode.to_s(8)}, nlink=#{nlink}, uid=#{uid}, gid=#{gid}, rdev=0x#{rdev.to_s(16)}, size=#{size}, blksize=#{blksize}, blocks=#{blocks}, atime=#{atime.inspect}, mtime=#{mtime.inspect}, ctime=#{ctime.inspect}>"
     end
   end
 

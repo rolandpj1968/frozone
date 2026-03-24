@@ -124,48 +124,51 @@ class Time
 
     # Coerce primary argument.
     # String and nil are rejected; when both to_r and to_int present, prefer to_r.
-    t_r = if time_or_secs.is_a?(Time)
-            raise TypeError, "can't convert #{time_or_secs.class} into an exact number" if subsec_given
-            time_or_secs  # Pass TimeObject directly so UTC flag is preserved
-          elsif time_or_secs.is_a?(Integer) || time_or_secs.is_a?(Float) || time_or_secs.is_a?(Rational)
-            time_or_secs
-          elsif time_or_secs.is_a?(String) || time_or_secs.nil?
-            raise TypeError, "can't convert #{time_or_secs.class} into an exact number"
-          elsif time_or_secs.respond_to?(:to_r) && time_or_secs.respond_to?(:to_int)
-            time_or_secs.to_r
-          elsif time_or_secs.respond_to?(:to_int)
-            time_or_secs.to_int
-          else
-            raise TypeError, "can't convert #{time_or_secs.class} into an exact number"
-          end
+    t_r =
+      if time_or_secs.is_a?(Time)
+        raise TypeError, "can't convert #{time_or_secs.class} into an exact number" if subsec_given
+        time_or_secs  # Pass TimeObject directly so UTC flag is preserved
+      elsif time_or_secs.is_a?(Integer) || time_or_secs.is_a?(Float) || time_or_secs.is_a?(Rational)
+        time_or_secs
+      elsif time_or_secs.is_a?(String) || time_or_secs.nil?
+        raise TypeError, "can't convert #{time_or_secs.class} into an exact number"
+      elsif time_or_secs.respond_to?(:to_r) && time_or_secs.respond_to?(:to_int)
+        time_or_secs.to_r
+      elsif time_or_secs.respond_to?(:to_int)
+        time_or_secs.to_int
+      else
+        raise TypeError, "can't convert #{time_or_secs.class} into an exact number"
+      end
 
     if subsec_given
       raise TypeError, "can't convert NilClass into an exact number" if subsec.nil?
       raise TypeError, "can't convert String into an exact number" if subsec.is_a?(String)
-      divisor = if !format_given
-                  1_000_000  # default unit: microseconds
-                else
-                  case format
-                  when :nanosecond, :nsec  then 1_000_000_000
-                  when :microsecond, :usec then 1_000_000
-                  when :millisecond        then 1_000
-                  when :second             then 1
-                  else raise ArgumentError, "unexpected format: #{format.inspect}"
-                  end
-                end
-      sub_r = if subsec.is_a?(Integer)
-                Rational(subsec, divisor)
-              elsif subsec.is_a?(Rational)
-                subsec / divisor
-              elsif subsec.is_a?(Float)
-                subsec.to_r / divisor
-              elsif subsec.respond_to?(:to_r)
-                subsec.to_r / divisor
-              elsif subsec.respond_to?(:to_int)
-                Rational(subsec.to_int, divisor)
-              else
-                raise TypeError, "can't convert #{subsec.class} into an exact number"
-              end
+      divisor =
+        if !format_given
+          1_000_000  # default unit: microseconds
+        else
+          case format
+          when :nanosecond, :nsec  then 1_000_000_000
+          when :microsecond, :usec then 1_000_000
+          when :millisecond        then 1_000
+          when :second             then 1
+          else raise ArgumentError, "unexpected format: #{format.inspect}"
+          end
+        end
+      sub_r =
+        if subsec.is_a?(Integer)
+          Rational(subsec, divisor)
+        elsif subsec.is_a?(Rational)
+          subsec / divisor
+        elsif subsec.is_a?(Float)
+          subsec.to_r / divisor
+        elsif subsec.respond_to?(:to_r)
+          subsec.to_r / divisor
+        elsif subsec.respond_to?(:to_int)
+          Rational(subsec.to_int, divisor)
+        else
+          raise TypeError, "can't convert #{subsec.class} into an exact number"
+        end
       t_r = t_r + sub_r
     end
 
@@ -187,28 +190,30 @@ class Time
     if year.is_a?(String) && month.nil?
       # Ruby 3.2+ ISO-8601 string parsing (only when year is the sole positional arg).
       # Coerce precision to Integer if given.
-      prec = if precision.equal?(NEW_NO_PRECISION)
-               9   # MRI default: nanosecond precision
-             elsif precision.nil?
-               nil  # unlimited (keep full subsecond from string)
-             elsif precision.is_a?(Integer)
-               precision
-             elsif precision.respond_to?(:to_int)
-               precision.to_int
-             elsif precision.is_a?(Float) || precision.is_a?(Rational)
-               precision.to_i
-             else
-               raise TypeError, "no implicit conversion of #{precision.class} into Integer"
-             end
+      prec =
+        if precision.equal?(NEW_NO_PRECISION)
+          9   # MRI default: nanosecond precision
+        elsif precision.nil?
+          nil  # unlimited (keep full subsecond from string)
+        elsif precision.is_a?(Integer)
+          precision
+        elsif precision.respond_to?(:to_int)
+          precision.to_int
+        elsif precision.is_a?(Float) || precision.is_a?(Rational)
+          precision.to_i
+        else
+          raise TypeError, "no implicit conversion of #{precision.class} into Integer"
+        end
       return Intrinsics.time_new_from_string(year, prec, _coerce_tz_arg(in_tz))
     end
     raise ArgumentError, "timezone argument given as positional and keyword arguments" if !tz.nil? && !in_tz.nil?
     raw_tz = tz || in_tz
-    effective_tz = if raw_tz.is_a?(String) && respond_to?(:find_timezone)
-                     find_timezone(raw_tz)
-                   else
-                     _coerce_tz_arg(raw_tz)
-                   end
+    effective_tz =
+      if raw_tz.is_a?(String) && respond_to?(:find_timezone)
+        find_timezone(raw_tz)
+      else
+        _coerce_tz_arg(raw_tz)
+      end
     if year.equal?(NEW_NO_YEAR)
       # Time.new() or Time.new(in: tz_obj) — use now
       if effective_tz.respond_to?(:utc_to_local)
@@ -243,9 +248,7 @@ class Time
     Intrinsics.time_new(y, mo, d, h, mi, s, effective_tz)
   end
 
-  def self._load(str)
-    Intrinsics.time_load(str)
-  end
+  def self._load(str) = Intrinsics.time_load(str)
   private_class_method :_load
 
   def to_f = Intrinsics.time_to_f(self)
@@ -300,15 +303,16 @@ class Time
   def -(other)
     return Intrinsics.time_minus(self, other) if other.is_a?(Time)
     raise TypeError, "can't convert #{other.class} into an exact number" if other.nil? || other.is_a?(String)
-    n = if other.is_a?(Integer) || other.is_a?(Float) || other.is_a?(Rational)
-          other
-        elsif other.respond_to?(:to_r)
-          other.to_r
-        elsif other.respond_to?(:to_int)
-          other.to_int
-        else
-          raise TypeError, "can't convert #{other.class} into an exact number"
-        end
+    n =
+      if other.is_a?(Integer) || other.is_a?(Float) || other.is_a?(Rational)
+        other
+      elsif other.respond_to?(:to_r)
+        other.to_r
+      elsif other.respond_to?(:to_int)
+        other.to_int
+      else
+        raise TypeError, "can't convert #{other.class} into an exact number"
+      end
     result = Intrinsics.time_minus(self, n)
     tz = @frozone_timezone
     result.instance_variable_set(:@frozone_timezone, tz) if tz
@@ -319,15 +323,16 @@ class Time
     raise TypeError, "can't convert Time into an exact number" if other.is_a?(Time)
     raise TypeError, "can't convert #{other.class} into an exact number" if other.nil?
     raise TypeError, "can't convert String into an exact number" if other.is_a?(String)
-    n = if other.is_a?(Integer) || other.is_a?(Float) || other.is_a?(Rational)
-          other
-        elsif other.respond_to?(:to_r)
-          other.to_r
-        elsif other.respond_to?(:to_int)
-          other.to_int
-        else
-          raise TypeError, "can't convert #{other.class} into an exact number"
-        end
+    n =
+      if other.is_a?(Integer) || other.is_a?(Float) || other.is_a?(Rational)
+        other
+      elsif other.respond_to?(:to_r)
+        other.to_r
+      elsif other.respond_to?(:to_int)
+        other.to_int
+      else
+        raise TypeError, "can't convert #{other.class} into an exact number"
+      end
     result = Intrinsics.time_plus(self, n)
     tz = @frozone_timezone
     result.instance_variable_set(:@frozone_timezone, tz) if tz
@@ -354,11 +359,12 @@ class Time
   end
 
   def localtime(tz = nil)
-    resolved = if tz.is_a?(String) && self.class.respond_to?(:find_timezone)
-                 self.class.find_timezone(tz)
-               else
-                 Time._coerce_tz_arg(tz)
-               end
+    resolved =
+      if tz.is_a?(String) && self.class.respond_to?(:find_timezone)
+        self.class.find_timezone(tz)
+      else
+        Time._coerce_tz_arg(tz)
+      end
     if resolved.respond_to?(:utc_to_local) || resolved.respond_to?(:local_to_utc)
       unless resolved.respond_to?(:utc_to_local)
         raise TypeError, "can't convert #{resolved.class} into an exact number"
@@ -375,11 +381,12 @@ class Time
 
   def getlocal(tz = nil)
     t = Intrinsics.time_dup(self)
-    resolved = if tz.is_a?(String) && self.class.respond_to?(:find_timezone)
-                 self.class.find_timezone(tz)
-               else
-                 Time._coerce_tz_arg(tz)
-               end
+    resolved =
+      if tz.is_a?(String) && self.class.respond_to?(:find_timezone)
+        self.class.find_timezone(tz)
+      else
+        Time._coerce_tz_arg(tz)
+      end
     if resolved.respond_to?(:utc_to_local) || resolved.respond_to?(:local_to_utc)
       unless resolved.respond_to?(:utc_to_local)
         raise TypeError, "can't convert #{resolved.class} into an exact number"
@@ -394,9 +401,7 @@ class Time
     Intrinsics.time_localtime(t, resolved)
   end
 
-  def to_a
-    [sec, min, hour, mday, month, year, wday, yday, dst?, zone]
-  end
+  def to_a = [sec, min, hour, mday, month, year, wday, yday, dst?, zone]
 
   def deconstruct_keys(keys)
     unless keys.nil? || keys.is_a?(Array)
@@ -422,17 +427,12 @@ class Time
     end
   end
 
-  def eql?(other)
-    return false unless other.is_a?(Time)
-    to_r == other.to_r
-  end
+  def eql?(other) = other.is_a?(Time) && to_r == other.to_r
 
   # Hide @frozone_timezone from instance_variables — it is an implementation
   # detail of Frozone's Time, not a user-visible ivar (MRI stores the zone at
   # the C level and Time#instance_variables returns []).
-  def instance_variables
-    super.reject { |iv| iv == :@frozone_timezone }
-  end
+  def instance_variables = super.reject { |iv| iv == :@frozone_timezone }
 
   private
 

@@ -160,13 +160,14 @@ class Integer
   end
 
   def chr(enc = nil)
-    resolved = if enc.nil? && self > 255
-      di = Encoding.default_internal
-      return Intrinsics.integer_chr(self, nil) if di.nil?
-      di
-    else
-      enc
-    end
+    resolved =
+      if enc.nil? && self > 255
+        di = Encoding.default_internal
+        return Intrinsics.integer_chr(self, nil) if di.nil?
+        di
+      else
+        enc
+      end
     # CESU-8: BMP same as UTF-8; supplementary via surrogate pairs
     if resolved.is_a?(Encoding) && resolved.name == "CESU-8"
       raise RangeError, "#{self} out of char range" if self < 0 || self > 0x10FFFF

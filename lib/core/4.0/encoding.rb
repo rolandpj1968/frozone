@@ -3,11 +3,8 @@ class Encoding
 
   def to_s = @name
   def ==(other) = other.is_a?(Encoding) && other.name == @name
+  def initialize(name) = @name = name
   alias eql? ==
-
-  def initialize(name)
-    @name = name
-  end
 
   def inspect
     if @name == "ASCII-8BIT"
@@ -263,10 +260,10 @@ class Encoding
   @default_internal = nil
 
   def self.list = ALL
-
-  def self.default_external
-    @default_external || UTF_8
-  end
+  def self.default_external = @default_external || UTF_8
+  def self.default_internal = @default_internal
+  def self.locale_charmap = Intrinsics.locale_charmap
+  def self.compatible?(a, b) = Intrinsics.encoding_compatible(a, b)
 
   def self.default_external=(enc)
     raise ArgumentError, "default external encoding cannot be nil" if enc.nil?
@@ -281,10 +278,6 @@ class Encoding
     end
     # Sync to MRI so that native Ruby IO objects track Frozone's default_external.
     Intrinsics.encoding_set_default_external(@default_external.name)
-  end
-
-  def self.default_internal
-    @default_internal
   end
 
   def self.default_internal=(enc)
@@ -332,13 +325,7 @@ class Encoding
     names + all_aliases
   end
 
-  def self.locale_charmap
-    Intrinsics.locale_charmap
-  end
 
-  def self.compatible?(a, b)
-    Intrinsics.encoding_compatible(a, b)
-  end
   class Converter
     INVALID_MASK               = 15
     INVALID_REPLACE            = 2
