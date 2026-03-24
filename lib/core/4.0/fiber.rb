@@ -30,6 +30,19 @@ class Fiber
     end
   end
 
+  def self.scheduler = @__scheduler__
+
+  def self.set_scheduler(scheduler)
+    if scheduler.nil?
+      @__scheduler__ = nil
+      return nil
+    end
+    %i[block unblock kernel_sleep io_wait].each do |m|
+      raise ArgumentError, "Scheduler must implement ##{m}" unless scheduler.respond_to?(m)
+    end
+    @__scheduler__ = scheduler
+  end
+
   def raise(msg = :__raise_no_arg__, message = nil, backtrace = nil, cause: :__raise_no_cause__, **extra_kwargs)
     # Extra kwargs (other than cause:) are passed as part of the message hash for compatibility
     if extra_kwargs.empty?
