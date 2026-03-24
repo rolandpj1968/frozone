@@ -167,6 +167,9 @@ class IO
   def ungetc(s) = Intrinsics.io_ungetc(self, s)
   def sysread(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
   def syswrite(str) = Intrinsics.io_syswrite(self, str)
+  def sysseek(offset, whence = SEEK_SET) = seek(offset, whence)
+  def pread(length, offset, buf = nil) = Intrinsics.io_pread(self, length, offset, buf)
+  def pwrite(str, offset) = Intrinsics.io_pwrite(self, str, offset)
 
   def seek(offset, whence = SEEK_SET)
     offset = offset.respond_to?(:to_int) ? offset.to_int : Integer(offset)
@@ -174,8 +177,15 @@ class IO
     Intrinsics.io_seek(self, offset, whence)
   end
 
-  def read_nonblock(len, buf = nil, exception: true) = nil
-  def readpartial(len, buf = nil) = nil
+  def read_nonblock(len, buf = nil, exception: true)
+    Intrinsics.io_read_nonblock(self, len, buf, exception)
+  end
+
+  def write_nonblock(str, exception: true)
+    Intrinsics.io_write_nonblock(self, str, exception)
+  end
+
+  def readpartial(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
 
   def each_line(*args, chomp: false, &block)
     return to_enum(:each_line, *args, chomp: chomp) unless block
@@ -186,8 +196,36 @@ class IO
     self
   end
 
-  def each_byte(&block) = Intrinsics.io_each_byte(self, block)
-  def each_char(&block) = Intrinsics.io_each_char(self, block)
+  def each_byte(&block)
+    return to_enum(:each_byte) unless block
+    Intrinsics.io_each_byte(self, block)
+  end
+
+  def each_char(&block)
+    return to_enum(:each_char) unless block
+    Intrinsics.io_each_char(self, block)
+  end
+
+  def each_codepoint(&block)
+    return to_enum(:each_codepoint) unless block
+    each_char { |c| block.call(c.ord) }
+  end
+
+  def bytes(&block)
+    return to_enum(:each_byte) unless block
+    each_byte(&block)
+  end
+
+  def chars(&block)
+    return to_enum(:each_char) unless block
+    each_char(&block)
+  end
+
+  def codepoints(&block)
+    return to_enum(:each_codepoint) unless block
+    each_codepoint(&block)
+  end
+
   def each(*args, chomp: false, &block) = each_line(*args, chomp: chomp, &block)
   def atime = Intrinsics.io_atime(self)
   def mtime = Intrinsics.io_mtime(self)
@@ -224,6 +262,10 @@ class IO
     else
       raise TypeError, "no implicit conversion of #{path_or_io.class} into String"
     end
+  end
+
+  def self.select(read_array, write_array = nil, error_array = nil, timeout = nil)
+    Intrinsics.io_select(read_array, write_array, error_array, timeout)
   end
 
   def self.pipe(ext_enc = nil, int_enc = nil, **opts, &block)
@@ -568,6 +610,12 @@ class IO
   end
   module WaitReadable; end
   module WaitWritable; end
+
+  # Match MRI: Errno::EAGAIN/EWOULDBLOCK include WaitReadable so that
+  # read_nonblock raises something that is_a?(IO::WaitReadable).
+  Errno::EAGAIN.include IO::WaitReadable
+  Errno::EWOULDBLOCK.include IO::WaitReadable unless Errno::EAGAIN.equal?(Errno::EWOULDBLOCK)
+  Errno::EINPROGRESS.include IO::WaitWritable if defined?(Errno::EINPROGRESS)
 
   EAGAINWaitReadable = Class.new(Errno::EAGAIN) { include IO::WaitReadable }
   EAGAINWaitWritable = Class.new(Errno::EAGAIN) { include IO::WaitWritable }

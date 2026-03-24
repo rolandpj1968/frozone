@@ -550,6 +550,79 @@ module Frozone
           n2f_bool(val)
         end
 
+        def io_select(_, reads_obj, writes_obj = FNIL, errors_obj = FNIL, timeout_obj = FNIL)
+          to_native = lambda do |arr_obj|
+            return nil if fnil?(arr_obj)
+            return nil unless farray?(arr_obj)
+            arr_obj.raw.map { |io| fio?(io) ? io.native_io : nil }.compact
+          end
+          native_reads  = to_native.call(reads_obj)
+          native_writes = to_native.call(writes_obj)
+          native_errors = to_native.call(errors_obj)
+          timeout = fnil?(timeout_obj) ? nil : (fint?(timeout_obj) ? timeout_obj.raw.to_f : (ffloat?(timeout_obj) ? timeout_obj.raw : nil))
+          # Build native → frozone IO mapping
+          all_frozone = [reads_obj, writes_obj, errors_obj].flat_map { |a| farray?(a) ? a.raw : [] }
+          native_to_frozone = {}
+          all_frozone.each { |fio| native_to_frozone[fio.native_io] = fio if fio?(fio) }
+          result = ::IO.select(native_reads, native_writes, native_errors, timeout)
+          return FNIL if result.nil?
+          n2f_arr(result.map { |arr| n2f_arr(arr.map { |native| native_to_frozone[native] || IOObject.new(native, Core.io_class) }) })
+        end
+
+        def io_pread(_, receiver, length_obj, offset_obj, buf_obj = FNIL)
+          native = native_io_for(receiver)
+          len    = fint?(length_obj) ? length_obj.raw : length_obj.raw.to_i
+          off    = fint?(offset_obj) ? offset_obj.raw : offset_obj.raw.to_i
+          reraise(::IOError, ::SystemCallError, ::EOFError) do
+            str = native.pread(len, off)
+            n2f_str(str)
+          end
+        end
+
+        def io_pwrite(_, receiver, str_obj, offset_obj)
+          native = native_io_for(receiver)
+          str    = fstr?(str_obj) ? str_obj.raw : str_obj.raw.to_s
+          off    = fint?(offset_obj) ? offset_obj.raw : offset_obj.raw.to_i
+          reraise(::IOError, ::SystemCallError) do
+            n2f_int(native.pwrite(str, off))
+          end
+        end
+
+        def io_read_nonblock(_, receiver, len_obj, buf_obj = FNIL, exception_flag = FNIL)
+          native = native_io_for(receiver)
+          len = fint?(len_obj) ? len_obj.raw : len_obj.raw.to_i
+          no_exception = !fnil?(exception_flag) && !exception_flag.truthy?
+          begin
+            str = native.read_nonblock(len, exception: !no_exception)
+            return n2f_sym(:wait_readable) if str == :wait_readable
+            return FNIL if str.nil?
+            n2f_str(str)
+          rescue ::IO::WaitReadable => e
+            reraise(e.class) { raise }
+          rescue ::IO::WaitWritable => e
+            reraise(e.class) { raise }
+          rescue ::EOFError, ::IOError, ::SystemCallError => e
+            reraise(e.class) { raise }
+          end
+        end
+
+        def io_write_nonblock(_, receiver, str_obj, exception_flag = FNIL)
+          native = native_io_for(receiver)
+          str = fstr?(str_obj) ? str_obj.raw : str_obj.raw.to_s
+          no_exception = !fnil?(exception_flag) && !exception_flag.truthy?
+          begin
+            result = native.write_nonblock(str, exception: !no_exception)
+            return n2f_sym(:wait_writable) if result == :wait_writable
+            n2f_int(result)
+          rescue ::IO::WaitReadable => e
+            reraise(e.class) { raise }
+          rescue ::IO::WaitWritable => e
+            reraise(e.class) { raise }
+          rescue ::IOError, ::SystemCallError => e
+            reraise(e.class) { raise }
+          end
+        end
+
         def io_reopen(context, receiver, target, mode = FNIL)
           native = native_io_for(receiver)
           if fio?(target)
