@@ -1,4 +1,6 @@
 module Kernel
+  def to_s    = "#<#{self.class}:0x#{__id__.to_s(16)}>"
+  def inspect = "#<#{self.class}:0x#{__id__.to_s(16)}>"
   def puts(*args) = Intrinsics.kernel_puts(self, args)
   def print(*args) = Intrinsics.kernel_print(self, args)
   def warn(*args, category: nil, uplevel: nil)
