@@ -57,12 +57,8 @@ class Numeric
   end
 
   def remainder(other)
-    if other.respond_to?(:coerce)
-      a, b = other.coerce(self)
-      a.remainder(b)
-    else
-      raise TypeError, "#{other.class} can't be coerced into #{self.class}"
-    end
+    r = self % other
+    r != 0 && (self < 0) != (other < 0) ? r - other : r
   end
 
   def quo(other)

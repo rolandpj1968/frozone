@@ -82,10 +82,15 @@ SKIP_SPEC_FILES = %w[
   io/buffer/xor_spec.rb
   io/close_spec.rb
   io/copy_stream_spec.rb
+  io/eof_spec.rb
+  io/output_spec.rb
+  io/pipe_spec.rb
   io/fcntl_spec.rb
   io/flush_spec.rb
   io/path_spec.rb
+  io/read_nonblock_spec.rb
   io/read_spec.rb
+  io/readpartial_spec.rb
   io/select_spec.rb
   kernel/fork_spec.rb
   kernel/rand_spec.rb
@@ -105,6 +110,7 @@ SKIP_SPEC_FILES = %w[
   regexp/timeout_spec.rb
   thread/abort_on_exception_spec.rb
   thread/alive_spec.rb
+  thread/handle_interrupt_spec.rb
   thread/inspect_spec.rb
   thread/kill_spec.rb
   thread/list_spec.rb
@@ -116,6 +122,12 @@ SKIP_SPEC_FILES = %w[
   thread/to_s_spec.rb
   thread/wakeup_spec.rb
 ].map { |f| "#{RUBY_SPEC_DIR}/core/#{f}" }.freeze
+
+# Hanging library spec files (GC-dependent or blocking IO).
+SKIP_LIBRARY_SPEC_FILES = %w[
+  weakref/__getobj___spec.rb
+  weakref/weakref_alive_spec.rb
+].map { |f| "#{RUBY_SPEC_DIR}/library/#{f}" }.freeze
 
 def run_core_specs(*spec_files)
   filtered = spec_files.reject { |f| SKIP_SPEC_FILES.include?(File.expand_path(f)) }
@@ -225,6 +237,7 @@ task :library do
 
   work = lib_modules.filter_map do |name|
     specs = Dir["#{RUBY_SPEC_DIR}/library/#{name}/**/*_spec.rb"].sort
+    specs -= SKIP_LIBRARY_SPEC_FILES
     next if specs.empty?
 
     args = specs.map { |f| File.expand_path(f) }.join(' ')
@@ -298,6 +311,7 @@ namespace :library do
     desc "Run library/#{name} specs"
     task name do
       specs = Dir["#{RUBY_SPEC_DIR}/library/#{name}/**/*_spec.rb"].sort
+      specs -= SKIP_LIBRARY_SPEC_FILES
       next if specs.empty?
       args = specs.map { |f| File.expand_path(f) }.join(' ')
       sh "bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args}"

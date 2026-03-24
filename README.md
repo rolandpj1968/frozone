@@ -7,10 +7,10 @@ A Ruby VM implemented in Ruby. Parses Ruby source via the [Prism](https://github
 Frozone targets Ruby 4.0 semantics and passes **2615/2630** ruby/spec language examples,
 including full pattern matching support.
 
-Core library spec coverage: **20449/20886 passing (97.9%)** — excluding timed-out modules;
-`io`, `process`, `mutex` still have failures (concurrency/OS-level features);
+Core library spec coverage: **22103/22875 passing (96.6%)** — all modules now measured;
+`io`, `process`, `mutex`, `thread` still have failures (concurrency/OS-level features);
 `tracepoint` is intentionally unimplemented (deep introspection, low priority);
-`argf`, `conditionvariable`, `integer`, `io`, `numeric`, `thread` timed out in parallel runner.
+hanging/blocking specs excluded via `SKIP_SPEC_FILES` in `Rakefile`.
 
 ### Frozone² — Self-hosting (sort of)
 
@@ -162,14 +162,16 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 20449 / 20886 passing (97.9%)** — as of 2026-03-24 (Prism parser, parallel run)
+**Overall: 22103 / 22875 passing (96.6%)** — as of 2026-03-24 (Prism parser, parallel run)
 
-`conditionvariable`, `integer`, `io`, `numeric`, `thread` timed out in parallel runner (excluded from totals).
 `tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation).
+
+Hanging specs (blocking IO, threading primitives, GC-dependent) are excluded via `SKIP_SPEC_FILES` in `Rakefile`.
+`conditionvariable`, `io`, `numeric`, `thread` have partial coverage due to hanging/blocking spec exclusions.
 
 Modules with 100% pass rate:
 `binding`, `builtin_constants`, `class`, `comparable`, `complex`, `data`, `dir`,
-`enumerable`, `false`, `float`, `gc`, `hash`, `main`, `marshal`, `matchdata`,
+`enumerable`, `false`, `float`, `gc`, `hash`, `integer`, `main`, `marshal`, `matchdata`,
 `math`, `method`, `nil`, `proc`, `queue`, `range`, `rational`, `regexp`, `set`,
 `signal`, `symbol`, `systemexit`, `threadgroup`, `true`, `warning`
 
@@ -178,6 +180,7 @@ Modules with 100% pass rate:
 | argf | 148 | 8 | 10 | 130 | ARGF not fully implemented |
 | array | 2961 | 2960 | 0 | 1 | |
 | basicobject | 178 | 177 | 1 | 0 | |
+| conditionvariable | 1 | 1 | 0 | 0 | broadcast/signal/wait skip (blocking) |
 | encoding | 631 | 616 | 11 | 4 | transcoding edge cases |
 | enumerator | 423 | 422 | 0 | 1 | |
 | env | 239 | 237 | 2 | 0 | |
@@ -185,9 +188,12 @@ Modules with 100% pass rate:
 | fiber | 170 | 160 | 2 | 8 | scheduler/blocking API |
 | file | 939 | 933 | 0 | 6 | OS-level file ops |
 | filetest | 88 | 87 | 0 | 1 | |
+| integer | 603 | 603 | 0 | 0 | |
+| io | 820 | 552 | 38 | 230 | blocking/pipe/buffer specs skipped; interaction errors |
 | kernel | 2701 | 2606 | 30 | 65 | I/O, spawn, format edge cases |
 | module | 1058 | 1049 | 8 | 1 | |
 | mutex | 25 | 16 | 5 | 4 | threading primitives |
+| numeric | 338 | 331 | 5 | 2 | |
 | objectspace | 112 | 111 | 1 | 0 | |
 | process | 86 | 32 | 12 | 42 | OS-level process ops |
 | random | 87 | 84 | 0 | 3 | |
@@ -195,6 +201,7 @@ Modules with 100% pass rate:
 | sizedqueue | 129 | 128 | 1 | 0 | |
 | string | 3976 | 3974 | 2 | 0 | dedup/interning unimplemented |
 | struct | 182 | 181 | 1 | 0 | |
+| thread | 227 | 167 | 58 | 2 | threading specs skipped; concurrency not implemented |
 | time | 774 | 773 | 1 | 0 | |
 | tracepoint | 75 | — | 5 | 71 | intentionally unimplemented |
 | unboundmethod | 86 | 80 | 3 | 3 | |
@@ -204,10 +211,19 @@ Modules with 100% pass rate:
 Tested against [ruby/spec](https://github.com/ruby/spec) library specs.
 Run with `bundle exec rake library` (or `rake library:NAME` for a single module).
 
-**Overall: 249 / 386 passing** — as of 2026-03-24 (Prism parser)
+**Overall: 286 / 1017 passing** — as of 2026-03-24 (Prism parser)
 
-Many modules report 0 examples because they require C extensions (openssl, bigdecimal, etc.) that Frozone cannot load.
-`delegate`, `expect`, `mkmf`, `objectspace`, `stringio`, `weakref` timed out in the parallel runner.
+Many modules report 0 examples because they require C extensions or unavailable gems.
+`expect`, `mkmf`, `objectspace` timed out in the parallel runner (excluded above).
+`delegate` and `stringio` have hanging specs excluded via `SKIP_LIBRARY_SPEC_FILES` in `Rakefile`.
+
+### Modules with 0 examples
+
+| Category | Modules |
+|---|---|
+| **C extensions** (`.so` not loadable) | coverage, erb (via cgi/escape.so), ipaddr, irb, monitor, net-http, openssl, resolv, ripper, socket, tempfile, tmpdir |
+| **Missing pure-Ruby gems** | abbrev, base64, bigdecimal, csv, fiddle, getoptlong, logger, matrix, net-ftp, observer, openstruct, prime, stringscanner, syslog, yaml, zlib |
+| **Platform/version guards** | cgi (`ruby_version_is < 4.0`), readline (`with_feature :readline`), win32ole (Windows only) |
 
 Modules with 100% pass rate:
 `find`, `optionparser`, `pp`, `random`, `securerandom`, `shellwords`, `singleton`
@@ -216,13 +232,16 @@ Modules with 100% pass rate:
 |---|---:|---:|---:|---:|---|
 | English | 26 | 25 | 1 | 0 | |
 | date | 6 | 0 | 0 | 6 | date gem not available |
+| delegate | 39 | 24 | 3 | 12 | some specs hang (mspec mock interaction) |
 | etc | 39 | 2 | 6 | 31 | C extension |
 | io-wait | 28 | 3 | 5 | 20 | IO wait/nonblock not implemented |
 | open3 | 4 | 0 | 0 | 4 | subprocess piping |
 | pathname | 70 | 25 | 21 | 24 | Pathname not fully implemented |
 | rbconfig | 16 | 14 | 1 | 1 | |
 | rubygems | 2 | 0 | 0 | 2 | |
+| stringio | 587 | 8 | 166 | 413 | StringIO not implemented; 2 specs hang (IO blocking) |
 | thread | 2 | 0 | 2 | 0 | threading primitives |
 | time | 8 | 0 | 0 | 8 | time library edge cases |
 | timeout | 7 | 3 | 0 | 4 | |
 | uri | 97 | 96 | 0 | 1 | |
+| weakref | 5 | 5 | 0 | 0 | GC-dependent specs skipped |
