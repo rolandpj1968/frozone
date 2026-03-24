@@ -375,9 +375,22 @@ module Frozone
         end
 
         def process_clock_gettime(_, clock_id_obj, unit_obj)
-          clock_id = fint?(clock_id_obj) ? clock_id_obj.raw : 1  # default CLOCK_MONOTONIC
+          clock_id = if fint?(clock_id_obj) then clock_id_obj.raw
+                     elsif fsym?(clock_id_obj) then clock_id_obj.raw
+                     else 1  # default CLOCK_MONOTONIC
+                     end
           unit_sym = fsym?(unit_obj) ? unit_obj.raw : :float_second
           result = Process.clock_gettime(clock_id, unit_sym)
+          result.is_a?(Integer) ? n2f_int(result) : n2f_float(result)
+        end
+
+        def process_clock_getres(_, clock_id_obj, unit_obj)
+          clock_id = if fint?(clock_id_obj) then clock_id_obj.raw
+                     elsif fsym?(clock_id_obj) then clock_id_obj.raw
+                     else 1
+                     end
+          unit_sym = fsym?(unit_obj) ? unit_obj.raw : :float_second
+          result = Process.clock_getres(clock_id, unit_sym)
           result.is_a?(Integer) ? n2f_int(result) : n2f_float(result)
         end
 

@@ -189,22 +189,11 @@ module Frozone
           end
         end
 
-        def io_pipe(_, ext_enc_obj = FNIL, int_enc_obj = FNIL)
+        def io_pipe(_, klass_obj)
+          klass = (klass_obj.is_a?(ClassObject) || klass_obj.is_a?(ModuleObject)) ? klass_obj : Core.io_class
           reraise(::SystemCallError) do
             r_native, w_native = ::IO.pipe
-            r_io = IOObject.new(r_native, Core.io_class)
-            w_io = IOObject.new(w_native, Core.io_class)
-            unless fnil?(ext_enc_obj)
-              ext_name = fstr?(ext_enc_obj) ? ext_enc_obj.raw : ext_enc_obj.get_ivar(:@name)&.then { |n| fstr?(n) ? n.raw : n.to_s }
-              if ext_name
-                int_name = if fnil?(int_enc_obj) then nil
-                           elsif fstr?(int_enc_obj) then int_enc_obj.raw
-                           else int_enc_obj.get_ivar(:@name)&.then { |n| fstr?(n) ? n.raw : n.to_s }
-                           end
-                r_native.set_encoding(ext_name, int_name)
-              end
-            end
-            n2f_arr([r_io, w_io])
+            n2f_arr([IOObject.new(r_native, klass), IOObject.new(w_native, klass)])
           end
         end
 
@@ -342,6 +331,27 @@ module Frozone
           pid ? n2f_int(pid) : FNIL
         end
 
+        def io_fsync(_, receiver)
+          return FNIL unless fio?(receiver)
+          reraise(::IOError, ::Errno::EBADF) { receiver.native_io.fsync }
+          n2f_int(0)
+        end
+
+        def io_ioctl(context, receiver, cmd_obj, arg_obj)
+          return FNIL unless fio?(receiver)
+          cmd = fint?(cmd_obj) ? cmd_obj.raw : 0
+          arg = if fint?(arg_obj)
+                  arg_obj.raw
+                elsif fstr?(arg_obj)
+                  arg_obj.raw
+                elsif fnil?(arg_obj)
+                  0
+                else
+                  0
+                end
+          reraise(::IOError, ::Errno::EBADF, ::SystemCallError) { n2f_int(receiver.native_io.ioctl(cmd, arg)) }
+        end
+
         def io_close_read(_, receiver)
           return FNIL unless fio?(receiver)
           reraise(::IOError) { receiver.native_io.close_read }
@@ -371,7 +381,7 @@ module Frozone
 
         def io_close_on_exec_set(_, receiver, val)
           return FNIL unless fio?(receiver)
-          reraise(::IOError) { receiver.native_io.close_on_exec = ftrue?(val) }
+          reraise(::IOError) { receiver.native_io.close_on_exec = val.truthy? }
           val
         end
 

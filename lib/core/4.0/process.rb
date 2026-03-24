@@ -2,6 +2,25 @@ class Process
   CLOCK_REALTIME  = 0
   CLOCK_MONOTONIC = 1
 
+  WNOHANG       = 1
+  WUNTRACED     = 2
+  PRIO_PROCESS  = 0
+  PRIO_PGRP     = 1
+  PRIO_USER     = 2
+  RLIMIT_CPU    = 0
+  RLIMIT_FSIZE  = 1
+  RLIMIT_DATA   = 2
+  RLIMIT_STACK  = 3
+  RLIMIT_CORE   = 4
+  RLIMIT_RSS    = 5
+  RLIMIT_NPROC  = 6
+  RLIMIT_NOFILE = 7
+  RLIMIT_MEMLOCK = 8
+  RLIMIT_AS     = 9
+  RLIM_INFINITY    = 18446744073709551615
+  RLIM_SAVED_MAX   = 18446744073709551615
+  RLIM_SAVED_CUR   = 18446744073709551615
+
   def self.pid = Intrinsics.process_pid
   def self.uid = Intrinsics.process_uid
   def self.gid = Intrinsics.process_gid
@@ -10,6 +29,12 @@ class Process
   def self.groups = Intrinsics.process_groups
   def self.exit(code = true)  = Kernel.exit(code)
   def self.exit!(code = false) = Intrinsics.kernel_exit(self, code)
+  def self.abort(msg = nil) = Kernel.abort(msg)
+  def self.argv0 = $0.freeze
+
+  def self.clock_getres(clock_id, unit = :float_second)
+    Intrinsics.process_clock_getres(clock_id, unit)
+  end
 
   def self.clock_gettime(clock_id, unit = :float_second)
     Intrinsics.process_clock_gettime(clock_id, unit)

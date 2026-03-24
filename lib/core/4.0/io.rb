@@ -80,11 +80,15 @@ class IO
   def sync = true
   def autoclose=(val)  = Intrinsics.io_autoclose_set(self, val)
   def autoclose?       = Intrinsics.io_autoclose?(self)
-  def <<(str); write(str); self; end
+  def <<(str); write(str.is_a?(String) ? str : str.to_s); self; end
   def close = Intrinsics.io_close(self)
   def close_read = Intrinsics.io_close_read(self)
   def close_write = Intrinsics.io_close_write(self)
-  def pid = Intrinsics.io_pid(self)
+  def pid
+    raise IOError, "closed stream" if closed?
+    Intrinsics.io_pid(self)
+  end
+
   def closed? = Intrinsics.io_closed?(self)
   def fileno = Intrinsics.io_fileno(self)
   def eof? = Intrinsics.io_eof?(self)
@@ -93,6 +97,8 @@ class IO
   def close_on_exec=(val) = Intrinsics.io_close_on_exec_set(self, val)
   def isatty = Intrinsics.io_isatty(self)
   def tty? = isatty
+  def fsync = Intrinsics.io_fsync(self)
+  def ioctl(integer_cmd, arg = 0) = Intrinsics.io_ioctl(self, integer_cmd, arg)
   def binmode = Intrinsics.io_binmode(self)
   def binmode? = Intrinsics.io_binmode?(self)
   def pos = Intrinsics.io_pos(self)
@@ -316,7 +322,17 @@ class IO
   end
 
   def self.pipe(ext_enc = nil, int_enc = nil, **opts, &block)
-    pair = Intrinsics.io_pipe(ext_enc, int_enc)
+    ext_enc = ext_enc.to_str if ext_enc && !ext_enc.is_a?(String) && !ext_enc.is_a?(Encoding) && ext_enc.respond_to?(:to_str)
+    int_enc = int_enc.to_str if int_enc && !int_enc.is_a?(String) && !int_enc.is_a?(Encoding) && int_enc.respond_to?(:to_str)
+    pair = Intrinsics.io_pipe(self)
+    r_mode = if ext_enc
+               ext_str = ext_enc.is_a?(Encoding) ? ext_enc.name : ext_enc.to_s
+               int_enc ? "r:#{ext_str}:#{int_enc.is_a?(Encoding) ? int_enc.name : int_enc}" : "r:#{ext_str}"
+             else
+               'r'
+             end
+    pair[0].send(:initialize, pair[0].fileno, r_mode, **opts)
+    pair[1].send(:initialize, pair[1].fileno, 'w')
     if block
       begin
         block.call(*pair)
@@ -374,7 +390,7 @@ class IO
     Intrinsics.io_new_from_fd(fd, mode_or_opts, opts_arg)
   end
 
-  def self.for_fd(fd, mode = 'r', **opts, &block)
+  def self.for_fd(fd, mode = nil, **opts, &block)
     self.new(fd, mode, **opts, &block)
   end
 
