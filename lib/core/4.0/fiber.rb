@@ -3,7 +3,7 @@ class Fiber
   def self.current = Intrinsics.fiber_current(self)
   def self.blocking? = Intrinsics.fiber_class_blocking_q(self)
   def self.[](key) = Intrinsics.fiber_storage_get(self, key)
-  def self.[]=(key, val) = Intrinsics.fiber_storage_set(self, key, val)
+  def self.[]=(key, val); Intrinsics.fiber_storage_set(self, key, val); end
   def resume(*args) = Intrinsics.fiber_resume(self, args)
   def transfer(*args) = Intrinsics.fiber_transfer(self, args)
   def alive? = Intrinsics.fiber_alive(self)
@@ -12,7 +12,7 @@ class Fiber
   def to_s = inspect
   def kill = Intrinsics.fiber_kill(self)
   def storage = Intrinsics.fiber_storage_hash(self)
-  def storage=(val) = Intrinsics.fiber_storage_hash_set(self, val)
+  def storage=(val); Intrinsics.fiber_storage_hash_set(self, val); end
 
   def self.new(blocking: false, storage: :__unset__, &block)
     raise ArgumentError, "tried to create Fiber object without a block" unless block

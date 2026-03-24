@@ -254,12 +254,25 @@ class Struct
 
   def hash
     seen = (Fiber[:_struct_hash_seen] ||= [])
-    return self.class.hash ^ members.hash if seen.include?(__id__)
+    # Recursive detection: when this struct is encountered again while being hashed,
+    # throw non-locally so the contribution at the OUTERMOST level becomes 0.
+    throw Fiber[:_struct_hash_tag] if seen.include?(__id__) && !Fiber[:_struct_hash_tag].nil?
+
     seen << __id__
+    is_outer = Fiber[:_struct_hash_tag].nil?
+    tag = is_outer ? (Fiber[:_struct_hash_tag] = Object.new) : Fiber[:_struct_hash_tag]
     begin
-      [self.class, to_a].hash
+      values = if is_outer
+        # Outer: catch each member's hash (recursive members throw here → 0)
+        to_a.map { |m| catch(tag) { m.hash } || 0 }
+      else
+        # Inner: no catch — recursive throws propagate to the outermost catch
+        to_a.map { |m| m.hash }
+      end
+      [self.class, values].hash
     ensure
       seen.pop
+      Fiber[:_struct_hash_tag] = nil if is_outer
     end
   end
 

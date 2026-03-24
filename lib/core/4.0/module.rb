@@ -67,13 +67,16 @@ class Module
     end
   end
 
-  def module_eval(code = nil, file = nil, line = nil, &block)
+  def module_eval(*args, &block)
     if block
-      raise ArgumentError, "wrong number of arguments (given #{[code, file, line].compact.size}, expected 0)" unless code.nil? && file.nil? && line.nil?
+      raise ArgumentError, "wrong number of arguments (given #{args.size}, expected 0)" unless args.empty?
       Intrinsics.module_eval(self, block)
-    elsif code.nil?
+    elsif args.empty?
       raise ArgumentError, "wrong number of arguments (given 0, expected 1..3)"
+    elsif args.size > 3
+      raise ArgumentError, "wrong number of arguments (given #{args.size}, expected 1..3)"
     else
+      code, file, line = args
       unless code.is_a?(String)
         if code.respond_to?(:to_str)
           result = code.to_str
