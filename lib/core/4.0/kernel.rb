@@ -536,6 +536,12 @@ module Kernel
     if val.respond_to?(:to_path)
       result = val.to_path
       return result if result.is_a?(String)
+      # to_path returned non-String: try to_str on the result
+      if result.respond_to?(:to_str)
+        str = result.to_str
+        raise TypeError, "can't convert #{result.class} into String (to_str should return String, not #{str.class})" unless str.is_a?(String)
+        return str
+      end
       raise TypeError, "no implicit conversion of #{val.class} into String"
     end
     if val.respond_to?(:to_str)

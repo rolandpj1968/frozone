@@ -143,6 +143,7 @@ class Encoding
   CP50221     = new("CP50221")
   IBM037      = new("IBM037")
   UTF8_MAC    = new("UTF8-MAC")
+  UTF_8_MAC   = UTF8_MAC
   EUCJP_MS    = new("eucJP-ms")
   CP51932     = new("CP51932")
   GB18030     = new("GB18030")
@@ -349,10 +350,13 @@ class Encoding
     def self.new(from_enc, to_enc, opts = nil)
       from = from_enc.is_a?(Encoding) ? from_enc.name : from_enc.to_str
       to   = to_enc.is_a?(Encoding) ? to_enc.name : to_enc.to_str
-      # Validate replacement if provided
+      # Coerce replacement to String if provided
       if opts.is_a?(Hash) && opts.key?(:replace)
         repl = opts[:replace]
-        __coerce_to_str__(repl) unless repl.nil? || repl.is_a?(String)
+        unless repl.nil? || repl.is_a?(String)
+          opts = opts.dup
+          opts[:replace] = __coerce_to_str__(repl)
+        end
       end
       if opts.nil?
         Intrinsics.encoding_converter_new(from, to)

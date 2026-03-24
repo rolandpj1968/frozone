@@ -255,12 +255,15 @@ module Frozone
           explicit_enc = (mode.is_a?(::String) && mode.include?(':')) ||
                          opts.key?(:encoding) || opts.key?(:external_encoding)
           reraise(::ArgumentError, ::TypeError, ::SystemCallError, ::Errno::EBADF, ::IOError) do
+            old_native = receiver.native_io
+            old_sync = old_native&.sync rescue nil
             native_io = if mode && opts.empty? then ::IO.new(fd, mode)
                         elsif mode             then ::IO.new(fd, mode, **opts)
                         elsif opts.empty?      then ::IO.new(fd)
                         else
                           ::IO.new(fd, **opts)
                         end
+            native_io.sync = old_sync unless old_sync.nil?
             receiver.native_io = native_io
             receiver.instance_variable_set(:@explicit_encoding, explicit_enc)
           end

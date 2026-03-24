@@ -202,7 +202,9 @@ class Thread
   end
 
   def initialize(*args, &block)
+    Kernel.raise ThreadError, "already initialized thread" if @__initialized__
     return unless block  # Thread.new will detect missing block and raise ThreadError
+    @__initialized__ = true
     __start_init(block, args)
   end
 
@@ -362,7 +364,12 @@ class Thread
 
   def native_thread_id = alive? ? object_id : nil
   def name                = @name
-  def name=(v)            = (@name = v.nil? ? nil : v.to_str)
+  def name=(v)
+    return @name = nil if v.nil?
+    s = v.to_str
+    Kernel.raise ArgumentError, "string contains null byte" if s.include?("\0")
+    @name = s
+  end
   def group               = @group
   def __set_group(g)      = (@group = g)
   def pending_interrupt?(exc = nil) = false
@@ -520,24 +527,38 @@ class Thread
   def thread_variables = (@thread_vars || {}).keys
 
   # Fiber-local variables (Thread#[] / Thread#[]=)
+  # These are scoped per-fiber: different fibers on the same thread have separate storage.
+  def __fiber_vars
+    f = Fiber.current
+    @fiber_vars ||= {}
+    @fiber_vars[f] ||= {}
+  end
+
   def [](key)
     k = __coerce_var_key(key)
-    (@fiber_vars || {})[k]
+    f = Fiber.current
+    fv = @fiber_vars && @fiber_vars[f]
+    fv ? fv[k] : nil
   end
 
   def []=(key, value)
     Kernel.raise FrozenError, "can't modify frozen thread locals" if frozen?
     k = __coerce_var_key(key)
-    @fiber_vars ||= {}
-    @fiber_vars[k] = value
+    __fiber_vars[k] = value
   end
 
   def key?(key)
     k = __coerce_var_key(key)
-    (@fiber_vars || {}).key?(k)
+    f = Fiber.current
+    fv = @fiber_vars && @fiber_vars[f]
+    fv ? fv.key?(k) : false
   end
 
-  def keys = (@fiber_vars || {}).keys
+  def keys
+    f = Fiber.current
+    fv = @fiber_vars && @fiber_vars[f]
+    fv ? fv.keys : []
+  end
 
   def fetch(key, *rest, &block)
     Kernel.raise ArgumentError, "wrong number of arguments (given #{1 + rest.size}, expected 1..2)" if rest.size > 1
@@ -545,7 +566,8 @@ class Thread
       warn "warning: block supersedes default value argument"
     end
     k = __coerce_var_key(key)
-    vars = @fiber_vars || {}
+    f = Fiber.current
+    vars = (@fiber_vars && @fiber_vars[f]) || {}
     if vars.key?(k)
       vars[k]
     elsif block

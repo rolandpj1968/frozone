@@ -1852,7 +1852,7 @@ module Frozone
         public
 
         # Encoding::Converter intrinsics — delegate to MRI Encoding::Converter
-        def encoding_converter_new(_, from_str, to_str, opts_hash = FNIL)
+        def encoding_converter_new(context, from_str, to_str, opts_hash = FNIL)
           from_raw = fstr?(from_str) ? from_str.raw : from_str.to_s
           to_raw   = fstr?(to_str) ? to_str.raw : to_str.to_s
           opts = {}
@@ -1860,9 +1860,10 @@ module Frozone
             opts_hash.raw.each do |k, v|
               key = fsym?(k) ? k.raw : k.to_s.to_sym
               opts[key] = case v
-                          when StringObject then v.raw
-                          when TrueObject   then true
-                          when FalseObject  then false
+                          when StringObject  then v.raw
+                          when SymbolObject  then v.raw
+                          when TrueObject    then true
+                          when FalseObject   then false
                           when IntegerObject then v.raw
                           else fnil?(v) ? nil : v
                           end
@@ -1969,7 +1970,7 @@ module Frozone
           n2f_str(result)
         end
 
-        def encoding_converter_primitive_convert(_, receiver, src_arg, dest_str, offset_arg = FNIL, size_arg = FNIL, opts_arg = FNIL)
+        def encoding_converter_primitive_convert(context, receiver, src_arg, dest_str, offset_arg = FNIL, size_arg = FNIL, opts_arg = FNIL)
           conv = receiver.is_a?(EncodingConverterObject) ? receiver.mri_converter : nil
           raise FrozoneException.make(:ArgumentError, "converter is already finished") unless conv
 
@@ -1984,21 +1985,22 @@ module Frozone
 
           offset = if fnil?(offset_arg)
                      nil
-                   elsif fobj?(offset_arg)
-                     # Try to_int
-                     result = offset_arg.dispatch(nil, :to_int, [], {}) rescue nil
-                     fint?(result) ? result.raw : nil
                    elsif fint?(offset_arg)
                      offset_arg.raw
+                   elsif fobj?(offset_arg)
+                     result = offset_arg.dispatch(context, :to_int, [], {}) rescue nil
+                     raise FrozoneException.make(:TypeError, "no implicit conversion of #{offset_arg.class_object.name} into Integer") unless fint?(result)
+                     result.raw
                    end
 
           size = if fnil?(size_arg)
                    nil
-                 elsif fobj?(size_arg)
-                   result = size_arg.dispatch(nil, :to_int, [], {}) rescue nil
-                   fint?(result) ? result.raw : nil
                  elsif fint?(size_arg)
                    size_arg.raw
+                 elsif fobj?(size_arg)
+                   result = size_arg.dispatch(context, :to_int, [], {}) rescue nil
+                   raise FrozoneException.make(:TypeError, "no implicit conversion of #{size_arg.class_object.name} into Integer") unless fint?(result)
+                   result.raw
                  end
 
           opts = {}

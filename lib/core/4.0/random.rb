@@ -6,7 +6,9 @@ class Random
   def self.rand(n = nil) = Intrinsics.random_rand(nil, n)
   def self.new_seed = Intrinsics.random_new_seed(nil)
   def self.seed = Intrinsics.random_seed(nil)
-  def self.srand(seed = nil) = Kernel.srand(seed)
+  def self.srand(seed = nil)
+    seed.nil? ? Kernel.srand : Kernel.srand(seed)
+  end
   def rand(n = nil) = Intrinsics.random_rand(self, n)
   def random_number(n = nil) = Intrinsics.random_rand(self, n)
   def seed = Intrinsics.random_seed(self)
