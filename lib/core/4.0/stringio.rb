@@ -2,6 +2,13 @@ class StringIO
   def string = @data
   def readline = gets || raise(EOFError, "end of file reached")
   def eof? = @pos >= @data.length
+  def pos = @pos
+  def pos=(n); @pos = n; end
+  def write(s) = @data += s.to_s
+  def puts(*args) = args.each { |a| write(a.to_s + "\n") }
+  def print(*args) = args.each { |a| write(a.to_s) }
+  def close = self
+  def closed? = false
 
   def initialize(str = "", mode = "r+")
     @data = str.dup
@@ -30,9 +37,11 @@ class StringIO
     $_ = result
     result
   end
-  def rewind; @pos = 0; self; end
-  def pos = @pos
-  def pos=(n); @pos = n; end
+
+  def rewind
+    @pos = 0
+    self
+  end
 
   def read(n = nil)
     return @data[@pos..] if n.nil?
@@ -41,12 +50,11 @@ class StringIO
     result
   end
 
-  def write(s) = @data += s.to_s
-  def puts(*args) = args.each { |a| write(a.to_s + "\n") }
-  def print(*args) = args.each { |a| write(a.to_s) }
-  def truncate(n = 0); @data = @data[0, n] || ""; @pos = n if @pos > n; 0; end
-  def close = self
-  def closed? = false
+  def truncate(n = 0)
+    @data = @data[0, n] || ""
+    @pos = n if @pos > n
+    0
+  end
 
   def each_line(sep = $/, &block)
     while (line = gets(sep))

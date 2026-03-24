@@ -6,6 +6,18 @@ class MatchData
   def pre_match = Intrinsics.match_data_pre_match(self)
   def post_match = Intrinsics.match_data_post_match(self)
   def begin(n) = Intrinsics.match_data_begin(self, n)
+  def end(n) = Intrinsics.match_data_end(self, n)
+  def offset(n) = [self.begin(n), self.end(n)]
+  def bytebegin(n) = Intrinsics.match_data_bytebegin(self, n)
+  def byteend(n) = Intrinsics.match_data_byteend(self, n)
+  def byteoffset(n) = [bytebegin(n), byteend(n)]
+  def match_length(n) = Intrinsics.match_data_match_length(self, n)
+  def names = Intrinsics.match_data_names(self)
+  def to_s = self[0].to_s
+  def hash = Intrinsics.match_data_hash(self)
+  def string = (@string ||= Intrinsics.match_data_string(self))
+  def regexp = (@regexp ||= Intrinsics.match_data_regexp(self))
+  def deconstruct = captures
 
   def self.allocate
     raise NoMethodError, "undefined method 'allocate' for class 'MatchData'"
@@ -21,26 +33,10 @@ class MatchData
     end
   end
 
-  def string
-    @string ||= Intrinsics.match_data_string(self)
-  end
-
-  def regexp
-    @regexp ||= Intrinsics.match_data_regexp(self)
-  end
-  def end(n) = Intrinsics.match_data_end(self, n)
-  def offset(n) = [self.begin(n), self.end(n)]
-
-  def bytebegin(n) = Intrinsics.match_data_bytebegin(self, n)
-  def byteend(n) = Intrinsics.match_data_byteend(self, n)
-  def byteoffset(n) = [bytebegin(n), byteend(n)]
-  def match_length(n) = Intrinsics.match_data_match_length(self, n)
-
   def named_captures(symbolize_names: false)
     h = Intrinsics.match_data_named_captures(self)
     symbolize_names ? h.transform_keys(&:to_sym) : h
   end
-  def names = Intrinsics.match_data_names(self)
 
   def values_at(*indices)
     n = size
@@ -55,10 +51,6 @@ class MatchData
         raise TypeError, "no implicit conversion of #{i.class} into Integer"
       end
     end
-  end
-
-  def deconstruct
-    captures
   end
 
   def deconstruct_keys(keys)
@@ -80,8 +72,6 @@ class MatchData
     v.nil? ? nil : v
   end
 
-  def to_s = self[0].to_s
-
   def inspect
     ms = self[0].inspect
     nc = regexp.named_captures
@@ -98,8 +88,6 @@ class MatchData
       "#<MatchData #{ms}#{pairs}>"
     end
   end
-
-  def hash = Intrinsics.match_data_hash(self)
 
   def ==(other)
     return false unless other.is_a?(MatchData)

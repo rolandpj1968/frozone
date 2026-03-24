@@ -21,11 +21,23 @@ class Regexp
   def ~() = Intrinsics.regexp_tilde(self)
   def hash = Intrinsics.regexp_hash(self)
   def linear_time? = Intrinsics.regexp_linear_time_q(self)
+  def dup = Regexp.new(source, options)
   def self.escape(str) = Intrinsics.regexp_escape(str)
   def self.quote(str) = Intrinsics.regexp_escape(str)
   def self.union(*patterns) = Intrinsics.regexp_union(patterns)
   def self.last_match(n = nil) = Intrinsics.regexp_last_match(n)
   def self.linear_time?(pattern, flags = nil) = Intrinsics.regexp_class_linear_time_q(pattern, flags)
+  def self.new(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options, kw_opts)
+  def self.compile(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options, kw_opts)
+  def self.timeout = Intrinsics.regexp_timeout(self)
+  def self.timeout=(v) = Intrinsics.regexp_set_timeout(self, v)
+  def self.try_convert(obj)
+    return obj if obj.is_a?(Regexp)
+    return nil unless obj.respond_to?(:to_regexp)
+    result = obj.to_regexp
+    raise TypeError, "can't convert #{obj.class} into Regexp (#{obj.class}#to_regexp gives #{result.class})" unless result.is_a?(Regexp)
+    result
+  end
 
   def match(str, pos = 0, &block)
     md = Intrinsics.regexp_match(self, str, pos)
@@ -50,29 +62,6 @@ class Regexp
     end
   end
 
-  def self.try_convert(obj)
-    return obj if obj.is_a?(Regexp)
-    return nil unless obj.respond_to?(:to_regexp)
-    result = obj.to_regexp
-    raise TypeError, "can't convert #{obj.class} into Regexp (#{obj.class}#to_regexp gives #{result.class})" unless result.is_a?(Regexp)
-    result
-  end
-
-  def initialize(pattern = nil, options = nil)
-    raise FrozenError, "can't modify frozen Regexp: #{inspect}" if frozen?
-    raise TypeError, "already initialized regexp" unless Intrinsics.regexp_newly_created_q(self)
-  end
-  private :initialize
-
-  def self.new(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options, kw_opts)
-  def self.compile(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options, kw_opts)
-  def self.timeout = Intrinsics.regexp_timeout(self)
-  def self.timeout=(v) = Intrinsics.regexp_set_timeout(self, v)
-
-  def dup
-    Regexp.new(source, options)
-  end
-
   def clone(freeze: nil)
     c = dup
     should_freeze = freeze.nil? ? frozen? : freeze
@@ -80,5 +69,13 @@ class Regexp
     c.freeze if should_freeze
     c
   end
+
   class TimeoutError < RegexpError; end
+
+  private
+
+  def initialize(pattern = nil, options = nil)
+    raise FrozenError, "can't modify frozen Regexp: #{inspect}" if frozen?
+    raise TypeError, "already initialized regexp" unless Intrinsics.regexp_newly_created_q(self)
+  end
 end

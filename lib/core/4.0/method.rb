@@ -17,6 +17,7 @@ class Method
   def hash = Intrinsics.bound_method_hash(self)
   def to_proc = Intrinsics.bound_method_to_proc(self)
   def super_method = Intrinsics.bound_method_super(self)
+  def curry(arity = nil) = to_proc.curry(arity)
 
   def clone(freeze: nil)
     frozen_val = freeze.nil? ? frozen? : freeze
@@ -40,10 +41,6 @@ class Method
     f = self
     g = other
     -> (*args, **kwargs, &blk) { g.call(f.call(*args, **kwargs, &blk)) }
-  end
-
-  def curry(arity = nil)
-    to_proc.curry(arity)
   end
 
   def to_s

@@ -63,6 +63,7 @@ class Process
     end
     pids.length
   end
+
   def self.uid=(id)
     raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer)
     raise Errno::EPERM, "Operation not permitted"
@@ -89,8 +90,8 @@ class Process
     def self.eid=(id) = Process.euid = id
     def self.rid=(id) = Process.uid = id
     def self.sid_available? = false
-    def self.switch; raise NotImplementedError; end
     def self.grant_privilege(id) = Process.uid = id
+    def self.switch = raise NotImplementedError
   end
 
   module GID
@@ -99,8 +100,8 @@ class Process
     def self.eid=(id) = Process.egid = id
     def self.rid=(id) = Process.gid = id
     def self.sid_available? = false
-    def self.switch; raise NotImplementedError; end
     def self.grant_privilege(id) = Process.gid = id
+    def self.switch = raise NotImplementedError
   end
 
   module Sys
@@ -112,9 +113,9 @@ class Process
     def self.setgid(id) = Process.gid = id
     def self.seteuid(id) = Process.euid = id
     def self.setegid(id) = Process.egid = id
-    def self.setruid(id); raise NotImplementedError; end
-    def self.setrgid(id); raise NotImplementedError; end
-    def self.setsid; raise NotImplementedError; end
+    def self.setruid(id) = raise NotImplementedError
+    def self.setrgid(id) = raise NotImplementedError
+    def self.setsid = raise NotImplementedError
     def self.issetugid = false
   end
 

@@ -21,6 +21,19 @@ module GC
   def self.measure_total_time = @measure_total_time
   def self.total_time = 0
   def self.stress = @stress
+  def self.compact = ({ considered: {}, moved: {} })
+
+  def self.auto_compact=(val)
+    @auto_compact = val ? true : false
+  end
+
+  def self.measure_total_time=(val)
+    @measure_total_time = val ? true : false
+  end
+
+  def self.stress=(val)
+    @stress = val ? true : false
+  end
 
   def self.start(**opts)
     @gc_count += 1
@@ -69,18 +82,6 @@ module GC
     end
   end
 
-  def self.auto_compact=(val)
-    @auto_compact = val ? true : false
-  end
-
-  def self.measure_total_time=(val)
-    @measure_total_time = val ? true : false
-  end
-
-  def self.compact
-    { considered: {}, moved: {} }
-  end
-
   def self.config(opts = nil)
     return @config.dup if opts.nil?
     if opts.respond_to?(:to_hash)
@@ -106,22 +107,19 @@ module GC
     raise ArgumentError, "wrong argument type #{opts.class} (expected Hash or nil)"
   end
 
-  def self.stress=(val)
-    @stress = val ? true : false
-  end
-
   def garbage_collect(**opts)
     GC.start
     nil
   end
+
   module Profiler
     @enabled = false
 
     def self.enabled? = @enabled
-    def self.clear; end
     def self.result = ""
-    def self.report(io = nil); end
     def self.total_time = 0.0
+    def self.clear = nil
+    def self.report(io = nil) = nil
 
     def self.enable
       @enabled = true
