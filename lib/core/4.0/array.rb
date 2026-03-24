@@ -31,14 +31,10 @@ class Array
     elsif size_or_array.is_a?(Integer)
       warn "warning: block supersedes default value argument" if block && !fill.nil?
       Intrinsics.array_initialize(self, size_or_array, fill, block)
-    elsif size_or_array.respond_to?(:to_int)
-      n = size_or_array.to_int
-      raise TypeError, "no implicit conversion of #{size_or_array.class} into Integer" unless n.is_a?(Integer)
-      raise TypeError, "wrong number of arguments (given 2, expected 0..1)" if !fill.nil? && !n.is_a?(Integer)
+    else
+      n = __coerce_to_int__(size_or_array)
       warn "warning: block supersedes default value argument" if block && !fill.nil?
       Intrinsics.array_initialize(self, n, fill, block)
-    else
-      raise TypeError, "no implicit conversion of #{size_or_array.class} into Integer"
     end
   end
 
@@ -104,10 +100,8 @@ class Array
       length_int = __coerce_to_int__(len_or_val)
       # Coerce val via to_ary if not already an Array
       unless val.is_a?(Array)
-        if val.respond_to?(:to_ary)
-          converted = val.to_ary
-          val = converted if converted.is_a?(Array)
-        end
+        converted = __try_coerce_to_ary__(val)
+        val = converted unless converted.nil?
       end
       Intrinsics.array_slice_write(self, start_int, length_int, val)
     end
@@ -125,17 +119,7 @@ class Array
     __check_frozen__
     # Coerce and snapshot all args before any mutation (handles concat(self, self))
     coerced = others.map { |other|
-      arr = if other.is_a?(Array)
-        other
-      else
-        begin
-          r = other.to_ary
-          raise TypeError, "to_ary must return Array" unless r.is_a?(Array)
-          r
-        rescue NoMethodError
-          raise TypeError, "no implicit conversion of #{other.class} into Array"
-        end
-      end
+      arr = other.is_a?(Array) ? other : __coerce_to_ary__(other)
       arr.equal?(self) ? arr.dup : arr
     }
     coerced.each { |other| Intrinsics.array_concat(self, other) }
@@ -300,14 +284,9 @@ class Array
     elsif n.respond_to?(:to_str)
       join(n.to_str)
     else
-      begin
-        n_int = n.to_int
-        raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n_int.is_a?(Integer)
-        raise ArgumentError, "negative argument" if n_int < 0
-        r = []; n_int.times { r.concat(self) }; r
-      rescue NoMethodError
-        raise TypeError, "no implicit conversion of #{n.class} into Integer"
-      end
+      n_int = __coerce_to_int__(n)
+      raise ArgumentError, "negative argument" if n_int < 0
+      r = []; n_int.times { r.concat(self) }; r
     end
   end
 
@@ -318,12 +297,7 @@ class Array
       elsif depth.is_a?(Integer)
         depth < 0 ? nil : depth
       else
-        begin
-          n = depth.to_int
-        rescue NoMethodError
-          raise TypeError, "no implicit conversion of #{depth.class} into Integer"
-        end
-        raise TypeError, "no implicit conversion of #{depth.class} into Integer" unless n.is_a?(Integer)
+        n = __coerce_to_int__(depth)
         n < 0 ? nil : n
       end
     result = []
@@ -368,15 +342,9 @@ class Array
 
   def <=>(other)
     unless other.is_a?(Array)
-      begin
-        converted = other.to_ary
-        return nil unless converted.is_a?(Array)
-        other = converted
-      rescue NoMethodError
-        return nil
-      rescue
-        return nil
-      end
+      converted = __try_coerce_to_ary__(other)
+      return nil if converted.nil?
+      other = converted
     end
     ongoing = (Fiber[:__array_cmp__] ||= [])
     id1, id2 = __id__, other.__id__
@@ -508,13 +476,7 @@ class Array
       elsif sep.is_a?(String)
         sep
       else
-        begin
-          s = sep.to_str
-          raise TypeError, "no implicit conversion of #{sep.class} into String" unless s.is_a?(String)
-          s
-        rescue NoMethodError
-          raise TypeError, "no implicit conversion of #{sep.class} into String"
-        end
+        __coerce_to_str__(sep)
       end
     guard = (Fiber[:__array_join_guard__] ||= [])
     raise ArgumentError, "recursive array join" if guard.include?(__id__)
@@ -752,8 +714,9 @@ class Array
   def zip(*others)
     n = length
     converted = others.map do |o|
-      if o.respond_to?(:to_ary)
-        o.to_ary
+      ary = __try_coerce_to_ary__(o)
+      if ary
+        ary
       elsif o.respond_to?(:each)
         elems = []
         o.each { |e| elems << e; break if elems.length >= n }
@@ -904,14 +867,7 @@ class Array
   end
 
   def intersect?(other)
-    unless other.is_a?(Array)
-      begin
-        other = other.to_ary
-        raise TypeError, "no implicit conversion into Array" unless other.is_a?(Array)
-      rescue NoMethodError
-        raise TypeError, "no implicit conversion of #{other.class} into Array"
-      end
-    end
+    other = __coerce_to_ary__(other) unless other.is_a?(Array)
     set = {}
     other.each { |e| set[e] = true }
     any? { |e| set.key?(e) }
@@ -1041,17 +997,13 @@ class Array
       v = block.call(e)
       if v.is_a?(Array)
         v.each { |x| r << x }
-      elsif v.respond_to?(:to_ary)
-        arr = v.to_ary
+      else
+        arr = __try_coerce_to_ary__(v)
         if arr.nil?
           r << v
-        elsif arr.is_a?(Array)
-          arr.each { |x| r << x }
         else
-          raise TypeError, "can't convert #{v.class} into Array (#{v.class}#to_ary gives #{arr.class})"
+          arr.each { |x| r << x }
         end
-      else
-        r << v
       end
     }
     r
@@ -1300,17 +1252,7 @@ class Array
 
   def product(*others, &block)
     arrays = [self] + others.map { |o|
-      if o.is_a?(Array)
-        o
-      else
-        begin
-          converted = o.to_ary
-        rescue NoMethodError
-          raise TypeError, "no implicit conversion of #{o.class} into Array"
-        end
-        raise TypeError, "no implicit conversion of #{o.class} into Array" unless converted.is_a?(Array)
-        converted
-      end
+      o.is_a?(Array) ? o : __coerce_to_ary__(o)
     }
     # Check for unreasonably large product
     total = arrays.reduce(1) { |acc, a| acc * a.length }
@@ -1343,15 +1285,7 @@ class Array
   def transpose
     return [] if empty?
     rows = map { |row|
-      if row.is_a?(Array)
-        row
-      elsif row.respond_to?(:to_ary)
-        converted = row.to_ary
-        raise TypeError, "no implicit conversion of #{row.class} into Array" unless converted.is_a?(Array)
-        converted
-      else
-        raise TypeError, "no implicit conversion of #{row.class} into Array"
-      end
+      row.is_a?(Array) ? row : __coerce_to_ary__(row)
     }
     n = rows[0].length
     rows.each { |row| raise IndexError, "element size differs (#{row.length} should be #{n})" unless row.length == n }
@@ -1467,10 +1401,6 @@ class Array
     nil
   end
   private
-
-  def __check_frozen__
-    raise FrozenError, "can't modify frozen Array" if frozen?
-  end
 
   def __flatten_into__(arr, depth, result, seen_ids)
     raise ArgumentError, "flatten: cannot flatten recursive array" if seen_ids.include?(arr.__id__)
@@ -1787,14 +1717,4 @@ class Array
     result
   end
 
-  def __coerce_to_int__(n)
-    return n if n.is_a?(Integer)
-    begin
-      result = n.to_int
-      raise TypeError, "can't convert #{n.class} into Integer (to_int gives #{result.class})" unless result.is_a?(Integer)
-      result
-    rescue NoMethodError
-      raise TypeError, "no implicit conversion of #{n.class} into Integer"
-    end
-  end
 end

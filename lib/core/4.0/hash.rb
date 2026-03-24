@@ -73,10 +73,7 @@ class Hash
 
   def self.try_convert(obj)
     return obj if obj.is_a?(Hash)
-    return nil unless obj.respond_to?(:to_hash)
-    result = obj.to_hash
-    raise TypeError, "can't convert #{obj.class} into Hash (#{obj.class}#to_hash gives #{result.class})" unless result.nil? || result.is_a?(Hash)
-    result
+    __try_coerce_to_hash__(obj)
   end
 
   def ==(other)
@@ -669,16 +666,6 @@ class Hash
   end
 
   private
-
-  def __check_frozen__
-    raise FrozenError, "can't modify frozen Hash: #{inspect}" if frozen?
-  end
-
-  def __coerce_to_hash__(other)
-    return other if other.is_a?(Hash)
-    return other.to_hash if other.respond_to?(:to_hash)
-    raise TypeError, "no implicit conversion of #{other.class} into Hash"
-  end
 
   # Returns the key portion of an inspect pair: either "name: " (Symbol) or "repr => " (other).
   def __inspect_key__(k)

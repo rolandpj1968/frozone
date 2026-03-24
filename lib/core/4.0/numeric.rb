@@ -57,13 +57,11 @@ class Numeric
   end
 
   def remainder(other)
-    a, b = other.coerce(self)
-    mod = a % b
-    return mod if mod == 0
-    if (a < 0 && b > 0) || (a > 0 && b < 0)
-      mod - b
+    if other.respond_to?(:coerce)
+      a, b = other.coerce(self)
+      a.remainder(b)
     else
-      mod
+      raise TypeError, "#{other.class} can't be coerced into #{self.class}"
     end
   end
 

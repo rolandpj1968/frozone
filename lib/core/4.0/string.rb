@@ -46,7 +46,7 @@ class String
   end
 
   def *(n)
-    n = n.to_int unless n.is_a?(Integer)
+    n = __coerce_to_int__(n) unless n.is_a?(Integer)
     raise RangeError, "bignum too big to convert into 'long'" if n > 9_223_372_036_854_775_807
     raise ArgumentError, "negative string size (or exceeds maximum allowed string size)" if n < 0
     return String.new(''.force_encoding(encoding)) if empty? || n == 0
@@ -91,7 +91,7 @@ class String
   alias to_str to_s
 
   def to_i(base = 10)
-    base = base.to_int unless base.is_a?(Integer)
+    base = __coerce_to_int__(base) unless base.is_a?(Integer)
     Intrinsics.string_to_i_base(self, base)
   end
 
@@ -182,11 +182,7 @@ class String
         next
       end
       unless prefix.is_a?(String)
-        begin
-          prefix = prefix.to_str
-        rescue NoMethodError
-          raise TypeError, "no implicit conversion of #{prefix.class} into String"
-        end
+        prefix = __coerce_to_str__(prefix)
       end
       return true if !prefix.empty? ? self[0, prefix.length] == prefix : true
     end
@@ -196,11 +192,7 @@ class String
   def end_with?(*suffixes)
     suffixes.each do |suffix|
       unless suffix.is_a?(String)
-        begin
-          suffix = suffix.to_str
-        rescue NoMethodError
-          raise TypeError, "no implicit conversion of #{suffix.class} into String"
-        end
+        suffix = __coerce_to_str__(suffix)
       end
       # Raises Encoding::CompatibilityError if encodings are incompatible
       Intrinsics.string_encoding_compat(self, suffix)
@@ -233,7 +225,7 @@ class String
     elsif sep.nil?
       return dup  # explicit nil: no-op, but still returns a copy
     else
-      sep = sep.to_str unless sep.is_a?(String)
+      sep = __coerce_to_str__(sep) unless sep.is_a?(String)
     end
     return dup if empty?
     if sep.nil?
@@ -592,15 +584,8 @@ class String
 
   def insert(index, str)
     __check_frozen__
-    index = index.to_int unless index.is_a?(Integer)
-    unless str.is_a?(String)
-      begin
-        str = str.to_str
-      rescue NoMethodError
-        raise TypeError, "no implicit conversion of #{str.class} into String"
-      end
-      raise TypeError, "no implicit conversion of #{str.class} into String" unless str.is_a?(String)
-    end
+    index = __coerce_to_int__(index) unless index.is_a?(Integer)
+    str = __coerce_to_str__(str) unless str.is_a?(String)
     len = length
     idx = index
     if idx < 0
@@ -630,14 +615,7 @@ class String
   end
 
   def lines(sep = $/, chomp: false, &block)
-    if sep && !sep.is_a?(String)
-      begin
-        sep = sep.to_str
-      rescue NoMethodError
-        raise TypeError, "no implicit conversion of #{sep.class} into String"
-      end
-      raise TypeError, "no implicit conversion of #{sep.class} into String" unless sep.is_a?(String)
-    end
+    sep = __coerce_to_str__(sep) if sep && !sep.is_a?(String)
     raw = Intrinsics.string_each_line(self, sep, nil)
     result = chomp ? raw.map { |l| l.chomp(sep.nil? ? "\n" : sep) } : raw
     if block
@@ -671,11 +649,7 @@ class String
   end
 
   def getbyte(i)
-    unless i.is_a?(Integer)
-      raise TypeError, "no implicit conversion of #{i.class} into Integer" unless i.respond_to?(:to_int)
-      i = i.to_int
-      raise TypeError, "can't convert to Integer" unless i.is_a?(Integer)
-    end
+    i = __coerce_to_int__(i) unless i.is_a?(Integer)
     bs = bytesize
     i += bs if i < 0
     return nil if i < 0 || i >= bs
@@ -701,28 +675,21 @@ class String
   end
 
   def upto(other, exclusive = false, &block)
-    unless other.is_a?(String)
-      begin
-        other = other.to_str
-      rescue NoMethodError, TypeError
-        raise TypeError, "no implicit conversion of #{other.class} into String"
-      end
-      raise TypeError, "no implicit conversion of #{other.class} into String" unless other.is_a?(String)
-    end
+    other = __coerce_to_str__(other) unless other.is_a?(String)
     return to_enum(:upto, other, exclusive) unless block
     Intrinsics.string_upto(self, other, exclusive, block)
   end
 
   def tr_s(from, to)
-    from = from.to_str unless from.is_a?(String)
-    to = to.to_str unless to.is_a?(String)
+    from = __coerce_to_str__(from) unless from.is_a?(String)
+    to = __coerce_to_str__(to) unless to.is_a?(String)
     Intrinsics.string_tr_s(self, from, to)
   end
 
   def tr_s!(from, to)
     __check_frozen__
-    from = from.to_str unless from.is_a?(String)
-    to = to.to_str unless to.is_a?(String)
+    from = __coerce_to_str__(from) unless from.is_a?(String)
+    to = __coerce_to_str__(to) unless to.is_a?(String)
     r = tr_s(from, to); return nil if r == self; Intrinsics.string_replace(self, r)
   end
 
@@ -859,41 +826,34 @@ class String
 
   def prepend(*others)
     __check_frozen__
-    prefix = others.map do |s|
-      next s if s.is_a?(String)
-      begin
-        r = s.to_str
-      rescue NoMethodError
-        raise TypeError, "no implicit conversion of #{s.class} into String"
-      end
-      raise TypeError, "no implicit conversion of #{s.class} into String" unless r.is_a?(String)
-      r
-    end.join
+    prefix = others.map { |s|
+      s.is_a?(String) ? s : __coerce_to_str__(s)
+    }.join
     Intrinsics.string_replace(self, prefix + self)
     self
   end
 
   def delete_prefix(prefix)
-    prefix = prefix.to_str unless prefix.is_a?(String)
+    prefix = __coerce_to_str__(prefix) unless prefix.is_a?(String)
     start_with?(prefix) ? self[prefix.length..] : dup
   end
 
   def delete_prefix!(prefix)
     __check_frozen__
-    prefix = prefix.to_str unless prefix.is_a?(String)
+    prefix = __coerce_to_str__(prefix) unless prefix.is_a?(String)
     return nil if prefix.empty? || !start_with?(prefix)
     Intrinsics.string_replace(self, self[prefix.length..])
   end
 
   def delete_suffix(suffix)
-    suffix = suffix.to_str unless suffix.is_a?(String)
+    suffix = __coerce_to_str__(suffix) unless suffix.is_a?(String)
     return dup if suffix.empty?
     end_with?(suffix) ? self[0...(length - suffix.length)] : dup
   end
 
   def delete_suffix!(suffix)
     __check_frozen__
-    suffix = suffix.to_str unless suffix.is_a?(String)
+    suffix = __coerce_to_str__(suffix) unless suffix.is_a?(String)
     return nil if suffix.empty? || !end_with?(suffix)
     Intrinsics.string_replace(self, self[0...(length - suffix.length)])
   end
@@ -910,22 +870,12 @@ class String
   end
 
   def sum(bits = 16)
-    bits = bits.to_int unless bits.is_a?(Integer)
+    bits = __coerce_to_int__(bits) unless bits.is_a?(Integer)
     total = bytes.reduce(0) { |s, b| s + b }
     bits <= 0 ? total : total % (1 << bits)
   end
   private
 
-  def __check_frozen__
-    raise FrozenError, "can't modify frozen String: #{inspect}" if frozen?
-  end
-  # Coerce obj to String via to_str, raising TypeError for missing or bad conversion.
-  def __coerce_to_str__(obj)
-    raise TypeError, "no implicit conversion of #{obj.class} into String" unless obj.respond_to?(:to_str)
-    result = obj.to_str
-    raise TypeError, "can't convert to String" unless result.is_a?(String)
-    result
-  end
   # Return the string's bytes as a mutable Array of integers.
   def __succ_bytes_array__
     bs = bytesize
@@ -1029,11 +979,7 @@ class String
   end
   # Coerce and validate the width and padstr arguments shared by ljust/rjust/center.
   def __just_coerce_args__(width, padstr)
-    unless width.is_a?(Integer)
-      raise TypeError, "no implicit conversion of #{width.class} into Integer" unless width.respond_to?(:to_int)
-      width = width.to_int
-      raise TypeError, "can't convert to Integer" unless width.is_a?(Integer)
-    end
+    width = __coerce_to_int__(width) unless width.is_a?(Integer)
     padstr = __coerce_to_str__(padstr) unless padstr.is_a?(String)
     raise ArgumentError, "zero width padding" if padstr.empty?
     [width, padstr]

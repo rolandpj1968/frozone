@@ -29,13 +29,11 @@ class IO
 ")
         elsif arg.is_a?(Array)
           __puts_array__(arg)
+        elsif arg.respond_to?(:to_ary)
+          ary = arg.to_ary
+          ary.nil? ? __puts_scalar__(arg) : (ary.is_a?(Array) ? __puts_array__(ary) : __puts_scalar__(arg))
         else
-          begin
-            ary = arg.to_ary
-            ary.nil? ? __puts_scalar__(arg) : (ary.is_a?(Array) ? __puts_array__(ary) : __puts_scalar__(arg))
-          rescue NoMethodError
-            __puts_scalar__(arg)
-          end
+          __puts_scalar__(arg)
         end
       end
     end
@@ -52,13 +50,11 @@ class IO
     arr.each do |elem|
       if elem.is_a?(Array)
         __puts_array__(elem, seen)
+      elsif elem.respond_to?(:to_ary)
+        ary = elem.to_ary
+        ary.nil? ? __puts_scalar__(elem) : (ary.is_a?(Array) ? __puts_array__(ary, seen) : __puts_scalar__(elem))
       else
-        begin
-          ary = elem.to_ary
-          ary.nil? ? __puts_scalar__(elem) : (ary.is_a?(Array) ? __puts_array__(ary, seen) : __puts_scalar__(elem))
-        rescue NoMethodError
-          __puts_scalar__(elem)
-        end
+        __puts_scalar__(elem)
       end
     end
   end
@@ -124,8 +120,7 @@ class IO
   def lineno=(n)
     raise IOError, "closed stream" if closed?
     raise IOError, "not opened for reading" unless Intrinsics.io_readable?(self)
-    raise TypeError, "no implicit conversion of #{n.nil? ? 'nil' : n.class} into Integer" unless n.respond_to?(:to_int)
-    val = n.to_int
+    val = __coerce_to_int__(n)
     raise RangeError, "integer #{val} too big to convert into 'int'" if val > 2_147_483_647 || val < -2_147_483_648
     @lineno = val
   end

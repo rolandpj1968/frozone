@@ -217,14 +217,10 @@ class Enumerator
     offset =
       if offset.nil?
         0
-      elsif offset.is_a?(Integer)
-        offset
       elsif offset.is_a?(Float)
         offset.to_i
-      elsif offset.respond_to?(:to_int)
-        offset.to_int
       else
-        raise TypeError, "no implicit conversion of #{offset.class} into Integer"
+        __coerce_to_int__(offset)
       end
     i = offset
     each { |*x|

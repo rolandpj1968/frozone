@@ -271,10 +271,8 @@ class Encoding
       @default_external = enc
     elsif enc.is_a?(String)
       @default_external = find(enc)
-    elsif enc.respond_to?(:to_str)
-      @default_external = find(enc.to_str)
     else
-      raise TypeError, "no implicit conversion of #{enc.class} into String"
+      @default_external = find(__coerce_to_str__(enc))
     end
     # Sync to MRI so that native Ruby IO objects track Frozone's default_external.
     Intrinsics.encoding_set_default_external(@default_external.name)
@@ -287,12 +285,8 @@ class Encoding
       @default_internal = enc
     elsif enc.is_a?(String)
       @default_internal = find(enc)
-    elsif enc.respond_to?(:to_str)
-      result = enc.to_str
-      raise TypeError, "no implicit conversion of #{result.class} into String" unless result.is_a?(String)
-      @default_internal = find(result)
     else
-      raise TypeError, "no implicit conversion of #{enc.class} into String"
+      @default_internal = find(__coerce_to_str__(enc))
     end
     # Sync to MRI so that native Ruby IO objects track Frozone's default_internal.
     Intrinsics.encoding_set_default_internal(@default_internal&.name)
@@ -358,14 +352,7 @@ class Encoding
       # Validate replacement if provided
       if opts.is_a?(Hash) && opts.key?(:replace)
         repl = opts[:replace]
-        unless repl.nil? || repl.is_a?(String)
-          if repl.respond_to?(:to_str)
-            repl_s = repl.to_str
-            raise TypeError, "no implicit conversion of #{repl.class} into String" unless repl_s.is_a?(String)
-          else
-            raise TypeError, "no implicit conversion of #{repl.class} into String"
-          end
-        end
+        __coerce_to_str__(repl) unless repl.nil? || repl.is_a?(String)
       end
       if opts.nil?
         Intrinsics.encoding_converter_new(from, to)

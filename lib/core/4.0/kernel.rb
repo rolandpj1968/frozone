@@ -276,22 +276,17 @@ module Kernel
   def Array(val)
     return [] if val.nil?
     return val if val.is_a?(Array)
-    skip_to_ary = false
-    begin
-      result = val.send(:to_ary)
+    if val.respond_to?(:to_ary)
+      result = val.to_ary
       return result if result.is_a?(Array)
-      skip_to_ary = result.nil?  # nil → fall through to to_a
-      raise TypeError, "can't convert #{val.class} into Array (#{val.class}#to_ary gives #{result.class})" unless skip_to_ary
-    rescue NoMethodError
+      raise TypeError, "can't convert #{val.class} into Array (#{val.class}#to_ary gives #{result.class})" unless result.nil?
     end
-    begin
-      result = val.send(:to_a)
-      return result if result.is_a?(Array)
-      return [val] if result.nil?
-      raise TypeError, "can't convert #{val.class} into Array (#{val.class}#to_a gives #{result.class})"
-    rescue NoMethodError
-      [val]
+    if val.respond_to?(:to_a)
+      result = val.to_a
+      raise TypeError, "can't convert #{val.class} into Array (#{val.class}#to_a gives #{result.class})" unless result.is_a?(Array)
+      return result
     end
+    [val]
   end
 
   def Hash(val)
@@ -419,7 +414,7 @@ module Kernel
   end
 
   def `(cmd)
-    cmd = cmd.is_a?(String) ? cmd : cmd.to_str
+    cmd = __coerce_to_str__(cmd)
     Intrinsics.kernel_backtick(self, cmd)
   end
 
@@ -442,14 +437,113 @@ module Kernel
   def initialize_clone(other, freeze: nil) = initialize_copy(other)
   def respond_to_missing?(name, include_private = false) = false
 
+  # --- Canonical coercion helpers ---
+  # Strict: raise TypeError on failure (implicit coercion protocol)
+
+  def __coerce_to_str__(val)
+    return val if val.is_a?(String)
+    if val.respond_to?(:to_str)
+      result = val.to_str
+      raise TypeError, "can't convert #{val.class} into String (to_str should return String, not #{result.class})" unless result.is_a?(String)
+      return result
+    end
+    raise TypeError, "no implicit conversion of #{val.class} into String"
+  end
+
   def __coerce_to_int__(val)
     return val if val.is_a?(Integer)
     if val.respond_to?(:to_int)
       result = val.to_int
-      raise TypeError, "to_int should return Integer" unless result.is_a?(Integer)
+      raise TypeError, "can't convert #{val.class} into Integer (to_int should return Integer, not #{result.class})" unless result.is_a?(Integer)
       return result
     end
     raise TypeError, "no implicit conversion of #{val.class} into Integer"
+  end
+
+  def __coerce_to_ary__(val)
+    return val if val.is_a?(Array)
+    if val.respond_to?(:to_ary)
+      result = val.to_ary
+      raise TypeError, "can't convert #{val.class} into Array (to_ary should return Array, not #{result.class})" unless result.is_a?(Array)
+      return result
+    end
+    raise TypeError, "no implicit conversion of #{val.class} into Array"
+  end
+
+  def __coerce_to_hash__(val)
+    return val if val.is_a?(Hash)
+    if val.respond_to?(:to_hash)
+      result = val.to_hash
+      raise TypeError, "can't convert #{val.class} into Hash (to_hash should return Hash, not #{result.class})" unless result.is_a?(Hash)
+      return result
+    end
+    raise TypeError, "no implicit conversion of #{val.class} into Hash"
+  end
+
+  def __coerce_to_io__(val)
+    return val if val.is_a?(IO)
+    if val.respond_to?(:to_io)
+      result = val.to_io
+      raise TypeError, "can't convert #{val.class} into IO (to_io should return IO, not #{result.class})" unless result.is_a?(IO)
+      return result
+    end
+    raise TypeError, "no implicit conversion of #{val.class} into IO"
+  end
+
+  # Soft: return nil if object doesn't respond to the coercion method
+  # (MRI rb_check_convert_type — used where "try" semantics are needed)
+
+  def __try_coerce_to_str__(val)
+    return val if val.is_a?(String)
+    return nil unless val.respond_to?(:to_str)
+    result = val.to_str
+    raise TypeError, "can't convert #{val.class} into String (to_str should return String, not #{result.class})" unless result.is_a?(String)
+    result
+  end
+
+  def __try_coerce_to_ary__(val)
+    return val if val.is_a?(Array)
+    return nil unless val.respond_to?(:to_ary)
+    result = val.to_ary
+    raise TypeError, "can't convert #{val.class} into Array (to_ary should return Array, not #{result.class})" unless result.is_a?(Array)
+    result
+  end
+
+  def __try_coerce_to_hash__(val)
+    return val if val.is_a?(Hash)
+    return nil unless val.respond_to?(:to_hash)
+    result = val.to_hash
+    raise TypeError, "can't convert #{val.class} into Hash (to_hash should return Hash, not #{result.class})" unless result.is_a?(Hash)
+    result
+  end
+
+  def __try_coerce_to_io__(val)
+    return val if val.is_a?(IO)
+    return nil unless val.respond_to?(:to_io)
+    result = val.to_io
+    raise TypeError, "can't convert #{val.class} into IO (to_io should return IO, not #{result.class})" unless result.is_a?(IO)
+    result
+  end
+
+  # Path coercion: to_path → to_str chain (File/IO path arguments)
+  def __coerce_to_path__(val)
+    return val if val.is_a?(String)
+    if val.respond_to?(:to_path)
+      result = val.to_path
+      return result if result.is_a?(String)
+      raise TypeError, "no implicit conversion of #{val.class} into String"
+    end
+    if val.respond_to?(:to_str)
+      result = val.to_str
+      raise TypeError, "can't convert #{val.class} into String (to_str should return String, not #{result.class})" unless result.is_a?(String)
+      return result
+    end
+    raise TypeError, "no implicit conversion of #{val.class} into String"
+  end
+
+  # Frozen object check — raises FrozenError with standard MRI message
+  def __check_frozen__
+    raise FrozenError, "can't modify frozen #{self.class}: #{inspect}" if frozen?
   end
 
   def __kernel_exit__(code)
@@ -458,30 +552,9 @@ module Kernel
   end
 
   def __coerce_load_path__(path)
-    if path.is_a?(String)
-      path
-    elsif path.nil?
-      raise TypeError, "no implicit conversion of nil into String"
-    elsif path.is_a?(Integer)
-      raise TypeError, "no implicit conversion of Integer into String"
-    elsif path.respond_to?(:to_path)
-      p = path.to_path
-      unless p.is_a?(String)
-        if p.respond_to?(:to_str)
-          p = p.to_str
-          raise TypeError, "no implicit conversion of #{path.class} into String" unless p.is_a?(String)
-        else
-          raise TypeError, "no implicit conversion of #{path.class} into String"
-        end
-      end
-      p
-    elsif path.respond_to?(:to_str)
-      p = path.to_str
-      raise TypeError, "no implicit conversion of #{path.class} into String" unless p.is_a?(String)
-      p
-    else
-      raise TypeError, "no implicit conversion of #{path.class} into String"
-    end
+    raise TypeError, "no implicit conversion of nil into String" if path.nil?
+    raise TypeError, "no implicit conversion of Integer into String" if path.is_a?(Integer)
+    __coerce_to_path__(path)
   end
 
   def __coerce_ivar_name__(name, receiver)

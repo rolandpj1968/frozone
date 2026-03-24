@@ -338,14 +338,12 @@ class Integer
   end
 
   def <<(n)
-    n = n.to_int if !n.is_a?(Integer) && n.respond_to?(:to_int)
-    raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.is_a?(Integer)
+    n = __coerce_to_int__(n)
     Intrinsics.integer_lshift(self, n)
   end
 
   def >>(n)
-    n = n.to_int if !n.is_a?(Integer) && n.respond_to?(:to_int)
-    raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.is_a?(Integer)
+    n = __coerce_to_int__(n)
     Intrinsics.integer_rshift(self, n)
   end
 
@@ -494,14 +492,4 @@ class Integer
     raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"
   end
 
-  def __coerce_to_int__(mask)
-    return mask if mask.is_a?(Integer)
-    if mask.respond_to?(:to_int)
-      r = mask.to_int
-      raise TypeError, "to_int should return Integer" unless r.is_a?(Integer)
-      r
-    else
-      raise TypeError, "Integer expected"
-    end
-  end
 end

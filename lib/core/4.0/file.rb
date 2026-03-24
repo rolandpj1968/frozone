@@ -137,7 +137,7 @@ class File < IO
   end
 
   def self.dirname(path, level = 1)
-    l = level.is_a?(Integer) ? level : (level.respond_to?(:to_int) ? level.to_int : raise(TypeError, "no implicit conversion of #{level.class} into Integer"))
+    l = level.is_a?(Integer) ? level : __coerce_to_int__(level)
     Intrinsics.file_dirname(_coerce_path(path), l)
   end
 
@@ -374,16 +374,7 @@ class File < IO
     end
 
     def initialize(path, lstat: false)
-      @path =
-        if path.is_a?(String)
-          path
-        elsif path.respond_to?(:to_path)
-          r = path.to_path
-          raise TypeError, "no implicit conversion of #{path.class} into String" unless r.is_a?(String)
-          r
-        else
-          raise TypeError, "no implicit conversion of #{path.class} into String"
-        end
+      @path = __coerce_to_path__(path)
       @lstat = lstat
       @stat = lstat ? Intrinsics.file_lstat_native(@path) : Intrinsics.file_stat_native(@path)
     end

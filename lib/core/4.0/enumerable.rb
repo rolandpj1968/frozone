@@ -51,15 +51,7 @@ module Enumerable
   end
 
   def __coerce_count__(n, method_name)
-    unless n.is_a?(Integer)
-      begin
-        n2 = n.to_int
-      rescue NoMethodError
-        raise TypeError, "no implicit conversion of #{n.class} into Integer"
-      end
-      raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n2.is_a?(Integer)
-      n = n2
-    end
+    n = __coerce_to_int__(n) unless n.is_a?(Integer)
     raise RangeError, "#{method_name}: integer #{n} too big to convert into `long'" if n > 2**62
     raise ArgumentError, "#{method_name}: negative length (#{n})" if n < 0
     n
@@ -488,14 +480,7 @@ module Enumerable
   end
 
   def tally(hash = nil)
-    if hash && !hash.is_a?(Hash)
-      if hash.respond_to?(:to_hash)
-        hash = hash.to_hash
-        raise TypeError, "no implicit conversion of #{hash.class} into Hash" unless hash.is_a?(Hash)
-      else
-        raise TypeError, "no implicit conversion of #{hash.class} into Hash"
-      end
-    end
+    hash = __coerce_to_hash__(hash) if hash && !hash.is_a?(Hash)
     result = hash || {}
     each do |*x|
       v = __unpack_enum_args__(x)
@@ -565,15 +550,7 @@ module Enumerable
   end
 
   def drop(n)
-    unless n.is_a?(Integer)
-      begin
-        n2 = n.to_int
-      rescue NoMethodError
-        raise TypeError, "no implicit conversion of #{n.class} into Integer"
-      end
-      raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n2.is_a?(Integer)
-      n = n2
-    end
+    n = __coerce_to_int__(n) unless n.is_a?(Integer)
     raise ArgumentError, "attempt to drop negative size" if n < 0
     r = []; i = 0
     each { |*x| v = __unpack_enum_args__(x); i < n ? (i += 1) : (r << v) }
@@ -695,17 +672,7 @@ module Enumerable
   end
 
   def cycle(n = nil, &block)
-    unless n.nil?
-      unless n.is_a?(Integer)
-        begin
-          n2 = n.to_int
-        rescue NoMethodError
-          raise TypeError, "no implicit conversion of #{n.class} into Integer"
-        end
-        raise TypeError, "no implicit conversion into Integer" unless n2.is_a?(Integer)
-        n = n2
-      end
-    end
+    n = __coerce_to_int__(n) unless n.nil? || n.is_a?(Integer)
     _self = self
     return to_enum(:cycle, n) {
       s = _self.respond_to?(:size) ? _self.size : nil
