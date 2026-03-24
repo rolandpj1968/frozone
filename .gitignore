@@ -6,3 +6,10 @@ rubyspec_temp/
 
 # Claude Code agent state (worktrees, plans, memory)
 .claude/
+
+# Stray Frozone VM object files (leaked from VM object inspect)
+\#<Frozone*
+,
+nil,
+}
+\[:child,
