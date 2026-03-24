@@ -52,52 +52,95 @@ module Frozone
           n2f_str(output || "")
         end
 
-        def io_popen(_, cmd, mode_obj = FNIL, opts_obj = FNIL)
-          mode = fnil?(mode_obj) ? 'r' : (fstr?(mode_obj) ? mode_obj.raw : 'r')
+        def io_popen(_, klass_obj, cmd, mode_obj = FNIL, opts_obj = FNIL)
+          io_klass = (klass_obj.is_a?(ClassObject) || klass_obj.is_a?(ModuleObject)) ? klass_obj : Core.io_class
+          mode = fnil?(mode_obj) ? 'r' : (fstr?(mode_obj) ? mode_obj.raw : (fint?(mode_obj) ? mode_obj.raw : 'r'))
           mri_opts = {}
           env_hash = nil
           if fhash?(opts_obj) && !opts_obj.raw.empty?
             opts_obj.raw.each do |k, v|
-              key = fsym?(k) ? k.raw : k.raw.to_sym
-              if key == :env && v.is_a?(HashObject)
+              key = case k
+                    when SymbolObject then k.raw
+                    when KeyWrapper then (k.key.is_a?(SymbolObject) ? k.key.raw : k.key.to_s.to_sym)
+                    else k.to_s.to_sym
+                    end
+              if key == :env && fhash?(v)
                 env_hash = v.raw.each_with_object({}) do |(ek, ev), h|
-                  h[fstr?(ek) ? ek.raw : ek.raw.to_s] = fnil?(ev) ? nil : (fstr?(ev) ? ev.raw : ev.raw.to_s)
+                  str_k = case ek
+                           when StringObject then ek.raw
+                           when KeyWrapper then (ek.key.is_a?(StringObject) ? ek.key.raw : ek.key.to_s)
+                           else ek.to_s
+                           end
+                  str_v = fnil?(ev) ? nil : (fstr?(ev) ? ev.raw : ev.to_s)
+                  h[str_k] = str_v
                 end
               else
                 val = case v
-                      when ArrayObject then v.raw.map { |e| fsym?(e) ? e.raw : e.raw }
-                      when SymbolObject then v.raw
+                      when ArrayObject  then v.raw.map { |e| fstr?(e) ? e.raw : (fsym?(e) ? e.raw : e.to_s) }
+                      when SymbolObject  then v.raw
                       when IntegerObject then v.raw
-                      else v.raw
+                      when StringObject  then v.raw
+                      when NilObject     then nil
+                      when TrueObject    then true
+                      when FalseObject   then false
+                      else
+                        enc_name = extract_encoding_name(v)
+                        enc_name || v.to_s
                       end
                 mri_opts[key] = val
               end
             end
           end
-          # Resolve env from HashObject cmd (IO.popen(env, cmd, ...)) or opts :env key
-          actual_cmd, actual_env = if fhash?(cmd)
-            env_h = cmd.raw.each_with_object({}) do |(k, v), h|
-              h[fstr?(k) ? k.raw : k.raw.to_s] = fnil?(v) ? nil : (fstr?(v) ? v.raw : v.raw.to_s)
-            end
-            [opts_obj, env_h]
-          else
-            [cmd, env_hash]
-          end
+          # Resolve actual cmd: cmd is the command (str or array), env_hash from opts
+          actual_cmd = cmd
+          actual_env = env_hash
           native_io = if farray?(actual_cmd)
-            arr = actual_cmd.raw.map { |a| fstr?(a) ? a.raw : a.to_s }
+            arr = actual_cmd.raw.map do |a|
+              case a
+              when StringObject  then a.raw
+              when SymbolObject  then a.raw
+              when IntegerObject then a.raw
+              when ArrayObject   then a.raw.map { |e| fstr?(e) ? e.raw : e.to_s }  # [cmd, arg0] form
+              when HashObject
+                # Hash in array: either leading env (string keys) or trailing exec opts (symbol keys)
+                a.raw.each_with_object({}) do |(ek, ev), h|
+                  raw_k = case ek
+                          when StringObject then ek.raw
+                          when SymbolObject then ek.raw
+                          when KeyWrapper   then (ek.key.is_a?(StringObject) ? ek.key.raw : (ek.key.is_a?(SymbolObject) ? ek.key.raw : ek.key.to_s))
+                          else ek.to_s
+                          end
+                  raw_v = case ev
+                          when NilObject    then nil
+                          when StringObject then ev.raw
+                          when SymbolObject then ev.raw
+                          when ArrayObject  then ev.raw.map { |e| fstr?(e) ? e.raw : (fsym?(e) ? e.raw : e.to_s) }
+                          when IntegerObject then ev.raw
+                          else ev.to_s
+                          end
+                  h[raw_k] = raw_v
+                end
+              else a.to_s
+              end
+            end
             arr = [actual_env, *arr] if actual_env
             reraise(::Errno::ENOENT, ::Errno::EACCES, ::ArgumentError, ::SystemCallError) do
               ::IO.popen(arr, mode, **mri_opts)
             end
           elsif fstr?(actual_cmd)
+            cmd_str = actual_cmd.raw
             reraise(::Errno::ENOENT, ::ArgumentError, ::SystemCallError) do
-              ::IO.popen(actual_cmd.raw, mode, **mri_opts)
+              if actual_env
+                ::IO.popen(actual_env, cmd_str, mode, **mri_opts)
+              else
+                ::IO.popen(cmd_str, mode, **mri_opts)
+              end
             end
           else
             reraise(::ArgumentError) { ::IO.popen(actual_cmd.to_s, mode, **mri_opts) }
           end
           GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
-          IOObject.new(native_io, Core.io_class)
+          IOObject.new(native_io, io_klass)
         end
 
         def io_external_encoding(_, receiver)

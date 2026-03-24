@@ -329,9 +329,25 @@ class IO
     end
   end
 
-  def self.popen(cmd, mode = 'r', **opts, &block)
-    opts_arg = opts.empty? ? nil : opts
-    io = Intrinsics.io_popen(cmd, mode, opts_arg)
+  def self.popen(*args, **opts, &block)
+    # Support: popen(cmd, mode='r', **opts) and popen(env, cmd, mode='r', **opts)
+    cmd, mode, env = if args.length >= 2 && args[0].is_a?(Hash) && !args[0].empty? &&
+                        !(args[1].is_a?(String) && args[1].start_with?('-'))
+                       env = args.shift
+                       [args[0], args[1] || 'r', env]
+                     else
+                       [args[0], args[1] || 'r', nil]
+                     end
+    # Coerce mode with to_str if not a String or nil
+    mode = mode.to_str if mode && !mode.is_a?(String) && mode.respond_to?(:to_str)
+    # Coerce chdir: value with to_path if needed
+    if opts.key?(:chdir) && opts[:chdir] && !opts[:chdir].is_a?(String)
+      val = opts[:chdir]
+      opts = opts.merge(chdir: val.to_path) if val.respond_to?(:to_path)
+    end
+    opts_arg = env ? opts.merge(env: env) : opts
+    opts_arg = opts_arg.empty? ? nil : opts_arg
+    io = Intrinsics.io_popen(self, cmd, mode, opts_arg)
     if block
       begin
         block.call(io)
