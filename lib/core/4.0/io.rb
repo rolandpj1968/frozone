@@ -107,11 +107,18 @@ class IO
   def inspect = Intrinsics.io_inspect(self)
   def read(len = nil, buf = nil) = Intrinsics.io_read(self, len, buf)
   def lineno
+    raise IOError, "closed stream" if closed?
+    raise IOError, "not opened for reading" unless Intrinsics.io_readable?(self)
     @lineno ||= 0
   end
 
   def lineno=(n)
-    @lineno = n.to_int
+    raise IOError, "closed stream" if closed?
+    raise IOError, "not opened for reading" unless Intrinsics.io_readable?(self)
+    raise TypeError, "no implicit conversion of #{n.nil? ? 'nil' : n.class} into Integer" unless n.respond_to?(:to_int)
+    val = n.to_int
+    raise RangeError, "integer #{val} too big to convert into 'int'" if val > 2_147_483_647 || val < -2_147_483_648
+    @lineno = val
   end
 
   def gets(*args, chomp: false)
@@ -140,7 +147,6 @@ class IO
     else
       raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
     end
-    raise ArgumentError, "invalid limit: 0 for #{self.class}#gets" if lim == 0
     line = Intrinsics.io_gets(self, sep, lim)
     line = line.chomp if chomp && !line.nil?
     if line.nil?

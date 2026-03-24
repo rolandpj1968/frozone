@@ -464,6 +464,21 @@ module Frozone
           end
         end
 
+        def io_readable?(_, receiver)
+          return FFALSE unless fio?(receiver)
+          native = receiver.native_io
+          begin
+            native.read_nonblock(0)
+            FTRUE
+          rescue ::IO::WaitReadable
+            FTRUE
+          rescue ::IOError
+            FFALSE
+          rescue
+            FTRUE
+          end
+        end
+
         def io_writable?(_, receiver)
           return FFALSE unless fio?(receiver)
           n2f_bool((receiver.native_io.stat.mode rescue 0) & 0o200 != 0)
