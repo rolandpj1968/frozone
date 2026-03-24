@@ -400,6 +400,7 @@ class Object
 end
 
 VersionGuard::FULL_RUBY_VERSION = SpecVersion.new(RUBY_VERSION)
+MSpec.enable_feature :encoding
 ENV['MSPEC_RUNNER'] = '1'
 MSpec.instance_variable_set(:@env, Object.new.extend(MSpec))
 class MSpecScript

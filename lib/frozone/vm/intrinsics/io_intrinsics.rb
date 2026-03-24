@@ -200,6 +200,41 @@ module Frozone
           end
         end
 
+        def io_reinitialize(context, receiver, fd_obj, mode_obj = FNIL, opts_obj = FNIL)
+          return FNIL unless fio?(receiver)
+          fd = if fint?(fd_obj) then fd_obj.raw
+               elsif fio?(fd_obj)
+                 raise FrozoneException.make(:TypeError, "no implicit conversion of IO into Integer")
+               elsif fnil?(fd_obj)
+                 raise FrozoneException.make(:TypeError, "no implicit conversion of nil into Integer")
+               elsif fstr?(fd_obj)
+                 raise FrozoneException.make(:TypeError, "no implicit conversion of String into Integer")
+               else
+                 begin
+                   coerced = fd_obj.dispatch(context, :to_int, [], {})
+                   raise FrozoneException.make(:TypeError, "no implicit conversion of #{fd_obj.class_object.name} into Integer") unless fint?(coerced)
+                   coerced.raw
+                 rescue FrozoneException => e
+                   raise unless e.frozone_class_name == :NoMethodError
+                   raise FrozoneException.make(:TypeError, "no implicit conversion of #{fd_obj.class_object.name} into Integer")
+                 end
+               end
+          mode, opts = parse_io_mode(context, mode_obj, opts_obj)
+          explicit_enc = (mode.is_a?(::String) && mode.include?(':')) ||
+                         opts.key?(:encoding) || opts.key?(:external_encoding)
+          reraise(::ArgumentError, ::TypeError, ::SystemCallError, ::Errno::EBADF, ::IOError) do
+            native_io = if mode && opts.empty? then ::IO.new(fd, mode)
+                        elsif mode             then ::IO.new(fd, mode, **opts)
+                        elsif opts.empty?      then ::IO.new(fd)
+                        else
+                          ::IO.new(fd, **opts)
+                        end
+            receiver.native_io = native_io
+            receiver.instance_variable_set(:@explicit_encoding, explicit_enc)
+          end
+          FNIL
+        end
+
         def io_read(_, receiver, len_obj = FNIL, buf_obj = FNIL)
           return FNIL unless fio?(receiver)
           len = f2n_raw(len_obj)

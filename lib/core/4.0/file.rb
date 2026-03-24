@@ -159,7 +159,19 @@ class File < IO
 
   def self.__mode_with_encoding__(mode, opts)
     mode_str = mode.is_a?(Integer) ? mode : mode.to_s
-    return mode_str if mode.is_a?(Integer) || mode_str.include?(':')
+    return mode_str if mode.is_a?(Integer)
+    # Apply binmode: true by inserting 'b' after the access character if not already present
+    if opts[:binmode] && !mode_str.include?('b')
+      # Insert 'b' after the first mode char (e.g. 'w' → 'wb', 'r+' → 'rb+')
+      # Handle both 'rw+' form and encoding suffix: insert before ':' if present
+      colon_idx = mode_str.index(':')
+      base = colon_idx ? mode_str[0, colon_idx] : mode_str
+      enc_suffix = colon_idx ? mode_str[colon_idx..] : ''
+      # Insert 'b' after the first char (r/w/a) and before any + or other flags
+      base = base[0] + 'b' + base[1..]
+      mode_str = base + enc_suffix
+    end
+    return mode_str if mode_str.include?(':')
     if (enc = opts[:encoding])
       mode_str + ':' + enc.to_s
     elsif (ext = opts[:external_encoding])

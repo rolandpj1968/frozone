@@ -186,7 +186,20 @@ class IO
   def readbyte = Intrinsics.io_readbyte(self)
   def readchar = Intrinsics.io_readchar(self)
   def ungetbyte(b) = Intrinsics.io_ungetbyte(self, b)
-  def ungetc(s) = Intrinsics.io_ungetc(self, s)
+  def ungetc(s)
+    if s.is_a?(Integer)
+      enc = external_encoding || Encoding.default_external || Encoding::UTF_8
+      Intrinsics.io_ungetc(self, s.chr(enc))
+    elsif s.is_a?(String)
+      Intrinsics.io_ungetc(self, s)
+    elsif s.nil?
+      raise TypeError, "no implicit conversion of nil into String"
+    elsif s.respond_to?(:to_str)
+      Intrinsics.io_ungetc(self, s.to_str)
+    else
+      raise TypeError, "no implicit conversion of #{s.class} into String"
+    end
+  end
   def sysread(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
   def syswrite(str) = Intrinsics.io_syswrite(self, str)
   def sysseek(offset, whence = SEEK_SET) = seek(offset, whence)
@@ -332,6 +345,11 @@ class IO
 
   def self.sysopen(path, mode = 'r', perm = 0666)
     Intrinsics.io_sysopen(path, mode, perm)
+  end
+
+  def initialize(fd, mode_or_opts = nil, **opts)
+    opts_arg = opts.empty? ? nil : opts
+    Intrinsics.io_reinitialize(self, fd, mode_or_opts, opts_arg)
   end
 
   def self.new(fd, mode_or_opts = nil, **opts, &block)
