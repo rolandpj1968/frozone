@@ -342,47 +342,9 @@ module Kernel
     nil  # stub: at_exit blocks not executed in frozone
   end
 
-  def exit(code = true)
-    unless code.is_a?(TrueClass) || code.is_a?(FalseClass) || code.is_a?(Integer)
-      if code.respond_to?(:to_int)
-        code = code.to_int
-        raise TypeError, "to_int should return Integer" unless code.is_a?(Integer)
-      else
-        raise TypeError, "no implicit conversion of #{code.class} into Integer"
-      end
-    end
-    Intrinsics.kernel_exit(self, code)
-  end
-
-  def exit!(code = false)
-    unless code.is_a?(TrueClass) || code.is_a?(FalseClass) || code.is_a?(Integer)
-      if code.respond_to?(:to_int)
-        code = code.to_int
-        raise TypeError, "to_int should return Integer" unless code.is_a?(Integer)
-      else
-        raise TypeError, "no implicit conversion of #{code.class} into Integer"
-      end
-    end
-    Intrinsics.kernel_exit(self, code)
-  end
-
-  def srand(*args)
-    if args.empty?
-      return Intrinsics.kernel_srand(self, nil)
-    end
-    seed = args[0]
-    if seed.nil?
-      raise TypeError, "no implicit conversion of nil into Integer"
-    elsif seed.is_a?(Integer)
-      Intrinsics.kernel_srand(self, seed)
-    elsif seed.respond_to?(:to_int)
-      coerced = seed.to_int
-      raise TypeError, "to_int should return Integer" unless coerced.is_a?(Integer)
-      Intrinsics.kernel_srand(self, coerced)
-    else
-      raise TypeError, "no implicit conversion of #{seed.class} into Integer"
-    end
-  end
+  def exit(code = true)  = __kernel_exit__(code)
+  def exit!(code = false) = __kernel_exit__(code)
+  def srand(*args) = Intrinsics.kernel_srand(self, args.empty? ? nil : __coerce_to_int__(args[0]))
 
   def sleep(secs = nil)
     if secs.nil?
@@ -482,6 +444,21 @@ module Kernel
                   :gets, :readline, :readlines, :select, :test
 
   private
+
+  def __coerce_to_int__(val)
+    return val if val.is_a?(Integer)
+    if val.respond_to?(:to_int)
+      result = val.to_int
+      raise TypeError, "to_int should return Integer" unless result.is_a?(Integer)
+      return result
+    end
+    raise TypeError, "no implicit conversion of #{val.class} into Integer"
+  end
+
+  def __kernel_exit__(code)
+    code = __coerce_to_int__(code) unless code.equal?(true) || code.equal?(false) || code.is_a?(Integer)
+    Intrinsics.kernel_exit(self, code)
+  end
 
   def exec(*args) = raise NotImplementedError, "exec is not supported in Frozone"
   def syscall(*args) = raise NotImplementedError, "syscall is not supported in Frozone"
