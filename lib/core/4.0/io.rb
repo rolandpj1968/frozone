@@ -608,8 +608,29 @@ class IO
     end
   end
 
-  def self.binwrite(path, content, offset = nil)
-    open(path, 'wb') do |f|
+  def self.binwrite(path, content, offset = nil, **opts)
+    mode = opts[:mode]
+    flags = opts[:flags]
+    open_kwargs = {}
+    open_kwargs[:flags] = flags if flags
+    if mode.nil?
+      if offset
+        begin
+          open(path, 'r+b', **open_kwargs) do |f|
+            f.seek(offset)
+            return f.write(content)
+          end
+        rescue Errno::ENOENT
+          open(path, 'wb', **open_kwargs) do |f|
+            f.seek(offset)
+            return f.write(content)
+          end
+        end
+      else
+        mode = 'wb'
+      end
+    end
+    open(path, mode, **open_kwargs) do |f|
       f.seek(offset) if offset
       f.write(content)
     end

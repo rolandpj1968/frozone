@@ -562,7 +562,9 @@ module Frozone
         end
 
         def io_autoclose?(_, receiver)
-          val = begin; native_io_for(receiver).autoclose?; rescue StandardError; true; end
+          native = native_io_for(receiver)
+          raise FrozoneException.make(:IOError, "closed stream") if native.closed?
+          val = begin; native.autoclose?; rescue StandardError; true; end
           n2f_bool(val)
         end
 

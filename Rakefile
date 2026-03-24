@@ -70,6 +70,27 @@ SKIP_SPEC_FILES = %w[
   encoding/to_s_spec.rb
   conditionvariable/signal_spec.rb
   conditionvariable/wait_spec.rb
+  io/buffer/and_spec.rb
+  io/buffer/empty_spec.rb
+  io/buffer/external_spec.rb
+  io/buffer/for_spec.rb
+  io/buffer/free_spec.rb
+  io/buffer/initialize_spec.rb
+  io/buffer/internal_spec.rb
+  io/buffer/locked_spec.rb
+  io/buffer/map_spec.rb
+  io/buffer/mapped_spec.rb
+  io/buffer/not_spec.rb
+  io/buffer/null_spec.rb
+  io/buffer/or_spec.rb
+  io/buffer/private_spec.rb
+  io/buffer/readonly_spec.rb
+  io/buffer/resize_spec.rb
+  io/buffer/shared_spec.rb
+  io/buffer/string_spec.rb
+  io/buffer/transfer_spec.rb
+  io/buffer/valid_spec.rb
+  io/buffer/xor_spec.rb
   io/close_spec.rb
   io/copy_stream_spec.rb
   io/fcntl_spec.rb
