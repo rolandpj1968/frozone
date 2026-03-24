@@ -17,11 +17,6 @@ class NilClass
   def =~(_) = nil
   def <=>(other) = nil
 
-  def self.allocate
-    raise TypeError, "allocate is not allowed for NilClass"
-  end
-
-  def self.new(*)
-    raise NoMethodError, "undefined method 'new' for NilClass:Class"
-  end
+  def self.allocate = raise(TypeError, "allocate is not allowed for NilClass")
+  def self.new(*) = raise(NoMethodError, "undefined method 'new' for NilClass:Class")
 end

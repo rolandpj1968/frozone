@@ -7,11 +7,6 @@ class FalseClass
   def |(other) = other ? true : false
   def ^(other) = other ? true : false
 
-  def self.allocate
-    raise TypeError, "allocate is not allowed for FalseClass"
-  end
-
-  def self.new(*)
-    raise NoMethodError, "undefined method 'new' for FalseClass:Class"
-  end
+  def self.allocate = raise(TypeError, "allocate is not allowed for FalseClass")
+  def self.new(*) = raise(NoMethodError, "undefined method 'new' for FalseClass:Class")
 end

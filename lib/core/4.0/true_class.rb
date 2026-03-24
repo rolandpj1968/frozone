@@ -7,11 +7,6 @@ class TrueClass
   def |(other) = true
   def ^(other) = other ? false : true
 
-  def self.allocate
-    raise TypeError, "allocate is not allowed for TrueClass"
-  end
-
-  def self.new(*)
-    raise NoMethodError, "undefined method 'new' for TrueClass:Class"
-  end
+  def self.allocate = raise(TypeError, "allocate is not allowed for TrueClass")
+  def self.new(*) = raise(NoMethodError, "undefined method 'new' for TrueClass:Class")
 end
