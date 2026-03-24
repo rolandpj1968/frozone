@@ -1,5 +1,9 @@
 require 'optparse'
 
+# Detect when running inside an outer Frozone (RUBY_DESCRIPTION starts with "frozone").
+# Inner Frozone-land has no AstCache, no parser require needed.
+$is_inner = defined?(RUBY_DESCRIPTION) && RUBY_DESCRIPTION.to_s.start_with?('frozone')
+
 require_relative 'lib/frozone/vm/vm'
 
 options = {
@@ -36,10 +40,12 @@ if options[:parser] == :wq
   Frozone::Vm::Parser = Frozone::Vm::WqParser
 end
 
-if options[:ast_cache]
-  Frozone::Vm::AstCache.cleanup_old_versions
-else
-  Frozone::Vm::AstCache.disable!
+unless $is_inner
+  if options[:ast_cache]
+    Frozone::Vm::AstCache.cleanup_old_versions
+  else
+    Frozone::Vm::AstCache.disable!
+  end
 end
 
 options[:argv] = ARGV
