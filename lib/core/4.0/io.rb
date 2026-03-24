@@ -111,7 +111,10 @@ class IO
   end
   def stat = Intrinsics.io_stat(self)
   def inspect = Intrinsics.io_inspect(self)
-  def read(len = nil, buf = nil) = Intrinsics.io_read(self, len, buf)
+  def read(len = nil, buf = nil)
+    buf = buf.to_str if buf && !buf.is_a?(String) && buf.respond_to?(:to_str)
+    Intrinsics.io_read(self, len, buf)
+  end
   def lineno
     raise IOError, "closed stream" if closed?
     raise IOError, "not opened for reading" unless Intrinsics.io_readable?(self)

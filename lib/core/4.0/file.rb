@@ -117,7 +117,24 @@ class File < IO
   def self.mtime(path) = Intrinsics.file_mtime(_coerce_path(path))
   def self.ctime(path) = Intrinsics.file_ctime(_coerce_path(path))
   def self.birthtime(path) = Intrinsics.file_birthtime(_coerce_path(path))
-  def self.read(path, length = nil, offset = nil, **opts) = Intrinsics.file_read(_coerce_path(path))
+  def self.read(path, length = nil, offset = nil, **opts)
+    mode = opts.delete(:mode)
+    open_opts = opts
+    if mode || !open_opts.empty?
+      open_mode = mode || 'r'
+      open(path, open_mode, **open_opts) do |f|
+        f.seek(offset) if offset && offset != 0
+        length ? f.read(length) : f.read
+      end
+    elsif length || (offset && offset != 0)
+      open(path, 'r') do |f|
+        f.seek(offset) if offset && offset != 0
+        length ? f.read(length) : f.read
+      end
+    else
+      Intrinsics.file_read(_coerce_path(path))
+    end
+  end
   def self.realpath(path, base = nil) = Intrinsics.file_realpath(_coerce_path(path), base)
   def self.realdirpath(path, base = nil) = Intrinsics.file_realdirpath(_coerce_path(path), base)
   def self.split(path) = Intrinsics.file_split(_coerce_path(path))
