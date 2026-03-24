@@ -295,11 +295,13 @@ module Frozone
         def collect_refinements_from_module(mod)
           refs = {}
           return refs unless mod.is_a?(ModuleObject)
-          # Collect from the module itself
-          refine_map = mod.instance_variable_get(:@refinements)
-          if refine_map.is_a?(::Hash)
-            refine_map.each do |klass, ref_mod|
-              refs[klass.object_id] ||= ref_mod
+          # Collect from the module itself — stored as Frozone ivar @__refinements__
+          # (a Frozone HashObject with IntObject keys = klass.object_id values)
+          refine_map_obj = mod.get_ivar(:@__refinements__)
+          if fhash?(refine_map_obj)
+            refine_map_obj.raw.each do |k, v|
+              klass_id = fint?(k) ? k.raw : k
+              refs[klass_id] ||= v if v.is_a?(ModuleObject)
             end
           end
           # Depth-first through included modules (not prepended, not superclass)

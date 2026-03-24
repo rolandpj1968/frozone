@@ -846,8 +846,17 @@ module Frozone
             chain.each { |m| eval_scopes << m unless eval_scopes.include?(m) }
           end
           new_frame = Frame.new(receiver, parser.top_level_locals, eval_scopes)
-          # Inherit active refinements from the calling frame (lexical scope for eval)
-          new_frame.active_refinements = context.frame.active_refinements if context.frame&.active_refinements
+          # Inherit active refinements from the calling lexical scope for eval.
+          # Walk up the frame stack (eval should inherit call-site refinements even through
+          # intermediate method frames like `send`).
+          eval_refs = nil
+          f = context.frame
+          while f
+            eval_refs = f.active_refinements
+            break if eval_refs && !eval_refs.empty?
+            f = f.parent_frame
+          end
+          new_frame.active_refinements = eval_refs if eval_refs && !eval_refs.empty?
           context.push_frame(new_frame)
           context.scopes << receiver
           begin
@@ -1036,7 +1045,7 @@ module Frozone
         def object_method(context, receiver, name_obj)
           name = sym_name_coercing(context, name_obj)
           # Check active refinements first — `method(:foo)` with refinements active should find refined methods
-          active_refinements = context&.frame&.active_refinements
+          active_refinements = caller_active_refinements(context)
           m = if active_refinements && !active_refinements.empty?
                 receiver.lookup_method_with_refinements(name, active_refinements)
               else
@@ -1080,7 +1089,7 @@ module Frozone
 
         def object_public_method(context, receiver, name_obj)
           name = sym_name_coercing(context, name_obj)
-          active_refinements = context&.frame&.active_refinements
+          active_refinements = caller_active_refinements(context)
           m = if active_refinements && !active_refinements.empty?
                 receiver.lookup_method_with_refinements(name, active_refinements)
               else
@@ -1337,8 +1346,10 @@ module Frozone
         def unbound_method_eq(_, a, b)
           return FFALSE unless a.is_a?(UnboundMethodObject) && b.is_a?(UnboundMethodObject)
           # Two unbound methods are equal if they have the same owner and same underlying method body.
-          # Aliases have different names but the same raw_method — they should compare equal.
-          same = a.unbound_owner.equal?(b.unbound_owner) && a.raw_method.equal?(b.raw_method)
+          # Aliases have different names but the same body AST node — they should compare equal.
+          same = a.unbound_owner.equal?(b.unbound_owner) &&
+                 (a.raw_method.equal?(b.raw_method) ||
+                  (a.raw_method.is_a?(Method) && b.raw_method.is_a?(Method) && a.raw_method.body.equal?(b.raw_method.body)))
           n2f_bool(same)
         end
 

@@ -106,7 +106,7 @@ module Frozone
             end
           end
           # Check active refinements first (refinements can add methods visible to respond_to?)
-          active_refinements = context&.frame&.active_refinements
+          active_refinements = caller_active_refinements(context)
           m = if active_refinements && !active_refinements.empty?
                 v.lookup_method_with_refinements(method_name, active_refinements)
               else
