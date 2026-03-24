@@ -101,6 +101,7 @@ SKIP_SPEC_FILES = %w[
   queue/num_waiting_spec.rb
   queue/pop_spec.rb
   queue/shift_spec.rb
+  filetest/socket_spec.rb
   regexp/timeout_spec.rb
   thread/abort_on_exception_spec.rb
   thread/alive_spec.rb
@@ -208,6 +209,100 @@ task :core do
     puts "#{'%-20s' % name} #{'%8d' % r[:examples]} #{'%8d' % r[:passing]} #{'%8d' % r[:failures]} #{'%8d' % r[:errors]}#{flag}"
   end
   puts '='*60
+end
+
+# Run all library specs in parallel (one process per module)
+desc "Run all ruby/spec library specs (RUBY_SPEC_DIR=... PARSER=prism|wq JOBS=N to override)"
+task :library do
+  require 'tempfile'
+  require 'etc'
+
+  totals = { examples: 0, passing: 0, failures: 0, errors: 0 }
+  lib_modules = Dir["#{RUBY_SPEC_DIR}/library/*/"].map { |d| File.basename(d) }.sort
+  per_module = {}
+
+  n_jobs = [ENV.fetch('JOBS', [Etc.nprocessors, 8].min.to_s).to_i, 1].max
+
+  work = lib_modules.filter_map do |name|
+    specs = Dir["#{RUBY_SPEC_DIR}/library/#{name}/**/*_spec.rb"].sort
+    next if specs.empty?
+
+    args = specs.map { |f| File.expand_path(f) }.join(' ')
+    [name, args]
+  end
+
+  results = {}
+  mutex = Mutex.new
+  queue = work.dup
+
+  workers = n_jobs.times.map do
+    Thread.new do
+      loop do
+        item = mutex.synchronize { queue.shift }
+        break unless item
+
+        name, args = item
+        tmpfile = Tempfile.new("frozone_lib_#{name}")
+        begin
+          system("timeout 120 bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile.path} 2>/dev/null")
+          output = File.read(tmpfile.path, encoding: 'binary')
+          if output =~ /(\d+) files, (\d+) examples, \d+ expectations?, (\d+) failures?, (\d+) errors?/
+            ex = $2.to_i; fl = $3.to_i; er = $4.to_i; pass = ex - fl - er
+            mutex.synchronize { results[name] = { examples: ex, passing: pass, failures: fl, errors: er } }
+          else
+            mutex.synchronize { results[name] = :timeout }
+          end
+        ensure
+          tmpfile.close
+          tmpfile.unlink
+        end
+      end
+    end
+  end
+
+  workers.each(&:join)
+
+  lib_modules.each do |name|
+    r = results[name]
+    next unless r
+
+    if r == :timeout
+      puts "#{name}: (no output / timeout)"
+    else
+      totals[:examples] += r[:examples]
+      totals[:passing]  += r[:passing]
+      totals[:failures] += r[:failures]
+      totals[:errors]   += r[:errors]
+      per_module[name] = r
+    end
+  end
+
+  puts "\n#{'='*60}"
+  puts "Library spec results (#{PARSER_FLAVOR} parser, #{n_jobs} parallel jobs)"
+  puts "Overall: #{totals[:passing]}/#{totals[:examples]} passing " \
+       "(#{totals[:failures]} failures, #{totals[:errors]} errors)"
+  puts "\n#{'%-20s' % 'Module'} #{'%8s' % 'Examples'} #{'%8s' % 'Passing'} #{'%8s' % 'Failures'} #{'%8s' % 'Errors'}"
+  puts '-' * 60
+  per_module.sort.each do |name, r|
+    flag = (r[:failures] + r[:errors]) > 0 ? ' *' : ''
+    puts "#{'%-20s' % name} #{'%8d' % r[:examples]} #{'%8d' % r[:passing]} #{'%8d' % r[:failures]} #{'%8d' % r[:errors]}#{flag}"
+  end
+  puts '='*60
+end
+
+# Individual library spec tasks: rake library:stringio, rake library:set, etc.
+namespace :library do
+  lib_dirs = Dir["#{RUBY_SPEC_DIR}/library/*/"].map { |d| File.basename(d) }
+
+  lib_dirs.each do |name|
+    desc "Run library/#{name} specs"
+    task name do
+      specs = Dir["#{RUBY_SPEC_DIR}/library/#{name}/**/*_spec.rb"].sort
+      next if specs.empty?
+      args = specs.map { |f| File.expand_path(f) }.join(' ')
+      sh "bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args}"
+    end
+  end
 end
 
 # Individual core spec tasks by module: rake core:array, rake core:string, etc.

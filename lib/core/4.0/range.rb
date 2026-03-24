@@ -528,6 +528,7 @@ class Range
     if n_f > 0
       diff = e.to_f - b.to_f
       return 0 if diff < 0
+      return Float::INFINITY if diff == Float::INFINITY
       if n.is_a?(Integer) && b.is_a?(Integer) && e.is_a?(Integer)
         diff_i = e - b
         excl ? (diff_i <= 0 ? 0 : (diff_i - 1) / n + 1) : diff_i / n + 1

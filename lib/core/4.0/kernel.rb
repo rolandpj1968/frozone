@@ -55,7 +55,10 @@ module Kernel
   def select(read_ios, write_ios = nil, error_ios = nil, timeout = nil) = IO.select(read_ios, write_ios, error_ios, timeout)
   def exit(code = true)  = __kernel_exit__(code)
   def exit!(code = false) = __kernel_exit__(code)
-  def srand(*args) = Intrinsics.kernel_srand(self, args.empty? ? nil : __coerce_to_int__(args[0]))
+  def srand(*args)
+    seed = args.empty? || args[0].nil? ? nil : __coerce_to_int__(args[0])
+    Intrinsics.kernel_srand(self, seed)
+  end
   def to_enum(method_name = :each, *args, **kwargs, &size_block) = Enumerator._from_method(self, method_name, args, size_block, kwargs)
   alias enum_for to_enum
 

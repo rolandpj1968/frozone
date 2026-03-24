@@ -1252,7 +1252,14 @@ class Array
 
   def product(*others, &block)
     arrays = [self] + others.map { |o|
-      o.is_a?(Array) ? o : __coerce_to_ary__(o)
+      next o if o.is_a?(Array)
+      begin
+        result = o.to_ary
+      rescue NoMethodError
+        raise TypeError, "no implicit conversion of #{o.class} into Array"
+      end
+      raise TypeError, "no implicit conversion of #{o.class} into Array (to_ary should return Array, not #{result.class})" unless result.is_a?(Array)
+      result
     }
     # Check for unreasonably large product
     total = arrays.reduce(1) { |acc, a| acc * a.length }

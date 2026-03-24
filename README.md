@@ -125,13 +125,25 @@ Run with `bundle exec rake language` (or `rake language:NAME` for a single spec)
 
 **Prism parser: 2615 / 2630 passing** — as of 2026-03-24 (v4.0.1)
 
-Pattern matching is now fully implemented. Remaining failures/errors:
+Specs with 100% pass rate:
+`alias`, `and`, `array`, `assignments`, `BEGIN`, `block`, `break`, `case`, `class`,
+`comment`, `constants`, `defined`, `def`, `delegation`, `encoding`, `END`, `ensure`,
+`file`, `for`, `hash`, `heredoc`, `if`, `it_parameter`, `keyword_arguments`,
+`lambda`, `line`, `loop`, `match`, `metaclass`, `method`, `module`, `next`, `not`,
+`numbered_parameters`, `numbers`, `optional_assignments`, `order`, `or`,
+`precedence`, `private`, `proc`, `range`, `redo`, `regexp`, `rescue`,
+`reserved_keywords`, `retry`, `return`, `safe_navigator`, `safe`, `send`,
+`singleton_class`, `source_encoding`, `string`, `super`, `symbol`, `throw`,
+`undef`, `unless`, `until`, `variables`, `while`, `yield`
+
+Remaining failures:
 
 | Spec | Result | Notes |
 |------|--------|-------|
 | magic_comment | 10 failures | stdin magic comment tests (no stdin support in spec runner) |
 | class_variable | 1 failure | class variable overtaken in ancestor edge case |
 | execution | 1 failure | `$LOAD_PATH` sitelibdir `@gem_prelude_index` |
+| predefined | 1 failure | `$LOAD_PATH.resolve_feature_path` for `.so` files |
 | pattern_matching | 3 errors | refinements + deconstruct edge cases |
 
 **WqParser:** similar pass rate (2 additional errors for non-ASCII constant lexing)
@@ -186,3 +198,31 @@ Modules with 100% pass rate:
 | time | 774 | 773 | 1 | 0 | |
 | tracepoint | 75 | — | 5 | 71 | intentionally unimplemented |
 | unboundmethod | 86 | 80 | 3 | 3 | |
+
+## ruby/spec Library Spec Status
+
+Tested against [ruby/spec](https://github.com/ruby/spec) library specs.
+Run with `bundle exec rake library` (or `rake library:NAME` for a single module).
+
+**Overall: 249 / 386 passing** — as of 2026-03-24 (Prism parser)
+
+Many modules report 0 examples because they require C extensions (openssl, bigdecimal, etc.) that Frozone cannot load.
+`delegate`, `expect`, `mkmf`, `objectspace`, `stringio`, `weakref` timed out in the parallel runner.
+
+Modules with 100% pass rate:
+`find`, `optionparser`, `pp`, `random`, `securerandom`, `shellwords`, `singleton`
+
+| Module | Examples | Passing | Failures | Errors | Notes |
+|---|---:|---:|---:|---:|---|
+| English | 26 | 25 | 1 | 0 | |
+| date | 6 | 0 | 0 | 6 | date gem not available |
+| etc | 39 | 2 | 6 | 31 | C extension |
+| io-wait | 28 | 3 | 5 | 20 | IO wait/nonblock not implemented |
+| open3 | 4 | 0 | 0 | 4 | subprocess piping |
+| pathname | 70 | 25 | 21 | 24 | Pathname not fully implemented |
+| rbconfig | 16 | 14 | 1 | 1 | |
+| rubygems | 2 | 0 | 0 | 2 | |
+| thread | 2 | 0 | 2 | 0 | threading primitives |
+| time | 8 | 0 | 0 | 8 | time library edge cases |
+| timeout | 7 | 3 | 0 | 4 | |
+| uri | 97 | 96 | 0 | 1 | |

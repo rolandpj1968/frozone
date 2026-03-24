@@ -30,14 +30,16 @@ class Object < BasicObject
     eq.nil? ? nil : (eq ? 0 : nil)
   end
 
-  def instance_eval(str = :__unset__, file = nil, line = nil, &block)
+  def instance_eval(*args, &block)
     if block
-      raise ArgumentError, "wrong number of arguments (given #{[str, file, line].count { |a| !a.equal?(:__unset__) && !a.nil? }}, expected 0)" unless str.equal?(:__unset__) && file.nil? && line.nil?
+      raise ArgumentError, "wrong number of arguments (given #{args.size}, expected 0)" unless args.empty?
       Intrinsics.object_instance_eval(self, block)
-    elsif str.equal?(:__unset__)
+    elsif args.empty?
       raise ArgumentError, "wrong number of arguments (given 0, expected 1..3)"
+    elsif args.size > 3
+      raise ArgumentError, "wrong number of arguments (given #{args.size}, expected 1..3)"
     else
-      Intrinsics.object_instance_eval_string(self, str, file, line)
+      Intrinsics.object_instance_eval_string(self, args[0], args[1], args[2])
     end
   end
 
