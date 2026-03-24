@@ -3,13 +3,14 @@ require_relative '../ast'
 module Frozone
   module Vm
     class Parser
-      def initialize(text, dump_ast = false, filepath: nil, outer_locals: nil, encoding: nil, line: nil)
+      def initialize(text, dump_ast = false, filepath: nil, outer_locals: nil, encoding: nil, line: nil, forwarding: nil)
         @text = text
         @dump_ast = dump_ast
         @filepath = filepath
         @outer_locals = outer_locals
         @encoding = encoding
         @line = line
+        @forwarding = forwarding  # [:*], [:**], [:&], [:'...'] or combination
       end
 
       def ast(raise_syntax_errors: false)
@@ -22,15 +23,23 @@ module Frozone
         if raise_syntax_errors && @outer_locals&.any?
           pre_result = Prism.parse(@text, **parse_opts)
           if pre_result.errors.any? { |e| e.message.include?("yield") }
-            msg = pre_result.errors.map(&:message).first
-            raise FrozoneException.make(:SyntaxError, msg)
+            err = pre_result.errors.first
+            line_no = err.location.start_line
+            prefix = @filepath ? "#{@filepath}:#{line_no}: " : ""
+            raise FrozoneException.make(:SyntaxError, "#{prefix}#{err.message}")
           end
         end
-        parse_opts[:scopes] = [@outer_locals] if @outer_locals&.any?
+        if @outer_locals&.any? || @forwarding&.any?
+          scope = Prism.scope(locals: @outer_locals || [], forwarding: @forwarding || [])
+          parse_opts[:scopes] = [scope]
+        end
         result = Prism.parse(@text, **parse_opts)
 
         if raise_syntax_errors && result.errors.any?
-          msg = result.errors.map(&:message).first
+          err = result.errors.first
+          line_no = err.location.start_line
+          prefix = @filepath ? "#{@filepath}:#{line_no}: " : ""
+          msg = "#{prefix}#{err.message}"
           raise FrozoneException.make(:SyntaxError, msg)
         end
 

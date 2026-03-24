@@ -677,12 +677,41 @@ module Frozone
           arr
         end
 
+        # Compute Prism forwarding flags from the binding frame's method, enabling
+        # eval("foo(*)")  inside  def bar(*); ... end  etc.
+        def compute_eval_forwarding(binding_frame)
+          m = binding_frame.method_frame&.current_method
+          return nil unless m.is_a?(Method)
+          flags = []
+          case m.rest_param
+          when :__anon_rest__ then flags << :*
+          when :__forward_args__, :__forward_kwargs__, :__forward_block__
+            return [:'...']  # def foo(...) — full forwarding
+          end
+          flags << :** if m.kw_rest_param == :__anon_kwargs__
+          flags << :& if m.block_param == :__anon_block__
+          flags.empty? ? nil : flags
+        end
+
         def kernel_eval(context, _receiver, code_obj, binding_arg = FNIL, filename_arg = FNIL, lineno_arg = FNIL)
-          return FNIL unless fstr?(code_obj)
+          unless fstr?(code_obj)
+            begin
+              coerced = code_obj.dispatch(context, :to_str, [], {})
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{code_obj.class_object.name} into String") unless fstr?(coerced)
+              code_obj = coerced
+            rescue FrozoneException => e
+              raise unless e.frozone_class_name == :NoMethodError
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{code_obj.class_object.name} into String")
+            end
+          end
           code = code_obj.raw
           eval_filename = f2n_raw(filename_arg)
           eval_lineno = fint?(lineno_arg) ? lineno_arg.raw : nil
           # If a BindingObject is passed, use its captured frame; otherwise use the caller's frame.
+          # Non-nil/false non-Binding values raise TypeError.
+          unless fnil?(binding_arg) || ffalse?(binding_arg)
+            raise FrozoneException.make(:TypeError, "wrong argument type #{binding_arg.class_object.name} (expected binding)") unless binding_arg.is_a?(BindingObject)
+          end
           binding_frame = if binding_arg.is_a?(BindingObject)
                             binding_arg.captured_frame
                           else
@@ -708,7 +737,10 @@ module Frozone
           code_enc = code.encoding != Encoding::UTF_8 ? code.encoding : nil
           # Ruby 3.4+: __FILE__ inside eval returns "(eval at file:line)" using the caller's location
           eval_filepath = eval_filename || (context.call_site ? "(eval at #{context.call_site})" : "(eval)")
-          parser = Parser.new(code, outer_locals: outer_locals, encoding: code_enc, filepath: eval_filepath, line: eval_lineno)
+          # Compute anonymous parameter forwarding flags from the binding method's params
+          # so that eval("foo(*)") works inside def bar(*); ... end
+          eval_forwarding = compute_eval_forwarding(binding_frame)
+          parser = Parser.new(code, outer_locals: outer_locals, encoding: code_enc, filepath: eval_filepath, line: eval_lineno, forwarding: eval_forwarding)
           begin
             ast = parser.ast(raise_syntax_errors: true)
           rescue FrozoneException => e
@@ -722,7 +754,9 @@ module Frozone
           end
           # Create eval frame using binding_frame's self/scopes (not the eval method frame),
           # so that `def`, `alias`, etc. use the correct lexical scope.
-          new_frame = Frame.new(binding_frame.the_self, parser.top_level_locals, binding_frame.scopes)
+          # When called as ModuleName.eval (no binding), MRI uses the receiver as self.
+          eval_self = (!binding_arg.is_a?(BindingObject) && _receiver.is_a?(ModuleObject)) ? _receiver : binding_frame.the_self
+          new_frame = Frame.new(eval_self, parser.top_level_locals, binding_frame.scopes)
           new_frame.block = binding_frame.block
           new_frame.parent_frame = binding_frame
           # Track which locals are eval-native (not from any outer scope).
@@ -733,15 +767,30 @@ module Frozone
           # lambda frame), walk up parent frames to find the nearest closure def context (e.g.
           # instance_eval block or method frame). Skip this walk when the binding frame's self
           # is already a class/module — in that case, method_def.rb uses the_self directly.
-          inherited_def_scope = binding_frame.def_scope
-          if !inherited_def_scope && !binding_frame.the_self.is_a?(ModuleObject)
-            walk = binding_frame.parent_frame
-            while walk && !inherited_def_scope
-              inherited_def_scope = walk.def_scope
-              walk = walk.parent_frame
+          # Exception: when eval is called as ModuleName.eval (no binding), the module IS the
+          # def target, so skip def_scope inheritance (let method_def.rb use the_self directly).
+          module_receiver_no_binding = !binding_arg.is_a?(BindingObject) && _receiver.is_a?(ModuleObject)
+          inherited_def_scope = nil
+          unless module_receiver_no_binding
+            inherited_def_scope = binding_frame.def_scope
+            if !inherited_def_scope && !binding_frame.the_self.is_a?(ModuleObject)
+              walk = binding_frame.parent_frame
+              while walk && !inherited_def_scope
+                inherited_def_scope = walk.def_scope
+                walk = walk.parent_frame
+              end
             end
           end
           new_frame.def_scope = inherited_def_scope
+          # Inherit active_refinements from binding_frame chain (for eval inside using/refine blocks)
+          eval_refs = nil
+          f = binding_frame
+          while f
+            eval_refs = f.active_refinements
+            break if eval_refs && !eval_refs.empty?
+            f = f.parent_frame
+          end
+          new_frame.active_refinements = eval_refs if eval_refs && !eval_refs.empty?
           new_frame.method_frame = binding_frame.method_frame
           # Inherit current_method so that __method__ inside eval returns the binding's method.
           # Walk up parent_frame to skip transparent dispatch methods (__send__, send, public_send).
