@@ -16,3 +16,10 @@ class PP
   end
 end
 
+module Kernel
+  def pp(*objs)
+    objs.each { |obj| PP.pp(obj) }
+    objs.length == 1 ? objs[0] : objs
+  end
+end
+
