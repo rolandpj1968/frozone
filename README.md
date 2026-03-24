@@ -21,13 +21,22 @@ bundle exec ruby frozone.rb --parser=wq frozone.rb --parser=wq -e "puts 'hello f
 # => hello from frozone²
 ```
 
+Works with both parsers (Prism is the default):
+
+```
+bundle exec ruby frozone.rb frozone.rb -e "puts 'hello from frozone²'"
+# => hello from frozone²
+```
+
 **The cheat:** when `frozone.rb` loads inside the outer Frozone, the inner
 `Frozone::Vm::Vm` class is replaced by a thin proxy that routes all evaluation
 back to the outer Frozone's own MRI-backed evaluator via a `kernel_run_vm`
 intrinsic. All Frozone source files are pre-stubbed in the inner Frozone's
 `$LOADED_FEATURES` so `require` calls inside Frozone's own code are no-ops —
 the inner Frozone never actually loads `lib/core/4.0/` or its own VM
-infrastructure.
+infrastructure. The inner `frozone.rb` detects it is running inside Frozone via
+`RUBY_DESCRIPTION.start_with?('frozone')` (`$is_inner = true`) and skips
+AstCache initialization.
 
 In effect, Frozone² is the outer Frozone's evaluator wearing a thin Frozone-land
 costume. True self-hosting — where the inner Frozone runs its own AST evaluator
