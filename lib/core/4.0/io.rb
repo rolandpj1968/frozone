@@ -253,12 +253,12 @@ class IO
     self.new(fd, mode, **opts, &block)
   end
 
-  def self.open(fd_or_path, mode = 'r', **opts, &block)
+  def self.open(fd_or_path, mode = nil, **opts, &block)
     if fd_or_path.is_a?(Integer)
       self.new(fd_or_path, mode, **opts, &block)
     else
       # Fall through to File.open equivalent for path-based open
-      fd = self.sysopen(fd_or_path, mode)
+      fd = self.sysopen(fd_or_path, mode || opts[:mode] || 'r')
       io = self.new(fd, mode, **opts)
       if block
         begin

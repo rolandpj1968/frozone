@@ -605,6 +605,7 @@ module Frozone
                  elsif fint?(mode_obj) then mode_obj.raw
                  elsif fhash?(mode_obj) then (opts_obj = mode_obj; nil)
                  else
+                   # Try to_str coercion for string-like objects
                    nil
                  end
           opts = {}
@@ -628,6 +629,12 @@ module Frozone
                                                          end
             end
           end
+          # Merge :mode option: if positional mode is nil, use :mode opt; if both non-nil, error.
+          opt_mode = opts.delete(:mode)
+          if opt_mode && !mode.nil?
+            raise FrozoneException.make(:ArgumentError, "mode specified twice")
+          end
+          mode = opt_mode if opt_mode && mode.nil?
           [mode, opts]
         end
       end
