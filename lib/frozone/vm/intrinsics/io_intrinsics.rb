@@ -231,7 +231,7 @@ module Frozone
             line = if limit.nil?
               receiver.native_io.gets(sep)
             elsif sep.nil?
-              receiver.native_io.read(limit)
+              receiver.native_io.gets(nil, limit)
             else
               receiver.native_io.gets(sep, limit)
             end

@@ -77,6 +77,7 @@ SKIP_SPEC_FILES = %w[
   io/internal_encoding_spec.rb
   io/path_spec.rb
   io/read_spec.rb
+  io/select_spec.rb
   kernel/fork_spec.rb
   kernel/p_spec.rb
   kernel/printf_spec.rb

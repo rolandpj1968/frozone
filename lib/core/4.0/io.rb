@@ -140,6 +140,7 @@ class IO
     else
       raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
     end
+    raise ArgumentError, "invalid limit: 0 for #{self.class}#gets" if lim == 0
     line = Intrinsics.io_gets(self, sep, lim)
     line = line.chomp if chomp && !line.nil?
     if line.nil?
@@ -156,11 +157,20 @@ class IO
     raise EOFError, "end of file reached" if line.nil?
     line
   end
-  def readlines(*args, chomp: false)
+  def readlines(*args, chomp: false, **_opts)
     sep, lim = __parse_sep_limit__(args)
+    raise ArgumentError, "invalid limit: 0 for #{self.class}#readlines" if lim == 0
     lines = []
-    while (line = gets(sep, *[lim].compact))
-      lines << (chomp ? line.chomp : line)
+    while (line = Intrinsics.io_gets(self, sep, lim))
+      @lineno = (@lineno || 0) + 1
+      $. = @lineno
+      if chomp
+        line = if sep.nil? then line
+               elsif sep.empty? then line.sub(/\n{2,}\z/, '')
+               else line.chomp(sep)
+               end
+      end
+      lines << line
     end
     lines
   end
@@ -196,8 +206,20 @@ class IO
   def each_line(*args, chomp: false, &block)
     return to_enum(:each_line, *args, chomp: chomp) unless block
     sep, lim = __parse_sep_limit__(args)
+    raise ArgumentError, "invalid limit: 0 for #{self.class}#each_line" if lim == 0
     while (line = Intrinsics.io_gets(self, sep, lim))
-      block.call(chomp ? line.chomp : line)
+      @lineno = (@lineno || 0) + 1
+      $. = @lineno
+      if chomp
+        line = if sep.nil?
+          line  # slurp mode: no chomp
+        elsif sep.empty?
+          line.sub(/\n{2,}\z/, '')  # paragraph mode: strip 2+ trailing newlines only
+        else
+          line.chomp(sep)  # strip the separator
+        end
+      end
+      block.call(line)
     end
     self
   end
@@ -373,12 +395,26 @@ class IO
         [nil, nil]
       elsif !arg.respond_to?(:to_str) && arg.respond_to?(:to_int)
         [$/, arg.to_int]
+      elsif arg.respond_to?(:to_str)
+        [arg.to_str, nil]
       else
-        [arg.respond_to?(:to_str) ? arg.to_str : arg, nil]
+        raise TypeError, "no implicit conversion of #{arg.class} into String"
       end
     when 2
-      sep = args[0].nil? ? nil : (args[0].respond_to?(:to_str) ? args[0].to_str : args[0])
-      lim = args[1].respond_to?(:to_int) ? args[1].to_int : Integer(args[1])
+      sep = if args[0].nil?
+        nil
+      elsif args[0].respond_to?(:to_str)
+        args[0].to_str
+      else
+        raise TypeError, "no implicit conversion of #{args[0].class} into String"
+      end
+      lim = if args[1].is_a?(Integer)
+        args[1]
+      elsif args[1].respond_to?(:to_int)
+        args[1].to_int
+      else
+        raise TypeError, "no implicit conversion of #{args[1].class} into Integer"
+      end
       [sep, lim]
     else
       raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
@@ -412,12 +448,26 @@ class IO
         [nil, nil]
       elsif !arg.respond_to?(:to_str) && arg.respond_to?(:to_int)
         [$/, arg.to_int]
+      elsif arg.respond_to?(:to_str)
+        [arg.to_str, nil]
       else
-        [arg.respond_to?(:to_str) ? arg.to_str : arg, nil]
+        raise TypeError, "no implicit conversion of #{arg.class} into String"
       end
     when 2
-      sep = args[0].nil? ? nil : (args[0].respond_to?(:to_str) ? args[0].to_str : args[0])
-      lim = args[1].respond_to?(:to_int) ? args[1].to_int : Integer(args[1])
+      sep = if args[0].nil?
+        nil
+      elsif args[0].respond_to?(:to_str)
+        args[0].to_str
+      else
+        raise TypeError, "no implicit conversion of #{args[0].class} into String"
+      end
+      lim = if args[1].is_a?(Integer)
+        args[1]
+      elsif args[1].respond_to?(:to_int)
+        args[1].to_int
+      else
+        raise TypeError, "no implicit conversion of #{args[1].class} into Integer"
+      end
       [sep, lim]
     else
       raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
@@ -429,9 +479,17 @@ class IO
     return to_enum(:foreach, path, *args, chomp: chomp, **opts) unless block
     path = __coerce_path__(path)
     sep, lim = __parse_sep_limit__(args)
-    open(path, 'r', **opts) do |f|
+    raise ArgumentError, "invalid limit: 0 for IO.foreach" if lim == 0
+    io_mode = opts.key?(:mode) ? opts.delete(:mode) : 'r'
+    open(path, io_mode, **opts) do |f|
       while (line = f.gets(sep, *[lim].compact))
-        block.call(chomp ? line.chomp : line)
+        if chomp
+          line = if sep.nil? then line
+                 elsif sep.empty? then line.sub(/\n{2,}\z/, '')
+                 else line.chomp(sep)
+                 end
+        end
+        block.call(line)
       end
     end
     nil
@@ -473,7 +531,8 @@ class IO
 
   def self.readlines(path, *args, chomp: false, **opts)
     path = __coerce_path__(path)
-    open(path, 'r', **opts) do |f|
+    io_mode = opts.key?(:mode) ? opts.delete(:mode) : 'r'
+    open(path, io_mode, **opts) do |f|
       f.readlines(*args, chomp: chomp)
     end
   end
