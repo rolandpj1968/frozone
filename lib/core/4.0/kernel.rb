@@ -444,10 +444,7 @@ module Kernel
   alias kind_of? is_a?
   def eql?(other) = equal?(other)
   def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name, include_all)
-  def instance_of?(klass)
-    raise TypeError, "class or module required" unless Intrinsics.object_is_a(klass, Module)
-    Intrinsics.object_class(self).equal?(klass)
-  end
+  def instance_of?(klass) = Intrinsics.object_instance_of(self, klass)
   def suppress_warning; yield; end
   def suppress_keyword_warning; yield; end
   def caller(start = 1, length = nil) = Intrinsics.kernel_caller(self, start, length)

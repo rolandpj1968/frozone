@@ -64,6 +64,11 @@ module Frozone
           FFALSE
         end
 
+        def object_instance_of(_, v, klass)
+          raise FrozoneException.make(:TypeError, "class or module required") unless klass.is_a?(ModuleObject)
+          v.class_object.equal?(klass) ? FTRUE : FFALSE
+        end
+
         def object_ivar_set(_, v, name, value)
           check_frozen!(v)
           v.set_ivar(validated_ivar(name, v), value)
