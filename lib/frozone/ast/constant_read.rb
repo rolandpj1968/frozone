@@ -34,7 +34,7 @@ module Frozone
           val = autoload_scope ? autoload_scope.get_constant(@name) : nil
           val ||= autoload_scope ? autoload_scope.lookup_constant(@name) : nil
           unless val
-            Vm::Intrinsics.kernel_require(context, nil, Vm::StringObject.new(autoload_path))
+            Vm::Intrinsics.autoload_dispatch_require(context, autoload_path)
             # If the declaring scope didn't get the constant, warn once in verbose mode
             if autoload_scope && autoload_scope.get_constant(@name).nil?
               if Vm::GLOBALS.fetch(:"$VERBOSE", Vm::FalseObject::FALSE).truthy?

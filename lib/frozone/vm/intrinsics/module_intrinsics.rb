@@ -616,7 +616,7 @@ module Frozone
                 autoload_path ||= (!inherit_b ? nil : (!start.equal?(Core::OBJECT_CLASS) && Core::OBJECT_CLASS.lookup_autoload(sym, inherit: true)))
                 if autoload_path
                   begin
-                    kernel_require(context, nil, n2f_str(autoload_path))
+                    autoload_dispatch_require(context, autoload_path)
                   rescue FrozoneException, StandardError
                     # If require fails, fall through to const_missing
                   end
@@ -643,7 +643,7 @@ module Frozone
                 autoload_path ||= Core::OBJECT_CLASS.lookup_autoload(sym, inherit: true) unless start.equal?(Core::OBJECT_CLASS)
                 if autoload_path
                   begin
-                    kernel_require(context, nil, n2f_str(autoload_path))
+                    autoload_dispatch_require(context, autoload_path)
                     c = start.lookup_constant(sym)
                     c ||= Core::OBJECT_CLASS.lookup_constant(sym) unless start.equal?(Core::OBJECT_CLASS)
                   rescue FrozoneException, StandardError
@@ -718,6 +718,23 @@ module Frozone
             end
           end
           FNIL
+        end
+
+        # Dispatch require on main (via TOPLEVEL_BINDING) so mocks on main.require work.
+        # Falls back to kernel_require if dispatch fails.
+        def autoload_dispatch_require(context, path)
+          path_obj = n2f_str(path)
+          toplevel_binding = Core::OBJECT_CLASS.lookup_constant(:TOPLEVEL_BINDING)
+          main_obj = toplevel_binding.is_a?(BindingObject) ? toplevel_binding.captured_frame.the_self : nil
+          if main_obj
+            begin
+              main_obj.dispatch(context, :require, [path_obj], {})
+              return
+            rescue FrozoneException => e
+              raise unless e.frozone_class_name == :NoMethodError
+            end
+          end
+          kernel_require(context, nil, path_obj)
         end
 
         def module_autoload(context, receiver, name_obj, path_obj)

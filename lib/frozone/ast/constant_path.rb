@@ -54,7 +54,7 @@ module Frozone
           # Check for autoload before const_missing
           autoload_path = parent.lookup_autoload(@name, inherit: true)
           if autoload_path
-            Vm::Intrinsics.kernel_require(context, nil, Vm::StringObject.new(autoload_path))
+            Vm::Intrinsics.autoload_dispatch_require(context, autoload_path)
             # File loaded: if constant still not defined, remove autoload and fall through to const_missing
             c, owner = parent.lookup_constant_with_owner(@name, stop_at_object: stop)
             parent.remove_autoload(@name) if c.nil?

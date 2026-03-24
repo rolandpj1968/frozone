@@ -89,6 +89,10 @@ module Frozone
 
         scripts = @options[:scripts]
 
+        # Signal that the real main evaluation is starting (not core-library loading).
+        # Used in `evaluate` to set TOPLEVEL_BINDING only once for the main script.
+        @in_main_eval = true
+
         # if -e is present then ruby DOES NOT evaluate an ARGV file
         # Note: ruby -e 'ARGV.each {|f| load f}' file1.rb file2.rb file3.rb
         begin
@@ -441,7 +445,7 @@ module Frozone
         # but are NOT accessible on the caller's main object afterward.
         wrap_mod = Fiber[:load_wrap_module]
         # Track the primary (first) top-level main object for load(path,true) module inheritance.
-        Fiber[:main_object] ||= top_level_object unless wrap_mod
+        Fiber[:main_object] ||= top_level_object if @in_main_eval && !wrap_mod
         Core::OBJECT_CLASS.current_visibility = :private
         setup_main(top_level_object)
         if wrap_mod
@@ -466,8 +470,11 @@ module Frozone
         context.push_frame(frame)
         context.push_scope(top_level_scope)
         context.push_scope(wrap_mod) if wrap_mod
-        # Set TOPLEVEL_BINDING to the top-level frame binding
-        Core::OBJECT_CLASS.set_constant(:TOPLEVEL_BINDING, BindingObject.new(frame))
+        # Set TOPLEVEL_BINDING to the top-level frame binding (only for the first/real main evaluation,
+        # not during core-library loading or subsequent require/load calls).
+        if @in_main_eval && !wrap_mod && !Core::OBJECT_CLASS.lookup_constant(:TOPLEVEL_BINDING).is_a?(BindingObject)
+          Core::OBJECT_CLASS.set_constant(:TOPLEVEL_BINDING, BindingObject.new(frame))
+        end
 
         begin
           ast.evaluate(context)
