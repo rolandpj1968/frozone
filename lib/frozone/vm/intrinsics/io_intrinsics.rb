@@ -174,9 +174,19 @@ module Frozone
           end
         end
 
-        def io_new_from_fd(_, fd_obj, mode_obj = FNIL, opts_obj = FNIL)
-          fd = fint?(fd_obj) ? fd_obj.raw : fd_obj.raw.to_i
-          mode, opts = parse_io_mode(mode_obj, opts_obj)
+        def io_new_from_fd(context, fd_obj, mode_obj = FNIL, opts_obj = FNIL)
+          fd = if fint?(fd_obj) then fd_obj.raw
+               else
+                 begin
+                   coerced = fd_obj.dispatch(context, :to_int, [], {})
+                   raise FrozoneException.make(:TypeError, "no implicit conversion of #{fd_obj.class_object.name} into Integer") unless fint?(coerced)
+                   coerced.raw
+                 rescue FrozoneException => e
+                   raise unless e.frozone_class_name == :NoMethodError
+                   raise FrozoneException.make(:TypeError, "no implicit conversion of #{fd_obj.class_object.name} into Integer")
+                 end
+               end
+          mode, opts = parse_io_mode(context, mode_obj, opts_obj)
           explicit_enc = (mode.is_a?(::String) && mode.include?(':')) ||
                          opts.key?(:encoding) || opts.key?(:external_encoding)
           native_io = if mode && opts.empty? then ::IO.new(fd, mode)
@@ -597,16 +607,41 @@ module Frozone
           end
         end
 
+        # Coerce a Frozone object to a Ruby string via to_str dispatch.
+        def coerce_to_str_raw(context, obj, type_name = nil)
+          return nil if fnil?(obj)
+          return obj.raw if fstr?(obj)
+          begin
+            coerced = obj.dispatch(context, :to_str, [], {})
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{obj.class_object.name} into String") unless fstr?(coerced)
+            coerced.raw
+          rescue FrozoneException => e
+            raise unless e.frozone_class_name == :NoMethodError
+            raise FrozoneException.make(:TypeError, "no implicit conversion of #{obj.class_object.name} into String")
+          end
+        end
+
         # Parse IO.new mode and opts arguments.
         # Returns [mode, opts_hash] where mode is nil/String/Integer and opts_hash is a Ruby Hash.
-        def parse_io_mode(mode_obj, opts_obj)
+        def parse_io_mode(context, mode_obj, opts_obj)
           mode = if fnil?(mode_obj) then nil
                  elsif fstr?(mode_obj) then mode_obj.raw
                  elsif fint?(mode_obj) then mode_obj.raw
                  elsif fhash?(mode_obj) then (opts_obj = mode_obj; nil)
                  else
-                   # Try to_str coercion for string-like objects
-                   nil
+                   # Try to_str/to_int coercion
+                   begin
+                     coerced = mode_obj.dispatch(context, :to_str, [], {})
+                     fstr?(coerced) ? coerced.raw : nil
+                   rescue FrozoneException => e
+                     raise unless e.frozone_class_name == :NoMethodError
+                     begin
+                       coerced = mode_obj.dispatch(context, :to_int, [], {})
+                       fint?(coerced) ? coerced.raw : nil
+                     rescue FrozoneException
+                       nil
+                     end
+                   end
                  end
           opts = {}
           if fhash?(opts_obj)
@@ -623,11 +658,33 @@ module Frozone
                                                              name_ivar = v.get_ivar(:@name)
                                                              name_ivar && fstr?(name_ivar) ? name_ivar.raw : v
                                                            else
-                                                             v
+                                                             sym_k = fsym?(k) ? k.raw : k.to_s.to_sym
+                                                             if sym_k == :mode
+                                                               # Mode can be String or Integer: try to_str, then to_int
+                                                               begin
+                                                                 coerce_to_str_raw(context, v)
+                                                               rescue FrozoneException
+                                                                 begin
+                                                                   coerced = v.dispatch(context, :to_int, [], {})
+                                                                   fint?(coerced) ? coerced.raw : v
+                                                                 rescue FrozoneException
+                                                                   v
+                                                                 end
+                                                               end
+                                                             elsif %i[encoding external_encoding internal_encoding].include?(sym_k)
+                                                               coerce_to_str_raw(context, v) || v
+                                                             else
+                                                               v
+                                                             end
                                                            end
                                                          else v
                                                          end
             end
+          end
+          # Warn if :encoding is given alongside :external_encoding or :internal_encoding (MRI behavior)
+          if opts.key?(:encoding) && (opts.key?(:external_encoding) || opts.key?(:internal_encoding))
+            enc_val = opts.delete(:encoding)
+            Frozone::Vm.emit_warning(context, "Ignoring encoding parameter '#{enc_val}': external_encoding is used")
           end
           # Merge :mode option: if positional mode is nil, use :mode opt; if both non-nil, error.
           opt_mode = opts.delete(:mode)

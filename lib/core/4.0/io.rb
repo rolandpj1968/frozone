@@ -236,17 +236,9 @@ class IO
   end
 
   def self.new(fd, mode_or_opts = nil, **opts, &block)
+    warn "warning: IO::new() does not take block; use IO::open() instead" if block
     opts_arg = opts.empty? ? nil : opts
-    io = Intrinsics.io_new_from_fd(fd, mode_or_opts, opts_arg)
-    if block
-      begin
-        block.call(io)
-      ensure
-        io.close rescue nil
-      end
-    else
-      io
-    end
+    Intrinsics.io_new_from_fd(fd, mode_or_opts, opts_arg)
   end
 
   def self.for_fd(fd, mode = 'r', **opts, &block)
@@ -254,17 +246,41 @@ class IO
   end
 
   def self.open(fd_or_path, mode = nil, **opts, &block)
-    if fd_or_path.is_a?(Integer)
-      self.new(fd_or_path, mode, **opts, &block)
+    if fd_or_path.is_a?(Integer) || (!fd_or_path.is_a?(String) && fd_or_path.respond_to?(:to_int))
+      io = self.new(fd_or_path, mode, **opts)
+      return io unless block
+      block_error = nil
+      begin
+        block.call(io)
+      rescue Exception => block_error
+        raise
+      ensure
+        begin
+          io.close
+        rescue IOError => close_error
+          raise close_error unless close_error.message == 'closed stream' || block_error
+        rescue Exception => close_error
+          raise close_error unless block_error
+        end
+      end
     else
       # Fall through to File.open equivalent for path-based open
       fd = self.sysopen(fd_or_path, mode || opts[:mode] || 'r')
       io = self.new(fd, mode, **opts)
       if block
+        block_error = nil
         begin
           block.call(io)
+        rescue Exception => block_error
+          raise
         ensure
-          io.close rescue nil
+          begin
+            io.close
+          rescue IOError => close_error
+            raise close_error unless close_error.message == 'closed stream' || block_error
+          rescue Exception => close_error
+            raise close_error unless block_error
+          end
         end
       else
         io
