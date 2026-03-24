@@ -171,7 +171,7 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 22103 / 22875 passing (96.6%)** — as of 2026-03-24 (Prism parser, parallel run)
+**Overall: 22110 / 22875 passing (96.7%)** — as of 2026-03-24 (Prism parser, parallel run)
 
 `tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation).
 
@@ -179,9 +179,9 @@ Hanging specs (blocking IO, threading primitives, GC-dependent) are excluded via
 `conditionvariable`, `io`, `numeric`, `thread` have partial coverage due to hanging/blocking spec exclusions.
 
 Modules with 100% pass rate:
-`binding`, `builtin_constants`, `class`, `comparable`, `complex`, `data`, `dir`,
+`binding`, `builtin_constants`, `class`, `comparable`, `complex`, `conditionvariable`, `data`, `dir`,
 `enumerable`, `false`, `float`, `gc`, `hash`, `integer`, `main`, `marshal`, `matchdata`,
-`math`, `method`, `nil`, `proc`, `queue`, `range`, `rational`, `regexp`, `set`,
+`math`, `method`, `nil`, `numeric`, `proc`, `queue`, `range`, `rational`, `regexp`, `set`,
 `signal`, `symbol`, `systemexit`, `threadgroup`, `true`, `warning`
 
 | Module | Examples | Passing | Failures | Errors | Notes |
@@ -197,12 +197,10 @@ Modules with 100% pass rate:
 | fiber | 170 | 160 | 2 | 8 | scheduler/blocking API |
 | file | 939 | 933 | 0 | 6 | OS-level file ops |
 | filetest | 88 | 87 | 0 | 1 | |
-| integer | 603 | 603 | 0 | 0 | |
 | io | 820 | 552 | 38 | 230 | blocking/pipe/buffer specs skipped; interaction errors |
 | kernel | 2701 | 2606 | 30 | 65 | I/O, spawn, format edge cases |
 | module | 1058 | 1049 | 8 | 1 | |
 | mutex | 25 | 16 | 5 | 4 | threading primitives |
-| numeric | 338 | 331 | 5 | 2 | |
 | objectspace | 112 | 111 | 1 | 0 | |
 | process | 86 | 32 | 12 | 42 | OS-level process ops |
 | random | 87 | 84 | 0 | 3 | |
