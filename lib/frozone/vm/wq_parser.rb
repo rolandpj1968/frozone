@@ -972,8 +972,12 @@ module Frozone
 
         # __dir__ — bake directory at parse time (like __FILE__), not runtime file stack
         if recv_node.nil? && name == :__dir__ && raw_args.empty?
-          dir = @filepath ? File.dirname(File.expand_path(@filepath)) : nil
-          return Ast::StringLiteral.from(dir || Dir.pwd)
+          dir = if @filepath.nil? || @filepath.start_with?('(')
+                  nil
+                else
+                  File.dirname(@filepath)
+                end
+          return dir ? Ast::StringLiteral.from(dir) : Ast::NilLiteral::NIL
         end
 
         # "literal".freeze — mirrors YARV OPT_STR_FREEZE: returns same frozen object each time,

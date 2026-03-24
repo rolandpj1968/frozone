@@ -128,14 +128,24 @@ module Frozone
                      raw = block.raw_method
                      # Validate that the UnboundMethod can be bound to receiver
                      owner = block.unbound_owner
-                     if owner && receiver.is_a?(ModuleObject) && !(receiver.is_a?(ClassObject) && receiver.is_singleton_class)
+                     if owner && receiver.is_a?(ModuleObject)
                        # Module owners: any class can define the method (modules are mixin-able to anything)
                        # Class/singleton class owners: receiver must be a subclass/ancestor
                        if owner.is_a?(ClassObject) && owner.is_singleton_class
-                         # singleton class owner: can't bind to another class
-                         owner.full_name.to_s
-                         raise FrozoneException.make(:TypeError, "can't bind singleton method to a different class")
-                       elsif owner.is_a?(ClassObject)
+                         # singleton class owner: check compatibility
+                         if receiver.is_a?(ClassObject) && receiver.is_singleton_class
+                           # Both are singleton classes: allow if singleton_of receiver is a subclass of singleton_of owner
+                           owner_of = owner.singleton_of
+                           receiver_of = receiver.singleton_of
+                           if owner_of.is_a?(ClassObject) && receiver_of.is_a?(ClassObject)
+                             raise FrozoneException.make(:TypeError, "can't bind singleton method to a different class") unless receiver_of.equal?(owner_of) || receiver_of.ancestors_include?(owner_of)
+                           else
+                             raise FrozoneException.make(:TypeError, "can't bind singleton method to a different class") unless receiver_of.equal?(owner_of)
+                           end
+                         else
+                           raise FrozoneException.make(:TypeError, "can't bind singleton method to a different class")
+                         end
+                       elsif owner.is_a?(ClassObject) && !(receiver.is_a?(ClassObject) && receiver.is_singleton_class)
                          # receiver must be owner or a subclass of owner
                          unless receiver.equal?(owner) || receiver.ancestors_include?(owner)
                            type_name = owner.full_name.to_s

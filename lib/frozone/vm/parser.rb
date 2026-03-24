@@ -782,8 +782,13 @@ module Frozone
         when Prism::CallNode
           # __dir__ — bake directory at parse time (like __FILE__), not runtime file stack
           if prism_node.name == :__dir__ && prism_node.receiver.nil? && prism_node.arguments.nil?
-            dir = @filepath ? File.dirname(File.expand_path(@filepath)) : nil
-            Ast::StringLiteral.from(dir || Dir.pwd)
+            # eval-synthetic paths like "(eval at file:line)" → nil; real paths → dirname
+            dir = if @filepath.nil? || @filepath.start_with?('(')
+                    nil
+                  else
+                    File.dirname(@filepath)
+                  end
+            dir ? Ast::StringLiteral.from(dir) : Ast::NilLiteral::NIL
           # "literal".freeze — mirrors YARV OPT_STR_FREEZE: returns same frozen object each time,
           # and registers it in the dedup table (matches MRI 4.0 fstring behavior for literals)
           elsif prism_node.name == :freeze && prism_node.arguments.nil? &&

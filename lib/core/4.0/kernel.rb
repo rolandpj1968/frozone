@@ -444,7 +444,10 @@ module Kernel
   alias kind_of? is_a?
   def eql?(other) = equal?(other)
   def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name, include_all)
-  def instance_of?(klass) = Intrinsics.object_class(self).equal?(klass)
+  def instance_of?(klass)
+    raise TypeError, "class or module required" unless Intrinsics.object_is_a(klass, Module)
+    Intrinsics.object_class(self).equal?(klass)
+  end
   def suppress_warning; yield; end
   def suppress_keyword_warning; yield; end
   def caller(start = 1, length = nil) = Intrinsics.kernel_caller(self, start, length)
@@ -497,8 +500,7 @@ module Kernel
 
   def initialize_copy(source)
     return self if source.equal?(self)
-    raise FrozenError, "can't modify frozen #{self.class}: #{self.inspect}" if frozen?
-    raise TypeError, "initialize_copy should take same class object" unless source.is_a?(self.class)
+    raise TypeError, "initialize_copy should take same class object" unless source.instance_of?(self.class)
     source.instance_variables.each do |ivar|
       instance_variable_set(ivar, source.instance_variable_get(ivar))
     end
