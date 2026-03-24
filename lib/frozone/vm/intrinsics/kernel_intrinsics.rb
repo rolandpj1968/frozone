@@ -36,6 +36,7 @@ module Frozone
         end
         def basic_object___id__(_, v) = n2f_int(v.__id__)
         def basic_object__equal_equal_(_, v1, v2) = n2f_bool(v1.equal?(v2))
+        def object_same_object?(_, v1, v2) = n2f_bool(v1.equal?(v2))
         def kernel_float(_, _receiver, val) = n2f_float(ffloat?(val) ? val.raw : Float(val.raw))
         def env_get(_, key) = (v = ENV[key.raw]) ? n2f_str(v) : FNIL
         def env_set(_, key, val) = (ENV[key.raw] = f2n_raw(val); val)

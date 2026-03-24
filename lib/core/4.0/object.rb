@@ -4,7 +4,7 @@ class Object < BasicObject
   def ! = self == nil || self == false
   def !=(other) = !(self == other)
   def !~(other) = !(self =~ other)
-  def ===(other) = self.object_id == other.object_id || self == other
+  def ===(other) = Intrinsics.object_same_object?(self, other) || self == other
   def <=>(other)
     eq = (self == other)
     eq.nil? ? nil : (eq ? 0 : nil)
