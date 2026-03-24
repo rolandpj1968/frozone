@@ -23,6 +23,10 @@ class Range
   def begin = Intrinsics.range_begin(self)
   def end = Intrinsics.range_end(self)
   def exclude_end? = Intrinsics.range_exclude_end(self)
+  def sort = to_a.sort
+  def drop(n) = to_a.drop(n)
+  def entries = to_a
+  def hash = [self.begin, self.end, self.exclude_end?].hash
 
   def each(&block)
     return to_enum(:each) { size } unless block
@@ -118,6 +122,7 @@ class Range
       __cover_value__?(val)
     end
   end
+  alias === cover?
 
   def include?(val)
     b = self.begin; e = self.end
@@ -145,9 +150,7 @@ class Range
     end
     false
   end
-
   alias member? include?
-  alias === cover?
 
   def size
     b = self.begin; e = self.end
@@ -160,7 +163,6 @@ class Range
     n = exclude_end? ? e - b : e - b + 1
     n < 0 ? 0 : n
   end
-
   alias length size
 
   def min(&block)
@@ -235,6 +237,15 @@ class Range
   def any? = (each { |x| return true  if yield(x) }; false)
   def all? = (each { |x| return false unless yield(x) }; true)
   def none? = (each { |x| return false if yield(x) }; true)
+  def find(&block); each { |x| return x if yield(x) }; nil; end
+  alias detect find
+  def sum(init = 0); inject(init) { |a, x| a + x }; end
+  def flat_map(&block); map(&block).flatten(1); end
+  alias collect_concat flat_map
+  def sort_by(&block); to_a.sort_by(&block); end
+  def min_by(&block); to_a.min_by(&block); end
+  def max_by(&block); to_a.max_by(&block); end
+
   def to_s
     b = self.begin; e = self.end; sep = exclude_end? ? '...' : '..'
     if b.nil? && e.nil?; "nil#{sep}nil"
@@ -333,81 +344,13 @@ class Range
     end
     acc
   end
-
   alias inject reduce
 
-  def find(&block); each { |x| return x if yield(x) }; nil; end
-  alias detect find
-  def sum(init = 0); inject(init) { |a, x| a + x }; end
-  def flat_map(&block); map(&block).flatten(1); end
-  alias collect_concat flat_map
-
-  def each_slice(n)
-    return to_enum(:each_slice, n) unless block_given?
-    slice = []
-    each do |x|
-      slice << x
-      if slice.length == n
-        yield slice
-        slice = []
-      end
-    end
-    yield slice unless slice.empty?
-    self
-  end
-
-  def each_cons(n)
-    return to_enum(:each_cons, n) unless block_given?
-    buf = []
-    each do |x|
-      buf << x
-      if buf.length == n
-        yield buf.dup
-        buf.shift
-      end
-    end
-    self
-  end
-
-  def zip(*others)
-    result = []
-    to_a.each_with_index { |x, i| result << ([x] + others.map { |o| o.to_a[i] }) }
-    result
-  end
-
-  def reverse_each(&block)
-    return to_enum(:reverse_each) { __reverse_each_size__ } unless block
-    b    = self.begin
-    e    = self.end
-    excl = exclude_end?
-    raise TypeError, "can't iterate from NilClass" if e.nil?
-    if b.nil?
-      # Beginless range: only Integer end supported (otherwise always NilClass error)
-      raise TypeError, "can't iterate from NilClass" unless e.is_a?(Integer)
-      i = excl ? e - 1 : e
-      loop { block.call(i); i -= 1 }
-    elsif b.is_a?(Integer)
-      raise TypeError, "can't iterate from #{e.class}" unless e.is_a?(Integer)
-      i = excl ? e - 1 : e
-      while i >= b
-        block.call(i)
-        i -= 1
-      end
-    else
-      to_a.reverse_each(&block)
-    end
-    self
-  end
-
-  def sort; to_a.sort; end
-  def sort_by(&block); to_a.sort_by(&block); end
-  def min_by(&block); to_a.min_by(&block); end
-  def max_by(&block); to_a.max_by(&block); end
   def count(&block)
     return Float::INFINITY if !block && (self.begin.nil? || self.end.nil?)
     block ? to_a.count(&block) : (size || to_a.size)
   end
-  def drop(n); to_a.drop(n); end
+
   def first(*args)
     if args.empty?
       raise RangeError, "cannot get the first element of beginless range" if self.begin.nil?
@@ -435,8 +378,6 @@ class Range
     raise ArgumentError, "negative array size (or exceeds maximum)" if n < 0
     to_a.last(n)
   end
-  def entries; to_a; end
-  def hash; [self.begin, self.end, self.exclude_end?].hash; end
 
   def %(n, &block)
     return step(n, &block) if block
@@ -497,7 +438,76 @@ class Range
     end
   end
 
+  def each_slice(n)
+    return to_enum(:each_slice, n) unless block_given?
+    slice = []
+    each do |x|
+      slice << x
+      if slice.length == n
+        yield slice
+        slice = []
+      end
+    end
+    yield slice unless slice.empty?
+    self
+  end
+
+  def each_cons(n)
+    return to_enum(:each_cons, n) unless block_given?
+    buf = []
+    each do |x|
+      buf << x
+      if buf.length == n
+        yield buf.dup
+        buf.shift
+      end
+    end
+    self
+  end
+
+  def zip(*others)
+    result = []
+    to_a.each_with_index { |x, i| result << ([x] + others.map { |o| o.to_a[i] }) }
+    result
+  end
+
+  def reverse_each(&block)
+    return to_enum(:reverse_each) { __reverse_each_size__ } unless block
+    b    = self.begin
+    e    = self.end
+    excl = exclude_end?
+    raise TypeError, "can't iterate from NilClass" if e.nil?
+    if b.nil?
+      # Beginless range: only Integer end supported (otherwise always NilClass error)
+      raise TypeError, "can't iterate from NilClass" unless e.is_a?(Integer)
+      i = excl ? e - 1 : e
+      loop { block.call(i); i -= 1 }
+    elsif b.is_a?(Integer)
+      raise TypeError, "can't iterate from #{e.class}" unless e.is_a?(Integer)
+      i = excl ? e - 1 : e
+      while i >= b
+        block.call(i)
+        i -= 1
+      end
+    else
+      to_a.reverse_each(&block)
+    end
+    self
+  end
+
+  # SpecVersion (mspec) may call split on a Range when given a range version like ""..."3.4".
+  # Fall back to splitting the end value's string representation.
+  def split(sep = nil, limit = nil)
+    v = self.end
+    v = v.nil? ? '' : v.to_s
+    limit.nil? ? v.split(sep) : v.split(sep, limit)
+  end
+
   private
+
+  def __bsearch_size__ = nil
+  def __float_to_ord__(f) = [f].pack('G').unpack1('Q>').then { |bits| (bits & FLOAT_SIGN_BIT) != 0 ? (~bits & FLOAT_UINT64_MASK) : (bits | FLOAT_SIGN_BIT) }
+  def __ord_to_float__(ord) = ((ord & FLOAT_SIGN_BIT) != 0 ? (ord ^ FLOAT_SIGN_BIT) : (~ord & FLOAT_UINT64_MASK)).then { |bits| [bits].pack('Q>').unpack1('G') }
 
   def __cover_value__?(val)
     b = self.begin; e = self.end
@@ -710,8 +720,6 @@ class Range
     end
   end
 
-  def __bsearch_size__ = nil
-
   def __bsearch_validate__(r)
     return if r == true || r == false || r.nil? || r.is_a?(Numeric)
     raise TypeError, "wrong argument type #{r.class} (must be numeric, true, false or nil)"
@@ -777,16 +785,6 @@ class Range
   FLOAT_SIGN_BIT = 1 << 63
   FLOAT_UINT64_MASK = (1 << 64) - 1
 
-  def __float_to_ord__(f)
-    bits = [f].pack('G').unpack1('Q>')
-    (bits & FLOAT_SIGN_BIT) != 0 ? (~bits & FLOAT_UINT64_MASK) : (bits | FLOAT_SIGN_BIT)
-  end
-
-  def __ord_to_float__(ord)
-    bits = (ord & FLOAT_SIGN_BIT) != 0 ? (ord ^ FLOAT_SIGN_BIT) : (~ord & FLOAT_UINT64_MASK)
-    [bits].pack('Q>').unpack1('G')
-  end
-
   def __bsearch_float__(lo, hi, excl, &block)
     lo_ord = __float_to_ord__(lo)
     hi_ord = __float_to_ord__(hi)
@@ -835,15 +833,5 @@ class Range
       end
       result
     end
-  end
-
-  public
-
-  # SpecVersion (mspec) may call split on a Range when given a range version like ""..."3.4".
-  # Fall back to splitting the end value's string representation.
-  def split(sep = nil, limit = nil)
-    v = self.end
-    v = v.nil? ? '' : v.to_s
-    limit.nil? ? v.split(sep) : v.split(sep, limit)
   end
 end

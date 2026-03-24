@@ -161,18 +161,19 @@ class Rational < Numeric
     q, r = num.divmod(den)
     r2 = r * 2
 
-    rounded = if r2 < den
-      q
-    elsif r2 > den
-      q + 1
-    else
-      case half
-      when :up, nil then num >= 0 ? q + 1 : q
-      when :down    then num >= 0 ? q : q + 1
-      when :even    then q.even? ? q : q + 1
-      else raise ArgumentError, "invalid rounding mode: #{half}"
+    rounded =
+      if r2 < den
+        q
+      elsif r2 > den
+        q + 1
+      else
+        case half
+        when :up, nil then num >= 0 ? q + 1 : q
+        when :down    then num >= 0 ? q : q + 1
+        when :even    then q.even? ? q : q + 1
+        else raise ArgumentError, "invalid rounding mode: #{half}"
+        end
       end
-    end
 
     if n >= 0
       n == 0 ? rounded : Rational(rounded, 10 ** n)
@@ -199,7 +200,10 @@ class Rational < Numeric
     hi = self + eps
     __simplest_rational__(lo, hi)
   end
+
   private
+
+  def marshal_dump = [@numerator, @denominator]
 
   def initialize(numerator, denominator = 1)
     raise ZeroDivisionError, "divided by 0" if denominator == 0
@@ -237,10 +241,6 @@ class Rational < Numeric
     n
   end
 
-  def marshal_dump
-    [@numerator, @denominator]
-  end
-
   def marshal_load(ary)
     g = ary[0].gcd(ary[1])
     @numerator = ary[0] / g
@@ -258,6 +258,7 @@ class Complex
     raise TypeError, "not a real" if v.respond_to?(:real?) && v.real? == false
     v
   end
+
   private_class_method :_real_check
 
   def self.polar(r, theta = 0)
@@ -283,6 +284,7 @@ class Complex
     @imaginary = imaginary
     freeze
   end
+
   I = Complex.new(0, 1)
 
   def real = @real
@@ -305,10 +307,11 @@ class Complex
   def real? = false
   def quo(other) = self / other
   def hash = [@real, @imaginary].hash
-
-  def -@
-    Complex(-@real, -@imaginary)
-  end
+  def -@ = Complex(-@real, -@imaginary)
+  def angle = Math.atan2(@imaginary.to_f, @real.to_f)
+  alias arg   angle
+  alias phase angle
+  def polar = [abs, angle]
 
   def +(other)
     __complex_coerce_op__(other, :+) do |v|
@@ -432,16 +435,6 @@ class Complex
     end
   end
 
-  def angle
-    Math.atan2(@imaginary.to_f, @real.to_f)
-  end
-  alias arg   angle
-  alias phase angle
-
-  def polar
-    [abs, angle]
-  end
-
   def numerator
     cd = denominator
     Complex(@real.is_a?(Rational) ? @real.numerator * (cd / @real.denominator) : @real * cd,
@@ -529,7 +522,11 @@ class Complex
     star = (disp[-1] =~ /[0-9]/) ? '' : '*'
     "#{re_s}#{sep}#{disp}#{star}i"
   end
+
   private
+
+  def __format_imag__(im_s) = im_s.start_with?('-') ? ['-', im_s[1..]] : ['+', im_s]
+  def marshal_dump = [@real, @imaginary]
 
   def __complex_coerce_op__(other, op)
     if other.is_a?(Complex)
@@ -554,18 +551,6 @@ class Complex
         end
       end
     end
-  end
-
-  def __format_imag__(im_s)
-    if im_s.start_with?('-')
-      ['-', im_s[1..]]
-    else
-      ['+', im_s]
-    end
-  end
-
-  def marshal_dump
-    [@real, @imaginary]
   end
 
   def marshal_load(ary)

@@ -5,7 +5,7 @@ class Hash
   def default_proc = Intrinsics.hash_get_default_proc(self)
   def size = Intrinsics.hash_size(self)
   alias length size
-  def empty?; size == 0; end
+  def empty? = size == 0
   def key?(key) = Intrinsics.hash_key(self, key)
   alias has_key? key?
   alias include? key?
@@ -98,6 +98,7 @@ class Hash
   def []=(key, value)
     Intrinsics.hash_index_write(self, key, value)
   end
+
   alias store []=
 
   def default(key = :__no_key__)
@@ -125,12 +126,12 @@ class Hash
     end
     Intrinsics.hash_set_default_proc(self, prc)
   end
+
   def keys;   r = []; each { |k, _| r << k }; r; end
   def values; r = []; each { |_, v| r << v }; r; end
   def to_a;   r = []; each { |k, v| r << [k, v] }; r; end
   alias entries to_a
   def to_proc; h = self; ->(k) { h[k] }; end
-
   def to_hash = self
 
   def to_h(&block)
@@ -187,6 +188,7 @@ class Hash
   end
 
   alias inspect to_s
+
   def dup
     r = self.class.allocate
     r.compare_by_identity if compare_by_identity?
@@ -210,7 +212,9 @@ class Hash
     return to_enum(:each) { size } unless block
     Intrinsics.hash_each(self, block)
   end
+
   alias each_pair each
+
   def each_key(&block)
     return to_enum(:each_key) { size } unless block
     each { |k, _| block.call(k) }
@@ -374,13 +378,14 @@ class Hash
     return to_enum(:transform_keys) { size } if hash.nil? && !block
     r = {}
     each do |k, v|
-      nk = if hash && hash.key?(k)
-        hash[k]
-      elsif block
-        block.call(k)
-      else
-        k
-      end
+      nk =
+        if hash && hash.key?(k)
+          hash[k]
+        elsif block
+          block.call(k)
+        else
+          k
+        end
       r[nk] = v
     end
     r
@@ -528,7 +533,6 @@ class Hash
     to_a.sort_by { |kv| block.call(*kv) }
   end
 
-
   def compare_by_identity = Intrinsics.hash_compare_by_identity(self)
   def compare_by_identity? = Intrinsics.hash_compare_by_identity_q(self)
 
@@ -563,9 +567,7 @@ class Hash
     self
   end
 
-  def sort(&block)
-    to_a.sort(&block)
-  end
+  def sort(&block) = to_a.sort(&block)
 
   def find_all(&block)
     return to_enum(:find_all) unless block
@@ -579,9 +581,7 @@ class Hash
     to_a.first
   end
 
-  def take(n)
-    to_a.take(n)
-  end
+  def take(n) = to_a.take(n)
 
   def <=(other)
     other = __coerce_to_hash__(other)

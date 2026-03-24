@@ -180,10 +180,11 @@ class IO
       @lineno = (@lineno || 0) + 1
       $. = @lineno
       if chomp
-        line = if sep.nil? then line
-               elsif sep.empty? then line.sub(/\n{2,}\z/, '')
-               else line.chomp(sep)
-               end
+        line =
+          if sep.nil? then line
+          elsif sep.empty? then line.sub(/\n{2,}\z/, '')
+          else line.chomp(sep)
+          end
       end
       lines << line
     end
@@ -239,13 +240,14 @@ class IO
       @lineno = (@lineno || 0) + 1
       $. = @lineno
       if chomp
-        line = if sep.nil?
-          line  # slurp mode: no chomp
-        elsif sep.empty?
-          line.sub(/\n{2,}\z/, '')  # paragraph mode: strip 2+ trailing newlines only
-        else
-          line.chomp(sep)  # strip the separator
-        end
+        line =
+          if sep.nil?
+            line  # slurp mode: no chomp
+          elsif sep.empty?
+            line.sub(/\n{2,}\z/, '')  # paragraph mode: strip 2+ trailing newlines only
+          else
+            line.chomp(sep)  # strip the separator
+          end
       end
       block.call(line)
     end
@@ -328,12 +330,13 @@ class IO
     ext_enc = ext_enc.to_str if ext_enc && !ext_enc.is_a?(String) && !ext_enc.is_a?(Encoding) && ext_enc.respond_to?(:to_str)
     int_enc = int_enc.to_str if int_enc && !int_enc.is_a?(String) && !int_enc.is_a?(Encoding) && int_enc.respond_to?(:to_str)
     pair = Intrinsics.io_pipe(self)
-    r_mode = if ext_enc
-               ext_str = ext_enc.is_a?(Encoding) ? ext_enc.name : ext_enc.to_s
-               int_enc ? "r:#{ext_str}:#{int_enc.is_a?(Encoding) ? int_enc.name : int_enc}" : "r:#{ext_str}"
-             else
-               'r'
-             end
+    r_mode =
+      if ext_enc
+        ext_str = ext_enc.is_a?(Encoding) ? ext_enc.name : ext_enc.to_s
+        int_enc ? "r:#{ext_str}:#{int_enc.is_a?(Encoding) ? int_enc.name : int_enc}" : "r:#{ext_str}"
+      else
+        'r'
+      end
     pair[0].send(:initialize, pair[0].fileno, r_mode, **opts)
     pair[1].send(:initialize, pair[1].fileno, 'w')
     if block
@@ -350,13 +353,14 @@ class IO
 
   def self.popen(*args, **opts, &block)
     # Support: popen(cmd, mode='r', **opts) and popen(env, cmd, mode='r', **opts)
-    cmd, mode, env = if args.length >= 2 && args[0].is_a?(Hash) && !args[0].empty? &&
-                        !(args[1].is_a?(String) && args[1].start_with?('-'))
-                       env = args.shift
-                       [args[0], args[1] || 'r', env]
-                     else
-                       [args[0], args[1] || 'r', nil]
-                     end
+    cmd, mode, env =
+      if args.length >= 2 && args[0].is_a?(Hash) && !args[0].empty? &&
+          !(args[1].is_a?(String) && args[1].start_with?('-'))
+        env = args.shift
+        [args[0], args[1] || 'r', env]
+      else
+        [args[0], args[1] || 'r', nil]
+      end
     # Coerce mode with to_str if not a String or nil
     mode = mode.to_str if mode && !mode.is_a?(String) && mode.respond_to?(:to_str)
     # Coerce chdir: value with to_path if needed
@@ -460,20 +464,22 @@ class IO
         raise TypeError, "no implicit conversion of #{arg.class} into String"
       end
     when 2
-      sep = if args[0].nil?
-        nil
-      elsif args[0].respond_to?(:to_str)
-        args[0].to_str
-      else
-        raise TypeError, "no implicit conversion of #{args[0].class} into String"
-      end
-      lim = if args[1].is_a?(Integer)
-        args[1]
-      elsif args[1].respond_to?(:to_int)
-        args[1].to_int
-      else
-        raise TypeError, "no implicit conversion of #{args[1].class} into Integer"
-      end
+      sep =
+        if args[0].nil?
+          nil
+        elsif args[0].respond_to?(:to_str)
+          args[0].to_str
+        else
+          raise TypeError, "no implicit conversion of #{args[0].class} into String"
+        end
+      lim =
+        if args[1].is_a?(Integer)
+          args[1]
+        elsif args[1].respond_to?(:to_int)
+          args[1].to_int
+        else
+          raise TypeError, "no implicit conversion of #{args[1].class} into Integer"
+        end
       [sep, lim]
     else
       raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
@@ -513,20 +519,22 @@ class IO
         raise TypeError, "no implicit conversion of #{arg.class} into String"
       end
     when 2
-      sep = if args[0].nil?
-        nil
-      elsif args[0].respond_to?(:to_str)
-        args[0].to_str
-      else
-        raise TypeError, "no implicit conversion of #{args[0].class} into String"
-      end
-      lim = if args[1].is_a?(Integer)
-        args[1]
-      elsif args[1].respond_to?(:to_int)
-        args[1].to_int
-      else
-        raise TypeError, "no implicit conversion of #{args[1].class} into Integer"
-      end
+      sep =
+        if args[0].nil?
+          nil
+        elsif args[0].respond_to?(:to_str)
+          args[0].to_str
+        else
+          raise TypeError, "no implicit conversion of #{args[0].class} into String"
+        end
+      lim =
+        if args[1].is_a?(Integer)
+          args[1]
+        elsif args[1].respond_to?(:to_int)
+          args[1].to_int
+        else
+          raise TypeError, "no implicit conversion of #{args[1].class} into Integer"
+        end
       [sep, lim]
     else
       raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
@@ -543,10 +551,11 @@ class IO
     open(path, io_mode, **opts) do |f|
       while (line = f.gets(sep, *[lim].compact))
         if chomp
-          line = if sep.nil? then line
-                 elsif sep.empty? then line.sub(/\n{2,}\z/, '')
-                 else line.chomp(sep)
-                 end
+          line =
+            if sep.nil? then line
+            elsif sep.empty? then line.sub(/\n{2,}\z/, '')
+            else line.chomp(sep)
+            end
         end
         block.call(line)
       end
@@ -555,13 +564,14 @@ class IO
   end
 
   def self.read(path, length = nil, offset = nil, **opts)
-    path = if path.respond_to?(:to_path)
-      path.to_path
-    elsif path.respond_to?(:to_str)
-      path.to_str
-    else
-      raise TypeError, "no implicit conversion of #{path.class} into String"
-    end
+    path =
+      if path.respond_to?(:to_path)
+        path.to_path
+      elsif path.respond_to?(:to_str)
+        path.to_str
+      else
+        raise TypeError, "no implicit conversion of #{path.class} into String"
+      end
     if offset
       offset = offset.respond_to?(:to_int) ? offset.to_int : Integer(offset)
       raise ArgumentError, "negative offset" if offset < 0
@@ -713,13 +723,14 @@ class IO
   end
 
   def chmod(mode)
-    mode_int = if mode.is_a?(Integer)
-      mode
-    elsif mode.respond_to?(:to_int)
-      mode.to_int
-    else
-      raise TypeError, "no implicit conversion of #{mode.class} into Integer"
-    end
+    mode_int =
+      if mode.is_a?(Integer)
+        mode
+      elsif mode.respond_to?(:to_int)
+        mode.to_int
+      else
+        raise TypeError, "no implicit conversion of #{mode.class} into Integer"
+      end
     raise RangeError, "bignum too big to convert into 'long'" if mode_int > 2**32 || mode_int < -(2**31)
     Intrinsics.io_chmod(self, mode_int)
   end

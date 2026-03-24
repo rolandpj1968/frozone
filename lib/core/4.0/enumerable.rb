@@ -64,6 +64,7 @@ module Enumerable
     raise ArgumentError, "#{method_name}: negative length (#{n})" if n < 0
     n
   end
+
   public
 
   def sort(&block) = to_a.sort(&block)

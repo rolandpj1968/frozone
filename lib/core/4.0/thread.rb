@@ -13,9 +13,10 @@ class Thread
     locs.each { |loc| block.call(loc) }
     nil
   end
+
   def self.ignore_deadlock=(val); @@ignore_deadlock = !!val; end
   def self.ignore_deadlock = (defined?(@@ignore_deadlock) ? @@ignore_deadlock : false)
-  def self.exit; Thread.current.kill; end
+  def self.exit = Thread.current.kill
   @@pending              = []
   @@all                  = []
   @@main                 = nil
@@ -35,13 +36,9 @@ class Thread
     t
   end
 
-  def self.allocate
-    raise TypeError, "allocating Thread is not allowed"
-  end
+  def self.allocate = raise(TypeError, "allocating Thread is not allowed")
 
-  def self.__allocate_thread
-    Intrinsics.class_allocate(self)
-  end
+  def self.__allocate_thread = Intrinsics.class_allocate(self)
   private_class_method :__allocate_thread
 
   def self.start(*args, &block)
@@ -54,12 +51,9 @@ class Thread
     alias fork start
   end
 
-  def self.current
-    @@current || (@@main ||= new_main_thread)
-  end
-
-  def self.main = (@@main ||= new_main_thread)
-  def self.list = [Thread.main] + @@pending + @@all.select(&:alive?)
+  def self.current = (@@current || (@@main ||= new_main_thread))
+  def self.main    = (@@main ||= new_main_thread)
+  def self.list    = [Thread.main] + @@pending + @@all.select(&:alive?)
 
   # Kill all non-main pending/running threads and reset scheduler state.
   # Used between spec files to prevent thread leaks causing O(n²) slowdown.
@@ -146,15 +140,15 @@ class Thread
   end
 
   # Exposed for Thread.stop replay mechanism
-  def __stop_seen;    @stop_seen;    end
-  def __stop_seen=(v); @stop_seen = v; end
-  def __wakeup_count;    @wakeup_count;    end
-  def __wakeup_count=(v); @wakeup_count = v; end
-  def __raise_exception;    @raise_exception;    end
+  def __stop_seen               = @stop_seen
+  def __stop_seen=(v);    @stop_seen        = v; end
+  def __wakeup_count            = @wakeup_count
+  def __wakeup_count=(v); @wakeup_count     = v; end
+  def __raise_exception         = @raise_exception
   def __raise_exception=(v); @raise_exception = v; end
-  def __raise_cause;    @raise_cause;    end
-  def __raise_cause=(v); @raise_cause = v; end
-  def __raise_backtrace;    @raise_backtrace;    end
+  def __raise_cause             = @raise_cause
+  def __raise_cause=(v);  @raise_cause      = v; end
+  def __raise_backtrace         = @raise_backtrace
   def __raise_backtrace=(v); @raise_backtrace = v; end
 
   # Status reflects execution state:
@@ -286,26 +280,27 @@ class Thread
       Kernel.raise ArgumentError, "only cause is given with no arguments"
     end
 
-    exc = if args.empty? && msg_hash.nil?
-      RuntimeError.new("")
-    elsif args[0].is_a?(String) && args.size == 1 && msg_hash.nil?
-      RuntimeError.new(args[0])
-    elsif args[0].is_a?(String)
-      # String with extra args (positional or keyword) is always TypeError
-      Kernel.raise TypeError, "exception class/object expected"
-    elsif args[0].is_a?(Exception) && args.size <= 1 && msg_hash.nil?
-      args[0]
-    elsif args.size >= 1 && args[0].respond_to?(:exception)
-      # Pass message (args[1] or msg_hash) but NOT backtrace (args[2]) to exception
-      message = args.size >= 2 ? args[1] : msg_hash
-      result = message.nil? ? args[0].exception : args[0].exception(message)
-      unless result.is_a?(Exception)
-        Kernel.raise TypeError, "exception object expected"
+    exc =
+      if args.empty? && msg_hash.nil?
+        RuntimeError.new("")
+      elsif args[0].is_a?(String) && args.size == 1 && msg_hash.nil?
+        RuntimeError.new(args[0])
+      elsif args[0].is_a?(String)
+        # String with extra args (positional or keyword) is always TypeError
+        Kernel.raise TypeError, "exception class/object expected"
+      elsif args[0].is_a?(Exception) && args.size <= 1 && msg_hash.nil?
+        args[0]
+      elsif args.size >= 1 && args[0].respond_to?(:exception)
+        # Pass message (args[1] or msg_hash) but NOT backtrace (args[2]) to exception
+        message = args.size >= 2 ? args[1] : msg_hash
+        result = message.nil? ? args[0].exception : args[0].exception(message)
+        unless result.is_a?(Exception)
+          Kernel.raise TypeError, "exception object expected"
+        end
+        result
+      else
+        Kernel.raise TypeError, "exception class/object expected"
       end
-      result
-    else
-      Kernel.raise TypeError, "exception class/object expected"
-    end
 
     # Backtrace override: args[2] if present (array of strings or Location objects).
     backtrace = args.size >= 3 ? args[2] : nil
@@ -353,6 +348,7 @@ class Thread
       length.nil? ? full[start..] : full[start, length]
     end
   end
+
   def priority = (@priority || 0)
 
   def priority=(v)
@@ -363,6 +359,7 @@ class Thread
     @priority = v.clamp(-3, 3)
     v
   end
+
   def native_thread_id = alive? ? object_id : nil
   def name                = @name
   def name=(v)            = (@name = v.nil? ? nil : v.to_str)
@@ -520,9 +517,7 @@ class Thread
     (@thread_vars || {}).key?(k)
   end
 
-  def thread_variables
-    (@thread_vars || {}).keys
-  end
+  def thread_variables = (@thread_vars || {}).keys
 
   # Fiber-local variables (Thread#[] / Thread#[]=)
   def [](key)
@@ -542,9 +537,7 @@ class Thread
     (@fiber_vars || {}).key?(k)
   end
 
-  def keys
-    (@fiber_vars || {}).keys
-  end
+  def keys = (@fiber_vars || {}).keys
 
   def fetch(key, *rest, &block)
     Kernel.raise ArgumentError, "wrong number of arguments (given #{1 + rest.size}, expected 1..2)" if rest.size > 1
@@ -569,21 +562,20 @@ class Thread
 end
 
 class ThreadGroup
+  def list                    = @threads.select(&:alive?)
+  def enclosed?               = @enclosed
+  def __add_thread(thread)    = (@threads << thread unless @threads.include?(thread))
+  def __remove_thread(thread) = @threads.delete(thread)
+
   def initialize
     @threads  = []
     @enclosed = false
-  end
-
-  def list
-    @threads.select(&:alive?)
   end
 
   def enclose
     @enclosed = true
     self
   end
-
-  def enclosed? = @enclosed
 
   def add(thread)
     raise ThreadError, "can't move from the enclosed thread group" if thread.group&.enclosed?
@@ -594,14 +586,6 @@ class ThreadGroup
     self
   end
 
-  def __add_thread(thread)
-    @threads << thread unless @threads.include?(thread)
-  end
-
-  def __remove_thread(thread)
-    @threads.delete(thread)
-  end
-
   Default = new
 end
 
@@ -610,13 +594,14 @@ Thread.main.__set_group(ThreadGroup::Default)
 ThreadGroup::Default.__add_thread(Thread.main)
 
 class ConditionVariable
-  def initialize
-    @waiters = 0
-  end
   # In single-threaded model: wait runs pending threads until signalled.
   # Since we're cooperative, just run pending threads and return.
   def signal    = self
   def broadcast = self
+
+  def initialize
+    @waiters = 0
+  end
 
   def marshal_dump
     raise TypeError, "can't dump ConditionVariable"
@@ -655,9 +640,7 @@ class Queue
     end
   end
 
-  def freeze
-    raise TypeError, "cannot freeze #{self}"
-  end
+  def freeze = raise(TypeError, "cannot freeze #{self}")
 
   def close
     @closed = true
@@ -722,7 +705,7 @@ class Queue
 end
 
 class SizedQueue < Queue
-  def max = @max
+  def max         = @max
   def num_waiting = @waiters.size + @push_waiters.size
 
   def initialize(max)

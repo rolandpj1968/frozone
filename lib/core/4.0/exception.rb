@@ -52,9 +52,7 @@ class Exception
     copy
   end
 
-  def initialize_copy(other)
-    super
-  end
+  def initialize_copy(other) = super
 
   def ==(other)
     return true if equal?(other)
@@ -658,12 +656,13 @@ module Math
 
   def self.ldexp(x, n)
     xf = _coerce_float(x, :ldexp)
-    ni = if n.is_a?(Float)
-      raise RangeError, "float NaN out of range of integer" if n.nan?
-      n.to_i
-    else
-      _coerce_integer(n)
-    end
+    ni =
+      if n.is_a?(Float)
+        raise RangeError, "float NaN out of range of integer" if n.nan?
+        n.to_i
+      else
+        _coerce_integer(n)
+      end
     Intrinsics.float_ldexp(xf, ni)
   end
   # Also define instance methods for when Math is included
