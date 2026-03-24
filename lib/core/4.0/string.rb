@@ -876,6 +876,9 @@ class String
   end
   private
 
+  # Bytes are already copied by the intrinsic; skip Kernel's frozen check.
+  def initialize_copy(source) = self
+
   # Return the string's bytes as a mutable Array of integers.
   def __succ_bytes_array__
     bs = bytesize

@@ -80,10 +80,3 @@ class Regexp
   end
 end
 
-class Regexp
-  def =~(str) = Intrinsics.regexp_match_index(self, str)
-  def !~(str) = !(self =~ str)
-  def match(str, pos = nil) = Intrinsics.regexp_match(self, str)
-  def match?(str) = !Intrinsics.regexp_match(self, str).nil?
-  def ===(str) = !(self =~ str).nil?
-end

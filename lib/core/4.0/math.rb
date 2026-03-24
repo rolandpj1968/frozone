@@ -5,13 +5,14 @@ module Math
   E  = 2.718281828459045
 
   def self._coerce_float(x, func)
-    return x.to_f if x.is_a?(Float) || x.is_a?(Integer)
-    if x.respond_to?(:to_f)
+    return x if x.is_a?(Float)
+    return x.to_f if x.is_a?(Integer)
+    if x.is_a?(Numeric)
       result = x.to_f
       raise TypeError, "can't convert #{x.class} into Float (to_f should return Float, not #{result.class})" unless result.is_a?(Float)
       return result
     end
-    raise TypeError, "can't convert #{x.class} into Float"
+    raise TypeError, "can't convert #{x.nil? ? 'nil' : x.class} into Float"
   end
   private_class_method :_coerce_float
 

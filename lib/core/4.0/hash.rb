@@ -73,7 +73,11 @@ class Hash
 
   def self.try_convert(obj)
     return obj if obj.is_a?(Hash)
-    __try_coerce_to_hash__(obj)
+    return nil unless obj.respond_to?(:to_hash)
+    result = obj.to_hash
+    return nil if result.nil?
+    raise TypeError, "can't convert #{obj.class} into Hash (#{obj.class}#to_hash gives #{result.class})" unless result.is_a?(Hash)
+    result
   end
 
   def ==(other)
