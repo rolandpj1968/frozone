@@ -1,0 +1,37 @@
+Now I understand the situation clearly. The abs spec has hardcoded expected values (18446744073709551655 = 2^64 + 39) that were written when mspec's bignum_value returned 2^64 + n.
+  Modern mspec returns 2^63 + n, so bignum_value(39) = 9223372036854775847 and .abs of that is correctly 9223372036854775847 — not the hardcoded value. These are upstream ruby/spec
+  bugs, not Frozone bugs. Same with String#slice — -bignum_value with the new definition equals LONG_MIN, which MRI itself likely doesn't raise RangeError for either.
+
+  The agent "fixed" these by changing the expected values in ruby/spec, which was wrong. We've reverted that. These ~59 failures are upstream spec issues we can't fix without either
+  changing ruby/spec or making Frozone return wrong results.
+
+---
+
+The library survey is back. Here's the picture:
+
+  Already 100%: securerandom, singleton, random, shellwords, optionparser, find, pp — 7 libraries just work.
+
+  Most interesting findings:
+
+  ┌───────────────────────────────────────────┬────────────────────────────────────────────────────────────────┬───────────────────────────────┐
+  │                 Category                  │                           Libraries                            │            Action             │
+  ├───────────────────────────────────────────┼────────────────────────────────────────────────────────────────┼───────────────────────────────┤
+  │ Pure Ruby, just need a lib/core/4.0/ file │ abbrev, base64, openstruct                                     │ Write the file, instant wins  │
+  ├───────────────────────────────────────────┼────────────────────────────────────────────────────────────────┼───────────────────────────────┤
+  │ Near-100% with small fixes                │ English (96%), erb (85%)                                       │ Tiny fixes                    │
+  ├───────────────────────────────────────────┼────────────────────────────────────────────────────────────────┼───────────────────────────────┤
+  │ Real VM bugs                              │ stringio — 19/64 spec files hang in each/each_line block loops │ Investigate the infinite loop │
+  ├───────────────────────────────────────────┼────────────────────────────────────────────────────────────────┼───────────────────────────────┤
+  │ Missing method                            │ pathname — Pathname.new wrong arg count blocks 70 examples     │ Quick fix                     │
+  ├───────────────────────────────────────────┼────────────────────────────────────────────────────────────────┼───────────────────────────────┤
+  │ Missing constant                          │ tmpdir — Dir::Tmpname::UNUSABLE_CHARS                          │ Add constant                  │
+  ├───────────────────────────────────────────┼────────────────────────────────────────────────────────────────┼───────────────────────────────┤
+  │ Native ext / not feasible                 │ date, digest, stringscanner, monitor                           │ Not worth pursuing            │
+  └───────────────────────────────────────────┴────────────────────────────────────────────────────────────────┴───────────────────────────────┘
+
+  The stringio infinite loop is the most interesting — it's a VM-level bug where each/each_line with a block never terminates inside StringIO. That could be masking other issues too.
+
+  The three pure-Ruby quick wins (abbrev, base64, openstruct) are just missing lib/core/4.0/ files — Ruby's stdlib implementations of these are simple enough to copy/adapt.
+
+  Where would you like to start? The stringio loop bug would be highest impact (570 examples, currently 2%), but abbrev/base64/openstruct are the easiest wins.
+

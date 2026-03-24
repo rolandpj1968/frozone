@@ -1041,11 +1041,3 @@ class String
   # Build a pad string of exactly +total+ characters by repeating +padstr+.
   def __just_build_pad__(padstr, total) = (padstr * ((total / padstr.length) + 1))[0, total]
 end
-
-class Regexp
-  def =~(str) = Intrinsics.regexp_match_index(self, str)
-  def !~(str) = !(self =~ str)
-  def match(str, pos = nil) = Intrinsics.regexp_match(self, str)
-  def match?(str) = !Intrinsics.regexp_match(self, str).nil?
-  def ===(str) = !(self =~ str).nil?
-end

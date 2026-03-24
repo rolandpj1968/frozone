@@ -1,0 +1,104 @@
+.../core/4.0/ directory:
+
+=====================================================================================================
+
+basic_object.rb
+
+"  # TODO private" - probably old and now spurious comment
+
+---
+
+Empty methods like:
+
+  def initialize
+  end
+
+Rather 1-liners (I think this is sematically equivalent?):
+
+  def initialize = nil
+
+---
+
+  def instance_eval(str = :__unset__, file = nil, line = nil, extra = :__unset__, &block)
+
+I see this pattern of a sentinal extra = :__unset__ elsewhere too. It seems like the only point is to check the right number of arguments:
+
+    elsif !extra.equal?(:__unset__)
+      raise ArgumentError, "wrong number of arguments (given 4, expected 1..3)"
+
+However, doesn't ruby call semantics give exactly this error if we remove the extra = :__unset__ completely? As it would for 5, 6, 7 ... args in the call.
+
+---
+
+We have (default public) then private then public sections. Rather just (default) public at the top, and a single private section below.
+
+=====================================================================================================
+
+kernel.rb
+
+raise and fail methods are identical - factor out a helper?
+
+---
+
+Lots of type coercion boilerplate - I am sure we can consolidate coercion, here and in other files. Admittedly this is a potentially very wide sweep.
+
+---
+
+      name = if name.respond_to?(:to_path)
+               name.to_path
+             elsif name.respond_to?(:to_str)
+               name.to_str
+             elsif name.is_a?(String)
+
+For multi-line if, case etc. rather start if, case on the next line with standard 2-char indent
+
+      name =
+        if name.respond_to?(:to_path)
+        ...
+
+---
+
+One public section at the top; one private section at the bottom.
+
+---
+
+1-liners at the top with no empty lines between; multi-line methods below with a single empty line between
+
+---
+
+  def warn(*args, category: nil, uplevel: nil)
+    return nil if $VERBOSE.nil?
+    return nil if args.empty?
+
+Combine early outs into a single combined condition where it's not too awkward.
+
+---
+
+  def require(path)
+    path = __coerce_load_path__(path)
+    Intrinsics.kernel_require(self, path)
+  end
+
+Can be a 1-liner; ditto a few similar methods.
+
+---
+
+  def instance_variable_get(name)
+    Intrinsics.object_ivar_get(self, __coerce_ivar_name__(name, self))
+  end
+
+Clear 1-liners
+
+---
+
+  def initialize_dup(other)
+    initialize_copy(other)
+    self
+  end
+
+initialize_copy already returns self so redundant here; should be simple 1-liner
+
+
+
+
+

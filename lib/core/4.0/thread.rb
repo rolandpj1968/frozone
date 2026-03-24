@@ -704,6 +704,52 @@ class Queue
   alias shift pop
 end
 
+class Thread
+  class Backtrace
+    class Location
+      def path = @path
+      def lineno = @lineno
+      def label = @label || "<main>"
+      def inspect = to_s
+
+      def self._from_string(str)
+        loc = allocate
+        m = str.match(/\A(.*):(\d+):in '(.*)'\z/)
+        if m
+          loc.instance_variable_set(:@path, m[1])
+          loc.instance_variable_set(:@lineno, m[2].to_i)
+          loc.instance_variable_set(:@label, m[3])
+        else
+          m2 = str.match(/\A(.*):(\d+)\z/)
+          if m2
+            loc.instance_variable_set(:@path, m2[1])
+            loc.instance_variable_set(:@lineno, m2[2].to_i)
+            loc.instance_variable_set(:@label, nil)
+          else
+            loc.instance_variable_set(:@path, str)
+            loc.instance_variable_set(:@lineno, 0)
+            loc.instance_variable_set(:@label, nil)
+          end
+        end
+        loc
+      end
+
+      def base_label
+        (@label || "<main>").sub(/\Ablock( \(\d+\))? in /, "")
+      end
+
+      def absolute_path
+        return nil unless @path
+        File.expand_path(@path)
+      end
+
+      def to_s
+        @label ? "#{@path}:#{@lineno}:in '#{@label}'" : "#{@path}:#{@lineno}"
+      end
+    end
+  end
+end
+
 class SizedQueue < Queue
   def max         = @max
   def num_waiting = @waiters.size + @push_waiters.size

@@ -1,0 +1,13 @@
+Pre-parsing: Save serialised AST output after parsing source files with MD5(?) hash of the source file in the name. We have 2 parsers, so we would need to include the parser variant in the file name too. For example, parsing .../path-to/array.rb would be named .../path-to/.array.<SHA>.wq.ast or .../path-to/.array.<SHA>.prism.ast. We probably don't want these polluting the source tree, so maybe under ~/.frozone/ast/ directory. Then for load we take the hash of the source file, look for a preparsed file, deserialize it if it already exists, otherwise parse (again) and save the serialized AST.
+
+---
+
+Preparation for compilation via crystal lang:
+
+We will need "native", i.e. crystal, implementations of core ruby classes, notably String and Hash.
+
+String: ruby string semantics are different to crystal - mutability, encoding in particular with special-casing of 8-bit encodings, and ruby's ability to cope with invalid strings of a purported encoding. The correct way to implement this is probably to write a from-scratch RubyString class in crystal that follows MRI impl fairly directly. MRI ruby generates encoding translators from declarative mapping files - there is a tool to do this. We can steal the encoding definition classes from MRI ruby and "port" the translator generators to generate crystal code.
+
+Hash: ruby has the unusual semantics that iterators follow insertion order. This will probably have to be pasted onto existing crystal hash-map behaviour.
+
+Integer: ruby integer is interesting because it auto-promotes to big-num. Not sure what crystal supports in this respect. Crystal does have OverflowError, which should make auto-promotion quite easy. And a BigInt ligrary.
