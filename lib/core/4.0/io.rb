@@ -150,7 +150,15 @@ class IO
     raise EOFError, "end of file reached" if line.nil?
     line
   end
-  def readlines(sep = $/) = Intrinsics.io_readlines(self, sep)
+  def readlines(*args, chomp: false)
+    sep, lim = __parse_sep_limit__(args)
+    lines = []
+    while (line = gets(sep, *[lim].compact))
+      lines << (chomp ? line.chomp : line)
+    end
+    lines
+  end
+
   def getbyte = Intrinsics.io_getbyte(self)
   def getc = Intrinsics.io_getc(self)
   def readbyte = Intrinsics.io_readbyte(self)
@@ -159,13 +167,28 @@ class IO
   def ungetc(s) = Intrinsics.io_ungetc(self, s)
   def sysread(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
   def syswrite(str) = Intrinsics.io_syswrite(self, str)
-  def seek(offset, whence = SEEK_SET) = Intrinsics.io_seek(self, offset, whence)
+
+  def seek(offset, whence = SEEK_SET)
+    offset = offset.respond_to?(:to_int) ? offset.to_int : Integer(offset)
+    whence = whence.respond_to?(:to_int) ? whence.to_int : Integer(whence)
+    Intrinsics.io_seek(self, offset, whence)
+  end
+
   def read_nonblock(len, buf = nil, exception: true) = nil
   def readpartial(len, buf = nil) = nil
-  def each_line(sep = $/, &block) = Intrinsics.io_each_line(self, sep, block)
+
+  def each_line(*args, chomp: false, &block)
+    return to_enum(:each_line, *args, chomp: chomp) unless block
+    sep, lim = __parse_sep_limit__(args)
+    while (line = Intrinsics.io_gets(self, sep, lim))
+      block.call(chomp ? line.chomp : line)
+    end
+    self
+  end
+
   def each_byte(&block) = Intrinsics.io_each_byte(self, block)
   def each_char(&block) = Intrinsics.io_each_char(self, block)
-  def each(sep = $/, &block)      = each_line(sep, &block)
+  def each(*args, chomp: false, &block) = each_line(*args, chomp: chomp, &block)
   def atime = Intrinsics.io_atime(self)
   def mtime = Intrinsics.io_mtime(self)
   def ctime = Intrinsics.io_ctime(self)
@@ -288,10 +311,82 @@ class IO
     end
   end
 
-  def self.foreach(path, sep = $/, &block)
-    open(path, 'r') do |f|
-      f.each_line(sep, &block)
+  # Shared helper: parse (sep, limit) from a raw *args array using MRI rules.
+  # Returns [sep, lim] where lim may be nil.
+  def __parse_sep_limit__(args)
+    case args.length
+    when 0
+      [$/, nil]
+    when 1
+      arg = args[0]
+      if arg.is_a?(Integer)
+        [$/, arg]
+      elsif arg.nil?
+        [nil, nil]
+      elsif !arg.respond_to?(:to_str) && arg.respond_to?(:to_int)
+        [$/, arg.to_int]
+      else
+        [arg.respond_to?(:to_str) ? arg.to_str : arg, nil]
+      end
+    when 2
+      sep = args[0].nil? ? nil : (args[0].respond_to?(:to_str) ? args[0].to_str : args[0])
+      lim = args[1].respond_to?(:to_int) ? args[1].to_int : Integer(args[1])
+      [sep, lim]
+    else
+      raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
     end
+  end
+  private :__parse_sep_limit__
+
+  # Coerce a path argument to String using to_path or to_str.
+  def self.__coerce_path__(path)
+    if path.nil?
+      raise TypeError, "no implicit conversion of nil into String"
+    elsif path.respond_to?(:to_path)
+      path.to_path
+    elsif path.respond_to?(:to_str)
+      path.to_str
+    else
+      raise TypeError, "no implicit conversion of #{path.class} into String"
+    end
+  end
+  private_class_method :__coerce_path__
+
+  def self.__parse_sep_limit__(args)
+    case args.length
+    when 0
+      [$/, nil]
+    when 1
+      arg = args[0]
+      if arg.is_a?(Integer)
+        [$/, arg]
+      elsif arg.nil?
+        [nil, nil]
+      elsif !arg.respond_to?(:to_str) && arg.respond_to?(:to_int)
+        [$/, arg.to_int]
+      else
+        [arg.respond_to?(:to_str) ? arg.to_str : arg, nil]
+      end
+    when 2
+      sep = args[0].nil? ? nil : (args[0].respond_to?(:to_str) ? args[0].to_str : args[0])
+      lim = args[1].respond_to?(:to_int) ? args[1].to_int : Integer(args[1])
+      [sep, lim]
+    else
+      raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
+    end
+  end
+  private_class_method :__parse_sep_limit__
+
+  def self.foreach(path, *args, chomp: false, **opts, &block)
+    return to_enum(:foreach, path, *args, chomp: chomp, **opts) unless block
+    path = __coerce_path__(path)
+    sep, lim = __parse_sep_limit__(args)
+    open(path, 'r', **opts) do |f|
+      while (line = f.gets(sep, *[lim].compact))
+        block.call(chomp ? line.chomp : line)
+      end
+    end
+    nil
   end
 
   def self.read(path, length = nil, offset = nil, **opts)
@@ -328,9 +423,10 @@ class IO
     end
   end
 
-  def self.readlines(path, sep = $/, **opts)
-    open(path, 'r') do |f|
-      f.readlines(sep)
+  def self.readlines(path, *args, chomp: false, **opts)
+    path = __coerce_path__(path)
+    open(path, 'r', **opts) do |f|
+      f.readlines(*args, chomp: chomp)
     end
   end
 
