@@ -335,11 +335,23 @@ module Frozone
           i = base
           while i < all_frames.length - 1
             call_site = all_frames[i].incoming_call_site || "unknown:0"
-            meth = all_frames[i + 1].current_method&.name&.to_s || "block"
+            meth = caller_method_name(all_frames[i + 1].current_method)
             frames << [call_site, meth]
             i += 1
           end
           frames
+        end
+
+        # Format method name with module qualifier (e.g. "Kernel#tap", "String#upcase").
+        # Matches MRI's caller format for methods defined in named modules/classes.
+        def caller_method_name(method)
+          return "block" unless method.is_a?(Method)
+          name = method.name.to_s
+          owner = method.scopes.last
+          return name unless owner.is_a?(ModuleObject)
+          mod_name = owner.name
+          return name if mod_name.nil? || mod_name.empty?
+          "#{mod_name}##{name}"
         end
 
         def exception_caller_string(context)
@@ -355,7 +367,7 @@ module Frozone
           # The last skipped frame (i-1) has incoming_call_site = where full_message was called from
           loc = all_frames[i - 1].incoming_call_site
           return FNIL unless loc
-          outer_name = i < all_frames.length ? (all_frames[i].current_method&.name&.to_s || "<main>") : "<main>"
+          outer_name = i < all_frames.length ? caller_method_name(all_frames[i].current_method) : "<main>"
           n2f_str("#{loc}:in '#{outer_name}'")
         end
 
@@ -376,7 +388,7 @@ module Frozone
             frame = all_frames[i]
             outer_frame = all_frames[i + 1]
             loc = frame.incoming_call_site || "unknown:0"
-            meth = outer_frame.current_method&.name || :"<main>"
+            meth = caller_method_name(outer_frame.current_method) || "<main>"
             bt << n2f_str("#{loc}:in '#{meth}'", frozen: true)
             i += 1
           end
