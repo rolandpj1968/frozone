@@ -2,8 +2,13 @@ class Enumerator
   include Enumerable
 
   class Yielder
-    def initialize(&block)
-      @block = block
+    def to_proc
+      y = self
+      proc { |*args| y.yield(*args) }
+    end
+
+    def <<(arg)
+      self.yield(arg)
       self
     end
 
@@ -15,18 +20,18 @@ class Enumerator
       end
     end
 
-    def <<(arg)
-      self.yield(arg)
-      self
-    end
+    private
 
-    def to_proc
-      y = self
-      proc { |*args| y.yield(*args) }
+    def initialize(&block)
+      @block = block
+      self
     end
   end
 
   def next_values = __next_values_raw__
+  def peek_values = __peek_values_raw__
+  def with_object(obj, &block) = each_with_object(obj, &block)
+  def +(other) = Enumerator::Chain.new(self, other)
 
   def self._from_method(receiver, method_name, method_args, size_block = nil, method_kwargs = {})
     e = allocate
@@ -89,10 +94,6 @@ class Enumerator
   def peek
     vals = __peek_values_raw__
     vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals)
-  end
-
-  def peek_values
-    __peek_values_raw__
   end
 
   def feed(val)
@@ -213,17 +214,18 @@ class Enumerator
 
   def with_index(offset = 0, &block)
     return to_enum(:with_index, offset) { size } unless block
-    offset = if offset.nil?
-      0
-    elsif offset.is_a?(Integer)
-      offset
-    elsif offset.is_a?(Float)
-      offset.to_i
-    elsif offset.respond_to?(:to_int)
-      offset.to_int
-    else
-      raise TypeError, "no implicit conversion of #{offset.class} into Integer"
-    end
+    offset =
+      if offset.nil?
+        0
+      elsif offset.is_a?(Integer)
+        offset
+      elsif offset.is_a?(Float)
+        offset.to_i
+      elsif offset.respond_to?(:to_int)
+        offset.to_int
+      else
+        raise TypeError, "no implicit conversion of #{offset.class} into Integer"
+      end
     i = offset
     each { |*x|
       v = block.call(x.length == 1 ? x[0] : x, i)
@@ -232,13 +234,6 @@ class Enumerator
     }
   end
 
-  def with_object(obj, &block)
-    each_with_object(obj, &block)
-  end
-
-  def +(other)
-    Enumerator::Chain.new(self, other)
-  end
   private
 
   def initialize(size = nil, &block)
@@ -342,6 +337,7 @@ class Enumerator::Generator
     yielder = Enumerator::Yielder.new(&block)
     @block.call(yielder, *args)
   end
+
   private
 
   def initialize(&block)
@@ -353,32 +349,12 @@ class Enumerator::Generator
 end
 
 class Enumerator::Lazy < Enumerator
-  def initialize(obj, size = nil, &block)
-    raise FrozenError, "can't modify frozen Enumerator::Lazy" if frozen?
-    raise ArgumentError, "tried to create Proc object without a block" unless block
-    @receiver       = obj
-    @_lazy_xform    = block   # proc { |yielder, *vals| ... } transform
-    @_xform_factory = nil     # when set: called to produce a fresh xform per _lazy_eval
-    @_grouped_eval  = nil     # when set: replaces _lazy_eval entirely (for chunk/slice etc.)
-    @_lazy_size     = size    # explicit size
-    # Inherited Enumerator ivars (unused in lazy path)
-    @method_name = nil
-    @method_args = []
-    @method_kwargs = {}
-    @size_block  = nil
-    @size        = size
-    @block       = nil
-    @fiber       = nil
-    @peeked      = false
-    @peeked_vals = nil
-    @feed        = nil
-    @_feed_pending = false
-    @_fiber_started = false
-    self
-  end
+  def lazy = self
+  def with_object(obj, &block) = each_with_object(obj, &block)
+  def eager = Enumerator.new { |y| each { |*v| y.yield(*v) } }
+  def to_enum(method_name = :each, *args, **kwargs, &size_block) = Enumerator._from_method(self, method_name, args, size_block, kwargs)
+  alias enum_for to_enum
 
-  # Internal evaluation — does NOT rescue StopIteration (callers do).
-  # Calls output block with *vals for each element in the lazy chain.
   def _lazy_eval(*extra_args, &output)
     # Grouped eval (chunk, slice_*): completely custom evaluation strategy
     if @_grouped_eval
@@ -428,8 +404,6 @@ class Enumerator::Lazy < Enumerator
     return @_lazy_size.call if @_lazy_size.respond_to?(:call)
     @_lazy_size
   end
-
-  def lazy = self
 
   def map(&block)
     return to_enum(:map) { size } unless block
@@ -709,11 +683,12 @@ class Enumerator::Lazy < Enumerator
   def slice_before(pattern = nil, &block)
     return to_enum(:slice_before) unless pattern || block
     source = self
-    pred = if block
-      block
-    else
-      proc { |val| pattern === val }
-    end
+    pred =
+      if block
+        block
+      else
+        proc { |val| pattern === val }
+      end
     lazy = Enumerator::Lazy.new(self) { }
     lazy.instance_variable_set(:@_lazy_size, nil)
     lazy.instance_variable_set(:@_grouped_eval, proc { |output, *extra_args|
@@ -739,11 +714,12 @@ class Enumerator::Lazy < Enumerator
   def slice_after(pattern = nil, &block)
     return to_enum(:slice_after) unless pattern || block
     source = self
-    pred = if block
-      block
-    else
-      proc { |val| pattern === val }
-    end
+    pred =
+      if block
+        block
+      else
+        proc { |val| pattern === val }
+      end
     lazy = Enumerator::Lazy.new(self) { }
     lazy.instance_variable_set(:@_lazy_size, nil)
     lazy.instance_variable_set(:@_grouped_eval, proc { |output, *extra_args|
@@ -846,14 +822,6 @@ class Enumerator::Lazy < Enumerator
     end
   end
 
-  def eager
-    Enumerator.new { |y| each { |*v| y.yield(*v) } }
-  end
-
-  def with_object(obj, &block)
-    each_with_object(obj, &block)
-  end
-
   def count(val = (no_arg = true), &block)
     if block
       n = 0
@@ -869,11 +837,6 @@ class Enumerator::Lazy < Enumerator
     end
   end
 
-  def to_enum(method_name = :each, *args, **kwargs, &size_block)
-    Enumerator._from_method(self, method_name, args, size_block, kwargs)
-  end
-  alias enum_for to_enum
-
   def inspect
     if @receiver.nil? && @_lazy_xform.nil?
       "#<Enumerator::Lazy: uninitialized>"
@@ -884,7 +847,34 @@ class Enumerator::Lazy < Enumerator
     end
   end
 
+  # Internal evaluation — does NOT rescue StopIteration (callers do).
+  # Calls output block with *vals for each element in the lazy chain.
+
   private
+
+  def initialize(obj, size = nil, &block)
+    raise FrozenError, "can't modify frozen Enumerator::Lazy" if frozen?
+    raise ArgumentError, "tried to create Proc object without a block" unless block
+    @receiver       = obj
+    @_lazy_xform    = block   # proc { |yielder, *vals| ... } transform
+    @_xform_factory = nil     # when set: called to produce a fresh xform per _lazy_eval
+    @_grouped_eval  = nil     # when set: replaces _lazy_eval entirely (for chunk/slice etc.)
+    @_lazy_size     = size    # explicit size
+    # Inherited Enumerator ivars (unused in lazy path)
+    @method_name = nil
+    @method_args = []
+    @method_kwargs = {}
+    @size_block  = nil
+    @size        = size
+    @block       = nil
+    @fiber       = nil
+    @peeked      = false
+    @peeked_vals = nil
+    @feed        = nil
+    @_feed_pending = false
+    @_fiber_started = false
+    self
+  end
 
   def initialize_copy(source)
     super
@@ -907,6 +897,11 @@ end
 
 class Enumerator::Chain
   include Enumerable
+
+  def inspect
+    return "#<Enumerator::Chain: uninitialized>" if @enums.nil?
+    "#<Enumerator::Chain: #{@enums.inspect}>"
+  end
 
   def each(&block)
     return to_enum(:each) unless block
@@ -936,10 +931,6 @@ class Enumerator::Chain
     self
   end
 
-  def inspect
-    return "#<Enumerator::Chain: uninitialized>" if @enums.nil?
-    "#<Enumerator::Chain: #{@enums.inspect}>"
-  end
   private
 
   def initialize(*enums)
@@ -969,6 +960,8 @@ class Enumerator
       super
     end
 
+    def exclude_end? = (@receiver.is_a?(Range) ? @receiver.exclude_end? : false)
+
     # Supports both Range#step (receiver is a Range) and Numeric#step (receiver is a Numeric).
     def begin
       @receiver.is_a?(Range) ? @receiver.begin : @receiver
@@ -996,10 +989,6 @@ class Enumerator
           1
         end
       end
-    end
-
-    def exclude_end?
-      @receiver.is_a?(Range) ? @receiver.exclude_end? : false
     end
 
     def each(&block)
@@ -1058,23 +1047,8 @@ class Enumerator
   end
 
   class Product < Enumerator
-    def initialize(*enumerables)
-      raise FrozenError, "can't modify frozen Enumerator::Product" if frozen?
-      @enumerables = enumerables
-      # Set inherited Enumerator ivars directly (don't call super with a block)
-      @block = nil
-      @receiver = nil
-      @method_name = nil
-      @method_args = []
-      @method_kwargs = {}
-      @size_block = nil
-      @size = nil
-      @fiber = nil
-      @peeked = false
-      @peeked_vals = nil
-      @feed = nil
-      @_feed_pending = false
-      @_fiber_started = false
+    def rewind
+      @enumerables&.each { |e| e.rewind if e.respond_to?(:rewind) }
       self
     end
 
@@ -1085,11 +1059,6 @@ class Enumerator
       else
         __product_each__(0, [], block)
       end
-      self
-    end
-
-    def rewind
-      @enumerables&.each { |e| e.rewind if e.respond_to?(:rewind) }
       self
     end
 
@@ -1117,6 +1086,26 @@ class Enumerator
     end
 
     private
+
+    def initialize(*enumerables)
+      raise FrozenError, "can't modify frozen Enumerator::Product" if frozen?
+      @enumerables = enumerables
+      # Set inherited Enumerator ivars directly (don't call super with a block)
+      @block = nil
+      @receiver = nil
+      @method_name = nil
+      @method_args = []
+      @method_kwargs = {}
+      @size_block = nil
+      @size = nil
+      @fiber = nil
+      @peeked = false
+      @peeked_vals = nil
+      @feed = nil
+      @_feed_pending = false
+      @_fiber_started = false
+      self
+    end
 
     def initialize_copy(source)
       return self if source.equal?(self)

@@ -46,6 +46,7 @@ class Array
     i = __coerce_to_int__(i)
     Intrinsics.array_at(self, i)
   end
+
   ARRAY_MAX_INDEX = (1 << 63)
 
   def <<(v); Intrinsics.array_push(self, v); self; end
@@ -311,19 +312,20 @@ class Array
   end
 
   def flatten(depth = nil)
-    d = if depth.nil?
-      nil
-    elsif depth.is_a?(Integer)
-      depth < 0 ? nil : depth
-    else
-      begin
-        n = depth.to_int
-      rescue NoMethodError
-        raise TypeError, "no implicit conversion of #{depth.class} into Integer"
+    d =
+      if depth.nil?
+        nil
+      elsif depth.is_a?(Integer)
+        depth < 0 ? nil : depth
+      else
+        begin
+          n = depth.to_int
+        rescue NoMethodError
+          raise TypeError, "no implicit conversion of #{depth.class} into Integer"
+        end
+        raise TypeError, "no implicit conversion of #{depth.class} into Integer" unless n.is_a?(Integer)
+        n < 0 ? nil : n
       end
-      raise TypeError, "no implicit conversion of #{depth.class} into Integer" unless n.is_a?(Integer)
-      n < 0 ? nil : n
-    end
     result = []
     __flatten_into__(self, d, result, [])
     result
@@ -500,40 +502,42 @@ class Array
       end
     end
     return ''.force_encoding('US-ASCII') if empty?
-    sep_str = if sep.nil?
-      ''
-    elsif sep.is_a?(String)
-      sep
-    else
-      begin
-        s = sep.to_str
-        raise TypeError, "no implicit conversion of #{sep.class} into String" unless s.is_a?(String)
-        s
-      rescue NoMethodError
-        raise TypeError, "no implicit conversion of #{sep.class} into String"
+    sep_str =
+      if sep.nil?
+        ''
+      elsif sep.is_a?(String)
+        sep
+      else
+        begin
+          s = sep.to_str
+          raise TypeError, "no implicit conversion of #{sep.class} into String" unless s.is_a?(String)
+          s
+        rescue NoMethodError
+          raise TypeError, "no implicit conversion of #{sep.class} into String"
+        end
       end
-    end
     guard = (Fiber[:__array_join_guard__] ||= [])
     raise ArgumentError, "recursive array join" if guard.include?(__id__)
     guard << __id__
     begin
       # Initialize result with the encoding of the first string-like element,
       # matching MRI behavior where the first element's encoding is used as base.
-      _join_first_enc = if sep_str && !sep_str.empty?
-        sep_str.encoding
-      else
-        _join_first_str = nil
-        each do |e|
-          if e.is_a?(String)
-            _join_first_str = e
-            break
-          elsif (s = begin; e.to_str; rescue NoMethodError; nil; end).is_a?(String)
-            _join_first_str = s
-            break
+      _join_first_enc =
+        if sep_str && !sep_str.empty?
+          sep_str.encoding
+        else
+          _join_first_str = nil
+          each do |e|
+            if e.is_a?(String)
+              _join_first_str = e
+              break
+            elsif (s = begin; e.to_str; rescue NoMethodError; nil; end).is_a?(String)
+              _join_first_str = s
+              break
+            end
           end
+          _join_first_str ? _join_first_str.encoding : Encoding::UTF_8
         end
-        _join_first_str ? _join_first_str.encoding : Encoding::UTF_8
-      end
       result = ''.force_encoding(_join_first_enc)
       first = true
       each { |e|

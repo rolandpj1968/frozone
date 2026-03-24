@@ -54,6 +54,12 @@ module Marshal
 
     private
 
+    def respond_to_marshal_dump?(obj) = obj.respond_to?(:marshal_dump, true)
+    def respond_to__dump?(obj) = obj.respond_to?(:_dump, true)
+    # Use Module.instance_method(:name) to bypass overridden .name
+    def real_class_name(klass) = Module.instance_method(:name).bind(klass).call.to_s
+    def real_module_name(mod) = Module.instance_method(:name).bind(mod).call.to_s
+
     def write_object(obj)
       if @limit >= 0
         raise ArgumentError, "exceed depth limit" if @depth >= @limit
@@ -166,14 +172,6 @@ module Marshal
       end
     end
 
-    def respond_to_marshal_dump?(obj)
-      obj.respond_to?(:marshal_dump, true)
-    end
-
-    def respond_to__dump?(obj)
-      obj.respond_to?(:_dump, true)
-    end
-
     def track(obj)
       oid = begin; obj.object_id; rescue NoMethodError; obj.__id__; end
       @objects[oid] = @objects.size
@@ -183,6 +181,7 @@ module Marshal
       @out << TYPE_LINK
       write_long(index)
     end
+
     # ── Integers ──────────────────────────────────────────────────────────────
 
     def write_integer(n)
@@ -233,6 +232,7 @@ module Marshal
         @out << "\xfc" << (n & 0xff).chr << ((n >> 8) & 0xff).chr << ((n >> 16) & 0xff).chr << ((n >> 24) & 0xff).chr
       end
     end
+
     # ── Bignum ────────────────────────────────────────────────────────────────
 
     def write_bignum(n)
@@ -258,6 +258,7 @@ module Marshal
       end
       bytes
     end
+
     # ── Float ─────────────────────────────────────────────────────────────────
 
     def write_float(f)
@@ -286,6 +287,7 @@ module Marshal
 
       end
     end
+
     # ── Symbol ────────────────────────────────────────────────────────────────
 
     def write_symbol(sym)
@@ -325,6 +327,7 @@ module Marshal
         @out << str.b
       end
     end
+
     # ── String ────────────────────────────────────────────────────────────────
 
     def write_string_with_ivar(obj)
@@ -433,6 +436,7 @@ module Marshal
       @out << TYPE_UCLASS
       write_symbol_str(real_class_name(klass))
     end
+
     # ── Array ─────────────────────────────────────────────────────────────────
 
     def write_array_with_wraps(obj)
@@ -464,6 +468,7 @@ module Marshal
       write_long(obj.size)
       obj.each { |e| write_object(e) }
     end
+
     # ── Hash ──────────────────────────────────────────────────────────────────
 
     def write_hash_with_wraps(obj)
@@ -511,6 +516,7 @@ module Marshal
       obj.each_pair { |k, v| write_object(k); write_object(v) }
       write_object(obj.default) if has_default
     end
+
     # ── Regexp ────────────────────────────────────────────────────────────────
 
     def write_regexp_with_ivar(obj)
@@ -551,6 +557,7 @@ module Marshal
       @out << src
       @out << (obj.options & 0x7f).chr
     end
+
     # ── Class / Module ────────────────────────────────────────────────────────
 
     def write_class(klass)
@@ -595,15 +602,6 @@ module Marshal
       @out << name.b
     end
 
-    def real_class_name(klass)
-      # Use Module.instance_method(:name) to bypass overridden .name
-      Module.instance_method(:name).bind(klass).call.to_s
-    end
-
-    def real_module_name(mod)
-      Module.instance_method(:name).bind(mod).call.to_s
-    end
-
     def check_anonymous(mod)
       name = begin
         real_class_name(mod)
@@ -619,6 +617,7 @@ module Marshal
         raise TypeError, "can't dump anonymous #{kind} #{mod.inspect}"
       end
     end
+
     # ── Struct ────────────────────────────────────────────────────────────────
 
     def write_struct_with_wraps(obj)
@@ -671,6 +670,7 @@ module Marshal
         write_object(obj.send(m))
       end
     end
+
     # ── User-defined (_dump/_load) ────────────────────────────────────────────
 
     def write_user_defined(obj)
@@ -722,6 +722,7 @@ module Marshal
       # Track the object itself AFTER writing ivar values (matches MRI ordering).
       track(obj)
     end
+
     # ── User-marshal (marshal_dump/marshal_load) ───────────────────────────────
 
     def write_user_marshal(obj)
@@ -739,6 +740,7 @@ module Marshal
       data = obj.__send__(:marshal_dump)
       write_object(data)
     end
+
     # ── Exception ─────────────────────────────────────────────────────────────
 
     EXCEPTION_SKIP_IVARS = %i[@mesg @message @bt @backtrace @_has_locations @backtrace_locations].freeze
@@ -915,6 +917,9 @@ module Marshal
     end
 
     private
+
+    # The next object has instance variables attached
+    def read_ivar = read_object_for_ivar
 
     def read_byte
       raise ArgumentError, "marshal data too short" if @pos >= @data.bytesize
@@ -1344,11 +1349,6 @@ module Marshal
       # Class name symbols are structural, not data — don't call proc.
       sym = read_ivar_name
       const_from_name(sym.to_s)
-    end
-
-    def read_ivar
-      # The next object has instance variables attached
-      read_object_for_ivar
     end
 
     # Read an object that has ivar wrapper — special handling to set ivars

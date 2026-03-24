@@ -95,13 +95,8 @@ class String
     Intrinsics.string_to_i_base(self, base)
   end
 
-  def encode(enc = nil, src_enc = nil, **opts)
-    Intrinsics.string_encode(self, enc, src_enc, opts)
-  end
-
-  def encode!(enc = nil, src_enc = nil, **opts)
-    Intrinsics.string_encode_bang(self, enc, src_enc, opts)
-  end
+  def encode(enc = nil, src_enc = nil, **opts) = Intrinsics.string_encode(self, enc, src_enc, opts)
+  def encode!(enc = nil, src_enc = nil, **opts) = Intrinsics.string_encode_bang(self, enc, src_enc, opts)
 
   def ==(v)
     return Intrinsics.string_eql(self, v) if v.is_a?(String)
@@ -168,13 +163,12 @@ class String
     block.call(result)
   end
 
-  def match?(pattern, pos = :__unset__)
+  def match?(pattern, pos = :__unset__) =
     if pos.equal?(:__unset__)
       Intrinsics.string_match_q(self, pattern, nil)
     else
       Intrinsics.string_match_q(self, pattern, pos)
     end
-  end
 
   def scan(pattern, &block)
     Intrinsics.string_scan(self, pattern, block)
@@ -664,9 +658,7 @@ class String
     frozen? || Intrinsics.string_chilled_q(self) ? dup : self
   end
 
-  def -@
-    Intrinsics.string_dedup(self)
-  end
+  def -@ = Intrinsics.string_dedup(self)
 
   def unpack(fmt, offset: nil)
     fmt = __coerce_to_str__(fmt) unless fmt.is_a?(String)
@@ -1047,9 +1039,7 @@ class String
     [width, padstr]
   end
   # Build a pad string of exactly +total+ characters by repeating +padstr+.
-  def __just_build_pad__(padstr, total)
-    (padstr * ((total / padstr.length) + 1))[0, total]
-  end
+  def __just_build_pad__(padstr, total) = (padstr * ((total / padstr.length) + 1))[0, total]
 end
 
 class Regexp
