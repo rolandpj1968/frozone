@@ -405,9 +405,16 @@ module Frozone
           n2f_int(receiver.native_io.pos)
         end
 
-        def io_pos_set(_, receiver, pos_obj)
+        def io_pos_set(context, receiver, pos_obj)
           return pos_obj unless fio?(receiver)
-          receiver.native_io.pos = fint?(pos_obj) ? pos_obj.raw : 0
+          pos = if fint?(pos_obj) then pos_obj.raw
+                elsif fobj?(pos_obj)
+                  r = pos_obj.dispatch(context, :to_int, [], {}) rescue nil
+                  raise FrozoneException.make(:TypeError, "no implicit conversion of #{pos_obj.class_object.name} into Integer") unless fint?(r)
+                  r.raw
+                else raise FrozoneException.make(:TypeError, "no implicit conversion of #{pos_obj.class_object.name} into Integer")
+                end
+          receiver.native_io.pos = pos
           pos_obj
         end
 
@@ -613,7 +620,27 @@ module Frozone
         # print/puts/write/flush/sync_set delegate to a native IO, defaulting to $stdout
         def io_print(context, receiver, args)
           native = native_io_for(receiver)
-          args.raw.each { |a| native.print(a.dispatch(context, :to_s, [], {}).raw) }
+          ofs_obj = GLOBALS[:"$,"]
+          ors_obj = GLOBALS[:"$\\"]
+          ofs = (fstr?(ofs_obj) && !fnil?(ofs_obj)) ? ofs_obj.raw : nil
+          ors = (fstr?(ors_obj) && !fnil?(ors_obj)) ? ors_obj.raw : nil
+          items = args.raw
+          if items.empty?
+            # No args: print $_ (last line read)
+            last_line = GLOBALS[:"$_"] || NilObject::NIL
+            last_line = NilObject::NIL if fnil?(last_line) || last_line.nil?
+            s = last_line.dispatch(context, :to_s, [], {})
+            native.write(fstr?(s) ? s.raw : "")
+          else
+            first = true
+            items.each do |a|
+              native.write(ofs) if ofs && !first
+              first = false
+              s = a.dispatch(context, :to_s, [], {})
+              native.write(fstr?(s) ? s.raw : "")
+            end
+          end
+          native.write(ors) if ors
           FNIL
         end
 
@@ -642,9 +669,21 @@ module Frozone
           receiver
         end
 
+        def io_sync(_, receiver)
+          native = receiver.native_io
+          raise FrozoneException.make(:IOError, "closed stream") if native.closed?
+          n2f_bool(native.sync)
+        rescue ::IOError => e
+          raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
+        end
+
         def io_sync_set(_, receiver, val)
-          native_io_for(receiver).sync = val.truthy? rescue nil
+          native = receiver.native_io
+          raise FrozoneException.make(:IOError, "closed stream") if native.closed?
+          native.sync = val.truthy?
           val
+        rescue ::IOError => e
+          raise FrozoneException.new(FrozoneException.wrap_mri(e), e.message)
         end
 
         def io_autoclose_set(_, receiver, val)
@@ -678,13 +717,52 @@ module Frozone
           n2f_arr(result.map { |arr| n2f_arr(arr.map { |native| native_to_frozone[native] || IOObject.new(native, Core.io_class) }) })
         end
 
-        def io_pread(_, receiver, length_obj, offset_obj, buf_obj = FNIL)
+        def io_pread(context, receiver, length_obj, offset_obj, buf_obj = FNIL)
           native = native_io_for(receiver)
-          len    = fint?(length_obj) ? length_obj.raw : length_obj.raw.to_i
-          off    = fint?(offset_obj) ? offset_obj.raw : offset_obj.raw.to_i
+          len = if fint?(length_obj) then length_obj.raw
+                elsif fobj?(length_obj)
+                  r = length_obj.dispatch(context, :to_int, [], {}) rescue nil
+                  raise FrozoneException.make(:TypeError, "no implicit conversion of #{length_obj.class_object.name} into Integer") unless fint?(r)
+                  r.raw
+                else raise FrozoneException.make(:TypeError, "no implicit conversion of #{length_obj.class_object.name} into Integer")
+                end
+          off = if fint?(offset_obj) then offset_obj.raw
+                elsif fobj?(offset_obj)
+                  r = offset_obj.dispatch(context, :to_int, [], {}) rescue nil
+                  raise FrozoneException.make(:TypeError, "no implicit conversion of #{offset_obj.class_object.name} into Integer") unless fint?(r)
+                  r.raw
+                else raise FrozoneException.make(:TypeError, "no implicit conversion of #{offset_obj.class_object.name} into Integer")
+                end
+          # Resolve buffer object
+          raw_buf = nil
+          frozone_buf = nil
+          if fstr?(buf_obj)
+            raw_buf = buf_obj.raw
+            frozone_buf = buf_obj
+          elsif !fnil?(buf_obj)
+            if fobj?(buf_obj)
+              r = buf_obj.dispatch(context, :to_str, [], {}) rescue nil
+              raise FrozoneException.make(:TypeError, "no implicit conversion of #{buf_obj.class_object.name} into String") unless fstr?(r)
+              raw_buf = r.raw  # the underlying MRI string (mutate this in-place)
+              frozone_buf = buf_obj
+            else
+              raise FrozoneException.make(:TypeError, "no implicit conversion into String")
+            end
+          end
+          buf_enc = raw_buf&.encoding
           reraise(::IOError, ::SystemCallError, ::EOFError) do
-            str = native.pread(len, off)
-            n2f_str(str)
+            if len == 0
+              frozone_buf || n2f_str(+"")
+            else
+              str = native.pread(len, off)
+              str = str.force_encoding(buf_enc) if buf_enc
+              if raw_buf
+                raw_buf.replace(str)
+                frozone_buf
+              else
+                n2f_str(str)
+              end
+            end
           end
         end
 

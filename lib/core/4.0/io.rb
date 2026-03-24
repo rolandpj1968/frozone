@@ -72,8 +72,8 @@ class IO
 
   def write(*args) = Intrinsics.io_write(self, args)
   def flush = Intrinsics.io_flush(self)
-  def sync=(val)       = Intrinsics.io_sync_set(self, val)
-  def sync = true
+  def sync=(val) = Intrinsics.io_sync_set(self, val)
+  def sync       = Intrinsics.io_sync(self)
   def autoclose=(val)  = Intrinsics.io_autoclose_set(self, val)
   def autoclose?       = Intrinsics.io_autoclose?(self)
   def <<(str); write(str.is_a?(String) ? str : str.to_s); self; end

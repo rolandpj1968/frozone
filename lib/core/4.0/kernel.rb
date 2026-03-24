@@ -462,7 +462,8 @@ module Kernel
       raise TypeError, "can't convert #{val.class} into Integer (to_int should return Integer, not #{result.class})" unless result.is_a?(Integer)
       return result
     end
-    raise TypeError, "no implicit conversion of #{val.class} into Integer"
+    type_name = val.nil? ? "nil" : val.class.to_s
+    raise TypeError, "no implicit conversion of #{type_name} into Integer"
   end
 
   def __coerce_to_ary__(val)
