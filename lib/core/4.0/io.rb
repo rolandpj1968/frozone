@@ -98,7 +98,11 @@ class IO
   def pos = Intrinsics.io_pos(self)
   def pos=(p)          = Intrinsics.io_pos_set(self, p)
   def tell = pos
-  def rewind = Intrinsics.io_rewind(self)
+  def rewind
+    Intrinsics.io_rewind(self)
+    @lineno = 0
+    0
+  end
   def stat = Intrinsics.io_stat(self)
   def inspect = Intrinsics.io_inspect(self)
   def read(len = nil, buf = nil) = Intrinsics.io_read(self, len, buf)

@@ -341,11 +341,12 @@ module Frozone
           return receiver unless fio?(receiver)
           ext_enc = extract_encoding_name(ext_obj)
           int_enc = extract_encoding_name(int_obj)
-          if int_enc
+          # Always call set_encoding when int_obj was explicitly provided (even if nil)
+          # FNIL means "not provided"; but since FNIL == NilObject::NIL, we check ext_obj too
+          begin
             receiver.native_io.set_encoding(ext_enc, int_enc)
-          elsif ext_enc
-            receiver.native_io.set_encoding(ext_enc)
-          end rescue nil
+          rescue => _ignored
+          end
           receiver
         end
 
