@@ -57,6 +57,9 @@ class File < IO
 
   include File::Constants
 
+  # IO should also directly include File::Constants (MRI: IO.include?(File::Constants) == true)
+  IO.include File::Constants
+
   def self.join(*parts)
     return '' if parts.empty?
     segs = []
