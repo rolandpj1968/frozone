@@ -10,7 +10,6 @@ class UnboundMethod
   def super_method = Intrinsics.unbound_method_super(self)
   def dup = Intrinsics.unbound_method_dup(self)
   def hash = Intrinsics.unbound_method_hash(self)
-  alias to_s inspect
 
   def clone(freeze: nil)
     c = dup
@@ -29,4 +28,5 @@ class UnboundMethod
     loc = source_location ? " #{source_location[0]}:#{source_location[1]}" : ""
     "#<UnboundMethod: #{own_name}##{name}#{loc}>"
   end
+  alias to_s inspect
 end
