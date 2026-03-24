@@ -4,13 +4,13 @@ A Ruby VM implemented in Ruby. Parses Ruby source via the [Prism](https://github
 
 ## Project Status (v4.0.1)
 
-Frozone targets Ruby 4.0 semantics and passes **2613/2630** ruby/spec language examples,
+Frozone targets Ruby 4.0 semantics and passes **2615/2630** ruby/spec language examples,
 including full pattern matching support.
 
-Core library spec coverage: **20912 / 21890 passing (95.5%)** — all modules run;
+Core library spec coverage: **20449/20886 passing (97.9%)** — excluding timed-out modules;
 `io`, `process`, `mutex` still have failures (concurrency/OS-level features);
 `tracepoint` is intentionally unimplemented (deep introspection, low priority);
-`argf`, `conditionvariable`, `thread` excluded (hang at native level).
+`argf`, `conditionvariable`, `integer`, `io`, `numeric`, `thread` timed out in parallel runner.
 
 ### Frozone² — Self-hosting (sort of)
 
@@ -123,18 +123,16 @@ bundle exec ruby frozone.rb --parser=wq -e "puts 'hello'"
 Tested against [ruby/spec](https://github.com/ruby/spec) language specs.
 Run with `bundle exec rake language` (or `rake language:NAME` for a single spec).
 
-**Prism parser: 2613 / 2630 passing** — as of 2026-03-24 (v4.0.1)
+**Prism parser: 2615 / 2630 passing** — as of 2026-03-24 (v4.0.1)
 
 Pattern matching is now fully implemented. Remaining failures/errors:
 
 | Spec | Result | Notes |
 |------|--------|-------|
+| magic_comment | 10 failures | stdin magic comment tests (no stdin support in spec runner) |
 | class_variable | 1 failure | class variable overtaken in ancestor edge case |
 | execution | 1 failure | `$LOAD_PATH` sitelibdir `@gem_prelude_index` |
-| predefined | 1 failure | `$LOAD_PATH.resolve_feature_path` for `.so` files |
-| magic_comment | 1 error | magic comment in `-e` argument |
-| pattern_matching | 5 errors | refinements + deconstruct edge cases |
-| source_encoding | 2 errors | UTF-16 BOM with invalid byte sequence |
+| pattern_matching | 3 errors | refinements + deconstruct edge cases |
 
 **WqParser:** similar pass rate (2 additional errors for non-ASCII constant lexing)
 
@@ -152,68 +150,39 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 20912 / 21890 passing (95.5%)** — as of 2026-03-24 (Prism parser, parallel run)
+**Overall: 20449 / 20886 passing (97.9%)** — as of 2026-03-24 (Prism parser, parallel run)
 
-`argf`, `conditionvariable`, `thread` excluded from the parallel runner (hang at native level).
+`conditionvariable`, `integer`, `io`, `numeric`, `thread` timed out in parallel runner (excluded from totals).
 `tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation).
 
-| Module | Examples | Passing | Failures | Errors |
-|---|---:|---:|---:|---:|
-| argf | (excluded) | — | — | — |
-| array | 2925 | 2925 | 0 | 0 |
-| basicobject | 178 | 178 | 0 | 0 |
-| binding | 58 | 58 | 0 | 0 |
-| builtin_constants | 27 | 27 | 0 | 0 |
-| class | 54 | 54 | 0 | 0 |
-| comparable | 54 | 54 | 0 | 0 |
-| complex | 186 | 186 | 0 | 0 |
-| conditionvariable | (excluded) | — | — | — |
-| data | 92 | 92 | 0 | 0 |
-| dir | 151 | 151 | 0 | 0 |
-| encoding | 221 | 206 | 11 | 4 |
-| enumerable | 574 | 574 | 0 | 0 |
-| enumerator | 423 | 422 | 0 | 1 |
-| env | 239 | 237 | 2 | 0 |
-| exception | 248 | 247 | 1 | 0 |
-| false | 13 | 13 | 0 | 0 |
-| fiber | 160 | 160 | 0 | 0 |
-| file | 939 | 933 | 0 | 6 |
-| filetest | 88 | 87 | 0 | 1 |
-| float | 328 | 328 | 0 | 0 |
-| gc | 41 | 41 | 0 | 0 |
-| hash | 633 | 633 | 0 | 0 |
-| integer | 603 | 603 | 0 | 0 |
-| io | 1009 | 265 | 239 | 505 |
-| kernel | 2449 | 2412 | 23 | 14 |
-| main | 27 | 27 | 0 | 0 |
-| marshal | 713 | 713 | 0 | 0 |
-| matchdata | 186 | 186 | 0 | 0 |
-| math | 243 | 243 | 0 | 0 |
-| method | 223 | 223 | 0 | 0 |
-| module | 1058 | 1051 | 6 | 1 |
-| mutex | 25 | 16 | 5 | 4 |
-| nil | 27 | 27 | 0 | 0 |
-| numeric | 338 | 338 | 0 | 0 |
-| objectspace | 112 | 112 | 0 | 0 |
-| proc | 302 | 302 | 0 | 0 |
-| process | 86 | 17 | 18 | 51 |
-| queue | 24 | 24 | 0 | 0 |
-| random | 87 | 84 | 0 | 3 |
-| range | 459 | 459 | 0 | 0 |
-| rational | 159 | 159 | 0 | 0 |
-| refinement | 25 | 24 | 0 | 1 |
-| regexp | 264 | 264 | 0 | 0 |
-| set | 179 | 179 | 0 | 0 |
-| signal | 52 | 52 | 0 | 0 |
-| sizedqueue | 129 | 128 | 1 | 0 |
-| string | 3976 | 3976 | 0 | 0 |
-| struct | 182 | 181 | 1 | 0 |
-| symbol | 330 | 330 | 0 | 0 |
-| systemexit | 6 | 6 | 0 | 0 |
-| thread | (excluded) | — | — | — |
-| threadgroup | 8 | 8 | 0 | 0 |
-| time | 774 | 773 | 1 | 0 |
-| tracepoint | (unimplemented) | — | — | — |
-| true | 13 | 13 | 0 | 0 |
-| unboundmethod | 86 | 83 | 0 | 3 |
-| warning | 29 | 29 | 0 | 0 |
+Modules with 100% pass rate:
+`binding`, `builtin_constants`, `class`, `comparable`, `complex`, `data`, `dir`,
+`enumerable`, `false`, `float`, `gc`, `hash`, `main`, `marshal`, `matchdata`,
+`math`, `method`, `nil`, `proc`, `queue`, `range`, `rational`, `regexp`, `set`,
+`signal`, `symbol`, `systemexit`, `threadgroup`, `true`, `warning`
+
+| Module | Examples | Passing | Failures | Errors | Notes |
+|---|---:|---:|---:|---:|---|
+| argf | 148 | 8 | 10 | 130 | ARGF not fully implemented |
+| array | 2961 | 2960 | 0 | 1 | |
+| basicobject | 178 | 177 | 1 | 0 | |
+| encoding | 631 | 616 | 11 | 4 | transcoding edge cases |
+| enumerator | 423 | 422 | 0 | 1 | |
+| env | 239 | 237 | 2 | 0 | |
+| exception | 248 | 247 | 1 | 0 | |
+| fiber | 170 | 160 | 2 | 8 | scheduler/blocking API |
+| file | 939 | 933 | 0 | 6 | OS-level file ops |
+| filetest | 88 | 87 | 0 | 1 | |
+| kernel | 2701 | 2606 | 30 | 65 | I/O, spawn, format edge cases |
+| module | 1058 | 1049 | 8 | 1 | |
+| mutex | 25 | 16 | 5 | 4 | threading primitives |
+| objectspace | 112 | 111 | 1 | 0 | |
+| process | 86 | 32 | 12 | 42 | OS-level process ops |
+| random | 87 | 84 | 0 | 3 | |
+| refinement | 25 | 24 | 0 | 1 | |
+| sizedqueue | 129 | 128 | 1 | 0 | |
+| string | 3976 | 3974 | 2 | 0 | dedup/interning unimplemented |
+| struct | 182 | 181 | 1 | 0 | |
+| time | 774 | 773 | 1 | 0 | |
+| tracepoint | 75 | — | 5 | 71 | intentionally unimplemented |
+| unboundmethod | 86 | 80 | 3 | 3 | |
