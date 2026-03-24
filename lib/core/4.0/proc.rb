@@ -43,9 +43,7 @@ class Proc
     end
   end
 
-  def curry(arity = nil)
-    Intrinsics.proc_curry(self, arity)
-  end
+  def curry(arity = nil) = Intrinsics.proc_curry(self, arity)
 
   def binding
     raise ArgumentError, "can't create Binding from curried Proc" if Intrinsics.proc_is_curried(self)

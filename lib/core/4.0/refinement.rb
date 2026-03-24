@@ -1,16 +1,8 @@
 class Refinement < Module
-  # Refinement#include raises TypeError (removed in Ruby 3.4+)
-  def include(*mods)
-    raise TypeError, "Refinement#include has been removed"
-  end
-  # Refinement#prepend raises TypeError (removed in Ruby 3.4+)
-  def prepend(*mods)
-    raise TypeError, "Refinement#prepend has been removed"
-  end
-  # target returns the class/module refined by this refinement
-  def target
-    @__refined_class__
-  end
+  def include(*mods) = raise TypeError, "Refinement#include has been removed"
+  def prepend(*mods) = raise TypeError, "Refinement#prepend has been removed"
+  def target = @__refined_class__
+
   # import_methods copies instance methods from the given modules into this refinement.
   # Only methods defined in Ruby code can be imported (not C-level/intrinsic methods).
   # Raises TypeError if any argument is not a Module (or is a Class) — checked before any import.

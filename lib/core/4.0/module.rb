@@ -10,8 +10,8 @@ class Module
   def prepend(*mods) = Intrinsics.module_prepend_multi(self, mods)
   def append_features(other) = Intrinsics.module_append_features(self, other)
   def prepend_features(other) = Intrinsics.module_prepend_features(self, other)
-  def included(other); end
-  def prepended(other); end
+  def included(other) = nil
+  def prepended(other) = nil
   private :append_features, :prepend_features, :included, :prepended
 
   def attr_reader(*names) = Intrinsics.module_attr_reader(self, names)
@@ -67,14 +67,12 @@ class Module
     end
   end
 
-  def module_eval(code = nil, file = nil, line = nil, extra = :__unset__, &block)
+  def module_eval(code = nil, file = nil, line = nil, &block)
     if block
-      raise ArgumentError, "wrong number of arguments (given #{[code, file, line].compact.size + (extra.equal?(:__unset__) ? 0 : 1)}, expected 0)" unless code.nil? && file.nil? && line.nil? && extra.equal?(:__unset__)
+      raise ArgumentError, "wrong number of arguments (given #{[code, file, line].compact.size}, expected 0)" unless code.nil? && file.nil? && line.nil?
       Intrinsics.module_eval(self, block)
     elsif code.nil?
       raise ArgumentError, "wrong number of arguments (given 0, expected 1..3)"
-    elsif !extra.equal?(:__unset__)
-      raise ArgumentError, "wrong number of arguments (given 4, expected 1..3)"
     else
       unless code.is_a?(String)
         if code.respond_to?(:to_str)
@@ -147,19 +145,19 @@ class Module
   def singleton_class? = Intrinsics.module_singleton_class_q(self)
   def set_temporary_name(name) = Intrinsics.module_set_temporary_name(self, name)
   def const_source_location(name, inherit = true) = Intrinsics.module_const_source_location(self, name, inherit)
-  def const_added(name); end
+  def const_added(name) = nil
 
   def self.constants(*args)
     args.empty? ? Object.constants : Intrinsics.module_constants(self, args.first)
   end
   private :const_added
 
-  def method_added(name); end
-  def method_removed(name); end
-  def method_undefined(name); end
-  def singleton_method_added(name); end
-  def singleton_method_removed(name); end
-  def singleton_method_undefined(name); end
+  def method_added(name) = nil
+  def method_removed(name) = nil
+  def method_undefined(name) = nil
+  def singleton_method_added(name) = nil
+  def singleton_method_removed(name) = nil
+  def singleton_method_undefined(name) = nil
   private :method_added, :method_removed, :method_undefined
   private :singleton_method_added, :singleton_method_removed, :singleton_method_undefined
 
@@ -167,7 +165,7 @@ class Module
   def extend_object(obj) = Intrinsics.module_extend_object(self, obj)
   private :extend_object
 
-  def extended(obj); end
+  def extended(obj) = nil
   private :extended
 
   def <(other)
@@ -204,13 +202,14 @@ class Module
 
   def const_missing(name)
     n = self.name
-    label = if n && n != "Object"
-      "#{n}::#{name}"
-    elsif n.nil?
-      "#{inspect}::#{name}"
-    else
-      name.to_s
-    end
+    label =
+      if n && n != "Object"
+        "#{n}::#{name}"
+      elsif n.nil?
+        "#{inspect}::#{name}"
+      else
+        name.to_s
+      end
     e = NameError.new("uninitialized constant #{label}", name)
     e.instance_variable_set(:@receiver, self)
     raise e
@@ -237,11 +236,7 @@ class Module
     refinement
   end
 
-  def refinements
-    refs = @__refinements__
-    return [] unless refs
-    refs.values
-  end
+  def refinements = (@__refinements__&.values) || []
 
   def using(mod)
     raise TypeError, "wrong argument type #{mod.class} (expected Module)" unless mod.is_a?(Module)

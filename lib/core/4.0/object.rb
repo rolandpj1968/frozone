@@ -1,14 +1,10 @@
 class Object < BasicObject
   include Kernel
 
-  def ! = self == nil || self == false
+  def ! = self.equal?(nil) || self.equal?(false)
   def !=(other) = !(self == other)
   def !~(other) = !(self =~ other)
   def ===(other) = Intrinsics.object_same_object?(self, other) || self == other
-  def <=>(other)
-    eq = (self == other)
-    eq.nil? ? nil : (eq ? 0 : nil)
-  end
   def extend(*mods) = Intrinsics.object_extend_multi(self, mods)
   def instance_exec(*args, &block) = Intrinsics.object_instance_exec(self, args, block)
   def freeze = Intrinsics.object_freeze(self)
@@ -26,15 +22,20 @@ class Object < BasicObject
   def pretty_inspect = inspect
   def suppress_warning; yield; end
   def suppress_keyword_warning; yield; end
+  def public_send(name, *args, **kwargs, &block) = Intrinsics.object_public_send(self, name, args, kwargs, block)
+  alias send __send__
 
-  def instance_eval(str = :__unset__, file = nil, line = nil, extra = :__unset__, &block)
+  def <=>(other)
+    eq = (self == other)
+    eq.nil? ? nil : (eq ? 0 : nil)
+  end
+
+  def instance_eval(str = :__unset__, file = nil, line = nil, &block)
     if block
-      raise ArgumentError, "wrong number of arguments (given #{[str, file, line].count { |a| !a.equal?(:__unset__) && !a.nil? } + (extra.equal?(:__unset__) ? 0 : 1)}, expected 0)" unless str.equal?(:__unset__) && file.nil? && line.nil? && extra.equal?(:__unset__)
+      raise ArgumentError, "wrong number of arguments (given #{[str, file, line].count { |a| !a.equal?(:__unset__) && !a.nil? }}, expected 0)" unless str.equal?(:__unset__) && file.nil? && line.nil?
       Intrinsics.object_instance_eval(self, block)
     elsif str.equal?(:__unset__)
       raise ArgumentError, "wrong number of arguments (given 0, expected 1..3)"
-    elsif !extra.equal?(:__unset__)
-      raise ArgumentError, "wrong number of arguments (given 4, expected 1..3)"
     else
       Intrinsics.object_instance_eval_string(self, str, file, line)
     end
@@ -52,29 +53,25 @@ class Object < BasicObject
     klass = begin; self.class; rescue NameError; nil; end
     class_part = klass ? klass.to_s : "Object"
     base = "#<#{class_part}:0x#{__id__.to_s(16)}"
-    ivars = if respond_to?(:instance_variables_to_inspect, true)
-      result = instance_variables_to_inspect
-      if result.nil?
-        instance_variables
-      elsif result.is_a?(Array)
-        result.select { |name| instance_variable_defined?(name) }
+    ivars =
+      if respond_to?(:instance_variables_to_inspect, true)
+        result = instance_variables_to_inspect
+        if result.nil?
+          instance_variables
+        elsif result.is_a?(Array)
+          result.select { |name| instance_variable_defined?(name) }
+        else
+          raise TypeError, "Expected #instance_variables_to_inspect to return an Array or nil, but it returned #{result.class}"
+        end
       else
-        raise TypeError, "Expected #instance_variables_to_inspect to return an Array or nil, but it returned #{result.class}"
+        instance_variables
       end
-    else
-      instance_variables
-    end
     if ivars.empty?
       "#{base}>"
     else
       ivar_strs = ivars.map { |name| "#{name}=#{instance_variable_get(name).inspect}" }
       "#{base} #{ivar_strs.join(', ')}>"
     end
-  end
-  alias send __send__
-
-  def public_send(name, *args, **kwargs, &block)
-    Intrinsics.object_public_send(self, name, args, kwargs, block)
   end
 end
 
@@ -90,11 +87,11 @@ class UnboundMethod
   def super_method = Intrinsics.unbound_method_super(self)
   def dup = Intrinsics.unbound_method_dup(self)
   def hash = Intrinsics.unbound_method_hash(self)
+  alias to_s inspect
 
   def clone(freeze: nil)
     c = dup
-    should_freeze = freeze.nil? ? frozen? : freeze
-    c.freeze if should_freeze
+    c.freeze if freeze.nil? ? frozen? : freeze
     c
   end
 
@@ -109,7 +106,6 @@ class UnboundMethod
     loc = source_location ? " #{source_location[0]}:#{source_location[1]}" : ""
     "#<UnboundMethod: #{own_name}##{name}#{loc}>"
   end
-  alias to_s inspect
 end
 
 module Warning
