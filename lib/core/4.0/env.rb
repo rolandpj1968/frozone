@@ -7,10 +7,18 @@ class ENVClass
   include Enumerable
 
   def to_s = "ENV"
-
-  def inspect
-    Intrinsics.env_to_hash.inspect
-  end
+  def inspect = Intrinsics.env_to_hash.inspect
+  def rehash = nil
+  def empty? = Intrinsics.env_size == 0
+  def size = Intrinsics.env_size
+  alias length size
+  def keys = Intrinsics.env_keys.map { |k| ENVClass.__enc(k) }
+  def values = Intrinsics.env_values.map { |v| ENVClass.__enc(v) }
+  def to_a = Intrinsics.env_pairs.map { |pair| [ENVClass.__enc(pair[0]), ENVClass.__enc(pair[1])] }
+  def key?(key) = Intrinsics.env_key?(ENVClass.__coerce_key(key))
+  alias has_key? key?
+  alias include? key?
+  alias member? key?
 
   def ==(other)
     return to_hash == other.to_hash if other.is_a?(ENVClass)
@@ -27,10 +35,6 @@ class ENVClass
       raise ArgumentError, "unexpected value for freeze: #{freeze.class}"
     end
     raise TypeError, "Cannot clone ENV, use ENV.to_h to get a copy of ENV as a hash"
-  end
-
-  def rehash
-    nil
   end
 
   def [](key)
@@ -86,37 +90,12 @@ class ENVClass
     end
   end
 
-  def key?(key)
-    key = ENVClass.__coerce_key(key)
-    Intrinsics.env_key?(key)
-  end
-  alias has_key? key?
-  alias include? key?
-  alias member? key?
-
   def value?(val)
     val = ENVClass.__soft_coerce_string__(val)
     return nil if val.nil?
     Intrinsics.env_value?(val)
   end
   alias has_value? value?
-
-  def keys
-    Intrinsics.env_keys.map { |k| ENVClass.__enc(k) }
-  end
-
-  def values
-    Intrinsics.env_values.map { |v| ENVClass.__enc(v) }
-  end
-
-  def size
-    Intrinsics.env_size
-  end
-  alias length size
-
-  def empty?
-    Intrinsics.env_size == 0
-  end
 
   def each(&block)
     return to_enum(:each) { size } unless block
@@ -137,10 +116,6 @@ class ENVClass
     return to_enum(:each_value) { size } unless block
     Intrinsics.env_values.each { |v| block.call(ENVClass.__enc(v)) }
     self
-  end
-
-  def to_a
-    Intrinsics.env_pairs.map { |pair| [ENVClass.__enc(pair[0]), ENVClass.__enc(pair[1])] }
   end
 
   def to_h(&block)
@@ -336,6 +311,7 @@ class ENVClass
     end
     result
   end
+
   class << self
     def __coerce_key(key) = __coerce_env_string__(key, :key)
     def __coerce_value(val) = __coerce_env_string__(val, :value)
@@ -373,6 +349,7 @@ class ENVClass
       end
       str
     end
+
     # Soft-coerce val to String via to_str; returns nil on failure (no raise).
     def __soft_coerce_string__(val)
       return val if val.is_a?(String)

@@ -278,7 +278,5 @@ class Struct
     super
   end
 
-  def respond_to_missing?(name, include_private = false)
-    members.include?(name) || members.include?(name.to_s.sub(/=$/, '').to_sym)
-  end
+  def respond_to_missing?(name, include_private = false) = members.include?(name) || members.include?(name.to_s.sub(/=$/, '').to_sym)
 end

@@ -13,11 +13,20 @@ module ObjectSpace
     warn "warning: ObjectSpace._id2ref is deprecated and will be removed in future"
     Intrinsics.objectspace_id2ref(id)
   end
+
   # WeakMap: identity-keyed map (keys compared by object_id, not equality).
   # In a single-process interpreter without real GC pressure, we don't
   # implement actual weak references — entries persist until explicitly removed.
   class WeakMap
     include Enumerable
+
+    def key?(key) = @pairs.any? { |k, _v| k.equal?(key) }
+    def keys = @pairs.map { |k, _v| k }
+    def values = @pairs.map { |_k, v| v }
+    def size = @pairs.size
+    alias include? key?
+    alias member? key?
+    alias length size
 
     def initialize
       # Store as array of [key, value] pairs; identity lookup via object_id
@@ -38,12 +47,6 @@ module ObjectSpace
       pair = @pairs.find { |k, _v| k.equal?(key) }
       pair ? pair[1] : nil
     end
-
-    def key?(key)
-      @pairs.any? { |k, _v| k.equal?(key) }
-    end
-    alias include? key?
-    alias member? key?
 
     def delete(key)
       idx = @pairs.index { |k, _v| k.equal?(key) }
@@ -78,19 +81,6 @@ module ObjectSpace
       self
     end
 
-    def keys
-      @pairs.map { |k, _v| k }
-    end
-
-    def values
-      @pairs.map { |_k, v| v }
-    end
-
-    def size
-      @pairs.size
-    end
-    alias length size
-
     def inspect
       if @pairs.empty?
         "#<ObjectSpace::WeakMap:0x#{object_id.to_s(16)}>"
@@ -103,6 +93,7 @@ module ObjectSpace
         "#<ObjectSpace::WeakMap:0x#{object_id.to_s(16)}: #{entries}>"
       end
     end
+
     private
 
     def _weakmap_inspect_obj(obj)
@@ -116,6 +107,8 @@ module ObjectSpace
   # Primitive values (Integer, Float, Symbol, true, false, nil) cannot be keys.
   # In this interpreter, no actual weak references; entries persist until removed.
   class WeakKeyMap
+    def inspect = "#<ObjectSpace::WeakKeyMap:0x#{object_id.to_s(16)} size=#{@pairs.size}>"
+
     def initialize
       # Store as array of [key, value] pairs; equality lookup via hash/eql?
       @pairs = []
@@ -166,9 +159,6 @@ module ObjectSpace
       self
     end
 
-    def inspect
-      "#<ObjectSpace::WeakKeyMap:0x#{object_id.to_s(16)} size=#{@pairs.size}>"
-    end
     private
 
     def __ungcable__?(key)

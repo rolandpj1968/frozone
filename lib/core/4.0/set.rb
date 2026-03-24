@@ -11,10 +11,13 @@ class Set
   def to_a = @hash.keys
   def hash = to_a.sort_by(&:hash).hash
   def eql?(other) = self == other
+  def disjoint?(other) = !intersect?(other)
+  def join(sep = nil) = to_a.join(sep)
+  def compare_by_identity? = @hash.compare_by_identity?
+  def pretty_print(pp) = pp.text inspect
+  def pretty_print_cycle(pp) = pp.text "Set[...]"
 
-  def self.[](*args)
-    new(args)
-  end
+  def self.[](*args) = new(args)
 
   def initialize(enum = nil, &block)
     @hash = {}
@@ -224,10 +227,6 @@ class Set
     end
   end
 
-  def disjoint?(other)
-    !intersect?(other)
-  end
-
   def classify
     return to_enum(:classify) unless block_given?
     result = {}
@@ -274,18 +273,10 @@ class Set
     end
   end
 
-  def join(sep = nil)
-    to_a.join(sep)
-  end
-
   def compare_by_identity
     raise FrozenError, "can't modify frozen #{self.class}: #{inspect}" if frozen?
     @hash.compare_by_identity
     self
-  end
-
-  def compare_by_identity?
-    @hash.compare_by_identity?
   end
 
   def inspect
@@ -302,19 +293,12 @@ class Set
   end
   alias to_s inspect
 
-  def pretty_print(pp)
-    pp.text inspect
-  end
-
-  def pretty_print_cycle(pp)
-    pp.text "Set[...]"
-  end
-
   def dup
     s = self.class.new(self)
     s.compare_by_identity if compare_by_identity?
     s
   end
+
   protected
 
   def __do_flatten__(result, seen)

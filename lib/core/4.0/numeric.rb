@@ -23,32 +23,27 @@ class Numeric
   def to_c = Complex(self, 0)
   def i  = Complex(0, self)
   def dup = self
-
-  def singleton_method_added(id)
-    raise TypeError, "can't define singleton"
-  end
-
-  def nonzero?
-    zero? ? nil : self
-  end
-
-  def abs
-    self < 0 ? -self : self
-  end
+  def nonzero? = zero? ? nil : self
+  def abs = self < 0 ? -self : self
   alias magnitude abs
-
-  def angle
-    self < 0 ? Math::PI : 0.0
-  end
+  def angle = self < 0 ? Math::PI : 0.0
   alias arg   angle
   alias phase angle
+  def eql?(other) = other.instance_of?(self.class) && self == other
+  def <=>(other) = equal?(other) ? 0 : nil
+  def ceil(ndigits = 0) = to_f.ceil(ndigits)
+  def floor(ndigits = 0) = to_f.floor(ndigits)
+  def truncate(ndigits = 0) = to_f.truncate(ndigits)
+  def divmod(other) = [div(other), modulo(other)]
+  def modulo(other) = self - other * div(other)
+  alias % modulo
+  def fdiv(other) = to_f / other.to_f
+  def numerator = to_r.numerator
+  def denominator = to_r.denominator
+  def singleton_method_added(id) = raise(TypeError, "can't define singleton")
 
-  def eql?(other)
-    other.instance_of?(self.class) && self == other
-  end
-
-  def <=>(other)
-    equal?(other) ? 0 : nil
+  def round(ndigits = 0, half: :up)
+    to_f.round(ndigits, half: half)
   end
 
   def clone(freeze: nil)
@@ -56,35 +51,10 @@ class Numeric
     self
   end
 
-  def ceil(ndigits = 0)
-    to_f.ceil(ndigits)
-  end
-
-  def floor(ndigits = 0)
-    to_f.floor(ndigits)
-  end
-
-  def round(ndigits = 0, half: :up)
-    to_f.round(ndigits, half: half)
-  end
-
-  def truncate(ndigits = 0)
-    to_f.truncate(ndigits)
-  end
-
   def div(other)
     raise ZeroDivisionError, "divided by 0" if other.respond_to?(:zero?) && other.zero?
     (self / other).floor
   end
-
-  def divmod(other)
-    [div(other), modulo(other)]
-  end
-
-  def modulo(other)
-    self - other * div(other)
-  end
-  alias % modulo
 
   def remainder(other)
     a, b = other.coerce(self)
@@ -97,23 +67,11 @@ class Numeric
     end
   end
 
-  def fdiv(other)
-    to_f / other.to_f
-  end
-
   def quo(other)
     raise TypeError, "#{other.class} can't be coerced into Rational" unless other.is_a?(Numeric)
     r = to_r
     raise TypeError, "#{r.class} is not a Rational" unless r.is_a?(Rational)
     r / other
-  end
-
-  def numerator
-    to_r.numerator
-  end
-
-  def denominator
-    to_r.denominator
   end
 
   def coerce(other)
@@ -135,6 +93,7 @@ class Numeric
       raise TypeError, "#{other.class} can't be coerced into #{self.class}"
     end
   end
+
   # Numeric#step
   def step(to_arg = :__unset__, by_arg = :__unset__, to: :__unset__, by: :__unset__, &block)
     # Track how args were supplied (for ArithmeticSequence#inspect reconstruction)
@@ -217,6 +176,7 @@ class Numeric
     __step_each__(limit, step_v, int_step, float_any, &block)
     self
   end
+
   private
 
   def __step_size__(limit, step_v, int_step, float_any)

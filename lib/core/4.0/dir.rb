@@ -4,42 +4,33 @@ class Dir
   def self.pwd = Intrinsics.dir_pwd
   def self.getwd = Intrinsics.dir_pwd
   def self.home(user = nil)       = Intrinsics.dir_home(user)
+  def self.chdir(path = nil, &block) = Intrinsics.dir_chdir(path, block)
+  def self.fchdir(fd, &block) = Intrinsics.dir_fchdir(fd, block)
+  def self.mktmpdir(prefix = nil, &block) = Intrinsics.dir_mktmpdir(prefix, block)
+  def self.delete(path) = Intrinsics.dir_rmdir(_coerce_path(path))
+  def self.rmdir(path) = Intrinsics.dir_rmdir(_coerce_path(path))
+  def self.unlink(path) = Intrinsics.dir_rmdir(_coerce_path(path))
+  def self.empty?(path) = Intrinsics.dir_empty(_coerce_path(path))
+  def self.chroot(path) = Intrinsics.dir_chroot(_coerce_path(path))
+  def self.children(path, encoding: nil) = entries(_coerce_path(path), encoding: encoding).reject { |e| e == '.' || e == '..' }
+  def path = @path
+  def to_path = @path
+  def inspect = "#<Dir:#{@path}>"
+  def closed? = @closed
+  def children = __load_entries__.reject { |e| e == '.' || e == '..' }
+  def entries = __load_entries__.dup
+  def fileno = Intrinsics.dir_fileno(@dir)
+
   def self.[](*patterns, base: nil, sort: true)
     pattern = patterns.length == 1 ? patterns[0] : patterns
     glob(pattern, 0, base: base, sort: sort)
   end
-  def self.chdir(path = nil, &block) = Intrinsics.dir_chdir(path, block)
-  def self.fchdir(fd, &block) = Intrinsics.dir_fchdir(fd, block)
+
   def self.mkdir(path, mode = 0o777)
     mode = mode.respond_to?(:to_int) ? mode.to_int : mode unless mode.is_a?(Integer)
     raise TypeError, "no implicit conversion of #{mode.class} into Integer" unless mode.is_a?(Integer)
     Intrinsics.dir_mkdir(_coerce_path(path), mode)
   end
-  def self.mktmpdir(prefix = nil, &block) = Intrinsics.dir_mktmpdir(prefix, block)
-  def self.delete(path) = Intrinsics.dir_rmdir(_coerce_path(path))
-  def self.rmdir(path) = Intrinsics.dir_rmdir(_coerce_path(path))
-  def self.unlink(path) = Intrinsics.dir_rmdir(_coerce_path(path))
-  def path = @path
-  def to_path = @path
-  def inspect = "#<Dir:#{@path}>"
-  def closed? = @closed
-
-  def pos
-    raise IOError, "closed directory" if @closed
-    @pos
-  end
-
-  def tell
-    raise IOError, "closed directory" if @closed
-    @pos
-  end
-  def children = __load_entries__.reject { |e| e == '.' || e == '..' }
-  def entries = __load_entries__.dup
-  def chdir(&block)
-    fd = Intrinsics.dir_fileno(@dir)
-    Intrinsics.dir_fchdir(fd, block)
-  end
-  def fileno = Intrinsics.dir_fileno(@dir)
 
   def self.glob(pattern, flags = 0, base: nil, sort: true, &block)
     raise ArgumentError, "expected true or false as sort:" unless sort == true || sort == false
@@ -53,15 +44,16 @@ class Dir
   end
 
   def self.exist?(path)
-    p = if path.is_a?(String)
-      path
-    elsif path.respond_to?(:to_path)
-      path.to_path
-    elsif path.respond_to?(:to_str)
-      path.to_str
-    else
-      return false
-    end
+    p =
+      if path.is_a?(String)
+        path
+      elsif path.respond_to?(:to_path)
+        path.to_path
+      elsif path.respond_to?(:to_str)
+        path.to_str
+      else
+        return false
+      end
     Intrinsics.dir_exist(p)
   end
 
@@ -75,11 +67,6 @@ class Dir
     result
   end
 
-  def self.children(path, encoding: nil)
-    p = _coerce_path(path)
-    entries(p, encoding: encoding).reject { |e| e == '.' || e == '..' }
-  end
-
   def self.foreach(path, encoding: nil, &block)
     return to_enum(:foreach, path, encoding: encoding) unless block
     entries(path, encoding: encoding).each { |e| block.call(e) }
@@ -90,16 +77,6 @@ class Dir
     return to_enum(:each_child, path, encoding: encoding) unless block
     children(path, encoding: encoding).each { |e| block.call(e) }
     nil
-  end
-
-  def self.empty?(path)
-    p = _coerce_path(path)
-    Intrinsics.dir_empty(p)
-  end
-
-  def self.chroot(path)
-    p = _coerce_path(path)
-    Intrinsics.dir_chroot(p)
   end
 
   def self.for_fd(fd)
@@ -148,6 +125,21 @@ class Dir
     @closed = false
     @entries = nil
     @pos = 0
+  end
+
+  def pos
+    raise IOError, "closed directory" if @closed
+    @pos
+  end
+
+  def tell
+    raise IOError, "closed directory" if @closed
+    @pos
+  end
+
+  def chdir(&block)
+    fd = Intrinsics.dir_fileno(@dir)
+    Intrinsics.dir_fchdir(fd, block)
   end
 
   def close
