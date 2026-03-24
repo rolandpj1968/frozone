@@ -145,7 +145,11 @@ class IO
     end
     line
   end
-  def readline(sep = $/) = Intrinsics.io_readline(self, sep)
+  def readline(*args, chomp: false)
+    line = gets(*args, chomp: chomp)
+    raise EOFError, "end of file reached" if line.nil?
+    line
+  end
   def readlines(sep = $/) = Intrinsics.io_readlines(self, sep)
   def getbyte = Intrinsics.io_getbyte(self)
   def getc = Intrinsics.io_getc(self)
