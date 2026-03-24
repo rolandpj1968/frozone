@@ -193,6 +193,18 @@ class Rational < Numeric
   end
   alias modulo %
 
+  def remainder(other)
+    r = self % other
+    return r if r == 0
+    if self < 0
+      other > 0 ? r - other : r
+    elsif self > 0
+      other < 0 ? r - other : r
+    else
+      r
+    end
+  end
+
   def rationalize(eps = nil)
     return self if eps.nil?
     eps = eps.is_a?(Rational) ? eps.abs : Rational(eps.abs)

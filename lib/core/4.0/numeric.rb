@@ -57,8 +57,22 @@ class Numeric
   end
 
   def remainder(other)
-    r = self % other
-    r != 0 && (self < 0) != (other < 0) ? r - other : r
+    a, b = other.coerce(self)
+    r = a % b
+    return r if r == 0
+    if a < 0
+      if b > 0
+        r - b
+      elsif a > 0
+        r - b
+      else
+        r
+      end
+    elsif a > 0
+      b < 0 ? r - b : r
+    else
+      r
+    end
   end
 
   def quo(other)
