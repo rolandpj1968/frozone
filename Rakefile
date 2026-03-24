@@ -55,19 +55,8 @@ end
 # Known-slow or hanging spec files excluded from core spec runs.
 SKIP_SPEC_FILES = %w[
   array/sample_spec.rb
-  array/sort_spec.rb
   conditionvariable/broadcast_spec.rb
-  dir/each_child_spec.rb
-  dir/each_spec.rb
-  dir/element_reference_spec.rb
-  dir/foreach_spec.rb
   dir/glob_spec.rb
-  encoding/aliases_spec.rb
-  encoding/compatible_spec.rb
-  encoding/find_spec.rb
-  encoding/name_spec.rb
-  encoding/names_spec.rb
-  encoding/to_s_spec.rb
   conditionvariable/signal_spec.rb
   conditionvariable/wait_spec.rb
   io/buffer/and_spec.rb
@@ -95,13 +84,10 @@ SKIP_SPEC_FILES = %w[
   io/copy_stream_spec.rb
   io/fcntl_spec.rb
   io/flush_spec.rb
-  io/internal_encoding_spec.rb
   io/path_spec.rb
   io/read_spec.rb
   io/select_spec.rb
   kernel/fork_spec.rb
-  kernel/p_spec.rb
-  kernel/printf_spec.rb
   kernel/rand_spec.rb
   kernel/sleep_spec.rb
   kernel/system_spec.rb
