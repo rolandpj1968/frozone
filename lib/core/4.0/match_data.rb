@@ -14,7 +14,7 @@ class MatchData
   def match_length(n) = Intrinsics.match_data_match_length(self, n)
   def names = Intrinsics.match_data_names(self)
   def to_s = self[0].to_s
-  def hash = Intrinsics.match_data_hash(self)
+  def hash = [string, regexp, to_a].hash
   def string = (@string ||= Intrinsics.match_data_string(self))
   def regexp = (@regexp ||= Intrinsics.match_data_regexp(self))
   def deconstruct = captures

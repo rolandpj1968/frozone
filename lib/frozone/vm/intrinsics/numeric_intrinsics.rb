@@ -140,7 +140,6 @@ module Frozone
         # Float intrinsics
         def float_hash(_, v) = n2f_int(v.raw.hash)
         def float_to_s(_, v) = n2f_str(v.raw.inspect)
-        def float_to_i(_, v) = n2f_int(v.raw.to_i)
         def float_to_r(_, v) = make_rational(v.raw.to_r)
         def float__lt_(_, v1, v2) = ffloat?(v2) || fint?(v2) ? n2f_bool(v1.raw <  v2.raw) : FFALSE
         def float__le_(_, v1, v2) = ffloat?(v2) || fint?(v2) ? n2f_bool(v1.raw <= v2.raw) : FFALSE

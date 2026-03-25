@@ -52,7 +52,6 @@ module Frozone
 
         def time_strftime(_, t, format) = n2f_str(t.raw.strftime(format.raw))
         def time_dst?(_, t) = n2f_bool(t.raw.dst?)
-        def time_hash(_, t) = n2f_int(t.raw.hash)
         def time_iso8601(_, t, n) = n2f_str(t.raw.iso8601(fint?(n) ? n.raw : 0))
         def time_dump(_, t) = n2f_str(t.raw.send(:_dump, -1))
 

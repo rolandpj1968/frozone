@@ -10,14 +10,12 @@ module Frozone
         def regexp_inspect(_, r) = n2f_str(r.raw.inspect)
         def regexp_to_s(_, r) = n2f_str(r.raw.to_s)
         def regexp_escape(_, str) = n2f_str(Regexp.escape(str.raw.to_s))
-        def regexp_hash(_, r) = n2f_int(r.raw.hash)
         def regexp_names(_, r) = n2f_arr(r.raw.names.map { |n| n2f_str(n) })
         def match_data_size(_, md) = n2f_int(md.raw.size)
         def match_data_pre_match(_, md) = n2f_str(md.raw.pre_match)
         def match_data_post_match(_, md) = n2f_str(md.raw.post_match)
         def match_data_regexp(_, md) = md.frozone_regexp || RegexpObject.new(md.raw.regexp.source, md.raw.regexp.options)
         def match_data_captures(_, md) = n2f_arr(md.raw.captures.map { |c| c ? n2f_str(c) : FNIL })
-        def match_data_hash(_, md) = n2f_int(md.raw.hash)
         def match_data_names(_, md) = n2f_arr(md.raw.regexp.named_captures.keys.map { |k| n2f_str(k) })
         def match_data_to_a(_, md) = n2f_arr(([md.raw[0]] + md.raw.captures).map { |c| c ? n2f_str(c) : FNIL })
         def match_data_named_captures(_, md) = n2f_hash(md.raw.named_captures.transform_keys { |k| n2f_str(k) }.transform_values { |v| v ? n2f_str(v) : FNIL })
@@ -42,12 +40,6 @@ module Frozone
             GLOBALS[:"$&"] = GLOBALS[:"$`"] = GLOBALS[:"$'"] = FNIL
             FNIL
           end
-        end
-
-        def regexp_eq(_, r1, r2)
-          return FTRUE if r1.equal?(r2)
-          return FFALSE unless r2.is_a?(RegexpObject)
-          n2f_bool(r1.raw == r2.raw)
         end
 
         def regexp_new(context, klass, pattern, options = FNIL, kw_opts = FNIL)

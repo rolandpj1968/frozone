@@ -16,7 +16,7 @@ class Float
   def hash = Intrinsics.float_hash(self)
   def to_s = Intrinsics.float_to_s(self)
   def inspect = Intrinsics.float_to_s(self)
-  def to_i = Intrinsics.float_to_i(self)
+  def to_i = truncate
   def to_int = to_i
   def to_f = self
   def to_r = Intrinsics.float_to_r(self)

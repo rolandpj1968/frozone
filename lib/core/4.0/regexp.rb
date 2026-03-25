@@ -5,7 +5,7 @@ class Regexp
   FIXEDENCODING = 16
   NOENCODING   = 32
 
-  def ==(v) = Intrinsics.regexp_eq(self, v)
+  def ==(v) = v.is_a?(Regexp) && source == v.source && options == v.options
   alias eql? ==
   def source = Intrinsics.regexp_source(self)
   def options = Intrinsics.regexp_options(self)
@@ -19,7 +19,7 @@ class Regexp
   def match?(str, pos = 0) = Intrinsics.regexp_match_bool(self, str, pos)
   def =~(str) = Intrinsics.regexp_match_index(self, str)
   def ~() = Intrinsics.regexp_tilde(self)
-  def hash = Intrinsics.regexp_hash(self)
+  def hash = [source, options].hash
   def linear_time? = Intrinsics.regexp_linear_time_q(self)
   def dup = Regexp.new(source, options)
   def self.escape(str) = Intrinsics.regexp_escape(str)

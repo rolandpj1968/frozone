@@ -472,7 +472,7 @@ class Time
   def subsec = Intrinsics.time_subsec(self)
   def dst? = Intrinsics.time_dst?(self)
   def isdst = dst?
-  def hash = Intrinsics.time_hash(self)
+  def hash = to_r.hash
   def tv_sec = to_i
   def tv_usec = usec
   def tv_nsec = nsec

@@ -108,7 +108,7 @@ class String
   def backtrace = []
   def exception(msg = nil) = msg ? self.class.new(msg) : self
   def hash = Intrinsics.string_hash(self)
-  def eql?(v) = Intrinsics.string_eql(self, v)
+  def eql?(v) = v.is_a?(String) && self == v
   def empty? = bytesize == 0
   def lstrip = sub(/\A[[:space:]\x00]+/, '')
   def strip = lstrip.rstrip
