@@ -251,6 +251,205 @@ class Time
   def self._load(str) = Intrinsics.time_load(str)
   private_class_method :_load
 
+  # Class-method extensions added by require 'time' (ported from MRI time.rb).
+
+  ZoneOffset = {
+    'UTC' => 0, 'Z' => 0, 'UT' => 0, 'GMT' => 0,
+    'EST' => -5, 'EDT' => -4, 'CST' => -6, 'CDT' => -5,
+    'MST' => -7, 'MDT' => -6, 'PST' => -8, 'PDT' => -7,
+    'A' => +1, 'B' => +2, 'C' => +3, 'D' => +4,  'E' => +5,  'F' => +6,
+    'G' => +7, 'H' => +8, 'I' => +9, 'K' => +10, 'L' => +11, 'M' => +12,
+    'N' => -1, 'O' => -2, 'P' => -3, 'Q' => -4,  'R' => -5,  'S' => -6,
+    'T' => -7, 'U' => -8, 'V' => -9, 'W' => -10, 'X' => -11, 'Y' => -12,
+  }.freeze
+
+  MonthValue = {
+    'JAN' => 1, 'FEB' => 2, 'MAR' => 3, 'APR' => 4, 'MAY' => 5, 'JUN' => 6,
+    'JUL' => 7, 'AUG' => 8, 'SEP' => 9, 'OCT' => 10, 'NOV' => 11, 'DEC' => 12
+  }.freeze
+
+  def self.zone_offset(zone, year = now.year)
+    off = nil
+    zone = zone.upcase
+    if /\A([+-])(\d\d)(:?)(\d\d)(?:\3(\d\d))?\z/ =~ zone
+      off = ($1 == '-' ? -1 : 1) * (($2.to_i * 60 + $4.to_i) * 60 + $5.to_i)
+    elsif zone.match?(/\A[+-]\d\d\z/)
+      off = zone.to_i * 3600
+    elsif ZoneOffset.include?(zone)
+      off = ZoneOffset[zone] * 3600
+    elsif ((t = local(year, 1, 1)).zone.upcase == zone rescue false)
+      off = t.utc_offset
+    elsif ((t = local(year, 7, 1)).zone.upcase == zone rescue false)
+      off = t.utc_offset
+    end
+    off
+  end
+
+  def self._time_zone_utc?(zone)
+    zone.match?(/\A(?:-00:00|-0000|-00|UTC|Z|UT)\z/i)
+  end
+  private_class_method :_time_zone_utc?
+
+  def self._time_force_zone!(t, zone, offset = nil)
+    if _time_zone_utc?(zone)
+      t.utc
+    elsif offset ||= zone_offset(zone)
+      t.localtime
+      t.localtime(offset) if t.utc_offset != offset
+    else
+      t.localtime
+    end
+  end
+  private_class_method :_time_force_zone!
+
+  LeapYearMonthDays   = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31].freeze
+  CommonYearMonthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31].freeze
+
+  def self._time_month_days(y, m)
+    if ((y % 4 == 0) && (y % 100 != 0)) || (y % 400 == 0)
+      LeapYearMonthDays[m - 1]
+    else
+      CommonYearMonthDays[m - 1]
+    end
+  end
+  private_class_method :_time_month_days
+
+  def self._time_apply_offset(year, mon, day, hour, min, sec, off)
+    if off < 0
+      off = -off
+      off, o = off.divmod(60)
+      if o != 0 then sec += o; o, sec = sec.divmod(60); off += o end
+      off, o = off.divmod(60)
+      if o != 0 then min += o; o, min = min.divmod(60); off += o end
+      off, o = off.divmod(24)
+      if o != 0 then hour += o; o, hour = hour.divmod(24); off += o end
+      if off != 0
+        day += off
+        days = _time_month_days(year, mon)
+        if days && days < day
+          mon += 1
+          if 12 < mon
+            mon = 1
+            year += 1
+          end
+          day = 1
+        end
+      end
+    elsif 0 < off
+      off, o = off.divmod(60)
+      if o != 0 then sec -= o; o, sec = sec.divmod(60); off -= o end
+      off, o = off.divmod(60)
+      if o != 0 then min -= o; o, min = min.divmod(60); off -= o end
+      off, o = off.divmod(24)
+      if o != 0 then hour -= o; o, hour = hour.divmod(24); off -= o end
+      if off != 0
+        day -= off
+        if day < 1
+          mon -= 1
+          if mon < 1
+            year -= 1
+            mon = 12
+          end
+          day = _time_month_days(year, mon)
+        end
+      end
+    end
+    [year, mon, day, hour, min, sec]
+  end
+  private_class_method :_time_apply_offset
+
+  def self.rfc2822(date)
+    if /\A\s*
+        (?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s*,\s*)?
+        (\d{1,2})\s+
+        (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+
+        (\d{2,})\s+
+        (\d{2})\s*
+        :\s*(\d{2})
+        (?:\s*:\s*(\d\d))?\s+
+        ([+-]\d{4}|
+         UT|GMT|EST|EDT|CST|CDT|MST|MDT|PST|PDT|[A-IK-Z])/ix =~ date
+      day  = $1.to_i
+      mon  = MonthValue[$2.upcase]
+      year = $3.to_i
+      short_year_p = $3.length <= 3
+      hour = $4.to_i
+      min  = $5.to_i
+      sec  = $6 ? $6.to_i : 0
+      zone = $7
+      if short_year_p
+        year = year < 50 ? 2000 + year : 1900 + year
+      end
+      off = zone_offset(zone)
+      year, mon, day, hour, min, sec = _time_apply_offset(year, mon, day, hour, min, sec, off)
+      t = utc(year, mon, day, hour, min, sec)
+      _time_force_zone!(t, zone, off)
+      t
+    else
+      raise ArgumentError, "not RFC 2822 compliant date: #{date.inspect}"
+    end
+  end
+  class << self; alias rfc822 rfc2822; end
+
+  def self.httpdate(date)
+    if date.match?(/\A\s*
+        (?:Mon|Tue|Wed|Thu|Fri|Sat|Sun),\x20
+        (\d{2})\x20
+        (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\x20
+        (\d{4})\x20
+        (\d{2}):(\d{2}):(\d{2})\x20
+        GMT
+        \s*\z/ix)
+      rfc2822(date).utc
+    elsif /\A\s*
+           (?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\x20
+           (\d\d)-(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-(\d\d)\x20
+           (\d\d):(\d\d):(\d\d)\x20
+           GMT
+           \s*\z/ix =~ date
+      year = $3.to_i
+      year = year < 50 ? 2000 + year : 1900 + year
+      utc(year, $2, $1.to_i, $4.to_i, $5.to_i, $6.to_i)
+    elsif /\A\s*
+           (?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)\x20
+           (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\x20
+           (\d\d|\x20\d)\x20
+           (\d\d):(\d\d):(\d\d)\x20
+           (\d{4})
+           \s*\z/ix =~ date
+      utc($6.to_i, MonthValue[$1.upcase], $2.to_i, $3.to_i, $4.to_i, $5.to_i)
+    else
+      raise ArgumentError, "not RFC 2616 compliant date: #{date.inspect}"
+    end
+  end
+
+  def self.xmlschema(time)
+    if /\A\s*
+        (-?\d+)-(\d\d)-(\d\d)
+        T
+        (\d\d):(\d\d):(\d\d)
+        (\.\d+)?
+        (Z|[+-]\d\d(?::?\d\d)?)?
+        \s*\z/ix =~ time
+      year = $1.to_i; mon = $2.to_i; day = $3.to_i
+      hour = $4.to_i; min = $5.to_i; sec = $6.to_i
+      usec = $7 ? Rational($7) * 1_000_000 : 0
+      if $8
+        zone = $8
+        off  = zone_offset(zone)
+        year, mon, day, hour, min, sec = _time_apply_offset(year, mon, day, hour, min, sec, off)
+        t = utc(year, mon, day, hour, min, sec, usec)
+        _time_force_zone!(t, zone, off)
+        t
+      else
+        local(year, mon, day, hour, min, sec, usec)
+      end
+    else
+      raise ArgumentError, "invalid xmlschema format: #{time.inspect}"
+    end
+  end
+  class << self; alias iso8601 xmlschema; end
+
   def to_f = Intrinsics.time_to_f(self)
   def to_i = Intrinsics.time_to_i(self)
   def to_s = Intrinsics.time_to_s(self)
@@ -433,6 +632,18 @@ class Time
   # detail of Frozone's Time, not a user-visible ivar (MRI stores the zone at
   # the C level and Time#instance_variables returns []).
   def instance_variables = super.reject { |iv| iv == :@frozone_timezone }
+
+  # Returns self (instance method added by require 'time').
+  def to_time = self
+
+  # Instance method rfc2822 formatter (added by require 'time').
+  def rfc2822
+    strftime('%a, %d %b %Y %T ') << (utc? ? '-0000' : strftime('%z'))
+  end
+  alias rfc822 rfc2822
+
+  # Instance method httpdate formatter (added by require 'time').
+  def httpdate = getutc.strftime('%a, %d %b %Y %T GMT')
 
   private
 
