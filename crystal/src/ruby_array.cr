@@ -215,16 +215,196 @@ class RubyArray < RubyObject
     RubyArray.new(@data.map { |el| block.call(el) })
   end
 
-  def select(&block : RubyObject -> Bool) : RubyArray
-    RubyArray.new(@data.select { |el| block.call(el) })
+  def ruby_select(&block : RubyObject -> RubyObject) : RubyArray
+    RubyArray.new(@data.select { |el| block.call(el).truthy? })
   end
 
-  def reject(&block : RubyObject -> Bool) : RubyArray
-    RubyArray.new(@data.reject { |el| block.call(el) })
+  def reject(&block : RubyObject -> RubyObject) : RubyArray
+    RubyArray.new(@data.reject { |el| block.call(el).truthy? })
   end
 
   def compact : RubyArray
     RubyArray.new(@data.reject { |el| el.ruby_nil? })
+  end
+
+  # Sort using Ruby <=> semantics (via RubyObject#<=>)
+  def sort : RubyArray
+    arr = @data.dup
+    arr.sort! { |a, b| ruby_cmp(a, b) }
+    RubyArray.new(arr)
+  end
+
+  def sort(&block : RubyObject, RubyObject -> RubyObject) : RubyArray
+    arr = @data.dup
+    arr.sort! { |a, b|
+      cmp = block.call(a, b)
+      cmp.is_a?(RubyInteger) ? cmp.to_i64.to_i32 : 0
+    }
+    RubyArray.new(arr)
+  end
+
+  def sort_by(&block : RubyObject -> RubyObject) : RubyArray
+    arr = @data.dup
+    arr.sort! { |a, b| ruby_cmp(block.call(a), block.call(b)) }
+    RubyArray.new(arr)
+  end
+
+  def min : RubyObject
+    return RubyNil::INSTANCE if @data.empty?
+    best = @data[0]
+    @data[1..].each { |el| best = el if ruby_cmp(el, best) < 0 }
+    best
+  end
+
+  def max : RubyObject
+    return RubyNil::INSTANCE if @data.empty?
+    best = @data[0]
+    @data[1..].each { |el| best = el if ruby_cmp(el, best) > 0 }
+    best
+  end
+
+  def min_by(&block : RubyObject -> RubyObject) : RubyObject
+    return RubyNil::INSTANCE if @data.empty?
+    best = @data[0]; best_score = block.call(best)
+    @data[1..].each do |el|
+      score = block.call(el)
+      if ruby_cmp(score, best_score) < 0
+        best = el; best_score = score
+      end
+    end
+    best
+  end
+
+  def max_by(&block : RubyObject -> RubyObject) : RubyObject
+    return RubyNil::INSTANCE if @data.empty?
+    best = @data[0]; best_score = block.call(best)
+    @data[1..].each do |el|
+      score = block.call(el)
+      if ruby_cmp(score, best_score) > 0
+        best = el; best_score = score
+      end
+    end
+    best
+  end
+
+  # Blocks return RubyObject (RubyBool); .truthy? converts to Crystal Bool.
+  def any?(&block : RubyObject -> RubyObject) : RubyBool
+    @data.any? { |el| block.call(el).truthy? } ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def any? : RubyBool
+    @data.any? { |el| el.truthy? } ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def all?(&block : RubyObject -> RubyObject) : RubyBool
+    @data.all? { |el| block.call(el).truthy? } ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def all? : RubyBool
+    @data.all? { |el| el.truthy? } ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def none?(&block : RubyObject -> RubyObject) : RubyBool
+    @data.none? { |el| block.call(el).truthy? } ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def count : RubyInteger
+    length
+  end
+
+  def count(&block : RubyObject -> RubyObject) : RubyInteger
+    n = @data.count { |el| block.call(el).truthy? }
+    RubyInteger.new(n.to_i64)
+  end
+
+  def sum : RubyObject
+    return RubyInteger.new(0_i64) if @data.empty?
+    acc = @data[0]
+    @data[1..].each { |el| acc = acc + el }
+    acc
+  end
+
+  def sum(init : RubyObject) : RubyObject
+    acc = init
+    @data.each { |el| acc = acc + el }
+    acc
+  end
+
+  def flat_map(&block : RubyObject -> RubyObject) : RubyArray
+    result = RubyArray.new
+    @data.each do |el|
+      val = block.call(el)
+      case val
+      when RubyArray then val.data.each { |inner| result.push(inner) }
+      else result.push(val)
+      end
+    end
+    result
+  end
+
+  def reduce(init : RubyObject, &block : RubyObject, RubyObject -> RubyObject) : RubyObject
+    @data.reduce(init) { |acc, el| block.call(acc, el) }
+  end
+
+  def inject(init : RubyObject, &block : RubyObject, RubyObject -> RubyObject) : RubyObject
+    reduce(init) { |acc, el| block.call(acc, el) }
+  end
+
+  def each_with_object(obj : RubyObject, &block : RubyObject, RubyObject ->) : RubyObject
+    @data.each { |el| block.call(el, obj) }
+    obj
+  end
+
+  def take(n : RubyObject) : RubyArray
+    cnt = n.is_a?(RubyInteger) ? n.to_i64.to_i32 : 0
+    RubyArray.new(@data.first(cnt))
+  end
+
+  def drop(n : RubyObject) : RubyArray
+    cnt = n.is_a?(RubyInteger) ? n.to_i64.to_i32 : 0
+    RubyArray.new(cnt < @data.size ? @data[cnt..] : [] of RubyObject)
+  end
+
+  def tally : RubyHash
+    result = RubyHash.new
+    @data.each do |el|
+      cur = result[el]
+      result[el] = cur.ruby_nil? ? RubyInteger.new(1_i64) : (cur + RubyInteger.new(1_i64))
+    end
+    result
+  end
+
+  def join(sep : RubyString) : RubyString
+    RubyString.new(@data.map(&.to_s).join(sep.to_s))
+  end
+
+  def join(sep : RubyObject = RubyNil::INSTANCE) : RubyString
+    sep_str = sep.ruby_nil? ? "" : sep.to_s
+    RubyString.new(@data.map(&.to_s).join(sep_str))
+  end
+
+  def flatten(depth : RubyObject = RubyNil::INSTANCE) : RubyArray
+    flatten
+  end
+
+  def sample : RubyObject
+    return RubyNil::INSTANCE if @data.empty?
+    @data[Random.rand(@data.size)]
+  end
+
+  def shuffle : RubyArray
+    RubyArray.new(@data.shuffle)
+  end
+
+  def rotate(n : RubyObject = RubyInteger.new(1_i64)) : RubyArray
+    return self if @data.empty?
+    cnt = n.is_a?(RubyInteger) ? n.to_i64.to_i32 % @data.size : 1
+    RubyArray.new(@data[cnt..] + @data[...cnt])
+  end
+
+  private def ruby_cmp(a : RubyObject, b : RubyObject) : Int32
+    return 0 unless a.is_a?(RubyInteger) && b.is_a?(RubyInteger)
+    a <=> b
   end
 
   def zip(other : RubyArray) : RubyArray

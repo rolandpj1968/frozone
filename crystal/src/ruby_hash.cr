@@ -302,4 +302,42 @@ class RubyHash < RubyObject
     @data.each { |k, v| h ^= k.obj.hash &* 0x9e3779b97f4a7c15_u64 &+ v.hash }
     h
   end
+
+  # store is an alias for []=
+  def store(key : RubyObject, value : RubyObject) : RubyObject
+    self[key] = value
+  end
+
+  def any?(&block : RubyObject, RubyObject -> Bool) : RubyBool
+    @data.any? { |k, v| block.call(k.obj, v) } ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def all?(&block : RubyObject, RubyObject -> Bool) : RubyBool
+    @data.all? { |k, v| block.call(k.obj, v) } ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def map(&block : RubyObject, RubyObject -> RubyObject) : RubyArray
+    RubyArray.new(@data.map { |k, v| block.call(k.obj, v) })
+  end
+
+  def count : RubyInteger
+    size
+  end
+
+  def min_by(&block : RubyObject, RubyObject -> RubyObject) : RubyObject
+    best_k = RUBY_NIL_REF
+    best_v = RUBY_NIL_REF
+    best_score = RUBY_NIL_REF
+    @data.each do |k, v|
+      score = block.call(k.obj, v)
+      if best_k.ruby_nil? || (score <=> best_score) < 0
+        best_k = k.obj
+        best_v = v
+        best_score = score
+      end
+    end
+    RubyArray.new([best_k, best_v] of RubyObject)
+  end
 end
+
+private RUBY_NIL_REF = RubyNil::INSTANCE

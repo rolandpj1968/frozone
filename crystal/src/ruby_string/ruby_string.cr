@@ -167,9 +167,9 @@ class RubyString < RubyObject
   # Character count (number of characters, NOT bytes).
   # For single-byte encodings or ASCII-only strings this equals bytesize.
   # For multi-byte encodings the non-ASCII path is stubbed.
-  def length : Int32
+  def length : RubyInteger
     if @encoding.single_byte? || ascii_only?
-      @bytes.size
+      RubyInteger.new(@bytes.size.to_i64)
     else
       raise NotImplementedError.new(
         "multi-byte char count not yet implemented for #{@encoding.name}")
@@ -177,8 +177,13 @@ class RubyString < RubyObject
   end
 
   # Alias for `length`.
-  def size : Int32
+  def size : RubyInteger
     length
+  end
+
+  # Byte size (Crystal-level, returns Int32 for internal use).
+  def bytesize : Int32
+    @bytes.size
   end
 
   # ------------------------------------------------------------------
@@ -670,4 +675,166 @@ class RubyString < RubyObject
   def hash : UInt64
     @bytes.hash
   end
+
+  # -------------------------------------------------------------------------
+  # Common Ruby string methods (ASCII-safe implementations)
+  # -------------------------------------------------------------------------
+
+  def upcase : RubyString
+    RubyString.new(to_s.upcase)
+  end
+
+  def downcase : RubyString
+    RubyString.new(to_s.downcase)
+  end
+
+  def swapcase : RubyString
+    RubyString.new(to_s.chars.map { |c| c.uppercase? ? c.downcase : c.upcase }.join)
+  end
+
+  def capitalize : RubyString
+    s = to_s
+    return self if s.empty?
+    RubyString.new(s[0].upcase + s[1..].downcase)
+  end
+
+  def reverse : RubyString
+    # Byte-level reversal — correct for ASCII, approximate for multi-byte.
+    rev = Bytes.new(@bytes.size)
+    @bytes.each_with_index { |b, i| rev[@bytes.size - 1 - i] = b }
+    RubyString.new(rev, @encoding)
+  end
+
+  def strip : RubyString
+    RubyString.new(to_s.strip)
+  end
+
+  def lstrip : RubyString
+    RubyString.new(to_s.lstrip)
+  end
+
+  def rstrip : RubyString
+    RubyString.new(to_s.rstrip)
+  end
+
+  def chomp : RubyString
+    RubyString.new(to_s.chomp)
+  end
+
+  def chop : RubyString
+    s = to_s
+    s.empty? ? self : RubyString.new(s[0...-1])
+  end
+
+  def include?(other : RubyString) : RubyBool
+    to_s.includes?(other.to_s) ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def include?(other : RubyObject) : RubyBool
+    other.is_a?(RubyString) ? include?(other) : RubyBool::FALSE
+  end
+
+  def start_with?(other : RubyString) : RubyBool
+    to_s.starts_with?(other.to_s) ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def end_with?(other : RubyString) : RubyBool
+    to_s.ends_with?(other.to_s) ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def split(sep : RubyString, limit : RubyObject = RUBY_NIL_PLACEHOLDER) : RubyArray
+    parts = to_s.split(sep.to_s)
+    RubyArray.new(parts.map { |p| RubyString.new(p).as(RubyObject) })
+  end
+
+  def split(sep : RubyObject, limit : RubyObject = RUBY_NIL_PLACEHOLDER) : RubyArray
+    case sep
+    when RubyString then split(sep, limit)
+    else split(RubyString.new(" "), limit)
+    end
+  end
+
+  def gsub(pattern : RubyString, replacement : RubyString) : RubyString
+    RubyString.new(to_s.gsub(pattern.to_s, replacement.to_s))
+  end
+
+  def gsub(pattern : RubyObject, replacement : RubyObject) : RubyString
+    p = pattern.is_a?(RubyString) ? pattern.to_s : pattern.to_s
+    r = replacement.is_a?(RubyString) ? replacement.to_s : replacement.to_s
+    RubyString.new(to_s.gsub(p, r))
+  end
+
+  def sub(pattern : RubyString, replacement : RubyString) : RubyString
+    RubyString.new(to_s.sub(pattern.to_s, replacement.to_s))
+  end
+
+  def sub(pattern : RubyObject, replacement : RubyObject) : RubyString
+    p = pattern.is_a?(RubyString) ? pattern.to_s : pattern.to_s
+    r = replacement.is_a?(RubyString) ? replacement.to_s : replacement.to_s
+    RubyString.new(to_s.sub(p, r))
+  end
+
+  def index(other : RubyString) : RubyObject
+    idx = to_s.index(other.to_s)
+    idx ? RubyInteger.new(idx.to_i64) : RubyNil::INSTANCE
+  end
+
+  def index(other : RubyObject) : RubyObject
+    other.is_a?(RubyString) ? index(other) : RubyNil::INSTANCE
+  end
+
+  def count(chars : RubyString) : RubyInteger
+    n = to_s.count(chars.to_s)
+    RubyInteger.new(n.to_i64)
+  end
+
+  def tr(from : RubyString, to : RubyString) : RubyString
+    RubyString.new(to_s.tr(from.to_s, to.to_s))
+  end
+
+  def delete(chars : RubyString) : RubyString
+    RubyString.new(to_s.delete(chars.to_s))
+  end
+
+  def empty? : RubyBool
+    @bytes.empty? ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def to_i(base : RubyObject = RUBY_NIL_PLACEHOLDER) : RubyInteger
+    b = base.is_a?(RubyInteger) ? base.to_i64.to_i32 : 10
+    RubyInteger.new(to_s.to_i64(base: b, whitespace: true, underscore: false, prefix: false, strict: false))
+  rescue
+    RubyInteger.new(0_i64)
+  end
+
+  def to_f : RubyFloat
+    RubyFloat.new(to_s.to_f64)
+  rescue
+    RubyFloat.new(0.0_f64)
+  end
+
+  def to_sym : RubySymbol
+    RubySymbol.from(to_s)
+  end
+
+  def chars : RubyArray
+    RubyArray.new(to_s.chars.map { |c| RubyString.new(c.to_s).as(RubyObject) })
+  end
+
+  def bytes : RubyArray
+    RubyArray.new(@bytes.map { |b| RubyInteger.new(b.to_i64).as(RubyObject) })
+  end
+
+  def each_char(&block : RubyObject ->) : RubyObject
+    to_s.chars.each { |c| block.call(RubyString.new(c.to_s)) }
+    self
+  end
+
+  def replace(other : RubyString) : RubyString
+    # mutating replace — for frozen strings, raise; for simplicity just return new
+    RubyString.new(other.to_s)
+  end
 end
+
+# Sentinel for optional parameters — we can't use nil? in a Crystal default
+private RUBY_NIL_PLACEHOLDER = RubyNil::INSTANCE

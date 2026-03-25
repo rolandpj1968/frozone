@@ -484,4 +484,58 @@ class RubyInteger < RubyObject
     else             raise "unreachable"
     end
   end
+
+  def between?(min : RubyObject, max : RubyObject) : RubyBool
+    (self >= min) && (self <= max) ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def zero? : RubyBool
+    (self <=> RubyInteger.new(0_i64)) == 0 ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def positive? : RubyBool
+    (self <=> RubyInteger.new(0_i64)) > 0 ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def negative? : RubyBool
+    (self <=> RubyInteger.new(0_i64)) < 0 ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def even? : RubyBool
+    (self % RubyInteger.new(2_i64)) == RubyInteger.new(0_i64) ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def odd? : RubyBool
+    (self % RubyInteger.new(2_i64)) != RubyInteger.new(0_i64) ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def times(&block : RubyObject ->) : RubyObject
+    n = to_i64
+    i = 0_i64
+    while i < n
+      block.call(RubyInteger.new(i))
+      i += 1
+    end
+    self
+  end
+
+  def upto(max : RubyObject, &block : RubyObject ->) : RubyObject
+    m = max.is_a?(RubyInteger) ? max.to_i64 : to_i64
+    i = to_i64
+    while i <= m
+      block.call(RubyInteger.new(i))
+      i += 1
+    end
+    self
+  end
+
+  def downto(min : RubyObject, &block : RubyObject ->) : RubyObject
+    m = min.is_a?(RubyInteger) ? min.to_i64 : to_i64
+    i = to_i64
+    while i >= m
+      block.call(RubyInteger.new(i))
+      i -= 1
+    end
+    self
+  end
 end
