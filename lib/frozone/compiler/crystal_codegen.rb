@@ -148,16 +148,16 @@ module Frozone
       end
 
       def emit_ivar_read(node)
-        write "@#{ivar(node, :name)}"
+        write ivar(node, :name).to_s  # already includes leading @
       end
 
       def emit_ivar_write(node)
-        write "@#{ivar(node, :name)} = "
+        write "#{ivar(node, :name)} = "
         emit(ivar(node, :value_node))
       end
 
       def emit_constant_read(node)
-        write crystal_constant(ivar(node, :name))
+        write "Ruby_#{crystal_constant(ivar(node, :name))}"
       end
 
       # -----------------------------------------------------------------------
@@ -190,6 +190,11 @@ module Frozone
           end
         end
 
+        # Operator and unary methods — emit as Crystal operator syntax
+        if node.receiver_node
+          return emit_operator(node, name) if operator?(name)
+        end
+
         # General method call: receiver.method(args)
         if node.receiver_node
           emit(node.receiver_node)
@@ -197,6 +202,43 @@ module Frozone
         end
         write crystal_method_name(name)
         emit_call_args(node)
+      end
+
+      BINARY_OPS = %i[+ - * / % ** == != < <= > >= <=> << >> & | ^ === =~].to_set
+      UNARY_OPS  = %i[-@ +@ ~ !].to_set
+
+      def operator?(name)
+        BINARY_OPS.include?(name) || UNARY_OPS.include?(name)
+      end
+
+      def emit_operator(node, name)
+        if UNARY_OPS.include?(name)
+          # Crystal unary minus is a zero-arg def -, called as recv.-
+          # Emit as method call for -@ and ~; inline for +@ (no-op)
+          case name
+          when :"-@"
+            write "("
+            emit(node.receiver_node)
+            write ".-)"
+          when :"+@"
+            emit(node.receiver_node)
+          when :"~"
+            write "~("
+            emit(node.receiver_node)
+            write ")"
+          when :"!"
+            write "!("
+            emit(node.receiver_node)
+            write ").truthy?"
+          end
+        else
+          # Binary: (lhs op rhs)
+          write "("
+          emit(node.receiver_node)
+          write " #{name} "
+          emit(node.arg_nodes[0])
+          write ")"
+        end
       end
 
       def emit_puts(node)
@@ -372,6 +414,9 @@ module Frozone
         case node
         when Ast::TrueLiteral, Ast::FalseLiteral then true
         when Ast::And, Ast::Or                   then true
+        when Ast::MethodCall
+          # Operator calls emitted as Crystal operators return Bool
+          operator?(node.name) && BINARY_OPS.include?(node.name)
         else false
         end
       end
@@ -464,16 +509,28 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def emit_class_def(node)
-        write "class Ruby_#{crystal_constant(ivar(node, :name))}"
+        name = crystal_constant(ivar(node, :name))
+        write "class Ruby_#{name}"
         sc = ivar(node, :superclass_node)
         if sc
-          write " < Ruby_"
-          emit(sc)
+          write " < Ruby_#{crystal_constant(ivar(sc, :name))}"
         else
           write " < RubyObject"
         end
         emit_newline
-        indented { emit(ivar(node, :body)) }
+        indented do
+          # Declare all ivars as RubyObject = RUBY_NIL so Crystal knows the type
+          ivars = collect_ivars(ivar(node, :body))
+          ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
+          emit_newline unless ivars.empty?
+          # Default RubyObject abstract method implementations
+          line "def to_s : String; \"#<#{name}>\"; end"
+          line "def inspect : String; \"#<#{name}>\"; end"
+          line "def ==(other : RubyObject) : Bool; same?(other); end"
+          emit_newline
+          emit_indent
+          emit(ivar(node, :body))
+        end
         emit_newline
         emit_indent
         write "end"
@@ -561,6 +618,34 @@ module Frozone
         sub.instance_variable_set(:@indent, 0)
         sub.send(:emit, node)
         sub.instance_variable_get(:@out)
+      end
+
+      # -----------------------------------------------------------------------
+      # Ivar collection — scan a class body AST for all @ivar assignments
+      # -----------------------------------------------------------------------
+
+      def collect_ivars(node, seen = Set.new)
+        case node
+        when Ast::InstanceVariableWrite
+          seen << ivar(node, :name).to_s
+          collect_ivars(ivar(node, :value_node), seen)
+        when Ast::Sequence
+          node.nodes.each { |n| collect_ivars(n, seen) }
+        when Ast::MethodDef
+          collect_ivars(ivar(node, :body), seen) if ivar(node, :body)
+        when Ast::If
+          collect_ivars(node.then_node, seen)
+          collect_ivars(node.else_node, seen) if node.else_node
+        when nil
+          # nothing
+        else
+          # For other nodes, recurse into known child slots
+          %i[body value_node then_node else_node body_node].each do |slot|
+            child = node.instance_variable_defined?(:"@#{slot}") && node.instance_variable_get(:"@#{slot}")
+            collect_ivars(child, seen) if child && child.is_a?(Ast::Node)
+          end
+        end
+        seen.to_a.sort
       end
 
       # -----------------------------------------------------------------------
