@@ -48,18 +48,24 @@ module Frozone
         end
       end
 
+      # Methods already defined on RubyObject — skip stub generation for these.
+      RUBY_OBJECT_METHODS = %i[initialize to_s inspect hash == != truthy?
+                               ruby_nil? ruby_bool? not [] []= ruby_to_s ruby_inspect].to_set
+
       # Emit RubyObject stub methods for all user-defined methods.
       # This allows polymorphic dispatch: `obj.some_method` where `obj : RubyObject`
       # compiles because Crystal sees the stub and dispatches to the real implementation.
       def emit_user_method_stubs
+        stubs = @user_methods.reject { |n|
+          RUBY_OBJECT_METHODS.include?(n) || operator?(n)
+        }
+        return if stubs.empty?
+
         write "# User-defined method stubs on RubyObject for polymorphic dispatch"
         emit_newline
         write "class RubyObject"
         emit_newline
-        @user_methods.each do |name|
-          next if name == :initialize
-          # Skip operator methods — they already have stubs in RubyObject
-          next if operator?(name)
+        stubs.each do |name|
           crystal_name = crystal_method_name(name)
           write "  def #{crystal_name}(*args) : RubyObject"
           emit_newline
@@ -248,6 +254,8 @@ module Frozone
 
       BINARY_OPS = %i[+ - * / % ** == != < <= > >= <=> << >> & | ^ === =~].to_set
       UNARY_OPS  = %i[-@ +@ ~ !].to_set
+      # Comparison operators that return Crystal Bool — wrap in RubyBool for consistency
+      COMPARE_OPS = %i[== != < <= > >= === =~].to_set
 
       def operator?(name)
         BINARY_OPS.include?(name) || UNARY_OPS.include?(name)
@@ -273,8 +281,16 @@ module Frozone
             emit(node.receiver_node)
             write ").truthy?"
           end
+        elsif COMPARE_OPS.include?(name)
+          # Comparison: wrap in RubyBool so return type is RubyObject-compatible
+          # (a >= b) ? RUBY_TRUE : RUBY_FALSE
+          write "(("
+          emit(node.receiver_node)
+          write " #{name} "
+          emit(node.arg_nodes[0])
+          write ") ? RUBY_TRUE : RUBY_FALSE)"
         else
-          # Binary: (lhs op rhs)
+          # Arithmetic binary: (lhs op rhs) — returns RubyObject via Crystal dispatch
           write "("
           emit(node.receiver_node)
           write " #{name} "
@@ -463,9 +479,9 @@ module Frozone
         when Ast::TrueLiteral, Ast::FalseLiteral then true
         when Ast::And, Ast::Or                   then true
         when Ast::MethodCall
-          # Operator calls emitted as Crystal operators return Bool
-          return true if operator?(node.name) && BINARY_OPS.include?(node.name)
-          # Known predicate methods that return Crystal Bool (check translated name)
+          # Comparison operators now emit as (a op b) ? RUBY_TRUE : RUBY_FALSE → RubyBool
+          # (no longer Crystal Bool, so .truthy? is needed — return false here)
+          # Known predicate methods that return Crystal Bool directly
           crystal_name = RUBY_TO_CRYSTAL_METHOD.fetch(node.name, node.name)
           BOOL_METHODS.include?(crystal_name)
         else false
@@ -521,19 +537,39 @@ module Frozone
       # Method definition
       # -----------------------------------------------------------------------
 
+      # Methods that must return Crystal String (override RubyObject abstract defs)
+      STRING_RETURN_METHODS = %i[to_s inspect].to_set
+
       def emit_method_def(node)
         recv = ivar(node, :receiver_node)
         name = ivar(node, :name)
+        string_return = STRING_RETURN_METHODS.include?(name)
+        # Method definition: don't translate to_s → ruby_to_s; emit as-is (Crystal protocol)
+        crystal_name = string_return ? name.to_s : crystal_method_name(name)
+
         if recv
           write "def "
           emit(recv)
-          write ".#{crystal_method_name(name)}"
+          write ".#{crystal_name}"
         else
-          write "def #{crystal_method_name(name)}"
+          write "def #{crystal_name}"
         end
+        write " : String" if string_return
         emit_param_list(node)
         emit_newline
-        indented { emit(ivar(node, :body)) }
+        if string_return
+          # Body may return RubyString; wrap in .to_s to produce Crystal String
+          indented do
+            write "(begin"
+            emit_newline
+            indented { emit(ivar(node, :body)) }
+            emit_newline
+            emit_indent
+            write "end).to_s"
+          end
+        else
+          indented { emit(ivar(node, :body)) }
+        end
         emit_newline
         emit_indent
         write "end"
@@ -636,10 +672,12 @@ module Frozone
         then true type typeof union unless until verbatim when while with yield
       ].to_set
 
-      # Ruby method names that map to different Crystal method names
-      # (pseudo-methods that can't be overridden, or conflicting names)
+      # Ruby method names that map to different Crystal method names at CALL sites.
+      # (Crystal's to_s/inspect return String; Ruby's return RubyString)
       RUBY_TO_CRYSTAL_METHOD = {
-        nil?: :ruby_nil?,
+        nil?:    :ruby_nil?,
+        to_s:    :ruby_to_s,
+        inspect: :ruby_inspect,
       }.freeze
 
       def crystal_method_name(sym)

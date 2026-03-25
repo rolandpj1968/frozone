@@ -54,6 +54,16 @@ abstract class RubyObject
   # (Crystal's nil? is a pseudo-method; we use ruby_nil? instead)
   # def nil? - NOT redefined here; see RubyNil#ruby_nil?
 
+  # ruby_to_s: Ruby's to_s — returns RubyString (Crystal to_s returns String)
+  def ruby_to_s : RubyString
+    RubyString.new(to_s)
+  end
+
+  # ruby_inspect: Ruby's inspect — returns RubyString
+  def ruby_inspect : RubyString
+    RubyString.new(inspect)
+  end
+
   # -------------------------------------------------------------------------
   # Arithmetic / comparison operator stubs — raise TypeError at runtime.
   # Concrete subclasses override with real implementations.
