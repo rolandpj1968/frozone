@@ -40,10 +40,21 @@ class Process
     pid
   end
 
-  def self.wait(pid = -1, flags = 0) = Intrinsics.process_wait(self, pid, flags)
-  def self.wait2(pid = -1, flags = 0) = Intrinsics.process_wait2(self, pid, flags)
-  def self.waitpid(pid = -1, flags = 0) = Intrinsics.process_wait(self, pid, flags)
-  def self.waitpid2(pid = -1, flags = 0) = Intrinsics.process_wait2(self, pid, flags)
+  def self.wait(pid = -1, flags = 0)
+    Intrinsics.process_wait(self, __coerce_to_int__(pid), flags)
+  end
+
+  def self.wait2(pid = -1, flags = 0)
+    Intrinsics.process_wait2(self, __coerce_to_int__(pid), flags)
+  end
+
+  def self.waitpid(pid = -1, flags = 0)
+    Intrinsics.process_wait(self, __coerce_to_int__(pid), flags)
+  end
+
+  def self.waitpid2(pid = -1, flags = 0)
+    Intrinsics.process_wait2(self, __coerce_to_int__(pid), flags)
+  end
   def self.waitall = Intrinsics.process_waitall(self)
   def self.pid = Intrinsics.process_pid
   def self.uid = Intrinsics.process_uid
@@ -55,6 +66,8 @@ class Process
   def self.exit!(code = false) = Intrinsics.kernel_exit(self, code)
   def self.abort(msg = nil) = Kernel.abort(msg)
   def self.argv0 = $0.freeze
+
+  def self.spawn(*args) = Intrinsics.kernel_spawn(self, *args)
 
   def self.exec(*args)
     env = args.first.is_a?(Hash) ? args.shift : nil

@@ -326,7 +326,28 @@ module Frozone
         end
 
         def kernel_spawn(_, _receiver, *args)
-          argv = args.map { |a| fstr?(a) ? a.raw : a.raw.to_s }
+          argv = args.map { |a|
+            if fstr?(a)
+              a.raw
+            elsif a.is_a?(ArrayObject)
+              a.raw.map { |s| fstr?(s) ? s.raw : s.raw.to_s }
+            elsif a.is_a?(HashObject)
+              h = {}
+              a.raw.each { |k, v|
+                hk = k.is_a?(SymbolObject) ? k.raw : k.to_s
+                hv = case v
+                     when FNIL   then nil
+                     when FFALSE then false
+                     when FTRUE  then true
+                     else v.respond_to?(:raw) ? v.raw : v
+                     end
+                h[hk] = hv
+              }
+              h
+            else
+              a.raw.to_s
+            end
+          }
           n2f_int(::Kernel.spawn(*argv))
         end
 
@@ -350,7 +371,7 @@ module Frozone
           end
         end
 
-        def process_waitall(_)
+        def process_waitall(_, _receiver = FNIL)
           results = ::Process.waitall
           n2f_arr(results.map { |pid, st|
             GLOBALS[:"$?"] = ProcessStatusObject.new(st) if st
