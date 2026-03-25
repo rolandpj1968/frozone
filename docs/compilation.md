@@ -17,6 +17,19 @@ targeting Crystal as an intermediate language. This is deliberately different
 from the two other common approaches (JIT and general AOT), and those
 differences are worth understanding upfront.
 
+**The key architectural insight — split load and execute:**
+Most Ruby programs have two naturally distinct phases: a *load phase* where
+classes are defined, modules included, gems initialised, and DSLs evaluated;
+and an *execute phase* where the actual work happens. The Frozone compiler
+exploits this split: the **Frozone interpreter runs the load phase normally**,
+handling all dynamic Ruby (metaprogramming, `define_method`, `has_many`,
+everything). Once the load phase is complete and the object model is fully
+settled, the compiler **snapshots that state as the closed world** and
+translates it to Crystal. The execute phase then runs as a native binary with
+no interpreter overhead. This means the closed-world constraint applies only
+to the execute phase — which well-written programs, and Rails apps in
+production mode, already satisfy.
+
 ---
 
 ### Closed-world AOT vs JIT
