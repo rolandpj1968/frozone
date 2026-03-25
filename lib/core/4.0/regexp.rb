@@ -11,8 +11,8 @@ class Regexp
   def options = Intrinsics.regexp_options(self)
   def inspect = Intrinsics.regexp_inspect(self)
   def to_s = Intrinsics.regexp_to_s(self)
-  def casefold? = Intrinsics.regexp_casefold(self)
-  def fixed_encoding? = Intrinsics.regexp_fixed_encoding(self)
+  def casefold? = (options & IGNORECASE) != 0
+  def fixed_encoding? = (options & FIXEDENCODING) != 0
   def encoding = Intrinsics.regexp_encoding(self)
   def named_captures = Intrinsics.regexp_named_captures(self)
   def names = Intrinsics.regexp_names(self)

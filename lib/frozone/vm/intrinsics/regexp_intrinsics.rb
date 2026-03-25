@@ -9,8 +9,6 @@ module Frozone
         def regexp_source(_, r) = n2f_str(r.raw.source)
         def regexp_inspect(_, r) = n2f_str(r.raw.inspect)
         def regexp_to_s(_, r) = n2f_str(r.raw.to_s)
-        def regexp_casefold(_, r) = n2f_bool(r.raw.casefold?)
-        def regexp_fixed_encoding(_, r) = n2f_bool(r.raw.fixed_encoding?)
         def regexp_escape(_, str) = n2f_str(Regexp.escape(str.raw.to_s))
         def regexp_hash(_, r) = n2f_int(r.raw.hash)
         def regexp_names(_, r) = n2f_arr(r.raw.names.map { |n| n2f_str(n) })

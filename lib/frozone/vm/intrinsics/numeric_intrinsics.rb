@@ -6,7 +6,6 @@ module Frozone
       class << self
         # Integer
         def integer_hash(_, v) = n2f_int(v.raw.hash)
-        def integer_eql(_, v1, v2) = n2f_bool(fint?(v2) && v1.raw == v2.raw)
         def integer_to_s(_, v, base = FNIL) = n2f_str(v.raw.to_s(fnil?(base) ? 10 : base.raw))
         def integer_bitand(_, v1, v2) = n2f_int(v1.raw & v2.raw)
         def integer_bitor(_, v1, v2) = n2f_int(v1.raw | v2.raw)
@@ -139,12 +138,10 @@ module Frozone
         end
 
         # Float intrinsics
-        def float_eql(_, v1, v2) = n2f_bool(ffloat?(v2) && v1.raw == v2.raw)
         def float_hash(_, v) = n2f_int(v.raw.hash)
         def float_to_s(_, v) = n2f_str(v.raw.inspect)
         def float_to_i(_, v) = n2f_int(v.raw.to_i)
         def float_to_r(_, v) = make_rational(v.raw.to_r)
-        def float_remainder(_, v1, v2) = n2f_float(v1.raw.remainder(v2.raw))
         def float__lt_(_, v1, v2) = ffloat?(v2) || fint?(v2) ? n2f_bool(v1.raw <  v2.raw) : FFALSE
         def float__le_(_, v1, v2) = ffloat?(v2) || fint?(v2) ? n2f_bool(v1.raw <= v2.raw) : FFALSE
         def float__ge_(_, v1, v2) = ffloat?(v2) || fint?(v2) ? n2f_bool(v1.raw >= v2.raw) : FFALSE
@@ -159,8 +156,6 @@ module Frozone
         def float_nan(_) = n2f_float(::Float::NAN)
         def float_next_float(_, v) = n2f_float(v.raw.next_float)
         def float_prev_float(_, v) = n2f_float(v.raw.prev_float)
-        def float_infinite?(_, v) = (r = v.raw.infinite?; r ? n2f_int(r) : FNIL)
-        def float_divmod(_, v1, v2) = (q, r = v1.raw.divmod(v2.raw); n2f_arr([n2f_int(q), n2f_float(r)]))
 
         def float_eq(_, v1, v2)
           return n2f_bool(false) unless ffloat?(v2) || fint?(v2)

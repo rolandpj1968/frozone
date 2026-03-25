@@ -12,18 +12,18 @@ class Float
   MIN_10_EXP = -307
   RADIX      = 2
 
-  def eql?(v) = v.is_a?(Float) && Intrinsics.float_eql(self, v)
+  def eql?(v) = v.is_a?(Float) && self == v
   def hash = Intrinsics.float_hash(self)
   def to_s = Intrinsics.float_to_s(self)
   def inspect = Intrinsics.float_to_s(self)
   def to_i = Intrinsics.float_to_i(self)
-  def to_int = Intrinsics.float_to_i(self)
+  def to_int = to_i
   def to_f = self
   def to_r = Intrinsics.float_to_r(self)
   def abs = zero? ? 0.0 : self < 0.0 ? -self : self
   def magnitude = abs
   def nan? = self != self
-  def infinite? = Intrinsics.float_infinite?(self)
+  def infinite? = self == INFINITY ? 1 : self == -INFINITY ? -1 : nil
   def finite? = !nan? && self != Float::INFINITY && self != -Float::INFINITY
   def zero? = self == 0.0
   def positive? = self > 0.0
@@ -112,9 +112,9 @@ class Float
     end
   end
   # <=> with infinite? protocol and TypeError for bad coerce return
-  def divmod(v) = Intrinsics.float_divmod(self, v)
+  def divmod(v) = [(self / v).floor, self % v]
   def div(v) = (self / v).floor
-  def remainder(n) = Intrinsics.float_remainder(self, n)
+  def remainder(n) = self - n * (self / n).truncate
   def rationalize(eps = nil) = Intrinsics.float_rationalize(self, eps)
   def between?(min, max) = min <= self && self <= max
   def next_float = Intrinsics.float_next_float(self)

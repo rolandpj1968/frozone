@@ -14,7 +14,7 @@ class Integer
   def to_s(base = nil) = Intrinsics.integer_to_s(self, base)
   def inspect = to_s
   def hash = Intrinsics.integer_hash(self)
-  def eql?(v) = Intrinsics.integer_eql(self, v)
+  def eql?(v) = v.is_a?(Integer) && self == v
   def equal?(v) = self == v
   def ord = self
   def even? = self % 2 == 0

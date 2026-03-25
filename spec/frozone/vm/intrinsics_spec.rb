@@ -175,20 +175,6 @@ RSpec.describe Frozone::Vm::Intrinsics do
     end
   end
 
-  describe '.integer_eql' do
-    it 'returns TRUE for equal integer values' do
-      expect(described_class.integer_eql(ctx, i3, Frozone::Vm::IntegerObject.new(3))).to equal(Frozone::Vm::TrueObject::TRUE)
-    end
-
-    it 'returns FALSE for different integer values' do
-      expect(described_class.integer_eql(ctx, i3, i5)).to equal(Frozone::Vm::FalseObject::FALSE)
-    end
-
-    it 'returns FALSE when compared to a non-IntegerObject' do
-      expect(described_class.integer_eql(ctx, i3, Frozone::Vm::StringObject.new("3"))).to equal(Frozone::Vm::FalseObject::FALSE)
-    end
-  end
-
   describe '.string_hash' do
     it 'returns equal hashes for equal string values' do
       a = Frozone::Vm::StringObject.new("hello")
