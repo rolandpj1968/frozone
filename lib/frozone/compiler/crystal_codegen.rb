@@ -174,6 +174,9 @@ module Frozone
         when Ast::Break                 then emit_break(node)
         when Ast::RangeLiteral          then emit_range_literal(node)
         when Ast::MultipleAssignment    then emit_multiple_assignment(node)
+        when Ast::Lambda                then emit_lambda(node)
+        when Ast::GlobalVariableRead    then emit_global_var_read(node)
+        when Ast::GlobalVariableWrite   then emit_global_var_write(node)
         when Ast::Block                 then unsupported!(node, "bare Block outside method call")
         else
           unsupported!(node)
@@ -190,9 +193,10 @@ module Frozone
         # (Crystal absolute path resolution is quirky; relative is reliable).
         line %(require "./src/frozone_crystal")
         emit_newline
-        line "RUBY_NIL   = RubyNil::INSTANCE"
-        line "RUBY_TRUE  = RubyBool::TRUE"
-        line "RUBY_FALSE = RubyBool::FALSE"
+        line "RUBY_NIL    = RubyNil::INSTANCE"
+        line "RUBY_TRUE   = RubyBool::TRUE"
+        line "RUBY_FALSE  = RubyBool::FALSE"
+        line "RUBY_GLOBALS = {} of String => RubyObject"
         emit_newline
       end
 
@@ -317,6 +321,22 @@ module Frozone
         # Operator and unary methods — emit as Crystal operator syntax
         if node.receiver_node
           return emit_operator(node, name) if operator?(name)
+        end
+
+        # Proc.new { |...| ... } → RubyProc wrapping a Crystal proc
+        if name == :new && node.receiver_node.is_a?(Ast::ConstantRead) &&
+           ivar(node.receiver_node, :name) == :Proc && node.block_node
+          return emit_proc_new(node.block_node)
+        end
+
+        # lambda { |...| ... } (no receiver) → same as Proc.new
+        if name == :lambda && node.receiver_node.nil? && node.block_node
+          return emit_proc_new(node.block_node)
+        end
+
+        # proc.call(args) → cast receiver to RubyProc then call
+        if name == :call && node.receiver_node
+          return emit_proc_call(node)
         end
 
         # General method call: receiver.method(args)
@@ -564,7 +584,14 @@ module Frozone
         node.arg_nodes.each do |arg|
           write ", " unless first
           first = false
-          emit(arg)
+          if arg.is_a?(Ast::SplatArg)
+            # SplatArg: Crystal can't splat Array (only Tuple); emit unsupported marker
+            write "# UNSUPPORTED_SPLAT("
+            emit(ivar(arg, :value_node))
+            write ")"
+          else
+            emit(arg)
+          end
         end
         node.kw_arg_nodes.each do |kw_name, val_node|
           write ", " unless first
@@ -676,6 +703,64 @@ module Frozone
           emit_indent
         end
         write "end"
+      end
+
+      # Lambda node (-> syntax): ->(x) { body }
+      def emit_lambda(node)
+        params = ivar(node, :required_params)
+        write "RubyProc.new(->(args : Array(RubyObject)) { "
+        params.each_with_index do |p, i|
+          write "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL; "
+        end
+        emit(ivar(node, :body))
+        write " })"
+      end
+
+      # Proc.new { |x| ... } or lambda { |x| ... } → RubyProc
+      def emit_proc_new(block_node)
+        params = ivar(block_node, :required_params)
+        write "RubyProc.new(->(args : Array(RubyObject)) { "
+        params.each_with_index do |p, i|
+          write "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL; "
+        end
+        emit(ivar(block_node, :body))
+        write " })"
+      end
+
+      # proc.call(args) → cast to RubyProc and call
+      def emit_proc_call(node)
+        write "("
+        emit(node.receiver_node)
+        write ").as(RubyProc).call("
+        node.arg_nodes.each_with_index do |arg, i|
+          write ", " if i > 0
+          emit(arg)
+        end
+        write ")"
+      end
+
+      # Global variable read: $name → RUBY_GLOBALS["name"]? || RUBY_NIL
+      MAPPED_GLOBALS = {
+        :"$stdout" => "RUBY_NIL",  # TODO: IO wrapper
+        :"$stderr" => "RUBY_NIL",
+        :"$stdin"  => "RUBY_NIL",
+      }.freeze
+
+      def emit_global_var_read(node)
+        name = ivar(node, :name)
+        if (mapped = MAPPED_GLOBALS[name])
+          write mapped
+        else
+          key = name.to_s.sub(/^\$/, '')
+          write %((RUBY_GLOBALS[#{key.inspect}]? || RUBY_NIL))
+        end
+      end
+
+      def emit_global_var_write(node)
+        name = ivar(node, :name)
+        key  = name.to_s.sub(/^\$/, '')
+        write %(RUBY_GLOBALS[#{key.inspect}] = )
+        emit(ivar(node, :value_node))
       end
 
       def emit_yield(node)
