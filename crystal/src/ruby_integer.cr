@@ -551,4 +551,9 @@ class RubyInteger < RubyObject
     end
     self
   end
+
+  def chr : RubyString
+    cp = to_i64.to_i32
+    RubyString.new(cp.chr.to_s)
+  end
 end

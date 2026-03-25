@@ -765,6 +765,44 @@ class RubyString < RubyObject
     s.empty? ? self : RubyString.new(s[0...-1])
   end
 
+  # Ruby's String#succ / String#next — increments the rightmost alphanumeric.
+  def succ : RubyString
+    s = to_s
+    return RubyString.new("") if s.empty?
+    chars = s.chars
+    carry = true
+    i = chars.size - 1
+    while i >= 0 && carry
+      c = chars[i]
+      carry = false
+      if c >= 'a' && c <= 'z'
+        chars[i] = c == 'z' ? (carry = true; 'a') : (c.ord + 1).chr
+      elsif c >= 'A' && c <= 'Z'
+        chars[i] = c == 'Z' ? (carry = true; 'A') : (c.ord + 1).chr
+      elsif c >= '0' && c <= '9'
+        chars[i] = c == '9' ? (carry = true; '0') : (c.ord + 1).chr
+      end
+      i -= 1
+    end
+    result = chars.join
+    if carry
+      # find the leftmost alphanumeric to determine what to prepend
+      first_alpha_i = s.each_char.with_index.find { |ch, _| ch.alphanumeric? }.try(&.[1])
+      prefix = if first_alpha_i
+                 first_ch = s[first_alpha_i]
+                 first_ch >= 'a' ? "a" : (first_ch >= 'A' ? "A" : "1")
+               else
+                 "1"
+               end
+      result = prefix + result
+    end
+    RubyString.new(result)
+  end
+
+  def ruby_next : RubyString
+    succ
+  end
+
   def include?(other : RubyString) : RubyBool
     to_s.includes?(other.to_s) ? RubyBool::TRUE : RubyBool::FALSE
   end
@@ -779,6 +817,11 @@ class RubyString < RubyObject
 
   def end_with?(other : RubyString) : RubyBool
     to_s.ends_with?(other.to_s) ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def split : RubyArray
+    parts = to_s.split
+    RubyArray.new(parts.map { |p| RubyString.new(p).as(RubyObject) })
   end
 
   def split(sep : RubyString, limit : RubyObject = RUBY_NIL_PLACEHOLDER) : RubyArray

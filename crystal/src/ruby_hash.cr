@@ -283,6 +283,60 @@ class RubyHash < RubyObject
     self
   end
 
+  def transform_values(&block : RubyObject -> RubyObject) : RubyHash
+    map_values { |v| block.call(v) }
+  end
+
+  def transform_values!(&block : RubyObject -> RubyObject) : RubyHash
+    map_values! { |v| block.call(v) }
+  end
+
+  def transform_keys(&block : RubyObject -> RubyObject) : RubyHash
+    result = RubyHash.new(@default)
+    each { |k, v| result[block.call(k)] = v }
+    result
+  end
+
+  def filter(&block : RubyObject, RubyObject -> RubyObject) : RubyHash
+    ruby_select { |k, v| block.call(k, v) }
+  end
+
+  def count(&block : RubyObject, RubyObject -> RubyObject) : RubyInteger
+    n = 0
+    each { |k, v| n += 1 if block.call(k, v).truthy? }
+    RubyInteger.new(n.to_i64)
+  end
+
+  def each_with_object(obj : RubyObject, &block : RubyObject, RubyObject ->) : RubyObject
+    each { |k, v|
+      pair = RubyArray.new([k, v] of RubyObject)
+      block.call(pair, obj)
+    }
+    obj
+  end
+
+  def sum(&block : RubyObject, RubyObject -> RubyObject) : RubyObject
+    acc : RubyObject = RubyInteger.new(0_i64)
+    each { |k, v| acc = acc + block.call(k, v) }
+    acc
+  end
+
+  def flat_map(&block : RubyObject, RubyObject -> RubyObject) : RubyArray
+    result = RubyArray.new
+    each do |k, v|
+      val = block.call(k, v)
+      case val
+      when RubyArray then val.data.each { |inner| result.push(inner) }
+      else result.push(val)
+      end
+    end
+    result
+  end
+
+  def min_by(&block : RubyObject -> RubyObject) : RubyObject
+    min_by { |k, v| block.call(k) }
+  end
+
   # -------------------------------------------------------------------------
   # RubyObject interface
   # -------------------------------------------------------------------------

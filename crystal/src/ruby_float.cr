@@ -314,14 +314,14 @@ class RubyFloat < RubyObject
     @value.nan?
   end
 
-  # Returns -1 if negative infinity, 1 if positive infinity, 0 if finite.
-  def infinite? : Int32
+  # Returns nil if finite, -1 if negative infinity, 1 if positive infinity.
+  def infinite? : RubyObject
     if @value == Float64::INFINITY
-      1
+      RubyInteger.new(1_i64)
     elsif @value == -Float64::INFINITY
-      -1
+      RubyInteger.new(-1_i64)
     else
-      0
+      RubyNil::INSTANCE
     end
   end
 
