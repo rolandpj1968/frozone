@@ -97,7 +97,9 @@ class File < IO
   def self.realpath(path, base = nil) = Intrinsics.file_realpath(_coerce_path(path), base)
   def self.realdirpath(path, base = nil) = Intrinsics.file_realdirpath(_coerce_path(path), base)
   def self.split(path) = Intrinsics.file_split(_coerce_path(path))
-  def self.write(path, content, **opts) = Intrinsics.file_write(_coerce_path(path), content)
+  def self.write(path, content, offset = nil, **opts)
+    IO.write(_coerce_path(path), content, offset, **opts)
+  end
   def self.delete(*paths) = Intrinsics.file_delete_strict(paths)
   def self.unlink(*paths) = Intrinsics.file_delete_strict(paths)
   def self.rename(from, to) = Intrinsics.file_rename(_coerce_path(from), _coerce_path(to))

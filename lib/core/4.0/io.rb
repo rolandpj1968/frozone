@@ -713,6 +713,7 @@ class IO
       mode = opts[:mode]
       enc = opts[:encoding]
       flags = opts[:flags]
+      perm  = opts[:perm]
       open_kwargs = {}
       open_kwargs[:encoding] = enc if enc
       open_kwargs[:flags] = flags if flags
@@ -735,10 +736,12 @@ class IO
           mode = 'w'
         end
       end
-      open(path, mode, **open_kwargs) do |f|
+      n = open(path, mode, **open_kwargs) do |f|
         f.seek(offset) if offset
         f.write(content)
       end
+      File.chmod(perm, path) if perm
+      n
     end
   end
 

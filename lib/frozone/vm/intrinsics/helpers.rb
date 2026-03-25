@@ -177,10 +177,19 @@ module Frozone
           end
 
           # Bare/relative path: search $LOAD_PATH only (NOT CWD)
+          # For native extensions (.so/.bundle/.dylib), also try .rb stub in each dir
+          path_rb_alt = if path_rb =~ /\.(so|bundle|dylib)\z/
+            path_rb.sub(/\.(so|bundle|dylib)\z/, '.rb')
+          end
           load_path = GLOBALS[:"$LOAD_PATH"]
           load_path&.raw&.each do |dir_obj|
             dir = load_path_dir_str(dir_obj)
             next unless dir
+            # Try .rb stub before native extension (allows our stubs to override .so files)
+            if path_rb_alt
+              full_rb = ::File.expand_path(::File.join(dir, path_rb_alt))
+              return full_rb if ::File.exist?(full_rb)
+            end
             full = ::File.expand_path(::File.join(dir, path_rb))
             return full if ::File.exist?(full)
           end

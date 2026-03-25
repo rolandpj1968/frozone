@@ -318,11 +318,33 @@ module Frozone
         end
 
         def kernel_system(context, _receiver, *args)
-          # Build env hash and argv similarly to spawn/exec
-          argv = args.map { |a| fstr?(a) ? a.raw : a.raw.to_s }
-          result = ::Kernel.system(*argv)
-          GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
-          result ? FTRUE : (result.nil? ? FNIL : FFALSE)
+          argv = args.map { |a|
+            if fstr?(a)
+              a.raw
+            elsif a.is_a?(ArrayObject)
+              a.raw.map { |s| fstr?(s) ? s.raw : s.raw.to_s }
+            elsif a.is_a?(HashObject)
+              h = {}
+              a.raw.each { |k, v|
+                hk = k.is_a?(SymbolObject) ? k.raw : k.to_s
+                hv = case v
+                     when FNIL   then nil
+                     when FFALSE then false
+                     when FTRUE  then true
+                     else v.respond_to?(:raw) ? v.raw : v
+                     end
+                h[hk] = hv
+              }
+              h
+            else
+              a.raw.to_s
+            end
+          }
+          reraise(::Errno::ENOENT, ::RuntimeError) do
+            result = ::Kernel.system(*argv)
+            GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
+            result ? FTRUE : (result.nil? ? FNIL : FFALSE)
+          end
         end
 
         def kernel_spawn(_, _receiver, *args)

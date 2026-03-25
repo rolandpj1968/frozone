@@ -8,4 +8,5 @@ module Etc
   def self.nprocessors = 1
   def self.sysconf(name) = nil
   def self.confstr(name) = nil
+  def self.systmpdir = '/tmp'
 end
