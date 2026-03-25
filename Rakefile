@@ -145,6 +145,87 @@ def core_spec_path(name)
   "#{RUBY_SPEC_DIR}/core/#{name}"
 end
 
+# Fast smoke test — high-value modules covering the most-refactored areas.
+# Runs in ~60-90s; use before committing. Skip slow/OS-heavy/threading modules.
+SMOKE_MODULES = %w[
+  integer float numeric
+  string
+  hash
+  enumerable comparable
+  range regexp matchdata
+  exception proc symbol
+].freeze
+
+desc "Fast smoke test — key modules only (~60-90s), use before committing"
+task :smoke do
+  require 'tempfile'
+  require 'etc'
+
+  totals = { examples: 0, passing: 0, failures: 0, errors: 0 }
+  per_module = {}
+
+  n_jobs = [ENV.fetch('JOBS', [Etc.nprocessors, 8].min.to_s).to_i, 1].max
+
+  work = SMOKE_MODULES.filter_map do |name|
+    specs = Dir["#{RUBY_SPEC_DIR}/core/#{name}/**/*_spec.rb"].sort
+    specs -= SKIP_SPEC_FILES
+    next if specs.empty?
+    [name, specs.map { |f| File.expand_path(f) }.join(' ')]
+  end
+
+  mutex = Mutex.new
+  results = {}
+  queue = work.dup
+
+  workers = n_jobs.times.map do
+    Thread.new do
+      loop do
+        item = mutex.synchronize { queue.shift }
+        break unless item
+        name, args = item
+        tmpfile = Tempfile.new(["smoke_#{name}", '.txt'])
+        begin
+          ok = system("timeout 120 bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile.path} 2>/dev/null")
+          output = File.read(tmpfile.path)
+          mutex.synchronize { results[name] = ok ? output : :timeout }
+        ensure
+          tmpfile.close; tmpfile.unlink
+        end
+      end
+    end
+  end
+  workers.each(&:join)
+
+  SMOKE_MODULES.each do |name|
+    result = results[name]
+    if result.nil? || result == :timeout
+      per_module[name] = { examples: 0, passing: 0, failures: 0, errors: 0 }
+      print "#{name}: (no output / timeout)\n"
+      next
+    end
+    if (m = result.match(/(\d+) examples.*?(\d+) failures.*?(\d+) errors/))
+      e, f, err = m[1].to_i, m[2].to_i, m[3].to_i
+      p = e - f - err
+      per_module[name] = { examples: e, passing: p, failures: f, errors: err }
+      totals[:examples] += e; totals[:passing] += p
+      totals[:failures] += f; totals[:errors] += err
+    end
+  end
+
+  puts "\n#{'=' * 60}"
+  puts "Smoke test results (#{PARSER_FLAVOR} parser)"
+  puts "Overall: #{totals[:passing]}/#{totals[:examples]} passing " \
+       "(#{totals[:failures]} failures, #{totals[:errors]} errors)"
+  puts "\n#{'Module'.ljust(20)} #{'Examples'.rjust(8)} #{'Passing'.rjust(8)} #{'Failures'.rjust(8)} #{'Errors'.rjust(8)}"
+  puts '-' * 60
+  SMOKE_MODULES.each do |name|
+    r = per_module[name] || next
+    flag = (r[:failures] + r[:errors]) > 0 ? ' *' : ''
+    puts "#{name.ljust(20)} #{r[:examples].to_s.rjust(8)} #{r[:passing].to_s.rjust(8)} #{r[:failures].to_s.rjust(8)} #{r[:errors].to_s.rjust(8)}#{flag}"
+  end
+  puts '=' * 60
+end
+
 # Run all core specs in parallel (one process per module)
 desc "Run all ruby/spec core specs (RUBY_SPEC_DIR=... PARSER=prism|wq JOBS=N to override)"
 task :core do

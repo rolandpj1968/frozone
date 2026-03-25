@@ -24,3 +24,25 @@ abstract class RubyException < Exception
     message || self.class.name
   end
 end
+
+# Pre-defined Ruby exception hierarchy.
+class Ruby_Exception < RubyException; end
+class Ruby_StandardError < Ruby_Exception; end
+class Ruby_RuntimeError < Ruby_StandardError; end
+class Ruby_ArgumentError < Ruby_StandardError; end
+class Ruby_TypeError < Ruby_StandardError; end
+class Ruby_NameError < Ruby_StandardError; end
+class Ruby_NoMethodError < Ruby_NameError; end
+class Ruby_ZeroDivisionError < Ruby_StandardError; end
+class Ruby_IndexError < Ruby_StandardError; end
+class Ruby_KeyError < Ruby_IndexError; end
+class Ruby_StopIteration < Ruby_IndexError; end
+class Ruby_RangeError < Ruby_StandardError; end
+class Ruby_IOError < Ruby_StandardError; end
+class Ruby_NotImplementedError < Ruby_StandardError; end
+class Ruby_RegexpError < Ruby_StandardError; end
+class Ruby_EncodingError < Ruby_StandardError; end
+class Ruby_LoadError < Ruby_StandardError; end
+class Ruby_SyntaxError < Ruby_StandardError; end
+class Ruby_SystemExit < Ruby_Exception; end
+class Ruby_Interrupt < Ruby_Exception; end

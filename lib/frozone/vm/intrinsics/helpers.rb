@@ -6,6 +6,144 @@ module Frozone
       class << self
         def frozone_class_name(obj) = obj.is_a?(ObjectObject) ? (obj.class_object&.name || "Object") : obj.class.name
 
+        # -----------------------------------------------------------------------
+        # Implicit coercion helpers — mirror MRI's rb_check_convert_type (try)
+        # and rb_convert_type (coerce).
+        #
+        # __try_*   : soft — dispatches the protocol method; returns the raw
+        #             native value on success, nil if the method is absent or
+        #             returns the wrong type.  Never raises.
+        #
+        # __coerce_* : strict — like __try_* but raises TypeError on failure,
+        #              with the standard MRI message
+        #              "no implicit conversion of Foo into Bar".
+        #
+        # All helpers have a fast path for objects already of the right type
+        # (fint?, fstr?, etc.) so the common case costs only a predicate check.
+        # -----------------------------------------------------------------------
+
+        # --- to_int (implicit integer) -----------------------------------------
+
+        def try_to_int(context, v)
+          return v.raw if fint?(v)
+          return nil unless fobj?(v)
+          result = v.dispatch(context, :to_int, [], {})
+          fint?(result) ? result.raw : nil
+        rescue FrozoneException
+          nil
+        end
+
+        def coerce_to_int(context, v)
+          r = try_to_int(context, v)
+          return r unless r.nil?
+          raise FrozoneException.make(:TypeError, "no implicit conversion of #{frozone_class_name(v)} into Integer")
+        end
+
+        # --- to_str (implicit string) ------------------------------------------
+
+        def try_to_str(context, v)
+          return v.raw if fstr?(v)
+          return nil unless fobj?(v)
+          result = v.dispatch(context, :to_str, [], {})
+          fstr?(result) ? result.raw : nil
+        rescue FrozoneException
+          nil
+        end
+
+        def coerce_to_str(context, v)
+          r = try_to_str(context, v)
+          return r unless r.nil?
+          raise FrozoneException.make(:TypeError, "no implicit conversion of #{frozone_class_name(v)} into String")
+        end
+
+        # --- to_ary (implicit array) -------------------------------------------
+
+        def try_to_ary(context, v)
+          return v if farray?(v)
+          return nil unless fobj?(v)
+          result = v.dispatch(context, :to_ary, [], {})
+          farray?(result) ? result : nil
+        rescue FrozoneException
+          nil
+        end
+
+        def coerce_to_ary(context, v)
+          r = try_to_ary(context, v)
+          return r unless r.nil?
+          raise FrozoneException.make(:TypeError, "no implicit conversion of #{frozone_class_name(v)} into Array")
+        end
+
+        # --- to_hash (implicit hash) -------------------------------------------
+
+        def try_to_hash(context, v)
+          return v if fhash?(v)
+          return nil unless fobj?(v)
+          result = v.dispatch(context, :to_hash, [], {})
+          fhash?(result) ? result : nil
+        rescue FrozoneException
+          nil
+        end
+
+        def coerce_to_hash(context, v)
+          r = try_to_hash(context, v)
+          return r unless r.nil?
+          raise FrozoneException.make(:TypeError, "no implicit conversion of #{frozone_class_name(v)} into Hash")
+        end
+
+        # --- to_float (implicit float) -----------------------------------------
+
+        def try_to_float(context, v)
+          return v.raw if ffloat?(v)
+          return v.raw.to_f if fint?(v)
+          return nil unless fobj?(v)
+          result = v.dispatch(context, :to_f, [], {})
+          ffloat?(result) ? result.raw : nil
+        rescue FrozoneException
+          nil
+        end
+
+        def coerce_to_float(context, v)
+          r = try_to_float(context, v)
+          return r unless r.nil?
+          raise FrozoneException.make(:TypeError, "no implicit conversion of #{frozone_class_name(v)} into Float")
+        end
+
+        # --- to_sym (implicit symbol) ------------------------------------------
+        # MRI implicit symbol coercion: Symbol passes through; String calls to_sym;
+        # other objects try to_str then to_sym.  No direct to_sym dispatch in
+        # implicit context.
+
+        def try_to_sym(context, v)
+          return v.raw if fsym?(v)
+          return v.raw.to_sym if fstr?(v)
+          return nil unless fobj?(v)
+          str = try_to_str(context, v)
+          str&.to_sym
+        end
+
+        def coerce_to_sym(context, v)
+          r = try_to_sym(context, v)
+          return r unless r.nil?
+          raise FrozoneException.make(:TypeError, "#{frozone_class_name(v)} is not a symbol nor a string")
+        end
+
+        # --- to_proc (implicit proc) -------------------------------------------
+
+        def try_to_proc(context, v)
+          return v if fproc?(v) || fblock?(v)
+          return nil unless fobj?(v)
+          result = v.dispatch(context, :to_proc, [], {})
+          (fproc?(result) || fblock?(result)) ? result : nil
+        rescue FrozoneException
+          nil
+        end
+
+        def coerce_to_proc(context, v)
+          r = try_to_proc(context, v)
+          return r unless r.nil?
+          raise FrozoneException.make(:TypeError, "no implicit conversion of #{frozone_class_name(v)} into Proc")
+        end
+
         def maybe_warn_deprecated_constant(context, owner, name)
           return unless owner.is_a?(ModuleObject)
           deprecated = owner.instance_variable_get(:@deprecated_constants)
@@ -256,48 +394,13 @@ module Frozone
         def sym_name(name_obj)
           return name_obj.raw if fsym?(name_obj)
           return name_obj.raw.to_sym if fstr?(name_obj)
-          type_name = name_obj.is_a?(ObjectObject) ? (name_obj.class_object&.name || "Object") : name_obj.class.name
-          raise FrozoneException.make(:TypeError, "#{type_name} is not a symbol nor a string")
+          raise FrozoneException.make(:TypeError, "#{frozone_class_name(name_obj)} is not a symbol nor a string")
         end
 
         # Like sym_name but also tries to_str on arbitrary objects (for const_get, module_function, etc.)
-        def sym_name_coercing(context, name_obj)
-          return name_obj.raw if fsym?(name_obj)
-          return name_obj.raw.to_sym if fstr?(name_obj)
-          type_name = name_obj.is_a?(ObjectObject) ? (name_obj.class_object&.name || "Object") : name_obj.class.name
-          # Try to_str
-          has_to_str = begin
-            name_obj.dispatch(context, :respond_to?, [n2f_sym(:to_str)], {}).truthy?
-          rescue FrozoneException
-            false
-          end
-          raise FrozoneException.make(:TypeError, "#{type_name} is not a symbol nor a string") unless has_to_str
-          result = name_obj.dispatch(context, :to_str, [], {})
-          raise FrozoneException.make(:TypeError, "can't convert #{type_name} into String") unless fstr?(result)
-          result.raw.to_sym
-        end
+        def sym_name_coercing(context, name_obj) = coerce_to_sym(context, name_obj)
 
-        def alias_method_coerce_name(context, name_obj)
-          if fsym?(name_obj)
-            name_obj.raw
-          elsif fstr?(name_obj)
-            name_obj.raw.to_sym
-          elsif fobj?(name_obj)
-            # Check respond_to?(:to_str) — if not defined, raise TypeError
-            has_to_str = begin
-              name_obj.dispatch(context, :respond_to?, [n2f_sym(:to_str)], {}).truthy?
-            rescue FrozoneException
-              false
-            end
-            raise FrozoneException.make(:TypeError, "#{name_obj.class_object&.name} is not a symbol nor a string") unless has_to_str
-            # Call to_str; if it raises, propagate the exception as-is
-            result = name_obj.dispatch(context, :to_str, [], {})
-            raise FrozoneException.make(:TypeError, "can't convert #{name_obj.class_object&.name} into String") unless fstr?(result)
-            result.raw.to_sym
-          else
-            raise FrozoneException.make(:TypeError, "#{name_obj.class} is not a symbol nor a string")
-          end
-        end
+        def alias_method_coerce_name(context, name_obj) = coerce_to_sym(context, name_obj)
 
         # Collect all refinements from mod and its ancestors (depth-first, included modules).
         # Returns a hash mapping klass.object_id => refinement_module.

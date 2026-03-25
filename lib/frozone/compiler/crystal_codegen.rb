@@ -168,6 +168,7 @@ module Frozone
         when Ast::HashLiteral           then emit_hash_literal(node)
         when Ast::InterpolatedString    then emit_interpolated_string(node)
         when Ast::Rescue                then emit_rescue(node)
+        when Ast::Retry                 then write "retry"
         when Ast::Super                 then emit_super(node)
         when Ast::Case                  then emit_case(node)
         when Ast::Next                  then emit_next(node)

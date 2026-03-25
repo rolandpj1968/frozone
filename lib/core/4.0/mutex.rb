@@ -23,6 +23,12 @@ class Mutex
     if seen < skip_n
       current.__mutex_seen_count = seen + 1
       current.__mutex_done_count = current.__mutex_done_count + 1
+      # Re-establish ownership on replay: the mutex may have been unlocked before blocking
+      # (e.g. Mutex#sleep releases it before Thread.stop), so we must claim it again.
+      @locked      = true
+      @owner       = current
+      @owner_fiber = Fiber.current
+      current.__add_owned_mutex(self)
       return self
     end
     if @locked
@@ -91,11 +97,15 @@ class Mutex
       end
     else
       unlock
+      blocked = false
       begin
         Thread.stop
         0
+      rescue Thread::Blocked
+        blocked = true
+        raise
       ensure
-        lock
+        lock unless blocked
       end
     end
   end

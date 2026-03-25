@@ -134,6 +134,16 @@ class Thread
   # Does NOT set @@last_blocked_as_yield — so status stays 'sleep' (not 'run').
   def self.stop
     current = Thread.current
+    # If a raise has been queued for this thread, inject it now (mirrors Thread.pass behaviour)
+    exc = current.__raise_exception
+    if exc
+      cause = current.__raise_cause
+      raise_bt = current.__raise_backtrace
+      current.__raise_exception = nil
+      current.__raise_cause = nil
+      current.__raise_backtrace = nil
+      raise exc, nil, raise_bt
+    end
     seen = (current.__stop_seen || 0)
     if seen < (current.__wakeup_count || 0)
       current.__stop_seen = seen + 1

@@ -20,14 +20,14 @@ class Float
   def to_int = Intrinsics.float_to_i(self)
   def to_f = self
   def to_r = Intrinsics.float_to_r(self)
-  def abs = Intrinsics.float_abs(self)
-  def magnitude = Intrinsics.float_abs(self)
-  def nan? = Intrinsics.float_nan?(self)
+  def abs = zero? ? 0.0 : self < 0.0 ? -self : self
+  def magnitude = abs
+  def nan? = self != self
   def infinite? = Intrinsics.float_infinite?(self)
-  def finite? = Intrinsics.float_finite?(self)
-  def zero? = Intrinsics.float_zero?(self)
-  def positive? = Intrinsics.float_positive?(self)
-  def negative? = Intrinsics.float_negative?(self)
+  def finite? = !nan? && self != Float::INFINITY && self != -Float::INFINITY
+  def zero? = self == 0.0
+  def positive? = self > 0.0
+  def negative? = self < 0.0
   def integer? = false
   def nonzero? = zero? ? nil : self
   def -@ = 0.0 - self
@@ -70,7 +70,7 @@ class Float
     if other.is_a?(Float) || other.is_a?(Integer)
       # Negative base with fractional exponent returns Complex
       if self < 0 && other.is_a?(Float) && other != other.floor
-        r = Intrinsics.float_abs(self) ** other
+        r = abs ** other
         theta = Math::PI * other
         return Complex(r * Math.cos(theta), r * Math.sin(theta))
       end
