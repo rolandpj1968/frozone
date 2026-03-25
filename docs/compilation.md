@@ -1,4 +1,128 @@
-# Notes on Frozone Crystal Compilation Target
+# Frozone Crystal Compilation Target
+
+## Overview — what we are building and why
+
+Frozone is currently a tree-walking interpreter: it parses Ruby source with
+Prism (or the WqParser) and evaluates AST nodes directly. This works well for
+correctness and development speed, but every operation pays interpreter
+overhead — method dispatch through a Ruby hash table, boxed VM objects for
+every value, frame allocation for every call.
+
+The goal of the compilation target is to produce **native binaries from Ruby
+source code** using Crystal as a backend. The compiled program runs at native
+speed with no interpreter in the loop.
+
+The approach taken here is **closed-world ahead-of-time (AOT) compilation**
+targeting Crystal as an intermediate language. This is deliberately different
+from the two other common approaches (JIT and general AOT), and those
+differences are worth understanding upfront.
+
+---
+
+### Closed-world AOT vs JIT
+
+A **JIT compiler** (like YJIT in MRI, or TruffleRuby's Graal backend) compiles
+Ruby at runtime, inside a running interpreter. It observes actual types at
+runtime (type profiling), generates native code for hot paths, and falls back
+to the interpreter for cold or polymorphic paths. The full Ruby object model
+remains available at runtime — `eval`, `define_method`, `class_eval`, dynamic
+`const_set` all work exactly as in the interpreter. JIT is maximally compatible
+but requires a complete interpreter as a foundation, is complex to implement
+correctly, and the generated code must handle deoptimisation (falling back to
+the interpreter when type assumptions are violated).
+
+A **closed-world AOT compiler** takes a fixed snapshot of the entire program
+at compile time and compiles everything in one shot. There is no interpreter
+fallback, no runtime deoptimisation, no type profiling. What you gain is:
+
+- **Simpler implementation** — no runtime type profiling, no deoptimisation
+  machinery, no interpreter to maintain in parallel
+- **Better peak performance** — the compiler can make global optimisations
+  that a JIT cannot (Crystal's own type inference does this for us for free)
+- **Smaller runtime** — no interpreter overhead in the binary
+- **Predictable performance** — no JIT warm-up, no GC pauses from code
+  compilation, no tier transitions
+
+What you give up:
+
+- **Dynamic features** — `eval` with runtime strings, fully dynamic
+  `define_method`, `class_eval` with strings, `method_missing` as a catch-all
+  for truly unknown methods (see below for how each is handled)
+- **Incremental loading** — you cannot `require` a file at runtime that wasn't
+  part of the closed world at compile time
+- **Compatibility** — some Ruby programs genuinely require dynamic features
+  and simply cannot be compiled; others use dynamic features in ways that are
+  statically analysable (the common case)
+
+---
+
+### The closed-world assumption
+
+The **closed-world assumption** is the central constraint: at compile time, the
+compiler sees the complete set of classes, modules, methods, and constants that
+will ever exist. Nothing new is defined at runtime.
+
+In practice this means:
+- All `require` calls are resolved at compile time; every loaded file is part
+  of the closed world
+- Class/module definitions are final — `class Foo` opens Foo exactly the set
+  of times visible in the source
+- Method definitions are final — no `define_method` with a runtime-computed
+  name, no `method_missing` as an open-ended proxy (it can appear in the
+  source but must be handled specially)
+- Constants are effectively immutable after the program starts
+
+This rules out some Ruby idioms (metaprogramming-heavy DSLs, plugin systems
+that load code at runtime) but covers the overwhelming majority of real Ruby
+programs, including Frozone itself.
+
+---
+
+### Why Crystal as the intermediate language
+
+Rather than generating bytecode or machine code directly, Frozone compiles
+Ruby to Crystal source. Crystal then takes it from there. This is sometimes
+called **transpilation** or using Crystal as a *pretty-printer backend*.
+
+The key insight is that Crystal *is* Ruby with a static type system bolted on.
+Its syntax is almost identical; its semantics (classes, modules, inheritance,
+blocks, closures, exceptions) map directly to Ruby's. A Ruby `class Foo < Bar`
+becomes a Crystal `class Foo < Bar`. A Ruby `def foo(x); x + 1; end` becomes
+a Crystal `def foo(x); x + 1; end`. The structural transformation is trivial.
+
+The **hard parts of compilation** — type inference, optimisation, register
+allocation, native code generation, garbage collection — are all handled by
+`crystal build`. We get a world-class optimising compiler for free.
+
+The **new work** is the semantic layer: closed-world analysis, the proxy class
+hierarchy (`RubyObject` and friends), ivar scanning, `respond_to?` bitsets,
+constant resolution. This work is required regardless of backend and is not
+wasted if a different backend (LLVM IR, bytecode VM) is added later.
+
+---
+
+### Limitations and non-goals
+
+| Feature | Status |
+|---------|--------|
+| `eval(string)` | Prohibited or handled via static-interpolate analysis |
+| `require` at runtime | Not supported; all files compiled together |
+| `define_method` with runtime name | Not supported |
+| `class_eval` / `module_eval` with string | Not supported |
+| `method_missing` as open-ended proxy | Requires generated `case` dispatch |
+| `send` with dynamic string | Requires generated `case` dispatch |
+| `const_get` with dynamic string | Requires generated `case` dispatch |
+| Threads | Crystal fibers; cooperative model preserved |
+| Bignum arithmetic | `RubyInteger` wraps Crystal's `BigInt` |
+| Encoding | Crystal's PCRE2 regex (vs Oniguruma); common subset identical |
+| `ObjectSpace` | Not available (no interpreter object graph) |
+| Continuations / `callcc` | Not supported |
+
+The first compilation target is **Frozone itself** — if the Frozone interpreter
+compiles cleanly under these constraints, we have high confidence the approach
+is sound for real-world programs.
+
+---
 
 ## Crystal as a backend — why it fits
 
