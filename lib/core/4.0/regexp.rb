@@ -5,7 +5,10 @@ class Regexp
   FIXEDENCODING = 16
   NOENCODING   = 32
 
-  def ==(v) = v.is_a?(Regexp) && source == v.source && options == v.options
+  # NOENCODING (32) is excluded from equality per MRI (// == //n),
+  # but FIXEDENCODING (16) is kept (/u != /n).
+  OPTIONS_NO_NOENC = ~NOENCODING  # masks out 32, keeps all else
+  def ==(v) = v.is_a?(Regexp) && source == v.source && (options & OPTIONS_NO_NOENC) == (v.options & OPTIONS_NO_NOENC)
   alias eql? ==
   def source = Intrinsics.regexp_source(self)
   def options = Intrinsics.regexp_options(self)
@@ -19,7 +22,7 @@ class Regexp
   def match?(str, pos = 0) = Intrinsics.regexp_match_bool(self, str, pos)
   def =~(str) = Intrinsics.regexp_match_index(self, str)
   def ~() = Intrinsics.regexp_tilde(self)
-  def hash = [source, options].hash
+  def hash = [source, options & OPTIONS_NO_NOENC].hash
   def linear_time? = Intrinsics.regexp_linear_time_q(self)
   def dup = Regexp.new(source, options)
   def self.escape(str) = Intrinsics.regexp_escape(str)

@@ -153,6 +153,8 @@ module Frozone
         def float__pow_(_, v1, v2) = n2f_float(v1.raw**v2.raw)
         def float_infinity(_) = n2f_float(::Float::INFINITY)
         def float_nan(_) = n2f_float(::Float::NAN)
+        def float_divmod(_, v1, v2) = (q, r = v1.raw.divmod(v2.raw); n2f_arr([n2f_int(q), n2f_float(r)]))
+        def float_remainder(_, v1, v2) = n2f_float(v1.raw.remainder(v2.raw))
         def float_next_float(_, v) = n2f_float(v.raw.next_float)
         def float_prev_float(_, v) = n2f_float(v.raw.prev_float)
 

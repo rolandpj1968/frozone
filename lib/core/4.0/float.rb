@@ -112,9 +112,9 @@ class Float
     end
   end
   # <=> with infinite? protocol and TypeError for bad coerce return
-  def divmod(v) = [(self / v).floor, self % v]
+  def divmod(v) = Intrinsics.float_divmod(self, v)
   def div(v) = (self / v).floor
-  def remainder(n) = self - n * (self / n).truncate
+  def remainder(n) = Intrinsics.float_remainder(self, n)
   def rationalize(eps = nil) = Intrinsics.float_rationalize(self, eps)
   def between?(min, max) = min <= self && self <= max
   def next_float = Intrinsics.float_next_float(self)
