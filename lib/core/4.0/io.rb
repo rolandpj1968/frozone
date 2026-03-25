@@ -460,8 +460,12 @@ class IO
   end
 
   def self.try_convert(obj)
-    return obj if obj.is_a?(IO)
-    return nil unless obj.respond_to?(:to_io)
+    begin
+      return obj if obj.is_a?(IO)
+      return nil unless obj.respond_to?(:to_io)
+    rescue NoMethodError
+      return nil
+    end
     result = obj.to_io
     raise TypeError, "can't convert #{obj.class} to IO (#{obj.class}#to_io gives #{result.class})" unless result.is_a?(IO)
     result
@@ -825,12 +829,17 @@ class IO
     name.nil? ? nil : Encoding.find(name)
   end
 
-  def set_encoding(ext_enc, int_enc = nil)
+  def set_encoding(ext_enc, int_enc = nil, **opts)
     unless ext_enc.nil? || ext_enc.is_a?(Encoding) || ext_enc.is_a?(String)
       ext_enc = ext_enc.to_str
     end
-    unless int_enc.nil? || int_enc.is_a?(Encoding) || int_enc.is_a?(String)
+    unless int_enc.nil? || int_enc.is_a?(Encoding) || int_enc.is_a?(String) || int_enc.is_a?(Hash)
       int_enc = int_enc.to_str
+    end
+    # If int_enc is a Hash, it's actually options
+    if int_enc.is_a?(Hash)
+      opts = int_enc
+      int_enc = nil
     end
     Intrinsics.io_set_encoding(self, ext_enc, int_enc)
     Intrinsics.io_mark_explicit_encoding(self)
