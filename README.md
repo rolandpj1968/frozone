@@ -227,8 +227,9 @@ Many modules report 0 examples because they require C extensions or unavailable 
 
 | Category | Modules |
 |---|---|
-| **C extensions** (`.so` not loadable) | bigdecimal, coverage, erb (via cgi/escape.so), fiddle, ipaddr, irb, monitor, net-http, openssl, resolv, ripper, socket, stringscanner (strscan), syslog, tempfile, tmpdir, yaml (psych), zlib |
-| **Pure-Ruby stdlib gems** (not yet bundled) | abbrev, base64, csv, getoptlong, logger, matrix, net-ftp, observer, openstruct, prime |
+| **C extensions** (`.so` not loadable) | bigdecimal, coverage, erb (via cgi/escape.so), fiddle, ipaddr, irb, net-http, openssl, resolv, ripper, socket, syslog, tempfile, tmpdir, yaml (psych+psych-pure need psych C infrastructure), zlib |
+| **Pure-Ruby stdlib gems** (bundled, work in Frozone) | abbrev, base64, csv, getoptlong, logger, matrix, observer, prime |
+| **Pure-Ruby stdlib gems** (not yet bundled) | net-ftp, openstruct |
 | **Platform/version guards** | cgi (`ruby_version_is < 4.0`), readline (`with_feature :readline`), win32ole (Windows only) |
 
 Modules with 100% pass rate:
@@ -237,7 +238,7 @@ Modules with 100% pass rate:
 | Module | Examples | Passing | Failures | Errors | Notes |
 |---|---:|---:|---:|---:|---|
 | English | 26 | 25 | 1 | 0 | |
-| date | 6 | 0 | 0 | 6 | date gem not available |
+| date | 6 | 0 | 0 | 6 | date_core C extension stubbed minimally; full spec coverage pending |
 | delegate | 39 | 24 | 3 | 12 | some specs hang (mspec mock interaction) |
 | etc | 39 | 2 | 6 | 31 | C extension |
 | io-wait | 28 | 3 | 5 | 20 | IO wait/nonblock not implemented |
