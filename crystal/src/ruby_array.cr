@@ -259,3 +259,11 @@ class RubyArray < RubyObject
     h
   end
 end
+
+# Multiple-assignment coercion: wrap a non-Array RHS in a single-element array.
+def masgn_coerce(rhs : RubyObject) : RubyArray
+  case rhs
+  when RubyArray then rhs
+  else RubyArray.new([rhs] of RubyObject)
+  end
+end

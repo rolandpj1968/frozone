@@ -23,6 +23,7 @@ module Frozone
         @user_methods       = Set.new    # names of user-defined methods (for RubyObject stubs)
         @exception_classes  = Set.new    # Ruby class names that inherit from exception bases
         @in_exception_class = false      # true while emitting inside an exception class body
+        @temp_counter       = 0          # unique suffix for generated temp variable names
       end
 
       # Generate a complete Crystal source file from the top-level AST node.
@@ -149,6 +150,10 @@ module Frozone
         when Ast::Rescue                then emit_rescue(node)
         when Ast::Super                 then emit_super(node)
         when Ast::Case                  then emit_case(node)
+        when Ast::Next                  then emit_next(node)
+        when Ast::Break                 then emit_break(node)
+        when Ast::RangeLiteral          then emit_range_literal(node)
+        when Ast::MultipleAssignment    then emit_multiple_assignment(node)
         when Ast::Block                 then unsupported!(node, "bare Block outside method call")
         else
           unsupported!(node)
@@ -280,6 +285,7 @@ module Frozone
           when :raise       then return emit_raise(node)
           when :require     then return emit_require_call(node)
           when :block_given? then return write("block_given?")
+          when :loop        then return emit_loop(node)
           end
         end
 
@@ -579,6 +585,39 @@ module Frozone
         end
       end
 
+      def emit_next(node)
+        val = ivar(node, :value_node)
+        if val.nil? || val.is_a?(Ast::NilLiteral)
+          write "next"
+        else
+          write "next ("
+          emit(val)
+          write ")"
+        end
+      end
+
+      def emit_break(node)
+        val = ivar(node, :value_node)
+        if val.nil? || val.is_a?(Ast::NilLiteral)
+          write "break"
+        else
+          write "break ("
+          emit(val)
+          write ")"
+        end
+      end
+
+      def emit_loop(node)
+        write "loop do"
+        if node.block_node
+          emit_newline
+          indented { emit(ivar(node.block_node, :body)) }
+          emit_newline
+          emit_indent
+        end
+        write "end"
+      end
+
       def emit_yield(node)
         args = ivar(node, :arg_nodes)
         if args.empty?
@@ -795,6 +834,75 @@ module Frozone
             write "); "
           end
           write "}"
+        end
+      end
+
+      def emit_range_literal(node)
+        b = ivar(node, :begin_node)
+        e = ivar(node, :end_node)
+        excl = ivar(node, :exclusive)
+        write "RubyRange.new("
+        b ? emit(b) : write("RUBY_NIL")
+        write ", "
+        e ? emit(e) : write("RUBY_NIL")
+        write ", #{excl})"
+      end
+
+      def emit_multiple_assignment(node)
+        targets = ivar(node, :targets)
+        rhs     = ivar(node, :value_node)
+
+        tmp = "_ma#{@temp_counter}"
+        @temp_counter += 1
+
+        write "#{tmp} = masgn_coerce("
+        emit(rhs)
+        write ")"
+
+        splat_idx = targets.index { |t| t[0].to_s.end_with?('_splat') || t[0] == :splat_nil }
+
+        if splat_idx
+          pre  = targets[0...splat_idx]
+          post = targets[(splat_idx + 1)..]
+
+          pre.each_with_index do |t, i|
+            emit_newline; emit_indent
+            emit_masgn_assign(t, "#{tmp}[#{i}_i64]")
+          end
+
+          splat_t = targets[splat_idx]
+          unless splat_t[0] == :splat_nil
+            emit_newline; emit_indent
+            pc = post.length
+            splat_code = "RubyArray.new(#{tmp}.data[#{pre.length}...(#{tmp}.data.size - #{pc})])"
+            emit_masgn_assign(splat_t, splat_code)
+          end
+
+          post.each_with_index do |t, i|
+            emit_newline; emit_indent
+            neg = post.length - i
+            emit_masgn_assign(t, "#{tmp}[(-#{neg})_i64]")
+          end
+        else
+          targets.each_with_index do |t, i|
+            emit_newline; emit_indent
+            emit_masgn_assign(t, "#{tmp}[#{i}_i64]")
+          end
+        end
+      end
+
+      def emit_masgn_assign(target, value_code)
+        case target[0]
+        when :local, :local_splat
+          write "#{crystal_local(target[1])} = #{value_code}"
+        when :ivar, :ivar_splat
+          write "#{target[1]} = #{value_code}"
+        when :const, :const_splat
+          write "Ruby_#{crystal_constant(target[1])} = #{value_code}"
+        when :splat_nil
+          # discard — already skipped in caller, but guard here too
+        else
+          write "# UNSUPPORTED masgn target: #{target[0]}"
         end
       end
 
