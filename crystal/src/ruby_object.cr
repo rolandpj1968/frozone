@@ -50,6 +50,9 @@ abstract class RubyObject
   # -------------------------------------------------------------------------
   def ruby_nil?  : Bool; false; end
   def ruby_bool? : Bool; false; end
+  # ruby_nil? checks for Ruby nil (RubyNil), not Crystal nil.
+  # (Crystal's nil? is a pseudo-method; we use ruby_nil? instead)
+  # def nil? - NOT redefined here; see RubyNil#ruby_nil?
 
   # -------------------------------------------------------------------------
   # Arithmetic / comparison operator stubs — raise TypeError at runtime.

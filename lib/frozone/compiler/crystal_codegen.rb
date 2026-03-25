@@ -409,6 +409,12 @@ module Frozone
         end
       end
 
+      # Methods that return Crystal Bool directly (not RubyObject).
+      # Use the Crystal name (after RUBY_TO_CRYSTAL_METHOD mapping).
+      BOOL_METHODS = %i[ruby_nil? empty? frozen? zero? positive? negative?
+                        truthy? ruby_bool?
+                        is_a? kind_of? instance_of? equal?].to_set
+
       # Heuristic: is this node likely to return a Crystal Bool directly?
       def boolean_valued?(node)
         case node
@@ -416,7 +422,10 @@ module Frozone
         when Ast::And, Ast::Or                   then true
         when Ast::MethodCall
           # Operator calls emitted as Crystal operators return Bool
-          operator?(node.name) && BINARY_OPS.include?(node.name)
+          return true if operator?(node.name) && BINARY_OPS.include?(node.name)
+          # Known predicate methods that return Crystal Bool (check translated name)
+          crystal_name = RUBY_TO_CRYSTAL_METHOD.fetch(node.name, node.name)
+          BOOL_METHODS.include?(crystal_name)
         else false
         end
       end
@@ -585,7 +594,14 @@ module Frozone
         then true type typeof union unless until verbatim when while with yield
       ].to_set
 
+      # Ruby method names that map to different Crystal method names
+      # (pseudo-methods that can't be overridden, or conflicting names)
+      RUBY_TO_CRYSTAL_METHOD = {
+        nil?: :ruby_nil?,
+      }.freeze
+
       def crystal_method_name(sym)
+        return RUBY_TO_CRYSTAL_METHOD[sym].to_s if RUBY_TO_CRYSTAL_METHOD.key?(sym)
         s = sym.to_s
         CRYSTAL_KEYWORDS.include?(s) ? "ruby_#{s}" : s
       end

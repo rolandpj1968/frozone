@@ -57,6 +57,7 @@ class RubyNil < RubyObject
     true
   end
 
+
   def not : RubyBool
     RubyBool::TRUE
   end
