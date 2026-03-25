@@ -148,6 +148,7 @@ module Frozone
         when Ast::InterpolatedString    then emit_interpolated_string(node)
         when Ast::Rescue                then emit_rescue(node)
         when Ast::Super                 then emit_super(node)
+        when Ast::Case                  then emit_case(node)
         when Ast::Block                 then unsupported!(node, "bare Block outside method call")
         else
           unsupported!(node)
@@ -192,7 +193,8 @@ module Frozone
       end
 
       def emit_float_literal(node)
-        val = ivar(node, :value).raw
+        raw = ivar(node, :value)
+        val = raw.respond_to?(:raw) ? raw.raw : raw
         write "RubyFloat.new(#{val}_f64)"
       end
 
@@ -638,6 +640,132 @@ module Frozone
           crystal_name = RUBY_TO_CRYSTAL_METHOD.fetch(node.name, node.name)
           BOOL_METHODS.include?(crystal_name)
         else false
+        end
+      end
+
+      # -----------------------------------------------------------------------
+      # Case / when
+      # -----------------------------------------------------------------------
+
+      # Map Ruby core class names to Crystal type names for case/when type checks.
+      RUBY_TO_CRYSTAL_TYPE = {
+        Integer:  'RubyInteger',
+        Float:    'RubyFloat',
+        String:   'RubyString',
+        Symbol:   'RubySymbol',
+        Array:    'RubyArray',
+        Hash:     'RubyHash',
+        NilClass: 'RubyNil',
+        Numeric:  'RubyObject',
+      }.freeze
+
+      # Returns true if a `when` condition node is a type-check (ConstantRead or nil).
+      def type_check_cond?(cond)
+        cond.is_a?(Ast::NilLiteral) || cond.is_a?(Ast::ConstantRead)
+      end
+
+      def emit_case(node)
+        subject = ivar(node, :subject_node)
+        whens   = ivar(node, :whens)
+        else_n  = ivar(node, :else_node)
+
+        no_subject = subject.nil? || subject.is_a?(Ast::NilLiteral)
+
+        # When subject is a simple local variable AND all when conditions are type
+        # checks, use Crystal's native case/when so that Crystal narrows the
+        # variable type inside each branch (allows calling Array#size etc).
+        is_local   = !no_subject && subject.is_a?(Ast::LocalVariableRead)
+        all_type   = !no_subject && whens.all? { |w| w.condition_nodes.all? { |c| type_check_cond?(c) } }
+
+        if is_local && all_type
+          emit_case_native(crystal_local(ivar(subject, :name)), whens, else_n)
+          return
+        end
+
+        # General case: capture subject in temp var (avoids double-evaluation)
+        # and emit an if/elsif chain with explicit matches.
+        subj_var = nil
+        unless no_subject
+          subj_var = "_case_subj"
+          write "_case_subj = "
+          emit(subject)
+          emit_newline
+          emit_indent
+        end
+
+        emit_case_if_chain(subj_var, whens, else_n)
+      end
+
+      # Crystal native case/when — uses Crystal type narrowing.
+      # Only valid when subject is a known local variable name.
+      def emit_case_native(subj_name, whens, else_n)
+        write "case #{subj_name}"
+        emit_newline
+        whens.each do |w|
+          emit_indent
+          write "when "
+          w.condition_nodes.each_with_index do |cond, j|
+            write ", " if j > 0
+            if cond.is_a?(Ast::NilLiteral)
+              write "RubyNil"
+            elsif cond.is_a?(Ast::ConstantRead)
+              name = ivar(cond, :name)
+              write RUBY_TO_CRYSTAL_TYPE[name] || "Ruby_#{crystal_constant(name)}"
+            end
+          end
+          emit_newline
+          indented { emit(w.body_node) }
+          emit_newline
+        end
+        if else_n
+          emit_indent; write "else"; emit_newline
+          indented { emit(else_n) }
+          emit_newline
+        end
+        emit_indent
+        write "end"
+      end
+
+      # If/elsif chain — used when Crystal type narrowing is not possible.
+      def emit_case_if_chain(subj_var, whens, else_n)
+        whens.each_with_index do |w, idx|
+          write idx == 0 ? "if " : "elsif "
+          w.condition_nodes.each_with_index do |cond, j|
+            write " || " if j > 0
+            subj_var ? emit_case_match(cond, subj_var) : emit_truthy(cond)
+          end
+          emit_newline
+          indented { emit(w.body_node) }
+          emit_newline
+          emit_indent
+        end
+        if else_n
+          write "else"; emit_newline
+          indented { emit(else_n) }
+          emit_newline
+          emit_indent
+        end
+        write "end"
+      end
+
+      # Emit a single `when` condition match against subj_var.
+      def emit_case_match(cond_node, subj_var)
+        case cond_node
+        when Ast::NilLiteral
+          write "#{subj_var}.ruby_nil?"
+        when Ast::TrueLiteral
+          write "#{subj_var}.truthy? && !#{subj_var}.ruby_nil?"
+        when Ast::FalseLiteral
+          write "!#{subj_var}.truthy?"
+        when Ast::ConstantRead
+          type_name = ivar(cond_node, :name)
+          crystal_type = RUBY_TO_CRYSTAL_TYPE[type_name] || "Ruby_#{crystal_constant(type_name)}"
+          write "#{subj_var}.is_a?(#{crystal_type})"
+        else
+          # Value equality: emit (cond_val) == subj_var
+          write "("
+          emit(cond_node)
+          write ") == #{subj_var}"
         end
       end
 

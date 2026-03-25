@@ -78,9 +78,9 @@ class Mutex
   end
 
   def sleep(timeout = nil)
+    raise ArgumentError, "time interval must be positive" if timeout && timeout < 0
     raise ThreadError, "can't sleep with unlocked mutex" unless owned?
     if timeout
-      raise ArgumentError, "time interval must be positive" if timeout < 0
       unlock
       begin
         start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
