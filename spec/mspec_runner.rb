@@ -1,15 +1,10 @@
 require 'mspec'
 require 'mspec/runner/formatters/dotted'
-require 'timeout'
 
 # Define SkipExampleError for mspec 1.9.1 which lacks skip support
 module MSpec
   class SkipExampleError < StandardError; end
 end
-
-# Per-example timeout: kill any single example that hangs for more than N seconds.
-# This prevents infinite loops in cooperative-threading specs from hanging the runner.
-MSPEC_EXAMPLE_TIMEOUT = 15
 
 module MSpec
   class << self
@@ -19,11 +14,14 @@ module MSpec
       # Only apply timeout to example blocks (location is nil for those).
       if location.nil?
         begin
-          Timeout.timeout(MSPEC_EXAMPLE_TIMEOUT) { @env.instance_eval(&block) }
-        rescue Timeout::Error
-          exc = Timeout::Error.new("example timed out after #{MSPEC_EXAMPLE_TIMEOUT}s")
-          actions :exception, ExceptionState.new(current && current.state, "timeout", exc)
-          false
+          # Run the example block directly inside Frozone's cooperative scheduler.
+          # NOTE: We do NOT use Timeout.timeout here because timeout.rb creates Frozone
+          # threads (Queue/Mutex/ConditionVariable) that interfere with the cooperative
+          # scheduler — the watcher thread monopolises Thread.pass and after 15s fires,
+          # accidentally releasing mutexes owned by the main thread (e.g. m2 in mutex
+          # synchronize tests). The rescue Thread::Blocked below already handles examples
+          # that block indefinitely via the cooperative scheduler.
+          @env.instance_eval(&block)
         rescue Thread::Blocked
           # Thread::Blocked is Frozone's cooperative-threading signal; in Frozone-land
           # `rescue Exception` does NOT catch it, so we must name it explicitly.
@@ -304,6 +302,17 @@ class Object
     ensure
       g.unregister
     end
+  end
+
+  # version_is — guard block by arbitrary version comparison (e.g. StringIO::VERSION)
+  def version_is(actual_version, expected_version, &block)
+    a = actual_version.to_s.split('.').map(&:to_i)
+    e = expected_version.to_s.split('.').map(&:to_i)
+    max_len = [a.length, e.length].max
+    a += [0] * (max_len - a.length)
+    e += [0] * (max_len - e.length)
+    passes = (a <=> e) >= 0
+    yield if passes && block_given?
   end
 
   # be_true_or_false — custom matcher for specs that check a value is boolean.
