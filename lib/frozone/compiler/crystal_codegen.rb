@@ -319,6 +319,15 @@ module Frozone
           when :attr_reader   then return emit_attr_methods(node, reader: true, writer: false)
           when :attr_writer   then return emit_attr_methods(node, reader: false, writer: true)
           when :include, :extend, :prepend
+            mods = node.arg_nodes.map do |a|
+              if a.is_a?(Ast::ConstantRead)
+                mod_name = ivar(a, :name).to_s
+                RUBY_TO_CRYSTAL_TYPE[ivar(a, :name)] || "Ruby_#{mod_name}"
+              else
+                nil
+              end
+            end.compact
+            return mods.each { |m| write("include #{m}") } if name == :include && !mods.empty?
             return write("# #{name} #{node.arg_nodes.map { |a| a.is_a?(Ast::ConstantRead) ? ivar(a, :name) : '?' }.join(', ')}")
           end
         end
@@ -360,6 +369,18 @@ module Frozone
           write "["
           emit(node.arg_nodes[0])
           write "]"
+          return
+        end
+
+        # is_a?/kind_of? with a constant → Crystal native is_a?(Type) check → RubyBool
+        if (name == :is_a? || name == :kind_of?) && node.receiver_node &&
+           node.arg_nodes.size == 1 && node.arg_nodes[0].is_a?(Ast::ConstantRead)
+          const_name = ivar(node.arg_nodes[0], :name).to_s
+          crystal_type = RUBY_TO_CRYSTAL_TYPE[ivar(node.arg_nodes[0], :name)] ||
+                         (BUILTIN_SUPERCLASSES.include?(const_name) ? "Ruby#{const_name}" : "Ruby_#{const_name}")
+          write "("
+          emit(node.receiver_node)
+          write ".is_a?(#{crystal_type}) ? RUBY_TRUE : RUBY_FALSE)"
           return
         end
 
@@ -627,7 +648,11 @@ module Frozone
 
         if node.block_node
           write " "
-          emit_block(node.block_node)
+          if node.block_node.is_a?(Ast::BlockArg)
+            emit_block_arg(node.block_node)
+          else
+            emit_block(node.block_node)
+          end
         end
       end
 
@@ -636,7 +661,7 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def emit_block(node)
-        params = ivar(node, :required_params) + ivar(node, :optional_params).map(&:first)
+        params = (ivar(node, :required_params) || []) + (ivar(node, :optional_params) || []).map(&:first)
         params += [ivar(node, :rest_param)].compact
         write "{ "
         unless params.empty?
@@ -644,6 +669,20 @@ module Frozone
         end
         emit(ivar(node, :body))
         write " }"
+      end
+
+      # &:method — emit as a single-arg block that calls the method
+      def emit_block_arg(block_arg_node)
+        value_node = ivar(block_arg_node, :value_node)
+        if value_node.is_a?(Ast::SymbolLiteral)
+          method_name = crystal_method_name(ivar(value_node, :value).raw)
+          # Wrap with .as(RubyObject) to avoid Crystal type-union issues when
+          # the same method name exists on multiple types with different return types
+          write "{ |_sym2proc| _sym2proc.#{method_name}.as(RubyObject) }"
+        else
+          # Generic block-pass: convert to a Proc and call it
+          write "{ |_blkarg| ("; emit(value_node); write ").as(RubyProc).call(_blkarg) }"
+        end
       end
 
       # -----------------------------------------------------------------------
@@ -1462,7 +1501,7 @@ module Frozone
         name = node.class.name.split('::').last
         message = msg ? "#{name}: #{msg}" : name
         @errors << message
-        write "# UNSUPPORTED: #{message}"
+        write "RUBY_NIL # UNSUPPORTED: #{message}"
       end
     end
   end

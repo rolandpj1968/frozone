@@ -105,4 +105,49 @@ abstract class RubyObject
     # default: any truthy object negated is false
     truthy? ? RubyBool::FALSE : RubyBool::TRUE
   end
+
+  # -------------------------------------------------------------------------
+  # ruby_class / ruby_is_a? / respond_to?
+  # -------------------------------------------------------------------------
+
+  # Returns a proxy for the Ruby class of this object.
+  def ruby_class : RubyClassProxy
+    # Derive Ruby name: "Ruby_Dog" → "Dog", "RubyInteger" → "Integer"
+    cr_name = self.class.name
+    ruby_name = cr_name.starts_with?("Ruby_") ? cr_name[5..] : cr_name.sub(/^Ruby/, "")
+    RubyClassProxy.new(ruby_name)
+  end
+
+  # Shortcut: obj.class.name as RubyString
+  def ruby_class_name : RubyString
+    cr_name = self.class.name
+    ruby_name = cr_name.starts_with?("Ruby_") ? cr_name[5..] : cr_name.sub(/^Ruby/, "")
+    RubyString.new(ruby_name)
+  end
+
+  # is_a? dispatched as ruby_is_a? so it doesn't conflict with Crystal's is_a?
+  def ruby_is_a?(klass : RubyObject) : RubyBool
+    RubyBool::FALSE  # subclasses/generated classes should override
+  end
+
+  # respond_to?: basic implementation
+  def respond_to?(method_name : RubyObject) : RubyBool
+    RubyBool::FALSE  # generated classes override this
+  end
+end
+
+# Proxy object representing a Ruby class — returned by obj.ruby_class.
+# Has a `name` method that returns the Ruby class name as RubyString.
+class RubyClassProxy
+  @ruby_class_name : String
+
+  def initialize(@ruby_class_name : String); end
+
+  # name returns RubyObject so it unifies with Ruby user-class name methods
+  def name : RubyObject
+    RubyString.new(@ruby_class_name)
+  end
+
+  def to_s : String; @ruby_class_name; end
+  def inspect : String; @ruby_class_name; end
 end
