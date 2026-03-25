@@ -973,6 +973,12 @@ module Frozone
           apply_backtrace(exc_obj, backtrace_arg, context) unless exc_obj.is_a?(ObjectObject) && farray?(exc_obj.get_ivar(:@backtrace))
           raise FrozoneException.new(exc_obj, msg_str)
         end
+
+        def kernel_exec_daemon(_, _receiver, stay_obj, keep_obj)
+          stay = stay_obj.truthy?
+          keep = keep_obj.truthy?
+          n2f_int(::Process.daemon(stay, keep))
+        end
       end
     end
   end

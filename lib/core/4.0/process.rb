@@ -1,6 +1,15 @@
 class Process
-  CLOCK_REALTIME  = 0
-  CLOCK_MONOTONIC = 1
+  CLOCK_REALTIME             = 0
+  CLOCK_MONOTONIC            = 1
+  CLOCK_PROCESS_CPUTIME_ID   = 2
+  CLOCK_THREAD_CPUTIME_ID    = 3
+  CLOCK_MONOTONIC_RAW        = 4
+  CLOCK_REALTIME_COARSE      = 5
+  CLOCK_MONOTONIC_COARSE     = 6
+  CLOCK_BOOTTIME             = 7
+  CLOCK_REALTIME_ALARM       = 8
+  CLOCK_BOOTTIME_ALARM       = 9
+  CLOCK_TAI                  = 11
 
   WNOHANG       = 1
   WUNTRACED     = 2
@@ -97,6 +106,10 @@ class Process
   def self.egid=(id)
     raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer) || id.is_a?(String)
     raise Errno::EPERM, "Operation not permitted"
+  end
+
+  def self.daemon(stay_in_dir = false, keep_stdio_open = false)
+    Intrinsics.kernel_exec_daemon(stay_in_dir, keep_stdio_open)
   end
 
   def self.detach(pid)

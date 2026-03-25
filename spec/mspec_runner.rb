@@ -392,7 +392,8 @@ class Object
       safe = code.gsub("'", "'\\\\''")
       body = "-e '#{safe}'"
     end
-    [CLEAR_BUNDLER_ENV, RUBY_EXE, ENV['RUBY_FLAGS'], opts[:options], body, opts[:args]].compact.join(' ')
+    args_str = opts[:args].is_a?(Array) ? opts[:args].map(&:to_s).join(' ') : opts[:args]
+    [CLEAR_BUNDLER_ENV, RUBY_EXE, ENV['RUBY_FLAGS'], opts[:options], body, args_str].compact.join(' ')
   end
 
   def ruby_cmd_argv(code, opts = {})
@@ -406,8 +407,9 @@ class Object
     end
     # Skip shell redirects (2>&1, 2>/dev/null) — handled separately in ruby_exe
     if opts[:args]
-      opts[:args].split(' ').each do |arg|
-        argv << arg unless arg =~ /\A\d*>&?\d*\z|\A\d*>\/dev\/null\z/
+      arg_list = opts[:args].is_a?(Array) ? opts[:args] : opts[:args].split(' ')
+      arg_list.each do |arg|
+        argv << arg.to_s unless arg.to_s =~ /\A\d*>&?\d*\z|\A\d*>\/dev\/null\z/
       end
     end
     argv
