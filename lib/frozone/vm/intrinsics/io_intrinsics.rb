@@ -442,14 +442,24 @@ module Frozone
           n2f_bool(receiver.native_io.binmode?)
         end
 
-        def io_set_encoding(_, receiver, ext_obj, int_obj = FNIL)
+        def io_set_encoding(_, receiver, ext_obj, int_obj = FNIL, opts_obj = FNIL)
           return receiver unless fio?(receiver)
           ext_enc = extract_encoding_name(ext_obj)
           int_enc = extract_encoding_name(int_obj)
-          # Always call set_encoding when int_obj was explicitly provided (even if nil)
-          # FNIL means "not provided"; but since FNIL == NilObject::NIL, we check ext_obj too
+          mri_opts = {}
+          if fhash?(opts_obj)
+            opts_obj.raw.each do |k, v|
+              key = k.is_a?(::Symbol) ? k : (k.respond_to?(:raw) ? k.raw.to_sym : nil)
+              val = v.is_a?(::Symbol) ? v : (v.respond_to?(:raw) ? v.raw : v)
+              mri_opts[key] = val if key
+            end
+          end
           begin
-            receiver.native_io.set_encoding(ext_enc, int_enc)
+            if mri_opts.empty?
+              receiver.native_io.set_encoding(ext_enc, int_enc)
+            else
+              receiver.native_io.set_encoding(ext_enc, int_enc, **mri_opts)
+            end
           rescue => _ignored
           end
           receiver

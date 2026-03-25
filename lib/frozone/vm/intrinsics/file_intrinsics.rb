@@ -146,25 +146,34 @@ module Frozone
           n2f_int(content.raw.length)
         end
 
-        def file_open(context, path, mode, block, perm = nil, flags = nil)
+        def file_open(context, path, mode, block, perm = nil, flags = nil, extra_opts = nil)
           mode_raw = fnil?(mode) ? nil : mode.raw
           perm_int = (perm && !fnil?(perm) && fint?(perm)) ? perm.raw : 0o666
           flags_int = (flags && !fnil?(flags) && fint?(flags)) ? flags.raw : nil
+          # Build extra open kwargs (newline:, etc.)
+          base_kwargs = {}
+          if extra_opts && !fnil?(extra_opts) && fhash?(extra_opts)
+            extra_opts.raw.each do |k, v|
+              key = k.is_a?(::Symbol) ? k : (k.respond_to?(:raw) ? k.raw.to_sym : nil)
+              val = v.respond_to?(:raw) ? v.raw : v
+              base_kwargs[key] = val if key
+            end
+          end
           # Combine mode with flags: if mode is an integer, bitwise-OR with flags;
           # if string mode, pass flags as separate option to File.open.
           if mode_raw.is_a?(Integer) && flags_int
             mode_combined = mode_raw | flags_int
             open_args = [path.raw, mode_combined, perm_int]
-            open_kwargs = {}
+            open_kwargs = base_kwargs
           elsif flags_int
             # String mode + flags: use File.open with flags: keyword
             mode_str = mode_raw || 'r'
             open_args = [path.raw, mode_str, perm_int]
-            open_kwargs = { flags: flags_int }
+            open_kwargs = base_kwargs.merge(flags: flags_int)
           else
             mode_str = mode_raw || 'r'
             open_args = [path.raw, mode_str, perm_int]
-            open_kwargs = {}
+            open_kwargs = base_kwargs
           end
           file_klass = Core.file_class || Core.io_class
           if !fnil?(block)

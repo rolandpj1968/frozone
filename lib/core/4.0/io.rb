@@ -849,7 +849,7 @@ class IO
       opts = int_enc
       int_enc = nil
     end
-    Intrinsics.io_set_encoding(self, ext_enc, int_enc)
+    Intrinsics.io_set_encoding(self, ext_enc, int_enc, opts)
     Intrinsics.io_mark_explicit_encoding(self)
     self
   end

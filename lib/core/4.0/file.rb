@@ -178,7 +178,9 @@ class File < IO
       end
     else
       flags = opts[:flags]
-      Intrinsics.file_open(_coerce_path(path), mode, block, perm, flags)
+      extra_opts = {}
+      extra_opts[:newline] = opts[:newline] if opts[:newline]
+      Intrinsics.file_open(_coerce_path(path), mode, block, perm, flags, extra_opts.empty? ? nil : extra_opts)
     end
   end
 
