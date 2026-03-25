@@ -29,11 +29,19 @@ class IO
 ")
         elsif arg.is_a?(Array)
           __puts_array__(arg)
-        elsif arg.respond_to?(:to_ary)
-          ary = arg.to_ary
-          ary.nil? ? __puts_scalar__(arg) : (ary.is_a?(Array) ? __puts_array__(ary) : __puts_scalar__(arg))
         else
-          __puts_scalar__(arg)
+          begin
+            ary = arg.to_ary
+            if ary.nil?
+              __puts_scalar__(arg)
+            elsif ary.is_a?(Array)
+              __puts_array__(ary)
+            else
+              __puts_scalar__(arg)
+            end
+          rescue NoMethodError
+            __puts_scalar__(arg)
+          end
         end
       end
     end
@@ -50,11 +58,19 @@ class IO
     arr.each do |elem|
       if elem.is_a?(Array)
         __puts_array__(elem, seen)
-      elsif elem.respond_to?(:to_ary)
-        ary = elem.to_ary
-        ary.nil? ? __puts_scalar__(elem) : (ary.is_a?(Array) ? __puts_array__(ary, seen) : __puts_scalar__(elem))
       else
-        __puts_scalar__(elem)
+        begin
+          ary = elem.to_ary
+          if ary.nil?
+            __puts_scalar__(elem)
+          elsif ary.is_a?(Array)
+            __puts_array__(ary, seen)
+          else
+            __puts_scalar__(elem)
+          end
+        rescue NoMethodError
+          __puts_scalar__(elem)
+        end
       end
     end
   end
@@ -329,7 +345,26 @@ class IO
     c
   end
   def flock(lock_op) = Intrinsics.io_flock(self, lock_op)
-  def advise(advice, offset = 0, len = 0) = nil
+  def advise(advice, offset = 0, len = 0)
+    raise IOError, "closed stream" if closed?
+    raise TypeError, "no implicit conversion of #{advice.class} into Symbol" unless advice.is_a?(Symbol)
+    begin
+      offset = Integer(offset)
+    rescue TypeError, ArgumentError
+      raise TypeError, "no implicit conversion of #{offset.class} into Integer"
+    end
+    begin
+      len = Integer(len)
+    rescue TypeError, ArgumentError
+      raise TypeError, "no implicit conversion of #{len.class} into Integer"
+    end
+    max_off_t = 2**63 - 1
+    raise RangeError, "bignum too big to convert into `long long'" if offset.abs > max_off_t
+    raise RangeError, "bignum too big to convert into `long long'" if len.abs > max_off_t
+    valid = %i[normal sequential random willneed dontneed noreuse]
+    raise NotImplementedError, "Unrecognized advice: #{advice}" unless valid.include?(advice)
+    nil
+  end
   def dup = Intrinsics.io_dup(self)
 
   def reopen(path_or_io, mode = nil)
@@ -805,12 +840,12 @@ class IO
   def set_encoding_by_bom
     return nil unless Intrinsics.io_readable?(self)
     raise ArgumentError, 'ASCII incompatible encoding needs binmode' unless binmode?
+    if internal_encoding
+      raise ArgumentError, 'encoding conversion is set'
+    end
     ext = external_encoding
     if ext && ext != Encoding::ASCII_8BIT && ext != Encoding::BINARY
       raise ArgumentError, "encoding is set to #{ext.name} already"
-    end
-    if internal_encoding
-      raise ArgumentError, 'encoding conversion is set'
     end
 
     # Read up to 4 bytes to detect BOM
