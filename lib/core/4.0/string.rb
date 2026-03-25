@@ -562,15 +562,13 @@ class String
 
     __succ_carry_alnum__(result, alnum_right, leftmost_alnum)
 
-    r = result.map { |b| b.chr }.join
-    r.force_encoding(enc)
+    result.map { |b| b.chr }.join('').force_encoding(enc)
   end
   alias next succ
 
   def succ!
     __check_frozen__
-    r = succ
-    Intrinsics.string_replace(self, r)
+    Intrinsics.string_replace(self, succ)
     self
   end
   alias next! succ!
@@ -926,7 +924,7 @@ class String
       end
     end
     bytes.unshift(1) if carry
-    bytes.map { |b| b.chr }.join.force_encoding(enc)
+    bytes.map { |b| b.chr }.join('').force_encoding(enc)
   end
   # Perform the alphanumeric carry pass starting at +alnum_right+.
   # Mutates +bytes+ in place, inserting a carry character before +leftmost_alnum+ if needed.
