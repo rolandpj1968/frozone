@@ -101,6 +101,167 @@ wasted if a different backend (LLVM IR, bytecode VM) is added later.
 
 ---
 
+### The split strategy: load → compile → execute
+
+The closed-world requirement sounds strict, but most Ruby programs — including
+Rails apps — already have a natural two-phase structure:
+
+1. **Load phase:** `require` files, define classes and modules, include
+   modules, run class-level code. DSLs fire, `attr_accessor` expands, gems
+   register themselves, configuration is evaluated.
+2. **Execute phase:** do the actual work — handle requests, process jobs,
+   run the main loop.
+
+The split strategy exploits this:
+
+```
+Ruby source
+    ↓  (Frozone interpreter — load phase runs normally)
+Stable object model  ← closed world snapshot point
+    ↓  (CrystalCodegen — compile the snapshot)
+Crystal source
+    ↓  (crystal build)
+Native binary  ← execute phase runs here at full speed
+```
+
+**The Frozone interpreter runs the load phase.** All the dynamic Ruby that
+makes metaprogramming work — `define_method`, `class_eval` with blocks,
+`include`, `extend`, `attr_accessor` expansion, DSL method definition — happens
+exactly as it does today in the interpreter. The interpreter's job is to fully
+evaluate the load phase and produce a stable, settled object model.
+
+**The compiler snapshots the result.** At the snapshot point, all classes,
+modules, methods, and constants are known. This settled state IS the closed
+world. The compiler translates it to Crystal. Dynamic method definitions from
+the load phase appear as ordinary `def` statements in the Crystal output —
+the compiler never has to understand what `has_many` means; it just sees the
+methods it produced.
+
+**The execute phase runs natively.** No interpreter in the loop. The binary
+links against the `crystal/` runtime library and runs at full Crystal speed.
+
+**When is load "done"?** For a simple script it is obvious: the top-level
+statements run sequentially and there is no distinction. For a server
+application, the snapshot point is after all initialisation is complete and
+before the main event loop starts. For Rails this is after
+`Rails.application.initialize!` returns. Frozone would call a user-defined
+hook (or detect the end of `require`-time execution) to trigger the compile.
+
+This strategy makes the closed-world constraint much less restrictive in
+practice. The constraint applies only to the *execute phase* — and well-written
+applications are largely static by then.
+
+
+### Rails — the reason d'être
+
+Ruby's rise is inseparable from Rails. If the Frozone compiler cannot compile
+Rails apps, or at least a large fraction of them, it is an interesting
+research project rather than a practical tool. So it is worth understanding
+Rails carefully.
+
+**The good news: Rails production mode is already eager and static**
+
+Rails has two loading modes:
+- **Development mode:** files are loaded lazily via Zeitwerk as constants are
+  first referenced. Classes can be reloaded between requests. Very dynamic.
+- **Production mode** (`config.eager_load = true`): all files are loaded
+  upfront before the first request via `Rails.application.eager_load!`. After
+  `Rails.application.initialize!` returns, the object model is fully settled
+  and does not change during request handling.
+
+The Frozone compiler targets production mode. The split strategy's snapshot
+point is after `initialize!`. In this mode, Rails already behaves like a
+closed world for the execute phase.
+
+**Metaprogramming at load time — handled by the interpreter**
+
+Rails' DSL is metaprogramming-heavy but all of it fires at load time:
+
+```ruby
+class Post < ApplicationRecord
+  has_many :comments           # → define_method :comments, :comments=, ...
+  belongs_to :user             # → define_method :user, :user=, :user_id, ...
+  scope :published, -> { where(published: true) }  # → defines .published
+  validates :title, presence: true
+  before_save :normalise_title
+end
+```
+
+Under the split strategy, the Frozone interpreter evaluates all of this during
+the load phase. `has_many :comments` fires, `define_method` runs, and the
+resulting methods are added to the `Post` class object. By the snapshot point,
+`Post` has concrete `#comments`, `#comments=`, `#user`, `#user=` etc. methods.
+The compiler sees ordinary methods and translates them as such. It never needs
+to understand what `has_many` means.
+
+Concerns/validations/callbacks become arrays of proc objects stored in class
+ivars, exactly as they are in MRI. The interpreter captures this state; the
+compiler preserves it.
+
+**Database schema discovery**
+
+ActiveRecord discovers column types from the database at load time:
+`Post.column_names` returns the actual columns of the `posts` table. This
+means the closed world depends on the DB schema.
+
+In practice this is already solved by Rails itself: `db/schema.rb` is the
+authoritative schema definition, committed to the repository, updated after
+every migration. The Frozone compiler reads `db/schema.rb` at compile time
+to determine column types — no live database connection needed.
+
+The recompilation trigger is: any time `db/schema.rb` changes (i.e., after a
+migration), rebuild the compiled binary. This is the same trigger as
+`bundle install` (Gemfile.lock changes → rebuild). CI/CD handles it naturally.
+
+**Zeitwerk autoloading**
+
+Modern Rails uses Zeitwerk for autoloading. In production mode,
+`Rails.application.eager_load!` calls Zeitwerk's `eager_load` which walks
+the autoload paths and `require`s every file. By the snapshot point, all
+application classes are loaded. Zeitwerk's autoloading machinery is not needed
+in the compiled binary — it is a load-phase tool.
+
+**Request-time concerns**
+
+After the snapshot point, a Rails app handling requests should be essentially
+static. Some areas to audit:
+
+| Pattern | Status | Mitigation |
+|---------|--------|-----------|
+| `has_many`/`belongs_to` | Load time only ✓ | Interpreter handles it |
+| `scope` definitions | Load time only ✓ | Interpreter handles it |
+| `validates`/`callbacks` | Load time only ✓ | Interpreter handles it |
+| Zeitwerk autoloading | Production eager-loads ✓ | Full load before snapshot |
+| DB schema discovery | `schema.rb` at compile time ✓ | No live DB needed |
+| `method_missing` for `find_by_*` | Removed in Rails 6 ✓ | N/A |
+| Some gems using `class_eval` per request | Rare ⚠ | Audit required |
+| `Kernel#pp` / `ObjectSpace` in gems | Development only ⚠ | Strip from compiled binary |
+| Hot reloading | Development only — not a target | Compiled = production |
+
+Modern Rails (>= 6 with Zeitwerk) is cleaner than old Rails. The main risk is
+third-party gems that do request-time class manipulation — these need to be
+audited. Most popular gems (Devise, Pundit, Sidekiq, ActiveJob) are
+load-time-only and will work correctly.
+
+**Rails as the ultimate correctness test**
+
+Just as Frozone's self-compilation (compiling the interpreter itself) is the
+correctness test for the compiler infrastructure, compiling a real Rails app
+is the correctness test for the split strategy and the full closed-world
+approach. A "hello world" Rails API app with a single model and controller
+is a realistic near-term target:
+
+```
+bundle exec frozone compile --mode=rails app/
+    → snapshot after Rails.application.initialize!
+    → Crystal codegen
+    → crystal build
+    → ./myapp  (handles requests, 0 interpreter overhead)
+```
+
+This would be a significant result.
+
+
 ### Limitations and non-goals
 
 | Feature | Status |
