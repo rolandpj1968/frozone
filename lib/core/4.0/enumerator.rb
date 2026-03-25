@@ -62,15 +62,13 @@ class Enumerator
         self
       end
     else
-      # Always iterate via fiber so Fiber.yield returns nil to the inner method.
-      # This prevents methods like find_index from treating a truthy outer block
-      # return as a match and stopping iteration early.
-      # Block result is NOT auto-fed; only explicit Enumerator#feed affects @feed.
+      # Always iterate via fiber so we can return the method's result.
       rewind
       begin
         loop do
           vals = __advance__
-          yield(vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals))
+          result = yield(vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals))
+          @feed = result
         end
       rescue StopIteration
       end
@@ -153,7 +151,9 @@ class Enumerator
 
   def to_a
     result = []
-    each { |*x| result << (x.length == 1 ? x[0] : x) }
+    # Return nil from block so Fiber.yield returns nil to the inner method,
+    # preventing methods like find_index from stopping iteration on truthy return.
+    each { |*x| result << (x.length == 1 ? x[0] : x); nil }
     result
   end
   alias entries to_a
@@ -183,7 +183,7 @@ class Enumerator
   def map(&block)
     return to_enum(:map) unless block
     result = []
-    each { |*x| result << block.call(*x) }
+    each { |*x| result << block.call(*x); nil }
     result
   end
   alias collect map
@@ -200,7 +200,7 @@ class Enumerator
 
   def each_with_object(obj, &block)
     return to_enum(:each_with_object, obj) unless block
-    each { |*x| block.call(x.length == 1 ? x[0] : x, obj) }
+    each { |*x| block.call(x.length == 1 ? x[0] : x, obj); nil }
     obj
   end
 
