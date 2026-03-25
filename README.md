@@ -7,7 +7,7 @@ A Ruby VM implemented in Ruby. Parses Ruby source via the [Prism](https://github
 Frozone targets Ruby 4.0 semantics and passes **2615/2630** ruby/spec language examples,
 including full pattern matching support.
 
-Core library spec coverage: **22103/22875 passing (96.6%)** — all modules now measured;
+Core library spec coverage: **22153/22741 passing (97.4%)** — all modules now measured;
 `io`, `process`, `mutex`, `thread` still have failures (concurrency/OS-level features);
 `tracepoint` is intentionally unimplemented (deep introspection, low priority);
 hanging/blocking specs excluded via `SKIP_SPEC_FILES` in `Rakefile`.
@@ -171,7 +171,7 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 22110 / 22875 passing (96.7%)** — as of 2026-03-24 (Prism parser, parallel run)
+**Overall: 22153 / 22741 passing (97.4%)** — as of 2026-03-25 (Prism parser; slow modules run individually)
 
 `tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation).
 
@@ -182,7 +182,7 @@ Modules with 100% pass rate:
 `binding`, `builtin_constants`, `class`, `comparable`, `complex`, `conditionvariable`, `data`, `dir`,
 `enumerable`, `false`, `float`, `gc`, `hash`, `integer`, `main`, `marshal`, `matchdata`,
 `math`, `method`, `nil`, `numeric`, `proc`, `queue`, `range`, `rational`, `regexp`, `set`,
-`signal`, `symbol`, `systemexit`, `threadgroup`, `true`, `warning`
+`signal`, `string`, `symbol`, `systemexit`, `threadgroup`, `true`, `warning`
 
 | Module | Examples | Passing | Failures | Errors | Notes |
 |---|---:|---:|---:|---:|---|
@@ -197,21 +197,20 @@ Modules with 100% pass rate:
 | fiber | 170 | 160 | 2 | 8 | scheduler/blocking API |
 | file | 939 | 933 | 0 | 6 | OS-level file ops |
 | filetest | 88 | 87 | 0 | 1 | |
-| io | 820 | 552 | 38 | 230 | blocking/pipe/buffer specs skipped; interaction errors |
-| kernel | 2701 | 2606 | 30 | 65 | I/O, spawn, format edge cases |
-| module | 1058 | 1049 | 8 | 1 | |
+| io | 820 | 579 | 13 | 228 | blocking/pipe/buffer specs skipped; interaction errors |
+| kernel | 2701 | 2625 | 19 | 57 | I/O, spawn, format edge cases |
+| module | 1058 | 1051 | 6 | 1 | |
 | mutex | 25 | 16 | 5 | 4 | threading primitives |
-| objectspace | 112 | 111 | 1 | 0 | |
-| process | 86 | 32 | 12 | 42 | OS-level process ops |
+| objectspace | 112 | 112 | 0 | 0 | |
+| process | 86 | 44 | 0 | 42 | OS-level process ops |
 | random | 87 | 84 | 0 | 3 | |
 | refinement | 25 | 24 | 0 | 1 | |
 | sizedqueue | 129 | 128 | 1 | 0 | |
-| string | 3976 | 3974 | 2 | 0 | dedup/interning unimplemented |
-| struct | 182 | 181 | 1 | 0 | |
-| thread | 227 | 167 | 58 | 2 | threading specs skipped; concurrency not implemented |
+| struct | 182 | 182 | 0 | 0 | |
+| thread | 227 | 172 | 53 | 2 | threading specs skipped; concurrency not implemented |
 | time | 774 | 773 | 1 | 0 | |
 | tracepoint | 75 | — | 5 | 71 | intentionally unimplemented |
-| unboundmethod | 86 | 80 | 3 | 3 | |
+| unboundmethod | 86 | 83 | 0 | 3 | |
 
 ## ruby/spec Library Spec Status
 
@@ -228,8 +227,8 @@ Many modules report 0 examples because they require C extensions or unavailable 
 
 | Category | Modules |
 |---|---|
-| **C extensions** (`.so` not loadable) | coverage, erb (via cgi/escape.so), ipaddr, irb, monitor, net-http, openssl, resolv, ripper, socket, tempfile, tmpdir |
-| **Missing pure-Ruby gems** | abbrev, base64, bigdecimal, csv, fiddle, getoptlong, logger, matrix, net-ftp, observer, openstruct, prime, stringscanner, syslog, yaml, zlib |
+| **C extensions** (`.so` not loadable) | bigdecimal, coverage, erb (via cgi/escape.so), fiddle, ipaddr, irb, monitor, net-http, openssl, resolv, ripper, socket, stringscanner (strscan), syslog, tempfile, tmpdir, yaml (psych), zlib |
+| **Pure-Ruby stdlib gems** (not yet bundled) | abbrev, base64, csv, getoptlong, logger, matrix, net-ftp, observer, openstruct, prime |
 | **Platform/version guards** | cgi (`ruby_version_is < 4.0`), readline (`with_feature :readline`), win32ole (Windows only) |
 
 Modules with 100% pass rate:
