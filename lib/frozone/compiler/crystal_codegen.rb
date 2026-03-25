@@ -108,6 +108,7 @@ module Frozone
         when Ast::InstanceVariableWrite then emit_ivar_write(node)
         when Ast::ConstantRead          then emit_constant_read(node)
         when Ast::MethodCall            then emit_method_call(node)
+        when Ast::AttributeWrite        then emit_attribute_write(node)
         when Ast::MethodDef             then emit_method_def(node)
         when Ast::ClassDef              then emit_class_def(node)
         when Ast::ModuleDef             then emit_module_def(node)
@@ -257,6 +258,15 @@ module Frozone
       # Comparison operators that return Crystal Bool — wrap in RubyBool for consistency
       COMPARE_OPS = %i[== != < <= > >= === =~].to_set
 
+      # AttributeWrite: obj[key] = val (e.g. @hash[k] = v)
+      def emit_attribute_write(node)
+        emit(ivar(node, :receiver_node))
+        write "["
+        emit(ivar(node, :arg_nodes)[0])
+        write "] = "
+        emit(ivar(node, :arg_nodes)[1])
+      end
+
       def operator?(name)
         BINARY_OPS.include?(name) || UNARY_OPS.include?(name)
       end
@@ -278,8 +288,8 @@ module Frozone
             write ")"
           when :"!"
             write "!("
-            emit(node.receiver_node)
-            write ").truthy?"
+            emit_truthy(node.receiver_node)
+            write ")"
           end
         elsif COMPARE_OPS.include?(name)
           # Comparison: wrap in RubyBool so return type is RubyObject-compatible
