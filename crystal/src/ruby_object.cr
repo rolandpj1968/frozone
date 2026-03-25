@@ -52,6 +52,40 @@ abstract class RubyObject
   def ruby_bool? : Bool; false; end
 
   # -------------------------------------------------------------------------
+  # Arithmetic / comparison operator stubs — raise TypeError at runtime.
+  # Concrete subclasses override with real implementations.
+  # These stubs are required so that Crystal's type system can dispatch
+  # operator calls on RubyObject-typed receivers (the primary dispatch path).
+  # -------------------------------------------------------------------------
+  {% for op in ["+", "-", "*", "/", "%", "**", "<=>", "&", "|", "^", "<<", ">>"] %}
+    def {{op.id}}(other : RubyObject) : RubyObject
+      raise Exception.new({{op + " not supported for this type"}})
+    end
+  {% end %}
+
+  {% for op in ["<", "<=", ">", ">="] %}
+    def {{op.id}}(other : RubyObject) : Bool
+      raise Exception.new({{op + " not supported for this type"}})
+    end
+  {% end %}
+
+  # Unary operators: Crystal uses def -(no args) for unary minus
+  def - : RubyObject
+    raise Exception.new("unary - not supported for #{self.class}")
+  end
+
+  # -------------------------------------------------------------------------
+  # Indexing stubs — Array/Hash override with real implementations
+  # -------------------------------------------------------------------------
+  def [](idx : RubyObject) : RubyObject
+    raise Exception.new("[] not supported for #{self.class}")
+  end
+
+  def []=(idx : RubyObject, val : RubyObject) : RubyObject
+    raise Exception.new("[]= not supported for #{self.class}")
+  end
+
+  # -------------------------------------------------------------------------
   # Logical negation (Crystal `!` can't be overridden; use `not`)
   # -------------------------------------------------------------------------
   def not : RubyObject

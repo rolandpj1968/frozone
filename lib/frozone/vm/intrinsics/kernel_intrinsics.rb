@@ -330,6 +330,34 @@ module Frozone
           n2f_int(::Kernel.spawn(*argv))
         end
 
+        def process_wait(_, _receiver, pid_obj = FNIL, flags_obj = FNIL)
+          pid   = fint?(pid_obj)   ? pid_obj.raw   : -1
+          flags = fint?(flags_obj) ? flags_obj.raw :  0
+          reraise(::Errno::ECHILD) do
+            result_pid = ::Process.wait(pid, flags)
+            GLOBALS[:"$?"] = ProcessStatusObject.new($?) if $?
+            n2f_int(result_pid)
+          end
+        end
+
+        def process_wait2(_, _receiver, pid_obj = FNIL, flags_obj = FNIL)
+          pid   = fint?(pid_obj)   ? pid_obj.raw   : -1
+          flags = fint?(flags_obj) ? flags_obj.raw :  0
+          reraise(::Errno::ECHILD) do
+            result_pid, status = ::Process.wait2(pid, flags)
+            GLOBALS[:"$?"] = ProcessStatusObject.new(status) if status
+            n2f_arr([n2f_int(result_pid), ProcessStatusObject.new(status)])
+          end
+        end
+
+        def process_waitall(_)
+          results = ::Process.waitall
+          n2f_arr(results.map { |pid, st|
+            GLOBALS[:"$?"] = ProcessStatusObject.new(st) if st
+            n2f_arr([n2f_int(pid), ProcessStatusObject.new(st)])
+          })
+        end
+
         def kernel_exec(_, _receiver, *args)
           argv = args.map { |a|
             if fstr?(a)

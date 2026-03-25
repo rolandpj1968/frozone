@@ -27,7 +27,7 @@ module Kernel
   def abort(msg = nil) = Intrinsics.kernel_abort(self, msg)
   def rand(n = nil) = Intrinsics.kernel_rand(self, n)
   def system(*args) = Intrinsics.kernel_system(self, *args)
-  def fork(&block) = nil  # not supported; block given to fork is never executed
+  def fork(&block) = nil  # stub; actual fork via Process._fork when supported
   def block_given? = Intrinsics.kernel_block_given(self)
   def caller(start = 1, length = nil) = Intrinsics.kernel_caller(self, start, length)
   def caller_locations(start = 1, length = nil) = Intrinsics.kernel_caller_locations(self, start, length)

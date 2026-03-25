@@ -65,6 +65,20 @@ class RubyArray < RubyObject
     self[i.to_i64]
   end
 
+  def [](i : RubyObject) : RubyObject
+    case i
+    when RubyInteger then self[i.to_i64]
+    else raise Exception.new("Array index must be Integer, got #{i.class}")
+    end
+  end
+
+  def []=(i : RubyObject, v : RubyObject) : RubyObject
+    case i
+    when RubyInteger then self[i.to_i64] = v
+    else raise Exception.new("Array index must be Integer, got #{i.class}")
+    end
+  end
+
   # arr[i] = v — extends with nil if i > size (Ruby semantics).
   def []=(i : Int64, v : RubyObject) : RubyObject
     idx = i < 0 ? @data.size + i : i

@@ -30,6 +30,21 @@ class Process
   RLIM_SAVED_MAX   = 18446744073709551615
   RLIM_SAVED_CUR   = 18446744073709551615
 
+  def self._fork = raise(NotImplementedError, "fork() function is unimplemented on this machine")
+  def self.fork(&block)
+    pid = _fork
+    if pid.nil?
+      block.call if block
+      exit!(0)
+    end
+    pid
+  end
+
+  def self.wait(pid = -1, flags = 0) = Intrinsics.process_wait(self, pid, flags)
+  def self.wait2(pid = -1, flags = 0) = Intrinsics.process_wait2(self, pid, flags)
+  def self.waitpid(pid = -1, flags = 0) = Intrinsics.process_wait(self, pid, flags)
+  def self.waitpid2(pid = -1, flags = 0) = Intrinsics.process_wait2(self, pid, flags)
+  def self.waitall = Intrinsics.process_waitall(self)
   def self.pid = Intrinsics.process_pid
   def self.uid = Intrinsics.process_uid
   def self.gid = Intrinsics.process_gid
