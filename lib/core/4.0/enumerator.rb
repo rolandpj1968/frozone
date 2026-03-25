@@ -62,17 +62,30 @@ class Enumerator
         self
       end
     else
-      # Always iterate via fiber so we can return the method's result.
-      rewind
-      begin
-        loop do
-          vals = __advance__
-          result = yield(vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals))
-          @feed = result
+      if @receiver
+        # Method-mode: call the method directly with the given block.
+        # The block's return value is seen directly by the method (e.g. yield e).
+        # Callers like to_a return nil from their block so methods like find_index
+        # don't treat a truthy collection result as a match and stop early.
+        combined_kwargs = (@method_kwargs || {}).merge(extra_kwargs)
+        if combined_kwargs.empty?
+          @receiver.send(@method_name, *(@method_args + extra_args), &block)
+        else
+          @receiver.send(@method_name, *(@method_args + extra_args), **combined_kwargs, &block)
         end
-      rescue StopIteration
+      else
+        # Block-mode: iterate via fiber
+        @fiber = nil
+        begin
+          loop do
+            vals = __advance__
+            result = yield(vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals))
+            @feed = result
+          end
+        rescue StopIteration => e
+          e.result
+        end
       end
-      @_enum_result
     end
   end
 
