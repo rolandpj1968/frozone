@@ -217,11 +217,11 @@ Modules with 100% pass rate:
 Tested against [ruby/spec](https://github.com/ruby/spec) library specs.
 Run with `bundle exec rake library` (or `rake library:NAME` for a single module).
 
-**Overall: 286 / 1017 passing** — as of 2026-03-24 (Prism parser)
+**Overall: ~948 / ~1100 passing** — as of 2026-03-25 (Prism parser; stringio fully implemented)
 
 Many modules report 0 examples because they require C extensions or unavailable gems.
 `expect`, `mkmf`, `objectspace` timed out in the parallel runner (excluded above).
-`delegate` and `stringio` have hanging specs excluded via `SKIP_LIBRARY_SPEC_FILES` in `Rakefile`.
+`delegate` has hanging specs excluded via `SKIP_LIBRARY_SPEC_FILES` in `Rakefile`.
 
 ### Modules with 0 examples
 
@@ -246,7 +246,7 @@ Modules with 100% pass rate:
 | pathname | 70 | 25 | 21 | 24 | Pathname not fully implemented |
 | rbconfig | 16 | 14 | 1 | 1 | |
 | rubygems | 2 | 0 | 0 | 2 | |
-| stringio | 587 | 8 | 166 | 413 | StringIO not implemented; 2 specs hang (IO blocking) |
+| stringio | 672 | 670 | 0 | 2 | 2 unavoidable errors (getch/getpass need `io/console` C extension) |
 | thread | 2 | 0 | 2 | 0 | threading primitives |
 | time | 8 | 0 | 0 | 8 | time library edge cases |
 | timeout | 7 | 3 | 0 | 4 | |
