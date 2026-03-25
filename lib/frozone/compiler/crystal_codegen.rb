@@ -46,6 +46,13 @@ module Frozone
         SystemCallError EncodingError EnvError LoadError SyntaxError
       ].to_set
 
+      # Ruby class names that don't need explicit default stubs when inherited from.
+      # If a class inherits from one of these, we still emit the default stubs.
+      BUILTIN_SUPERCLASSES = (%w[
+        Object BasicObject Numeric Integer Float String Array Hash Symbol
+        IO File Dir Proc Struct Data Comparable Enumerable
+      ] + EXCEPTION_BASE_NAMES.to_a).to_set
+
       # Collect all method names defined in user classes/modules, and
       # track which classes are exception classes.
       def collect_user_methods(node)
@@ -67,6 +74,17 @@ module Frozone
           collect_user_methods(body) if body
         when Ast::MethodDef
           @user_methods << ivar(node, :name)
+        when Ast::MethodCall
+          # attr_accessor/reader/writer implicitly define methods
+          mname = ivar(node, :name)
+          if ATTR_METHODS.include?(mname)
+            ivar(node, :arg_nodes).each do |a|
+              next unless a.is_a?(Ast::SymbolLiteral)
+              sym_name = ivar(a, :value).raw
+              @user_methods << sym_name           unless mname == :attr_writer
+              @user_methods << :"#{sym_name}="    unless mname == :attr_reader
+            end
+          end
         end
       end
 
@@ -89,7 +107,9 @@ module Frozone
         emit_newline
         stubs.each do |name|
           crystal_name = crystal_method_name(name)
-          write "  def #{crystal_name}(*args) : RubyObject"
+          # Crystal setters must have exactly one parameter (no *args)
+          params = crystal_name.end_with?('=') ? "(val : RubyObject)" : "(*args)"
+          write "  def #{crystal_name}#{params} : RubyObject"
           emit_newline
           write "    raise Exception.new(\"undefined method '#{name}' for \#{self.class}\")"
           emit_newline
@@ -209,8 +229,8 @@ module Frozone
       end
 
       def emit_symbol_literal(node)
-        name = ivar(node, :name)
-        write %(RubySymbol.from(#{name.to_s.inspect}))
+        sym = ivar(node, :value).raw  # SymbolObject#raw → native Ruby Symbol
+        write %(RubySymbol.from(#{sym.to_s.inspect}))
       end
 
       def emit_self_literal
@@ -279,13 +299,18 @@ module Frozone
         # Kernel-level methods with no receiver map to top-level helpers
         if node.receiver_node.nil?
           case name
-          when :puts        then return emit_puts(node)
-          when :print       then return emit_print(node)
-          when :p           then return emit_p(node)
-          when :raise       then return emit_raise(node)
-          when :require     then return emit_require_call(node)
+          when :puts         then return emit_puts(node)
+          when :print        then return emit_print(node)
+          when :p            then return emit_p(node)
+          when :raise        then return emit_raise(node)
+          when :require      then return emit_require_call(node)
           when :block_given? then return write("block_given?")
-          when :loop        then return emit_loop(node)
+          when :loop         then return emit_loop(node)
+          when :attr_accessor then return emit_attr_methods(node, reader: true, writer: true)
+          when :attr_reader   then return emit_attr_methods(node, reader: true, writer: false)
+          when :attr_writer   then return emit_attr_methods(node, reader: false, writer: true)
+          when :include, :extend, :prepend
+            return write("# #{name} #{node.arg_nodes.map { |a| a.is_a?(Ast::ConstantRead) ? ivar(a, :name) : '?' }.join(', ')}")
           end
         end
 
@@ -308,13 +333,25 @@ module Frozone
       # Comparison operators that return Crystal Bool — wrap in RubyBool for consistency
       COMPARE_OPS = %i[== != < <= > >= === =~].to_set
 
-      # AttributeWrite: obj[key] = val (e.g. @hash[k] = v)
+      # AttributeWrite: obj.foo = val (setter) or obj[i] = val (index assign)
       def emit_attribute_write(node)
-        emit(ivar(node, :receiver_node))
-        write "["
-        emit(ivar(node, :arg_nodes)[0])
-        write "] = "
-        emit(ivar(node, :arg_nodes)[1])
+        name = ivar(node, :name)
+        recv = ivar(node, :receiver_node)
+        args = ivar(node, :arg_nodes)
+        if name == :[]=
+          # Index assignment: receiver[idx] = val
+          emit(recv)
+          write "["
+          emit(args[0])
+          write "] = "
+          emit(args[1])
+        else
+          # Setter method: receiver.foo = val
+          setter_name = name.to_s.chomp('=')
+          emit(recv)
+          write ".#{setter_name} = "
+          emit(args[0])
+        end
       end
 
       def operator?(name)
@@ -494,6 +531,29 @@ module Frozone
       def emit_require_call(node)
         # Silently drop require calls — closed world, all files already compiled.
         write "# require #{node.arg_nodes[0].inspect} (dropped — closed world)"
+      end
+
+      # attr_accessor/attr_reader/attr_writer :name, :other, ...
+      # Emits Crystal getter and/or setter methods for each symbol arg.
+      def emit_attr_methods(node, reader:, writer:)
+        first = true
+        node.arg_nodes.each do |sym|
+          next unless sym.is_a?(Ast::SymbolLiteral)
+          name = ivar(sym, :value).raw.to_s
+          if first
+            first = false
+          else
+            emit_newline
+            emit_indent
+          end
+          if reader
+            write "def #{name} : RubyObject; @#{name}; end"
+          end
+          if writer
+            emit_newline; emit_indent if reader
+            write "def #{name}=(val : RubyObject) : RubyObject; @#{name} = val; val; end"
+          end
+        end
       end
 
       def emit_call_args(node)
@@ -1018,15 +1078,21 @@ module Frozone
             line "def initialize(msg : String = \"#{name}\"); super(msg); end" unless has_initialize?(ivar(node, :body))
           else
             # Regular classes: ivars + class vars + default to_s/inspect/==
+            # Only emit default stubs if this class doesn't inherit from another user class
+            # (inheriting from a user class would override inherited to_s/inspect/==).
+            sc_name = sc.is_a?(Ast::ConstantRead) ? ivar(sc, :name).to_s : nil
+            user_superclass = sc_name && !BUILTIN_SUPERCLASSES.include?(sc_name)
             ivars = collect_ivars(ivar(node, :body))
             ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
             cvars = collect_cvars(ivar(node, :body))
             cvars.each { |cv| line "#{cv} : RubyObject = RUBY_NIL" }
             emit_newline unless ivars.empty? && cvars.empty?
-            line "def to_s : String; \"#<#{name}>\"; end"
-            line "def inspect : String; \"#<#{name}>\"; end"
-            line "def ==(other : RubyObject) : Bool; same?(other); end"
-            emit_newline
+            unless user_superclass
+              line "def to_s : String; \"#<#{name}>\"; end"
+              line "def inspect : String; \"#<#{name}>\"; end"
+              line "def ==(other : RubyObject) : Bool; same?(other); end"
+              emit_newline
+            end
           end
           body = ivar(node, :body)
           emit_indent
@@ -1174,6 +1240,8 @@ module Frozone
         seen.to_a.sort
       end
 
+      ATTR_METHODS = %i[attr_accessor attr_reader attr_writer].to_set
+
       def collect_ivars(node, seen = Set.new)
         case node
         when Ast::InstanceVariableWrite
@@ -1183,6 +1251,13 @@ module Frozone
           node.nodes.each { |n| collect_ivars(n, seen) }
         when Ast::MethodDef
           collect_ivars(ivar(node, :body), seen) if ivar(node, :body)
+        when Ast::MethodCall
+          # attr_accessor/reader/writer declare implicit ivars
+          if ATTR_METHODS.include?(ivar(node, :name))
+            ivar(node, :arg_nodes).each do |a|
+              seen << "@#{ivar(a, :value).raw}" if a.is_a?(Ast::SymbolLiteral)
+            end
+          end
         when Ast::If
           collect_ivars(node.then_node, seen)
           collect_ivars(node.else_node, seen) if node.else_node
