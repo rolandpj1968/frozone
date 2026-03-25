@@ -16,19 +16,61 @@ module Frozone
       CRYSTAL_DIR = File.expand_path('../../../crystal', __dir__)
 
       def initialize(output_dir: CRYSTAL_DIR)
-        @out        = +""        # output buffer
-        @indent     = 0          # current indentation level
-        @errors     = []         # collect unsupported-node warnings
-        @output_dir = output_dir # used to compute relative runtime require path
+        @out          = +""        # output buffer
+        @indent       = 0          # current indentation level
+        @errors       = []         # collect unsupported-node warnings
+        @output_dir   = output_dir # used to compute relative runtime require path
+        @user_methods = Set.new    # names of user-defined methods (for RubyObject stubs)
       end
 
       # Generate a complete Crystal source file from the top-level AST node.
       # Returns the Crystal source as a String.
       def generate(node)
+        # Two-pass: collect user-defined method names, then emit.
+        collect_user_methods(node)
         emit_header
+        emit_user_method_stubs unless @user_methods.empty?
         emit(node)
         emit_newline
         @out
+      end
+
+      # Collect all method names defined in user classes/modules.
+      def collect_user_methods(node)
+        case node
+        when Ast::Sequence
+          node.nodes.each { |n| collect_user_methods(n) }
+        when Ast::ClassDef, Ast::ModuleDef
+          body = ivar(node, :body)
+          collect_user_methods(body) if body
+        when Ast::MethodDef
+          @user_methods << ivar(node, :name)
+        end
+      end
+
+      # Emit RubyObject stub methods for all user-defined methods.
+      # This allows polymorphic dispatch: `obj.some_method` where `obj : RubyObject`
+      # compiles because Crystal sees the stub and dispatches to the real implementation.
+      def emit_user_method_stubs
+        write "# User-defined method stubs on RubyObject for polymorphic dispatch"
+        emit_newline
+        write "class RubyObject"
+        emit_newline
+        @user_methods.each do |name|
+          next if name == :initialize
+          # Skip operator methods — they already have stubs in RubyObject
+          next if operator?(name)
+          crystal_name = crystal_method_name(name)
+          write "  def #{crystal_name}(*args) : RubyObject"
+          emit_newline
+          write "    raise Exception.new(\"undefined method '#{name}' for \#{self.class}\")"
+          emit_newline
+          write "  end"
+          emit_newline
+        end
+        write "end"
+        emit_newline
+        emit_newline
       end
 
       # The directory that generated .cr files should be placed in (so that
