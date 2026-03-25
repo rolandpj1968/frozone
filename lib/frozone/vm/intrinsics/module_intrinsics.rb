@@ -1076,8 +1076,7 @@ module Frozone
           m = if active_refinements && !active_refinements.empty?
                 receiver.lookup_method_with_refinements(name, active_refinements)
               else
-                klass = receiver.eigenclass || receiver.class_object
-                klass.lookup_method(name) || receiver.class_object.lookup_method(name)
+                receiver.lookup_instance_method(name)
               end
           unless m
             # Check respond_to_missing?
@@ -1094,9 +1093,20 @@ module Frozone
             end
             raise FrozoneException.make(:NameError, "undefined method '#{name}' for class '#{receiver.class_object.full_name}'")
           end
-          # If the eigenclass has the method (directly or via extended modules), use eigenclass chain for owner
+          # Determine owner: check eigenclass chain for ClassObjects (handles extend inheritance)
           owner = if receiver.eigenclass&.lookup_method(name)
                     receiver.eigenclass.lookup_method_owner(name) || receiver.eigenclass
+                  elsif receiver.is_a?(ClassObject)
+                    found_owner = nil
+                    c = receiver.superclass
+                    while c.is_a?(ClassObject)
+                      if c.eigenclass&.lookup_method(name)
+                        found_owner = c.eigenclass.lookup_method_owner(name) || c.eigenclass
+                        break
+                      end
+                      c = c.superclass
+                    end
+                    found_owner || receiver.class_object.lookup_method_owner(name) || receiver.class_object
                   else
                     receiver.class_object.lookup_method_owner(name) || receiver.class_object
                   end
@@ -1356,16 +1366,17 @@ module Frozone
           return FFALSE unless m1.is_a?(BoundMethodObject) && m2.is_a?(BoundMethodObject)
           return FFALSE unless m1.bound_receiver.equal?(m2.bound_receiver)
           m1m = m1.raw_method; m2m = m2.raw_method
-          # Methods are equal if they share the same implementation body/block
+          # Methods are equal if they share the same implementation
           same = if m1m.nil? && m2m.nil?
                    # Both are method_missing synthetic methods: compare by name
                    m1.bound_name == m2.bound_name
-                 elsif m1m.is_a?(Method) && m2m.is_a?(Method)
-                   m1m.equal?(m2m) || m1m.body.equal?(m2m.body)
                  elsif m1m.is_a?(DefinedMethod) && m2m.is_a?(DefinedMethod)
                    m1m.equal?(m2m) || m1m.block_obj.equal?(m2m.block_obj)
                  else
-                   m1m.equal?(m2m)
+                   # Resolve VisibilityOverrides and compare source locations
+                   sl1 = m1m.respond_to?(:source_location) ? m1m.source_location : nil
+                   sl2 = m2m.respond_to?(:source_location) ? m2m.source_location : nil
+                   m1m.equal?(m2m) || (sl1 && sl1 == sl2)
                  end
           same ? FTRUE : FFALSE
         end
@@ -1374,9 +1385,11 @@ module Frozone
           return FFALSE unless a.is_a?(UnboundMethodObject) && b.is_a?(UnboundMethodObject)
           # Two unbound methods are equal if they have the same owner and same underlying method body.
           # Aliases have different names but the same body AST node — they should compare equal.
+          # Use source_location as primary discriminator for structural equality.
           same = a.unbound_owner.equal?(b.unbound_owner) &&
                  (a.raw_method.equal?(b.raw_method) ||
-                  (a.raw_method.is_a?(Method) && b.raw_method.is_a?(Method) && a.raw_method.body.equal?(b.raw_method.body)))
+                  (a.raw_method.is_a?(Method) && b.raw_method.is_a?(Method) &&
+                   a.raw_method.source_location == b.raw_method.source_location))
           n2f_bool(same)
         end
 

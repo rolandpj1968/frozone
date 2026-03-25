@@ -60,8 +60,8 @@ module Frozone
         @eigenclass
       end
 
-      # Returns a method defined directly on the eigenclass (if one exists).
-      def eigenclass_method(name) = @eigenclass&.get_method(name)
+      # Returns a method from the eigenclass (including its included modules).
+      def eigenclass_method(name) = @eigenclass&.lookup_method(name)
 
       def define_singleton_method(name, unbound_method)
         singleton_class.set_method(name, unbound_method)
