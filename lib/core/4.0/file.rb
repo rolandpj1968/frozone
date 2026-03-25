@@ -109,7 +109,7 @@ class File < IO
   def self.lutime(atime, mtime, *paths) = Intrinsics.file_lutime(atime, mtime, paths.map { |p| _coerce_path(p) })
   def self.stat(path) = Stat.new(_coerce_path(path))
   def self.lstat(path) = Stat.new(_coerce_path(path), lstat: true)
-  def self.binread(path, length = nil, offset = nil) = Intrinsics.file_read(_coerce_path(path))
+  def self.binread(path, length = nil, offset = nil) = Intrinsics.file_binread(_coerce_path(path), length, offset)
   def self.binwrite(path, content, offset = nil) = Intrinsics.file_write(_coerce_path(path), content)
   def self.fnmatch?(pattern, path, flags = 0) = fnmatch(pattern, path, flags)
   def self.mkfifo(path, mode = 0o666)         = Intrinsics.file_mkfifo(_coerce_path(path), mode)

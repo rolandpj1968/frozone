@@ -236,7 +236,12 @@ class IO
     Intrinsics.io_syswrite(self, str)
   end
 
-  def sysseek(offset, whence = SEEK_SET) = seek(offset, whence)
+  def sysseek(offset, whence = SEEK_SET)
+    offset = __coerce_to_int__(offset)
+    whence = SEEK_WHENCE_SYMS.fetch(whence) { whence } if whence.is_a?(Symbol)
+    whence = __coerce_to_int__(whence) unless whence.is_a?(Integer)
+    Intrinsics.io_sysseek(self, offset, whence)
+  end
   def pread(length, offset, buf = nil) = Intrinsics.io_pread(self, length, offset, buf)
 
   def pwrite(str, offset)
@@ -249,9 +254,12 @@ class IO
     Intrinsics.io_pwrite(self, str, offset)
   end
 
+  SEEK_WHENCE_SYMS = { SET: SEEK_SET, CUR: SEEK_CUR, END: SEEK_END }.freeze
+
   def seek(offset, whence = SEEK_SET)
     offset = __coerce_to_int__(offset)
-    whence = __coerce_to_int__(whence)
+    whence = SEEK_WHENCE_SYMS.fetch(whence) { __coerce_to_int__(whence) } if whence.is_a?(Symbol)
+    whence = __coerce_to_int__(whence) unless whence.is_a?(Integer)
     Intrinsics.io_seek(self, offset, whence)
   end
 

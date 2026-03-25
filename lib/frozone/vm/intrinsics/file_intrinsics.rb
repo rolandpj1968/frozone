@@ -33,6 +33,15 @@ module Frozone
         def file_mtime(_, path) = reraise(Errno::ENOENT) { n2f_time(File.mtime(path.raw)) }
         def file_ctime(_, path) = reraise(Errno::ENOENT) { n2f_time(File.ctime(path.raw)) }
         def file_read(_, path) = n2f_str(File.read(path.raw))
+
+        def file_binread(_, path, len_obj, offset_obj)
+          path_s = path.raw
+          len = fnil?(len_obj) ? nil : len_obj.raw
+          offset = fnil?(offset_obj) ? nil : offset_obj.raw
+          reraise(::Errno::ENOENT, ::Errno::EACCES, ::ArgumentError) do
+            n2f_str(File.binread(path_s, *[len, offset].compact))
+          end
+        end
         def file_symlink(_, path) = n2f_bool(File.symlink?(path.raw))
         def file_readlink(_, path) = reraise(Errno::ENOENT) { n2f_str(File.readlink(path.raw)) }
         def file_zero(_, path) = n2f_bool(File.zero?(path.raw))

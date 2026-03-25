@@ -400,6 +400,13 @@ module Frozone
           reraise(::IOError) { n2f_int(receiver.native_io.seek(offset, whence)) }
         end
 
+        def io_sysseek(_, receiver, offset_obj, whence_obj = FNIL)
+          return n2f_int(0) unless fio?(receiver)
+          offset = fint?(offset_obj) ? offset_obj.raw : 0
+          whence = fnil?(whence_obj) ? ::IO::SEEK_SET : whence_obj.raw
+          reraise(::IOError) { n2f_int(receiver.native_io.sysseek(offset, whence)) }
+        end
+
         def io_pos(_, receiver)
           return n2f_int(0) unless fio?(receiver)
           n2f_int(receiver.native_io.pos)
@@ -494,14 +501,55 @@ module Frozone
           FNIL
         end
 
-        def io_sysread(_, receiver, len_obj, buf_obj = FNIL)
+        def io_sysread(context, receiver, len_obj, buf_obj = FNIL)
           return FNIL unless fio?(receiver)
-          reraise(::EOFError, ::IOError) { n2f_str(receiver.native_io.sysread(fint?(len_obj) ? len_obj.raw : 0)) }
+          len = fint?(len_obj) ? len_obj.raw : 0
+          # Resolve buffer object
+          buf = if fnil?(buf_obj)
+                  nil
+                elsif fstr?(buf_obj)
+                  buf_obj
+                else
+                  begin
+                    r = buf_obj.dispatch(context, :to_str, [], {})
+                    fstr?(r) ? r : nil
+                  rescue FrozoneException
+                    nil
+                  end
+                end
+          # When length is 0, return buffer unchanged (or empty string)
+          return buf || n2f_str('') if len == 0
+          begin
+            result_str = receiver.native_io.sysread(len)
+          rescue ::EOFError, ::IOError => e
+            # On error, clear the buffer then re-raise
+            string_replace(context, buf, n2f_str('')) if buf
+            reraise(e.class) { raise e }
+          end
+          result_obj = if buf
+                         # preserve buffer's encoding
+                         enc = buf.raw.encoding
+                         n2f_str(result_str.force_encoding(enc))
+                       else
+                         n2f_str(result_str)
+                       end
+          if buf
+            string_replace(context, buf, result_obj)
+            buf
+          else
+            result_obj
+          end
         end
 
-        def io_syswrite(_, receiver, str_obj)
+        def io_syswrite(context, receiver, str_obj)
           return n2f_int(0) unless fio?(receiver)
-          reraise(::IOError) { n2f_int(receiver.native_io.syswrite(fstr?(str_obj) ? str_obj.raw : str_obj.to_s)) }
+          if receiver.is_a?(IOObject) && receiver.buffered_write?
+            Frozone::Vm.emit_warning(context, "syswrite for buffered IO")
+            receiver.buffered_write = false
+          end
+          reraise(::IOError, ::Errno::EBADF, ::Errno::EPIPE) do
+            n2f_int(receiver.native_io.syswrite(fstr?(str_obj) ? str_obj.raw : str_obj.to_s))
+          end
         end
 
         def io_each_line(context, receiver, sep_obj = FNIL, block = FNIL)
@@ -661,6 +709,7 @@ module Frozone
             s = arg.dispatch(context, :to_s, [], {}).raw
             total += native.write(s)
           end
+          receiver.buffered_write = true if receiver.is_a?(IOObject)
           n2f_int(total)
         end
 
