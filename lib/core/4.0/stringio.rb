@@ -38,6 +38,19 @@ class StringIO
     result
   end
 
+  def seek(offset, whence = IO::SEEK_SET)
+    base = case whence
+           when IO::SEEK_SET, 0 then 0
+           when IO::SEEK_CUR, 1 then @pos
+           when IO::SEEK_END, 2 then @data.length
+           else raise Errno::EINVAL, "invalid whence value"
+           end
+    @pos = [base + offset, 0].max
+    0
+  end
+
+  def tell = @pos
+
   def rewind
     @pos = 0
     self

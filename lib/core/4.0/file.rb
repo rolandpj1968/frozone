@@ -18,6 +18,7 @@ class File < IO
   NOCTTY    = 256
   SYNC      = 1052672
   SHARE_DELETE = 0
+  BINARY       = 0
 
   LOCK_SH   = 1
   LOCK_EX   = 2
