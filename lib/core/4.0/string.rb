@@ -15,7 +15,21 @@ class String
   def freeze = Intrinsics.string_freeze(self)
   def frozen? = Intrinsics.string_frozen(self)
   def encoding = Intrinsics.string_encoding(self)
-  def <=>(v) = Intrinsics.string_spaceship(self, v)
+  def <=>(other)
+    return Intrinsics.string_spaceship_raw(self, other) if other.is_a?(String)
+    begin
+      coerced = other.to_str
+      return Intrinsics.string_spaceship_raw(self, coerced) if coerced.is_a?(String)
+    rescue
+    end
+    begin
+      r = other <=> self
+      return nil if r.nil?
+      return -r
+    rescue
+    end
+    nil
+  end
 
   def self.try_convert(obj)
     return obj if obj.is_a?(String)
@@ -113,10 +127,10 @@ class String
   def lstrip = sub(/\A[[:space:]\x00]+/, '')
   def strip = lstrip.rstrip
   def ord = Intrinsics.string_ord(self)
-  def tr(from, to) = Intrinsics.string_tr(self, from, to)
-  def squeeze(*args) = Intrinsics.string_squeeze(self, *args)
-  def count(*args) = Intrinsics.string_count(self, *args)
-  def delete(*args) = Intrinsics.string_delete(self, *args)
+  def tr(from, to) = Intrinsics.string_tr_raw(self, __coerce_to_str__(from), __coerce_to_str__(to))
+  def squeeze(*args) = Intrinsics.string_squeeze_raw(self, *__str_args__(*args))
+  def count(*args) = Intrinsics.string_count_raw(self, *__str_args__(*args))
+  def delete(*args) = Intrinsics.string_delete_raw(self, *__str_args__(*args))
   def index(sub, offset = :__unset__) = Intrinsics.string_index(self, sub, offset)
   def replace(other) = Intrinsics.string_replace(self, other)
   def force_encoding(enc) = Intrinsics.string_force_encoding(self, enc)
@@ -263,12 +277,7 @@ class String
     end
   end
 
-  def chomp!(sep = :__unset__)
-    __check_frozen__
-    r = chomp(sep.equal?(:__unset__) ? :__unset__ : sep)
-    return nil if r.equal?(self) || r == self
-    Intrinsics.string_replace(self, r)
-  end
+  def chomp!(sep = :__unset__) = __bang__ { chomp(sep) }
 
   def chop
     return dup if empty?
@@ -281,40 +290,13 @@ class String
     end
   end
 
-  def chop!
-    __check_frozen__
-    return nil if empty?; r = chop; Intrinsics.string_replace(self, r)
-  end
-
-  def strip!
-    __check_frozen__
-    r = strip; return nil if r == self; Intrinsics.string_replace(self, r)
-  end
-
-  def lstrip!
-    __check_frozen__
-    r = lstrip; return nil if r == self; Intrinsics.string_replace(self, r)
-  end
-
-  def rstrip!
-    __check_frozen__
-    r = rstrip; return nil if r == self; Intrinsics.string_replace(self, r)
-  end
-
-  def upcase!(*args)
-    __check_frozen__
-    r = upcase(*args); return nil if r == self; Intrinsics.string_replace(self, r)
-  end
-
-  def downcase!(*args)
-    __check_frozen__
-    r = downcase(*args); return nil if r == self; Intrinsics.string_replace(self, r)
-  end
-
-  def capitalize!(*args)
-    __check_frozen__
-    r = capitalize(*args); return nil if r == self; Intrinsics.string_replace(self, r)
-  end
+  def chop! = __bang__ { chop }
+  def strip! = __bang__ { strip }
+  def lstrip! = __bang__ { lstrip }
+  def rstrip! = __bang__ { rstrip }
+  def upcase!(*args) = __bang__ { upcase(*args) }
+  def downcase!(*args) = __bang__ { downcase(*args) }
+  def capitalize!(*args) = __bang__ { capitalize(*args) }
 
   def reverse!
     __check_frozen__
@@ -351,15 +333,8 @@ class String
     changed ? self : nil
   end
 
-  def squeeze!(*args)
-    __check_frozen__
-    r = squeeze(*args); return nil if r == self; Intrinsics.string_replace(self, r)
-  end
-
-  def delete!(*__native_args__)
-    __check_frozen__
-    r = delete(*__native_args__); return nil if r == self; Intrinsics.string_replace(self, r)
-  end
+  def squeeze!(*args) = __bang__ { squeeze(*args) }
+  def delete!(*args) = __bang__ { delete(*args) }
 
   def casecmp(other)
     begin
@@ -450,10 +425,7 @@ class String
     }.join("").force_encoding(encoding)
   end
 
-  def swapcase!(*args)
-    __check_frozen__
-    r = swapcase(*args); return nil if r == self; Intrinsics.string_replace(self, r)
-  end
+  def swapcase!(*args) = __bang__ { swapcase(*args) }
 
   def reverse
     r = chars.reverse.join("")
@@ -515,10 +487,7 @@ class String
     end
   end
 
-  def tr!(from, to)
-    __check_frozen__
-    r = tr(from, to); return nil if r == self; Intrinsics.string_replace(self, r)
-  end
+  def tr!(from, to) = __bang__ { tr(from, to) }
 
   def [](idx, len = :__unset__)
     len.equal?(:__unset__) ? Intrinsics.string_slice(self, idx) : Intrinsics.string_slice(self, idx, len)
@@ -684,12 +653,7 @@ class String
     Intrinsics.string_tr_s(self, from, to)
   end
 
-  def tr_s!(from, to)
-    __check_frozen__
-    from = __coerce_to_str__(from) unless from.is_a?(String)
-    to = __coerce_to_str__(to) unless to.is_a?(String)
-    r = tr_s(from, to); return nil if r == self; Intrinsics.string_replace(self, r)
-  end
+  def tr_s!(from, to) = __bang__ { tr_s(from, to) }
 
   def grapheme_clusters(&block)
     result = Intrinsics.string_grapheme_clusters(self)
@@ -836,12 +800,7 @@ class String
     start_with?(prefix) ? self[prefix.length..] : dup
   end
 
-  def delete_prefix!(prefix)
-    __check_frozen__
-    prefix = __coerce_to_str__(prefix) unless prefix.is_a?(String)
-    return nil if prefix.empty? || !start_with?(prefix)
-    Intrinsics.string_replace(self, self[prefix.length..])
-  end
+  def delete_prefix!(prefix) = __bang__ { delete_prefix(prefix) }
 
   def delete_suffix(suffix)
     suffix = __coerce_to_str__(suffix) unless suffix.is_a?(String)
@@ -849,12 +808,7 @@ class String
     end_with?(suffix) ? self[0...(length - suffix.length)] : dup
   end
 
-  def delete_suffix!(suffix)
-    __check_frozen__
-    suffix = __coerce_to_str__(suffix) unless suffix.is_a?(String)
-    return nil if suffix.empty? || !end_with?(suffix)
-    Intrinsics.string_replace(self, self[0...(length - suffix.length)])
-  end
+  def delete_suffix!(suffix) = __bang__ { delete_suffix(suffix) }
 
   def scrub!(replacement = nil, &block)
     r = scrub(replacement, &block)
@@ -873,6 +827,15 @@ class String
     bits <= 0 ? total : total % (1 << bits)
   end
   private
+
+  def __str_args__(*args) = args.map { |a| __coerce_to_str__(a) }
+
+  def __bang__
+    __check_frozen__
+    r = yield
+    return nil if r == self
+    Intrinsics.string_replace(self, r)
+  end
 
   # Bytes are already copied by the intrinsic; skip Kernel's frozen check.
   def initialize_copy(source) = self

@@ -17,27 +17,7 @@ module Frozone
         def string_ord(_, v) = n2f_int(v.raw.ord)
         def string_chars(_, v) = n2f_arr(v.raw.chars.map { |p| n2f_str(p) })
 
-        def string_spaceship(context, v1, v2)
-          if fstr?(v2)
-            return n2f_int(v1.raw <=> v2.raw)
-          end
-          # Try to_str coercion
-          if v2.is_a?(ObjectObject)
-            begin
-              coerced = v2.dispatch(context, :to_str, [], {})
-              return n2f_int(v1.raw <=> coerced.raw) if fstr?(coerced)
-            rescue FrozoneException
-            end
-            # Try v2 <=> v1, negate result
-            begin
-              r = v2.dispatch(context, :<=>, [v1], {})
-              return FNIL if fnil?(r)
-              return n2f_int(-r.raw)
-            rescue FrozoneException
-            end
-          end
-          FNIL
-        end
+        def string_spaceship_raw(_, v1, v2) = n2f_int(v1.raw <=> v2.raw)
 
         def string_split(context, v, sep = FNIL, limit = FNIL)
           sep = nil if fnil?(sep)
@@ -217,26 +197,10 @@ module Frozone
           end
         end
 
-        def string_tr(context, v, from, to)
-          from_raw = fstr?(from) ? from.raw : coerce_str_args(context, [from])[0]
-          to_raw   = fstr?(to)   ? to.raw   : coerce_str_args(context, [to])[0]
-          n2f_str(v.raw.tr(from_raw, to_raw))
-        end
-
-        def string_squeeze(context, v, *args)
-          strs = coerce_str_args(context, args)
-          args.empty? ? n2f_str(v.raw.squeeze) : n2f_str(v.raw.squeeze(*strs))
-        end
-
-        def string_count(context, v, *args)
-          strs = coerce_str_args(context, args)
-          n2f_int(v.raw.count(*strs))
-        end
-
-        def string_delete(context, v, *args)
-          strs = coerce_str_args(context, args)
-          n2f_str(v.raw.delete(*strs))
-        end
+        def string_tr_raw(_, v, from, to) = n2f_str(v.raw.tr(from.raw, to.raw))
+        def string_squeeze_raw(_, v, *args) = args.empty? ? n2f_str(v.raw.squeeze) : n2f_str(v.raw.squeeze(*args.map(&:raw)))
+        def string_count_raw(_, v, *args) = n2f_int(v.raw.count(*args.map(&:raw)))
+        def string_delete_raw(_, v, *args) = n2f_str(v.raw.delete(*args.map(&:raw)))
 
         private
 
