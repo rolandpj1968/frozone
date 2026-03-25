@@ -5,6 +5,11 @@ PARSER_FLAVOR = ENV.fetch('PARSER', 'prism')  # prism (default) or wq
 # Internal RSpec suite
 task default: :spec
 
+desc "Run Crystal runtime library specs (crystal/)"
+task :crystal do
+  sh "cd crystal && crystal spec"
+end
+
 desc "Run internal RSpec suite"
 task :spec do
   sh "bundle exec rspec"

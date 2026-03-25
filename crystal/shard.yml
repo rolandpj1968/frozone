@@ -1,0 +1,9 @@
+name: frozone-crystal
+version: 0.1.0
+
+description: |
+  Crystal runtime types for the Frozone Ruby VM compiler backend.
+  Implements Ruby value semantics (RubyString, RubySymbol, RubyInteger, ...)
+  in Crystal as groundwork for compiling Frozone to native code.
+
+license: MIT
