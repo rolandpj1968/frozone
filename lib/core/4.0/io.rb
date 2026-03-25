@@ -5,6 +5,10 @@ class IO
   SEEK_CUR = 1
   SEEK_END = 2
 
+  LONG_MAX     = 9_223_372_036_854_775_807  # 2**63 - 1: max C `long`/`off_t` on 64-bit; guards native long conversions
+  UINT32_UPPER = 4_294_967_296              # 2**32: first value that overflows unsigned 32-bit (file mode bound)
+  INT32_LOWER  = -2_147_483_648            # -(2**31): minimum signed 32-bit value (file mode lower bound)
+
   # A read-only IO-like object backed by a captured string (used by IO.popen block form).
   class CapturedOutput
     def read(len = nil) = len ? @str[0, len] : @str
@@ -117,13 +121,15 @@ class IO
   def pos = Intrinsics.io_pos(self)
   def pos=(p)          = Intrinsics.io_pos_set(self, p)
   def tell = pos
+  def stat = Intrinsics.io_stat(self)
+  def inspect = Intrinsics.io_inspect(self)
+
   def rewind
     Intrinsics.io_rewind(self)
     @lineno = 0
     0
   end
-  def stat = Intrinsics.io_stat(self)
-  def inspect = Intrinsics.io_inspect(self)
+
   def read(len = nil, buf = nil)
     buf = buf.to_str if buf && !buf.is_a?(String) && buf.respond_to?(:to_str)
     Intrinsics.io_read(self, len, buf)
@@ -207,11 +213,14 @@ class IO
   def getc = Intrinsics.io_getc(self)
   def readbyte = Intrinsics.io_readbyte(self)
   def readchar = Intrinsics.io_readchar(self)
+  def sysread(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
+
   def ungetbyte(b)
     return nil if b.nil?
     b = b.to_str unless b.is_a?(String) || b.is_a?(Integer)
     Intrinsics.io_ungetbyte(self, b)
   end
+
   def ungetc(s)
     if s.is_a?(Integer)
       enc = external_encoding || Encoding.default_external || Encoding::UTF_8
@@ -226,7 +235,7 @@ class IO
       raise TypeError, "no implicit conversion of #{s.class} into String"
     end
   end
-  def sysread(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
+
   def syswrite(str)
     begin
       str = str.to_s unless str.is_a?(String)
@@ -236,13 +245,14 @@ class IO
     Intrinsics.io_syswrite(self, str)
   end
 
+  def pread(length, offset, buf = nil) = Intrinsics.io_pread(self, length, offset, buf)
+
   def sysseek(offset, whence = SEEK_SET)
     offset = __coerce_to_int__(offset)
     whence = SEEK_WHENCE_SYMS.fetch(whence) { whence } if whence.is_a?(Symbol)
-    whence = __coerce_to_int__(whence) unless whence.is_a?(Integer)
+    whence = __coerce_to_int__(whence)
     Intrinsics.io_sysseek(self, offset, whence)
   end
-  def pread(length, offset, buf = nil) = Intrinsics.io_pread(self, length, offset, buf)
 
   def pwrite(str, offset)
     begin
@@ -250,7 +260,7 @@ class IO
     rescue NoMethodError
       str.to_s  # re-raises NoMethodError "undefined method 'to_s'" for BasicObject
     end
-    offset = __coerce_to_int__(offset) unless offset.is_a?(Integer)
+    offset = __coerce_to_int__(offset)
     Intrinsics.io_pwrite(self, str, offset)
   end
 
@@ -259,13 +269,13 @@ class IO
   def seek(offset, whence = SEEK_SET)
     offset = __coerce_to_int__(offset)
     whence = SEEK_WHENCE_SYMS.fetch(whence) { __coerce_to_int__(whence) } if whence.is_a?(Symbol)
-    whence = __coerce_to_int__(whence) unless whence.is_a?(Integer)
+    whence = __coerce_to_int__(whence)
     Intrinsics.io_seek(self, offset, whence)
   end
 
-  def read_nonblock(len, buf = nil, exception: true)
-    Intrinsics.io_read_nonblock(self, len, buf, exception)
-  end
+  def read_nonblock(len, buf = nil, exception: true) = Intrinsics.io_read_nonblock(self, len, buf, exception)
+
+  def readpartial(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
 
   def write_nonblock(str, exception: true)
     begin
@@ -276,7 +286,18 @@ class IO
     Intrinsics.io_write_nonblock(self, str, exception)
   end
 
-  def readpartial(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
+  def each(*args, chomp: false, &block) = each_line(*args, chomp: chomp, &block)
+  def atime = Intrinsics.io_atime(self)
+  def mtime = Intrinsics.io_mtime(self)
+  def ctime = Intrinsics.io_ctime(self)
+  def birthtime = Intrinsics.io_birthtime(self)
+  def path = Intrinsics.io_path(self)
+  def to_path = path
+  def to_io = self
+  def size = stat.size
+  def printf(*args) = (write(sprintf(*args)); nil)
+  def flock(lock_op) = Intrinsics.io_flock(self, lock_op)
+  def dup = Intrinsics.io_dup(self)
 
   def each_line(*args, chomp: false, &block)
     return to_enum(:each_line, *args, chomp: chomp) unless block
@@ -330,16 +351,6 @@ class IO
     each_codepoint(&block)
   end
 
-  def each(*args, chomp: false, &block) = each_line(*args, chomp: chomp, &block)
-  def atime = Intrinsics.io_atime(self)
-  def mtime = Intrinsics.io_mtime(self)
-  def ctime = Intrinsics.io_ctime(self)
-  def birthtime = Intrinsics.io_birthtime(self)
-  def path = Intrinsics.io_path(self)
-  def to_path = path
-  def to_io = self
-  def size = stat.size
-  def printf(*args) = (write(sprintf(*args)); nil)
   def putc(c)
     if c.is_a?(String)
       write(c[0] || "")
@@ -352,7 +363,7 @@ class IO
     end
     c
   end
-  def flock(lock_op) = Intrinsics.io_flock(self, lock_op)
+
   def advise(advice, offset = 0, len = 0)
     raise IOError, "closed stream" if closed?
     raise TypeError, "no implicit conversion of #{advice.class} into Symbol" unless advice.is_a?(Symbol)
@@ -366,14 +377,12 @@ class IO
     rescue TypeError, ArgumentError
       raise TypeError, "no implicit conversion of #{len.class} into Integer"
     end
-    max_off_t = 2**63 - 1
-    raise RangeError, "bignum too big to convert into `long long'" if offset.abs > max_off_t
-    raise RangeError, "bignum too big to convert into `long long'" if len.abs > max_off_t
+    raise RangeError, "bignum too big to convert into `long long'" if offset.abs > LONG_MAX
+    raise RangeError, "bignum too big to convert into `long long'" if len.abs > LONG_MAX
     valid = %i[normal sequential random willneed dontneed noreuse]
     raise NotImplementedError, "Unrecognized advice: #{advice}" unless valid.include?(advice)
     nil
   end
-  def dup = Intrinsics.io_dup(self)
 
   def reopen(path_or_io, mode = nil)
     if path_or_io.respond_to?(:to_io)
@@ -387,9 +396,7 @@ class IO
     end
   end
 
-  def self.select(read_array, write_array = nil, error_array = nil, timeout = nil)
-    Intrinsics.io_select(read_array, write_array, error_array, timeout)
-  end
+  def self.select(read_array, write_array = nil, error_array = nil, timeout = nil) = Intrinsics.io_select(read_array, write_array, error_array, timeout)
 
   def self.pipe(ext_enc = nil, int_enc = nil, **opts, &block)
     ext_enc = ext_enc.to_str if ext_enc && !ext_enc.is_a?(String) && !ext_enc.is_a?(Encoding) && ext_enc.respond_to?(:to_str)
@@ -448,8 +455,7 @@ class IO
   end
 
   def self.sysopen(path, mode = 'r', perm = 0666)
-    path = __coerce_to_path__(path)
-    Intrinsics.io_sysopen(path, mode, perm)
+    Intrinsics.io_sysopen(__coerce_to_path__(path), mode, perm)
   end
 
   def initialize(fd, mode_or_opts = nil, **opts)
@@ -463,9 +469,7 @@ class IO
     Intrinsics.io_new_from_fd(fd, mode_or_opts, opts_arg)
   end
 
-  def self.for_fd(fd, mode = nil, **opts, &block)
-    self.new(fd, mode, **opts, &block)
-  end
+  def self.for_fd(fd, mode = nil, **opts, &block) = self.new(fd, mode, **opts, &block)
 
   def self.try_convert(obj)
     begin
@@ -812,7 +816,7 @@ class IO
       else
         raise TypeError, "no implicit conversion of #{mode.class} into Integer"
       end
-    raise RangeError, "bignum too big to convert into 'long'" if mode_int > 2**32 || mode_int < -(2**31)
+    raise RangeError, "bignum too big to convert into 'long'" if mode_int > UINT32_UPPER || mode_int < INT32_LOWER
     Intrinsics.io_chmod(self, mode_int)
   end
 
@@ -835,10 +839,7 @@ class IO
     Encoding.default_external
   end
 
-  def internal_encoding
-    name = Intrinsics.io_internal_encoding(self)
-    name.nil? ? nil : Encoding.find(name)
-  end
+  def internal_encoding = (name = Intrinsics.io_internal_encoding(self); name.nil? ? nil : Encoding.find(name))
 
   def set_encoding(ext_enc, int_enc = nil, **opts)
     unless ext_enc.nil? || ext_enc.is_a?(Encoding) || ext_enc.is_a?(String)

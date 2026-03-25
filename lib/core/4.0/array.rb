@@ -38,22 +38,17 @@ class Array
     end
   end
 
-  def at(i)
-    i = __coerce_to_int__(i)
-    Intrinsics.array_at(self, i)
-  end
-
   ARRAY_MAX_INDEX = (1 << 63)
 
   def <<(v); Intrinsics.array_push(self, v); self; end
   def clear; replace([]); self; end
-  def length = Intrinsics.array_length(self)
+  def length       = Intrinsics.array_length(self)
   alias size length
-  def empty? = length == 0
-  def to_s = Intrinsics.array_to_s(self)
+  def empty?       = length == 0
+  def to_s         = Intrinsics.array_to_s(self)
   alias inspect to_s
-  def to_ary = self
-  def dup = Intrinsics.array_dup(self)
+  def to_ary       = self
+  def dup          = Intrinsics.array_dup(self)
   def clone(freeze: nil) = Intrinsics.array_clone(self, freeze, self.class)
   def pack(fmt, buffer: nil) = Intrinsics.array_pack(self, fmt, buffer)
   def compact;  reject { |x| x.nil? }; end
@@ -61,10 +56,15 @@ class Array
   def reverse!; replace(reverse); self; end
   def sort!(&block); replace(sort(&block)); self; end
   def include?(elem); any? { |x| x == elem }; end
-  def unshift(*elems) = Intrinsics.array_unshift(self, *elems)
+  def unshift(*elems)  = Intrinsics.array_unshift(self, *elems)
   alias prepend unshift
-  def deconstruct = self
+  def deconstruct      = self
   def fetch_values(*indices, &block) = indices.map { |i| fetch(i, &block) }
+
+  def at(i)
+    i = __coerce_to_int__(i)
+    Intrinsics.array_at(self, i)
+  end
 
   def [](i, len = nil)
     if len
@@ -867,7 +867,7 @@ class Array
   end
 
   def intersect?(other)
-    other = __coerce_to_ary__(other) unless other.is_a?(Array)
+    other = __coerce_to_ary__(other)
     set = {}
     other.each { |e| set[e] = true }
     any? { |e| set.key?(e) }

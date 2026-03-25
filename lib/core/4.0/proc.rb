@@ -18,6 +18,7 @@ class Proc
   def eql?(other) = Intrinsics.proc_eql(self, other)
   def hash = Intrinsics.proc_hash(self)
   def ruby2_keywords = Intrinsics.proc_ruby2_keywords(self)
+  def curry(arity = nil) = Intrinsics.proc_curry(self, arity)
 
   def <<(other)
     raise TypeError, "callable object is expected" unless other.respond_to?(:call)
@@ -42,8 +43,6 @@ class Proc
       proc { |*args, **kwargs, &blk| g.call(f.call(*args, **kwargs, &blk)) }
     end
   end
-
-  def curry(arity = nil) = Intrinsics.proc_curry(self, arity)
 
   def binding
     raise ArgumentError, "can't create Binding from curried Proc" if Intrinsics.proc_is_curried(self)

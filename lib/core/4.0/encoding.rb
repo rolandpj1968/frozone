@@ -5,6 +5,10 @@ class Encoding
   def ==(other) = other.is_a?(Encoding) && other.name == @name
   def initialize(name) = @name = name
   alias eql? ==
+  def ascii_compatible? = !NON_ASCII_COMPATIBLE.include?(@name)
+  def dummy? = DUMMY_ENCODINGS.include?(@name)
+  def ascii_only? = @name == "US-ASCII"
+  def replicate(new_name) = Encoding.new(new_name)
 
   def inspect
     if @name == "ASCII-8BIT"
@@ -42,10 +46,6 @@ class Encoding
     UTF-7 CP50220 CP50221 IBM037
   ].freeze
 
-  def ascii_compatible? = !NON_ASCII_COMPATIBLE.include?(@name)
-  def dummy? = DUMMY_ENCODINGS.include?(@name)
-  def ascii_only? = @name == "US-ASCII"
-  def replicate(new_name) = Encoding.new(new_name)
   UTF_8    = new("UTF-8")
   US_ASCII = new("US-ASCII")
   ASCII    = US_ASCII

@@ -12,7 +12,7 @@ module Frozone
         def array_at(_, v, i) = (e = v[i.raw]; e.nil? ? FNIL : e)
         def array_push(_, v, val) = (v.push(val); v)
 
-        ARRAY_MAX_SIZE = 1_073_741_823  # 2**30 - 1; prevents allocation hangs for huge sizes
+        ARRAY_MAX_SIZE = MRI_MAX_SIZE
 
         def array_initialize(context, arr, size_or_array = FNIL, fill = FNIL, block = FNIL)
           size_or_array = nil if fnil?(size_or_array)

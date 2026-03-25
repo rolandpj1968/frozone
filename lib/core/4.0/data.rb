@@ -5,6 +5,7 @@ class Data
   def self.[](*args, **kwargs) = new(*args, **kwargs)
   def members = self.class.members
   def deconstruct = self.class.members.map { |m| @data_values[m] }
+  def hash = [self.class, *self.class.members.map { |m| @data_values[m] }].hash
 
   def self.define(*members, &block)
     syms = members.map do |m|
@@ -151,8 +152,6 @@ class Data
     result
   end
   EQ_GUARD = []
-
-  def hash = [self.class, *self.class.members.map { |m| @data_values[m] }].hash
 
   def ==(other)
     return true if equal?(other)

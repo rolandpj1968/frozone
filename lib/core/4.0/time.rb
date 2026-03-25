@@ -498,6 +498,11 @@ class Time
   def friday? = wday == 5
   def saturday? = wday == 6
   def sunday? = wday == 0
+  def to_a = [sec, min, hour, mday, month, year, wday, yday, dst?, zone]
+  def eql?(other) = other.is_a?(Time) && to_r == other.to_r
+  def instance_variables = super.reject { |iv| iv == :@frozone_timezone }
+  def to_time = self
+  def httpdate = getutc.strftime('%a, %d %b %Y %T GMT')
 
   def -(other)
     return Intrinsics.time_minus(self, other) if other.is_a?(Time)
@@ -600,8 +605,6 @@ class Time
     Intrinsics.time_localtime(t, resolved)
   end
 
-  def to_a = [sec, min, hour, mday, month, year, wday, yday, dst?, zone]
-
   def deconstruct_keys(keys)
     unless keys.nil? || keys.is_a?(Array)
       raise TypeError, "wrong argument type #{keys.class} (expected Array or nil)"
@@ -626,24 +629,11 @@ class Time
     end
   end
 
-  def eql?(other) = other.is_a?(Time) && to_r == other.to_r
-
-  # Hide @frozone_timezone from instance_variables — it is an implementation
-  # detail of Frozone's Time, not a user-visible ivar (MRI stores the zone at
-  # the C level and Time#instance_variables returns []).
-  def instance_variables = super.reject { |iv| iv == :@frozone_timezone }
-
-  # Returns self (instance method added by require 'time').
-  def to_time = self
-
   # Instance method rfc2822 formatter (added by require 'time').
   def rfc2822
     strftime('%a, %d %b %Y %T ') << (utc? ? '-0000' : strftime('%z'))
   end
   alias rfc822 rfc2822
-
-  # Instance method httpdate formatter (added by require 'time').
-  def httpdate = getutc.strftime('%a, %d %b %Y %T GMT')
 
   private
 

@@ -209,6 +209,8 @@ class StringIO
 
   # ── Encoding ───────────────────────────────────────────────────────────
 
+  def binmode? = @binary
+
   def external_encoding
     @external_encoding || @string.encoding
   end
@@ -231,9 +233,11 @@ class StringIO
     self
   end
 
-  def binmode? = @binary
-
   # ── Closing ────────────────────────────────────────────────────────────
+
+  def closed?       = @closed_r && @closed_w
+  def closed_read?  = @closed_r || !@readable
+  def closed_write? = @closed_w || !@writable
 
   def close
     @closed_r = true
@@ -252,10 +256,6 @@ class StringIO
     @closed_w = true
     nil
   end
-
-  def closed?       = @closed_r && @closed_w
-  def closed_read?  = @closed_r || !@readable
-  def closed_write? = @closed_w || !@writable
 
   # ── Reading ────────────────────────────────────────────────────────────
 
@@ -545,6 +545,11 @@ class StringIO
 
   # ── Iteration ─────────────────────────────────────────────────────────
 
+  def bytes      = each_byte.to_a
+  def chars      = each_char.to_a
+  def lines(*args)  = each_line(*args).to_a
+  def codepoints = each_codepoint.to_a
+
   def each_line(sep = $/, limit = nil, chomp: false, &block)
     _check_readable
     return enum_for(:each_line, sep, limit, chomp: chomp) unless block
@@ -584,11 +589,6 @@ class StringIO
     each_char { |ch| block.call(ch.ord) }
     self
   end
-
-  def bytes    = each_byte.to_a
-  def chars    = each_char.to_a
-  def lines(*args)  = each_line(*args).to_a
-  def codepoints    = each_codepoint.to_a
 
   # ── sysread / read_nonblock / readpartial ─────────────────────────────
 

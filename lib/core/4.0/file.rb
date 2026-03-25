@@ -278,7 +278,7 @@ class File < IO
       else
         raise TypeError, "no implicit conversion of #{mode.class} into Integer"
       end
-    raise RangeError, "bignum too big to convert into 'long'" if mode_int > 2**32 || mode_int < -(2**31)
+    raise RangeError, "bignum too big to convert into 'long'" if mode_int > UINT32_UPPER || mode_int < INT32_LOWER
     Intrinsics.file_chmod(mode_int, paths.map { |p| _coerce_path(p) })
   end
 

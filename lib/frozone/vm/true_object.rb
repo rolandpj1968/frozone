@@ -12,6 +12,7 @@ module Frozone
       # Global singleton object
       private_class_method :new
 
+      def raw = true
       def to_s = "true"
       def inspect_for_error = "true"
 

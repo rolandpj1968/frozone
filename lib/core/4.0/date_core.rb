@@ -60,18 +60,27 @@ class Date
     end
   end
 
+  def year  = @year
+  def month = @month
+  def day   = @day
+  alias mon   month
+  alias mday  day
+  def +(n)     = self.class.new(*jd_to_ymd(jd + n.to_i))
+  def succ     = self + 1
+  alias next succ
+  def leap?    = Date.leap?(@year)
+  def to_s     = strftime('%F')
+  def inspect  = "#<Date: #{self} ((#{jd}j,0s,0n),+0s,#{ITALY}j)>"
+  def to_date  = self
+  def to_datetime = DateTime.new(@year, @month, @day)
+  def infinite? = false
+
   def initialize(y = -4712, m = 1, d = 1)
     raise ArgumentError, "invalid date" unless Date.valid_date?(y, m, d)
     @year  = y
     @month = m
     @day   = d
   end
-
-  def year  = @year
-  def month = @month
-  def day   = @day
-  alias mon   month
-  alias mday  day
 
   def jd
     # Gregorian to Julian Day Number
@@ -81,7 +90,6 @@ class Date
     @day + (153 * m + 2) / 5 + 365 * y + y / 4 - y / 100 + y / 400 - 32045
   end
 
-  def +(n)    = self.class.new(*jd_to_ymd(jd + n.to_i))
   def -(other)
     case other
     when Date then jd - other.jd
@@ -94,11 +102,6 @@ class Date
     return nil unless other.is_a?(Date)
     jd <=> other.jd
   end
-
-  def succ = self + 1
-  alias next succ
-
-  def leap? = Date.leap?(@year)
 
   def wday
     (jd + 1) % 7
@@ -126,13 +129,6 @@ class Date
       end
     end
   end
-
-  def to_s = strftime('%F')
-  def inspect = "#<Date: #{self} ((#{jd}j,0s,0n),+0s,#{ITALY}j)>"
-  def to_date = self
-  def to_datetime = DateTime.new(@year, @month, @day)
-
-  def infinite? = false
 
   private
 
@@ -165,6 +161,16 @@ class DateTime < Date
     end
   end
 
+  def hour    = @hour
+  def min     = @minute
+  def sec     = @second
+  def offset  = @offset
+  def zone    = '+00:00'
+  def to_date = Date.new(@year, @month, @day)
+  def to_datetime = self
+  def to_s    = strftime('%FT%T%:z')
+  def inspect = "#<DateTime: #{self}>"
+
   def initialize(y = -4712, m = 1, d = 1, h = 0, min = 0, s = 0, offset = 0)
     super(y, m, d)
     @hour   = h
@@ -172,15 +178,6 @@ class DateTime < Date
     @second = s
     @offset = offset
   end
-
-  def hour   = @hour
-  def min    = @minute
-  def sec    = @second
-  def offset = @offset
-  def zone   = '+00:00'
-
-  def to_date     = Date.new(@year, @month, @day)
-  def to_datetime = self
 
   def strftime(fmt = '%FT%T%:z')
     super(fmt)
@@ -191,6 +188,4 @@ class DateTime < Date
       .gsub('%:z', '+00:00')
   end
 
-  def to_s = strftime('%FT%T%:z')
-  def inspect = "#<DateTime: #{self}>"
 end

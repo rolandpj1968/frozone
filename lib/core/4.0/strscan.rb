@@ -6,6 +6,20 @@ class StringScanner
 
   attr_reader :string
 
+  def pos = @pos
+  alias charpos pos
+  def eos?       = @pos >= @string.bytesize
+  def rest       = @string[@pos..]
+  def rest?      = !eos?
+  def rest_size  = @string.bytesize - @pos
+  alias restsize rest_size
+  def peek(n)    = @string[@pos, n] || ''
+  def matched?   = !@matched.nil?
+  def matched    = @matched
+  def matchedsize = @matched ? @matched.length : nil
+  alias matched_size matchedsize
+  def to_s = inspect
+
   def initialize(str, fixed_anchor: false)
     @string       = str.to_s.dup
     @pos          = 0
@@ -21,9 +35,6 @@ class StringScanner
     @match_data = nil
     @string
   end
-
-  def pos = @pos
-  alias charpos pos
 
   def pos=(n)
     n = @string.length + n if n < 0
@@ -46,15 +57,6 @@ class StringScanner
     self
   end
   alias clear terminate
-
-  def eos?   = @pos >= @string.bytesize
-  def rest   = @string[@pos..]
-  def rest?  = !eos?
-
-  def rest_size = @string.bytesize - @pos
-  alias restsize rest_size
-
-  def peek(n) = @string[@pos, n] || ''
 
   # Scan for pattern at current position. Advances pos on match.
   def scan(pattern)
@@ -99,11 +101,6 @@ class StringScanner
   def scan_full(pattern, advance, return_str)
     _match(pattern, advance: advance, return_str: return_str)
   end
-
-  def matched?   = !@matched.nil?
-  def matched    = @matched
-  def matchedsize = @matched ? @matched.length : nil
-  alias matched_size matchedsize
 
   def pre_match
     return nil unless @match_data
@@ -172,8 +169,6 @@ class StringScanner
       "#<StringScanner #{@pos}/#{@string.bytesize} @ #{before.inspect}...>"
     end
   end
-
-  def to_s = inspect
 
   private
 

@@ -3,6 +3,14 @@
 module Frozone
   module Vm
     module Intrinsics
+      # Max value of a C `long` on 64-bit — guards conversions from Frozone Integer to native long.
+      LONG_MAX     = 2**63 - 1
+      # MRI's maximum string/array allocation size — prevents hangs for pathological inputs.
+      MRI_MAX_SIZE = 2**30 - 1
+      # Bounds used when checking if a value fits in a C `unsigned int` (e.g. file mode).
+      UINT32_UPPER = 2**32     # first value that overflows unsigned 32-bit
+      INT32_LOWER  = -(2**31)  # minimum signed 32-bit value
+
       class << self
         def frozone_class_name(obj) = obj.is_a?(ObjectObject) ? (obj.class_object&.name || "Object") : obj.class.name
 

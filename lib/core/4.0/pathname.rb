@@ -45,6 +45,8 @@ class Pathname
   def entries = Dir.entries(@path).map { |e| Pathname.new(e) }
   def each_child(with_directory = true, &block) = children(with_directory).each(&block)
   def sub(pattern, replacement = nil, &block) = replacement ? Pathname.new(@path.sub(pattern, replacement)) : Pathname.new(@path.sub(pattern, &block))
+  def /(other) = self + other
+  def parent = self + '..'
 
   def initialize(path)
     path = path.to_path if !path.is_a?(Pathname) && !path.is_a?(String) && path.respond_to?(:to_path)
@@ -85,10 +87,6 @@ class Pathname
     return other if other.absolute?
     Pathname.new(File.join(@path, other.to_s)).cleanpath
   end
-
-  def /(other) = self + other
-
-  def parent = self + '..'
 
   def join(*args)
     return self if args.empty?

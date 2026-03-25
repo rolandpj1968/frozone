@@ -51,7 +51,7 @@ module Enumerable
   end
 
   def __coerce_count__(n, method_name)
-    n = __coerce_to_int__(n) unless n.is_a?(Integer)
+    n = __coerce_to_int__(n)
     raise RangeError, "#{method_name}: integer #{n} too big to convert into `long'" if n > 2**62
     raise ArgumentError, "#{method_name}: negative length (#{n})" if n < 0
     n
@@ -550,7 +550,7 @@ module Enumerable
   end
 
   def drop(n)
-    n = __coerce_to_int__(n) unless n.is_a?(Integer)
+    n = __coerce_to_int__(n)
     raise ArgumentError, "attempt to drop negative size" if n < 0
     r = []; i = 0
     each { |*x| v = __unpack_enum_args__(x); i < n ? (i += 1) : (r << v) }

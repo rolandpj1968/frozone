@@ -27,6 +27,20 @@ class Range
   def drop(n) = to_a.drop(n)
   def entries = to_a
   def hash = [self.begin, self.end, self.exclude_end?].hash
+  def each_with_index; i = 0; each { |x| yield x, i; i += 1 }; self; end
+  def map;    r = []; each { |x| r << yield(x) };      r; end
+  def select; r = []; each { |x| r << x if yield(x) }; r; end
+  def any? = (each { |x| return true  if yield(x) }; false)
+  def all? = (each { |x| return false unless yield(x) }; true)
+  def none? = (each { |x| return false if yield(x) }; true)
+  def find(&block); each { |x| return x if yield(x) }; nil; end
+  alias detect find
+  def sum(init = 0); inject(init) { |a, x| a + x }; end
+  def flat_map(&block); map(&block).flatten(1); end
+  alias collect_concat flat_map
+  def sort_by(&block); to_a.sort_by(&block); end
+  def min_by(&block); to_a.min_by(&block); end
+  def max_by(&block); to_a.max_by(&block); end
 
   def each(&block)
     return to_enum(:each) { size } unless block
@@ -230,21 +244,6 @@ class Range
     each { |x| s.add(block ? block.call(x) : x) }
     s
   end
-
-  def each_with_index; i = 0; each { |x| yield x, i; i += 1 }; self; end
-  def map;    r = []; each { |x| r << yield(x) };      r; end
-  def select; r = []; each { |x| r << x if yield(x) }; r; end
-  def any? = (each { |x| return true  if yield(x) }; false)
-  def all? = (each { |x| return false unless yield(x) }; true)
-  def none? = (each { |x| return false if yield(x) }; true)
-  def find(&block); each { |x| return x if yield(x) }; nil; end
-  alias detect find
-  def sum(init = 0); inject(init) { |a, x| a + x }; end
-  def flat_map(&block); map(&block).flatten(1); end
-  alias collect_concat flat_map
-  def sort_by(&block); to_a.sort_by(&block); end
-  def min_by(&block); to_a.min_by(&block); end
-  def max_by(&block); to_a.max_by(&block); end
 
   def to_s
     b = self.begin; e = self.end; sep = exclude_end? ? '...' : '..'

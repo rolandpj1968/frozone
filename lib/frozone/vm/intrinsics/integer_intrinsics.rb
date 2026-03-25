@@ -13,24 +13,20 @@ module Frozone
         def integer_bitnot(_, v) = n2f_int(~v.raw)
         def integer_bit(_, v, n) = n2f_int(v.raw[n.raw])
         def integer_bit_length(_, v) = n2f_int(v.raw.bit_length)
-        def integer__lt_(_, v1, v2) = n2f_bool(v1.raw <  integer_raw(v2))
-        def integer__le_(_, v1, v2) = n2f_bool(v1.raw <= integer_raw(v2))
-        def integer__ge_(_, v1, v2) = n2f_bool(v1.raw >= integer_raw(v2))
-        def integer__gt_(_, v1, v2) = n2f_bool(v1.raw >  integer_raw(v2))
-        def integer__eq_(_, v1, v2) = n2f_bool(v1.raw == (fint?(v2) || ffloat?(v2) ? v2.raw : nil))
-        def integer__plus_(_, v1, v2) = numeric_wrap(v1.raw + integer_raw(v2))
-        def integer__minus_(_, v1, v2) = numeric_wrap(v1.raw - integer_raw(v2))
-        def integer__mul_(_, v1, v2) = numeric_wrap(v1.raw * integer_raw(v2))
-        def integer__div_(_, v1, v2) = numeric_wrap(v1.raw / integer_raw(v2))
-        def integer__mod_(_, v1, v2) = numeric_wrap(v1.raw % integer_raw(v2))
-        def integer__pow_(_, v1, v2) = numeric_wrap(v1.raw**integer_raw(v2))
+        def integer__lt_(_, v1, v2) = n2f_bool(v1.raw <  v2.raw)
+        def integer__le_(_, v1, v2) = n2f_bool(v1.raw <= v2.raw)
+        def integer__ge_(_, v1, v2) = n2f_bool(v1.raw >= v2.raw)
+        def integer__gt_(_, v1, v2) = n2f_bool(v1.raw >  v2.raw)
+        def integer__eq_(_, v1, v2) = n2f_bool(v1.raw == v2.raw)
+        def integer__plus_(_, v1, v2) = numeric_wrap(v1.raw + v2.raw)
+        def integer__minus_(_, v1, v2) = numeric_wrap(v1.raw - v2.raw)
+        def integer__mul_(_, v1, v2) = numeric_wrap(v1.raw * v2.raw)
+        def integer__div_(_, v1, v2) = numeric_wrap(v1.raw / v2.raw)
+        def integer__mod_(_, v1, v2) = numeric_wrap(v1.raw % v2.raw)
+        def integer__pow_(_, v1, v2) = numeric_wrap(v1.raw**v2.raw)
         def integer_to_f(_, v) = n2f_float(v.raw.to_f)
 
-        def integer_spaceship(_, v1, v2)
-          return FNIL unless fint?(v2) || ffloat?(v2)
-          result = v1.raw <=> v2.raw
-          result.nil? ? FNIL : n2f_int(result)
-        end
+        def integer_spaceship(_, v1, v2) = (r = v1.raw <=> v2.raw) ? n2f_int(r) : FNIL
 
         def integer_fdiv(context, v, n)
           n_val = fint?(n) ? n.raw : ffloat?(n) ? n.raw : nil
@@ -98,14 +94,6 @@ module Frozone
           else
             n2f_int(n >> m)
           end
-        end
-
-        # integer_raw: get numeric raw value for integer arithmetic — accepts
-        # both Integer and Float arguments (e.g. 5 < 5.5, 5 + 1.0). For objects
-        # that implement to_int via dispatch, use coerce_to_int(context, v) instead.
-        def integer_raw(v)
-          return v.raw if fint?(v) || ffloat?(v)
-          raise FrozoneException.make(:TypeError, "#{v.is_a?(ObjectObject) ? (v.class_object&.name || 'Object') : v.class} can't be coerced into Integer")
         end
 
         def numeric_wrap(result)

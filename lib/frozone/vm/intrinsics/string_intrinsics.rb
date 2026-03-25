@@ -695,9 +695,9 @@ module Frozone
         def string_multiply(_, v, n)
           count = fint?(n) ? n.raw : (fobj?(n) ? n.raw.to_i : n.to_i)
           raise FrozoneException.make(:ArgumentError, "negative string size (or exceeds maximum allowed string size)") if count < 0
-          raise FrozoneException.make(:RangeError, "bignum too big to convert into 'long'") if count > 9_223_372_036_854_775_807
+          raise FrozoneException.make(:RangeError, "bignum too big to convert into 'long'") if count > LONG_MAX
           str = v.raw
-          raise FrozoneException.make(:ArgumentError, "argument exceeds the limit") if !str.empty? && count > 1_073_741_823
+          raise FrozoneException.make(:ArgumentError, "argument exceeds the limit") if !str.empty? && count > MRI_MAX_SIZE
           n2f_str(str * count)
         end
 

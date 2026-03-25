@@ -9,6 +9,9 @@ class Thread
   def self.abort_on_exception = (defined?(@@abort_on_exception) ? @@abort_on_exception : false)
   def self.handle_interrupt(_config, &block); block.call; end
   def self.pending_interrupt?(_exc = nil) = false
+  def self.ignore_deadlock=(val); @@ignore_deadlock = !!val; end
+  def self.ignore_deadlock = (defined?(@@ignore_deadlock) ? @@ignore_deadlock : false)
+  def self.exit = Thread.current.kill
 
   def self.each_caller_location(&block)
     raise LocalJumpError, "no block given" unless block
@@ -16,10 +19,6 @@ class Thread
     locs.each { |loc| block.call(loc) }
     nil
   end
-
-  def self.ignore_deadlock=(val); @@ignore_deadlock = !!val; end
-  def self.ignore_deadlock = (defined?(@@ignore_deadlock) ? @@ignore_deadlock : false)
-  def self.exit = Thread.current.kill
   @@pending              = []
   @@all                  = []
   @@main                 = nil
@@ -107,6 +106,12 @@ class Thread
     nil
   end
 
+  # Returns true if the thread is currently in the pending queue (blocked/waiting).
+  def self.__pending_include?(t) = @@pending.include?(t)
+
+  # Returns number of threads in the pending queue.
+  def self.__pending_size = @@pending.size
+
   def self.__run_next_pending
     if @@pending.empty?
       if @@run_depth > 0
@@ -119,12 +124,6 @@ class Thread
     t.__run_block
     t
   end
-
-  # Returns true if the thread is currently in the pending queue (blocked/waiting).
-  def self.__pending_include?(t) = @@pending.include?(t)
-
-  # Returns number of threads in the pending queue.
-  def self.__pending_size = @@pending.size
 
   # Thread.stop puts the current thread to sleep until woken by #run or #wakeup.
   # Uses @wakeup_count (total wakeups received) and @stop_seen (Thread.stop calls
@@ -350,6 +349,15 @@ class Thread
     self
   end
 
+  def priority = (@priority || 0)
+  def native_thread_id = alive? ? object_id : nil
+  def name                = @name
+  def group               = @group
+  def __set_group(g)      = (@group = g)
+  def pending_interrupt?(exc = nil) = false
+  def add_trace_func(f)   = f
+  def set_trace_func(f)   = f
+
   def backtrace(start_or_range = 0, length = nil)
     return nil if @done
     return [] unless equal?(Thread.current)
@@ -376,8 +384,6 @@ class Thread
     end
   end
 
-  def priority = (@priority || 0)
-
   def priority=(v)
     unless v.is_a?(Integer)
       v = v.to_int if v.respond_to?(:to_int)
@@ -387,19 +393,12 @@ class Thread
     v
   end
 
-  def native_thread_id = alive? ? object_id : nil
-  def name                = @name
   def name=(v)
     return @name = nil if v.nil?
     s = v.to_str
     Kernel.raise ArgumentError, "string contains null byte" if s.include?("\0")
     @name = s
   end
-  def group               = @group
-  def __set_group(g)      = (@group = g)
-  def pending_interrupt?(exc = nil) = false
-  def add_trace_func(f)   = f
-  def set_trace_func(f)   = f
 
   def inspect
     id_str = ('0x%016x' % (__id__ * 2))

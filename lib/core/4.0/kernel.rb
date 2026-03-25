@@ -55,13 +55,14 @@ module Kernel
   def select(read_ios, write_ios = nil, error_ios = nil, timeout = nil) = IO.select(read_ios, write_ios, error_ios, timeout)
   def exit(code = true)  = __kernel_exit__(code)
   def exit!(code = false) = __kernel_exit__(code)
+  def to_enum(method_name = :each, *args, **kwargs, &size_block) = Enumerator._from_method(self, method_name, args, size_block, kwargs)
+  alias enum_for to_enum
+
   def srand(*args)
     raise TypeError, "no implicit conversion of nil into Integer" if args.size == 1 && args[0].nil?
     seed = args.empty? ? nil : __coerce_to_int__(args[0])
     Intrinsics.kernel_srand(self, seed)
   end
-  def to_enum(method_name = :each, *args, **kwargs, &size_block) = Enumerator._from_method(self, method_name, args, size_block, kwargs)
-  alias enum_for to_enum
 
   def warn(*args, category: nil, uplevel: nil)
     return nil if $VERBOSE.nil? || args.empty?

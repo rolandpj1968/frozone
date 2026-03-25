@@ -603,7 +603,7 @@ module Frozone
         def io_chmod(_, receiver, mode_obj)
           return n2f_int(0) unless fio?(receiver)
           mode = fint?(mode_obj) ? mode_obj.raw : mode_obj.raw.to_i
-          raise FrozoneException.make(:RangeError, "bignum too big to convert into 'long'") if mode > 2**32 || mode < -(2**31)
+          raise FrozoneException.make(:RangeError, "bignum too big to convert into 'long'") if mode > UINT32_UPPER || mode < INT32_LOWER
           reraise(::RangeError, ::Errno::EBADF) do
             receiver.native_io.chmod(mode)
             n2f_int(0)

@@ -1,4 +1,5 @@
 class Integer
+  ROUND_NDIGITS_MAX = 1_073_741_824  # 2**30: MRI raises RangeError for round(ndigits) above this magnitude
   def succ = self + 1
   alias next succ
   def pred = self - 1
@@ -34,62 +35,18 @@ class Integer
   def rationalize(eps = nil) = Rational(self, 1)
   def between?(min, max) = self >= min && self <= max
 
-  def < (v)
-    return Intrinsics.integer__lt_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    __coerce_and_compare__(v, :<)
-  end
+  def <(v)   = v.is_a?(Integer) ? Intrinsics.integer__lt_(self, v) : __coerce_and_compare__(v, :<)
+  def <=(v)  = v.is_a?(Integer) ? Intrinsics.integer__le_(self, v) : __coerce_and_compare__(v, :<=)
+  def >=(v)  = v.is_a?(Integer) ? Intrinsics.integer__ge_(self, v) : __coerce_and_compare__(v, :>=)
+  def >(v)   = v.is_a?(Integer) ? Intrinsics.integer__gt_(self, v) : __coerce_and_compare__(v, :>)
+  def ==(v)  = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : (v == self rescue false)
+  def ===(v) = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : (v == self rescue false)
 
-  def <=(v)
-    return Intrinsics.integer__le_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    __coerce_and_compare__(v, :<=)
-  end
-
-  def >=(v)
-    return Intrinsics.integer__ge_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    __coerce_and_compare__(v, :>=)
-  end
-
-  def > (v)
-    return Intrinsics.integer__gt_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    __coerce_and_compare__(v, :>)
-  end
-
-  def ==(v)
-    return Intrinsics.integer__eq_(self, v) if v.is_a?(Integer)
-    r = begin; v == self; rescue; false; end
-    r ? true : false
-  end
-
-  def ===(v)
-    return Intrinsics.integer__eq_(self, v) if v.is_a?(Integer)
-    r = begin; v == self; rescue; false; end
-    r ? true : false
-  end
-
-  def +(v)
-    return Intrinsics.integer__plus_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    __coerce_op__(v, :+)
-  end
-
-  def -(v)
-    return Intrinsics.integer__minus_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    __coerce_op__(v, :-)
-  end
-
-  def *(v)
-    return Intrinsics.integer__mul_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    __coerce_op__(v, :*)
-  end
-
-  def /(v)
-    return Intrinsics.integer__div_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    __coerce_op__(v, :/)
-  end
-
-  def %(v)
-    return Intrinsics.integer__mod_(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    __coerce_op__(v, :%)
-  end
+  def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(self, v)  : __coerce_op__(v, :+)
+  def -(v) = v.is_a?(Integer) ? Intrinsics.integer__minus_(self, v) : __coerce_op__(v, :-)
+  def *(v) = v.is_a?(Integer) ? Intrinsics.integer__mul_(self, v)   : __coerce_op__(v, :*)
+  def /(v) = v.is_a?(Integer) ? Intrinsics.integer__div_(self, v)   : __coerce_op__(v, :/)
+  def %(v) = v.is_a?(Integer) ? Intrinsics.integer__mod_(self, v)   : __coerce_op__(v, :%)
   alias modulo %
 
   def **(v)
@@ -98,65 +55,36 @@ class Integer
       return Intrinsics.integer__pow_(self, v)
     end
     if v.is_a?(Float)
-      # Negative base with fractional exponent returns Complex
+      # Negative base with fractional exponent → Complex
       if self < 0 && v != v.floor
-        r = (-self).to_f ** v
+        r     = (-self).to_f ** v
         theta = Math::PI * v
         return Complex(r * Math.cos(theta), r * Math.sin(theta))
       end
-      return Intrinsics.integer__pow_(self, v)
+      return to_f ** v
     end
     raise ZeroDivisionError, "divided by 0" if self == 0 && v.respond_to?(:negative?) && v.negative?
     __coerce_op__(v, :**)
   end
 
   def <=>(v)
-    return Intrinsics.integer_spaceship(self, v) if v.is_a?(Integer) || v.is_a?(Float)
-    return nil unless v.respond_to?(:coerce)
-    begin
-      a, b = v.coerce(self)
-    rescue TypeError, NoMethodError
-      return nil
-    end
-    a <=> b
+    return Intrinsics.integer_spaceship(self, v) if v.is_a?(Integer)
+    v.coerce(self).then { |a, b| a <=> b } rescue nil
   end
 
-  def times
-    unless block_given?
-      n = self
-      return Enumerator.new(n) { |y| i = 0; while i < n; y.yield(i); i += 1; end }
-    end
-    i = 0; while i < self; yield i; i += 1; end; self
+  def times(&block)
+    return Enumerator.new(self) { |y| i = 0; while i < self; y.yield(i); i += 1; end } unless block
+    i = 0; while i < self; block.call(i); i += 1; end; self
   end
 
-  def upto(n)
-    unless block_given?
-      s = self
-      sz_proc = -> {
-        begin
-          n >= s ? n - s + 1 : 0
-        rescue NoMethodError
-          raise ArgumentError, "comparison of #{n.class} with #{s.class} failed"
-        end
-      }
-      return Enumerator.new(sz_proc) { |y| i = s; while i <= n; y.yield(i); i += 1; end }
-    end
-    i = self; while i <= n; yield i; i += 1; end; self
+  def upto(n, &block)
+    return __step_enum__(n, 1) { |s| n >= s ? n - s + 1 : 0 } unless block
+    i = self; while i <= n; block.call(i); i += 1; end; self
   end
 
-  def downto(n)
-    unless block_given?
-      s = self
-      sz_proc = -> {
-        begin
-          s >= n ? s - n + 1 : 0
-        rescue NoMethodError
-          raise ArgumentError, "comparison of #{n.class} with #{s.class} failed"
-        end
-      }
-      return Enumerator.new(sz_proc) { |y| i = s; while i >= n; y.yield(i); i -= 1; end }
-    end
-    i = self; while i >= n; yield i; i -= 1; end; self
+  def downto(n, &block)
+    return __step_enum__(n, -1) { |s| s >= n ? s - n + 1 : 0 } unless block
+    i = self; while i >= n; block.call(i); i -= 1; end; self
   end
 
   def chr(enc = nil)
@@ -203,7 +131,7 @@ class Integer
         raise TypeError, "no implicit conversion of #{n.class} into Integer"
       end
     end
-    raise RangeError, "integer #{n} too big to convert to `int'" if n > 2**30 || n < -(2**30)
+    raise RangeError, "integer #{n} too big to convert to `int'" if n > ROUND_NDIGITS_MAX || n < -ROUND_NDIGITS_MAX
     raise ArgumentError, "invalid rounding mode: #{half}" unless [nil, :up, :down, :even].include?(half)
     return self if n >= 0
     factor = 10 ** (-n)
@@ -483,6 +411,12 @@ class Integer
       raise TypeError, "#{v.class} can't be coerced into Integer"
     end
     a.send(op, b)
+  end
+
+  def __step_enum__(n, step, &sz)
+    s = self
+    sz_proc = -> { sz.call(s) rescue raise ArgumentError, "comparison of #{n.class} with #{s.class} failed" }
+    Enumerator.new(sz_proc) { |y| i = s; while step > 0 ? i <= n : i >= n; y.yield(i); i += step; end }
   end
 
   def __coerce_and_compare__(other, op)

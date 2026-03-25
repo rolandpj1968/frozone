@@ -59,12 +59,13 @@ class Struct
   # Struct#initialize is on the base class so subclasses can override it
   # and call super (matching MRI semantics).
   def self.members = []
-  def members = self.class.members || []
-  def to_a = members.map { |m| @struct_values&.fetch(m, nil) }
-  def values = to_a
-  def size = members.size
+  def members      = self.class.members || []
+  def to_a         = members.map { |m| @struct_values&.fetch(m, nil) }
+  def values       = to_a
+  def size         = members.size
   alias length size
   def instance_variables = super.reject { |v| v == :@struct_values }
+  def respond_to_missing?(name, include_private = false) = members.include?(name) || members.include?(name.to_s.sub(/=$/, '').to_sym)
 
   def initialize(*args, **kwargs)
     mems = self.class.members || []
@@ -291,5 +292,4 @@ class Struct
     super
   end
 
-  def respond_to_missing?(name, include_private = false) = members.include?(name) || members.include?(name.to_s.sub(/=$/, '').to_sym)
 end

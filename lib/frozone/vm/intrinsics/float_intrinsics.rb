@@ -8,10 +8,10 @@ module Frozone
         def float_hash(_, v) = n2f_int(v.raw.hash)
         def float_to_s(_, v) = n2f_str(v.raw.inspect)
         def float_to_r(_, v) = make_rational(v.raw.to_r)
-        def float__lt_(_, v1, v2) = ffloat?(v2) || fint?(v2) ? n2f_bool(v1.raw <  v2.raw) : FFALSE
-        def float__le_(_, v1, v2) = ffloat?(v2) || fint?(v2) ? n2f_bool(v1.raw <= v2.raw) : FFALSE
-        def float__ge_(_, v1, v2) = ffloat?(v2) || fint?(v2) ? n2f_bool(v1.raw >= v2.raw) : FFALSE
-        def float__gt_(_, v1, v2) = ffloat?(v2) || fint?(v2) ? n2f_bool(v1.raw >  v2.raw) : FFALSE
+        def float__lt_(_, v1, v2) = n2f_bool(v1.raw <  v2.raw)
+        def float__le_(_, v1, v2) = n2f_bool(v1.raw <= v2.raw)
+        def float__ge_(_, v1, v2) = n2f_bool(v1.raw >= v2.raw)
+        def float__gt_(_, v1, v2) = n2f_bool(v1.raw >  v2.raw)
         def float__plus_(_, v1, v2) = n2f_float(v1.raw + v2.raw)
         def float__minus_(_, v1, v2) = n2f_float(v1.raw - v2.raw)
         def float__mul_(_, v1, v2) = n2f_float(v1.raw * v2.raw)
@@ -25,16 +25,8 @@ module Frozone
         def float_next_float(_, v) = n2f_float(v.raw.next_float)
         def float_prev_float(_, v) = n2f_float(v.raw.prev_float)
 
-        def float_eq(_, v1, v2)
-          return n2f_bool(false) unless ffloat?(v2) || fint?(v2)
-          n2f_bool(v1.raw == v2.raw)
-        end
-
-        def float_spaceship(_, v1, v2)
-          return FNIL unless ffloat?(v2) || fint?(v2)
-          r = v1.raw <=> v2.raw
-          r ? n2f_int(r) : FNIL
-        end
+        def float_eq(_, v1, v2) = n2f_bool(v1.raw == v2.raw)
+        def float_spaceship(_, v1, v2) = (r = v1.raw <=> v2.raw) ? n2f_int(r) : FNIL
 
         def float_ceil(_, v, n = FNIL)
           n_raw = f2n_raw(n)

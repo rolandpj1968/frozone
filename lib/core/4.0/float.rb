@@ -34,94 +34,45 @@ class Float
   def +@ = self
   def self.new(*) = raise(NoMethodError, "undefined method 'new' for class Float")
   def self.allocate = raise(TypeError, "allocator undefined for Float")
+  def ===      (other) = self == other
+  def divmod(v)        = Intrinsics.float_divmod(self, v)
+  def div(v)           = (self / v).floor
+  def remainder(n)     = Intrinsics.float_remainder(self, n)
+  def rationalize(eps = nil) = Intrinsics.float_rationalize(self, eps)
+  def between?(min, max) = min <= self && self <= max
+  def next_float       = Intrinsics.float_next_float(self)
+  def prev_float       = Intrinsics.float_prev_float(self)
+
   # Arithmetic with coerce support; missing coerce (NoMethodError) raises TypeError
-  def +(other)
-    return Intrinsics.float__plus_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    begin; a, b = other.coerce(self); rescue NoMethodError; raise TypeError, "#{other.class} can't be coerced into Float"; end
-    a + b
-  end
-
-  def -(other)
-    return Intrinsics.float__minus_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    begin; a, b = other.coerce(self); rescue NoMethodError; raise TypeError, "#{other.class} can't be coerced into Float"; end
-    a - b
-  end
-
-  def *(other)
-    return Intrinsics.float__mul_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    begin; a, b = other.coerce(self); rescue NoMethodError; raise TypeError, "#{other.class} can't be coerced into Float"; end
-    a * b
-  end
-
-  def /(other)
-    return Intrinsics.float__div_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    begin; a, b = other.coerce(self); rescue NoMethodError; raise TypeError, "#{other.class} can't be coerced into Float"; end
-    a / b
-  end
-
-  def %(other)
-    return Intrinsics.float__mod_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    begin; a, b = other.coerce(self); rescue NoMethodError; raise TypeError, "#{other.class} can't be coerced into Float"; end
-    a % b
-  end
+  def +(other) = other.is_a?(Float) ? Intrinsics.float__plus_(self, other)  : __coerce_op__(other, :+)
+  def -(other) = other.is_a?(Float) ? Intrinsics.float__minus_(self, other) : __coerce_op__(other, :-)
+  def *(other) = other.is_a?(Float) ? Intrinsics.float__mul_(self, other)   : __coerce_op__(other, :*)
+  def /(other) = other.is_a?(Float) ? Intrinsics.float__div_(self, other)   : __coerce_op__(other, :/)
+  def %(other) = other.is_a?(Float) ? Intrinsics.float__mod_(self, other)   : __coerce_op__(other, :%)
   alias modulo %
 
   def **(other)
-    if other.is_a?(Float) || other.is_a?(Integer)
-      # Negative base with fractional exponent returns Complex
-      if self < 0 && other.is_a?(Float) && other != other.floor
+    if other.is_a?(Float)
+      # Negative base with fractional exponent → Complex
+      if self < 0 && other != other.floor
         r = abs ** other
         theta = Math::PI * other
         return Complex(r * Math.cos(theta), r * Math.sin(theta))
       end
       return Intrinsics.float__pow_(self, other)
     end
-    begin; a, b = other.coerce(self); rescue NoMethodError; raise TypeError, "#{other.class} can't be coerced into Float"; end
-    a ** b
+    __coerce_op__(other, :**)
   end
   # Comparison with coerce; no coerce or TypeError from coerce raises ArgumentError
-  def <(other)
-    return Intrinsics.float__lt_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    __coerce_and_compare__(other, :<)
-  end
-
-  def <=(other)
-    return Intrinsics.float__le_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    __coerce_and_compare__(other, :<=)
-  end
-
-  def >=(other)
-    return Intrinsics.float__ge_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    __coerce_and_compare__(other, :>=)
-  end
-
-  def >(other)
-    return Intrinsics.float__gt_(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    __coerce_and_compare__(other, :>)
-  end
+  def <(other)   = other.is_a?(Float) ? Intrinsics.float__lt_(self, other) : __coerce_and_compare__(other, :<)
+  def <=(other)  = other.is_a?(Float) ? Intrinsics.float__le_(self, other) : __coerce_and_compare__(other, :<=)
+  def >=(other)  = other.is_a?(Float) ? Intrinsics.float__ge_(self, other) : __coerce_and_compare__(other, :>=)
+  def >(other)   = other.is_a?(Float) ? Intrinsics.float__gt_(self, other) : __coerce_and_compare__(other, :>)
   # == calls other == self if coercion fails (TypeError/NoMethodError rescue)
-  def ===(other) = self == other
-
-  def ==(other)
-    return Intrinsics.float_eq(self, other) if other.is_a?(Float) || other.is_a?(Integer)
-    begin
-      a, b = other.coerce(self)
-      a == b
-    rescue TypeError, NoMethodError
-      other == self
-    end
-  end
+  def ==(other)  = other.is_a?(Float) ? Intrinsics.float_eq(self, other) : (other.coerce(self).then { |a, b| a == b } rescue other == self)
   # <=> with infinite? protocol and TypeError for bad coerce return
-  def divmod(v) = Intrinsics.float_divmod(self, v)
-  def div(v) = (self / v).floor
-  def remainder(n) = Intrinsics.float_remainder(self, n)
-  def rationalize(eps = nil) = Intrinsics.float_rationalize(self, eps)
-  def between?(min, max) = min <= self && self <= max
-  def next_float = Intrinsics.float_next_float(self)
-  def prev_float = Intrinsics.float_prev_float(self)
-
   def <=>(other)
-    return Intrinsics.float_spaceship(self, other) if other.is_a?(Float) || other.is_a?(Integer)
+    return Intrinsics.float_spaceship(self, other) if other.is_a?(Float)
     si = infinite?
     if si && other.respond_to?(:infinite?)
       other_inf = other.infinite?
@@ -238,6 +189,13 @@ class Float
   alias angle arg
   alias phase arg
   private
+
+  def __coerce_op__(other, op)
+    a, b = other.coerce(self)
+    a.send(op, b)
+  rescue NoMethodError
+    raise TypeError, "#{other.class} can't be coerced into Float"
+  end
 
   def __coerce_and_compare__(other, op)
     a, b = other.coerce(self)

@@ -31,30 +31,10 @@ class Process
   RLIM_SAVED_CUR   = 18446744073709551615
 
   def self._fork = raise(NotImplementedError, "fork() function is unimplemented on this machine")
-  def self.fork(&block)
-    pid = _fork
-    if pid.nil?
-      block.call if block
-      exit!(0)
-    end
-    pid
-  end
-
-  def self.wait(pid = -1, flags = 0)
-    Intrinsics.process_wait(self, __coerce_to_int__(pid), flags)
-  end
-
-  def self.wait2(pid = -1, flags = 0)
-    Intrinsics.process_wait2(self, __coerce_to_int__(pid), flags)
-  end
-
-  def self.waitpid(pid = -1, flags = 0)
-    Intrinsics.process_wait(self, __coerce_to_int__(pid), flags)
-  end
-
-  def self.waitpid2(pid = -1, flags = 0)
-    Intrinsics.process_wait2(self, __coerce_to_int__(pid), flags)
-  end
+  def self.wait(pid = -1, flags = 0) = Intrinsics.process_wait(self, __coerce_to_int__(pid), flags)
+  def self.wait2(pid = -1, flags = 0) = Intrinsics.process_wait2(self, __coerce_to_int__(pid), flags)
+  def self.waitpid(pid = -1, flags = 0) = Intrinsics.process_wait(self, __coerce_to_int__(pid), flags)
+  def self.waitpid2(pid = -1, flags = 0) = Intrinsics.process_wait2(self, __coerce_to_int__(pid), flags)
   def self.waitall = Intrinsics.process_waitall(self)
   def self.pid = Intrinsics.process_pid
   def self.uid = Intrinsics.process_uid
@@ -66,8 +46,19 @@ class Process
   def self.exit!(code = false) = Intrinsics.kernel_exit(self, code)
   def self.abort(msg = nil) = Kernel.abort(msg)
   def self.argv0 = $0.freeze
-
   def self.spawn(*args) = Intrinsics.kernel_spawn(self, *args)
+  def self.clock_getres(clock_id, unit = :float_second) = Intrinsics.process_clock_getres(clock_id, unit)
+  def self.clock_gettime(clock_id, unit = :float_second) = Intrinsics.process_clock_gettime(clock_id, unit)
+  def self.daemon(stay_in_dir = false, keep_stdio_open = false) = Intrinsics.kernel_exec_daemon(stay_in_dir, keep_stdio_open)
+
+  def self.fork(&block)
+    pid = _fork
+    if pid.nil?
+      block.call if block
+      exit!(0)
+    end
+    pid
+  end
 
   def self.exec(*args)
     env = args.first.is_a?(Hash) ? args.shift : nil
@@ -82,14 +73,6 @@ class Process
     args[1..].each { |a| raise ArgumentError, "string contains null byte" if a.to_s.include?("\0") }
     full_args = env ? [env] + args : args
     Intrinsics.kernel_exec(self, *full_args)
-  end
-
-  def self.clock_getres(clock_id, unit = :float_second)
-    Intrinsics.process_clock_getres(clock_id, unit)
-  end
-
-  def self.clock_gettime(clock_id, unit = :float_second)
-    Intrinsics.process_clock_gettime(clock_id, unit)
   end
 
   def self.kill(signal, *pids)
@@ -134,10 +117,6 @@ class Process
   def self.egid=(id)
     raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer) || id.is_a?(String)
     raise Errno::EPERM, "Operation not permitted"
-  end
-
-  def self.daemon(stay_in_dir = false, keep_stdio_open = false)
-    Intrinsics.kernel_exec_daemon(stay_in_dir, keep_stdio_open)
   end
 
   def self.detach(pid)

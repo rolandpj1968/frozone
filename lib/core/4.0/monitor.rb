@@ -3,6 +3,9 @@
 # MonitorMixin is copied from Ruby stdlib monitor.rb (already pure Ruby there).
 
 class Monitor
+  def mon_locked? = @mutex.locked?
+  def mon_owned?  = @owner.equal?(Thread.current)
+
   def initialize
     @mutex = Mutex.new
     @owner = nil
@@ -51,9 +54,6 @@ class Monitor
       exit
     end
   end
-
-  def mon_locked? = @mutex.locked?
-  def mon_owned?  = @owner.equal?(Thread.current)
 
   def mon_check_owner
     raise ThreadError, "current thread not owner" unless mon_owned?

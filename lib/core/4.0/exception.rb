@@ -3,13 +3,11 @@ class Exception
   def backtrace = @backtrace
   def self.exception(message = nil) = message.nil? ? new : new(message)
   def cause = @cause
+  def to_s = @message ? @message.to_s : self.class.to_s
+  def initialize_copy(other) = super
 
   def initialize(message = nil)
     @message = message
-  end
-
-  def to_s
-    @message ? @message.to_s : self.class.to_s
   end
 
   def backtrace_locations
@@ -51,8 +49,6 @@ class Exception
     copy.instance_variable_set(:@message, message)
     copy
   end
-
-  def initialize_copy(other) = super
 
   def ==(other)
     return true if equal?(other)

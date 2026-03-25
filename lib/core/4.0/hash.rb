@@ -14,6 +14,17 @@ class Hash
   alias has_value? value?
   def key(val); each { |k, v| return k if v == val }; nil; end
   alias index key
+  def keys;   r = []; each { |k, _| r << k }; r; end
+  def values; r = []; each { |_, v| r << v }; r; end
+  def to_a;   r = []; each { |k, v| r << [k, v] }; r; end
+  alias entries to_a
+  def to_proc; h = self; ->(k) { h[k] }; end
+  def to_hash          = self
+  def deconstruct_keys(_) = self
+  def compare_by_identity  = Intrinsics.hash_compare_by_identity(self)
+  def compare_by_identity? = Intrinsics.hash_compare_by_identity_q(self)
+  def sort(&block)     = to_a.sort(&block)
+  def take(n)          = to_a.take(n)
 
   def self.new(*args, capacity: nil, &block)
     if self.equal?(Hash)
@@ -128,13 +139,6 @@ class Hash
     Intrinsics.hash_set_default_proc(self, prc)
   end
 
-  def keys;   r = []; each { |k, _| r << k }; r; end
-  def values; r = []; each { |_, v| r << v }; r; end
-  def to_a;   r = []; each { |k, v| r << [k, v] }; r; end
-  alias entries to_a
-  def to_proc; h = self; ->(k) { h[k] }; end
-  def to_hash = self
-
   def to_h(&block)
     unless block
       return self if instance_of?(Hash)
@@ -158,8 +162,6 @@ class Hash
     end
     r
   end
-
-  def deconstruct_keys(keys) = self
 
   def to_s
     ongoing = (Fiber[:__hash_inspect__] ||= [])
@@ -534,9 +536,6 @@ class Hash
     to_a.sort_by { |kv| block.call(*kv) }
   end
 
-  def compare_by_identity = Intrinsics.hash_compare_by_identity(self)
-  def compare_by_identity? = Intrinsics.hash_compare_by_identity_q(self)
-
   def clear
     __check_frozen__
     Intrinsics.hash_clear(self)
@@ -568,8 +567,6 @@ class Hash
     self
   end
 
-  def sort(&block) = to_a.sort(&block)
-
   def find_all(&block)
     return to_enum(:find_all) unless block
     r = []
@@ -581,8 +578,6 @@ class Hash
     return to_a.first(n) if n
     to_a.first
   end
-
-  def take(n) = to_a.take(n)
 
   def <=(other)
     other = __coerce_to_hash__(other)
