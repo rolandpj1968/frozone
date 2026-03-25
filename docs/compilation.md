@@ -152,7 +152,7 @@ practice. The constraint applies only to the *execute phase* — and well-writte
 applications are largely static by then.
 
 
-### Rails — the reason d'être
+### Rails — the raison d'être
 
 Ruby's rise is inseparable from Rails. If the Frozone compiler cannot compile
 Rails apps, or at least a large fraction of them, it is an interesting
