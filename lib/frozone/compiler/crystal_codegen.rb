@@ -16,11 +16,13 @@ module Frozone
       CRYSTAL_DIR = File.expand_path('../../../crystal', __dir__)
 
       def initialize(output_dir: CRYSTAL_DIR)
-        @out          = +""        # output buffer
-        @indent       = 0          # current indentation level
-        @errors       = []         # collect unsupported-node warnings
-        @output_dir   = output_dir # used to compute relative runtime require path
-        @user_methods = Set.new    # names of user-defined methods (for RubyObject stubs)
+        @out                = +""        # output buffer
+        @indent             = 0          # current indentation level
+        @errors             = []         # collect unsupported-node warnings
+        @output_dir         = output_dir # used to compute relative runtime require path
+        @user_methods       = Set.new    # names of user-defined methods (for RubyObject stubs)
+        @exception_classes  = Set.new    # Ruby class names that inherit from exception bases
+        @in_exception_class = false      # true while emitting inside an exception class body
       end
 
       # Generate a complete Crystal source file from the top-level AST node.
@@ -35,12 +37,31 @@ module Frozone
         @out
       end
 
-      # Collect all method names defined in user classes/modules.
+      # Ruby base exception class names — subclasses of these become RubyException in Crystal.
+      EXCEPTION_BASE_NAMES = %w[
+        Exception StandardError RuntimeError ArgumentError TypeError NameError
+        NoMethodError ZeroDivisionError IOError IndexError KeyError StopIteration
+        NotImplementedError RangeError RegexpError SystemExit Interrupt
+        SystemCallError EncodingError EnvError LoadError SyntaxError
+      ].to_set
+
+      # Collect all method names defined in user classes/modules, and
+      # track which classes are exception classes.
       def collect_user_methods(node)
         case node
         when Ast::Sequence
           node.nodes.each { |n| collect_user_methods(n) }
-        when Ast::ClassDef, Ast::ModuleDef
+        when Ast::ClassDef
+          sc = ivar(node, :superclass_node)
+          if sc.is_a?(Ast::ConstantRead)
+            sc_name = ivar(sc, :name).to_s
+            if EXCEPTION_BASE_NAMES.include?(sc_name) || @exception_classes.include?(sc_name.to_sym)
+              @exception_classes << ivar(node, :name)
+            end
+          end
+          body = ivar(node, :body)
+          collect_user_methods(body) if body
+        when Ast::ModuleDef
           body = ivar(node, :body)
           collect_user_methods(body) if body
         when Ast::MethodDef
@@ -107,6 +128,10 @@ module Frozone
         when Ast::InstanceVariableRead  then emit_ivar_read(node)
         when Ast::InstanceVariableWrite then emit_ivar_write(node)
         when Ast::ConstantRead          then emit_constant_read(node)
+        when Ast::ConstantWrite         then emit_constant_write(node)
+        when Ast::ClassVariableRead     then emit_class_var_read(node)
+        when Ast::ClassVariableWrite    then emit_class_var_write(node)
+        when Ast::Yield                 then emit_yield(node)
         when Ast::MethodCall            then emit_method_call(node)
         when Ast::AttributeWrite        then emit_attribute_write(node)
         when Ast::MethodDef             then emit_method_def(node)
@@ -121,6 +146,8 @@ module Frozone
         when Ast::ArrayLiteral          then emit_array_literal(node)
         when Ast::HashLiteral           then emit_hash_literal(node)
         when Ast::InterpolatedString    then emit_interpolated_string(node)
+        when Ast::Rescue                then emit_rescue(node)
+        when Ast::Super                 then emit_super(node)
         when Ast::Block                 then unsupported!(node, "bare Block outside method call")
         else
           unsupported!(node)
@@ -209,6 +236,20 @@ module Frozone
         write "Ruby_#{crystal_constant(ivar(node, :name))}"
       end
 
+      def emit_constant_write(node)
+        write "Ruby_#{crystal_constant(ivar(node, :name))} = "
+        emit(ivar(node, :value_node))
+      end
+
+      def emit_class_var_read(node)
+        write ivar(node, :name).to_s
+      end
+
+      def emit_class_var_write(node)
+        write "#{ivar(node, :name)} = "
+        emit(ivar(node, :value_node))
+      end
+
       # -----------------------------------------------------------------------
       # Sequence
       # -----------------------------------------------------------------------
@@ -231,11 +272,12 @@ module Frozone
         # Kernel-level methods with no receiver map to top-level helpers
         if node.receiver_node.nil?
           case name
-          when :puts   then return emit_puts(node)
-          when :print  then return emit_print(node)
-          when :p      then return emit_p(node)
-          when :raise  then return emit_raise(node)
-          when :require then return emit_require_call(node)
+          when :puts        then return emit_puts(node)
+          when :print       then return emit_print(node)
+          when :p           then return emit_p(node)
+          when :raise       then return emit_raise(node)
+          when :require     then return emit_require_call(node)
+          when :block_given? then return write("block_given?")
           end
         end
 
@@ -347,11 +389,97 @@ module Frozone
 
       def emit_raise(node)
         write "raise "
-        if node.arg_nodes.empty?
+        args = node.arg_nodes
+        if args.empty?
           write "RuntimeError.new"
+        elsif args.size == 1
+          arg = args[0]
+          case arg
+          when Ast::StringLiteral
+            # raise "msg" → raise RuntimeError.new("msg")
+            write "RuntimeError.new(#{crystal_string_literal(ivar(arg, :value).raw)})"
+          when Ast::ConstantRead
+            # raise ExcClass → raise Ruby_ExcClass.new
+            write "Ruby_#{crystal_constant(ivar(arg, :name))}.new"
+          else
+            # raise exception_instance (e.g. raise MyError.new(...))
+            emit(arg)
+          end
+        elsif args.size >= 2
+          # raise ExcClass, "msg" [, backtrace] → raise Ruby_ExcClass.new("msg")
+          exc_node = args[0]
+          msg_node = args[1]
+          if exc_node.is_a?(Ast::ConstantRead)
+            write "Ruby_#{crystal_constant(ivar(exc_node, :name))}.new("
+          else
+            emit(exc_node)
+            write ".new("
+          end
+          emit(msg_node)
+          write ".to_s)"
+        end
+      end
+
+      def emit_rescue(node)
+        write "begin"
+        emit_newline
+        indented { emit(ivar(node, :body)) }
+        emit_newline
+
+        ivar(node, :rescue_clauses).each do |clause|
+          emit_indent
+          var_name  = clause.var_name
+          exc_nodes = clause.exception_nodes
+
+          if exc_nodes.empty?
+            # bare rescue → catch all Crystal exceptions
+            write var_name ? "rescue #{crystal_local(var_name)} : Exception" : "rescue"
+          else
+            # rescue ExcA, ExcB => e
+            exc_types = exc_nodes.map do |en|
+              en.is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(ivar(en, :name))}" : "Exception"
+            end.join(" | ")
+            write var_name ? "rescue #{crystal_local(var_name)} : #{exc_types}" : "rescue #{exc_types}"
+          end
+          emit_newline
+          indented { emit(clause.body) }
+          emit_newline
+        end
+
+        if (else_node = ivar(node, :else_node))
+          emit_indent
+          write "else"
+          emit_newline
+          indented { emit(else_node) }
+          emit_newline
+        end
+
+        if (ensure_node = ivar(node, :ensure_node))
+          emit_indent
+          write "ensure"
+          emit_newline
+          indented { emit(ensure_node) }
+          emit_newline
+        end
+
+        emit_indent
+        write "end"
+      end
+
+      def emit_super(node)
+        forwarding = ivar(node, :forwarding)
+        args = ivar(node, :arg_nodes)
+        if forwarding || args.nil? || args.empty?
+          write "super"
         else
-          emit(node.arg_nodes[0])
-          write ".to_s"
+          write "super("
+          args.each_with_index do |arg, i|
+            write ", " if i > 0
+            emit(arg)
+            # In exception class initializers, super(msg) expects Crystal String
+            write ".to_s" if @in_exception_class
+          end
+          write ")"
         end
       end
 
@@ -446,6 +574,21 @@ module Frozone
         if val
           write " "
           emit(val)
+        end
+      end
+
+      def emit_yield(node)
+        args = ivar(node, :arg_nodes)
+        if args.empty?
+          write "yield"
+        else
+          write "yield "
+          args.each_with_index do |arg, i|
+            write ", " if i > 0
+            write "("
+            emit(arg)
+            write ")"
+          end
         end
       end
 
@@ -606,37 +749,77 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def emit_class_def(node)
-        name = crystal_constant(ivar(node, :name))
+        name     = crystal_constant(ivar(node, :name))
+        sym_name = ivar(node, :name)
+        is_exc   = @exception_classes.include?(sym_name)
+        sc       = ivar(node, :superclass_node)
+
         write "class Ruby_#{name}"
-        sc = ivar(node, :superclass_node)
-        if sc
+        if is_exc
+          # Exception classes inherit from RubyException (< Exception) or a Ruby_ exc superclass
+          if sc && !EXCEPTION_BASE_NAMES.include?(ivar(sc, :name).to_s)
+            write " < Ruby_#{crystal_constant(ivar(sc, :name))}"
+          else
+            write " < RubyException"
+          end
+        elsif sc
           write " < Ruby_#{crystal_constant(ivar(sc, :name))}"
         else
           write " < RubyObject"
         end
         emit_newline
+
+        prev_exc = @in_exception_class
+        @in_exception_class = is_exc
+
         indented do
-          # Declare all ivars as RubyObject = RUBY_NIL so Crystal knows the type
-          ivars = collect_ivars(ivar(node, :body))
-          ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
-          emit_newline unless ivars.empty?
-          # Default RubyObject abstract method implementations
-          line "def to_s : String; \"#<#{name}>\"; end"
-          line "def inspect : String; \"#<#{name}>\"; end"
-          line "def ==(other : RubyObject) : Bool; same?(other); end"
-          emit_newline
+          if is_exc
+            # Exception classes: ivar declarations + default message initializer
+            ivars = collect_ivars(ivar(node, :body))
+            ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
+            emit_newline unless ivars.empty?
+            # Default no-arg initializer passes class name as message if not overridden
+            line "def initialize(msg : String = \"#{name}\"); super(msg); end" unless has_initialize?(ivar(node, :body))
+          else
+            # Regular classes: ivars + class vars + default to_s/inspect/==
+            ivars = collect_ivars(ivar(node, :body))
+            ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
+            cvars = collect_cvars(ivar(node, :body))
+            cvars.each { |cv| line "#{cv} : RubyObject = RUBY_NIL" }
+            emit_newline unless ivars.empty? && cvars.empty?
+            line "def to_s : String; \"#<#{name}>\"; end"
+            line "def inspect : String; \"#<#{name}>\"; end"
+            line "def ==(other : RubyObject) : Bool; same?(other); end"
+            emit_newline
+          end
+          body = ivar(node, :body)
           emit_indent
-          emit(ivar(node, :body))
+          emit(body) unless body.is_a?(Ast::NilLiteral)
         end
+
+        @in_exception_class = prev_exc
         emit_newline
         emit_indent
         write "end"
       end
 
+      # Returns true if the class body contains an explicit `initialize` method.
+      def has_initialize?(body)
+        return false unless body
+        case body
+        when Ast::Sequence
+          body.nodes.any? { |n| n.is_a?(Ast::MethodDef) && ivar(n, :name) == :initialize }
+        when Ast::MethodDef
+          ivar(body, :name) == :initialize
+        else false
+        end
+      end
+
       def emit_module_def(node)
         write "module Ruby_#{crystal_constant(ivar(node, :name))}"
         emit_newline
-        indented { emit(ivar(node, :body)) }
+        body = ivar(node, :body)
+        indented { emit(body) unless body.is_a?(Ast::NilLiteral) }
         emit_newline
         emit_indent
         write "end"
@@ -729,6 +912,31 @@ module Frozone
       # -----------------------------------------------------------------------
       # Ivar collection — scan a class body AST for all @ivar assignments
       # -----------------------------------------------------------------------
+
+      def collect_cvars(node, seen = Set.new)
+        case node
+        when Ast::ClassVariableWrite
+          seen << ivar(node, :name).to_s
+          collect_cvars(ivar(node, :value_node), seen)
+        when Ast::ClassVariableRead
+          seen << ivar(node, :name).to_s
+        when Ast::Sequence
+          node.nodes.each { |n| collect_cvars(n, seen) }
+        when Ast::MethodDef
+          collect_cvars(ivar(node, :body), seen) if ivar(node, :body)
+        when Ast::If
+          collect_cvars(node.then_node, seen)
+          collect_cvars(node.else_node, seen) if node.else_node
+        when nil
+          # nothing
+        else
+          %i[body value_node then_node else_node body_node].each do |slot|
+            child = node.instance_variable_defined?(:"@#{slot}") && node.instance_variable_get(:"@#{slot}")
+            collect_cvars(child, seen) if child && child.is_a?(Ast::Node)
+          end
+        end
+        seen.to_a.sort
+      end
 
       def collect_ivars(node, seen = Set.new)
         case node

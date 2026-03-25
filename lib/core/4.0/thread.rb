@@ -1,3 +1,6 @@
+# Internal exception for thread self-kill: propagates through ensure but not rescue/rescue=>e
+class ThreadKill < Exception; end
+
 class Thread
   @@report_on_exception = true
   def self.report_on_exception=(val); @@report_on_exception = val; end
@@ -252,6 +255,7 @@ class Thread
     if equal?(@@current)
       @self_killed = true
       @aborting    = true
+      raise ThreadKill
     end
     self
   end
@@ -458,6 +462,13 @@ class Thread
         @done     = true
         @aborting = false
         @result   = @self_killed ? nil : ret
+      end
+    rescue ThreadKill
+      # Thread killed itself (Thread.current.kill/terminate/exit): terminate cleanly.
+      unless frozen?
+        @done     = true
+        @aborting = false
+        @result   = nil
       end
     rescue Blocked
       # Thread blocked; record whether this was a cooperative yield (Thread.pass)

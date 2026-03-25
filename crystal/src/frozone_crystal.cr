@@ -1,4 +1,5 @@
 require "./ruby_object"
+require "./ruby_exception"
 require "./ruby_bool"
 require "./ruby_nil"
 require "./ruby_integer"
