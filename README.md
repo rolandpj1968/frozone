@@ -8,7 +8,7 @@ Frozone targets Ruby 4.0 semantics and passes **2615/2630** ruby/spec language e
 including full pattern matching support.
 
 Core library spec coverage: **22153/22741 passing (97.4%)** — all modules now measured;
-`io`, `process`, `mutex`, `thread` still have failures (concurrency/OS-level features);
+`io`, `process` have OS-level gaps; `mutex`/`thread` use cooperative scheduling with some edge-case gaps;
 `tracepoint` is intentionally unimplemented (deep introspection, low priority);
 hanging/blocking specs excluded via `SKIP_SPEC_FILES` in `Rakefile`.
 
@@ -207,7 +207,7 @@ Modules with 100% pass rate:
 | refinement | 25 | 24 | 0 | 1 | |
 | sizedqueue | 129 | 128 | 1 | 0 | |
 | struct | 182 | 182 | 0 | 0 | |
-| thread | 227 | 172 | 53 | 2 | threading specs skipped; concurrency not implemented |
+| thread | 227 | 172 | 53 | 2 | cooperative threading; some introspection/control-flow edge cases |
 | time | 774 | 773 | 1 | 0 | |
 | tracepoint | 75 | — | 5 | 71 | intentionally unimplemented |
 | unboundmethod | 86 | 83 | 0 | 3 | |
