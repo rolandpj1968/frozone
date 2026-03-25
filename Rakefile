@@ -1,3 +1,6 @@
+require 'tempfile'
+require 'etc'
+
 RUBY_SPEC_DIR = ENV.fetch('RUBY_SPEC_DIR', File.expand_path('spec/ruby-spec', __dir__))
 MSPEC_RUNNER  = File.expand_path('spec/mspec_runner.rb', __dir__)
 PARSER_FLAVOR = ENV.fetch('PARSER', 'prism')  # prism (default) or wq
@@ -156,16 +159,82 @@ SMOKE_MODULES = %w[
   exception proc symbol
 ].freeze
 
-desc "Fast smoke test — key modules only (~60-90s), use before committing"
-task :smoke do
-  require 'tempfile'
-  require 'etc'
+# Parse mspec summary line into { examples:, passing:, failures:, errors: } or nil.
+def parse_mspec_output(output)
+  # matches both "N examples, ..." and "N files, N examples, ..."
+  m = output.match(/(\d+) examples,\s*\d+ expectations?,\s*(\d+) failures?,\s*(\d+) errors?/)
+  return nil unless m
+  ex = m[1].to_i; fl = m[2].to_i; er = m[3].to_i
+  { examples: ex, passing: ex - fl - er, failures: fl, errors: er }
+end
 
+# Run a list of [name, args_string] pairs in parallel, returning { name => result }.
+# result is either { examples:, passing:, failures:, errors: } or :timeout.
+def run_parallel_specs(work, timeout_secs: 600)
+  n_jobs = [ENV.fetch('JOBS', [Etc.nprocessors, 8].min.to_s).to_i, 1].max
+  results = {}
+  mutex = Mutex.new
+  queue = work.dup
+
+  workers = n_jobs.times.map do
+    Thread.new do
+      loop do
+        item = mutex.synchronize { queue.shift }
+        break unless item
+        name, args = item
+        tmpfile = Tempfile.new(["frozone_#{name}", '.txt'])
+        begin
+          system("timeout #{timeout_secs} bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile.path} 2>/dev/null")
+          output = File.read(tmpfile.path, encoding: 'binary')
+          parsed = parse_mspec_output(output)
+          mutex.synchronize { results[name] = parsed || :timeout }
+        ensure
+          tmpfile.close
+          tmpfile.unlink
+        end
+      end
+    end
+  end
+
+  workers.each(&:join)
+  results
+end
+
+# Print a formatted results table and return totals hash.
+def print_results_table(label, results, ordered_names)
   totals = { examples: 0, passing: 0, failures: 0, errors: 0 }
   per_module = {}
 
-  n_jobs = [ENV.fetch('JOBS', [Etc.nprocessors, 8].min.to_s).to_i, 1].max
+  ordered_names.each do |name|
+    r = results[name]
+    next unless r
+    if r == :timeout
+      puts "#{name}: (no output / timeout)"
+    else
+      totals[:examples] += r[:examples]
+      totals[:passing]  += r[:passing]
+      totals[:failures] += r[:failures]
+      totals[:errors]   += r[:errors]
+      per_module[name] = r
+    end
+  end
 
+  n_jobs = [ENV.fetch('JOBS', [Etc.nprocessors, 8].min.to_s).to_i, 1].max
+  puts "\n#{'=' * 60}"
+  puts "#{label} (#{PARSER_FLAVOR} parser, #{n_jobs} parallel jobs)"
+  puts "Overall: #{totals[:passing]}/#{totals[:examples]} passing " \
+       "(#{totals[:failures]} failures, #{totals[:errors]} errors)"
+  puts "\n#{'%-20s' % 'Module'} #{'%8s' % 'Examples'} #{'%8s' % 'Passing'} #{'%8s' % 'Failures'} #{'%8s' % 'Errors'}"
+  puts '-' * 60
+  per_module.sort.each do |name, r|
+    flag = (r[:failures] + r[:errors]) > 0 ? ' *' : ''
+    puts "#{'%-20s' % name} #{'%8d' % r[:examples]} #{'%8d' % r[:passing]} #{'%8d' % r[:failures]} #{'%8d' % r[:errors]}#{flag}"
+  end
+  puts '=' * 60
+end
+
+desc "Fast smoke test — key modules only (~60-90s), use before committing"
+task :smoke do
   work = SMOKE_MODULES.filter_map do |name|
     specs = Dir["#{RUBY_SPEC_DIR}/core/#{name}/**/*_spec.rb"].sort
     specs -= SKIP_SPEC_FILES
@@ -173,220 +242,40 @@ task :smoke do
     [name, specs.map { |f| File.expand_path(f) }.join(' ')]
   end
 
-  mutex = Mutex.new
-  results = {}
-  queue = work.dup
-
-  workers = n_jobs.times.map do
-    Thread.new do
-      loop do
-        item = mutex.synchronize { queue.shift }
-        break unless item
-        name, args = item
-        tmpfile = Tempfile.new(["smoke_#{name}", '.txt'])
-        begin
-          ok = system("timeout 120 bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile.path} 2>/dev/null")
-          output = File.read(tmpfile.path)
-          mutex.synchronize { results[name] = ok ? output : :timeout }
-        ensure
-          tmpfile.close; tmpfile.unlink
-        end
-      end
-    end
-  end
-  workers.each(&:join)
-
-  SMOKE_MODULES.each do |name|
-    result = results[name]
-    if result.nil? || result == :timeout
-      per_module[name] = { examples: 0, passing: 0, failures: 0, errors: 0 }
-      print "#{name}: (no output / timeout)\n"
-      next
-    end
-    if (m = result.match(/(\d+) examples.*?(\d+) failures.*?(\d+) errors/))
-      e, f, err = m[1].to_i, m[2].to_i, m[3].to_i
-      p = e - f - err
-      per_module[name] = { examples: e, passing: p, failures: f, errors: err }
-      totals[:examples] += e; totals[:passing] += p
-      totals[:failures] += f; totals[:errors] += err
-    end
-  end
-
-  puts "\n#{'=' * 60}"
-  puts "Smoke test results (#{PARSER_FLAVOR} parser)"
-  puts "Overall: #{totals[:passing]}/#{totals[:examples]} passing " \
-       "(#{totals[:failures]} failures, #{totals[:errors]} errors)"
-  puts "\n#{'Module'.ljust(20)} #{'Examples'.rjust(8)} #{'Passing'.rjust(8)} #{'Failures'.rjust(8)} #{'Errors'.rjust(8)}"
-  puts '-' * 60
-  SMOKE_MODULES.each do |name|
-    r = per_module[name] || next
-    flag = (r[:failures] + r[:errors]) > 0 ? ' *' : ''
-    puts "#{name.ljust(20)} #{r[:examples].to_s.rjust(8)} #{r[:passing].to_s.rjust(8)} #{r[:failures].to_s.rjust(8)} #{r[:errors].to_s.rjust(8)}#{flag}"
-  end
-  puts '=' * 60
+  results = run_parallel_specs(work, timeout_secs: 120)
+  print_results_table("Smoke test results", results, SMOKE_MODULES)
 end
 
 # Run all core specs in parallel (one process per module)
 desc "Run all ruby/spec core specs (RUBY_SPEC_DIR=... PARSER=prism|wq JOBS=N to override)"
 task :core do
-  require 'tempfile'
-  require 'etc'
-
-  totals = { examples: 0, passing: 0, failures: 0, errors: 0 }
   core_modules = Dir["#{RUBY_SPEC_DIR}/core/*/"].map { |d| File.basename(d) }.sort
-  per_module = {}
 
-  # Default parallelism: number of CPUs (capped at 8 to avoid memory pressure)
-  n_jobs = [ENV.fetch('JOBS', [Etc.nprocessors, 8].min.to_s).to_i, 1].max
-
-  # Build list of (name, args) pairs for non-empty modules
   work = core_modules.filter_map do |name|
     specs = Dir["#{RUBY_SPEC_DIR}/core/#{name}/**/*_spec.rb"].sort
     specs -= SKIP_SPEC_FILES
     next if specs.empty?
-
-    args = specs.map { |f| File.expand_path(f) }.join(' ')
-    [name, args]
+    [name, specs.map { |f| File.expand_path(f) }.join(' ')]
   end
 
-  # Run in parallel with n_jobs workers
-  results = {}
-  mutex = Mutex.new
-  queue = work.dup
-
-  workers = n_jobs.times.map do
-    Thread.new do
-      loop do
-        item = mutex.synchronize { queue.shift }
-        break unless item
-
-        name, args = item
-        tmpfile = Tempfile.new("frozone_core_#{name}")
-        begin
-          system("timeout 600 bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile.path} 2>/dev/null")
-          output = File.read(tmpfile.path, encoding: 'binary')
-          if output =~ /(\d+) files, (\d+) examples, \d+ expectations?, (\d+) failures?, (\d+) errors?/
-            ex = $2.to_i; fl = $3.to_i; er = $4.to_i; pass = ex - fl - er
-            mutex.synchronize { results[name] = { examples: ex, passing: pass, failures: fl, errors: er } }
-          else
-            mutex.synchronize { results[name] = :timeout }
-          end
-        ensure
-          tmpfile.close
-          tmpfile.unlink
-        end
-      end
-    end
-  end
-
-  workers.each(&:join)
-
-  core_modules.each do |name|
-    r = results[name]
-    next unless r
-
-    if r == :timeout
-      puts "#{name}: (no output / timeout)"
-    else
-      totals[:examples] += r[:examples]
-      totals[:passing]  += r[:passing]
-      totals[:failures] += r[:failures]
-      totals[:errors]   += r[:errors]
-      per_module[name] = r
-    end
-  end
-
-  puts "\n#{'='*60}"
-  puts "Core spec results (#{PARSER_FLAVOR} parser, #{n_jobs} parallel jobs)"
-  puts "Overall: #{totals[:passing]}/#{totals[:examples]} passing " \
-       "(#{totals[:failures]} failures, #{totals[:errors]} errors)"
-  puts "\n#{'%-20s' % 'Module'} #{'%8s' % 'Examples'} #{'%8s' % 'Passing'} #{'%8s' % 'Failures'} #{'%8s' % 'Errors'}"
-  puts '-' * 60
-  per_module.sort.each do |name, r|
-    flag = (r[:failures] + r[:errors]) > 0 ? ' *' : ''
-    puts "#{'%-20s' % name} #{'%8d' % r[:examples]} #{'%8d' % r[:passing]} #{'%8d' % r[:failures]} #{'%8d' % r[:errors]}#{flag}"
-  end
-  puts '='*60
+  results = run_parallel_specs(work, timeout_secs: 600)
+  print_results_table("Core spec results", results, core_modules)
 end
 
 # Run all library specs in parallel (one process per module)
 desc "Run all ruby/spec library specs (RUBY_SPEC_DIR=... PARSER=prism|wq JOBS=N to override)"
 task :library do
-  require 'tempfile'
-  require 'etc'
-
-  totals = { examples: 0, passing: 0, failures: 0, errors: 0 }
   lib_modules = Dir["#{RUBY_SPEC_DIR}/library/*/"].map { |d| File.basename(d) }.sort
-  per_module = {}
-
-  n_jobs = [ENV.fetch('JOBS', [Etc.nprocessors, 8].min.to_s).to_i, 1].max
 
   work = lib_modules.filter_map do |name|
     specs = Dir["#{RUBY_SPEC_DIR}/library/#{name}/**/*_spec.rb"].sort
     specs -= SKIP_LIBRARY_SPEC_FILES
     next if specs.empty?
-
-    args = specs.map { |f| File.expand_path(f) }.join(' ')
-    [name, args]
+    [name, specs.map { |f| File.expand_path(f) }.join(' ')]
   end
 
-  results = {}
-  mutex = Mutex.new
-  queue = work.dup
-
-  workers = n_jobs.times.map do
-    Thread.new do
-      loop do
-        item = mutex.synchronize { queue.shift }
-        break unless item
-
-        name, args = item
-        tmpfile = Tempfile.new("frozone_lib_#{name}")
-        begin
-          system("timeout 120 bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args} > #{tmpfile.path} 2>/dev/null")
-          output = File.read(tmpfile.path, encoding: 'binary')
-          if output =~ /(\d+) files, (\d+) examples, \d+ expectations?, (\d+) failures?, (\d+) errors?/
-            ex = $2.to_i; fl = $3.to_i; er = $4.to_i; pass = ex - fl - er
-            mutex.synchronize { results[name] = { examples: ex, passing: pass, failures: fl, errors: er } }
-          else
-            mutex.synchronize { results[name] = :timeout }
-          end
-        ensure
-          tmpfile.close
-          tmpfile.unlink
-        end
-      end
-    end
-  end
-
-  workers.each(&:join)
-
-  lib_modules.each do |name|
-    r = results[name]
-    next unless r
-
-    if r == :timeout
-      puts "#{name}: (no output / timeout)"
-    else
-      totals[:examples] += r[:examples]
-      totals[:passing]  += r[:passing]
-      totals[:failures] += r[:failures]
-      totals[:errors]   += r[:errors]
-      per_module[name] = r
-    end
-  end
-
-  puts "\n#{'='*60}"
-  puts "Library spec results (#{PARSER_FLAVOR} parser, #{n_jobs} parallel jobs)"
-  puts "Overall: #{totals[:passing]}/#{totals[:examples]} passing " \
-       "(#{totals[:failures]} failures, #{totals[:errors]} errors)"
-  puts "\n#{'%-20s' % 'Module'} #{'%8s' % 'Examples'} #{'%8s' % 'Passing'} #{'%8s' % 'Failures'} #{'%8s' % 'Errors'}"
-  puts '-' * 60
-  per_module.sort.each do |name, r|
-    flag = (r[:failures] + r[:errors]) > 0 ? ' *' : ''
-    puts "#{'%-20s' % name} #{'%8d' % r[:examples]} #{'%8d' % r[:passing]} #{'%8d' % r[:failures]} #{'%8d' % r[:errors]}#{flag}"
-  end
-  puts '='*60
+  results = run_parallel_specs(work, timeout_secs: 120)
+  print_results_table("Library spec results", results, lib_modules)
 end
 
 # Individual library spec tasks: rake library:stringio, rake library:set, etc.
