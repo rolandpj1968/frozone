@@ -260,6 +260,18 @@ class RubyHash < RubyObject
     result
   end
 
+  def ruby_select(&block : RubyObject, RubyObject -> RubyObject) : RubyHash
+    result = RubyHash.new(@default)
+    each { |k, v| result[k] = v if block.call(k, v).truthy? }
+    result
+  end
+
+  def reject(&block : RubyObject, RubyObject -> RubyObject) : RubyHash
+    result = RubyHash.new(@default)
+    each { |k, v| result[k] = v unless block.call(k, v).truthy? }
+    result
+  end
+
   def map_values(&block : RubyObject -> RubyObject) : RubyHash
     result = RubyHash.new(@default)
     each { |k, v| result[k] = block.call(v) }
@@ -308,12 +320,12 @@ class RubyHash < RubyObject
     self[key] = value
   end
 
-  def any?(&block : RubyObject, RubyObject -> Bool) : RubyBool
-    @data.any? { |k, v| block.call(k.obj, v) } ? RubyBool::TRUE : RubyBool::FALSE
+  def any?(&block : RubyObject, RubyObject -> RubyObject) : RubyBool
+    @data.any? { |k, v| block.call(k.obj, v).truthy? } ? RubyBool::TRUE : RubyBool::FALSE
   end
 
-  def all?(&block : RubyObject, RubyObject -> Bool) : RubyBool
-    @data.all? { |k, v| block.call(k.obj, v) } ? RubyBool::TRUE : RubyBool::FALSE
+  def all?(&block : RubyObject, RubyObject -> RubyObject) : RubyBool
+    @data.all? { |k, v| block.call(k.obj, v).truthy? } ? RubyBool::TRUE : RubyBool::FALSE
   end
 
   def map(&block : RubyObject, RubyObject -> RubyObject) : RubyArray
@@ -330,7 +342,14 @@ class RubyHash < RubyObject
     best_score = RUBY_NIL_REF
     @data.each do |k, v|
       score = block.call(k.obj, v)
-      if best_k.ruby_nil? || (score <=> best_score) < 0
+      cmp_less = if best_k.ruby_nil?
+                   true
+                 elsif score.is_a?(RubyInteger) && best_score.is_a?(RubyInteger)
+                   (score <=> best_score) < 0
+                 else
+                   false
+                 end
+      if cmp_less
         best_k = k.obj
         best_v = v
         best_score = score

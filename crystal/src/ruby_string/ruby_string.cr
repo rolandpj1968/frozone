@@ -365,6 +365,45 @@ class RubyString < RubyObject
     RubyString.new(new_bytes, @encoding)
   end
 
+  def *(n : RubyObject) : RubyString
+    cnt = n.is_a?(RubyInteger) ? n.to_i64.to_i32 : 0
+    self * cnt
+  end
+
+  # sprintf-style format: "fmt" % val  or  "fmt" % [a, b, c]
+  def %(args : RubyObject) : RubyString
+    fmt = String.new(@bytes)
+    parts = args.is_a?(RubyArray) ? args.data : [args] of RubyObject
+    result = fmt.gsub(/%[-+0-9.*]*[sdfeoxXbg%]/) do |spec|
+      if spec == "%%"
+        "%"
+      else
+        val = parts.shift? || RubyNil::INSTANCE
+        case spec[-1]
+        when 's' then val.ruby_to_s.to_s
+        when 'd', 'i'
+          n = val.is_a?(RubyInteger) ? val.to_i64 : 0_i64
+          sprintf(spec.gsub(/[di]$/, "d"), n)
+        when 'f', 'e', 'g'
+          f = val.is_a?(RubyFloat) ? val.to_f64 : (val.is_a?(RubyInteger) ? val.to_f64 : 0.0_f64)
+          sprintf(spec, f)
+        when 'x', 'X'
+          n = val.is_a?(RubyInteger) ? val.to_i64 : 0_i64
+          sprintf(spec, n)
+        when 'o'
+          n = val.is_a?(RubyInteger) ? val.to_i64 : 0_i64
+          sprintf(spec, n)
+        when 'b'
+          n = val.is_a?(RubyInteger) ? val.to_i64 : 0_i64
+          n.to_s(2)
+        else
+          spec
+        end
+      end
+    end
+    RubyString.new(result)
+  end
+
   # ------------------------------------------------------------------
   # Comparison
   # ------------------------------------------------------------------

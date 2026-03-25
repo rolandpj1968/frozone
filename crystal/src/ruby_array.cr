@@ -159,8 +159,18 @@ class RubyArray < RubyObject
     @data.empty? ? RubyNil::INSTANCE : @data.first
   end
 
+  def first(n : RubyObject) : RubyArray
+    cnt = n.is_a?(RubyInteger) ? n.to_i64.to_i32 : 0
+    RubyArray.new(@data.first(cnt))
+  end
+
   def last : RubyObject
     @data.empty? ? RubyNil::INSTANCE : @data.last
+  end
+
+  def last(n : RubyObject) : RubyArray
+    cnt = n.is_a?(RubyInteger) ? n.to_i64.to_i32 : 0
+    RubyArray.new(@data.last(cnt))
   end
 
   def reverse : RubyArray
@@ -383,8 +393,39 @@ class RubyArray < RubyObject
     RubyString.new(@data.map(&.to_s).join(sep_str))
   end
 
-  def flatten(depth : RubyObject = RubyNil::INSTANCE) : RubyArray
-    flatten
+  def flatten(depth : RubyObject) : RubyArray
+    result = RubyArray.new
+    flatten_into(result)
+    result
+  end
+
+  def each_slice(n : RubyObject) : RubyArray
+    cnt = n.is_a?(RubyInteger) ? n.to_i64.to_i32 : 1
+    cnt = 1 if cnt < 1
+    result = RubyArray.new
+    i = 0
+    while i < @data.size
+      slice = RubyArray.new(@data[i, [cnt, @data.size - i].min])
+      result.push(slice)
+      i += cnt
+    end
+    result
+  end
+
+  def each_cons(n : RubyObject) : RubyArray
+    cnt = n.is_a?(RubyInteger) ? n.to_i64.to_i32 : 1
+    cnt = 1 if cnt < 1
+    result = RubyArray.new
+    i = 0
+    while i + cnt <= @data.size
+      result.push(RubyArray.new(@data[i, cnt]))
+      i += 1
+    end
+    result
+  end
+
+  def to_a : RubyArray
+    self
   end
 
   def sample : RubyObject

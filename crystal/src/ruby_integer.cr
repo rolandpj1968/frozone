@@ -413,24 +413,24 @@ class RubyInteger < RubyObject
   end
 
   def lcm(other : RubyInteger) : RubyInteger
-    return RubyInteger.new(0_i64) if zero? || other.zero?
+    return RubyInteger.new(0_i64) if to_big.zero? || other.to_big.zero?
     g = gcd(other)
     (self.abs * other.abs) / g
   end
 
   # Decompose abs(self) into digits in the given base, least-significant first.
   # 0.digits => [0]
-  def digits(base : RubyInteger) : Array(RubyInteger)
+  def digits(base : RubyInteger = RubyInteger.new(10_i64)) : RubyArray
     b = base.to_big
     raise ArgumentError.new("base must be >= 2") if b < 2
     n = to_big.abs
-    result = Array(RubyInteger).new
+    result = RubyArray.new
     if n.zero?
-      result << RubyInteger.new(0_i64)
+      result.push(RubyInteger.new(0_i64))
       return result
     end
     while n > 0
-      result << normalise(n.remainder(b).abs)
+      result.push(normalise(n.remainder(b).abs))
       n = n.tdiv(b)
     end
     result
@@ -535,6 +535,19 @@ class RubyInteger < RubyObject
     while i >= m
       block.call(RubyInteger.new(i))
       i -= 1
+    end
+    self
+  end
+
+  def ruby_to_s(base : RubyObject) : RubyString
+    b = base.is_a?(RubyInteger) ? base.to_i64.to_i32 : 10
+    RubyString.new(to_s(b))
+  end
+
+  def clamp(min_val : RubyObject, max_val : RubyObject) : RubyObject
+    if min_val.is_a?(RubyInteger) && max_val.is_a?(RubyInteger)
+      return max_val if self > max_val
+      return min_val if self < min_val
     end
     self
   end
