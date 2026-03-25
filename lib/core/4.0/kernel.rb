@@ -459,7 +459,7 @@ module Kernel
     return val if val.is_a?(Integer)
     if val.respond_to?(:to_int)
       result = val.to_int
-      raise TypeError, "can't convert #{val.class} into Integer (to_int should return Integer, not #{result.class})" unless result.is_a?(Integer)
+      raise TypeError, "can't convert #{val.class} into Integer (#{val.class}#to_int gives #{result.class})" unless result.is_a?(Integer)
       return result
     end
     type_name = val.nil? ? "nil" : val.class.to_s

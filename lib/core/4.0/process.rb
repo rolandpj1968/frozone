@@ -32,6 +32,21 @@ class Process
   def self.abort(msg = nil) = Kernel.abort(msg)
   def self.argv0 = $0.freeze
 
+  def self.exec(*args)
+    env = args.first.is_a?(Hash) ? args.shift : nil
+    raise ArgumentError, "wrong number of arguments (given 0, expected 1+)" if args.empty?
+    cmd = args.first
+    if cmd.is_a?(Array)
+      raise ArgumentError, "wrong first argument" unless cmd.length == 2
+      cmd.each { |s| raise ArgumentError, "string contains null byte" if s.to_s.include?("\0") }
+    else
+      raise ArgumentError, "string contains null byte" if cmd.to_s.include?("\0")
+    end
+    args[1..].each { |a| raise ArgumentError, "string contains null byte" if a.to_s.include?("\0") }
+    full_args = env ? [env] + args : args
+    Intrinsics.kernel_exec(self, *full_args)
+  end
+
   def self.clock_getres(clock_id, unit = :float_second)
     Intrinsics.process_clock_getres(clock_id, unit)
   end
@@ -65,23 +80,35 @@ class Process
   end
 
   def self.uid=(id)
-    raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer)
+    raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer) || id.is_a?(String)
     raise Errno::EPERM, "Operation not permitted"
   end
 
   def self.gid=(id)
-    raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer)
+    raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer) || id.is_a?(String)
     raise Errno::EPERM, "Operation not permitted"
   end
 
   def self.euid=(id)
-    raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer)
+    raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer) || id.is_a?(String)
     raise Errno::EPERM, "Operation not permitted"
   end
 
   def self.egid=(id)
-    raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer)
+    raise TypeError, "can't convert #{id.class} into Integer" unless id.is_a?(Integer) || id.is_a?(String)
     raise Errno::EPERM, "Operation not permitted"
+  end
+
+  def self.detach(pid)
+    pid = __coerce_to_int__(pid)
+    Thread.new(pid) do |p|
+      begin
+        status = Process.wait2(p)
+        status ? status[1] : nil
+      rescue Errno::ECHILD
+        nil
+      end
+    end
   end
 
   module UID

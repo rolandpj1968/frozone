@@ -330,6 +330,27 @@ module Frozone
           n2f_int(::Kernel.spawn(*argv))
         end
 
+        def kernel_exec(_, _receiver, *args)
+          argv = args.map { |a|
+            if fstr?(a)
+              a.raw
+            elsif a.is_a?(ArrayObject)
+              a.raw.map { |s| fstr?(s) ? s.raw : s.raw.to_s }
+            elsif a.is_a?(HashObject)
+              h = {}
+              a.raw.each { |k, v|
+                hk = k.is_a?(::String) ? k : k.to_s
+                hv = v.nil? ? nil : (v.is_a?(::String) ? v : v.to_s)
+                h[hk] = hv
+              }
+              h
+            else
+              a.raw.to_s
+            end
+          }
+          ::Kernel.exec(*argv)
+        end
+
         def kernel_global_variables(_, _receiver)
           keys = GLOBALS.keys.map { |k| n2f_sym(k) }
           ArrayObject.new(keys)

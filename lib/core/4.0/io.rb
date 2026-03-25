@@ -87,6 +87,7 @@ class IO
 
   def closed? = Intrinsics.io_closed?(self)
   def fileno = Intrinsics.io_fileno(self)
+  alias to_i fileno
   def eof? = Intrinsics.io_eof?(self)
   def eof = eof?
   def close_on_exec? = Intrinsics.io_close_on_exec_q(self)
@@ -212,8 +213,8 @@ class IO
   def pwrite(str, offset) = Intrinsics.io_pwrite(self, str, offset)
 
   def seek(offset, whence = SEEK_SET)
-    offset = offset.respond_to?(:to_int) ? offset.to_int : Integer(offset)
-    whence = whence.respond_to?(:to_int) ? whence.to_int : Integer(whence)
+    offset = __coerce_to_int__(offset)
+    whence = __coerce_to_int__(whence)
     Intrinsics.io_seek(self, offset, whence)
   end
 
@@ -378,6 +379,7 @@ class IO
   end
 
   def self.sysopen(path, mode = 'r', perm = 0666)
+    path = __coerce_to_path__(path)
     Intrinsics.io_sysopen(path, mode, perm)
   end
 

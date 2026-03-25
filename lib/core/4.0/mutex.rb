@@ -15,14 +15,25 @@ class Mutex
   end
 
   def lock
+    current = Thread.current
+    # Replay support: if this thread was previously blocked after N successful locks,
+    # skip the first N lock calls on re-run (they already succeeded).
+    seen = current.__mutex_seen_count
+    skip_n = current.__mutex_skip_count
+    if seen < skip_n
+      current.__mutex_seen_count = seen + 1
+      current.__mutex_done_count = current.__mutex_done_count + 1
+      return self
+    end
     if @locked
       raise ThreadError, "deadlock; recursive locking" if owned?
       raise Thread::Blocked
     end
     @locked      = true
-    @owner       = Thread.current
+    @owner       = current
     @owner_fiber = Fiber.current
-    Thread.current.__add_owned_mutex(self)
+    current.__add_owned_mutex(self)
+    current.__mutex_done_count = current.__mutex_done_count + 1
     self
   end
 
@@ -50,15 +61,19 @@ class Mutex
     @owner       = Thread.current
     @owner_fiber = Fiber.current
     Thread.current.__add_owned_mutex(self)
-    self
+    true
   end
 
   def synchronize(&block)
     lock
+    blocked = false
     begin
       block.call
+    rescue Thread::Blocked
+      blocked = true
+      raise
     ensure
-      unlock
+      unlock unless blocked
     end
   end
 

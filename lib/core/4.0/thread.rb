@@ -144,6 +144,17 @@ class Thread
   def __stop_seen=(v);    @stop_seen        = v; end
   def __wakeup_count            = @wakeup_count
   def __wakeup_count=(v); @wakeup_count     = v; end
+
+  # Exposed for Mutex lock replay mechanism:
+  # @mutex_skip_count: locks to skip on re-run (saved from previous run at block point)
+  # @mutex_seen_count: locks already skipped in current run (reset each run)
+  # @mutex_done_count: successful locks in current run (reset each run)
+  def __mutex_skip_count            = @mutex_skip_count || 0
+  def __mutex_skip_count=(v); @mutex_skip_count = v; end
+  def __mutex_seen_count            = @mutex_seen_count || 0
+  def __mutex_seen_count=(v); @mutex_seen_count = v; end
+  def __mutex_done_count            = @mutex_done_count || 0
+  def __mutex_done_count=(v); @mutex_done_count = v; end
   def __raise_exception         = @raise_exception
   def __raise_exception=(v); @raise_exception = v; end
   def __raise_cause             = @raise_cause
@@ -401,6 +412,9 @@ class Thread
     @aborting            = false
     @wakeup_count        = 0
     @stop_seen           = 0
+    @mutex_skip_count    = 0
+    @mutex_seen_count    = 0
+    @mutex_done_count    = 0
     @raise_exception     = nil
     @raise_cause         = nil
     @raise_backtrace     = nil
@@ -430,7 +444,9 @@ class Thread
     @@pending.delete(self)
     @executing    = true
     @run_yielded  = false
-    @stop_seen    = 0          # reset replay counter at start of each run
+    @stop_seen    = 0          # reset replay counters at start of each run
+    @mutex_seen_count = 0
+    @mutex_done_count = 0
     @self_killed  = false
     prev          = @@current
     @@current     = self
@@ -447,6 +463,8 @@ class Thread
       # Thread blocked; record whether this was a cooperative yield (Thread.pass)
       # or a resource block (mutex, queue, Thread.stop), then re-queue.
       unless frozen?
+        # Save mutex lock done-count for replay (any blocking saves this, not just mutex lock)
+        @mutex_skip_count = @mutex_done_count
         @run_yielded = @@last_blocked_as_yield
         @@last_blocked_as_yield = false
         @@pending << self
