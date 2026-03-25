@@ -198,6 +198,10 @@ class Object
   def guard(condition, &block)
     block.call if condition.call
   end
+
+  def guard_not(condition, &block)
+    block.call unless condition.call
+  end
 end
 
 # Patch platform_is / platform_is_not to support no-block usage (boolean return).
@@ -302,6 +306,22 @@ class Object
     ensure
       g.unregister
     end
+  end
+
+  # kernel_version_is — guard block by kernel version comparison (Linux only).
+  # Returns false on non-Linux or when uname -r comparison fails.
+  def kernel_version_is(version, &block)
+    require 'rbconfig'
+    return false unless RbConfig::CONFIG['host_os'] =~ /linux/i
+    kver = `uname -r`.strip.split('-').first
+    a = kver.split('.').map(&:to_i)
+    e = version.to_s.split('.').map(&:to_i)
+    max_len = [a.length, e.length].max
+    a += [0] * (max_len - a.length)
+    e += [0] * (max_len - e.length)
+    passes = (a <=> e) >= 0
+    yield if passes && block_given?
+    passes
   end
 
   # version_is — guard block by arbitrary version comparison (e.g. StringIO::VERSION)

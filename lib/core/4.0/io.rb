@@ -191,7 +191,11 @@ class IO
   def getc = Intrinsics.io_getc(self)
   def readbyte = Intrinsics.io_readbyte(self)
   def readchar = Intrinsics.io_readchar(self)
-  def ungetbyte(b) = Intrinsics.io_ungetbyte(self, b)
+  def ungetbyte(b)
+    return nil if b.nil?
+    b = b.to_str unless b.is_a?(String) || b.is_a?(Integer)
+    Intrinsics.io_ungetbyte(self, b)
+  end
   def ungetc(s)
     if s.is_a?(Integer)
       enc = external_encoding || Encoding.default_external || Encoding::UTF_8
@@ -207,10 +211,27 @@ class IO
     end
   end
   def sysread(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
-  def syswrite(str) = Intrinsics.io_syswrite(self, str)
+  def syswrite(str)
+    begin
+      str = str.to_s unless str.is_a?(String)
+    rescue NoMethodError
+      str.to_s  # re-raises NoMethodError "undefined method 'to_s'" for BasicObject
+    end
+    Intrinsics.io_syswrite(self, str)
+  end
+
   def sysseek(offset, whence = SEEK_SET) = seek(offset, whence)
   def pread(length, offset, buf = nil) = Intrinsics.io_pread(self, length, offset, buf)
-  def pwrite(str, offset) = Intrinsics.io_pwrite(self, str, offset)
+
+  def pwrite(str, offset)
+    begin
+      str = str.to_s unless str.is_a?(String)
+    rescue NoMethodError
+      str.to_s  # re-raises NoMethodError "undefined method 'to_s'" for BasicObject
+    end
+    offset = __coerce_to_int__(offset) unless offset.is_a?(Integer)
+    Intrinsics.io_pwrite(self, str, offset)
+  end
 
   def seek(offset, whence = SEEK_SET)
     offset = __coerce_to_int__(offset)
@@ -223,6 +244,11 @@ class IO
   end
 
   def write_nonblock(str, exception: true)
+    begin
+      str = str.to_s unless str.is_a?(String)
+    rescue NoMethodError
+      str.to_s  # re-raises NoMethodError "undefined method 'to_s'" for BasicObject
+    end
     Intrinsics.io_write_nonblock(self, str, exception)
   end
 
@@ -396,6 +422,14 @@ class IO
 
   def self.for_fd(fd, mode = nil, **opts, &block)
     self.new(fd, mode, **opts, &block)
+  end
+
+  def self.try_convert(obj)
+    return obj if obj.is_a?(IO)
+    return nil unless obj.respond_to?(:to_io)
+    result = obj.to_io
+    raise TypeError, "can't convert #{obj.class} to IO (#{obj.class}#to_io gives #{result.class})" unless result.is_a?(IO)
+    result
   end
 
   def self.open(fd_or_path, mode = nil, **opts, &block)
@@ -757,9 +791,62 @@ class IO
   end
 
   def set_encoding(ext_enc, int_enc = nil)
+    unless ext_enc.nil? || ext_enc.is_a?(Encoding) || ext_enc.is_a?(String)
+      ext_enc = ext_enc.to_str
+    end
+    unless int_enc.nil? || int_enc.is_a?(Encoding) || int_enc.is_a?(String)
+      int_enc = int_enc.to_str
+    end
     Intrinsics.io_set_encoding(self, ext_enc, int_enc)
     Intrinsics.io_mark_explicit_encoding(self)
     self
+  end
+
+  def set_encoding_by_bom
+    return nil unless Intrinsics.io_readable?(self)
+    raise ArgumentError, 'ASCII incompatible encoding needs binmode' unless binmode?
+    ext = external_encoding
+    if ext && ext != Encoding::ASCII_8BIT && ext != Encoding::BINARY
+      raise ArgumentError, "encoding is set to #{ext.name} already"
+    end
+    if internal_encoding
+      raise ArgumentError, 'encoding conversion is set'
+    end
+
+    # Read up to 4 bytes to detect BOM
+    saved_pos = pos
+    header = read(4)
+    return nil if header.nil? || header.empty?
+
+    bs = header.bytes
+    enc = nil
+    consumed = 0
+
+    if bs.length >= 4 && bs[0] == 0xFF && bs[1] == 0xFE && bs[2] == 0x00 && bs[3] == 0x00
+      enc = Encoding::UTF_32LE
+      consumed = 4
+    elsif bs.length >= 4 && bs[0] == 0x00 && bs[1] == 0x00 && bs[2] == 0xFE && bs[3] == 0xFF
+      enc = Encoding::UTF_32BE
+      consumed = 4
+    elsif bs.length >= 2 && bs[0] == 0xFF && bs[1] == 0xFE
+      enc = Encoding::UTF_16LE
+      consumed = 2
+    elsif bs.length >= 2 && bs[0] == 0xFE && bs[1] == 0xFF
+      enc = Encoding::UTF_16BE
+      consumed = 2
+    elsif bs.length >= 3 && bs[0] == 0xEF && bs[1] == 0xBB && bs[2] == 0xBF
+      enc = Encoding::UTF_8
+      consumed = 3
+    end
+
+    if enc
+      seek(saved_pos + consumed)
+      set_encoding(enc)
+      enc
+    else
+      seek(saved_pos)
+      nil
+    end
   end
   module WaitReadable; end
   module WaitWritable; end
