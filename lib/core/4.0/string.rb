@@ -407,7 +407,7 @@ class String
     each_char.map { |c|
       b = Intrinsics.string_get_byte(c, 0)
       (b >= 97 && b <= 122) ? (b - 32).chr(encoding) : c
-    }.join.force_encoding(encoding)
+    }.join("").force_encoding(encoding)
   end
 
   def downcase(*args)
@@ -416,7 +416,7 @@ class String
     each_char.map { |c|
       b = Intrinsics.string_get_byte(c, 0)
       (b >= 65 && b <= 90) ? (b + 32).chr(encoding) : c
-    }.join.force_encoding(encoding)
+    }.join("").force_encoding(encoding)
   end
 
   def capitalize(*args)
@@ -432,7 +432,7 @@ class String
       else
         (b >= 65 && b <= 90) ? (b + 32).chr(encoding) : c
       end
-    }.join.force_encoding(encoding)
+    }.join("").force_encoding(encoding)
   end
 
   def swapcase(*args)
@@ -447,7 +447,7 @@ class String
       else
         c
       end
-    }.join.force_encoding(encoding)
+    }.join("").force_encoding(encoding)
   end
 
   def swapcase!(*args)
@@ -456,7 +456,7 @@ class String
   end
 
   def reverse
-    r = chars.reverse.join
+    r = chars.reverse.join("")
     r.force_encoding(encoding)
     r
   end
@@ -826,7 +826,7 @@ class String
     __check_frozen__
     prefix = others.map { |s|
       s.is_a?(String) ? s : __coerce_to_str__(s)
-    }.join
+    }.join("")
     Intrinsics.string_replace(self, prefix + self)
     self
   end

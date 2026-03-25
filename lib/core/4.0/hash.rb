@@ -178,7 +178,7 @@ class Hash
         unless v_s.encoding.ascii_compatible?
           v_s = v_s.encode('UTF-8').chars.map { |c|
             c.ord > 127 ? "\\u#{c.ord.to_s(16).rjust(4, '0')}" : c
-          }.join
+          }.join("")
         end
         pairs << "#{__inspect_key__(k)}#{v_s}"
       end
@@ -697,7 +697,7 @@ class Hash
           else
             c
           end
-        end.join
+        end.join('')
         "\"#{escaped}\": "
       else
         # Encode to UTF-8 for regex compatibility (e.g. Windows-31J name vs UTF-8 regex)

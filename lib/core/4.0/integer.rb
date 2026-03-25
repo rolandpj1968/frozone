@@ -181,7 +181,7 @@ class Integer
           0xED, 0xA0 | ((hi >> 6) & 0x0F), 0x80 | (hi & 0x3F),
           0xED, 0xB0 | ((lo >> 6) & 0x0F), 0x80 | (lo & 0x3F)
         ]
-        s = bytes.map { |b| b.chr(Encoding::ASCII_8BIT) }.join
+        s = bytes.map { |b| b.chr(Encoding::ASCII_8BIT) }.join("")
         Intrinsics.string_force_encoding(s, resolved)
       end
     else
