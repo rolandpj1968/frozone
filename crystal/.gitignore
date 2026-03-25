@@ -1,0 +1,9 @@
+# Compiled binaries
+/hello
+/m1b
+/m1c
+# Generated .cr files (output of compile.rb) — exclude by pattern
+# Source files in src/ and spec/ are tracked
+*.cr
+!src/**/*.cr
+!spec/**/*.cr
