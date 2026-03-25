@@ -177,6 +177,9 @@ module Frozone
         when Ast::Lambda                then emit_lambda(node)
         when Ast::GlobalVariableRead    then emit_global_var_read(node)
         when Ast::GlobalVariableWrite   then emit_global_var_write(node)
+        when Ast::IndexOrWrite          then emit_index_or_write(node)
+        when Ast::IndexOperatorWrite    then emit_index_op_write(node)
+        when Ast::IndexAndWrite         then emit_index_and_write(node)
         when Ast::Block                 then unsupported!(node, "bare Block outside method call")
         else
           unsupported!(node)
@@ -264,7 +267,9 @@ module Frozone
       end
 
       def emit_constant_read(node)
-        write "Ruby_#{crystal_constant(ivar(node, :name))}"
+        name = ivar(node, :name)
+        crystal_type = RUBY_TO_CRYSTAL_TYPE[name]
+        crystal_type ? write(crystal_type) : write("Ruby_#{crystal_constant(name)}")
       end
 
       def emit_constant_write(node)
@@ -323,6 +328,16 @@ module Frozone
           return emit_operator(node, name) if operator?(name)
         end
 
+        # Built-in class .new: Array.new(n, default), Hash.new, etc.
+        if name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
+          cr_type = RUBY_TO_CRYSTAL_TYPE[ivar(node.receiver_node, :name)]
+          if cr_type
+            write "#{cr_type}.new"
+            emit_call_args(node)
+            return
+          end
+        end
+
         # Proc.new { |...| ... } → RubyProc wrapping a Crystal proc
         if name == :new && node.receiver_node.is_a?(Ast::ConstantRead) &&
            ivar(node.receiver_node, :name) == :Proc && node.block_node
@@ -337,6 +352,15 @@ module Frozone
         # proc.call(args) → cast receiver to RubyProc then call
         if name == :call && node.receiver_node
           return emit_proc_call(node)
+        end
+
+        # [] subscript: emit receiver[arg] instead of receiver.[](arg)
+        if name == :[] && node.receiver_node && node.arg_nodes.size == 1
+          emit(node.receiver_node)
+          write "["
+          emit(node.arg_nodes[0])
+          write "]"
+          return
         end
 
         # General method call: receiver.method(args)
@@ -763,6 +787,60 @@ module Frozone
         emit(ivar(node, :value_node))
       end
 
+      # a[i] ||= val → (_r = recv; _i = idx; _c = _r[_i]; _c.truthy? ? _c : (_r[_i] = val))
+      def emit_index_or_write(node)
+        recv_node  = ivar(node, :receiver_node)
+        index_args = ivar(node, :index_arg_nodes)
+        val_node   = ivar(node, :value_node)
+        r = "_iorw_r#{@temp_counter}"
+        i = "_iorw_i#{@temp_counter}"
+        c = "_iorw_c#{@temp_counter}"
+        @temp_counter += 1
+        write "(#{r} = "
+        recv_node ? emit(recv_node) : write("self")
+        write "; #{i} = "
+        emit(index_args[0])
+        write "; #{c} = #{r}[#{i}]; #{c}.truthy? ? #{c} : (#{r}[#{i}] = "
+        emit(val_node)
+        write "))"
+      end
+
+      # a[i] &&= val → (_r = recv; _i = idx; _c = _r[_i]; _c.truthy? ? (_r[_i] = val) : _c)
+      def emit_index_and_write(node)
+        recv_node  = ivar(node, :receiver_node)
+        index_args = ivar(node, :index_arg_nodes)
+        val_node   = ivar(node, :value_node)
+        r = "_iandw_r#{@temp_counter}"
+        i = "_iandw_i#{@temp_counter}"
+        c = "_iandw_c#{@temp_counter}"
+        @temp_counter += 1
+        write "(#{r} = "
+        recv_node ? emit(recv_node) : write("self")
+        write "; #{i} = "
+        emit(index_args[0])
+        write "; #{c} = #{r}[#{i}]; #{c}.truthy? ? (#{r}[#{i}] = "
+        emit(val_node)
+        write ") : #{c})"
+      end
+
+      # a[i] += val → (_r = recv; _i = idx; _r[_i] = _r[_i] op val)
+      def emit_index_op_write(node)
+        op         = ivar(node, :operator)
+        recv_node  = ivar(node, :receiver_node)
+        index_args = ivar(node, :index_arg_nodes)
+        val_node   = ivar(node, :value_node)
+        r = "_iopw_r#{@temp_counter}"
+        i = "_iopw_i#{@temp_counter}"
+        @temp_counter += 1
+        write "(#{r} = "
+        recv_node ? emit(recv_node) : write("self")
+        write "; #{i} = "
+        emit(index_args[0])
+        write "; #{r}[#{i}] = (#{r}[#{i}] #{op} "
+        emit(val_node)
+        write "))"
+      end
+
       def emit_yield(node)
         args = ivar(node, :arg_nodes)
         if args.empty?
@@ -782,16 +860,27 @@ module Frozone
       # Boolean operators
       # -----------------------------------------------------------------------
 
+      # emit_and/emit_or return RubyObject (not Bool) so they work in value
+      # contexts like `x = a && b` or `x ||= val`. emit_truthy adds .truthy?
+      # when the result is used as a Crystal condition.
       def emit_and(node)
-        emit_truthy(ivar(node, :left_node))
-        write " && "
-        emit_truthy(ivar(node, :right_node))
+        tmp = "_and#{@temp_counter}"
+        @temp_counter += 1
+        write "(#{tmp} = "
+        emit(ivar(node, :left_node))
+        write "; #{tmp}.truthy? ? ("
+        emit(ivar(node, :right_node))
+        write ") : #{tmp})"
       end
 
       def emit_or(node)
-        emit_truthy(ivar(node, :left_node))
-        write " || "
-        emit_truthy(ivar(node, :right_node))
+        tmp = "_or#{@temp_counter}"
+        @temp_counter += 1
+        write "(#{tmp} = "
+        emit(ivar(node, :left_node))
+        write "; #{tmp}.truthy? ? #{tmp} : ("
+        emit(ivar(node, :right_node))
+        write "))"
       end
 
       # Wrap a value in a Crystal truthy check when used as a condition.
@@ -816,7 +905,6 @@ module Frozone
       def boolean_valued?(node)
         case node
         when Ast::TrueLiteral, Ast::FalseLiteral then true
-        when Ast::And, Ast::Or                   then true
         when Ast::MethodCall
           # Comparison operators now emit as (a op b) ? RUBY_TRUE : RUBY_FALSE → RubyBool
           # (no longer Crystal Bool, so .truthy? is needed — return false here)

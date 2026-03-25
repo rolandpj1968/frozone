@@ -33,6 +33,12 @@ class RubyArray < RubyObject
   def initialize(@data : Array(RubyObject))
   end
 
+  # Array.new(count, default) — creates array of `count` copies of `default`
+  def initialize(count : RubyObject, default : RubyObject)
+    n = count.is_a?(RubyInteger) ? count.to_i64.to_i32 : 0
+    @data = Array(RubyObject).new(n) { default }
+  end
+
   # -------------------------------------------------------------------------
   # Length / emptiness
   # -------------------------------------------------------------------------
@@ -201,8 +207,8 @@ class RubyArray < RubyObject
     @data.each { |el| block.call(el) }
   end
 
-  def each_with_index(&block : RubyObject, Int32 ->)
-    @data.each_with_index { |el, i| block.call(el, i) }
+  def each_with_index(&block : RubyObject, RubyObject ->)
+    @data.each_with_index { |el, i| block.call(el, RubyInteger.new(i.to_i64)) }
   end
 
   def map(&block : RubyObject -> RubyObject) : RubyArray
