@@ -174,13 +174,13 @@ module Frozone
         return b if a == :unknown
         return a if b == :unknown
         return a if a == b
-        # Both are {class: X} — find LCA in the class hierarchy.
-        if a.is_a?(Hash) && b.is_a?(Hash)
-          lca_of(a[:class], b[:class])
-        else
-          # Widen unboxed types to their boxed class and retry.
-          lca_of(boxed_class(a), boxed_class(b))
-        end
+        # Normalise unboxed symbols (:i64, :array_i64, …) to parameterised Hash
+        # types before comparing, so the collection-param merge path sees them.
+        a2 = a.is_a?(Hash) ? a : boxed_type(a)
+        b2 = b.is_a?(Hash) ? b : boxed_type(b)
+        return meet(a2, b2) if a2 != a || b2 != b   # retry with normalised forms
+        # Both are Hash class types.
+        a[:class] == b[:class] ? merge_collection_params(a, b) : lca_of(a[:class], b[:class])
       end
 
       # ------------------------------------------------------------------
@@ -406,8 +406,27 @@ module Frozone
         when Ast::FalseLiteral    then {class: :FalseClass}
         when Ast::StringLiteral   then {class: :String}
         when Ast::SymbolLiteral   then {class: :Symbol}
-        when Ast::ArrayLiteral    then {class: :Array}
-        when Ast::HashLiteral     then {class: :Hash}
+        when Ast::ArrayLiteral
+          elems = node.instance_variable_get(:@element_nodes) || []
+          if elems.empty?
+            {class: :Array}
+          else
+            elem_ty = elems.reduce(:unknown) { |acc, e| meet(acc, infer_expr(e, ctx)) }
+            elem_ty == :unknown ? {class: :Array} : {class: :Array, elem: elem_ty}.freeze
+          end
+
+        when Ast::HashLiteral
+          pairs = node.instance_variable_get(:@kv_nodes) || []
+          if pairs.empty?
+            {class: :Hash}
+          else
+            key_ty = pairs.reduce(:unknown) { |acc, (k, _)| meet(acc, infer_expr(k, ctx)) }
+            val_ty = pairs.reduce(:unknown) { |acc, (_, v)| meet(acc, infer_expr(v, ctx)) }
+            result = {class: :Hash}
+            result[:key] = key_ty unless key_ty == :unknown
+            result[:val] = val_ty unless val_ty == :unknown
+            result.freeze
+          end
         when Ast::RangeLiteral    then {class: :Range}
         when Ast::RegexpLiteral   then {class: :Regexp}
 
@@ -458,10 +477,18 @@ module Frozone
           return {class: class_sym}
         end
 
-        # Array element read a[k] — use raw to propagate :unknown through arithmetic.
-        if name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
-          lv = recv.instance_variable_get(:@name)
-          return @env.raw([:array_elem, ctx.method_key, lv])
+        # Array element read recv[k].
+        if name == :[] && args.size == 1
+          # Unboxed Array(T) local — use raw to propagate :unknown through arithmetic.
+          if recv.is_a?(Ast::LocalVariableRead)
+            lv = recv.instance_variable_get(:@name)
+            raw = @env.raw([:array_elem, ctx.method_key, lv])
+            return raw if raw != :unknown
+          end
+          # Typed (boxed) Array with known elem type — covers constants, params, locals.
+          recv_ty = infer_expr(recv, ctx)
+          return recv_ty[:elem] if recv_ty.is_a?(Hash) && recv_ty[:class] == :Array &&
+                                   recv_ty.key?(:elem)
         end
 
         # Arithmetic / bitwise — Ruby-semantic result type.
@@ -579,6 +606,14 @@ module Frozone
           if node.instance_variable_defined?(:@arg_nodes)
             Array(node.instance_variable_get(:@arg_nodes)).each do |a|
               collect_assignments(a, result) if a.is_a?(Ast::Node)
+            end
+          end
+          # Ruby blocks are closures — assignments inside a block body are
+          # visible in the enclosing scope, so descend into block bodies.
+          if node.instance_variable_defined?(:@block_node)
+            blk = node.instance_variable_get(:@block_node)
+            if blk&.instance_variable_defined?(:@body)
+              collect_assignments(blk.instance_variable_get(:@body), result)
             end
           end
         end
@@ -777,10 +812,33 @@ module Frozone
         lca ? {class: lca} : BASIC_OBJECT_TYPE
       end
 
-      # Boxed Ruby class name for a lattice type value.
+      # Full boxed (parameterized) class type for an unboxed type.
+      # :i64 → {class: :Integer}, :array_i64 → {class: :Array, elem: :i64}, etc.
+      def boxed_type(ty)
+        case ty
+        when :i64       then {class: :Integer}
+        when :f64       then {class: :Float}
+        when :array_i64 then {class: :Array, elem: :i64}
+        when :array_f64 then {class: :Array, elem: :f64}
+        when Hash       then ty
+        else OBJECT_TYPE
+        end
+      end
+
+      # Bare Ruby class name for a lattice type value (ignores params).
       def boxed_class(ty)
         return ty[:class] if ty.is_a?(Hash)
         BOXED_CLASS[ty] || :Object
+      end
+
+      # Meet two parameterized collection types that share the same base class.
+      # Only merges params (elem, key, val) that are present in BOTH sides.
+      def merge_collection_params(a, b)
+        result = {class: a[:class]}
+        result[:elem] = meet(a[:elem], b[:elem]) if a.key?(:elem) && b.key?(:elem)
+        result[:key]  = meet(a[:key],  b[:key])  if a.key?(:key)  && b.key?(:key)
+        result[:val]  = meet(a[:val],  b[:val])  if a.key?(:val)  && b.key?(:val)
+        result.freeze
       end
 
       # True if ty is a class type known to be Numeric or a subclass.
@@ -798,8 +856,27 @@ module Frozone
         case value
         when Vm::IntegerObject then :i64
         when Vm::FloatObject   then :f64
+        when Vm::ArrayObject
+          elems = value.raw
+          if elems.empty?
+            {class: :Array}
+          else
+            elem_ty = elems.reduce(:unknown) { |acc, e| meet(acc, vm_object_type(e) || :unknown) }
+            elem_ty == :unknown ? {class: :Array} : {class: :Array, elem: elem_ty}.freeze
+          end
+        when Vm::HashObject
+          pairs = value.raw  # Hash<KeyWrapper, RubyObject>
+          if pairs.empty?
+            {class: :Hash}
+          else
+            key_ty = pairs.keys.reduce(:unknown)  { |acc, kw| meet(acc, vm_object_type(kw.key) || :unknown) }
+            val_ty = pairs.values.reduce(:unknown) { |acc, v|  meet(acc, vm_object_type(v) || :unknown) }
+            result = {class: :Hash}
+            result[:key] = key_ty unless key_ty == :unknown
+            result[:val] = val_ty unless val_ty == :unknown
+            result.freeze
+          end
         else
-          # User-defined class instance or known built-in object.
           class_obj  = value.respond_to?(:class_object) ? value.class_object : nil
           class_name = class_obj&.instance_variable_get(:@name)
           return nil unless class_name
