@@ -50,6 +50,9 @@ module Frozone
         @typed_locals         = {}   # local_name (Symbol) => :i64 | :f64 (per-method, reset each emit)
         @typed_params         = {}   # method_name => [:i64/:f64, ...] (specialized raw overload params)
         @typed_method_returns = {}   # method_name => :i64 | :f64 (return type of specialized overload)
+        @const_raw_types      = {}   # constant Symbol name => :i64 | :f64
+        @typed_ivars          = {}   # class Symbol name => {ivar_sym => :i64 | :f64}
+        @current_class_ivars  = {}   # active ivar type map during class method emission
 
         # Pre-pass: collect user method names for RubyObject stubs
         collect_user_methods_from_scope(top_level_scope)
@@ -61,6 +64,10 @@ module Frozone
         # Method specialisation pre-passes: raw-typed free-call sites → specialized overloads
         collect_raw_call_sites(execute_block) if execute_block
         collect_typed_method_returns
+
+        # Typed ivar pre-passes: numeric constants → raw types; class ivars from initialize
+        collect_const_raw_types(top_level_scope)
+        collect_all_ivar_types(execute_block, top_level_scope)
 
         emit_header
         emit_bench_harness_require if bench_stub?
@@ -188,6 +195,9 @@ module Frozone
         end
         emit_newline
 
+        old_class_ivars = @current_class_ivars
+        @current_class_ivars = @typed_ivars.fetch(name, {})
+
         indented do
           # Collect and emit ivar declarations (Crystal requires them upfront)
           all_ivars = []
@@ -196,7 +206,12 @@ module Frozone
           end
           all_ivars.each do |iv|
             emit_indent
-            line "#{iv} : RubyObject = RUBY_NIL"
+            type_ann, default = case @current_class_ivars[iv.to_sym]
+              when :f64 then ["Float64", "0.0_f64"]
+              when :i64 then ["Int64",   "0_i64"]
+              else          ["RubyObject", "RUBY_NIL"]
+            end
+            line "#{iv} : #{type_ann} = #{default}"
           end
           emit_newline unless all_ivars.empty?
 
@@ -222,6 +237,7 @@ module Frozone
           end
         end
 
+        @current_class_ivars = old_class_ivars
         emit_indent
         write "end"
         emit_newline
@@ -256,7 +272,13 @@ module Frozone
       # it directly to emit_param_list (which uses ivar/instance_variable_get).
       def emit_vm_method(name, method, param_types: nil)
         old_typed = @typed_locals
-        @typed_locals = method.body ? infer_local_types(method.body) : {}
+        param_names = (ivar(method, :required_params) || []) +
+                      (ivar(method, :optional_params) || []).map(&:first) +
+                      [ivar(method, :rest_param)].compact +
+                      (ivar(method, :post_params) || [])
+        inferred = method.body ? infer_local_types(method.body) : {}
+        param_names.each { |p| inferred.delete(p) }
+        @typed_locals = inferred
         string_return = STRING_RETURN_METHODS.include?(name)
         crystal_name  = string_return ? name.to_s : crystal_method_name(name)
 
@@ -312,7 +334,7 @@ module Frozone
       def vm_value_to_crystal(value)
         case value
         when Vm::IntegerObject then "RubyInteger.new(#{value.raw}_i64)"
-        when Vm::FloatObject   then "RubyFloat.new(#{value.raw}_f64)"
+        when Vm::FloatObject   then "RubyFloat.new(#{float_bits_expr(value.raw)})"
         when Vm::StringObject  then "RubyString.new(#{value.raw.inspect})"
         when Vm::NilObject     then "RUBY_NIL"
         when Vm::TrueObject    then "RUBY_TRUE"
@@ -457,6 +479,10 @@ module Frozone
         when Ast::FloatLiteral   then :f64
         when Ast::LocalVariableRead
           @typed_locals[ivar(node, :name)]
+        when Ast::InstanceVariableRead
+          @current_class_ivars[ivar(node, :name)]
+        when Ast::ConstantRead
+          @const_raw_types[ivar(node, :name)]
         when Ast::MethodCall
           name = ivar(node, :name)
           recv = ivar(node, :receiver_node)
@@ -465,11 +491,11 @@ module Frozone
           if recv.nil? && (ret_ty = @typed_method_returns[name])
             return ret_ty
           end
-          # Arithmetic op on two raw-typed operands
+          # Arithmetic op: at least one raw-typed operand determines result type
           return nil unless ARITH_OPS_UNBOX.include?(name) && args.size == 1
           rt = node_raw_type(recv)
           at = node_raw_type(args[0])
-          return nil unless rt && at
+          return nil unless rt || at
           (rt == :f64 || at == :f64) ? :f64 : :i64
         else nil
         end
@@ -574,11 +600,17 @@ module Frozone
         when Ast::IntegerLiteral
           write "#{ivar(node, :value).raw}_i64"
         when Ast::FloatLiteral
-          val = ivar(node, :value)
-          val = val.respond_to?(:raw) ? val.raw : val
-          write "#{val}_f64"
+          raw = ivar(node, :value)
+          val = raw.respond_to?(:raw) ? raw.raw : raw
+          write float_bits_expr(val)
         when Ast::LocalVariableRead
           write crystal_local(ivar(node, :name))
+        when Ast::InstanceVariableRead
+          write ivar(node, :name).to_s
+        when Ast::ConstantRead
+          ty = @const_raw_types[ivar(node, :name)]
+          emit_constant_read(node)
+          write ty == :f64 ? ".to_f64" : ".to_i64"
         when Ast::MethodCall
           name = ivar(node, :name)
           recv = ivar(node, :receiver_node)
@@ -593,10 +625,13 @@ module Frozone
             end
             write ")"
           elsif (ARITH_OPS_UNBOX | COMPARE_OPS).include?(name) && args.size == 1 && recv
+            rt = node_raw_type(recv)
+            at = node_raw_type(args[0])
+            ty = (rt == :f64 || at == :f64) ? :f64 : :i64
             write "("
-            emit_raw(recv)
+            emit_as(recv, ty)
             write " #{name} "
-            emit_raw(args[0])
+            emit_as(args[0], ty)
             write ")"
           else
             emit(node)
@@ -604,6 +639,41 @@ module Frozone
         else
           emit(node)
         end
+      end
+
+      # Emit node coerced to the given raw type (:i64 or :f64).
+      # Recurses into arithmetic where at least one operand is typed.
+      def emit_as(node, ty)
+        nt = node_raw_type(node)
+        # Already the right type — emit raw
+        return emit_raw(node) if nt == ty
+        # Int64 → Float64 promotion
+        if nt == :i64 && ty == :f64
+          emit_raw(node)
+          write ".to_f64"
+          return
+        end
+        # Try to recurse into arithmetic with at least one typed operand
+        if node.is_a?(Ast::MethodCall)
+          name = ivar(node, :name)
+          recv = ivar(node, :receiver_node)
+          args = ivar(node, :arg_nodes) || []
+          if (ARITH_OPS_UNBOX | COMPARE_OPS).include?(name) && args.size == 1 && recv
+            rt = node_raw_type(recv)
+            at = node_raw_type(args[0])
+            if rt || at
+              write "("
+              emit_as(recv, ty)
+              write " #{name} "
+              emit_as(args[0], ty)
+              write ")"
+              return
+            end
+          end
+        end
+        # Fallback: emit boxed and coerce
+        emit(node)
+        write ty == :f64 ? ".to_f64" : ".to_i64"
       end
 
       # Emit node coerced to Int64: raw if already typed, else .to_i64 on boxed.
@@ -631,6 +701,23 @@ module Frozone
         return super unless @typed_locals[name]
         write "#{crystal_local(name)} = "
         emit_raw(ivar(node, :value_node))
+      end
+
+      # Override: for typed ivars in boxed context, wrap in RubyFloat/RubyInteger.
+      def emit_ivar_read(node)
+        case @current_class_ivars[ivar(node, :name)]
+        when :f64 then write "RubyFloat.new(#{ivar(node, :name)})"
+        when :i64 then write "RubyInteger.new(#{ivar(node, :name)})"
+        else super
+        end
+      end
+
+      # Override: for typed ivars, coerce RHS to the raw type.
+      def emit_ivar_write(node)
+        iv_name = ivar(node, :name)
+        return super unless (ty = @current_class_ivars[iv_name])
+        write "#{iv_name} = "
+        emit_as(ivar(node, :value_node), ty)
       end
 
       # Override: for index op-write (ci[j] += ...) with a raw-typed index,
@@ -929,6 +1016,133 @@ module Frozone
       end
 
       # -----------------------------------------------------------------------
+      # Typed ivar pre-passes
+      # -----------------------------------------------------------------------
+
+      # Collect user numeric constants → raw type map.
+      def collect_const_raw_types(scope)
+        @const_raw_types = {}
+        const_table = scope.instance_variable_get(:@constants_table) || {}
+        const_locs  = scope.instance_variable_get(:@constants_locations) || {}
+        const_table.each do |name, value|
+          next if SKIP_CONSTANTS.include?(name) || value.is_a?(Vm::ModuleObject)
+          next unless user_source_location?(const_locs[name])
+          case value
+          when Vm::FloatObject   then @const_raw_types[name] = :f64
+          when Vm::IntegerObject then @const_raw_types[name] = :i64
+          end
+        end
+      end
+
+      # For each user-defined class: infer ivar types from constructor call sites
+      # in the execute block + the initialize body.
+      def collect_all_ivar_types(execute_block, scope)
+        @typed_ivars = {}
+        return unless execute_block
+
+        scope.instance_variable_get(:@constants_table)&.each do |name, value|
+          next unless value.is_a?(Vm::ClassObject) && !SKIP_CONSTANTS.include?(name)
+
+          param_types = collect_class_new_arg_types(execute_block.body, name)
+          next unless param_types&.all?
+
+          init_method = value.instance_variable_get(:@methods_table)&.fetch(:initialize, nil)
+          next unless init_method.is_a?(Vm::Method) && init_method.body
+
+          req_params = init_method.instance_variable_get(:@required_params) || []
+          next unless req_params.size == param_types.size
+
+          old_typed     = @typed_locals
+          @typed_locals = req_params.zip(param_types).to_h
+          ivar_types    = {}
+          collect_ivar_assignments(init_method.body, ivar_types)
+          @typed_locals = old_typed
+
+          @typed_ivars[name] = ivar_types unless ivar_types.empty?
+        end
+      end
+
+      # Walk the execute block body for `ClassName.new(...)` calls and return
+      # the merged positional param raw types, or nil if not found / inconsistent.
+      def collect_class_new_arg_types(node, class_name)
+        result = nil
+        walk_class_new_calls(node, class_name) do |arg_types|
+          result = if result.nil?
+            arg_types
+          else
+            result.zip(arg_types).map { |a, b| a == b ? a : nil }
+          end
+        end
+        result
+      end
+
+      def walk_class_new_calls(node, class_name, &block)
+        return unless node
+        case node
+        when Ast::MethodCall
+          recv = node.receiver_node
+          args = node.arg_nodes || []
+          if node.name == :new && recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == class_name
+            block.call(args.map { |a| node_raw_type(a) })
+          end
+          args.each { |a| walk_class_new_calls(a, class_name, &block) }
+          blk = node.instance_variable_get(:@block_node)
+          walk_class_new_calls(blk&.body, class_name, &block) if blk
+        when Ast::Sequence
+          node.nodes.each { |n| walk_class_new_calls(n, class_name, &block) }
+        when Ast::If
+          walk_class_new_calls(ivar(node, :then_node), class_name, &block)
+          walk_class_new_calls(ivar(node, :else_node), class_name, &block)
+        when Ast::While, Ast::Until
+          walk_class_new_calls(ivar(node, :body_node), class_name, &block)
+        when Ast::ArrayLiteral
+          node.instance_variable_get(:@element_nodes)&.each do |n|
+            walk_class_new_calls(n, class_name, &block)
+          end
+        else
+          %i[body_node value_node].each do |slot|
+            next unless node.instance_variable_defined?(:"@#{slot}")
+            child = node.instance_variable_get(:"@#{slot}")
+            walk_class_new_calls(child, class_name, &block) if child.is_a?(Ast::Node)
+          end
+        end
+      end
+
+      # Walk an initialize body collecting ivar types from assignments.
+      # Expects @typed_locals to be seeded with param types.
+      def collect_ivar_assignments(node, ivar_types)
+        return unless node
+        case node
+        when Ast::Sequence
+          node.nodes.each { |n| collect_ivar_assignments(n, ivar_types) }
+        when Ast::InstanceVariableWrite
+          iv = ivar(node, :name)
+          ty = node_raw_type(ivar(node, :value_node))
+          update_ivar_type(ivar_types, iv, ty)
+        when Ast::MultipleAssignment
+          targets = ivar(node, :targets)
+          value   = ivar(node, :value_node)
+          # Handle ArrayLiteral RHS: @a, @b = expr_a, expr_b
+          if value.is_a?(Ast::ArrayLiteral)
+            elems = value.instance_variable_get(:@element_nodes) || []
+            targets.each_with_index do |t, i|
+              next unless t[0] == :ivar
+              update_ivar_type(ivar_types, t[1], elems[i] ? node_raw_type(elems[i]) : nil)
+            end
+          end
+        end
+      end
+
+      def update_ivar_type(ivar_types, iv, ty)
+        return unless ty
+        if !ivar_types.key?(iv)
+          ivar_types[iv] = ty
+        elsif ivar_types[iv] != ty
+          ivar_types.delete(iv)
+        end
+      end
+
+      # -----------------------------------------------------------------------
       # Soundness guard for comparison-operator simplification
       # -----------------------------------------------------------------------
 
@@ -958,6 +1172,16 @@ module Frozone
         @user_overridden_ops.include?(op_name)
       end
 
+      # Override: coerce typed ivar targets in multiple assignment.
+      def emit_masgn_assign(target, value_code)
+        if target[0] == :ivar && (ty = @current_class_ivars[target[1]])
+          coerce = ty == :f64 ? ".to_f64" : ".to_i64"
+          write "#{target[1]} = #{value_code}#{coerce}"
+        else
+          super
+        end
+      end
+
       # Returns true if method is a simple ivar getter or setter (generated by
       # attr_accessor / attr_reader / attr_writer).  These have core source
       # locations but belong to user classes and must be emitted.
@@ -972,15 +1196,30 @@ module Frozone
       end
 
       # Emit an accessor method as an efficient one-liner.
+      # For typed ivars, box (getter) or coerce (setter) at the RubyObject boundary.
       def emit_accessor_method(mname, method)
         body = method.body
         case body
         when Ast::InstanceVariableRead
           iv = ivar(body, :name)
-          line "def #{crystal_method_name(mname)} : RubyObject; #{iv}; end"
+          case @current_class_ivars[iv]
+          when :f64
+            line "def #{crystal_method_name(mname)} : RubyObject; RubyFloat.new(#{iv}); end"
+          when :i64
+            line "def #{crystal_method_name(mname)} : RubyObject; RubyInteger.new(#{iv}); end"
+          else
+            line "def #{crystal_method_name(mname)} : RubyObject; #{iv}; end"
+          end
         when Ast::InstanceVariableWrite
-          iv   = ivar(body, :name)
-          line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v; end"
+          iv = ivar(body, :name)
+          case @current_class_ivars[iv]
+          when :f64
+            line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v.to_f64; v; end"
+          when :i64
+            line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v.to_i64; v; end"
+          else
+            line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v; end"
+          end
         end
       end
     end

@@ -242,4 +242,52 @@ is a known limitation, same as §3.
 
 ### Scope
 Currently limited to top-level methods. Instance methods and methods with optional/rest
-params are not specialised. Extension to class methods (typed ivars) is tracked as §9.
+params are not specialised. Extension to class methods (typed ivars) is implemented in §9.
+
+---
+
+## 9. Typed instance variables (implemented)
+
+### Idea
+When all constructor call sites for a user class use raw-typed arguments (e.g. all `Planet.new(...)` calls pass float literals), infer the types of instance variables from the `initialize` body and declare them as bare `Float64`/`Int64` in Crystal instead of `RubyObject`. Unbox ivar reads in raw arithmetic contexts; box them at the `RubyObject` boundary (accessors, polymorphic dispatch).
+
+### Implementation
+
+**Pre-passes (in `generate`)**:
+1. **`collect_const_raw_types`** — walks the user constants table; maps numeric constants (FloatObject → `:f64`, IntegerObject → `:i64`) for use in type inference.
+2. **`collect_all_ivar_types`** — for each user class:
+   - Calls `collect_class_new_arg_types` to find all `ClassName.new(...)` calls in the execute block and merge their positional arg raw types.
+   - Seeds `@typed_locals` with the merged param types, then calls `collect_ivar_assignments` to walk the `initialize` body collecting ivar types from `InstanceVariableWrite` and `MultipleAssignment` nodes.
+
+**`node_raw_type` extensions**:
+- `InstanceVariableRead(:@x)` → `@current_class_ivars[:@x]` (typed if declared raw)
+- `ConstantRead(:SOLAR_MASS)` → `@const_raw_types[:SOLAR_MASS]` (`:f64` for float constants)
+- Mixed arithmetic: if **at least one** operand is raw-typed, returns the promoted raw type (`:f64` if either is `:f64`, else `:i64`). This allows `dx = @x - b2.x` (where `@x` is `:f64` and `b2.x` is `RubyObject`) to be inferred as `:f64`.
+
+**`emit_as(node, ty)`** — new coercion helper. Emits `node` as the target raw type:
+- Already correct type → `emit_raw(node)`
+- `:i64` → `:f64` promotion → `emit_raw(node); write ".to_f64"`
+- Arithmetic with at least one typed operand → recurse into `emit_as` on both sides
+- Fallback (boxed RubyObject) → `emit(node); write ".to_f64"` (or `.to_i64`)
+
+**Emit changes**:
+- `emit_user_class`: emits `@x : Float64 = 0.0_f64` instead of `@x : RubyObject = RUBY_NIL`; sets `@current_class_ivars` around method emission
+- `emit_accessor_method`: getters box (`RubyFloat.new(@x)`); setters coerce (`@x = v.to_f64; v`)
+- `emit_ivar_read` (boxed context): boxes typed ivars (`RubyFloat.new(@x)`)
+- `emit_ivar_write`: uses `emit_as(value_node, ty)` for typed ivar writes
+- `emit_masgn_assign` (multiple assignment): coerces typed ivar targets (`_ma0[i].to_f64`)
+- `emit_raw`: handles `InstanceVariableRead` (emit name directly); `ConstantRead` (emit `Ruby_FOO.to_f64`); arithmetic with mixed types via `emit_as`
+- `emit_vm_method`: excludes method param names from typed-locals inference (prevents params from being mistyped as raw)
+- `float_bits_expr(val)` helper: all float literals now serialised as `bits_i64.unsafe_as(Float64)` for bitwise-exact round-trip (no decimal precision loss)
+
+### Benchmark impact (release build, nbody N=20000 steps, 200 iters)
+| Before §9 | After §9 | Speedup |
+|-----------|----------|---------|
+| ~70 ms/iter | ~65 ms/iter | ~1.1× |
+
+The inner loop of `move_from_i` now operates on raw `Float64` ivars (`@vx`, `@vy`, `@vz`, `@x`, `@y`, `@z`, `@mass`) with only one `.to_f64` coercion per external object access (`b2.x.to_f64`). The `add_v` method similarly unboxes ivar increments.
+
+The modest gain (vs §3's 3×) reflects that the inner loop still allocates `RubyFloat` objects for `b2.x`, `b2.mass`, and the `masgn_coerce` intermediate. Full elimination of those requires typed method dispatch on the receiver (§10).
+
+### Soundness note
+Typed ivars assume the object is only ever initialised through the tracked `initialize` path and that all call sites use consistently-typed arguments. If a subclass or dynamic assignment changes the ivar to a non-numeric value, the `.to_f64` / `.to_i64` coercion will produce a runtime error rather than returning the wrong type. This is acceptable for closed-world AOT compilation.

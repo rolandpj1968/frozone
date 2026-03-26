@@ -230,7 +230,15 @@ module Frozone
       def emit_float_literal(node)
         raw = ivar(node, :value)
         val = raw.respond_to?(:raw) ? raw.raw : raw
-        write "RubyFloat.new(#{val}_f64)"
+        write "RubyFloat.new(#{float_bits_expr(val)})"
+      end
+
+      # Bit-exact IEEE 754 Float64 expression for Crystal.
+      # Uses unsafe_as reinterpretation so the bit pattern round-trips perfectly
+      # regardless of decimal formatting precision.
+      def float_bits_expr(val)
+        bits = [val].pack("d").unpack1("q")
+        "#{bits}_i64.unsafe_as(Float64)"
       end
 
       def emit_string_literal(node)
