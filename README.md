@@ -262,38 +262,41 @@ Modules with 100% pass rate:
 Tested against [ruby/spec](https://github.com/ruby/spec) library specs.
 Run with `bundle exec rake library` (or `rake library:NAME` for a single module).
 
-**Overall: ~948 / ~1100 passing** — as of 2026-03-25 (Prism parser; stringio fully implemented)
+**Overall: 1518 / 2024 passing (75%)** — as of 2026-03-26 (Prism parser)
 
 Many modules report 0 examples because they require C extensions or unavailable gems.
-`expect`, `mkmf`, `objectspace` timed out in the parallel runner (excluded above).
+`getoptlong`, `irb`, `mkmf`, `objectspace`, `prime`, `securerandom` timed out in the parallel runner.
 `delegate` has hanging specs excluded via `SKIP_LIBRARY_SPEC_FILES` in `Rakefile`.
 
 ### Modules with 0 examples
 
 | Category | Modules |
 |---|---|
-| **C extensions** (`.so` not loadable) | bigdecimal, coverage, erb (via cgi/escape.so), fiddle, ipaddr, irb, net-http, openssl, resolv, ripper, socket, syslog, tempfile, tmpdir, yaml (psych+psych-pure need psych C infrastructure), zlib |
-| **Pure-Ruby stdlib gems** (bundled, work in Frozone) | abbrev, base64, csv, getoptlong, logger, matrix, observer, prime |
-| **Pure-Ruby stdlib gems** (not yet bundled) | net-ftp, openstruct |
-| **Platform/version guards** | cgi (`ruby_version_is < 4.0`), readline (`with_feature :readline`), win32ole (Windows only) |
+| **C extensions** (`.so` not loadable) | bigdecimal, fiddle, ipaddr, net-http, openssl, resolv, ripper, socket, syslog, win32ole, yaml, zlib |
+| **Pure-Ruby stdlib gems** (not bundled) | drb, net-ftp, openstruct |
+| **Platform/version guards** | readline (`with_feature :readline`) |
 
 Modules with 100% pass rate:
-`find`, `optionparser`, `pp`, `random`, `securerandom`, `shellwords`, `singleton`
+`abbrev`, `base64`, `English`, `expect`, `find`, `observer`, `optionparser`, `pathname`, `pp`,
+`random`, `rbconfig`, `shellwords`, `singleton`, `stringscanner`, `time`, `tmpdir`, `uri`, `weakref`
 
 | Module | Examples | Passing | Failures | Errors | Notes |
 |---|---:|---:|---:|---:|---|
-| English | 26 | 25 | 1 | 0 | |
-| date | 6 | 0 | 0 | 6 | date_core C extension stubbed minimally; full spec coverage pending |
+| cgi | 43 | 38 | 3 | 2 | partial C extension dependency |
+| coverage | 10 | — | 1 | 52 | Coverage module not implemented |
+| csv | 33 | 32 | 1 | 0 | |
+| date | 295 | 59 | 65 | 171 | date_core C extension; partial pure-Ruby support |
+| datetime | 114 | 38 | 2 | 74 | date_core C extension; partial pure-Ruby support |
 | delegate | 39 | 24 | 3 | 12 | some specs hang (mspec mock interaction) |
-| etc | 39 | 2 | 6 | 31 | C extension |
+| digest | 7 | — | 5 | 3 | C extension (SHA/MD5) |
+| erb | 53 | 49 | 0 | 4 | partial C extension dependency |
+| etc | 39 | 3 | 6 | 30 | C extension |
 | io-wait | 28 | 3 | 5 | 20 | IO wait/nonblock not implemented |
+| logger | 55 | 51 | 0 | 4 | |
+| monitor | 12 | 6 | 2 | 4 | cooperative threading edge cases |
 | open3 | 4 | 0 | 0 | 4 | subprocess piping |
-| pathname | 70 | 25 | 21 | 24 | Pathname not fully implemented |
-| rbconfig | 16 | 14 | 1 | 1 | |
 | rubygems | 2 | 0 | 0 | 2 | |
-| stringio | 672 | 670 | 0 | 2 | 2 unavoidable errors (getch/getpass need `io/console` C extension) |
+| stringio | 670 | 668 | 0 | 2 | 2 unavoidable errors (getch/getpass need `io/console` C extension) |
+| tempfile | 46 | 23 | 5 | 18 | temp file/dir race conditions |
 | thread | 2 | 0 | 2 | 0 | threading primitives |
-| time | 8 | 0 | 0 | 8 | time library edge cases |
 | timeout | 7 | 3 | 0 | 4 | |
-| uri | 97 | 96 | 0 | 1 | |
-| weakref | 5 | 5 | 0 | 0 | GC-dependent specs skipped |
