@@ -268,7 +268,10 @@ module Frozone
           end
 
           emit_indent
-          emit_vm_method(name, method, param_types: @inferred_params[name])
+          # If a specialized raw overload exists, the generic must use RubyObject params
+          # to avoid conflicting with the Int64/Float64 overload (Crystal picks last def).
+          generic_params = @typed_params[name] ? nil : @inferred_params[name]
+          emit_vm_method(name, method, param_types: generic_params)
           emit_newline
           emit_newline
         end
@@ -617,6 +620,7 @@ module Frozone
         case node
         when Ast::IntegerLiteral then :i64
         when Ast::FloatLiteral   then :f64
+        when Ast::Sequence       then node_raw_type(node.nodes.last) if node.nodes.any?
         when Ast::LocalVariableRead
           @typed_locals[ivar(node, :name)]
         when Ast::InstanceVariableRead
@@ -748,6 +752,19 @@ module Frozone
           raw = ivar(node, :value)
           val = raw.respond_to?(:raw) ? raw.raw : raw
           write float_bits_expr(val)
+        when Ast::Sequence
+          # Transparent grouping — recurse raw on the semantically relevant last node.
+          nodes = node.nodes
+          if nodes.size == 1
+            emit_raw(nodes.first)
+          else
+            write "("
+            nodes.each_with_index do |n, i|
+              write "; " if i > 0
+              i == nodes.size - 1 ? emit_raw(n) : emit(n)
+            end
+            write ")"
+          end
         when Ast::LocalVariableRead
           write crystal_local(ivar(node, :name))
         when Ast::InstanceVariableRead
@@ -1193,9 +1210,18 @@ module Frozone
         emit_newline
 
         old_typed     = @typed_locals
+        old_typed_arr = @typed_array_locals
+        param_set     = req_params.to_set
+        # Start with param types, then add TI-inferred non-param scalar locals.
         @typed_locals = req_params.zip(param_types).to_h
+        (@ti_locals[name] || {}).each do |lname, ty|
+          @typed_locals[lname] = ty unless param_set.include?(lname)
+        end
+        # Populate typed array locals from TI (non-param only).
+        @typed_array_locals = (@ti_arrays[name] || {}).reject { |k, _| param_set.include?(k) }
         indented { emit_raw_body(method.body) }
-        @typed_locals = old_typed
+        @typed_locals       = old_typed
+        @typed_array_locals = old_typed_arr
 
         emit_newline
         emit_indent
@@ -1233,8 +1259,15 @@ module Frozone
           val = ivar(node, :value_node)
           emit_raw(val) if val
         when Ast::LocalVariableWrite
-          write "#{crystal_local(ivar(node, :name))} = "
-          emit_raw(ivar(node, :value_node))
+          # Delegate typed-array construction to emit_local_var_write (handles Array(T).new).
+          # For scalar typed locals, emit assignment with raw RHS.
+          name = ivar(node, :name)
+          if @typed_array_locals[name]
+            emit_local_var_write(node)
+          else
+            write "#{crystal_local(name)} = "
+            emit_raw(ivar(node, :value_node))
+          end
         else
           emit_raw(node)
         end
