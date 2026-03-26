@@ -230,7 +230,7 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 22745 / 23020 passing (98.8%)** — as of 2026-03-26 (Prism parser; slow modules run individually)
+**Overall: 22750 / 23020 passing (98.8%)** — as of 2026-03-26 (Prism parser; slow modules run individually)
 
 `tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation).
 
@@ -238,7 +238,7 @@ Hanging specs (blocking IO, threading primitives, GC-dependent) are excluded via
 `io`, `thread` have partial coverage due to hanging/blocking spec exclusions.
 
 Modules with 100% pass rate:
-`basicobject`, `binding`, `builtin_constants`, `class`, `comparable`, `complex`, `conditionvariable`, `data`, `dir`,
+`array`, `basicobject`, `binding`, `builtin_constants`, `class`, `comparable`, `complex`, `conditionvariable`, `data`, `dir`,
 `encoding`, `enumerable`, `enumerator`, `env`, `exception`, `false`, `fiber`, `filetest`, `float`, `gc`,
 `hash`, `integer`, `main`, `marshal`, `matchdata`, `math`, `method`, `mutex`, `nil`, `numeric`,
 `objectspace`, `proc`, `queue`, `random`, `range`, `rational`, `regexp`, `set`,
@@ -246,8 +246,7 @@ Modules with 100% pass rate:
 
 | Module | Examples | Passing | Failures | Errors | Notes |
 |---|---:|---:|---:|---:|---|
-| argf | 148 | 8 | 10 | 130 | ARGF not fully implemented |
-| array | 2961 | 2960 | 0 | 1 | |
+| argf | 148 | 12 | 10 | 126 | ARGF not fully implemented |
 | file | 939 | 933 | 0 | 6 | OS-level file ops |
 | io | 1048 | 1035 | 4 | 9 | blocking/pipe/buffer specs skipped; OS-level gaps |
 | kernel | 2741 | 2707 | 21 | 13 | spawn, format edge cases |
