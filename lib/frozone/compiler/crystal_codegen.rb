@@ -994,6 +994,7 @@ module Frozone
         Hash:     'RubyHash',
         NilClass: 'RubyNil',
         Numeric:  'RubyObject',
+        Math:     'RubyMath',
       }.freeze
 
       # Returns true if a `when` condition node is a type-check (ConstantRead or nil).
