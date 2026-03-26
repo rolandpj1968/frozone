@@ -67,7 +67,7 @@ class String
   def downcase!(*args)           = __bang__ { downcase(*args) }
   def capitalize!(*args)         = __bang__ { capitalize(*args) }
   def squeeze!(*args)            = __bang__ { squeeze(*args) }
-  def delete!(*args)             = __bang__ { delete(*args) }
+  def delete!(*__native_args__)  = __bang__ { delete(*__native_args__) }
   def swapcase!(*args)           = __bang__ { swapcase(*args) }
   def tr!(from, to)              = __bang__ { tr(from, to) }
   def slice!(idx, len = :__unset__) = len.equal?(:__unset__) ? Intrinsics.string_slice_bang(self, idx) : Intrinsics.string_slice_bang(self, idx, len)
