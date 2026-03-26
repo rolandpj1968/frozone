@@ -53,6 +53,14 @@ module Frozone
 
       private
 
+      def format_type(ty)
+        return ty.inspect unless ty.is_a?(Hash)
+        s = ty[:class].to_s
+        s += "[#{format_type(ty[:elem])}]"          if ty[:elem]
+        s += "[#{format_type(ty[:key])}=>#{format_type(ty[:val])}]" if ty[:key] && ty[:val]
+        s
+      end
+
       def run_type_inference_debug(stub_file)
         scope     = Vm::Core::OBJECT_CLASS
         core_markers = %w[lib/core/4.0/ lib/frozone/vm/ lib/frozone/ast/]
@@ -88,7 +96,7 @@ module Frozone
         $stderr.puts "\n=== TypeInference results (#{slots.size} slots) ==="
         slots.each do |slot, ty|
           next if ty == :unknown
-          ty_str = ty.is_a?(Hash) ? ty[:class].to_s : ty.inspect
+          ty_str = format_type(ty)
           $stderr.puts "  #{slot.inspect} => #{ty_str}"
         end
         $stderr.puts "=== end TypeInference ===\n"

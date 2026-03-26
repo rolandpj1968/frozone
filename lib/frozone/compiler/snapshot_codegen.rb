@@ -53,22 +53,20 @@ module Frozone
         @const_raw_types      = {}   # constant Symbol name => :i64 | :f64
         @typed_ivars          = {}   # class Symbol name => {ivar_sym => :i64 | :f64}
         @current_class_ivars  = {}   # active ivar type map during class method emission
+        @current_class_name   = nil  # Symbol of class being emitted (nil at top level)
         @typed_array_locals   = {}   # local_name (Symbol) => :i64 | :f64 (element type; per-method)
+        @ti_locals            = {}   # mkey => {local_name => :i64 | :f64}
+        @ti_arrays            = {}   # mkey => {local_name => :i64 | :f64}
+        @ti_class_locals      = {}   # mkey => {local_name => class_sym} (user-class-typed locals)
+        @ti_class_params      = {}   # [cname, mname] => [Crystal type string, ...]
+        @current_class_locals = {}   # active class-typed local map during method emission
 
         # Pre-pass: collect user method names for RubyObject stubs
         collect_user_methods_from_scope(top_level_scope)
         collect_user_methods_from_block(execute_block)
 
-        # Type inference pre-pass: infer param types from call sites in execute block
-        infer_call_site_types(execute_block) if execute_block
-
-        # Method specialisation pre-passes: raw-typed free-call sites → specialized overloads
-        collect_raw_call_sites(execute_block) if execute_block
-        collect_typed_method_returns
-
-        # Typed ivar pre-passes: numeric constants → raw types; class ivars from initialize
-        collect_const_raw_types(top_level_scope)
-        collect_all_ivar_types(execute_block, top_level_scope)
+        # Whole-program type inference (replaces all ad-hoc pre-passes)
+        run_type_inference(execute_block, top_level_scope)
 
         emit_header
         emit_bench_harness_require if bench_stub?
@@ -85,11 +83,15 @@ module Frozone
 
         # Execute phase — the block body
         if execute_block
-          @typed_locals = infer_local_types(execute_block.body)
+          @typed_locals         = @ti_locals[nil]       || {}
+          @typed_array_locals   = @ti_arrays[nil]       || {}
+          @current_class_locals = @ti_class_locals[nil] || {}
           emit_indent
           emit(execute_block.body)
           emit_newline
-          @typed_locals = {}
+          @typed_locals         = {}
+          @typed_array_locals   = {}
+          @current_class_locals = {}
         end
 
         @out
@@ -197,7 +199,9 @@ module Frozone
         emit_newline
 
         old_class_ivars = @current_class_ivars
+        old_class_name  = @current_class_name
         @current_class_ivars = @typed_ivars.fetch(name, {})
+        @current_class_name  = name
 
         indented do
           # Collect and emit ivar declarations (Crystal requires them upfront)
@@ -231,7 +235,8 @@ module Frozone
             if accessor_method?(method)
               emit_accessor_method(mname, method)
             else
-              emit_vm_method(mname, method)
+              inst_param_types = @ti_class_params[[name, mname]]
+              emit_vm_method(mname, method, param_types: inst_param_types)
               emit_newline
               emit_newline
             end
@@ -239,6 +244,7 @@ module Frozone
         end
 
         @current_class_ivars = old_class_ivars
+        @current_class_name  = old_class_name
         emit_indent
         write "end"
         emit_newline
@@ -279,14 +285,22 @@ module Frozone
                       [ivar(method, :rest_param)].compact +
                       (ivar(method, :post_params) || [])
         param_set = param_names.to_set
-        # Phase 1: seed array locals from creation sites so node_raw_type works for scalars.
-        @typed_array_locals = method.body ? seed_typed_array_locals(method.body, param_set) : {}
-        # Phase 2: infer scalar types (array element reads now return correct raw types).
-        inferred = method.body ? infer_local_types(method.body) : {}
-        param_names.each { |p| inferred.delete(p) }
-        @typed_locals = inferred
-        # Phase 3: full array inference with escape + write validation using correct scalar types.
-        @typed_array_locals = method.body ? infer_typed_array_locals(method.body, param_set) : {}
+        mkey = @current_class_name ? [@current_class_name, name] : name
+        # Use TypeInference results for local types (omit params — they have declared types)
+        @typed_locals         = (@ti_locals[mkey]       || {}).reject { |k, _| param_set.include?(k) }
+        @typed_array_locals   = (@ti_arrays[mkey]       || {}).reject { |k, _| param_set.include?(k) }
+        @current_class_locals = (@ti_class_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }
+        # Include raw-typed params in @typed_locals so node_raw_type works for them
+        # and they are correctly boxed/unboxed in mixed expressions.
+        if param_types
+          req = ivar(method, :required_params) || []
+          req.each_with_index do |p, i|
+            case param_types[i]
+            when 'Int64'   then @typed_locals[p] = :i64
+            when 'Float64' then @typed_locals[p] = :f64
+            end
+          end
+        end
         string_return = STRING_RETURN_METHODS.include?(name)
         crystal_name  = string_return ? name.to_s : crystal_method_name(name)
 
@@ -312,8 +326,9 @@ module Frozone
         emit_indent
         write "end"
       ensure
-        @typed_locals       = old_typed
-        @typed_array_locals = old_typed_arrs
+        @typed_locals         = old_typed
+        @typed_array_locals   = old_typed_arrs
+        @current_class_locals = {}
       end
 
       # -----------------------------------------------------------------------
@@ -398,9 +413,125 @@ module Frozone
         'RubyObject'
       end
 
-      # Walk the execute block body, collecting call-site argument types for
+      # -----------------------------------------------------------------------
+      # Whole-program type inference (replaces all ad-hoc pre-passes)
+      # -----------------------------------------------------------------------
+
+      def run_type_inference(execute_block, top_level_scope)
+        require_relative 'type_inference'
+
+        user_methods_hash = {}
+        top_level_scope.instance_variable_get(:@methods_table)&.each do |name, m|
+          user_methods_hash[name] = m if m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+        end
+        user_classes_hash = {}
+        constants = top_level_scope.instance_variable_get(:@constants_table) || {}
+        constants.each do |name, val|
+          user_classes_hash[name] = val if val.is_a?(Vm::ClassObject) && !SKIP_CONSTANTS.include?(name)
+        end
+        @ti_user_class_names = user_classes_hash.keys.to_set
+
+        ti  = TypeInference.new(
+          user_methods:  user_methods_hash,
+          user_classes:  user_classes_hash,
+          execute_block: execute_block,
+          constants:     constants.dup
+        )
+        env = ti.run
+
+        # Unpack TypeEnv slots into codegen lookup structures
+        env.instance_variable_get(:@slots).each do |slot, ty|
+          next if ty == :unknown || !slot.is_a?(Array)
+          kind = slot[0]
+          case kind
+          when :local
+            if ty.is_a?(Hash) && @ti_user_class_names&.include?(ty[:class])
+              (@ti_class_locals[slot[1]] ||= {})[slot[2]] = ty[:class]
+            end
+            raw = ti_raw_type(ty) or next
+            (@ti_locals[slot[1]] ||= {})[slot[2]] = raw
+          when :array_elem
+            raw = ti_raw_type(ty) or next
+            (@ti_arrays[slot[1]] ||= {})[slot[2]] = raw
+          when :const
+            raw = ti_raw_type(ty) or next
+            @const_raw_types[slot[1]] = raw
+          when :ivar
+            raw = ti_raw_type(ty) or next
+            (@typed_ivars[slot[1]] ||= {})[slot[2]] = raw
+          when :return
+            mkey = slot[1]
+            raw  = ti_raw_type(ty) or next
+            @typed_method_returns[mkey] = raw if mkey.is_a?(Symbol)
+          end
+        end
+
+        # Build @inferred_params and @typed_params for top-level methods
+        user_methods_hash.each do |mname, method|
+          req = method.instance_variable_get(:@required_params) || []
+          next if req.empty?
+          crystal_types = req.each_with_index.map { |_, i|
+            ty = env[[:param, mname, i]]
+            ty ? ti_crystal_type(ty) : 'RubyObject'
+          }
+          next unless crystal_types.any? { |t| t != 'RubyObject' }
+          @inferred_params[mname] = crystal_types
+          raw_types = req.each_with_index.map { |_, i| ti_raw_type(env[[:param, mname, i]]) }
+          @typed_params[mname] = raw_types if raw_types.all? && @typed_method_returns[mname]
+        end
+
+        # Build @ti_class_params for instance methods
+        user_classes_hash.each do |cname, klass|
+          (klass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
+            next unless method.is_a?(Vm::Method)
+            req = method.instance_variable_get(:@required_params) || []
+            next if req.empty?
+            mkey = [cname, mname]
+            crystal_types = req.each_with_index.map { |_, i|
+              ty = env[[:param, mkey, i]]
+              ty ? ti_crystal_type(ty) : 'RubyObject'
+            }
+            @ti_class_params[mkey] = crystal_types if crystal_types.any? { |t| t != 'RubyObject' }
+          end
+        end
+      end
+
+      # Convert a TypeInference lattice value to a Crystal type annotation string.
+      def ti_crystal_type(ty)
+        case ty
+        when :i64       then 'Int64'
+        when :f64       then 'Float64'
+        when :array_i64 then 'Array(Int64)'
+        when :array_f64 then 'Array(Float64)'
+        when Hash
+          case ty[:class]
+          when :Integer          then 'RubyInteger'
+          when :Float            then 'RubyFloat'
+          when :String           then 'RubyString'
+          when :Symbol           then 'RubySymbol'
+          when :NilClass         then 'RubyNil'
+          when :TrueClass, :FalseClass then 'RubyBool'
+          when :Array            then 'RubyArray'
+          when :Hash             then 'RubyHash'
+          when :Proc             then 'RubyProc'
+          else
+            cls = ty[:class]
+            @ti_user_class_names&.include?(cls) ? "Ruby_#{crystal_constant(cls)}" : 'RubyObject'
+          end
+        else 'RubyObject'
+        end
+      end
+
+      # Extract the raw (unboxed) Crystal numeric type from a TypeInference value.
+      # Returns :i64, :f64, or nil.
+      def ti_raw_type(ty)
+        ty == :i64 || ty == :f64 ? ty : nil
+      end
+
+      # -----------------------------------------------------------------------
+      # Legacy: Walk the execute block body, collecting call-site argument types for
       # every free (non-method, non-receiver) call to user-defined methods.
-      # Returns @inferred_params populated with param types.
+      # (Superseded by run_type_inference — kept for reference)
       def infer_call_site_types(execute_block)
         walk_call_sites(execute_block.body, {})
       end
@@ -731,9 +862,9 @@ module Frozone
           write ")"
           return
         end
-        return super unless @typed_locals[name]
+        return super unless (raw_ty = @typed_locals[name])
         write "#{crystal_local(name)} = "
-        emit_raw(ivar(node, :value_node))
+        emit_as(ivar(node, :value_node), raw_ty)
       end
 
       # Override: for typed ivars in boxed context, wrap in RubyFloat/RubyInteger.
@@ -775,7 +906,36 @@ module Frozone
 
       # Override: for [] with a raw-typed index, pass Int64 directly.
       # Also intercepts free calls to typed-param/return methods with all-raw args.
+      # Emit call args where each arg is emitted raw (if param type is Int64/Float64)
+      # or boxed (otherwise). param_types is an array of Crystal type strings.
+      def emit_typed_call_args(args, param_types)
+        write "("
+        args.each_with_index do |arg, i|
+          write ", " if i > 0
+          pt = param_types[i]
+          if (pt == 'Int64' || pt == 'Float64') && node_raw_type(arg)
+            emit_raw(arg)
+          else
+            emit(arg)
+          end
+        end
+        write ")"
+      end
+
       def emit_method_call(node)
+        # Typed instance method call on a known-class receiver local:
+        # emit args raw where the param type is Int64/Float64.
+        if node.receiver_node.is_a?(Ast::LocalVariableRead)
+          recv_name  = ivar(node.receiver_node, :name)
+          recv_class = @current_class_locals[recv_name]
+          if recv_class && (tp = @ti_class_params[[recv_class, node.name]])
+            emit(node.receiver_node)
+            write ".#{crystal_method_name(node.name)}"
+            emit_typed_call_args(node.arg_nodes || [], tp)
+            return
+          end
+        end
+
         # Typed array read in boxed context: box the Int64/Float64 element
         if node.name == :[] && node.receiver_node&.is_a?(Ast::LocalVariableRead) &&
            (arr_ty = @typed_array_locals[ivar(node.receiver_node, :name)]) &&
