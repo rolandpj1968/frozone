@@ -88,7 +88,20 @@ cd crystal && crystal build matmul.cr -o matmul && ./matmul
 3. User-defined methods and constants are identified by `source_location` — everything from `lib/core/4.0/` and `lib/frozone/` is excluded (it maps to the Crystal runtime in `crystal/src/`).
 4. The block body becomes the Crystal `main` — the execute phase.
 
-The Crystal runtime (`crystal/src/`) provides `RubyObject`, `RubyInteger`, `RubyFloat`, `RubyString`, `RubyArray`, `RubyHash`, etc. as value types with full operator dispatch. All Ruby values are currently heap-allocated `RubyObject` references; unboxing of numeric-heavy loops is future work.
+The Crystal runtime (`crystal/src/`) provides `RubyObject`, `RubyInteger`, `RubyFloat`, `RubyString`, `RubyArray`, `RubyHash`, etc. as value types with full operator dispatch. Type inference specialises numeric-heavy inner loops to raw Crystal arithmetic, eliminating boxing overhead.
+
+### Benchmark Results
+
+Measured on Ruby 4.0.1 vs Crystal release build (same workload per benchmark):
+
+| Benchmark | MRI (no YJIT) | MRI (YJIT) | Frozone→Crystal | vs MRI | vs YJIT |
+|-----------|--------------|------------|-----------------|--------|---------|
+| fib(20) | 0.87 ms | 0.53 ms | 0.04 ms | **22×** | **13×** |
+| nq\_solve(8) | 0.87 ms | 1.31 ms | 0.05 ms | **17×** | **26×** |
+| nbody 20k steps | 167 ms | 58 ms | 1.73 ms | **96×** | **33×** |
+| matmul(200) | 581 ms | 272 ms | 237 ms | **2.4×** | **1.1×** |
+
+`fib`, `nqueens`, and `nbody` inner loops are fully specialised to raw Crystal arithmetic by the type inference pass. `matmul` still boxes on every element access — that is the next optimisation target.
 
 ### Parsers
 
