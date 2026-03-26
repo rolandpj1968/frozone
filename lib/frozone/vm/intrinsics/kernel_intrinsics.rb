@@ -159,6 +159,68 @@ module Frozone
           end
         end
 
+        # Build a Thread#backtrace_locations-compatible location array.
+        # The first entry shows WHERE backtrace_locations was called, labeled as
+        # 'Thread#backtrace_locations' — matching MRI's native method frame semantics.
+        def thread_backtrace_locations(context, _receiver, start_obj = FNIL, length_obj = FNIL)
+          all_frames = context.frames.reverse
+          # Find the backtrace_locations frame so we can get its call site and label.
+          bt_idx = all_frames.rindex { |f| f.current_method&.name == :backtrace_locations }
+          return n2f_arr([]) unless bt_idx
+
+          bt_frame = all_frames[bt_idx]
+          bt_label = caller_method_name(bt_frame.current_method, bt_frame.the_self, false)
+          bt_call_site = bt_frame.incoming_call_site
+
+          # Build entries for frames above backtrace_locations (the user's call stack).
+          # These use the same [call_site, label] convention as collect_caller_frames.
+          user_frames = all_frames[(bt_idx + 1)..]
+          entries_raw = []
+          i = 0
+          while i < user_frames.length - 1
+            call_site = user_frames[i].incoming_call_site || "unknown:0"
+            immediate_outer = user_frames[i + 1]
+            if proc_call_frame?(immediate_outer) || lambda_body_frame?(immediate_outer)
+              outer, lambda_depth = find_lambda_outer_frame(user_frames, i + 1)
+              effective_method = outer.current_method || outer.method_frame&.current_method
+              meth = caller_method_name(effective_method, outer.the_self, outer.current_method.nil?)
+              if lambda_depth > 0 && meth && !meth.start_with?("<")
+                meth = lambda_depth == 1 ? "block in #{meth}" : "block (#{lambda_depth} levels) in #{meth}"
+              end
+            elsif regular_block_frame?(immediate_outer)
+              outer = immediate_outer
+              enclosing_mf = outer.method_frame
+              depth = block_nesting_depth(user_frames, i + 1, enclosing_mf)
+              effective_method = enclosing_mf&.current_method
+              meth = caller_method_name(effective_method, outer.the_self, false)
+              if depth > 0 && meth && !meth.start_with?("<")
+                meth = depth == 1 ? "block in #{meth}" : "block (#{depth} levels) in #{meth}"
+              end
+            else
+              outer = immediate_outer
+              effective_method = outer.current_method || outer.method_frame&.current_method
+              in_block = outer.current_method.nil?
+              meth = caller_method_name(effective_method, outer.the_self, in_block)
+            end
+            entries_raw << [call_site, meth]
+            i += 1
+          end
+
+          # Prepend the backtrace_locations entry itself: call site WHERE it was called,
+          # labeled with 'Thread#backtrace_locations' (MRI native method frame semantics).
+          first_entry = bt_call_site ? [bt_call_site, bt_label] : nil
+          all_raw = first_entry ? [first_entry] + entries_raw : entries_raw
+
+          location_class = Core::OBJECT_CLASS.get_constant(:Thread)&.get_constant(:Backtrace)&.get_constant(:Location)
+          entries = all_raw.map do |call_site, meth|
+            str_obj = n2f_str("#{call_site}:in '#{meth}'", frozen: true)
+            location_class ? location_class.dispatch(context, :_from_string, [str_obj], {}, nil, private_ok: true) : str_obj
+          end
+
+          sliced = caller_slice(entries, start_obj, length_obj)
+          sliced ? n2f_arr(sliced) : FNIL
+        end
+
         def kernel_caller_locations(context, _receiver, start_obj = FNIL, length_obj = FNIL)
           frames = collect_caller_frames(context, :caller_locations)
 

@@ -15,7 +15,7 @@ class Thread
 
   def self.each_caller_location(&block)
     raise LocalJumpError, "no block given" unless block
-    locs = caller_locations(1)
+    locs = caller_locations(2)
     locs.each { |loc| block.call(loc) }
     nil
   end
@@ -361,7 +361,7 @@ class Thread
   def backtrace(start_or_range = 0, length = nil)
     return nil if @done
     return [] unless equal?(Thread.current)
-    full = caller(1)
+    full = caller(0)
     if start_or_range.is_a?(Range)
       full[start_or_range]
     else
@@ -374,14 +374,7 @@ class Thread
   def backtrace_locations(start_or_range = 0, length = nil)
     return nil if @done
     return [] unless equal?(Thread.current)
-    full = caller_locations(1)
-    if start_or_range.is_a?(Range)
-      full[start_or_range]
-    else
-      start = start_or_range
-      return nil if start > full.size
-      length.nil? ? full[start..] : full[start, length]
-    end
+    Intrinsics.thread_backtrace_locations(self, start_or_range, length)
   end
 
   def priority=(v)
