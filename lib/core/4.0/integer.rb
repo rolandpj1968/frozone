@@ -88,33 +88,8 @@ class Integer
   end
 
   def chr(enc = nil)
-    resolved =
-      if enc.nil? && self > 255
-        di = Encoding.default_internal
-        return Intrinsics.integer_chr(self, nil) if di.nil?
-        di
-      else
-        enc
-      end
-    # CESU-8: BMP same as UTF-8; supplementary via surrogate pairs
-    if resolved.is_a?(Encoding) && resolved.name == "CESU-8"
-      raise RangeError, "#{self} out of char range" if self < 0 || self > 0x10FFFF
-      if self < 0x10000
-        return self.chr(Encoding::UTF_8)
-      else
-        u_prime = self - 0x10000
-        hi = 0xD800 + (u_prime >> 10)
-        lo = 0xDC00 + (u_prime & 0x3FF)
-        bytes = [
-          0xED, 0xA0 | ((hi >> 6) & 0x0F), 0x80 | (hi & 0x3F),
-          0xED, 0xB0 | ((lo >> 6) & 0x0F), 0x80 | (lo & 0x3F)
-        ]
-        s = bytes.map { |b| b.chr(Encoding::ASCII_8BIT) }.join("")
-        Intrinsics.string_force_encoding(s, resolved)
-      end
-    else
-      Intrinsics.integer_chr(self, resolved)
-    end
+    resolved = enc.nil? && self > 255 ? (di = Encoding.default_internal; return Intrinsics.integer_chr(self, nil) if di.nil?; di) : enc
+    Intrinsics.integer_chr(self, resolved)
   end
 
   def round(n = 0, half: nil)

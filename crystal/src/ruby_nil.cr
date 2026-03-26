@@ -78,12 +78,12 @@ class RubyNil < RubyObject
   end
 
   # nil & anything => false (Ruby: nil & x is always false)
-  def &(other) : Bool
-    false
+  def &(other : RubyObject) : RubyBool
+    RubyBool::FALSE
   end
 
   # nil | x => x's truthiness (Ruby: nil | x returns x's truth value)
-  def |(other : Bool) : Bool
+  def |(other : RubyObject) : RubyObject
     other
   end
 

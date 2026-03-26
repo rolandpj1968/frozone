@@ -25,6 +25,7 @@ input_file  = nil
 output_file = nil
 run_after   = false
 emit_only   = false
+bench_mode  = false
 
 args = ARGV.dup
 until args.empty?
@@ -33,6 +34,7 @@ until args.empty?
   when '-o'        then output_file = args.shift or usage
   when '--run'     then run_after  = true
   when '--emit'    then emit_only  = true
+  when '--bench'   then bench_mode = true; run_after = true
   else
     usage if arg.start_with?('-')
     input_file = arg
@@ -65,6 +67,8 @@ end
 
 codegen = Frozone::Compiler::CrystalCodegen.new
 crystal_source = codegen.generate(ast)
+crystal_source = crystal_source.sub('require "./src/frozone_crystal"',
+  "require \"./src/frozone_crystal\"\nrequire \"./src/bench_harness\"") if bench_mode
 
 unless codegen.errors.empty?
   warn "compile.rb: #{codegen.errors.size} unsupported node(s):"
