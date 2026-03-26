@@ -272,9 +272,8 @@ class RubyFloat < RubyObject
     RubyInteger.new(@value.to_i64)
   end
 
-  def to_f64 : Float64
-    @value
-  end
+  def to_f64 : Float64; @value; end
+  def to_i64 : Int64; @value.to_i64; end
 
   def to_f : RubyFloat
     self

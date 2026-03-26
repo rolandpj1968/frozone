@@ -39,6 +39,17 @@ abstract class RubyObject
   end
 
   # -------------------------------------------------------------------------
+  # AOT codegen helpers — raw Crystal numeric extraction (not Ruby methods)
+  # Used by the Crystal backend when emitting unboxed local optimisations.
+  # -------------------------------------------------------------------------
+  def to_i64 : Int64
+    raise Exception.new("#{self.class} cannot be coerced to Int64")
+  end
+  def to_f64 : Float64
+    raise Exception.new("#{self.class} cannot be coerced to Float64")
+  end
+
+  # -------------------------------------------------------------------------
   # Ruby truthiness  (nil and false override to return false)
   # -------------------------------------------------------------------------
   def truthy? : Bool
@@ -105,8 +116,14 @@ abstract class RubyObject
   def [](idx : RubyObject) : RubyObject
     raise Exception.new("[] not supported for #{self.class}")
   end
+  def [](idx : Int64) : RubyObject
+    raise Exception.new("[] not supported for #{self.class}")
+  end
 
   def []=(idx : RubyObject, val : RubyObject) : RubyObject
+    raise Exception.new("[]= not supported for #{self.class}")
+  end
+  def []=(idx : Int64, val : RubyObject) : RubyObject
     raise Exception.new("[]= not supported for #{self.class}")
   end
 

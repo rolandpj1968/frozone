@@ -47,6 +47,7 @@ module Frozone
         @top_level_scope  = top_level_scope
         @stub_file        = stub_file
         @inferred_params  = {}   # method_name (Symbol) => [Crystal type string, ...]
+        @typed_locals     = {}   # local_name (Symbol) => :i64 | :f64 (per-method, reset each emit)
 
         # Pre-pass: collect user method names for RubyObject stubs
         collect_user_methods_from_scope(top_level_scope)
@@ -70,9 +71,11 @@ module Frozone
 
         # Execute phase — the block body
         if execute_block
+          @typed_locals = infer_local_types(execute_block.body)
           emit_indent
           emit(execute_block.body)
           emit_newline
+          @typed_locals = {}
         end
 
         @out
@@ -238,6 +241,8 @@ module Frozone
       # Vm::Method has the same ivar names as Ast::MethodDef, so we can pass
       # it directly to emit_param_list (which uses ivar/instance_variable_get).
       def emit_vm_method(name, method, param_types: nil)
+        old_typed = @typed_locals
+        @typed_locals = method.body ? infer_local_types(method.body) : {}
         string_return = STRING_RETURN_METHODS.include?(name)
         crystal_name  = string_return ? name.to_s : crystal_method_name(name)
 
@@ -262,6 +267,8 @@ module Frozone
         emit_newline
         emit_indent
         write "end"
+      ensure
+        @typed_locals = old_typed
       end
 
       # -----------------------------------------------------------------------
@@ -420,6 +427,243 @@ module Frozone
         bp = ivar(node, :block_param)
         parts << "&#{crystal_local(bp)}" if bp
         write "(#{parts.join(', ')})" unless parts.empty?
+      end
+
+      # -----------------------------------------------------------------------
+      # Unboxed local type inference and raw emission
+      # -----------------------------------------------------------------------
+
+      ARITH_OPS_UNBOX = %i[+ - * ** / %].to_set
+
+      # Returns :i64, :f64, or nil for the provable bare Crystal type of a node.
+      def node_raw_type(node)
+        return nil unless node
+        case node
+        when Ast::IntegerLiteral then :i64
+        when Ast::FloatLiteral   then :f64
+        when Ast::LocalVariableRead
+          @typed_locals[ivar(node, :name)]
+        when Ast::MethodCall
+          return nil unless ARITH_OPS_UNBOX.include?(ivar(node, :name))
+          args = ivar(node, :arg_nodes) || []
+          return nil unless args.size == 1
+          rt = node_raw_type(ivar(node, :receiver_node))
+          at = node_raw_type(args[0])
+          return nil unless rt && at
+          (rt == :f64 || at == :f64) ? :f64 : :i64
+        else nil
+        end
+      end
+
+      # Infer which method-body locals can be emitted as bare Int64/Float64.
+      #
+      # Two-phase fixed-point:
+      #   1. Seed from literal assignments (IntegerLiteral → :i64, FloatLiteral → :f64).
+      #   2. Expand: promote any un-typed local whose ALL assignments are provably typed
+      #      (handles propagation like `_iopw_i0 = j` when j is already typed).
+      #   3. Narrow: evict any local whose assignments are not all consistent with its type.
+      #   4. Repeat 2-3 until stable.
+      def infer_local_types(body)
+        return {} unless body
+        assignments = Hash.new { |h, k| h[k] = [] }
+        collect_local_assignments(body, assignments)
+        return {} if assignments.empty?
+
+        old_typed = @typed_locals
+
+        # Phase 1: seed from literals
+        @typed_locals = {}
+        assignments.each do |name, nodes|
+          nodes.each do |n|
+            case n
+            when Ast::IntegerLiteral then @typed_locals[name] ||= :i64
+            when Ast::FloatLiteral   then @typed_locals[name]  = :f64
+            end
+          end
+        end
+
+        # Phase 2+3: expand then narrow until fixpoint
+        loop do
+          prev = @typed_locals.dup
+
+          # Expand: type any local whose assignments are all uniformly typed
+          assignments.each do |name, nodes|
+            next if @typed_locals[name]
+            types = nodes.map { |n| node_raw_type(n) }
+            next if types.any?(&:nil?)
+            unique = types.uniq
+            @typed_locals[name] = unique[0] if unique.size == 1
+          end
+
+          # Narrow: evict any local with an inconsistent assignment
+          assignments.each do |name, nodes|
+            next unless (ty = @typed_locals[name])
+            ok = nodes.all? do |n|
+              nt = node_raw_type(n)
+              nt == ty || (ty == :f64 && nt == :i64)
+            end
+            @typed_locals.delete(name) unless ok
+          end
+
+          break if @typed_locals == prev
+        end
+
+        result = @typed_locals
+        @typed_locals = old_typed
+        result
+      end
+
+      # Walk a body AST collecting all LocalVariableWrite RHS nodes per name.
+      # Does not descend into block bodies (block params share Ruby scope but
+      # may receive heterogeneous types from the block caller).
+      def collect_local_assignments(node, result)
+        return unless node
+        case node
+        when Ast::LocalVariableWrite
+          result[ivar(node, :name)] << ivar(node, :value_node)
+          collect_local_assignments(ivar(node, :value_node), result)
+        when Ast::Sequence
+          node.nodes.each { |n| collect_local_assignments(n, result) }
+        when Ast::If
+          collect_local_assignments(ivar(node, :condition_node), result)
+          collect_local_assignments(ivar(node, :then_node), result)
+          collect_local_assignments(ivar(node, :else_node), result)
+        when Ast::While, Ast::Until
+          collect_local_assignments(ivar(node, :condition_node), result)
+          collect_local_assignments(ivar(node, :body_node), result)
+        when Ast::Return
+          collect_local_assignments(ivar(node, :value_node), result)
+        else
+          %i[body_node value_node then_node else_node condition_node receiver_node].each do |slot|
+            next unless node.instance_variable_defined?(:"@#{slot}")
+            child = node.instance_variable_get(:"@#{slot}")
+            collect_local_assignments(child, result) if child.is_a?(Ast::Node)
+          end
+          if node.instance_variable_defined?(:@arg_nodes)
+            Array(node.instance_variable_get(:@arg_nodes)).each do |a|
+              collect_local_assignments(a, result) if a.is_a?(Ast::Node)
+            end
+          end
+        end
+      end
+
+      # Emit a node as a bare Crystal numeric (Int64 or Float64).
+      # Only call when node_raw_type(node) is non-nil.
+      def emit_raw(node)
+        case node
+        when Ast::IntegerLiteral
+          write "#{ivar(node, :value).raw}_i64"
+        when Ast::FloatLiteral
+          val = ivar(node, :value)
+          val = val.respond_to?(:raw) ? val.raw : val
+          write "#{val}_f64"
+        when Ast::LocalVariableRead
+          write crystal_local(ivar(node, :name))
+        when Ast::MethodCall
+          args = ivar(node, :arg_nodes) || []
+          write "("
+          emit_raw(ivar(node, :receiver_node))
+          write " #{ivar(node, :name)} "
+          emit_raw(args[0])
+          write ")"
+        else
+          emit(node)
+        end
+      end
+
+      # Emit node coerced to Int64: raw if already typed, else .to_i64 on boxed.
+      def emit_coerce_i64(node)
+        node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_i64")
+      end
+
+      # Emit node coerced to Float64: raw if already typed, else .to_f64 on boxed.
+      def emit_coerce_f64(node)
+        node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_f64")
+      end
+
+      # Override: for typed locals in boxed context, wrap in RubyInteger/RubyFloat.
+      def emit_local_var_read(node)
+        case @typed_locals[ivar(node, :name)]
+        when :i64 then write "RubyInteger.new(#{crystal_local(ivar(node, :name))})"
+        when :f64 then write "RubyFloat.new(#{crystal_local(ivar(node, :name))})"
+        else super
+        end
+      end
+
+      # Override: for typed locals, emit RHS as bare Crystal numeric.
+      def emit_local_var_write(node)
+        name = ivar(node, :name)
+        return super unless @typed_locals[name]
+        write "#{crystal_local(name)} = "
+        emit_raw(ivar(node, :value_node))
+      end
+
+      # Override: for index op-write (ci[j] += ...) with a raw-typed index,
+      # emit the index temp as bare Int64 so the Int64 array overload is used.
+      def emit_index_op_write(node)
+        idx = ivar(node, :index_arg_nodes)&.first
+        return super unless idx && node_raw_type(idx)
+        op        = ivar(node, :operator)
+        recv_node = ivar(node, :receiver_node)
+        val_node  = ivar(node, :value_node)
+        r = "_iopw_r#{@temp_counter}"
+        i = "_iopw_i#{@temp_counter}"
+        @temp_counter += 1
+        write "(#{r} = "
+        recv_node ? emit(recv_node) : write("self")
+        write "; #{i} = "
+        emit_raw(idx)
+        write "; #{r}[#{i}] = (#{r}[#{i}] #{op} "
+        emit(val_node)
+        write "))"
+      end
+
+      # Override: for [] with a raw-typed index, pass Int64 directly.
+      def emit_method_call(node)
+        if node.name == :[] && node.receiver_node && node.arg_nodes&.size == 1 &&
+           node_raw_type(node.arg_nodes[0])
+          emit(node.receiver_node)
+          write "["
+          emit_raw(node.arg_nodes[0])
+          write "]"
+          return
+        end
+        super
+      end
+
+      # Override: for []= with a raw-typed index, pass Int64 directly.
+      def emit_attribute_write(node)
+        if ivar(node, :name) == :[]= && node_raw_type(ivar(node, :arg_nodes)&.first)
+          args = ivar(node, :arg_nodes)
+          emit(ivar(node, :receiver_node))
+          write "["
+          emit_raw(args[0])
+          write "] = "
+          emit(args[1])
+          return
+        end
+        super
+      end
+
+      # Override: for comparisons with at least one raw-typed operand, use bare
+      # Crystal comparison with .to_i64/.to_f64 coercion on the untyped side.
+      def emit_truthy(node)
+        if comparison_op_call?(node)
+          recv = node.receiver_node
+          arg  = node.arg_nodes[0]
+          rt   = node_raw_type(recv)
+          at   = node_raw_type(arg)
+          if rt || at
+            ty = (rt == :f64 || at == :f64) ? :f64 : :i64
+            write "("
+            ty == :i64 ? emit_coerce_i64(recv) : emit_coerce_f64(recv)
+            write " #{node.name} "
+            ty == :i64 ? emit_coerce_i64(arg)  : emit_coerce_f64(arg)
+            write ")"
+            return
+          end
+        end
+        super
       end
 
       # -----------------------------------------------------------------------
