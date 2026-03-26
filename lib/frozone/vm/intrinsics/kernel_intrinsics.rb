@@ -618,8 +618,14 @@ module Frozone
           if full_path.nil?
             # If the non-extensioned path (no .rb) is in $LOADED_FEATURES, return false instead of LoadError
             return FFALSE if path != path_rb && loaded_paths.include?(path)
+            # Check if a C extension exists at this path (no .rb, but .so/.bundle/.dylib).
+            # MRI raises LoadError with path=nil when the file exists but loading fails
+            # (as opposed to a missing file where path is set).
+            native_ext_exists = !path.end_with?('.rb') && %w[.so .bundle .dylib .dll].any? do |ext|
+              ::File.exist?(path.end_with?(ext) ? path : "#{path}#{ext}")
+            end
             exc = FrozoneException.make(:LoadError, "cannot load such file -- #{path}")
-            exc.vm_object.set_ivar(:@path, n2f_str(path))
+            exc.vm_object.set_ivar(:@path, native_ext_exists ? FNIL : n2f_str(path))
             raise exc
           end
           # Check for circular require before general "already loaded" check
