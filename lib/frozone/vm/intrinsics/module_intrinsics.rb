@@ -1026,7 +1026,7 @@ module Frozone
         end
 
         def module_instance_method(context, receiver, name_obj)
-          name = sym_name_coercing(context, name_obj)
+          name = alias_method_coerce_name(context, name_obj)
           # Check active refinements first (refinements shadow regular methods for instance_method).
           # Refinements active at the CALL SITE take priority — the method itself (instance_method)
           # has no stored refinements, so check the caller's frame (parent_frame) for using-activated refinements.

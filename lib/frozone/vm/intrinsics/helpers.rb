@@ -52,10 +52,15 @@ module Frozone
         def try_to_str(context, v)
           return v.raw if fstr?(v)
           return nil unless fobj?(v)
+          has_to_str = begin
+            v.dispatch(context, :respond_to?, [n2f_sym(:to_str)], {}).truthy?
+          rescue FrozoneException
+            false
+          end
+          return nil unless has_to_str
+          # to_str exists — call it and let any exception propagate (MRI semantics)
           result = v.dispatch(context, :to_str, [], {})
           fstr?(result) ? result.raw : nil
-        rescue FrozoneException
-          nil
         end
 
         def coerce_to_str(context, v)
@@ -408,7 +413,23 @@ module Frozone
         # Like sym_name but also tries to_str on arbitrary objects (for const_get, module_function, etc.)
         def sym_name_coercing(context, name_obj) = coerce_to_sym(context, name_obj)
 
-        def alias_method_coerce_name(context, name_obj) = coerce_to_sym(context, name_obj)
+        def alias_method_coerce_name(context, name_obj)
+          return name_obj.raw if fsym?(name_obj)
+          return name_obj.raw.to_sym if fstr?(name_obj)
+          return coerce_to_sym(context, name_obj) unless fobj?(name_obj)
+          has_to_str = begin
+            name_obj.dispatch(context, :respond_to?, [n2f_sym(:to_str)], {}).truthy?
+          rescue FrozoneException
+            false
+          end
+          unless has_to_str
+            raise FrozoneException.make(:TypeError, "#{frozone_class_name(name_obj)} is not a symbol nor a string")
+          end
+          # to_str exists — call it and let any exception propagate (MRI semantics)
+          result = name_obj.dispatch(context, :to_str, [], {})
+          return result.raw.to_sym if fstr?(result)
+          raise FrozoneException.make(:TypeError, "can't convert #{frozone_class_name(name_obj)} into String (to_str gives #{frozone_class_name(result)})")
+        end
 
         # Collect all refinements from mod and its ancestors (depth-first, included modules).
         # Returns a hash mapping klass.object_id => refinement_module.
