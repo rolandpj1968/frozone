@@ -3,25 +3,33 @@ module Frozone
     # Whole-program type inference over a settled Frozone VM snapshot.
     #
     # This is binding-time analysis for the AOT Crystal backend: for each
-    # "slot" in the closed-world program, determine whether it always holds
-    # a raw Crystal numeric (Int64, Float64, Array(Int64), ...) or must
-    # remain a polymorphic RubyObject.
+    # "slot" in the closed-world program, determine the most precise type
+    # in the Ruby class hierarchy — from raw Crystal numerics up through
+    # user-defined classes to RubyObject.
     #
-    # The analysis is a monotone fixed-point over a small type lattice:
+    # Type lattice (lower = more specific):
     #
-    #   :unknown  — not yet analysed (initial state)
-    #      |
-    #   :i64  :f64  :array_i64  :array_f64
-    #      |
-    #    nil   — proven polymorphic / gives up (absorbing / terminal)
+    #   :unknown                   — bottom: not yet analysed
     #
-    # Slots flow from :unknown toward specific types as evidence accumulates,
-    # or collapse to nil when conflicting evidence is found. nil is sticky.
+    #   :i64  :f64                 — unboxed numerics (subtypes of Integer/Float)
+    #   :array_i64  :array_f64    — unboxed typed arrays
+    #   {class: :Planet}           — any Ruby class instance, user-defined or built-in
+    #   {class: :Integer}          — boxed Integer (wider than :i64)
+    #   {class: :Numeric}          — Integer | Float
+    #   {class: :Object}           — any Object
+    #   {class: :BasicObject}      — absolute top
     #
-    # Three iterations of the outer fixed-point cover all practical cases:
+    # meet(a, b) walks the VM class hierarchy to find the LCA of two types.
+    # Unboxed types (:i64, :f64) sit below their boxed counterparts and are
+    # widened to the boxed class before LCA. :unknown is the identity element.
+    #
+    # All literals are typed precisely: nil → {class: :NilClass},
+    # "str" → {class: :String}, true → {class: :TrueClass}, etc.
+    #
+    # Three fixed-point iterations cover all practical cases:
     #   Round 1 — literals → immediate arithmetic → methods called with literals
-    #   Round 2 — round-1 return types feed callers → their locals refine
-    #   Round 3 — one more hop; handles recursion base-case propagation
+    #   Round 2 — return types feed callers → their locals refine
+    #   Round 3 — one more hop for recursion / indirect propagation
     #
     # Usage:
     #   env = TypeInference.new(
@@ -33,71 +41,96 @@ module Frozone
     #   env[:local,  :nq_solve, :k]      # => :i64
     #   env[:return, :fib]               # => :i64
     #   env[:ivar,   :Planet,  :@x]      # => :f64
+    #   env[:local,  :advance, :bi]      # => {class: :Planet}
     class TypeInference
       # ------------------------------------------------------------------
-      # Type lattice helpers
+      # Type lattice constants
       # ------------------------------------------------------------------
 
-      NUMERIC_TYPES  = %i[i64 f64].to_set
-      ARRAY_TYPES    = %i[array_i64 array_f64].to_set
-      RAW_TYPES      = (NUMERIC_TYPES | ARRAY_TYPES).freeze
+      NUMERIC_TYPES = %i[i64 f64].to_set
+      ARRAY_TYPES   = %i[array_i64 array_f64].to_set
+      RAW_TYPES     = (NUMERIC_TYPES | ARRAY_TYPES).freeze
 
       ARRAY_ELEM_TYPE = { array_i64: :i64, array_f64: :f64 }.freeze
       ARRAY_TYPE_FOR  = { i64: :array_i64, f64: :array_f64 }.freeze
 
-      # Binary arithmetic / bitwise operators whose result type we can infer.
-      ARITH_OPS = %i[+ - * ** / % | & ^ << >>].to_set
-      # Comparison operators return Bool (not a raw numeric), but we need
-      # them for emit_truthy — they're NOT in ARITH_OPS.
+      # Sentinel class-type values used frequently.
+      OBJECT_TYPE      = {class: :Object}.freeze
+      BASIC_OBJECT_TYPE = {class: :BasicObject}.freeze
 
-      # Meet two type lattice values.
-      # :unknown is the identity element; nil is absorbing.
-      def self.meet(a, b)
-        return b           if a == :unknown
-        return a           if b == :unknown
-        return nil         if a.nil? || b.nil?
-        return a           if a == b
-        return :f64        if a == :i64 && b == :f64
-        return :f64        if a == :f64 && b == :i64
-        nil                # incompatible — give up
-      end
+      # Boxed class for each unboxed type.
+      BOXED_CLASS = { i64: :Integer, f64: :Float,
+                      array_i64: :Array, array_f64: :Array }.freeze
+
+      # Binary arithmetic / bitwise operators; result type follows Ruby semantics.
+      ARITH_OPS = %i[+ - * ** / % | & ^ << >>].to_set
+
+      # Built-in Ruby class ancestry (name → ancestor chain, excluding self).
+      # Used for LCA when the class is not in @user_classes.
+      BUILTIN_ANCESTORS = {
+        BasicObject: [],
+        Object:      %i[BasicObject],
+        Numeric:     %i[Object BasicObject],
+        Integer:     %i[Numeric Object BasicObject],
+        Float:       %i[Numeric Object BasicObject],
+        Complex:     %i[Numeric Object BasicObject],
+        Rational:    %i[Numeric Object BasicObject],
+        String:      %i[Object BasicObject],
+        Symbol:      %i[Object BasicObject],
+        Array:       %i[Object BasicObject],
+        Hash:        %i[Object BasicObject],
+        NilClass:    %i[Object BasicObject],
+        TrueClass:   %i[Object BasicObject],
+        FalseClass:  %i[Object BasicObject],
+        Module:      %i[Object BasicObject],
+        Class:       %i[Module Object BasicObject],
+        Proc:        %i[Object BasicObject],
+        Range:       %i[Object BasicObject],
+        Regexp:      %i[Object BasicObject],
+        Encoding:    %i[Object BasicObject],
+        IO:          %i[Object BasicObject],
+        File:        %i[IO Object BasicObject],
+        Comparable:  %i[Object BasicObject],
+        Enumerable:  %i[Object BasicObject],
+        Set:         %i[Object BasicObject],
+        Struct:      %i[Object BasicObject],
+      }.freeze
 
       # ------------------------------------------------------------------
-      # TypeEnv — the result of analysis
+      # TypeEnv — mutable result of analysis
       # ------------------------------------------------------------------
 
       class TypeEnv
-        def initialize
+        def initialize(ti)
           @slots = {}
+          @ti    = ti
         end
 
-        # Raw type for a slot, or nil if polymorphic / unanalysed.
+        # Public type for a slot: nil when still :unknown, else the lattice value.
         def [](slot)
           v = @slots[slot]
           v == :unknown ? nil : v
         end
 
-        # Raw type for a slot including :unknown sentinel.
+        # Raw lattice value including :unknown sentinel.
         def raw(slot)
           @slots.fetch(slot, :unknown)
         end
 
         # Meet `type` into `slot`. Returns true if the slot changed.
         def meet!(slot, type)
+          return false unless type
           current = @slots.fetch(slot, :unknown)
-          merged  = TypeInference.meet(current, type)
+          merged  = @ti.meet(current, type)
           return false if merged == current
           @slots[slot] = merged
           true
         end
 
-        # Convenience predicate.
-        def typed?(slot)
-          !self[slot].nil?
-        end
+        def typed?(slot) = !self[slot].nil?
 
         def inspect
-          typed = @slots.reject { |_, v| v == :unknown || v.nil? }
+          typed = @slots.reject { |_, v| v == :unknown }
           "#<TypeEnv #{typed.size} typed slots>"
         end
       end
@@ -106,8 +139,9 @@ module Frozone
       # TypeContext — scope during expression inference
       # ------------------------------------------------------------------
 
-      # method_key: Symbol for top-level methods; [class_sym, method_sym] for instance methods.
-      # class_name: Symbol of the enclosing class, or nil for top-level.
+      # method_key: Symbol for top-level methods; [class_sym, method_sym] for
+      #             instance methods; nil for top-level execute block.
+      # class_name: Symbol of the enclosing class, or nil.
       TypeContext = Struct.new(:method_key, :class_name)
 
       TOP_LEVEL_CTX = TypeContext.new(nil, nil).freeze
@@ -116,19 +150,38 @@ module Frozone
       # Construction
       # ------------------------------------------------------------------
 
-      # @param user_methods  [Hash<Symbol, Vm::Method>]   top-level user methods
-      # @param user_classes  [Hash<Symbol, Vm::ClassObject>] user-defined classes
-      # @param execute_block [Ast::Block, nil]            the Frozone.compile! block
-      # @param constants     [Hash<Symbol, Object>]       settled numeric constants
+      # @param user_methods  [Hash<Symbol, Vm::Method>]
+      # @param user_classes  [Hash<Symbol, Vm::ClassObject>]
+      # @param execute_block [Ast::Block, nil]
+      # @param constants     [Hash<Symbol, Vm::Object>]  all settled constants
       def initialize(user_methods:, user_classes:, execute_block:, constants: {})
         @user_methods  = user_methods
         @user_classes  = user_classes
         @execute_block = execute_block
         @constants     = constants
-        @env           = TypeEnv.new
+        @env           = TypeEnv.new(self)
+        @ancestors_cache = {}
+        build_class_ancestors
       end
 
       attr_reader :env
+
+      # ------------------------------------------------------------------
+      # meet — the lattice join operation (instance method for LCA access)
+      # ------------------------------------------------------------------
+
+      def meet(a, b)
+        return b if a == :unknown
+        return a if b == :unknown
+        return a if a == b
+        # Both are {class: X} — find LCA in the class hierarchy.
+        if a.is_a?(Hash) && b.is_a?(Hash)
+          lca_of(a[:class], b[:class])
+        else
+          # Widen unboxed types to their boxed class and retry.
+          lca_of(boxed_class(a), boxed_class(b))
+        end
+      end
 
       # ------------------------------------------------------------------
       # Main fixed-point loop
@@ -143,29 +196,25 @@ module Frozone
           # Propagate argument types from every call site into param slots.
           changed |= update_call_sites(@execute_block&.body, TOP_LEVEL_CTX)
           @user_methods.each do |mkey, method|
-            ctx = TypeContext.new(mkey, nil)
-            changed |= update_call_sites(method.body, ctx)
+            changed |= update_call_sites(method.body, TypeContext.new(mkey, nil))
           end
           @user_classes.each do |cname, klass|
             each_user_instance_method(cname, klass) do |mkey, method|
-              ctx = TypeContext.new(mkey, cname)
-              changed |= update_call_sites(method.body, ctx)
+              changed |= update_call_sites(method.body, TypeContext.new(mkey, cname))
             end
           end
 
-          # Propagate types within each method body.
+          # Propagate types within each method / block body.
           changed |= propagate_execute_block
           @user_methods.each do |mkey, method|
-            ctx = TypeContext.new(mkey, nil)
-            changed |= propagate_method(mkey, method, ctx)
+            changed |= propagate_method(mkey, method, TypeContext.new(mkey, nil))
           end
 
-          # Propagate instance variable types for each class.
+          # Propagate ivar and instance-method types for each class.
           @user_classes.each do |cname, klass|
             changed |= propagate_ivars(cname, klass)
             each_user_instance_method(cname, klass) do |mkey, method|
-              ctx = TypeContext.new(mkey, cname)
-              changed |= propagate_method(mkey, method, ctx)
+              changed |= propagate_method(mkey, method, TypeContext.new(mkey, cname))
             end
           end
 
@@ -176,23 +225,18 @@ module Frozone
       end
 
       # ------------------------------------------------------------------
-      # Seed: numeric constants
+      # Seed: all settled constants
       # ------------------------------------------------------------------
 
       def seed_constants
         @constants.each do |name, value|
-          case value
-          when Vm::FloatObject   then @env.meet!([:const, name], :f64)
-          when Vm::IntegerObject then @env.meet!([:const, name], :i64)
-          end
+          ty = vm_object_type(value)
+          @env.meet!([:const, name], ty) if ty
         end
       end
 
       # ------------------------------------------------------------------
       # update_call_sites — interprocedural param propagation
-      #
-      # Walk a body; for every call foo(a, b, ...) infer arg types and
-      # meet them into [:param, method_key, index].
       # ------------------------------------------------------------------
 
       def update_call_sites(node, ctx)
@@ -205,28 +249,36 @@ module Frozone
           next if args.empty?
 
           if recv.nil?
-            # Free call — top-level method
-            callee_key = n.name
+            # Free call → top-level method params.
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
-              changed |= @env.meet!([:param, callee_key, i], ty) if ty
+              changed |= @env.meet!([:param, n.name, i], ty) if ty && ty != :unknown
             end
           elsif recv.is_a?(Ast::ConstantRead) && n.name == :new
-            # ClassName.new(...) — constructor call
+            # ClassName.new(...) → constructor params.
             class_sym = recv.instance_variable_get(:@name)
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
-              changed |= @env.meet!([:constructor_param, class_sym, i], ty) if ty
+              changed |= @env.meet!([:constructor_param, class_sym, i], ty) if ty && ty != :unknown
+            end
+          elsif recv
+            # Instance method call — propagate typed args to instance method params.
+            recv_ty = infer_expr(recv, ctx)
+            if recv_ty.is_a?(Hash) && recv_ty[:class]
+              class_name = recv_ty[:class]
+              mkey = [class_name, n.name]
+              args.each_with_index do |arg, i|
+                ty = infer_expr(arg, ctx)
+                changed |= @env.meet!([:param, mkey, i], ty) if ty && ty != :unknown
+              end
             end
           end
-          # Instance method calls on typed receivers: handled in propagate_method
-          # via infer_expr — not yet interprocedural for instance methods.
         end
         changed
       end
 
       # ------------------------------------------------------------------
-      # propagate_execute_block — type locals in the execute block
+      # propagate_execute_block
       # ------------------------------------------------------------------
 
       def propagate_execute_block
@@ -241,39 +293,30 @@ module Frozone
       def propagate_method(mkey, method, ctx)
         return false unless method.body
         changed = false
-        # Array locals first: seed elem types before propagate_locals runs,
-        # so that a[k] reads are typed when inferring scalar locals like i,y,z.
+        # Array locals first so scalar locals that depend on array reads are typed.
         changed |= propagate_array_locals(method.body, ctx)
         changed |= propagate_locals(method.body, ctx)
         ret_ty = infer_body_return(method.body, ctx)
-        # Only commit definite numeric return types — don't pin to nil from
-        # unresolved recursion (:unknown branches collapse to nil in meet).
-        changed |= @env.meet!([:return, mkey], ret_ty) if ret_ty && NUMERIC_TYPES.include?(ret_ty)
+        # Commit any definite (non-:unknown) return type.
+        changed |= @env.meet!([:return, mkey], ret_ty) if ret_ty && ret_ty != :unknown
         changed
       end
 
       # ------------------------------------------------------------------
-      # propagate_locals — fixed-point local variable typing within a body
+      # propagate_locals — fixed-point local variable typing
       # ------------------------------------------------------------------
 
       def propagate_locals(body, ctx)
         assignments = collect_assignments(body)
         return false if assignments.empty?
-
-        # Seed param slots into a local view — params are read-only from
-        # the method's own perspective (call sites drive their types).
-        # We don't write back to param slots here; infer_expr reads them.
-
         changed = false
-        # Fixed-point: repeat until no slot changes.
         loop do
           iter_changed = false
           assignments.each do |name, rhs_nodes|
             ty = rhs_nodes.reduce(:unknown) do |acc, rhs|
-              t  = infer_expr(rhs, ctx)
-              TypeInference.meet(acc, t || nil)
+              t = infer_expr(rhs, ctx)
+              meet(acc, t || :unknown)
             end
-            # :unknown means no typed evidence — don't update.
             next if ty == :unknown
             iter_changed |= @env.meet!([:local, ctx.method_key, name], ty)
           end
@@ -284,9 +327,9 @@ module Frozone
       end
 
       # ------------------------------------------------------------------
-      # propagate_array_locals — type Array(T) locals within a body
+      # propagate_array_locals — type Array(T) unboxed locals
       #
-      # A local qualifies as Array(T) when:
+      # A local is Array(Int64) / Array(Float64) when:
       #   1. Exactly one assignment: Array.new(count, fill) with typed fill.
       #   2. Never escapes (passed as arg, aliased, returned, stored in ivar).
       #   3. All []= writes have values consistent with the element type.
@@ -295,7 +338,6 @@ module Frozone
       def propagate_array_locals(body, ctx)
         return false unless body
         assignments = collect_assignments(body)
-
         param_names = param_names_for(ctx)
         changed = false
 
@@ -307,8 +349,7 @@ module Frozone
           args = rhs.instance_variable_get(:@arg_nodes) || []
           next unless args.size == 2
           fill_ty = infer_expr(args[1], ctx)
-          next unless fill_ty && NUMERIC_TYPES.include?(fill_ty)
-          arr_ty = ARRAY_TYPE_FOR[fill_ty]
+          next unless NUMERIC_TYPES.include?(fill_ty)
 
           next if escapes?(name, body, ctx)
           next unless writes_consistent?(name, body, ctx, fill_ty)
@@ -319,7 +360,7 @@ module Frozone
       end
 
       # ------------------------------------------------------------------
-      # propagate_ivars — infer ivar types for a class
+      # propagate_ivars — infer ivar types from initialize body
       # ------------------------------------------------------------------
 
       def propagate_ivars(class_name, klass)
@@ -333,7 +374,6 @@ module Frozone
         return false unless param_types.all?
 
         ctx = TypeContext.new([class_name, :initialize], class_name)
-        # Temporarily seed param types as locals so infer_expr sees them.
         old_seeds = @ivar_param_seeds
         @ivar_param_seeds = req_params.zip(param_types).to_h
 
@@ -341,7 +381,7 @@ module Frozone
         collect_ivar_assignments(init.body).each do |ivar_name, rhs_nodes|
           ty = rhs_nodes.reduce(:unknown) do |acc, rhs|
             t = infer_expr(rhs, ctx)
-            TypeInference.meet(acc, t || nil)
+            meet(acc, t || :unknown)
           end
           next if ty == :unknown
           changed |= @env.meet!([:ivar, class_name, ivar_name], ty)
@@ -352,28 +392,34 @@ module Frozone
       end
 
       # ------------------------------------------------------------------
-      # infer_expr — the core BTA function
-      #
-      # Returns :i64, :f64, :array_i64, :array_f64, or nil (= RubyObject).
+      # infer_expr — core BTA function
       # ------------------------------------------------------------------
 
       def infer_expr(node, ctx)
-        return nil unless node
+        return :unknown unless node
         case node
-        when Ast::IntegerLiteral then :i64
-        when Ast::FloatLiteral   then :f64
+        # Exact class types for all literals.
+        when Ast::IntegerLiteral  then :i64
+        when Ast::FloatLiteral    then :f64
+        when Ast::NilLiteral      then {class: :NilClass}
+        when Ast::TrueLiteral     then {class: :TrueClass}
+        when Ast::FalseLiteral    then {class: :FalseClass}
+        when Ast::StringLiteral   then {class: :String}
+        when Ast::SymbolLiteral   then {class: :Symbol}
+        when Ast::ArrayLiteral    then {class: :Array}
+        when Ast::HashLiteral     then {class: :Hash}
+        when Ast::RangeLiteral    then {class: :Range}
+        when Ast::RegexpLiteral   then {class: :Regexp}
 
-        # Parenthesised expression: (a | b) → Sequence([a | b]) — evaluate last element.
+        # Parenthesised expression: (a | b) → Sequence([a | b]).
         when Ast::Sequence
           infer_expr(node.nodes.last, ctx)
 
         when Ast::LocalVariableRead
           name = node.instance_variable_get(:@name)
-          # During propagate_ivars, @ivar_param_seeds maps param names → types
-          # for the initialize method. This must be checked before any @env lookup
-          # so that recursive calls through infer_call also see the seeds.
+          # During propagate_ivars, @ivar_param_seeds provides constructor param types.
           return @ivar_param_seeds[name] if @ivar_param_seeds&.key?(name)
-          # Check param slots first (use raw so :unknown propagates, not nil).
+          # Param slots (use raw so :unknown defers rather than collapsing).
           idx = param_index(ctx, name)
           if idx
             pv = @env.raw([:param, ctx.method_key, idx])
@@ -383,17 +429,17 @@ module Frozone
 
         when Ast::InstanceVariableRead
           name = node.instance_variable_get(:@name)
-          @env[[:ivar, ctx.class_name, name]]
+          @env.raw([:ivar, ctx.class_name, name])
 
         when Ast::ConstantRead
           name = node.instance_variable_get(:@name)
-          @env[[:const, name]]
+          @env.raw([:const, name])
 
         when Ast::MethodCall
           infer_call(node, ctx)
 
         else
-          nil
+          :unknown
         end
       end
 
@@ -406,31 +452,49 @@ module Frozone
         recv = node.instance_variable_get(:@receiver_node)
         args = node.instance_variable_get(:@arg_nodes) || []
 
-        # Array element read: a[k] where a is a typed array local.
-        # Use raw so :unknown propagates through arithmetic (defers rather than collapses).
+        # ClassName.new(...) → exact class instance type.
+        if name == :new && recv.is_a?(Ast::ConstantRead)
+          class_sym = recv.instance_variable_get(:@name)
+          return {class: class_sym}
+        end
+
+        # Array element read a[k] — use raw to propagate :unknown through arithmetic.
         if name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
           lv = recv.instance_variable_get(:@name)
           return @env.raw([:array_elem, ctx.method_key, lv])
         end
 
-        # Arithmetic / bitwise: numeric operands → numeric result.
-        # :unknown operand → defer (return :unknown); nil operand → give up.
+        # Arithmetic / bitwise — Ruby-semantic result type.
+        # :unknown operand → defer; non-numeric operand → give up.
         if ARITH_OPS.include?(name) && args.size == 1 && recv
           rt = infer_expr(recv, ctx)
           at = infer_expr(args[0], ctx)
-          return nil     if rt.nil? || at.nil?
           return :unknown if rt == :unknown || at == :unknown
-          if NUMERIC_TYPES.include?(rt) || NUMERIC_TYPES.include?(at)
+          if NUMERIC_TYPES.include?(rt) && NUMERIC_TYPES.include?(at)
             return (rt == :f64 || at == :f64) ? :f64 : :i64
+          end
+          # One side is a boxed numeric — still may produce a numeric result.
+          if numeric_class_type?(rt) && numeric_class_type?(at)
+            return :unknown  # defer; not enough info to unbox
+          end
+          return :unknown
+        end
+
+        # Method call on a known class instance — look up return type.
+        if recv
+          recv_ty = infer_expr(recv, ctx)
+          if recv_ty.is_a?(Hash) && recv_ty[:class]
+            mkey = [recv_ty[:class], name]
+            return @env.raw([:return, mkey])
           end
         end
 
-        # Free call to a top-level method — use raw so :unknown propagates.
+        # Free call to a top-level user method.
         if recv.nil?
           return @env.raw([:return, name])
         end
 
-        nil
+        :unknown
       end
 
       # ------------------------------------------------------------------
@@ -438,11 +502,9 @@ module Frozone
       # ------------------------------------------------------------------
 
       def infer_body_return(node, ctx)
-        return nil unless node
+        return :unknown unless node
         case node
         when Ast::Sequence
-          # Collect types from all possible exits:
-          # explicit `return` statements anywhere + implicit last expression.
           types = []
           node.nodes.each_with_index do |n, i|
             if i == node.nodes.size - 1
@@ -452,23 +514,24 @@ module Frozone
               scan_returns(n, ctx, types)
             end
           end
-          return nil if types.empty?
-          types.reduce { |a, b| TypeInference.meet(a, b) }.then { |v| v == :unknown ? nil : v }
+          return :unknown if types.empty?
+          types.reduce { |a, b| meet(a, b) }
         when Ast::If
-          t = infer_body_return(node.instance_variable_get(:@then_node), ctx)
-          e = infer_body_return(node.instance_variable_get(:@else_node), ctx)
-          TypeInference.meet(t || :unknown, e || :unknown).then { |v| v == :unknown ? nil : v }
+          then_n = node.instance_variable_get(:@then_node)
+          else_n = node.instance_variable_get(:@else_node)
+          t = infer_body_return(then_n, ctx)
+          e = else_n ? infer_body_return(else_n, ctx) : {class: :NilClass}
+          meet(t == :unknown ? :unknown : t, e == :unknown ? :unknown : e)
         when Ast::Return
           infer_expr(node.instance_variable_get(:@value_node), ctx)
         when Ast::While, Ast::Until
-          nil  # loops return nil in Ruby
+          {class: :NilClass}  # while/until always returns nil in Ruby
         else
           infer_expr(node, ctx)
         end
       end
 
-      # Scan a node for explicit `return` statements and collect their types.
-      # Does not descend into nested method/class definitions.
+      # Collect explicit return types from a node (not the last-expression path).
       def scan_returns(node, ctx, acc)
         return unless node
         case node
@@ -482,13 +545,11 @@ module Frozone
           scan_returns(node.instance_variable_get(:@else_node), ctx, acc)
         when Ast::While, Ast::Until
           scan_returns(node.instance_variable_get(:@body_node), ctx, acc)
-        # Do not descend into method defs, class defs, or block bodies.
         end
       end
 
       # ------------------------------------------------------------------
-      # collect_assignments — gather all LHS→[RHS] pairs in a body.
-      # Does not descend into block bodies (separate scope).
+      # collect_assignments — gather all LHS→[RHS] pairs in a body
       # ------------------------------------------------------------------
 
       def collect_assignments(node, result = Hash.new { |h, k| h[k] = [] })
@@ -525,7 +586,7 @@ module Frozone
       end
 
       # ------------------------------------------------------------------
-      # collect_ivar_assignments — gather ivar writes in an initialize body
+      # collect_ivar_assignments — ivar writes in an initialize body
       # ------------------------------------------------------------------
 
       def collect_ivar_assignments(node, result = Hash.new { |h, k| h[k] = [] })
@@ -554,7 +615,6 @@ module Frozone
       # Array local escape analysis
       # ------------------------------------------------------------------
 
-      # True if `name` is used anywhere other than receiver of [] or []=.
       def escapes?(name, body, ctx)
         escaped = false
         walk(body) do |node|
@@ -564,43 +624,30 @@ module Frozone
             args = node.instance_variable_get(:@arg_nodes) || []
             if recv.is_a?(Ast::LocalVariableRead) &&
                recv.instance_variable_get(:@name) == name
-              # Only [] and []= are safe.
               escaped = true unless node.name == :[] || node.name == :[]=
             end
-            # Passed as argument — escape.
             args.each do |a|
-              if a.is_a?(Ast::LocalVariableRead) &&
-                 a.instance_variable_get(:@name) == name
-                escaped = true
-              end
+              escaped = true if a.is_a?(Ast::LocalVariableRead) &&
+                                a.instance_variable_get(:@name) == name
             end
           when Ast::AttributeWrite
             recv = node.instance_variable_get(:@receiver_node)
             args = node.instance_variable_get(:@arg_nodes) || []
-            # []= on the array itself is fine; anything else is escape.
             if recv.is_a?(Ast::LocalVariableRead) &&
                recv.instance_variable_get(:@name) == name
               escaped = true unless node.instance_variable_get(:@name) == :[]=
             end
             args.each do |a|
-              if a.is_a?(Ast::LocalVariableRead) &&
-                 a.instance_variable_get(:@name) == name
-                escaped = true
-              end
+              escaped = true if a.is_a?(Ast::LocalVariableRead) &&
+                                a.instance_variable_get(:@name) == name
             end
           when Ast::LocalVariableWrite
             val = node.instance_variable_get(:@value_node)
             if val.is_a?(Ast::LocalVariableRead) &&
                val.instance_variable_get(:@name) == name
-              escaped = true  # aliased
-            end
-          when Ast::Return
-            val = node.instance_variable_get(:@value_node)
-            if val.is_a?(Ast::LocalVariableRead) &&
-               val.instance_variable_get(:@name) == name
               escaped = true
             end
-          when Ast::InstanceVariableWrite
+          when Ast::Return, Ast::InstanceVariableWrite
             val = node.instance_variable_get(:@value_node)
             if val.is_a?(Ast::LocalVariableRead) &&
                val.instance_variable_get(:@name) == name
@@ -614,8 +661,6 @@ module Frozone
         true
       end
 
-      # True if all []= writes to `name` have values typed as `elem_ty`
-      # (or promotable to it).
       def writes_consistent?(name, body, ctx, elem_ty)
         ok = true
         walk(body) do |node|
@@ -626,8 +671,6 @@ module Frozone
                                       r.instance_variable_get(:@name) == name }
           args = node.instance_variable_get(:@arg_nodes) || []
           val_ty = infer_expr(args[1], ctx) if args[1]
-          # :unknown = not yet analysed — defer (treat as tentatively OK).
-          # Only fail if we have a definite non-numeric type.
           next if val_ty == :unknown
           ok = false unless val_ty == elem_ty ||
                             (val_ty == :i64 && elem_ty == :f64)
@@ -669,7 +712,6 @@ module Frozone
         when Ast::ArrayLiteral
           (node.instance_variable_get(:@element_nodes) || []).each { |e| walk(e, &block) }
         else
-          # Generic fallback: walk common child slots so no node type is silently skipped.
           %i[@body_node @value_node @then_node @else_node @condition_node @receiver_node].each do |s|
             next unless node.instance_variable_defined?(s)
             child = node.instance_variable_get(s)
@@ -685,10 +727,90 @@ module Frozone
       end
 
       # ------------------------------------------------------------------
+      # Class hierarchy helpers
+      # ------------------------------------------------------------------
+
+      # Build @ancestors_cache for all user-defined classes.
+      def build_class_ancestors
+        @user_classes.each do |name, klass|
+          @ancestors_cache[name] = compute_user_ancestors(klass)
+        end
+      end
+
+      # Full ancestor chain (excluding self) for a user-defined class.
+      def compute_user_ancestors(klass)
+        chain = []
+        current = klass.instance_variable_get(:@superclass)
+        while current
+          cname = current.instance_variable_get(:@name)
+          break unless cname
+          chain << cname
+          # If we've reached a built-in class, append its known ancestors.
+          if BUILTIN_ANCESTORS.key?(cname)
+            chain.concat(BUILTIN_ANCESTORS[cname])
+            break
+          end
+          current = current.instance_variable_get(:@superclass)
+        end
+        # Ensure Object and BasicObject are always at the end.
+        chain |= %i[Object BasicObject]
+        chain
+      end
+
+      # Ancestor chain for any class name (user-defined or built-in).
+      def ancestors_of(name)
+        @ancestors_cache[name] ||=
+          if BUILTIN_ANCESTORS.key?(name)
+            [name] + BUILTIN_ANCESTORS[name]
+          else
+            [name, :Object, :BasicObject]
+          end
+      end
+
+      # Least common ancestor of two class names → {class: lca_name}.
+      def lca_of(a_name, b_name)
+        return {class: a_name} if a_name == b_name
+        chain_a = ancestors_of(a_name)
+        set_a   = chain_a.to_set
+        chain_b = ancestors_of(b_name)
+        lca = chain_b.find { |c| set_a.include?(c) }
+        lca ? {class: lca} : BASIC_OBJECT_TYPE
+      end
+
+      # Boxed Ruby class name for a lattice type value.
+      def boxed_class(ty)
+        return ty[:class] if ty.is_a?(Hash)
+        BOXED_CLASS[ty] || :Object
+      end
+
+      # True if ty is a class type known to be Numeric or a subclass.
+      def numeric_class_type?(ty)
+        return true if NUMERIC_TYPES.include?(ty)
+        return false unless ty.is_a?(Hash)
+        ancestors_of(ty[:class]).include?(:Numeric)
+      end
+
+      # ------------------------------------------------------------------
+      # VM object → lattice type
+      # ------------------------------------------------------------------
+
+      def vm_object_type(value)
+        case value
+        when Vm::IntegerObject then :i64
+        when Vm::FloatObject   then :f64
+        else
+          # User-defined class instance or known built-in object.
+          class_obj  = value.respond_to?(:class_object) ? value.class_object : nil
+          class_name = class_obj&.instance_variable_get(:@name)
+          return nil unless class_name
+          {class: class_name}
+        end
+      end
+
+      # ------------------------------------------------------------------
       # Helpers
       # ------------------------------------------------------------------
 
-      # True if node is Array.new(count, fill) with no block.
       def array_new_call?(node)
         return false unless node.is_a?(Ast::MethodCall)
         return false unless node.instance_variable_get(:@name) == :new
@@ -698,16 +820,13 @@ module Frozone
         node.instance_variable_get(:@block_node).nil?
       end
 
-      # Iterate over user-defined instance methods of a class.
       def each_user_instance_method(class_name, klass)
         (klass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
           next unless method.is_a?(Vm::Method) && method.body
-          mkey = [class_name, mname]
-          yield mkey, method
+          yield [class_name, mname], method
         end
       end
 
-      # Parameter names for the method identified by ctx.
       def param_names_for(ctx)
         mkey = ctx.method_key
         return [] unless mkey
@@ -719,21 +838,16 @@ module Frozone
           (method.instance_variable_get(:@post_params) || [])
       end
 
-      # Index of `name` in the param list of the current method, or nil.
-      def param_index(ctx, name)
-        param_names_for(ctx).index(name)
-      end
+      def param_index(ctx, name) = param_names_for(ctx).index(name)
 
       def method_for_key(mkey)
         if mkey.is_a?(Array)
           class_name, method_name = mkey
-          klass = @user_classes[class_name]
-          klass&.instance_variable_get(:@methods_table)&.fetch(method_name, nil)
+          @user_classes[class_name]&.instance_variable_get(:@methods_table)&.fetch(method_name, nil)
         else
           @user_methods[mkey]
         end
       end
-
     end
   end
 end

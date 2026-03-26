@@ -74,10 +74,7 @@ module Frozone
           user_classes[name] = val if val.is_a?(Vm::ClassObject)
         end
 
-        constants = {}
-        (scope.instance_variable_get(:@constants_table) || {}).each do |name, val|
-          constants[name] = val if val.is_a?(Vm::IntegerObject) || val.is_a?(Vm::FloatObject)
-        end
+        constants = scope.instance_variable_get(:@constants_table)&.dup || {}
 
         tinf = Frozone::Compiler::TypeInference.new(
           user_methods:  user_methods,
@@ -87,10 +84,12 @@ module Frozone
         )
         env = tinf.run
 
-        $stderr.puts "\n=== TypeInference results ==="
-        env.instance_variable_get(:@slots).each do |slot, ty|
-          next if ty == :unknown || ty.nil?
-          $stderr.puts "  #{slot.inspect} => #{ty}"
+        slots = env.instance_variable_get(:@slots)
+        $stderr.puts "\n=== TypeInference results (#{slots.size} slots) ==="
+        slots.each do |slot, ty|
+          next if ty == :unknown
+          ty_str = ty.is_a?(Hash) ? ty[:class].to_s : ty.inspect
+          $stderr.puts "  #{slot.inspect} => #{ty_str}"
         end
         $stderr.puts "=== end TypeInference ===\n"
       end
