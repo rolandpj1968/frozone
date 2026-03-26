@@ -336,12 +336,16 @@ module Frozone
           load_path&.raw&.each do |dir_obj|
             dir = load_path_dir_str(dir_obj)
             next unless dir
+            expanded_dir = ::File.expand_path(dir)
+            # Canonicalize $LOAD_PATH entry (resolve symlinks on the dir) but not the filename.
+            # MRI stores the real dir + the filename as given (not realpath of the full path).
+            real_dir = begin; ::File.realpath(expanded_dir); rescue ::Errno::ENOENT, ::Errno::ENOTDIR; expanded_dir; end
             # Try .rb stub before native extension (allows our stubs to override .so files)
             if path_rb_alt
-              full_rb = ::File.expand_path(::File.join(dir, path_rb_alt))
+              full_rb = ::File.expand_path(::File.join(real_dir, path_rb_alt))
               return full_rb if ::File.exist?(full_rb)
             end
-            full = ::File.expand_path(::File.join(dir, path_rb))
+            full = ::File.expand_path(::File.join(real_dir, path_rb))
             return full if ::File.exist?(full)
           end
           nil
@@ -353,7 +357,9 @@ module Frozone
           load_path.raw.filter_map do |dir_obj|
             dir = load_path_dir_str(dir_obj)
             next unless dir
-            ::File.expand_path(::File.join(dir, path_rb))
+            expanded_dir = ::File.expand_path(dir)
+            real_dir = begin; ::File.realpath(expanded_dir); rescue ::Errno::ENOENT, ::Errno::ENOTDIR; expanded_dir; end
+            ::File.expand_path(::File.join(real_dir, path_rb))
           end
         end
 
