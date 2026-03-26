@@ -98,10 +98,10 @@ Measured on Ruby 4.0.1 vs Crystal release build (same workload per benchmark):
 |-----------|--------------|------------|-----------------|--------|---------|
 | fib(20) | 0.87 ms | 0.53 ms | 0.04 ms | **22×** | **13×** |
 | nq\_solve(8) | 0.87 ms | 1.31 ms | 0.05 ms | **17×** | **26×** |
-| nbody 20k steps | 167 ms | 58 ms | 1.73 ms | **96×** | **33×** |
-| matmul(200) | 581 ms | 272 ms | 158 ms | **3.7×** | **1.7×** |
+| nbody 20k steps | 167 ms | 58 ms | 2.12 ms | **79×** | **27×** |
+| matmul(200) | 581 ms | 272 ms | 22 ms | **26×** | **12×** |
 
-`fib`, `nqueens`, and `nbody` inner loops are fully specialised to raw Crystal arithmetic by the type inference pass. `matmul` loop variables and `Array.new` block params are now native Int64/Float64; element access still boxes on read/write (heap-scattered `RubyFloat` objects) — unboxed 2D arrays are the next optimisation target.
+`fib`, `nqueens`, and `nbody` inner loops are fully specialised to raw Crystal arithmetic by the type inference pass. `matmul` output matrix `c` is now an unboxed `Array(Array(Float64))` — no heap allocation in the inner loop. Input matrices `a` and `b` are still `RubyArray` of boxed `RubyFloat` (returned by `matgen`); unboxing those is the next optimisation target.
 
 ### Parsers
 

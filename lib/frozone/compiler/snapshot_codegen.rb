@@ -66,6 +66,8 @@ module Frozone
         @current_local_array_elems   = {}   # active boxed-array elem type map during method emission
         @current_block_params        = {}   # active block-param type map (from TI :block_param slots)
         @raw_block_params            = {}   # param_name => :i64 | :f64 for currently-native block params
+        @current_local_2d_arrays     = {}   # local_name => :i64 | :f64 — outer of Array(Array(T)) locals
+        @native_array_locals         = {}   # local_name => :i64 | :f64 — Array(T) from 2D parent read
 
         # Pre-pass: collect user method names for RubyObject stubs
         collect_user_methods_from_scope(top_level_scope)
@@ -306,6 +308,8 @@ module Frozone
         @current_class_locals      = (@ti_class_locals[mkey]      || {}).reject { |k, _| param_set.include?(k) }
         @current_local_array_elems = (@ti_local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }
         @current_block_params      = (@ti_block_params[mkey]      || {}).reject { |k, _| param_set.include?(k) }
+        @current_local_2d_arrays   = detect_local_2d_arrays(method.body, param_set)
+        @native_array_locals       = {}
         # Include raw-typed params in @typed_locals so node_raw_type works for them
         # and they are correctly boxed/unboxed in mixed expressions.
         if param_types
@@ -348,6 +352,8 @@ module Frozone
         @current_local_array_elems = old_local_elem
         @current_block_params      = old_block_params
         @raw_block_params          = {}
+        @current_local_2d_arrays   = {}
+        @native_array_locals       = {}
       end
 
       # -----------------------------------------------------------------------
@@ -559,6 +565,43 @@ module Frozone
         ty == :i64 || ty == :f64 ? ty : nil
       end
 
+      # Combined element type for typed-array and native-array (2D parent) locals.
+      # Returns :i64, :f64, or nil.
+      def native_array_elem_type(arr_name)
+        @typed_array_locals[arr_name] || @native_array_locals[arr_name]
+      end
+
+      # Detect locals assigned from Array.new(count_i64) { Array.new(count2_i64, fill) }
+      # where fill is a typed scalar. Returns {name => :i64 | :f64}.
+      def detect_local_2d_arrays(body, exclude_names)
+        return {} unless body
+        assignments = Hash.new { |h, k| h[k] = [] }
+        collect_local_assignments(body, assignments)
+        result = {}
+        assignments.each do |name, rhs_nodes|
+          next if exclude_names.include?(name)
+          next unless rhs_nodes.size == 1
+          rhs = rhs_nodes.first
+          # Outer: Array.new(count_i64) { inner_body } — block form with one arg
+          next unless rhs.is_a?(Ast::MethodCall) && rhs.name == :new
+          outer_recv = rhs.receiver_node
+          next unless outer_recv.is_a?(Ast::ConstantRead) && ivar(outer_recv, :name) == :Array
+          blk = ivar(rhs, :block_node)
+          next unless blk.is_a?(Ast::Block)
+          outer_args = ivar(rhs, :arg_nodes) || []
+          next unless outer_args.size == 1 && node_raw_type(outer_args[0]) == :i64
+          # Inner block body must be Array.new(count2_i64, fill_scalar) — no block
+          inner = ivar(blk, :body)
+          inner = inner.nodes.first if inner.is_a?(Ast::Sequence) && inner.nodes.size == 1
+          next unless array_new_call?(inner)
+          inner_args = ivar(inner, :arg_nodes) || []
+          fill_ty = node_raw_type(inner_args[1])
+          next unless fill_ty
+          result[name] = fill_ty
+        end
+        result
+      end
+
       # -----------------------------------------------------------------------
       # Legacy: Walk the execute block body, collecting call-site argument types for
       # every free (non-method, non-receiver) call to user-defined methods.
@@ -674,11 +717,11 @@ module Frozone
               return ret_ty
             end
           end
-          # Typed array element read: a[k] where a is a typed array local
+          # Typed array element read: a[k] where a is a typed or native array local
           if name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
             arr_name = ivar(recv, :name)
-            arr_ty = @typed_array_locals[arr_name]
-            return arr_ty if arr_ty
+            nat_ty = native_array_elem_type(arr_name)
+            return nat_ty if nat_ty
             # Boxed RubyArray with known elem type from TI
             elem_ty = @current_local_array_elems[arr_name]
             return elem_ty if elem_ty
@@ -836,8 +879,8 @@ module Frozone
           args = ivar(node, :arg_nodes) || []
           if name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
             arr_name = ivar(recv, :name)
-            if @typed_array_locals[arr_name]
-              # Unboxed Array(T) local: a[k] → bare Int64/Float64
+            if (nat_ty = native_array_elem_type(arr_name))
+              # Unboxed Array(T) local (typed or native-2D-parent): a[k] → bare Int64/Float64
               write crystal_local(arr_name)
               write "["
               emit_coerce_i64(args[0])
@@ -961,6 +1004,25 @@ module Frozone
       # For class-typed locals, add .as(Ruby_ClassName) cast for static dispatch.
       def emit_local_var_write(node)
         name = ivar(node, :name)
+        # 2D float array construction: c = Array.new(m) { Array.new(p, 0.0) }
+        # Emit as Array(Array(Float64)).new(m) { Array(Float64).new(p, 0.0) }
+        if (elem_raw = @current_local_2d_arrays[name])
+          crystal_ty = elem_raw == :f64 ? "Float64" : "Int64"
+          rhs  = ivar(node, :value_node)
+          blk  = ivar(rhs, :block_node)
+          outer_args = ivar(rhs, :arg_nodes) || []
+          inner = ivar(blk, :body)
+          inner = inner.nodes.first if inner.is_a?(Ast::Sequence) && inner.nodes.size == 1
+          inner_args = ivar(inner, :arg_nodes) || []
+          write "#{crystal_local(name)} = Array(Array(#{crystal_ty})).new("
+          emit_coerce_i64(outer_args[0])
+          write ") { Array(#{crystal_ty}).new("
+          emit_coerce_i64(inner_args[0])
+          write ", "
+          emit_as(inner_args[1], elem_raw)
+          write ") }"
+          return
+        end
         if (arr_ty = @typed_array_locals[name])
           rhs  = ivar(node, :value_node)
           args = ivar(rhs, :arg_nodes) || []
@@ -978,6 +1040,18 @@ module Frozone
           return
         end
         if @current_local_array_elems.key?(name)
+          # Check if RHS is a read from a 2D native array: ci = c[i]
+          value = ivar(node, :value_node)
+          if value.is_a?(Ast::MethodCall) && ivar(value, :name) == :[] &&
+             (vargs = ivar(value, :arg_nodes) || []).size == 1 &&
+             ivar(value, :receiver_node).is_a?(Ast::LocalVariableRead) &&
+             @current_local_2d_arrays.key?(ivar(ivar(value, :receiver_node), :name))
+            # Emit: ci = c[raw_i]  (Crystal infers ci : Array(Float64))
+            write "#{crystal_local(name)} = "
+            emit(value)
+            @native_array_locals[name] = @current_local_array_elems[name]
+            return
+          end
           write "#{crystal_local(name)} = "
           emit(ivar(node, :value_node))
           write ".as(RubyArray)"
@@ -1017,6 +1091,15 @@ module Frozone
         op        = ivar(node, :operator)
         recv_node = ivar(node, :receiver_node)
         val_node  = ivar(node, :value_node)
+        # Native Array(T) receiver (unboxed or 2D-parent): emit arr[i] op= val directly
+        recv_name = recv_node.is_a?(Ast::LocalVariableRead) && ivar(recv_node, :name)
+        if recv_name && (nat_ty = native_array_elem_type(recv_name))
+          write "#{crystal_local(recv_name)}["
+          emit_raw(idx)
+          write "] #{op}= "
+          emit_as(val_node, nat_ty)
+          return
+        end
         r = "_iopw_r#{@temp_counter}"
         i = "_iopw_i#{@temp_counter}"
         @temp_counter += 1
@@ -1138,9 +1221,9 @@ module Frozone
           end
         end
 
-        # Typed array read in boxed context: box the Int64/Float64 element
+        # Typed/native array read in boxed context: box the Int64/Float64 element
         if node.name == :[] && node.receiver_node&.is_a?(Ast::LocalVariableRead) &&
-           (arr_ty = @typed_array_locals[ivar(node.receiver_node, :name)]) &&
+           (arr_ty = native_array_elem_type(ivar(node.receiver_node, :name))) &&
            node.arg_nodes&.size == 1
           box_fn = arr_ty == :f64 ? "RubyFloat" : "RubyInteger"
           write "#{box_fn}.new(#{crystal_local(ivar(node.receiver_node, :name))}["
@@ -1189,9 +1272,9 @@ module Frozone
         if ivar(node, :name) == :[]=
           args = ivar(node, :arg_nodes)
           recv = ivar(node, :receiver_node)
-          # Unboxed Array(T) write: emit value as bare native type
+          # Unboxed/native Array(T) write: emit value as bare native type
           if recv.is_a?(Ast::LocalVariableRead) &&
-             (arr_ty = @typed_array_locals[ivar(recv, :name)]) &&
+             (arr_ty = native_array_elem_type(ivar(recv, :name))) &&
              args&.size == 2
             write "#{crystal_local(ivar(recv, :name))}["
             emit_coerce_i64(args[0])

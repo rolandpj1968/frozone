@@ -515,6 +515,9 @@ module Frozone
       # Built-in methods on Array/Integer/Float with known return types.
       ARRAY_INT_METHODS  = %i[length size count].to_set
       INT_INT_METHODS    = %i[abs ceil floor round truncate].to_set
+      # Explicit coercion methods: always return a known numeric type.
+      COERCE_TO_FLOAT    = %i[to_f to_f64 to_r].to_set
+      COERCE_TO_INT      = %i[to_i to_i64 to_int].to_set
 
       def infer_call(node, ctx)
         name = node.instance_variable_get(:@name)
@@ -585,6 +588,9 @@ module Frozone
         # Built-in Array methods with known return types.
         if recv
           recv_ty = infer_expr(recv, ctx)
+          # Explicit coercion: to_f/to_f64 always yield Float64, to_i/to_i64 always Int64.
+          return :f64 if COERCE_TO_FLOAT.include?(name) && recv_ty != :unknown
+          return :i64 if COERCE_TO_INT.include?(name) && recv_ty != :unknown
           if recv_ty.is_a?(Hash)
             return :i64 if recv_ty[:class] == :Array && ARRAY_INT_METHODS.include?(name)
             return :i64 if recv_ty[:class] == :Integer && INT_INT_METHODS.include?(name)
