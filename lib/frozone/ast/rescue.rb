@@ -136,10 +136,16 @@ module Frozone
             # Set $! immediately so rescue clause expressions see the current exception
             # (e.g. `rescue (raise "other")` needs $! set for cause to be correct)
             vm_val = e.is_a?(Vm::FrozoneException) ? e.vm_object : Vm::FrozoneException.wrap_mri(e)
+            # If this is an MRI-origin exception (e.g. ZeroDivisionError from an intrinsic),
+            # wrap_mri only copies @message. Set the backtrace from the current VM stack now.
+            existing_bt = vm_val.get_ivar(:@backtrace) rescue nil
+            unless existing_bt.is_a?(Vm::ArrayObject) && !existing_bt.raw.empty?
+              Vm::Intrinsics.set_exc_backtrace(vm_val, context) rescue nil
+              existing_bt = vm_val.get_ivar(:@backtrace) rescue nil
+            end
             prev_dollar_bang = Vm::GLOBALS[:"$!"]
             prev_dollar_at = Vm::GLOBALS[:"$@"]
             Vm::GLOBALS[:"$!"] = vm_val
-            existing_bt = vm_val.get_ivar(:@backtrace) rescue nil
             bt_for_dollar_at = (existing_bt.is_a?(Vm::ArrayObject) && !existing_bt.raw.empty?) ? existing_bt : Vm::ArrayObject.new([])
             Vm::GLOBALS[:"$@"] = bt_for_dollar_at
 

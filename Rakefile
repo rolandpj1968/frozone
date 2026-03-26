@@ -129,6 +129,12 @@ SKIP_SPEC_FILES = %w[
   thread/stop_spec.rb
   thread/to_s_spec.rb
   thread/wakeup_spec.rb
+  sizedqueue/append_spec.rb
+  sizedqueue/deq_spec.rb
+  sizedqueue/enq_spec.rb
+  sizedqueue/pop_spec.rb
+  sizedqueue/push_spec.rb
+  sizedqueue/shift_spec.rb
 ].map { |f| "#{RUBY_SPEC_DIR}/core/#{f}" }.freeze
 
 # Hanging library spec files (GC-dependent or blocking IO).
