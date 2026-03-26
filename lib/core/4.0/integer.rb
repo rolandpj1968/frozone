@@ -35,10 +35,29 @@ class Integer
   def rationalize(eps = nil) = Rational(self, 1)
   def between?(min, max) = self >= min && self <= max
 
-  def <(v)   = v.is_a?(Integer) ? Intrinsics.integer__lt_(self, v) : __coerce_and_compare__(v, :<)
-  def <=(v)  = v.is_a?(Integer) ? Intrinsics.integer__le_(self, v) : __coerce_and_compare__(v, :<=)
-  def >=(v)  = v.is_a?(Integer) ? Intrinsics.integer__ge_(self, v) : __coerce_and_compare__(v, :>=)
-  def >(v)   = v.is_a?(Integer) ? Intrinsics.integer__gt_(self, v) : __coerce_and_compare__(v, :>)
+  def <(v)
+    return Intrinsics.integer__lt_(self, v) if v.is_a?(Integer)
+    return v.nan? ? false : (self <=> v) < 0 if v.is_a?(Float)
+    __coerce_and_compare__(v, :<)
+  end
+
+  def <=(v)
+    return Intrinsics.integer__le_(self, v) if v.is_a?(Integer)
+    return v.nan? ? false : (self <=> v) <= 0 if v.is_a?(Float)
+    __coerce_and_compare__(v, :<=)
+  end
+
+  def >=(v)
+    return Intrinsics.integer__ge_(self, v) if v.is_a?(Integer)
+    return v.nan? ? false : (self <=> v) >= 0 if v.is_a?(Float)
+    __coerce_and_compare__(v, :>=)
+  end
+
+  def >(v)
+    return Intrinsics.integer__gt_(self, v) if v.is_a?(Integer)
+    return v.nan? ? false : (self <=> v) > 0 if v.is_a?(Float)
+    __coerce_and_compare__(v, :>)
+  end
   def ==(v)  = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
   def ===(v) = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
 
@@ -69,7 +88,24 @@ class Integer
 
   def <=>(v)
     return Intrinsics.integer_spaceship(self, v) if v.is_a?(Integer)
-    v.coerce(self).then { |a, b| a <=> b } rescue nil
+    if v.is_a?(Float)
+      return nil if v.nan?
+      return -v.infinite? if v.infinite?
+      return Intrinsics.integer_spaceship(self, v.to_i) if v == v.to_i
+      # Fractional float: compare integer truncated value then adjust for fractional part
+      # v.to_i truncates toward zero, so for positive v: ti <= v; for negative v: ti >= v
+      ti = v.to_i
+      cmp = Intrinsics.integer_spaceship(self, ti)
+      return cmp == 0 ? (v > ti ? -1 : 1) : cmp
+    end
+    begin
+      result = v.coerce(self)
+    rescue TypeError, NoMethodError
+      return nil
+    end
+    return nil unless result.is_a?(Array)
+    a, b = result
+    a <=> b
   end
 
   def times(&block)
