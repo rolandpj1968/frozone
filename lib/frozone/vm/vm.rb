@@ -444,13 +444,12 @@ module Frozone
         end
 
         top_level_scope = Core::OBJECT_CLASS
-        top_level_object = ObjectObject.new(Core::OBJECT_CLASS)
-        # When load(path, true/mod) is used, wrap the loaded file in an anonymous module.
-        # Constants and method definitions go into wrap_mod (innermost scope).
-        # The wrap_mod is extended into top_level_object's singleton class so that
-        # methods defined in the file are callable without explicit receiver during load,
-        # but are NOT accessible on the caller's main object afterward.
         wrap_mod = Fiber[:load_wrap_module]
+        # Reuse the shared main object across require/load so that `def self.foo` in a
+        # required file adds to the shared main's singleton class (matching MRI semantics).
+        # When load(path, true/mod) is used, a fresh object is used with wrap_mod attached.
+        main_obj = Fiber[:main_object]
+        top_level_object = (main_obj && !wrap_mod) ? main_obj : ObjectObject.new(Core::OBJECT_CLASS)
         # Track the primary (first) top-level main object for load(path,true) module inheritance.
         Fiber[:main_object] ||= top_level_object if @in_main_eval && !wrap_mod
         Core::OBJECT_CLASS.current_visibility = :private
