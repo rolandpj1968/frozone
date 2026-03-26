@@ -1538,3 +1538,147 @@ Generated mechanically from the closed-world constant table. O(log n) with a
 binary search on the string values, or O(1) with a Crystal hash lookup. Either
 way: no reflection, no hash table on the object model, just generated code.
 
+
+
+## `Frozone.compile!` — the working pipeline (as of 2026-03)
+
+The snapshot-based compilation pipeline is implemented and working end-to-end.
+
+### The stub pattern
+
+A bench stub:
+```ruby
+# bench/stubs/matmul.rb
+$LOADED_FEATURES << File.expand_path('../harness/loader.rb', __dir__)
+def run_benchmark(*); end          # silence harness during load phase
+require_relative '../benchmarks/matmul'   # settles methods and constants
+
+Frozone.compile! do
+  run_benchmark(20) do
+    a = matgen(N)
+    b = matgen(N)
+    _c = matmul(a, b)
+  end
+end
+```
+
+Running through the Frozone interpreter generates Crystal source; `crystal
+build` then produces a native binary:
+
+```bash
+bundle exec ruby frozone.rb bench/stubs/matmul.rb
+# => Frozone.compile!: wrote crystal/matmul.cr
+cd crystal && crystal build matmul.cr -o matmul && ./matmul
+```
+
+### `SnapshotCodegen` — VM-state-driven Crystal emission
+
+`lib/frozone/compiler/snapshot_codegen.rb` inherits from `CrystalCodegen`
+(AST-to-Crystal expression emitter) and adds a top-level driver that walks the
+*settled VM state* rather than raw source AST:
+
+1. Walk `Vm::Core::OBJECT_CLASS`'s constant and method tables
+2. Filter by `source_location` — exclude `lib/core/4.0/` and `lib/frozone/`
+   (these map to the Crystal runtime in `crystal/src/`) and the stub file itself
+3. Emit user-defined classes (with their user-defined methods)
+4. Emit user-defined top-level methods
+5. Emit settled non-class constants (e.g. `N = 200` → `Ruby_N = RubyInteger.new(200_i64)`)
+6. Emit the `Frozone.compile!` block body as Crystal `main`
+
+`Vm::Method` duck-types as `Ast::MethodDef` (same ivar names), so
+`emit_param_list` works on VM method objects directly.
+
+### The Crystal runtime (`crystal/src/`)
+
+The current runtime provides fully-boxed Ruby value types:
+
+| Crystal class | Ruby type |
+|---|---|
+| `RubyObject` | abstract base (all values) |
+| `RubyInteger` | Integer (wraps `Int64`) |
+| `RubyFloat` | Float (wraps `Float64`) |
+| `RubyString` | String |
+| `RubySymbol` | Symbol |
+| `RubyArray` | Array |
+| `RubyHash` | Hash |
+| `RubyNil` | NilClass (singleton `RUBY_NIL`) |
+| `RubyBool` | TrueClass/FalseClass (singletons `RUBY_TRUE`/`RUBY_FALSE`) |
+| `RubyRange` | Range |
+| `RubyClassProxy` | class objects (for `.class`, `.is_a?`, etc.) |
+
+### Benchmark results (matmul, N=200)
+
+| | ms/iter |
+|---|---:|
+| Frozone interpreted | ~31,700 |
+| Frozone→Crystal compiled (fully boxed) | 2,758 |
+| MRI Ruby | 524 |
+
+The compiled path is ~11.5× faster than interpreted with zero type
+optimisation. Every integer and float is heap-allocated as a `RubyObject`;
+unboxing is the main remaining performance work.
+
+
+## Type inference for unboxing — strategy
+
+The primary performance gap (5.3× slower than MRI) is almost entirely due to
+boxing: every `Integer` and `Float` operation allocates a heap object and
+dispatches through `RubyObject`. The fix is to emit native Crystal types
+(`Int64`, `Float64`) for variables that are statically known to hold only
+integers or floats.
+
+### What we already know without inference
+
+**`self` is a strong clue, especially for leaf classes.**
+
+When emitting a method defined on class `Foo`, `self` is always *at least*
+`Ruby_Foo` — and for leaf classes (no subclasses in the closed world), `self`
+is *exactly* `Ruby_Foo`. This makes instance variable types directly inferable
+from the class definition without a general type inferencer:
+
+- `initialize` fixes ivar types: `@x = x * DAYS_PER_YEAR` where `x : Float64`
+  → `@x : Float64`
+- Methods on a leaf class can emit `@x` as `Float64` directly — no
+  `RubyObject` boxing needed for the ivar load or store
+
+For non-leaf classes, `self` is a `Ruby_Foo | Ruby_Bar | ...` union — Crystal's
+type inference handles this naturally once the types are emitted correctly.
+
+**Literals are always exact:**
+- `1`, `200`, `-1` → `Int64`
+- `1.0`, `0.01` → `Float64`
+- `"string"` → `RubyString`
+- `true`/`false`/`nil` → `RubyBool`/`RubyNil`
+
+**Return types of known methods:**
+- `Integer#+`, `Integer#*`, etc. → `Int64` when both args are `Int64`
+- `Float#+`, `Float#*`, etc. → `Float64` when both args are `Float64`
+- `Array#length`, `Array#size` → `Int64`
+
+### The inference algorithm (planned)
+
+A simple forward dataflow pass over the method body AST, per method:
+
+1. **Seed:** `self` → declaring class (or union of subclasses), literal types,
+   method parameter types (initially `RubyObject`, narrowed from call sites)
+2. **Propagate:** assignment `x = expr` → type of `x` is inferred type of
+   `expr`; join on re-assignment (`x` in a loop → union of all assigned types)
+3. **Method calls:** look up receiver type, look up method, use return type
+4. **Instance variables:** use per-class ivar type table (seeded from
+   `initialize`, refined by all assignments in the closed world)
+5. **Emit:** when a local is `Int64 | Float64` (or a subtype), emit it as the
+   native Crystal type; operators on native types emit native Crystal ops with
+   no boxing or `RubyObject` dispatch
+
+### Expected payoff
+
+For numeric benchmarks like matmul and nbody, essentially the entire inner loop
+should reduce to native `Float64` arithmetic with no allocation. The theoretical
+target is competitive with MRI's unboxed float optimisation — potentially faster
+since Crystal's native code generation is more aggressive than YARV.
+
+Crystal's own type inference will also help: once ivars and locals are declared
+with narrow types, Crystal propagates those types through the method body and
+eliminates `RubyObject` dispatch at call sites where it can prove the type.
+The two inference passes (Frozone's pre-pass and Crystal's own) are
+complementary, not redundant.
