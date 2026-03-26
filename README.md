@@ -11,7 +11,7 @@ A Ruby VM implemented in Ruby — and an AOT compiler from Ruby to native binari
 Frozone targets Ruby 4.0 semantics and passes **2615/2630** ruby/spec language examples,
 including full pattern matching support.
 
-Core library spec coverage: **22153/22741 passing (97.4%)** — all modules now measured;
+Core library spec coverage: **22798/23020 passing (99.0%)** — all modules now measured;
 `io`, `process` have OS-level gaps; `mutex`/`thread` use cooperative scheduling with some edge-case gaps;
 `tracepoint` is intentionally unimplemented (deep introspection, low priority);
 hanging/blocking specs excluded via `SKIP_SPEC_FILES` in `Rakefile`.
@@ -230,7 +230,7 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 22794 / 23020 passing (99.0%)** — as of 2026-03-26 (Prism parser; slow modules run individually)
+**Overall: 22798 / 23020 passing (99.0%)** — as of 2026-03-26 (Prism parser; slow modules run individually)
 
 `tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation).
 
@@ -249,12 +249,12 @@ Modules with 100% pass rate:
 | argf | 148 | 12 | 10 | 126 | ARGF not fully implemented |
 | file | 939 | 933 | 0 | 6 | OS-level file ops |
 | io | 1048 | 1035 | 4 | 9 | blocking/pipe/buffer specs skipped; OS-level gaps |
-| kernel | 2741 | 2707 | 21 | 13 | spawn, format edge cases |
+| kernel | 2741 | 2709 | 19 | 13 | spawn, format edge cases |
 | module | 1058 | 1051 | 7 | 0 | |
 | process | 86 | 44 | 0 | 42 | OS-level process ops |
 | refinement | 25 | 24 | 0 | 1 | |
 | sizedqueue | 129 | 128 | 1 | 0 | |
-| thread | 227 | 216 | 9 | 2 | cooperative threading; remaining edge cases |
+| thread | 227 | 218 | 9 | 0 | cooperative threading; remaining edge cases |
 | time | 774 | 772 | 2 | 0 | |
 | tracepoint | 75 | — | 5 | 71 | intentionally unimplemented |
 | unboundmethod | 101 | 99 | 0 | 2 | |
