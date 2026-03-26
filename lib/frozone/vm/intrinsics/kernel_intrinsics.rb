@@ -48,6 +48,12 @@ module Frozone
         def env_pairs(_) = n2f_arr(ENV.map { |k, v| n2f_arr([n2f_str(k), n2f_str(v)]) })
         def env_to_hash(_) = n2f_hash(ENV.to_h { |k, v| [n2f_str(k), n2f_str(v)] })
 
+        def file_realpath_cached(_, path_str)
+          expanded = fstr?(path_str) ? path_str.raw : path_str.to_s
+          real = Frozone::Vm::Vm::FILE_REALPATH_CACHE[expanded]
+          real ? n2f_str(real, frozen: true) : FNIL
+        end
+
         def kernel_puts(context, _receiver, args)
           stdout_vm = GLOBALS[:"$stdout"]
           if frozone_stdout_replaced?(stdout_vm)

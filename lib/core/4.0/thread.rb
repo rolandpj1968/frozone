@@ -795,8 +795,15 @@ class Thread
 
       def absolute_path
         return nil unless @path
-        abs = File.expand_path(@path)
-        File.exist?(abs) ? abs : nil
+        expanded = File.expand_path(@path)
+        # Check the realpath cache (populated at load time) before trying to resolve live.
+        cached = Intrinsics.file_realpath_cached(expanded)
+        return cached if cached
+        begin
+          File.realpath(@path)
+        rescue Errno::ENOENT, Errno::EACCES
+          nil
+        end
       end
 
       def to_s

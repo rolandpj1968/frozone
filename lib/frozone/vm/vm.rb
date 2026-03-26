@@ -417,8 +417,19 @@ module Frozone
         result
       end
 
+      # Maps expanded file paths → their real (symlink-resolved) paths, populated at load time.
+      # Used by Thread::Backtrace::Location#absolute_path to resolve symlinks correctly even
+      # after the symlink is removed (matching MRI semantics: real path stored at load time).
+      FILE_REALPATH_CACHE = {}
+
       def evaluate_file(path, raise_syntax_errors: false)
         full_path = File.expand_path(path)
+        real_path = begin
+          File.realpath(full_path)
+        rescue Errno::ENOENT, Errno::EACCES
+          full_path
+        end
+        FILE_REALPATH_CACHE[full_path] = real_path
         (Fiber[:file_stack] ||= []) << full_path
         begin
           evaluate(File.read(full_path), false, filepath: full_path, raise_syntax_errors: raise_syntax_errors)
