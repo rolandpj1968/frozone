@@ -230,6 +230,16 @@ The gain is total elimination of `RubyInteger` allocations from the recursion an
 of polymorphic `+`/`<` dispatch. Crystal/LLVM can now inline and optimise the pure
 `Int64` recursion.
 
+### Soundness caveat — BigInt promotion ⚠️
+Same issue as §3: a specialised `def fib(n : Int64) : Int64` silently overflows on large
+inputs rather than auto-promoting to BigInt. `fib(93)` is the last Fibonacci number that
+fits in `Int64`; `fib(94)` wraps.
+
+**TODO**: Before shipping as a production feature, gate specialisation on a proven bound:
+either the call sites are all literal constants ≤ a safe threshold, or there is a guard
+(`raise` / range check) inside the method that rejects out-of-range inputs. For now this
+is a known limitation, same as §3.
+
 ### Scope
 Currently limited to top-level methods. Instance methods and methods with optional/rest
 params are not specialised. Extension to class methods (typed ivars) is tracked as §9.
