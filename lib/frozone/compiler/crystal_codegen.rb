@@ -954,6 +954,14 @@ module Frozone
       def emit_truthy(node)
         if boolean_valued?(node)
           emit(node)
+        elsif comparison_op_call?(node)
+          # Emit comparison directly as Crystal Bool — no RUBY_TRUE/RUBY_FALSE wrapper.
+          # This is correct because Crystal's comparison dispatch already returns Bool.
+          write "("
+          emit(node.receiver_node)
+          write " #{node.name} "
+          emit(node.arg_nodes[0])
+          write ")"
         else
           emit(node)
           write ".truthy?"
@@ -971,13 +979,18 @@ module Frozone
         case node
         when Ast::TrueLiteral, Ast::FalseLiteral then true
         when Ast::MethodCall
-          # Comparison operators now emit as (a op b) ? RUBY_TRUE : RUBY_FALSE → RubyBool
-          # (no longer Crystal Bool, so .truthy? is needed — return false here)
-          # Known predicate methods that return Crystal Bool directly
           crystal_name = RUBY_TO_CRYSTAL_METHOD.fetch(node.name, node.name)
           BOOL_METHODS.include?(crystal_name)
         else false
         end
+      end
+
+      # Is this a binary comparison operator call (receiver op arg)?
+      def comparison_op_call?(node)
+        node.is_a?(Ast::MethodCall) &&
+          COMPARE_OPS.include?(node.name) &&
+          node.receiver_node &&
+          node.arg_nodes&.size == 1
       end
 
       # -----------------------------------------------------------------------
