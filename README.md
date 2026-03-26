@@ -230,7 +230,7 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 22805 / 23020 passing (99.0%)** — as of 2026-03-26 (Prism parser; slow modules run individually)
+**Overall: 22807 / 23020 passing (99.1%)** — as of 2026-03-26 (Prism parser; slow modules run individually)
 
 `tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation).
 
@@ -242,7 +242,7 @@ Modules with 100% pass rate:
 `encoding`, `enumerable`, `enumerator`, `env`, `exception`, `false`, `fiber`, `filetest`, `float`, `gc`,
 `hash`, `integer`, `main`, `marshal`, `matchdata`, `math`, `method`, `mutex`, `nil`, `numeric`,
 `objectspace`, `proc`, `queue`, `random`, `range`, `rational`, `regexp`, `set`,
-`signal`, `string`, `struct`, `symbol`, `systemexit`, `threadgroup`, `true`, `warning`
+`signal`, `string`, `struct`, `symbol`, `systemexit`, `threadgroup`, `time`, `true`, `warning`
 
 | Module | Examples | Passing | Failures | Errors | Notes |
 |---|---:|---:|---:|---:|---|
@@ -255,7 +255,6 @@ Modules with 100% pass rate:
 | refinement | 25 | 24 | 0 | 1 | |
 | sizedqueue | 129 | 128 | 1 | 0 | |
 | thread | 227 | 218 | 9 | 0 | cooperative threading; remaining edge cases |
-| time | 774 | 772 | 2 | 0 | |
 | tracepoint | 75 | — | 5 | 71 | intentionally unimplemented |
 | unboundmethod | 101 | 99 | 0 | 2 | |
 
