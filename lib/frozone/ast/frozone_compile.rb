@@ -30,6 +30,12 @@ module Frozone
         # not real user code — exclude them from the snapshot).
         stub_file = @block_node&.instance_variable_get(:@source_location)&.first
 
+        if ENV['FROZONE_TYPE_INFERENCE']
+          require_relative '../compiler/type_inference'
+          run_type_inference_debug(stub_file)
+          return Vm::NilObject::NIL
+        end
+
         codegen = Frozone::Compiler::SnapshotCodegen.new
         crystal_source = codegen.generate(
           execute_block: @block_node,
@@ -46,6 +52,48 @@ module Frozone
       end
 
       private
+
+      def run_type_inference_debug(stub_file)
+        scope     = Vm::Core::OBJECT_CLASS
+        core_markers = %w[lib/core/4.0/ lib/frozone/vm/ lib/frozone/ast/]
+
+        user_loc = ->(loc) {
+          return false if loc.nil?
+          file = loc.is_a?(Array) ? loc.first.to_s : loc.to_s.sub(/:[\d]+\z/, '')
+          return false if stub_file && file == stub_file
+          core_markers.none? { |m| file.include?(m) }
+        }
+
+        user_methods = {}
+        (scope.instance_variable_get(:@methods_table) || {}).each do |name, m|
+          user_methods[name] = m if m.is_a?(Vm::Method) && user_loc.call(m.source_location)
+        end
+
+        user_classes = {}
+        (scope.instance_variable_get(:@constants_table) || {}).each do |name, val|
+          user_classes[name] = val if val.is_a?(Vm::ClassObject)
+        end
+
+        constants = {}
+        (scope.instance_variable_get(:@constants_table) || {}).each do |name, val|
+          constants[name] = val if val.is_a?(Vm::IntegerObject) || val.is_a?(Vm::FloatObject)
+        end
+
+        tinf = Frozone::Compiler::TypeInference.new(
+          user_methods:  user_methods,
+          user_classes:  user_classes,
+          execute_block: @block_node,
+          constants:     constants
+        )
+        env = tinf.run
+
+        $stderr.puts "\n=== TypeInference results ==="
+        env.instance_variable_get(:@slots).each do |slot, ty|
+          next if ty == :unknown || ty.nil?
+          $stderr.puts "  #{slot.inspect} => #{ty}"
+        end
+        $stderr.puts "=== end TypeInference ===\n"
+      end
 
       def default_output_path
         # Prefer the block's source file (the stub path) over $PROGRAM_NAME
