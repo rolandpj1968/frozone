@@ -53,6 +53,7 @@ module Frozone
         @const_raw_types      = {}   # constant Symbol name => :i64 | :f64
         @typed_ivars          = {}   # class Symbol name => {ivar_sym => :i64 | :f64}
         @current_class_ivars  = {}   # active ivar type map during class method emission
+        @typed_array_locals   = {}   # local_name (Symbol) => :i64 | :f64 (element type; per-method)
 
         # Pre-pass: collect user method names for RubyObject stubs
         collect_user_methods_from_scope(top_level_scope)
@@ -271,14 +272,21 @@ module Frozone
       # Vm::Method has the same ivar names as Ast::MethodDef, so we can pass
       # it directly to emit_param_list (which uses ivar/instance_variable_get).
       def emit_vm_method(name, method, param_types: nil)
-        old_typed = @typed_locals
+        old_typed      = @typed_locals
+        old_typed_arrs = @typed_array_locals
         param_names = (ivar(method, :required_params) || []) +
                       (ivar(method, :optional_params) || []).map(&:first) +
                       [ivar(method, :rest_param)].compact +
                       (ivar(method, :post_params) || [])
+        param_set = param_names.to_set
+        # Phase 1: seed array locals from creation sites so node_raw_type works for scalars.
+        @typed_array_locals = method.body ? seed_typed_array_locals(method.body, param_set) : {}
+        # Phase 2: infer scalar types (array element reads now return correct raw types).
         inferred = method.body ? infer_local_types(method.body) : {}
         param_names.each { |p| inferred.delete(p) }
         @typed_locals = inferred
+        # Phase 3: full array inference with escape + write validation using correct scalar types.
+        @typed_array_locals = method.body ? infer_typed_array_locals(method.body, param_set) : {}
         string_return = STRING_RETURN_METHODS.include?(name)
         crystal_name  = string_return ? name.to_s : crystal_method_name(name)
 
@@ -304,7 +312,8 @@ module Frozone
         emit_indent
         write "end"
       ensure
-        @typed_locals = old_typed
+        @typed_locals       = old_typed
+        @typed_array_locals = old_typed_arrs
       end
 
       # -----------------------------------------------------------------------
@@ -469,7 +478,7 @@ module Frozone
       # Unboxed local type inference and raw emission
       # -----------------------------------------------------------------------
 
-      ARITH_OPS_UNBOX = %i[+ - * ** / %].to_set
+      ARITH_OPS_UNBOX = %i[+ - * ** / % | & ^ << >>].to_set
 
       # Returns :i64, :f64, or nil for the provable bare Crystal type of a node.
       def node_raw_type(node)
@@ -490,6 +499,11 @@ module Frozone
           # Free call to a typed-return method
           if recv.nil? && (ret_ty = @typed_method_returns[name])
             return ret_ty
+          end
+          # Typed array element read: a[k] where a is a typed array local
+          if name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
+            arr_ty = @typed_array_locals[ivar(recv, :name)]
+            return arr_ty if arr_ty
           end
           # Arithmetic op: at least one raw-typed operand determines result type
           return nil unless ARITH_OPS_UNBOX.include?(name) && args.size == 1
@@ -615,7 +629,14 @@ module Frozone
           name = ivar(node, :name)
           recv = ivar(node, :receiver_node)
           args = ivar(node, :arg_nodes) || []
-          if recv.nil? && @typed_params[name]
+          if name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead) &&
+             @typed_array_locals[ivar(recv, :name)]
+            # Typed array element read in raw context: a[k] → bare Int64/Float64
+            write crystal_local(ivar(recv, :name))
+            write "["
+            emit_coerce_i64(args[0])
+            write "]"
+          elsif recv.nil? && @typed_params[name]
             # Free call to typed-param method: pass raw args
             write crystal_method_name(name)
             write "("
@@ -696,8 +717,20 @@ module Frozone
       end
 
       # Override: for typed locals, emit RHS as bare Crystal numeric.
+      # For typed array locals, emit Array(T).new construction.
       def emit_local_var_write(node)
         name = ivar(node, :name)
+        if (arr_ty = @typed_array_locals[name])
+          rhs  = ivar(node, :value_node)
+          args = ivar(rhs, :arg_nodes) || []
+          crystal_ty = arr_ty == :f64 ? "Float64" : "Int64"
+          write "#{crystal_local(name)} = Array(#{crystal_ty}).new("
+          emit_coerce_i64(args[0])
+          write ", "
+          emit_as(args[1], arr_ty)
+          write ")"
+          return
+        end
         return super unless @typed_locals[name]
         write "#{crystal_local(name)} = "
         emit_raw(ivar(node, :value_node))
@@ -743,6 +776,17 @@ module Frozone
       # Override: for [] with a raw-typed index, pass Int64 directly.
       # Also intercepts free calls to typed-param/return methods with all-raw args.
       def emit_method_call(node)
+        # Typed array read in boxed context: box the Int64/Float64 element
+        if node.name == :[] && node.receiver_node&.is_a?(Ast::LocalVariableRead) &&
+           (arr_ty = @typed_array_locals[ivar(node.receiver_node, :name)]) &&
+           node.arg_nodes&.size == 1
+          box_fn = arr_ty == :f64 ? "RubyFloat" : "RubyInteger"
+          write "#{box_fn}.new(#{crystal_local(ivar(node.receiver_node, :name))}["
+          emit_coerce_i64(node.arg_nodes[0])
+          write "])"
+          return
+        end
+
         if node.name == :[] && node.receiver_node && node.arg_nodes&.size == 1 &&
            node_raw_type(node.arg_nodes[0])
           emit(node.receiver_node)
@@ -771,16 +815,30 @@ module Frozone
         super
       end
 
-      # Override: for []= with a raw-typed index, pass Int64 directly.
+      # Override: for []= with typed array or raw-typed index, emit accordingly.
       def emit_attribute_write(node)
-        if ivar(node, :name) == :[]= && node_raw_type(ivar(node, :arg_nodes)&.first)
+        if ivar(node, :name) == :[]=
           args = ivar(node, :arg_nodes)
-          emit(ivar(node, :receiver_node))
-          write "["
-          emit_raw(args[0])
-          write "] = "
-          emit(args[1])
-          return
+          recv = ivar(node, :receiver_node)
+          # Typed array write: emit value as bare native type
+          if recv.is_a?(Ast::LocalVariableRead) &&
+             (arr_ty = @typed_array_locals[ivar(recv, :name)]) &&
+             args&.size == 2
+            write "#{crystal_local(ivar(recv, :name))}["
+            emit_coerce_i64(args[0])
+            write "] = "
+            emit_as(args[1], arr_ty)
+            return
+          end
+          # Non-typed array with raw-typed index: use Int64 overload
+          if node_raw_type(args&.first)
+            emit(recv)
+            write "["
+            emit_raw(args[0])
+            write "] = "
+            emit(args[1])
+            return
+          end
         end
         super
       end
@@ -1139,6 +1197,166 @@ module Frozone
           ivar_types[iv] = ty
         elsif ivar_types[iv] != ty
           ivar_types.delete(iv)
+        end
+      end
+
+      # -----------------------------------------------------------------------
+      # Typed local array inference (§10)
+      # -----------------------------------------------------------------------
+
+      # Phase-1 seed: find Array.new(count, fill) locals where fill is typed.
+      # No escape/write validation yet — used so node_raw_type is accurate when
+      # infer_local_types runs in phase 2.
+      def seed_typed_array_locals(body, exclude_names)
+        return {} unless body
+        assignments = Hash.new { |h, k| h[k] = [] }
+        collect_local_assignments(body, assignments)
+        result = {}
+        assignments.each do |name, rhs_nodes|
+          next if exclude_names.include?(name)
+          next unless rhs_nodes.size == 1
+          rhs = rhs_nodes.first
+          next unless array_new_call?(rhs)
+          args = ivar(rhs, :arg_nodes) || []
+          next unless args.size == 2
+          fill_ty = node_raw_type(args[1])
+          next unless fill_ty
+          result[name] = fill_ty
+        end
+        result
+      end
+
+      # Infer which local variables are typed arrays that can be emitted as
+      # Crystal Array(Int64) / Array(Float64) instead of RubyArray.
+      #
+      # A local qualifies when:
+      #   1. It has exactly one assignment: Array.new(count, fill) with typed fill.
+      #   2. It is never passed as an argument to any method (no escape).
+      #   3. It is never assigned from or to another variable (no aliasing).
+      #   4. It is never returned or stored in an ivar/constant.
+      #   5. All []= writes have values consistent with the element type.
+      def infer_typed_array_locals(body, exclude_names)
+        return {} unless body
+
+        assignments = Hash.new { |h, k| h[k] = [] }
+        collect_local_assignments(body, assignments)
+
+        candidates = {}
+        assignments.each do |name, rhs_nodes|
+          next if exclude_names.include?(name)
+          next unless rhs_nodes.size == 1
+          rhs = rhs_nodes.first
+          next unless array_new_call?(rhs)
+          args = ivar(rhs, :arg_nodes) || []
+          next unless args.size == 2
+          fill_ty = node_raw_type(args[1])
+          next unless fill_ty
+          candidates[name] = fill_ty
+        end
+        return {} if candidates.empty?
+
+        escaped = Set.new
+        scan_array_uses(body, candidates, escaped)
+        candidates.reject { |name, _| escaped.include?(name) }
+      end
+
+      # Returns true if node is Array.new(count, fill) with exactly 2 args, no block.
+      def array_new_call?(node)
+        return false unless node.is_a?(Ast::MethodCall)
+        return false unless node.name == :new
+        recv = node.receiver_node
+        return false unless recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == :Array
+        return false unless (node.arg_nodes || []).size == 2
+        node.instance_variable_get(:@block_node).nil?
+      end
+
+      # Walk body detecting uses of candidate array locals that would disqualify them.
+      # Marks names in `escaped` for any unsafe use.
+      def scan_array_uses(node, candidates, escaped)
+        return unless node
+        case node
+        when Ast::MethodCall
+          recv = node.receiver_node
+          args = node.arg_nodes || []
+          if recv.is_a?(Ast::LocalVariableRead) && candidates.key?(ivar(recv, :name))
+            lv = ivar(recv, :name)
+            if node.name == :[]
+              # Read — OK; index and any block arg are checked below
+            elsif node.name == :[]=
+              # Write — validate value type matches element type
+              val = args[1]
+              val_ty = val ? node_raw_type(val) : nil
+              expected = candidates[lv]
+              ok = val_ty == expected || (val_ty == :i64 && expected == :f64)
+              escaped << lv unless ok
+            else
+              escaped << lv  # other method on array = escape
+            end
+          else
+            scan_array_uses(recv, candidates, escaped)
+          end
+          # Any arg that IS a candidate local itself = passed to method = escape
+          args.each do |a|
+            if a.is_a?(Ast::LocalVariableRead) && candidates.key?(ivar(a, :name))
+              escaped << ivar(a, :name)
+            else
+              scan_array_uses(a, candidates, escaped)
+            end
+          end
+          blk = node.instance_variable_get(:@block_node)
+          scan_array_uses(blk&.body, candidates, escaped) if blk
+        when Ast::AttributeWrite
+          recv = ivar(node, :receiver_node)
+          args = ivar(node, :arg_nodes) || []
+          if ivar(node, :name) == :[]= && recv.is_a?(Ast::LocalVariableRead) &&
+             candidates.key?(ivar(recv, :name))
+            lv = ivar(recv, :name)
+            val = args[1]
+            val_ty = val ? node_raw_type(val) : nil
+            expected = candidates[lv]
+            ok = val_ty == expected || (val_ty == :i64 && expected == :f64)
+            escaped << lv unless ok
+          else
+            scan_array_uses(recv, candidates, escaped)
+          end
+          args.each do |a|
+            if a.is_a?(Ast::LocalVariableRead) && candidates.key?(ivar(a, :name))
+              escaped << ivar(a, :name)
+            else
+              scan_array_uses(a, candidates, escaped)
+            end
+          end
+        when Ast::LocalVariableWrite
+          val = ivar(node, :value_node)
+          # Aliasing: another variable assigned from a candidate array = escape
+          if val.is_a?(Ast::LocalVariableRead) && candidates.key?(ivar(val, :name))
+            escaped << ivar(val, :name)
+          else
+            scan_array_uses(val, candidates, escaped)
+          end
+        when Ast::Sequence
+          node.nodes.each { |n| scan_array_uses(n, candidates, escaped) }
+        when Ast::If
+          scan_array_uses(ivar(node, :condition_node), candidates, escaped)
+          scan_array_uses(ivar(node, :then_node), candidates, escaped)
+          scan_array_uses(ivar(node, :else_node), candidates, escaped)
+        when Ast::While, Ast::Until
+          scan_array_uses(ivar(node, :condition_node), candidates, escaped)
+          scan_array_uses(ivar(node, :body_node), candidates, escaped)
+        when Ast::Return
+          val = ivar(node, :value_node)
+          if val.is_a?(Ast::LocalVariableRead) && candidates.key?(ivar(val, :name))
+            escaped << ivar(val, :name)
+          else
+            scan_array_uses(val, candidates, escaped)
+          end
+        when Ast::InstanceVariableWrite
+          val = ivar(node, :value_node)
+          if val.is_a?(Ast::LocalVariableRead) && candidates.key?(ivar(val, :name))
+            escaped << ivar(val, :name)
+          else
+            scan_array_uses(val, candidates, escaped)
+          end
         end
       end
 
