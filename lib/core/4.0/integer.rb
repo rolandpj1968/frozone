@@ -98,6 +98,7 @@ class Integer
       cmp = Intrinsics.integer_spaceship(self, ti)
       return cmp == 0 ? (v > ti ? -1 : 1) : cmp
     end
+    return nil unless v.respond_to?(:coerce)
     begin
       result = v.coerce(self)
     rescue TypeError, NoMethodError

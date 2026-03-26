@@ -1482,8 +1482,11 @@ module Marshal
             elsif name == :zone && !val.nil?
               # Store zone name for retrieval; set after offset is applied.
               # We set @frozone_timezone so Time#zone can return it.
+              # If the class implements .find_timezone, convert the name via it (MRI behaviour).
               begin
-                obj.instance_variable_set(:@frozone_timezone, val.to_s)
+                tz_val = val.to_s
+                tz_val = obj.class.find_timezone(tz_val) if obj.class.respond_to?(:find_timezone)
+                obj.instance_variable_set(:@frozone_timezone, tz_val)
               rescue
                 nil
               end
@@ -1524,7 +1527,16 @@ module Marshal
               if name == :offset && val.is_a?(Integer)
                 begin; obj = obj.localtime(val); rescue; nil; end
               elsif name == :zone && !val.nil?
-                begin; obj.instance_variable_set(:@frozone_timezone, val.to_s); rescue; nil; end
+                begin
+                  tz_val = val.to_s
+                  # Use userdefined_klass (the original class) since obj may be a plain Time
+                  # after _load (Frozone's time_load intrinsic always returns base Time).
+                  tz_klass = userdefined_klass.respond_to?(:find_timezone) ? userdefined_klass : obj.class
+                  tz_val = tz_klass.find_timezone(tz_val) if tz_klass.respond_to?(:find_timezone)
+                  obj.instance_variable_set(:@frozone_timezone, tz_val)
+                rescue
+                  nil
+                end
               else
                 obj.instance_variable_set(name, val) rescue nil
               end
