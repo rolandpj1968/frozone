@@ -723,11 +723,26 @@ module Frozone
           n2f_str(File.dirname(stack.last))
         end
 
-        def kernel_require_relative(_, _receiver, path_obj)
+        def kernel_require_relative(context, _receiver, path_obj)
           rel = path_obj.raw
-          stack = Fiber[:file_stack]
-          raise "require_relative called outside of a file" if stack.nil? || stack.empty?
-          full_path = File.expand_path(rel, File.dirname(stack.last))
+          # Determine the base directory for the relative path.
+          # MRI uses __FILE__ of the call site, which may be a synthetic path from instance_eval.
+          # The incoming_call_site of the require_relative frame gives us the actual file.
+          rr_frame = context.frames.reverse.find { |f| f.current_method&.name == :require_relative }
+          call_site_file = rr_frame&.incoming_call_site&.then { |cs| cs.sub(/:(\d+)(:.*)?$/, "") }
+          if call_site_file && call_site_file != "unknown"
+            # Use the call site's file — supports synthetic paths from instance_eval.
+            # Resolve symlinks via cache if this is a known loaded file.
+            expanded = File.expand_path(call_site_file)
+            current_real = Frozone::Vm::Vm::FILE_REALPATH_CACHE[expanded] || call_site_file
+            base_dir = File.dirname(current_real)
+          else
+            stack = Fiber[:file_stack]
+            raise "require_relative called outside of a file" if stack.nil? || stack.empty?
+            current_real = Frozone::Vm::Vm::FILE_REALPATH_CACHE[stack.last] || stack.last
+            base_dir = File.dirname(current_real)
+          end
+          full_path = File.expand_path(rel, base_dir)
           full_path += '.rb' unless full_path.end_with?('.rb')
           unless File.exist?(full_path)
             exc = FrozoneException.make(:LoadError, "cannot load such file -- #{full_path}")
@@ -738,7 +753,7 @@ module Frozone
           loaded_paths = loaded.raw.map(&:raw)
           currently_loading = (Fiber[:currently_loading_files] ||= ::Set.new)
           if loaded_paths.include?(full_path) && currently_loading.include?(full_path)
-            Frozone::Vm.emit_warning(_, "loading in progress, circular require considered harmful - #{full_path}")
+            Frozone::Vm.emit_warning(context, "loading in progress, circular require considered harmful - #{full_path}")
             return FFALSE
           end
           return FFALSE if loaded_paths.include?(full_path)
