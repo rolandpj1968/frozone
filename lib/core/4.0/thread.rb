@@ -795,12 +795,15 @@ class Thread
       end
 
       def base_label
-        (@label || "<main>").sub(/\Ablock( \(\d+\))? in /, "")
+        lbl = (@label || "<main>").sub(/\Ablock( \(\d+\))? in /, "")
+        # Strip module/class qualifier — MRI base_label returns just the method name
+        lbl.sub(/\A.*[#.]/, "")
       end
 
       def absolute_path
         return nil unless @path
-        File.expand_path(@path)
+        abs = File.expand_path(@path)
+        File.exist?(abs) ? abs : nil
       end
 
       def to_s

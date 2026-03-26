@@ -468,6 +468,43 @@ module Frozone
         # Collect raw caller frame data for kernel_caller / kernel_caller_locations.
         # Returns an array of [call_site, method_name] pairs, starting from the
         # last frame whose current_method name matches `anchor_method_name`.
+        # Returns true when a frame is a transparent Proc#call / Proc#[] dispatch wrapper
+        # that should not appear as a label in backtraces (MRI hides these).
+        def proc_call_frame?(frame)
+          m = frame.current_method
+          return false unless m.is_a?(Method)
+          return false unless m.name == :call || m.name == :[]
+          owner = m.scopes.last
+          owner.is_a?(ClassObject) && owner.name == :Proc
+        end
+
+        # Returns true when frame is a lambda body frame (lambda's own method_frame, no current_method).
+        # Lambdas are transparent in that their bodies should be attributed to the enclosing
+        # method, but each lambda boundary counts as one block-nesting level.
+        def lambda_body_frame?(frame)
+          frame.current_method.nil? && frame.method_frame.equal?(frame)
+        end
+
+        # Finds the effective outer method frame for a backtrace entry, starting at index j,
+        # skipping transparent Proc#call frames and lambda body frames.
+        # Returns [outer_frame, lambda_depth] where lambda_depth counts skipped lambda bodies
+        # (each lambda contributes one "block nesting level" in MRI's "(N levels)" syntax).
+        def find_lambda_outer_frame(all_frames, j)
+          depth = 0
+          while j < all_frames.length
+            f = all_frames[j]
+            if proc_call_frame?(f)
+              j += 1
+            elsif lambda_body_frame?(f)
+              depth += 1
+              j += 1
+            else
+              return [f, depth]
+            end
+          end
+          [all_frames.last, depth]
+        end
+
         def collect_caller_frames(context, anchor_method_name)
           all_frames = context.frames.reverse
           last_anchor_idx = all_frames.rindex { |f| f.current_method&.name == anchor_method_name } || -1
@@ -476,8 +513,25 @@ module Frozone
           i = base
           while i < all_frames.length - 1
             call_site = all_frames[i].incoming_call_site || "unknown:0"
-            outer = all_frames[i + 1]
-            meth = caller_method_name(outer.current_method, outer.the_self)
+            immediate_outer = all_frames[i + 1]
+            if proc_call_frame?(immediate_outer) || lambda_body_frame?(immediate_outer)
+              # The inner frame is called from inside a lambda chain — find the real method.
+              # lambda_depth counts the lambda bodies between frames[i+1] and the method.
+              outer, lambda_depth = find_lambda_outer_frame(all_frames, i + 1)
+              effective_method = outer.current_method || outer.method_frame&.current_method
+              in_block = outer.current_method.nil?
+              meth = caller_method_name(effective_method, outer.the_self, in_block)
+              # Each lambda body traversed adds one block nesting level.
+              if lambda_depth > 0 && meth && !meth.start_with?("<")
+                meth = lambda_depth == 1 ? "block in #{meth}" : "block (#{lambda_depth} levels) in #{meth}"
+              end
+            else
+              # Regular block frame or method frame — use existing mechanism.
+              outer = immediate_outer
+              effective_method = outer.current_method || outer.method_frame&.current_method
+              in_block = outer.current_method.nil?
+              meth = caller_method_name(effective_method, outer.the_self, in_block)
+            end
             frames << [call_site, meth]
             i += 1
           end
@@ -487,15 +541,48 @@ module Frozone
         # Format method name with module qualifier (e.g. "Kernel#tap", "String#upcase").
         # Matches MRI's caller format for methods defined in named modules/classes.
         # Class methods use "." separator (e.g. "Foo.bar"); instance methods use "#".
-        def caller_method_name(method, the_self = nil)
-          return "block" unless method.is_a?(Method)
+        # in_block: true when frame's own current_method is nil but enclosing method was found
+        def caller_method_name(method, the_self = nil, in_block = false)
+          unless method.is_a?(Method)
+            # No method = top-level or class/module body (not a block context)
+            if the_self.is_a?(ClassObject) && the_self.is_singleton_class
+              return "singleton class"
+            elsif the_self.is_a?(ClassObject)
+              name = the_self.name&.to_s
+              return name ? "<class:#{name.split('::').last}>" : "block"
+            elsif the_self.is_a?(ModuleObject)
+              name = the_self.name&.to_s
+              return name ? "<module:#{name.split('::').last}>" : "block"
+            else
+              main_obj = Fiber[:main_object]
+              return (main_obj && the_self.equal?(main_obj)) ? "<main>" : "<top (required)>"
+            end
+          end
           name = method.name.to_s
           owner = method.scopes.last
-          return name unless owner.is_a?(ModuleObject)
-          mod_name = owner.full_name
-          return name if mod_name.nil?
-          separator = the_self.is_a?(ModuleObject) ? "." : "#"
-          "#{mod_name}#{separator}#{name}"
+          base = if owner.is_a?(ModuleObject)
+                   # For singleton classes, use the attached object's name with "." separator
+                   if owner.is_a?(ClassObject) && owner.is_singleton_class
+                     attached = owner.singleton_of
+                     attached_name = attached.is_a?(ModuleObject) ? attached.full_name&.to_s : nil
+                     if attached_name
+                       "#{attached_name}.#{name}"
+                     else
+                       name
+                     end
+                   else
+                     mod_name = owner.full_name&.to_s
+                     if mod_name
+                       separator = the_self.is_a?(ModuleObject) ? "." : "#"
+                       "#{mod_name}#{separator}#{name}"
+                     else
+                       name
+                     end
+                   end
+                 else
+                   name
+                 end
+          in_block ? "block in #{base}" : base
         end
 
         def exception_caller_string(context)
