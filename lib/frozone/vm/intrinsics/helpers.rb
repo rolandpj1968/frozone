@@ -505,6 +505,36 @@ module Frozone
           [all_frames.last, depth]
         end
 
+        # Returns true when frame is a regular block frame (not a lambda body, not a class/module body).
+        # Regular blocks have method_frame pointing to the enclosing method frame (not nil, not self).
+        def regular_block_frame?(frame)
+          frame.current_method.nil? &&
+            frame.method_frame != nil &&
+            !frame.method_frame.equal?(frame)
+        end
+
+        # Count how many block-nesting levels deep a block frame is relative to its method.
+        # Starting at index j (the first block frame), walk upward through all_frames counting
+        # regular block frames until the enclosing method frame (enclosing_mf) is reached.
+        # Skips class/module body frames, lambda body frames, and Proc#call wrappers.
+        def block_nesting_depth(all_frames, j, enclosing_mf)
+          depth = 0
+          while j < all_frames.length
+            f = all_frames[j]
+            if f.equal?(enclosing_mf)
+              break  # reached the enclosing method frame
+            elsif regular_block_frame?(f)
+              depth += 1
+              j += 1
+            elsif proc_call_frame?(f) || lambda_body_frame?(f)
+              j += 1  # skip transparent frames
+            else
+              j += 1  # skip over non-block dispatch frames (e.g. Integer#times, class bodies)
+            end
+          end
+          depth
+        end
+
         def collect_caller_frames(context, anchor_method_name)
           all_frames = context.frames.reverse
           last_anchor_idx = all_frames.rindex { |f| f.current_method&.name == anchor_method_name } || -1
@@ -525,8 +555,19 @@ module Frozone
               if lambda_depth > 0 && meth && !meth.start_with?("<")
                 meth = lambda_depth == 1 ? "block in #{meth}" : "block (#{lambda_depth} levels) in #{meth}"
               end
+            elsif regular_block_frame?(immediate_outer)
+              # Regular block frame — use method_frame to get the enclosing method.
+              # Count block nesting depth by walking from this frame to the enclosing method.
+              outer = immediate_outer
+              enclosing_mf = outer.method_frame
+              depth = block_nesting_depth(all_frames, i + 1, enclosing_mf)
+              effective_method = enclosing_mf&.current_method
+              meth = caller_method_name(effective_method, outer.the_self, false)
+              if depth > 0 && meth && !meth.start_with?("<")
+                meth = depth == 1 ? "block in #{meth}" : "block (#{depth} levels) in #{meth}"
+              end
             else
-              # Regular block frame or method frame — use existing mechanism.
+              # Method frame or class/module body frame — use existing mechanism.
               outer = immediate_outer
               effective_method = outer.current_method || outer.method_frame&.current_method
               in_block = outer.current_method.nil?
