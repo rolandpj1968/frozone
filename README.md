@@ -262,7 +262,7 @@ Modules with 100% pass rate:
 Tested against [ruby/spec](https://github.com/ruby/spec) library specs.
 Run with `bundle exec rake library` (or `rake library:NAME` for a single module).
 
-**Overall: 1518 / 2024 passing (75%)** — as of 2026-03-26 (Prism parser)
+**Overall: 1890 / 2396 passing (79%)** — as of 2026-03-26 (Prism parser)
 
 Many modules report 0 examples because they require C extensions or unavailable gems.
 `getoptlong`, `irb`, `mkmf`, `objectspace`, `prime`, `securerandom` timed out in the parallel runner.
