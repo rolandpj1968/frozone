@@ -444,6 +444,9 @@ module Frozone
             pv = @env.raw([:param, ctx.method_key, idx])
             return pv unless pv == :unknown
           end
+          # Block param seeds (separate slot so codegen doesn't treat them as raw locals).
+          bp = @env.raw([:block_param, ctx.method_key, name])
+          return bp if bp != :unknown
           @env.raw([:local, ctx.method_key, name])
 
         when Ast::InstanceVariableRead
@@ -466,15 +469,64 @@ module Frozone
       # infer_call — type inference for method calls
       # ------------------------------------------------------------------
 
+      # Math module methods that always return Float.
+      MATH_FLOAT_METHODS = %i[sqrt cbrt exp log log2 log10 sin cos tan asin acos atan atan2
+                               sinh cosh tanh asinh acosh atanh hypot ldexp frexp].to_set
+
+      # Built-in methods on Array/Integer/Float with known return types.
+      ARRAY_INT_METHODS  = %i[length size count].to_set
+      INT_INT_METHODS    = %i[abs ceil floor round truncate].to_set
+
       def infer_call(node, ctx)
         name = node.instance_variable_get(:@name)
         recv = node.instance_variable_get(:@receiver_node)
         args = node.instance_variable_get(:@arg_nodes) || []
+        blk  = node.instance_variable_get(:@block_node)
+
+        # Array.new(n) { |i| expr }  → Array with block-inferred element type.
+        # Array.new(n, fill)         → Array with fill-typed elements.
+        if name == :new && recv.is_a?(Ast::ConstantRead) &&
+           recv.instance_variable_get(:@name) == :Array
+          if blk
+            elem_ty = infer_block_return(blk, [:i64], ctx)
+            return (elem_ty && elem_ty != :unknown) ?
+                   {class: :Array, elem: elem_ty}.freeze : {class: :Array}
+          elsif args.size == 2
+            fill_ty = infer_expr(args[1], ctx)
+            return (fill_ty && fill_ty != :unknown) ?
+                   {class: :Array, elem: fill_ty}.freeze : {class: :Array}
+          end
+        end
+
+        # Array#map { |x| expr } → new Array with block-inferred element type.
+        if name == :map && blk && recv
+          recv_ty = infer_expr(recv, ctx)
+          if recv_ty.is_a?(Hash) && recv_ty[:class] == :Array
+            elem_in  = recv_ty.fetch(:elem, :unknown)
+            elem_out = infer_block_return(blk, [elem_in], ctx)
+            return (elem_out && elem_out != :unknown) ?
+                   {class: :Array, elem: elem_out}.freeze : {class: :Array}
+          end
+        end
+
+        # Seed block params for common iteration methods (each, times, upto, etc.)
+        # so that block body expressions can be typed in subsequent passes.
+        if blk
+          ptypes = block_param_types(name, recv, ctx)
+          seed_block_params(blk, ptypes, ctx) unless ptypes.empty?
+        end
 
         # ClassName.new(...) → exact class instance type.
         if name == :new && recv.is_a?(Ast::ConstantRead)
           class_sym = recv.instance_variable_get(:@name)
           return {class: class_sym}
+        end
+
+        # Math.method(...) → always returns Float (f64).
+        if recv.is_a?(Ast::ConstantRead) &&
+           recv.instance_variable_get(:@name) == :Math &&
+           MATH_FLOAT_METHODS.include?(name)
+          return :f64
         end
 
         # Array element read recv[k].
@@ -489,6 +541,16 @@ module Frozone
           recv_ty = infer_expr(recv, ctx)
           return recv_ty[:elem] if recv_ty.is_a?(Hash) && recv_ty[:class] == :Array &&
                                    recv_ty.key?(:elem)
+        end
+
+        # Built-in Array methods with known return types.
+        if recv
+          recv_ty = infer_expr(recv, ctx)
+          if recv_ty.is_a?(Hash)
+            return :i64 if recv_ty[:class] == :Array && ARRAY_INT_METHODS.include?(name)
+            return :i64 if recv_ty[:class] == :Integer && INT_INT_METHODS.include?(name)
+            return :f64 if recv_ty[:class] == :Float   && INT_INT_METHODS.include?(name)
+          end
         end
 
         # Arithmetic / bitwise — Ruby-semantic result type.
@@ -522,6 +584,55 @@ module Frozone
         end
 
         :unknown
+      end
+
+      # Infer the return type of a block body, seeding required params as locals
+      # in the enclosing method's namespace (Ruby closure semantics).
+      def infer_block_return(block_node, param_types, ctx)
+        return :unknown unless block_node.is_a?(Ast::Block)
+        seed_block_params(block_node, param_types, ctx)
+        infer_body_return(block_node.body, ctx)
+      end
+
+      # Seed block required_params into [:block_param, mkey, name] env slots.
+      # These are separate from [:local, ...] so the codegen doesn't treat them
+      # as raw Crystal Int64/Float64 locals (block params arrive as RubyObject).
+      def seed_block_params(block_node, param_types, ctx)
+        return unless block_node.is_a?(Ast::Block)
+        params = block_node.required_params || []
+        params.each_with_index do |pname, i|
+          next unless pname.is_a?(Symbol)
+          ty = param_types[i]
+          next unless ty && ty != :unknown
+          @env.meet!([:block_param, ctx.method_key, pname], ty)
+        end
+      end
+
+      # Returns the expected block param types for common built-in iteration methods.
+      def block_param_types(method_name, recv_node, ctx)
+        case method_name
+        when :times, :upto, :downto
+          [:i64]
+        when :each, :map, :flat_map, :select, :reject, :filter,
+             :each_with_object, :min_by, :max_by, :sort_by, :any?, :all?, :none?,
+             :find, :detect, :count, :sum, :reduce, :inject
+          recv_ty = recv_node ? infer_expr(recv_node, ctx) : :unknown
+          if recv_ty.is_a?(Hash)
+            elem = recv_ty[:elem] || :unknown
+            return [elem] if recv_ty[:class] == :Array
+            return [:i64] if recv_ty[:class] == :Range
+          end
+          []
+        when :each_with_index
+          recv_ty = recv_node ? infer_expr(recv_node, ctx) : :unknown
+          if recv_ty.is_a?(Hash) && recv_ty[:class] == :Array
+            [recv_ty[:elem] || :unknown, :i64]
+          else
+            [:unknown, :i64]
+          end
+        else
+          []
+        end
       end
 
       # ------------------------------------------------------------------
@@ -586,6 +697,16 @@ module Frozone
           name = node.instance_variable_get(:@name)
           result[name] << node.instance_variable_get(:@value_node)
           collect_assignments(node.instance_variable_get(:@value_node), result)
+        when Ast::MultipleAssignment
+          targets = node.instance_variable_get(:@targets) || []
+          value   = node.instance_variable_get(:@value_node)
+          if value.is_a?(Ast::ArrayLiteral)
+            elems = value.instance_variable_get(:@element_nodes) || []
+            targets.each_with_index do |t, i|
+              next unless t[0] == :local
+              result[t[1]] << elems[i] if elems[i]
+            end
+          end
         when Ast::Sequence
           node.nodes.each { |n| collect_assignments(n, result) }
         when Ast::If
