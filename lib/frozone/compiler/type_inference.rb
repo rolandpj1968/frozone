@@ -283,7 +283,9 @@ module Frozone
 
       def propagate_execute_block
         return false unless @execute_block&.body
-        propagate_locals(@execute_block.body, TOP_LEVEL_CTX)
+        changed = propagate_for_targets(@execute_block.body, TOP_LEVEL_CTX)
+        changed |= propagate_locals(@execute_block.body, TOP_LEVEL_CTX)
+        changed
       end
 
       # ------------------------------------------------------------------
@@ -295,6 +297,8 @@ module Frozone
         changed = false
         # Array locals first so scalar locals that depend on array reads are typed.
         changed |= propagate_array_locals(method.body, ctx)
+        # For-loop target variables (typed like block params to reflect Crystal level).
+        changed |= propagate_for_targets(method.body, ctx)
         changed |= propagate_locals(method.body, ctx)
         ret_ty = infer_body_return(method.body, ctx)
         # Commit any definite (non-:unknown) return type.
@@ -357,6 +361,41 @@ module Frozone
           changed |= @env.meet!([:array_elem, ctx.method_key, name], fill_ty)
         end
         changed
+      end
+
+      # ------------------------------------------------------------------
+      # propagate_for_targets — seed for-loop iteration variable types
+      #
+      # Ruby `for x in collection` does not create a new scope; `x` persists
+      # in the enclosing method.  At Crystal level, `emit_for_loop` emits
+      # `collection.each do |x|` where `x` arrives as RubyObject — exactly
+      # like a block param.  We therefore store the inferred type in
+      # [:block_param, mkey, name] (not [:local, ...]) so the codegen can
+      # detect native-loop candidates without attempting raw emission on a
+      # variable that is actually RubyObject in the generic path.
+      # ------------------------------------------------------------------
+
+      def propagate_for_targets(body, ctx)
+        return false unless body
+        changed = false
+        walk(body) do |node|
+          next unless node.is_a?(Ast::ForLoop)
+          target = node.instance_variable_get(:@target)
+          next unless target[0] == :local
+          name = target[1]
+          coll_node = node.instance_variable_get(:@collection_node)
+          coll_ty = infer_expr(coll_node, ctx)
+          elem_ty = for_loop_elem_type(coll_ty)
+          next unless elem_ty && elem_ty != :unknown
+          changed |= @env.meet!([:block_param, ctx.method_key, name], elem_ty)
+        end
+        changed
+      end
+
+      def for_loop_elem_type(coll_ty)
+        return :i64 if coll_ty.is_a?(Hash) && coll_ty[:class] == :Range
+        return coll_ty[:elem] if coll_ty.is_a?(Hash) && coll_ty[:class] == :Array && coll_ty.key?(:elem)
+        nil
       end
 
       # ------------------------------------------------------------------
@@ -716,6 +755,9 @@ module Frozone
         when Ast::While, Ast::Until
           collect_assignments(node.instance_variable_get(:@condition_node), result)
           collect_assignments(node.instance_variable_get(:@body_node), result)
+        when Ast::ForLoop
+          collect_assignments(node.instance_variable_get(:@collection_node), result)
+          collect_assignments(node.instance_variable_get(:@body_node), result)
         when Ast::Return
           collect_assignments(node.instance_variable_get(:@value_node), result)
         else
@@ -865,6 +907,9 @@ module Frozone
           (node.instance_variable_get(:@arg_nodes) || []).each { |a| walk(a, &block) }
         when Ast::MultipleAssignment
           walk(node.instance_variable_get(:@value_node), &block)
+        when Ast::ForLoop
+          walk(node.instance_variable_get(:@collection_node), &block)
+          walk(node.instance_variable_get(:@body_node), &block)
         when Ast::ArrayLiteral
           (node.instance_variable_get(:@element_nodes) || []).each { |e| walk(e, &block) }
         else

@@ -49,6 +49,14 @@ class RubyArray < RubyObject
     RubyArray.new(data)
   end
 
+  # Native-index overload: block receives Int64 directly (no boxing).
+  # Used by AOT codegen when the block param is known to be a plain integer.
+  def self.new(count : Int64, &block : Int64 -> RubyObject) : RubyArray
+    data = Array(RubyObject).new(count.to_i32)
+    count.times { |i| data << block.call(i) }
+    RubyArray.new(data)
+  end
+
   # Internal: allocate with a given Int32 capacity (not exposed as RubyArray.new(Int))
   protected def self.with_capacity(n : Int32) : RubyArray
     RubyArray.new(Array(RubyObject).new(n))
