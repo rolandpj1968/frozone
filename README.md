@@ -230,12 +230,12 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 22750 / 23020 passing (98.8%)** — as of 2026-03-26 (Prism parser; slow modules run individually)
+**Overall: 22794 / 23020 passing (99.0%)** — as of 2026-03-26 (Prism parser; slow modules run individually)
 
 `tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation).
 
 Hanging specs (blocking IO, threading primitives, GC-dependent) are excluded via `SKIP_SPEC_FILES` in `Rakefile`.
-`io`, `thread` have partial coverage due to hanging/blocking spec exclusions.
+`io` has partial coverage due to blocking/pipe spec exclusions.
 
 Modules with 100% pass rate:
 `array`, `basicobject`, `binding`, `builtin_constants`, `class`, `comparable`, `complex`, `conditionvariable`, `data`, `dir`,
@@ -254,7 +254,7 @@ Modules with 100% pass rate:
 | process | 86 | 44 | 0 | 42 | OS-level process ops |
 | refinement | 25 | 24 | 0 | 1 | |
 | sizedqueue | 129 | 128 | 1 | 0 | |
-| thread | 227 | 172 | 53 | 2 | cooperative threading; some introspection/control-flow edge cases |
+| thread | 227 | 216 | 9 | 2 | cooperative threading; remaining edge cases |
 | time | 774 | 772 | 2 | 0 | |
 | tracepoint | 75 | — | 5 | 71 | intentionally unimplemented |
 | unboundmethod | 101 | 99 | 0 | 2 | |
