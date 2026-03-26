@@ -42,15 +42,25 @@ module Frozone
           super_method = klass.lookup_method_after(method_name, origin)
         else
           # If origin is not in the instance class ancestors, it must be from the singleton chain
+          # (or an unbound method from a foreign module bound via UnboundMethod#bind).
           class_ancs = receiver.class_object.ancestors_list
           if class_ancs.any? { |a| a.equal?(defining_class) }
-            klass  = receiver.class_object
-            origin = defining_class
+            klass        = receiver.class_object
+            origin       = defining_class
+            super_method = klass.lookup_method_after(method_name, origin)
           else
-            klass  = receiver.singleton_class
-            origin = defining_class
+            # Foreign-module bind: defining_class is not in receiver's hierarchy at all.
+            # Try singleton chain first (covers extend/singleton methods), then fall back to
+            # searching the receiver's full class hierarchy (covers UnboundMethod#bind to a
+            # class that doesn't include the source module).
+            singleton_ancs = receiver.singleton_class.ancestors_list
+            if singleton_ancs.any? { |a| a.equal?(defining_class) }
+              super_method = receiver.singleton_class.lookup_method_after(method_name, defining_class)
+            else
+              # Not in any accessible hierarchy — search receiver's class hierarchy from the top.
+              super_method = receiver.class_object.lookup_method(method_name)
+            end
           end
-          super_method = klass.lookup_method_after(method_name, origin)
         end
         args =
           if @forwarding
