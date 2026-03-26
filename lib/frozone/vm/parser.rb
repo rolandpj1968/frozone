@@ -794,6 +794,11 @@ module Frozone
           elsif prism_node.name == :freeze && prism_node.arguments.nil? &&
                 prism_node.receiver.is_a?(Prism::StringNode)
             Ast::StringLiteral.frozen_from(prism_node.receiver.unescaped)
+          # Frozone.compile! { execute_phase } — snapshot-based AOT compilation hook
+          elsif prism_node.receiver.is_a?(Prism::ConstantReadNode) && prism_node.receiver.name == :Frozone &&
+                prism_node.name == :"compile!"
+            block_node = prism_node.block ? parse_block(prism_node.block) : nil
+            Ast::FrozoneCompile.new(block_node)
           # TODO - only when parsing core files
           elsif prism_node.receiver.is_a?(Prism::ConstantReadNode) && prism_node.receiver.name.equal?(:Intrinsics)
             arg_pnodes = prism_node.arguments.nil? ? [] : prism_node.arguments.arguments

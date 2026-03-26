@@ -124,8 +124,8 @@ class RubySymbol < RubyObject
 
   # Number of Unicode characters in the name.
   # Crystal String#size counts codepoints for valid UTF-8.
-  def length : Int32
-    @name.size
+  def length : RubyInteger
+    RubyInteger.new(@name.size.to_i64)
   end
 
   def empty? : Bool

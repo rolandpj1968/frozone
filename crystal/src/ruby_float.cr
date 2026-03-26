@@ -276,8 +276,8 @@ class RubyFloat < RubyObject
     @value
   end
 
-  def to_f : Float64
-    @value
+  def to_f : RubyFloat
+    self
   end
 
   # Ruby float formatting: always includes decimal point.

@@ -1004,6 +1004,13 @@ module Frozone
           }.new
         end
 
+        # Frozone.compile! (no-block form — unusual but handle gracefully)
+        if recv_node && recv_node.type == :const &&
+           recv_node.children[0].nil? && recv_node.children[1] == :Frozone &&
+           name == :"compile!"
+          return Ast::FrozoneCompile.new(nil)
+        end
+
         # Check for Intrinsics.method_name pattern
         if recv_node && recv_node.type == :const &&
            recv_node.children[0].nil? && recv_node.children[1] == :Intrinsics &&
@@ -1159,6 +1166,13 @@ module Frozone
           c = send_node.children
           recv_node, name, *raw_args = c[0], c[1], *c[2..]
           safe_nav = (type == :csend)
+
+          # Frozone.compile! { execute_phase } — snapshot-based AOT compilation hook
+          if recv_node && recv_node.type == :const &&
+             recv_node.children[0].nil? && recv_node.children[1] == :Frozone &&
+             name == :"compile!"
+            return Ast::FrozoneCompile.new(block_obj)
+          end
 
           # Intrinsics don't take blocks normally, but handle gracefully
           if recv_node && recv_node.type == :const &&

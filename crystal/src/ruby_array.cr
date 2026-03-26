@@ -26,10 +26,6 @@ class RubyArray < RubyObject
     @data = [] of RubyObject
   end
 
-  def initialize(capacity : Int)
-    @data = Array(RubyObject).new(capacity)
-  end
-
   def initialize(@data : Array(RubyObject))
   end
 
@@ -37,6 +33,25 @@ class RubyArray < RubyObject
   def initialize(count : RubyObject, default : RubyObject)
     n = count.is_a?(RubyInteger) ? count.to_i64.to_i32 : 0
     @data = Array(RubyObject).new(n) { default }
+  end
+
+  # Array.new(count) { |i| block } — creates array of `count` elements from block.
+  # Uses a manual loop (not Array.new { |i| }) to avoid Crystal inferring Int32 from
+  # the internal iteration index and polluting closure-variable types in the block.
+  def self.new(count : RubyObject, &block : RubyObject -> RubyObject) : RubyArray
+    sz   = count.is_a?(RubyInteger) ? count.to_i64 : 0_i64
+    data = [] of RubyObject
+    idx  = 0_i64
+    while idx < sz
+      data << block.call(RubyInteger.new(idx))
+      idx += 1_i64
+    end
+    RubyArray.new(data)
+  end
+
+  # Internal: allocate with a given Int32 capacity (not exposed as RubyArray.new(Int))
+  protected def self.with_capacity(n : Int32) : RubyArray
+    RubyArray.new(Array(RubyObject).new(n))
   end
 
   # -------------------------------------------------------------------------

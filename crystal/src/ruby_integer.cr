@@ -97,6 +97,10 @@ class RubyInteger < RubyObject
     end
   end
 
+  def to_i : RubyInteger
+    self
+  end
+
   def to_f64 : Float64
     case v = @value
     when Int64  then v.to_f64

@@ -65,6 +65,18 @@ abstract class RubyObject
   end
 
   # -------------------------------------------------------------------------
+  # Ruby conversion methods — raise TypeError by default; subclasses override
+  # -------------------------------------------------------------------------
+
+  def to_i : RubyInteger
+    raise Exception.new("#{self.class} can't be coerced into Integer")
+  end
+
+  def to_f : RubyFloat
+    raise Exception.new("#{self.class} can't be coerced into Float")
+  end
+
+  # -------------------------------------------------------------------------
   # Arithmetic / comparison operator stubs — raise TypeError at runtime.
   # Concrete subclasses override with real implementations.
   # These stubs are required so that Crystal's type system can dispatch
@@ -96,6 +108,21 @@ abstract class RubyObject
 
   def []=(idx : RubyObject, val : RubyObject) : RubyObject
     raise Exception.new("[]= not supported for #{self.class}")
+  end
+
+  # -------------------------------------------------------------------------
+  # Common collection stubs — Array/Hash/String override
+  # -------------------------------------------------------------------------
+  def length : RubyInteger
+    raise Exception.new("length not supported for #{self.class}")
+  end
+
+  def size : RubyInteger
+    raise Exception.new("size not supported for #{self.class}")
+  end
+
+  def each(&block : RubyObject -> RubyObject) : RubyObject
+    raise Exception.new("each not supported for #{self.class}")
   end
 
   # -------------------------------------------------------------------------

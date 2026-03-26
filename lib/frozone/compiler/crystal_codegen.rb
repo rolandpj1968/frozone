@@ -181,6 +181,7 @@ module Frozone
         when Ast::IndexOrWrite          then emit_index_or_write(node)
         when Ast::IndexOperatorWrite    then emit_index_op_write(node)
         when Ast::IndexAndWrite         then emit_index_and_write(node)
+        when Ast::ForLoop               then emit_for_loop(node)
         when Ast::Block                 then unsupported!(node, "bare Block outside method call")
         else
           unsupported!(node)
@@ -201,6 +202,7 @@ module Frozone
         line "RUBY_TRUE   = RubyBool::TRUE"
         line "RUBY_FALSE  = RubyBool::FALSE"
         line "RUBY_GLOBALS = {} of String => RubyObject"
+        line "Ruby_ARGV   = RubyArray.new(ARGV.map { |s| RubyString.new(s).as(RubyObject) })"
         emit_newline
       end
 
@@ -313,7 +315,7 @@ module Frozone
           when :print        then return emit_print(node)
           when :p            then return emit_p(node)
           when :raise        then return emit_raise(node)
-          when :require      then return emit_require_call(node)
+          when :require, :require_relative then return emit_require_call(node)
           when :block_given? then return write("block_given?")
           when :loop         then return emit_loop(node)
           when :attr_accessor then return emit_attr_methods(node, reader: true, writer: true)
@@ -702,6 +704,29 @@ module Frozone
           emit_newline
           indented { emit(node.else_node) }
         end
+        emit_newline
+        emit_indent
+        write "end"
+      end
+
+      def emit_for_loop(node)
+        target = ivar(node, :target)
+        emit(ivar(node, :collection_node))
+        write ".each do |"
+        case target[0]
+        when :local    then write crystal_local(target[1])
+        when :multi
+          _, lefts, rest_sym, rights = target
+          parts = lefts.map { |n| crystal_local(n) }
+          parts << "*#{crystal_local(rest_sym)}" if rest_sym
+          parts += rights.map { |n| crystal_local(n) }
+          write parts.join(", ")
+        else
+          write "_for_var"
+        end
+        write "|"
+        emit_newline
+        indented { emit(ivar(node, :body_node)) }
         emit_newline
         emit_indent
         write "end"
@@ -1380,6 +1405,9 @@ module Frozone
         then true type typeof union unless until verbatim when while with yield
       ].to_set
 
+      # Crystal built-in methods that shadow local variables of the same name.
+      CRYSTAL_BUILTIN_METHODS = %w[p pp].to_set
+
       # Ruby method names that map to different Crystal method names at CALL sites.
       # (Crystal's to_s/inspect return String; Ruby's return RubyString)
       RUBY_TO_CRYSTAL_METHOD = {
@@ -1396,7 +1424,7 @@ module Frozone
 
       def crystal_local(sym)
         s = sym.to_s
-        CRYSTAL_KEYWORDS.include?(s) ? "loc_#{s}" : s
+        (CRYSTAL_KEYWORDS.include?(s) || CRYSTAL_BUILTIN_METHODS.include?(s)) ? "loc_#{s}" : s
       end
 
       def crystal_constant(sym_or_str)
