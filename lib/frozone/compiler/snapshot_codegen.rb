@@ -972,6 +972,13 @@ module Frozone
           end
         end
 
+        # Free call to method with typed params — coerce args to declared types
+        if node.receiver_node.nil? && (tp = @inferred_params[node.name])
+          write crystal_method_name(node.name)
+          emit_typed_call_args(node.arg_nodes || [], tp)
+          return
+        end
+
         super
       end
 
