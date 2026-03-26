@@ -137,10 +137,12 @@ SKIP_SPEC_FILES = %w[
   sizedqueue/shift_spec.rb
 ].map { |f| "#{RUBY_SPEC_DIR}/core/#{f}" }.freeze
 
-# Hanging library spec files (GC-dependent or blocking IO).
+# Hanging library spec files (GC-dependent, blocking IO, or mspec mock + Delegator infinite recursion).
 SKIP_LIBRARY_SPEC_FILES = %w[
   weakref/__getobj___spec.rb
   weakref/weakref_alive_spec.rb
+  delegate/delegator/equal_value_spec.rb
+  delegate/delegator/not_equal_spec.rb
 ].map { |f| "#{RUBY_SPEC_DIR}/library/#{f}" }.freeze
 
 def run_core_specs(*spec_files)
