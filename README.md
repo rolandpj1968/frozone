@@ -1,6 +1,10 @@
 # Frozone
 
-A Ruby VM implemented in Ruby. Parses Ruby source via the [Prism](https://github.com/ruby/prism) gem and evaluates the resulting AST directly. No compilation step — pure tree-walking interpreter.
+A Ruby VM implemented in Ruby — and an AOT compiler from Ruby to native binaries via [Crystal](https://crystal-lang.org/).
+
+**Interpreter:** parses Ruby source via the [Prism](https://github.com/ruby/prism) gem and evaluates the resulting AST directly. No compilation step — pure tree-walking interpreter.
+
+**Compiler:** `Frozone.compile!` snapshots the settled VM state after the load phase and emits Crystal source, which is then compiled to a native binary. The load/execute split is explicit — metaprogramming, `require`s, and runtime-computed constants are all resolved by the interpreter before compilation begins.
 
 ## Project Status (v4.0.1)
 
@@ -43,6 +47,48 @@ costume. True self-hosting — where the inner Frozone runs its own AST evaluato
 on its own class objects, with all core methods implemented in pure Frozone-Ruby
 — would require the core library (`String`, `Array`, `Hash`, …) to be fully
 de-intrinsified. That is the goal of the ongoing de-intrinsification work.
+
+### AOT Compilation to Crystal
+
+`Frozone.compile!` is the AOT compilation hook. A bench stub looks like this:
+
+```ruby
+# bench/stubs/matmul.rb
+$LOADED_FEATURES << File.expand_path('../harness/loader.rb', __dir__)
+def run_benchmark(*); end          # silence harness during load phase
+require_relative '../benchmarks/matmul'   # settles methods and constants
+
+Frozone.compile! do
+  run_benchmark(20) do
+    a = matgen(N)
+    b = matgen(N)
+    _c = matmul(a, b)
+  end
+end
+```
+
+Running this through the Frozone interpreter:
+
+```bash
+bundle exec ruby frozone.rb bench/stubs/matmul.rb
+# => Frozone.compile!: wrote crystal/matmul.cr
+```
+
+Then compile and run natively:
+
+```bash
+cd crystal && crystal build matmul.cr -o matmul && ./matmul
+# => 2758.19 ms/iter
+```
+
+**How it works:**
+
+1. The interpreter runs the *load phase* normally — class definitions, `require`s, and constant assignments settle into the VM's object model.
+2. When `Frozone.compile!` is reached, the block is **not** evaluated. Instead, `SnapshotCodegen` walks the settled VM state (method tables, constant table) and emits Crystal source.
+3. User-defined methods and constants are identified by `source_location` — everything from `lib/core/4.0/` and `lib/frozone/` is excluded (it maps to the Crystal runtime in `crystal/src/`).
+4. The block body becomes the Crystal `main` — the execute phase.
+
+The Crystal runtime (`crystal/src/`) provides `RubyObject`, `RubyInteger`, `RubyFloat`, `RubyString`, `RubyArray`, `RubyHash`, etc. as value types with full operator dispatch. All Ruby values are currently heap-allocated `RubyObject` references; unboxing of numeric-heavy loops is future work.
 
 ### Parsers
 
