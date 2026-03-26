@@ -519,6 +519,11 @@ module Frozone
           when Ast::StringLiteral
             # raise "msg" → raise RuntimeError.new("msg")
             write "RuntimeError.new(#{crystal_string_literal(ivar(arg, :value).raw)})"
+          when Ast::InterpolatedString
+            # raise "msg #{x}" → raise RuntimeError.new(...)
+            write "RuntimeError.new("
+            emit(arg)
+            write ".to_s)"
           when Ast::ConstantRead
             # raise ExcClass → raise Ruby_ExcClass.new
             write "Ruby_#{crystal_constant(ivar(arg, :name))}.new"
@@ -705,12 +710,16 @@ module Frozone
         emit_truthy(node.pred_node)
         emit_newline
         indented { emit(node.then_node) }
+        emit_newline
+        emit_indent
         if node.else_node
-          emit_newline
-          emit_indent
           write "else"
           emit_newline
           indented { emit(node.else_node) }
+        else
+          write "else"
+          emit_newline
+          indented { write "RUBY_NIL" }
         end
         emit_newline
         emit_indent

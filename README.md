@@ -230,7 +230,7 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 22153 / 22741 passing (97.4%)** — as of 2026-03-25 (Prism parser; slow modules run individually)
+**Overall: 22703 / 23009 passing (98.7%)** — as of 2026-03-26 (Prism parser; slow modules run individually)
 
 `tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation).
 
@@ -238,28 +238,25 @@ Hanging specs (blocking IO, threading primitives, GC-dependent) are excluded via
 `conditionvariable`, `io`, `numeric`, `thread` have partial coverage due to hanging/blocking spec exclusions.
 
 Modules with 100% pass rate:
-`binding`, `builtin_constants`, `class`, `comparable`, `complex`, `conditionvariable`, `data`, `dir`,
-`enumerable`, `false`, `float`, `gc`, `hash`, `integer`, `main`, `marshal`, `matchdata`,
-`math`, `method`, `nil`, `numeric`, `proc`, `queue`, `range`, `rational`, `regexp`, `set`,
+`basicobject`, `binding`, `builtin_constants`, `class`, `comparable`, `complex`, `conditionvariable`, `data`, `dir`,
+`enumerable`, `env`, `false`, `float`, `gc`, `hash`, `integer`, `main`, `marshal`, `matchdata`,
+`math`, `method`, `mutex`, `nil`, `numeric`, `proc`, `queue`, `range`, `rational`, `regexp`, `set`,
 `signal`, `string`, `symbol`, `systemexit`, `threadgroup`, `true`, `warning`
 
 | Module | Examples | Passing | Failures | Errors | Notes |
 |---|---:|---:|---:|---:|---|
 | argf | 148 | 8 | 10 | 130 | ARGF not fully implemented |
 | array | 2961 | 2960 | 0 | 1 | |
-| basicobject | 178 | 177 | 1 | 0 | |
 | conditionvariable | 1 | 1 | 0 | 0 | broadcast/signal/wait skip (blocking) |
 | encoding | 631 | 616 | 11 | 4 | transcoding edge cases |
 | enumerator | 423 | 422 | 0 | 1 | |
-| env | 239 | 237 | 2 | 0 | |
 | exception | 248 | 247 | 1 | 0 | |
 | fiber | 170 | 160 | 2 | 8 | scheduler/blocking API |
 | file | 939 | 933 | 0 | 6 | OS-level file ops |
 | filetest | 88 | 87 | 0 | 1 | |
-| io | 820 | 579 | 13 | 228 | blocking/pipe/buffer specs skipped; interaction errors |
-| kernel | 2701 | 2625 | 19 | 57 | I/O, spawn, format edge cases |
-| module | 1058 | 1051 | 6 | 1 | |
-| mutex | 25 | 16 | 5 | 4 | threading primitives |
+| io | 1048 | 1035 | 4 | 9 | blocking/pipe/buffer specs skipped; OS-level gaps |
+| kernel | 2741 | 2707 | 21 | 13 | spawn, format edge cases |
+| module | 1058 | 1051 | 7 | 0 | |
 | objectspace | 112 | 112 | 0 | 0 | |
 | process | 86 | 44 | 0 | 42 | OS-level process ops |
 | random | 87 | 84 | 0 | 3 | |
