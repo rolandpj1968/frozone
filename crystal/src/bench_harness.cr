@@ -1,7 +1,7 @@
 # Frozone benchmark harness — Crystal equivalent of bench/harness/harness.rb
 # Included via compile.rb --bench flag; not part of the core runtime.
 
-def run_benchmark(n : RubyObject, &block : -> RubyObject) : RubyNil
+def run_benchmark(n : RubyObject, &block : ->) : RubyNil
   t0 = Time.instant
   block.call
   elapsed = (Time.instant - t0).total_milliseconds

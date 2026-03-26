@@ -100,6 +100,10 @@ The dominant win is eliminating `RubyInteger.new(1_i64)` heap allocation per inn
 iteration, plus using the `RubyArray#[](Int64)` overload which bypasses polymorphic
 dispatch on the index.
 
+Note: fib's modest gain here is because the method parameters are still typed as
+`RubyObject` — the recursion allocates a `RubyInteger` per call. Section §8 (method
+type specialisation) eliminates this.
+
 ---
 
 ## 4. Call-site type inference for method parameters (implemented, partial)
@@ -166,3 +170,66 @@ Changed `RubySymbol#length` to return `RubyInteger.new(@name.size.to_i64)`.
 
 ### Status
 Implemented in `crystal/src/ruby_symbol.cr`.
+
+---
+
+## 8. Method type specialisation — raw Int64/Float64 overloads (implemented)
+
+### Idea
+When a user-defined method is always called with raw-typed arguments (e.g. `Int64`), and
+its body can be proven to return a raw numeric type, emit a second Crystal overload with
+bare `Int64`/`Float64` param and return types alongside the normal `RubyObject` overload.
+Crystal's overload resolution picks the fast path when args are typed; the boxed overload
+remains for polymorphic dispatch.
+
+```crystal
+# Specialised overload — pure Int64 arithmetic, no allocations
+def fib(n : Int64) : Int64
+  if n < 2_i64
+    return n
+  end
+  return fib(n - 1_i64) + fib(n - 2_i64)
+end
+
+# Boxed fallback — still present for RubyObject dispatch
+def fib(n : RubyInteger) : RubyObject
+  ...
+end
+```
+
+### Implementation
+Three-pass pre-analysis in `SnapshotCodegen`:
+1. **`collect_raw_call_sites`** — walks the execute block (with unboxed-local types
+   active); for each free call where ALL args are raw-typed (`:i64`/`:f64`), records the
+   per-param raw types. Only methods with consistent types across all call sites qualify.
+2. **`collect_typed_method_returns`** — tentatively assigns the return type (same raw type
+   as params for same-type methods), then verifies by seeding `@typed_locals` with the
+   param types and calling `infer_body_return_type`. Self-recursive calls work because the
+   tentative return type is already set when the body is walked.
+3. **`body_all_raw_safe?`** — guards specialisation: only emits the raw overload when the
+   entire body is composed of arithmetic/comparison ops, typed locals, and calls to other
+   specialised methods. Prevents emitting a broken raw version that tries to pass `Int64`
+   to a `RubyObject` receiver.
+
+**Emit**: `emit_specialized_vm_method` emits the raw overload using `emit_raw_body`, which
+recurses through structural nodes (If, Sequence, Return, LocalVariableWrite) and delegates
+to `emit_raw` for all expressions. At call sites in the execute block (and inside raw
+bodies), `emit_method_call` detects a specialised target with all-raw args and routes to
+the `Int64` overload.
+
+**Soundness**: The specialised body only fires for self-contained arithmetic/recursive
+methods. Any method that calls into polymorphic dispatch (method on a `RubyObject` receiver)
+fails `body_all_raw_safe?` and falls back to the boxed version.
+
+### Benchmark impact (release build, fib(20) 3 iters)
+| Benchmark | Before §8 | After §8 | Speedup |
+|-----------|-----------|----------|---------|
+| fib(20)   | 3.2 ms/iter | **0.04 ms/iter** | **~80×** |
+
+The gain is total elimination of `RubyInteger` allocations from the recursion and removal
+of polymorphic `+`/`<` dispatch. Crystal/LLVM can now inline and optimise the pure
+`Int64` recursion.
+
+### Scope
+Currently limited to top-level methods. Instance methods and methods with optional/rest
+params are not specialised. Extension to class methods (typed ivars) is tracked as §9.
