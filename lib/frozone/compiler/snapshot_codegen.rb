@@ -60,9 +60,12 @@ module Frozone
         @ti_arrays                   = {}   # mkey => {local_name => :i64 | :f64}
         @ti_class_locals             = {}   # mkey => {local_name => class_sym} (user-class-typed locals)
         @ti_local_array_elems        = {}   # mkey => {local_name => :i64 | :f64} (boxed RubyArray elem type)
+        @ti_block_params             = {}   # mkey => {param_name => :i64 | :f64} (for-loop & array-block params)
         @ti_class_params             = {}   # [cname, mname] => [Crystal type string, ...]
         @current_class_locals        = {}   # active class-typed local map during method emission
         @current_local_array_elems   = {}   # active boxed-array elem type map during method emission
+        @current_block_params        = {}   # active block-param type map (from TI :block_param slots)
+        @raw_block_params            = {}   # param_name => :i64 | :f64 for currently-native block params
 
         # Pre-pass: collect user method names for RubyObject stubs
         collect_user_methods_from_scope(top_level_scope)
@@ -90,6 +93,7 @@ module Frozone
           @typed_array_locals         = @ti_arrays[nil]            || {}
           @current_class_locals       = @ti_class_locals[nil]      || {}
           @current_local_array_elems  = @ti_local_array_elems[nil] || {}
+          @current_block_params       = @ti_block_params[nil]      || {}
           emit_indent
           emit(execute_block.body)
           emit_newline
@@ -289,6 +293,7 @@ module Frozone
         old_typed      = @typed_locals
         old_typed_arrs = @typed_array_locals
         old_local_elem = @current_local_array_elems
+        old_block_params = @current_block_params
         param_names = (ivar(method, :required_params) || []) +
                       (ivar(method, :optional_params) || []).map(&:first) +
                       [ivar(method, :rest_param)].compact +
@@ -300,6 +305,7 @@ module Frozone
         @typed_array_locals        = (@ti_arrays[mkey]            || {}).reject { |k, _| param_set.include?(k) }
         @current_class_locals      = (@ti_class_locals[mkey]      || {}).reject { |k, _| param_set.include?(k) }
         @current_local_array_elems = (@ti_local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }
+        @current_block_params      = (@ti_block_params[mkey]      || {}).reject { |k, _| param_set.include?(k) }
         # Include raw-typed params in @typed_locals so node_raw_type works for them
         # and they are correctly boxed/unboxed in mixed expressions.
         if param_types
@@ -340,6 +346,8 @@ module Frozone
         @typed_array_locals        = old_typed_arrs
         @current_class_locals      = {}
         @current_local_array_elems = old_local_elem
+        @current_block_params      = old_block_params
+        @raw_block_params          = {}
       end
 
       # -----------------------------------------------------------------------
@@ -465,6 +473,9 @@ module Frozone
             end
             raw = ti_raw_type(ty) or next
             (@ti_locals[slot[1]] ||= {})[slot[2]] = raw
+          when :block_param
+            raw = ti_raw_type(ty) or next
+            (@ti_block_params[slot[1]] ||= {})[slot[2]] = raw
           when :array_elem
             raw = ti_raw_type(ty) or next
             (@ti_arrays[slot[1]] ||= {})[slot[2]] = raw
@@ -639,7 +650,7 @@ module Frozone
         when Ast::FloatLiteral   then :f64
         when Ast::Sequence       then node_raw_type(node.nodes.last) if node.nodes.any?
         when Ast::LocalVariableRead
-          @typed_locals[ivar(node, :name)]
+          @typed_locals[ivar(node, :name)] || @raw_block_params[ivar(node, :name)]
         when Ast::InstanceVariableRead
           @current_class_ivars[ivar(node, :name)]
         when Ast::ConstantRead
@@ -832,12 +843,12 @@ module Frozone
               emit_coerce_i64(args[0])
               write "]"
             elsif (elem_ty = @current_local_array_elems[arr_name])
-              # Boxed RubyArray with known elem type: unbox on read
+              # Boxed RubyArray with known elem type: static cast array + static unbox element
               write crystal_local(arr_name)
               write "["
               emit_coerce_i64(args[0])
               write "]"
-              write elem_ty == :f64 ? ".to_f64" : ".to_i64"
+              write elem_ty == :f64 ? ".as(RubyFloat).to_f64" : ".as(RubyInteger).to_i64"
             else
               emit(node)
             end
@@ -932,10 +943,16 @@ module Frozone
 
       # Override: for typed locals in boxed context, wrap in RubyInteger/RubyFloat.
       def emit_local_var_read(node)
-        case @typed_locals[ivar(node, :name)]
-        when :i64 then write "RubyInteger.new(#{crystal_local(ivar(node, :name))})"
-        when :f64 then write "RubyFloat.new(#{crystal_local(ivar(node, :name))})"
-        else super
+        name = ivar(node, :name)
+        case @typed_locals[name]
+        when :i64 then write "RubyInteger.new(#{crystal_local(name)})"
+        when :f64 then write "RubyFloat.new(#{crystal_local(name)})"
+        else
+          case @raw_block_params[name]
+          when :i64 then write "RubyInteger.new(#{crystal_local(name)})"
+          when :f64 then write "RubyFloat.new(#{crystal_local(name)})"
+          else super
+          end
         end
       end
 
@@ -958,6 +975,12 @@ module Frozone
         if (raw_ty = @typed_locals[name])
           write "#{crystal_local(name)} = "
           emit_as(ivar(node, :value_node), raw_ty)
+          return
+        end
+        if @current_local_array_elems.key?(name)
+          write "#{crystal_local(name)} = "
+          emit(ivar(node, :value_node))
+          write ".as(RubyArray)"
           return
         end
         if (cls = @current_class_locals[name])
@@ -1006,7 +1029,7 @@ module Frozone
         recv_elem_ty = recv_node.is_a?(Ast::LocalVariableRead) &&
                        @current_local_array_elems[ivar(recv_node, :name)]
         if recv_elem_ty
-          unbox = recv_elem_ty == :f64 ? ".to_f64" : ".to_i64"
+          unbox = recv_elem_ty == :f64 ? ".as(RubyFloat).to_f64" : ".as(RubyInteger).to_i64"
           box   = recv_elem_ty == :f64 ? "RubyFloat" : "RubyInteger"
           write "; #{r}[#{i}] = #{box}.new(#{r}[#{i}]#{unbox} #{op} "
           emit_as(val_node, recv_elem_ty)
@@ -1037,6 +1060,71 @@ module Frozone
       end
 
       def emit_method_call(node)
+        # Array.new(n) { |i| body } with all-integer block params →
+        # use the native Int64 overload so params are raw in the block body.
+        if node.name == :new &&
+           node.receiver_node.is_a?(Ast::ConstantRead) &&
+           ivar(node.receiver_node, :name) == :Array &&
+           node.block_node.is_a?(Ast::Block)
+          blk    = node.block_node
+          params = ivar(blk, :required_params) || []
+          args   = node.arg_nodes || []
+          if !params.empty? &&
+             params.all? { |p| p.is_a?(Symbol) && @current_block_params[p] == :i64 } &&
+             args.size == 1 && node_raw_type(args[0]) == :i64
+            write "RubyArray.new("
+            emit_raw(args[0])
+            write ") { |"
+            write params.map { |p| crystal_local(p) }.join(", ")
+            write "|"
+            emit_newline
+            old_rbp = @raw_block_params
+            @raw_block_params = old_rbp.merge(params.map { |p| [p, :i64] }.to_h)
+            indented { emit_native_block_body(ivar(blk, :body)) }
+            @raw_block_params = old_rbp
+            emit_newline
+            emit_indent
+            write "}"
+            return
+          end
+        end
+
+        # Native Crystal integer iteration: n.times/upto/downto { block }
+        # when receiver is raw i64 — avoids Frozone's Ruby method dispatch.
+        if node.block_node && !node.block_node.is_a?(Ast::BlockArg) &&
+           (node.arg_nodes || []).size <= 1 &&
+           node_raw_type(node.receiver_node) == :i64
+          case node.name
+          when :times
+            emit_raw(node.receiver_node)
+            write ".times "
+            emit_block(node.block_node)
+            return
+          when :upto
+            limit = (node.arg_nodes || [])[0]
+            if limit && node_raw_type(limit) == :i64
+              write "("
+              emit_raw(node.receiver_node)
+              write ".."
+              emit_raw(limit)
+              write ").each "
+              emit_block(node.block_node)
+              return
+            end
+          when :downto
+            limit = (node.arg_nodes || [])[0]
+            if limit && node_raw_type(limit) == :i64
+              write "("
+              emit_raw(limit)
+              write ".."
+              emit_raw(node.receiver_node)
+              write ").reverse_each "
+              emit_block(node.block_node)
+              return
+            end
+          end
+        end
+
         # Typed instance method call on a known-class receiver local:
         # emit args raw where the param type is Int64/Float64.
         if node.receiver_node.is_a?(Ast::LocalVariableRead)
@@ -1336,6 +1424,61 @@ module Frozone
         emit_newline
         emit_indent
         write "end"
+      end
+
+      # Emit a block body that may return a boxable raw numeric.
+      # Sequences: all-but-last via emit, last via this method (tail-recursive).
+      # Single expression: if raw-typed, wrap with RubyFloat/RubyInteger.new.
+      def emit_native_block_body(node)
+        # Multi-statement sequence: emit all but last normally, last with possible boxing.
+        if node.is_a?(Ast::Sequence) && node.nodes.size > 1
+          node.nodes[0..-2].each { |n| emit_indent; emit(n); emit_newline }
+          emit_native_block_body(node.nodes.last)
+          return
+        end
+        # Single expression (or 1-element Sequence — unwrap it).
+        expr = node.is_a?(Ast::Sequence) ? node.nodes.first : node
+        emit_indent
+        if expr && (rt = node_raw_type(expr))
+          box = rt == :f64 ? "RubyFloat" : "RubyInteger"
+          write "#{box}.new("; emit_raw(expr); write ")"
+        else
+          emit(expr || node)
+        end
+      end
+
+      # Override: emit `for i in lo...hi` as a native Crystal integer range loop
+      # when the iteration variable is typed :i64 in TI.
+      def emit_for_loop(node)
+        target = ivar(node, :target)
+        if target[0] == :local
+          name = target[1]
+          if @current_block_params[name] == :i64
+            coll = ivar(node, :collection_node)
+            if coll.is_a?(Ast::RangeLiteral)
+              lo   = ivar(coll, :begin_node)
+              hi   = ivar(coll, :end_node)
+              excl = ivar(coll, :exclusive)
+              if node_raw_type(lo) == :i64 && node_raw_type(hi) == :i64
+                write "("
+                emit_raw(lo)
+                write excl ? "..." : ".."
+                emit_raw(hi)
+                write ").each do |#{crystal_local(name)}|"
+                emit_newline
+                old_rbp = @raw_block_params
+                @raw_block_params = old_rbp.merge(name => :i64)
+                indented { emit(ivar(node, :body_node)) }
+                @raw_block_params = old_rbp
+                emit_newline
+                emit_indent
+                write "end"
+                return
+              end
+            end
+          end
+        end
+        super
       end
 
       # Emit a method body in raw (unboxed) mode: structural nodes are handled

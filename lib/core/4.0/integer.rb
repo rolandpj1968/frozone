@@ -39,8 +39,8 @@ class Integer
   def <=(v)  = v.is_a?(Integer) ? Intrinsics.integer__le_(self, v) : __coerce_and_compare__(v, :<=)
   def >=(v)  = v.is_a?(Integer) ? Intrinsics.integer__ge_(self, v) : __coerce_and_compare__(v, :>=)
   def >(v)   = v.is_a?(Integer) ? Intrinsics.integer__gt_(self, v) : __coerce_and_compare__(v, :>)
-  def ==(v)  = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : (v == self rescue false)
-  def ===(v) = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : (v == self rescue false)
+  def ==(v)  = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
+  def ===(v) = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
 
   def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(self, v)  : __coerce_op__(v, :+)
   def -(v) = v.is_a?(Integer) ? Intrinsics.integer__minus_(self, v) : __coerce_op__(v, :-)
