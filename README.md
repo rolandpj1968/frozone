@@ -230,7 +230,7 @@ Tested against [ruby/spec](https://github.com/ruby/spec) core specs.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 22807 / 23020 passing (99.1%)** — as of 2026-03-26 (Prism parser; slow modules run individually)
+**Overall: 22808 / 23020 passing (99.1%)** — as of 2026-03-26 (Prism parser; slow modules run individually)
 
 `tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation).
 
@@ -248,7 +248,7 @@ Modules with 100% pass rate:
 |---|---:|---:|---:|---:|---|
 | argf | 148 | 12 | 10 | 126 | ARGF not fully implemented |
 | file | 939 | 933 | 0 | 6 | OS-level file ops |
-| io | 1048 | 1035 | 4 | 9 | blocking/pipe/buffer specs skipped; OS-level gaps |
+| io | 1048 | 1036 | 3 | 9 | blocking/pipe/buffer specs skipped; OS-level gaps |
 | kernel | 2741 | 2716 | 17 | 8 | spawn, format edge cases; require/require_relative symlinks fixed |
 | module | 1058 | 1051 | 7 | 0 | |
 | process | 86 | 44 | 0 | 42 | OS-level process ops |
