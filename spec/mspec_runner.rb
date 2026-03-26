@@ -54,6 +54,29 @@ class Object
   # TIME_TOLERANCE is used by several time/file specs for approximate time comparisons.
   # Not defined in mspec 1.9.1; define it globally here.
   TIME_TOLERANCE = 2.0
+
+  # version_is is used in ruby-spec library specs (e.g. stringscanner) to guard
+  # examples based on gem version rather than Ruby version. It compares version
+  # strings by splitting on '.' and comparing each component numerically.
+  # Delegates to mspec's VersionGuard mechanism via ruby_version_is-style semantics.
+  def version_is(actual_version, required)
+    # Parse a dotted version string into an array of integers for comparison.
+    parse_v = ->(v) { v.to_s.split('.').map(&:to_i) }
+    actual = parse_v.call(actual_version)
+    matches =
+      case required
+      when Range
+        lo = parse_v.call(required.begin)
+        hi = parse_v.call(required.end)
+        above = (actual <=> lo) >= 0
+        below = required.exclude_end? ? (actual <=> hi) < 0 : (actual <=> hi) <= 0
+        above && below
+      else
+        (actual <=> parse_v.call(required)) >= 0
+      end
+    yield if matches && block_given?
+    matches
+  end
 end
 
 # Add max_long/min_long helpers not present in mspec 1.9.1 (platform C long limits)
@@ -324,16 +347,6 @@ class Object
     passes
   end
 
-  # version_is — guard block by arbitrary version comparison (e.g. StringIO::VERSION)
-  def version_is(actual_version, expected_version, &block)
-    a = actual_version.to_s.split('.').map(&:to_i)
-    e = expected_version.to_s.split('.').map(&:to_i)
-    max_len = [a.length, e.length].max
-    a += [0] * (max_len - a.length)
-    e += [0] * (max_len - e.length)
-    passes = (a <=> e) >= 0
-    yield if passes && block_given?
-  end
 
   # be_true_or_false — custom matcher for specs that check a value is boolean.
   def be_true_or_false
