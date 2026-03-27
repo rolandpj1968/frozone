@@ -325,6 +325,10 @@ module Frozone
             end
           end
         end
+        # Infer types from literal assignments for locals TI didn't cover
+        infer_local_types(method.body).each do |lname, ty|
+          @typed_locals[lname] ||= ty unless param_set.include?(lname)
+        end
         string_return = STRING_RETURN_METHODS.include?(name)
         crystal_name  = string_return ? name.to_s : crystal_method_name(name)
 
@@ -1036,14 +1040,32 @@ module Frozone
             end
           end
         end
-        # Fallback: emit boxed and coerce
-        emit(node)
+        # Fallback: emit boxed and coerce.
+        # Wrap assignments in parens so (q1 = expr).to_i64 groups correctly.
+        if contains_assignment?(node)
+          write "("; emit(node); write ")"
+        else
+          emit(node)
+        end
         write ty == :f64 ? ".to_f64" : ".to_i64"
       end
 
       # Emit node coerced to Int64: raw if already typed, else .to_i64 on boxed.
+      # Wrap assignments in parens so (q1 = expr).to_i64 groups correctly.
       def emit_coerce_i64(node)
-        node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_i64")
+        return emit_raw(node) if node_raw_type(node)
+        if contains_assignment?(node)
+          write "("; emit(node); write ").to_i64"
+        else
+          emit(node); write ".to_i64"
+        end
+      end
+
+      # Does this node contain an assignment that needs parens when used as an
+      # operand? Handles Sequence([LocalVariableWrite]) from parser grouping.
+      def contains_assignment?(node)
+        return true if node.is_a?(Ast::LocalVariableWrite) || node.is_a?(Ast::InstanceVariableWrite)
+        node.is_a?(Ast::Sequence) && node.nodes.size == 1 && contains_assignment?(node.nodes.first)
       end
 
       # Emit node coerced to Float64: raw if already typed, else .to_f64 on boxed.
@@ -1596,10 +1618,14 @@ module Frozone
         old_typed     = @typed_locals
         old_typed_arr = @typed_array_locals
         param_set     = req_params.to_set
-        # Start with param types, then add TI-inferred non-param scalar locals.
+        # Start with param types, add TI-inferred locals, then infer from literals.
         @typed_locals = req_params.zip(param_types).to_h
         (@ti_locals[name] || {}).each do |lname, ty|
           @typed_locals[lname] = ty unless param_set.include?(lname)
+        end
+        # Infer types from literal assignments for locals TI didn't cover
+        infer_local_types(method.body).each do |lname, ty|
+          @typed_locals[lname] ||= ty unless param_set.include?(lname)
         end
         # Populate typed array locals from TI (non-param only).
         @typed_array_locals = (@ti_arrays[name] || {}).reject { |k, _| param_set.include?(k) }
@@ -1695,7 +1721,14 @@ module Frozone
           cond = ivar(node, :pred_node)
           if cond.is_a?(Ast::MethodCall) && (ARITH_OPS_UNBOX | COMPARE_OPS).include?(ivar(cond, :name)) &&
              (ivar(cond, :arg_nodes) || []).size == 1
-            emit_raw(ivar(cond, :receiver_node))
+            recv = ivar(cond, :receiver_node)
+            # Wrap embedded assignments in parens so (q1 = expr) != val
+            # doesn't become q1 = (expr != val) due to Crystal precedence
+            if contains_assignment?(recv)
+              write "("; emit_raw(recv); write ")"
+            else
+              emit_raw(recv)
+            end
             write " #{ivar(cond, :name)} "
             emit_raw((ivar(cond, :arg_nodes))[0])
           else
