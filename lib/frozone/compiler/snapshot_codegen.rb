@@ -711,6 +711,11 @@ module Frozone
           if recv.nil? && (ret_ty = @typed_method_returns[name])
             return ret_ty
           end
+          # Self-call inside class body with known raw return (e.g. attr_accessor)
+          if recv.nil? && @current_class_name &&
+             (ret_ty = @instance_method_raw_returns[[@current_class_name, name]])
+            return ret_ty
+          end
           # Math.sqrt, Math.sin, etc. always return Float64
           if recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == :Math
             return :f64
@@ -900,6 +905,10 @@ module Frozone
             else
               emit(node)
             end
+          elsif recv.nil? && @current_class_name &&
+                @instance_method_raw_returns[[@current_class_name, name]]
+            # Self-call inside class method with raw accessor: use _raw directly
+            write "#{crystal_method_name(name)}_raw"
           elsif recv.nil? && @typed_params[name]
             # Free call to typed-param method: pass raw args
             write crystal_method_name(name)
@@ -1277,6 +1286,18 @@ module Frozone
           write crystal_method_name(node.name)
           emit_typed_call_args(node.arg_nodes || [], tp)
           return
+        end
+
+        # Devirtualize: cast class-typed receiver locals so Crystal sees the
+        # concrete type and can inline/devirtualize the method call.
+        if node.receiver_node.is_a?(Ast::LocalVariableRead)
+          recv_name  = ivar(node.receiver_node, :name)
+          recv_class = @current_class_locals[recv_name]
+          if recv_class
+            write "#{crystal_local(recv_name)}.as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(node.name)}"
+            emit_call_args(node)
+            return
+          end
         end
 
         super

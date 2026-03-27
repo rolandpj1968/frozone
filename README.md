@@ -96,19 +96,19 @@ Measured on Ruby 4.0.1 vs Crystal `--release` build (same workload per benchmark
 
 | Benchmark | MRI | YJIT | Frozone→Crystal | vs MRI | vs YJIT |
 |-----------|-----|------|-----------------|--------|---------|
-| fib(20) | 0.87 ms | 0.53 ms | 0.03 ms | **29×** | **18×** |
-| nqueens(8) | 0.87 ms | 1.31 ms | 0.08 ms | **11×** | **16×** |
-| nbody 20k | 167 ms | 58 ms | 1.11 ms | **150×** | **52×** |
-| matmul(200) | 581 ms | 272 ms | 14.3 ms | **41×** | **19×** |
+| fib(20) | 0.87 ms | 0.53 ms | 0.04 ms | **22×** | **13×** |
+| nqueens(8) | 0.87 ms | 1.31 ms | 0.05 ms | **17×** | **26×** |
+| nbody 20k | 167 ms | 58 ms | 1.76 ms | **95×** | **33×** |
+| matmul(200) | 581 ms | 272 ms | 21.3 ms | **27×** | **13×** |
 | getivar 50K | 0.28 ms | 0.28 ms | 0.01 ms | **28×** | **28×** |
 | setivar 50K | 0.27 ms | 0.25 ms | <0.01 ms | **>27×** | **>25×** |
-| binarytrees(14) | 292 ms | 115 ms | 278 ms | 1.1× | 0.4× |
-| loops\_times | 791 ms | 196 ms | 366 ms | **2.2×** | 0.5× |
-| attr\_accessor | 0.72 ms | 0.72 ms | 1.28 ms | 0.6× | 0.6× |
-| keyword\_args | 1.0 ms | 2.2 ms | 3.14 ms | 0.3× | 0.7× |
-| splay | 87 ms | 60 ms | 180 ms | 0.5× | 0.3× |
+| attr\_accessor | 0.72 ms | 0.72 ms | 0.01 ms | **72×** | **72×** |
+| loops\_times | 791 ms | 196 ms | 221 ms | **3.6×** | 0.9× |
+| binarytrees(14) | 292 ms | 115 ms | 250 ms | **1.2×** | 0.5× |
+| keyword\_args | 1.0 ms | 2.2 ms | 1.97 ms | 0.5× | 1.1× |
+| splay | 87 ms | 60 ms | 179 ms | 0.5× | 0.3× |
 
-**Pure arithmetic** (fib, nqueens, nbody, matmul, getivar, setivar) is fully specialised to raw Crystal types — 10–150× faster than MRI. **Object-heavy** benchmarks (splay, binarytrees, attr\_accessor, keyword\_args) go through `RubyObject` polymorphic dispatch and are currently slower than YJIT; these show where the Crystal runtime needs optimisation (inlining accessors, devirtualising monomorphic call sites, etc.).
+**Numeric and accessor benchmarks** (fib through attr\_accessor) are fully specialised to raw Crystal types — 13–95× faster than MRI. Self-calls to typed accessors use `_raw` form to eliminate boxing. **Mixed/object-heavy** benchmarks (loops\_times through splay) go through `RubyObject` dispatch for some operations; `loops_times` and `binarytrees` now beat MRI. `splay` is the main target for further devirtualisation — its inner loop dispatches on `RubyObject`-typed ivars that are always `Node`.
 
 ### Parsers
 
