@@ -97,9 +97,11 @@ module Frozone
           @current_local_array_elems  = @ti_local_array_elems[nil] || {}
           @current_block_params       = @ti_block_params[nil]      || {}
           @current_method_body        = execute_block.body
+          @in_execute_block           = true
           emit_indent
           emit(execute_block.body)
           emit_newline
+          @in_execute_block           = false
           @typed_locals               = {}
           @typed_array_locals         = {}
           @current_class_locals       = {}
@@ -1099,9 +1101,11 @@ module Frozone
           write ")"
           return
         end
-        # Promote boxed-array local to native Array(T) when initialized via Array.new(n, default)
-        # and the variable doesn't escape (returned, passed as argument, etc.)
-        if (elem_ty = @current_local_array_elems[name]) && !@typed_array_locals.key?(name)
+        # Promote boxed-array local to native Array(T) when initialized via Array.new(n, default).
+        # Only in execute block — method bodies have cascading type issues with
+        # masgn targets, boxed indices, etc.
+        if @in_execute_block &&
+           (elem_ty = @current_local_array_elems[name]) && !@typed_array_locals.key?(name)
           rhs  = ivar(node, :value_node)
           body_for_escape = @current_method_body || ivar(node, :value_node)
           if rhs.is_a?(Ast::MethodCall) && ivar(rhs, :name) == :new &&
@@ -2100,6 +2104,21 @@ module Frozone
         if target[0] == :ivar && (ty = @current_class_ivars[target[1]])
           coerce = ty == :f64 ? ".to_f64" : ".to_i64"
           write "#{target[1]} = #{value_code}#{coerce}"
+        elsif (target[0] == :local || target[0] == :local_splat) &&
+              (ty = @typed_locals[target[1]])
+          coerce = ty == :f64 ? ".to_f64" : ".to_i64"
+          write "#{crystal_local(target[1])} = #{value_code}#{coerce}"
+        elsif (target[0] == :index || target[0] == :index_splat) &&
+              target[1].is_a?(Ast::LocalVariableRead) &&
+              (nat_ty = native_array_elem_type(ivar(target[1], :name)))
+          # Native Array(T) index write: coerce index to Int64 and value to T
+          coerce = nat_ty == :f64 ? ".to_f64" : ".to_i64"
+          write "#{crystal_local(ivar(target[1], :name))}["
+          target[2].each_with_index do |idx, i|
+            write ", " if i > 0
+            emit_coerce_i64(idx)
+          end
+          write "] = #{value_code}#{coerce}"
         else
           super
         end
