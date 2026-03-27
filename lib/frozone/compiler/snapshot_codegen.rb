@@ -670,10 +670,15 @@ module Frozone
         rp = ivar(node, :rest_param)
         parts << "*#{crystal_local(rp)} : RubyObject" if rp
         ivar(node, :post_params).each { |p| parts << "#{crystal_local(p)} : RubyObject" }
-        ivar(node, :required_kw_params).each { |p| parts << "#{p}: #{crystal_local(p)} : RubyObject" }
-        ivar(node, :optional_kw_params).each { |p, default| parts << "#{p}: #{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
+        req_kw = ivar(node, :required_kw_params) || []
+        opt_kw = ivar(node, :optional_kw_params) || []
         kr = ivar(node, :kw_rest_param)
-        parts << "**#{crystal_local(kr)} : RubyObject" if kr
+        if (!req_kw.empty? || !opt_kw.empty?) && !rp
+          parts << "*"  # Crystal keyword-only separator
+        end
+        req_kw.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
+        opt_kw.each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
+        parts << "**#{crystal_local(kr)}" if kr
         bp = ivar(node, :block_param)
         parts << "&#{crystal_local(bp)}" if bp
         write "(#{parts.join(', ')})" unless parts.empty?
@@ -904,6 +909,11 @@ module Frozone
               emit_raw(a)
             end
             write ")"
+            # Method may return RubyObject even if TI says the value is :i64/:f64;
+            # coerce the return to raw Crystal type so callers get Int64/Float64.
+            if (ret = @typed_method_returns[name])
+              write(ret == :f64 ? ".to_f64" : ".to_i64")
+            end
           elsif recv.is_a?(Ast::LocalVariableRead) &&
                 (recv_class = @current_class_locals[ivar(recv, :name)]) &&
                 (ret_ty = @instance_method_raw_returns[[recv_class, name]])
@@ -933,6 +943,11 @@ module Frozone
             write ")"
           else
             emit(node)
+            # If TI says this free call returns :i64/:f64 but we emitted
+            # the boxed path, coerce so callers get the raw Crystal type.
+            if recv.nil? && (ret = @typed_method_returns[name])
+              write(ret == :f64 ? ".to_f64" : ".to_i64")
+            end
           end
         else
           emit(node)
@@ -1181,7 +1196,7 @@ module Frozone
           when :times
             emit_raw(node.receiver_node)
             write ".times "
-            emit_block(node.block_node)
+            emit_native_iter_block(node.block_node)
             return
           when :upto
             limit = (node.arg_nodes || [])[0]
@@ -1191,7 +1206,7 @@ module Frozone
               write ".."
               emit_raw(limit)
               write ").each "
-              emit_block(node.block_node)
+              emit_native_iter_block(node.block_node)
               return
             end
           when :downto
@@ -1202,7 +1217,7 @@ module Frozone
               write ".."
               emit_raw(node.receiver_node)
               write ").reverse_each "
-              emit_block(node.block_node)
+              emit_native_iter_block(node.block_node)
               return
             end
           end
@@ -1528,6 +1543,22 @@ module Frozone
         else
           emit(expr || node)
         end
+      end
+
+      # Emit a block for native integer iteration (times/upto/downto),
+      # registering block params as raw :i64 so arithmetic inside is unboxed.
+      def emit_native_iter_block(blk)
+        params = (ivar(blk, :required_params) || []) + (ivar(blk, :optional_params) || []).map(&:first)
+        params += [ivar(blk, :rest_param)].compact
+        write "{ "
+        unless params.empty?
+          write "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
+        end
+        old_rbp = @raw_block_params
+        @raw_block_params = old_rbp.merge(params.map { |p| [p, :i64] }.to_h)
+        emit(ivar(blk, :body))
+        @raw_block_params = old_rbp
+        write " }"
       end
 
       # Override: emit `for i in lo...hi` as a native Crystal integer range loop

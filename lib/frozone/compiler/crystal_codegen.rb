@@ -657,7 +657,8 @@ module Frozone
         node.kw_arg_nodes.each do |kw_name, val_node|
           write ", " unless first
           first = false
-          write "#{kw_name}: "
+          key = kw_name.is_a?(Ast::SymbolLiteral) ? kw_name.value : kw_name
+          write "#{key}: "
           emit(val_node)
         end
         write ")"
@@ -1300,10 +1301,15 @@ module Frozone
         rp = ivar(node, :rest_param)
         parts << "*#{crystal_local(rp)} : RubyObject" if rp
         ivar(node, :post_params).each { |p| parts << "#{crystal_local(p)} : RubyObject" }
-        ivar(node, :required_kw_params).each { |p| parts << "#{p}: #{crystal_local(p)} : RubyObject" }
-        ivar(node, :optional_kw_params).each { |p, default| parts << "#{p}: #{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
+        req_kw = ivar(node, :required_kw_params) || []
+        opt_kw = ivar(node, :optional_kw_params) || []
         kr = ivar(node, :kw_rest_param)
-        parts << "**#{crystal_local(kr)} : RubyObject" if kr
+        if (!req_kw.empty? || !opt_kw.empty?) && !rp
+          parts << "*"  # Crystal keyword-only separator
+        end
+        req_kw.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
+        opt_kw.each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
+        parts << "**#{crystal_local(kr)}" if kr
         bp = ivar(node, :block_param)
         parts << "&#{crystal_local(bp)}" if bp
         write "(#{parts.join(', ')})" unless parts.empty?
