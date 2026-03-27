@@ -34,6 +34,12 @@ class RubyRange < RubyObject
     end
   end
 
+  def to_a : RubyArray
+    result = [] of RubyObject
+    each { |v| result << v }
+    RubyArray.new(result)
+  end
+
   def each(&block : RubyObject -> _) : RubyObject
     b = @begin_val
     e = @end_val

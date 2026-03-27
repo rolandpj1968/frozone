@@ -104,6 +104,17 @@ class RubyArray < RubyObject
   def []=(i : RubyObject, v : RubyObject) : RubyObject
     case i
     when RubyInteger then self[i.to_i64] = v
+    when RubyRange
+      # a[range] = other_array — replace slice with other array's elements
+      other = v.is_a?(RubyArray) ? v.as(RubyArray).data : [v]
+      b = i.begin_val.to_i64
+      e = i.end_val.to_i64
+      b += @data.size if b < 0
+      e += @data.size if e < 0
+      e -= 1 if i.exclusive
+      len = [e - b + 1, 0_i64].max
+      @data[b.to_i32, len.to_i32] = other
+      v
     else raise Exception.new("Array index must be Integer, got #{i.class}")
     end
   end
@@ -168,6 +179,24 @@ class RubyArray < RubyObject
   def clear : RubyArray
     @data.clear
     self
+  end
+
+  def delete_at(idx : RubyObject) : RubyObject
+    i = idx.to_i64
+    i += @data.size if i < 0
+    return RubyNil::INSTANCE if i < 0 || i >= @data.size
+    @data.delete_at(i)
+  end
+
+  def insert(idx : RubyObject, val : RubyObject) : RubyArray
+    i = idx.to_i64
+    i += @data.size + 1 if i < 0
+    @data.insert(i.to_i32, val)
+    self
+  end
+
+  def dup : RubyArray
+    RubyArray.new(@data.dup)
   end
 
   # -------------------------------------------------------------------------

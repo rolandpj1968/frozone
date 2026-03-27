@@ -1229,6 +1229,19 @@ module Frozone
           write "#{target[1]} = #{value_code}"
         when :const, :const_splat
           write "Ruby_#{crystal_constant(target[1])} = #{value_code}"
+        when :index, :index_splat
+          # a[i] = val — target[1] is receiver node, target[2] is array of index arg nodes
+          emit(target[1])
+          write "["
+          target[2].each_with_index do |idx, i|
+            write ", " if i > 0
+            emit(idx)
+          end
+          write "] = #{value_code}"
+        when :call, :call_splat
+          # obj.method = val — target[1] is receiver node, target[2] is method name
+          emit(target[1])
+          write ".#{crystal_method_name(target[2])} = #{value_code}"
         when :splat_nil
           # discard — already skipped in caller, but guard here too
         else
