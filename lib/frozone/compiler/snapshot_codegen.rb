@@ -1058,6 +1058,25 @@ module Frozone
           write ")"
           return
         end
+        # Promote boxed-array local to native Array(T) when initialized via Array.new(n, default)
+        if (elem_ty = @current_local_array_elems[name]) && !@typed_array_locals.key?(name)
+          rhs  = ivar(node, :value_node)
+          if rhs.is_a?(Ast::MethodCall) && ivar(rhs, :name) == :new &&
+             ivar(rhs, :receiver_node).is_a?(Ast::ConstantRead) &&
+             ivar(ivar(rhs, :receiver_node), :name) == :Array
+            args = ivar(rhs, :arg_nodes) || []
+            if args.size == 2
+              crystal_ty = elem_ty == :f64 ? "Float64" : "Int64"
+              write "#{crystal_local(name)} = Array(#{crystal_ty}).new("
+              emit_coerce_i64(args[0])
+              write ", "
+              emit_as(args[1], elem_ty)
+              write ")"
+              @native_array_locals[name] = elem_ty
+              return
+            end
+          end
+        end
         if (raw_ty = @typed_locals[name])
           write "#{crystal_local(name)} = "
           emit_as(ivar(node, :value_node), raw_ty)

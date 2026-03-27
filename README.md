@@ -103,12 +103,12 @@ Measured on Ruby 4.0.1 vs Crystal `--release` build (same workload per benchmark
 | getivar 50K | 0.28 ms | 0.28 ms | 0.01 ms | **28×** | **28×** |
 | setivar 50K | 0.27 ms | 0.25 ms | <0.01 ms | **>27×** | **>25×** |
 | attr\_accessor | 0.72 ms | 0.72 ms | 0.01 ms | **72×** | **72×** |
-| loops\_times | 791 ms | 196 ms | 221 ms | **3.6×** | 0.9× |
+| loops\_times | 791 ms | 196 ms | 10.9 ms | **73×** | **18×** |
 | binarytrees(14) | 292 ms | 115 ms | 250 ms | **1.2×** | 0.5× |
 | keyword\_args | 1.0 ms | 2.2 ms | 1.97 ms | 0.5× | 1.1× |
 | splay | 87 ms | 60 ms | 179 ms | 0.5× | 0.3× |
 
-**Numeric and accessor benchmarks** (fib through attr\_accessor) are fully specialised to raw Crystal types — 13–95× faster than MRI. Self-calls to typed accessors use `_raw` form to eliminate boxing. **Mixed/object-heavy** benchmarks (loops\_times through splay) go through `RubyObject` dispatch for some operations; `loops_times` and `binarytrees` now beat MRI. `splay` is the main target for further devirtualisation — its inner loop dispatches on `RubyObject`-typed ivars that are always `Node`.
+**Numeric and accessor benchmarks** (fib through loops\_times) are fully specialised to raw Crystal types — 13–95× faster than MRI. Self-calls to typed accessors use `_raw` form to eliminate boxing. `Array.new(n, default)` with typed elements promotes to native `Array(Int64)`. **Object-heavy** benchmarks (binarytrees, keyword\_args, splay) still go through `RubyObject` dispatch; `splay` is the main target for further devirtualisation — its inner loop dispatches on `RubyObject`-typed ivars that are always `Node`.
 
 ### Parsers
 
