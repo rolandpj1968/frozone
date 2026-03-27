@@ -38,7 +38,15 @@ module Frozone
         elsif receiver.is_a?(Vm::ClassObject)
           # Class method: search in singleton class hierarchy
           klass  = receiver.singleton_class
-          origin = defining_class.is_a?(Vm::ClassObject) ? defining_class.singleton_class : defining_class
+          # Regular `def self.foo` in class body uses scopes=[Foo] (ClassObject, not singleton),
+          # so origin = Foo.singleton_class (look after Foo's singleton class in its MRO).
+          # `define_singleton_method` uses scopes=[Foo.singleton_class] (already a singleton),
+          # so origin = Foo.singleton_class directly (don't go one level deeper).
+          origin = if defining_class.is_a?(Vm::ClassObject) && !defining_class.is_singleton_class
+                     defining_class.singleton_class
+                   else
+                     defining_class
+                   end
           super_method = klass.lookup_method_after(method_name, origin)
         else
           # If origin is not in the instance class ancestors, it must be from the singleton chain

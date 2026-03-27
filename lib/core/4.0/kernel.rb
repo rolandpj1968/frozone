@@ -11,6 +11,13 @@ module Kernel
   def eql?(other) = equal?(other)
   def respond_to?(name, include_all = false) = Intrinsics.object_respond_to(self, name, include_all)
   def instance_of?(klass) = Intrinsics.object_instance_of(self, klass)
+  def freeze = Intrinsics.object_freeze(self)
+  def frozen? = Intrinsics.object_frozen(self)
+  def methods(include_super = true) = Intrinsics.object_methods(self, include_super)
+  def public_methods(include_super = true) = Intrinsics.object_public_methods(self, include_super)
+  def private_methods(include_super = true) = Intrinsics.object_private_methods(self, include_super)
+  def protected_methods(include_super = true) = Intrinsics.object_protected_methods(self, include_super)
+  def singleton_methods(include_super = true) = Intrinsics.object_singleton_methods(self, include_super)
   def suppress_warning; yield; end
   def suppress_keyword_warning; yield; end
   def puts(*args) = Intrinsics.kernel_puts(self, args)

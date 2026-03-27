@@ -262,10 +262,10 @@ Modules with 100% pass rate:
 Tested against [ruby/spec](https://github.com/ruby/spec) library specs.
 Run with `bundle exec rake library` (or `rake library:NAME` for a single module).
 
-**Overall: 1890 / 2396 passing (79%)** — as of 2026-03-26 (Prism parser)
+**Overall: 1974 / 2466 passing (80%)** — as of 2026-03-27 (Prism parser)
 
 Many modules report 0 examples because they require C extensions or unavailable gems.
-`getoptlong`, `irb`, `mkmf`, `objectspace`, `prime`, `securerandom` timed out in the parallel runner.
+`getoptlong`, `irb`, `mkmf`, `objectspace`, `prime` timed out in the parallel runner.
 `delegate` has hanging specs excluded via `SKIP_LIBRARY_SPEC_FILES` in `Rakefile`.
 
 ### Modules with 0 examples
@@ -277,8 +277,8 @@ Many modules report 0 examples because they require C extensions or unavailable 
 | **Platform/version guards** | readline (`with_feature :readline`) |
 
 Modules with 100% pass rate:
-`abbrev`, `base64`, `English`, `expect`, `find`, `observer`, `optionparser`, `pathname`, `pp`,
-`random`, `rbconfig`, `shellwords`, `singleton`, `stringscanner`, `time`, `tmpdir`, `uri`, `weakref`
+`abbrev`, `base64`, `English`, `expect`, `find`, `matrix`, `observer`, `optionparser`, `pathname`, `pp`,
+`random`, `rbconfig`, `securerandom`, `shellwords`, `singleton`, `stringscanner`, `time`, `tmpdir`, `uri`, `weakref`
 
 | Module | Examples | Passing | Failures | Errors | Notes |
 |---|---:|---:|---:|---:|---|
@@ -287,7 +287,7 @@ Modules with 100% pass rate:
 | csv | 33 | 32 | 1 | 0 | |
 | date | 295 | 59 | 65 | 171 | date_core C extension; partial pure-Ruby support |
 | datetime | 114 | 38 | 2 | 74 | date_core C extension; partial pure-Ruby support |
-| delegate | 39 | 24 | 3 | 12 | some specs hang (mspec mock interaction) |
+| delegate | 68 | 66 | 2 | 0 | |
 | digest | 7 | — | 5 | 3 | C extension (SHA/MD5) |
 | erb | 53 | 49 | 0 | 4 | partial C extension dependency |
 | etc | 39 | 3 | 6 | 30 | C extension |
@@ -297,6 +297,6 @@ Modules with 100% pass rate:
 | open3 | 4 | 0 | 0 | 4 | subprocess piping |
 | rubygems | 2 | 0 | 0 | 2 | |
 | stringio | 670 | 668 | 0 | 2 | 2 unavoidable errors (getch/getpass need `io/console` C extension) |
-| tempfile | 46 | 23 | 5 | 18 | temp file/dir race conditions |
+| tempfile | 46 | 24 | 5 | 17 | temp file/dir race conditions |
 | thread | 2 | 0 | 2 | 0 | threading primitives |
 | timeout | 7 | 3 | 0 | 4 | |

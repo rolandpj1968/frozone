@@ -7,16 +7,9 @@ class Object < BasicObject
   def ===(other) = Intrinsics.basic_object__equal_equal_(self, other) || self == other
   def extend(*mods) = Intrinsics.object_extend_multi(self, mods)
   def instance_exec(*args, &block) = Intrinsics.object_instance_exec(self, args, block)
-  def freeze = Intrinsics.object_freeze(self)
-  def frozen? = Intrinsics.object_frozen(self)
   def dup = Intrinsics.object_dup(self)
   def clone(freeze: nil) = Intrinsics.object_clone(self, freeze)
   def itself = self
-  def methods(include_super = true) = Intrinsics.object_methods(self, include_super)
-  def public_methods(include_super = true) = Intrinsics.object_public_methods(self, include_super)
-  def private_methods(include_super = true) = Intrinsics.object_private_methods(self, include_super)
-  def protected_methods(include_super = true) = Intrinsics.object_protected_methods(self, include_super)
-  def singleton_methods(include_super = true) = Intrinsics.object_singleton_methods(self, include_super)
   def singleton_class = Intrinsics.object_singleton_class(self)
   def to_s = "#<#{self.class}:0x#{__id__.to_s(16)}>"
   def pretty_inspect = inspect
