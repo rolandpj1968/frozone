@@ -92,16 +92,23 @@ The Crystal runtime (`crystal/src/`) provides `RubyObject`, `RubyInteger`, `Ruby
 
 ### Benchmark Results
 
-Measured on Ruby 4.0.1 vs Crystal release build (same workload per benchmark):
+Measured on Ruby 4.0.1 vs Crystal `--release` build (same workload per benchmark):
 
-| Benchmark | MRI (no YJIT) | MRI (YJIT) | Frozone→Crystal | vs MRI | vs YJIT |
-|-----------|--------------|------------|-----------------|--------|---------|
-| fib(20) | 0.87 ms | 0.53 ms | 0.04 ms | **22×** | **13×** |
-| nq\_solve(8) | 0.87 ms | 1.31 ms | 0.05 ms | **17×** | **26×** |
-| nbody 20k steps | 167 ms | 58 ms | 2.12 ms | **79×** | **27×** |
-| matmul(200) | 581 ms | 272 ms | 22 ms | **26×** | **12×** |
+| Benchmark | MRI | YJIT | Frozone→Crystal | vs MRI | vs YJIT |
+|-----------|-----|------|-----------------|--------|---------|
+| fib(20) | 0.87 ms | 0.53 ms | 0.03 ms | **29×** | **18×** |
+| nqueens(8) | 0.87 ms | 1.31 ms | 0.08 ms | **11×** | **16×** |
+| nbody 20k | 167 ms | 58 ms | 1.11 ms | **150×** | **52×** |
+| matmul(200) | 581 ms | 272 ms | 14.3 ms | **41×** | **19×** |
+| getivar 50K | 0.28 ms | 0.28 ms | 0.01 ms | **28×** | **28×** |
+| setivar 50K | 0.27 ms | 0.25 ms | <0.01 ms | **>27×** | **>25×** |
+| binarytrees(14) | 292 ms | 115 ms | 278 ms | 1.1× | 0.4× |
+| loops\_times | 791 ms | 196 ms | 366 ms | **2.2×** | 0.5× |
+| attr\_accessor | 0.72 ms | 0.72 ms | 1.28 ms | 0.6× | 0.6× |
+| keyword\_args | 1.0 ms | 2.2 ms | 3.14 ms | 0.3× | 0.7× |
+| splay | 87 ms | 60 ms | 180 ms | 0.5× | 0.3× |
 
-`fib`, `nqueens`, and `nbody` inner loops are fully specialised to raw Crystal arithmetic by the type inference pass. `matmul` output matrix `c` is now an unboxed `Array(Array(Float64))` — no heap allocation in the inner loop. Input matrices `a` and `b` are still `RubyArray` of boxed `RubyFloat` (returned by `matgen`); unboxing those is the next optimisation target.
+**Pure arithmetic** (fib, nqueens, nbody, matmul, getivar, setivar) is fully specialised to raw Crystal types — 10–150× faster than MRI. **Object-heavy** benchmarks (splay, binarytrees, attr\_accessor, keyword\_args) go through `RubyObject` polymorphic dispatch and are currently slower than YJIT; these show where the Crystal runtime needs optimisation (inlining accessors, devirtualising monomorphic call sites, etc.).
 
 ### Parsers
 
