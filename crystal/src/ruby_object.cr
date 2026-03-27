@@ -142,6 +142,14 @@ abstract class RubyObject
     raise Exception.new("each not supported for #{self.class}")
   end
 
+  def ord : RubyInteger
+    raise Exception.new("ord not supported for #{self.class}")
+  end
+
+  def dup : RubyObject
+    raise Exception.new("dup not supported for #{self.class}")
+  end
+
   # -------------------------------------------------------------------------
   # Logical negation (Crystal `!` can't be overridden; use `not`)
   # -------------------------------------------------------------------------

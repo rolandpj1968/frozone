@@ -355,6 +355,36 @@ class RubyString < RubyObject
     RubyString.new(new_bytes, enc)
   end
 
+  # Append (mutating) — Ruby's <<
+  def <<(other : RubyString) : RubyString
+    concat_bytes!(other)
+  end
+
+  def <<(other : RubyObject) : RubyString
+    concat_bytes!(RubyString.new(other.to_s))
+  end
+
+  # Character access — returns single-char string or nil
+  def [](idx : Int64) : RubyObject
+    return RubyNil::INSTANCE if @encoding == RubyEncoding::ASCII_8BIT
+    str = String.new(@bytes)
+    i = idx < 0 ? str.size + idx : idx
+    return RubyNil::INSTANCE if i < 0 || i >= str.size
+    ch = str[i]
+    RubyString.new(ch.to_s, @encoding)
+  end
+
+  def [](idx : RubyObject) : RubyObject
+    self[idx.to_i64]
+  end
+
+  # Character ordinal value
+  def ord : RubyInteger
+    str = String.new(@bytes)
+    return RubyInteger.new(0_i64) if str.empty?
+    RubyInteger.new(str[0].ord.to_i64)
+  end
+
   # Repeat the string n times.
   def *(n : Int32) : RubyString
     return RubyString.new(Bytes.empty, @encoding) if n <= 0
@@ -436,6 +466,19 @@ class RubyString < RubyObject
       return nil
     end
     bytesize_compare(other)
+  end
+
+  def <(other : RubyObject) : Bool
+    other.is_a?(RubyString) ? (bytesize_compare(other) < 0) : (raise Exception.new("comparison of String with #{other.class} failed"))
+  end
+  def <=(other : RubyObject) : Bool
+    other.is_a?(RubyString) ? (bytesize_compare(other) <= 0) : (raise Exception.new("comparison of String with #{other.class} failed"))
+  end
+  def >(other : RubyObject) : Bool
+    other.is_a?(RubyString) ? (bytesize_compare(other) > 0) : (raise Exception.new("comparison of String with #{other.class} failed"))
+  end
+  def >=(other : RubyObject) : Bool
+    other.is_a?(RubyString) ? (bytesize_compare(other) >= 0) : (raise Exception.new("comparison of String with #{other.class} failed"))
   end
 
   # Lexicographic compare on raw bytes (always returns Int32, ignores encoding).

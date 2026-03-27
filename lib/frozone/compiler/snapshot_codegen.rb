@@ -96,6 +96,7 @@ module Frozone
           @current_class_locals       = @ti_class_locals[nil]      || {}
           @current_local_array_elems  = @ti_local_array_elems[nil] || {}
           @current_block_params       = @ti_block_params[nil]      || {}
+          @current_method_body        = execute_block.body
           emit_indent
           emit(execute_block.body)
           emit_newline
@@ -309,6 +310,7 @@ module Frozone
         @current_local_array_elems = (@ti_local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }
         @current_block_params      = (@ti_block_params[mkey]      || {}).reject { |k, _| param_set.include?(k) }
         @current_local_2d_arrays   = detect_local_2d_arrays(method.body, param_set)
+        @current_method_body       = method.body
         @native_array_locals       = {}
         # Include raw-typed params in @typed_locals so node_raw_type works for them
         # and they are correctly boxed/unboxed in mixed expressions.
@@ -389,6 +391,10 @@ module Frozone
         when Vm::TrueObject    then "RUBY_TRUE"
         when Vm::FalseObject   then "RUBY_FALSE"
         when Vm::SymbolObject  then "RubySymbol.new(#{value.raw.inspect})"
+        when Vm::ArrayObject
+          elems = value.raw.map { |e| vm_value_to_crystal(e) }
+          return nil if elems.any?(&:nil?)
+          "RubyArray.new([#{elems.join(', ')}] of RubyObject)"
         else                        nil
         end
       end
@@ -597,9 +603,41 @@ module Frozone
           inner_args = ivar(inner, :arg_nodes) || []
           fill_ty = node_raw_type(inner_args[1])
           next unless fill_ty
+          # Don't promote if the variable escapes (returned, passed as arg, used in array literal)
+          next if local_escapes?(body, name)
           result[name] = fill_ty
         end
         result
+      end
+
+      # Check if a local variable is used beyond simple indexing (read/write).
+      def local_escapes?(node, name)
+        return false unless node
+        case node
+        when Ast::LocalVariableRead
+          ivar(node, :name) == name
+        when Ast::MethodCall
+          call_name = ivar(node, :name)
+          recv = ivar(node, :receiver_node)
+          args = ivar(node, :arg_nodes) || []
+          if (call_name == :[] || call_name == :[]=) && recv.is_a?(Ast::LocalVariableRead) && ivar(recv, :name) == name
+            return args.any? { |a| local_escapes?(a, name) } ||
+                   (ivar(node, :block_node) ? local_escapes?(ivar(node, :block_node), name) : false)
+          end
+          (recv ? local_escapes?(recv, name) : false) ||
+            args.any? { |a| local_escapes?(a, name) } ||
+            (ivar(node, :block_node) ? local_escapes?(ivar(node, :block_node), name) : false)
+        when Ast::Sequence then node.nodes.any? { |n| local_escapes?(n, name) }
+        when Ast::If
+          [ivar(node, :condition), ivar(node, :then_node), ivar(node, :else_node)].any? { |n| local_escapes?(n, name) }
+        when Ast::While
+          local_escapes?(ivar(node, :condition_node), name) || local_escapes?(ivar(node, :body_node), name)
+        when Ast::Block then local_escapes?(ivar(node, :body), name)
+        when Ast::LocalVariableWrite
+          ivar(node, :name) != name && local_escapes?(ivar(node, :value_node), name)
+        when Ast::ArrayLiteral then (ivar(node, :element_nodes) || []).any? { |e| local_escapes?(e, name) }
+        else false
+        end
       end
 
       # -----------------------------------------------------------------------
@@ -947,7 +985,9 @@ module Frozone
             ty = (rt == :f64 || at == :f64) ? :f64 : :i64
             write "("
             emit_as(recv, ty)
-            write " #{name} "
+            # Crystal uses // for integer division (Ruby's / on integers)
+            op = (name == :/ && ty == :i64) ? "//" : name.to_s
+            write " #{op} "
             emit_as(args[0], ty)
             write ")"
           else
@@ -986,7 +1026,8 @@ module Frozone
             if rt || at
               write "("
               emit_as(recv, ty)
-              write " #{name} "
+              op = (name == :/ && ty == :i64) ? "//" : name.to_s
+              write " #{op} "
               emit_as(args[0], ty)
               write ")"
               return
@@ -1059,11 +1100,14 @@ module Frozone
           return
         end
         # Promote boxed-array local to native Array(T) when initialized via Array.new(n, default)
+        # and the variable doesn't escape (returned, passed as argument, etc.)
         if (elem_ty = @current_local_array_elems[name]) && !@typed_array_locals.key?(name)
           rhs  = ivar(node, :value_node)
+          body_for_escape = @current_method_body || ivar(node, :value_node)
           if rhs.is_a?(Ast::MethodCall) && ivar(rhs, :name) == :new &&
              ivar(rhs, :receiver_node).is_a?(Ast::ConstantRead) &&
-             ivar(ivar(rhs, :receiver_node), :name) == :Array
+             ivar(ivar(rhs, :receiver_node), :name) == :Array &&
+             !local_escapes?(body_for_escape, name)
             args = ivar(rhs, :arg_nodes) || []
             if args.size == 2
               crystal_ty = elem_ty == :f64 ? "Float64" : "Int64"
