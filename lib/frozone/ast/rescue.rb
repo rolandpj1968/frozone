@@ -81,7 +81,9 @@ module Frozone
 
       # Check whether exception e is an instance of (or subclass of) frozone_class.
       def exception_is_a?(e, frozone_class)
-        frozone_name = frozone_class.is_a?(Vm::ModuleObject) ? frozone_class.name : nil
+        # Use full_name (e.g. :"Errno::ENOENT") not leaf name (:ENOENT) so namespaced
+        # MRI exceptions propagating out of intrinsics match their rescue clauses.
+        frozone_name = frozone_class.is_a?(Vm::ModuleObject) ? frozone_class.full_name : nil
 
         if e.is_a?(Vm::FrozoneException)
           vm_obj = e.vm_object

@@ -262,7 +262,7 @@ Modules with 100% pass rate:
 Tested against [ruby/spec](https://github.com/ruby/spec) library specs.
 Run with `bundle exec rake library` (or `rake library:NAME` for a single module).
 
-**Overall: 1974 / 2466 passing (80%)** — as of 2026-03-27 (Prism parser)
+**Overall: 1979 / 2467 passing (80%)** — as of 2026-03-27 (Prism parser)
 
 Many modules report 0 examples because they require C extensions or unavailable gems.
 `getoptlong`, `irb`, `mkmf`, `objectspace`, `prime` timed out in the parallel runner.
@@ -277,7 +277,7 @@ Many modules report 0 examples because they require C extensions or unavailable 
 | **Platform/version guards** | readline (`with_feature :readline`) |
 
 Modules with 100% pass rate:
-`abbrev`, `base64`, `English`, `expect`, `find`, `matrix`, `observer`, `optionparser`, `pathname`, `pp`,
+`abbrev`, `base64`, `English`, `expect`, `find`, `logger`, `matrix`, `observer`, `optionparser`, `pathname`, `pp`,
 `random`, `rbconfig`, `securerandom`, `shellwords`, `singleton`, `stringscanner`, `time`, `tmpdir`, `uri`, `weakref`
 
 | Module | Examples | Passing | Failures | Errors | Notes |
@@ -292,7 +292,6 @@ Modules with 100% pass rate:
 | erb | 53 | 49 | 0 | 4 | partial C extension dependency |
 | etc | 39 | 3 | 6 | 30 | C extension |
 | io-wait | 28 | 3 | 5 | 20 | IO wait/nonblock not implemented |
-| logger | 55 | 51 | 0 | 4 | |
 | monitor | 12 | 6 | 2 | 4 | cooperative threading edge cases |
 | open3 | 4 | 0 | 0 | 4 | subprocess piping |
 | rubygems | 2 | 0 | 0 | 2 | |

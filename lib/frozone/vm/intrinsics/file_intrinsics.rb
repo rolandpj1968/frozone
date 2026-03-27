@@ -177,7 +177,10 @@ module Frozone
           end
           file_klass = Core.file_class || Core.io_class
           if !fnil?(block)
-            f = File.open(*open_args, **open_kwargs)
+            f = reraise(::Errno::ENOENT, ::Errno::EACCES, ::Errno::EEXIST, ::Errno::EISDIR,
+                        ::Errno::ENOTDIR, ::ArgumentError, ::TypeError, ::SystemCallError) do
+              File.open(*open_args, **open_kwargs)
+            end
             io_obj = IOObject.new(f, file_klass)
             close_error = nil
             result = begin
@@ -199,7 +202,10 @@ module Frozone
             raise close_error if close_error
             result
           else
-            IOObject.new(File.open(*open_args, **open_kwargs), file_klass)
+            reraise(::Errno::ENOENT, ::Errno::EACCES, ::Errno::EEXIST, ::Errno::EISDIR,
+                    ::Errno::ENOTDIR, ::ArgumentError, ::TypeError, ::SystemCallError) do
+              IOObject.new(File.open(*open_args, **open_kwargs), file_klass)
+            end
           end
         end
 
