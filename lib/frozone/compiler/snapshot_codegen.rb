@@ -1190,15 +1190,19 @@ module Frozone
         super
       end
 
-      # Override: emit 2-element array literals as RubyPair (single allocation,
-      # 2 inline fields) instead of RubyArray (3 allocations).
+      # Override: emit small fixed-size array literals as RubyTupleN (single
+      # allocation, N inline fields) instead of RubyArray (3 allocations).
+      MAX_TUPLE_SIZE = 8
+
       def emit_array_literal(node)
         elems = ivar(node, :element_nodes) || []
-        if elems.size == 2 && elems.none? { |e| e.is_a?(Ast::SplatArg) }
-          write "RubyPair.new("
-          emit(elems[0])
-          write ", "
-          emit(elems[1])
+        if elems.size >= 1 && elems.size <= MAX_TUPLE_SIZE &&
+           elems.none? { |e| e.is_a?(Ast::SplatArg) }
+          write "RubyTuple#{elems.size}.new("
+          elems.each_with_index do |el, i|
+            write ", " if i > 0
+            emit(el)
+          end
           write ")"
         else
           super
