@@ -320,8 +320,10 @@ module Frozone
           req = ivar(method, :required_params) || []
           req.each_with_index do |p, i|
             case param_types[i]
-            when 'Int64'   then @typed_locals[p] = :i64
-            when 'Float64' then @typed_locals[p] = :f64
+            when 'Int64'        then @typed_locals[p] = :i64
+            when 'Float64'      then @typed_locals[p] = :f64
+            when 'Array(Int64)' then @native_array_locals[p] = :i64
+            when 'Array(Float64)' then @native_array_locals[p] = :f64
             end
           end
         end
@@ -560,7 +562,12 @@ module Frozone
           when :Symbol           then 'RubySymbol'
           when :NilClass         then 'RubyNil'
           when :TrueClass, :FalseClass then 'RubyBool'
-          when :Array            then 'RubyArray'
+          when :Array
+            if ty[:elem] && (elem_raw = ti_raw_type(ty[:elem]))
+              elem_raw == :f64 ? 'Array(Float64)' : 'Array(Int64)'
+            else
+              'RubyArray'
+            end
           when :Hash             then 'RubyHash'
           when :Proc             then 'RubyProc'
           else
@@ -1065,6 +1072,7 @@ module Frozone
       # operand? Handles Sequence([LocalVariableWrite]) from parser grouping.
       def contains_assignment?(node)
         return true if node.is_a?(Ast::LocalVariableWrite) || node.is_a?(Ast::InstanceVariableWrite)
+        return true if node.is_a?(Ast::IndexOperatorWrite) || node.is_a?(Ast::AttributeWrite)
         node.is_a?(Ast::Sequence) && node.nodes.size == 1 && contains_assignment?(node.nodes.first)
       end
 
@@ -1124,16 +1132,11 @@ module Frozone
           return
         end
         # Promote boxed-array local to native Array(T) when initialized via Array.new(n, default).
-        # Only in execute block — method bodies have cascading type issues with
-        # masgn targets, boxed indices, etc.
-        if @in_execute_block &&
-           (elem_ty = @current_local_array_elems[name]) && !@typed_array_locals.key?(name)
+        if (elem_ty = @current_local_array_elems[name]) && !@typed_array_locals.key?(name)
           rhs  = ivar(node, :value_node)
-          body_for_escape = @current_method_body || ivar(node, :value_node)
           if rhs.is_a?(Ast::MethodCall) && ivar(rhs, :name) == :new &&
              ivar(rhs, :receiver_node).is_a?(Ast::ConstantRead) &&
-             ivar(ivar(rhs, :receiver_node), :name) == :Array &&
-             !local_escapes?(body_for_escape, name)
+             ivar(ivar(rhs, :receiver_node), :name) == :Array
             args = ivar(rhs, :arg_nodes) || []
             if args.size == 2
               crystal_ty = elem_ty == :f64 ? "Float64" : "Int64"
@@ -1200,19 +1203,19 @@ module Frozone
       # emit the index temp as bare Int64 so the Int64 array overload is used.
       def emit_index_op_write(node)
         idx = ivar(node, :index_arg_nodes)&.first
-        return super unless idx && node_raw_type(idx)
         op        = ivar(node, :operator)
         recv_node = ivar(node, :receiver_node)
         val_node  = ivar(node, :value_node)
-        # Native Array(T) receiver (unboxed or 2D-parent): emit arr[i] op= val directly
+        # Native Array(T) receiver: emit arr[i] op= val directly, coercing index to Int64
         recv_name = recv_node.is_a?(Ast::LocalVariableRead) && ivar(recv_node, :name)
         if recv_name && (nat_ty = native_array_elem_type(recv_name))
           write "#{crystal_local(recv_name)}["
-          emit_raw(idx)
+          emit_coerce_i64(idx)
           write "] #{op}= "
           emit_as(val_node, nat_ty)
           return
         end
+        return super unless idx && node_raw_type(idx)
         r = "_iopw_r#{@temp_counter}"
         i = "_iopw_i#{@temp_counter}"
         @temp_counter += 1
