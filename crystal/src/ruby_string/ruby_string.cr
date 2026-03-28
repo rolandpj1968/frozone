@@ -472,7 +472,9 @@ class RubyString < RubyObject
 
   # Ruby eql? semantics: same bytes AND same encoding.
   def ==(other : RubyString) : Bool
-    @encoding == other.@encoding && @bytes == other.@bytes
+    return false unless @bytes == other.@bytes
+    return true if @encoding == other.@encoding
+    ascii_only? && other.ascii_only?
   end
 
   def ==(other : RubyObject) : Bool

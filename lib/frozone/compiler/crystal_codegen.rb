@@ -479,18 +479,35 @@ module Frozone
           # Comparison: wrap in RubyBool so return type is RubyObject-compatible
           # (a >= b) ? RUBY_TRUE : RUBY_FALSE
           write "(("
-          emit(node.receiver_node)
+          emit_operator_recv(node.receiver_node)
           write " #{name} "
           emit(node.arg_nodes[0])
           write ") ? RUBY_TRUE : RUBY_FALSE)"
         else
           # Arithmetic binary: (lhs op rhs) — returns RubyObject via Crystal dispatch
           write "("
-          emit(node.receiver_node)
+          emit_operator_recv(node.receiver_node)
           write " #{name} "
           emit(node.arg_nodes[0])
           write ")"
         end
+      end
+
+      # Emit operator receiver, wrapping in parens if it contains an
+      # embedded assignment (so Crystal groups `(q1 = expr) != 1` correctly).
+      def emit_operator_recv(recv)
+        if recv_contains_assignment?(recv)
+          write "("
+          emit(recv)
+          write ")"
+        else
+          emit(recv)
+        end
+      end
+
+      def recv_contains_assignment?(node)
+        return true if node.is_a?(Ast::LocalVariableWrite) || node.is_a?(Ast::InstanceVariableWrite)
+        node.is_a?(Ast::Sequence) && node.nodes.size == 1 && recv_contains_assignment?(node.nodes.first)
       end
 
       def emit_puts(node)
@@ -997,7 +1014,7 @@ module Frozone
           # Emit comparison directly as Crystal Bool — no RUBY_TRUE/RUBY_FALSE wrapper.
           # This is correct because Crystal's comparison dispatch already returns Bool.
           write "("
-          emit(node.receiver_node)
+          emit_operator_recv(node.receiver_node)
           write " #{node.name} "
           emit(node.arg_nodes[0])
           write ")"

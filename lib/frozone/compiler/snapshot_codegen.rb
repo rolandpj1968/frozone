@@ -121,6 +121,7 @@ module Frozone
         @raw_block_params            = {}   # param_name => :i64 | :f64 for currently-native block params
         @current_local_2d_arrays     = {}   # local_name => :i64 | :f64 — outer of Array(Array(T)) locals
         @native_array_locals         = {}   # local_name => :i64 | :f64 — Array(T) from 2D parent read
+        @suppress_typed_call_args    = false # true inside generic body that has a specialized overload
 
         # Pre-pass: collect user method names for RubyObject stubs
         collect_user_methods_from_scope(top_level_scope)
@@ -505,6 +506,7 @@ module Frozone
           @current_class_eigen_methods&.any? &&
           (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != 'RubyObject' }
         # Use TypeInference results for local types (omit params — they have declared types)
+        @suppress_typed_call_args  = generic_with_specialized
         @typed_locals              = (!generic_with_specialized && opt?(:unbox_locals)) ? ((@ti_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @typed_array_locals        = opt?(:native_arrays)   ? ((@ti_arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @current_class_locals      = opt?(:devirtualize)    ? ((@ti_class_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
@@ -767,7 +769,7 @@ module Frozone
 
         # Also build @inferred_params for eigenclass methods (class methods
         # called without receiver look like free calls to TI)
-        user_classes_hash.each do |_cname, klass|
+        (opt?(:call_site_types) || opt?(:method_specialization)) && user_classes_hash.each do |_cname, klass|
           eigenclass = klass.instance_variable_get(:@eigenclass)
           next unless eigenclass
           (eigenclass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
@@ -1271,18 +1273,16 @@ module Frozone
         # the method exists on the eigenclass. Prevents module_function methods
         # from dispatching to the RubyObject *args stub.
         if node.receiver_node.nil? && @current_class_eigen_methods&.include?(node.name)
-          tp = @inferred_params[node.name] || @ti_class_params[[@current_class_name, node.name]]
-          args = node.arg_nodes || []
-          # Try specialized overload: coerce all args to typed params.
-          # Only if ALL typed params can be satisfied (raw args match raw params,
-          # non-raw args can be coerced via .to_i64/.to_f64).
-          # If any param requires a type the arg can't provide (e.g. Array(Int64)
-          # when arg is RubyArray), fall back to generic (all boxed).
-          can_use_typed = tp&.any? { |t| t && t != 'RubyObject' } &&
-            tp.all? { |pt| !pt || pt == 'RubyObject' || pt == 'Int64' || pt == 'Float64' || pt.start_with?('Ruby_') }
           write "self.#{crystal_method_name(node.name)}"
-          if can_use_typed
-            emit_typed_call_args(args, tp)
+          if !@suppress_typed_call_args && (opt?(:call_site_types) || opt?(:method_specialization))
+            tp = @inferred_params[node.name] || @ti_class_params[[@current_class_name, node.name]]
+            can_use_typed = tp&.any? { |t| t && t != 'RubyObject' } &&
+              tp.all? { |pt| !pt || pt == 'RubyObject' || pt == 'Int64' || pt == 'Float64' || pt.start_with?('Ruby_') }
+            if can_use_typed
+              emit_typed_call_args(node.arg_nodes || [], tp)
+            else
+              emit_call_args(node)
+            end
           else
             emit_call_args(node)
           end
@@ -1290,7 +1290,7 @@ module Frozone
         end
 
         # Free call to method with typed params — coerce args to declared types
-        if node.receiver_node.nil? && (tp = @inferred_params[node.name])
+        if !@suppress_typed_call_args && node.receiver_node.nil? && (tp = @inferred_params[node.name])
           write crystal_method_name(node.name)
           emit_typed_call_args(node.arg_nodes || [], tp)
           return
@@ -1436,7 +1436,7 @@ module Frozone
           arg  = node.arg_nodes[0]
           rt   = node_raw_type(recv)
           at   = node_raw_type(arg)
-          if rt || at
+          if rt && at
             ty = (rt == :f64 || at == :f64) ? :f64 : :i64
             write "("
             ty == :i64 ? emit_coerce_i64(recv) : emit_coerce_f64(recv)

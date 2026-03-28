@@ -18,6 +18,15 @@ def make_shareable(x) = x
 require_relative '../benchmarks/matmul'
 
 Frozone.compile! do
+  # Correctness check
+  a = matgen(N)
+  b = matgen(N)
+  c = matmul(a, b)
+  n = N
+  result = c[n / 2][n / 2]
+  expected = -18.9179166625
+  raise "matmul: got #{result}, expected #{expected}" unless result == expected
+
   run_benchmark(20) do
     a = matgen(N)
     b = matgen(N)

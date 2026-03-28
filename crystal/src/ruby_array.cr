@@ -34,6 +34,9 @@ class RubyArray < RubyObject
     n = count.is_a?(RubyInteger) ? count.to_i64.to_i32 : 0
     @data = Array(RubyObject).new(n) { default }
   end
+  def initialize(count : Int64, default : RubyObject)
+    @data = Array(RubyObject).new(count.to_i32) { default }
+  end
 
   def initialize(count : RubyObject)
     n = count.is_a?(RubyInteger) ? count.to_i64.to_i32 : 0
