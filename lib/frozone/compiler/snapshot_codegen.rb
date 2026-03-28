@@ -354,7 +354,10 @@ module Frozone
             end
             (class_methods || {}).each do |mname, method|
               emit_indent
-              emit_vm_method(mname, method, class_method: true)
+              # Check both class-keyed and free-call-keyed params (class methods
+              # called without receiver look like free calls to TI)
+              class_param_types = @ti_class_params[[name, mname]] || @inferred_params[mname]
+              emit_vm_method(mname, method, param_types: class_param_types, class_method: true)
               emit_newline
               emit_newline
             end
@@ -708,9 +711,42 @@ module Frozone
           @typed_params[mname] = raw_types if raw_types.all? && @typed_method_returns[mname]
         end
 
-        # Build @ti_class_params for instance methods
+        # Also build @inferred_params for eigenclass methods (class methods
+        # called without receiver look like free calls to TI)
+        user_classes_hash.each do |_cname, klass|
+          eigenclass = klass.instance_variable_get(:@eigenclass)
+          next unless eigenclass
+          (eigenclass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
+            next unless method.is_a?(Vm::Method)
+            next if @inferred_params.key?(mname)  # don't overwrite
+            req = method.instance_variable_get(:@required_params) || []
+            next if req.empty?
+            crystal_types = req.each_with_index.map { |_, i|
+              ty = env[[:param, mname, i]]
+              ty ? ti_crystal_type(ty) : 'RubyObject'
+            }
+            @inferred_params[mname] = crystal_types if crystal_types.any? { |t| t != 'RubyObject' }
+          end
+        end
+
+        # Build @ti_class_params for instance AND class methods
         user_classes_hash.each do |cname, klass|
+          # Instance methods
           (klass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
+            next unless method.is_a?(Vm::Method)
+            req = method.instance_variable_get(:@required_params) || []
+            next if req.empty?
+            mkey = [cname, mname]
+            crystal_types = req.each_with_index.map { |_, i|
+              ty = env[[:param, mkey, i]]
+              ty ? ti_crystal_type(ty) : 'RubyObject'
+            }
+            @ti_class_params[mkey] = crystal_types if crystal_types.any? { |t| t != 'RubyObject' }
+          end
+          # Class/module methods (eigenclass)
+          eigenclass = klass.instance_variable_get(:@eigenclass)
+          next unless eigenclass
+          (eigenclass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
             next unless method.is_a?(Vm::Method)
             req = method.instance_variable_get(:@required_params) || []
             next if req.empty?

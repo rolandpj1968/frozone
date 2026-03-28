@@ -261,6 +261,14 @@ module Frozone
               ty = infer_expr(arg, ctx)
               changed |= @env.meet!([:constructor_param, class_sym, i], ty) if ty && ty != :unknown
             end
+          elsif recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.instance_variable_get(:@name))
+            # Module.method(...) → class method params (keyed by module name).
+            class_sym = recv.instance_variable_get(:@name)
+            mkey = [class_sym, n.name]
+            args.each_with_index do |arg, i|
+              ty = infer_expr(arg, ctx)
+              changed |= @env.meet!([:param, mkey, i], ty) if ty && ty != :unknown
+            end
           elsif recv
             # Instance method call — propagate typed args to instance method params.
             recv_ty = infer_expr(recv, ctx)
@@ -619,6 +627,13 @@ module Frozone
             return :unknown  # defer; not enough info to unbox
           end
           return :unknown
+        end
+
+        # Class method call: Module.method(...) → look up by module name.
+        if recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.instance_variable_get(:@name))
+          class_sym = recv.instance_variable_get(:@name)
+          ret = @env.raw([:return, [class_sym, name]])
+          return ret if ret != :unknown
         end
 
         # Method call on a known class instance — look up return type.

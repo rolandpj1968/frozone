@@ -78,9 +78,16 @@ module Frozone
         end
 
         user_classes = {}
-        (scope.instance_variable_get(:@constants_table) || {}).each do |name, val|
-          user_classes[name] = val if val.is_a?(Vm::ClassObject)
-        end
+        collect_debug_classes = ->(s) {
+          (s.instance_variable_get(:@constants_table) || {}).each do |name, val|
+            next if %i[BasicObject Object Module Class Kernel].include?(name)
+            if val.is_a?(Vm::ModuleObject)
+              user_classes[name] = val
+              collect_debug_classes.call(val)
+            end
+          end
+        }
+        collect_debug_classes.call(scope)
 
         constants = scope.instance_variable_get(:@constants_table)&.dup || {}
 

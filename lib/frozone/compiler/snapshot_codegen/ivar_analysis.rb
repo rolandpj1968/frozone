@@ -59,7 +59,7 @@ module Frozone
       def collect_user_classes_recursive(scope, result)
         (scope.instance_variable_get(:@constants_table) || {}).each do |name, val|
           next if SnapshotCodegen::SKIP_CONSTANTS.include?(name)
-          if val.is_a?(Vm::ClassObject)
+          if val.is_a?(Vm::ModuleObject)  # includes ClassObject (subclass)
             result[name] = val
             collect_user_classes_recursive(val, result)
           end
