@@ -37,6 +37,10 @@ def masgn_coerce(val : RubyTuple{{n}}) : RubyArray
 end
 {% end %}
 
+def masgn_coerce(val : Nil) : RubyArray
+  RubyArray.new([] of RubyObject)
+end
+
 def masgn_coerce(val : RubyObject) : RubyArray
   val.is_a?(RubyArray) ? val.as(RubyArray) : RubyArray.new([val] of RubyObject)
 end

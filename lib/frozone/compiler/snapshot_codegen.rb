@@ -1127,6 +1127,7 @@ module Frozone
         end
 
         # Devirtualize: cast class-typed receiver locals so Crystal sees the
+        # Devirtualize: cast class-typed receiver locals so Crystal sees the
         # concrete type and can inline/devirtualize the method call.
         if node.receiver_node.is_a?(Ast::LocalVariableRead)
           recv_name  = ivar(node.receiver_node, :name)
@@ -1134,6 +1135,34 @@ module Frozone
           if recv_class
             write "#{crystal_local(recv_name)}.as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(node.name)}"
             emit_call_args(node)
+            return
+          end
+        end
+
+        # Typed arithmetic/comparison: if both operands are raw-typed, emit
+        # raw Crystal arithmetic instead of going through RubyObject dispatch.
+        if node.receiver_node && (node.arg_nodes || []).size == 1 &&
+           (ARITH_OPS_UNBOX | CrystalCodegen::COMPARE_OPS).include?(node.name)
+          rt = node_raw_type(node.receiver_node)
+          at = node_raw_type(node.arg_nodes[0])
+          if rt || at
+            ty = (rt == :f64 || at == :f64) ? :f64 : :i64
+            if CrystalCodegen::COMPARE_OPS.include?(node.name)
+              write "(("
+              emit_as(node.receiver_node, ty)
+              op = (node.name == :/ && ty == :i64) ? "//" : node.name.to_s
+              write " #{op} "
+              emit_as(node.arg_nodes[0], ty)
+              write ") ? RUBY_TRUE : RUBY_FALSE)"
+            else
+              write "RubyInteger.new("  if ty == :i64
+              write "RubyFloat.new("   if ty == :f64
+              emit_as(node.receiver_node, ty)
+              op = (node.name == :/ && ty == :i64) ? "//" : node.name.to_s
+              write " #{op} "
+              emit_as(node.arg_nodes[0], ty)
+              write ")"
+            end
             return
           end
         end

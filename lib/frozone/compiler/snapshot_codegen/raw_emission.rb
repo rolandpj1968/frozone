@@ -25,6 +25,9 @@ module Frozone
         when Ast::Sequence       then node_raw_type(node.nodes.last) if node.nodes.any?
         when Ast::LocalVariableRead
           @typed_locals[ivar(node, :name)] || @raw_block_params[ivar(node, :name)]
+        when Ast::LocalVariableWrite
+          # Chained assignment: sum = maxflips = 0 — type is the inner value's type
+          node_raw_type(ivar(node, :value_node))
         when Ast::InstanceVariableRead
           @current_class_ivars[ivar(node, :name)]
         when Ast::ConstantRead
@@ -88,11 +91,14 @@ module Frozone
 
         old_typed = @typed_locals
 
-        # Phase 1: seed from literals
+        # Phase 1: seed from literals (unwrap chained assignments)
         @typed_locals = {}
         assignments.each do |name, nodes|
           nodes.each do |n|
-            case n
+            # Unwrap chained assignments: sum = maxflips = 0 → IntegerLiteral
+            inner = n
+            inner = inner.instance_variable_get(:@value_node) while inner.is_a?(Ast::LocalVariableWrite)
+            case inner
             when Ast::IntegerLiteral then @typed_locals[name] ||= :i64
             when Ast::FloatLiteral   then @typed_locals[name]  = :f64
             end
