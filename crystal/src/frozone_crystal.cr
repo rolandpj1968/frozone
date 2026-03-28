@@ -16,6 +16,16 @@ require "./encoding/single_byte_transcoder"
 require "./ruby_math"
 require "./ruby_random"
 
+# Generic Ruby object — concrete class for Object.new / top-level self.
+class RubyGenericObject < RubyObject
+  def to_s : String; "#<Object>"; end
+  def inspect : String; "#<Object>"; end
+end
+
+# Top-level self (Ruby's "main" object)
+RUBY_MAIN = RubyGenericObject.new
+def itself : RubyObject; RUBY_MAIN; end
+
 # Multiple-assignment coercion: ensure value is an array for destructuring.
 def masgn_coerce(val : RubyArray) : RubyArray
   val

@@ -1017,6 +1017,7 @@ module Frozone
 
       # Map Ruby core class names to Crystal type names for case/when type checks.
       RUBY_TO_CRYSTAL_TYPE = {
+        Object:   'RubyGenericObject',
         Integer:  'RubyInteger',
         Float:    'RubyFloat',
         String:   'RubyString',
@@ -1026,6 +1027,7 @@ module Frozone
         NilClass: 'RubyNil',
         Numeric:  'RubyObject',
         Math:     'RubyMath',
+        Random:   'Ruby_Random',
       }.freeze
 
       # Returns true if a `when` condition node is a type-check (ConstantRead or nil).
