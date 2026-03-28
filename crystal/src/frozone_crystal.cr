@@ -22,6 +22,23 @@ class RubyGenericObject < RubyObject
   def inspect : String; "#<Object>"; end
 end
 
+# Crystal native type extensions for mixed arithmetic with RubyObject.
+# When specialised methods return raw Float64/Int64 but operate on
+# RubyObject values, Crystal needs these overloads.
+struct Float64
+  def *(other : RubyObject) : RubyObject; RubyFloat.new(self) * other; end
+  def +(other : RubyObject) : RubyObject; RubyFloat.new(self) + other; end
+  def -(other : RubyObject) : RubyObject; RubyFloat.new(self) - other; end
+  def /(other : RubyObject) : RubyObject; RubyFloat.new(self) / other; end
+end
+
+struct Int64
+  def *(other : RubyObject) : RubyObject; RubyInteger.new(self) * other; end
+  def +(other : RubyObject) : RubyObject; RubyInteger.new(self) + other; end
+  def -(other : RubyObject) : RubyObject; RubyInteger.new(self) - other; end
+  def /(other : RubyObject) : RubyObject; RubyInteger.new(self) / other; end
+end
+
 # Top-level self (Ruby's "main" object)
 RUBY_MAIN = RubyGenericObject.new
 def itself : RubyObject; RUBY_MAIN; end

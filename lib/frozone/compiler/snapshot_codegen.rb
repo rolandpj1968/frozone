@@ -354,7 +354,17 @@ module Frozone
               emit_accessor_method(mname, method)
             else
               inst_param_types = @ti_class_params[[name, mname]]
-              emit_vm_method(mname, method, param_types: inst_param_types)
+              has_typed = inst_param_types&.any? { |t| t && t != 'RubyObject' }
+              if has_typed
+                # Emit typed overload first, then generic (RubyObject) fallback
+                emit_vm_method(mname, method, param_types: inst_param_types)
+                emit_newline
+                emit_newline
+                emit_indent
+                emit_vm_method(mname, method)  # generic
+              else
+                emit_vm_method(mname, method, param_types: inst_param_types)
+              end
               emit_newline
               emit_newline
             end
@@ -1263,16 +1273,15 @@ module Frozone
         if node.receiver_node.nil? && @current_class_eigen_methods&.include?(node.name)
           tp = @inferred_params[node.name] || @ti_class_params[[@current_class_name, node.name]]
           args = node.arg_nodes || []
-          # Check if ALL typed params can be satisfied by the args.
-          # If any arg can't be coerced to the target type, use generic (all boxed).
-          can_specialize = tp && args.each_with_index.all? do |arg, i|
-            pt = tp[i]
-            !pt || pt == 'RubyObject' || pt == 'Int64' || pt == 'Float64' ||
-              (pt.start_with?('Array(') && node_raw_type(arg)&.to_s&.start_with?('array_')) ||
-              (pt.start_with?('Ruby_') && true)  # user class types always match via inheritance
-          end
+          # Try specialized overload: coerce all args to typed params.
+          # Only if ALL typed params can be satisfied (raw args match raw params,
+          # non-raw args can be coerced via .to_i64/.to_f64).
+          # If any param requires a type the arg can't provide (e.g. Array(Int64)
+          # when arg is RubyArray), fall back to generic (all boxed).
+          can_use_typed = tp&.any? { |t| t && t != 'RubyObject' } &&
+            tp.all? { |pt| !pt || pt == 'RubyObject' || pt == 'Int64' || pt == 'Float64' || pt.start_with?('Ruby_') }
           write "self.#{crystal_method_name(node.name)}"
-          if can_specialize && tp
+          if can_use_typed
             emit_typed_call_args(args, tp)
           else
             emit_call_args(node)

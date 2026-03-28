@@ -217,8 +217,10 @@ module Frozone
         write " : #{cr[return_type]}" if return_type
         emit_newline
 
-        old_typed     = @typed_locals
-        old_typed_arr = @typed_array_locals
+        old_typed       = @typed_locals
+        old_typed_arr   = @typed_array_locals
+        old_class_name  = @current_class_name
+        @current_class_name = class_name
         param_set     = req_params.to_set
         mkey = [class_name, mname]
         # Start with param types
@@ -246,6 +248,7 @@ module Frozone
         indented { emit_raw_body(method.body) }
         @typed_locals       = old_typed
         @typed_array_locals = old_typed_arr
+        @current_class_name = old_class_name
 
         emit_newline
         emit_indent

@@ -90,7 +90,10 @@ module Frozone
 
       # Methods already defined on RubyObject — skip stub generation for these.
       RUBY_OBJECT_METHODS = %i[initialize to_s inspect hash == != truthy?
-                               ruby_nil? ruby_bool? not [] []= ruby_to_s ruby_inspect].to_set
+                               ruby_nil? ruby_bool? not [] []= ruby_to_s ruby_inspect
+                               itself dup succ ord bytesize b floor abs
+                               getbyte setbyte fetch set get putc pos max min
+                               length size each respond_to?].to_set
 
       # Emit RubyObject stub methods for all user-defined methods.
       # This allows polymorphic dispatch: `obj.some_method` where `obj : RubyObject`

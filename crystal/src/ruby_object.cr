@@ -97,6 +97,12 @@ abstract class RubyObject
     def {{op.id}}(other : RubyObject) : RubyObject
       raise Exception.new({{op + " not supported for this type"}})
     end
+    def {{op.id}}(other : Int64) : RubyObject
+      self.{{op.id}}(RubyInteger.new(other))
+    end
+    def {{op.id}}(other : Float64) : RubyObject
+      self.{{op.id}}(RubyFloat.new(other))
+    end
   {% end %}
 
   {% for op in ["<", "<=", ">", ">="] %}
@@ -128,6 +134,9 @@ abstract class RubyObject
 
   def [](from : RubyObject, len : RubyObject) : RubyObject
     raise Exception.new("[] with 2 args not supported for #{self.class}")
+  end
+  def [](from : Int64, len : Int64) : RubyObject
+    self[RubyInteger.new(from), RubyInteger.new(len)]
   end
 
   def []=(idx : RubyObject, val : RubyObject) : RubyObject
@@ -204,6 +213,12 @@ abstract class RubyObject
 
   def set(a : RubyObject, b : RubyObject, c : RubyObject, d : RubyObject) : RubyObject
     raise Exception.new("set not supported for #{self.class}")
+  end
+  def set(a : Int64, b : RubyObject, c : RubyObject, d : RubyObject) : RubyObject
+    set(RubyInteger.new(a), b, c, d)
+  end
+  def set(a : Int64, b : Int64, c : RubyObject, d : RubyObject) : RubyObject
+    set(RubyInteger.new(a), RubyInteger.new(b), c, d)
   end
 
   def get(a : RubyObject, b : RubyObject, c : RubyObject) : RubyObject
