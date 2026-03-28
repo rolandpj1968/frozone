@@ -109,7 +109,27 @@ Measured on Ruby 4.0.1 vs Crystal `--release` build (same workload per benchmark
 | sudoku (20 hard) | 511 ms | 152 ms | 134 ms | **3.8×** | **1.1×** |
 | splay | 87 ms | 60 ms | 179 ms | 0.5× | 0.3× |
 
-**Numeric and accessor benchmarks** (fib through binarytrees) are specialised to raw Crystal types — 1.3–95× faster than MRI/YJIT. Methods with typed returns emit raw bodies (`emit_raw_body`) even when params are `RubyObject`. Self-calls to typed accessors use `_raw` form. `Array.new(n, default)` promotes to native `Array(T)`; array params typed by TI get `Array(Int64)` signatures. **Object-heavy** benchmarks (keyword\_args, splay) still go through `RubyObject` dispatch; `splay` is the main target for devirtualisation. 12 benchmarks total.
+**Numeric and accessor benchmarks** (fib through loops\_times) are fully specialised — 3.7–95× faster than YJIT. `splay` is the main remaining target (YJIT's inline caches beat Crystal's union dispatch). 12 benchmarks total.
+
+### Optimization Levels
+
+Control via `FROZONE_OPT_LEVEL=0|1|2` or individual `FROZONE_NO_<FLAG>=1` overrides.
+
+| Level | Flags | Description |
+|-------|-------|-------------|
+| `-O0` | none | Maximum safety — all boxed dispatch, no type specialization |
+| `-O1` | `call_site_types tuple_literals devirtualize condition_simplify native_iteration accessor_inline` | Safe optimizations only |
+| `-O2` | all 13 flags | Full optimization (default) |
+
+**-O0 vs -O2 speedup** (release builds):
+
+| Benchmark | -O0 | -O2 | Speedup |
+|-----------|-----|-----|---------|
+| fib | 2.71 ms | 0.03 ms | **90×** |
+| loops\_times | 2174 ms | 11 ms | **197×** |
+| attr\_accessor | 0.68 ms | 0.01 ms | **68×** |
+| binarytrees | 457 ms | 34 ms | **13×** |
+| splay | 234 ms | 185 ms | **1.3×** |
 
 ### Parsers
 
