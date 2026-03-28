@@ -450,9 +450,9 @@ module Frozone
             emit(node.receiver_node)
             write ")"
           when :"!"
-            write "!("
+            write "(("
             emit_truthy(node.receiver_node)
-            write ")"
+            write ") ? RUBY_FALSE : RUBY_TRUE)"
           end
         elsif COMPARE_OPS.include?(name)
           # Comparison: wrap in RubyBool so return type is RubyObject-compatible

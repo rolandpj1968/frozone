@@ -144,10 +144,6 @@ class RubyString < RubyObject
   # Basic properties
   # ------------------------------------------------------------------
 
-  def bytesize : Int32
-    @bytes.size
-  end
-
   def empty? : Bool
     @bytes.size == 0
   end
@@ -181,8 +177,13 @@ class RubyString < RubyObject
     length
   end
 
+  # Byte size (RubyObject-compatible for compiled code).
+  def bytesize : RubyObject
+    RubyInteger.new(@bytes.size.to_i64)
+  end
+
   # Byte size (Crystal-level, returns Int32 for internal use).
-  def bytesize : Int32
+  def bytesize_i32 : Int32
     @bytes.size
   end
 
@@ -214,6 +215,22 @@ class RubyString < RubyObject
     raise IndexError.new("index #{i} out of string") if idx < 0 || idx >= @bytes.size
     @bytes[idx] = b
     clear_caches!
+    b
+  end
+
+  # RubyObject overloads for compiled code dispatch
+  def getbyte(i : RubyObject) : RubyObject
+    b = getbyte(i.to_i64.to_i32)
+    b ? RubyInteger.new(b.to_i64) : RUBY_NIL_PLACEHOLDER
+  end
+
+  def getbyte(i : Int64) : RubyObject
+    b = getbyte(i.to_i32)
+    b ? RubyInteger.new(b.to_i64) : RUBY_NIL_PLACEHOLDER
+  end
+
+  def setbyte(i : RubyObject, b : RubyObject) : RubyObject
+    setbyte(i.to_i64.to_i32, b.to_i64.to_u8)
     b
   end
 

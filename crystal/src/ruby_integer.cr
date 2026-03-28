@@ -247,6 +247,10 @@ class RubyInteger < RubyObject
     end
   end
 
+  def succ : RubyInteger
+    self + RubyInteger.new(1_i64)
+  end
+
   def abs : RubyInteger
     case v = @value
     when Int64

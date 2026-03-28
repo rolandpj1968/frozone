@@ -154,6 +154,22 @@ abstract class RubyObject
     self
   end
 
+  def bytesize : RubyObject
+    raise Exception.new("bytesize not supported for #{self.class}")
+  end
+
+  def getbyte(*args) : RubyObject
+    raise Exception.new("getbyte not supported for #{self.class}")
+  end
+
+  def setbyte(*args) : RubyObject
+    raise Exception.new("setbyte not supported for #{self.class}")
+  end
+
+  def succ : RubyObject
+    raise Exception.new("succ not supported for #{self.class}")
+  end
+
   # -------------------------------------------------------------------------
   # Logical negation (Crystal `!` can't be overridden; use `not`)
   # -------------------------------------------------------------------------
