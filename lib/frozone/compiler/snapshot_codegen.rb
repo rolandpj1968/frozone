@@ -236,22 +236,25 @@ module Frozone
         return if visited.include?(scope.object_id)
         visited << scope.object_id
 
+        const_locs = scope.instance_variable_get(:@constants_locations) || {}
         scope.instance_variable_get(:@constants_table)&.each do |name, value|
           next unless value.is_a?(Vm::ModuleObject)
           next if SKIP_CONSTANTS.include?(name)
-          emit_user_class(name, value)
+          emit_user_class(name, value, const_loc: const_locs[name])
           emit_user_classes(value, visited)
         end
       end
 
-      def emit_user_class(name, mod)
+      def emit_user_class(name, mod, const_loc: nil)
         user_methods = mod.instance_variable_get(:@methods_table)&.select do |_n, m|
           m.is_a?(Vm::Method) &&
             (user_source_location?(m.source_location) || accessor_method?(m))
         end
-        return if user_methods.nil? || user_methods.empty?
-        # Must have at least one truly user-defined method (not just accessors)
-        return unless user_methods.any? { |_, m| user_source_location?(m.source_location) }
+        user_methods ||= {}
+        has_user_methods = user_methods.any? { |_, m| user_source_location?(m.source_location) }
+        # Emit if: has user methods, OR the class constant was defined in user code
+        # (catches empty subclasses like `class B < A; end`)
+        return unless has_user_methods || user_source_location?(const_loc)
 
         crystal_name = crystal_constant(name)
         is_class = mod.is_a?(Vm::ClassObject)
@@ -326,6 +329,9 @@ module Frozone
               emit_newline
             end
           end
+
+          # Emit respond_to? — closed-world boolean lookup of all methods
+          emit_respond_to(mod) if is_class
         end
 
         @current_class_ivars       = old_class_ivars
@@ -334,6 +340,52 @@ module Frozone
         emit_indent
         write "end"
         emit_newline
+
+      end
+
+      # Emit respond_to? as a closed-world method-presence lookup.
+      # Walks the class's ancestor chain to collect all method names.
+      def emit_respond_to(klass)
+        all_methods = Set.new
+        c = klass
+        while c && c.is_a?(Vm::ClassObject)
+          (c.instance_variable_get(:@methods_table) || {}).each_key { |m| all_methods << m }
+          c.modules.each do |mod|
+            (mod.instance_variable_get(:@methods_table) || {}).each_key { |m| all_methods << m }
+          end
+          c = c.superclass
+        end
+        # Remove internal/bootstrap methods, keep public-facing ones
+        all_methods.delete(:initialize)
+
+        emit_indent
+        line "def respond_to?(name : RubyObject, _include_all : RubyObject = RUBY_FALSE) : RubyBool"
+        indented do
+          emit_indent
+          write "n = name.is_a?(RubySymbol) ? name.to_s : name.to_s"
+          emit_newline
+          emit_indent
+          write "case n"
+          emit_newline
+          # Emit method names in sorted order for readability
+          all_methods.map(&:to_s).sort.each_slice(8) do |batch|
+            emit_indent
+            write "when #{batch.map { |m| m.inspect }.join(', ')}"
+            emit_newline
+            indented { emit_indent; write "RUBY_TRUE" }
+            emit_newline
+          end
+          emit_indent
+          write "else"
+          emit_newline
+          indented { emit_indent; write "RUBY_FALSE" }
+          emit_newline
+          emit_indent
+          write "end"
+        end
+        emit_newline
+        emit_indent
+        line "end"
         emit_newline
       end
 
