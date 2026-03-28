@@ -195,6 +195,63 @@ module Frozone
         write "end"
       end
 
+      # Emit a specialized (typed) class method overload.
+      # Like emit_specialized_vm_method but with `def self.` prefix and
+      # class-keyed TI lookups.
+      def emit_specialized_class_method(class_name, mname, method, raw_types, return_type, crystal_param_types: nil)
+        req_params = ivar(method, :required_params) || []
+        return unless req_params.size == raw_types.size
+
+        cr = { i64: 'Int64', f64: 'Float64' }
+        parts = req_params.each_with_index.map do |p, i|
+          if raw_types[i]
+            "#{crystal_local(p)} : #{cr[raw_types[i]]}"
+          elsif crystal_param_types && crystal_param_types[i] && crystal_param_types[i] != 'RubyObject'
+            "#{crystal_local(p)} : #{crystal_param_types[i]}"
+          else
+            "#{crystal_local(p)} : RubyObject"
+          end
+        end
+
+        write "def self.#{crystal_method_name(mname)}(#{parts.join(', ')})"
+        write " : #{cr[return_type]}" if return_type
+        emit_newline
+
+        old_typed     = @typed_locals
+        old_typed_arr = @typed_array_locals
+        param_set     = req_params.to_set
+        mkey = [class_name, mname]
+        # Start with param types
+        @typed_locals = {}
+        req_params.zip(raw_types).each { |p, ty| @typed_locals[p] = ty if ty }
+        # Add TI-inferred locals
+        (@ti_locals[mkey] || @ti_locals[mname] || {}).each do |lname, ty|
+          @typed_locals[lname] = ty unless param_set.include?(lname)
+        end
+        infer_local_types(method.body).each do |lname, ty|
+          @typed_locals[lname] ||= ty unless param_set.include?(lname)
+        end
+        @typed_array_locals = (@ti_arrays[mkey] || @ti_arrays[mname] || {}).reject { |k, _| param_set.include?(k) }
+        # Register Array(Int64)/Array(Float64) params as native arrays
+        @native_array_locals = {}
+        if crystal_param_types
+          req_params.each_with_index do |p, i|
+            case crystal_param_types[i]
+            when 'Array(Int64)'   then @native_array_locals[p] = :i64
+            when 'Array(Float64)' then @native_array_locals[p] = :f64
+            end
+          end
+        end
+        # Always use raw body for specialized overloads
+        indented { emit_raw_body(method.body) }
+        @typed_locals       = old_typed
+        @typed_array_locals = old_typed_arr
+
+        emit_newline
+        emit_indent
+        write "end"
+      end
+
       # Emit a block body that may return a boxable raw numeric.
       # Sequences: all-but-last via emit, last via this method (tail-recursive).
       # Single expression: if raw-typed, wrap with RubyFloat/RubyInteger.new.

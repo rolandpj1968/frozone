@@ -367,11 +367,23 @@ module Frozone
               m.is_a?(Vm::Method) && user_source_location?(m.source_location)
             end
             (class_methods || {}).each do |mname, method|
-              emit_indent
-              # Check both class-keyed and free-call-keyed params (class methods
-              # called without receiver look like free calls to TI)
+              # Check both class-keyed and free-call-keyed params
               class_param_types = @ti_class_params[[name, mname]] || @inferred_params[mname]
-              emit_vm_method(mname, method, param_types: class_param_types, class_method: true)
+              # Emit specialized (typed) overload if params have raw types
+              raw_types = class_param_types&.map { |t| t == 'Int64' ? :i64 : (t == 'Float64' ? :f64 : nil) }
+              class_return = @instance_method_raw_returns[[name, mname]]
+              if opt?(:method_specialization) && raw_types&.any?
+                emit_indent
+                emit_specialized_class_method(name, mname, method, raw_types, class_return, crystal_param_types: class_param_types)
+                emit_newline
+                emit_newline
+              end
+              # Emit generic (RubyObject) overload — always present for boxed callers.
+              # Use RubyObject params when a specialized overload exists, to avoid
+              # conflicting with the typed overload.
+              emit_indent
+              generic_params = raw_types&.any? ? nil : class_param_types
+              emit_vm_method(mname, method, param_types: generic_params, class_method: true)
               emit_newline
               emit_newline
             end
@@ -477,8 +489,13 @@ module Frozone
                       (ivar(method, :post_params) || [])
         param_set = param_names.to_set
         mkey = @current_class_name ? [@current_class_name, name] : name
+        # For generic class method overloads with a specialized version,
+        # disable ALL type optimizations (the specialized handles raw paths).
+        generic_with_specialized = class_method && param_types.nil? &&
+          @current_class_eigen_methods&.any? &&
+          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != 'RubyObject' }
         # Use TypeInference results for local types (omit params — they have declared types)
-        @typed_locals              = opt?(:unbox_locals)    ? ((@ti_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @typed_locals              = (!generic_with_specialized && opt?(:unbox_locals)) ? ((@ti_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @typed_array_locals        = opt?(:native_arrays)   ? ((@ti_arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @current_class_locals      = opt?(:devirtualize)    ? ((@ti_class_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @current_local_array_elems = opt?(:native_arrays)   ? ((@ti_local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
@@ -499,16 +516,26 @@ module Frozone
             end
           end
         end
-        # Infer types from literal assignments for locals TI didn't cover
-        infer_local_types(method.body).each do |lname, ty|
-          @typed_locals[lname] ||= ty unless param_set.include?(lname)
+        # Infer types from literal assignments for locals TI didn't cover.
+        # Skip for generic class method overloads when a specialized version exists
+        # (typed locals in the generic cause Float64/Int64 mismatches with RubyObject ops).
+        has_specialized = class_method && @current_class_eigen_methods&.any? &&
+          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != 'RubyObject' }
+        unless has_specialized && param_types.nil?
+          infer_local_types(method.body).each do |lname, ty|
+            @typed_locals[lname] ||= ty unless param_set.include?(lname)
+          end
         end
         string_return = STRING_RETURN_METHODS.include?(name)
         crystal_name  = string_return ? name.to_s : crystal_method_name(name)
 
         # If method has a typed return but no fully-typed-params overload,
         # emit with raw body and return type annotation.
-        raw_return = opt?(:raw_returns) && !@typed_params[name] &&
+        # Skip for generic class method overloads when a specialized overload exists
+        # (the specialized handles the raw return).
+        has_specialized = class_method && @current_class_eigen_methods&.any? &&
+          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != 'RubyObject' }
+        raw_return = !has_specialized && opt?(:raw_returns) && !@typed_params[name] &&
           (@typed_method_returns[name] ||
            (@current_class_name && @instance_method_raw_returns[[@current_class_name, name]]))
         cr_return_types = { i64: 'Int64', f64: 'Float64' }
@@ -1233,7 +1260,13 @@ module Frozone
         # from dispatching to the RubyObject *args stub.
         if node.receiver_node.nil? && @current_class_eigen_methods&.include?(node.name)
           write "self.#{crystal_method_name(node.name)}"
-          emit_call_args(node)
+          # Use typed params if available for the class method
+          tp = @inferred_params[node.name] || @ti_class_params[[@current_class_name, node.name]]
+          if tp
+            emit_typed_call_args(node.arg_nodes || [], tp)
+          else
+            emit_call_args(node)
+          end
           return
         end
 
