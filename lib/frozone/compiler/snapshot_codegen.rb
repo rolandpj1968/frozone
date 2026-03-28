@@ -1122,8 +1122,10 @@ module Frozone
         args.each_with_index do |arg, i|
           write ", " if i > 0
           pt = param_types[i]
-          if (pt == 'Int64' || pt == 'Float64') && node_raw_type(arg)
-            emit_raw(arg)
+          if pt == 'Int64' || pt == 'Float64'
+            # Coerce arg to raw type: use emit_raw if already typed,
+            # otherwise emit and append .to_i64/.to_f64
+            emit_as(arg, pt == 'Float64' ? :f64 : :i64)
           else
             emit(arg)
           end
@@ -1259,11 +1261,19 @@ module Frozone
         # the method exists on the eigenclass. Prevents module_function methods
         # from dispatching to the RubyObject *args stub.
         if node.receiver_node.nil? && @current_class_eigen_methods&.include?(node.name)
-          write "self.#{crystal_method_name(node.name)}"
-          # Use typed params if available for the class method
           tp = @inferred_params[node.name] || @ti_class_params[[@current_class_name, node.name]]
-          if tp
-            emit_typed_call_args(node.arg_nodes || [], tp)
+          args = node.arg_nodes || []
+          # Check if ALL typed params can be satisfied by the args.
+          # If any arg can't be coerced to the target type, use generic (all boxed).
+          can_specialize = tp && args.each_with_index.all? do |arg, i|
+            pt = tp[i]
+            !pt || pt == 'RubyObject' || pt == 'Int64' || pt == 'Float64' ||
+              (pt.start_with?('Array(') && node_raw_type(arg)&.to_s&.start_with?('array_')) ||
+              (pt.start_with?('Ruby_') && true)  # user class types always match via inheritance
+          end
+          write "self.#{crystal_method_name(node.name)}"
+          if can_specialize && tp
+            emit_typed_call_args(args, tp)
           else
             emit_call_args(node)
           end

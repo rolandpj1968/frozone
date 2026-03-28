@@ -205,7 +205,11 @@ class RubyArray < RubyObject
   end
 
   def fetch(idx : RubyObject) : RubyObject
-    i = idx.to_i64
+    fetch(idx.to_i64)
+  end
+
+  def fetch(idx : Int64) : RubyObject
+    i = idx
     i += @data.size if i < 0
     raise IndexError.new("index #{idx} outside of array bounds") if i < 0 || i >= @data.size
     @data[i]

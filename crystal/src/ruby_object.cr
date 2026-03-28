@@ -103,6 +103,12 @@ abstract class RubyObject
     def {{op.id}}(other : RubyObject) : Bool
       raise Exception.new({{op + " not supported for this type"}})
     end
+    def {{op.id}}(other : Int64) : Bool
+      self.{{op.id}}(RubyInteger.new(other))
+    end
+    def {{op.id}}(other : Float64) : Bool
+      self.{{op.id}}(RubyFloat.new(other))
+    end
   {% end %}
 
   # Unary operators: Crystal uses def -(no args) for unary minus
