@@ -334,7 +334,21 @@ module Frozone
           emit_user_constants(mod)
           emit_newline
 
+          # Collect eigenclass method names for dispatch and dedup
+          eigenclass = mod.instance_variable_get(:@eigenclass)
+          @current_class_eigen_methods = nil
+          eigen_method_names = if eigenclass
+            (eigenclass.instance_variable_get(:@methods_table) || {}).select { |_, m|
+              m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+            }.keys.to_set
+          else
+            Set.new
+          end
+
           user_methods.each do |mname, method|
+            # Skip instance methods that are duplicated as class methods
+            # (from module_function) — the class method version is typed
+            next if eigen_method_names.include?(mname) && mname != :initialize
             emit_indent
             if accessor_method?(method)
               emit_accessor_method(mname, method)
@@ -347,7 +361,7 @@ module Frozone
           end
 
           # Emit class/module methods (def self.x) from the eigenclass
-          eigenclass = mod.instance_variable_get(:@eigenclass)
+          @current_class_eigen_methods = eigen_method_names
           if eigenclass
             class_methods = eigenclass.instance_variable_get(:@methods_table)&.select do |_n, m|
               m.is_a?(Vm::Method) && user_source_location?(m.source_location)
@@ -367,9 +381,10 @@ module Frozone
           emit_respond_to(mod) if is_class
         end
 
-        @current_class_ivars       = old_class_ivars
-        @current_class_typed_ivars = old_class_typed_ivars
-        @current_class_name        = old_class_name
+        @current_class_ivars        = old_class_ivars
+        @current_class_typed_ivars  = old_class_typed_ivars
+        @current_class_name         = old_class_name
+        @current_class_eigen_methods = nil
         emit_indent
         write "end"
         emit_newline
@@ -1213,6 +1228,15 @@ module Frozone
           end
         end
 
+        # Free call inside class/module: dispatch to class method (self.x) if
+        # the method exists on the eigenclass. Prevents module_function methods
+        # from dispatching to the RubyObject *args stub.
+        if node.receiver_node.nil? && @current_class_eigen_methods&.include?(node.name)
+          write "self.#{crystal_method_name(node.name)}"
+          emit_call_args(node)
+          return
+        end
+
         # Free call to method with typed params — coerce args to declared types
         if node.receiver_node.nil? && (tp = @inferred_params[node.name])
           write crystal_method_name(node.name)
@@ -1274,8 +1298,10 @@ module Frozone
         kw_args = node.kw_arg_nodes
         return if args.empty? && kw_args.empty? && node.block_node.nil?
 
-        has_typed_arg = args.any? { |a| a.is_a?(Ast::LocalVariableRead) && node_raw_type(a) }
-        return super unless has_typed_arg
+        # Only pass typed LOCAL VARIABLES raw — literals and complex expressions
+        # stay boxed because we don't know if the target accepts raw types.
+        has_typed_local = args.any? { |a| a.is_a?(Ast::LocalVariableRead) && node_raw_type(a) }
+        return super unless has_typed_local
 
         write "("
         first = true
@@ -1285,7 +1311,7 @@ module Frozone
           if arg.is_a?(Ast::SplatArg)
             write "# UNSUPPORTED_SPLAT("; emit(ivar(arg, :value_node)); write ")"
           elsif arg.is_a?(Ast::LocalVariableRead) && node_raw_type(arg)
-            write crystal_local(ivar(arg, :name))  # raw — no RubyInteger.new wrapping
+            write crystal_local(ivar(arg, :name))  # raw — no boxing
           else
             emit(arg)
           end
