@@ -53,7 +53,9 @@ module Frozone
         @instance_method_raw_returns = {}   # [class_sym, method_sym] => :i64 | :f64
         @const_raw_types             = {}   # constant Symbol name => :i64 | :f64
         @typed_ivars                 = {}   # class Symbol name => {ivar_sym => :i64 | :f64}
+        @class_typed_ivars           = {}   # class Symbol name => {ivar_sym => [:class, :Node] | [:class_or_nil, :Node]}
         @current_class_ivars         = {}   # active ivar type map during class method emission
+        @current_class_typed_ivars   = {}   # active class-typed ivar map during class emission
         @current_class_name          = nil  # Symbol of class being emitted (nil at top level)
         @typed_array_locals          = {}   # local_name (Symbol) => :i64 | :f64 (element type; per-method)
         @ti_locals                   = {}   # mkey => {local_name => :i64 | :f64}
@@ -79,6 +81,9 @@ module Frozone
         emit_header
         emit_bench_harness_require if bench_stub?
         emit_user_method_stubs unless @user_methods.empty?
+
+        # Collect class-typed ivars (X | nil patterns) across all methods
+        collect_class_typed_ivars(top_level_scope)
 
         # User-defined classes and modules (from the constant table)
         emit_user_classes(top_level_scope)
@@ -212,10 +217,12 @@ module Frozone
         end
         emit_newline
 
-        old_class_ivars = @current_class_ivars
-        old_class_name  = @current_class_name
-        @current_class_ivars = @typed_ivars.fetch(name, {})
-        @current_class_name  = name
+        old_class_ivars       = @current_class_ivars
+        old_class_typed_ivars = @current_class_typed_ivars
+        old_class_name        = @current_class_name
+        @current_class_ivars       = @typed_ivars.fetch(name, {})
+        @current_class_typed_ivars = @class_typed_ivars.fetch(name, {})
+        @current_class_name        = name
 
         indented do
           # Collect and emit ivar declarations (Crystal requires them upfront)
@@ -225,10 +232,23 @@ module Frozone
           end
           all_ivars.each do |iv|
             emit_indent
-            type_ann, default = case @current_class_ivars[iv.to_sym]
+            iv_sym = iv.to_sym
+            type_ann, default = case @current_class_ivars[iv_sym]
               when :f64 then ["Float64", "0.0_f64"]
               when :i64 then ["Int64",   "0_i64"]
-              else          ["RubyObject", "RUBY_NIL"]
+              else
+                ct = @current_class_typed_ivars[iv_sym]
+                if ct
+                  kind, cls = ct
+                  crystal_cls = "Ruby_#{crystal_constant(cls)}"
+                  if kind == :class_or_nil
+                    ["#{crystal_cls} | RubyNil", "RUBY_NIL"]
+                  else
+                    [crystal_cls, "RUBY_NIL"]
+                  end
+                else
+                  ["RubyObject", "RUBY_NIL"]
+                end
             end
             line "#{iv} : #{type_ann} = #{default}"
           end
@@ -257,8 +277,9 @@ module Frozone
           end
         end
 
-        @current_class_ivars = old_class_ivars
-        @current_class_name  = old_class_name
+        @current_class_ivars       = old_class_ivars
+        @current_class_typed_ivars = old_class_typed_ivars
+        @current_class_name        = old_class_name
         emit_indent
         write "end"
         emit_newline
@@ -472,17 +493,15 @@ module Frozone
           user_methods_hash[name] = m if m.is_a?(Vm::Method) && user_source_location?(m.source_location)
         end
         user_classes_hash = {}
-        constants = top_level_scope.instance_variable_get(:@constants_table) || {}
-        constants.each do |name, val|
-          user_classes_hash[name] = val if val.is_a?(Vm::ClassObject) && !SKIP_CONSTANTS.include?(name)
-        end
+        collect_user_classes_recursive(top_level_scope, user_classes_hash)
         @ti_user_class_names = user_classes_hash.keys.to_set
 
+        all_constants = top_level_scope.instance_variable_get(:@constants_table) || {}
         ti  = TypeInference.new(
           user_methods:  user_methods_hash,
           user_classes:  user_classes_hash,
           execute_block: execute_block,
-          constants:     constants.dup
+          constants:     all_constants.dup
         )
         env = ti.run
 
@@ -1850,6 +1869,123 @@ module Frozone
         end
       end
 
+      # Recursively collect user-defined classes (including nested classes)
+      def collect_user_classes_recursive(scope, result)
+        (scope.instance_variable_get(:@constants_table) || {}).each do |name, val|
+          next if SKIP_CONSTANTS.include?(name)
+          if val.is_a?(Vm::ClassObject)
+            result[name] = val
+            collect_user_classes_recursive(val, result)
+          end
+        end
+      end
+
+      # Scan all methods of each user class for ivar assignments, collecting
+      # the set of class types assigned. Produces @class_typed_ivars entries
+      # for ivars with pattern {UserClass} or {UserClass, NilClass}.
+      def collect_class_typed_ivars(scope)
+        @class_typed_ivars = {}
+        collect_class_typed_ivars_from(scope)
+      end
+
+      def collect_class_typed_ivars_from(scope)
+        scope.instance_variable_get(:@constants_table)&.each do |class_name, value|
+          next unless value.is_a?(Vm::ClassObject) && !SKIP_CONSTANTS.include?(class_name)
+          collect_class_typed_ivars_from(value)  # recurse into nested classes
+          methods = value.instance_variable_get(:@methods_table) || {}
+          next unless methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
+
+          # Collect all ivar assignment types across ALL methods
+          ivar_type_sets = Hash.new { |h, k| h[k] = Set.new }
+          methods.each do |mname, method|
+            next unless method.is_a?(Vm::Method) && method.body
+            mkey = [class_name, mname]
+            method_class_locals = @ti_class_locals[mkey] || {}
+            collect_ivar_class_types(method.body, ivar_type_sets, method_class_locals)
+          end
+
+          # Resolve: {ClassName} → [:class, name], {ClassName, :nil} → [:class_or_nil, name]
+          # :self_ivar means the value comes from another ivar/accessor of the same
+          # class — compatible with whatever class type is already identified.
+          result = {}
+          ivar_type_sets.each do |iv, types|
+            next if types.include?(:unknown)
+            concrete = types - Set[:nil, :self_ivar]
+            has_nil  = types.include?(:nil) || types.include?(:self_ivar)
+            if concrete.size == 1 && @ti_user_class_names&.include?(concrete.first)
+              cls = concrete.first
+              result[iv] = has_nil ? [:class_or_nil, cls] : [:class, cls]
+            elsif concrete.empty? && types == Set[:nil, :self_ivar]
+              # Exactly {nil, self_ivar} — classic tree/list pattern (e.g. @left/@right).
+              # Infer as self-typed: the ivar holds instances of this class or nil.
+              result[iv] = [:class_or_nil, class_name]
+            end
+          end
+          @class_typed_ivars[class_name] = result unless result.empty?
+        end
+      end
+
+      # Walk AST collecting class type of each ivar assignment.
+      def collect_ivar_class_types(node, ivar_type_sets, class_locals)
+        return unless node
+        case node
+        when Ast::Sequence
+          node.nodes.each { |n| collect_ivar_class_types(n, ivar_type_sets, class_locals) }
+        when Ast::InstanceVariableWrite
+          iv = ivar(node, :name)
+          ty = ivar_assign_class_type(ivar(node, :value_node), class_locals)
+          ivar_type_sets[iv] << ty
+        when Ast::If
+          collect_ivar_class_types(ivar(node, :then_node), ivar_type_sets, class_locals)
+          collect_ivar_class_types(ivar(node, :else_node), ivar_type_sets, class_locals)
+        when Ast::While, Ast::Until
+          collect_ivar_class_types(ivar(node, :body_node), ivar_type_sets, class_locals)
+        when Ast::Block
+          collect_ivar_class_types(ivar(node, :body), ivar_type_sets, class_locals)
+        when Ast::Rescue
+          collect_ivar_class_types(ivar(node, :body), ivar_type_sets, class_locals)
+        end
+      end
+
+      # Determine the class type of an expression for ivar assignment.
+      # Returns: class Symbol (user class name), :nil, or :unknown.
+      def ivar_assign_class_type(node, class_locals = {})
+        case node
+        when Ast::NilLiteral then :nil
+        when Ast::MethodCall
+          name = ivar(node, :name)
+          recv = ivar(node, :receiver_node)
+          if name == :new && recv.is_a?(Ast::ConstantRead)
+            ivar(recv, :name)
+          elsif recv.nil?
+            # Self-call to accessor (e.g. right = self.right) — self-referential
+            :self_ivar
+          elsif recv.is_a?(Ast::InstanceVariableRead)
+            # Accessor on an ivar (e.g. @root = @root.right) — self-referential
+            :self_ivar
+          else
+            :unknown
+          end
+        when Ast::LocalVariableRead
+          # Check TI class locals for the enclosing method
+          cls = class_locals[ivar(node, :name)]
+          if cls && @ti_user_class_names&.include?(cls)
+            cls
+          else
+            # Optimistic: untyped locals assigned to ivars are likely same-class.
+            # Crystal catches any real type mismatch at compile time.
+            :self_ivar
+          end
+        when Ast::InstanceVariableRead
+          # Reading another ivar — mark as self-referential (resolved in fixpoint)
+          :self_ivar
+        when Ast::Sequence
+          node.nodes.empty? ? :unknown : ivar_assign_class_type(node.nodes.last, class_locals)
+        else
+          :unknown
+        end
+      end
+
       # Walk the execute block body for `ClassName.new(...)` calls and return
       # the merged positional param raw types, or nil if not found / inconsistent.
       def collect_class_new_arg_types(node, class_name)
@@ -2216,7 +2352,14 @@ module Frozone
             line "def #{crystal_method_name(mname)} : RubyObject; RubyInteger.new(#{iv}); end"
             line "def #{crystal_method_name(mname)}_raw : Int64; #{iv}; end"
           else
-            line "def #{crystal_method_name(mname)} : RubyObject; #{iv}; end"
+            ct = @current_class_typed_ivars[iv]
+            if ct
+              kind, cls = ct
+              ret_type = kind == :class_or_nil ? "Ruby_#{crystal_constant(cls)} | RubyNil" : "Ruby_#{crystal_constant(cls)}"
+              line "def #{crystal_method_name(mname)} : #{ret_type}; #{iv}; end"
+            else
+              line "def #{crystal_method_name(mname)} : RubyObject; #{iv}; end"
+            end
           end
         when Ast::InstanceVariableWrite
           iv = ivar(body, :name)
