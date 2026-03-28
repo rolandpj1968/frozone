@@ -1,7 +1,7 @@
-# Experimental Optimisations
+# Compiler Optimisations
 
-This document tracks optimisation experiments for the Frozone AOT Crystal backend —
-what was tried, what worked, and what didn't.
+This document describes all optimisations in the Frozone AOT Crystal backend.
+Each optimisation has a named flag that can be individually disabled (see §20).
 
 ---
 
@@ -291,3 +291,148 @@ The modest gain (vs §3's 3×) reflects that the inner loop still allocates `Rub
 
 ### Soundness note
 Typed ivars assume the object is only ever initialised through the tracked `initialize` path and that all call sites use consistently-typed arguments. If a subclass or dynamic assignment changes the ivar to a non-numeric value, the `.to_f64` / `.to_i64` coercion will produce a runtime error rather than returning the wrong type. This is acceptable for closed-world AOT compilation.
+
+---
+
+## 10. Accessor inlining — `_raw` for self-calls (implemented)
+
+**Flag:** `accessor_inline`
+
+When a method body calls an accessor on `self` (e.g. `levar` inside `TheClass#get_value_loop`), and the accessor has a `_raw` variant (because the underlying ivar is typed `:i64`/`:f64`), emit `levar_raw` instead of `levar.to_i64`. Eliminates boxing/unboxing round-trip.
+
+**Implementation:** `node_raw_type` checks `@instance_method_raw_returns[[@current_class_name, name]]` for nil-receiver method calls. `emit_raw` emits `method_raw` directly.
+
+**Impact:** attr_accessor benchmark: 1.28 ms → 0.01 ms (**128×**).
+
+---
+
+## 11. Native Array(T) promotion (implemented)
+
+**Flag:** `native_arrays`
+
+When TI identifies a local array has scalar element type (`:i64`/`:f64`) and the array is created via `Array.new(n, default)`, emit `Array(Int64).new(n, default_i64)` instead of `RubyArray.new(...)`. Reads/writes use bare Crystal array indexing.
+
+**Escape analysis:** For method-body locals, checks that the array doesn't escape through `return`, array literals, instance variable writes, etc. (`local_escapes?`). For execute-block locals, always promotes (escape to the benchmark harness is harmless).
+
+**Implementation:** 1D promotion in `emit_local_var_write`. `@native_array_locals` tracks promoted arrays. `native_array_elem_type` returns the element type for reads/writes.
+
+**Impact:** loops_times: 221 ms → 11 ms (**20×**).
+
+---
+
+## 12. Array(Int64) typed function parameters (implemented)
+
+**Flag:** `native_arrays` (shared with §11)
+
+When TI identifies a function parameter as `Array[:i64]` (e.g. `sd_update_forward`'s `sr` and `sc` params), emit `Array(Int64)` in the function signature instead of `RubyArray`. Register the param in `@native_array_locals` so array operations inside the method use native indexing.
+
+**Implementation:** `ti_crystal_type` maps `Array[:i64]` → `'Array(Int64)'`. `emit_vm_method` registers `Array(Int64)` params in `@native_array_locals`.
+
+**Impact:** sudoku: 524 ms → 134 ms (**3.8× faster than MRI**).
+
+---
+
+## 13. Typed-return raw body emission (implemented)
+
+**Flag:** `raw_returns`
+
+When TI identifies a method's return type as `:i64`/`:f64` but the params are NOT all typed (so §8's specialised overload isn't emitted), the generic method is emitted with `emit_raw_body` and a Crystal return type annotation (`: Int64`). The body uses raw arithmetic throughout.
+
+**Implementation:** In `emit_vm_method`, checks `@typed_method_returns[name]` when `@typed_params[name]` is nil. Adds Crystal return type, emits body via `emit_raw_body`.
+
+**Impact:** binarytrees `item_check`: recursive calls produce raw Int64 instead of boxing `RubyInteger` at every level. 250 ms → 88 ms.
+
+---
+
+## 14. RubyTupleN for fixed-size array literals (implemented)
+
+**Flag:** `tuple_literals`
+
+Array literals with 1–8 elements (no splat) are emitted as `RubyTupleN.new(...)` instead of `RubyArray.new([...])`. `RubyTupleN` classes are macro-generated in Crystal — single allocation with N inline pointer fields, case-dispatch `[]` indexing.
+
+**Allocation comparison:** `RubyArray` = 3 allocations (wrapper + Crystal Array + buffer, ~64 bytes). `RubyTupleN` = 1 allocation (~16+8N bytes).
+
+`masgn_coerce` has overloads for each `RubyTupleN` to convert to `RubyArray` for destructuring.
+
+**Impact:** binarytrees (65K tree nodes per traversal): 88 ms → 31 ms (**2.8×**). Combined with §13: 250 ms → 31 ms (**8×**).
+
+---
+
+## 15. Class-typed ivar narrowing (implemented)
+
+**Flag:** `ivar_narrowing`
+
+Scans ALL methods of each user class for ivar assignments. When the set of types assigned is `{UserClass, nil}` or `{UserClass, self_ivar}`, narrows the Crystal ivar type from `RubyObject` to `Ruby_UserClass | RubyNil`. Accessor return types are narrowed to match.
+
+**Self-referential detection:** Assignments from local variables (tracked via TI class locals), accessor calls on `self`, and ivar reads on `self` are treated as `:self_ivar` (compatible with the identified class). The pattern `{nil, self_ivar}` detects tree/list nodes (e.g. `@left`/`@right` in a `Node` class).
+
+**Implementation:** `collect_class_typed_ivars` / `collect_class_typed_ivars_from` (recursive for nested classes). `collect_user_classes_recursive` ensures nested classes are in `@ti_user_class_names`.
+
+**Impact:** splay `@root`, `@left`, `@right` typed as `Ruby_Node | RubyNil`. Performance impact minimal (~187 ms, was 179 ms) — Crystal's union dispatch adds per-call overhead vs YJIT's monomorphic inline caches.
+
+---
+
+## 16. Devirtualisation of class-typed receivers (implemented)
+
+**Flag:** `devirtualize`
+
+When a method is called on a local variable that TI has classified as a specific user class, cast the receiver with `.as(Ruby_ClassName)` so Crystal can inline and devirtualise the method call.
+
+**Implementation:** In `emit_method_call`, checks `@current_class_locals[recv_name]`. In `emit_local_var_write`, casts class-typed assignments with `.as(Ruby_ClassName)`.
+
+---
+
+## 17. Integer division fix (implemented)
+
+Crystal uses `//` for integer division (Ruby's `/` on integers). Crystal's `Int64 / Int64` returns `Float64`. The codegen emits `//` for `/` when both operands are `:i64`.
+
+---
+
+## 18. Embedded assignment parens (implemented)
+
+Ruby allows `if (q1 = p[1]) != 1`. Crystal parses this differently — `!=` binds tighter than `=`. The codegen wraps assignments in parens when they appear as operands: `((q1 = p[1]).to_i64 != 1_i64)`.
+
+`contains_assignment?` detects `LocalVariableWrite`, `InstanceVariableWrite`, `IndexOperatorWrite`, and `AttributeWrite`, including when wrapped in single-element `Sequence` nodes from the parser.
+
+---
+
+## 19. Method-body infer_local_types (implemented)
+
+`infer_local_types` is now called in `emit_vm_method` (not just `emit_specialized_vm_method`). Seeds `@typed_locals` from literal assignments for methods that TI didn't fully analyse.
+
+---
+
+## 20. Optimisation flags (-O0/-O1/-O2) (implemented)
+
+13 named flags with 3 optimisation levels:
+
+| Flag | Description | -O0 | -O1 | -O2 |
+|------|-------------|-----|-----|-----|
+| `unbox_locals` | Int64/Float64 local specialisation | off | off | **on** |
+| `call_site_types` | Inferred param types from call sites | off | **on** | **on** |
+| `method_specialization` | Raw Int64/Float64 method overloads | off | off | **on** |
+| `typed_ivars` | Scalar-typed instance variables | off | off | **on** |
+| `ivar_narrowing` | Class-typed ivar narrowing (X \| nil) | off | off | **on** |
+| `native_arrays` | Array(T) promotion + typed params | off | off | **on** |
+| `native_2d_arrays` | Array(Array(T)) promotion | off | off | **on** |
+| `tuple_literals` | RubyTupleN for small fixed-size arrays | off | **on** | **on** |
+| `native_iteration` | Crystal .times/.upto/.downto | off | **on** | **on** |
+| `raw_returns` | Typed-return raw body emission | off | off | **on** |
+| `accessor_inline` | _raw accessor usage for self-calls | off | **on** | **on** |
+| `devirtualize` | .as(Ruby_X) casts for class-typed receivers | off | **on** | **on** |
+| `condition_simplify` | Bare Crystal Bool for comparisons | off | **on** | **on** |
+
+**Control:**
+- `FROZONE_OPT_LEVEL=0|1|2` — sets the level (default: 2)
+- `FROZONE_NO_<FLAG>=1` — disables individual flags (e.g. `FROZONE_NO_UNBOX_LOCALS=1`)
+- `SnapshotCodegen.new(opt_level: 0)` — programmatic control
+
+**-O0 vs -O2 speedup** (Crystal `--release` builds):
+
+| Benchmark | -O0 | -O2 | Speedup |
+|-----------|-----|-----|---------|
+| fib | 2.71 ms | 0.03 ms | **90×** |
+| loops_times | 2174 ms | 11 ms | **197×** |
+| attr_accessor | 0.68 ms | 0.01 ms | **68×** |
+| binarytrees | 457 ms | 34 ms | **13×** |
+| splay | 234 ms | 185 ms | **1.3×** |

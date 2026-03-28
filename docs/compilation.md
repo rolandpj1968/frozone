@@ -1655,30 +1655,34 @@ type inference handles this naturally once the types are emitted correctly.
 - `Float#+`, `Float#*`, etc. → `Float64` when both args are `Float64`
 - `Array#length`, `Array#size` → `Int64`
 
-### The inference algorithm (planned)
+### The inference algorithm (implemented)
 
-A simple forward dataflow pass over the method body AST, per method:
+Type inference is implemented in two complementary layers:
 
-1. **Seed:** `self` → declaring class (or union of subclasses), literal types,
-   method parameter types (initially `RubyObject`, narrowed from call sites)
-2. **Propagate:** assignment `x = expr` → type of `x` is inferred type of
-   `expr`; join on re-assignment (`x` in a loop → union of all assigned types)
-3. **Method calls:** look up receiver type, look up method, use return type
-4. **Instance variables:** use per-class ivar type table (seeded from
-   `initialize`, refined by all assignments in the closed world)
-5. **Emit:** when a local is `Int64 | Float64` (or a subtype), emit it as the
-   native Crystal type; operators on native types emit native Crystal ops with
-   no boxing or `RubyObject` dispatch
+1. **Whole-program TypeInference** (`type_inference.rb`): forward dataflow
+   over the settled VM state. Tracks locals, params, ivars, returns, array
+   elements, and constants as a type lattice (`:unknown` → class-typed →
+   scalar `:i64`/`:f64`). Three fixed-point iterations. Results are unpacked
+   into per-flag codegen lookup maps.
 
-### Expected payoff
+2. **Method-body literal inference** (`infer_local_types`): fixed-point
+   pass over method ASTs seeding types from literal assignments, then
+   propagating through arithmetic and local variable assignments.
 
-For numeric benchmarks like matmul and nbody, essentially the entire inner loop
-should reduce to native `Float64` arithmetic with no allocation. The theoretical
-target is competitive with MRI's unboxed float optimisation — potentially faster
-since Crystal's native code generation is more aggressive than YARV.
+The combined inference enables 13 optimisation passes (see
+`docs/optimisations.md`) producing 10–200× speedups over unoptimised
+output on numeric benchmarks.
 
-Crystal's own type inference will also help: once ivars and locals are declared
-with narrow types, Crystal propagates those types through the method body and
-eliminates `RubyObject` dispatch at call sites where it can prove the type.
-The two inference passes (Frozone's pre-pass and Crystal's own) are
-complementary, not redundant.
+### Achieved payoff
+
+For numeric benchmarks, the inner loops reduce to native `Int64`/`Float64`
+arithmetic with no allocation. Results (Crystal `--release` vs MRI):
+
+- fib(20): **22× faster than MRI**, 13× faster than YJIT
+- nbody: **95× faster than MRI**, 33× faster than YJIT
+- loops_times: **73× faster than MRI**, 18× faster than YJIT
+- attr_accessor: **72× faster than MRI/YJIT**
+
+Mixed benchmarks (binarytrees, sudoku) are 3–9× faster than MRI.
+Object-heavy benchmarks (splay) remain slower than YJIT due to
+Crystal's union dispatch overhead vs YJIT's inline caches.
