@@ -40,6 +40,22 @@ class RubyTuple{{n}} < RubyObject
     RubyInteger.new({{n}}_i64)
   end
 
+  def max : RubyObject
+    best = @v0
+    {% for i in (1...n) %}
+    best = @v{{i}} if (@v{{i}} > best)
+    {% end %}
+    best
+  end
+
+  def min : RubyObject
+    best = @v0
+    {% for i in (1...n) %}
+    best = @v{{i}} if (@v{{i}} < best)
+    {% end %}
+    best
+  end
+
   def size : RubyInteger
     length
   end

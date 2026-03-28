@@ -149,6 +149,7 @@ module Frozone
         when Ast::InstanceVariableRead  then emit_ivar_read(node)
         when Ast::InstanceVariableWrite then emit_ivar_write(node)
         when Ast::ConstantRead          then emit_constant_read(node)
+        when Ast::ConstantPath          then emit_constant_path(node)
         when Ast::ConstantWrite         then emit_constant_write(node)
         when Ast::ClassVariableRead     then emit_class_var_read(node)
         when Ast::ClassVariableWrite    then emit_class_var_write(node)
@@ -281,6 +282,23 @@ module Frozone
         name = ivar(node, :name)
         crystal_type = RUBY_TO_CRYSTAL_TYPE[name]
         crystal_type ? write(crystal_type) : write("Ruby_#{crystal_constant(name)}")
+      end
+
+      def emit_constant_path(node)
+        parent = ivar(node, :parent_node)
+        name   = ivar(node, :name)
+        # Special cases: Math::PI, Math::E → Crystal constants
+        if parent.is_a?(Ast::ConstantRead) && ivar(parent, :name) == :Math
+          case name
+          when :PI then write "RubyFloat.new(Math::PI)"
+          when :E  then write "RubyFloat.new(Math::E)"
+          else write "RubyMath.#{crystal_method_name(name)}"
+          end
+        else
+          # General: Parent::Name → Ruby_Parent::Ruby_Name or Ruby_Parent.Name
+          emit(parent)
+          write "::Ruby_#{crystal_constant(name)}"
+        end
       end
 
       def emit_constant_write(node)

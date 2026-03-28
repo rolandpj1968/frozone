@@ -117,7 +117,11 @@ abstract class RubyObject
     raise Exception.new("[] not supported for #{self.class}")
   end
   def [](idx : Int64) : RubyObject
-    raise Exception.new("[] not supported for #{self.class}")
+    self[RubyInteger.new(idx)]
+  end
+
+  def [](from : RubyObject, len : RubyObject) : RubyObject
+    raise Exception.new("[] with 2 args not supported for #{self.class}")
   end
 
   def []=(idx : RubyObject, val : RubyObject) : RubyObject
@@ -158,16 +162,52 @@ abstract class RubyObject
     raise Exception.new("bytesize not supported for #{self.class}")
   end
 
-  def getbyte(*args) : RubyObject
+  def getbyte(i : RubyObject) : RubyObject
     raise Exception.new("getbyte not supported for #{self.class}")
   end
 
-  def setbyte(*args) : RubyObject
+  def setbyte(i : RubyObject, b : RubyObject) : RubyObject
     raise Exception.new("setbyte not supported for #{self.class}")
   end
 
   def succ : RubyObject
     raise Exception.new("succ not supported for #{self.class}")
+  end
+
+  def b : RubyObject
+    raise Exception.new("b not supported for #{self.class}")
+  end
+
+  def floor : RubyObject
+    raise Exception.new("floor not supported for #{self.class}")
+  end
+
+  def abs : RubyObject
+    raise Exception.new("abs not supported for #{self.class}")
+  end
+
+  def fetch(idx : RubyObject) : RubyObject
+    raise Exception.new("fetch not supported for #{self.class}")
+  end
+
+  def set(a : RubyObject, b : RubyObject, c : RubyObject, d : RubyObject) : RubyObject
+    raise Exception.new("set not supported for #{self.class}")
+  end
+
+  def get(a : RubyObject, b : RubyObject, c : RubyObject) : RubyObject
+    raise Exception.new("get not supported for #{self.class}")
+  end
+
+  def putc(c : RubyObject) : RubyObject
+    raise Exception.new("putc not supported for #{self.class}")
+  end
+
+  def pos : RubyObject
+    raise Exception.new("pos not supported for #{self.class}")
+  end
+
+  def max : RubyObject
+    raise Exception.new("max not supported for #{self.class}")
   end
 
   # -------------------------------------------------------------------------

@@ -322,6 +322,10 @@ module Frozone
             line "def inspect : String; \"#<#{name}>\"; end"
           end
 
+          # Emit module/class-level constants
+          emit_user_constants(mod)
+          emit_newline
+
           user_methods.each do |mname, method|
             emit_indent
             if accessor_method?(method)
@@ -329,6 +333,20 @@ module Frozone
             else
               inst_param_types = @ti_class_params[[name, mname]]
               emit_vm_method(mname, method, param_types: inst_param_types)
+              emit_newline
+              emit_newline
+            end
+          end
+
+          # Emit class/module methods (def self.x) from the eigenclass
+          eigenclass = mod.instance_variable_get(:@eigenclass)
+          if eigenclass
+            class_methods = eigenclass.instance_variable_get(:@methods_table)&.select do |_n, m|
+              m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+            end
+            (class_methods || {}).each do |mname, method|
+              emit_indent
+              emit_vm_method(mname, method, class_method: true)
               emit_newline
               emit_newline
             end
@@ -422,7 +440,7 @@ module Frozone
       # Emit a Crystal method definition from a Vm::Method object.
       # Vm::Method has the same ivar names as Ast::MethodDef, so we can pass
       # it directly to emit_param_list (which uses ivar/instance_variable_get).
-      def emit_vm_method(name, method, param_types: nil)
+      def emit_vm_method(name, method, param_types: nil, class_method: false)
         old_typed      = @typed_locals
         old_typed_arrs = @typed_array_locals
         old_local_elem = @current_local_array_elems
@@ -467,7 +485,7 @@ module Frozone
         raw_return = opt?(:raw_returns) && !@typed_params[name] && @typed_method_returns[name]
         cr_return_types = { i64: 'Int64', f64: 'Float64' }
 
-        write "def #{crystal_name}"
+        write class_method ? "def self.#{crystal_name}" : "def #{crystal_name}"
         write " : String" if string_return
         emit_param_list(method, param_types: param_types)
         write " : #{cr_return_types[raw_return]}" if raw_return

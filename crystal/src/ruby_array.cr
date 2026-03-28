@@ -35,6 +35,11 @@ class RubyArray < RubyObject
     @data = Array(RubyObject).new(n) { default }
   end
 
+  def initialize(count : RubyObject)
+    n = count.is_a?(RubyInteger) ? count.to_i64.to_i32 : 0
+    @data = Array(RubyObject).new(n) { RubyNil::INSTANCE.as(RubyObject) }
+  end
+
   # Array.new(count) { |i| block } — creates array of `count` elements from block.
   # Uses a manual loop (not Array.new { |i| }) to avoid Crystal inferring Int32 from
   # the internal iteration index and polluting closure-variable types in the block.
@@ -193,6 +198,13 @@ class RubyArray < RubyObject
     i += @data.size + 1 if i < 0
     @data.insert(i.to_i32, val)
     self
+  end
+
+  def fetch(idx : RubyObject) : RubyObject
+    i = idx.to_i64
+    i += @data.size if i < 0
+    raise IndexError.new("index #{idx} outside of array bounds") if i < 0 || i >= @data.size
+    @data[i]
   end
 
   def dup : RubyArray

@@ -344,6 +344,10 @@ class RubyString < RubyObject
   # ------------------------------------------------------------------
 
   # Mark this string as frozen.  Returns self.
+  def b : RubyString
+    RubyString.new(@bytes.dup, RubyEncoding::ASCII_8BIT)
+  end
+
   def freeze! : RubyString
     set_flag!(FROZEN_BIT)
     self
@@ -393,6 +397,17 @@ class RubyString < RubyObject
 
   def [](idx : RubyObject) : RubyObject
     self[idx.to_i64]
+  end
+
+  # String slice: str[from, len] → substring
+  def [](from : RubyObject, len : RubyObject) : RubyObject
+    str = String.new(@bytes)
+    f = from.to_i64.to_i32
+    l = len.to_i64.to_i32
+    f += str.size if f < 0
+    return RubyNil::INSTANCE if f < 0 || f > str.size
+    sub = str[f, [l, str.size - f].min]
+    RubyString.new(sub, @encoding)
   end
 
   # Character ordinal value

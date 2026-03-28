@@ -38,6 +38,10 @@ class RubyFloat < RubyObject
   # Constructor
   # -------------------------------------------------------------------------
 
+  def self.new(v : RubyFloat) : RubyFloat
+    v
+  end
+
   def initialize(v : Float64)
     @value = v
   end
@@ -62,17 +66,29 @@ class RubyFloat < RubyObject
   def +(other : RubyFloat) : RubyFloat
     RubyFloat.new(@value + other.raw)
   end
+  def +(other : Float64) : RubyFloat
+    RubyFloat.new(@value + other)
+  end
 
   def -(other : RubyFloat) : RubyFloat
     RubyFloat.new(@value - other.raw)
+  end
+  def -(other : Float64) : RubyFloat
+    RubyFloat.new(@value - other)
   end
 
   def *(other : RubyFloat) : RubyFloat
     RubyFloat.new(@value * other.raw)
   end
+  def *(other : Float64) : RubyFloat
+    RubyFloat.new(@value * other)
+  end
 
   def /(other : RubyFloat) : RubyFloat
     RubyFloat.new(@value / other.raw)
+  end
+  def /(other : Float64) : RubyFloat
+    RubyFloat.new(@value / other)
   end
 
   # Modulo with Ruby sign-of-divisor semantics.
