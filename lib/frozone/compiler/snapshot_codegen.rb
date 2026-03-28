@@ -246,9 +246,13 @@ module Frozone
       end
 
       def emit_user_class(name, mod, const_loc: nil)
+        # For Struct subclasses: include initialize (it's defined in core but
+        # we need it for the Crystal class to work)
+        is_struct = mod.is_a?(Vm::ClassObject) && struct_subclass?(mod)
         user_methods = mod.instance_variable_get(:@methods_table)&.select do |_n, m|
           m.is_a?(Vm::Method) &&
-            (user_source_location?(m.source_location) || accessor_method?(m))
+            (user_source_location?(m.source_location) || accessor_method?(m) ||
+             (is_struct && _n == :initialize))
         end
         user_methods ||= {}
         has_user_methods = user_methods.any? { |_, m| user_source_location?(m.source_location) }
@@ -264,7 +268,7 @@ module Frozone
         sc_name = sc&.instance_variable_get(:@name)
 
         write "#{kw} Ruby_#{crystal_name}"
-        if sc_name && !%i[Object BasicObject].include?(sc_name)
+        if sc_name && !%i[Object BasicObject Struct Data].include?(sc_name)
           write " < Ruby_#{crystal_constant(sc_name)}"
         elsif is_class
           write " < RubyObject"
@@ -1307,6 +1311,15 @@ module Frozone
         when Ast::InstanceVariableWrite then true
         else false
         end
+      end
+
+      def struct_subclass?(klass)
+        c = klass
+        while c && c.is_a?(Vm::ClassObject)
+          return true if c.name == :Struct
+          c = c.superclass
+        end
+        false
       end
 
       # Emit an accessor method as an efficient one-liner.

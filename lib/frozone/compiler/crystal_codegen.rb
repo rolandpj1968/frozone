@@ -1026,6 +1026,7 @@ module Frozone
         Hash:     'RubyHash',
         NilClass: 'RubyNil',
         Numeric:  'RubyObject',
+        Struct:   'RubyObject',
         Math:     'RubyMath',
         Random:   'Ruby_Random',
       }.freeze
