@@ -515,6 +515,8 @@ module Frozone
       # Built-in methods on Array/Integer/Float with known return types.
       ARRAY_INT_METHODS  = %i[length size count].to_set
       INT_INT_METHODS    = %i[abs ceil floor round truncate].to_set
+      FLOAT_FLOAT_METHODS = %i[abs].to_set
+      FLOAT_INT_METHODS   = %i[ceil floor round truncate].to_set
       # Explicit coercion methods: always return a known numeric type.
       COERCE_TO_FLOAT    = %i[to_f to_f64 to_r].to_set
       COERCE_TO_INT      = %i[to_i to_i64 to_int].to_set
@@ -592,10 +594,15 @@ module Frozone
           return :f64 if COERCE_TO_FLOAT.include?(name) && recv_ty != :unknown
           return :i64 if COERCE_TO_INT.include?(name) && recv_ty != :unknown
           if recv_ty.is_a?(Hash)
-            return :i64 if recv_ty[:class] == :Array && ARRAY_INT_METHODS.include?(name)
+            return :i64 if recv_ty[:class] == :Array   && ARRAY_INT_METHODS.include?(name)
             return :i64 if recv_ty[:class] == :Integer && INT_INT_METHODS.include?(name)
-            return :f64 if recv_ty[:class] == :Float   && INT_INT_METHODS.include?(name)
+            return :f64 if recv_ty[:class] == :Float   && FLOAT_FLOAT_METHODS.include?(name)
+            return :i64 if recv_ty[:class] == :Float   && FLOAT_INT_METHODS.include?(name)
+            # String byte methods return Integer
+            return :i64 if recv_ty[:class] == :String && %i[getbyte ord bytesize].include?(name)
           end
+          # dup/clone/freeze always return the same type as the receiver
+          return recv_ty if recv_ty != :unknown && (name == :dup || name == :clone || name == :freeze)
         end
 
         # Arithmetic / bitwise — Ruby-semantic result type.
