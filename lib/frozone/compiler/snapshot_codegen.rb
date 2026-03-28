@@ -562,6 +562,12 @@ module Frozone
         when Vm::FalseObject   then "RUBY_FALSE"
         when Vm::SymbolObject  then "RubySymbol.new(#{value.raw.inspect})"
         when Vm::ArrayObject
+          # Large byte arrays: emit compact Bytes literal + map
+          if value.raw.size > 256 && value.raw.all? { |e| e.is_a?(Vm::IntegerObject) && e.raw >= 0 && e.raw <= 255 }
+            bytes = value.raw.map { |e| e.raw.to_s }.join(', ')
+            return "RubyArray.new(Bytes[#{bytes}].to_a.map { |b| RubyInteger.new(b.to_i64).as(RubyObject) })"
+          end
+          return nil if value.raw.size > 1000  # Skip very large non-byte arrays
           elems = value.raw.map { |e| vm_value_to_crystal(e) }
           return nil if elems.any?(&:nil?)
           "RubyArray.new([#{elems.join(', ')}] of RubyObject)"
