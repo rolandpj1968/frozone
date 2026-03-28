@@ -651,7 +651,13 @@ module Frozone
           case kind
           when :local
             if ty.is_a?(Hash) && opt?(:devirtualize)
-              (@ti_class_locals[slot[1]] ||= {})[slot[2]] = ty[:class] if @ti_user_class_names&.include?(ty[:class])
+              cls = ty[:class]
+              # Narrow locals to concrete class types — skip abstract/top-level
+              # types (Object, Numeric) and Array/Hash (handled by native arrays)
+              skip_builtin = %i[Object BasicObject Numeric Array Hash].include?(cls)
+              if cls && !skip_builtin && (@ti_user_class_names&.include?(cls) || CrystalCodegen::RUBY_TO_CRYSTAL_TYPE.key?(cls))
+                (@ti_class_locals[slot[1]] ||= {})[slot[2]] = cls
+              end
             end
             if ty.is_a?(Hash) && ty[:class] == :Array && opt?(:native_arrays) && (elem_raw = ti_raw_type(ty[:elem]))
               (@ti_local_array_elems[slot[1]] ||= {})[slot[2]] = elem_raw
@@ -743,7 +749,7 @@ module Frozone
           when :Proc             then 'RubyProc'
           else
             cls = ty[:class]
-            @ti_user_class_names&.include?(cls) ? "Ruby_#{crystal_constant(cls)}" : 'RubyObject'
+            (@ti_user_class_names&.include?(cls) || CrystalCodegen::RUBY_TO_CRYSTAL_TYPE.key?(cls)) ? crystal_class_name(cls) : 'RubyObject'
           end
         else 'RubyObject'
         end
@@ -837,6 +843,12 @@ module Frozone
         bp = ivar(node, :block_param)
         parts << "&#{crystal_local(bp)}" if bp
         write "(#{parts.join(', ')})" unless parts.empty?
+      end
+
+      # Map a class name symbol to the Crystal class name.
+      # Uses RUBY_TO_CRYSTAL_TYPE for built-in classes, Ruby_ prefix for user classes.
+      def crystal_class_name(cls)
+        CrystalCodegen::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
       end
 
       # Override: for typed locals in boxed context, wrap in RubyInteger/RubyFloat.
@@ -934,7 +946,7 @@ module Frozone
         if (cls = @current_class_locals[name])
           write "#{crystal_local(name)} = "
           emit(ivar(node, :value_node))
-          write ".as(Ruby_#{crystal_constant(cls)})"
+          write ".as(#{crystal_class_name(cls)})"
           return
         end
         super
@@ -1174,7 +1186,7 @@ module Frozone
           recv_name  = ivar(node.receiver_node, :name)
           recv_class = @current_class_locals[recv_name]
           if recv_class
-            write "#{crystal_local(recv_name)}.as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(node.name)}"
+            write "#{crystal_local(recv_name)}.as(#{crystal_class_name(recv_class)}).#{crystal_method_name(node.name)}"
             emit_call_args(node)
             return
           end
@@ -1378,7 +1390,7 @@ module Frozone
               elsif (cls = @current_class_locals[name])
                 write "#{crystal_local(name)} = "
                 emit(elem)
-                write ".as(Ruby_#{crystal_constant(cls)})"
+                write ".as(#{crystal_class_name(cls)})"
               else
                 # typed array local — fall back to super for this case
                 return super
