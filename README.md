@@ -110,9 +110,11 @@ Measured on Ruby 4.0.1 vs Crystal `--release` build (same workload per benchmark
 | gcbench | 1751 ms | 558 ms | 158 ms | **11×** | **3.5×** |
 | respond\_to | 162 ms | 15 ms | 31 ms | **5.2×** | 0.5× |
 | ruby-xor | 97 ms | 19 ms | 207 ms | 0.5× | 0.1× |
+| fannkuchredux | 311 ms | 311 ms | 176 ms | **1.8×** | **1.8×** |
+| blurhash | 234 ms | 102 ms | 662 ms | 0.4× | 0.2× |
 | splay | 87 ms | 60 ms | 179 ms | 0.5× | 0.3× |
 
-20 compiled benchmarks. Numeric/accessor/tree benchmarks are 3.7–95× faster than YJIT. Object-dispatch benchmarks (splay, ruby-xor, respond\_to) show where Crystal's dispatch overhead exceeds YJIT's inline caches.
+22 compiled benchmarks including blurhash (first real application — image hashing with nested modules, class methods, Math.cos, 3D arrays). Numeric/accessor/tree benchmarks are 3.7–95× faster than YJIT.
 
 ### Optimization Levels
 
