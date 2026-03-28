@@ -149,7 +149,7 @@ module Frozone
           if recv.nil?
             # Free call — must be to a specialised method
             @typed_method_returns.key?(name) ? args.all? { |a| body_all_raw_safe?(a) } : false
-          elsif (ARITH_OPS_UNBOX | CrystalCodegen::COMPARE_OPS).include?(name) && args.size == 1
+          elsif (RawEmission::ARITH_OPS_UNBOX | CrystalCodegen::COMPARE_OPS).include?(name) && args.size == 1
             body_all_raw_safe?(recv) && body_all_raw_safe?(args[0])
           else
             false
@@ -276,7 +276,7 @@ module Frozone
         when Ast::If
           write "if "
           cond = ivar(node, :pred_node)
-          if cond.is_a?(Ast::MethodCall) && (ARITH_OPS_UNBOX | CrystalCodegen::COMPARE_OPS).include?(ivar(cond, :name)) &&
+          if cond.is_a?(Ast::MethodCall) && (RawEmission::ARITH_OPS_UNBOX | CrystalCodegen::COMPARE_OPS).include?(ivar(cond, :name)) &&
              (ivar(cond, :arg_nodes) || []).size == 1
             recv = ivar(cond, :receiver_node)
             # Wrap embedded assignments in parens so (q1 = expr) != val

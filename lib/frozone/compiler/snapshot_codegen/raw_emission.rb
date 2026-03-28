@@ -32,6 +32,12 @@ module Frozone
           @current_class_ivars[ivar(node, :name)]
         when Ast::ConstantRead
           @const_raw_types[ivar(node, :name)]
+        when Ast::ConstantPath
+          # Math::PI, Math::E → :f64
+          parent = ivar(node, :parent_node)
+          if parent.is_a?(Ast::ConstantRead) && ivar(parent, :name) == :Math
+            :f64
+          end
         when Ast::MethodCall
           name = ivar(node, :name)
           recv = ivar(node, :receiver_node)
@@ -69,6 +75,9 @@ module Frozone
           if (name == :succ || name == :pred) && args.empty? && node_raw_type(recv) == :i64
             return :i64
           end
+          # Explicit coercion methods → known return type
+          return :f64 if %i[to_f to_f64].include?(name) && args.empty? && recv
+          return :i64 if %i[to_i to_i64].include?(name) && args.empty? && recv
           # Arithmetic op: BOTH operands must be raw-typed
           return nil unless ARITH_OPS_UNBOX.include?(name) && args.size == 1
           rt = node_raw_type(recv)
@@ -174,6 +183,11 @@ module Frozone
         end
       end
 
+      # Is this method name a simple accessor (getter for a typed ivar)?
+      def accessor_method_name?(name)
+        @current_class_name && @typed_ivars.fetch(@current_class_name, {})[:"@#{name}"]
+      end
+
       # Emit a node as a bare Crystal numeric (Int64 or Float64).
       # Only call when node_raw_type(node) is non-nil.
       def emit_raw(node)
@@ -219,10 +233,25 @@ module Frozone
           ty = @const_raw_types[ivar(node, :name)]
           emit_constant_read(node)
           write ty == :f64 ? ".to_f64" : ".to_i64"
+        when Ast::ConstantPath
+          # Math::PI → Math::PI (already Float64 in Crystal)
+          emit(node)  # emit_constant_path handles Math::PI → RubyFloat.new(Math::PI)
+          write ".to_f64"  # unwrap to bare Float64
         when Ast::MethodCall
           name = ivar(node, :name)
           recv = ivar(node, :receiver_node)
           args = ivar(node, :arg_nodes) || []
+          # to_f / to_i coercion → emit raw coercion
+          if %i[to_f to_f64].include?(name) && args.empty? && recv
+            emit_raw(recv)
+            write ".to_f64" unless node_raw_type(recv) == :f64
+            return
+          end
+          if %i[to_i to_i64].include?(name) && args.empty? && recv
+            emit_raw(recv)
+            write ".to_i64" unless node_raw_type(recv) == :i64
+            return
+          end
           # succ/pred on raw Int64 → emit as (val +/- 1)
           if (name == :succ || name == :pred) && args.empty? && node_raw_type(recv) == :i64
             write "("
@@ -249,8 +278,9 @@ module Frozone
               emit(node)
             end
           elsif recv.nil? && @current_class_name &&
-                @instance_method_raw_returns[[@current_class_name, name]]
-            # Self-call inside class method with raw accessor: use _raw directly
+                @instance_method_raw_returns[[@current_class_name, name]] &&
+                accessor_method_name?(name)
+            # Self-call inside class with raw ACCESSOR: use _raw directly
             write "#{crystal_method_name(name)}_raw"
           elsif recv.nil? && @typed_params[name]
             # Free call to typed-param method: pass raw args

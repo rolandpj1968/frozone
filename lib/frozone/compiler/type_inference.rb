@@ -246,13 +246,25 @@ module Frozone
           next unless n.is_a?(Ast::MethodCall)
           recv = n.receiver_node
           args = n.arg_nodes || []
+          blk  = n.instance_variable_get(:@block_node)
+
+          # Seed block params for iteration methods (times, each, etc.)
+          if blk
+            ptypes = block_param_types(n.name, recv, ctx)
+            seed_block_params(blk, ptypes, ctx) unless ptypes.empty?
+          end
+
           next if args.empty?
 
           if recv.nil?
             # Free call → top-level method params.
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
-              changed |= @env.meet!([:param, n.name, i], ty) if ty && ty != :unknown
+              next unless ty && ty != :unknown
+              changed |= @env.meet!([:param, n.name, i], ty)
+              # Also store under class-keyed slot if inside a class method
+              # (free calls inside class methods are actually class method calls)
+              changed |= @env.meet!([:param, [ctx.class_name, n.name], i], ty) if ctx.class_name
             end
           elsif recv.is_a?(Ast::ConstantRead) && n.name == :new
             # ClassName.new(...) → constructor params.

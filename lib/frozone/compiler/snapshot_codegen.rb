@@ -493,7 +493,9 @@ module Frozone
 
         # If method has a typed return but no fully-typed-params overload,
         # emit with raw body and return type annotation.
-        raw_return = opt?(:raw_returns) && !@typed_params[name] && @typed_method_returns[name]
+        raw_return = opt?(:raw_returns) && !@typed_params[name] &&
+          (@typed_method_returns[name] ||
+           (@current_class_name && @instance_method_raw_returns[[@current_class_name, name]]))
         cr_return_types = { i64: 'Int64', f64: 'Float64' }
 
         write class_method ? "def self.#{crystal_name}" : "def #{crystal_name}"
@@ -769,12 +771,15 @@ module Frozone
         when :array_f64 then 'Array(Float64)'
         when Hash
           case ty[:class]
-          when :Integer          then 'RubyInteger'
-          when :Float            then 'RubyFloat'
-          when :String           then 'RubyString'
-          when :Symbol           then 'RubySymbol'
-          when :NilClass         then 'RubyNil'
-          when :TrueClass, :FalseClass then 'RubyBool'
+          # Only use narrow types for primitives and arrays — broader types
+          # like RubyString/RubySymbol cause param type mismatches when
+          # callers pass RubyObject.
+          when :Integer          then 'RubyObject'
+          when :Float            then 'RubyObject'
+          when :String           then 'RubyObject'
+          when :Symbol           then 'RubyObject'
+          when :NilClass         then 'RubyObject'
+          when :TrueClass, :FalseClass then 'RubyObject'
           when :Array
             if ty[:elem] && (elem_raw = ti_raw_type(ty[:elem]))
               elem_raw == :f64 ? 'Array(Float64)' : 'Array(Int64)'
