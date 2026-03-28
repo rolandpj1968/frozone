@@ -65,6 +65,10 @@ module Frozone
             elem_ty = @current_local_array_elems[arr_name]
             return elem_ty if elem_ty
           end
+          # succ/pred on typed integer → same type
+          if (name == :succ || name == :pred) && args.empty? && node_raw_type(recv) == :i64
+            return :i64
+          end
           # Arithmetic op: BOTH operands must be raw-typed
           return nil unless ARITH_OPS_UNBOX.include?(name) && args.size == 1
           rt = node_raw_type(recv)
@@ -219,6 +223,13 @@ module Frozone
           name = ivar(node, :name)
           recv = ivar(node, :receiver_node)
           args = ivar(node, :arg_nodes) || []
+          # succ/pred on raw Int64 → emit as (val +/- 1)
+          if (name == :succ || name == :pred) && args.empty? && node_raw_type(recv) == :i64
+            write "("
+            emit_raw(recv)
+            write(name == :succ ? " + 1_i64)" : " - 1_i64)")
+            return
+          end
           if name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
             arr_name = ivar(recv, :name)
             if (nat_ty = native_array_elem_type(arr_name))

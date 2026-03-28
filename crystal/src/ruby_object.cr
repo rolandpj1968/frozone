@@ -165,9 +165,15 @@ abstract class RubyObject
   def getbyte(i : RubyObject) : RubyObject
     raise Exception.new("getbyte not supported for #{self.class}")
   end
+  def getbyte(i : Int64) : RubyObject
+    getbyte(RubyInteger.new(i))
+  end
 
   def setbyte(i : RubyObject, b : RubyObject) : RubyObject
     raise Exception.new("setbyte not supported for #{self.class}")
+  end
+  def setbyte(i : Int64, b : RubyObject) : RubyObject
+    setbyte(RubyInteger.new(i), b)
   end
 
   def succ : RubyObject
