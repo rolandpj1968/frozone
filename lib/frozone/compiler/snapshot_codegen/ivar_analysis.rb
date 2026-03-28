@@ -76,8 +76,9 @@ module Frozone
 
       def collect_class_typed_ivars_from(scope)
         scope.instance_variable_get(:@constants_table)&.each do |class_name, value|
-          next unless value.is_a?(Vm::ClassObject) && !SnapshotCodegen::SKIP_CONSTANTS.include?(class_name)
-          collect_class_typed_ivars_from(value)  # recurse into nested classes
+          next unless value.is_a?(Vm::ModuleObject) && !SnapshotCodegen::SKIP_CONSTANTS.include?(class_name)
+          collect_class_typed_ivars_from(value)  # recurse into nested modules/classes
+          next unless value.is_a?(Vm::ClassObject)  # only collect ivars for classes
           methods = value.instance_variable_get(:@methods_table) || {}
           next unless methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
 
@@ -98,7 +99,7 @@ module Frozone
             next if types.include?(:unknown)
             concrete = types - Set[:nil, :self_ivar]
             has_nil  = types.include?(:nil) || types.include?(:self_ivar)
-            if concrete.size == 1 && @ti_user_class_names&.include?(concrete.first)
+            if concrete.size == 1 && known_class?(concrete.first)
               cls = concrete.first
               result[iv] = has_nil ? [:class_or_nil, cls] : [:class, cls]
             elsif concrete.empty? && types.include?(:self_ivar)
@@ -135,42 +136,50 @@ module Frozone
       end
 
       # Determine the class type of an expression for ivar assignment.
-      # Returns: class Symbol (user class name), :nil, or :unknown.
+      # Returns: class Symbol (user/builtin class name), :nil, :self_ivar, or :unknown.
+      KNOWN_BUILTIN_CLASSES = %i[Array Hash String Symbol Integer Float Range Regexp].to_set
+
       def ivar_assign_class_type(node, class_locals = {})
         case node
         when Ast::NilLiteral then :nil
+        when Ast::IntegerLiteral then :Integer
+        when Ast::FloatLiteral then :Float
+        when Ast::StringLiteral, Ast::InterpolatedString then :String
+        when Ast::SymbolLiteral then :Symbol
+        when Ast::ArrayLiteral then :Array
+        when Ast::HashLiteral then :Hash
+        when Ast::RangeLiteral then :Range
         when Ast::MethodCall
           name = ivar(node, :name)
           recv = ivar(node, :receiver_node)
           if name == :new && recv.is_a?(Ast::ConstantRead)
-            ivar(recv, :name)
+            ivar(recv, :name)  # Returns class name for both user and built-in
           elsif recv.nil?
-            # Self-call to accessor (e.g. right = self.right) — self-referential
             :self_ivar
           elsif recv.is_a?(Ast::InstanceVariableRead)
-            # Accessor on an ivar (e.g. @root = @root.right) — self-referential
             :self_ivar
           else
             :unknown
           end
         when Ast::LocalVariableRead
-          # Check TI class locals for the enclosing method
           cls = class_locals[ivar(node, :name)]
-          if cls && @ti_user_class_names&.include?(cls)
+          if cls && (@ti_user_class_names&.include?(cls) || KNOWN_BUILTIN_CLASSES.include?(cls))
             cls
           else
-            # Optimistic: untyped locals assigned to ivars are likely same-class.
-            # Crystal catches any real type mismatch at compile time.
             :self_ivar
           end
         when Ast::InstanceVariableRead
-          # Reading another ivar — mark as self-referential (resolved in fixpoint)
           :self_ivar
         when Ast::Sequence
           node.nodes.empty? ? :unknown : ivar_assign_class_type(node.nodes.last, class_locals)
         else
           :unknown
         end
+      end
+
+      # Is this a known class name (user-defined or built-in)?
+      def known_class?(name)
+        @ti_user_class_names&.include?(name) || KNOWN_BUILTIN_CLASSES.include?(name)
       end
 
       # Walk the execute block body for `ClassName.new(...)` calls and return

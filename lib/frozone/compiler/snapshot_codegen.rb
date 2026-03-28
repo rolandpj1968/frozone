@@ -298,12 +298,9 @@ module Frozone
                 ct = @current_class_typed_ivars[iv_sym]
                 if ct
                   kind, cls = ct
-                  crystal_cls = "Ruby_#{crystal_constant(cls)}"
-                  if kind == :class_or_nil
-                    ["#{crystal_cls} | RubyNil", "RUBY_NIL"]
-                  else
-                    [crystal_cls, "RUBY_NIL"]
-                  end
+                  crystal_cls = CrystalCodegen::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
+                  # Always emit as nullable — ivars start as nil before initialize
+                  ["#{crystal_cls} | RubyNil", "RUBY_NIL"]
                 else
                   ["RubyObject", "RUBY_NIL"]
                 end
@@ -1114,11 +1111,20 @@ module Frozone
 
         if node.name == :[] && node.receiver_node && node.arg_nodes&.size == 1 &&
            node_raw_type(node.arg_nodes[0])
-          emit(node.receiver_node)
-          write "["
-          emit_raw(node.arg_nodes[0])
-          write "]"
-          return
+          # Only use raw Int64 index for known array/tuple receivers — user classes
+          # may not have [](Int64) and need boxing to dispatch [](RubyObject).
+          recv = node.receiver_node
+          recv_is_array = recv.is_a?(Ast::LocalVariableRead) &&
+            (@typed_array_locals[ivar(recv, :name)] ||
+             @current_local_array_elems[ivar(recv, :name)] ||
+             native_array_elem_type(ivar(recv, :name)))
+          if recv_is_array || !recv.is_a?(Ast::LocalVariableRead)
+            emit(node.receiver_node)
+            write "["
+            emit_raw(node.arg_nodes[0])
+            write "]"
+            return
+          end
         end
 
         # Free call to a specialized method with all-raw args → use Int64 overload
@@ -1388,7 +1394,8 @@ module Frozone
             ct = @current_class_typed_ivars[iv]
             if ct
               kind, cls = ct
-              ret_type = kind == :class_or_nil ? "Ruby_#{crystal_constant(cls)} | RubyNil" : "Ruby_#{crystal_constant(cls)}"
+              crystal_cls = CrystalCodegen::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
+              ret_type = kind == :class_or_nil ? "#{crystal_cls} | RubyNil" : crystal_cls
               line "def #{crystal_method_name(mname)} : #{ret_type}; #{iv}; end"
             else
               line "def #{crystal_method_name(mname)} : RubyObject; #{iv}; end"

@@ -113,10 +113,10 @@ abstract class RubyObject
   # -------------------------------------------------------------------------
   # Indexing stubs — Array/Hash override with real implementations
   # -------------------------------------------------------------------------
-  def [](idx : RubyObject) : RubyObject
+  def [](idx : RubyObject)
     raise Exception.new("[] not supported for #{self.class}")
   end
-  def [](idx : Int64) : RubyObject
+  def [](idx : Int64)
     self[RubyInteger.new(idx)]
   end
 
