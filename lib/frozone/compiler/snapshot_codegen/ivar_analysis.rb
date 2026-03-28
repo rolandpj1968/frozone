@@ -101,9 +101,10 @@ module Frozone
             if concrete.size == 1 && @ti_user_class_names&.include?(concrete.first)
               cls = concrete.first
               result[iv] = has_nil ? [:class_or_nil, cls] : [:class, cls]
-            elsif concrete.empty? && types == Set[:nil, :self_ivar]
-              # Exactly {nil, self_ivar} — classic tree/list pattern (e.g. @left/@right).
-              # Infer as self-typed: the ivar holds instances of this class or nil.
+            elsif concrete.empty? && types.include?(:self_ivar)
+              # All concrete assignments are self-referential ({self_ivar} or
+              # {nil, self_ivar}) — tree/list pattern. Always nullable since
+              # default param values or nil assignments are common.
               result[iv] = [:class_or_nil, class_name]
             end
           end
