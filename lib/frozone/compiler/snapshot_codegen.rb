@@ -299,8 +299,19 @@ module Frozone
                 if ct
                   kind, cls = ct
                   crystal_cls = CrystalCodegen::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
-                  # Always emit as nullable — ivars start as nil before initialize
-                  ["#{crystal_cls} | RubyNil", "RUBY_NIL"]
+                  if kind == :class_or_nil
+                    ["#{crystal_cls} | RubyNil", "RUBY_NIL"]
+                  else
+                    # Non-nullable: provide a valid default
+                    default = case cls
+                              when :Array  then "RubyArray.new"
+                              when :Hash   then "RubyHash.new"
+                              when :String then "RubyString.new"
+                              else "RUBY_NIL"
+                              end
+                    # Fall back to nullable if we can't provide a default
+                    default == "RUBY_NIL" ? ["#{crystal_cls} | RubyNil", "RUBY_NIL"] : [crystal_cls, default]
+                  end
                 else
                   ["RubyObject", "RUBY_NIL"]
                 end
@@ -1163,13 +1174,14 @@ module Frozone
           end
         end
 
-        # Typed arithmetic/comparison: if both operands are raw-typed, emit
+        # Typed arithmetic/comparison: if BOTH operands are raw-typed, emit
         # raw Crystal arithmetic instead of going through RubyObject dispatch.
+        # Requires both sides typed to avoid coercing unknown-type values.
         if node.receiver_node && (node.arg_nodes || []).size == 1 &&
            (ARITH_OPS_UNBOX | CrystalCodegen::COMPARE_OPS).include?(node.name)
           rt = node_raw_type(node.receiver_node)
           at = node_raw_type(node.arg_nodes[0])
-          if rt || at
+          if rt && at
             ty = (rt == :f64 || at == :f64) ? :f64 : :i64
             if CrystalCodegen::COMPARE_OPS.include?(node.name)
               write "(("

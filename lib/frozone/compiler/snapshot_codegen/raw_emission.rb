@@ -65,11 +65,11 @@ module Frozone
             elem_ty = @current_local_array_elems[arr_name]
             return elem_ty if elem_ty
           end
-          # Arithmetic op: at least one raw-typed operand determines result type
+          # Arithmetic op: BOTH operands must be raw-typed
           return nil unless ARITH_OPS_UNBOX.include?(name) && args.size == 1
           rt = node_raw_type(recv)
           at = node_raw_type(args[0])
-          return nil unless rt || at
+          return nil unless rt && at
           (rt == :f64 || at == :f64) ? :f64 : :i64
         else nil
         end

@@ -285,11 +285,22 @@ class RubyFloat < RubyObject
 
   # Truncate toward zero, like Ruby's Float#to_i / Float#to_int.
   def to_i : RubyInteger
-    RubyInteger.new(@value.to_i64)
+    # Safe conversion — clamp to Int64 range to avoid OverflowError
+    if @value >= Int64::MAX.to_f64
+      RubyInteger.new(Int64::MAX)
+    elsif @value <= Int64::MIN.to_f64
+      RubyInteger.new(Int64::MIN)
+    else
+      RubyInteger.new(@value.to_i64)
+    end
   end
 
   def to_f64 : Float64; @value; end
-  def to_i64 : Int64; @value.to_i64; end
+  def to_i64 : Int64
+    return Int64::MAX if @value.nan? || @value >= Int64::MAX.to_f64
+    return Int64::MIN if @value <= Int64::MIN.to_f64
+    @value.unsafe_as(Float64).to_i64!
+  end
 
   def to_f : RubyFloat
     self
