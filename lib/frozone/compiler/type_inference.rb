@@ -1081,6 +1081,14 @@ module Frozone
           next unless method.is_a?(Vm::Method) && method.body
           yield [class_name, mname], method
         end
+        # Also walk eigenclass (class methods / module methods)
+        eigenclass = klass.instance_variable_get(:@eigenclass)
+        if eigenclass
+          (eigenclass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
+            next unless method.is_a?(Vm::Method) && method.body
+            yield [class_name, mname], method
+          end
+        end
       end
 
       def param_names_for(ctx)
@@ -1099,7 +1107,11 @@ module Frozone
       def method_for_key(mkey)
         if mkey.is_a?(Array)
           class_name, method_name = mkey
-          @user_classes[class_name]&.instance_variable_get(:@methods_table)&.fetch(method_name, nil)
+          klass = @user_classes[class_name]
+          m = klass&.instance_variable_get(:@methods_table)&.fetch(method_name, nil)
+          # Also check eigenclass for class/module methods
+          m ||= klass&.instance_variable_get(:@eigenclass)&.instance_variable_get(:@methods_table)&.fetch(method_name, nil)
+          m
         else
           @user_methods[mkey]
         end
