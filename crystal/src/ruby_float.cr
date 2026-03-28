@@ -245,7 +245,8 @@ class RubyFloat < RubyObject
 
   def floor(ndigits : Int32 = 0) : RubyInteger | RubyFloat
     if ndigits == 0
-      RubyInteger.new(@value.floor.to_i64)
+      f = @value.floor
+      RubyInteger.new(f >= Int64::MAX.to_f64 ? Int64::MAX : (f <= Int64::MIN.to_f64 ? Int64::MIN : f.to_i64))
     else
       factor = 10.0 ** ndigits
       RubyFloat.new((@value * factor).floor / factor)
