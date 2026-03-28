@@ -1619,17 +1619,94 @@ optimisation. Every integer and float is heap-allocated as a `RubyObject`;
 unboxing is the main remaining performance work.
 
 
-## Type inference for unboxing — strategy
+## Type inference
 
-The primary performance gap (5.3× slower than MRI) is almost entirely due to
-boxing: every `Integer` and `Float` operation allocates a heap object and
-dispatches through `RubyObject`. The fix is to emit native Crystal types
-(`Int64`, `Float64`) for variables that are statically known to hold only
-integers or floats.
+### Overview
 
-### What we already know without inference
+The compiler has two complementary type inference layers:
 
-**`self` is a strong clue, especially for leaf classes.**
+1. **Whole-program TypeInference** (`lib/frozone/compiler/type_inference.rb`,
+   ~1100 lines) — forward dataflow analysis over the settled VM state.
+2. **Method-body literal inference** (`infer_local_types` in
+   `snapshot_codegen.rb`) — fixed-point pass seeding types from literal
+   assignments.
+
+Both run before code emission. Their results are unpacked into codegen lookup
+maps that drive all downstream optimisations.
+
+### Type lattice
+
+The TI uses a type lattice where lower = more specific:
+
+```
+:unknown                   — bottom (not yet analysed)
+
+:i64  :f64                 — unboxed Crystal numerics
+:array_i64  :array_f64     — typed arrays (Array(Int64), etc.)
+{class: :Node}             — user-defined class instance
+{class: :Integer}          — boxed Integer (wider than :i64)
+{class: :Array, elem: ...} — Array with element type
+{class: :Object}           — top of Ruby hierarchy
+```
+
+`meet(a, b)` computes the LCA (least common ancestor) by walking the VM's
+class hierarchy. Unboxed types widen to their boxed class before LCA:
+`meet(:i64, :f64)` → `{class: :Numeric}`. `:unknown` is the identity.
+
+### Slots
+
+Everything the TI tracks is a "slot" — a `[kind, context, name]` tuple:
+
+| Slot | Example | Meaning |
+|------|---------|---------|
+| `[:local, :fib, :n]` | local `n` in method `fib` | Variable type |
+| `[:local, nil, :a]` | local `a` in execute block | Variable type |
+| `[:param, :fib, 0]` | first param of `fib` | Inferred param type |
+| `[:return, :fib]` | return value of `fib` | Return type |
+| `[:ivar, :Planet, :@x]` | ivar `@x` of class `Planet` | Instance variable type |
+| `[:const, :N]` | constant `N` | Constant type |
+| `[:array_elem, :solve, :cr]` | array `cr` in `solve` | Element type |
+| `[:block_param, :solve, :i]` | block param `i` | Block param type |
+
+### Fixed-point iteration
+
+The TI runs 3 iterations (configurable):
+
+**Round 1** — seed from literals, propagate through immediate arithmetic:
+- Integer/float/string/nil/true/false literals → precise types
+- `x = 1 + 2` → `x` is `:i64`
+- Method calls with typed args → typed params → typed returns
+- Ivar assignments from constructor params → typed ivars
+
+**Round 2** — return types feed callers:
+- `fib(n)` returns `:i64` → callers of `fib` now see `:i64` at call sites
+- Array element types propagate through `Array.new(n) { block }`
+
+**Round 3** — one more hop for recursion / indirect propagation:
+- Recursive methods see their own return type
+- Transitive type flow stabilises
+
+### How results flow into codegen
+
+After TI runs, `SnapshotCodegen.run_type_inference` unpacks the slot map into
+per-flag lookup structures:
+
+| TI slot → | Codegen map | Gated by flag |
+|-----------|-------------|---------------|
+| `:local` scalars | `@ti_locals` → `@typed_locals` | `unbox_locals` |
+| `:local` classes | `@ti_class_locals` → `@current_class_locals` | `devirtualize` |
+| `:local` arrays | `@ti_local_array_elems` | `native_arrays` |
+| `:param` | `@inferred_params` | `call_site_types` |
+| `:return` | `@typed_method_returns`, `@instance_method_raw_returns` | `method_specialization`, `raw_returns` |
+| `:ivar` | `@typed_ivars` | `typed_ivars` |
+| `:array_elem` | `@ti_arrays` → `@typed_array_locals` | `native_arrays` |
+| `:block_param` | `@ti_block_params` | `native_iteration` |
+| `:const` | `@const_raw_types` | `unbox_locals` |
+
+Each flag gates whether its map is populated; when the flag is off, the map
+stays empty and the optimisation naturally doesn't fire.
+
+### Self is a strong clue
 
 When emitting a method defined on class `Foo`, `self` is always *at least*
 `Ruby_Foo` — and for leaf classes (no subclasses in the closed world), `self`
