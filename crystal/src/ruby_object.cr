@@ -203,6 +203,14 @@ abstract class RubyObject
     raise Exception.new("floor not supported for #{self.class}")
   end
 
+  def matches?(obj : RubyObject) : RubyObject
+    raise Exception.new("matches? not supported for #{self.class}")
+  end
+
+  def failure_message : String
+    raise Exception.new("failure_message not supported for #{self.class}")
+  end
+
   def abs : RubyObject
     raise Exception.new("abs not supported for #{self.class}")
   end

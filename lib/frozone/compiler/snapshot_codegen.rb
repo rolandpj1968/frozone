@@ -122,6 +122,8 @@ module Frozone
         @current_local_2d_arrays     = {}   # local_name => :i64 | :f64 — outer of Array(Array(T)) locals
         @native_array_locals         = {}   # local_name => :i64 | :f64 — Array(T) from 2D parent read
         @suppress_typed_call_args    = false # true inside generic body that has a specialized overload
+        @object_instance_methods     = Set.new # methods emitted on RubyObject (skip *args stubs)
+        @suppress_tuple_literals     = false  # true inside local var assignment (arrays may be mutated)
 
         # Pre-pass: collect user method names for RubyObject stubs
         collect_user_methods_from_scope(top_level_scope)
@@ -129,6 +131,12 @@ module Frozone
 
         # Whole-program type inference (replaces all ad-hoc pre-passes)
         run_type_inference(execute_block, top_level_scope)
+
+        # Pre-scan: find methods on Object that will get real instance method
+        # implementations on RubyObject (so we skip *args stubs for them).
+        top_level_scope.instance_variable_get(:@methods_table)&.each do |name, m|
+          @object_instance_methods << name if m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+        end
 
         emit_header
         emit_bench_harness_require if bench_stub?
@@ -145,6 +153,9 @@ module Frozone
 
         # Settled non-class constants
         emit_user_constants(top_level_scope)
+
+        # Serialize settled global variable values from load phase
+        emit_global_initializers(globals)
 
         # Execute phase — the block body
         if execute_block
@@ -460,14 +471,43 @@ module Frozone
         emit_newline
       end
 
+      # Override: skip *args stubs for methods that get real implementations
+      # on RubyObject (user methods defined on Object).
+      def emit_user_method_stubs
+        stubs = @user_methods.reject { |n|
+          self.class.const_get(:RUBY_OBJECT_METHODS).include?(n) ||
+            operator?(n) || @object_instance_methods.include?(n)
+        }
+        return if stubs.empty?
+        write "# User-defined method stubs on RubyObject for polymorphic dispatch"
+        emit_newline
+        write "class RubyObject"
+        emit_newline
+        stubs.each do |name|
+          crystal_name = crystal_method_name(name)
+          params = crystal_name.end_with?('=') ? "(val : RubyObject)" : "(*args)"
+          write "  def #{crystal_name}#{params} : RubyObject"
+          emit_newline
+          write "    raise Exception.new(\"undefined method '#{name}' for \#{self.class}\")"
+          emit_newline
+          write "  end"
+          emit_newline
+        end
+        write "end"
+        emit_newline
+        emit_newline
+      end
+
       # -----------------------------------------------------------------------
       # Emit user-defined top-level methods
       # -----------------------------------------------------------------------
 
       def emit_user_top_level_methods(scope)
+        user_methods_on_object = []
         scope.instance_variable_get(:@methods_table)&.each do |name, method|
           next unless method.is_a?(Vm::Method)
           next unless user_source_location?(method.source_location)
+          user_methods_on_object << [name, method]
 
           if opt?(:method_specialization) && @typed_params[name] && @typed_method_returns[name]
             emit_indent
@@ -484,6 +524,24 @@ module Frozone
           emit_newline
           emit_newline
         end
+
+        # Also emit as instance methods on RubyObject so receiver-based calls
+        # (e.g., obj.should) dispatch correctly via Crystal's virtual dispatch.
+        # This mirrors Ruby where Object methods are available both ways.
+        # Track these so we skip generating *args stubs for them.
+        @object_instance_methods = user_methods_on_object.map(&:first).to_set
+        return if user_methods_on_object.empty?
+        line "# User methods on Object — also available as instance methods"
+        line "class RubyObject"
+        user_methods_on_object.each do |name, method|
+          emit_indent
+          write "  "
+          generic_params = @typed_params[name] ? nil : @inferred_params[name]
+          emit_vm_method(name, method, param_types: generic_params)
+          emit_newline
+        end
+        line "end"
+        emit_newline
       end
 
       # Emit a Crystal method definition from a Vm::Method object.
@@ -514,6 +572,7 @@ module Frozone
         @current_block_params      = (@ti_block_params[mkey]      || {}).reject { |k, _| param_set.include?(k) }
         @current_local_2d_arrays   = opt?(:native_2d_arrays) ? detect_local_2d_arrays(method.body, param_set) : {}
         @current_method_body       = method.body
+        @current_block_param_name  = ivar(method, :block_param)
         @native_array_locals       = {}
         # Include raw-typed params in @typed_locals so node_raw_type works for them
         # and they are correctly boxed/unboxed in mixed expressions.
@@ -590,6 +649,22 @@ module Frozone
       # -----------------------------------------------------------------------
       # Emit settled non-class constants
       # -----------------------------------------------------------------------
+
+      # Serialize settled global variable values from the load phase.
+      # Only emit user-defined globals (those with simple alphanumeric names).
+      def emit_global_initializers(globals)
+        globals.each do |name, value|
+          key = name.to_s.sub(/^\$/, '')
+          # Only emit globals with safe alphanumeric+underscore names (skip $", $,, $stdout, etc.)
+          next unless key.match?(/\A[a-zA-Z_]\w*\z/)
+          # Skip well-known internal globals
+          next if %w[stdout stderr stdin LOAD_PATH LOADED_FEATURES VERBOSE DEBUG PROGRAM_NAME SAFE].include?(key)
+          crystal_val = vm_value_to_crystal(value)
+          next unless crystal_val
+          line "RUBY_GLOBALS[\"#{key}\"] = #{crystal_val}"
+        end
+        emit_newline
+      end
 
       def emit_user_constants(scope)
         const_table = scope.instance_variable_get(:@constants_table) || {}
@@ -1034,8 +1109,11 @@ module Frozone
             return
           end
           write "#{crystal_local(name)} = "
+          old_suppress = @suppress_tuple_literals
+          @suppress_tuple_literals = true  # local assignment — might be mutated later
           emit(ivar(node, :value_node))
-          write ".as(RubyArray)"
+          @suppress_tuple_literals = old_suppress
+          write ".as(RubyArray)" unless ivar(node, :value_node).is_a?(Ast::ArrayLiteral)
           return
         end
         if (cls = @current_class_locals[name])
@@ -1044,7 +1122,11 @@ module Frozone
           write ".as(#{crystal_class_name(cls)})"
           return
         end
+        # Suppress tuple literals for plain local assignments — arrays may be mutated later
+        old_suppress = @suppress_tuple_literals
+        @suppress_tuple_literals = true
         super
+        @suppress_tuple_literals = old_suppress
       end
 
       # Override: emit small fixed-size array literals as RubyTupleN (single
@@ -1052,7 +1134,7 @@ module Frozone
       MAX_TUPLE_SIZE = 8
 
       def emit_array_literal(node)
-        return super unless opt?(:tuple_literals)
+        return super unless opt?(:tuple_literals) && !@suppress_tuple_literals
         elems = ivar(node, :element_nodes) || []
         if elems.size >= 1 && elems.size <= MAX_TUPLE_SIZE &&
            elems.none? { |e| e.is_a?(Ast::SplatArg) }

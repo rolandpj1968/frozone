@@ -93,7 +93,8 @@ module Frozone
                                ruby_nil? ruby_bool? not [] []= ruby_to_s ruby_inspect
                                itself dup succ ord bytesize b floor abs
                                getbyte setbyte fetch set get putc pos max min
-                               length size each respond_to?].to_set
+                               length size each respond_to?
+                               matches? failure_message].to_set
 
       # Emit RubyObject stub methods for all user-defined methods.
       # This allows polymorphic dispatch: `obj.some_method` where `obj : RubyObject`
@@ -872,11 +873,20 @@ module Frozone
         write " })"
       end
 
-      # proc.call(args) → cast to RubyProc and call
+      # proc.call(args) → cast to RubyProc and call.
+      # If the receiver is the method's &block param, call directly (it's a Crystal Proc).
       def emit_proc_call(node)
+        recv = node.receiver_node
+        is_block_param = recv.is_a?(Ast::LocalVariableRead) &&
+          defined?(@current_block_param_name) &&
+          ivar(recv, :name) == @current_block_param_name
         write "("
-        emit(node.receiver_node)
-        write ").as(RubyProc).call("
+        emit(recv)
+        if is_block_param
+          write ").call("
+        else
+          write ").as(RubyProc).call("
+        end
         node.arg_nodes.each_with_index do |arg, i|
           write ", " if i > 0
           emit(arg)

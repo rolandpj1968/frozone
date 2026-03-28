@@ -60,6 +60,21 @@ class RubyTuple{{n}} < RubyObject
     length
   end
 
+  def first : RubyObject
+    @v0
+  end
+
+  def last : RubyObject
+    @v{{n - 1}}
+  end
+
+  def include?(val : RubyObject) : RubyBool
+    {% for i in (0...n) %}
+    return RUBY_TRUE if @v{{i}} == val
+    {% end %}
+    RUBY_FALSE
+  end
+
   def to_s : String
     "[" + {% for i in (0...n) %}@v{{i}}.to_s{% if i < n - 1 %} + ", " + {% end %}{% end %} + "]"
   end
