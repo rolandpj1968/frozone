@@ -334,9 +334,15 @@ module Frozone
         string_return = STRING_RETURN_METHODS.include?(name)
         crystal_name  = string_return ? name.to_s : crystal_method_name(name)
 
+        # If method has a typed return but no fully-typed-params overload,
+        # emit with raw body and return type annotation.
+        raw_return = !@typed_params[name] && @typed_method_returns[name]
+        cr_return_types = { i64: 'Int64', f64: 'Float64' }
+
         write "def #{crystal_name}"
         write " : String" if string_return
         emit_param_list(method, param_types: param_types)
+        write " : #{cr_return_types[raw_return]}" if raw_return
         emit_newline
 
         if string_return
@@ -348,6 +354,8 @@ module Frozone
             emit_indent
             write "end).to_s"
           end
+        elsif raw_return
+          indented { emit_raw_body(method.body) }
         else
           indented { emit(method.body) }
         end

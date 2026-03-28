@@ -104,12 +104,12 @@ Measured on Ruby 4.0.1 vs Crystal `--release` build (same workload per benchmark
 | setivar 50K | 0.27 ms | 0.25 ms | <0.01 ms | **>27×** | **>25×** |
 | attr\_accessor | 0.72 ms | 0.72 ms | 0.01 ms | **72×** | **72×** |
 | loops\_times | 791 ms | 196 ms | 10.9 ms | **73×** | **18×** |
-| binarytrees(14) | 292 ms | 115 ms | 250 ms | **1.2×** | 0.5× |
+| binarytrees(14) | 292 ms | 115 ms | 88 ms | **3.3×** | **1.3×** |
 | keyword\_args | 1.0 ms | 2.2 ms | 1.97 ms | 0.5× | 1.1× |
 | sudoku (20 hard) | 511 ms | 152 ms | 134 ms | **3.8×** | **1.1×** |
 | splay | 87 ms | 60 ms | 179 ms | 0.5× | 0.3× |
 
-**Numeric and accessor benchmarks** (fib through loops\_times) are fully specialised to raw Crystal types — 13–95× faster than MRI. Self-calls to typed accessors use `_raw` form to eliminate boxing. `Array.new(n, default)` with typed elements promotes to native `Array(Int64)`. **Object-heavy** benchmarks (binarytrees through splay) still go through `RubyObject` dispatch in method bodies; `splay` is the main target for further devirtualisation — its inner loop dispatches on `RubyObject`-typed ivars that are always `Node`. 12 benchmarks total.
+**Numeric and accessor benchmarks** (fib through binarytrees) are specialised to raw Crystal types — 1.3–95× faster than MRI/YJIT. Methods with typed returns emit raw bodies (`emit_raw_body`) even when params are `RubyObject`. Self-calls to typed accessors use `_raw` form. `Array.new(n, default)` promotes to native `Array(T)`; array params typed by TI get `Array(Int64)` signatures. **Object-heavy** benchmarks (keyword\_args, splay) still go through `RubyObject` dispatch; `splay` is the main target for devirtualisation. 12 benchmarks total.
 
 ### Parsers
 
