@@ -193,6 +193,10 @@ class RubyArray < RubyObject
     @data.delete_at(i)
   end
 
+  def insert(idx : Int64, val : RubyObject) : RubyArray
+    insert(RubyInteger.new(idx), val)
+  end
+
   def insert(idx : RubyObject, val : RubyObject) : RubyArray
     i = idx.to_i64
     i += @data.size + 1 if i < 0

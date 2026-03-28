@@ -1212,6 +1212,50 @@ module Frozone
         super
       end
 
+      # Override: emit typed local args as raw in method calls.
+      # Crystal's overload resolution picks Int64/Float64 overloads where
+      # available, and *args stubs accept any type.
+      def emit_call_args(node)
+        return super unless opt?(:unbox_locals)
+        args = node.arg_nodes
+        kw_args = node.kw_arg_nodes
+        return if args.empty? && kw_args.empty? && node.block_node.nil?
+
+        has_typed_arg = args.any? { |a| a.is_a?(Ast::LocalVariableRead) && node_raw_type(a) }
+        return super unless has_typed_arg
+
+        write "("
+        first = true
+        args.each do |arg|
+          write ", " unless first
+          first = false
+          if arg.is_a?(Ast::SplatArg)
+            write "# UNSUPPORTED_SPLAT("; emit(ivar(arg, :value_node)); write ")"
+          elsif arg.is_a?(Ast::LocalVariableRead) && node_raw_type(arg)
+            write crystal_local(ivar(arg, :name))  # raw — no RubyInteger.new wrapping
+          else
+            emit(arg)
+          end
+        end
+        kw_args.each do |kw_name, val_node|
+          write ", " unless first
+          first = false
+          key = kw_name.is_a?(Ast::SymbolLiteral) ? kw_name.value : kw_name
+          write "#{key}: "
+          emit(val_node)
+        end
+        write ")"
+
+        if node.block_node
+          write " "
+          if node.block_node.is_a?(Ast::BlockArg)
+            emit_block_arg(node.block_node)
+          else
+            emit_block(node.block_node)
+          end
+        end
+      end
+
       # Override: for []= with typed array or raw-typed index, emit accordingly.
       def emit_attribute_write(node)
         if ivar(node, :name) == :[]=
