@@ -104,7 +104,7 @@ Measured on Ruby 4.0.1 vs Crystal `--release` build (same workload per benchmark
 | setivar 50K | 0.27 ms | 0.25 ms | <0.01 ms | **>27×** | **>25×** |
 | attr\_accessor | 0.72 ms | 0.72 ms | 0.01 ms | **72×** | **72×** |
 | loops\_times | 791 ms | 196 ms | 10.9 ms | **73×** | **18×** |
-| binarytrees(14) | 292 ms | 115 ms | 88 ms | **3.3×** | **1.3×** |
+| binarytrees(14) | 292 ms | 115 ms | 31 ms | **9.4×** | **3.7×** |
 | keyword\_args | 1.0 ms | 2.2 ms | 1.97 ms | 0.5× | 1.1× |
 | sudoku (20 hard) | 511 ms | 152 ms | 134 ms | **3.8×** | **1.1×** |
 | splay | 87 ms | 60 ms | 179 ms | 0.5× | 0.3× |

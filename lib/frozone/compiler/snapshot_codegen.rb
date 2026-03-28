@@ -1190,6 +1190,21 @@ module Frozone
         super
       end
 
+      # Override: emit 2-element array literals as RubyPair (single allocation,
+      # 2 inline fields) instead of RubyArray (3 allocations).
+      def emit_array_literal(node)
+        elems = ivar(node, :element_nodes) || []
+        if elems.size == 2 && elems.none? { |e| e.is_a?(Ast::SplatArg) }
+          write "RubyPair.new("
+          emit(elems[0])
+          write ", "
+          emit(elems[1])
+          write ")"
+        else
+          super
+        end
+      end
+
       # Override: for typed ivars in boxed context, wrap in RubyFloat/RubyInteger.
       def emit_ivar_read(node)
         case @current_class_ivars[ivar(node, :name)]
