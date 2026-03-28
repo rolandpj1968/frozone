@@ -107,9 +107,12 @@ Measured on Ruby 4.0.1 vs Crystal `--release` build (same workload per benchmark
 | binarytrees(14) | 292 ms | 115 ms | 31 ms | **9.4×** | **3.7×** |
 | keyword\_args | 1.0 ms | 2.2 ms | 1.97 ms | 0.5× | 1.1× |
 | sudoku (20 hard) | 511 ms | 152 ms | 134 ms | **3.8×** | **1.1×** |
+| gcbench | 1751 ms | 558 ms | 158 ms | **11×** | **3.5×** |
+| respond\_to | 162 ms | 15 ms | 31 ms | **5.2×** | 0.5× |
+| ruby-xor | 97 ms | 19 ms | 207 ms | 0.5× | 0.1× |
 | splay | 87 ms | 60 ms | 179 ms | 0.5× | 0.3× |
 
-**Numeric and accessor benchmarks** (fib through loops\_times) are fully specialised — 3.7–95× faster than YJIT. `splay` is the main remaining target (YJIT's inline caches beat Crystal's union dispatch). 12 benchmarks total.
+20 compiled benchmarks. Numeric/accessor/tree benchmarks are 3.7–95× faster than YJIT. Object-dispatch benchmarks (splay, ruby-xor, respond\_to) show where Crystal's dispatch overhead exceeds YJIT's inline caches.
 
 ### Optimization Levels
 
