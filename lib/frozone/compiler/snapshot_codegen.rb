@@ -16,6 +16,48 @@ module Frozone
     # "User-defined" is determined by source_location: methods/constants whose
     # location does not fall inside lib/core/ or lib/frozone/ are user code.
     class SnapshotCodegen < CrystalCodegen
+      # -----------------------------------------------------------------------
+      # Optimization flags — per-optimization control (like gcc -fno-X)
+      # -----------------------------------------------------------------------
+
+      OPT_FLAGS = %i[
+        unbox_locals          # Int64/Float64 local specialization
+        call_site_types       # Inferred param types from call sites
+        method_specialization # Raw Int64/Float64 method overloads
+        typed_ivars           # Scalar-typed instance variables
+        ivar_narrowing        # Class-typed ivar narrowing (X | nil)
+        native_arrays         # Array(T) promotion for 1D arrays
+        native_2d_arrays      # Array(Array(T)) promotion for 2D arrays
+        tuple_literals        # RubyTupleN for small fixed-size arrays
+        native_iteration      # Crystal .times/.upto/.downto
+        raw_returns           # Typed-return raw body emission
+        accessor_inline       # _raw accessor usage for self-calls
+        devirtualize          # .as(Ruby_X) casts for class-typed receivers
+        condition_simplify    # Bare Crystal Bool for comparisons
+      ].freeze
+
+      # -O0: all off. -O1: safe optimizations. -O2: all on (default).
+      OPT_LEVELS = {
+        0 => [],
+        1 => %i[call_site_types tuple_literals devirtualize condition_simplify
+                native_iteration accessor_inline],
+        2 => OPT_FLAGS.dup
+      }.freeze
+
+      def initialize(opt_level: nil, **kw)
+        super(**kw)
+        level = opt_level || ENV.fetch('FROZONE_OPT_LEVEL', '2').to_i
+        enabled = OPT_LEVELS.fetch(level, OPT_FLAGS).to_set
+        # Per-flag env var overrides: FROZONE_NO_UNBOX_LOCALS=1
+        OPT_FLAGS.each do |flag|
+          env_key = "FROZONE_NO_#{flag.upcase}"
+          enabled.delete(flag) if ENV[env_key]
+        end
+        @opt_flags = enabled
+      end
+
+      def opt?(flag) = @opt_flags.include?(flag)
+
       # Path markers that identify Frozone-internal / core-library code.
       CORE_PATH_MARKERS = %w[lib/core/4.0/ lib/frozone/vm/ lib/frozone/ast/].freeze
 
@@ -83,7 +125,7 @@ module Frozone
         emit_user_method_stubs unless @user_methods.empty?
 
         # Collect class-typed ivars (X | nil patterns) across all methods
-        collect_class_typed_ivars(top_level_scope)
+        collect_class_typed_ivars(top_level_scope) if opt?(:ivar_narrowing)
 
         # User-defined classes and modules (from the constant table)
         emit_user_classes(top_level_scope)
@@ -96,10 +138,10 @@ module Frozone
 
         # Execute phase — the block body
         if execute_block
-          @typed_locals               = @ti_locals[nil]            || {}
-          @typed_array_locals         = @ti_arrays[nil]            || {}
-          @current_class_locals       = @ti_class_locals[nil]      || {}
-          @current_local_array_elems  = @ti_local_array_elems[nil] || {}
+          @typed_locals               = opt?(:unbox_locals) ? (@ti_locals[nil] || {}) : {}
+          @typed_array_locals         = opt?(:native_arrays) ? (@ti_arrays[nil] || {}) : {}
+          @current_class_locals       = opt?(:devirtualize) ? (@ti_class_locals[nil] || {}) : {}
+          @current_local_array_elems  = opt?(:native_arrays) ? (@ti_local_array_elems[nil] || {}) : {}
           @current_block_params       = @ti_block_params[nil]      || {}
           @current_method_body        = execute_block.body
           @in_execute_block           = true
@@ -295,7 +337,7 @@ module Frozone
           next unless method.is_a?(Vm::Method)
           next unless user_source_location?(method.source_location)
 
-          if @typed_params[name] && @typed_method_returns[name]
+          if opt?(:method_specialization) && @typed_params[name] && @typed_method_returns[name]
             emit_indent
             emit_specialized_vm_method(name, method)
             emit_newline
@@ -327,12 +369,12 @@ module Frozone
         param_set = param_names.to_set
         mkey = @current_class_name ? [@current_class_name, name] : name
         # Use TypeInference results for local types (omit params — they have declared types)
-        @typed_locals              = (@ti_locals[mkey]            || {}).reject { |k, _| param_set.include?(k) }
-        @typed_array_locals        = (@ti_arrays[mkey]            || {}).reject { |k, _| param_set.include?(k) }
-        @current_class_locals      = (@ti_class_locals[mkey]      || {}).reject { |k, _| param_set.include?(k) }
-        @current_local_array_elems = (@ti_local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }
+        @typed_locals              = opt?(:unbox_locals)    ? ((@ti_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @typed_array_locals        = opt?(:native_arrays)   ? ((@ti_arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @current_class_locals      = opt?(:devirtualize)    ? ((@ti_class_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @current_local_array_elems = opt?(:native_arrays)   ? ((@ti_local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @current_block_params      = (@ti_block_params[mkey]      || {}).reject { |k, _| param_set.include?(k) }
-        @current_local_2d_arrays   = detect_local_2d_arrays(method.body, param_set)
+        @current_local_2d_arrays   = opt?(:native_2d_arrays) ? detect_local_2d_arrays(method.body, param_set) : {}
         @current_method_body       = method.body
         @native_array_locals       = {}
         # Include raw-typed params in @typed_locals so node_raw_type works for them
@@ -357,7 +399,7 @@ module Frozone
 
         # If method has a typed return but no fully-typed-params overload,
         # emit with raw body and return type annotation.
-        raw_return = !@typed_params[name] && @typed_method_returns[name]
+        raw_return = opt?(:raw_returns) && !@typed_params[name] && @typed_method_returns[name]
         cr_return_types = { i64: 'Int64', f64: 'Float64' }
 
         write "def #{crystal_name}"
@@ -511,28 +553,33 @@ module Frozone
           kind = slot[0]
           case kind
           when :local
-            if ty.is_a?(Hash)
+            if ty.is_a?(Hash) && opt?(:devirtualize)
               (@ti_class_locals[slot[1]] ||= {})[slot[2]] = ty[:class] if @ti_user_class_names&.include?(ty[:class])
-              # Boxed RubyArray local with known scalar element type.
-              if ty[:class] == :Array && (elem_raw = ti_raw_type(ty[:elem]))
-                (@ti_local_array_elems[slot[1]] ||= {})[slot[2]] = elem_raw
-              end
             end
+            if ty.is_a?(Hash) && ty[:class] == :Array && opt?(:native_arrays) && (elem_raw = ti_raw_type(ty[:elem]))
+              (@ti_local_array_elems[slot[1]] ||= {})[slot[2]] = elem_raw
+            end
+            next unless opt?(:unbox_locals)
             raw = ti_raw_type(ty) or next
             (@ti_locals[slot[1]] ||= {})[slot[2]] = raw
           when :block_param
+            next unless opt?(:native_iteration)
             raw = ti_raw_type(ty) or next
             (@ti_block_params[slot[1]] ||= {})[slot[2]] = raw
           when :array_elem
+            next unless opt?(:native_arrays)
             raw = ti_raw_type(ty) or next
             (@ti_arrays[slot[1]] ||= {})[slot[2]] = raw
           when :const
+            next unless opt?(:unbox_locals)
             raw = ti_raw_type(ty) or next
             @const_raw_types[slot[1]] = raw
           when :ivar
+            next unless opt?(:typed_ivars)
             raw = ti_raw_type(ty) or next
             (@typed_ivars[slot[1]] ||= {})[slot[2]] = raw
           when :return
+            next unless opt?(:method_specialization) || opt?(:raw_returns) || opt?(:accessor_inline)
             mkey = slot[1]
             raw  = ti_raw_type(ty) or next
             if mkey.is_a?(Symbol)
@@ -545,7 +592,7 @@ module Frozone
         end
 
         # Build @inferred_params and @typed_params for top-level methods
-        user_methods_hash.each do |mname, method|
+        (opt?(:call_site_types) || opt?(:method_specialization)) && user_methods_hash.each do |mname, method|
           req = method.instance_variable_get(:@required_params) || []
           next if req.empty?
           crystal_types = req.each_with_index.map { |_, i|
@@ -676,6 +723,33 @@ module Frozone
         when Ast::LocalVariableWrite
           ivar(node, :name) != name && local_escapes?(ivar(node, :value_node), name)
         when Ast::ArrayLiteral then (ivar(node, :element_nodes) || []).any? { |e| local_escapes?(e, name) }
+        when Ast::Until
+          local_escapes?(ivar(node, :condition_node), name) || local_escapes?(ivar(node, :body_node), name)
+        when Ast::Return
+          local_escapes?(ivar(node, :value_node), name)
+        when Ast::MultipleAssignment
+          local_escapes?(ivar(node, :value_node), name)
+        when Ast::HashLiteral
+          (ivar(node, :kv_nodes) || []).any? { |k, v| local_escapes?(k, name) || local_escapes?(v, name) }
+        when Ast::Case
+          local_escapes?(ivar(node, :subject_node), name) ||
+            (ivar(node, :whens) || []).any? { |w| w.condition_nodes.any? { |c| local_escapes?(c, name) } || local_escapes?(w.body_node, name) } ||
+            local_escapes?(ivar(node, :else_node), name)
+        when Ast::IndexOperatorWrite
+          recv = ivar(node, :receiver_node)
+          idx_args = ivar(node, :index_arg_nodes) || []
+          val = ivar(node, :value_node)
+          if recv.is_a?(Ast::LocalVariableRead) && ivar(recv, :name) == name
+            idx_args.any? { |a| local_escapes?(a, name) } || local_escapes?(val, name)
+          else
+            local_escapes?(recv, name) || idx_args.any? { |a| local_escapes?(a, name) } || local_escapes?(val, name)
+          end
+        when Ast::InstanceVariableWrite
+          local_escapes?(ivar(node, :value_node), name)
+        when Ast::Rescue
+          local_escapes?(ivar(node, :body), name) ||
+            local_escapes?(ivar(node, :else_node), name) ||
+            local_escapes?(ivar(node, :ensure_node), name)
         else false
         end
       end
@@ -1214,6 +1288,7 @@ module Frozone
       MAX_TUPLE_SIZE = 8
 
       def emit_array_literal(node)
+        return super unless opt?(:tuple_literals)
         elems = ivar(node, :element_nodes) || []
         if elems.size >= 1 && elems.size <= MAX_TUPLE_SIZE &&
            elems.none? { |e| e.is_a?(Ast::SplatArg) }
@@ -1336,7 +1411,7 @@ module Frozone
 
         # Native Crystal integer iteration: n.times/upto/downto { block }
         # when receiver is raw i64 — avoids Frozone's Ruby method dispatch.
-        if node.block_node && !node.block_node.is_a?(Ast::BlockArg) &&
+        if opt?(:native_iteration) && node.block_node && !node.block_node.is_a?(Ast::BlockArg) &&
            (node.arg_nodes || []).size <= 1 &&
            node_raw_type(node.receiver_node) == :i64
           case node.name
@@ -1485,7 +1560,7 @@ module Frozone
       # Override: for comparisons with at least one raw-typed operand, use bare
       # Crystal comparison with .to_i64/.to_f64 coercion on the untyped side.
       def emit_truthy(node)
-        if comparison_op_call?(node)
+        if opt?(:condition_simplify) && comparison_op_call?(node)
           recv = node.receiver_node
           arg  = node.arg_nodes[0]
           rt   = node_raw_type(recv)
