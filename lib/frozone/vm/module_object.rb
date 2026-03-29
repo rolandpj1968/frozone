@@ -9,19 +9,38 @@ module Frozone
       attr_reader :name, :class_variables
       attr_accessor :namespace
       attr_reader :methods_table, :constants_table
+      attr_accessor :current_visibility
       def private_constants_table = @private_constants
+      def is_singleton_class = false
+      def singleton_of       = nil
+      def prepends = @prepends || []
+      def modules  = @modules  || []
+      def to_s = "module #{@name}"
+
+      def initialize(name, namespace, class_object = Core::MODULE_CLASS)
+        super(class_object)
+
+        raise "class/module name must be a Symbol or nil" unless name.nil? || name.is_a?(Symbol)
+        @name = name
+        raise "class/module namespace must be a module" unless namespace.nil? or namespace.is_a?(ModuleObject)
+        @namespace = namespace
+        @methods_table = {}
+        @constants_table = {}
+        @constants_locations = {}
+        @autoloads = {}
+        @class_variables = {}
+        @current_visibility = :public
+      end
 
       def set_name(name)
         raise "class/module name must be a Symbol" unless name.is_a?(Symbol)
         @name = name
       end
 
+      def name_permanent = @name_permanent
+
       def mark_name_permanent!
         @name_permanent = true
-      end
-
-      def name_permanent
-        @name_permanent
       end
 
       def clear_name!
@@ -48,29 +67,6 @@ module Frozone
         end
         parts.empty? ? @name : parts.join("::").to_sym
       end
-      attr_accessor :current_visibility
-      def is_singleton_class = false
-      def singleton_of       = nil
-
-      def initialize(name, namespace, class_object = Core::MODULE_CLASS)
-        super(class_object)
-
-        raise "class/module name must be a Symbol or nil" unless name.nil? || name.is_a?(Symbol)
-        @name = name
-        raise "class/module namespace must be a module" unless namespace.nil? or namespace.is_a?(ModuleObject)
-        @namespace = namespace
-        @methods_table = {}
-        @constants_table = {}
-        @constants_locations = {}
-        @autoloads = {}
-        @class_variables = {}
-        @current_visibility = :public
-      end
-
-      def to_s = "module #{@name}"
-
-      def prepends = @prepends || []
-      def modules  = @modules  || []
 
       def ancestors_include?(mod)
         return true if equal?(mod)
@@ -145,6 +141,9 @@ module Frozone
       class VisibilityOverride
         attr_accessor :visibility
         attr_reader :original_owner, :method_name
+        def original_owner = @original_owner
+        def dup_with_visibility(new_vis, **_kwargs) = VisibilityOverride.new(new_vis, @original_owner, @method_name)
+        def alias_as(_new_name) = VisibilityOverride.new(@visibility, @original_owner, @method_name)
 
         def initialize(vis, original_owner, method_name)
           @visibility = vis
@@ -167,16 +166,6 @@ module Frozone
           m = @original_owner.lookup_method(@method_name)
           m&.source_location
         end
-
-        def dup_with_visibility(new_vis, **_kwargs)
-          VisibilityOverride.new(new_vis, @original_owner, @method_name)
-        end
-
-        def alias_as(_new_name)
-          VisibilityOverride.new(@visibility, @original_owner, @method_name)
-        end
-
-        def original_owner = @original_owner
       end
 
       def set_method(name, method)
@@ -277,9 +266,7 @@ module Frozone
         @constants_table[name]
       end
 
-      def get_constant_location(name)
-        @constants_locations[name]
-      end
+      def get_constant_location(name) = @constants_locations[name]
 
       def set_autoload(name, path, source_location: nil)
         @autoloads[name] = path
@@ -296,9 +283,7 @@ module Frozone
         @autoloads[name] unless @constants_table.key?(name)
       end
 
-      def get_autoload_location(name)
-        @autoload_locations&.[](name)
-      end
+      def get_autoload_location(name) = @autoload_locations&.[](name)
 
       def remove_autoload(name)
         @autoloads.delete(name)
@@ -331,9 +316,7 @@ module Frozone
         @private_constants[name] = true
       end
 
-      def constant_private?(name)
-        @private_constants&.key?(name) || false
-      end
+      def constant_private?(name) = (@private_constants&.key?(name) || false)
 
       # Lookup constant in this module and its included/prepended modules.
       # Returns [value, owner_module] where owner_module is the module that defines the constant.
@@ -353,13 +336,8 @@ module Frozone
       end
 
       # Lookup constant in this module and its included modules.
-      def lookup_constant(name)
-        lookup_constant_with_owner(name).first
-      end
-
-      def self.lookup_autoload_for_const(name, scopes)
-        lookup_autoload_for_const_with_scope(name, scopes).first
-      end
+      def lookup_constant(name) = lookup_constant_with_owner(name).first
+      def self.lookup_autoload_for_const(name, scopes) = lookup_autoload_for_const_with_scope(name, scopes).first
 
       # Returns [path, declaring_scope] for the autoload registered for +name+ in the given scopes.
       # declaring_scope is the module/class that directly has the autoload (nil if found only via inherit).

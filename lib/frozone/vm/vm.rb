@@ -32,6 +32,9 @@ module Frozone
       #   https://docs.ruby-lang.org/en/4.0/
       FROZONE_CORE_VERSION = "4.0"
 
+      # Evaluate a Ruby snippet and return the resulting VM object.
+      def eval_snippet(code, dump_ast = false) = evaluate(code, dump_ast, filepath: "-e")
+
       def initialize(options = {})
         @options = options
       end
@@ -382,11 +385,6 @@ module Frozone
                                 [],
                                 run_body)
         vm_class.set_method(:run, run_method)
-      end
-
-      # Evaluate a Ruby snippet and return the resulting VM object.
-      def eval_snippet(code, dump_ast = false)
-        evaluate(code, dump_ast, filepath: "-e")
       end
 
       private

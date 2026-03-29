@@ -3,6 +3,10 @@ require_relative '../ast'
 module Frozone
   module Vm
     class Parser
+      def top_level_locals = @top_level_locals || []
+      def prism_always_warnings  = @prism_always_warnings  || []
+      def prism_verbose_warnings = @prism_verbose_warnings || []
+
       def initialize(text, dump_ast = false, filepath: nil, outer_locals: nil, encoding: nil, line: nil, forwarding: nil)
         @text = text
         @dump_ast = dump_ast
@@ -69,10 +73,6 @@ module Frozone
                                     .to_set
         transform(program_node.statements)
       end
-
-      def top_level_locals = @top_level_locals || []
-      def prism_always_warnings  = @prism_always_warnings  || []
-      def prism_verbose_warnings = @prism_verbose_warnings || []
 
       private
 
