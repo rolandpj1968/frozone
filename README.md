@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/frozone.jpg" alt="Frozone" width="200">
+</p>
+
 # Frozone
 
 A Ruby VM implemented in Ruby — and an AOT compiler from Ruby to native binaries via [Crystal](https://crystal-lang.org/).
