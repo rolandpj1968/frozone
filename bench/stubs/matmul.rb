@@ -1,35 +1,28 @@
 # Frozone compilation stub for matmul benchmark.
 #
-# Strategy:
-#   - Pre-populate $LOADED_FEATURES with the harness loader path so that
-#     matmul.rb's `require_relative '../harness/loader'` is a no-op.
-#   - Define our own no-op run_benchmark/make_shareable for the load phase.
-#   - Require the benchmark: matgen/matmul are defined and N settles.
-#   - Frozone.compile! triggers snapshot codegen; the block is the execute phase.
+# Load phase: require the benchmark (matgen/matmul defined, N settles).
+# Execute phase: everything after the require is compiled to Crystal via --aot.
 
 $LOADED_FEATURES << File.expand_path('../harness/loader.rb', __dir__)
 
-def run_benchmark(*)
-  # no-op during load phase — block never called
-end
+def run_benchmark(*, &); end
 
 def make_shareable(x) = x
 
 require_relative '../benchmarks/matmul'
 
-Frozone.compile! do
-  # Correctness check
+# Under --aot, everything below is compiled to Crystal.
+# Correctness check
+a = matgen(N)
+b = matgen(N)
+c = matmul(a, b)
+n = N
+result = c[n / 2][n / 2]
+expected = -18.9179166625
+raise "matmul: got #{result}, expected #{expected}" unless result == expected
+
+run_benchmark(20) do
   a = matgen(N)
   b = matgen(N)
-  c = matmul(a, b)
-  n = N
-  result = c[n / 2][n / 2]
-  expected = -18.9179166625
-  raise "matmul: got #{result}, expected #{expected}" unless result == expected
-
-  run_benchmark(20) do
-    a = matgen(N)
-    b = matgen(N)
-    _c = matmul(a, b)
-  end
+  _c = matmul(a, b)
 end

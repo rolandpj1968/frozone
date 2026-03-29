@@ -455,12 +455,15 @@ module Frozone
         load_ast.evaluate(context)
 
         # Compile execute phase: wrap in a Block and pass to FrozoneCompile.
+        # If the execute phase is just a Frozone.compile! block, unwrap it.
         execute_ast = Ast::Sequence.new(execute_nodes)
+        inner = execute_nodes.size == 1 && execute_nodes[0].is_a?(Ast::FrozoneCompile) ?
+          execute_nodes[0].instance_variable_get(:@block_node).body : execute_ast
         block_node = Ast::Block.new(
           [], [], nil, [],   # required, optional, rest, post params
           [], [], nil, nil,  # kw params, block param
           false, [],         # auto_splat, locals
-          execute_ast,       # body
+          inner,             # body
           source_location: [full_path, load_nodes.size + 1]
         )
         compile_node = Ast::FrozoneCompile.new(block_node, aot_mode: true)
