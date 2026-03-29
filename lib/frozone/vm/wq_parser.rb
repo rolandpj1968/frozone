@@ -122,7 +122,7 @@ module Frozone
             # Non-UTF-8 bytes in string literal: retry with ASCII-8BIT source encoding.
             orig_encoding = @source_encoding
             bin_src = src.dup.force_encoding(Encoding::ASCII_8BIT)
-            bin_buf = ::Parser::Source::Buffer.new(buf.name, source: bin_src)
+            bin_buf = ::Parser::Source::Buffer.new(buf.name, @line || 1, source: bin_src)
             @source_encoding = Encoding::ASCII_8BIT
             result = begin
               make_wq_parser(all_errors_are_fatal: raise_syntax_errors).parse(bin_buf)
@@ -135,6 +135,10 @@ module Frozone
             if raise_syntax_errors && orig_encoding != Encoding::ASCII_8BIT
               validate_sym_encoding!(result, orig_encoding || Encoding::UTF_8)
             end
+            # Restore original encoding so that transform phase re-encodes
+            # valid string/symbol literals back to their correct encoding via
+            # apply_source_encoding, while genuinely binary strings stay binary.
+            @source_encoding = orig_encoding
             result
           elsif msg.include?("circular argument reference")
             # Ruby 3.4+: circular arg defaults are valid (yield nil). Patch source and retry.
@@ -439,7 +443,7 @@ module Frozone
           Ast::InterpolatedString.new(transform_dstr_parts(node), @source_encoding)
 
         when :sym
-          Ast::SymbolLiteral.from(c[0])
+          Ast::SymbolLiteral.from(apply_source_encoding_sym(c[0]))
 
         when :dsym
           parts = transform_dstr_parts(node)
@@ -2412,6 +2416,14 @@ module Frozone
       # so that the resulting StringObject has the correct encoding.
       def apply_source_encoding(s)
         return s if @source_encoding.nil? || s.encoding == @source_encoding
+        # ASCII-8BIT → target: reinterpret bytes (force_encoding) rather than transcode,
+        # since ASCII-8BIT encode raises on non-ASCII bytes. Only reinterpret if the bytes
+        # form a valid string in the target encoding.
+        if s.encoding == Encoding::ASCII_8BIT && !s.ascii_only?
+          reinterpreted = s.dup.force_encoding(@source_encoding)
+          return reinterpreted if reinterpreted.valid_encoding?
+          return s
+        end
         # Try to re-encode; fall back to force_encoding for binary-compatible cases.
         if s.valid_encoding? && s.ascii_only?
           s.dup.force_encoding(@source_encoding)
@@ -2422,6 +2434,16 @@ module Frozone
             s
           end
         end
+      end
+
+      # Like apply_source_encoding but for Symbol values.
+      # After ASCII-8BIT retry, symbols may have binary encoding even though they
+      # contain valid UTF-8 bytes. Re-encode the symbol's string representation
+      # and intern a correctly-encoded symbol.
+      def apply_source_encoding_sym(sym)
+        s = sym.to_s
+        return sym if @source_encoding.nil? || s.encoding == @source_encoding
+        apply_source_encoding(s).to_sym
       end
 
       # Extract encoding from Ruby magic comment (# encoding: NAME or # -*- coding: NAME -*-)
