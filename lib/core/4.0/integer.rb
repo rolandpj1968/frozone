@@ -1,5 +1,33 @@
 class Integer
-  ROUND_NDIGITS_MAX = 1_073_741_824  # 2**30: MRI raises RangeError for round(ndigits) above this magnitude
+  ROUND_NDIGITS_MAX = 1_073_741_824 # 2**30: MRI raises RangeError for round(ndigits) above this magnitude
+
+  class << self
+    def try_convert(val)
+      return val if val.is_a?(Integer)
+      return nil unless val.respond_to?(:to_int)
+      result = val.to_int
+      return nil if result.nil?
+      raise TypeError, "can't convert #{val.class} into Integer (#{val.class}#to_int gives #{result.class})" unless result.is_a?(Integer)
+      result
+    end
+
+    def sqrt(n)
+      n = __coerce_to_int__(n) unless n.is_a?(Integer)
+      raise Math::DomainError, "out of domain" if n < 0
+      return 0 if n == 0
+      sqrt_f = Math.sqrt(n.to_f)
+      x = sqrt_f.infinite? ? 2 ** ((n.bit_length + 1) / 2) : sqrt_f.floor.to_i
+      # Newton's method for large integers (converges quadratically)
+      loop do
+        x1 = (x + n / x) / 2
+        break if x1 >= x
+        x = x1
+      end
+      x -= 1 if x * x > n
+      x
+    end
+  end
+
   def succ = self + 1
   alias next succ
   def pred = self - 1
@@ -266,33 +294,6 @@ class Integer
       return min_or_range if self < min_or_range
       return max if self > max
       self
-    end
-  end
-
-  class << self
-    def try_convert(val)
-      return val if val.is_a?(Integer)
-      return nil unless val.respond_to?(:to_int)
-      result = val.to_int
-      return nil if result.nil?
-      raise TypeError, "can't convert #{val.class} into Integer (#{val.class}#to_int gives #{result.class})" unless result.is_a?(Integer)
-      result
-    end
-
-    def sqrt(n)
-      n = __coerce_to_int__(n) unless n.is_a?(Integer)
-      raise Math::DomainError, "out of domain" if n < 0
-      return 0 if n == 0
-      sqrt_f = Math.sqrt(n.to_f)
-      x = sqrt_f.infinite? ? 2 ** ((n.bit_length + 1) / 2) : sqrt_f.floor.to_i
-      # Newton's method for large integers (converges quadratically)
-      loop do
-        x1 = (x + n / x) / 2
-        break if x1 >= x
-        x = x1
-      end
-      x -= 1 if x * x > n
-      x
     end
   end
 

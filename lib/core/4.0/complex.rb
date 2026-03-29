@@ -1,7 +1,7 @@
 class Complex
   class << self
     def polar(r, theta = 0)
-      r     = _real_check(r)
+      r = _real_check(r)
       theta = _real_check(theta)
       Complex(r * Math.cos(theta.to_f), r * Math.sin(theta.to_f))
     end
@@ -56,7 +56,7 @@ class Complex
   def hash = [@real, @imaginary].hash
   def -@ = Complex(-@real, -@imaginary)
   def angle = Math.atan2(@imaginary.to_f, @real.to_f)
-  alias arg   angle
+  alias arg angle
   alias phase angle
   def polar = [abs, angle]
 

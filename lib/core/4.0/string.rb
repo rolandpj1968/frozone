@@ -1,8 +1,27 @@
 class String
   include Comparable
 
-  LONG_MAX     = 9_223_372_036_854_775_807  # 2**63 - 1: max C `long` on 64-bit; guards conversion to native long
-  MRI_MAX_SIZE = 1_073_741_823              # 2**30 - 1: MRI's maximum string allocation size
+  LONG_MAX = 9_223_372_036_854_775_807 # 2**63 - 1: max C `long` on 64-bit; guards conversion to native long
+  MRI_MAX_SIZE = 1_073_741_823 # 2**30 - 1: MRI's maximum string allocation size
+
+  class << self
+    def try_convert(obj)
+      return obj if obj.is_a?(String)
+      return nil unless obj.respond_to?(:to_str)
+      result = obj.to_str
+      raise TypeError, "can't convert #{obj.class} into String (#{obj.class}#to_str gives #{result.class})" unless result.is_a?(String) || result.nil?
+      result
+    end
+  end
+
+  def initialize(str = :__unset__, encoding: nil, capacity: nil)
+    return self if str.equal?(:__unset__)
+    raise TypeError, "no implicit conversion of #{str.class} into String" if str.nil?
+    __check_frozen__
+    Intrinsics.string_initialize(self, str, encoding)
+    force_encoding(encoding) if encoding
+    self
+  end
 
   def %(args) = Intrinsics.string_format(self, args)
   def bytesize = Intrinsics.string_bytesize(self)
@@ -203,24 +222,6 @@ class String
     nil
   end
 
-  class << self
-    def try_convert(obj)
-      return obj if obj.is_a?(String)
-      return nil unless obj.respond_to?(:to_str)
-      result = obj.to_str
-      raise TypeError, "can't convert #{obj.class} into String (#{obj.class}#to_str gives #{result.class})" unless result.is_a?(String) || result.nil?
-      result
-    end
-  end
-
-  def initialize(str = :__unset__, encoding: nil, capacity: nil)
-    return self if str.equal?(:__unset__)
-    raise TypeError, "no implicit conversion of #{str.class} into String" if str.nil?
-    __check_frozen__
-    Intrinsics.string_initialize(self, str, encoding)
-    force_encoding(encoding) if encoding
-    self
-  end
 
   def +(__native_v__)
     __native_v__ = __coerce_to_str__(__native_v__)

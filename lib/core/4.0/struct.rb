@@ -291,5 +291,4 @@ class Struct
     @struct_values&.each_value(&:freeze) rescue nil
     super
   end
-
 end

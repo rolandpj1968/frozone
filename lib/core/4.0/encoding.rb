@@ -1,9 +1,9 @@
 class Encoding
   attr_reader :name
 
+  def initialize(name) = @name = name
   def to_s = @name
   def ==(other) = other.is_a?(Encoding) && other.name == @name
-  def initialize(name) = @name = name
   alias eql? ==
   def ascii_compatible? = !NON_ASCII_COMPATIBLE.include?(@name)
   def dummy? = DUMMY_ENCODINGS.include?(@name)

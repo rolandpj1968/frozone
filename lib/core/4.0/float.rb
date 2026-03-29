@@ -1,16 +1,16 @@
 class Float
-  INFINITY   = Intrinsics.float_infinity
-  NAN        = Intrinsics.float_nan
-  MAX        = 1.7976931348623157e+308
-  MIN        = 2.2250738585072014e-308
-  EPSILON    = 2.220446049250313e-16
-  DIG        = 15
-  MANT_DIG   = 53
-  MAX_EXP    = 1024
-  MIN_EXP    = -1021
+  INFINITY = Intrinsics.float_infinity
+  NAN = Intrinsics.float_nan
+  MAX = 1.7976931348623157e+308
+  MIN = 2.2250738585072014e-308
+  EPSILON = 2.220446049250313e-16
+  DIG = 15
+  MANT_DIG = 53
+  MAX_EXP = 1024
+  MIN_EXP = -1021
   MAX_10_EXP = 308
   MIN_10_EXP = -307
-  RADIX      = 2
+  RADIX = 2
 
   class << self
     def new(*) = raise(NoMethodError, "undefined method 'new' for class Float")

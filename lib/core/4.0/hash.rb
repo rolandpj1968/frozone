@@ -1,31 +1,6 @@
 class Hash
   include Enumerable
 
-  def [](key) = Intrinsics.hash_index(self, key)
-  def default_proc = Intrinsics.hash_get_default_proc(self)
-  def size = Intrinsics.hash_size(self)
-  alias length size
-  def empty? = size == 0
-  def key?(key) = Intrinsics.hash_key(self, key)
-  alias has_key? key?
-  alias include? key?
-  alias member? key?
-  def value?(v); each { |_, val| return true if val == v }; false; end
-  alias has_value? value?
-  def key(val); each { |k, v| return k if v == val }; nil; end
-  alias index key
-  def keys;   r = []; each { |k, _| r << k }; r; end
-  def values; r = []; each { |_, v| r << v }; r; end
-  def to_a;   r = []; each { |k, v| r << [k, v] }; r; end
-  alias entries to_a
-  def to_proc; h = self; ->(k) { h[k] }; end
-  def to_hash          = self
-  def deconstruct_keys(_) = self
-  def compare_by_identity  = Intrinsics.hash_compare_by_identity(self)
-  def compare_by_identity? = Intrinsics.hash_compare_by_identity_q(self)
-  def sort(&block)     = to_a.sort(&block)
-  def take(n)          = to_a.take(n)
-
   class << self
     def new(*args, capacity: nil, &block)
       if self.equal?(Hash)
@@ -104,6 +79,31 @@ class Hash
     end
     self
   end
+
+  def [](key) = Intrinsics.hash_index(self, key)
+  def default_proc = Intrinsics.hash_get_default_proc(self)
+  def size = Intrinsics.hash_size(self)
+  alias length size
+  def empty? = size == 0
+  def key?(key) = Intrinsics.hash_key(self, key)
+  alias has_key? key?
+  alias include? key?
+  alias member? key?
+  def value?(v); each { |_, val| return true if val == v }; false; end
+  alias has_value? value?
+  def key(val); each { |k, v| return k if v == val }; nil; end
+  alias index key
+  def keys; r = []; each { |k, _| r << k }; r; end
+  def values; r = []; each { |_, v| r << v }; r; end
+  def to_a; r = []; each { |k, v| r << [k, v] }; r; end
+  alias entries to_a
+  def to_proc; h = self; ->(k) { h[k] }; end
+  def to_hash = self
+  def deconstruct_keys(_) = self
+  def compare_by_identity = Intrinsics.hash_compare_by_identity(self)
+  def compare_by_identity? = Intrinsics.hash_compare_by_identity_q(self)
+  def sort(&block) = to_a.sort(&block)
+  def take(n) = to_a.take(n)
 
   def ==(other)
     return false unless other.is_a?(Hash)
