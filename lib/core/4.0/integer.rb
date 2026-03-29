@@ -330,6 +330,7 @@ class Integer
     x -= 1 if x * x > n
     x
   end
+
   private
 
   # Call coerce even if private; propagate non-NoMethodError exceptions
