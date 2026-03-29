@@ -43,29 +43,10 @@ class Integer
   def %(v) = v.is_a?(Integer) ? Intrinsics.integer__mod_(self, v)   : __coerce_op__(v, :%)
   alias modulo %
 
-  def <(v)
-    return Intrinsics.integer__lt_(self, v) if v.is_a?(Integer)
-    return v.nan? ? false : (self <=> v) < 0 if v.is_a?(Float)
-    __coerce_and_compare__(v, :<)
-  end
-
-  def <=(v)
-    return Intrinsics.integer__le_(self, v) if v.is_a?(Integer)
-    return v.nan? ? false : (self <=> v) <= 0 if v.is_a?(Float)
-    __coerce_and_compare__(v, :<=)
-  end
-
-  def >=(v)
-    return Intrinsics.integer__ge_(self, v) if v.is_a?(Integer)
-    return v.nan? ? false : (self <=> v) >= 0 if v.is_a?(Float)
-    __coerce_and_compare__(v, :>=)
-  end
-
-  def >(v)
-    return Intrinsics.integer__gt_(self, v) if v.is_a?(Integer)
-    return v.nan? ? false : (self <=> v) > 0 if v.is_a?(Float)
-    __coerce_and_compare__(v, :>)
-  end
+  def <(v)  = v.is_a?(Integer) ? Intrinsics.integer__lt_(self, v) : __compare__(v, :<, 0)
+  def <=(v) = v.is_a?(Integer) ? Intrinsics.integer__le_(self, v) : __compare__(v, :<=, 0)
+  def >=(v) = v.is_a?(Integer) ? Intrinsics.integer__ge_(self, v) : __compare__(v, :>=, 0)
+  def >(v)  = v.is_a?(Integer) ? Intrinsics.integer__gt_(self, v) : __compare__(v, :>, 0)
 
   def **(v)
     if v.is_a?(Integer)
@@ -171,50 +152,29 @@ class Integer
   end
 
   def divmod(n)
-    if n.is_a?(Integer)
-      [self / n, self % n]
-    elsif n.is_a?(Float)
-      raise ZeroDivisionError, "divided by 0" if n == 0.0
-      raise FloatDomainError, "NaN" if n.nan?
-      q = (self.to_f / n).floor
-      [q, self.to_f % n]
-    else
-      begin
-        a, b = n.send(:coerce, self)
-      rescue NoMethodError
-        raise TypeError, "#{n.class} can't be coerced into Integer"
-      end
-      a.divmod(b)
-    end
+    return [self / n, self % n] if n.is_a?(Integer)
+    a, b = __coerce_pair__(n)
+    a.divmod(b)
   end
 
   def div(n)
     if n.is_a?(Integer)
       raise ZeroDivisionError, "divided by 0" if n == 0
-      self / n
-    elsif n.is_a?(Float)
-      raise ZeroDivisionError, "divided by 0" if n == 0.0
-      (self.to_f / n).floor.to_i
-    elsif n.respond_to?(:coerce)
-      a, b = n.send(:coerce, self)
-      a.div(b)
-    else
-      raise TypeError, "#{n.class} can't be coerced into Integer"
+      return self / n
     end
+    raise ZeroDivisionError, "divided by 0" if n.is_a?(Float) && n == 0.0
+    a, b = __coerce_pair__(n)
+    a.div(b)
   end
 
   def remainder(n)
-    raise TypeError, "#{n.class} can't be coerced into Integer" unless n.is_a?(Integer) || n.is_a?(Float) || n.respond_to?(:coerce)
-    raise ZeroDivisionError, "divided by 0" if n == 0
     if n.is_a?(Integer)
+      raise ZeroDivisionError, "divided by 0" if n == 0
       q, r = divmod(n)
-      r != 0 && (self < 0) != (n < 0) ? r - n : r
-    elsif n.is_a?(Float)
-      self.to_f.remainder(n)
-    else
-      a, b = n.coerce(self)
-      a.remainder(b)
+      return r != 0 && (self < 0) != (n < 0) ? r - n : r
     end
+    a, b = __coerce_pair__(n)
+    a.remainder(b)
   end
 
   def gcd(n)
@@ -276,15 +236,8 @@ class Integer
     raise TypeError, "no implicit conversion of #{n.class} into Integer"
   end
 
-  def <<(n)
-    n = __coerce_to_int__(n)
-    Intrinsics.integer_lshift(self, n)
-  end
-
-  def >>(n)
-    n = __coerce_to_int__(n)
-    Intrinsics.integer_rshift(self, n)
-  end
+  def <<(n) = Intrinsics.integer_lshift(self, __coerce_to_int__(n))
+  def >>(n) = Intrinsics.integer_rshift(self, __coerce_to_int__(n))
 
   def [](idx, len = nil)
     if idx.is_a?(Range)
@@ -336,20 +289,9 @@ class Integer
     end
   end
 
-  def allbits?(mask)
-    mask = __coerce_to_int__(mask)
-    (self & mask) == mask
-  end
-
-  def anybits?(mask)
-    mask = __coerce_to_int__(mask)
-    (self & mask) != 0
-  end
-
-  def nobits?(mask)
-    mask = __coerce_to_int__(mask)
-    (self & mask) == 0
-  end
+  def allbits?(mask) = (mask = __coerce_to_int__(mask); (self & mask) == mask)
+  def anybits?(mask) = (self & __coerce_to_int__(mask)) != 0
+  def nobits?(mask)  = (self & __coerce_to_int__(mask)) == 0
 
   def ceildiv(n)
     q, r = divmod(n)
@@ -415,12 +357,14 @@ class Integer
   private
 
   # Call coerce even if private; propagate non-NoMethodError exceptions
+  def __coerce_pair__(v)
+    v.send(:coerce, self)
+  rescue NoMethodError
+    raise TypeError, "#{v.class} can't be coerced into Integer"
+  end
+
   def __coerce_op__(v, op)
-    begin
-      a, b = v.send(:coerce, self)
-    rescue NoMethodError
-      raise TypeError, "#{v.class} can't be coerced into Integer"
-    end
+    a, b = __coerce_pair__(v)
     a.send(op, b)
   end
 
@@ -428,6 +372,18 @@ class Integer
     s = self
     sz_proc = -> { sz.call(s) rescue raise ArgumentError, "comparison of #{n.class} with #{s.class} failed" }
     Enumerator.new(sz_proc) { |y| i = s; while step > 0 ? i <= n : i >= n; y.yield(i); i += step; end }
+  end
+
+  # Compare with non-Integer: use precise <=> for Float (preserves bignum
+  # precision and handles NaN/Infinity), coercion protocol for everything else.
+  def __compare__(v, op, _)
+    if v.is_a?(Float)
+      return false if v.nan?
+      cmp = self <=> v
+      cmp.send(op, 0)
+    else
+      __coerce_and_compare__(v, op)
+    end
   end
 
   def __coerce_and_compare__(other, op)

@@ -27,6 +27,19 @@ def foo; expr; end        # only if endless is unreadable
 ```
 
 This applies to simple delegations, predicates, attribute readers, and thin wrappers.
+When a multi-line method is just "coerce then call" or "validate then delegate",
+inline the coercion into the call — don't use a temporary variable:
+
+```ruby
+# Good — one logical expression
+def <<(n) = Intrinsics.integer_lshift(self, __coerce_to_int__(n))
+
+# Bad — unnecessary temporary, artificially multi-line
+def <<(n)
+  n = __coerce_to_int__(n)
+  Intrinsics.integer_lshift(self, n)
+end
+```
 
 ### Section structure
 Each file has at most one public section and one private section. All public methods come first, all private methods at the bottom under a single `private` keyword. Do not interleave public and private, and do not use multiple `private` declarations.
