@@ -224,13 +224,18 @@ class RubyString < RubyObject
     b ? RubyInteger.new(b.to_i64) : RUBY_NIL_PLACEHOLDER
   end
 
-  def getbyte(i : Int64) : RubyObject
+  def getbyte(i : Int64) : Int64
     b = getbyte(i.to_i32)
-    b ? RubyInteger.new(b.to_i64) : RUBY_NIL_PLACEHOLDER
+    b ? b.to_i64 : -1_i64
   end
 
   def setbyte(i : RubyObject, b : RubyObject) : RubyObject
     setbyte(i.to_i64.to_i32, b.to_i64.to_u8)
+    b
+  end
+
+  def setbyte(i : Int64, b : Int64) : Int64
+    set_byte!(i.to_i32, b.to_u8)
     b
   end
 
