@@ -78,7 +78,7 @@ class Regexp
   private
 
   def initialize(pattern = nil, options = nil)
-    raise FrozenError, "can't modify frozen Regexp: #{inspect}" if frozen?
+    __check_frozen__
     raise TypeError, "already initialized regexp" unless Intrinsics.regexp_newly_created_q(self)
   end
 end

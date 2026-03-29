@@ -41,7 +41,7 @@ class Struct
       @members.each do |name|
         define_method(name)        { @struct_values&.fetch(name, nil) }
         define_method(:"#{name}=") do |v|
-          raise FrozenError, "can't modify frozen #{self.class}" if frozen?
+          __check_frozen__
           (@struct_values ||= {})[name] = v
         end
       end
@@ -156,7 +156,7 @@ class Struct
   end
 
   def []=(name_or_idx, val)
-    raise FrozenError, "can't modify frozen #{self.class}" if frozen?
+    __check_frozen__
     mems = members
     if name_or_idx.is_a?(Integer)
       idx = name_or_idx < 0 ? mems.size + name_or_idx : name_or_idx

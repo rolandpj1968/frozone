@@ -729,7 +729,7 @@ class StringIO
   # ── set_encoding_by_bom ───────────────────────────────────────────────
 
   def set_encoding_by_bom
-    raise FrozenError, "can't modify frozen #{self.class}" if frozen?
+    __check_frozen__
     return nil unless @readable && !@closed_r
     return nil if @explicit_encoding
 

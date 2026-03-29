@@ -274,7 +274,7 @@ class Set
   end
 
   def compare_by_identity
-    raise FrozenError, "can't modify frozen #{self.class}: #{inspect}" if frozen?
+    __check_frozen__
     @hash.compare_by_identity
     self
   end

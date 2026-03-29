@@ -530,7 +530,7 @@ class Thread
 
   # Thread-local variables (not fiber-local)
   def thread_variable_set(key, value)
-    Kernel.raise FrozenError, "can't modify frozen thread locals" if frozen?
+    __check_frozen__
     k = __coerce_var_key(key)
     @thread_vars ||= {}
     if value.nil?
@@ -561,7 +561,7 @@ class Thread
   end
 
   def []=(key, value)
-    Kernel.raise FrozenError, "can't modify frozen thread locals" if frozen?
+    __check_frozen__
     __fiber_vars[__coerce_var_key(key)] = value
   end
 

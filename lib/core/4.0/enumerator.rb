@@ -226,7 +226,7 @@ class Enumerator
   private
 
   def initialize(size = nil, &block)
-    raise FrozenError, "can't modify frozen Enumerator" if frozen?
+    __check_frozen__
     @block = block
     @size = size
     @receiver = nil
@@ -330,7 +330,7 @@ class Enumerator::Generator
   private
 
   def initialize(&block)
-    raise FrozenError, "can't modify frozen Enumerator::Generator" if frozen?
+    __check_frozen__
     raise LocalJumpError, "no block given" unless block
     @block = block
     self
@@ -834,7 +834,7 @@ class Enumerator::Lazy < Enumerator
   private
 
   def initialize(obj, size = nil, &block)
-    raise FrozenError, "can't modify frozen Enumerator::Lazy" if frozen?
+    __check_frozen__
     raise ArgumentError, "tried to create Proc object without a block" unless block
     @receiver       = obj
     @_lazy_xform    = block   # proc { |yielder, *vals| ... } transform
@@ -915,7 +915,7 @@ class Enumerator::Chain
   private
 
   def initialize(*enums)
-    raise FrozenError, "can't modify frozen Enumerator::Chain" if frozen?
+    __check_frozen__
     @enums = enums
     @_iterated_count = 0
     self
@@ -1062,7 +1062,7 @@ class Enumerator
     private
 
     def initialize(*enumerables)
-      raise FrozenError, "can't modify frozen Enumerator::Product" if frozen?
+      __check_frozen__
       @enumerables = enumerables
       # Set inherited Enumerator ivars directly (don't call super with a block)
       @block = nil
@@ -1083,7 +1083,7 @@ class Enumerator
 
     def initialize_copy(source)
       return self if source.equal?(self)
-      raise FrozenError, "can't modify frozen Enumerator::Product" if frozen?
+      __check_frozen__
       raise TypeError, "initialize_copy should take same class object" unless source.class == self.class
       raise ArgumentError, "uninitialized product" if source.instance_variable_get(:@enumerables).nil?
       @enumerables = source.instance_variable_get(:@enumerables).dup
