@@ -159,6 +159,7 @@ class Exception
       hl ? "\e[1;4m#{self.class.name || self.class.inspect}\e[m" : (self.class.name || self.class.inspect).to_s
     end
   end
+
   private
 
   def __format_single_full_message__(bt, dm, hl, order, explicit_bottom: false)

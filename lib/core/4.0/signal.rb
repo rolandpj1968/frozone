@@ -33,6 +33,7 @@ module Signal
   @handlers = {}
 
   def self.list = LIST
+  def self.signame(signum) = CANONICAL_BY_NUM[__coerce_to_int__(signum)]
 
   def self._normalize_name(signal)
     if signal.is_a?(Integer)
@@ -75,17 +76,5 @@ module Signal
     else
       old_raw
     end
-  end
-
-  def self.signame(signum)
-    unless signum.is_a?(Integer)
-      if signum.respond_to?(:to_int)
-        signum = signum.to_int
-        raise TypeError, "no implicit conversion into Integer" unless signum.is_a?(Integer)
-      else
-        raise TypeError, "no implicit conversion of #{signum.class} into Integer"
-      end
-    end
-    CANONICAL_BY_NUM[signum]
   end
 end

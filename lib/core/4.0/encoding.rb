@@ -320,7 +320,6 @@ class Encoding
     names + all_aliases
   end
 
-
   class Converter
     INVALID_MASK               = 15
     INVALID_REPLACE            = 2

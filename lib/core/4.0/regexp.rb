@@ -82,4 +82,3 @@ class Regexp
     raise TypeError, "already initialized regexp" unless Intrinsics.regexp_newly_created_q(self)
   end
 end
-

@@ -7,12 +7,14 @@ class Dir
   def self.chdir(path = nil, &block) = Intrinsics.dir_chdir(path, block)
   def self.fchdir(fd, &block) = Intrinsics.dir_fchdir(fd, block)
   def self.mktmpdir(prefix = nil, &block) = Intrinsics.dir_mktmpdir(prefix, block)
-  def self.delete(path) = Intrinsics.dir_rmdir(_coerce_path(path))
-  def self.rmdir(path) = Intrinsics.dir_rmdir(_coerce_path(path))
-  def self.unlink(path) = Intrinsics.dir_rmdir(_coerce_path(path))
-  def self.empty?(path) = Intrinsics.dir_empty(_coerce_path(path))
-  def self.chroot(path) = Intrinsics.dir_chroot(_coerce_path(path))
-  def self.children(path, encoding: nil) = entries(_coerce_path(path), encoding: encoding).reject { |e| e == '.' || e == '..' }
+  def self.delete(path) = Intrinsics.dir_rmdir(__coerce_to_path__(path))
+  def self.rmdir(path) = Intrinsics.dir_rmdir(__coerce_to_path__(path))
+  def self.unlink(path) = Intrinsics.dir_rmdir(__coerce_to_path__(path))
+  def self.empty?(path) = Intrinsics.dir_empty(__coerce_to_path__(path))
+  def self.chroot(path) = Intrinsics.dir_chroot(__coerce_to_path__(path))
+  def self.children(path, encoding: nil) = entries(__coerce_to_path__(path), encoding: encoding).reject { |e| e == '.' || e == '..' }
+  def self.mkdir(path, mode = 0o777) = Intrinsics.dir_mkdir(__coerce_to_path__(path), __coerce_to_int__(mode))
+  def self.[](*patterns, base: nil, sort: true) = glob(patterns.length == 1 ? patterns[0] : patterns, 0, base: base, sort: sort)
   def path = @path
   def to_path = @path
   def inspect = "#<Dir:#{@path}>"
@@ -20,17 +22,6 @@ class Dir
   def children = __load_entries__.reject { |e| e == '.' || e == '..' }
   def entries = __load_entries__.dup
   def fileno = Intrinsics.dir_fileno(@dir)
-
-  def self.[](*patterns, base: nil, sort: true)
-    pattern = patterns.length == 1 ? patterns[0] : patterns
-    glob(pattern, 0, base: base, sort: sort)
-  end
-
-  def self.mkdir(path, mode = 0o777)
-    mode = mode.respond_to?(:to_int) ? mode.to_int : mode unless mode.is_a?(Integer)
-    raise TypeError, "no implicit conversion of #{mode.class} into Integer" unless mode.is_a?(Integer)
-    Intrinsics.dir_mkdir(_coerce_path(path), mode)
-  end
 
   def self.glob(pattern, flags = 0, base: nil, sort: true, &block)
     raise ArgumentError, "expected true or false as sort:" unless sort == true || sort == false
@@ -58,7 +49,7 @@ class Dir
   end
 
   def self.entries(path, encoding: nil)
-    p = _coerce_path(path)
+    p = __coerce_to_path__(path)
     result = Intrinsics.dir_entries(p)
     if encoding
       enc = encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding.to_s)
@@ -103,23 +94,8 @@ class Dir
     end
   end
 
-  def self._coerce_path(arg)
-    return arg if arg.is_a?(String)
-    if arg.respond_to?(:to_path)
-      r = arg.to_path
-      return r if r.is_a?(String)
-      raise TypeError, "no implicit conversion into String"
-    end
-    if arg.respond_to?(:to_str)
-      r = arg.to_str
-      return r if r.is_a?(String)
-      raise TypeError, "no implicit conversion into String"
-    end
-    raise TypeError, "no implicit conversion of #{arg.class} into String"
-  end
-
   def initialize(path, encoding: nil)
-    @path = Dir._coerce_path(path)
+    @path = __coerce_to_path__(path)
     @encoding = encoding ? (encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding.to_s)) : nil
     @dir = Intrinsics.dir_open(@path)
     @closed = false
@@ -127,20 +103,14 @@ class Dir
     @pos = 0
   end
 
+  def chdir(&block) = Intrinsics.dir_fchdir(Intrinsics.dir_fileno(@dir), block)
+
   def pos
     raise IOError, "closed directory" if @closed
     @pos
   end
 
-  def tell
-    raise IOError, "closed directory" if @closed
-    @pos
-  end
-
-  def chdir(&block)
-    fd = Intrinsics.dir_fileno(@dir)
-    Intrinsics.dir_fchdir(fd, block)
-  end
+  alias tell pos
 
   def close
     return if @closed
