@@ -15,19 +15,19 @@ module Frozone
       KNOWN_BUILTIN_CLASSES = %i[Array Hash String Symbol Integer Float Range Regexp].to_set
 
       # Is this a known class name (user-defined or built-in)?
-      def known_class?(name) = @ti_user_class_names&.include?(name) || KNOWN_BUILTIN_CLASSES.include?(name)
+      def known_class?(name) = @gctx.user_class_names&.include?(name) || KNOWN_BUILTIN_CLASSES.include?(name)
 
       # Collect user numeric constants → raw type map.
       def collect_const_raw_types(scope)
-        @const_raw_types = {}
+        @gctx.const_raw_types = {}
         const_table = scope.instance_variable_get(:@constants_table) || {}
         const_locs  = scope.instance_variable_get(:@constants_locations) || {}
         const_table.each do |name, value|
           next if Codegen::SKIP_CONSTANTS.include?(name) || value.is_a?(Vm::ModuleObject)
           next unless user_source_location?(const_locs[name])
           case value
-          when Vm::FloatObject   then @const_raw_types[name] = :f64
-          when Vm::IntegerObject then @const_raw_types[name] = :i64
+          when Vm::FloatObject   then @gctx.const_raw_types[name] = :f64
+          when Vm::IntegerObject then @gctx.const_raw_types[name] = :i64
           end
         end
       end
@@ -35,7 +35,7 @@ module Frozone
       # For each user-defined class: infer ivar types from constructor call sites
       # in the execute block + the initialize body.
       def collect_all_ivar_types(execute_block, scope)
-        @typed_ivars = {}
+        @gctx.typed_ivars = {}
         return unless execute_block
 
         scope.instance_variable_get(:@constants_table)&.each do |name, value|
@@ -56,7 +56,7 @@ module Frozone
           collect_ivar_assignments(init_method.body, ivar_types)
           @mctx.typed_locals = old_typed
 
-          @typed_ivars[name] = ivar_types unless ivar_types.empty?
+          @gctx.typed_ivars[name] = ivar_types unless ivar_types.empty?
         end
       end
 
@@ -72,10 +72,10 @@ module Frozone
       end
 
       # Scan all methods of each user class for ivar assignments, collecting
-      # the set of class types assigned. Produces @class_typed_ivars entries
+      # the set of class types assigned. Produces @gctx.class_typed_ivars entries
       # for ivars with pattern {UserClass} or {UserClass, NilClass}.
       def collect_class_typed_ivars(scope)
-        @class_typed_ivars = {}
+        @gctx.class_typed_ivars = {}
         collect_class_typed_ivars_from(scope)
       end
 
@@ -92,7 +92,7 @@ module Frozone
           methods.each do |mname, method|
             next unless method.is_a?(Vm::Method) && method.body
             mkey = [class_name, mname]
-            method_class_locals = @ti_class_locals[mkey] || {}
+            method_class_locals = @gctx.class_locals[mkey] || {}
             collect_ivar_class_types(method.body, ivar_type_sets, method_class_locals)
           end
 
@@ -114,7 +114,7 @@ module Frozone
               result[iv] = [:class_or_nil, class_name]
             end
           end
-          @class_typed_ivars[class_name] = result unless result.empty?
+          @gctx.class_typed_ivars[class_name] = result unless result.empty?
         end
       end
 
@@ -166,7 +166,7 @@ module Frozone
           end
         when Ast::LocalVariableRead
           cls = class_locals[ivar(node, :name)]
-          if cls && (@ti_user_class_names&.include?(cls) || KNOWN_BUILTIN_CLASSES.include?(cls))
+          if cls && (@gctx.user_class_names&.include?(cls) || KNOWN_BUILTIN_CLASSES.include?(cls))
             cls
           else
             :self_ivar

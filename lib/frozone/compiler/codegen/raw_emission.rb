@@ -17,7 +17,7 @@ module Frozone
       ARITH_OPS_UNBOX = %i[+ - * ** / % | & ^ << >>].to_set
 
       # Is this method name a simple accessor (getter for a typed ivar)?
-      def accessor_method_name?(name) = @current_class_name && @typed_ivars.fetch(@current_class_name, {})[:"@#{name}"]
+      def accessor_method_name?(name) = @cctx.name && @gctx.typed_ivars.fetch(@cctx.name, {})[:"@#{name}"]
 
       # Returns :i64, :f64, or nil for the provable bare Crystal type of a node.
       def node_raw_type(node)
@@ -32,9 +32,9 @@ module Frozone
           # Chained assignment: sum = maxflips = 0 — type is the inner value's type
           node_raw_type(ivar(node, :value_node))
         when Ast::InstanceVariableRead
-          @current_class_ivars[ivar(node, :name)]
+          @cctx.ivars[ivar(node, :name)]
         when Ast::ConstantRead
-          @const_raw_types[ivar(node, :name)]
+          @gctx.const_raw_types[ivar(node, :name)]
         when Ast::ConstantPath
           # Math::PI, Math::E → :f64
           parent = ivar(node, :parent_node)
@@ -46,12 +46,12 @@ module Frozone
           recv = ivar(node, :receiver_node)
           args = ivar(node, :arg_nodes) || []
           # Free call to a typed-return method
-          if recv.nil? && (ret_ty = @typed_method_returns[name])
+          if recv.nil? && (ret_ty = @gctx.typed_method_returns[name])
             return ret_ty
           end
           # Self-call inside class body with known raw return (e.g. attr_accessor)
-          if recv.nil? && @current_class_name &&
-             (ret_ty = @instance_method_raw_returns[[@current_class_name, name]])
+          if recv.nil? && @cctx.name &&
+             (ret_ty = @gctx.instance_method_raw_returns[[@cctx.name, name]])
             return ret_ty
           end
           # Math.sqrt, Math.sin, etc. always return Float64
@@ -61,7 +61,7 @@ module Frozone
           # Instance method call on a class-typed local with known raw return type
           if recv.is_a?(Ast::LocalVariableRead)
             recv_class = @mctx.class_locals[ivar(recv, :name)]
-            if recv_class && (ret_ty = @instance_method_raw_returns[[recv_class, name]])
+            if recv_class && (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
               return ret_ty
             end
           end
@@ -237,7 +237,7 @@ module Frozone
         when Ast::InstanceVariableRead
           write ivar(node, :name).to_s
         when Ast::ConstantRead
-          ty = @const_raw_types[ivar(node, :name)]
+          ty = @gctx.const_raw_types[ivar(node, :name)]
           emit_constant_read(node)
           write ty == :f64 ? ".to_f64" : ".to_i64"
         when Ast::ConstantPath
@@ -284,12 +284,12 @@ module Frozone
             else
               emit(node)
             end
-          elsif recv.nil? && @current_class_name &&
-                @instance_method_raw_returns[[@current_class_name, name]] &&
+          elsif recv.nil? && @cctx.name &&
+                @gctx.instance_method_raw_returns[[@cctx.name, name]] &&
                 accessor_method_name?(name)
             # Self-call inside class with raw ACCESSOR: use _raw directly
             write "#{crystal_method_name(name)}_raw"
-          elsif recv.nil? && @typed_params[name]
+          elsif recv.nil? && @gctx.typed_params[name]
             # Free call to typed-param method: pass raw args
             write crystal_method_name(name)
             write "("
@@ -300,12 +300,12 @@ module Frozone
             write ")"
             # Method may return RubyObject even if TI says the value is :i64/:f64;
             # coerce the return to raw Crystal type so callers get Int64/Float64.
-            if (ret = @typed_method_returns[name])
+            if (ret = @gctx.typed_method_returns[name])
               write(ret == :f64 ? ".to_f64" : ".to_i64")
             end
           elsif recv.is_a?(Ast::LocalVariableRead) &&
                 (recv_class = @mctx.class_locals[ivar(recv, :name)]) &&
-                (ret_ty = @instance_method_raw_returns[[recv_class, name]])
+                (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
             # Instance method call on class-typed local with raw return:
             # use _raw accessor (avoids box allocation) if available, else add .to_f64/.to_i64.
             # Always emit .as(Ruby_ClassName) so Crystal's type system is happy even when
@@ -336,7 +336,7 @@ module Frozone
             emit(node)
             # If TI says this free call returns :i64/:f64 but we emitted
             # the boxed path, coerce so callers get the raw Crystal type.
-            if recv.nil? && (ret = @typed_method_returns[name])
+            if recv.nil? && (ret = @gctx.typed_method_returns[name])
               write(ret == :f64 ? ".to_f64" : ".to_i64")
             end
           end

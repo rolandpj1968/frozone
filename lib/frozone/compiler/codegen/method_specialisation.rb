@@ -16,7 +16,7 @@ module Frozone
     module CodegenSupport
       module MethodSpecialisation
       # Walk the execute block looking for free calls where ALL args are raw-typed.
-      # Populates @typed_params with {method_name => [:i64/:f64, ...]} for consistent sites.
+      # Populates @gctx.typed_params with {method_name => [:i64/:f64, ...]} for consistent sites.
       def collect_raw_call_sites(execute_block)
         return unless execute_block
         old_typed    = @mctx.typed_locals
@@ -31,7 +31,7 @@ module Frozone
           arities = call_type_lists.map(&:size).uniq
           next unless arities.size == 1                                  # consistent arity
           merged = call_type_lists.reduce { |a, b| a.zip(b).map { |ta, tb| ta == tb ? ta : nil } }
-          @typed_params[name] = merged if merged&.all?
+          @gctx.typed_params[name] = merged if merged&.all?
         end
       end
 
@@ -71,20 +71,20 @@ module Frozone
         end
       end
 
-      # For each method in @typed_params, tentatively assume same-type return,
+      # For each method in @gctx.typed_params, tentatively assume same-type return,
       # then verify by walking the method body. Methods that fail verification
-      # are removed from both @typed_params and @typed_method_returns.
+      # are removed from both @gctx.typed_params and @gctx.typed_method_returns.
       def collect_typed_method_returns
-        return if @typed_params.empty?
+        return if @gctx.typed_params.empty?
         methods_table = @top_level_scope.instance_variable_get(:@methods_table) || {}
 
         # Tentative assignment (allows recursive calls to see a return type during verification)
-        @typed_params.each do |name, param_types|
-          @typed_method_returns[name] = param_types.first if param_types.uniq.size == 1
+        @gctx.typed_params.each do |name, param_types|
+          @gctx.typed_method_returns[name] = param_types.first if param_types.uniq.size == 1
         end
 
         to_remove = []
-        @typed_params.each do |name, param_types|
+        @gctx.typed_params.each do |name, param_types|
           method = methods_table[name]
           unless method.is_a?(Vm::Method) && method.body
             to_remove << name; next
@@ -103,12 +103,12 @@ module Frozone
           raw_safe      = body_all_raw_safe?(method.body)
           @mctx.typed_locals = old_typed
 
-          unless actual_return == @typed_method_returns[name] && raw_safe
+          unless actual_return == @gctx.typed_method_returns[name] && raw_safe
             to_remove << name
           end
         end
 
-        to_remove.each { |n| @typed_params.delete(n); @typed_method_returns.delete(n) }
+        to_remove.each { |n| @gctx.typed_params.delete(n); @gctx.typed_method_returns.delete(n) }
       end
 
       # Returns the raw Crystal type (:i64/:f64) of the last expression in a body,
@@ -148,7 +148,7 @@ module Frozone
           args = ivar(node, :arg_nodes) || []
           if recv.nil?
             # Free call — must be to a specialised method
-            @typed_method_returns.key?(name) ? args.all? { |a| body_all_raw_safe?(a) } : false
+            @gctx.typed_method_returns.key?(name) ? args.all? { |a| body_all_raw_safe?(a) } : false
           elsif (RawEmission::ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1
             body_all_raw_safe?(recv) && body_all_raw_safe?(args[0])
           else
@@ -159,10 +159,10 @@ module Frozone
       end
 
       # Emit a Crystal method with raw Int64/Float64 param and return types.
-      # Only called when @typed_params[name] and @typed_method_returns[name] are set.
+      # Only called when @gctx.typed_params[name] and @gctx.typed_method_returns[name] are set.
       def emit_specialized_vm_method(name, method)
-        param_types = @typed_params[name]
-        return_type = @typed_method_returns[name]
+        param_types = @gctx.typed_params[name]
+        return_type = @gctx.typed_method_returns[name]
         req_params  = ivar(method, :required_params) || []
         return unless req_params.size == param_types.size
 
@@ -177,7 +177,7 @@ module Frozone
         param_set     = req_params.to_set
         # Start with param types, add TI-inferred locals, then infer from literals.
         @mctx.typed_locals = req_params.zip(param_types).to_h
-        (@ti_locals[name] || {}).each do |lname, ty|
+        (@gctx.locals[name] || {}).each do |lname, ty|
           @mctx.typed_locals[lname] = ty unless param_set.include?(lname)
         end
         # Infer types from literal assignments for locals TI didn't cover
@@ -185,7 +185,7 @@ module Frozone
           @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
         end
         # Populate typed array locals from TI (non-param only).
-        @mctx.typed_array_locals = (@ti_arrays[name] || {}).reject { |k, _| param_set.include?(k) }
+        @mctx.typed_array_locals = (@gctx.arrays[name] || {}).reject { |k, _| param_set.include?(k) }
         indented { emit_raw_body(method.body) }
         @mctx.typed_locals       = old_typed
         @mctx.typed_array_locals = old_typed_arr
@@ -219,21 +219,21 @@ module Frozone
 
         old_typed       = @mctx.typed_locals
         old_typed_arr   = @mctx.typed_array_locals
-        old_class_name  = @current_class_name
-        @current_class_name = class_name
+        old_class_name  = @cctx.name
+        @cctx.name = class_name
         param_set     = req_params.to_set
         mkey = [class_name, mname]
         # Start with param types
         @mctx.typed_locals = {}
         req_params.zip(raw_types).each { |p, ty| @mctx.typed_locals[p] = ty if ty }
         # Add TI-inferred locals
-        (@ti_locals[mkey] || @ti_locals[mname] || {}).each do |lname, ty|
+        (@gctx.locals[mkey] || @gctx.locals[mname] || {}).each do |lname, ty|
           @mctx.typed_locals[lname] = ty unless param_set.include?(lname)
         end
         infer_local_types(method.body).each do |lname, ty|
           @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
         end
-        @mctx.typed_array_locals = (@ti_arrays[mkey] || @ti_arrays[mname] || {}).reject { |k, _| param_set.include?(k) }
+        @mctx.typed_array_locals = (@gctx.arrays[mkey] || @gctx.arrays[mname] || {}).reject { |k, _| param_set.include?(k) }
         # Register Array(Int64)/Array(Float64) params as native arrays
         @mctx.native_array_locals = {}
         if crystal_param_types
@@ -248,7 +248,7 @@ module Frozone
         indented { emit_raw_body(method.body) }
         @mctx.typed_locals       = old_typed
         @mctx.typed_array_locals = old_typed_arr
-        @current_class_name = old_class_name
+        @cctx.name = old_class_name
 
         emit_newline
         emit_indent

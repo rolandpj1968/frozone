@@ -3,6 +3,8 @@ require_relative 'crystal_type'
 require_relative 'crystal_type_mapper'
 require_relative 'type_inference'
 require_relative 'method_context'
+require_relative 'class_context'
+require_relative 'global_context'
 require_relative '../vm/module_object'
 require_relative '../vm/method'
 require_relative 'codegen/raw_emission'
@@ -101,23 +103,8 @@ module Frozone
         @top_level_scope  = top_level_scope
         @stub_file        = stub_file
         @mctx = MethodContext.new  # per-method emission state (replaced per emit_vm_method)
-        @inferred_params             = {}
-        @typed_params                = {}
-        @typed_method_returns        = {}
-        @instance_method_raw_returns = {}
-        @const_raw_types             = {}
-        @typed_ivars                 = {}
-        @class_typed_ivars           = {}
-        @current_class_ivars         = {}
-        @current_class_typed_ivars   = {}
-        @current_class_name          = nil
-        @ti_locals                   = {}
-        @ti_arrays                   = {}
-        @ti_class_locals             = {}
-        @ti_local_array_elems        = {}
-        @ti_block_params             = {}
-        @ti_class_params             = {}
-        @ti_local_types              = {}
+        @cctx = ClassContext.new
+        @gctx = GlobalContext.new
         @mctx.emit_crystal_tuple          = false # true when emitting last expression of method body (multi-return)
         @masgn_return_methods        = nil   # Set of method names called in masgn RHS position
         @object_instance_methods     = Set.new # methods emitted on RubyObject (skip *args stubs)
@@ -165,12 +152,12 @@ module Frozone
         # Execute phase — the block body
         if execute_block
           @mctx = MethodContext.new
-          @mctx.typed_locals      = opt?(:unbox_locals) ? (@ti_locals[nil] || {}) : {}
-          @mctx.typed_array_locals = opt?(:native_arrays) ? (@ti_arrays[nil] || {}) : {}
-          @mctx.class_locals      = opt?(:devirtualize) ? (@ti_class_locals[nil] || {}) : {}
-          @mctx.local_array_elems = opt?(:native_arrays) ? (@ti_local_array_elems[nil] || {}) : {}
-          @mctx.block_params      = @ti_block_params[nil] || {}
-          @mctx.local_types       = @ti_local_types[nil] || {}
+          @mctx.typed_locals      = opt?(:unbox_locals) ? (@gctx.locals[nil] || {}) : {}
+          @mctx.typed_array_locals = opt?(:native_arrays) ? (@gctx.arrays[nil] || {}) : {}
+          @mctx.class_locals      = opt?(:devirtualize) ? (@gctx.class_locals[nil] || {}) : {}
+          @mctx.local_array_elems = opt?(:native_arrays) ? (@gctx.local_array_elems[nil] || {}) : {}
+          @mctx.block_params      = @gctx.block_params[nil] || {}
+          @mctx.local_types       = @gctx.local_types[nil] || {}
           @mctx.method_body       = execute_block.body
           @in_execute_block       = true
           emit_indent
@@ -300,12 +287,11 @@ module Frozone
         end
         emit_newline
 
-        old_class_ivars       = @current_class_ivars
-        old_class_typed_ivars = @current_class_typed_ivars
-        old_class_name        = @current_class_name
-        @current_class_ivars       = @typed_ivars.fetch(name, {})
-        @current_class_typed_ivars = @class_typed_ivars.fetch(name, {})
-        @current_class_name        = name
+        old_cctx = @cctx
+        @cctx = ClassContext.new
+        @cctx.name        = name
+        @cctx.ivars       = @gctx.typed_ivars.fetch(name, {})
+        @cctx.typed_ivars = @gctx.class_typed_ivars.fetch(name, {})
 
         indented do
           # Collect and emit ivar declarations (Crystal requires them upfront)
@@ -316,11 +302,11 @@ module Frozone
           all_ivars.each do |iv|
             emit_indent
             iv_sym = iv.to_sym
-            type_ann, default = case @current_class_ivars[iv_sym]
+            type_ann, default = case @cctx.ivars[iv_sym]
               when :f64 then ["Float64", "0.0_f64"]
               when :i64 then ["Int64",   "0_i64"]
               else
-                ct = @current_class_typed_ivars[iv_sym]
+                ct = @cctx.typed_ivars[iv_sym]
                 if ct
                   kind, cls = ct
                   crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
@@ -361,7 +347,7 @@ module Frozone
 
           # Collect eigenclass method names for dispatch and dedup
           eigenclass = mod.instance_variable_get(:@eigenclass)
-          @current_class_eigen_methods = nil
+          @cctx.eigen_methods = nil
           eigen_method_names = if eigenclass
             (eigenclass.instance_variable_get(:@methods_table) || {}).select { |_, m|
               m.is_a?(Vm::Method) && user_source_location?(m.source_location)
@@ -378,7 +364,7 @@ module Frozone
             if accessor_method?(method)
               emit_accessor_method(mname, method)
             else
-              inst_param_types = @ti_class_params[[name, mname]]
+              inst_param_types = @gctx.class_params[[name, mname]]
               has_typed = inst_param_types&.any? { |t| t && t != :ruby_object }
               if has_typed
                 # Emit typed overload first, then generic (RubyObject) fallback
@@ -396,17 +382,17 @@ module Frozone
           end
 
           # Emit class/module methods (def self.x) from the eigenclass
-          @current_class_eigen_methods = eigen_method_names
+          @cctx.eigen_methods = eigen_method_names
           if eigenclass
             class_methods = eigenclass.instance_variable_get(:@methods_table)&.select do |_n, m|
               m.is_a?(Vm::Method) && user_source_location?(m.source_location)
             end
             (class_methods || {}).each do |mname, method|
               # Check both class-keyed and free-call-keyed params
-              class_param_types = @ti_class_params[[name, mname]] || @inferred_params[mname]
+              class_param_types = @gctx.class_params[[name, mname]] || @gctx.inferred_params[mname]
               # Emit specialized (typed) overload if params have raw types
               raw_types = class_param_types&.map { |t| CrystalType.raw(t) }
-              class_return = @instance_method_raw_returns[[name, mname]]
+              class_return = @gctx.instance_method_raw_returns[[name, mname]]
               if opt?(:method_specialization) && raw_types&.any?
                 emit_indent
                 emit_specialized_class_method(name, mname, method, raw_types, class_return, crystal_param_types: class_param_types)
@@ -428,10 +414,8 @@ module Frozone
           emit_respond_to(mod) if is_class
         end
 
-        @current_class_ivars        = old_class_ivars
-        @current_class_typed_ivars  = old_class_typed_ivars
-        @current_class_name         = old_class_name
-        @current_class_eigen_methods = nil
+        @cctx = old_cctx
+        @cctx.eigen_methods = nil
         emit_indent
         write "end"
         emit_newline
@@ -557,7 +541,7 @@ module Frozone
           next unless user_source_location?(method.source_location)
           user_methods_on_object << [name, method]
 
-          if opt?(:method_specialization) && @typed_params[name] && @typed_method_returns[name]
+          if opt?(:method_specialization) && @gctx.typed_params[name] && @gctx.typed_method_returns[name]
             emit_indent
             emit_specialized_vm_method(name, method)
             emit_newline
@@ -566,8 +550,8 @@ module Frozone
 
           # Emit typed overload when inferred params have complex types (Array, etc.)
           # that need a separate generic fallback for untyped callers.
-          inferred = @inferred_params[name]
-          has_complex_params = !@typed_params[name] && inferred&.any? { |t| complex_native_type?(t) }
+          inferred = @gctx.inferred_params[name]
+          has_complex_params = !@gctx.typed_params[name] && inferred&.any? { |t| complex_native_type?(t) }
           if has_complex_params
             emit_indent
             emit_vm_method(name, method, param_types: inferred)
@@ -580,7 +564,7 @@ module Frozone
           # RubyObject. Types that are already RubyObject subtypes stay as-is.
           generic_params = if has_complex_params
             inferred.map { |t| CrystalType.native?(t) ? :ruby_object : t }
-          elsif @typed_params[name]
+          elsif @gctx.typed_params[name]
             nil
           else
             inferred
@@ -601,7 +585,7 @@ module Frozone
         user_methods_on_object.each do |name, method|
           emit_indent
           write "  "
-          generic_params = @typed_params[name] ? nil : @inferred_params[name]
+          generic_params = @gctx.typed_params[name] ? nil : @gctx.inferred_params[name]
           emit_vm_method(name, method, param_types: generic_params)
           emit_newline
         end
@@ -621,20 +605,20 @@ module Frozone
                       (ivar(method, :post_params) || [])
         param_set = param_names.to_set
         @mctx.param_set = param_set
-        mkey = @current_class_name ? [@current_class_name, name] : name
+        mkey = @cctx.name ? [@cctx.name, name] : name
         # For generic class method overloads with a specialized version,
         # disable ALL type optimizations (the specialized handles raw paths).
         generic_with_specialized = class_method && param_types.nil? &&
-          @current_class_eigen_methods&.any? &&
-          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != :ruby_object }
+          @cctx.eigen_methods&.any? &&
+          (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| t != :ruby_object }
         # Use TypeInference results for local types (omit params — they have declared types)
         @mctx.suppress_typed_call_args  = generic_with_specialized
-        @mctx.typed_locals              = (!generic_with_specialized && opt?(:unbox_locals)) ? ((@ti_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
-        @mctx.typed_array_locals        = opt?(:native_arrays)   ? ((@ti_arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
-        @mctx.class_locals      = opt?(:devirtualize)    ? ((@ti_class_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
-        @mctx.local_array_elems = opt?(:native_arrays)   ? ((@ti_local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
-        @mctx.block_params      = (@ti_block_params[mkey]      || {}).reject { |k, _| param_set.include?(k) }
-        @mctx.local_types       = (@ti_local_types[mkey] || {}).reject { |k, _| param_set.include?(k) }
+        @mctx.typed_locals              = (!generic_with_specialized && opt?(:unbox_locals)) ? ((@gctx.locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @mctx.typed_array_locals        = opt?(:native_arrays)   ? ((@gctx.arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @mctx.class_locals      = opt?(:devirtualize)    ? ((@gctx.class_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @mctx.local_array_elems = opt?(:native_arrays)   ? ((@gctx.local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @mctx.block_params      = (@gctx.block_params[mkey]      || {}).reject { |k, _| param_set.include?(k) }
+        @mctx.local_types       = (@gctx.local_types[mkey] || {}).reject { |k, _| param_set.include?(k) }
         @mctx.method_body       = method.body
         @mctx.block_param_name  = ivar(method, :block_param)
         @mctx.native_array_locals       = {}
@@ -661,8 +645,8 @@ module Frozone
         # Infer types from literal assignments for locals TI didn't cover.
         # Skip for generic class method overloads when a specialized version exists
         # (typed locals in the generic cause Float64/Int64 mismatches with RubyObject ops).
-        has_specialized = class_method && @current_class_eigen_methods&.any? &&
-          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != :ruby_object }
+        has_specialized = class_method && @cctx.eigen_methods&.any? &&
+          (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| t != :ruby_object }
         unless has_specialized && param_types.nil?
           infer_local_types(method.body).each do |lname, ty|
             @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
@@ -676,11 +660,11 @@ module Frozone
         # emit with raw body and return type annotation.
         # Skip for generic class method overloads when a specialized overload exists
         # (the specialized handles the raw return).
-        has_specialized = class_method && @current_class_eigen_methods&.any? &&
-          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != :ruby_object }
-        raw_return = !has_specialized && opt?(:raw_returns) && !@typed_params[name] &&
-          (@typed_method_returns[name] ||
-           (@current_class_name && @instance_method_raw_returns[[@current_class_name, name]]))
+        has_specialized = class_method && @cctx.eigen_methods&.any? &&
+          (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| t != :ruby_object }
+        raw_return = !has_specialized && opt?(:raw_returns) && !@gctx.typed_params[name] &&
+          (@gctx.typed_method_returns[name] ||
+           (@cctx.name && @gctx.instance_method_raw_returns[[@cctx.name, name]]))
         cr_return_types = { i64: 'Int64', f64: 'Float64' }
 
         write class_method ? "def self.#{crystal_name}" : "def #{crystal_name}"
@@ -799,7 +783,7 @@ module Frozone
         end
         user_classes_hash = {}
         collect_user_classes_recursive(top_level_scope, user_classes_hash)
-        @ti_user_class_names = user_classes_hash.keys.to_set
+        @gctx.user_class_names = user_classes_hash.keys.to_set
 
         all_constants = top_level_scope.instance_variable_get(:@constants_table) || {}
         ti  = TypeInference.new(
@@ -817,20 +801,7 @@ module Frozone
           opt_flags: @opt_flags
         ).build!
 
-        @ti_user_class_names         = mapper.user_class_names
-        @ti_local_types              = mapper.local_types
-        @ti_locals                   = mapper.locals
-        @ti_arrays                   = mapper.arrays
-        @ti_class_locals             = mapper.class_locals
-        @ti_local_array_elems        = mapper.local_array_elems
-        @ti_block_params             = mapper.block_params
-        @ti_class_params             = mapper.class_params
-        @inferred_params             = mapper.inferred_params
-        @typed_params                = mapper.typed_params
-        @typed_method_returns        = mapper.typed_method_returns
-        @instance_method_raw_returns = mapper.instance_method_raw_returns
-        @const_raw_types             = mapper.const_raw_types
-        @typed_ivars                 = mapper.typed_ivars
+        @gctx.load_from_mapper!(mapper)
       end
 
       # Is this a complex Crystal-native type that callers may not be able to provide?
@@ -1083,7 +1054,7 @@ module Frozone
 
       # Override: for typed ivars in boxed context, wrap in RubyFloat/RubyInteger.
       def emit_ivar_read(node)
-        case @current_class_ivars[ivar(node, :name)]
+        case @cctx.ivars[ivar(node, :name)]
         when :f64 then write "RubyFloat.new(#{ivar(node, :name)})"
         when :i64 then write "RubyInteger.new(#{ivar(node, :name)})"
         else super
@@ -1093,7 +1064,7 @@ module Frozone
       # Override: for typed ivars, coerce RHS to the raw type.
       def emit_ivar_write(node)
         iv_name = ivar(node, :name)
-        return super unless (ty = @current_class_ivars[iv_name])
+        return super unless (ty = @cctx.ivars[iv_name])
         write "#{iv_name} = "
         emit_as(ivar(node, :value_node), ty)
       end
@@ -1259,7 +1230,7 @@ module Frozone
         if node.receiver_node.is_a?(Ast::LocalVariableRead)
           recv_name  = ivar(node.receiver_node, :name)
           recv_class = @mctx.class_locals[recv_name]
-          if recv_class && (tp = @ti_class_params[[recv_class, node.name]])
+          if recv_class && (tp = @gctx.class_params[[recv_class, node.name]])
             emit(node.receiver_node)
             write ".#{crystal_method_name(node.name)}"
             emit_typed_call_args(node.arg_nodes || [], tp)
@@ -1307,8 +1278,8 @@ module Frozone
         end
 
         # Free call to a specialized method with all-raw args → use Int64 overload
-        if node.receiver_node.nil? && @typed_method_returns[node.name] &&
-           (tp = @typed_params[node.name])
+        if node.receiver_node.nil? && @gctx.typed_method_returns[node.name] &&
+           (tp = @gctx.typed_params[node.name])
           args = node.arg_nodes || []
           if args.size == tp.size && args.all? { |a| node_raw_type(a) }
             write crystal_method_name(node.name)
@@ -1325,10 +1296,10 @@ module Frozone
         # Free call inside class/module: dispatch to class method (self.x) if
         # the method exists on the eigenclass. Prevents module_function methods
         # from dispatching to the RubyObject *args stub.
-        if node.receiver_node.nil? && @current_class_eigen_methods&.include?(node.name)
+        if node.receiver_node.nil? && @cctx.eigen_methods&.include?(node.name)
           write "self.#{crystal_method_name(node.name)}"
           if !@mctx.suppress_typed_call_args && (opt?(:call_site_types) || opt?(:method_specialization))
-            tp = @inferred_params[node.name] || @ti_class_params[[@current_class_name, node.name]]
+            tp = @gctx.inferred_params[node.name] || @gctx.class_params[[@cctx.name, node.name]]
             can_use_typed = tp&.any? { |t| t && t != :ruby_object } &&
               tp.all? { |pt| !pt || CrystalType.generic_compatible?(pt) || CrystalType.scalar?(pt) }
             if can_use_typed
@@ -1343,7 +1314,7 @@ module Frozone
         end
 
         # Free call to method with typed params — coerce args to declared types
-        if !@mctx.suppress_typed_call_args && node.receiver_node.nil? && (tp = @inferred_params[node.name])
+        if !@mctx.suppress_typed_call_args && node.receiver_node.nil? && (tp = @gctx.inferred_params[node.name])
           write crystal_method_name(node.name)
           emit_typed_call_args(node.arg_nodes || [], tp)
           return
@@ -1598,7 +1569,7 @@ module Frozone
       end
 
       def emit_masgn_assign(target, value_code)
-        if target[0] == :ivar && (ty = @current_class_ivars[target[1]])
+        if target[0] == :ivar && (ty = @cctx.ivars[target[1]])
           coerce = ty == :f64 ? ".to_f64" : ".to_i64"
           write "#{target[1]} = #{value_code}#{coerce}"
         elsif (target[0] == :local || target[0] == :local_splat) &&
@@ -1651,7 +1622,7 @@ module Frozone
         case body
         when Ast::InstanceVariableRead
           iv = ivar(body, :name)
-          case @current_class_ivars[iv]
+          case @cctx.ivars[iv]
           when :f64
             line "def #{crystal_method_name(mname)} : RubyObject; RubyFloat.new(#{iv}); end"
             line "def #{crystal_method_name(mname)}_raw : Float64; #{iv}; end"
@@ -1659,7 +1630,7 @@ module Frozone
             line "def #{crystal_method_name(mname)} : RubyObject; RubyInteger.new(#{iv}); end"
             line "def #{crystal_method_name(mname)}_raw : Int64; #{iv}; end"
           else
-            ct = @current_class_typed_ivars[iv]
+            ct = @cctx.typed_ivars[iv]
             if ct
               kind, cls = ct
               crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
@@ -1671,7 +1642,7 @@ module Frozone
           end
         when Ast::InstanceVariableWrite
           iv = ivar(body, :name)
-          case @current_class_ivars[iv]
+          case @cctx.ivars[iv]
           when :f64
             line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v.to_f64; v; end"
           when :i64
