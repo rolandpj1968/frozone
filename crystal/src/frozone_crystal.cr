@@ -37,6 +37,11 @@ struct Int64
   def +(other : RubyObject) : RubyObject; RubyInteger.new(self) + other; end
   def -(other : RubyObject) : RubyObject; RubyInteger.new(self) - other; end
   def /(other : RubyObject) : RubyObject; RubyInteger.new(self) / other; end
+  def <(other : RubyObject) : Bool; RubyInteger.new(self) < other; end
+  def <=(other : RubyObject) : Bool; RubyInteger.new(self) <= other; end
+  def >(other : RubyObject) : Bool; RubyInteger.new(self) > other; end
+  def >=(other : RubyObject) : Bool; RubyInteger.new(self) >= other; end
+  def ==(other : RubyObject) : Bool; RubyInteger.new(self) == other; end
 end
 
 # Top-level self (Ruby's "main" object)

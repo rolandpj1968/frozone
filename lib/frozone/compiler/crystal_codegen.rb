@@ -507,6 +507,8 @@ module Frozone
 
       def recv_contains_assignment?(node)
         return true if node.is_a?(Ast::LocalVariableWrite) || node.is_a?(Ast::InstanceVariableWrite)
+        return true if node.is_a?(Ast::IndexOperatorWrite) || node.is_a?(Ast::AttributeWrite)
+        return true if node.is_a?(Ast::CallOrWrite)
         node.is_a?(Ast::Sequence) && node.nodes.size == 1 && recv_contains_assignment?(node.nodes.first)
       end
 
