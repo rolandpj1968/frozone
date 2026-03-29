@@ -1,6 +1,7 @@
 # Frozone AOT Compiler
 
-Frozone compiles Ruby to native binaries via [Crystal](https://crystal-lang.org/).
+Frozone compiles Ruby to native binaries via [Crystal](https://crystal-lang.org/)
+(which compiles through LLVM).
 Numeric benchmarks run **13–95× faster than YJIT**; closed-world optimisations
 like `respond_to?` constant folding achieve **540× faster than MRI**.
 
