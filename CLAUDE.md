@@ -35,11 +35,34 @@ Each file has at most one public section and one private section. All public met
 - Multi-line methods: one blank line before and after.
 - Adjacent single-liners: no blank lines between them.
 
+### Brevity over superficial efficiency
+Prefer clear, concise code over hand-optimised code. It is the compiler's job to turn neat Ruby into efficient native code. Write for readability first:
+
+```ruby
+# Good — clear intent, let the compiler optimise
+def reverse = @data.reverse
+
+# Bad — manual "optimisation" that obscures intent
+def reverse
+  result = []
+  i = @data.size - 1
+  while i >= 0
+    result << @data[i]
+    i -= 1
+  end
+  result
+end
+```
+
+### Extract common patterns
+When you see the same code pattern repeated, extract it into a helper. Three similar lines are fine; four is a smell. But don't create abstractions for hypothetical future use — extract only when the pattern already exists in multiple places.
+
 ### Post-refactoring checklist
 After any broad refactoring pass (sed/perl sweeps, agent conversions, coercion refactors):
 1. Convert newly-simple methods to endless one-liners where natural.
 2. Re-herd: move all one-liners before multi-liners within each section.
-3. Run `bundle exec rspec` to verify no regressions.
+3. Look for repeated patterns and extract common helpers.
+4. Run `bundle exec rspec` to verify no regressions.
 
 ---
 
