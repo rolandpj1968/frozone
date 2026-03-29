@@ -1,4 +1,4 @@
-# Frozone AOT Compiler
+# Frozone AoT Compiler
 
 Frozone compiles Ruby to native binaries via [Crystal](https://crystal-lang.org/)
 (which compiles through LLVM).
@@ -17,9 +17,9 @@ Full benchmark table in [README.md](../README.md).
 
 ## How it works
 
-The approach is **closed-world ahead-of-time (AOT) compilation** targeting
+The approach is **closed-world ahead-of-time (AoT) compilation** targeting
 Crystal as an intermediate language. This is deliberately different from JIT
-and general AOT — the differences are worth understanding.
+and general AoT — the differences are worth understanding.
 
 **The key architectural insight — split load and execute:**
 Most Ruby programs have two naturally distinct phases: a *load phase* where
@@ -36,7 +36,7 @@ production mode, already satisfy.
 
 ---
 
-### Closed-world AOT vs JIT
+### Closed-world AoT vs JIT
 
 A **JIT compiler** (like YJIT in MRI, or TruffleRuby's Graal backend) compiles
 Ruby at runtime, inside a running interpreter. It observes actual types at
@@ -48,7 +48,7 @@ but requires a complete interpreter as a foundation, is complex to implement
 correctly, and the generated code must handle deoptimisation (falling back to
 the interpreter when type assumptions are violated).
 
-A **closed-world AOT compiler** takes a fixed snapshot of the entire program
+A **closed-world AoT compiler** takes a fixed snapshot of the entire program
 at compile time and compiles everything in one shot. There is no interpreter
 fallback, no runtime deoptimisation, no type profiling. What you gain is:
 

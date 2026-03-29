@@ -4,7 +4,7 @@ module Frozone
   module Ast
     # Frozone.compile! { execute_phase }
     #
-    # Triggers snapshot-based AOT compilation of the settled VM state to Crystal.
+    # Triggers snapshot-based AoT compilation of the settled VM state to Crystal.
     #
     # Workflow:
     #   1. The interpreter runs the load phase normally (class defs, constants settle).

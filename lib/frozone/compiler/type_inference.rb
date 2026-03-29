@@ -2,7 +2,7 @@ module Frozone
   module Compiler
     # Whole-program type inference over a settled Frozone VM snapshot.
     #
-    # This is binding-time analysis for the AOT Crystal backend: for each
+    # This is binding-time analysis for the AoT Crystal backend: for each
     # "slot" in the closed-world program, determine the most precise type
     # in the Ruby class hierarchy — from raw Crystal numerics up through
     # user-defined classes to RubyObject.

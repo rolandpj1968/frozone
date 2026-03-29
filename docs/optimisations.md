@@ -1,6 +1,6 @@
 # Compiler Optimisations
 
-This document describes all optimisations in the Frozone AOT Crystal backend.
+This document describes all optimisations in the Frozone AoT Crystal backend.
 Each optimisation has a named flag that can be individually disabled (see §20).
 
 ---
@@ -71,7 +71,7 @@ never exceed `Int64::MAX`), but is technically unsound for general Ruby.
 when we can statically bound its range within `Int64` (e.g. loop counter from 0 to a
 literal or inferred-small bound), OR emit a range-check at the assignment and fall back
 to a boxed slow path. For now we accept the unsoundness as a known limitation of the
-AOT backend.
+AoT backend.
 
 ### Implementation
 Two-phase fixed-point inference in `SnapshotCodegen#infer_local_types`:
@@ -290,7 +290,7 @@ The inner loop of `move_from_i` now operates on raw `Float64` ivars (`@vx`, `@vy
 The modest gain (vs §3's 3×) reflects that the inner loop still allocates `RubyFloat` objects for `b2.x`, `b2.mass`, and the `masgn_coerce` intermediate. Full elimination of those requires typed method dispatch on the receiver (§10).
 
 ### Soundness note
-Typed ivars assume the object is only ever initialised through the tracked `initialize` path and that all call sites use consistently-typed arguments. If a subclass or dynamic assignment changes the ivar to a non-numeric value, the `.to_f64` / `.to_i64` coercion will produce a runtime error rather than returning the wrong type. This is acceptable for closed-world AOT compilation.
+Typed ivars assume the object is only ever initialised through the tracked `initialize` path and that all call sites use consistently-typed arguments. If a subclass or dynamic assignment changes the ivar to a non-numeric value, the `.to_f64` / `.to_i64` coercion will produce a runtime error rather than returning the wrong type. This is acceptable for closed-world AoT compilation.
 
 ---
 

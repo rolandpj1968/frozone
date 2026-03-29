@@ -4,7 +4,7 @@
 
 # Frozone
 
-A Ruby VM implemented in Ruby — and an AOT compiler from Ruby to native binaries via [Crystal](https://crystal-lang.org/).
+A Ruby VM implemented in Ruby — and an AoT compiler from Ruby to native binaries via [Crystal](https://crystal-lang.org/).
 
 The goal of Frozone is to explore the opportunity of a **two-phase approach**: let a full-featured interpreter handle the dynamic load phase (metaprogramming, `require`s, runtime-computed constants), then compile the settled, closed-world result to efficient native code.
 
@@ -27,7 +27,7 @@ The goal of Frozone is to explore the opportunity of a **two-phase approach**: l
 
 **Self-hosting:** Frozone runs itself (Frozone²) with no shims or special infrastructure. The full language spec suite passes through Frozone² with identical results. See [docs/self-hosting.md](docs/self-hosting.md).
 
-See [docs/spec-status.md](docs/spec-status.md) for detailed breakdowns, [docs/interpreter.md](docs/interpreter.md) for VM architecture, [docs/compilation.md](docs/compilation.md) for the AOT compiler.
+See [docs/spec-status.md](docs/spec-status.md) for detailed breakdowns, [docs/interpreter.md](docs/interpreter.md) for VM architecture, [docs/compilation.md](docs/compilation.md) for the AoT compiler.
 
 ### Compiler Benchmarks
 
@@ -54,7 +54,7 @@ Measured on Ruby 4.0.1 vs Crystal `--release` build (same workload per benchmark
 
 22 compiled benchmarks. `respond_to?` uses compile-time constant folding (closed-world method lookup resolved at compile time). See [docs/compilation.md](docs/compilation.md) for architecture.
 
-### AOT Compilation
+### AoT Compilation
 
 ```bash
 # Explicit compile block
@@ -93,7 +93,7 @@ bundle exec rake core                    # ruby/spec core suite
 - [docs/spec-status.md](docs/spec-status.md) — detailed ruby/spec results (interpreter)
 
 **Compiler:**
-- [docs/compilation.md](docs/compilation.md) — AOT compiler architecture, type inference, benchmarks
+- [docs/compilation.md](docs/compilation.md) — AoT compiler architecture, type inference, benchmarks
 - [docs/optimisations.md](docs/optimisations.md) — per-optimization flag reference
 
 ## Architecture
@@ -101,7 +101,7 @@ bundle exec rake core                    # ruby/spec core suite
 ```
 lib/frozone/vm/          VM runtime (ClassObject, Method, Frame, Context, intrinsics)
 lib/frozone/ast/         AST nodes evaluated by the tree-walker
-lib/frozone/compiler/    AOT compiler (SnapshotCodegen, TypeInference, CrystalCodegen)
+lib/frozone/compiler/    AoT compiler (SnapshotCodegen, TypeInference, CrystalCodegen)
 lib/frozone/vm/parser.rb Prism-based front-end
 lib/frozone/vm/wq_parser.rb  whitequark parser front-end (self-hostable path)
 lib/core/4.0/            Ruby stdlib in Ruby — parsed at VM startup, compilable as user code
