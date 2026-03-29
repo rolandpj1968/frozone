@@ -269,7 +269,7 @@ module Frozone
           if name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
             arr_name = ivar(recv, :name)
             if (nat_ty = native_array_elem_type(arr_name))
-              # Unboxed Array(T) local (typed or native-2D-parent): a[k] → bare Int64/Float64
+              # Unboxed Array(T) local (typed or nested parent): a[k] → bare Int64/Float64
               write crystal_local(arr_name)
               write "["
               emit_coerce_i64(args[0])

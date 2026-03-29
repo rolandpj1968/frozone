@@ -2,7 +2,7 @@
 #
 # Provides:
 # - native_array_elem_type: lookup for Array(T) locals
-# - detect_local_2d_arrays: find Array.new(n){Array.new(m,fill)} patterns
+# - detect_nested_array_locals: find Array.new(n){Array.new(m,fill)} nested native-typed patterns
 # - local_escapes?: conservative escape analysis for array promotion safety
 # - seed_typed_array_locals / infer_typed_array_locals: Array(T) inference
 # - array_new_call?: pattern matching helper
@@ -18,7 +18,7 @@ module Frozone
 
       # Detect locals assigned from Array.new(count_i64) { Array.new(count2_i64, fill) }
       # where fill is a typed scalar. Returns {name => :i64 | :f64}.
-      def detect_local_2d_arrays(body, exclude_names)
+      def detect_nested_array_locals(body, exclude_names)
         return {} unless body
         assignments = Hash.new { |h, k| h[k] = [] }
         collect_local_assignments(body, assignments)

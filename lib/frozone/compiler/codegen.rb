@@ -40,7 +40,6 @@ module Frozone
         typed_ivars           # Scalar-typed instance variables
         ivar_narrowing        # Class-typed ivar narrowing (X | nil)
         native_arrays         # Array(T) promotion for 1D arrays
-        native_2d_arrays      # Array(Array(T)) promotion for 2D arrays
         tuple_literals        # RubyTupleN for small fixed-size arrays
         native_iteration      # Crystal .times/.upto/.downto
         raw_returns           # Typed-return raw body emission
@@ -406,7 +405,7 @@ module Frozone
               # Check both class-keyed and free-call-keyed params
               class_param_types = @ti_class_params[[name, mname]] || @inferred_params[mname]
               # Emit specialized (typed) overload if params have raw types
-              raw_types = class_param_types&.map { |t| t == 'Int64' ? :i64 : (t == 'Float64' ? :f64 : nil) }
+              raw_types = class_param_types&.map { |t| CrystalType.raw(t) }
               class_return = @instance_method_raw_returns[[name, mname]]
               if opt?(:method_specialization) && raw_types&.any?
                 emit_indent
@@ -635,10 +634,16 @@ module Frozone
         @mctx.class_locals      = opt?(:devirtualize)    ? ((@ti_class_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @mctx.local_array_elems = opt?(:native_arrays)   ? ((@ti_local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @mctx.block_params      = (@ti_block_params[mkey]      || {}).reject { |k, _| param_set.include?(k) }
-        @mctx.local_2d_arrays   = opt?(:native_2d_arrays) ? detect_local_2d_arrays(method.body, param_set) : {}
+        @mctx.local_types       = (@ti_local_types[mkey] || {}).reject { |k, _| param_set.include?(k) }
         @mctx.method_body       = method.body
         @mctx.block_param_name  = ivar(method, :block_param)
         @mctx.native_array_locals       = {}
+        # Detect nested Array.new(n) { Array.new(m, fill) } construction patterns
+        if opt?(:native_arrays)
+          detect_nested_array_locals(method.body, param_set).each do |lname, inner_elem|
+            @mctx.native_array_locals[lname] = [:array, inner_elem]
+          end
+        end
         # Include raw-typed params in @mctx.typed_locals so node_raw_type works for them
         # and they are correctly boxed/unboxed in mixed expressions.
         if param_types
@@ -649,11 +654,7 @@ module Frozone
               @mctx.typed_locals[p] = pt
             elsif CrystalType.array?(pt)
               inner = CrystalType.elem(pt)
-              if CrystalType.scalar?(inner)
-                @mctx.native_array_locals[p] = inner
-              elsif CrystalType.array?(inner)
-                @mctx.local_2d_arrays[p] = CrystalType.elem(inner) || :i64
-              end
+              @mctx.native_array_locals[p] = inner if CrystalType.native?(inner)
             end
           end
         end
@@ -817,6 +818,7 @@ module Frozone
         ).build!
 
         @ti_user_class_names         = mapper.user_class_names
+        @ti_local_types              = mapper.local_types
         @ti_locals                   = mapper.locals
         @ti_arrays                   = mapper.arrays
         @ti_class_locals             = mapper.class_locals
@@ -897,7 +899,7 @@ module Frozone
         end
       end
 
-      # Combined element type for typed-array and native-array (2D parent) locals.
+      # Combined element type for typed-array and native-array locals.
 
       # Override emit_param_list to apply inferred types for required params.
       def emit_param_list(node, param_types: nil)
@@ -905,10 +907,10 @@ module Frozone
 
         parts  = []
         req    = ivar(node, :required_params) || []
-        types  = param_types + ['RubyObject'] * [req.size - param_types.size, 0].max
+        types  = param_types + [:ruby_object] * [req.size - param_types.size, 0].max
 
         req.each_with_index do |p, i|
-          parts << "#{crystal_local(p)} : #{types[i] || 'RubyObject'}"
+          parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(types[i] || :ruby_object)}"
         end
 
         ivar(node, :optional_params).each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
@@ -955,22 +957,24 @@ module Frozone
       # For class-typed locals, add .as(Ruby_ClassName) cast for static dispatch.
       def emit_local_var_write(node)
         name = ivar(node, :name)
-        # 2D float array construction: c = Array.new(m) { Array.new(p, 0.0) }
+        # Nested array construction: c = Array.new(m) { Array.new(p, 0.0) }
         # Emit as Array(Array(Float64)).new(m) { Array(Float64).new(p, 0.0) }
-        if (elem_raw = @mctx.local_2d_arrays[name])
-          crystal_ty = elem_raw == :f64 ? "Float64" : "Int64"
+        nat_elem = native_array_elem_type(name)
+        if nat_elem && CrystalType.array?(nat_elem)
+          inner_scalar = CrystalType.elem(nat_elem)
+          inner_crystal = CrystalType.to_crystal(nat_elem)
           rhs  = ivar(node, :value_node)
           blk  = ivar(rhs, :block_node)
           outer_args = ivar(rhs, :arg_nodes) || []
           inner = ivar(blk, :body)
           inner = inner.nodes.first if inner.is_a?(Ast::Sequence) && inner.nodes.size == 1
           inner_args = ivar(inner, :arg_nodes) || []
-          write "#{crystal_local(name)} = Array(Array(#{crystal_ty})).new("
+          write "#{crystal_local(name)} = Array(#{inner_crystal}).new("
           emit_coerce_i64(outer_args[0])
-          write ") { Array(#{crystal_ty}).new("
+          write ") { #{inner_crystal}.new("
           emit_coerce_i64(inner_args[0])
           write ", "
-          emit_as(inner_args[1], elem_raw)
+          emit_as(inner_args[1], inner_scalar)
           write ") }"
           return
         end
@@ -1010,17 +1014,19 @@ module Frozone
           return
         end
         if @mctx.local_array_elems.key?(name)
-          # Check if RHS is a read from a 2D native array: ci = c[i]
+          # Check if RHS is a read from a nested native array: ci = c[i]
           value = ivar(node, :value_node)
           if value.is_a?(Ast::MethodCall) && ivar(value, :name) == :[] &&
              (vargs = ivar(value, :arg_nodes) || []).size == 1 &&
-             ivar(value, :receiver_node).is_a?(Ast::LocalVariableRead) &&
-             @mctx.local_2d_arrays.key?(ivar(ivar(value, :receiver_node), :name))
-            # Emit: ci = c[raw_i]  (Crystal infers ci : Array(Float64))
-            write "#{crystal_local(name)} = "
-            emit(value)
-            @mctx.native_array_locals[name] = @mctx.local_array_elems[name]
-            return
+             ivar(value, :receiver_node).is_a?(Ast::LocalVariableRead)
+            recv_elem = native_array_elem_type(ivar(ivar(value, :receiver_node), :name))
+            if recv_elem && CrystalType.array?(recv_elem)
+              # Emit: ci = c[raw_i]  (Crystal infers ci : Array(T))
+              write "#{crystal_local(name)} = "
+              emit(value)
+              @mctx.native_array_locals[name] = @mctx.local_array_elems[name]
+              return
+            end
           end
           write "#{crystal_local(name)} = "
           old_suppress = @suppress_tuple_literals
@@ -1142,10 +1148,10 @@ module Frozone
         args.each_with_index do |arg, i|
           write ", " if i > 0
           pt = param_types[i]
-          if pt == 'Int64' || pt == 'Float64'
+          if CrystalType.scalar?(pt)
             # Coerce arg to raw type: use emit_raw if already typed,
             # otherwise emit and append .to_i64/.to_f64
-            emit_as(arg, pt == 'Float64' ? :f64 : :i64)
+            emit_as(arg, pt)
           else
             emit(arg)
           end
@@ -1261,10 +1267,10 @@ module Frozone
           end
         end
 
-        # 2D native array read: mc[i] where mc is Array(Array(Int64)) — coerce index, no boxing
+        # Nested native array read: mc[i] where mc is Array(Array(T)) — coerce index, no boxing
         if node.name == :[] && node.receiver_node&.is_a?(Ast::LocalVariableRead) &&
-           @mctx.local_2d_arrays[ivar(node.receiver_node, :name)] &&
-           node.arg_nodes&.size == 1
+           (recv_elem = native_array_elem_type(ivar(node.receiver_node, :name))) &&
+           CrystalType.array?(recv_elem) && node.arg_nodes&.size == 1
           write "#{crystal_local(ivar(node.receiver_node, :name))}["
           emit_coerce_i64(node.arg_nodes[0])
           write "]"
@@ -1324,7 +1330,7 @@ module Frozone
           if !@mctx.suppress_typed_call_args && (opt?(:call_site_types) || opt?(:method_specialization))
             tp = @inferred_params[node.name] || @ti_class_params[[@current_class_name, node.name]]
             can_use_typed = tp&.any? { |t| t && t != :ruby_object } &&
-              tp.all? { |pt| !pt || pt == :ruby_object || pt == 'Int64' || pt == 'Float64' || pt.start_with?('Ruby_') }
+              tp.all? { |pt| !pt || CrystalType.generic_compatible?(pt) || CrystalType.scalar?(pt) }
             if can_use_typed
               emit_typed_call_args(node.arg_nodes || [], tp)
             else

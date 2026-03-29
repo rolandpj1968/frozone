@@ -11,10 +11,9 @@ module Frozone
     class MethodContext
       attr_accessor :typed_locals           # {name => :i64/:f64} — scalar unboxing
       attr_accessor :typed_array_locals     # {name => :i64/:f64} — native Array(T) from TI
-      attr_accessor :native_array_locals    # {name => :i64/:f64} — native Array(T) from params/2D reads
+      attr_accessor :native_array_locals    # {name => CrystalType} — native Array(T) from params/nested detection
       attr_accessor :class_locals           # {name => class_sym} — devirtualized class-typed locals
       attr_accessor :local_array_elems      # {name => :i64/:f64} — boxed RubyArray elem type
-      attr_accessor :local_2d_arrays        # {name => :i64/:f64} — inner elem of Array(Array(T))
       attr_accessor :local_types            # {name => CrystalType} — unified type map
       attr_accessor :block_params           # {name => :i64/:f64} — block param types from TI
       attr_accessor :raw_block_params       # {name => :i64/:f64} — currently-active native block params
@@ -30,7 +29,6 @@ module Frozone
         @native_array_locals = {}
         @class_locals = {}
         @local_array_elems = {}
-        @local_2d_arrays = {}
         @local_types = {}
         @block_params = {}
         @raw_block_params = {}

@@ -413,8 +413,7 @@ Ruby allows `if (q1 = p[1]) != 1`. Crystal parses this differently — `!=` bind
 | `method_specialization` | Raw Int64/Float64 method overloads | off | off | **on** |
 | `typed_ivars` | Scalar-typed instance variables | off | off | **on** |
 | `ivar_narrowing` | Class-typed ivar narrowing (X \| nil) | off | off | **on** |
-| `native_arrays` | Array(T) promotion + typed params | off | off | **on** |
-| `native_2d_arrays` | Array(Array(T)) promotion | off | off | **on** |
+| `native_arrays` | Array(T) / Array(Array(T)) promotion | off | off | **on** |
 | `tuple_literals` | RubyTupleN for small fixed-size arrays | off | **on** | **on** |
 | `native_iteration` | Crystal .times/.upto/.downto | off | **on** | **on** |
 | `raw_returns` | Typed-return raw body emission | off | off | **on** |
