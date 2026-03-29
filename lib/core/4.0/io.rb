@@ -100,11 +100,6 @@ class IO
   def close = Intrinsics.io_close(self)
   def close_read = Intrinsics.io_close_read(self)
   def close_write = Intrinsics.io_close_write(self)
-  def pid
-    raise IOError, "closed stream" if closed?
-    Intrinsics.io_pid(self)
-  end
-
   def closed? = Intrinsics.io_closed?(self)
   def fileno = Intrinsics.io_fileno(self)
   alias to_i fileno
@@ -124,6 +119,11 @@ class IO
   def stat = Intrinsics.io_stat(self)
   def inspect = Intrinsics.io_inspect(self)
 
+  def pid
+    raise IOError, "closed stream" if closed?
+    Intrinsics.io_pid(self)
+  end
+
   def rewind
     Intrinsics.io_rewind(self)
     @lineno = 0
@@ -134,6 +134,7 @@ class IO
     buf = buf.to_str if buf && !buf.is_a?(String) && buf.respond_to?(:to_str)
     Intrinsics.io_read(self, len, buf)
   end
+
   def lineno
     raise IOError, "closed stream" if closed?
     raise IOError, "not opened for reading" unless Intrinsics.io_readable?(self)
@@ -185,11 +186,13 @@ class IO
     end
     line
   end
+
   def readline(*args, chomp: false)
     line = gets(*args, chomp: chomp)
     raise EOFError, "end of file reached" if line.nil?
     line
   end
+
   def readlines(*args, chomp: false, **_opts)
     sep, lim = __parse_sep_limit__(args)
     raise ArgumentError, "invalid limit: 0 for #{self.class}#readlines" if lim == 0
@@ -246,6 +249,22 @@ class IO
   end
 
   def pread(length, offset, buf = nil) = Intrinsics.io_pread(self, length, offset, buf)
+  def read_nonblock(len, buf = nil, exception: true) = Intrinsics.io_read_nonblock(self, len, buf, exception)
+  def readpartial(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
+  def each(*args, chomp: false, &block) = each_line(*args, chomp: chomp, &block)
+  def atime = Intrinsics.io_atime(self)
+  def mtime = Intrinsics.io_mtime(self)
+  def ctime = Intrinsics.io_ctime(self)
+  def birthtime = Intrinsics.io_birthtime(self)
+  def path = Intrinsics.io_path(self)
+  def to_path = path
+  def to_io = self
+  def size = stat.size
+  def printf(*args) = (write(sprintf(*args)); nil)
+  def flock(lock_op) = Intrinsics.io_flock(self, lock_op)
+  def dup = Intrinsics.io_dup(self)
+
+  SEEK_WHENCE_SYMS = { SET: SEEK_SET, CUR: SEEK_CUR, END: SEEK_END }.freeze
 
   def sysseek(offset, whence = SEEK_SET)
     offset = __coerce_to_int__(offset)
@@ -264,18 +283,12 @@ class IO
     Intrinsics.io_pwrite(self, str, offset)
   end
 
-  SEEK_WHENCE_SYMS = { SET: SEEK_SET, CUR: SEEK_CUR, END: SEEK_END }.freeze
-
   def seek(offset, whence = SEEK_SET)
     offset = __coerce_to_int__(offset)
     whence = SEEK_WHENCE_SYMS.fetch(whence) { __coerce_to_int__(whence) } if whence.is_a?(Symbol)
     whence = __coerce_to_int__(whence)
     Intrinsics.io_seek(self, offset, whence)
   end
-
-  def read_nonblock(len, buf = nil, exception: true) = Intrinsics.io_read_nonblock(self, len, buf, exception)
-
-  def readpartial(len, buf = nil) = Intrinsics.io_sysread(self, len, buf)
 
   def write_nonblock(str, exception: true)
     begin
@@ -285,19 +298,6 @@ class IO
     end
     Intrinsics.io_write_nonblock(self, str, exception)
   end
-
-  def each(*args, chomp: false, &block) = each_line(*args, chomp: chomp, &block)
-  def atime = Intrinsics.io_atime(self)
-  def mtime = Intrinsics.io_mtime(self)
-  def ctime = Intrinsics.io_ctime(self)
-  def birthtime = Intrinsics.io_birthtime(self)
-  def path = Intrinsics.io_path(self)
-  def to_path = path
-  def to_io = self
-  def size = stat.size
-  def printf(*args) = (write(sprintf(*args)); nil)
-  def flock(lock_op) = Intrinsics.io_flock(self, lock_op)
-  def dup = Intrinsics.io_dup(self)
 
   def each_line(*args, chomp: false, &block)
     return to_enum(:each_line, *args, chomp: chomp) unless block
@@ -646,16 +646,9 @@ class IO
   end
 
   def self.read(path, length = nil, offset = nil, **opts)
-    path =
-      if path.respond_to?(:to_path)
-        path.to_path
-      elsif path.respond_to?(:to_str)
-        path.to_str
-      else
-        raise TypeError, "no implicit conversion of #{path.class} into String"
-      end
+    path = __coerce_to_path__(path)
     if offset
-      offset = offset.respond_to?(:to_int) ? offset.to_int : Integer(offset)
+      offset = __coerce_to_int__(offset)
       raise ArgumentError, "negative offset" if offset < 0
     end
     open_args = opts[:open_args]
@@ -808,22 +801,14 @@ class IO
   end
 
   def chmod(mode)
-    mode_int =
-      if mode.is_a?(Integer)
-        mode
-      elsif mode.respond_to?(:to_int)
-        mode.to_int
-      else
-        raise TypeError, "no implicit conversion of #{mode.class} into Integer"
-      end
+    mode_int = __coerce_to_int__(mode)
     raise RangeError, "bignum too big to convert into 'long'" if mode_int > UINT32_UPPER || mode_int < INT32_LOWER
     Intrinsics.io_chmod(self, mode_int)
   end
 
   def truncate(len)
-    raise TypeError, "no implicit conversion into Integer" unless len.is_a?(Integer) || len.respond_to?(:to_int)
+    l = __coerce_to_int__(len)
     raise IOError, "closed stream" if closed?
-    l = len.is_a?(Integer) ? len : len.to_int
     Intrinsics.io_truncate(self, l)
   end
 

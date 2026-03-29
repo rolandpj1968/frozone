@@ -264,32 +264,15 @@ class File < IO
     suffix.nil? ? Intrinsics.file_basename(p, nil) : Intrinsics.file_basename(p, suffix)
   end
 
-  def self.truncate(path, length)
-    raise TypeError, "no implicit conversion into Integer" unless length.is_a?(Integer) || length.respond_to?(:to_int)
-    Intrinsics.file_truncate(_coerce_path(path), length.is_a?(Integer) ? length : length.to_int)
-  end
+  def self.truncate(path, length) = Intrinsics.file_truncate(_coerce_path(path), __coerce_to_int__(length))
 
   def self.chmod(mode, *paths)
-    mode_int =
-      if mode.is_a?(Integer)
-        mode
-      elsif mode.respond_to?(:to_int)
-        mode.to_int
-      else
-        raise TypeError, "no implicit conversion of #{mode.class} into Integer"
-      end
+    mode_int = __coerce_to_int__(mode)
     raise RangeError, "bignum too big to convert into 'long'" if mode_int > UINT32_UPPER || mode_int < INT32_LOWER
     Intrinsics.file_chmod(mode_int, paths.map { |p| _coerce_path(p) })
   end
 
-  def self.fnmatch(pattern, path, flags = 0)
-    f =
-      if flags.is_a?(Integer) then flags
-      elsif flags.respond_to?(:to_int) then flags.to_int
-      else raise TypeError, "no implicit conversion of #{flags.class} into Integer"
-      end
-    Intrinsics.file_fnmatch(pattern, _coerce_path(path), f)
-  end
+  def self.fnmatch(pattern, path, flags = 0) = Intrinsics.file_fnmatch(pattern, _coerce_path(path), __coerce_to_int__(flags))
 
   def self.world_readable?(path)
     begin

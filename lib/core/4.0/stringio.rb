@@ -154,9 +154,7 @@ class StringIO
 
   # ── Underlying string ──────────────────────────────────────────────────
 
-  def string
-    @string
-  end
+  def string = @string
 
   def string=(str)
     str = str.to_str if str.respond_to?(:to_str)
@@ -174,7 +172,7 @@ class StringIO
   def pos = @pos
 
   def pos=(n)
-    n = n.to_int if n.respond_to?(:to_int)
+    n = __coerce_to_int__(n)
     raise Errno::EINVAL, "Invalid argument" if n < 0
     @pos = n
   end
@@ -188,7 +186,7 @@ class StringIO
 
   def seek(offset, whence = IO::SEEK_SET)
     _check_open
-    offset = offset.to_int if offset.respond_to?(:to_int)
+    offset = __coerce_to_int__(offset)
     base = case whence
            when IO::SEEK_SET, 0 then 0
            when IO::SEEK_CUR, 1 then @pos
@@ -211,13 +209,8 @@ class StringIO
 
   def binmode? = @binary
 
-  def external_encoding
-    @external_encoding || @string.encoding
-  end
-
-  def internal_encoding
-    @internal_encoding
-  end
+  def external_encoding = @external_encoding || @string.encoding
+  def internal_encoding = @internal_encoding
 
   def set_encoding(ext, int = nil, **opts)
     @external_encoding = Encoding.find(ext.to_s) rescue ext
@@ -528,11 +521,7 @@ class StringIO
 
   def truncate(len)
     _check_writable
-    if len.respond_to?(:to_int)
-      len = len.to_int
-    elsif !len.is_a?(Integer)
-      raise TypeError, "no implicit conversion of #{len.class} into Integer"
-    end
+    len = __coerce_to_int__(len)
     raise Errno::EINVAL, "Invalid argument - negative length" if len < 0
     cur = @string.bytesize
     if len < cur
@@ -794,6 +783,9 @@ class StringIO
 
   private
 
+  def _check_open     = (raise IOError, "closed stream" if closed?)
+  def _check_readable = (raise IOError, "not opened for reading" if @closed_r || !@readable)
+
   def _unget_str(str)
     new_pos = @pos > 0 ? @pos - 1 : 0
     orig_enc = @string.encoding rescue Encoding::BINARY
@@ -851,14 +843,6 @@ class StringIO
         _write_str("\n") unless s.end_with?("\n")
       end
     end
-  end
-
-  def _check_open
-    raise IOError, "closed stream" if closed?
-  end
-
-  def _check_readable
-    raise IOError, "not opened for reading" if @closed_r || !@readable
   end
 
   def _check_writable

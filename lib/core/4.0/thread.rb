@@ -174,6 +174,13 @@ class Thread
   def __raise_backtrace         = @raise_backtrace
   def __raise_backtrace=(v); @raise_backtrace = v; end
 
+  def alive? = !@done || (@aborting && (@executing || @run_yielded))
+  def stop?  = !alive? || (!@executing && !@run_yielded)
+  def report_on_exception=(val); @report_on_exception = val; end
+  def report_on_exception = @report_on_exception.nil? ? Thread.report_on_exception : @report_on_exception
+  def abort_on_exception=(val); @abort_on_exception = !!val; end
+  def abort_on_exception = @abort_on_exception.nil? ? Thread.abort_on_exception : @abort_on_exception
+
   # Status reflects execution state:
   #   'run'      — currently executing OR blocked via Thread.pass (cooperative yield)
   #   'sleep'    — new/unstarted, waiting for a resource, or Thread.stop'd
@@ -189,14 +196,6 @@ class Thread
     return 'run'      if @executing || @run_yielded
     'sleep'
   end
-
-  def alive? = !@done || (@aborting && (@executing || @run_yielded))
-  def stop?  = !alive? || (!@executing && !@run_yielded)
-
-  def report_on_exception=(val); @report_on_exception = val; end
-  def report_on_exception = @report_on_exception.nil? ? Thread.report_on_exception : @report_on_exception
-  def abort_on_exception=(val); @abort_on_exception = !!val; end
-  def abort_on_exception = @abort_on_exception.nil? ? Thread.abort_on_exception : @abort_on_exception
 
   def __start_init(block, args)
     sl = block.source_location
@@ -378,10 +377,7 @@ class Thread
   end
 
   def priority=(v)
-    unless v.is_a?(Integer)
-      v = v.to_int if v.respond_to?(:to_int)
-      Kernel.raise TypeError, "can't convert #{v.class} into Integer" unless v.is_a?(Integer)
-    end
+    v = __coerce_to_int__(v)
     @priority = v.clamp(-3, 3)
     v
   end
@@ -545,17 +541,9 @@ class Thread
     value
   end
 
-  def thread_variable_get(key)
-    k = __coerce_var_key(key)
-    (@thread_vars || {})[k]
-  end
-
-  def thread_variable?(key)
-    k = __coerce_var_key(key)
-    (@thread_vars || {}).key?(k)
-  end
-
-  def thread_variables = (@thread_vars || {}).keys
+  def thread_variable_get(key) = (@thread_vars || {})[__coerce_var_key(key)]
+  def thread_variable?(key)   = (@thread_vars || {}).key?(__coerce_var_key(key))
+  def thread_variables         = (@thread_vars || {}).keys
 
   # Fiber-local variables (Thread#[] / Thread#[]=)
   # These are scoped per-fiber: different fibers on the same thread have separate storage.
@@ -574,8 +562,7 @@ class Thread
 
   def []=(key, value)
     Kernel.raise FrozenError, "can't modify frozen thread locals" if frozen?
-    k = __coerce_var_key(key)
-    __fiber_vars[k] = value
+    __fiber_vars[__coerce_var_key(key)] = value
   end
 
   def key?(key)
@@ -651,13 +638,10 @@ class ConditionVariable
   # Since we're cooperative, just run pending threads and return.
   def signal    = self
   def broadcast = self
+  def marshal_dump = raise(TypeError, "can't dump ConditionVariable")
 
   def initialize
     @waiters = 0
-  end
-
-  def marshal_dump
-    raise TypeError, "can't dump ConditionVariable"
   end
 
   def wait(mutex, timeout = nil)
@@ -677,6 +661,7 @@ class Queue
   def clear       = (@data.clear; self)
   def num_waiting = @waiters.size
   def closed?     = @closed
+  def freeze      = raise(TypeError, "cannot freeze #{self}")
 
   def initialize(enumerable = nil)
     @data      = []
@@ -692,8 +677,6 @@ class Queue
       arr.each { |item| @data.push(item) }
     end
   end
-
-  def freeze = raise(TypeError, "cannot freeze #{self}")
 
   def close
     @closed = true
@@ -818,8 +801,7 @@ class SizedQueue < Queue
   def num_waiting = @waiters.size + @push_waiters.size
 
   def initialize(max)
-    max = max.to_int if !max.is_a?(Integer) && max.respond_to?(:to_int)
-    raise TypeError, "no implicit conversion of #{max.class} into Integer" unless max.is_a?(Integer)
+    max = __coerce_to_int__(max)
     raise ArgumentError, "queue size must be positive" if max <= 0
     super()
     @max          = max
@@ -828,8 +810,7 @@ class SizedQueue < Queue
   end
 
   def max=(v)
-    v = v.to_int if !v.is_a?(Integer) && v.respond_to?(:to_int)
-    raise TypeError, "no implicit conversion of #{v.class} into Integer" unless v.is_a?(Integer)
+    v = __coerce_to_int__(v)
     raise ArgumentError, "queue size must be positive" if v <= 0
     @max = v
   end

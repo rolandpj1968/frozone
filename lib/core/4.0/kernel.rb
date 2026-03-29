@@ -449,6 +449,7 @@ module Kernel
   def initialize_dup(other) = initialize_copy(other)
   def initialize_clone(other, freeze: nil) = initialize_copy(other)
   def respond_to_missing?(name, include_private = false) = false
+  def __check_frozen__ = (raise FrozenError, "can't modify frozen #{self.class}: #{inspect}" if frozen?)
 
   # --- Canonical coercion helpers ---
   # Strict: raise TypeError on failure (implicit coercion protocol)
@@ -559,11 +560,6 @@ module Kernel
       return result
     end
     raise TypeError, "no implicit conversion of #{val.class} into String"
-  end
-
-  # Frozen object check — raises FrozenError with standard MRI message
-  def __check_frozen__
-    raise FrozenError, "can't modify frozen #{self.class}: #{inspect}" if frozen?
   end
 
   def __kernel_exit__(code)
