@@ -73,6 +73,8 @@ end
 
 `initialize` is an exception to the one-liners-first rule — it always goes at the top of the instance methods section (after `class << self`), even though it's usually multi-line.
 
+**Group related methods.** Keep a non-bang method immediately adjacent to its bang variant (`compact` then `compact!`). Beyond that, group by concept where natural (accessors, queries, transformers, iteration) but don't over-engineer the ordering — readability and discoverability matter more than a rigid taxonomy.
+
 All public methods come first, all private methods at the bottom under a single `private` keyword. Do not interleave public and private, and do not use multiple `private` declarations. Always leave a blank line before the `private` keyword.
 
 ### Unify common calls across branches
