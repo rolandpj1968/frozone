@@ -39,6 +39,7 @@ class String
   def force_encoding(enc)     = Intrinsics.string_force_encoding(self, enc)
   def valid_encoding?         = Intrinsics.string_valid_encoding(self)
   def ascii_only?
+    return false unless encoding.ascii_compatible?
     bs = bytesize
     i = 0
     while i < bs
@@ -189,7 +190,10 @@ class String
   end
 
   def ==(v)
-    # TODO: de-intrinsify once encoding comparison is safe from recursion
+    # Must stay as intrinsic: pure-Ruby == triggers recursion because the
+    # VM's constant lookup (for Intrinsics, String, etc.) uses string comparison
+    # internally, creating an infinite loop. De-intrinsifying == requires the VM
+    # to use a non-dispatching comparison for constant name lookups.
     return Intrinsics.string_eql(self, v) if v.is_a?(String)
     return v == self if v.respond_to?(:to_str)
     false
@@ -819,6 +823,18 @@ class String
     bits <= 0 ? total : total % (1 << bits)
   end
   private
+
+  # Pure byte check: all bytes <= 127. Does NOT check encoding compatibility
+  # (avoids recursion through Encoding#ascii_compatible? → Set#include? → String#==).
+  def __bytes_ascii__?
+    bs = bytesize
+    i = 0
+    while i < bs
+      return false if getbyte(i) > 127
+      i += 1
+    end
+    true
+  end
 
   def __str_args__(*args)                        = args.map { |a| __coerce_to_str__(a) }
   # Bytes are already copied by the intrinsic; skip Kernel's frozen check.
