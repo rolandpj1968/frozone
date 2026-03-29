@@ -16,7 +16,7 @@ module Frozone
     # Stubs should silence the harness entry points (run_benchmark etc.) before
     # requiring the benchmark so the load phase doesn't actually run the benchmark.
     class FrozoneCompile < Node
-      CRYSTAL_DIR = File.expand_path('../../../crystal', __dir__)
+      CRYSTAL_DIR = File.expand_path('../../../crystal/gen', __dir__)
 
       def initialize(block_node, output_path: nil, aot_mode: false)
         @block_node  = block_node

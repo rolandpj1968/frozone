@@ -1,22 +1,9 @@
-# Compiled binaries
+# Generated output (compile.rb / --aot)
+/gen/
+
+# Compiled binaries and variants
 /hello
-/m1
-/m1b
-/m1c
-/m2
-/m3
-/m4
-/m5
-/m6
-/m7
-/m8
-/m9
-/m10
-# Generated .cr files at root level (output of compile.rb)
-# Source files in src/ and spec/ are tracked
-*.cr
-!src/**/*.cr
-!spec/**/*.cr
+/m[0-9]*
 *_bin
 *_release
 *_debug
@@ -29,7 +16,9 @@ matmul
 nbody
 splay
 fib
-pair_test.cr
-bisect.cr
-vdtest*.cr
-verify_*.cr
+
+# Stray experimental .cr files at root level
+# Source files in src/ and spec/ are tracked
+*.cr
+!src/**/*.cr
+!spec/**/*.cr

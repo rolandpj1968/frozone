@@ -47,7 +47,7 @@ unless File.exist?(input_file)
   exit 1
 end
 
-crystal_dir  = File.expand_path('crystal', __dir__)
+crystal_dir  = File.expand_path('crystal/gen', __dir__)
 basename     = File.basename(input_file, '.rb')
 output_file  ||= File.join(crystal_dir, "#{basename}.cr")
 
@@ -68,7 +68,7 @@ end
 codegen = Frozone::Compiler::CrystalCodegen.new
 crystal_source = codegen.generate(ast)
 crystal_source = crystal_source.sub('require "./src/frozone_crystal"',
-  "require \"./src/frozone_crystal\"\nrequire \"./src/bench_harness\"") if bench_mode
+  "require \"../src/frozone_crystal\"\nrequire \"../src/bench_harness\"") if bench_mode
 
 unless codegen.errors.empty?
   warn "compile.rb: #{codegen.errors.size} unsupported node(s):"

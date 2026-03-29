@@ -200,7 +200,7 @@ module Frozone
         runtime = File.join(@output_dir, 'src', 'frozone_crystal')
         # Emit a relative require so Crystal can find the runtime
         # (Crystal absolute path resolution is quirky; relative is reliable).
-        line %(require "./src/frozone_crystal")
+        line %(require "../src/frozone_crystal")
         emit_newline
         line "RUBY_NIL    = RubyNil::INSTANCE"
         line "RUBY_TRUE   = RubyBool::TRUE"
