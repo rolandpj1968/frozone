@@ -5,8 +5,6 @@ class String
   MRI_MAX_SIZE = 1_073_741_823              # 2**30 - 1: MRI's maximum string allocation size
 
   def %(args) = Intrinsics.string_format(self, args)
-  def length = chars.length
-  alias size length
   def bytesize = Intrinsics.string_bytesize(self)
   def to_f = Intrinsics.string_to_f(self)
   def to_r = Intrinsics.string_to_r(self)
@@ -48,6 +46,65 @@ class String
     end
     true
   end
+
+  def length
+    bs = bytesize
+    enc = encoding
+    # Single-byte encodings: length == bytesize
+    if enc == Encoding::US_ASCII || enc == Encoding::ASCII_8BIT || enc == Encoding::ISO_8859_1
+      return bs
+    end
+    if enc == Encoding::UTF_8
+      # Count characters by scanning UTF-8 byte sequences with validation
+      n = 0
+      i = 0
+      while i < bs
+        b = getbyte(i)
+        if b < 128
+          i += 1
+        elsif b >= 0xC2 && b < 0xE0
+          # 2-byte: validate continuation
+          if i + 1 < bs && (getbyte(i + 1) & 0xC0) == 0x80
+            i += 2
+          else
+            i += 1  # invalid, count lead byte alone
+          end
+        elsif b >= 0xE0 && b < 0xF0
+          # 3-byte: validate continuation and range
+          if i + 2 < bs && (getbyte(i + 1) & 0xC0) == 0x80 && (getbyte(i + 2) & 0xC0) == 0x80
+            b1 = getbyte(i + 1)
+            if (b == 0xE0 && b1 < 0xA0) || (b == 0xED && b1 >= 0xA0)
+              i += 1  # overlong or surrogate
+            else
+              i += 3
+            end
+          else
+            i += 1
+          end
+        elsif b >= 0xF0 && b < 0xF8
+          # 4-byte: validate continuation and range
+          if i + 3 < bs && (getbyte(i + 1) & 0xC0) == 0x80 && (getbyte(i + 2) & 0xC0) == 0x80 && (getbyte(i + 3) & 0xC0) == 0x80
+            b1 = getbyte(i + 1)
+            if (b == 0xF0 && b1 < 0x90) || (b == 0xF4 && b1 >= 0x90) || b > 0xF4
+              i += 1  # overlong or out of range
+            else
+              i += 4
+            end
+          else
+            i += 1
+          end
+        else
+          i += 1  # invalid byte (continuation or 0xC0/0xC1)
+        end
+        n += 1
+      end
+      return n
+    end
+    # Fallback: use chars for other encodings
+    chars.length
+  end
+  alias size length
+
   def set_encoding(enc, *)    = force_encoding(enc)
   def setbyte(i, b)           = Intrinsics.string_setbyte(self, i, b)
   def append_as_bytes(*args)  = Intrinsics.string_append_as_bytes(self, *args)
@@ -400,7 +457,7 @@ class String
     return Intrinsics.string_upcase_opts(self, *args) unless args.empty?
     return Intrinsics.string_upcase_opts(self) unless ascii_only?
     each_char.map { |c|
-      b = Intrinsics.string_get_byte(c, 0)
+      b = c.getbyte(0)
       (b >= 97 && b <= 122) ? (b - 32).chr(encoding) : c
     }.join("").force_encoding(encoding)
   end
@@ -409,7 +466,7 @@ class String
     return Intrinsics.string_downcase_opts(self, *args) unless args.empty?
     return Intrinsics.string_downcase_opts(self) unless ascii_only?
     each_char.map { |c|
-      b = Intrinsics.string_get_byte(c, 0)
+      b = c.getbyte(0)
       (b >= 65 && b <= 90) ? (b + 32).chr(encoding) : c
     }.join("").force_encoding(encoding)
   end
@@ -420,7 +477,7 @@ class String
     return dup if empty?
     first = true
     each_char.map { |c|
-      b = Intrinsics.string_get_byte(c, 0)
+      b = c.getbyte(0)
       if first
         first = false
         (b >= 97 && b <= 122) ? (b - 32).chr(encoding) : c
@@ -434,7 +491,7 @@ class String
     return Intrinsics.string_swapcase_opts(self, *args) unless args.empty?
     return Intrinsics.string_swapcase_opts(self) unless ascii_only?
     each_char.map { |c|
-      b = Intrinsics.string_get_byte(c, 0)
+      b = c.getbyte(0)
       if b >= 65 && b <= 90
         (b + 32).chr(encoding)
       elsif b >= 97 && b <= 122
@@ -448,7 +505,99 @@ class String
   def reverse = chars.reverse.join("").tap { |r| r.force_encoding(encoding) }
 
   def chars(&block)
-    arr = Intrinsics.string_chars(self)
+    arr = []
+    bs = bytesize
+    enc = encoding
+    i = 0
+    if enc == Encoding::UTF_8
+      while i < bs
+        b = getbyte(i)
+        if b < 128
+          # ASCII byte — always 1 char
+          s = String.new(''.force_encoding(Encoding::BINARY))
+          s << b
+          s.force_encoding(enc)
+          arr << s
+          i += 1
+        elsif b >= 0xC2 && b < 0xE0
+          # 2-byte sequence (valid lead: 0xC2..0xDF)
+          clen = 2
+          clen = 1 if i + 1 >= bs || (getbyte(i + 1) & 0xC0) != 0x80
+          s = String.new(''.force_encoding(Encoding::BINARY))
+          if clen == 1
+            s << b
+          else
+            s << b; s << getbyte(i + 1)
+          end
+          s.force_encoding(enc)
+          arr << s
+          i += clen
+        elsif b >= 0xE0 && b < 0xF0
+          # 3-byte sequence
+          clen = 3
+          if i + 2 >= bs || (getbyte(i + 1) & 0xC0) != 0x80 || (getbyte(i + 2) & 0xC0) != 0x80
+            clen = 1
+          else
+            # Check for overlong and surrogate
+            b1 = getbyte(i + 1)
+            clen = 1 if b == 0xE0 && b1 < 0xA0  # overlong
+            clen = 1 if b == 0xED && b1 >= 0xA0  # surrogate
+          end
+          s = String.new(''.force_encoding(Encoding::BINARY))
+          if clen == 1
+            s << b
+          else
+            s << b; s << getbyte(i + 1); s << getbyte(i + 2)
+          end
+          s.force_encoding(enc)
+          arr << s
+          i += clen
+        elsif b >= 0xF0 && b < 0xF8
+          # 4-byte sequence
+          clen = 4
+          if i + 3 >= bs || (getbyte(i + 1) & 0xC0) != 0x80 || (getbyte(i + 2) & 0xC0) != 0x80 || (getbyte(i + 3) & 0xC0) != 0x80
+            clen = 1
+          else
+            b1 = getbyte(i + 1)
+            clen = 1 if b == 0xF0 && b1 < 0x90  # overlong
+            clen = 1 if b == 0xF4 && b1 >= 0x90  # > U+10FFFF
+            clen = 1 if b > 0xF4               # > U+10FFFF
+          end
+          s = String.new(''.force_encoding(Encoding::BINARY))
+          if clen == 1
+            s << b
+          else
+            s << b; s << getbyte(i + 1); s << getbyte(i + 2); s << getbyte(i + 3)
+          end
+          s.force_encoding(enc)
+          arr << s
+          i += clen
+        else
+          # Invalid byte (continuation byte or 0xC0/0xC1) — treat as single char
+          s = String.new(''.force_encoding(Encoding::BINARY))
+          s << b
+          s.force_encoding(enc)
+          arr << s
+          i += 1
+        end
+      end
+    elsif enc == Encoding::US_ASCII || enc == Encoding::ASCII_8BIT || enc == Encoding::ISO_8859_1
+      # Single-byte encodings: one byte = one character
+      while i < bs
+        s = String.new(''.force_encoding(Encoding::BINARY))
+        s << getbyte(i)
+        s.force_encoding(enc)
+        arr << s
+        i += 1
+      end
+    else
+      # Other multi-byte encodings (UTF-16, UTF-32, Shift_JIS, EUC-JP, etc.)
+      # Fall back to intrinsic for correctness
+      arr = Intrinsics.string_chars(self)
+      return arr unless block
+      arr.each(&block)
+      return self
+    end
     return arr unless block
     arr.each(&block)
     self
@@ -457,8 +606,9 @@ class String
   def bytes(&block)
     arr = []
     i = 0
-    while i < bytesize
-      arr << Intrinsics.string_get_byte(self, i)
+    bs = bytesize
+    while i < bs
+      arr << getbyte(i)
       i += 1
     end
     return arr unless block
@@ -678,7 +828,7 @@ class String
     return to_enum(:each_byte) { bytesize } unless block
     i = 0
     while i < bytesize
-      block.call(Intrinsics.string_get_byte(self, i))
+      block.call(getbyte(i))
       i += 1
     end
     self
@@ -855,7 +1005,7 @@ class String
     result = []
     i = 0
     while i < bs
-      result << Intrinsics.string_get_byte(self, i)
+      result << getbyte(i)
       i += 1
     end
     result
