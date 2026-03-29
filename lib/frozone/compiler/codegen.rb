@@ -803,52 +803,6 @@ module Frozone
 
       # -----------------------------------------------------------------------
       # Type inference — call-site analysis from execute block
-      # -----------------------------------------------------------------------
-
-      # Infer Crystal type string for a Frozone AST expression node.
-      # locals: Hash of Symbol => String (local name => Crystal type)
-      def infer_expr_type(node, locals = {})
-        return 'RubyObject' unless node
-        case node
-        when Ast::IntegerLiteral        then 'RubyInteger'
-        when Ast::FloatLiteral          then 'RubyFloat'
-        when Ast::StringLiteral, Ast::InterpolatedString then 'RubyString'
-        when Ast::SymbolLiteral         then 'RubySymbol'
-        when Ast::NilLiteral            then 'RubyNil'
-        when Ast::TrueLiteral, Ast::FalseLiteral then 'RubyBool'
-        when Ast::LocalVariableRead     then locals[ivar(node, :name)] || 'RubyObject'
-        when Ast::MethodCall
-          infer_call_return_type(node, locals)
-        else
-          'RubyObject'
-        end
-      end
-
-      # Infer the return type of a method call node.
-      NUMERIC_OPS = %i[+ - * **].to_set
-      COMPARISON_OPS = %i[< <= > >= == !=].to_set
-
-      def infer_call_return_type(node, locals)
-        recv  = ivar(node, :receiver_node)
-        name  = ivar(node, :name)
-        args  = ivar(node, :arg_nodes) || []
-        rt    = recv ? infer_expr_type(recv, locals) : nil
-        at    = args.map { |a| infer_expr_type(a, locals) }
-
-        if NUMERIC_OPS.include?(name)
-          return 'RubyInteger' if (rt == 'RubyInteger' || rt.nil?) && at == ['RubyInteger']
-          return 'RubyFloat'   if (rt == 'RubyFloat'   || rt.nil?) && at == ['RubyFloat']
-          return 'RubyFloat'   if %w[RubyInteger RubyFloat].include?(rt) && at.all? { |t| %w[RubyInteger RubyFloat].include?(t) }
-        end
-        if COMPARISON_OPS.include?(name)
-          return 'RubyBool' if rt && at.size == 1
-        end
-        'RubyObject'
-      end
-
-      # -----------------------------------------------------------------------
-      # Whole-program type inference (replaces all ad-hoc pre-passes)
-      # -----------------------------------------------------------------------
 
       def run_type_inference(execute_block, top_level_scope)
         require_relative 'type_inference'
@@ -955,58 +909,6 @@ module Frozone
       end
 
       # Combined element type for typed-array and native-array (2D parent) locals.
-
-      # -----------------------------------------------------------------------
-      # Legacy: Walk the execute block body, collecting call-site argument types for
-      # every free (non-method, non-receiver) call to user-defined methods.
-      # (Superseded by run_type_inference — kept for reference)
-      def infer_call_site_types(execute_block)
-        walk_call_sites(execute_block.body, {})
-      end
-
-      def walk_call_sites(node, locals)
-        return unless node
-        case node
-        when Ast::Sequence
-          node.nodes.each { |n| walk_call_sites(n, locals) }
-        when Ast::LocalVariableWrite
-          type = infer_expr_type(ivar(node, :value_node), locals)
-          locals = locals.merge(ivar(node, :name) => type)
-          walk_call_sites(ivar(node, :value_node), locals)
-        when Ast::MethodCall
-          name = ivar(node, :name)
-          recv = ivar(node, :receiver_node)
-          args = ivar(node, :arg_nodes) || []
-
-          # Only collect types for free (top-level) calls to user-defined methods
-          if recv.nil? && @user_methods.include?(name)
-            arg_types = args.map { |a| infer_expr_type(a, locals) }
-            existing  = @inferred_params[name]
-            @inferred_params[name] = if existing.nil?
-              arg_types
-            else
-              # Join: if two call sites disagree on a position, fall back to RubyObject
-              existing.zip(arg_types).map { |a, b| a == b ? a : :ruby_object }
-            end
-          end
-
-          # Recurse into args and block
-          args.each { |a| walk_call_sites(a, locals) }
-          blk = ivar(node, :block_node)
-          walk_call_sites(blk.body, locals) if blk&.respond_to?(:body) && blk.body
-        when Ast::If
-          walk_call_sites(ivar(node, :then_node), locals)
-          walk_call_sites(ivar(node, :else_node), locals)
-        when Ast::While
-          walk_call_sites(ivar(node, :body), locals)
-        else
-          # Recurse into common child slots
-          %i[body then_node else_node value_node].each do |slot|
-            child = node.instance_variable_defined?(:"@#{slot}") && node.instance_variable_get(:"@#{slot}")
-            walk_call_sites(child, locals) if child.is_a?(Ast::Node)
-          end
-        end
-      end
 
       # Override emit_param_list to apply inferred types for required params.
       def emit_param_list(node, param_types: nil)
