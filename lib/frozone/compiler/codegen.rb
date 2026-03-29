@@ -387,7 +387,7 @@ module Frozone
               emit_accessor_method(mname, method)
             else
               inst_param_types = @ti_class_params[[name, mname]]
-              has_typed = inst_param_types&.any? { |t| t && t != 'RubyObject' }
+              has_typed = inst_param_types&.any? { |t| t && t != :ruby_object }
               if has_typed
                 # Emit typed overload first, then generic (RubyObject) fallback
                 emit_vm_method(mname, method, param_types: inst_param_types)
@@ -587,7 +587,7 @@ module Frozone
           # Generic overload: genericise any Crystal-native param types to
           # RubyObject. Types that are already RubyObject subtypes stay as-is.
           generic_params = if has_complex_params
-            inferred.map { |t| complex_native_type?(t) ? 'RubyObject' : t }
+            inferred.map { |t| CrystalType.native?(t) ? :ruby_object : t }
           elsif @typed_params[name]
             nil
           else
@@ -636,7 +636,7 @@ module Frozone
         # disable ALL type optimizations (the specialized handles raw paths).
         generic_with_specialized = class_method && param_types.nil? &&
           @current_class_eigen_methods&.any? &&
-          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != 'RubyObject' }
+          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != :ruby_object }
         # Use TypeInference results for local types (omit params — they have declared types)
         @suppress_typed_call_args  = generic_with_specialized
         @typed_locals              = (!generic_with_specialized && opt?(:unbox_locals)) ? ((@ti_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
@@ -653,12 +653,16 @@ module Frozone
         if param_types
           req = ivar(method, :required_params) || []
           req.each_with_index do |p, i|
-            case param_types[i]
-            when 'Int64'        then @typed_locals[p] = :i64
-            when 'Float64'      then @typed_locals[p] = :f64
-            when 'Array(Int64)' then @native_array_locals[p] = :i64
-            when 'Array(Float64)' then @native_array_locals[p] = :f64
-            when /\AArray\(Array\(/ then @current_local_2d_arrays[p] = param_types[i].include?('Float64') ? :f64 : :i64
+            pt = param_types[i]
+            if CrystalType.scalar?(pt)
+              @typed_locals[p] = pt
+            elsif CrystalType.array?(pt)
+              inner = CrystalType.elem(pt)
+              if CrystalType.scalar?(inner)
+                @native_array_locals[p] = inner
+              elsif CrystalType.array?(inner)
+                @current_local_2d_arrays[p] = CrystalType.elem(inner) || :i64
+              end
             end
           end
         end
@@ -666,7 +670,7 @@ module Frozone
         # Skip for generic class method overloads when a specialized version exists
         # (typed locals in the generic cause Float64/Int64 mismatches with RubyObject ops).
         has_specialized = class_method && @current_class_eigen_methods&.any? &&
-          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != 'RubyObject' }
+          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != :ruby_object }
         unless has_specialized && param_types.nil?
           infer_local_types(method.body).each do |lname, ty|
             @typed_locals[lname] ||= ty unless param_set.include?(lname)
@@ -681,7 +685,7 @@ module Frozone
         # Skip for generic class method overloads when a specialized overload exists
         # (the specialized handles the raw return).
         has_specialized = class_method && @current_class_eigen_methods&.any? &&
-          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != 'RubyObject' }
+          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != :ruby_object }
         raw_return = !has_specialized && opt?(:raw_returns) && !@typed_params[name] &&
           (@typed_method_returns[name] ||
            (@current_class_name && @instance_method_raw_returns[[@current_class_name, name]]))
@@ -802,51 +806,6 @@ module Frozone
       # Type inference — call-site analysis from execute block
       # -----------------------------------------------------------------------
 
-      # Infer Crystal type string for a Frozone AST expression node.
-      # locals: Hash of Symbol => String (local name => Crystal type)
-      def infer_expr_type(node, locals = {})
-        return 'RubyObject' unless node
-        case node
-        when Ast::IntegerLiteral        then 'RubyInteger'
-        when Ast::FloatLiteral          then 'RubyFloat'
-        when Ast::StringLiteral, Ast::InterpolatedString then 'RubyString'
-        when Ast::SymbolLiteral         then 'RubySymbol'
-        when Ast::NilLiteral            then 'RubyNil'
-        when Ast::TrueLiteral, Ast::FalseLiteral then 'RubyBool'
-        when Ast::LocalVariableRead     then locals[ivar(node, :name)] || 'RubyObject'
-        when Ast::MethodCall
-          infer_call_return_type(node, locals)
-        else
-          'RubyObject'
-        end
-      end
-
-      # Infer the return type of a method call node.
-      NUMERIC_OPS = %i[+ - * **].to_set
-      COMPARISON_OPS = %i[< <= > >= == !=].to_set
-
-      def infer_call_return_type(node, locals)
-        recv  = ivar(node, :receiver_node)
-        name  = ivar(node, :name)
-        args  = ivar(node, :arg_nodes) || []
-        rt    = recv ? infer_expr_type(recv, locals) : nil
-        at    = args.map { |a| infer_expr_type(a, locals) }
-
-        if NUMERIC_OPS.include?(name)
-          return 'RubyInteger' if (rt == 'RubyInteger' || rt.nil?) && at == ['RubyInteger']
-          return 'RubyFloat'   if (rt == 'RubyFloat'   || rt.nil?) && at == ['RubyFloat']
-          return 'RubyFloat'   if %w[RubyInteger RubyFloat].include?(rt) && at.all? { |t| %w[RubyInteger RubyFloat].include?(t) }
-        end
-        if COMPARISON_OPS.include?(name)
-          return 'RubyBool' if rt && at.size == 1
-        end
-        'RubyObject'
-      end
-
-      # -----------------------------------------------------------------------
-      # Whole-program type inference (replaces all ad-hoc pre-passes)
-      # -----------------------------------------------------------------------
-
       def run_type_inference(execute_block, top_level_scope)
         require_relative 'type_inference'
 
@@ -909,9 +868,7 @@ module Frozone
       end
 
       def complex_native_type?(t)
-        return false if t.nil? || t == 'RubyObject'
-        # Nested arrays are complex; flat arrays and scalars are simple
-        t.start_with?('Array(') && t.include?('Array(Array')
+        CrystalType.array?(t) && CrystalType.array?(CrystalType.elem(t))
       end
 
       def returns_array_literal?(body) = last_body_expression(body).is_a?(Ast::ArrayLiteral)
@@ -958,58 +915,6 @@ module Frozone
       end
 
       # Combined element type for typed-array and native-array (2D parent) locals.
-
-      # -----------------------------------------------------------------------
-      # Legacy: Walk the execute block body, collecting call-site argument types for
-      # every free (non-method, non-receiver) call to user-defined methods.
-      # (Superseded by run_type_inference — kept for reference)
-      def infer_call_site_types(execute_block)
-        walk_call_sites(execute_block.body, {})
-      end
-
-      def walk_call_sites(node, locals)
-        return unless node
-        case node
-        when Ast::Sequence
-          node.nodes.each { |n| walk_call_sites(n, locals) }
-        when Ast::LocalVariableWrite
-          type = infer_expr_type(ivar(node, :value_node), locals)
-          locals = locals.merge(ivar(node, :name) => type)
-          walk_call_sites(ivar(node, :value_node), locals)
-        when Ast::MethodCall
-          name = ivar(node, :name)
-          recv = ivar(node, :receiver_node)
-          args = ivar(node, :arg_nodes) || []
-
-          # Only collect types for free (top-level) calls to user-defined methods
-          if recv.nil? && @user_methods.include?(name)
-            arg_types = args.map { |a| infer_expr_type(a, locals) }
-            existing  = @inferred_params[name]
-            @inferred_params[name] = if existing.nil?
-              arg_types
-            else
-              # Join: if two call sites disagree on a position, fall back to RubyObject
-              existing.zip(arg_types).map { |a, b| a == b ? a : 'RubyObject' }
-            end
-          end
-
-          # Recurse into args and block
-          args.each { |a| walk_call_sites(a, locals) }
-          blk = ivar(node, :block_node)
-          walk_call_sites(blk.body, locals) if blk&.respond_to?(:body) && blk.body
-        when Ast::If
-          walk_call_sites(ivar(node, :then_node), locals)
-          walk_call_sites(ivar(node, :else_node), locals)
-        when Ast::While
-          walk_call_sites(ivar(node, :body), locals)
-        else
-          # Recurse into common child slots
-          %i[body then_node else_node value_node].each do |slot|
-            child = node.instance_variable_defined?(:"@#{slot}") && node.instance_variable_get(:"@#{slot}")
-            walk_call_sites(child, locals) if child.is_a?(Ast::Node)
-          end
-        end
-      end
 
       # Override emit_param_list to apply inferred types for required params.
       def emit_param_list(node, param_types: nil)
@@ -1435,8 +1340,8 @@ module Frozone
           write "self.#{crystal_method_name(node.name)}"
           if !@suppress_typed_call_args && (opt?(:call_site_types) || opt?(:method_specialization))
             tp = @inferred_params[node.name] || @ti_class_params[[@current_class_name, node.name]]
-            can_use_typed = tp&.any? { |t| t && t != 'RubyObject' } &&
-              tp.all? { |pt| !pt || pt == 'RubyObject' || pt == 'Int64' || pt == 'Float64' || pt.start_with?('Ruby_') }
+            can_use_typed = tp&.any? { |t| t && t != :ruby_object } &&
+              tp.all? { |pt| !pt || pt == :ruby_object || pt == 'Int64' || pt == 'Float64' || pt.start_with?('Ruby_') }
             if can_use_typed
               emit_typed_call_args(node.arg_nodes || [], tp)
             else
