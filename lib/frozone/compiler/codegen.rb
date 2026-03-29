@@ -123,6 +123,7 @@ module Frozone
         @current_local_2d_arrays     = {}   # local_name => :i64 | :f64 — outer of Array(Array(T)) locals
         @native_array_locals         = {}   # local_name => :i64 | :f64 — Array(T) from 2D parent read
         @suppress_typed_call_args    = false # true inside generic body that has a specialized overload
+        @emit_crystal_tuple          = false # true when emitting last expression of method body (multi-return)
         @object_instance_methods     = Set.new # methods emitted on RubyObject (skip *args stubs)
         @suppress_tuple_literals     = false  # true inside local var assignment (arrays may be mutated)
 
@@ -690,7 +691,12 @@ module Frozone
         elsif raw_return
           indented { emit_raw_body(method.body) }
         else
+          # Check if last expression is an array literal → emit as Crystal tuple
+          # for zero-cost multi-return with typed destructuring.
+          last = last_body_expression(method.body)
+          @emit_crystal_tuple = last.is_a?(Ast::ArrayLiteral) && !@suppress_tuple_literals
           indented { emit(method.body) }
+          @emit_crystal_tuple = false
         end
 
         emit_newline
@@ -859,6 +865,15 @@ module Frozone
         @instance_method_raw_returns = mapper.instance_method_raw_returns
         @const_raw_types             = mapper.const_raw_types
         @typed_ivars                 = mapper.typed_ivars
+      end
+
+      def returns_array_literal?(body) = last_body_expression(body).is_a?(Ast::ArrayLiteral)
+
+      def last_body_expression(node)
+        case node
+        when Ast::Sequence then node.nodes.last ? last_body_expression(node.nodes.last) : nil
+        else node
+        end
       end
 
       # Combined element type for typed-array and native-array (2D parent) locals.
@@ -1061,6 +1076,8 @@ module Frozone
 
       # Override: emit small fixed-size array literals as RubyTupleN (single
       # allocation, N inline fields) instead of RubyArray (3 allocations).
+      # Exception: in return position, emit Crystal tuple {a, b} for zero-cost
+      # multi-return that preserves per-element types.
       MAX_TUPLE_SIZE = 8
 
       def emit_array_literal(node)
@@ -1068,12 +1085,22 @@ module Frozone
         elems = ivar(node, :element_nodes) || []
         if elems.size >= 1 && elems.size <= MAX_TUPLE_SIZE &&
            elems.none? { |e| e.is_a?(Ast::SplatArg) }
-          write "RubyTuple#{elems.size}.new("
-          elems.each_with_index do |el, i|
-            write ", " if i > 0
-            emit(el)
+          if @emit_crystal_tuple
+            # Return position: Crystal tuple preserves per-element types
+            write "{"
+            elems.each_with_index do |el, i|
+              write ", " if i > 0
+              emit(el)
+            end
+            write "}"
+          else
+            write "RubyTuple#{elems.size}.new("
+            elems.each_with_index do |el, i|
+              write ", " if i > 0
+              emit(el)
+            end
+            write ")"
           end
-          write ")"
         else
           super
         end
@@ -1527,8 +1554,28 @@ module Frozone
         targets = ivar(node, :targets)
         rhs     = ivar(node, :value_node)
 
-        # Fast path: no splat, all targets are typed locals, RHS is ArrayLiteral
+        # Typed multi-return: RHS is a call to a user method that returns a Crystal tuple.
+        # Destructure directly without masgn_coerce.
         has_splat = targets.any? { |t| t[0].to_s.end_with?('_splat') || t[0] == :splat_nil }
+        if !has_splat && rhs.is_a?(Ast::MethodCall) && ivar(rhs, :receiver_node).nil?
+          method_name = ivar(rhs, :name)
+          method = @top_level_scope.instance_variable_get(:@methods_table)&.fetch(method_name, nil)
+          if method.is_a?(Vm::Method) && returns_array_literal?(method.body)
+            # Emit: _t0, _t1 = func(args)
+            tmp_names = targets.each_with_index.map { |_, i| "_tup#{@temp_counter}_#{i}" }
+            @temp_counter += 1
+            write tmp_names.join(", ")
+            write " = "
+            emit(rhs)
+            targets.each_with_index do |t, i|
+              emit_newline; emit_indent
+              emit_masgn_assign(t, tmp_names[i])
+            end
+            return
+          end
+        end
+
+        # Fast path: no splat, all targets are typed locals, RHS is ArrayLiteral
         if !has_splat && rhs.is_a?(Ast::ArrayLiteral)
           elems = ivar(rhs, :element_nodes) || []
           all_typed = targets.all? do |t|
