@@ -970,8 +970,9 @@ module Frozone
           when :NilClass         then 'RubyObject'
           when :TrueClass, :FalseClass then 'RubyObject'
           when :Array
-            if ty[:elem] && (elem_raw = ti_raw_type(ty[:elem]))
-              elem_raw == :f64 ? 'Array(Float64)' : 'Array(Int64)'
+            if ty[:elem]
+              elem_crystal = ti_crystal_type(ty[:elem])
+              elem_crystal != 'RubyObject' ? "Array(#{elem_crystal})" : 'RubyArray'
             else
               'RubyArray'
             end
