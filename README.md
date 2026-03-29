@@ -14,7 +14,7 @@ The goal of Frozone is to explore the opportunity of a **two-phase approach**: l
 
 **Compiler:** snapshots the settled VM state after the interpreter's load phase and emits Crystal source, which compiles to a native binary. Metaprogramming, `require`s, and constants are resolved by the interpreter; the compiler sees a fully settled world.
 
-## Status (v4.0.2)
+## Status (v4.0.4)
 
 **Interpreter** spec compliance (ruby/spec run through the Frozone tree-walking interpreter):
 
@@ -24,6 +24,8 @@ The goal of Frozone is to explore the opportunity of a **two-phase approach**: l
 | ruby/spec core | 22708 | 22913 | 99.1% |
 | ruby/spec library | 1979 | 2467 | 80% |
 | RSpec unit tests | 649 | 649 | 100% |
+
+**Self-hosting:** Frozone runs itself (Frozone²) with no shims or special infrastructure. The full language spec suite passes through Frozone² with identical results. See [docs/self-hosting.md](docs/self-hosting.md).
 
 See [docs/spec-status.md](docs/spec-status.md) for detailed breakdowns.
 
