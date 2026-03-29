@@ -57,6 +57,7 @@ module Frozone
         @filepath = filepath
         @outer_locals = outer_locals
         @encoding = encoding
+        @line = line
       end
 
       def ast(raise_syntax_errors: false)
@@ -74,7 +75,7 @@ module Frozone
             @text
           end
 
-        buf = ::Parser::Source::Buffer.new(@filepath || '(string)', source: src)
+        buf = ::Parser::Source::Buffer.new(@filepath || '(string)', @line || 1, source: src)
         ::Parser::Builders::Default.modernize
         # After modernize, emit_arg_inside_procarg0=true makes |a| and |(a)| AST-identical.
         # Set it to false so |a| -> s(:procarg0, :a) and |(a)| -> s(:procarg0, s(:arg, :a)).
