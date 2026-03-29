@@ -44,6 +44,9 @@ end
 ### Section structure
 Each file has at most one public section and one private section. All public methods come first, all private methods at the bottom under a single `private` keyword. Do not interleave public and private, and do not use multiple `private` declarations. Always leave a blank line before the `private` keyword.
 
+### Unify common calls across branches
+Don't split the same method call across conditional branches. If both paths call the same thing with minor variations, unify them — the branch should be about what *differs*, not repeated around what's *shared*. Same applies to ternary expressions: `a.method(cond ? x : y)` not `cond ? a.method(x) : a.method(y)`.
+
 ### No column alignment
 Do not align `=` signs, return types, or comments across adjacent lines. It looks tidy but creates noisy diffs when any line changes — every neighbouring line gets reformatted. Just use a single space:
 
