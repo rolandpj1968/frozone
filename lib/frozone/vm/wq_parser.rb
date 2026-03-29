@@ -51,7 +51,7 @@ module Frozone
         end
       end
 
-      def initialize(text, dump_ast = false, filepath: nil, outer_locals: nil, encoding: nil)
+      def initialize(text, dump_ast = false, filepath: nil, outer_locals: nil, encoding: nil, line: nil, forwarding: nil)
         @text = text
         @dump_ast = dump_ast
         @filepath = filepath
