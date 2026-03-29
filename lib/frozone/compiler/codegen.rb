@@ -1,4 +1,5 @@
 require_relative 'crystal_emitter'
+require_relative 'crystal_type_mapper'
 require_relative '../vm/module_object'
 require_relative '../vm/method'
 require_relative 'codegen/raw_emission'
@@ -838,165 +839,26 @@ module Frozone
         )
         env = ti.run
 
-        # Unpack TypeEnv slots into codegen lookup structures
-        env.instance_variable_get(:@slots).each do |slot, ty|
-          next if ty == :unknown || !slot.is_a?(Array)
-          kind = slot[0]
-          case kind
-          when :local
-            if ty.is_a?(Hash) && opt?(:devirtualize)
-              cls = ty[:class]
-              # Narrow locals to concrete class types — skip abstract/top-level
-              # types (Object, Numeric) and Array/Hash (handled by native arrays)
-              skip_builtin = %i[Object BasicObject Numeric Array Hash].include?(cls)
-              if cls && !skip_builtin && (@ti_user_class_names&.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls))
-                (@ti_class_locals[slot[1]] ||= {})[slot[2]] = cls
-              end
-            end
-            if ty.is_a?(Hash) && ty[:class] == :Array && opt?(:native_arrays) && (elem_raw = ti_raw_type(ty[:elem]))
-              (@ti_local_array_elems[slot[1]] ||= {})[slot[2]] = elem_raw
-            end
-            next unless opt?(:unbox_locals)
-            raw = ti_raw_type(ty) or next
-            (@ti_locals[slot[1]] ||= {})[slot[2]] = raw
-          when :block_param
-            next unless opt?(:native_iteration)
-            raw = ti_raw_type(ty) or next
-            (@ti_block_params[slot[1]] ||= {})[slot[2]] = raw
-          when :array_elem
-            next unless opt?(:native_arrays)
-            raw = ti_raw_type(ty) or next
-            (@ti_arrays[slot[1]] ||= {})[slot[2]] = raw
-          when :const
-            next unless opt?(:unbox_locals)
-            raw = ti_raw_type(ty) or next
-            @const_raw_types[slot[1]] = raw
-          when :ivar
-            next unless opt?(:typed_ivars)
-            raw = ti_raw_type(ty) or next
-            (@typed_ivars[slot[1]] ||= {})[slot[2]] = raw
-          when :return
-            next unless opt?(:method_specialization) || opt?(:raw_returns) || opt?(:accessor_inline)
-            mkey = slot[1]
-            raw  = ti_raw_type(ty) or next
-            if mkey.is_a?(Symbol)
-              @typed_method_returns[mkey] = raw
-            elsif mkey.is_a?(Array) && mkey.size == 2
-              cname, fname = mkey
-              @instance_method_raw_returns[[cname, fname]] = raw if @ti_user_class_names&.include?(cname)
-            end
-          end
-        end
+        # Delegate all type-to-Crystal mapping to CrystalTypeMapper
+        mapper = CrystalTypeMapper.new(env,
+          user_methods: user_methods_hash,
+          user_classes: user_classes_hash,
+          opt_flags: @opt_flags
+        ).build!
 
-        # Build @inferred_params and @typed_params for top-level methods
-        (opt?(:call_site_types) || opt?(:method_specialization)) && user_methods_hash.each do |mname, method|
-          req = method.instance_variable_get(:@required_params) || []
-          next if req.empty?
-          crystal_types = req.each_with_index.map { |_, i|
-            ty = env[[:param, mname, i]]
-            ty ? ti_crystal_type(ty) : 'RubyObject'
-          }
-          next unless crystal_types.any? { |t| t != 'RubyObject' }
-          @inferred_params[mname] = crystal_types
-          raw_types = req.each_with_index.map { |_, i| ti_raw_type(env[[:param, mname, i]]) }
-          @typed_params[mname] = raw_types if raw_types.all? && @typed_method_returns[mname]
-        end
-
-        # Also build @inferred_params for eigenclass methods (class methods
-        # called without receiver look like free calls to TI)
-        (opt?(:call_site_types) || opt?(:method_specialization)) && user_classes_hash.each do |_cname, klass|
-          eigenclass = klass.instance_variable_get(:@eigenclass)
-          next unless eigenclass
-          (eigenclass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
-            next unless method.is_a?(Vm::Method)
-            next if @inferred_params.key?(mname)  # don't overwrite
-            req = method.instance_variable_get(:@required_params) || []
-            next if req.empty?
-            crystal_types = req.each_with_index.map { |_, i|
-              ty = env[[:param, mname, i]]
-              ty ? ti_crystal_type(ty) : 'RubyObject'
-            }
-            @inferred_params[mname] = crystal_types if crystal_types.any? { |t| t != 'RubyObject' }
-          end
-        end
-
-        # Build @ti_class_params for instance AND class methods
-        user_classes_hash.each do |cname, klass|
-          # Instance methods
-          (klass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
-            next unless method.is_a?(Vm::Method)
-            req = method.instance_variable_get(:@required_params) || []
-            next if req.empty?
-            mkey = [cname, mname]
-            crystal_types = req.each_with_index.map { |_, i|
-              ty = env[[:param, mkey, i]]
-              ty ? ti_crystal_type(ty) : 'RubyObject'
-            }
-            @ti_class_params[mkey] = crystal_types if crystal_types.any? { |t| t != 'RubyObject' }
-          end
-          # Class/module methods (eigenclass)
-          eigenclass = klass.instance_variable_get(:@eigenclass)
-          next unless eigenclass
-          (eigenclass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
-            next unless method.is_a?(Vm::Method)
-            req = method.instance_variable_get(:@required_params) || []
-            next if req.empty?
-            mkey = [cname, mname]
-            crystal_types = req.each_with_index.map { |_, i|
-              ty = env[[:param, mkey, i]]
-              ty ? ti_crystal_type(ty) : 'RubyObject'
-            }
-            @ti_class_params[mkey] = crystal_types if crystal_types.any? { |t| t != 'RubyObject' }
-          end
-        end
-      end
-
-      # Convert a TypeInference lattice value to a Crystal type annotation string.
-      def native_elem?(crystal_type)
-        crystal_type == 'Int64' || crystal_type == 'Float64' || crystal_type.start_with?('Array(')
-      end
-
-      def ti_crystal_type(ty)
-        case ty
-        when :i64       then 'Int64'
-        when :f64       then 'Float64'
-        when :array_i64 then 'Array(Int64)'
-        when :array_f64 then 'Array(Float64)'
-        when Hash
-          case ty[:class]
-          # Only use narrow types for primitives and arrays — broader types
-          # like RubyString/RubySymbol cause param type mismatches when
-          # callers pass RubyObject.
-          when :Integer          then 'RubyObject'
-          when :Float            then 'RubyObject'
-          when :String           then 'RubyObject'
-          when :Symbol           then 'RubyObject'
-          when :NilClass         then 'RubyObject'
-          when :TrueClass, :FalseClass then 'RubyObject'
-          when :Array
-            if ty[:elem]
-              elem_crystal = ti_crystal_type(ty[:elem])
-              # Promote flat native arrays (Array(Int64), Array(Float64)).
-              # Nested arrays (Array(Array(Int64))) are correct but callers can't
-              # provide them yet — needs execute-block local typing for masgn.
-              (elem_crystal == 'Int64' || elem_crystal == 'Float64') ? "Array(#{elem_crystal})" : 'RubyObject'
-            else
-              'RubyObject'
-            end
-          when :Hash             then 'RubyHash'
-          when :Proc             then 'RubyProc'
-          else
-            cls = ty[:class]
-            (@ti_user_class_names&.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls)) ? crystal_class_name(cls) : 'RubyObject'
-          end
-        else 'RubyObject'
-        end
-      end
-
-      # Extract the raw (unboxed) Crystal numeric type from a TypeInference value.
-      # Returns :i64, :f64, or nil.
-      def ti_raw_type(ty)
-        ty == :i64 || ty == :f64 ? ty : nil
+        @ti_user_class_names         = mapper.user_class_names
+        @ti_locals                   = mapper.locals
+        @ti_arrays                   = mapper.arrays
+        @ti_class_locals             = mapper.class_locals
+        @ti_local_array_elems        = mapper.local_array_elems
+        @ti_block_params             = mapper.block_params
+        @ti_class_params             = mapper.class_params
+        @inferred_params             = mapper.inferred_params
+        @typed_params                = mapper.typed_params
+        @typed_method_returns        = mapper.typed_method_returns
+        @instance_method_raw_returns = mapper.instance_method_raw_returns
+        @const_raw_types             = mapper.const_raw_types
+        @typed_ivars                 = mapper.typed_ivars
       end
 
       # Combined element type for typed-array and native-array (2D parent) locals.
