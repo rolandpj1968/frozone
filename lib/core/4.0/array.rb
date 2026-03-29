@@ -1,14 +1,18 @@
 class Array
   include Enumerable
 
-  def self.[](*args) = allocate.tap { |a| args.each { |x| a << x } }
+  ARRAY_MAX_INDEX = (1 << 63)
 
-  def self.try_convert(obj)
-    return obj if obj.is_a?(Array)
-    return nil unless obj.respond_to?(:to_ary)
-    result = obj.to_ary
-    raise TypeError, "can't convert #{obj.class} into Array (#{obj.class}#to_ary gives #{result.class})" unless result.is_a?(Array) || result.nil?
-    result
+  class << self
+    def [](*args) = allocate.tap { |a| args.each { |x| a << x } }
+
+    def try_convert(obj)
+      return obj if obj.is_a?(Array)
+      return nil unless obj.respond_to?(:to_ary)
+      result = obj.to_ary
+      raise TypeError, "can't convert #{obj.class} into Array (#{obj.class}#to_ary gives #{result.class})" unless result.is_a?(Array) || result.nil?
+      result
+    end
   end
 
   def initialize(size_or_array = nil, fill = nil, &block)
@@ -30,9 +34,7 @@ class Array
     Intrinsics.array_initialize(self, size_or_array, fill, block)
   end
 
-  ARRAY_MAX_INDEX = (1 << 63)
-
-  def length       = Intrinsics.array_length(self)
+  def length = Intrinsics.array_length(self)
   alias size length
   def empty?       = length == 0
   def to_s         = Intrinsics.array_to_s(self)
