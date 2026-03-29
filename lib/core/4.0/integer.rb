@@ -20,10 +20,10 @@ class Integer
   def ord = self
   def even? = self % 2 == 0
   def odd? = self % 2 != 0
-  def ceil(n = 0)  = n >= 0 ? self : (self.to_f.ceil(n).to_i rescue self)
+  def ceil(n = 0) = n >= 0 ? self : (self.to_f.ceil(n).to_i rescue self)
   def floor(n = 0) = n >= 0 ? self : (self.to_f.floor(n).to_i rescue self)
   def fdiv(n) = Intrinsics.integer_fdiv(self, n)
-  def ~  = Intrinsics.integer_bitnot(self)
+  def ~ = Intrinsics.integer_bitnot(self)
   def size = [(bit_length + 7) / 8, 8].max
   def bit_length = Intrinsics.integer_bit_length(self)
   def to_r = Intrinsics.integer_to_r(self)
@@ -34,19 +34,30 @@ class Integer
   def denominator = 1
   def rationalize(eps = nil) = Rational(self, 1)
   def between?(min, max) = self >= min && self <= max
-  def ==(v)  = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
+  def ==(v) = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
   def ===(v) = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
-  def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(self, v)  : __with_coercion__(v, :+)
+  def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(self, v) : __with_coercion__(v, :+)
   def -(v) = v.is_a?(Integer) ? Intrinsics.integer__minus_(self, v) : __with_coercion__(v, :-)
-  def *(v) = v.is_a?(Integer) ? Intrinsics.integer__mul_(self, v)   : __with_coercion__(v, :*)
-  def /(v) = v.is_a?(Integer) ? Intrinsics.integer__div_(self, v)   : __with_coercion__(v, :/)
-  def %(v) = v.is_a?(Integer) ? Intrinsics.integer__mod_(self, v)   : __with_coercion__(v, :%)
+  def *(v) = v.is_a?(Integer) ? Intrinsics.integer__mul_(self, v) : __with_coercion__(v, :*)
+  def /(v) = v.is_a?(Integer) ? Intrinsics.integer__div_(self, v) : __with_coercion__(v, :/)
+  def %(v) = v.is_a?(Integer) ? Intrinsics.integer__mod_(self, v) : __with_coercion__(v, :%)
   alias modulo %
-
-  def <(v)  = v.is_a?(Integer) ? Intrinsics.integer__lt_(self, v) : __compare__(v, :<)
+  def <(v) = v.is_a?(Integer) ? Intrinsics.integer__lt_(self, v) : __compare__(v, :<)
   def <=(v) = v.is_a?(Integer) ? Intrinsics.integer__le_(self, v) : __compare__(v, :<=)
   def >=(v) = v.is_a?(Integer) ? Intrinsics.integer__ge_(self, v) : __compare__(v, :>=)
-  def >(v)  = v.is_a?(Integer) ? Intrinsics.integer__gt_(self, v) : __compare__(v, :>)
+  def >(v) = v.is_a?(Integer) ? Intrinsics.integer__gt_(self, v) : __compare__(v, :>)
+  def lcm(n) = (self == 0 || n == 0) ? 0 : (self.abs / gcd(n) * n.abs)
+  def gcdlcm(n) = [gcd(n), lcm(n)]
+  def &(n) = n.is_a?(Integer) ? Intrinsics.integer_bitand(self, n) : __bitwise_op__(n, :&)
+  def |(n) = n.is_a?(Integer) ? Intrinsics.integer_bitor(self, n) : __bitwise_op__(n, :|)
+  def ^(n) = n.is_a?(Integer) ? Intrinsics.integer_bitxor(self, n) : __bitwise_op__(n, :^)
+  def <<(n) = Intrinsics.integer_lshift(self, __coerce_to_int__(n))
+  def >>(n) = Intrinsics.integer_rshift(self, __coerce_to_int__(n))
+  def allbits?(mask) = (mask = __coerce_to_int__(mask); (self & mask) == mask)
+  def anybits?(mask) = (self & __coerce_to_int__(mask)) != 0
+  def nobits?(mask) = (self & __coerce_to_int__(mask)) == 0
+  def ceildiv(n) = (q, r = divmod(n); r == 0 ? q : q + 1)
+  def divmod(n) = n.is_a?(Integer) ? [self / n, self % n] : __with_coercion__(n, :divmod)
 
   def **(v)
     if v.is_a?(Integer)
@@ -143,11 +154,6 @@ class Integer
     q * factor
   end
 
-  def divmod(n)
-    return [self / n, self % n] if n.is_a?(Integer)
-    __with_coercion__(n, :divmod)
-  end
-
   def div(n)
     if n.is_a?(Integer)
       __check_zero_divisor__(n)
@@ -165,9 +171,6 @@ class Integer
     end
     __with_coercion__(n, :remainder)
   end
-
-  def lcm(n)     = (self == 0 || n == 0) ? 0 : (self.abs / gcd(n) * n.abs)
-  def gcdlcm(n)  = [gcd(n), lcm(n)]
 
   def gcd(n)
     __require_integer__(n)
@@ -196,13 +199,6 @@ class Integer
       Intrinsics.integer__pow_(self, n) % m
     end
   end
-
-  def &(n) = n.is_a?(Integer) ? Intrinsics.integer_bitand(self, n) : __bitwise_op__(n, :&)
-  def |(n) = n.is_a?(Integer) ? Intrinsics.integer_bitor(self, n)  : __bitwise_op__(n, :|)
-  def ^(n) = n.is_a?(Integer) ? Intrinsics.integer_bitxor(self, n) : __bitwise_op__(n, :^)
-
-  def <<(n) = Intrinsics.integer_lshift(self, __coerce_to_int__(n))
-  def >>(n) = Intrinsics.integer_rshift(self, __coerce_to_int__(n))
 
   def [](idx, len = nil)
     if idx.is_a?(Range)
@@ -242,12 +238,6 @@ class Integer
     end
   end
 
-  def allbits?(mask) = (mask = __coerce_to_int__(mask); (self & mask) == mask)
-  def anybits?(mask) = (self & __coerce_to_int__(mask)) != 0
-  def nobits?(mask)  = (self & __coerce_to_int__(mask)) == 0
-
-  def ceildiv(n) = (q, r = divmod(n); r == 0 ? q : q + 1)
-
   def coerce(other)
     if other.is_a?(Integer)
       [other, self]
@@ -279,37 +269,39 @@ class Integer
     end
   end
 
-  def self.try_convert(val)
-    return val if val.is_a?(Integer)
-    return nil unless val.respond_to?(:to_int)
-    result = val.to_int
-    return nil if result.nil?
-    raise TypeError, "can't convert #{val.class} into Integer (#{val.class}#to_int gives #{result.class})" unless result.is_a?(Integer)
-    result
-  end
-
-  def self.sqrt(n)
-    n = __coerce_to_int__(n) unless n.is_a?(Integer)
-    raise Math::DomainError, "out of domain" if n < 0
-    return 0 if n == 0
-    sqrt_f = Math.sqrt(n.to_f)
-    x = sqrt_f.infinite? ? 2 ** ((n.bit_length + 1) / 2) : sqrt_f.floor.to_i
-    # Newton's method for large integers (converges quadratically)
-    loop do
-      x1 = (x + n / x) / 2
-      break if x1 >= x
-      x = x1
+  class << self
+    def try_convert(val)
+      return val if val.is_a?(Integer)
+      return nil unless val.respond_to?(:to_int)
+      result = val.to_int
+      return nil if result.nil?
+      raise TypeError, "can't convert #{val.class} into Integer (#{val.class}#to_int gives #{result.class})" unless result.is_a?(Integer)
+      result
     end
-    x -= 1 if x * x > n
-    x
+
+    def sqrt(n)
+      n = __coerce_to_int__(n) unless n.is_a?(Integer)
+      raise Math::DomainError, "out of domain" if n < 0
+      return 0 if n == 0
+      sqrt_f = Math.sqrt(n.to_f)
+      x = sqrt_f.infinite? ? 2 ** ((n.bit_length + 1) / 2) : sqrt_f.floor.to_i
+      # Newton's method for large integers (converges quadratically)
+      loop do
+        x1 = (x + n / x) / 2
+        break if x1 >= x
+        x = x1
+      end
+      x -= 1 if x * x > n
+      x
+    end
   end
 
   private
 
   # Call coerce even if private; propagate non-NoMethodError exceptions
-  def __require_integer__(n)  = (raise TypeError, "not an integer" unless n.is_a?(Integer))
-  def __raise_zero_division__    = (raise ZeroDivisionError, "divided by 0")
-  def __check_zero_divisor__(n)  = (__raise_zero_division__ if n == 0)
+  def __require_integer__(n) = (raise TypeError, "not an integer" unless n.is_a?(Integer))
+  def __raise_zero_division__ = (raise ZeroDivisionError, "divided by 0")
+  def __check_zero_divisor__(n) = (__raise_zero_division__ if n == 0)
 
   def __reject_float_index__(v)
     return unless v.is_a?(Float)
