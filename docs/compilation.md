@@ -1763,3 +1763,44 @@ arithmetic with no allocation. Results (Crystal `--release` vs MRI):
 Mixed benchmarks (binarytrees, sudoku) are 3–9× faster than MRI.
 Object-heavy benchmarks (splay) remain slower than YJIT due to
 Crystal's union dispatch overhead vs YJIT's inline caches.
+
+---
+
+## Compiled spec testing
+
+The `--aot` flag enables compiling spec-like files without source modification:
+
+```bash
+frozone --aot bench/specs/language_spec_small.rb          # auto-detect load/execute boundary
+frozone --aot -r bench/test_harness.rb some_spec.rb       # pre-load test harness
+```
+
+A minimal mspec-compatible test harness (`bench/test_harness.rb`) provides
+`describe`/`it`/`should` for compiled specs. 26 tests currently pass through
+compilation (Array, Integer, String, language constructs).
+
+### Next steps for compiled spec coverage
+
+- **instance_eval support** — needed for real mspec (blocks run with rebound self)
+- **Broader Ruby constructs** — exception handling, more class patterns
+- **Real ruby-spec files** — the goal is `frozone --aot` on actual ruby-spec files
+
+---
+
+## Future compiler ideas
+
+### Module flattening
+
+At compile time, resolve all `include`/`prepend` into concrete per-class method
+tables. The interpreter keeps the real module hierarchy; the compiler flattens
+before emission. Benefits: simpler TI (no module lookup chains), unambiguous ivar
+ownership, handles Crystal's lack of prepend support. Kernel methods map to the
+Crystal runtime, so duplication explosion is limited to user-defined modules.
+
+### String encoding specialization
+
+Most Ruby programs use UTF-8 or ASCII-8BIT exclusively. TI can track string
+encoding through the program. For ASCII-only strings: `length == bytesize`,
+`reverse` is byte reversal, `[]` is byte indexing, `==`/`<=>` are raw byte
+comparisons. Eliminating encoding guards from hot paths enables direct Crystal
+`Bytes` operations with no `RubyString` wrapper overhead.
