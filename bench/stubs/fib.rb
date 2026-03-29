@@ -4,10 +4,10 @@ require_relative '../benchmarks/fib'
 
 Frozone.compile! do
   # Correctness check
-  result = fib(20)
-  raise "fib(20) = #{result}, expected 6765" unless result == 6765
+  result = fib(35)
+  raise "fib(35) = #{result}, expected 9227465" unless result == 9227465
 
   run_benchmark(3) do
-    fib(20)
+    fib(35)
   end
 end
