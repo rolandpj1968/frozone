@@ -1789,6 +1789,42 @@ compilation (Array, Integer, String, language constructs).
 
 ## Future compiler ideas
 
+### Compile-time erasure: `respond_to?`, `is_a?`, `send`
+
+Three of Ruby's most-called reflective methods can be resolved at compile time
+in the closed world.
+
+**`respond_to?` — per-class bit array**
+
+1. Collect all method names across all classes → assign each a unique index (0..N).
+2. Per class, emit a compact bit array of size N — bit `i` is set if that class
+   has method `i`.
+3. Each method-name Symbol carries its index as a cached field (interned
+   singletons, so one extra integer per unique method name).
+4. `obj.respond_to?(:foo)` compiles to `self.class.respond_to_table[foo.method_index]`
+   — O(1), no string comparison, no hash lookup.
+5. With a literal symbol argument AND known receiver type, the compiler can
+   **constant-fold** the entire call to `true` or `false` — zero runtime cost.
+
+**`is_a?` — same technique**
+
+1. Collect all classes/modules → assign each a unique index.
+2. Per class, emit a bit array of "is this class/module in my ancestor chain?".
+3. `obj.is_a?(Foo)` compiles to `self.class.isa_table[Foo.class_index]` — O(1).
+4. With a literal class AND known receiver type → constant-fold.
+
+**`send(:method_name)` — direct call erasure**
+
+`send` with a literal Symbol argument can be replaced with a direct method call
+at compile time. The compiler knows the method exists (closed world), knows
+visibility, and can emit the direct call — eliminating the dynamic dispatch
+overhead entirely. This is particularly valuable in `lib/core/4.0/` where `send`
+is used to call private methods (e.g., `n.send(:coerce, self)` in Integer).
+
+**Impact:** The `respond_to` benchmark (6M calls, currently 31ms compiled vs 15ms
+YJIT) would compile to an empty loop with constant folding — the respond_to?
+calls resolve to `true`/`false` at compile time and the results are unused.
+
 ### Module flattening
 
 At compile time, resolve all `include`/`prepend` into concrete per-class method
