@@ -103,18 +103,17 @@ module Frozone
       class TypeEnv
         def initialize(ti)
           @slots = {}
-          @ti    = ti
+          @ti = ti
         end
+
+        # Raw lattice value including :unknown sentinel.
+        def raw(slot) = @slots.fetch(slot, :unknown)
+        def typed?(slot) = !self[slot].nil?
 
         # Public type for a slot: nil when still :unknown, else the lattice value.
         def [](slot)
           v = @slots[slot]
           v == :unknown ? nil : v
-        end
-
-        # Raw lattice value including :unknown sentinel.
-        def raw(slot)
-          @slots.fetch(slot, :unknown)
         end
 
         # Meet `type` into `slot`. Returns true if the slot changed.
@@ -126,8 +125,6 @@ module Frozone
           @slots[slot] = merged
           true
         end
-
-        def typed?(slot) = !self[slot].nil?
 
         def inspect
           typed = @slots.reject { |_, v| v == :unknown }
@@ -155,11 +152,11 @@ module Frozone
       # @param execute_block [Ast::Block, nil]
       # @param constants     [Hash<Symbol, Vm::Object>]  all settled constants
       def initialize(user_methods:, user_classes:, execute_block:, constants: {})
-        @user_methods  = user_methods
-        @user_classes  = user_classes
+        @user_methods = user_methods
+        @user_classes = user_classes
         @execute_block = execute_block
-        @constants     = constants
-        @env           = TypeEnv.new(self)
+        @constants = constants
+        @env = TypeEnv.new(self)
         @ancestors_cache = {}
         build_class_ancestors
       end
@@ -1096,7 +1093,7 @@ module Frozone
       def lca_of(a_name, b_name)
         return {class: a_name} if a_name == b_name
         chain_a = ancestors_of(a_name)
-        set_a   = chain_a.to_set
+        set_a = chain_a.to_set
         chain_b = ancestors_of(b_name)
         lca = chain_b.find { |c| set_a.include?(c) }
         lca ? {class: lca} : BASIC_OBJECT_TYPE
@@ -1202,6 +1199,8 @@ module Frozone
         end
       end
 
+      def param_index(ctx, name) = param_names_for(ctx).index(name)
+
       def param_names_for(ctx)
         mkey = ctx.method_key
         return [] unless mkey
@@ -1212,8 +1211,6 @@ module Frozone
           [method.instance_variable_get(:@rest_param)].compact +
           (method.instance_variable_get(:@post_params) || [])
       end
-
-      def param_index(ctx, name) = param_names_for(ctx).index(name)
 
       def method_for_key(mkey)
         if mkey.is_a?(Array)

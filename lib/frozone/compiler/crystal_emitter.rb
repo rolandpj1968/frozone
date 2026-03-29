@@ -21,14 +21,14 @@ module Frozone
       attr_reader :errors
 
       def initialize(output_dir: CRYSTAL_DIR)
-        @out                = +""        # output buffer
-        @indent             = 0          # current indentation level
-        @errors             = []         # collect unsupported-node warnings
-        @output_dir         = output_dir # used to compute relative runtime require path
-        @user_methods       = Set.new    # names of user-defined methods (for RubyObject stubs)
-        @exception_classes  = Set.new    # Ruby class names that inherit from exception bases
-        @in_exception_class = false      # true while emitting inside an exception class body
-        @temp_counter       = 0          # unique suffix for generated temp variable names
+        @out = +""                  # output buffer
+        @indent = 0                 # current indentation level
+        @errors = []                # collect unsupported-node warnings
+        @output_dir = output_dir    # used to compute relative runtime require path
+        @user_methods = Set.new     # names of user-defined methods (for RubyObject stubs)
+        @exception_classes = Set.new # Ruby class names that inherit from exception bases
+        @in_exception_class = false # true while emitting inside an exception class body
+        @temp_counter = 0           # unique suffix for generated temp variable names
       end
 
       # Generate a complete Crystal source file from the top-level AST node.
@@ -214,17 +214,9 @@ module Frozone
       # Literals
       # -----------------------------------------------------------------------
 
-      def emit_nil_literal
-        write "RUBY_NIL"
-      end
-
-      def emit_true_literal
-        write "RUBY_TRUE"
-      end
-
-      def emit_false_literal
-        write "RUBY_FALSE"
-      end
+      def emit_nil_literal   = write "RUBY_NIL"
+      def emit_true_literal  = write "RUBY_TRUE"
+      def emit_false_literal = write "RUBY_FALSE"
 
       def emit_integer_literal(node)
         val = ivar(node, :value).raw
@@ -255,26 +247,20 @@ module Frozone
         write %(RubySymbol.from(#{sym.to_s.inspect}))
       end
 
-      def emit_self_literal
-        write "self"
-      end
+      def emit_self_literal = write "self"
 
       # -----------------------------------------------------------------------
       # Variables
       # -----------------------------------------------------------------------
 
-      def emit_local_var_read(node)
-        write crystal_local(ivar(node, :name))
-      end
+      def emit_local_var_read(node) = write crystal_local(ivar(node, :name))
 
       def emit_local_var_write(node)
         write "#{crystal_local(ivar(node, :name))} = "
         emit(ivar(node, :value_node))
       end
 
-      def emit_ivar_read(node)
-        write ivar(node, :name).to_s  # already includes leading @
-      end
+      def emit_ivar_read(node) = write ivar(node, :name).to_s  # already includes leading @
 
       def emit_ivar_write(node)
         write "#{ivar(node, :name)} = "
@@ -309,9 +295,7 @@ module Frozone
         emit(ivar(node, :value_node))
       end
 
-      def emit_class_var_read(node)
-        write ivar(node, :name).to_s
-      end
+      def emit_class_var_read(node) = write ivar(node, :name).to_s
 
       def emit_class_var_write(node)
         write "#{ivar(node, :name)} = "
@@ -430,6 +414,8 @@ module Frozone
       # Comparison operators that return Crystal Bool — wrap in RubyBool for consistency
       COMPARE_OPS = %i[== != < <= > >= === =~].to_set
 
+      def operator?(name) = BINARY_OPS.include?(name) || UNARY_OPS.include?(name)
+
       # AttributeWrite: obj.foo = val (setter) or obj[i] = val (index assign)
       def emit_attribute_write(node)
         name = ivar(node, :name)
@@ -449,10 +435,6 @@ module Frozone
           write ".#{setter_name} = "
           emit(args[0])
         end
-      end
-
-      def operator?(name)
-        BINARY_OPS.include?(name) || UNARY_OPS.include?(name)
       end
 
       def emit_operator(node, name)
@@ -1088,9 +1070,7 @@ module Frozone
       }.freeze
 
       # Returns true if a `when` condition node is a type-check (ConstantRead or nil).
-      def type_check_cond?(cond)
-        cond.is_a?(Ast::NilLiteral) || cond.is_a?(Ast::ConstantRead)
-      end
+      def type_check_cond?(cond) = cond.is_a?(Ast::NilLiteral) || cond.is_a?(Ast::ConstantRead)
 
       def emit_case(node)
         subject = ivar(node, :subject_node)
@@ -1478,21 +1458,10 @@ module Frozone
       # Output helpers
       # -----------------------------------------------------------------------
 
-      def write(str)
-        @out << str
-      end
-
-      def line(str)
-        @out << ("  " * @indent) << str << "\n"
-      end
-
-      def emit_indent
-        @out << ("  " * @indent)
-      end
-
-      def emit_newline
-        @out << "\n"
-      end
+      def write(str)     = @out << str
+      def line(str)      = @out << ("  " * @indent) << str << "\n"
+      def emit_indent    = @out << ("  " * @indent)
+      def emit_newline   = @out << "\n"
 
       def indented
         @indent += 1
@@ -1525,6 +1494,11 @@ module Frozone
         inspect: :ruby_inspect,
       }.freeze
 
+      def crystal_constant(sym_or_str) = sym_or_str.to_s
+      # Escape a Ruby string value (a native Ruby String) for use as a Crystal
+      # string literal.
+      def crystal_string_literal(str) = str.inspect
+
       def crystal_method_name(sym)
         return RUBY_TO_CRYSTAL_METHOD[sym].to_s if RUBY_TO_CRYSTAL_METHOD.key?(sym)
         s = sym.to_s
@@ -1534,20 +1508,6 @@ module Frozone
       def crystal_local(sym)
         s = sym.to_s
         (CRYSTAL_KEYWORDS.include?(s) || CRYSTAL_BUILTIN_METHODS.include?(s)) ? "loc_#{s}" : s
-      end
-
-      def crystal_constant(sym_or_str)
-        sym_or_str.to_s
-      end
-
-      # Escape a Ruby string value (a native Ruby String) for use as a Crystal
-      # string literal.
-      def crystal_string_literal(str)
-        # Crystal string literals use the same escapes as Ruby for ASCII,
-        # but we emit raw bytes for non-ASCII to let Crystal handle encoding.
-        str.inspect   # Ruby's inspect gives us a valid double-quoted literal
-                      # that Crystal also accepts for ASCII-safe strings.
-                      # TODO: handle non-UTF-8 encoded strings properly.
       end
 
       # -----------------------------------------------------------------------
@@ -1627,9 +1587,7 @@ module Frozone
       # AST accessor helper — most AST nodes lack attr_reader
       # -----------------------------------------------------------------------
 
-      def ivar(node, name)
-        node.instance_variable_get(:"@#{name}")
-      end
+      def ivar(node, name) = node.instance_variable_get(:"@#{name}")
 
       # -----------------------------------------------------------------------
       # Error handling

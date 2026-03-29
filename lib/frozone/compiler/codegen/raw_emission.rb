@@ -409,9 +409,7 @@ module Frozone
       end
 
       # Emit node coerced to Float64: raw if already typed, else .to_f64 on boxed.
-      def emit_coerce_f64(node)
-        node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_f64")
-      end
+      def emit_coerce_f64(node) = node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_f64")
       end
     end
   end

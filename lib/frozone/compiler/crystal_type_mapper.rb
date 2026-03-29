@@ -193,13 +193,9 @@ module Frozone
 
       # --- Type conversion helpers ---
 
-      def raw_type(ty)
-        ty == :i64 || ty == :f64 ? ty : nil
-      end
-
-      def native_elem?(crystal_type)
-        crystal_type == 'Int64' || crystal_type == 'Float64' || crystal_type.start_with?('Array(')
-      end
+      def raw_type(ty) = (ty == :i64 || ty == :f64) ? ty : nil
+      def native_elem?(ct) = ct == 'Int64' || ct == 'Float64' || ct.start_with?('Array(')
+      def crystal_class_name(cls) = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{cls}"
 
       def crystal_type(ty)
         case ty
@@ -226,10 +222,6 @@ module Frozone
           end
         else 'RubyObject'
         end
-      end
-
-      def crystal_class_name(cls)
-        CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{cls}"
       end
     end
   end

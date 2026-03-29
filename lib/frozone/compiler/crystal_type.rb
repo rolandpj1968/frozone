@@ -30,24 +30,16 @@ module Frozone
       end
 
       # Is this a scalar (Int64/Float64)?
-      def self.scalar?(ty)
-        ty == :i64 || ty == :f64
-      end
-
+      def self.scalar?(ty) = ty == :i64 || ty == :f64
       # Extract the raw scalar type (:i64/:f64) or nil.
-      def self.raw(ty)
-        scalar?(ty) ? ty : nil
-      end
-
+      def self.raw(ty) = scalar?(ty) ? ty : nil
       # Is this an array type at any depth?
-      def self.array?(ty)
-        ty.is_a?(Array) && ty[0] == :array
-      end
-
+      def self.array?(ty) = ty.is_a?(Array) && ty[0] == :array
       # Element type of an array type, or nil.
-      def self.elem(ty)
-        array?(ty) ? ty[1] : nil
-      end
+      def self.elem(ty) = array?(ty) ? ty[1] : nil
+      # Can this type be used as a param in a generic (RubyObject) overload?
+      # Native types can't — they need their own typed overload.
+      def self.generic_compatible?(ty) = !native?(ty)
 
       # Convert to Crystal source string.
       def self.to_crystal(ty)
@@ -71,12 +63,6 @@ module Frozone
           end
         else 'RubyObject'
         end
-      end
-
-      # Can this type be used as a param in a generic (RubyObject) overload?
-      # Native types can't — they need their own typed overload.
-      def self.generic_compatible?(ty)
-        !native?(ty)
       end
 
       # Convert from the TI lattice value to a CrystalType.

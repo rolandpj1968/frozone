@@ -100,15 +100,15 @@ module Frozone
       # @param top_level_scope [Vm::ClassObject] Core::OBJECT_CLASS
       # @param globals [Hash] Vm::GLOBALS
       def generate(execute_block:, top_level_scope:, globals:, stub_file: nil)
-        @top_level_scope  = top_level_scope
-        @stub_file        = stub_file
-        @mctx = MethodContext.new  # per-method emission state (replaced per emit_vm_method)
+        @top_level_scope = top_level_scope
+        @stub_file = stub_file
+        @mctx = MethodContext.new # per-method emission state (replaced per emit_vm_method)
         @cctx = ClassContext.new
         @gctx = GlobalContext.new
-        @mctx.emit_crystal_tuple          = false # true when emitting last expression of method body (multi-return)
-        @masgn_return_methods        = nil   # Set of method names called in masgn RHS position
-        @object_instance_methods     = Set.new # methods emitted on RubyObject (skip *args stubs)
-        @suppress_tuple_literals     = false  # true inside local var assignment (arrays may be mutated)
+        @mctx.emit_crystal_tuple = false # true when emitting last expression of method body (multi-return)
+        @masgn_return_methods = nil   # Set of method names called in masgn RHS position
+        @object_instance_methods = Set.new # methods emitted on RubyObject (skip *args stubs)
+        @suppress_tuple_literals = false  # true inside local var assignment (arrays may be mutated)
 
         # Pre-pass: collect user method names for RubyObject stubs
         collect_user_methods_from_scope(top_level_scope)
@@ -152,14 +152,14 @@ module Frozone
         # Execute phase — the block body
         if execute_block
           @mctx = MethodContext.new
-          @mctx.typed_locals      = opt?(:unbox_locals) ? (@gctx.locals[nil] || {}) : {}
+          @mctx.typed_locals = opt?(:unbox_locals) ? (@gctx.locals[nil] || {}) : {}
           @mctx.typed_array_locals = opt?(:native_arrays) ? (@gctx.arrays[nil] || {}) : {}
-          @mctx.class_locals      = opt?(:devirtualize) ? (@gctx.class_locals[nil] || {}) : {}
+          @mctx.class_locals = opt?(:devirtualize) ? (@gctx.class_locals[nil] || {}) : {}
           @mctx.local_array_elems = opt?(:native_arrays) ? (@gctx.local_array_elems[nil] || {}) : {}
-          @mctx.block_params      = @gctx.block_params[nil] || {}
-          @mctx.local_types       = @gctx.local_types[nil] || {}
-          @mctx.method_body       = execute_block.body
-          @in_execute_block       = true
+          @mctx.block_params = @gctx.block_params[nil] || {}
+          @mctx.local_types = @gctx.local_types[nil] || {}
+          @mctx.method_body = execute_block.body
+          @in_execute_block = true
           emit_indent
           emit(execute_block.body)
           emit_newline
@@ -612,18 +612,19 @@ module Frozone
           @cctx.eigen_methods&.any? &&
           (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| t != :ruby_object }
         # Use TypeInference results for local types (omit params — they have declared types)
-        @mctx.suppress_typed_call_args  = generic_with_specialized
-        @mctx.typed_locals              = (!generic_with_specialized && opt?(:unbox_locals)) ? ((@gctx.locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
-        @mctx.typed_array_locals        = opt?(:native_arrays)   ? ((@gctx.arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
-        @mctx.class_locals      = opt?(:devirtualize)    ? ((@gctx.class_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
-        @mctx.local_array_elems = opt?(:native_arrays)   ? ((@gctx.local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
-        @mctx.block_params      = (@gctx.block_params[mkey]      || {}).reject { |k, _| param_set.include?(k) }
-        @mctx.local_types       = (@gctx.local_types[mkey] || {}).reject { |k, _| param_set.include?(k) }
-        @mctx.method_body       = method.body
-        @mctx.block_param_name  = ivar(method, :block_param)
-        @mctx.native_array_locals       = {}
+        @mctx.suppress_typed_call_args = generic_with_specialized
+        @mctx.typed_locals = (!generic_with_specialized && opt?(:unbox_locals)) ? ((@gctx.locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @mctx.typed_array_locals = opt?(:native_arrays) ? ((@gctx.arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @mctx.class_locals = opt?(:devirtualize) ? ((@gctx.class_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @mctx.local_array_elems = opt?(:native_arrays) ? ((@gctx.local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @mctx.block_params = (@gctx.block_params[mkey] || {}).reject { |k, _| param_set.include?(k) }
+        @mctx.local_types = (@gctx.local_types[mkey] || {}).reject { |k, _| param_set.include?(k) }
+        @mctx.method_body = method.body
+        @mctx.block_param_name = ivar(method, :block_param)
+        @mctx.native_array_locals = {}
         # Detect nested Array.new(n) { Array.new(m, fill) } construction patterns
         if opt?(:native_arrays)
+          detect_nested_array_locals(method.body, param_set)
           detect_nested_array_locals(method.body, param_set).each do |lname, inner_elem|
             @mctx.native_array_locals[lname] = [:array, inner_elem]
           end
@@ -804,10 +805,9 @@ module Frozone
         @gctx.load_from_mapper!(mapper)
       end
 
-      # Is this a complex Crystal-native type that callers may not be able to provide?
-      # Simple natives (Int64, Float64, Array(Int64)) are fine — callers construct them locally.
-      # Complex natives (Array(Array(Int64))) need genericising in fallback overloads.
       def param_name?(name) = @mctx.param_set&.include?(name)
+      def complex_native_type?(t) = CrystalType.array?(t) && CrystalType.array?(CrystalType.elem(t))
+      def returns_array_literal?(body) = last_body_expression(body).is_a?(Ast::ArrayLiteral)
 
       # Can this expression be passed as a raw Int64/Float64 arg?
       # Typed locals and arithmetic expressions of raw operands — yes.
@@ -822,12 +822,6 @@ module Frozone
         else false
         end
       end
-
-      def complex_native_type?(t)
-        CrystalType.array?(t) && CrystalType.array?(CrystalType.elem(t))
-      end
-
-      def returns_array_literal?(body) = last_body_expression(body).is_a?(Ast::ArrayLiteral)
 
       # Collect method names called as RHS of multiple assignment (candidates for Crystal tuple return).
       def collect_masgn_return_methods(body, scope)
@@ -904,9 +898,7 @@ module Frozone
 
       # Map a class name symbol to the Crystal class name.
       # Uses RUBY_TO_CRYSTAL_TYPE for built-in classes, Ruby_ prefix for user classes.
-      def crystal_class_name(cls)
-        CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
-      end
+      def crystal_class_name(cls) = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
 
       # Override: for typed locals in boxed context, wrap in RubyInteger/RubyFloat.
       def emit_local_var_read(node)
@@ -1599,7 +1591,7 @@ module Frozone
         body = method.body
         return false unless body
         case body
-        when Ast::InstanceVariableRead  then true
+        when Ast::InstanceVariableRead then true
         when Ast::InstanceVariableWrite then true
         else false
         end
