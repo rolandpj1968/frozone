@@ -42,7 +42,36 @@ end
 ```
 
 ### Section structure
-Each file has at most one public section and one private section. All public methods come first, all private methods at the bottom under a single `private` keyword. Do not interleave public and private, and do not use multiple `private` declarations. Always leave a blank line before the `private` keyword.
+Each class/module should be ordered: `class << self` block (class methods) → `initialize` → public instance methods → `private` → private instance methods. Use `class << self` blocks for class methods, not `def self.method`:
+
+```ruby
+class Foo
+  class << self
+    def try_convert(obj) = ...
+    def [](*args) = ...
+  end
+
+  def initialize(n)
+    @n = n
+  end
+
+  # public one-liners first, then public multi-liners
+  def size = @n
+  def empty? = @n == 0
+
+  def compute
+    # ...
+  end
+
+  private
+
+  def __helper__ = ...
+end
+```
+
+`initialize` is an exception to the one-liners-first rule — it always goes at the top of the instance methods section (after `class << self`), even though it's usually multi-line.
+
+All public methods come first, all private methods at the bottom under a single `private` keyword. Do not interleave public and private, and do not use multiple `private` declarations. Always leave a blank line before the `private` keyword.
 
 ### Unify common calls across branches
 Don't split the same method call across conditional branches. If both paths call the same thing with minor variations, unify them — the branch should be about what *differs*, not repeated around what's *shared*. Same applies to ternary expressions: `a.method(cond ? x : y)` not `cond ? a.method(x) : a.method(y)`.
