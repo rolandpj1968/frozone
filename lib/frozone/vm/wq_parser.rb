@@ -448,10 +448,10 @@ module Frozone
         when :regexp
           # s(:regexp, str_or_parts..., s(:regopt, :i, :m, ...))
           opts_node = c.last
-          flags = parse_regexp_flags(opts_node)
+          flags, enc_name = parse_regexp_flags(opts_node)
           parts = c[0..-2]
           if parts.length == 1 && parts[0].type == :str
-            Ast::RegexpLiteral.new(parts[0].children[0], flags)
+            Ast::RegexpLiteral.new(parts[0].children[0], flags, enc_name)
           else
             regexp_parts = parts.map do |p|
               p.type == :str ? Ast::StringLiteral.from(p.children[0]) : transform_begin_part(p)
@@ -2389,15 +2389,20 @@ module Frozone
 
       def parse_regexp_flags(opts_node)
         flags = 0
-        return flags if opts_node.nil? || opts_node.type != :regopt
+        enc_name = nil
+        return [flags, enc_name] if opts_node.nil? || opts_node.type != :regopt
         opts_node.children.each do |flag|
           case flag
           when :i then flags |= Regexp::IGNORECASE
           when :m then flags |= Regexp::MULTILINE
           when :x then flags |= Regexp::EXTENDED
+          when :u then flags |= Regexp::FIXEDENCODING; enc_name = 'UTF-8'
+          when :e then flags |= Regexp::FIXEDENCODING; enc_name = 'EUC-JP'
+          when :s then flags |= Regexp::FIXEDENCODING; enc_name = 'Windows-31J'
+          when :n then flags |= Regexp::NOENCODING
           end
         end
-        flags
+        [flags, enc_name]
       end
 
       # -----------------------------------------------------------------------
