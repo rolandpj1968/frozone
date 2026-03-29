@@ -574,7 +574,7 @@ module Frozone
           # Emit typed overload when inferred params have complex types (Array, etc.)
           # that need a separate generic fallback for untyped callers.
           inferred = @inferred_params[name]
-          has_complex_params = !@typed_params[name] && inferred&.any? { |t| t && t != 'RubyObject' && t.start_with?('Array(') }
+          has_complex_params = !@typed_params[name] && inferred&.any? { |t| complex_native_type?(t) }
           if has_complex_params
             emit_indent
             emit_vm_method(name, method, param_types: inferred)
@@ -583,12 +583,14 @@ module Frozone
           end
 
           emit_indent
-          # Generic overload: genericise complex array params to RubyObject,
-          # keep simple params (Int64, Array(Int64)) as-is.
-          if has_complex_params
-            generic_params = inferred.map { |t| t&.start_with?('Array(Array') ? 'RubyObject' : t }
+          # Generic overload: genericise any Crystal-native param types to
+          # RubyObject. Types that are already RubyObject subtypes stay as-is.
+          generic_params = if has_complex_params
+            inferred.map { |t| complex_native_type?(t) ? 'RubyObject' : t }
+          elsif @typed_params[name]
+            nil
           else
-            generic_params = @typed_params[name] ? nil : inferred
+            inferred
           end
           emit_vm_method(name, method, param_types: generic_params)
           emit_newline
@@ -882,6 +884,15 @@ module Frozone
         @instance_method_raw_returns = mapper.instance_method_raw_returns
         @const_raw_types             = mapper.const_raw_types
         @typed_ivars                 = mapper.typed_ivars
+      end
+
+      # Is this a complex Crystal-native type that callers may not be able to provide?
+      # Simple natives (Int64, Float64, Array(Int64)) are fine — callers construct them locally.
+      # Complex natives (Array(Array(Int64))) need genericising in fallback overloads.
+      def complex_native_type?(t)
+        return false if t.nil? || t == 'RubyObject'
+        # Nested arrays are complex; flat arrays and scalars are simple
+        t.start_with?('Array(') && t.include?('Array(Array')
       end
 
       def returns_array_literal?(body) = last_body_expression(body).is_a?(Ast::ArrayLiteral)
