@@ -209,6 +209,8 @@ module Frozone
           when :Array
             if ty[:elem]
               elem_crystal = crystal_type(ty[:elem])
+              # Flat native arrays only for now. Nested (Array(Array(Int64))) needs
+              # dual overloads (typed + generic) — tracked in next_steps.md.
               (elem_crystal == 'Int64' || elem_crystal == 'Float64') ? "Array(#{elem_crystal})" : 'RubyObject'
             else
               'RubyObject'
