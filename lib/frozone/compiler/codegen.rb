@@ -386,7 +386,7 @@ module Frozone
               emit_accessor_method(mname, method)
             else
               inst_param_types = @ti_class_params[[name, mname]]
-              has_typed = inst_param_types&.any? { |t| t && t != 'RubyObject' }
+              has_typed = inst_param_types&.any? { |t| t && t != :ruby_object }
               if has_typed
                 # Emit typed overload first, then generic (RubyObject) fallback
                 emit_vm_method(mname, method, param_types: inst_param_types)
@@ -412,7 +412,7 @@ module Frozone
               # Check both class-keyed and free-call-keyed params
               class_param_types = @ti_class_params[[name, mname]] || @inferred_params[mname]
               # Emit specialized (typed) overload if params have raw types
-              raw_types = class_param_types&.map { |t| t == 'Int64' ? :i64 : (t == 'Float64' ? :f64 : nil) }
+              raw_types = class_param_types&.map { |t| CrystalType.raw(t) }
               class_return = @instance_method_raw_returns[[name, mname]]
               if opt?(:method_specialization) && raw_types&.any?
                 emit_indent
@@ -574,7 +574,7 @@ module Frozone
           # Emit typed overload when inferred params have complex types (Array, etc.)
           # that need a separate generic fallback for untyped callers.
           inferred = @inferred_params[name]
-          has_complex_params = !@typed_params[name] && inferred&.any? { |t| complex_native_type?(t) }
+          has_complex_params = !@typed_params[name] && inferred&.any? { |t| CrystalType.native?(t) }
           if has_complex_params
             emit_indent
             emit_vm_method(name, method, param_types: inferred)
@@ -586,7 +586,7 @@ module Frozone
           # Generic overload: genericise any Crystal-native param types to
           # RubyObject. Types that are already RubyObject subtypes stay as-is.
           generic_params = if has_complex_params
-            inferred.map { |t| complex_native_type?(t) ? 'RubyObject' : t }
+            inferred.map { |t| CrystalType.native?(t) ? :ruby_object : t }
           elsif @typed_params[name]
             nil
           else
@@ -635,7 +635,7 @@ module Frozone
         # disable ALL type optimizations (the specialized handles raw paths).
         generic_with_specialized = class_method && param_types.nil? &&
           @current_class_eigen_methods&.any? &&
-          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != 'RubyObject' }
+          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != :ruby_object }
         # Use TypeInference results for local types (omit params — they have declared types)
         @suppress_typed_call_args  = generic_with_specialized
         @typed_locals              = (!generic_with_specialized && opt?(:unbox_locals)) ? ((@ti_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
@@ -652,12 +652,16 @@ module Frozone
         if param_types
           req = ivar(method, :required_params) || []
           req.each_with_index do |p, i|
-            case param_types[i]
-            when 'Int64'        then @typed_locals[p] = :i64
-            when 'Float64'      then @typed_locals[p] = :f64
-            when 'Array(Int64)' then @native_array_locals[p] = :i64
-            when 'Array(Float64)' then @native_array_locals[p] = :f64
-            when /\AArray\(Array\(/ then @current_local_2d_arrays[p] = param_types[i].include?('Float64') ? :f64 : :i64
+            pt = param_types[i]
+            if CrystalType.scalar?(pt)
+              @typed_locals[p] = pt
+            elsif CrystalType.array?(pt)
+              inner = CrystalType.elem(pt)
+              if CrystalType.scalar?(inner)
+                @native_array_locals[p] = inner
+              elsif CrystalType.array?(inner)
+                @current_local_2d_arrays[p] = CrystalType.elem(inner) || :i64
+              end
             end
           end
         end
@@ -665,7 +669,7 @@ module Frozone
         # Skip for generic class method overloads when a specialized version exists
         # (typed locals in the generic cause Float64/Int64 mismatches with RubyObject ops).
         has_specialized = class_method && @current_class_eigen_methods&.any? &&
-          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != 'RubyObject' }
+          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != :ruby_object }
         unless has_specialized && param_types.nil?
           infer_local_types(method.body).each do |lname, ty|
             @typed_locals[lname] ||= ty unless param_set.include?(lname)
@@ -680,7 +684,7 @@ module Frozone
         # Skip for generic class method overloads when a specialized overload exists
         # (the specialized handles the raw return).
         has_specialized = class_method && @current_class_eigen_methods&.any? &&
-          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != 'RubyObject' }
+          (@inferred_params[name] || @ti_class_params[[@current_class_name, name]])&.any? { |t| t != :ruby_object }
         raw_return = !has_specialized && opt?(:raw_returns) && !@typed_params[name] &&
           (@typed_method_returns[name] ||
            (@current_class_name && @instance_method_raw_returns[[@current_class_name, name]]))
@@ -907,12 +911,6 @@ module Frozone
         end
       end
 
-      def complex_native_type?(t)
-        return false if t.nil? || t == 'RubyObject'
-        # Nested arrays are complex; flat arrays and scalars are simple
-        t.start_with?('Array(') && t.include?('Array(Array')
-      end
-
       def returns_array_literal?(body) = last_body_expression(body).is_a?(Ast::ArrayLiteral)
 
       # Collect method names called as RHS of multiple assignment (candidates for Crystal tuple return).
@@ -988,7 +986,7 @@ module Frozone
               arg_types
             else
               # Join: if two call sites disagree on a position, fall back to RubyObject
-              existing.zip(arg_types).map { |a, b| a == b ? a : 'RubyObject' }
+              existing.zip(arg_types).map { |a, b| a == b ? a : :ruby_object }
             end
           end
 
@@ -1016,10 +1014,10 @@ module Frozone
 
         parts  = []
         req    = ivar(node, :required_params) || []
-        types  = param_types + ['RubyObject'] * [req.size - param_types.size, 0].max
+        types  = param_types + [:ruby_object] * [req.size - param_types.size, 0].max
 
         req.each_with_index do |p, i|
-          parts << "#{crystal_local(p)} : #{types[i] || 'RubyObject'}"
+          parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(types[i] || :ruby_object)}"
         end
 
         ivar(node, :optional_params).each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
@@ -1253,10 +1251,8 @@ module Frozone
         args.each_with_index do |arg, i|
           write ", " if i > 0
           pt = param_types[i]
-          if pt == 'Int64' || pt == 'Float64'
-            # Coerce arg to raw type: use emit_raw if already typed,
-            # otherwise emit and append .to_i64/.to_f64
-            emit_as(arg, pt == 'Float64' ? :f64 : :i64)
+          if CrystalType.scalar?(pt)
+            emit_as(arg, pt)
           else
             emit(arg)
           end
@@ -1434,8 +1430,8 @@ module Frozone
           write "self.#{crystal_method_name(node.name)}"
           if !@suppress_typed_call_args && (opt?(:call_site_types) || opt?(:method_specialization))
             tp = @inferred_params[node.name] || @ti_class_params[[@current_class_name, node.name]]
-            can_use_typed = tp&.any? { |t| t && t != 'RubyObject' } &&
-              tp.all? { |pt| !pt || pt == 'RubyObject' || pt == 'Int64' || pt == 'Float64' || pt.start_with?('Ruby_') }
+            can_use_typed = tp&.any? { |t| t && t != :ruby_object } &&
+              tp.all? { |pt| !pt || !CrystalType.native?(pt) || CrystalType.scalar?(pt) }
             if can_use_typed
               emit_typed_call_args(node.arg_nodes || [], tp)
             else
