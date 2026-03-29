@@ -14,7 +14,7 @@ class Proc
   def to_s = Intrinsics.proc_inspect(self)
   def inspect = Intrinsics.proc_inspect(self)
   def to_proc = self
-  def ==(other)  = Intrinsics.proc_eql(self, other)
+  def ==(other) = Intrinsics.proc_eql(self, other)
   def eql?(other) = Intrinsics.proc_eql(self, other)
   def hash = Intrinsics.proc_hash(self)
   def ruby2_keywords = Intrinsics.proc_ruby2_keywords(self)

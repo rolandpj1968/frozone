@@ -30,8 +30,11 @@ class Enumerator
 
   def next_values = __next_values_raw__
   def peek_values = __peek_values_raw__
+  def next = (vals = __next_values_raw__).empty? ? nil : (vals.length == 1 ? vals[0] : vals)
+  def peek = (vals = __peek_values_raw__).empty? ? nil : (vals.length == 1 ? vals[0] : vals)
   def with_object(obj, &block) = each_with_object(obj, &block)
   def +(other) = Enumerator::Chain.new(self, other)
+  def count = (s = size).nil? ? to_a.length : s
 
   def self._from_method(receiver, method_name, method_args, size_block = nil, method_kwargs = {})
     e = allocate
@@ -89,16 +92,6 @@ class Enumerator
     end
   end
 
-  def next
-    vals = __next_values_raw__
-    vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals)
-  end
-
-  def peek
-    vals = __peek_values_raw__
-    vals.empty? ? nil : (vals.length == 1 ? vals[0] : vals)
-  end
-
   def feed(val)
     raise TypeError, "feed value already set" if @_fiber_started && @_feed_pending
     @feed = val
@@ -125,11 +118,6 @@ class Enumerator
     else
       @size
     end
-  end
-
-  def count
-    s = size
-    s.nil? ? to_a.length : s
   end
 
   def inspect
@@ -448,7 +436,7 @@ class Enumerator::Lazy < Enumerator
   alias collect_concat flat_map
 
   def take(n)
-    n = n.to_int if n.respond_to?(:to_int) && !n.is_a?(Integer)
+    n = __coerce_to_int__(n)
     raise ArgumentError, "attempt to take negative size" if n < 0
     sz = size
     new_size = sz ? [sz, n].min : n
@@ -478,7 +466,7 @@ class Enumerator::Lazy < Enumerator
   end
 
   def drop(n)
-    n = n.to_int if n.respond_to?(:to_int) && !n.is_a?(Integer)
+    n = __coerce_to_int__(n)
     raise ArgumentError, "attempt to drop negative size" if n < 0
     sz = size
     new_size = sz ? [sz - n, 0].max : nil
@@ -785,15 +773,7 @@ class Enumerator::Lazy < Enumerator
   end
 
   def with_index(offset = 0, &block)
-    if offset.nil?
-      offset = 0
-    elsif !offset.is_a?(Integer)
-      begin
-        offset = offset.to_int
-      rescue NoMethodError
-        raise TypeError, "no implicit conversion into Integer"
-      end
-    end
+    offset = offset.nil? ? 0 : __coerce_to_int__(offset)
     if block
       the_block = block
       the_offset = offset
@@ -962,11 +942,8 @@ class Enumerator
     end
 
     def exclude_end? = (@receiver.is_a?(Range) ? @receiver.exclude_end? : false)
-
-    # Supports both Range#step (receiver is a Range) and Numeric#step (receiver is a Numeric).
-    def begin
-      @receiver.is_a?(Range) ? @receiver.begin : @receiver
-    end
+    def begin = @receiver.is_a?(Range) ? @receiver.begin : @receiver
+    def hash = [self.begin, self.end, self.step, exclude_end?].hash
 
     def end
       if @receiver.is_a?(Range)
@@ -1002,10 +979,6 @@ class Enumerator
       return false unless other.is_a?(ArithmeticSequence)
       self.begin == other.begin && self.end == other.end &&
         self.step == other.step && exclude_end? == other.exclude_end?
-    end
-
-    def hash
-      [self.begin, self.end, self.step, exclude_end?].hash
     end
 
     def last

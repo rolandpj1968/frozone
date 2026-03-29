@@ -1,64 +1,4 @@
 module Enumerable
-  private
-
-  def __unpack_enum_args__(x)
-    x.empty? ? nil : (x.length == 1 ? x[0] : x)
-  end
-
-  def __parse_reduce_args__(args, block)
-    sym = nil; has_initial = false; initial = nil; should_warn = false
-    case args.length
-    when 0
-      raise ArgumentError, "no block given (yield)" unless block
-    when 1
-      arg = args[0]
-      if block
-        # With block: treat any single arg as initial value
-        has_initial = true; initial = arg
-        # Warn if it's a Symbol (would normally be op, but block takes precedence)
-        should_warn = true if arg.is_a?(Symbol)
-      else
-        # Without block: arg must be a method name
-        if arg.is_a?(Symbol)
-          sym = arg
-        elsif arg.is_a?(String)
-          sym = arg.to_sym
-        elsif arg.respond_to?(:to_str)
-          str = arg.to_str
-          raise TypeError, "#{arg.inspect} is not a symbol nor a string" unless str.is_a?(String)
-          sym = str.to_sym
-        else
-          raise TypeError, "#{arg.inspect} is not a symbol nor a string"
-        end
-      end
-    when 2
-      initial = args[0]; has_initial = true
-      arg1 = args[1]
-      if arg1.is_a?(Symbol)
-        sym = arg1
-      elsif arg1.is_a?(String)
-        sym = arg1.to_sym
-      elsif arg1.respond_to?(:to_str)
-        sym = arg1.to_str.to_sym
-      else
-        raise TypeError, "#{arg1.inspect} is not a symbol nor a string"
-      end
-      should_warn = true if block
-    else
-      raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
-    end
-    [sym, has_initial, initial, should_warn]
-  end
-
-  def __coerce_count__(n, method_name)
-    n = __coerce_to_int__(n)
-    raise RangeError, "#{method_name}: integer #{n} too big to convert into `long'" if n > 2**62
-    raise ArgumentError, "#{method_name}: negative length (#{n})" if n < 0
-    n
-  end
-
-  public
-
   def sort(&block) = to_a.sort(&block)
   def lazy = Enumerator::Lazy.new(self) { |y, *vals| y.yield(*vals) }
   def chain(*enums) = Enumerator::Chain.new(self, *enums)
@@ -751,5 +691,61 @@ module Enumerable
   def to_set(klass = Set, *args, &block)
     Intrinsics.kernel_deprecation_warn(self, "Enumerable#to_set is deprecated and will be removed in Ruby 4.2.")
     klass.new(self, *args, &block)
+  end
+
+  private
+
+  def __unpack_enum_args__(x) = x.empty? ? nil : (x.length == 1 ? x[0] : x)
+
+  def __coerce_count__(n, method_name)
+    n = __coerce_to_int__(n)
+    raise RangeError, "#{method_name}: integer #{n} too big to convert into `long'" if n > 2**62
+    raise ArgumentError, "#{method_name}: negative length (#{n})" if n < 0
+    n
+  end
+
+  def __parse_reduce_args__(args, block)
+    sym = nil; has_initial = false; initial = nil; should_warn = false
+    case args.length
+    when 0
+      raise ArgumentError, "no block given (yield)" unless block
+    when 1
+      arg = args[0]
+      if block
+        # With block: treat any single arg as initial value
+        has_initial = true; initial = arg
+        # Warn if it's a Symbol (would normally be op, but block takes precedence)
+        should_warn = true if arg.is_a?(Symbol)
+      else
+        # Without block: arg must be a method name
+        if arg.is_a?(Symbol)
+          sym = arg
+        elsif arg.is_a?(String)
+          sym = arg.to_sym
+        elsif arg.respond_to?(:to_str)
+          str = arg.to_str
+          raise TypeError, "#{arg.inspect} is not a symbol nor a string" unless str.is_a?(String)
+          sym = str.to_sym
+        else
+          raise TypeError, "#{arg.inspect} is not a symbol nor a string"
+        end
+      end
+    when 2
+      initial = args[0]; has_initial = true
+      arg1 = args[1]
+      if arg1.is_a?(Symbol)
+        sym = arg1
+      elsif arg1.is_a?(String)
+        sym = arg1.to_sym
+      elsif arg1.respond_to?(:to_str)
+        sym = arg1.to_str.to_sym
+      else
+        raise TypeError, "#{arg1.inspect} is not a symbol nor a string"
+      end
+      should_warn = true if block
+    else
+      raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
+    end
+    [sym, has_initial, initial, should_warn]
   end
 end

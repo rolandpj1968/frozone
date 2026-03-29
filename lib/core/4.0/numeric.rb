@@ -41,10 +41,7 @@ class Numeric
   def numerator = to_r.numerator
   def denominator = to_r.denominator
   def singleton_method_added(id) = raise(TypeError, "can't define singleton")
-
-  def round(ndigits = 0, half: :up)
-    to_f.round(ndigits, half: half)
-  end
+  def round(ndigits = 0, half: :up) = to_f.round(ndigits, half: half)
 
   def clone(freeze: nil)
     raise ArgumentError, "can't unfreeze #{self.class}" if freeze == false
