@@ -124,6 +124,7 @@ module Frozone
         @native_array_locals         = {}   # local_name => :i64 | :f64 — Array(T) from 2D parent read
         @suppress_typed_call_args    = false # true inside generic body that has a specialized overload
         @emit_crystal_tuple          = false # true when emitting last expression of method body (multi-return)
+        @masgn_return_methods        = nil   # Set of method names called in masgn RHS position
         @object_instance_methods     = Set.new # methods emitted on RubyObject (skip *args stubs)
         @suppress_tuple_literals     = false  # true inside local var assignment (arrays may be mutated)
 
@@ -146,6 +147,9 @@ module Frozone
 
         # Collect class-typed ivars (X | nil patterns) across all methods
         collect_class_typed_ivars(top_level_scope) if opt?(:ivar_narrowing)
+
+        # Scan for methods called in masgn RHS (multi-return → Crystal tuple)
+        @masgn_return_methods = collect_masgn_return_methods(execute_block&.body, top_level_scope)
 
         # Build global method-name → index map for respond_to? bit arrays.
         build_method_index(top_level_scope)
@@ -691,10 +695,8 @@ module Frozone
         elsif raw_return
           indented { emit_raw_body(method.body) }
         else
-          # Check if last expression is an array literal → emit as Crystal tuple
-          # for zero-cost multi-return with typed destructuring.
-          last = last_body_expression(method.body)
-          @emit_crystal_tuple = last.is_a?(Ast::ArrayLiteral) && !@suppress_tuple_literals
+          # Emit Crystal tuple return when method is called in masgn context
+          @emit_crystal_tuple = @masgn_return_methods&.include?(name)
           indented { emit(method.body) }
           @emit_crystal_tuple = false
         end
@@ -868,6 +870,40 @@ module Frozone
       end
 
       def returns_array_literal?(body) = last_body_expression(body).is_a?(Ast::ArrayLiteral)
+
+      # Collect method names called as RHS of multiple assignment (candidates for Crystal tuple return).
+      def collect_masgn_return_methods(body, scope)
+        result = Set.new
+        collect_masgn_rhs = ->(node) {
+          return unless node
+          case node
+          when Ast::MultipleAssignment
+            rhs = node.instance_variable_get(:@value_node)
+            if rhs.is_a?(Ast::MethodCall) && rhs.instance_variable_get(:@receiver_node).nil?
+              mname = rhs.instance_variable_get(:@name)
+              method = scope.instance_variable_get(:@methods_table)&.fetch(mname, nil)
+              result << mname if method.is_a?(Vm::Method) && returns_array_literal?(method.body)
+            end
+          when Ast::Sequence
+            node.nodes.each { |n| collect_masgn_rhs.call(n) }
+          when Ast::If
+            collect_masgn_rhs.call(node.instance_variable_get(:@then_node))
+            collect_masgn_rhs.call(node.instance_variable_get(:@else_node))
+          when Ast::While, Ast::Until
+            collect_masgn_rhs.call(node.instance_variable_get(:@body_node))
+          when Ast::MethodCall
+            blk = node.instance_variable_get(:@block_node)
+            collect_masgn_rhs.call(blk.instance_variable_get(:@body)) if blk.respond_to?(:body)
+          end
+        }
+        # Scan execute block
+        collect_masgn_rhs.call(body)
+        # Scan user method bodies
+        (scope.instance_variable_get(:@methods_table) || {}).each_value do |m|
+          collect_masgn_rhs.call(m.body) if m.is_a?(Vm::Method)
+        end
+        result
+      end
 
       def last_body_expression(node)
         case node
