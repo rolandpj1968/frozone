@@ -31,18 +31,28 @@ See [docs/spec-status.md](docs/spec-status.md) for detailed breakdowns, [docs/in
 
 ### Compiler Benchmarks
 
-Numeric/accessor/tree benchmarks compiled to Crystal are **3.7-95x faster than YJIT**:
+Measured on Ruby 4.0.1 vs Crystal `--release` build (same workload per benchmark):
 
-| Benchmark | vs MRI | vs YJIT |
-|-----------|--------|---------|
-| fib(20) | 22x | 13x |
-| nbody 20k | 95x | 33x |
-| attr_accessor | 72x | 72x |
-| loops_times | 73x | 18x |
-| nqueens(8) | 17x | 26x |
-| binarytrees(14) | 9.4x | 3.7x |
+| Benchmark | MRI | YJIT | Frozone→Crystal | vs MRI | vs YJIT |
+|-----------|-----|------|-----------------|--------|---------|
+| fib(20) | 0.87 ms | 0.53 ms | 0.04 ms | **22×** | **13×** |
+| nqueens(8) | 0.87 ms | 1.31 ms | 0.05 ms | **17×** | **26×** |
+| nbody 20k | 167 ms | 58 ms | 1.76 ms | **95×** | **33×** |
+| matmul(200) | 581 ms | 272 ms | 21.3 ms | **27×** | **13×** |
+| getivar 50K | 0.28 ms | 0.28 ms | 0.01 ms | **28×** | **28×** |
+| setivar 50K | 0.27 ms | 0.25 ms | <0.01 ms | **>27×** | **>25×** |
+| attr\_accessor | 0.72 ms | 0.72 ms | 0.01 ms | **72×** | **72×** |
+| loops\_times | 791 ms | 196 ms | 10.9 ms | **73×** | **18×** |
+| binarytrees(14) | 292 ms | 115 ms | 31 ms | **9.4×** | **3.7×** |
+| keyword\_args | 1.0 ms | 2.2 ms | 1.97 ms | 0.5× | 1.1× |
+| gcbench | 1751 ms | 558 ms | 158 ms | **11×** | **3.5×** |
+| respond\_to | 162 ms | 15 ms | 0.3 ms | **540×** | **50×** |
+| ruby-xor | 97 ms | 19 ms | 53 ms | **1.8×** | 0.4× |
+| fannkuchredux | 311 ms | 311 ms | 176 ms | **1.8×** | **1.8×** |
+| blurhash | 234 ms | 102 ms | 662 ms | 0.4× | 0.2× |
+| splay | 87 ms | 60 ms | 179 ms | 0.5× | 0.3× |
 
-22 compiled benchmarks total. See [docs/compilation.md](docs/compilation.md) for full results and architecture.
+22 compiled benchmarks. `respond_to?` uses compile-time constant folding (closed-world method lookup resolved at compile time). See [docs/compilation.md](docs/compilation.md) for architecture.
 
 ### AOT Compilation
 
