@@ -1,16 +1,16 @@
-require_relative 'crystal_codegen'
+require_relative 'crystal_emitter'
 require_relative '../vm/module_object'
 require_relative '../vm/method'
-require_relative 'snapshot_codegen/raw_emission'
-require_relative 'snapshot_codegen/array_analysis'
-require_relative 'snapshot_codegen/ivar_analysis'
-require_relative 'snapshot_codegen/method_specialisation'
+require_relative 'codegen/raw_emission'
+require_relative 'codegen/array_analysis'
+require_relative 'codegen/ivar_analysis'
+require_relative 'codegen/method_specialisation'
 
 module Frozone
   module Compiler
     # Snapshot-based Crystal code generator.
     #
-    # Unlike CrystalCodegen (which is driven by a raw source AST), SnapshotCodegen
+    # Unlike CrystalEmitter (which is driven by a raw source AST), Codegen
     # is driven by the *settled* Frozone VM state after the load phase has run:
     #
     #   1. Walk Core::OBJECT_CLASS to find user-defined top-level methods and classes.
@@ -19,11 +19,11 @@ module Frozone
     #
     # "User-defined" is determined by source_location: methods/constants whose
     # location does not fall inside lib/core/ or lib/frozone/ are user code.
-    class SnapshotCodegen < CrystalCodegen
-      include SnapshotCodegenSupport::ArrayAnalysis
-      include SnapshotCodegenSupport::RawEmission
-      include SnapshotCodegenSupport::IvarAnalysis
-      include SnapshotCodegenSupport::MethodSpecialisation
+    class Codegen < CrystalEmitter
+      include CodegenSupport::ArrayAnalysis
+      include CodegenSupport::RawEmission
+      include CodegenSupport::IvarAnalysis
+      include CodegenSupport::MethodSpecialisation
 
       # -----------------------------------------------------------------------
       # Optimization flags — per-optimization control (like gcc -fno-X)
@@ -324,7 +324,7 @@ module Frozone
                 ct = @current_class_typed_ivars[iv_sym]
                 if ct
                   kind, cls = ct
-                  crystal_cls = CrystalCodegen::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
+                  crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
                   if kind == :class_or_nil
                     ["#{crystal_cls} | RubyNil", "RUBY_NIL"]
                   else
@@ -849,7 +849,7 @@ module Frozone
               # Narrow locals to concrete class types — skip abstract/top-level
               # types (Object, Numeric) and Array/Hash (handled by native arrays)
               skip_builtin = %i[Object BasicObject Numeric Array Hash].include?(cls)
-              if cls && !skip_builtin && (@ti_user_class_names&.include?(cls) || CrystalCodegen::RUBY_TO_CRYSTAL_TYPE.key?(cls))
+              if cls && !skip_builtin && (@ti_user_class_names&.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls))
                 (@ti_class_locals[slot[1]] ||= {})[slot[2]] = cls
               end
             end
@@ -987,7 +987,7 @@ module Frozone
           when :Proc             then 'RubyProc'
           else
             cls = ty[:class]
-            (@ti_user_class_names&.include?(cls) || CrystalCodegen::RUBY_TO_CRYSTAL_TYPE.key?(cls)) ? crystal_class_name(cls) : 'RubyObject'
+            (@ti_user_class_names&.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls)) ? crystal_class_name(cls) : 'RubyObject'
           end
         else 'RubyObject'
         end
@@ -1086,7 +1086,7 @@ module Frozone
       # Map a class name symbol to the Crystal class name.
       # Uses RUBY_TO_CRYSTAL_TYPE for built-in classes, Ruby_ prefix for user classes.
       def crystal_class_name(cls)
-        CrystalCodegen::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
+        CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
       end
 
       # Override: for typed locals in boxed context, wrap in RubyInteger/RubyFloat.
@@ -1492,12 +1492,12 @@ module Frozone
         # raw Crystal arithmetic instead of going through RubyObject dispatch.
         # Requires both sides typed to avoid coercing unknown-type values.
         if node.receiver_node && (node.arg_nodes || []).size == 1 &&
-           (ARITH_OPS_UNBOX | CrystalCodegen::COMPARE_OPS).include?(node.name)
+           (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(node.name)
           rt = node_raw_type(node.receiver_node)
           at = node_raw_type(node.arg_nodes[0])
           if rt && at
             ty = (rt == :f64 || at == :f64) ? :f64 : :i64
-            if CrystalCodegen::COMPARE_OPS.include?(node.name)
+            if CrystalEmitter::COMPARE_OPS.include?(node.name)
               write "(("
               emit_as(node.receiver_node, ty)
               op = (node.name == :/ && ty == :i64) ? "//" : node.name.to_s
@@ -1766,7 +1766,7 @@ module Frozone
             ct = @current_class_typed_ivars[iv]
             if ct
               kind, cls = ct
-              crystal_cls = CrystalCodegen::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
+              crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
               ret_type = kind == :class_or_nil ? "#{crystal_cls} | RubyNil" : crystal_cls
               line "def #{crystal_method_name(mname)} : #{ret_type}; #{iv}; end"
             else

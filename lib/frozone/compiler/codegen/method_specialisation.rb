@@ -1,4 +1,4 @@
-# Method type specialisation for SnapshotCodegen.
+# Method type specialisation for Codegen.
 #
 # Analyses call sites to determine which methods can have raw Int64/Float64
 # overloads, and emits those specialised overloads alongside the generic
@@ -13,7 +13,7 @@
 
 module Frozone
   module Compiler
-    module SnapshotCodegenSupport
+    module CodegenSupport
       module MethodSpecialisation
       # Walk the execute block looking for free calls where ALL args are raw-typed.
       # Populates @typed_params with {method_name => [:i64/:f64, ...]} for consistent sites.
@@ -149,7 +149,7 @@ module Frozone
           if recv.nil?
             # Free call — must be to a specialised method
             @typed_method_returns.key?(name) ? args.all? { |a| body_all_raw_safe?(a) } : false
-          elsif (RawEmission::ARITH_OPS_UNBOX | CrystalCodegen::COMPARE_OPS).include?(name) && args.size == 1
+          elsif (RawEmission::ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1
             body_all_raw_safe?(recv) && body_all_raw_safe?(args[0])
           else
             false
@@ -336,7 +336,7 @@ module Frozone
         when Ast::If
           write "if "
           cond = ivar(node, :pred_node)
-          if cond.is_a?(Ast::MethodCall) && (RawEmission::ARITH_OPS_UNBOX | CrystalCodegen::COMPARE_OPS).include?(ivar(cond, :name)) &&
+          if cond.is_a?(Ast::MethodCall) && (RawEmission::ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(ivar(cond, :name)) &&
              (ivar(cond, :arg_nodes) || []).size == 1
             recv = ivar(cond, :receiver_node)
             # Wrap embedded assignments in parens so (q1 = expr) != val

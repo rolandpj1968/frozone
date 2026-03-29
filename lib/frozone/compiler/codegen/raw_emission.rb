@@ -1,4 +1,4 @@
-# Raw/typed emission helpers for SnapshotCodegen.
+# Raw/typed emission helpers for Codegen.
 #
 # Provides the core unboxed emission pipeline:
 # - node_raw_type: determines if an AST node has a provable bare Crystal type
@@ -8,11 +8,11 @@
 # - emit_coerce_i64/f64: coerce with assignment-aware parens
 #
 # Dependencies: calls native_array_elem_type (ArrayAnalysis),
-# emit/write/crystal_local/ivar (CrystalCodegen).
+# emit/write/crystal_local/ivar (CrystalEmitter).
 
 module Frozone
   module Compiler
-    module SnapshotCodegenSupport
+    module CodegenSupport
       module RawEmission
       ARITH_OPS_UNBOX = %i[+ - * ** / % | & ^ << >>].to_set
 
@@ -201,7 +201,7 @@ module Frozone
         case node
         when Ast::And
           # Emit as Crystal &&: both sides must produce Crystal-compatible booleans.
-          # Comparisons (CrystalCodegen::COMPARE_OPS) in emit_raw produce Crystal Bool already.
+          # Comparisons (CrystalEmitter::COMPARE_OPS) in emit_raw produce Crystal Bool already.
           write "("
           emit_raw(ivar(node, :left_node))
           write " && "
@@ -321,7 +321,7 @@ module Frozone
               emit_raw(a)
             end
             write ")"
-          elsif (ARITH_OPS_UNBOX | CrystalCodegen::COMPARE_OPS).include?(name) && args.size == 1 && recv
+          elsif (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
             rt = node_raw_type(recv)
             at = node_raw_type(args[0])
             ty = (rt == :f64 || at == :f64) ? :f64 : :i64
@@ -362,7 +362,7 @@ module Frozone
           name = ivar(node, :name)
           recv = ivar(node, :receiver_node)
           args = ivar(node, :arg_nodes) || []
-          if (ARITH_OPS_UNBOX | CrystalCodegen::COMPARE_OPS).include?(name) && args.size == 1 && recv
+          if (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
             rt = node_raw_type(recv)
             at = node_raw_type(args[0])
             if rt || at

@@ -9,7 +9,7 @@ module Frozone
     # Workflow:
     #   1. The interpreter runs the load phase normally (class defs, constants settle).
     #   2. When Frozone.compile! is reached, the block is NOT evaluated.
-    #   3. Instead, SnapshotCodegen walks the live VM state (class table, constant
+    #   3. Instead, Codegen walks the live VM state (class table, constant
     #      table) and emits Crystal — user-defined methods, settled constants, and
     #      then the block body as the Crystal `main` (execute phase).
     #
@@ -25,7 +25,7 @@ module Frozone
       end
 
       def evaluate(context)
-        require_relative '../compiler/snapshot_codegen'
+        require_relative '../compiler/codegen'
 
         # Source file of the stub (methods defined here are load-phase scaffolding,
         # not real user code — exclude them from the snapshot).
@@ -38,7 +38,7 @@ module Frozone
           return Vm::NilObject::NIL
         end
 
-        codegen = Frozone::Compiler::SnapshotCodegen.new
+        codegen = Frozone::Compiler::Codegen.new
         crystal_source = codegen.generate(
           execute_block: @block_node,
           top_level_scope: Vm::Core::OBJECT_CLASS,

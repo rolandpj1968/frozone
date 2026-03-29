@@ -1,4 +1,4 @@
-# Instance variable type analysis for SnapshotCodegen.
+# Instance variable type analysis for Codegen.
 #
 # Analyses all methods of user classes to determine ivar types:
 # - Scalar typing: @x always holds Int64/Float64
@@ -6,11 +6,11 @@
 # - Constructor analysis: infer ivar types from initialize + call sites
 #
 # Dependencies: calls node_raw_type (RawEmission),
-# user_source_location? (SnapshotCodegen).
+# user_source_location? (Codegen).
 
 module Frozone
   module Compiler
-    module SnapshotCodegenSupport
+    module CodegenSupport
       module IvarAnalysis
       KNOWN_BUILTIN_CLASSES = %i[Array Hash String Symbol Integer Float Range Regexp].to_set
 
@@ -23,7 +23,7 @@ module Frozone
         const_table = scope.instance_variable_get(:@constants_table) || {}
         const_locs  = scope.instance_variable_get(:@constants_locations) || {}
         const_table.each do |name, value|
-          next if SnapshotCodegen::SKIP_CONSTANTS.include?(name) || value.is_a?(Vm::ModuleObject)
+          next if Codegen::SKIP_CONSTANTS.include?(name) || value.is_a?(Vm::ModuleObject)
           next unless user_source_location?(const_locs[name])
           case value
           when Vm::FloatObject   then @const_raw_types[name] = :f64
@@ -39,7 +39,7 @@ module Frozone
         return unless execute_block
 
         scope.instance_variable_get(:@constants_table)&.each do |name, value|
-          next unless value.is_a?(Vm::ClassObject) && !SnapshotCodegen::SKIP_CONSTANTS.include?(name)
+          next unless value.is_a?(Vm::ClassObject) && !Codegen::SKIP_CONSTANTS.include?(name)
 
           param_types = collect_class_new_arg_types(execute_block.body, name)
           next unless param_types&.all?
@@ -63,7 +63,7 @@ module Frozone
       # Recursively collect user-defined classes (including nested classes)
       def collect_user_classes_recursive(scope, result)
         (scope.instance_variable_get(:@constants_table) || {}).each do |name, val|
-          next if SnapshotCodegen::SKIP_CONSTANTS.include?(name)
+          next if Codegen::SKIP_CONSTANTS.include?(name)
           if val.is_a?(Vm::ModuleObject)  # includes ClassObject (subclass)
             result[name] = val
             collect_user_classes_recursive(val, result)
@@ -81,7 +81,7 @@ module Frozone
 
       def collect_class_typed_ivars_from(scope)
         scope.instance_variable_get(:@constants_table)&.each do |class_name, value|
-          next unless value.is_a?(Vm::ModuleObject) && !SnapshotCodegen::SKIP_CONSTANTS.include?(class_name)
+          next unless value.is_a?(Vm::ModuleObject) && !Codegen::SKIP_CONSTANTS.include?(class_name)
           collect_class_typed_ivars_from(value)  # recurse into nested modules/classes
           next unless value.is_a?(Vm::ClassObject)  # only collect ivars for classes
           methods = value.instance_variable_get(:@methods_table) || {}

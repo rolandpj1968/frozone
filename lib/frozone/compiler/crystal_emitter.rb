@@ -6,13 +6,13 @@ module Frozone
     #
     # Usage:
     #   ast  = Frozone::Vm::Parser.new(source, file).parse
-    #   code = CrystalCodegen.new.generate(ast)
+    #   code = CrystalEmitter.new.generate(ast)
     #   File.write("out.cr", code)
     #
     # Design: single case dispatch in #emit — no modifications to AST nodes.
     # The runtime library lives in crystal/src/ and is required at the top of
     # every emitted file via RUNTIME_REQUIRE.
-    class CrystalCodegen
+    class CrystalEmitter
       CRYSTAL_DIR = File.expand_path('../../../crystal', __dir__)
 
       # The directory that generated .cr files should be placed in (so that
@@ -1555,7 +1555,7 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def codegen_inline(node)
-        sub = CrystalCodegen.new
+        sub = CrystalEmitter.new
         sub.instance_variable_set(:@indent, 0)
         sub.send(:emit, node)
         sub.instance_variable_get(:@out)

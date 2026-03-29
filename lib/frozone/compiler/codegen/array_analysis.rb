@@ -1,4 +1,4 @@
-# Array type analysis and escape analysis for SnapshotCodegen.
+# Array type analysis and escape analysis for Codegen.
 #
 # Provides:
 # - native_array_elem_type: lookup for Array(T) locals
@@ -12,7 +12,7 @@
 
 module Frozone
   module Compiler
-    module SnapshotCodegenSupport
+    module CodegenSupport
       module ArrayAnalysis
       def native_array_elem_type(arr_name) = @typed_array_locals[arr_name] || @native_array_locals[arr_name]
 
