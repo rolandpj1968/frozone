@@ -29,8 +29,6 @@ class Symbol
   def match?(pattern, pos = :__unset__) = pos.equal?(:__unset__) ? to_s.match?(pattern) : to_s.match?(pattern, pos)
   def [](idx, len = :__unset__) = len.equal?(:__unset__) ? to_s[idx] : to_s[idx, len]
   alias slice []
-  include Comparable
-
   def self.allocate = raise TypeError, "allocating an instance of Symbol"
   def self.new(*) = raise NoMethodError, "undefined method 'new' for Symbol:Class"
   def self.all_symbols = Intrinsics.symbol_all_symbols

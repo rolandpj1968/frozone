@@ -22,7 +22,16 @@ class Integer
   def odd? = self % 2 != 0
   def ceil(n = 0)  = n >= 0 ? self : (self.to_f.ceil(n).to_i rescue self)
   def floor(n = 0) = n >= 0 ? self : (self.to_f.floor(n).to_i rescue self)
-  def fdiv(n) = Intrinsics.integer_fdiv(self, n)
+  def fdiv(n)
+    if n.is_a?(Integer) || n.is_a?(Float)
+      to_f / n.to_f
+    elsif n.respond_to?(:coerce)
+      a, b = n.coerce(self)
+      a.fdiv(b)
+    else
+      raise TypeError, "#{n.class} can't be coerced into Integer"
+    end
+  end
   def ~  = Intrinsics.integer_bitnot(self)
   def size = [(bit_length + 7) / 8, 8].max
   def bit_length = Intrinsics.integer_bit_length(self)
@@ -34,6 +43,14 @@ class Integer
   def denominator = 1
   def rationalize(eps = nil) = Rational(self, 1)
   def between?(min, max) = self >= min && self <= max
+  def ==(v)  = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
+  def ===(v) = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
+  def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(self, v)  : __coerce_op__(v, :+)
+  def -(v) = v.is_a?(Integer) ? Intrinsics.integer__minus_(self, v) : __coerce_op__(v, :-)
+  def *(v) = v.is_a?(Integer) ? Intrinsics.integer__mul_(self, v)   : __coerce_op__(v, :*)
+  def /(v) = v.is_a?(Integer) ? Intrinsics.integer__div_(self, v)   : __coerce_op__(v, :/)
+  def %(v) = v.is_a?(Integer) ? Intrinsics.integer__mod_(self, v)   : __coerce_op__(v, :%)
+  alias modulo %
 
   def <(v)
     return Intrinsics.integer__lt_(self, v) if v.is_a?(Integer)
@@ -58,15 +75,6 @@ class Integer
     return v.nan? ? false : (self <=> v) > 0 if v.is_a?(Float)
     __coerce_and_compare__(v, :>)
   end
-  def ==(v)  = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
-  def ===(v) = v.is_a?(Integer) ? Intrinsics.integer__eq_(self, v) : !!(v == self rescue false)
-
-  def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(self, v)  : __coerce_op__(v, :+)
-  def -(v) = v.is_a?(Integer) ? Intrinsics.integer__minus_(self, v) : __coerce_op__(v, :-)
-  def *(v) = v.is_a?(Integer) ? Intrinsics.integer__mul_(self, v)   : __coerce_op__(v, :*)
-  def /(v) = v.is_a?(Integer) ? Intrinsics.integer__div_(self, v)   : __coerce_op__(v, :/)
-  def %(v) = v.is_a?(Integer) ? Intrinsics.integer__mod_(self, v)   : __coerce_op__(v, :%)
-  alias modulo %
 
   def **(v)
     if v.is_a?(Integer)
@@ -328,7 +336,7 @@ class Integer
         end
       end
       if len.nil?
-        Intrinsics.integer_bit(self, idx)
+        (self >> idx) & 1
       else
         len = len.to_int unless len.is_a?(Integer)
         return self >> idx if len < 0

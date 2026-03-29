@@ -36,6 +36,43 @@ class String
   def replace(other)          = Intrinsics.string_replace(self, other)
   def force_encoding(enc)     = Intrinsics.string_force_encoding(self, enc)
   def valid_encoding?         = Intrinsics.string_valid_encoding(self)
+  def set_encoding(enc, *)    = force_encoding(enc)
+  def setbyte(i, b)           = Intrinsics.string_setbyte(self, i, b)
+  def append_as_bytes(*args)  = Intrinsics.string_append_as_bytes(self, *args)
+  def bytesplice(*args)       = Intrinsics.string_bytesplice(self, *args)
+  def scrub(replacement = nil, &block) = Intrinsics.string_scrub(self, replacement, block)
+  def dump                    = Intrinsics.string_dump(self)
+  def undump                  = Intrinsics.string_undump(self)
+  def oct                     = Intrinsics.string_oct(self)
+  def append_bytes(*args)     = Intrinsics.string_append_bytes(self, *args)
+  def unicode_normalize(form = :nfc)  = Intrinsics.string_unicode_normalize(self, form)
+  def unicode_normalized?(form = :nfc) = Intrinsics.string_unicode_normalized_q(self, form)
+  def chr     = self[0] || self
+  def to_c    = Intrinsics.string_to_c(self)
+  def hex     = to_i(16)
+  def succ_bang = succ!
+  alias next_bang succ_bang
+  def dedup = -self
+  def match?(pattern, pos = nil) = Intrinsics.string_match_q(self, pattern, pos)
+  def scan(pattern, &block)      = Intrinsics.string_scan(self, pattern, block)
+  def chomp!(sep = :__unset__)   = __bang__ { chomp(sep) }
+  def chop!                      = __bang__ { chop }
+  def strip!                     = __bang__ { strip }
+  def lstrip!                    = __bang__ { lstrip }
+  def rstrip!                    = __bang__ { rstrip }
+  def upcase!(*args)             = __bang__ { upcase(*args) }
+  def downcase!(*args)           = __bang__ { downcase(*args) }
+  def capitalize!(*args)         = __bang__ { capitalize(*args) }
+  def squeeze!(*args)            = __bang__ { squeeze(*args) }
+  def delete!(*__native_args__)  = __bang__ { delete(*__native_args__) }
+  def swapcase!(*args)           = __bang__ { swapcase(*args) }
+  def tr!(from, to)              = __bang__ { tr(from, to) }
+  def slice!(idx, len = :__unset__) = len.equal?(:__unset__) ? Intrinsics.string_slice_bang(self, idx) : Intrinsics.string_slice_bang(self, idx, len)
+  def -@        = Intrinsics.string_dedup(self)
+  def tr_s!(from, to)        = __bang__ { tr_s(from, to) }
+  def delete_prefix!(prefix) = __bang__ { delete_prefix(prefix) }
+  def delete_suffix!(suffix) = __bang__ { delete_suffix(suffix) }
+
   def ascii_only?
     return false unless encoding.ascii_compatible?
     bs = bytesize
@@ -104,43 +141,6 @@ class String
     chars.length
   end
   alias size length
-
-  def set_encoding(enc, *)    = force_encoding(enc)
-  def setbyte(i, b)           = Intrinsics.string_setbyte(self, i, b)
-  def append_as_bytes(*args)  = Intrinsics.string_append_as_bytes(self, *args)
-  def bytesplice(*args)       = Intrinsics.string_bytesplice(self, *args)
-  def scrub(replacement = nil, &block) = Intrinsics.string_scrub(self, replacement, block)
-  def dump                    = Intrinsics.string_dump(self)
-  def undump                  = Intrinsics.string_undump(self)
-  def oct                     = Intrinsics.string_oct(self)
-  def append_bytes(*args)     = Intrinsics.string_append_bytes(self, *args)
-  def unicode_normalize(form = :nfc)  = Intrinsics.string_unicode_normalize(self, form)
-  def unicode_normalized?(form = :nfc) = Intrinsics.string_unicode_normalized_q(self, form)
-  def chr     = self[0] || self
-  def to_c    = Intrinsics.string_to_c(self)
-  def hex     = to_i(16)
-  def succ_bang = succ!
-  alias next_bang succ_bang
-  def dedup = -self
-  def match?(pattern, pos = nil) = Intrinsics.string_match_q(self, pattern, pos)
-  def scan(pattern, &block)      = Intrinsics.string_scan(self, pattern, block)
-  def chomp!(sep = :__unset__)   = __bang__ { chomp(sep) }
-  def chop!                      = __bang__ { chop }
-  def strip!                     = __bang__ { strip }
-  def lstrip!                    = __bang__ { lstrip }
-  def rstrip!                    = __bang__ { rstrip }
-  def upcase!(*args)             = __bang__ { upcase(*args) }
-  def downcase!(*args)           = __bang__ { downcase(*args) }
-  def capitalize!(*args)         = __bang__ { capitalize(*args) }
-  def squeeze!(*args)            = __bang__ { squeeze(*args) }
-  def delete!(*__native_args__)  = __bang__ { delete(*__native_args__) }
-  def swapcase!(*args)           = __bang__ { swapcase(*args) }
-  def tr!(from, to)              = __bang__ { tr(from, to) }
-  def slice!(idx, len = :__unset__) = len.equal?(:__unset__) ? Intrinsics.string_slice_bang(self, idx) : Intrinsics.string_slice_bang(self, idx, len)
-  def -@        = Intrinsics.string_dedup(self)
-  def tr_s!(from, to)        = __bang__ { tr_s(from, to) }
-  def delete_prefix!(prefix) = __bang__ { delete_prefix(prefix) }
-  def delete_suffix!(suffix) = __bang__ { delete_suffix(suffix) }
 
   def <=>(other)
     if other.is_a?(String)
@@ -299,7 +299,7 @@ class String
         suffix = __coerce_to_str__(suffix)
       end
       # Raises Encoding::CompatibilityError if encodings are incompatible
-      Intrinsics.string_encoding_compat(self, suffix)
+      __encoding_compat__(suffix)
       if suffix.empty?
         return true
       else
@@ -854,7 +854,7 @@ class String
     total = width - len
     left = total / 2
     right = total - left
-    compat_enc = Intrinsics.string_encoding_compat(self, padstr)
+    compat_enc = __encoding_compat__(padstr)
     lpad = __just_build_pad__(padstr, left)
     rpad = __just_build_pad__(padstr, right)
     r = lpad + self + rpad
@@ -864,7 +864,7 @@ class String
 
   def ljust(width, padstr = ' ')
     width, padstr = __just_coerce_args__(width, padstr)
-    compat_enc = Intrinsics.string_encoding_compat(self, padstr)
+    compat_enc = __encoding_compat__(padstr)
     len = length
     return dup if len >= width
     pad = __just_build_pad__(padstr, width - len)
@@ -875,7 +875,7 @@ class String
 
   def rjust(width, padstr = ' ')
     width, padstr = __just_coerce_args__(width, padstr)
-    compat_enc = Intrinsics.string_encoding_compat(self, padstr)
+    compat_enc = __encoding_compat__(padstr)
     len = length
     return dup if len >= width
     pad = __just_build_pad__(padstr, width - len)
@@ -991,6 +991,13 @@ class String
   def initialize_copy(source)                    = self
   # Build a pad string of exactly +total+ characters by repeating +padstr+.
   def __just_build_pad__(padstr, total)          = (padstr * ((total / padstr.length) + 1))[0, total]
+
+  # Return compatible Encoding for self and other, or raise Encoding::CompatibilityError.
+  def __encoding_compat__(other)
+    enc = Encoding.compatible?(self, other)
+    raise Encoding::CompatibilityError, "incompatible character encodings: #{encoding} and #{other.encoding}" if enc.nil?
+    enc
+  end
 
   def __bang__
     __check_frozen__

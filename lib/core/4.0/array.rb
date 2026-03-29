@@ -40,8 +40,6 @@ class Array
 
   ARRAY_MAX_INDEX = (1 << 63)
 
-  def <<(v); Intrinsics.array_push(self, v); self; end
-  def clear; replace([]); self; end
   def length       = Intrinsics.array_length(self)
   alias size length
   def empty?       = length == 0
@@ -51,15 +49,17 @@ class Array
   def dup          = Intrinsics.array_dup(self)
   def clone(freeze: nil) = Intrinsics.array_clone(self, freeze, self.class)
   def pack(fmt, buffer: nil) = Intrinsics.array_pack(self, fmt, buffer)
-  def compact;  reject { |x| x.nil? }; end
-  def compact!; reject! { |x| x.nil? }; end
-  def reverse!; replace(reverse); self; end
-  def sort!(&block); replace(sort(&block)); self; end
-  def include?(elem); any? { |x| x == elem }; end
+  def compact  = reject { |x| x.nil? }
+  def compact! = reject! { |x| x.nil? }
+  def include?(elem) = any? { |x| x == elem }
   def unshift(*elems)  = Intrinsics.array_unshift(self, *elems)
   alias prepend unshift
   def deconstruct      = self
   def fetch_values(*indices, &block) = indices.map { |i| fetch(i, &block) }
+  def <<(v); Intrinsics.array_push(self, v); self; end
+  def clear; replace([]); self; end
+  def reverse!; replace(reverse); self; end
+  def sort!(&block); replace(sort(&block)); self; end
 
   def at(i)
     i = __coerce_to_int__(i)
