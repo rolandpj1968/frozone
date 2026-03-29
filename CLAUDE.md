@@ -42,7 +42,7 @@ end
 ```
 
 ### Section structure
-Each file has at most one public section and one private section. All public methods come first, all private methods at the bottom under a single `private` keyword. Do not interleave public and private, and do not use multiple `private` declarations.
+Each file has at most one public section and one private section. All public methods come first, all private methods at the bottom under a single `private` keyword. Do not interleave public and private, and do not use multiple `private` declarations. Always leave a blank line before the `private` keyword.
 
 ### Blank lines around methods
 - Multi-line methods: one blank line before and after.
