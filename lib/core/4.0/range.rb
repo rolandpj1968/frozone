@@ -263,15 +263,8 @@ class Range
     end
   end
 
-  def ==(other)
-    return false unless other.is_a?(Range)
-    self.begin == other.begin && self.end == other.end && self.exclude_end? == other.exclude_end?
-  end
-
-  def eql?(other)
-    return false unless other.is_a?(Range)
-    self.begin.eql?(other.begin) && self.end.eql?(other.end) && self.exclude_end? == other.exclude_end?
-  end
+  def ==(other) = other.is_a?(Range) && self.begin == other.begin && self.end == other.end && self.exclude_end? == other.exclude_end?
+  def eql?(other) = other.is_a?(Range) && self.begin.eql?(other.begin) && self.end.eql?(other.end) && self.exclude_end? == other.exclude_end?
 
   def step(n = :__unset__, &block)
     n_given = !n.equal?(:__unset__)

@@ -107,10 +107,7 @@ class Hash
     end
   end
 
-  def []=(key, value)
-    Intrinsics.hash_index_write(self, key, value)
-  end
-
+  def []=(key, value) = Intrinsics.hash_index_write(self, key, value)
   alias store []=
 
   def default(key = :__no_key__)
@@ -122,10 +119,7 @@ class Hash
     end
   end
 
-  def default=(val)
-    __check_frozen__
-    Intrinsics.hash_set_default(self, val)
-  end
+  def default=(val); __check_frozen__; Intrinsics.hash_set_default(self, val); end
 
   def default_proc=(prc)
     __check_frozen__
@@ -415,11 +409,7 @@ class Hash
     self
   end
 
-  def invert
-    r = {}
-    each { |k, v| r[v] = k }
-    r
-  end
+  def invert; r = {}; each { |k, v| r[v] = k }; r; end
 
   def flatten(depth = 1) = to_a.flatten(__coerce_to_int__(depth))
 
@@ -441,9 +431,7 @@ class Hash
     nil
   end
 
-  def values_at(*keys)
-    keys.map { |k| self[k] }
-  end
+  def values_at(*keys) = keys.map { |k| self[k] }
 
   def slice(*keys)
     r = Hash.new
@@ -532,10 +520,7 @@ class Hash
     to_a.sort_by { |kv| block.call(*kv) }
   end
 
-  def clear
-    __check_frozen__
-    Intrinsics.hash_clear(self)
-  end
+  def clear; __check_frozen__; Intrinsics.hash_clear(self); end
 
   def compact
     r = self.class.allocate

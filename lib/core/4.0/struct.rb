@@ -130,11 +130,7 @@ class Struct
         return h unless idx >= 0 && idx < mems.size
         h[k] = @struct_values&.fetch(mems[idx], nil)
       else
-        unless k.respond_to?(:to_int)
-          raise TypeError, "no implicit conversion of #{k.class} into Integer"
-        end
-        idx_raw = k.to_int
-        raise TypeError, "can't convert #{k.class} into Integer" unless idx_raw.is_a?(Integer)
+        idx_raw = __coerce_to_int__(k)
         idx = idx_raw < 0 ? mems.size + idx_raw : idx_raw
         return h unless idx >= 0 && idx < mems.size
         h[k] = @struct_values&.fetch(mems[idx], nil)

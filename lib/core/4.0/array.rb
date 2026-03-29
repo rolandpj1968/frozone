@@ -123,10 +123,7 @@ class Array
     self
   end
 
-  def replace(other)
-    other = __coerce_to_ary__(other) unless other.is_a?(Array)
-    Intrinsics.array_replace(self, other)
-  end
+  def replace(other) = Intrinsics.array_replace(self, other.is_a?(Array) ? other : __coerce_to_ary__(other))
 
   def count(val = :__undefined__, &block)
     if val.equal?(:__undefined__)
@@ -171,10 +168,7 @@ class Array
     end
   end
 
-  def to_a
-    return self if instance_of?(Array)
-    Array.new(self)
-  end
+  def to_a = instance_of?(Array) ? self : Array.new(self)
 
   def to_h(&block)
     r = {}
@@ -615,8 +609,7 @@ class Array
   end
 
   def delete(elem, &block)
-    found = any? { |x| x == elem }
-    if found
+    if any? { |x| x == elem }
       reject! { |x| x == elem }
       elem
     else
@@ -1025,21 +1018,10 @@ class Array
   end
   alias detect find
 
-  def any?(pat = :__none__, &block)
-    pat.equal?(:__none__) ? super(&block) : super(pat, &block)
-  end
-
-  def all?(pat = :__none__, &block)
-    pat.equal?(:__none__) ? super(&block) : super(pat, &block)
-  end
-
-  def none?(pat = :__none__, &block)
-    pat.equal?(:__none__) ? super(&block) : super(pat, &block)
-  end
-
-  def one?(pat = :__none__, &block)
-    pat.equal?(:__none__) ? super(&block) : super(pat, &block)
-  end
+  def any?(pat = :__none__, &block)  = pat.equal?(:__none__) ? super(&block) : super(pat, &block)
+  def all?(pat = :__none__, &block)  = pat.equal?(:__none__) ? super(&block) : super(pat, &block)
+  def none?(pat = :__none__, &block) = pat.equal?(:__none__) ? super(&block) : super(pat, &block)
+  def one?(pat = :__none__, &block)  = pat.equal?(:__none__) ? super(&block) : super(pat, &block)
 
   def reduce(*args, &block)
     sym, has_initial, initial, should_warn = __parse_reduce_args__(args, block)
@@ -1239,14 +1221,6 @@ class Array
     self
   end
 
-  def __binomial_coeff__(n, k)
-    return 0 if k < 0 || k > n
-    k = n - k if k > n - k
-    result = 1
-    k.times { |i| result = result * (n - i) / (i + 1) }
-    result
-  end
-
   def product(*others, &block)
     arrays = [self] + others.map { |o|
       next o if o.is_a?(Array)
@@ -1310,25 +1284,10 @@ class Array
     [yes, no]
   end
 
-  def minmax(&block)
-    return [nil, nil] if empty?
-    [min(&block), max(&block)]
-  end
-
-  def minmax_by(&block)
-    return to_enum(:minmax_by) unless block
-    [min_by(&block), max_by(&block)]
-  end
-
-  def min_by(&block)
-    return to_enum(:min_by) unless block
-    sort_by(&block).first
-  end
-
-  def max_by(&block)
-    return to_enum(:max_by) unless block
-    sort_by(&block).last
-  end
+  def minmax(&block) = empty? ? [nil, nil] : [min(&block), max(&block)]
+  def minmax_by(&block) = block ? [min_by(&block), max_by(&block)] : to_enum(:minmax_by)
+  def min_by(&block) = block ? sort_by(&block).first : to_enum(:min_by)
+  def max_by(&block) = block ? sort_by(&block).last : to_enum(:max_by)
 
   def each_slice(n, &block)
     return to_enum(:each_slice, n) { (length + n - 1) / n } unless block
@@ -1465,11 +1424,7 @@ class Array
     seen_ids.pop
   end
 
-  def __default_cmp__(a, b)
-    r = a <=> b
-    raise ArgumentError, "comparison failed" if r.nil?
-    r
-  end
+  def __default_cmp__(a, b) = (a <=> b) || raise(ArgumentError, "comparison failed")
 
   def __merge_sort__(arr, cmp)
     n = arr.length
