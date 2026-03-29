@@ -6,6 +6,8 @@
 
 A Ruby VM implemented in Ruby — and an AOT compiler from Ruby to native binaries via [Crystal](https://crystal-lang.org/).
 
+The goal of Frozone is to explore the opportunity of a **two-phase approach**: let a full-featured interpreter handle the dynamic load phase (metaprogramming, `require`s, runtime-computed constants), then compile the settled, closed-world result to efficient native code.
+
 ## Two Modes
 
 **Interpreter:** parses Ruby source via the [Prism](https://github.com/ruby/prism) gem and evaluates the resulting AST directly. Pure tree-walking interpreter targeting Ruby 4.0 semantics.
@@ -73,10 +75,13 @@ bundle exec rake core                    # ruby/spec core suite
 
 ## Documentation
 
+**Interpreter:**
+- [docs/interpreter.md](docs/interpreter.md) — VM architecture, parsers, self-hosting
+- [docs/spec-status.md](docs/spec-status.md) — detailed ruby/spec results (interpreter)
+
+**Compiler:**
 - [docs/compilation.md](docs/compilation.md) — AOT compiler architecture, type inference, benchmarks
 - [docs/optimisations.md](docs/optimisations.md) — per-optimization flag reference
-- [docs/spec-status.md](docs/spec-status.md) — detailed ruby/spec results
-- [docs/interpreter.md](docs/interpreter.md) — VM architecture, parsers, self-hosting
 
 ## Architecture
 
