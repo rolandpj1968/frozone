@@ -20,6 +20,8 @@ module Frozone
       # ruby2_keywords flag is stored in a shared holder array so aliases
       # of the same method see the same flag value (like MRI's shared definition).
       def ruby2_keywords = @ruby2_keywords_holder[0]
+      # TODO
+      def to_s = "method(#{@scopes.map(&:to_s)}, :#{@name}, #{@required_params} -> #{@body})"
 
       def ruby2_keywords=(val)
         @ruby2_keywords_holder[0] = val
@@ -118,47 +120,6 @@ module Frozone
           new_frame.set_local(@kw_rest_param, HashObject.new(kw_rest))
         end
       end
-
-      private
-
-      def assign_param(context, frame, param, val)
-        if param.is_a?(Hash)
-          sub_args = coerce_to_array(context, val)
-          sub_names  = param[:names]
-          sub_rest   = param[:rest]
-          sub_rights = param[:rights] || []
-          sub_names.each_with_index  { |n, j| assign_param(context, frame, n, sub_args.fetch(j, NilObject::NIL)) }
-          if sub_rest
-            rest_end  = sub_rights.length > 0 ? -(sub_rights.length + 1) : -1
-            rest_vals = sub_args[sub_names.length..rest_end] || []
-            frame.set_local(sub_rest, ArrayObject.new(rest_vals))
-          end
-          rights_start = [sub_args.length - sub_rights.length, sub_names.length].max
-          sub_rights.each_with_index { |n, j| assign_param(context, frame, n, sub_args.fetch(rights_start + j, NilObject::NIL)) }
-        else
-          frame.set_local(param, val)
-        end
-      end
-
-      def coerce_to_array(context, val)
-        return val.raw if val.is_a?(ArrayObject)
-        return [val] if val.is_a?(NilObject)
-        has_to_ary = begin
-          result = val.dispatch(context, :respond_to?, [SymbolObject.from(:to_ary), TrueObject::TRUE], {})
-          result.truthy?
-        rescue
-          val.lookup_instance_method(:to_ary) ? true : false
-        end
-        if has_to_ary
-          converted = val.dispatch(context, :to_ary, [], {})
-          return converted.raw if converted.is_a?(ArrayObject)
-          return [val] if converted.is_a?(NilObject)
-          raise FrozoneException.make(:TypeError, "no implicit conversion of #{val.class_object.name} into Array")
-        end
-        [val]
-      end
-
-      public
 
       def invoke(context, receiver, args, kw_args, block = nil, from_super: false, callee_name: nil)
         # Warn about unused block (Ruby 3.4 strict_unused_block category)
@@ -264,9 +225,6 @@ module Frozone
         end
       end
 
-      # TODO
-      def to_s = "method(#{@scopes.map(&:to_s)}, :#{@name}, #{@required_params} -> #{@body})"
-
       def alias_as(name)
         Method.new(@scopes, @name, @required_params, @optional_params, @rest_param, @post_params, @required_kw_params, @optional_kw_params, @kw_rest_param, @block_param, @locals, @body, uses_block: @uses_block, source_location: @source_location).tap do |m|
           m.original_owner = @original_owner
@@ -294,6 +252,43 @@ module Frozone
       end
 
       private
+
+      def assign_param(context, frame, param, val)
+        if param.is_a?(Hash)
+          sub_args = coerce_to_array(context, val)
+          sub_names  = param[:names]
+          sub_rest   = param[:rest]
+          sub_rights = param[:rights] || []
+          sub_names.each_with_index  { |n, j| assign_param(context, frame, n, sub_args.fetch(j, NilObject::NIL)) }
+          if sub_rest
+            rest_end  = sub_rights.length > 0 ? -(sub_rights.length + 1) : -1
+            rest_vals = sub_args[sub_names.length..rest_end] || []
+            frame.set_local(sub_rest, ArrayObject.new(rest_vals))
+          end
+          rights_start = [sub_args.length - sub_rights.length, sub_names.length].max
+          sub_rights.each_with_index { |n, j| assign_param(context, frame, n, sub_args.fetch(rights_start + j, NilObject::NIL)) }
+        else
+          frame.set_local(param, val)
+        end
+      end
+
+      def coerce_to_array(context, val)
+        return val.raw if val.is_a?(ArrayObject)
+        return [val] if val.is_a?(NilObject)
+        has_to_ary = begin
+          result = val.dispatch(context, :respond_to?, [SymbolObject.from(:to_ary), TrueObject::TRUE], {})
+          result.truthy?
+        rescue
+          val.lookup_instance_method(:to_ary) ? true : false
+        end
+        if has_to_ary
+          converted = val.dispatch(context, :to_ary, [], {})
+          return converted.raw if converted.is_a?(ArrayObject)
+          return [val] if converted.is_a?(NilObject)
+          raise FrozoneException.make(:TypeError, "no implicit conversion of #{val.class_object.name} into Array")
+        end
+        [val]
+      end
 
       # Collect all refinements from a refining module at call time (for cross-refinement support).
       # The module's @__refinements__ is a Frozone HashObject with IntegerObject keys.
@@ -335,6 +330,8 @@ module Frozone
       attr_reader :name, :scopes, :block_obj
       attr_accessor :visibility, :ruby2_keywords
 
+      def alias_as(name) = DefinedMethod.new(name, @block_obj, @scopes.first)
+
       def initialize(name, block_obj, defining_class = nil)
         @name = name
         @block_obj = block_obj
@@ -359,8 +356,6 @@ module Frozone
         raise unless e.method_frame.nil? || !e.method_frame.alive?
         e.value
       end
-
-      def alias_as(name) = DefinedMethod.new(name, @block_obj, @scopes.first)
 
       def dup_with_visibility(vis)
         DefinedMethod.new(@name, @block_obj, @scopes.first).tap { |m| m.visibility = vis }

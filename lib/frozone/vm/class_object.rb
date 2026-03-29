@@ -10,6 +10,8 @@ module Frozone
       attr_accessor :is_singleton_class, :singleton_of
       attr_accessor :uninitialized_class
 
+      def to_s = "class(#{@name})"
+
       def initialize(name, namespace, superclass)
         super(name, namespace, defined?(Core::CLASS_CLASS) ? Core::CLASS_CLASS : nil)
         @superclass = superclass
@@ -26,8 +28,6 @@ module Frozone
       def direct_subclasses
         (@subclasses ||= []).reject { |sc| sc.is_singleton_class }
       end
-
-      def to_s = "class(#{@name})"
 
       # Called after CLASS_CLASS is defined to wire up the class pointer on bootstrap ClassObjects
       def patch_class_object

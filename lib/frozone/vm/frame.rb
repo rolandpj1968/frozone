@@ -15,6 +15,10 @@ module Frozone
       attr_accessor :current_refining_module  # set during module_refine_eval so method_def can record it
       attr_accessor :callee_name           # name used at call site (may differ from method name when aliased)
 
+      def alive? = @alive != false
+      def local_names = @locals.keys
+      def get_local(local) = @locals[local]
+
       def initialize(the_self, locals, scopes, parent_frame = nil)
         # TODO - map locals to slot number
         @locals = {}
@@ -27,15 +31,9 @@ module Frozone
         @block = nil
       end
 
-      def alive? = @alive != false
-
       def kill!
         @alive = false
       end
-
-      def local_names = @locals.keys
-
-      def get_local(local) = @locals[local]
 
       def set_local(local, value)
         @locals[local] = value

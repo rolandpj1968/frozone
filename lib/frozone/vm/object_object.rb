@@ -11,6 +11,18 @@ module Frozone
       attr_reader :frozen_object
       attr_reader :instance_variables_hash
 
+      def frozen_object? = @frozen_object
+      def lookup_class = @eigenclass || @class_object
+      # Returns a method from the eigenclass (including its included modules).
+      def eigenclass_method(name) = @eigenclass&.lookup_method(name)
+      def inspect = "#<#{self.class.name}>"
+      def ivar_defined?(name) = @instance_variables_hash.key?(name)
+      def get_ivar(name) = @instance_variables_hash.fetch(name, NilObject::NIL)
+      def is_singleton_class = false
+      def inspect_for_error = "#<#{@class_object&.name}>"
+      def truthy? = !equal?(FalseObject::FALSE) && !equal?(NilObject::NIL)
+      def define_singleton_method(name, unbound_method) = singleton_class.set_method(name, unbound_method)
+
       def initialize(class_object)
         unless @@bootstrapping || class_object.is_a?(ClassObject)
           raise "ObjectObject class_object must be a ClassObject"
@@ -28,8 +40,6 @@ module Frozone
         self
       end
 
-      def frozen_object? = @frozen_object
-
       # Copy base ObjectObject fields from source into self (used by dup/clone).
       # Sets eigenclass and frozen state directly — this is intentionally internal.
       def copy_fields_from(source, eigenclass: nil, frozen: false)
@@ -38,8 +48,6 @@ module Frozone
         @frozen_object = frozen
         self
       end
-
-      def lookup_class = @eigenclass || @class_object
 
       def singleton_class
         unless @eigenclass
@@ -58,13 +66,6 @@ module Frozone
           end
         end
         @eigenclass
-      end
-
-      # Returns a method from the eigenclass (including its included modules).
-      def eigenclass_method(name) = @eigenclass&.lookup_method(name)
-
-      def define_singleton_method(name, unbound_method)
-        singleton_class.set_method(name, unbound_method)
       end
 
       def lookup_instance_method(name)
@@ -187,16 +188,6 @@ module Frozone
         end
       end
 
-      def inspect = "#<#{self.class.name}>"
-
-      def ivar_defined?(name)
-        @instance_variables_hash.key?(name)
-      end
-
-      def get_ivar(name)
-        @instance_variables_hash.fetch(name, NilObject::NIL)
-      end
-
       def set_ivar(name, value)
         if @frozen_object
           type_name = is_a?(ModuleObject) ? (is_a?(ClassObject) ? "Class" : "Module") : (@class_object&.name&.to_s || "Object")
@@ -208,16 +199,6 @@ module Frozone
           unchilled!
         end
         @instance_variables_hash[name] = value
-      end
-
-      def is_singleton_class = false
-
-      def inspect_for_error
-        "#<#{@class_object&.name}>"
-      end
-
-      def truthy?
-        !equal?(FalseObject::FALSE) && !equal?(NilObject::NIL)
       end
 
       private

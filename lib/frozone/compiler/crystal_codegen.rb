@@ -15,6 +15,11 @@ module Frozone
     class CrystalCodegen
       CRYSTAL_DIR = File.expand_path('../../../crystal', __dir__)
 
+      # The directory that generated .cr files should be placed in (so that
+      # relative require paths to the runtime resolve correctly).
+      def output_dir = @output_dir
+      attr_reader :errors
+
       def initialize(output_dir: CRYSTAL_DIR)
         @out                = +""        # output buffer
         @indent             = 0          # current indentation level
@@ -124,12 +129,6 @@ module Frozone
         emit_newline
         emit_newline
       end
-
-      # The directory that generated .cr files should be placed in (so that
-      # relative require paths to the runtime resolve correctly).
-      def output_dir = @output_dir
-
-      attr_reader :errors
 
       private
 

@@ -53,6 +53,8 @@ module Frozone
         2 => OPT_FLAGS.dup
       }.freeze
 
+      def opt?(flag) = @opt_flags.include?(flag)
+
       def initialize(opt_level: nil, **kw)
         super(**kw)
         level = opt_level || ENV.fetch('FROZONE_OPT_LEVEL', '2').to_i
@@ -64,8 +66,6 @@ module Frozone
         end
         @opt_flags = enabled
       end
-
-      def opt?(flag) = @opt_flags.include?(flag)
 
       # Path markers that identify Frozone-internal / core-library code.
       CORE_PATH_MARKERS = %w[lib/core/4.0/ lib/frozone/vm/ lib/frozone/ast/].freeze
@@ -185,16 +185,14 @@ module Frozone
       # Source-location filtering
       # -----------------------------------------------------------------------
 
+      def bench_stub? = @stub_file&.include?('bench/stubs/')
+
       def user_source_location?(loc)
         return false if loc.nil?
         # source_location is "file:line" — strip the :line suffix for comparison
         file = loc.is_a?(Array) ? loc.first.to_s : loc.to_s.sub(/:[\d]+\z/, '')
         return false if @stub_file && file == @stub_file
         CORE_PATH_MARKERS.none? { |marker| file.include?(marker) }
-      end
-
-      def bench_stub?
-        @stub_file&.include?('bench/stubs/')
       end
 
       def emit_bench_harness_require

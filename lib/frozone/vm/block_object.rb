@@ -10,6 +10,8 @@ module Frozone
       attr_reader :enclosing_frame
       attr_accessor :ruby2_keywords, :parameters_override, :symbol_name
 
+      def lambda? = @is_lambda
+
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
                      block_param, auto_splat, locals, body, enclosing_frame,
@@ -30,8 +32,6 @@ module Frozone
         @enclosing_frame     = enclosing_frame
         @source_location     = source_location # [file, line] or nil
       end
-
-      def lambda? = @is_lambda
 
       def make_lambda!
         @is_lambda = true

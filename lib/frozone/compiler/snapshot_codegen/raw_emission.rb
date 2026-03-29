@@ -16,6 +16,9 @@ module Frozone
       module RawEmission
       ARITH_OPS_UNBOX = %i[+ - * ** / % | & ^ << >>].to_set
 
+      # Is this method name a simple accessor (getter for a typed ivar)?
+      def accessor_method_name?(name) = @current_class_name && @typed_ivars.fetch(@current_class_name, {})[:"@#{name}"]
+
       # Returns :i64, :f64, or nil for the provable bare Crystal type of a node.
       def node_raw_type(node)
         return nil unless node
@@ -181,11 +184,6 @@ module Frozone
             end
           end
         end
-      end
-
-      # Is this method name a simple accessor (getter for a typed ivar)?
-      def accessor_method_name?(name)
-        @current_class_name && @typed_ivars.fetch(@current_class_name, {})[:"@#{name}"]
       end
 
       # Emit a node as a bare Crystal numeric (Int64 or Float64).

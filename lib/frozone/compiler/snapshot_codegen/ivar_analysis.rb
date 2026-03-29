@@ -12,6 +12,11 @@ module Frozone
   module Compiler
     module SnapshotCodegenSupport
       module IvarAnalysis
+      KNOWN_BUILTIN_CLASSES = %i[Array Hash String Symbol Integer Float Range Regexp].to_set
+
+      # Is this a known class name (user-defined or built-in)?
+      def known_class?(name) = @ti_user_class_names&.include?(name) || KNOWN_BUILTIN_CLASSES.include?(name)
+
       # Collect user numeric constants → raw type map.
       def collect_const_raw_types(scope)
         @const_raw_types = {}
@@ -137,8 +142,6 @@ module Frozone
 
       # Determine the class type of an expression for ivar assignment.
       # Returns: class Symbol (user/builtin class name), :nil, :self_ivar, or :unknown.
-      KNOWN_BUILTIN_CLASSES = %i[Array Hash String Symbol Integer Float Range Regexp].to_set
-
       def ivar_assign_class_type(node, class_locals = {})
         case node
         when Ast::NilLiteral then :nil
@@ -175,11 +178,6 @@ module Frozone
         else
           :unknown
         end
-      end
-
-      # Is this a known class name (user-defined or built-in)?
-      def known_class?(name)
-        @ti_user_class_names&.include?(name) || KNOWN_BUILTIN_CLASSES.include?(name)
       end
 
       # Walk the execute block body for `ClassName.new(...)` calls and return

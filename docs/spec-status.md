@@ -1,6 +1,7 @@
-# ruby/spec Status
+# ruby/spec Status (Interpreter)
 
-Frozone is tested against [ruby/spec](https://github.com/ruby/spec) — the executable specification for the Ruby language.
+These results are from running ruby/spec through the Frozone **tree-walking interpreter**.
+Compiler spec coverage is tracked separately via `--aot` compiled test files (see [compilation.md](compilation.md)).
 
 ## Language Specs
 

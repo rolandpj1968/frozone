@@ -10,6 +10,8 @@ A Ruby VM implemented in Ruby — and an AOT compiler from Ruby to native binari
 
 ## Status (v4.0.2)
 
+**Interpreter** spec compliance (ruby/spec run through the Frozone tree-walking interpreter):
+
 | | Passing | Total | Rate |
 |---|---:|---:|---:|
 | ruby/spec language | 2615 | 2630 | 99.4% |
