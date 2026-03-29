@@ -1,17 +1,10 @@
 # Maps TypeInference results to Crystal-specific type decisions.
 #
-# Takes the raw TypeEnv from TI and produces lookup structures for the Codegen:
-# - Per-method local types (Int64/Float64 unboxing)
-# - Per-method array element types (Array(T) promotion)
-# - Per-method class-typed locals (devirtualization)
-# - Per-method param types (typed overloads)
-# - Per-method return types (raw return annotation)
-# - Block param types (native iteration)
-# - Constant types
-# - Instance variable types
-#
+# Uses CrystalType for structured type representation — no string matching.
 # All Crystal-specific decisions (what to promote, what to leave as RubyObject)
 # are made here, not in the Codegen.
+
+require_relative 'crystal_type'
 
 module Frozone
   module Compiler
@@ -188,43 +181,21 @@ module Frozone
 
       # --- Type conversion helpers ---
 
+      # Extract raw scalar type from TI lattice value.
       def raw_type(ty)
         ty == :i64 || ty == :f64 ? ty : nil
       end
 
-      def native_elem?(crystal_type)
-        crystal_type == 'Int64' || crystal_type == 'Float64' || crystal_type.start_with?('Array(')
-      end
-
+      # Convert TI lattice value to CrystalType, then render as Crystal string.
+      # Used for param types and other places that need Crystal source strings.
       def crystal_type(ty)
-        case ty
-        when :i64 then 'Int64'
-        when :f64 then 'Float64'
-        when :array_i64 then 'Array(Int64)'
-        when :array_f64 then 'Array(Float64)'
-        when Hash
-          case ty[:class]
-          when :Integer, :Float, :String, :Symbol then 'RubyObject'
-          when :NilClass, :TrueClass, :FalseClass then 'RubyObject'
-          when :Array
-            if ty[:elem]
-              elem_crystal = crystal_type(ty[:elem])
-              native_elem?(elem_crystal) ? "Array(#{elem_crystal})" : 'RubyObject'
-            else
-              'RubyObject'
-            end
-          when :Hash then 'RubyHash'
-          when :Proc then 'RubyProc'
-          else
-            cls = ty[:class]
-            (@user_class_names.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls)) ? crystal_class_name(cls) : 'RubyObject'
-          end
-        else 'RubyObject'
-        end
+        ct = CrystalType.from_ti(ty, user_class_names: @user_class_names)
+        CrystalType.to_crystal(ct)
       end
 
-      def crystal_class_name(cls)
-        CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{cls}"
+      # Convert TI lattice value to structured CrystalType.
+      def crystal_type_structured(ty)
+        CrystalType.from_ti(ty, user_class_names: @user_class_names)
       end
     end
   end
