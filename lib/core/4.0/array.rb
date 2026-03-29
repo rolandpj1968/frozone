@@ -44,16 +44,16 @@ class Array
   def clone(freeze: nil) = Intrinsics.array_clone(self, freeze, self.class)
   def pack(fmt, buffer: nil) = Intrinsics.array_pack(self, fmt, buffer)
   def compact = reject { |x| x.nil? }
-  def compact! = reject! { |x| x.nil? }
+  def compact! = __bang__ { compact }
   def include?(elem) = any? { |x| x == elem }
   def unshift(*elems) = Intrinsics.array_unshift(self, *elems)
   alias prepend unshift
   def deconstruct = self
   def fetch_values(*indices, &block) = indices.map { |i| fetch(i, &block) }
   def <<(v); Intrinsics.array_push(self, v); self; end
-  def clear; replace([]); self; end
-  def reverse!; replace(reverse); self; end
-  def sort!(&block); replace(sort(&block)); self; end
+  def clear = __bang_self__ { [] }
+  def reverse! = __bang_self__ { reverse }
+  def sort!(&block) = __bang_self__ { sort(&block) }
 
   def at(i) = Intrinsics.array_at(self, __coerce_to_int__(i))
 
@@ -290,13 +290,7 @@ class Array
     result
   end
 
-  def flatten!(depth = nil)
-    __check_frozen__
-    result = flatten(depth)
-    return nil if result == self
-    replace(result)
-    self
-  end
+  def flatten!(depth = nil) = __bang__ { flatten(depth) }
 
   def uniq(&block)
     seen = {}
@@ -368,9 +362,7 @@ class Array
 
   def sort_by!(&block)
     return to_enum(:sort_by!) { size } unless block
-    __check_frozen__
-    replace(sort_by(&block))
-    self
+    __bang_self__ { sort_by(&block) }
   end
 
   def min(&block)
@@ -689,11 +681,7 @@ class Array
     result
   end
 
-  def shuffle!(random: nil)
-    __check_frozen__
-    replace(shuffle(random: random))
-    self
-  end
+  def shuffle!(random: nil) = __bang_self__ { shuffle(random: random) }
 
   def zip(*others)
     n = length
@@ -1322,11 +1310,7 @@ class Array
     end
   end
 
-  def rotate!(n = 1)
-    __check_frozen__
-    replace(rotate(n))
-    self
-  end
+  def rotate!(n = 1) = __bang_self__ { rotate(n) }
 
   def difference(*others)
     result = Array.new(self)
@@ -1359,6 +1343,23 @@ class Array
   end
 
   private
+
+  # Bang helper: apply non-bang, replace self, return nil if unchanged.
+  # Used by compact!, flatten!, uniq!, select!, reject!, etc.
+  def __bang__
+    __check_frozen__
+    r = yield
+    return nil if r == self
+    replace(r)
+  end
+
+  # Bang helper: apply non-bang, replace self, always return self.
+  # Used by reverse!, sort!, rotate!, etc.
+  def __bang_self__
+    __check_frozen__
+    replace(yield)
+    self
+  end
 
   def __flatten_into__(arr, depth, result, seen_ids)
     raise ArgumentError, "flatten: cannot flatten recursive array" if seen_ids.include?(arr.__id__)
