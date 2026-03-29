@@ -38,7 +38,15 @@ class String
   def replace(other)          = Intrinsics.string_replace(self, other)
   def force_encoding(enc)     = Intrinsics.string_force_encoding(self, enc)
   def valid_encoding?         = Intrinsics.string_valid_encoding(self)
-  def ascii_only?             = Intrinsics.string_ascii_only(self)
+  def ascii_only?
+    bs = bytesize
+    i = 0
+    while i < bs
+      return false if getbyte(i) > 127
+      i += 1
+    end
+    true
+  end
   def set_encoding(enc, *)    = force_encoding(enc)
   def setbyte(i, b)           = Intrinsics.string_setbyte(self, i, b)
   def append_as_bytes(*args)  = Intrinsics.string_append_as_bytes(self, *args)
@@ -77,10 +85,20 @@ class String
   def delete_suffix!(suffix) = __bang__ { delete_suffix(suffix) }
 
   def <=>(other)
-    return Intrinsics.string_spaceship_raw(self, other) if other.is_a?(String)
+    if other.is_a?(String)
+      min_bs = bytesize < other.bytesize ? bytesize : other.bytesize
+      i = 0
+      while i < min_bs
+        a = getbyte(i)
+        b = other.getbyte(i)
+        return a < b ? -1 : 1 if a != b
+        i += 1
+      end
+      return bytesize < other.bytesize ? -1 : (bytesize > other.bytesize ? 1 : 0)
+    end
     begin
       coerced = other.to_str
-      return Intrinsics.string_spaceship_raw(self, coerced) if coerced.is_a?(String)
+      return self <=> coerced if coerced.is_a?(String)
     rescue
     end
     begin
@@ -171,6 +189,7 @@ class String
   end
 
   def ==(v)
+    # TODO: de-intrinsify once encoding comparison is safe from recursion
     return Intrinsics.string_eql(self, v) if v.is_a?(String)
     return v == self if v.respond_to?(:to_str)
     false
