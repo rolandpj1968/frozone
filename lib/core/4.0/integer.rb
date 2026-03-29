@@ -50,7 +50,7 @@ class Integer
 
   def **(v)
     if v.is_a?(Integer)
-      raise ZeroDivisionError, "divided by 0" if self == 0 && v < 0
+      __raise_zero_division__ if self == 0 && v < 0
       return Intrinsics.integer__pow_(self, v)
     end
     if v.is_a?(Float)
@@ -62,7 +62,7 @@ class Integer
       end
       return to_f ** v
     end
-    raise ZeroDivisionError, "divided by 0" if self == 0 && v.respond_to?(:negative?) && v.negative?
+    __raise_zero_division__ if self == 0 && v.respond_to?(:negative?) && v.negative?
     __coerce_op__(v, :**)
   end
 
@@ -159,17 +159,17 @@ class Integer
 
   def div(n)
     if n.is_a?(Integer)
-      raise ZeroDivisionError, "divided by 0" if n == 0
+      __check_zero_divisor__(n)
       return self / n
     end
-    raise ZeroDivisionError, "divided by 0" if n.is_a?(Float) && n == 0.0
+    __check_zero_divisor__(n) if n.is_a?(Float)
     a, b = __coerce_pair__(n)
     a.div(b)
   end
 
   def remainder(n)
     if n.is_a?(Integer)
-      raise ZeroDivisionError, "divided by 0" if n == 0
+      __check_zero_divisor__(n)
       q, r = divmod(n)
       return r != 0 && (self < 0) != (n < 0) ? r - n : r
     end
@@ -178,21 +178,14 @@ class Integer
   end
 
   def gcd(n)
-    raise TypeError, "not an integer" unless n.is_a?(Integer)
+    __require_integer__(n)
     a, b = self.abs, n.abs
     while b != 0; a, b = b, a % b; end
     a
   end
 
-  def lcm(n)
-    raise TypeError, "not an integer" unless n.is_a?(Integer)
-    (self == 0 || n == 0) ? 0 : (self.abs / self.gcd(n) * n.abs)
-  end
-
-  def gcdlcm(n)
-    raise TypeError, "not an integer" unless n.is_a?(Integer)
-    [gcd(n), lcm(n)]
-  end
+  def lcm(n)     = (__require_integer__(n); (self == 0 || n == 0) ? 0 : (self.abs / gcd(n) * n.abs))
+  def gcdlcm(n)  = (__require_integer__(n); [gcd(n), lcm(n)])
 
   def digits(base = 10)
     base = base.to_int if base.respond_to?(:to_int) && !base.is_a?(Integer)
@@ -210,31 +203,14 @@ class Integer
     else
       raise TypeError, "2nd argument not allowed unless all arguments are integers" unless n.is_a?(Integer) && m.is_a?(Integer)
       raise RangeError, "2nd argument not allowed unless all arguments are integers" if n < 0
-      raise ZeroDivisionError, "divided by 0" if m == 0
+      __check_zero_divisor__(m)
       Intrinsics.integer__pow_(self, n) % m
     end
   end
 
-  def &(n)
-    return Intrinsics.integer_bitand(self, n) if n.is_a?(Integer)
-    raise TypeError, "no implicit conversion of Float into Integer" if n.is_a?(Float)
-    begin; a, b = n.coerce(self); return a & b; rescue NoMethodError; end
-    raise TypeError, "no implicit conversion of #{n.class} into Integer"
-  end
-
-  def |(n)
-    return Intrinsics.integer_bitor(self, n) if n.is_a?(Integer)
-    raise TypeError, "no implicit conversion of Float into Integer" if n.is_a?(Float)
-    begin; a, b = n.coerce(self); return a | b; rescue NoMethodError; end
-    raise TypeError, "no implicit conversion of #{n.class} into Integer"
-  end
-
-  def ^(n)
-    return Intrinsics.integer_bitxor(self, n) if n.is_a?(Integer)
-    raise TypeError, "no implicit conversion of Float into Integer" if n.is_a?(Float)
-    begin; a, b = n.coerce(self); return a ^ b; rescue NoMethodError; end
-    raise TypeError, "no implicit conversion of #{n.class} into Integer"
-  end
+  def &(n) = n.is_a?(Integer) ? Intrinsics.integer_bitand(self, n) : __bitwise_op__(n, :&)
+  def |(n) = n.is_a?(Integer) ? Intrinsics.integer_bitor(self, n)  : __bitwise_op__(n, :|)
+  def ^(n) = n.is_a?(Integer) ? Intrinsics.integer_bitxor(self, n) : __bitwise_op__(n, :^)
 
   def <<(n) = Intrinsics.integer_lshift(self, __coerce_to_int__(n))
   def >>(n) = Intrinsics.integer_rshift(self, __coerce_to_int__(n))
@@ -357,6 +333,16 @@ class Integer
   private
 
   # Call coerce even if private; propagate non-NoMethodError exceptions
+  def __require_integer__(n)  = (raise TypeError, "not an integer" unless n.is_a?(Integer))
+  def __raise_zero_division__    = (raise ZeroDivisionError, "divided by 0")
+  def __check_zero_divisor__(n)  = (raise ZeroDivisionError, "divided by 0" if n == 0)
+
+  def __bitwise_op__(n, op)
+    raise TypeError, "no implicit conversion of Float into Integer" if n.is_a?(Float)
+    a, b = __coerce_pair__(n)
+    a.send(op, b)
+  end
+
   def __coerce_pair__(v)
     v.send(:coerce, self)
   rescue NoMethodError
