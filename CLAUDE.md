@@ -44,6 +44,21 @@ end
 ### Section structure
 Each file has at most one public section and one private section. All public methods come first, all private methods at the bottom under a single `private` keyword. Do not interleave public and private, and do not use multiple `private` declarations. Always leave a blank line before the `private` keyword.
 
+### No column alignment
+Do not align `=` signs, return types, or comments across adjacent lines. It looks tidy but creates noisy diffs when any line changes — every neighbouring line gets reformatted. Just use a single space:
+
+```ruby
+# Good — each line is independent
+def freeze = Intrinsics.string_freeze(self)
+def encoding = Intrinsics.string_encoding(self)
+def encode(enc = nil, src_enc = nil, **opts) = Intrinsics.string_encode(self, enc, src_enc, opts)
+
+# Bad — changing one line forces realignment of all neighbours
+def freeze                                   = Intrinsics.string_freeze(self)
+def encoding                                 = Intrinsics.string_encoding(self)
+def encode(enc = nil, src_enc = nil, **opts) = Intrinsics.string_encode(self, enc, src_enc, opts)
+```
+
 ### Blank lines around methods
 - Multi-line methods: one blank line before and after.
 - Adjacent single-liners: no blank lines between them.
