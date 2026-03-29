@@ -1,12 +1,18 @@
 class Range
   include Enumerable
 
-  def self.allocate = Intrinsics.range_allocate(self)
+  # Float bsearch: convert floats to sortable uint64 for exact integer binary search
+  FLOAT_SIGN_BIT = 1 << 63
+  FLOAT_UINT64_MASK = (1 << 64) - 1
 
-  def self.new(b, e, excl = false)
-    r = allocate
-    r.__send__(:initialize, b, e, excl)
-    r
+  class << self
+    def allocate = Intrinsics.range_allocate(self)
+
+    def new(b, e, excl = false)
+      r = allocate
+      r.__send__(:initialize, b, e, excl)
+      r
+    end
   end
 
   def initialize(b, e, excl = false)
@@ -769,10 +775,6 @@ class Range
     end
     nil
   end
-
-  # Float bsearch: convert floats to sortable uint64 for exact integer binary search
-  FLOAT_SIGN_BIT = 1 << 63
-  FLOAT_UINT64_MASK = (1 << 64) - 1
 
   def __bsearch_float__(lo, hi, excl, &block)
     lo_ord = __float_to_ord__(lo)

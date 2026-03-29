@@ -17,7 +17,9 @@ class Set
   def pretty_print(pp) = pp.text inspect
   def pretty_print_cycle(pp) = pp.text "Set[...]"
 
-  def self.[](*args) = new(args)
+  class << self
+    def [](*args) = new(args)
+  end
 
   def initialize(enum = nil, &block)
     @hash = {}

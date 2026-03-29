@@ -1,4 +1,20 @@
 class Rational < Numeric
+  class << self
+    def new(*) = raise NoMethodError, "undefined method 'new' for class #{self}"
+  end
+
+  def initialize(numerator, denominator = 1)
+    raise ZeroDivisionError, "divided by 0" if denominator == 0
+    g = numerator.gcd(denominator)
+    @numerator = numerator / g
+    @denominator = denominator / g
+    if @denominator < 0
+      @numerator = -@numerator
+      @denominator = -@denominator
+    end
+    freeze
+  end
+
   def numerator = @numerator
   def denominator = @denominator
   def to_i = @numerator < 0 ? -(-@numerator / @denominator) : @numerator / @denominator
@@ -15,7 +31,6 @@ class Rational < Numeric
   def hash = [@numerator, @denominator].hash
   def eql?(other) = other.is_a?(Rational) && @numerator == other.numerator && @denominator == other.denominator
   def quo(other) = self / other
-  def self.new(*) = raise NoMethodError, "undefined method 'new' for class #{self}"
   def inspect = "(#{@numerator}/#{@denominator})"
   def to_s = "#{@numerator}/#{@denominator}"
 
@@ -215,18 +230,6 @@ class Rational < Numeric
   private
 
   def marshal_dump = [@numerator, @denominator]
-
-  def initialize(numerator, denominator = 1)
-    raise ZeroDivisionError, "divided by 0" if denominator == 0
-    g = numerator.gcd(denominator)
-    @numerator = numerator / g
-    @denominator = denominator / g
-    if @denominator < 0
-      @numerator = -@numerator
-      @denominator = -@denominator
-    end
-    freeze
-  end
 
   def __coerce_op__(other, op)
     a, b = other.coerce(self)

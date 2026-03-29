@@ -240,84 +240,88 @@ class Encoding
   # Reverse alias table: canonical name → list of aliases (for #names method)
   ALL_ALIASES = ALIASES.freeze
 
-  # Fast O(1) lookup table: downcased name/alias → Encoding object (built lazily)
-  def self.__build_find_map__
-    m = {}
-    i = 0
-    while i < ALL.size
-      e = ALL[i]
-      m[e.name.downcase] = e
-      i += 1
-    end
-    ALIASES.each do |alias_name, canonical|
-      enc = m[canonical.downcase]
-      key = alias_name.downcase
-      m[key] = enc if enc && !m.key?(key)
-    end
-    m.freeze
-  end
-
   @default_external = UTF_8
   @default_internal = nil
 
-  def self.list = ALL
-  def self.default_external = @default_external || UTF_8
-  def self.default_internal = @default_internal
-  def self.locale_charmap = Intrinsics.locale_charmap
-  def self.compatible?(a, b) = Intrinsics.encoding_compatible(a, b)
+  class << self
+    def list = ALL
+    def default_external = @default_external || UTF_8
+    def default_internal = @default_internal
+    def locale_charmap = Intrinsics.locale_charmap
+    def compatible?(a, b) = Intrinsics.encoding_compatible(a, b)
 
-  def self.default_external=(enc)
-    raise ArgumentError, "default external encoding cannot be nil" if enc.nil?
-    if enc.is_a?(Encoding)
-      @default_external = enc
-    elsif enc.is_a?(String)
-      @default_external = find(enc)
-    else
-      @default_external = find(__coerce_to_str__(enc))
+    def default_external=(enc)
+      raise ArgumentError, "default external encoding cannot be nil" if enc.nil?
+      if enc.is_a?(Encoding)
+        @default_external = enc
+      elsif enc.is_a?(String)
+        @default_external = find(enc)
+      else
+        @default_external = find(__coerce_to_str__(enc))
+      end
+      # Sync to MRI so that native Ruby IO objects track Frozone's default_external.
+      Intrinsics.encoding_set_default_external(@default_external.name)
     end
-    # Sync to MRI so that native Ruby IO objects track Frozone's default_external.
-    Intrinsics.encoding_set_default_external(@default_external.name)
-  end
 
-  def self.default_internal=(enc)
-    if enc.nil?
-      @default_internal = nil
-    elsif enc.is_a?(Encoding)
-      @default_internal = enc
-    elsif enc.is_a?(String)
-      @default_internal = find(enc)
-    else
-      @default_internal = find(__coerce_to_str__(enc))
+    def default_internal=(enc)
+      if enc.nil?
+        @default_internal = nil
+      elsif enc.is_a?(Encoding)
+        @default_internal = enc
+      elsif enc.is_a?(String)
+        @default_internal = find(enc)
+      else
+        @default_internal = find(__coerce_to_str__(enc))
+      end
+      # Sync to MRI so that native Ruby IO objects track Frozone's default_internal.
+      Intrinsics.encoding_set_default_internal(@default_internal&.name)
     end
-    # Sync to MRI so that native Ruby IO objects track Frozone's default_internal.
-    Intrinsics.encoding_set_default_internal(@default_internal&.name)
-  end
 
-  def self.find(name)
-    raise TypeError, "no implicit conversion of #{name.class} into String" if name.is_a?(Symbol)
-    return name if name.is_a?(Encoding)
-    name_s = name.respond_to?(:to_str) ? name.to_str : name.to_s
-    name_lower = name_s.downcase
-    return default_external if name_lower == "locale" || name_lower == "external" || name_lower == "filesystem"
-    return default_internal if name_lower == "internal"
-    @find_map ||= __build_find_map__
-    @find_map[name_lower] || raise(ArgumentError, "unknown encoding name - #{name_s}")
-  end
+    def find(name)
+      raise TypeError, "no implicit conversion of #{name.class} into String" if name.is_a?(Symbol)
+      return name if name.is_a?(Encoding)
+      name_s = name.respond_to?(:to_str) ? name.to_str : name.to_s
+      name_lower = name_s.downcase
+      return default_external if name_lower == "locale" || name_lower == "external" || name_lower == "filesystem"
+      return default_internal if name_lower == "internal"
+      @find_map ||= __build_find_map__
+      @find_map[name_lower] || raise(ArgumentError, "unknown encoding name - #{name_s}")
+    end
 
-  def self.aliases
-    base = ALIASES.dup
-    base["external"] = default_external.name
-    base["locale"] = locale_charmap || default_external.name
-    base["filesystem"] = default_external.name
-    base["internal"] = default_internal.name if default_internal
-    base
-  end
+    def aliases
+      base = ALIASES.dup
+      base["external"] = default_external.name
+      base["locale"] = locale_charmap || default_external.name
+      base["filesystem"] = default_external.name
+      base["internal"] = default_internal.name if default_internal
+      base
+    end
 
-  def self.name_list
-    names = ALL.map(&:name)
-    all_aliases = ALIASES.keys + ["external", "locale", "filesystem"]
-    all_aliases << "internal" if default_internal
-    names + all_aliases
+    def name_list
+      names = ALL.map(&:name)
+      all_aliases = ALIASES.keys + ["external", "locale", "filesystem"]
+      all_aliases << "internal" if default_internal
+      names + all_aliases
+    end
+
+    private
+
+    # Fast O(1) lookup table: downcased name/alias → Encoding object (built lazily)
+    def __build_find_map__
+      m = {}
+      i = 0
+      while i < ALL.size
+        e = ALL[i]
+        m[e.name.downcase] = e
+        i += 1
+      end
+      ALIASES.each do |alias_name, canonical|
+        enc = m[canonical.downcase]
+        key = alias_name.downcase
+        m[key] = enc if enc && !m.key?(key)
+      end
+      m.freeze
+    end
   end
 
   class Converter
@@ -335,6 +339,47 @@ class Encoding
     XML_ATTR_CONTENT_DECORATOR = 65536
     XML_ATTR_QUOTE_DECORATOR   = 1048576
 
+    class << self
+      def new(from_enc, to_enc, opts = nil)
+        from = from_enc.is_a?(Encoding) ? from_enc.name : from_enc.to_str
+        to   = to_enc.is_a?(Encoding) ? to_enc.name : to_enc.to_str
+        # Coerce replacement to String if provided
+        if opts.is_a?(Hash) && opts.key?(:replace)
+          repl = opts[:replace]
+          unless repl.nil? || repl.is_a?(String)
+            opts = opts.dup
+            opts[:replace] = __coerce_to_str__(repl)
+          end
+        end
+        if opts.nil?
+          Intrinsics.encoding_converter_new(from, to)
+        else
+          Intrinsics.encoding_converter_new(from, to, opts)
+        end
+      end
+
+      def asciicompat_encoding(enc)
+        enc_arg = if enc.is_a?(Encoding) || enc.is_a?(String)
+          enc
+        elsif enc.respond_to?(:to_str)
+          enc.to_str
+        else
+          enc
+        end
+        Intrinsics.encoding_converter_asciicompat_encoding(enc_arg)
+      end
+
+      def search_convpath(from_enc, to_enc, opts = nil)
+        from = from_enc.is_a?(Encoding) ? from_enc.name : from_enc.to_s
+        to   = to_enc.is_a?(Encoding) ? to_enc.name : to_enc.to_s
+        if opts.nil?
+          Intrinsics.encoding_converter_search_convpath(from, to)
+        else
+          Intrinsics.encoding_converter_search_convpath(from, to, opts)
+        end
+      end
+    end
+
     def source_encoding = Intrinsics.encoding_converter_source_encoding(self)
     def destination_encoding = Intrinsics.encoding_converter_destination_encoding(self)
     def inspect = Intrinsics.encoding_converter_inspect(self)
@@ -345,45 +390,6 @@ class Encoding
     def primitive_errinfo = Intrinsics.encoding_converter_primitive_errinfo(self)
     def last_error = Intrinsics.encoding_converter_last_error(self)
     def insert_output(str) = Intrinsics.encoding_converter_insert_output(self, str)
-
-    def self.new(from_enc, to_enc, opts = nil)
-      from = from_enc.is_a?(Encoding) ? from_enc.name : from_enc.to_str
-      to   = to_enc.is_a?(Encoding) ? to_enc.name : to_enc.to_str
-      # Coerce replacement to String if provided
-      if opts.is_a?(Hash) && opts.key?(:replace)
-        repl = opts[:replace]
-        unless repl.nil? || repl.is_a?(String)
-          opts = opts.dup
-          opts[:replace] = __coerce_to_str__(repl)
-        end
-      end
-      if opts.nil?
-        Intrinsics.encoding_converter_new(from, to)
-      else
-        Intrinsics.encoding_converter_new(from, to, opts)
-      end
-    end
-
-    def self.asciicompat_encoding(enc)
-      enc_arg = if enc.is_a?(Encoding) || enc.is_a?(String)
-        enc
-      elsif enc.respond_to?(:to_str)
-        enc.to_str
-      else
-        enc
-      end
-      Intrinsics.encoding_converter_asciicompat_encoding(enc_arg)
-    end
-
-    def self.search_convpath(from_enc, to_enc, opts = nil)
-      from = from_enc.is_a?(Encoding) ? from_enc.name : from_enc.to_s
-      to   = to_enc.is_a?(Encoding) ? to_enc.name : to_enc.to_s
-      if opts.nil?
-        Intrinsics.encoding_converter_search_convpath(from, to)
-      else
-        Intrinsics.encoding_converter_search_convpath(from, to, opts)
-      end
-    end
 
     def replacement=(val)
       raise TypeError, "no implicit conversion of #{val.class} into String" unless val.is_a?(String)

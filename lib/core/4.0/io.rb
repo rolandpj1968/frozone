@@ -396,116 +396,89 @@ class IO
     end
   end
 
-  def self.select(read_array, write_array = nil, error_array = nil, timeout = nil) = Intrinsics.io_select(read_array, write_array, error_array, timeout)
+  class << self
+    def select(read_array, write_array = nil, error_array = nil, timeout = nil) = Intrinsics.io_select(read_array, write_array, error_array, timeout)
+    def for_fd(fd, mode = nil, **opts, &block) = self.new(fd, mode, **opts, &block)
+    def sysopen(path, mode = 'r', perm = 0666) = Intrinsics.io_sysopen(__coerce_to_path__(path), mode, perm)
 
-  def self.pipe(ext_enc = nil, int_enc = nil, **opts, &block)
-    ext_enc = ext_enc.to_str if ext_enc && !ext_enc.is_a?(String) && !ext_enc.is_a?(Encoding) && ext_enc.respond_to?(:to_str)
-    int_enc = int_enc.to_str if int_enc && !int_enc.is_a?(String) && !int_enc.is_a?(Encoding) && int_enc.respond_to?(:to_str)
-    pair = Intrinsics.io_pipe(self)
-    r_mode =
-      if ext_enc
-        ext_str = ext_enc.is_a?(Encoding) ? ext_enc.name : ext_enc.to_s
-        int_enc ? "r:#{ext_str}:#{int_enc.is_a?(Encoding) ? int_enc.name : int_enc}" : "r:#{ext_str}"
-      else
-        'r'
-      end
-    pair[0].send(:initialize, pair[0].fileno, r_mode, **opts)
-    pair[1].send(:initialize, pair[1].fileno, 'w')
-    if block
+    def new(fd, mode_or_opts = nil, **opts, &block)
+      warn "warning: IO::new() does not take block; use IO::open() instead" if block
+      opts_arg = opts.empty? ? nil : opts
+      Intrinsics.io_new_from_fd(fd, mode_or_opts, opts_arg)
+    end
+
+    def try_convert(obj)
       begin
-        block.call(*pair)
-      ensure
-        pair[0].close unless pair[0].closed?
-        pair[1].close unless pair[1].closed?
+        return obj if obj.is_a?(IO)
+        return nil unless obj.respond_to?(:to_io)
+      rescue NoMethodError
+        return nil
       end
-    else
-      pair
+      result = obj.to_io
+      raise TypeError, "can't convert #{obj.class} to IO (#{obj.class}#to_io gives #{result.class})" unless result.is_a?(IO)
+      result
     end
-  end
 
-  def self.popen(*args, **opts, &block)
-    # Support: popen(cmd, mode='r', **opts) and popen(env, cmd, mode='r', **opts)
-    cmd, mode, env =
-      if args.length >= 2 && args[0].is_a?(Hash) && !args[0].empty? &&
-          !(args[1].is_a?(String) && args[1].start_with?('-'))
-        env = args.shift
-        [args[0], args[1] || 'r', env]
-      else
-        [args[0], args[1] || 'r', nil]
-      end
-    # Coerce mode with to_str if not a String or nil
-    mode = mode.to_str if mode && !mode.is_a?(String) && mode.respond_to?(:to_str)
-    # Coerce chdir: value with to_path if needed
-    if opts.key?(:chdir) && opts[:chdir] && !opts[:chdir].is_a?(String)
-      val = opts[:chdir]
-      opts = opts.merge(chdir: val.to_path) if val.respond_to?(:to_path)
-    end
-    opts_arg = env ? opts.merge(env: env) : opts
-    opts_arg = opts_arg.empty? ? nil : opts_arg
-    io = Intrinsics.io_popen(self, cmd, mode, opts_arg)
-    if block
-      begin
-        block.call(io)
-      ensure
-        io.close rescue nil
-      end
-    else
-      io
-    end
-  end
-
-  def self.sysopen(path, mode = 'r', perm = 0666)
-    Intrinsics.io_sysopen(__coerce_to_path__(path), mode, perm)
-  end
-
-  def initialize(fd, mode_or_opts = nil, **opts)
-    opts_arg = opts.empty? ? nil : opts
-    Intrinsics.io_reinitialize(self, fd, mode_or_opts, opts_arg)
-  end
-
-  def self.new(fd, mode_or_opts = nil, **opts, &block)
-    warn "warning: IO::new() does not take block; use IO::open() instead" if block
-    opts_arg = opts.empty? ? nil : opts
-    Intrinsics.io_new_from_fd(fd, mode_or_opts, opts_arg)
-  end
-
-  def self.for_fd(fd, mode = nil, **opts, &block) = self.new(fd, mode, **opts, &block)
-
-  def self.try_convert(obj)
-    begin
-      return obj if obj.is_a?(IO)
-      return nil unless obj.respond_to?(:to_io)
-    rescue NoMethodError
-      return nil
-    end
-    result = obj.to_io
-    raise TypeError, "can't convert #{obj.class} to IO (#{obj.class}#to_io gives #{result.class})" unless result.is_a?(IO)
-    result
-  end
-
-  def self.open(fd_or_path, mode = nil, **opts, &block)
-    if fd_or_path.is_a?(Integer) || (!fd_or_path.is_a?(String) && fd_or_path.respond_to?(:to_int))
-      io = self.new(fd_or_path, mode, **opts)
-      return io unless block
-      block_error = nil
-      begin
-        block.call(io)
-      rescue Exception => block_error
-        raise
-      ensure
-        begin
-          io.close
-        rescue IOError => close_error
-          raise close_error unless close_error.message == 'closed stream' || block_error
-        rescue Exception => close_error
-          raise close_error unless block_error
+    def pipe(ext_enc = nil, int_enc = nil, **opts, &block)
+      ext_enc = ext_enc.to_str if ext_enc && !ext_enc.is_a?(String) && !ext_enc.is_a?(Encoding) && ext_enc.respond_to?(:to_str)
+      int_enc = int_enc.to_str if int_enc && !int_enc.is_a?(String) && !int_enc.is_a?(Encoding) && int_enc.respond_to?(:to_str)
+      pair = Intrinsics.io_pipe(self)
+      r_mode =
+        if ext_enc
+          ext_str = ext_enc.is_a?(Encoding) ? ext_enc.name : ext_enc.to_s
+          int_enc ? "r:#{ext_str}:#{int_enc.is_a?(Encoding) ? int_enc.name : int_enc}" : "r:#{ext_str}"
+        else
+          'r'
         end
-      end
-    else
-      # Fall through to File.open equivalent for path-based open
-      fd = self.sysopen(fd_or_path, mode || opts[:mode] || 'r')
-      io = self.new(fd, mode, **opts)
+      pair[0].send(:initialize, pair[0].fileno, r_mode, **opts)
+      pair[1].send(:initialize, pair[1].fileno, 'w')
       if block
+        begin
+          block.call(*pair)
+        ensure
+          pair[0].close unless pair[0].closed?
+          pair[1].close unless pair[1].closed?
+        end
+      else
+        pair
+      end
+    end
+
+    def popen(*args, **opts, &block)
+      # Support: popen(cmd, mode='r', **opts) and popen(env, cmd, mode='r', **opts)
+      cmd, mode, env =
+        if args.length >= 2 && args[0].is_a?(Hash) && !args[0].empty? &&
+            !(args[1].is_a?(String) && args[1].start_with?('-'))
+          env = args.shift
+          [args[0], args[1] || 'r', env]
+        else
+          [args[0], args[1] || 'r', nil]
+        end
+      # Coerce mode with to_str if not a String or nil
+      mode = mode.to_str if mode && !mode.is_a?(String) && mode.respond_to?(:to_str)
+      # Coerce chdir: value with to_path if needed
+      if opts.key?(:chdir) && opts[:chdir] && !opts[:chdir].is_a?(String)
+        val = opts[:chdir]
+        opts = opts.merge(chdir: val.to_path) if val.respond_to?(:to_path)
+      end
+      opts_arg = env ? opts.merge(env: env) : opts
+      opts_arg = opts_arg.empty? ? nil : opts_arg
+      io = Intrinsics.io_popen(self, cmd, mode, opts_arg)
+      if block
+        begin
+          block.call(io)
+        ensure
+          io.close rescue nil
+        end
+      else
+        io
+      end
+    end
+
+    def open(fd_or_path, mode = nil, **opts, &block)
+      if fd_or_path.is_a?(Integer) || (!fd_or_path.is_a?(String) && fd_or_path.respond_to?(:to_int))
+        io = self.new(fd_or_path, mode, **opts)
+        return io unless block
         block_error = nil
         begin
           block.call(io)
@@ -521,9 +494,265 @@ class IO
           end
         end
       else
-        io
+        # Fall through to File.open equivalent for path-based open
+        fd = self.sysopen(fd_or_path, mode || opts[:mode] || 'r')
+        io = self.new(fd, mode, **opts)
+        if block
+          block_error = nil
+          begin
+            block.call(io)
+          rescue Exception => block_error
+            raise
+          ensure
+            begin
+              io.close
+            rescue IOError => close_error
+              raise close_error unless close_error.message == 'closed stream' || block_error
+            rescue Exception => close_error
+              raise close_error unless block_error
+            end
+          end
+        else
+          io
+        end
       end
     end
+
+    def foreach(path, *args, chomp: false, **opts, &block)
+      return to_enum(:foreach, path, *args, chomp: chomp, **opts) unless block
+      path = __coerce_path__(path)
+      sep, lim = __parse_sep_limit__(args)
+      raise ArgumentError, "invalid limit: 0 for IO.foreach" if lim == 0
+      io_mode = opts.key?(:mode) ? opts.delete(:mode) : 'r'
+      open(path, io_mode, **opts) do |f|
+        while (line = f.gets(sep, *[lim].compact))
+          if chomp
+            line =
+              if sep.nil? then line
+              elsif sep.empty? then line.sub(/\n{2,}\z/, '')
+              else line.chomp(sep)
+              end
+          end
+          block.call(line)
+        end
+      end
+      nil
+    end
+
+    def read(path, length = nil, offset = nil, **opts)
+      path = __coerce_to_path__(path)
+      if offset
+        offset = __coerce_to_int__(offset)
+        raise ArgumentError, "negative offset" if offset < 0
+      end
+      open_args = opts[:open_args]
+      if open_args
+        # open_args may be [mode] or [mode, {opts}] or [{opts}]
+        args = open_args.dup
+        kw = (args.last.is_a?(Hash) ? args.pop : {})
+        mode = args.shift || 'r'
+        open(path, mode, **kw) do |f|
+          f.seek(offset) if offset
+          length ? f.read(length) : f.read
+        end
+      else
+        mode = opts[:mode] || 'r'
+        enc_opt = {}
+        enc_opt[:external_encoding] = opts[:external_encoding] || opts[:encoding] if opts[:external_encoding] || opts[:encoding]
+        enc_opt[:internal_encoding] = opts[:internal_encoding] if opts[:internal_encoding]
+        open(path, mode, **enc_opt) do |f|
+          f.seek(offset) if offset
+          length ? f.read(length) : f.read
+        end
+      end
+    end
+
+    def readlines(path, *args, chomp: false, **opts)
+      path = __coerce_path__(path)
+      io_mode = opts.key?(:mode) ? opts.delete(:mode) : 'r'
+      open(path, io_mode, **opts) do |f|
+        f.readlines(*args, chomp: chomp)
+      end
+    end
+
+    def write(path, content, offset = nil, **opts)
+      if opts.key?(:open_args)
+        open_args = opts[:open_args]
+        # open_args: array of positional/keyword args to File.open
+        # Extract mode and kwargs from open_args
+        open_mode = nil
+        open_kwargs = {}
+        open_args.each do |arg|
+          if arg.is_a?(String)
+            open_mode = arg
+          elsif arg.is_a?(Hash)
+            open_kwargs = arg
+            open_mode ||= open_kwargs.delete(:mode)
+          end
+        end
+        # When open_args is given: if no mode specified, open read-only (raises IOError on write)
+        open_mode ||= 'r'
+        open(path, open_mode, **open_kwargs) do |f|
+          f.seek(offset) if offset
+          return f.write(content)
+        end
+      else
+        # Check for encoding specified both in mode string and :encoding option
+        if opts[:mode].is_a?(String) && opts[:mode].include?(':') && opts.key?(:encoding)
+          raise ArgumentError, "encoding specified twice"
+        end
+        mode = opts[:mode]
+        enc = opts[:encoding]
+        flags = opts[:flags]
+        perm  = opts[:perm]
+        open_kwargs = {}
+        open_kwargs[:encoding] = enc if enc
+        open_kwargs[:flags] = flags if flags
+        if mode.nil?
+          if offset
+            # Read-write without truncate; create if missing
+            begin
+              open(path, 'r+', **open_kwargs) do |f|
+                f.seek(offset)
+                return f.write(content)
+              end
+            rescue Errno::ENOENT
+              # File doesn't exist: create it
+              open(path, 'w', **open_kwargs) do |f|
+                f.seek(offset)
+                return f.write(content)
+              end
+            end
+          else
+            mode = 'w'
+          end
+        end
+        n = open(path, mode, **open_kwargs) do |f|
+          f.seek(offset) if offset
+          f.write(content)
+        end
+        File.chmod(perm, path) if perm
+        n
+      end
+    end
+
+    def binread(path, length = nil, offset = nil)
+      open(path, 'rb') do |f|
+        f.seek(offset) if offset
+        length ? f.read(length) : f.read
+      end
+    end
+
+    def binwrite(path, content, offset = nil, **opts)
+      mode = opts[:mode]
+      flags = opts[:flags]
+      open_kwargs = {}
+      open_kwargs[:flags] = flags if flags
+      if mode.nil?
+        if offset
+          begin
+            open(path, 'r+b', **open_kwargs) do |f|
+              f.seek(offset)
+              return f.write(content)
+            end
+          rescue Errno::ENOENT
+            open(path, 'wb', **open_kwargs) do |f|
+              f.seek(offset)
+              return f.write(content)
+            end
+          end
+        else
+          mode = 'wb'
+        end
+      end
+      open(path, mode, **open_kwargs) do |f|
+        f.seek(offset) if offset
+        f.write(content)
+      end
+    end
+
+    def copy_stream(src, dst, copy_length = nil, src_offset = nil)
+      src_io = src.is_a?(String) ? open(src, 'rb') : src
+      dst_io = dst.is_a?(String) ? open(dst, 'wb') : dst
+      begin
+        src_io.seek(src_offset) if src_offset && src_io.respond_to?(:seek)
+        copied = 0
+        buf_size = 65536
+        loop do
+          remaining = copy_length ? [copy_length - copied, buf_size].min : buf_size
+          break if remaining <= 0
+          chunk = src_io.read(remaining)
+          break if chunk.nil? || chunk.empty?
+          dst_io.write(chunk)
+          copied += chunk.bytesize
+          break if copy_length && copied >= copy_length
+        end
+        copied
+      ensure
+        src_io.close if src.is_a?(String)
+        dst_io.close if dst.is_a?(String)
+      end
+    end
+
+    private
+
+    # Coerce a path argument to String using to_path or to_str.
+    def __coerce_path__(path)
+      if path.nil?
+        raise TypeError, "no implicit conversion of nil into String"
+      elsif path.respond_to?(:to_path)
+        path.to_path
+      elsif path.respond_to?(:to_str)
+        path.to_str
+      else
+        raise TypeError, "no implicit conversion of #{path.class} into String"
+      end
+    end
+
+    def __parse_sep_limit__(args)
+      case args.length
+      when 0
+        [$/, nil]
+      when 1
+        arg = args[0]
+        if arg.is_a?(Integer)
+          [$/, arg]
+        elsif arg.nil?
+          [nil, nil]
+        elsif !arg.respond_to?(:to_str) && arg.respond_to?(:to_int)
+          [$/, arg.to_int]
+        elsif arg.respond_to?(:to_str)
+          [arg.to_str, nil]
+        else
+          raise TypeError, "no implicit conversion of #{arg.class} into String"
+        end
+      when 2
+        sep =
+          if args[0].nil?
+            nil
+          elsif args[0].respond_to?(:to_str)
+            args[0].to_str
+          else
+            raise TypeError, "no implicit conversion of #{args[0].class} into String"
+          end
+        lim =
+          if args[1].is_a?(Integer)
+            args[1]
+          elsif args[1].respond_to?(:to_int)
+            args[1].to_int
+          else
+            raise TypeError, "no implicit conversion of #{args[1].class} into Integer"
+          end
+        [sep, lim]
+      else
+        raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
+      end
+    end
+  end
+
+  def initialize(fd, mode_or_opts = nil, **opts)
+    opts_arg = opts.empty? ? nil : opts
+    Intrinsics.io_reinitialize(self, fd, mode_or_opts, opts_arg)
   end
 
   # Shared helper: parse (sep, limit) from a raw *args array using MRI rules.
@@ -568,237 +797,6 @@ class IO
     end
   end
   private :__parse_sep_limit__
-
-  # Coerce a path argument to String using to_path or to_str.
-  def self.__coerce_path__(path)
-    if path.nil?
-      raise TypeError, "no implicit conversion of nil into String"
-    elsif path.respond_to?(:to_path)
-      path.to_path
-    elsif path.respond_to?(:to_str)
-      path.to_str
-    else
-      raise TypeError, "no implicit conversion of #{path.class} into String"
-    end
-  end
-  private_class_method :__coerce_path__
-
-  def self.__parse_sep_limit__(args)
-    case args.length
-    when 0
-      [$/, nil]
-    when 1
-      arg = args[0]
-      if arg.is_a?(Integer)
-        [$/, arg]
-      elsif arg.nil?
-        [nil, nil]
-      elsif !arg.respond_to?(:to_str) && arg.respond_to?(:to_int)
-        [$/, arg.to_int]
-      elsif arg.respond_to?(:to_str)
-        [arg.to_str, nil]
-      else
-        raise TypeError, "no implicit conversion of #{arg.class} into String"
-      end
-    when 2
-      sep =
-        if args[0].nil?
-          nil
-        elsif args[0].respond_to?(:to_str)
-          args[0].to_str
-        else
-          raise TypeError, "no implicit conversion of #{args[0].class} into String"
-        end
-      lim =
-        if args[1].is_a?(Integer)
-          args[1]
-        elsif args[1].respond_to?(:to_int)
-          args[1].to_int
-        else
-          raise TypeError, "no implicit conversion of #{args[1].class} into Integer"
-        end
-      [sep, lim]
-    else
-      raise ArgumentError, "wrong number of arguments (given #{args.length}, expected 0..2)"
-    end
-  end
-  private_class_method :__parse_sep_limit__
-
-  def self.foreach(path, *args, chomp: false, **opts, &block)
-    return to_enum(:foreach, path, *args, chomp: chomp, **opts) unless block
-    path = __coerce_path__(path)
-    sep, lim = __parse_sep_limit__(args)
-    raise ArgumentError, "invalid limit: 0 for IO.foreach" if lim == 0
-    io_mode = opts.key?(:mode) ? opts.delete(:mode) : 'r'
-    open(path, io_mode, **opts) do |f|
-      while (line = f.gets(sep, *[lim].compact))
-        if chomp
-          line =
-            if sep.nil? then line
-            elsif sep.empty? then line.sub(/\n{2,}\z/, '')
-            else line.chomp(sep)
-            end
-        end
-        block.call(line)
-      end
-    end
-    nil
-  end
-
-  def self.read(path, length = nil, offset = nil, **opts)
-    path = __coerce_to_path__(path)
-    if offset
-      offset = __coerce_to_int__(offset)
-      raise ArgumentError, "negative offset" if offset < 0
-    end
-    open_args = opts[:open_args]
-    if open_args
-      # open_args may be [mode] or [mode, {opts}] or [{opts}]
-      args = open_args.dup
-      kw = (args.last.is_a?(Hash) ? args.pop : {})
-      mode = args.shift || 'r'
-      open(path, mode, **kw) do |f|
-        f.seek(offset) if offset
-        length ? f.read(length) : f.read
-      end
-    else
-      mode = opts[:mode] || 'r'
-      enc_opt = {}
-      enc_opt[:external_encoding] = opts[:external_encoding] || opts[:encoding] if opts[:external_encoding] || opts[:encoding]
-      enc_opt[:internal_encoding] = opts[:internal_encoding] if opts[:internal_encoding]
-      open(path, mode, **enc_opt) do |f|
-        f.seek(offset) if offset
-        length ? f.read(length) : f.read
-      end
-    end
-  end
-
-  def self.readlines(path, *args, chomp: false, **opts)
-    path = __coerce_path__(path)
-    io_mode = opts.key?(:mode) ? opts.delete(:mode) : 'r'
-    open(path, io_mode, **opts) do |f|
-      f.readlines(*args, chomp: chomp)
-    end
-  end
-
-  def self.write(path, content, offset = nil, **opts)
-    if opts.key?(:open_args)
-      open_args = opts[:open_args]
-      # open_args: array of positional/keyword args to File.open
-      # Extract mode and kwargs from open_args
-      open_mode = nil
-      open_kwargs = {}
-      open_args.each do |arg|
-        if arg.is_a?(String)
-          open_mode = arg
-        elsif arg.is_a?(Hash)
-          open_kwargs = arg
-          open_mode ||= open_kwargs.delete(:mode)
-        end
-      end
-      # When open_args is given: if no mode specified, open read-only (raises IOError on write)
-      open_mode ||= 'r'
-      open(path, open_mode, **open_kwargs) do |f|
-        f.seek(offset) if offset
-        return f.write(content)
-      end
-    else
-      # Check for encoding specified both in mode string and :encoding option
-      if opts[:mode].is_a?(String) && opts[:mode].include?(':') && opts.key?(:encoding)
-        raise ArgumentError, "encoding specified twice"
-      end
-      mode = opts[:mode]
-      enc = opts[:encoding]
-      flags = opts[:flags]
-      perm  = opts[:perm]
-      open_kwargs = {}
-      open_kwargs[:encoding] = enc if enc
-      open_kwargs[:flags] = flags if flags
-      if mode.nil?
-        if offset
-          # Read-write without truncate; create if missing
-          begin
-            open(path, 'r+', **open_kwargs) do |f|
-              f.seek(offset)
-              return f.write(content)
-            end
-          rescue Errno::ENOENT
-            # File doesn't exist: create it
-            open(path, 'w', **open_kwargs) do |f|
-              f.seek(offset)
-              return f.write(content)
-            end
-          end
-        else
-          mode = 'w'
-        end
-      end
-      n = open(path, mode, **open_kwargs) do |f|
-        f.seek(offset) if offset
-        f.write(content)
-      end
-      File.chmod(perm, path) if perm
-      n
-    end
-  end
-
-  def self.binread(path, length = nil, offset = nil)
-    open(path, 'rb') do |f|
-      f.seek(offset) if offset
-      length ? f.read(length) : f.read
-    end
-  end
-
-  def self.binwrite(path, content, offset = nil, **opts)
-    mode = opts[:mode]
-    flags = opts[:flags]
-    open_kwargs = {}
-    open_kwargs[:flags] = flags if flags
-    if mode.nil?
-      if offset
-        begin
-          open(path, 'r+b', **open_kwargs) do |f|
-            f.seek(offset)
-            return f.write(content)
-          end
-        rescue Errno::ENOENT
-          open(path, 'wb', **open_kwargs) do |f|
-            f.seek(offset)
-            return f.write(content)
-          end
-        end
-      else
-        mode = 'wb'
-      end
-    end
-    open(path, mode, **open_kwargs) do |f|
-      f.seek(offset) if offset
-      f.write(content)
-    end
-  end
-
-  def self.copy_stream(src, dst, copy_length = nil, src_offset = nil)
-    src_io = src.is_a?(String) ? open(src, 'rb') : src
-    dst_io = dst.is_a?(String) ? open(dst, 'wb') : dst
-    begin
-      src_io.seek(src_offset) if src_offset && src_io.respond_to?(:seek)
-      copied = 0
-      buf_size = 65536
-      loop do
-        remaining = copy_length ? [copy_length - copied, buf_size].min : buf_size
-        break if remaining <= 0
-        chunk = src_io.read(remaining)
-        break if chunk.nil? || chunk.empty?
-        dst_io.write(chunk)
-        copied += chunk.bytesize
-        break if copy_length && copied >= copy_length
-      end
-      copied
-    ensure
-      src_io.close if src.is_a?(String)
-      dst_io.close if dst.is_a?(String)
-    end
-  end
 
   def chmod(mode)
     mode_int = __coerce_to_int__(mode)

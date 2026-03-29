@@ -1,29 +1,31 @@
 class Complex
-  def self._real_check(v)
-    if v.is_a?(Complex)
-      raise TypeError, "not a real" unless v.imaginary == 0
-      return v.real
+  class << self
+    def polar(r, theta = 0)
+      r     = _real_check(r)
+      theta = _real_check(theta)
+      Complex(r * Math.cos(theta.to_f), r * Math.sin(theta.to_f))
     end
-    raise TypeError, "not a real" unless v.is_a?(Numeric)
-    raise TypeError, "not a real" if v.respond_to?(:real?) && v.real? == false
-    v
+
+    def rect(real, imag = 0)
+      real = _real_check(real)
+      imag = _real_check(imag)
+      new(real, imag)
+    end
+
+    alias rectangular rect
+
+    private
+
+    def _real_check(v)
+      if v.is_a?(Complex)
+        raise TypeError, "not a real" unless v.imaginary == 0
+        return v.real
+      end
+      raise TypeError, "not a real" unless v.is_a?(Numeric)
+      raise TypeError, "not a real" if v.respond_to?(:real?) && v.real? == false
+      v
+    end
   end
-
-  private_class_method :_real_check
-
-  def self.polar(r, theta = 0)
-    r     = _real_check(r)
-    theta = _real_check(theta)
-    Complex(r * Math.cos(theta.to_f), r * Math.sin(theta.to_f))
-  end
-
-  def self.rect(real, imag = 0)
-    real = _real_check(real)
-    imag = _real_check(imag)
-    new(real, imag)
-  end
-
-  class << self; alias rectangular rect; end
 
   def initialize(real, imaginary = 0)
     @real = real

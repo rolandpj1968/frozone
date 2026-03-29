@@ -166,7 +166,7 @@ module Enumerable
 
   def reduce(*args, &block)
     sym, has_initial, initial, should_warn = __parse_reduce_args__(args, block)
-    Intrinsics.kernel_verbose_warn(self, "given block not used") if should_warn
+    warn "warning: given block not used" if should_warn && $VERBOSE
     acc = initial; first = !has_initial
     each do |*x|
       v = __unpack_enum_args__(x)

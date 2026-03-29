@@ -1,65 +1,69 @@
 class Struct
   include Enumerable
 
-  def self.new(*members, keyword_init: nil, &block)
-    # Determine optional constant name from first argument
-    const_name = if members.first.nil?
-      members.shift  # nil → anonymous struct
-      nil
-    elsif members.first.is_a?(String)
-      members.shift
-    elsif members.first.respond_to?(:to_str)
-      members.shift.to_str
-    end
-
-    # Validate members: only Symbol or String accepted (not arbitrary to_sym objects)
-    seen = {}
-    members.each do |m|
-      unless m.is_a?(Symbol) || m.is_a?(String)
-        raise TypeError, "#{m.inspect} is not a symbol nor a string"
-      end
-      sym = m.to_sym
-      raise ArgumentError, "duplicate member: #{sym}" if seen[sym]
-      seen[sym] = true
-    end
-
-    keyword_init_val = keyword_init
-
-    klass = Class.new(self) do
-      @members      = members.map(&:to_sym)
-      @keyword_init = keyword_init_val
-
-      # Override self.new so instance creation doesn't re-enter Struct.new
-      def self.new(*args, **kwargs, &blk)
-        obj = allocate
-        obj.__send__(:initialize, *args, **kwargs)
-        obj
+  class << self
+    def new(*members, keyword_init: nil, &block)
+      # Determine optional constant name from first argument
+      const_name = if members.first.nil?
+        members.shift  # nil → anonymous struct
+        nil
+      elsif members.first.is_a?(String)
+        members.shift
+      elsif members.first.respond_to?(:to_str)
+        members.shift.to_str
       end
 
-      # Generate reader/writer for each member; use lazy @struct_values so
-      # subclass initialize can call setters before super.
-      @members.each do |name|
-        define_method(name)        { @struct_values&.fetch(name, nil) }
-        define_method(:"#{name}=") do |v|
-          __check_frozen__
-          (@struct_values ||= {})[name] = v
+      # Validate members: only Symbol or String accepted (not arbitrary to_sym objects)
+      seen = {}
+      members.each do |m|
+        unless m.is_a?(Symbol) || m.is_a?(String)
+          raise TypeError, "#{m.inspect} is not a symbol nor a string"
         end
+        sym = m.to_sym
+        raise ArgumentError, "duplicate member: #{sym}" if seen[sym]
+        seen[sym] = true
       end
 
-      def self.members = @members || superclass.members
-      def self.[](*args, **kwargs, &blk) = new(*args, **kwargs, &blk)
-      def self.keyword_init? = @keyword_init ? true : @keyword_init
+      keyword_init_val = keyword_init
 
-      class_exec(self, &block) if block
+      klass = Class.new(self) do
+        @members      = members.map(&:to_sym)
+        @keyword_init = keyword_init_val
+
+        # Override self.new so instance creation doesn't re-enter Struct.new
+        def self.new(*args, **kwargs, &blk)
+          obj = allocate
+          obj.__send__(:initialize, *args, **kwargs)
+          obj
+        end
+
+        # Generate reader/writer for each member; use lazy @struct_values so
+        # subclass initialize can call setters before super.
+        @members.each do |name|
+          define_method(name)        { @struct_values&.fetch(name, nil) }
+          define_method(:"#{name}=") do |v|
+            __check_frozen__
+            (@struct_values ||= {})[name] = v
+          end
+        end
+
+        def self.members = @members || superclass.members
+        def self.[](*args, **kwargs, &blk) = new(*args, **kwargs, &blk)
+        def self.keyword_init? = @keyword_init ? true : @keyword_init
+
+        class_exec(self, &block) if block
+      end
+
+      self.const_set(const_name, klass) if const_name
+      klass
     end
 
-    self.const_set(const_name, klass) if const_name
-    klass
+    # Struct#initialize is on the base class so subclasses can override it
+    # and call super (matching MRI semantics).
+    def members = []
   end
-  # Struct#initialize is on the base class so subclasses can override it
-  # and call super (matching MRI semantics).
-  def self.members = []
-  def members      = self.class.members || []
+
+  def members = self.class.members || []
   def to_a         = members.map { |m| @struct_values&.fetch(m, nil) }
   def values       = to_a
   def size         = members.size

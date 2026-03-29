@@ -32,49 +32,51 @@ module Signal
   # Handler registry: canonical signal name → handler (proc, "IGNORE", "DEFAULT", nil, etc.)
   @handlers = {}
 
-  def self.list = LIST
-  def self.signame(signum) = CANONICAL_BY_NUM[__coerce_to_int__(signum)]
+  class << self
+    def list = LIST
+    def signame(signum) = CANONICAL_BY_NUM[__coerce_to_int__(signum)]
 
-  def self._normalize_name(signal)
-    if signal.is_a?(Integer)
-      raise ArgumentError, "invalid signal number (#{signal})" unless CANONICAL_BY_NUM.key?(signal)
-      return CANONICAL_BY_NUM[signal]
+    def _normalize_name(signal)
+      if signal.is_a?(Integer)
+        raise ArgumentError, "invalid signal number (#{signal})" unless CANONICAL_BY_NUM.key?(signal)
+        return CANONICAL_BY_NUM[signal]
+      end
+      if signal.respond_to?(:to_str)
+        str = signal.to_str
+      elsif signal.is_a?(Symbol)
+        str = signal.to_s
+      else
+        raise ArgumentError, "bad signal type #{signal.class}"
+      end
+      name = str.start_with?("SIG") ? str[3..] : str
+      raise ArgumentError, "unsupported signal `SIG#{name}'" unless LIST.key?(name)
+      # Return the canonical name for aliases (CLD → CHLD via CANONICAL_BY_NUM)
+      CANONICAL_BY_NUM[LIST[name]]
     end
-    if signal.respond_to?(:to_str)
-      str = signal.to_str
-    elsif signal.is_a?(Symbol)
-      str = signal.to_s
-    else
-      raise ArgumentError, "bad signal type #{signal.class}"
-    end
-    name = str.start_with?("SIG") ? str[3..] : str
-    raise ArgumentError, "unsupported signal `SIG#{name}'" unless LIST.key?(name)
-    # Return the canonical name for aliases (CLD → CHLD via CANONICAL_BY_NUM)
-    CANONICAL_BY_NUM[LIST[name]]
-  end
 
-  def self.trap(signal, command = :__no_command__, &block)
-    callable = command.equal?(:__no_command__) ? block : command
-    name = _normalize_name(signal)
-    raise ArgumentError, "can't trap reserved signal: SIG#{name}" if RESERVED.include?(name)
-    if UNCATCHABLE.include?(name)
-      raise Errno::EINVAL, "Invalid argument - Signal already used by VM or OS"
-    end
-    handler = case callable
-              when "SIG_IGN", :SIG_IGN, "IGNORE", :IGNORE   then "IGNORE"
-              when "SIG_DFL", :SIG_DFL, "DEFAULT", :DEFAULT  then "DEFAULT"
-              when "SYSTEM_DEFAULT", :SYSTEM_DEFAULT          then "SYSTEM_DEFAULT"
-              when "EXIT", :EXIT                              then "EXIT"
-              else callable
-              end
-    old_raw = @handlers.fetch(name, UNSET)
-    @handlers[name] = handler
-    # Register with MRI's signal handling
-    Intrinsics.signal_register(name, handler)
-    if old_raw.equal?(UNSET)
-      SYSTEM_DEFAULT_INITIAL.include?(name) ? "SYSTEM_DEFAULT" : "DEFAULT"
-    else
-      old_raw
+    def trap(signal, command = :__no_command__, &block)
+      callable = command.equal?(:__no_command__) ? block : command
+      name = _normalize_name(signal)
+      raise ArgumentError, "can't trap reserved signal: SIG#{name}" if RESERVED.include?(name)
+      if UNCATCHABLE.include?(name)
+        raise Errno::EINVAL, "Invalid argument - Signal already used by VM or OS"
+      end
+      handler = case callable
+                when "SIG_IGN", :SIG_IGN, "IGNORE", :IGNORE   then "IGNORE"
+                when "SIG_DFL", :SIG_DFL, "DEFAULT", :DEFAULT  then "DEFAULT"
+                when "SYSTEM_DEFAULT", :SYSTEM_DEFAULT          then "SYSTEM_DEFAULT"
+                when "EXIT", :EXIT                              then "EXIT"
+                else callable
+                end
+      old_raw = @handlers.fetch(name, UNSET)
+      @handlers[name] = handler
+      # Register with MRI's signal handling
+      Intrinsics.signal_register(name, handler)
+      if old_raw.equal?(UNSET)
+        SYSTEM_DEFAULT_INITIAL.include?(name) ? "SYSTEM_DEFAULT" : "DEFAULT"
+      else
+        old_raw
+      end
     end
   end
 end

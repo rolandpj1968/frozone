@@ -61,237 +61,6 @@ class File < IO
   # IO should also directly include File::Constants (MRI: IO.include?(File::Constants) == true)
   IO.include File::Constants
 
-  def self.expand_path(path, base = nil) = Intrinsics.file_expand_path(_coerce_path(path), base.nil? ? nil : _coerce_path(base))
-  def self.absolute_path(path, base = nil) = Intrinsics.file_absolute_path(_coerce_path(path), base.nil? ? nil : _coerce_path(base))
-  def self.absolute_path?(path) = Intrinsics.file_absolute_path_q(_coerce_path(path))
-  def self.exist?(path) = Intrinsics.file_exist(_coerce_path(path))
-  def self.exists?(path) = Intrinsics.file_exist(_coerce_path(path))
-  def self.directory?(path) = Intrinsics.file_directory(_coerce_path(path))
-  def self.file?(path) = Intrinsics.file_file(_coerce_path(path))
-  def self.readable?(path) = Intrinsics.file_readable(_coerce_path(path))
-  def self.readable_real?(path) = Intrinsics.file_readable_real(_coerce_path(path))
-  def self.executable?(path) = Intrinsics.file_executable(_coerce_path(path))
-  def self.executable_real?(path) = Intrinsics.file_executable_real(_coerce_path(path))
-  def self.writable?(path) = Intrinsics.file_writable(_coerce_path(path))
-  def self.writable_real?(path) = Intrinsics.file_writable_real(_coerce_path(path))
-  def self.owned?(path) = Intrinsics.file_owned(_coerce_path(path))
-  def self.grpowned?(path) = Intrinsics.file_grpowned(_coerce_path(path))
-  def self.size(path) = Intrinsics.file_size_exact(_coerce_path(path))
-  def self.size?(path) = Intrinsics.file_size(_coerce_path(path))
-  def self.zero?(path) = Intrinsics.file_zero(_coerce_path(path))
-  def self.empty?(path) = Intrinsics.file_zero(_coerce_path(path))
-  def self.symlink?(path) = Intrinsics.file_symlink(_coerce_path(path))
-  def self.blockdev?(path) = Intrinsics.file_blockdev(_coerce_path(path))
-  def self.chardev?(path) = Intrinsics.file_chardev(_coerce_path(path))
-  def self.pipe?(path) = Intrinsics.file_pipe(_coerce_path(path))
-  def self.socket?(path) = Intrinsics.file_socket(_coerce_path(path))
-  def self.setuid?(path) = Intrinsics.file_setuid(_coerce_path(path))
-  def self.setgid?(path) = Intrinsics.file_setgid(_coerce_path(path))
-  def self.sticky?(path) = Intrinsics.file_sticky(_coerce_path(path))
-  def self.identical?(a, b) = Intrinsics.file_identical(_coerce_path(a), _coerce_path(b))
-  def self.ftype(path) = Intrinsics.file_ftype(_coerce_path(path))
-  def self.atime(path) = Intrinsics.file_atime(_coerce_path(path))
-  def self.mtime(path) = Intrinsics.file_mtime(_coerce_path(path))
-  def self.ctime(path) = Intrinsics.file_ctime(_coerce_path(path))
-  def self.birthtime(path) = Intrinsics.file_birthtime(_coerce_path(path))
-  def self.realpath(path, base = nil) = Intrinsics.file_realpath(_coerce_path(path), base)
-  def self.realdirpath(path, base = nil) = Intrinsics.file_realdirpath(_coerce_path(path), base)
-  def self.split(path) = Intrinsics.file_split(_coerce_path(path))
-  def self.write(path, content, offset = nil, **opts)
-    IO.write(_coerce_path(path), content, offset, **opts)
-  end
-  def self.delete(*paths) = Intrinsics.file_delete_strict(paths)
-  def self.unlink(*paths) = Intrinsics.file_delete_strict(paths)
-  def self.rename(from, to) = Intrinsics.file_rename(_coerce_path(from), _coerce_path(to))
-  def self.symlink(target, link) = Intrinsics.file_symlink_create(_coerce_path(target), _coerce_path(link))
-  def self.link(target, link) = Intrinsics.file_link(_coerce_path(target), _coerce_path(link))
-  def self.readlink(path) = Intrinsics.file_readlink(_coerce_path(path))
-  def self.lchown(uid, gid, *paths) = paths.length
-  def self.lchmod(mode, *paths) = paths.length
-  def self.lutime(atime, mtime, *paths) = Intrinsics.file_lutime(atime, mtime, paths.map { |p| _coerce_path(p) })
-  def self.stat(path) = Stat.new(_coerce_path(path))
-  def self.lstat(path) = Stat.new(_coerce_path(path), lstat: true)
-  def self.binread(path, length = nil, offset = nil) = Intrinsics.file_binread(_coerce_path(path), length, offset)
-  def self.binwrite(path, content, offset = nil) = Intrinsics.file_write(_coerce_path(path), content)
-  def self.fnmatch?(pattern, path, flags = 0) = fnmatch(pattern, path, flags)
-  def self.mkfifo(path, mode = 0o666)         = Intrinsics.file_mkfifo(_coerce_path(path), mode)
-  def self.umask(new_mask = nil) = Intrinsics.file_umask(new_mask)
-  def self.utime(atime, mtime, *paths) = Intrinsics.file_utime(atime, mtime, paths.map { |p| _coerce_path(p) })
-
-  def self.join(*parts)
-    return '' if parts.empty?
-    segs = []
-    _join_parts(parts, segs, [])
-    return '' if segs.empty?
-    result = +segs[0]  # dup to ensure a new string even for single-arg case
-    segs[1..].each do |s|
-      if s.start_with?('/')
-        # Right side starts with slash(es): strip trailing slashes from left, keep right's leading slashes
-        result.sub!(/\/+\z/, '')
-        result += s
-      elsif result.end_with?('/')
-        # Left already ends with slash: just append right
-        result += s
-      else
-        result += '/' + s
-      end
-    end
-    result
-  end
-
-  def self.dirname(path, level = 1)
-    l = level.is_a?(Integer) ? level : __coerce_to_int__(level)
-    Intrinsics.file_dirname(_coerce_path(path), l)
-  end
-
-  def self.read(path, length = nil, offset = nil, **opts)
-    mode = opts.delete(:mode)
-    open_opts = opts
-    if mode || !open_opts.empty?
-      open_mode = mode || 'r'
-      open(path, open_mode, **open_opts) do |f|
-        f.seek(offset) if offset && offset != 0
-        length ? f.read(length) : f.read
-      end
-    elsif length || (offset && offset != 0)
-      open(path, 'r') do |f|
-        f.seek(offset) if offset && offset != 0
-        length ? f.read(length) : f.read
-      end
-    else
-      Intrinsics.file_read(_coerce_path(path))
-    end
-  end
-
-  def self.open(path, mode = nil, perm = 0o666, **opts, &block)
-    mode = opts.delete(:mode) || mode || 'r'
-    raise ArgumentError, "newline decorator with binary mode" if opts[:newline] && mode.to_s.include?('b')
-    mode = __mode_with_encoding__(mode, opts)
-    if path.is_a?(Integer)
-      io = Intrinsics.file_new_from_fd(path, mode, opts.empty? ? nil : opts)
-      if block
-        begin
-          block.call(io)
-        ensure
-          io.close rescue nil
-        end
-      else
-        io
-      end
-    else
-      flags = opts[:flags]
-      extra_opts = {}
-      extra_opts[:newline] = opts[:newline] if opts[:newline]
-      Intrinsics.file_open(_coerce_path(path), mode, block, perm, flags, extra_opts.empty? ? nil : extra_opts)
-    end
-  end
-
-  def self.new(path, mode = nil, perm = 0o666, **opts, &block)
-    if block_given?
-      Intrinsics.kernel_deprecation_warn(self, "File::new() does not take block; use File::open() instead")
-    end
-    mode = opts.delete(:mode) || mode || 'r'
-    mode = __mode_with_encoding__(mode, opts)
-    if path.is_a?(Integer)
-      Intrinsics.file_new_from_fd(path, mode, opts.empty? ? nil : opts)
-    else
-      flags = opts[:flags]
-      Intrinsics.file_open(_coerce_path(path), mode, nil, perm, flags)
-    end
-  end
-
-  def self.__mode_with_encoding__(mode, opts)
-    mode_str = mode.is_a?(Integer) ? mode : mode.to_s
-    return mode_str if mode.is_a?(Integer)
-    # Apply binmode: true by inserting 'b' after the access character if not already present
-    if opts[:binmode] && !mode_str.include?('b')
-      # Insert 'b' after the first mode char (e.g. 'w' → 'wb', 'r+' → 'rb+')
-      # Handle both 'rw+' form and encoding suffix: insert before ':' if present
-      colon_idx = mode_str.index(':')
-      base = colon_idx ? mode_str[0, colon_idx] : mode_str
-      enc_suffix = colon_idx ? mode_str[colon_idx..] : ''
-      # Insert 'b' after the first char (r/w/a) and before any + or other flags
-      base = base[0] + 'b' + base[1..]
-      mode_str = base + enc_suffix
-    end
-    return mode_str if mode_str.include?(':')
-    if (enc = opts[:encoding])
-      mode_str + ':' + enc.to_s
-    elsif (ext = opts[:external_encoding])
-      int_enc = opts[:internal_encoding]
-      mode_str + ':' + ext.to_s + (int_enc ? ':' + int_enc.to_s : '')
-    else
-      mode_str
-    end
-  end
-  private_class_method :__mode_with_encoding__
-
-  def self.chown(uid, gid, *paths)
-    paths.each { |p| raise Errno::ENOENT, _coerce_path(p) unless exist?(_coerce_path(p)) }
-    paths.length
-  end
-
-  def self.path(path)
-    if path.is_a?(String)
-      raise ArgumentError, "path name contains null byte" if path.include?("\0")
-      path
-    elsif path.respond_to?(:to_path)
-      result = path.to_path
-      raise TypeError, "no implicit conversion of #{path.class} into String" unless result.is_a?(String)
-      raise ArgumentError, "path name contains null byte" if result.include?("\0")
-      result
-    elsif path.is_a?(IO)
-      path.path
-    else
-      raise TypeError, "no implicit conversion of #{path.class} into String"
-    end
-  end
-
-  def self.extname(path)
-    p = _coerce_path(path)
-    base = File.basename(p)
-    # Hidden files (starting with a dot) with no other dot have no extension.
-    # All-dot names like '.', '..', '...' have no extension.
-    # Edge cases: 'file' → '', '.hidden' → '', 'file.' → '.', 'file.rb' → '.rb'
-    dot = base.rindex('.')
-    return '' if dot.nil? || dot == 0
-    return '' if base.chars.all? { |c| c == '.' }
-    base[dot..]
-  end
-
-  def self.basename(path, suffix = nil)
-    p = _coerce_path(path)
-    suffix.nil? ? Intrinsics.file_basename(p, nil) : Intrinsics.file_basename(p, suffix)
-  end
-
-  def self.truncate(path, length) = Intrinsics.file_truncate(_coerce_path(path), __coerce_to_int__(length))
-
-  def self.chmod(mode, *paths)
-    mode_int = __coerce_to_int__(mode)
-    raise RangeError, "bignum too big to convert into 'long'" if mode_int > UINT32_UPPER || mode_int < INT32_LOWER
-    Intrinsics.file_chmod(mode_int, paths.map { |p| _coerce_path(p) })
-  end
-
-  def self.fnmatch(pattern, path, flags = 0) = Intrinsics.file_fnmatch(pattern, _coerce_path(path), __coerce_to_int__(flags))
-
-  def self.world_readable?(path)
-    begin
-      mode = Intrinsics.file_stat_mode(_coerce_path(path))
-      (mode & 0o004) != 0 ? mode & 0o777 : nil
-    rescue
-      nil
-    end
-  end
-
-  def self.world_writable?(path)
-    begin
-      mode = Intrinsics.file_stat_mode(_coerce_path(path))
-      (mode & 0o002) != 0 ? mode & 0o777 : nil
-    rescue
-      nil
-    end
-  end
-
   NULL = '/dev/null'
 
   class Stat
@@ -383,10 +152,211 @@ class File < IO
     end
   end
 
-  def chown(uid, gid) = 0
-  def lstat = File::Stat.new(path, lstat: true)
-
   class << self
+    def expand_path(path, base = nil) = Intrinsics.file_expand_path(_coerce_path(path), base.nil? ? nil : _coerce_path(base))
+    def absolute_path(path, base = nil) = Intrinsics.file_absolute_path(_coerce_path(path), base.nil? ? nil : _coerce_path(base))
+    def absolute_path?(path) = Intrinsics.file_absolute_path_q(_coerce_path(path))
+    def exist?(path) = Intrinsics.file_exist(_coerce_path(path))
+    def exists?(path) = Intrinsics.file_exist(_coerce_path(path))
+    def directory?(path) = Intrinsics.file_directory(_coerce_path(path))
+    def file?(path) = Intrinsics.file_file(_coerce_path(path))
+    def readable?(path) = Intrinsics.file_readable(_coerce_path(path))
+    def readable_real?(path) = Intrinsics.file_readable_real(_coerce_path(path))
+    def executable?(path) = Intrinsics.file_executable(_coerce_path(path))
+    def executable_real?(path) = Intrinsics.file_executable_real(_coerce_path(path))
+    def writable?(path) = Intrinsics.file_writable(_coerce_path(path))
+    def writable_real?(path) = Intrinsics.file_writable_real(_coerce_path(path))
+    def owned?(path) = Intrinsics.file_owned(_coerce_path(path))
+    def grpowned?(path) = Intrinsics.file_grpowned(_coerce_path(path))
+    def size(path) = Intrinsics.file_size_exact(_coerce_path(path))
+    def size?(path) = Intrinsics.file_size(_coerce_path(path))
+    def zero?(path) = Intrinsics.file_zero(_coerce_path(path))
+    def empty?(path) = Intrinsics.file_zero(_coerce_path(path))
+    def symlink?(path) = Intrinsics.file_symlink(_coerce_path(path))
+    def blockdev?(path) = Intrinsics.file_blockdev(_coerce_path(path))
+    def chardev?(path) = Intrinsics.file_chardev(_coerce_path(path))
+    def pipe?(path) = Intrinsics.file_pipe(_coerce_path(path))
+    def socket?(path) = Intrinsics.file_socket(_coerce_path(path))
+    def setuid?(path) = Intrinsics.file_setuid(_coerce_path(path))
+    def setgid?(path) = Intrinsics.file_setgid(_coerce_path(path))
+    def sticky?(path) = Intrinsics.file_sticky(_coerce_path(path))
+    def identical?(a, b) = Intrinsics.file_identical(_coerce_path(a), _coerce_path(b))
+    def ftype(path) = Intrinsics.file_ftype(_coerce_path(path))
+    def atime(path) = Intrinsics.file_atime(_coerce_path(path))
+    def mtime(path) = Intrinsics.file_mtime(_coerce_path(path))
+    def ctime(path) = Intrinsics.file_ctime(_coerce_path(path))
+    def birthtime(path) = Intrinsics.file_birthtime(_coerce_path(path))
+    def realpath(path, base = nil) = Intrinsics.file_realpath(_coerce_path(path), base)
+    def realdirpath(path, base = nil) = Intrinsics.file_realdirpath(_coerce_path(path), base)
+    def split(path) = Intrinsics.file_split(_coerce_path(path))
+    def delete(*paths) = Intrinsics.file_delete_strict(paths)
+    def unlink(*paths) = Intrinsics.file_delete_strict(paths)
+    def rename(from, to) = Intrinsics.file_rename(_coerce_path(from), _coerce_path(to))
+    def symlink(target, link) = Intrinsics.file_symlink_create(_coerce_path(target), _coerce_path(link))
+    def link(target, link) = Intrinsics.file_link(_coerce_path(target), _coerce_path(link))
+    def readlink(path) = Intrinsics.file_readlink(_coerce_path(path))
+    def lchown(uid, gid, *paths) = paths.length
+    def lchmod(mode, *paths) = paths.length
+    def lutime(atime, mtime, *paths) = Intrinsics.file_lutime(atime, mtime, paths.map { |p| _coerce_path(p) })
+    def stat(path) = Stat.new(_coerce_path(path))
+    def lstat(path) = Stat.new(_coerce_path(path), lstat: true)
+    def binread(path, length = nil, offset = nil) = Intrinsics.file_binread(_coerce_path(path), length, offset)
+    def binwrite(path, content, offset = nil) = Intrinsics.file_write(_coerce_path(path), content)
+    def fnmatch?(pattern, path, flags = 0) = fnmatch(pattern, path, flags)
+    def mkfifo(path, mode = 0o666) = Intrinsics.file_mkfifo(_coerce_path(path), mode)
+    def umask(new_mask = nil) = Intrinsics.file_umask(new_mask)
+    def utime(atime, mtime, *paths) = Intrinsics.file_utime(atime, mtime, paths.map { |p| _coerce_path(p) })
+    def truncate(path, length) = Intrinsics.file_truncate(_coerce_path(path), __coerce_to_int__(length))
+    def fnmatch(pattern, path, flags = 0) = Intrinsics.file_fnmatch(pattern, _coerce_path(path), __coerce_to_int__(flags))
+
+    def write(path, content, offset = nil, **opts)
+      IO.write(_coerce_path(path), content, offset, **opts)
+    end
+
+    def join(*parts)
+      return '' if parts.empty?
+      segs = []
+      _join_parts(parts, segs, [])
+      return '' if segs.empty?
+      result = +segs[0]  # dup to ensure a new string even for single-arg case
+      segs[1..].each do |s|
+        if s.start_with?('/')
+          # Right side starts with slash(es): strip trailing slashes from left, keep right's leading slashes
+          result.sub!(/\/+\z/, '')
+          result += s
+        elsif result.end_with?('/')
+          # Left already ends with slash: just append right
+          result += s
+        else
+          result += '/' + s
+        end
+      end
+      result
+    end
+
+    def dirname(path, level = 1)
+      l = level.is_a?(Integer) ? level : __coerce_to_int__(level)
+      Intrinsics.file_dirname(_coerce_path(path), l)
+    end
+
+    def read(path, length = nil, offset = nil, **opts)
+      mode = opts.delete(:mode)
+      open_opts = opts
+      if mode || !open_opts.empty?
+        open_mode = mode || 'r'
+        open(path, open_mode, **open_opts) do |f|
+          f.seek(offset) if offset && offset != 0
+          length ? f.read(length) : f.read
+        end
+      elsif length || (offset && offset != 0)
+        open(path, 'r') do |f|
+          f.seek(offset) if offset && offset != 0
+          length ? f.read(length) : f.read
+        end
+      else
+        Intrinsics.file_read(_coerce_path(path))
+      end
+    end
+
+    def open(path, mode = nil, perm = 0o666, **opts, &block)
+      mode = opts.delete(:mode) || mode || 'r'
+      raise ArgumentError, "newline decorator with binary mode" if opts[:newline] && mode.to_s.include?('b')
+      mode = __mode_with_encoding__(mode, opts)
+      if path.is_a?(Integer)
+        io = Intrinsics.file_new_from_fd(path, mode, opts.empty? ? nil : opts)
+        if block
+          begin
+            block.call(io)
+          ensure
+            io.close rescue nil
+          end
+        else
+          io
+        end
+      else
+        flags = opts[:flags]
+        extra_opts = {}
+        extra_opts[:newline] = opts[:newline] if opts[:newline]
+        Intrinsics.file_open(_coerce_path(path), mode, block, perm, flags, extra_opts.empty? ? nil : extra_opts)
+      end
+    end
+
+    def new(path, mode = nil, perm = 0o666, **opts, &block)
+      if block_given?
+        Intrinsics.kernel_deprecation_warn(self, "File::new() does not take block; use File::open() instead")
+      end
+      mode = opts.delete(:mode) || mode || 'r'
+      mode = __mode_with_encoding__(mode, opts)
+      if path.is_a?(Integer)
+        Intrinsics.file_new_from_fd(path, mode, opts.empty? ? nil : opts)
+      else
+        flags = opts[:flags]
+        Intrinsics.file_open(_coerce_path(path), mode, nil, perm, flags)
+      end
+    end
+
+    def chown(uid, gid, *paths)
+      paths.each { |p| raise Errno::ENOENT, _coerce_path(p) unless exist?(_coerce_path(p)) }
+      paths.length
+    end
+
+    def path(path)
+      if path.is_a?(String)
+        raise ArgumentError, "path name contains null byte" if path.include?("\0")
+        path
+      elsif path.respond_to?(:to_path)
+        result = path.to_path
+        raise TypeError, "no implicit conversion of #{path.class} into String" unless result.is_a?(String)
+        raise ArgumentError, "path name contains null byte" if result.include?("\0")
+        result
+      elsif path.is_a?(IO)
+        path.path
+      else
+        raise TypeError, "no implicit conversion of #{path.class} into String"
+      end
+    end
+
+    def extname(path)
+      p = _coerce_path(path)
+      base = File.basename(p)
+      # Hidden files (starting with a dot) with no other dot have no extension.
+      # All-dot names like '.', '..', '...' have no extension.
+      # Edge cases: 'file' → '', '.hidden' → '', 'file.' → '.', 'file.rb' → '.rb'
+      dot = base.rindex('.')
+      return '' if dot.nil? || dot == 0
+      return '' if base.chars.all? { |c| c == '.' }
+      base[dot..]
+    end
+
+    def basename(path, suffix = nil)
+      p = _coerce_path(path)
+      suffix.nil? ? Intrinsics.file_basename(p, nil) : Intrinsics.file_basename(p, suffix)
+    end
+
+    def chmod(mode, *paths)
+      mode_int = __coerce_to_int__(mode)
+      raise RangeError, "bignum too big to convert into 'long'" if mode_int > UINT32_UPPER || mode_int < INT32_LOWER
+      Intrinsics.file_chmod(mode_int, paths.map { |p| _coerce_path(p) })
+    end
+
+    def world_readable?(path)
+      begin
+        mode = Intrinsics.file_stat_mode(_coerce_path(path))
+        (mode & 0o004) != 0 ? mode & 0o777 : nil
+      rescue
+        nil
+      end
+    end
+
+    def world_writable?(path)
+      begin
+        mode = Intrinsics.file_stat_mode(_coerce_path(path))
+        (mode & 0o002) != 0 ? mode & 0o777 : nil
+      rescue
+        nil
+      end
+    end
+
     private
 
     # Recursive helper for File.join — populates segs with string segments.
@@ -449,5 +419,33 @@ class File < IO
       end
       raise TypeError, "no implicit conversion of #{arg.class} into String"
     end
+
+    def __mode_with_encoding__(mode, opts)
+      mode_str = mode.is_a?(Integer) ? mode : mode.to_s
+      return mode_str if mode.is_a?(Integer)
+      # Apply binmode: true by inserting 'b' after the access character if not already present
+      if opts[:binmode] && !mode_str.include?('b')
+        # Insert 'b' after the first mode char (e.g. 'w' → 'wb', 'r+' → 'rb+')
+        # Handle both 'rw+' form and encoding suffix: insert before ':' if present
+        colon_idx = mode_str.index(':')
+        base = colon_idx ? mode_str[0, colon_idx] : mode_str
+        enc_suffix = colon_idx ? mode_str[colon_idx..] : ''
+        # Insert 'b' after the first char (r/w/a) and before any + or other flags
+        base = base[0] + 'b' + base[1..]
+        mode_str = base + enc_suffix
+      end
+      return mode_str if mode_str.include?(':')
+      if (enc = opts[:encoding])
+        mode_str + ':' + enc.to_s
+      elsif (ext = opts[:external_encoding])
+        int_enc = opts[:internal_encoding]
+        mode_str + ':' + ext.to_s + (int_enc ? ':' + int_enc.to_s : '')
+      else
+        mode_str
+      end
+    end
   end
+
+  def chown(uid, gid) = 0
+  def lstat = File::Stat.new(path, lstat: true)
 end

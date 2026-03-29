@@ -1,96 +1,91 @@
 class Dir
   include Enumerable
 
-  def self.pwd = Intrinsics.dir_pwd
-  def self.getwd = Intrinsics.dir_pwd
-  def self.home(user = nil)       = Intrinsics.dir_home(user)
-  def self.chdir(path = nil, &block) = Intrinsics.dir_chdir(path, block)
-  def self.fchdir(fd, &block) = Intrinsics.dir_fchdir(fd, block)
-  def self.mktmpdir(prefix = nil, &block) = Intrinsics.dir_mktmpdir(prefix, block)
-  def self.delete(path) = Intrinsics.dir_rmdir(__coerce_to_path__(path))
-  def self.rmdir(path) = Intrinsics.dir_rmdir(__coerce_to_path__(path))
-  def self.unlink(path) = Intrinsics.dir_rmdir(__coerce_to_path__(path))
-  def self.empty?(path) = Intrinsics.dir_empty(__coerce_to_path__(path))
-  def self.chroot(path) = Intrinsics.dir_chroot(__coerce_to_path__(path))
-  def self.children(path, encoding: nil) = entries(__coerce_to_path__(path), encoding: encoding).reject { |e| e == '.' || e == '..' }
-  def self.mkdir(path, mode = 0o777) = Intrinsics.dir_mkdir(__coerce_to_path__(path), __coerce_to_int__(mode))
-  def self.[](*patterns, base: nil, sort: true) = glob(patterns.length == 1 ? patterns[0] : patterns, 0, base: base, sort: sort)
-  def path = @path
-  def to_path = @path
-  def inspect = "#<Dir:#{@path}>"
-  def closed? = @closed
-  def children = __load_entries__.reject { |e| e == '.' || e == '..' }
-  def entries = __load_entries__.dup
-  def fileno = Intrinsics.dir_fileno(@dir)
+  class << self
+    def pwd = Intrinsics.dir_pwd
+    def getwd = Intrinsics.dir_pwd
+    def home(user = nil) = Intrinsics.dir_home(user)
+    def chdir(path = nil, &block) = Intrinsics.dir_chdir(path, block)
+    def fchdir(fd, &block) = Intrinsics.dir_fchdir(fd, block)
+    def mktmpdir(prefix = nil, &block) = Intrinsics.dir_mktmpdir(prefix, block)
+    def delete(path) = Intrinsics.dir_rmdir(__coerce_to_path__(path))
+    def rmdir(path) = Intrinsics.dir_rmdir(__coerce_to_path__(path))
+    def unlink(path) = Intrinsics.dir_rmdir(__coerce_to_path__(path))
+    def empty?(path) = Intrinsics.dir_empty(__coerce_to_path__(path))
+    def chroot(path) = Intrinsics.dir_chroot(__coerce_to_path__(path))
+    def children(path, encoding: nil) = entries(__coerce_to_path__(path), encoding: encoding).reject { |e| e == '.' || e == '..' }
+    def mkdir(path, mode = 0o777) = Intrinsics.dir_mkdir(__coerce_to_path__(path), __coerce_to_int__(mode))
+    def [](*patterns, base: nil, sort: true) = glob(patterns.length == 1 ? patterns[0] : patterns, 0, base: base, sort: sort)
 
-  def self.glob(pattern, flags = 0, base: nil, sort: true, &block)
-    raise ArgumentError, "expected true or false as sort:" unless sort == true || sort == false
-    results = Intrinsics.dir_glob(pattern, flags, base, sort)
-    if block
-      results.each { |p| block.call(p) }
-      nil
-    else
-      results
-    end
-  end
-
-  def self.exist?(path)
-    p =
-      if path.is_a?(String)
-        path
-      elsif path.respond_to?(:to_path)
-        path.to_path
-      elsif path.respond_to?(:to_str)
-        path.to_str
+    def glob(pattern, flags = 0, base: nil, sort: true, &block)
+      raise ArgumentError, "expected true or false as sort:" unless sort == true || sort == false
+      results = Intrinsics.dir_glob(pattern, flags, base, sort)
+      if block
+        results.each { |p| block.call(p) }
+        nil
       else
-        return false
+        results
       end
-    Intrinsics.dir_exist(p)
-  end
-
-  def self.entries(path, encoding: nil)
-    p = __coerce_to_path__(path)
-    result = Intrinsics.dir_entries(p)
-    if encoding
-      enc = encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding.to_s)
-      result.map! { |e| e.force_encoding(enc) }
     end
-    result
-  end
 
-  def self.foreach(path, encoding: nil, &block)
-    return to_enum(:foreach, path, encoding: encoding) unless block
-    entries(path, encoding: encoding).each { |e| block.call(e) }
-    nil
-  end
+    def exist?(path)
+      p =
+        if path.is_a?(String)
+          path
+        elsif path.respond_to?(:to_path)
+          path.to_path
+        elsif path.respond_to?(:to_str)
+          path.to_str
+        else
+          return false
+        end
+      Intrinsics.dir_exist(p)
+    end
 
-  def self.each_child(path, encoding: nil, &block)
-    return to_enum(:each_child, path, encoding: encoding) unless block
-    children(path, encoding: encoding).each { |e| block.call(e) }
-    nil
-  end
-
-  def self.for_fd(fd)
-    dir = allocate
-    dir.instance_variable_set(:@path, nil)
-    dir.instance_variable_set(:@encoding, nil)
-    dir.instance_variable_set(:@dir, Intrinsics.dir_for_fd(fd))
-    dir.instance_variable_set(:@closed, false)
-    dir.instance_variable_set(:@entries, nil)
-    dir.instance_variable_set(:@pos, 0)
-    dir
-  end
-
-  def self.open(path, encoding: nil, &block)
-    dir = new(path)
-    if block
-      begin
-        block.call(dir)
-      ensure
-        dir.close rescue nil
+    def entries(path, encoding: nil)
+      p = __coerce_to_path__(path)
+      result = Intrinsics.dir_entries(p)
+      if encoding
+        enc = encoding.is_a?(Encoding) ? encoding : Encoding.find(encoding.to_s)
+        result.map! { |e| e.force_encoding(enc) }
       end
-    else
+      result
+    end
+
+    def foreach(path, encoding: nil, &block)
+      return to_enum(:foreach, path, encoding: encoding) unless block
+      entries(path, encoding: encoding).each { |e| block.call(e) }
+      nil
+    end
+
+    def each_child(path, encoding: nil, &block)
+      return to_enum(:each_child, path, encoding: encoding) unless block
+      children(path, encoding: encoding).each { |e| block.call(e) }
+      nil
+    end
+
+    def for_fd(fd)
+      dir = allocate
+      dir.instance_variable_set(:@path, nil)
+      dir.instance_variable_set(:@encoding, nil)
+      dir.instance_variable_set(:@dir, Intrinsics.dir_for_fd(fd))
+      dir.instance_variable_set(:@closed, false)
+      dir.instance_variable_set(:@entries, nil)
+      dir.instance_variable_set(:@pos, 0)
       dir
+    end
+
+    def open(path, encoding: nil, &block)
+      dir = new(path)
+      if block
+        begin
+          block.call(dir)
+        ensure
+          dir.close rescue nil
+        end
+      else
+        dir
+      end
     end
   end
 
@@ -103,6 +98,13 @@ class Dir
     @pos = 0
   end
 
+  def path = @path
+  def to_path = @path
+  def inspect = "#<Dir:#{@path}>"
+  def closed? = @closed
+  def children = __load_entries__.reject { |e| e == '.' || e == '..' }
+  def entries = __load_entries__.dup
+  def fileno = Intrinsics.dir_fileno(@dir)
   def chdir(&block) = Intrinsics.dir_fchdir(Intrinsics.dir_fileno(@dir), block)
 
   def pos

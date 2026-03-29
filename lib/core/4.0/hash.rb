@@ -26,15 +26,72 @@ class Hash
   def sort(&block)     = to_a.sort(&block)
   def take(n)          = to_a.take(n)
 
-  def self.new(*args, capacity: nil, &block)
-    if self.equal?(Hash)
-      raise ArgumentError, "wrong number of arguments (given #{args.size}, expected 0..1)" if args.size > 1
-      raise ArgumentError, "wrong number of arguments (given 1, expected 0)" if args.size == 1 && block
-      Intrinsics.hash_new(args.size == 1 ? args[0] : nil, block)
-    else
+  class << self
+    def new(*args, capacity: nil, &block)
+      if self.equal?(Hash)
+        raise ArgumentError, "wrong number of arguments (given #{args.size}, expected 0..1)" if args.size > 1
+        raise ArgumentError, "wrong number of arguments (given 1, expected 0)" if args.size == 1 && block
+        Intrinsics.hash_new(args.size == 1 ? args[0] : nil, block)
+      else
+        h = allocate
+        h.send(:initialize, *args, &block)
+        h
+      end
+    end
+
+    def [](*args)
       h = allocate
-      h.send(:initialize, *args, &block)
+      if args.length == 1
+        arg = args[0]
+        if arg.is_a?(Hash)
+          arg.each { |k, v| h[k] = v }
+          return h
+        elsif arg.respond_to?(:to_hash)
+          converted = arg.to_hash
+          raise TypeError, "can't convert #{arg.class} into Hash (#{arg.class}#to_hash gives #{converted.class})" unless converted.is_a?(Hash)
+          converted.each { |k, v| h[k] = v }
+          return h
+        elsif arg.respond_to?(:to_ary)
+          idx = 0
+          arg.to_ary.each do |pair|
+            type_name = pair.nil? ? "nil" : (pair.equal?(true) ? "true" : (pair.equal?(false) ? "false" : pair.class.to_s))
+            raise ArgumentError, "wrong element type #{type_name} at #{idx} (expected array)" unless pair.respond_to?(:to_ary)
+            kv = pair.to_ary
+            raise ArgumentError, "invalid number of elements (#{kv.length} for 1..2)" unless kv.length == 1 || kv.length == 2
+            h[kv[0]] = kv.length == 2 ? kv[1] : nil
+            idx += 1
+          end
+          return h
+        end
+      end
+      raise ArgumentError, "odd number of arguments for Hash" if args.length.odd?
+      i = 0
+      while i < args.length
+        h[args[i]] = args[i + 1]
+        i += 2
+      end
       h
+    end
+
+    def try_convert(obj)
+      return obj if obj.is_a?(Hash)
+      return nil unless obj.respond_to?(:to_hash)
+      result = obj.to_hash
+      return nil if result.nil?
+      raise TypeError, "can't convert #{obj.class} into Hash (#{obj.class}#to_hash gives #{result.class})" unless result.is_a?(Hash)
+      result
+    end
+
+    def ruby2_keywords_hash(h)
+      raise TypeError, "not a hash" unless h.is_a?(Hash)
+      r = h.dup
+      Intrinsics.hash_ruby2_keywords_hash(r)
+      r
+    end
+
+    def ruby2_keywords_hash?(h)
+      raise TypeError, "not a hash" unless h.is_a?(Hash)
+      Intrinsics.hash_ruby2_keywords_hash_q(h)
     end
   end
 
@@ -46,49 +103,6 @@ class Hash
       Intrinsics.hash_set_default(self, default)
     end
     self
-  end
-
-  def self.[](*args)
-    h = allocate
-    if args.length == 1
-      arg = args[0]
-      if arg.is_a?(Hash)
-        arg.each { |k, v| h[k] = v }
-        return h
-      elsif arg.respond_to?(:to_hash)
-        converted = arg.to_hash
-        raise TypeError, "can't convert #{arg.class} into Hash (#{arg.class}#to_hash gives #{converted.class})" unless converted.is_a?(Hash)
-        converted.each { |k, v| h[k] = v }
-        return h
-      elsif arg.respond_to?(:to_ary)
-        idx = 0
-        arg.to_ary.each do |pair|
-          type_name = pair.nil? ? "nil" : (pair.equal?(true) ? "true" : (pair.equal?(false) ? "false" : pair.class.to_s))
-          raise ArgumentError, "wrong element type #{type_name} at #{idx} (expected array)" unless pair.respond_to?(:to_ary)
-          kv = pair.to_ary
-          raise ArgumentError, "invalid number of elements (#{kv.length} for 1..2)" unless kv.length == 1 || kv.length == 2
-          h[kv[0]] = kv.length == 2 ? kv[1] : nil
-          idx += 1
-        end
-        return h
-      end
-    end
-    raise ArgumentError, "odd number of arguments for Hash" if args.length.odd?
-    i = 0
-    while i < args.length
-      h[args[i]] = args[i + 1]
-      i += 2
-    end
-    h
-  end
-
-  def self.try_convert(obj)
-    return obj if obj.is_a?(Hash)
-    return nil unless obj.respond_to?(:to_hash)
-    result = obj.to_hash
-    return nil if result.nil?
-    raise TypeError, "can't convert #{obj.class} into Hash (#{obj.class}#to_hash gives #{result.class})" unless result.is_a?(Hash)
-    result
   end
 
   def ==(other)
@@ -631,18 +645,6 @@ class Hash
     ensure
       ongoing.pop
     end
-  end
-
-  def self.ruby2_keywords_hash(h)
-    raise TypeError, "not a hash" unless h.is_a?(Hash)
-    r = h.dup
-    Intrinsics.hash_ruby2_keywords_hash(r)
-    r
-  end
-
-  def self.ruby2_keywords_hash?(h)
-    raise TypeError, "not a hash" unless h.is_a?(Hash)
-    Intrinsics.hash_ruby2_keywords_hash_q(h)
   end
 
   private

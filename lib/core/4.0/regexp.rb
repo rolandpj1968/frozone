@@ -25,21 +25,25 @@ class Regexp
   def hash = [source, options & OPTIONS_NO_NOENC].hash
   def linear_time? = Intrinsics.regexp_linear_time_q(self)
   def dup = Regexp.new(source, options)
-  def self.escape(str) = Intrinsics.regexp_escape(str)
-  def self.quote(str) = Intrinsics.regexp_escape(str)
-  def self.union(*patterns) = Intrinsics.regexp_union(patterns)
-  def self.last_match(n = nil) = Intrinsics.regexp_last_match(n)
-  def self.linear_time?(pattern, flags = nil) = Intrinsics.regexp_class_linear_time_q(pattern, flags)
-  def self.new(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options, kw_opts)
-  def self.compile(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options, kw_opts)
-  def self.timeout = Intrinsics.regexp_timeout(self)
-  def self.timeout=(v) = Intrinsics.regexp_set_timeout(self, v)
-  def self.try_convert(obj)
-    return obj if obj.is_a?(Regexp)
-    return nil unless obj.respond_to?(:to_regexp)
-    result = obj.to_regexp
-    raise TypeError, "can't convert #{obj.class} into Regexp (#{obj.class}#to_regexp gives #{result.class})" unless result.is_a?(Regexp)
-    result
+
+  class << self
+    def escape(str) = Intrinsics.regexp_escape(str)
+    def quote(str) = Intrinsics.regexp_escape(str)
+    def union(*patterns) = Intrinsics.regexp_union(patterns)
+    def last_match(n = nil) = Intrinsics.regexp_last_match(n)
+    def linear_time?(pattern, flags = nil) = Intrinsics.regexp_class_linear_time_q(pattern, flags)
+    def new(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options, kw_opts)
+    def compile(pattern, options = nil, **kw_opts) = Intrinsics.regexp_new(self, pattern, options, kw_opts)
+    def timeout = Intrinsics.regexp_timeout(self)
+    def timeout=(v) = Intrinsics.regexp_set_timeout(self, v)
+
+    def try_convert(obj)
+      return obj if obj.is_a?(Regexp)
+      return nil unless obj.respond_to?(:to_regexp)
+      result = obj.to_regexp
+      raise TypeError, "can't convert #{obj.class} into Regexp (#{obj.class}#to_regexp gives #{result.class})" unless result.is_a?(Regexp)
+      result
+    end
   end
 
   def match(str, pos = 0, &block)
