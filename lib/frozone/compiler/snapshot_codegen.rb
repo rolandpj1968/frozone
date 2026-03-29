@@ -187,6 +187,18 @@ module Frozone
 
       def bench_stub? = @stub_file&.include?('bench/stubs/')
 
+      # Resolve a receiver AST node to a known class Symbol (from TI devirtualize).
+      def receiver_known_class(recv)
+        return nil unless recv.is_a?(Ast::LocalVariableRead)
+        @current_class_locals[ivar(recv, :name)]
+      end
+
+      # Look up a VM class/module by name in the top-level constant table.
+      def lookup_vm_class(name)
+        val = @top_level_scope.instance_variable_get(:@constants_table)&.fetch(name, nil)
+        val.is_a?(Vm::ModuleObject) ? val : nil
+      end
+
       def user_source_location?(loc)
         return false if loc.nil?
         # source_location is "file:line" — strip the :line suffix for comparison
@@ -1237,21 +1249,32 @@ module Frozone
       end
 
       def emit_method_call(node)
-        # Constant-fold respond_to?(:literal_symbol) when receiver type is known.
-        # In the closed world, method existence is fully determined at compile time.
-        if node.name == :respond_to? && node.receiver_node &&
-           node.arg_nodes&.size&.between?(1, 2) &&
-           node.arg_nodes[0].is_a?(Ast::SymbolLiteral)
-          recv = node.receiver_node
-          recv_class = if recv.is_a?(Ast::LocalVariableRead)
-                         @current_class_locals[ivar(recv, :name)]
-                       end
-          if recv_class
-            method_name = ivar(node.arg_nodes[0], :value).raw
-            klass = @top_level_scope.instance_variable_get(:@constants_table)&.fetch(recv_class, nil)
-            has_method = klass.is_a?(Vm::ModuleObject) && klass.lookup_method(method_name)
-            write(has_method ? "RUBY_TRUE" : "RUBY_FALSE")
-            return
+        # Constant-fold respond_to?(:literal) and is_a?/kind_of?(Constant) when
+        # receiver type is known. In the closed world, method existence and class
+        # hierarchy are fully determined at compile time.
+        if node.receiver_node && (recv_class = receiver_known_class(node.receiver_node))
+          klass = lookup_vm_class(recv_class)
+          if klass
+            # respond_to?(:symbol_literal) → RUBY_TRUE / RUBY_FALSE
+            if node.name == :respond_to? &&
+               node.arg_nodes&.size&.between?(1, 2) &&
+               node.arg_nodes[0].is_a?(Ast::SymbolLiteral)
+              method_name = ivar(node.arg_nodes[0], :value).raw
+              write(klass.lookup_method(method_name) ? "RUBY_TRUE" : "RUBY_FALSE")
+              return
+            end
+
+            # is_a?(ConstantLiteral) / kind_of?(ConstantLiteral) → RUBY_TRUE / RUBY_FALSE
+            if (node.name == :is_a? || node.name == :kind_of?) &&
+               node.arg_nodes&.size == 1 &&
+               node.arg_nodes[0].is_a?(Ast::ConstantRead)
+              target_name = ivar(node.arg_nodes[0], :name)
+              target_class = lookup_vm_class(target_name)
+              if target_class
+                write(klass.ancestors_include?(target_class) ? "RUBY_TRUE" : "RUBY_FALSE")
+                return
+              end
+            end
           end
         end
 
