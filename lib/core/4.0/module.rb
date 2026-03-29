@@ -77,24 +77,8 @@ class Module
       raise ArgumentError, "wrong number of arguments (given #{args.size}, expected 1..3)"
     else
       code, file, line = args
-      unless code.is_a?(String)
-        if code.respond_to?(:to_str)
-          result = code.to_str
-          raise TypeError, "can't convert #{code.class} into String (to_str should return String, not #{result.class})" unless result.is_a?(String)
-          code = result
-        else
-          raise TypeError, "no implicit conversion of #{code.class} into String"
-        end
-      end
-      unless file.nil? || file.is_a?(String)
-        if file.respond_to?(:to_str)
-          result = file.to_str
-          raise TypeError, "can't convert #{file.class} into String (to_str should return String, not #{result.class})" unless result.is_a?(String)
-          file = result
-        else
-          raise TypeError, "no implicit conversion of #{file.class} into String"
-        end
-      end
+      code = __coerce_to_str__(code)
+      file = __coerce_to_str__(file) unless file.nil?
       Intrinsics.module_eval_string(self, code, file, line)
     end
   end

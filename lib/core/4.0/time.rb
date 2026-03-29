@@ -506,17 +506,7 @@ class Time
 
   def -(other)
     return Intrinsics.time_minus(self, other) if other.is_a?(Time)
-    raise TypeError, "can't convert #{other.class} into an exact number" if other.nil? || other.is_a?(String)
-    n =
-      if other.is_a?(Integer) || other.is_a?(Float) || other.is_a?(Rational)
-        other
-      elsif other.respond_to?(:to_r)
-        other.to_r
-      elsif other.respond_to?(:to_int)
-        other.to_int
-      else
-        raise TypeError, "can't convert #{other.class} into an exact number"
-      end
+    n = _coerce_exact_number(other)
     result = Intrinsics.time_minus(self, n)
     tz = @frozone_timezone
     result.instance_variable_set(:@frozone_timezone, tz) if tz
@@ -525,18 +515,7 @@ class Time
 
   def +(other)
     raise TypeError, "can't convert Time into an exact number" if other.is_a?(Time)
-    raise TypeError, "can't convert #{other.class} into an exact number" if other.nil?
-    raise TypeError, "can't convert String into an exact number" if other.is_a?(String)
-    n =
-      if other.is_a?(Integer) || other.is_a?(Float) || other.is_a?(Rational)
-        other
-      elsif other.respond_to?(:to_r)
-        other.to_r
-      elsif other.respond_to?(:to_int)
-        other.to_int
-      else
-        raise TypeError, "can't convert #{other.class} into an exact number"
-      end
+    n = _coerce_exact_number(other)
     result = Intrinsics.time_plus(self, n)
     tz = @frozone_timezone
     result.instance_variable_set(:@frozone_timezone, tz) if tz
@@ -636,6 +615,14 @@ class Time
   alias rfc822 rfc2822
 
   private
+
+  def _coerce_exact_number(val)
+    raise TypeError, "can't convert #{val.class} into an exact number" if val.nil? || val.is_a?(String)
+    return val if val.is_a?(Integer) || val.is_a?(Float) || val.is_a?(Rational)
+    return val.to_r if val.respond_to?(:to_r)
+    return val.to_int if val.respond_to?(:to_int)
+    raise TypeError, "can't convert #{val.class} into an exact number"
+  end
 
   def _dump(limit = -1)
     str = Intrinsics.time_dump(self)
