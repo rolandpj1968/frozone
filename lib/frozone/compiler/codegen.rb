@@ -893,6 +893,20 @@ module Frozone
       # Complex natives (Array(Array(Int64))) need genericising in fallback overloads.
       def param_name?(name) = @current_param_set&.include?(name)
 
+      # Can this expression be passed as a raw Int64/Float64 arg?
+      # Typed locals and arithmetic expressions of raw operands — yes.
+      # Bare literals — no (target might not have raw overload).
+      def raw_passable_arg?(node)
+        return false unless node_raw_type(node)
+        case node
+        when Ast::LocalVariableRead then true
+        when Ast::MethodCall
+          # Arithmetic/bitwise on raw operands: ba ^ bb, a + b, etc.
+          ARITH_OPS_UNBOX.include?(node.name) && node.receiver_node && node_raw_type(node.receiver_node)
+        else false
+        end
+      end
+
       def complex_native_type?(t)
         return false if t.nil? || t == 'RubyObject'
         # Nested arrays are complex; flat arrays and scalars are simple
@@ -1494,10 +1508,11 @@ module Frozone
         kw_args = node.kw_arg_nodes
         return if args.empty? && kw_args.empty? && node.block_node.nil?
 
-        # Only pass typed LOCAL VARIABLES raw — literals and complex expressions
-        # stay boxed because we don't know if the target accepts raw types.
-        has_typed_local = args.any? { |a| a.is_a?(Ast::LocalVariableRead) && node_raw_type(a) }
-        return super unless has_typed_local
+        # Pass typed local variables and raw arithmetic expressions as raw —
+        # Crystal's overload resolution picks the Int64/Float64 overload when available.
+        # Don't pass literals raw (they might reach functions expecting RubyObject).
+        has_raw_arg = args.any? { |a| raw_passable_arg?(a) }
+        return super unless has_raw_arg
 
         write "("
         first = true
@@ -1506,8 +1521,8 @@ module Frozone
           first = false
           if arg.is_a?(Ast::SplatArg)
             write "# UNSUPPORTED_SPLAT("; emit(ivar(arg, :value_node)); write ")"
-          elsif arg.is_a?(Ast::LocalVariableRead) && node_raw_type(arg)
-            write crystal_local(ivar(arg, :name))  # raw — no boxing
+          elsif raw_passable_arg?(arg)
+            emit_raw(arg)
           else
             emit(arg)
           end
