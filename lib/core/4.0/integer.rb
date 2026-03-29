@@ -110,19 +110,11 @@ class Integer
   end
 
   def round(n = 0, half: nil)
-    unless n.is_a?(Integer)
-      if n.nil?
-        raise TypeError, "no implicit conversion of NilClass into Integer"
-      elsif n.is_a?(Float)
-        raise RangeError, "#{n} is out of range of integer" if n.infinite?
-        raise TypeError, "no implicit conversion of Float into Integer"
-      elsif n.respond_to?(:to_int)
-        n = n.to_int
-        raise TypeError, "can't convert to Integer" unless n.is_a?(Integer)
-      else
-        raise TypeError, "no implicit conversion of #{n.class} into Integer"
-      end
+    if n.is_a?(Float)
+      raise RangeError, "#{n} is out of range of integer" if n.infinite?
+      raise TypeError, "no implicit conversion of Float into Integer"
     end
+    n = __coerce_to_int__(n)
     raise RangeError, "integer #{n} too big to convert to `int'" if n > ROUND_NDIGITS_MAX || n < -ROUND_NDIGITS_MAX
     raise ArgumentError, "invalid rounding mode: #{half}" unless [nil, :up, :down, :even].include?(half)
     return self if n >= 0
