@@ -1237,6 +1237,24 @@ module Frozone
       end
 
       def emit_method_call(node)
+        # Constant-fold respond_to?(:literal_symbol) when receiver type is known.
+        # In the closed world, method existence is fully determined at compile time.
+        if node.name == :respond_to? && node.receiver_node &&
+           node.arg_nodes&.size&.between?(1, 2) &&
+           node.arg_nodes[0].is_a?(Ast::SymbolLiteral)
+          recv = node.receiver_node
+          recv_class = if recv.is_a?(Ast::LocalVariableRead)
+                         @current_class_locals[ivar(recv, :name)]
+                       end
+          if recv_class
+            method_name = ivar(node.arg_nodes[0], :value).raw
+            klass = @top_level_scope.instance_variable_get(:@constants_table)&.fetch(recv_class, nil)
+            has_method = klass.is_a?(Vm::ModuleObject) && klass.lookup_method(method_name)
+            write(has_method ? "RUBY_TRUE" : "RUBY_FALSE")
+            return
+          end
+        end
+
         # Array.new(n) { |i| body } with all-integer block params →
         # use the native Int64 overload so params are raw in the block body.
         if node.name == :new &&
