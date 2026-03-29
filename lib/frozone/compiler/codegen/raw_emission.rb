@@ -27,7 +27,9 @@ module Frozone
         when Ast::FloatLiteral   then :f64
         when Ast::Sequence       then node_raw_type(node.nodes.last) if node.nodes.any?
         when Ast::LocalVariableRead
-          @typed_locals[ivar(node, :name)] || @raw_block_params[ivar(node, :name)]
+          name = ivar(node, :name)
+          ty = @current_local_types&.[](name)
+          (ty && CrystalType.scalar?(ty) ? ty : nil) || @typed_locals[name] || @raw_block_params[name]
         when Ast::LocalVariableWrite
           # Chained assignment: sum = maxflips = 0 — type is the inner value's type
           node_raw_type(ivar(node, :value_node))
