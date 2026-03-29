@@ -16,3 +16,5 @@ nil,
 
 crystal/fib
 crystal/nqueens
+bench/benchmarks/lee/
+crystal/lang_debug*
