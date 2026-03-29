@@ -3,6 +3,10 @@ class String
 
   LONG_MAX = 9_223_372_036_854_775_807 # 2**63 - 1: max C `long` on 64-bit; guards conversion to native long
   MRI_MAX_SIZE = 1_073_741_823 # 2**30 - 1: MRI's maximum string allocation size
+  UPPER_A = 65
+  UPPER_Z = 90
+  LOWER_A = 97
+  LOWER_Z = 122
 
   class << self
     def try_convert(obj)
@@ -472,52 +476,40 @@ class String
   end
 
   def upcase(*args)
-    return Intrinsics.string_upcase_opts(self, *args) unless args.empty?
-    return Intrinsics.string_upcase_opts(self) unless ascii_only?
-    each_char.map { |c|
-      b = c.getbyte(0)
-      (b >= 97 && b <= 122) ? (b - 32).chr(encoding) : c
-    }.join("").force_encoding(encoding)
+    return Intrinsics.string_upcase_opts(self, *args) unless args.empty? && ascii_only?
+    __map_ascii_bytes__ { |b| __ascii_upper__(b) }
   end
 
   def downcase(*args)
-    return Intrinsics.string_downcase_opts(self, *args) unless args.empty?
-    return Intrinsics.string_downcase_opts(self) unless ascii_only?
-    each_char.map { |c|
-      b = c.getbyte(0)
-      (b >= 65 && b <= 90) ? (b + 32).chr(encoding) : c
-    }.join("").force_encoding(encoding)
+    return Intrinsics.string_downcase_opts(self, *args) unless args.empty? && ascii_only?
+    __map_ascii_bytes__ { |b| __ascii_lower__(b) }
   end
 
   def capitalize(*args)
-    return Intrinsics.string_capitalize_opts(self, *args) unless args.empty?
-    return Intrinsics.string_capitalize_opts(self) unless ascii_only?
+    return Intrinsics.string_capitalize_opts(self, *args) unless args.empty? && ascii_only?
     return dup if empty?
     first = true
-    each_char.map { |c|
-      b = c.getbyte(0)
+    __map_ascii_bytes__ { |b|
       if first
         first = false
-        (b >= 97 && b <= 122) ? (b - 32).chr(encoding) : c
+        __ascii_upper__(b)
       else
-        (b >= 65 && b <= 90) ? (b + 32).chr(encoding) : c
+        __ascii_lower__(b)
       end
-    }.join("").force_encoding(encoding)
+    }
   end
 
   def swapcase(*args)
-    return Intrinsics.string_swapcase_opts(self, *args) unless args.empty?
-    return Intrinsics.string_swapcase_opts(self) unless ascii_only?
-    each_char.map { |c|
-      b = c.getbyte(0)
-      if b >= 65 && b <= 90
-        (b + 32).chr(encoding)
-      elsif b >= 97 && b <= 122
-        (b - 32).chr(encoding)
+    return Intrinsics.string_swapcase_opts(self, *args) unless args.empty? && ascii_only?
+    __map_ascii_bytes__ { |b|
+      if b >= UPPER_A && b <= UPPER_Z
+        b + 32
+      elsif b >= LOWER_A && b <= LOWER_Z
+        b - 32
       else
-        c
+        b
       end
-    }.join("").force_encoding(encoding)
+    }
   end
 
   def chars(&block)
@@ -981,10 +973,18 @@ class String
   end
 
   def __str_args__(*args) = args.map { |a| __coerce_to_str__(a) }
+  def __ascii_upper__(b) = (b >= LOWER_A && b <= LOWER_Z) ? b - 32 : b
+  def __ascii_lower__(b) = (b >= UPPER_A && b <= UPPER_Z) ? b + 32 : b
   # Bytes are already copied by the intrinsic; skip Kernel's frozen check.
   def initialize_copy(source) = self
   # Build a pad string of exactly +total+ characters by repeating +padstr+.
   def __just_build_pad__(padstr, total) = (padstr * ((total / padstr.length) + 1))[0, total]
+
+  # Map each character's first byte through a block, rebuild the string.
+  def __map_ascii_bytes__
+    enc = encoding
+    each_char.map { |c| yield(c.getbyte(0)).chr(enc) }.join("").force_encoding(enc)
+  end
 
   # Return compatible Encoding for self and other, or raise Encoding::CompatibilityError.
   def __encoding_compat__(other)
