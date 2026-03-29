@@ -256,10 +256,7 @@ class String
   end
   alias to_str to_s
 
-  def to_i(base = 10)
-    base = __coerce_to_int__(base)
-    Intrinsics.string_to_i_base(self, base)
-  end
+  def to_i(base = 10) = Intrinsics.string_to_i_base(self, __coerce_to_int__(base))
 
   def ==(v)
     # Must stay as intrinsic: pure-Ruby == triggers recursion because the
@@ -772,15 +769,8 @@ class String
     frozen? || Intrinsics.string_chilled_q(self) ? dup : self
   end
 
-  def unpack(fmt, offset: nil)
-    fmt = __coerce_to_str__(fmt)
-    Intrinsics.string_unpack(self, fmt, offset)
-  end
-
-  def unpack1(fmt, offset: nil)
-    fmt = __coerce_to_str__(fmt)
-    Intrinsics.string_unpack1(self, fmt, offset)
-  end
+  def unpack(fmt, offset: nil) = Intrinsics.string_unpack(self, __coerce_to_str__(fmt), offset)
+  def unpack1(fmt, offset: nil) = Intrinsics.string_unpack1(self, __coerce_to_str__(fmt), offset)
 
   def getbyte(i)
     i = __coerce_to_int__(i)
@@ -814,11 +804,7 @@ class String
     Intrinsics.string_upto(self, other, exclusive, block)
   end
 
-  def tr_s(from, to)
-    from = __coerce_to_str__(from)
-    to = __coerce_to_str__(to)
-    Intrinsics.string_tr_s(self, from, to)
-  end
+  def tr_s(from, to) = Intrinsics.string_tr_s(self, __coerce_to_str__(from), __coerce_to_str__(to))
 
   def grapheme_clusters(&block)
     result = Intrinsics.string_grapheme_clusters(self)
@@ -987,6 +973,7 @@ class String
     total = bytes.reduce(0) { |s, b| s + b }
     bits <= 0 ? total : total % (1 << bits)
   end
+
   private
 
   # Pure byte check: all bytes <= 127. Does NOT check encoding compatibility

@@ -61,10 +61,7 @@ class Array
   def reverse!; replace(reverse); self; end
   def sort!(&block); replace(sort(&block)); self; end
 
-  def at(i)
-    i = __coerce_to_int__(i)
-    Intrinsics.array_at(self, i)
-  end
+  def at(i) = Intrinsics.array_at(self, __coerce_to_int__(i))
 
   def [](i, len = nil)
     if len
@@ -127,7 +124,7 @@ class Array
   end
 
   def replace(other)
-    other = __array_coerce__(other) unless other.is_a?(Array)
+    other = __coerce_to_ary__(other) unless other.is_a?(Array)
     Intrinsics.array_replace(self, other)
   end
 
@@ -247,7 +244,7 @@ class Array
   end
 
   def &(other)
-    other = __array_coerce__(other)
+    other = __coerce_to_ary__(other)
     set = {}; other.each { |e| set[e] = true }
     seen = {}; r = []
     each { |e| r << e and seen[e] = true if set.key?(e) && !seen.key?(e) }
@@ -255,7 +252,7 @@ class Array
   end
 
   def |(other)
-    other = __array_coerce__(other)
+    other = __coerce_to_ary__(other)
     seen = {}; r = []
     each { |e| r << e and seen[e] = true unless seen.key?(e) }
     other.each { |e| r << e and seen[e] = true unless seen.key?(e) }
@@ -263,13 +260,13 @@ class Array
   end
 
   def -(other)
-    other = __array_coerce__(other)
+    other = __coerce_to_ary__(other)
     set = {}; other.each { |e| set[e] = true }
     reject { |e| set.key?(e) }
   end
 
   def +(other)
-    other = __array_coerce__(other)
+    other = __coerce_to_ary__(other)
     r = Array.new(self)
     r.concat(other)
     r
@@ -1407,6 +1404,7 @@ class Array
     end
     nil
   end
+
   private
 
   def __flatten_into__(arr, depth, result, seen_ids)
@@ -1712,16 +1710,6 @@ class Array
     end
     raise ArgumentError, "wrong array length at #{idx} (expected 2, was #{pair.length})" unless pair.length == 2
     pair
-  end
-
-  def __array_coerce__(other)
-    return other if other.is_a?(Array)
-    unless other.respond_to?(:to_ary)
-      raise TypeError, "no implicit conversion of #{other.class} into Array"
-    end
-    result = other.to_ary
-    raise TypeError, "no implicit conversion of #{other.class} into Array" unless result.is_a?(Array)
-    result
   end
 
 end

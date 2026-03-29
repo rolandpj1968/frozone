@@ -421,11 +421,7 @@ class Hash
     r
   end
 
-  def flatten(depth = 1)
-    depth = depth.respond_to?(:to_int) ? depth.to_int : depth
-    raise TypeError, "no implicit conversion of #{depth.class} into Integer" unless depth.is_a?(Integer)
-    to_a.flatten(depth)
-  end
+  def flatten(depth = 1) = to_a.flatten(__coerce_to_int__(depth))
 
   def shift
     __check_frozen__
