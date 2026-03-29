@@ -305,6 +305,7 @@ module Frozone
         return false unless @execute_block&.body
         changed = propagate_for_targets(@execute_block.body, TOP_LEVEL_CTX)
         changed |= propagate_locals(@execute_block.body, TOP_LEVEL_CTX)
+        changed |= propagate_masgn_from_calls(@execute_block.body, TOP_LEVEL_CTX)
         changed
       end
 
@@ -320,6 +321,7 @@ module Frozone
         # For-loop target variables (typed like block params to reflect Crystal level).
         changed |= propagate_for_targets(method.body, ctx)
         changed |= propagate_locals(method.body, ctx)
+        changed |= propagate_masgn_from_calls(method.body, ctx)
         ret_ty = infer_body_return(method.body, ctx)
         # Commit any definite (non-:unknown) return type.
         changed |= @env.meet!([:return, mkey], ret_ty) if ret_ty && ret_ty != :unknown
@@ -348,6 +350,44 @@ module Frozone
           break unless iter_changed
         end
         changed
+      end
+
+      # When a multiple assignment destructures a function return (mr, mc = foo()),
+      # trace through the function's body to find what each return-array element's
+      # type is, and propagate to the local targets.
+      def propagate_masgn_from_calls(body, ctx)
+        changed = false
+        walk(body) do |node|
+          next unless node.is_a?(Ast::MultipleAssignment)
+          targets = node.instance_variable_get(:@targets) || []
+          value = node.instance_variable_get(:@value_node)
+          next unless value.is_a?(Ast::MethodCall) && value.instance_variable_get(:@receiver_node).nil?
+          method_name = value.instance_variable_get(:@name)
+          method = @user_methods[method_name]
+          next unless method
+          # Find the return expression — walk method body for the last expression
+          ret_node = last_expression(method.body)
+          next unless ret_node.is_a?(Ast::ArrayLiteral)
+          ret_elems = ret_node.instance_variable_get(:@element_nodes) || []
+          # Map each element's type to the corresponding target local
+          targets.each_with_index do |t, i|
+            next unless t[0] == :local && ret_elems[i]
+            # Infer the return element's type in the CALLED method's context
+            callee_ctx = TypeContext.new(method_name, nil)
+            elem_ty = infer_expr(ret_elems[i], callee_ctx)
+            next unless elem_ty && elem_ty != :unknown
+            changed |= @env.meet!([:local, ctx.method_key, t[1]], elem_ty)
+          end
+        end
+        changed
+      end
+
+      def last_expression(node)
+        return nil unless node
+        case node
+        when Ast::Sequence then last_expression(node.nodes.last)
+        else node
+        end
       end
 
       # ------------------------------------------------------------------

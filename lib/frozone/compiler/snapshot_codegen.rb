@@ -952,6 +952,10 @@ module Frozone
       end
 
       # Convert a TypeInference lattice value to a Crystal type annotation string.
+      def native_elem?(crystal_type)
+        crystal_type == 'Int64' || crystal_type == 'Float64' || crystal_type.start_with?('Array(')
+      end
+
       def ti_crystal_type(ty)
         case ty
         when :i64       then 'Int64'
@@ -972,9 +976,12 @@ module Frozone
           when :Array
             if ty[:elem]
               elem_crystal = ti_crystal_type(ty[:elem])
-              elem_crystal != 'RubyObject' ? "Array(#{elem_crystal})" : 'RubyArray'
+              # Promote flat native arrays (Array(Int64), Array(Float64)).
+              # Nested arrays (Array(Array(Int64))) are correct but callers can't
+              # provide them yet — needs execute-block local typing for masgn.
+              (elem_crystal == 'Int64' || elem_crystal == 'Float64') ? "Array(#{elem_crystal})" : 'RubyObject'
             else
-              'RubyArray'
+              'RubyObject'
             end
           when :Hash             then 'RubyHash'
           when :Proc             then 'RubyProc'
