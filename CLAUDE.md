@@ -162,3 +162,5 @@ def round(n = 0, half: nil)
   # ...
 end
 ```
+
+If the coercion protocol gives different error semantics than a manual special-case, the bug is likely in the coerced type's implementation, not in the coercion protocol. Fix the target type; don't add workarounds to the caller.
