@@ -138,15 +138,10 @@ class Data
         break if idx < 0 || idx >= mems.length
         result[k] = @data_values[mems[idx]]
       else
-        if k.respond_to?(:to_int)
-          int = k.to_int
-          raise TypeError, "can't convert #{k.class} into Integer" unless int.is_a?(Integer)
-          idx = int < 0 ? mems.length + int : int
-          break if idx < 0 || idx >= mems.length
-          result[k] = @data_values[mems[idx]]
-        else
-          raise TypeError, "no implicit conversion of #{k.class} into Integer"
-        end
+        int = __coerce_to_int__(k)
+        idx = int < 0 ? mems.length + int : int
+        break if idx < 0 || idx >= mems.length
+        result[k] = @data_values[mems[idx]]
       end
     end
     result

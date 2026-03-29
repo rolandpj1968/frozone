@@ -59,6 +59,7 @@ module Comparable
       self
     end
   end
+
   private
 
   def __cmp__(other)

@@ -103,21 +103,11 @@ class Complex
     else
       real_q = other.respond_to?(:real?) ? other.real? : nil
       if real_q == false
-        begin
-          a, b = other.coerce(self)
-          a.quo(b)
-        rescue NoMethodError
-          raise TypeError, "#{other.class} can't be coerced into Complex"
-        end
+        __coerce_binop__(other, :quo)
       elsif other.is_a?(Numeric) || real_q
         Complex(@real.quo(other), @imaginary.quo(other))
       else
-        begin
-          a, b = other.coerce(self)
-          a / b
-        rescue NoMethodError
-          raise TypeError, "#{other.class} can't be coerced into Complex"
-        end
+        __coerce_binop__(other, :/)
       end
     end
   end
@@ -156,12 +146,7 @@ class Complex
       e_re = Math.exp(re)
       Complex(e_re * Math.cos(im), e_re * Math.sin(im))
     else
-      begin
-        a, b = other.coerce(self)
-        a ** b
-      rescue NoMethodError
-        raise TypeError, "#{other.class} can't be coerced into Complex"
-      end
+      __coerce_binop__(other, :**)
     end
   end
 
@@ -198,22 +183,17 @@ class Complex
   end
 
   def rationalize(eps = nil)
-    raise RangeError, "can't convert #{inspect} into Rational" unless !@imaginary.is_a?(Float) && @imaginary == 0
+    __ensure_real_strict__("Rational")
     @real.rationalize(eps)
   end
 
   def to_f
-    # Float 0.0 as imaginary is not accepted (only Integer 0 or Rational 0)
-    unless !@imaginary.is_a?(Float) && @imaginary == 0
-      raise RangeError, "can't convert #{inspect} into Float"
-    end
+    __ensure_real_strict__("Float")
     @real.to_f
   end
 
   def to_i
-    unless !@imaginary.is_a?(Float) && @imaginary == 0
-      raise RangeError, "can't convert #{inspect} into Integer"
-    end
+    __ensure_real_strict__("Integer")
     @real.to_i
   end
 
@@ -277,6 +257,14 @@ class Complex
 
   def __format_imag__(im_s) = im_s.start_with?('-') ? ['-', im_s[1..]] : ['+', im_s]
   def marshal_dump = [@real, @imaginary]
+  def __ensure_real_strict__(type) = raise(RangeError, "can't convert #{inspect} into #{type}") unless !@imaginary.is_a?(Float) && @imaginary == 0
+
+  def __coerce_binop__(other, op)
+    a, b = other.coerce(self)
+    a.send(op, b)
+  rescue NoMethodError
+    raise TypeError, "#{other.class} can't be coerced into Complex"
+  end
 
   def __complex_coerce_op__(other, op)
     if other.is_a?(Complex)
@@ -284,21 +272,11 @@ class Complex
     else
       real_q = other.respond_to?(:real?) ? other.real? : nil
       if real_q == false
-        begin
-          a, b = other.coerce(self)
-          a.send(op, b)
-        rescue NoMethodError
-          raise TypeError, "#{other.class} can't be coerced into Complex"
-        end
+        __coerce_binop__(other, op)
       elsif other.is_a?(Numeric) || real_q
         yield other
       else
-        begin
-          a, b = other.coerce(self)
-          a.send(op, b)
-        rescue NoMethodError
-          raise TypeError, "#{other.class} can't be coerced into Complex"
-        end
+        __coerce_binop__(other, op)
       end
     end
   end

@@ -121,7 +121,7 @@ class Rational < Numeric
   end
 
   def floor(n = 0)
-    n = __validate_ndigits__(n) unless n.is_a?(Integer)
+    n = __coerce_to_int__(n)
     if n == 0
       @numerator / @denominator
     elsif n > 0
@@ -134,7 +134,7 @@ class Rational < Numeric
   end
 
   def ceil(n = 0)
-    n = __validate_ndigits__(n) unless n.is_a?(Integer)
+    n = __coerce_to_int__(n)
     if n == 0
       -(-@numerator / @denominator)
     elsif n > 0
@@ -147,12 +147,12 @@ class Rational < Numeric
   end
 
   def truncate(n = 0)
-    n = __validate_ndigits__(n) unless n.is_a?(Integer)
+    n = __coerce_to_int__(n)
     @numerator < 0 ? ceil(n) : floor(n)
   end
 
   def round(n = 0, half: :up)
-    n = __validate_ndigits__(n) unless n.is_a?(Integer)
+    n = __coerce_to_int__(n)
     # Scale numerator/denominator for the given precision
     num = n >= 0 ? @numerator * (10 ** n) : @numerator
     den = n >= 0 ? @denominator : @denominator * (10 ** (-n))
@@ -246,11 +246,6 @@ class Rational < Numeric
     hi2 = Rational(1, 1) / (lo - k)
     y = __simplest_rational__(lo2, hi2)
     Rational(k * y.numerator + y.denominator, y.numerator)
-  end
-
-  def __validate_ndigits__(n)
-    raise TypeError, "not an integer" unless n.is_a?(Integer)
-    n
   end
 
   def marshal_load(ary)

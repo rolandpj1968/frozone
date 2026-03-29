@@ -120,32 +120,9 @@ class Float
     end
   end
 
-  def ceil(n = nil)
-    if n.nil?
-      Intrinsics.float_ceil(self, nil)
-    else
-      n = __coerce_to_int__(n)
-      Intrinsics.float_ceil(self, n)
-    end
-  end
-
-  def floor(n = nil)
-    if n.nil?
-      Intrinsics.float_floor(self, nil)
-    else
-      n = __coerce_to_int__(n)
-      Intrinsics.float_floor(self, n)
-    end
-  end
-
-  def truncate(n = nil)
-    if n.nil?
-      Intrinsics.float_truncate(self, nil)
-    else
-      n = __coerce_to_int__(n)
-      Intrinsics.float_truncate(self, n)
-    end
-  end
+  def ceil(n = nil)     = Intrinsics.float_ceil(self, n.nil? ? nil : __coerce_to_int__(n))
+  def floor(n = nil)    = Intrinsics.float_floor(self, n.nil? ? nil : __coerce_to_int__(n))
+  def truncate(n = nil) = Intrinsics.float_truncate(self, n.nil? ? nil : __coerce_to_int__(n))
 
   def round(n = :__undefined__, half: nil)
     if n.equal?(:__undefined__)
@@ -188,6 +165,7 @@ class Float
   end
   alias angle arg
   alias phase arg
+
   private
 
   def __coerce_op__(other, op)
