@@ -70,6 +70,23 @@ end
 ### Extract common patterns
 When you see the same code pattern repeated, extract it into a helper. Three similar lines are fine; four is a smell. But don't create abstractions for hypothetical future use — extract only when the pattern already exists in multiple places.
 
+Prefer composable helpers over layered helpers. A single helper that takes the operation as a parameter is better than a chain where one helper returns intermediate state and another consumes it. If every caller of a helper immediately does the same thing with the result, fold that step into the helper:
+
+```ruby
+# Good — helper does the whole job
+def __with_coercion__(v, op)
+  a, b = v.send(:coerce, self)
+  a.send(op, b)
+rescue NoMethodError
+  raise TypeError, "#{v.class} can't be coerced into Integer"
+end
+def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(self, v) : __with_coercion__(v, :+)
+
+# Bad — intermediate state that no caller uses directly
+def __coerce_pair__(v) = v.send(:coerce, self)
+def __coerce_op__(v, op) = (a, b = __coerce_pair__(v); a.send(op, b))
+```
+
 ### Post-refactoring checklist
 After any broad refactoring pass (sed/perl sweeps, agent conversions, coercion refactors):
 1. Convert newly-simple methods to endless one-liners where natural.
