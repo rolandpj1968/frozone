@@ -355,10 +355,8 @@ class Range
       raise RangeError, "cannot get the first element of beginless range" if self.begin.nil?
       return self.begin
     end
-    n = args[0]
+    n = __coerce_to_int__(args[0])
     raise RangeError, "cannot get the first element of beginless range" if self.begin.nil?
-    n = n.to_int if !n.is_a?(Integer) && n.respond_to?(:to_int)
-    raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.is_a?(Integer)
     raise ArgumentError, "negative array size (or exceeds maximum)" if n < 0
     result = []
     each { |v| break if result.length >= n; result << v }
@@ -370,10 +368,8 @@ class Range
       raise RangeError, "cannot get the last element of endless range" if self.end.nil?
       return self.end
     end
-    n = args[0]
+    n = __coerce_to_int__(args[0])
     raise RangeError, "cannot get the last element of endless range" if self.end.nil?
-    n = n.to_int if !n.is_a?(Integer) && n.respond_to?(:to_int)
-    raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.is_a?(Integer)
     raise ArgumentError, "negative array size (or exceeds maximum)" if n < 0
     to_a.last(n)
   end

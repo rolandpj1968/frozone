@@ -212,11 +212,7 @@ class String
   end
 
   def +(__native_v__)
-    unless __native_v__.is_a?(String)
-      raise TypeError, "no implicit conversion of #{__native_v__.class} into String" unless __native_v__.respond_to?(:to_str)
-      __native_v__ = __native_v__.to_str
-      raise TypeError, "to_str must return String (#{__native_v__.class} given)" unless __native_v__.is_a?(String)
-    end
+    __native_v__ = __coerce_to_str__(__native_v__)
     result = String.new(self)
     result << __native_v__
     result
@@ -241,15 +237,8 @@ class String
     __check_frozen__
     if v.is_a?(Integer)
       Intrinsics.string_concat_codepoint(self, v)
-    elsif v.is_a?(String)
-      Intrinsics.string_concat(self, v)
     else
-      unless v.respond_to?(:to_str)
-        raise TypeError, "no implicit conversion of #{v.class} into String"
-      end
-      str = v.to_str
-      raise TypeError, "no implicit conversion of #{v.class} into String" unless str.is_a?(String)
-      Intrinsics.string_concat(self, str)
+      Intrinsics.string_concat(self, __coerce_to_str__(v))
     end
     self
   end

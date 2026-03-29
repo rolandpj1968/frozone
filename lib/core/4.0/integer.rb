@@ -221,17 +221,17 @@ class Integer
       end
       if lo.nil?
         # (..i) form: returns 0 if all bits 0..hi_pos are 0, else ArgumentError
-        hi_pos = hi.is_a?(Integer) ? hi : hi.to_int
+        hi_pos = __coerce_to_int__(hi)
         hi_pos -= 1 if excl
         mask = (1 << (hi_pos + 1)) - 1
         return 0 if (self & mask) == 0
         raise ArgumentError, "The beginless range for Integer#[] results in infinity"
       end
-      lo_i = lo.is_a?(Integer) ? lo : lo.to_int
+      lo_i = __coerce_to_int__(lo)
       if hi.nil?
         return self >> lo_i
       end
-      hi_i = hi.is_a?(Integer) ? hi : hi.to_int
+      hi_i = __coerce_to_int__(hi)
       hi_pos = excl ? hi_i - 1 : hi_i
       return self >> lo_i if hi_pos < lo_i
       width = hi_pos - lo_i + 1
