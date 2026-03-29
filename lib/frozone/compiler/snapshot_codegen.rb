@@ -145,6 +145,10 @@ module Frozone
         # Collect class-typed ivars (X | nil patterns) across all methods
         collect_class_typed_ivars(top_level_scope) if opt?(:ivar_narrowing)
 
+        # Build global method-name → index map for respond_to? bit arrays.
+        build_method_index(top_level_scope)
+        emit_method_index_table
+
         # User-defined classes and modules (from the constant table)
         emit_user_classes(top_level_scope)
 
@@ -437,6 +441,46 @@ module Frozone
 
       # Emit respond_to? as a closed-world method-presence lookup.
       # Walks the class's ancestor chain to collect all method names.
+      # Collect ALL method names across ALL user classes and assign indices.
+      # Index 0 is the sentinel (always-false for unknown method names).
+      def build_method_index(scope)
+        all_method_names = Set.new
+        collect_all_method_names = ->(klass) {
+          c = klass
+          while c && c.is_a?(Vm::ClassObject)
+            (c.instance_variable_get(:@methods_table) || {}).each_key { |m| all_method_names << m }
+            c.modules.each do |mod|
+              (mod.instance_variable_get(:@methods_table) || {}).each_key { |m| all_method_names << m }
+            end
+            c = c.superclass
+          end
+        }
+        # Walk user classes
+        (scope.instance_variable_get(:@constants_table) || {}).each_value do |val|
+          collect_all_method_names.call(val) if val.is_a?(Vm::ClassObject)
+        end
+        # Also collect from Object (for top-level methods)
+        collect_all_method_names.call(scope) if scope.is_a?(Vm::ClassObject)
+
+        all_method_names.delete(:initialize)
+        sorted = all_method_names.map(&:to_s).sort
+        # Index 0 = sentinel (unknown method → always false)
+        @method_name_index = { '__sentinel__' => 0 }
+        sorted.each_with_index { |name, i| @method_name_index[name] = i + 1 }
+      end
+
+      def emit_method_index_table
+        return if @method_name_index.size <= 1 # only sentinel
+        line "# Global method-name → index for O(1) respond_to? lookup"
+        line "FROZONE_METHOD_INDEX = {"
+        @method_name_index.each do |name, idx|
+          next if name == '__sentinel__'
+          line "  #{name.inspect} => #{idx},"
+        end
+        line "}"
+        emit_newline
+      end
+
       def emit_respond_to(klass)
         all_methods = Set.new
         c = klass
@@ -447,33 +491,28 @@ module Frozone
           end
           c = c.superclass
         end
-        # Remove internal/bootstrap methods, keep public-facing ones
         all_methods.delete(:initialize)
+
+        # Build bit array: index 0 (sentinel) is always false
+        table_size = @method_name_index.size
+        bits = Array.new(table_size, false)
+        all_methods.each do |m|
+          idx = @method_name_index[m.to_s]
+          bits[idx] = true if idx
+        end
+
+        emit_indent
+        line "  RESPOND_TO_TABLE = StaticArray[#{bits.map { |b| b.to_s }.join(', ')}]"
+        emit_newline
 
         emit_indent
         line "def respond_to?(name : RubyObject, _include_all : RubyObject = RUBY_FALSE) : RubyBool"
         indented do
           emit_indent
-          write "n = name.is_a?(RubySymbol) ? name.to_s : name.to_s"
+          write "idx = FROZONE_METHOD_INDEX.fetch(name.is_a?(RubySymbol) ? name.to_s : name.to_s, 0)"
           emit_newline
           emit_indent
-          write "case n"
-          emit_newline
-          # Emit method names in sorted order for readability
-          all_methods.map(&:to_s).sort.each_slice(8) do |batch|
-            emit_indent
-            write "when #{batch.map { |m| m.inspect }.join(', ')}"
-            emit_newline
-            indented { emit_indent; write "RUBY_TRUE" }
-            emit_newline
-          end
-          emit_indent
-          write "else"
-          emit_newline
-          indented { emit_indent; write "RUBY_FALSE" }
-          emit_newline
-          emit_indent
-          write "end"
+          write "RESPOND_TO_TABLE[idx] ? RUBY_TRUE : RUBY_FALSE"
         end
         emit_newline
         emit_indent
