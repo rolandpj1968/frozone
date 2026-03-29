@@ -1,6 +1,8 @@
 require_relative 'crystal_emitter'
 require_relative 'crystal_type'
 require_relative 'crystal_type_mapper'
+require_relative 'type_inference'
+require_relative 'method_context'
 require_relative '../vm/module_object'
 require_relative '../vm/method'
 require_relative 'codegen/raw_emission'
@@ -807,7 +809,6 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def run_type_inference(execute_block, top_level_scope)
-        require_relative 'type_inference'
 
         user_methods_hash = {}
         top_level_scope.instance_variable_get(:@methods_table)&.each do |name, m|
