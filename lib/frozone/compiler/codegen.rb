@@ -629,6 +629,7 @@ module Frozone
                       [ivar(method, :rest_param)].compact +
                       (ivar(method, :post_params) || [])
         param_set = param_names.to_set
+        @current_param_set = param_set
         mkey = @current_class_name ? [@current_class_name, name] : name
         # For generic class method overloads with a specialized version,
         # disable ALL type optimizations (the specialized handles raw paths).
@@ -656,6 +657,7 @@ module Frozone
             when 'Float64'      then @typed_locals[p] = :f64
             when 'Array(Int64)' then @native_array_locals[p] = :i64
             when 'Array(Float64)' then @native_array_locals[p] = :f64
+            when /\AArray\(Array\(/ then @current_local_2d_arrays[p] = param_types[i].include?('Float64') ? :f64 : :i64
             end
           end
         end
@@ -889,6 +891,8 @@ module Frozone
       # Is this a complex Crystal-native type that callers may not be able to provide?
       # Simple natives (Int64, Float64, Array(Int64)) are fine — callers construct them locally.
       # Complex natives (Array(Array(Int64))) need genericising in fallback overloads.
+      def param_name?(name) = @current_param_set&.include?(name)
+
       def complex_native_type?(t)
         return false if t.nil? || t == 'RubyObject'
         # Nested arrays are complex; flat arrays and scalars are simple
@@ -1352,6 +1356,16 @@ module Frozone
             emit_typed_call_args(node.arg_nodes || [], tp)
             return
           end
+        end
+
+        # 2D native array read: mc[i] where mc is Array(Array(Int64)) — coerce index, no boxing
+        if node.name == :[] && node.receiver_node&.is_a?(Ast::LocalVariableRead) &&
+           @current_local_2d_arrays[ivar(node.receiver_node, :name)] &&
+           node.arg_nodes&.size == 1
+          write "#{crystal_local(ivar(node.receiver_node, :name))}["
+          emit_coerce_i64(node.arg_nodes[0])
+          write "]"
+          return
         end
 
         # Typed/native array read in boxed context: box the Int64/Float64 element

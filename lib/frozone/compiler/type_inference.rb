@@ -415,7 +415,7 @@ module Frozone
           fill_ty = infer_expr(args[1], ctx)
           next unless NUMERIC_TYPES.include?(fill_ty)
 
-          next if escapes?(name, body, ctx)
+          next if escapes?(name, body, ctx) && !escapes_only_via_return_array?(name, body)
           next unless writes_consistent?(name, body, ctx, fill_ty)
 
           changed |= @env.meet!([:array_elem, ctx.method_key, name], fill_ty)
@@ -937,6 +937,50 @@ module Frozone
         escaped
       rescue UncaughtThrowError
         true
+      end
+
+      # Does the local escape ONLY via the final array literal return?
+      # If so, Crystal tuple return preserves the type — safe to promote.
+      def escapes_only_via_return_array?(name, body)
+        last = last_expression(body)
+        return false unless last.is_a?(Ast::ArrayLiteral)
+        # Check that the local appears in the return array literal
+        ret_elems = last.instance_variable_get(:@element_nodes) || []
+        in_return = ret_elems.any? { |e|
+          e.is_a?(Ast::LocalVariableRead) && e.instance_variable_get(:@name) == name
+        }
+        return false unless in_return
+        # Check no other escapes besides the return array and normal []/[]= use
+        escaped_elsewhere = false
+        walk(body) do |node|
+          # Skip the final array literal itself
+          next if node.equal?(last)
+          case node
+          when Ast::MethodCall
+            recv = node.instance_variable_get(:@receiver_node)
+            args = node.instance_variable_get(:@arg_nodes) || []
+            # Receiver use is OK for []/[]=
+            if recv.is_a?(Ast::LocalVariableRead) && recv.instance_variable_get(:@name) == name
+              escaped_elsewhere = true unless node.name == :[] || node.name == :[]=
+            end
+            # Arg use is an escape (passed to another function)
+            args.each do |a|
+              escaped_elsewhere = true if a.is_a?(Ast::LocalVariableRead) && a.instance_variable_get(:@name) == name
+            end
+          when Ast::AttributeWrite
+            recv = node.instance_variable_get(:@receiver_node)
+            if recv.is_a?(Ast::LocalVariableRead) && recv.instance_variable_get(:@name) == name
+              escaped_elsewhere = true unless node.instance_variable_get(:@name) == :[]=
+            end
+          when Ast::Return, Ast::InstanceVariableWrite
+            val = node.instance_variable_get(:@value_node)
+            escaped_elsewhere = true if val.is_a?(Ast::LocalVariableRead) && val.instance_variable_get(:@name) == name
+          end
+          throw :stop if escaped_elsewhere
+        end
+        !escaped_elsewhere
+      rescue UncaughtThrowError
+        false
       end
 
       def writes_consistent?(name, body, ctx, elem_ty)

@@ -42,11 +42,21 @@ module Frozone
           inner_args = ivar(inner, :arg_nodes) || []
           fill_ty = node_raw_type(inner_args[1])
           next unless fill_ty
-          # Don't promote if the variable escapes (returned, passed as arg, used in array literal)
-          next if local_escapes?(body, name)
+          # Don't promote if the variable escapes — UNLESS it only escapes
+          # via the method's final array literal return (Crystal tuple preserves type).
+          next if local_escapes?(body, name) && !escapes_only_via_return_literal?(body, name)
           result[name] = fill_ty
         end
         result
+      end
+
+      # Does the local escape only via the final array literal (multi-return)?
+      # Safe to promote because Crystal tuple return preserves the type.
+      def escapes_only_via_return_literal?(body, name)
+        last = body.is_a?(Ast::Sequence) ? body.nodes.last : body
+        return false unless last.is_a?(Ast::ArrayLiteral)
+        elems = ivar(last, :element_nodes) || []
+        elems.any? { |e| e.is_a?(Ast::LocalVariableRead) && ivar(e, :name) == name }
       end
 
       # Check if a local variable is used beyond simple indexing (read/write).
