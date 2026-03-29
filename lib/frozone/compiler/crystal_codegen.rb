@@ -1018,7 +1018,14 @@ module Frozone
       # If the node is already a comparison/predicate that returns Bool, emit
       # it directly; otherwise wrap in .truthy?
       def emit_truthy(node)
-        if boolean_valued?(node)
+        # Ruby true/false literals: emit Crystal true/false for proper Crystal truthiness
+        if node.is_a?(Ast::TrueLiteral)
+          return write("true")
+        elsif node.is_a?(Ast::FalseLiteral)
+          return write("false")
+        elsif node.is_a?(Ast::NilLiteral)
+          return write("false")
+        elsif boolean_valued?(node)
           emit(node)
         elsif comparison_op_call?(node)
           # Emit comparison directly as Crystal Bool — no RUBY_TRUE/RUBY_FALSE wrapper.

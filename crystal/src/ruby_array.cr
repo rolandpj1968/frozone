@@ -552,7 +552,14 @@ class RubyArray < RubyObject
   end
 
   def ==(other : RubyObject) : Bool
-    false
+    # Support comparison with RubyTupleN and other array-like objects
+    return false unless other.responds_to?(:length) && other.responds_to?(:[])
+    other_len = other.length
+    return false unless other_len.is_a?(RubyInteger) && other_len.to_i64 == @data.size.to_i64
+    @data.each_with_index do |elem, i|
+      return false unless elem == other[i.to_i64]
+    end
+    true
   end
 
   def hash : UInt64

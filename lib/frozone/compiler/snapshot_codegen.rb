@@ -48,7 +48,7 @@ module Frozone
       # -O0: all off. -O1: safe optimizations. -O2: all on (default).
       OPT_LEVELS = {
         0 => [],
-        1 => %i[call_site_types tuple_literals devirtualize condition_simplify
+        1 => %i[tuple_literals devirtualize condition_simplify
                 native_iteration accessor_inline],
         2 => OPT_FLAGS.dup
       }.freeze
@@ -598,6 +598,7 @@ module Frozone
           end
         end
         string_return = STRING_RETURN_METHODS.include?(name)
+        bool_return   = %i[== != < <= > >= equal?].include?(name) && !class_method
         crystal_name  = string_return ? name.to_s : crystal_method_name(name)
 
         # If method has a typed return but no fully-typed-params overload,
@@ -612,12 +613,22 @@ module Frozone
         cr_return_types = { i64: 'Int64', f64: 'Float64' }
 
         write class_method ? "def self.#{crystal_name}" : "def #{crystal_name}"
-        write " : String" if string_return
         emit_param_list(method, param_types: param_types)
-        write " : #{cr_return_types[raw_return]}" if raw_return
+        write " : String" if string_return
+        write " : Bool" if bool_return && !string_return
+        write " : #{cr_return_types[raw_return]}" if raw_return && !bool_return
         emit_newline
 
-        if string_return
+        if bool_return
+          indented do
+            write "(begin"
+            emit_newline
+            indented { emit(method.body) }
+            emit_newline
+            emit_indent
+            write "end).truthy?"
+          end
+        elsif string_return
           indented do
             write "(begin"
             emit_newline

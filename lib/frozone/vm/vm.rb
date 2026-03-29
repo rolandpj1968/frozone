@@ -489,7 +489,7 @@ module Frozone
           execute_ast,       # body
           source_location: [full_path, load_nodes.size + 1]
         )
-        compile_node = Ast::FrozoneCompile.new(block_node)
+        compile_node = Ast::FrozoneCompile.new(block_node, aot_mode: true)
         compile_node.evaluate(context)
 
         Fiber[:file_stack]&.pop

@@ -18,9 +18,10 @@ module Frozone
     class FrozoneCompile < Node
       CRYSTAL_DIR = File.expand_path('../../../crystal', __dir__)
 
-      def initialize(block_node, output_path: nil)
+      def initialize(block_node, output_path: nil, aot_mode: false)
         @block_node  = block_node
         @output_path = output_path
+        @aot_mode    = aot_mode
       end
 
       def evaluate(context)
@@ -28,7 +29,8 @@ module Frozone
 
         # Source file of the stub (methods defined here are load-phase scaffolding,
         # not real user code — exclude them from the snapshot).
-        stub_file = @block_node&.instance_variable_get(:@source_location)&.first
+        # In --aot mode, the file IS the user code — don't exclude it.
+        stub_file = @aot_mode ? nil : @block_node&.instance_variable_get(:@source_location)&.first
 
         if ENV['FROZONE_TYPE_INFERENCE']
           require_relative '../compiler/type_inference'
