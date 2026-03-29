@@ -43,10 +43,10 @@ class Integer
   def %(v) = v.is_a?(Integer) ? Intrinsics.integer__mod_(self, v)   : __coerce_op__(v, :%)
   alias modulo %
 
-  def <(v)  = v.is_a?(Integer) ? Intrinsics.integer__lt_(self, v) : __compare__(v, :<, 0)
-  def <=(v) = v.is_a?(Integer) ? Intrinsics.integer__le_(self, v) : __compare__(v, :<=, 0)
-  def >=(v) = v.is_a?(Integer) ? Intrinsics.integer__ge_(self, v) : __compare__(v, :>=, 0)
-  def >(v)  = v.is_a?(Integer) ? Intrinsics.integer__gt_(self, v) : __compare__(v, :>, 0)
+  def <(v)  = v.is_a?(Integer) ? Intrinsics.integer__lt_(self, v) : __compare__(v, :<)
+  def <=(v) = v.is_a?(Integer) ? Intrinsics.integer__le_(self, v) : __compare__(v, :<=)
+  def >=(v) = v.is_a?(Integer) ? Intrinsics.integer__ge_(self, v) : __compare__(v, :>=)
+  def >(v)  = v.is_a?(Integer) ? Intrinsics.integer__gt_(self, v) : __compare__(v, :>)
 
   def **(v)
     if v.is_a?(Integer)
@@ -213,12 +213,8 @@ class Integer
       hi = idx.end
       excl = idx.exclude_end?
       # Convert Float boundaries (raise FloatDomainError)
-      if lo.is_a?(Float)
-        raise FloatDomainError, lo.infinite? == 1 ? "Infinity" : lo.infinite? == -1 ? "-Infinity" : lo.inspect
-      end
-      if hi.is_a?(Float)
-        raise FloatDomainError, hi.infinite? == 1 ? "Infinity" : hi.infinite? == -1 ? "-Infinity" : hi.inspect
-      end
+      __reject_float_index__(lo)
+      __reject_float_index__(hi)
       if lo.nil?
         # (..i) form: returns 0 if all bits 0..hi_pos are 0, else ArgumentError
         hi_pos = __coerce_to_int__(hi)
@@ -253,10 +249,7 @@ class Integer
   def anybits?(mask) = (self & __coerce_to_int__(mask)) != 0
   def nobits?(mask)  = (self & __coerce_to_int__(mask)) == 0
 
-  def ceildiv(n)
-    q, r = divmod(n)
-    r == 0 ? q : q + 1
-  end
+  def ceildiv(n) = (q, r = divmod(n); r == 0 ? q : q + 1)
 
   def coerce(other)
     if other.is_a?(Integer)
@@ -321,6 +314,11 @@ class Integer
   def __raise_zero_division__    = (raise ZeroDivisionError, "divided by 0")
   def __check_zero_divisor__(n)  = (__raise_zero_division__ if n == 0)
 
+  def __reject_float_index__(v)
+    return unless v.is_a?(Float)
+    raise FloatDomainError, v.infinite? == 1 ? "Infinity" : v.infinite? == -1 ? "-Infinity" : v.inspect
+  end
+
   def __bitwise_op__(n, op)
     raise TypeError, "no implicit conversion of Float into Integer" if n.is_a?(Float)
     a, b = __coerce_pair__(n)
@@ -346,7 +344,7 @@ class Integer
 
   # Compare with non-Integer: use precise <=> for Float (preserves bignum
   # precision and handles NaN/Infinity), coercion protocol for everything else.
-  def __compare__(v, op, _)
+  def __compare__(v, op)
     if v.is_a?(Float)
       return false if v.nan?
       cmp = self <=> v
@@ -356,11 +354,11 @@ class Integer
     end
   end
 
-  def __coerce_and_compare__(other, op)
-    a, b = other.coerce(self)
+  def __coerce_and_compare__(v, op)
+    a, b = __coerce_pair__(v)
     a.send(op, b)
-  rescue TypeError, NoMethodError
-    raise ArgumentError, "comparison of #{self.class} with #{other.class} failed"
+  rescue TypeError
+    raise ArgumentError, "comparison of #{self.class} with #{v.class} failed"
   end
 
 end
