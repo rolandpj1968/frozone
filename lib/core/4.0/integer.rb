@@ -22,16 +22,7 @@ class Integer
   def odd? = self % 2 != 0
   def ceil(n = 0)  = n >= 0 ? self : (self.to_f.ceil(n).to_i rescue self)
   def floor(n = 0) = n >= 0 ? self : (self.to_f.floor(n).to_i rescue self)
-  def fdiv(n)
-    if n.is_a?(Integer) || n.is_a?(Float)
-      to_f / n.to_f
-    elsif n.respond_to?(:coerce)
-      a, b = n.coerce(self)
-      a.fdiv(b)
-    else
-      raise TypeError, "#{n.class} can't be coerced into Integer"
-    end
-  end
+  def fdiv(n) = Intrinsics.integer_fdiv(self, n)
   def ~  = Intrinsics.integer_bitnot(self)
   def size = [(bit_length + 7) / 8, 8].max
   def bit_length = Intrinsics.integer_bit_length(self)

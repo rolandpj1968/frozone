@@ -27,7 +27,6 @@ class String
   def empty?     = bytesize == 0
   def lstrip     = sub(/\A[[:space:]\x00]+/, '')
   def strip      = lstrip.rstrip
-  def ord        = Intrinsics.string_ord(self)
   def tr(from, to) = Intrinsics.string_tr_raw(self, __coerce_to_str__(from), __coerce_to_str__(to))
   def squeeze(*args) = Intrinsics.string_squeeze_raw(self, *__str_args__(*args))
   def count(*args)   = Intrinsics.string_count_raw(self, *__str_args__(*args))
@@ -72,6 +71,33 @@ class String
   def tr_s!(from, to)        = __bang__ { tr_s(from, to) }
   def delete_prefix!(prefix) = __bang__ { delete_prefix(prefix) }
   def delete_suffix!(suffix) = __bang__ { delete_suffix(suffix) }
+
+  def ord
+    raise ArgumentError, "empty string" if empty?
+    enc = encoding
+    b0 = getbyte(0)
+    if enc == Encoding::ASCII_8BIT || enc == Encoding::ISO_8859_1
+      return b0
+    end
+    if enc == Encoding::US_ASCII
+      raise ArgumentError, "invalid byte sequence in US-ASCII" if b0 > 127
+      return b0
+    end
+    if enc == Encoding::UTF_8
+      return b0 if b0 < 128
+      bs = bytesize
+      if b0 >= 0xC2 && b0 < 0xE0 && bs >= 2 && (getbyte(1) & 0xC0) == 0x80
+        return ((b0 & 0x1F) << 6) | (getbyte(1) & 0x3F)
+      elsif b0 >= 0xE0 && b0 < 0xF0 && bs >= 3 && (getbyte(1) & 0xC0) == 0x80 && (getbyte(2) & 0xC0) == 0x80
+        return ((b0 & 0x0F) << 12) | ((getbyte(1) & 0x3F) << 6) | (getbyte(2) & 0x3F)
+      elsif b0 >= 0xF0 && b0 < 0xF8 && bs >= 4 && (getbyte(1) & 0xC0) == 0x80 && (getbyte(2) & 0xC0) == 0x80 && (getbyte(3) & 0xC0) == 0x80
+        return ((b0 & 0x07) << 18) | ((getbyte(1) & 0x3F) << 12) | ((getbyte(2) & 0x3F) << 6) | (getbyte(3) & 0x3F)
+      end
+      raise ArgumentError, "invalid byte sequence in UTF-8"
+    end
+    # Fallback for other encodings (UTF-16, Shift_JIS, etc.)
+    Intrinsics.string_ord(self)
+  end
 
   def ascii_only?
     return false unless encoding.ascii_compatible?
