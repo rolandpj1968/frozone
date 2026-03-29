@@ -93,10 +93,19 @@ module Frozone
         # Used in `evaluate` to set TOPLEVEL_BINDING only once for the main script.
         @in_main_eval = true
 
+        # Pre-load -r/--require files before the main script.
+        (@options[:requires] || []).each do |req_path|
+          evaluate_file(File.expand_path(req_path))
+        end
+
         # if -e is present then ruby DOES NOT evaluate an ARGV file
         # Note: ruby -e 'ARGV.each {|f| load f}' file1.rb file2.rb file3.rb
         begin
-          if scripts.empty?
+          if @options[:aot]
+            file = @options[:argv][0]
+            raise "frozone --aot requires a file argument" unless file
+            aot_compile(File.expand_path(file))
+          elsif scripts.empty?
             # if -e is absent then ruby evaluates the FIRST file only
             file = @options[:argv][0]
             file.nil? ? eval_snippet("") : evaluate_file(File.expand_path(file))
@@ -421,6 +430,94 @@ module Frozone
       # Used by Thread::Backtrace::Location#absolute_path to resolve symlinks correctly even
       # after the symlink is removed (matching MRI semantics: real path stored at load time).
       FILE_REALPATH_CACHE = {}
+
+      # --aot mode: split a Ruby file into load phase (requires, defs) and
+      # execute phase (everything else), then compile the execute phase to Crystal.
+      def aot_compile(path)
+        full_path = File.expand_path(path)
+        source = File.read(full_path)
+        parse_result = cached_parse(source, false, filepath: full_path)
+        ast = parse_result.ast
+
+        # Split AST into load and execute phases.
+        # Load: require/require_relative, class/module/method defs, constant/global writes.
+        # Execute: everything else (describe blocks, top-level calls, etc.).
+        load_nodes = []
+        execute_nodes = []
+        in_execute = false
+
+        nodes = ast.is_a?(Ast::Sequence) ? ast.nodes : [ast]
+        nodes.each do |node|
+          if !in_execute && aot_load_phase_node?(node)
+            load_nodes << node
+          else
+            in_execute = true
+            execute_nodes << node
+          end
+        end
+
+        $stderr.puts "frozone --aot: #{load_nodes.size} load nodes, #{execute_nodes.size} execute nodes"
+
+        # Evaluate load phase normally (defines classes, methods, constants, requires files).
+        (Fiber[:file_stack] ||= []) << full_path
+        FILE_REALPATH_CACHE[full_path] = begin; File.realpath(full_path); rescue; full_path; end
+        load_ast = Ast::Sequence.new(load_nodes)
+        top_level_scope = Core::OBJECT_CLASS
+        top_level_object = Fiber[:main_object] || ObjectObject.new(Core::OBJECT_CLASS)
+        Fiber[:main_object] ||= top_level_object
+        Core::OBJECT_CLASS.current_visibility = :private
+        setup_main(top_level_object)
+
+        context = Context.new
+        Fiber[:context] = context
+        Fiber[:vm_evaluate] = method(:evaluate_file)
+        Fiber[:vm_eval]     = method(:evaluate)
+
+        frame = Frame.new(top_level_object, parse_result.top_level_locals, [top_level_scope])
+        frame.method_frame = frame
+        context.push_frame(frame)
+        context.push_scope(top_level_scope)
+
+        load_ast.evaluate(context)
+
+        # Compile execute phase: wrap in a Block and pass to FrozoneCompile.
+        execute_ast = Ast::Sequence.new(execute_nodes)
+        block_node = Ast::Block.new(
+          [], [], nil, [],   # required, optional, rest, post params
+          [], [], nil, nil,  # kw params, block param
+          false, [],         # auto_splat, locals
+          execute_ast,       # body
+          source_location: [full_path, load_nodes.size + 1]
+        )
+        compile_node = Ast::FrozoneCompile.new(block_node)
+        compile_node.evaluate(context)
+
+        Fiber[:file_stack]&.pop
+      end
+
+      # Classify a top-level AST node as load phase (true) or execute phase (false).
+      def aot_load_phase_node?(node)
+        case node
+        when Ast::MethodCall
+          # require, require_relative, and load are load-phase
+          name = node.name
+          return true if %i[require require_relative load].include?(name) && node.receiver_node.nil?
+          # Top-level attribute methods (attr_reader, attr_writer, attr_accessor)
+          return true if %i[attr_reader attr_writer attr_accessor].include?(name) && node.receiver_node.nil?
+          false
+        when Ast::MethodDef, Ast::ClassDef, Ast::ModuleDef, Ast::SingletonClassDef
+          true
+        when Ast::ConstantWrite, Ast::ConstantPath
+          true
+        when Ast::GlobalVariableWrite
+          true
+        when Ast::Sequence
+          # A sequence where ALL children are load-phase is load-phase
+          node.nodes.all? { |n| aot_load_phase_node?(n) }
+        else
+          false
+        end
+      end
 
       def evaluate_file(path, raise_syntax_errors: false)
         full_path = File.expand_path(path)

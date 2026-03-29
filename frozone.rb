@@ -9,8 +9,10 @@ require_relative 'lib/frozone/vm/vm'
 options = {
   verbose:   false,
   scripts:   [],
+  requires:  [],
   parser:    :prism,
   ast_cache: ENV['FROZONE_NO_AST_CACHE'] != '1',
+  aot:       false,
 }
 
 OptionParser.new do |opts|
@@ -22,6 +24,14 @@ OptionParser.new do |opts|
 
   opts.on("-e SCRIPT", "Evaluate SCRIPT") do |v|
     options[:scripts] << v
+  end
+
+  opts.on("-r", "--require=PATH", "Require PATH before evaluating the script") do |v|
+    options[:requires] << v
+  end
+
+  opts.on("--aot", "AOT compile: split file into load/execute phases, compile execute to Crystal") do
+    options[:aot] = true
   end
 
   opts.on("--parser=FLAVOR", %w[prism wq],
