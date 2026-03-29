@@ -206,8 +206,8 @@ module Frozone
         parts = req_params.each_with_index.map do |p, i|
           if raw_types[i]
             "#{crystal_local(p)} : #{cr[raw_types[i]]}"
-          elsif crystal_param_types && crystal_param_types[i] && crystal_param_types[i] != 'RubyObject'
-            "#{crystal_local(p)} : #{crystal_param_types[i]}"
+          elsif crystal_param_types && crystal_param_types[i] && crystal_param_types[i] != :ruby_object
+            "#{crystal_local(p)} : #{CrystalType.to_crystal(crystal_param_types[i])}"
           else
             "#{crystal_local(p)} : RubyObject"
           end
@@ -238,9 +238,9 @@ module Frozone
         @native_array_locals = {}
         if crystal_param_types
           req_params.each_with_index do |p, i|
-            case crystal_param_types[i]
-            when 'Array(Int64)'   then @native_array_locals[p] = :i64
-            when 'Array(Float64)' then @native_array_locals[p] = :f64
+            pt = crystal_param_types[i]
+            if CrystalType.array?(pt) && CrystalType.scalar?(CrystalType.elem(pt))
+              @native_array_locals[p] = CrystalType.elem(pt)
             end
           end
         end

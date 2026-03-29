@@ -14,16 +14,7 @@ module Frozone
   module Compiler
     module CodegenSupport
       module ArrayAnalysis
-      # Flat native array element type (:i64/:f64) or nil.
-      # Uses unified @current_local_types when available, falls back to legacy maps.
-      def native_array_elem_type(arr_name)
-        if (ty = @current_local_types&.[](arr_name))
-          # Only return scalar element type — 2D arrays handled separately
-          CrystalType.array?(ty) && CrystalType.scalar?(CrystalType.elem(ty)) ? CrystalType.elem(ty) : nil
-        else
-          @typed_array_locals[arr_name] || @native_array_locals[arr_name]
-        end
-      end
+      def native_array_elem_type(arr_name) = @typed_array_locals[arr_name] || @native_array_locals[arr_name]
 
       # Detect locals assigned from Array.new(count_i64) { Array.new(count2_i64, fill) }
       # where fill is a typed scalar. Returns {name => :i64 | :f64}.
