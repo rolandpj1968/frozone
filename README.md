@@ -76,7 +76,8 @@ bundle exec rake core                    # ruby/spec core suite
 ## Documentation
 
 **Interpreter:**
-- [docs/interpreter.md](docs/interpreter.md) — VM architecture, parsers, self-hosting
+- [docs/interpreter.md](docs/interpreter.md) — VM architecture, parsers
+- [docs/self-hosting.md](docs/self-hosting.md) — Frozone², Frozone³, pure-Ruby path, performance
 - [docs/spec-status.md](docs/spec-status.md) — detailed ruby/spec results (interpreter)
 
 **Compiler:**
