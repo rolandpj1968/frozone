@@ -50,11 +50,11 @@ module Frozone
           req_params = init_method.instance_variable_get(:@required_params) || []
           next unless req_params.size == param_types.size
 
-          old_typed     = @typed_locals
-          @typed_locals = req_params.zip(param_types).to_h
+          old_typed     = @mctx.typed_locals
+          @mctx.typed_locals = req_params.zip(param_types).to_h
           ivar_types    = {}
           collect_ivar_assignments(init_method.body, ivar_types)
-          @typed_locals = old_typed
+          @mctx.typed_locals = old_typed
 
           @typed_ivars[name] = ivar_types unless ivar_types.empty?
         end
@@ -227,7 +227,7 @@ module Frozone
       end
 
       # Walk an initialize body collecting ivar types from assignments.
-      # Expects @typed_locals to be seeded with param types.
+      # Expects @mctx.typed_locals to be seeded with param types.
       def collect_ivar_assignments(node, ivar_types)
         return unless node
         case node

@@ -14,7 +14,7 @@ module Frozone
   module Compiler
     module CodegenSupport
       module ArrayAnalysis
-      def native_array_elem_type(arr_name) = @typed_array_locals[arr_name] || @native_array_locals[arr_name]
+      def native_array_elem_type(arr_name) = @mctx.typed_array_locals[arr_name] || @mctx.native_array_locals[arr_name]
 
       # Detect locals assigned from Array.new(count_i64) { Array.new(count2_i64, fill) }
       # where fill is a typed scalar. Returns {name => :i64 | :f64}.

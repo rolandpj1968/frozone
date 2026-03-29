@@ -27,7 +27,7 @@ module Frozone
         when Ast::FloatLiteral   then :f64
         when Ast::Sequence       then node_raw_type(node.nodes.last) if node.nodes.any?
         when Ast::LocalVariableRead
-          @typed_locals[ivar(node, :name)] || @raw_block_params[ivar(node, :name)]
+          @mctx.typed_locals[ivar(node, :name)] || @mctx.raw_block_params[ivar(node, :name)]
         when Ast::LocalVariableWrite
           # Chained assignment: sum = maxflips = 0 — type is the inner value's type
           node_raw_type(ivar(node, :value_node))
@@ -60,7 +60,7 @@ module Frozone
           end
           # Instance method call on a class-typed local with known raw return type
           if recv.is_a?(Ast::LocalVariableRead)
-            recv_class = @current_class_locals[ivar(recv, :name)]
+            recv_class = @mctx.class_locals[ivar(recv, :name)]
             if recv_class && (ret_ty = @instance_method_raw_returns[[recv_class, name]])
               return ret_ty
             end
@@ -71,7 +71,7 @@ module Frozone
             nat_ty = native_array_elem_type(arr_name)
             return nat_ty if nat_ty
             # Boxed RubyArray with known elem type from TI
-            elem_ty = @current_local_array_elems[arr_name]
+            elem_ty = @mctx.local_array_elems[arr_name]
             return elem_ty if elem_ty
           end
           # succ/pred on typed integer → same type
@@ -114,50 +114,50 @@ module Frozone
         collect_local_assignments(body, assignments)
         return {} if assignments.empty?
 
-        old_typed = @typed_locals
+        old_typed = @mctx.typed_locals
 
         # Phase 1: seed from literals (unwrap chained assignments)
-        @typed_locals = {}
+        @mctx.typed_locals = {}
         assignments.each do |name, nodes|
           nodes.each do |n|
             # Unwrap chained assignments: sum = maxflips = 0 → IntegerLiteral
             inner = n
             inner = inner.instance_variable_get(:@value_node) while inner.is_a?(Ast::LocalVariableWrite)
             case inner
-            when Ast::IntegerLiteral then @typed_locals[name] ||= :i64
-            when Ast::FloatLiteral   then @typed_locals[name]  = :f64
+            when Ast::IntegerLiteral then @mctx.typed_locals[name] ||= :i64
+            when Ast::FloatLiteral   then @mctx.typed_locals[name]  = :f64
             end
           end
         end
 
         # Phase 2+3: expand then narrow until fixpoint
         loop do
-          prev = @typed_locals.dup
+          prev = @mctx.typed_locals.dup
 
           # Expand: type any local whose assignments are all uniformly typed
           assignments.each do |name, nodes|
-            next if @typed_locals[name]
+            next if @mctx.typed_locals[name]
             types = nodes.map { |n| node_raw_type(n) }
             next if types.any?(&:nil?)
             unique = types.uniq
-            @typed_locals[name] = unique[0] if unique.size == 1
+            @mctx.typed_locals[name] = unique[0] if unique.size == 1
           end
 
           # Narrow: evict any local with an inconsistent assignment
           assignments.each do |name, nodes|
-            next unless (ty = @typed_locals[name])
+            next unless (ty = @mctx.typed_locals[name])
             ok = nodes.all? do |n|
               nt = node_raw_type(n)
               nt == ty || (ty == :f64 && nt == :i64)
             end
-            @typed_locals.delete(name) unless ok
+            @mctx.typed_locals.delete(name) unless ok
           end
 
-          break if @typed_locals == prev
+          break if @mctx.typed_locals == prev
         end
 
-        result = @typed_locals
-        @typed_locals = old_typed
+        result = @mctx.typed_locals
+        @mctx.typed_locals = old_typed
         result
       end
 
@@ -274,7 +274,7 @@ module Frozone
               write "["
               emit_coerce_i64(args[0])
               write "]"
-            elsif (elem_ty = @current_local_array_elems[arr_name])
+            elsif (elem_ty = @mctx.local_array_elems[arr_name])
               # Boxed RubyArray with known elem type: static cast array + static unbox element
               write crystal_local(arr_name)
               write "["
@@ -304,7 +304,7 @@ module Frozone
               write(ret == :f64 ? ".to_f64" : ".to_i64")
             end
           elsif recv.is_a?(Ast::LocalVariableRead) &&
-                (recv_class = @current_class_locals[ivar(recv, :name)]) &&
+                (recv_class = @mctx.class_locals[ivar(recv, :name)]) &&
                 (ret_ty = @instance_method_raw_returns[[recv_class, name]])
             # Instance method call on class-typed local with raw return:
             # use _raw accessor (avoids box allocation) if available, else add .to_f64/.to_i64.

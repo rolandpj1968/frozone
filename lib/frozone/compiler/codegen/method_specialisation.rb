@@ -19,11 +19,11 @@ module Frozone
       # Populates @typed_params with {method_name => [:i64/:f64, ...]} for consistent sites.
       def collect_raw_call_sites(execute_block)
         return unless execute_block
-        old_typed    = @typed_locals
-        @typed_locals = infer_local_types(execute_block.body)
+        old_typed    = @mctx.typed_locals
+        @mctx.typed_locals = infer_local_types(execute_block.body)
         raw_calls    = Hash.new { |h, k| h[k] = [] }
         walk_raw_free_calls(execute_block.body, raw_calls)
-        @typed_locals = old_typed
+        @mctx.typed_locals = old_typed
 
         raw_calls.each do |name, call_type_lists|
           next if call_type_lists.empty?
@@ -97,11 +97,11 @@ module Frozone
             to_remove << name; next
           end
 
-          old_typed     = @typed_locals
-          @typed_locals = req.zip(param_types).to_h
+          old_typed     = @mctx.typed_locals
+          @mctx.typed_locals = req.zip(param_types).to_h
           actual_return = infer_body_return_type(method.body)
           raw_safe      = body_all_raw_safe?(method.body)
-          @typed_locals = old_typed
+          @mctx.typed_locals = old_typed
 
           unless actual_return == @typed_method_returns[name] && raw_safe
             to_remove << name
@@ -172,23 +172,23 @@ module Frozone
         write "def #{crystal_method_name(name)}(#{parts.join(', ')}) : #{cr[return_type]}"
         emit_newline
 
-        old_typed     = @typed_locals
-        old_typed_arr = @typed_array_locals
+        old_typed     = @mctx.typed_locals
+        old_typed_arr = @mctx.typed_array_locals
         param_set     = req_params.to_set
         # Start with param types, add TI-inferred locals, then infer from literals.
-        @typed_locals = req_params.zip(param_types).to_h
+        @mctx.typed_locals = req_params.zip(param_types).to_h
         (@ti_locals[name] || {}).each do |lname, ty|
-          @typed_locals[lname] = ty unless param_set.include?(lname)
+          @mctx.typed_locals[lname] = ty unless param_set.include?(lname)
         end
         # Infer types from literal assignments for locals TI didn't cover
         infer_local_types(method.body).each do |lname, ty|
-          @typed_locals[lname] ||= ty unless param_set.include?(lname)
+          @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
         end
         # Populate typed array locals from TI (non-param only).
-        @typed_array_locals = (@ti_arrays[name] || {}).reject { |k, _| param_set.include?(k) }
+        @mctx.typed_array_locals = (@ti_arrays[name] || {}).reject { |k, _| param_set.include?(k) }
         indented { emit_raw_body(method.body) }
-        @typed_locals       = old_typed
-        @typed_array_locals = old_typed_arr
+        @mctx.typed_locals       = old_typed
+        @mctx.typed_array_locals = old_typed_arr
 
         emit_newline
         emit_indent
@@ -217,37 +217,37 @@ module Frozone
         write " : #{cr[return_type]}" if return_type
         emit_newline
 
-        old_typed       = @typed_locals
-        old_typed_arr   = @typed_array_locals
+        old_typed       = @mctx.typed_locals
+        old_typed_arr   = @mctx.typed_array_locals
         old_class_name  = @current_class_name
         @current_class_name = class_name
         param_set     = req_params.to_set
         mkey = [class_name, mname]
         # Start with param types
-        @typed_locals = {}
-        req_params.zip(raw_types).each { |p, ty| @typed_locals[p] = ty if ty }
+        @mctx.typed_locals = {}
+        req_params.zip(raw_types).each { |p, ty| @mctx.typed_locals[p] = ty if ty }
         # Add TI-inferred locals
         (@ti_locals[mkey] || @ti_locals[mname] || {}).each do |lname, ty|
-          @typed_locals[lname] = ty unless param_set.include?(lname)
+          @mctx.typed_locals[lname] = ty unless param_set.include?(lname)
         end
         infer_local_types(method.body).each do |lname, ty|
-          @typed_locals[lname] ||= ty unless param_set.include?(lname)
+          @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
         end
-        @typed_array_locals = (@ti_arrays[mkey] || @ti_arrays[mname] || {}).reject { |k, _| param_set.include?(k) }
+        @mctx.typed_array_locals = (@ti_arrays[mkey] || @ti_arrays[mname] || {}).reject { |k, _| param_set.include?(k) }
         # Register Array(Int64)/Array(Float64) params as native arrays
-        @native_array_locals = {}
+        @mctx.native_array_locals = {}
         if crystal_param_types
           req_params.each_with_index do |p, i|
             pt = crystal_param_types[i]
             if CrystalType.array?(pt) && CrystalType.scalar?(CrystalType.elem(pt))
-              @native_array_locals[p] = CrystalType.elem(pt)
+              @mctx.native_array_locals[p] = CrystalType.elem(pt)
             end
           end
         end
         # Always use raw body for specialized overloads
         indented { emit_raw_body(method.body) }
-        @typed_locals       = old_typed
-        @typed_array_locals = old_typed_arr
+        @mctx.typed_locals       = old_typed
+        @mctx.typed_array_locals = old_typed_arr
         @current_class_name = old_class_name
 
         emit_newline
@@ -285,10 +285,10 @@ module Frozone
         unless params.empty?
           write "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
         end
-        old_rbp = @raw_block_params
-        @raw_block_params = old_rbp.merge(params.map { |p| [p, :i64] }.to_h)
+        old_rbp = @mctx.raw_block_params
+        @mctx.raw_block_params = old_rbp.merge(params.map { |p| [p, :i64] }.to_h)
         emit(ivar(blk, :body))
-        @raw_block_params = old_rbp
+        @mctx.raw_block_params = old_rbp
         write " }"
       end
 
@@ -298,7 +298,7 @@ module Frozone
         target = ivar(node, :target)
         if target[0] == :local
           name = target[1]
-          if @current_block_params[name] == :i64
+          if @mctx.block_params[name] == :i64
             coll = ivar(node, :collection_node)
             if coll.is_a?(Ast::RangeLiteral)
               lo   = ivar(coll, :begin_node)
@@ -311,10 +311,10 @@ module Frozone
                 emit_raw(hi)
                 write ").each do |#{crystal_local(name)}|"
                 emit_newline
-                old_rbp = @raw_block_params
-                @raw_block_params = old_rbp.merge(name => :i64)
+                old_rbp = @mctx.raw_block_params
+                @mctx.raw_block_params = old_rbp.merge(name => :i64)
                 indented { emit(ivar(node, :body_node)) }
-                @raw_block_params = old_rbp
+                @mctx.raw_block_params = old_rbp
                 emit_newline
                 emit_indent
                 write "end"
@@ -379,7 +379,7 @@ module Frozone
           # Delegate typed-array construction to emit_local_var_write (handles Array(T).new).
           # For scalar typed locals, emit assignment with raw RHS.
           name = ivar(node, :name)
-          if @typed_array_locals[name]
+          if @mctx.typed_array_locals[name]
             emit_local_var_write(node)
           else
             write "#{crystal_local(name)} = "
