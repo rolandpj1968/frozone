@@ -9,6 +9,7 @@ require_relative 'crystal_type'
 module Frozone
   module Compiler
     class CrystalTypeMapper
+      attr_reader :local_types
       attr_reader :locals, :arrays, :class_locals, :local_array_elems
       attr_reader :block_params, :class_params, :inferred_params, :typed_params
       attr_reader :typed_method_returns, :instance_method_raw_returns
@@ -22,10 +23,11 @@ module Frozone
         @user_class_names = user_classes.keys.to_set
 
         # Output maps — populated by build!
-        @locals = {}
-        @arrays = {}
+        @local_types = {}       # unified: mkey => {name => CrystalType}
+        @locals = {}            # legacy: mkey => {name => :i64/:f64}
+        @arrays = {}            # legacy: mkey => {name => :i64/:f64} (array elem type)
         @class_locals = {}
-        @local_array_elems = {}
+        @local_array_elems = {} # legacy: mkey => {name => :i64/:f64} (boxed array elem)
         @block_params = {}
         @class_params = {}
         @inferred_params = {}
@@ -65,6 +67,12 @@ module Frozone
 
       def unpack_local(slot, ty)
         mkey, name = slot[1], slot[2]
+        # Unified local type (CrystalType value)
+        ct = crystal_type_structured(ty)
+        if ct != :ruby_object
+          (@local_types[mkey] ||= {})[name] = ct
+        end
+        # Legacy maps — still used by codegen until fully migrated
         # Class-typed locals (devirtualize)
         if ty.is_a?(Hash) && opt?(:devirtualize)
           cls = ty[:class]

@@ -174,6 +174,7 @@ module Frozone
           @current_class_locals       = opt?(:devirtualize) ? (@ti_class_locals[nil] || {}) : {}
           @current_local_array_elems  = opt?(:native_arrays) ? (@ti_local_array_elems[nil] || {}) : {}
           @current_block_params       = @ti_block_params[nil]      || {}
+          @current_local_types        = @ti_local_types[nil] || {}
           @current_method_body        = execute_block.body
           @in_execute_block           = true
           emit_indent
@@ -644,6 +645,7 @@ module Frozone
         @current_local_array_elems = opt?(:native_arrays)   ? ((@ti_local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @current_block_params      = (@ti_block_params[mkey]      || {}).reject { |k, _| param_set.include?(k) }
         @current_local_2d_arrays   = opt?(:native_2d_arrays) ? detect_local_2d_arrays(method.body, param_set) : {}
+        @current_local_types       = (@ti_local_types[mkey] || {}).reject { |k, _| param_set.include?(k) }
         @current_method_body       = method.body
         @current_block_param_name  = ivar(method, :block_param)
         @native_array_locals       = {}
@@ -832,6 +834,7 @@ module Frozone
         ).build!
 
         @ti_user_class_names         = mapper.user_class_names
+        @ti_local_types              = mapper.local_types  # unified CrystalType map
         @ti_locals                   = mapper.locals
         @ti_arrays                   = mapper.arrays
         @ti_class_locals             = mapper.class_locals
@@ -850,6 +853,22 @@ module Frozone
       # Simple natives (Int64, Float64, Array(Int64)) are fine — callers construct them locally.
       # Complex natives (Array(Array(Int64))) need genericising in fallback overloads.
       def param_name?(name) = @current_param_set&.include?(name)
+
+      # Unified local type query — returns CrystalType value or nil.
+      # Checks @current_local_types (per-method, set from @ti_local_types).
+      def local_crystal_type(name) = @current_local_types&.[](name)
+
+      # Is this local a native array (any depth)?
+      def local_native_array?(name)
+        ty = local_crystal_type(name)
+        ty && CrystalType.array?(ty)
+      end
+
+      # Element type of a native array local, or nil.
+      def local_array_elem(name)
+        ty = local_crystal_type(name)
+        CrystalType.array?(ty) ? CrystalType.elem(ty) : nil
+      end
 
       # Can this expression be passed as a raw Int64/Float64 arg?
       # Typed locals and arithmetic expressions of raw operands — yes.
