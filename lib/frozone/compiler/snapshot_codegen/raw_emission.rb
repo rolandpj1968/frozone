@@ -87,6 +87,15 @@ module Frozone
           at = node_raw_type(args[0])
           return nil unless rt && at
           (rt == :f64 || at == :f64) ? :f64 : :i64
+        when Ast::IndexOperatorWrite
+          # sr[i] += 1 on a native Array(Int64) returns Int64
+          recv = ivar(node, :receiver_node)
+          if recv.is_a?(Ast::LocalVariableRead)
+            arr_name = ivar(recv, :name)
+            nat_ty = native_array_elem_type(arr_name)
+            return nat_ty if nat_ty
+          end
+          nil
         else nil
         end
       end
@@ -380,9 +389,12 @@ module Frozone
       # Emit node coerced to Int64: raw if already typed, else .to_i64 on boxed.
       # Wrap assignments in parens so (q1 = expr).to_i64 groups correctly.
       def emit_coerce_i64(node)
-        return emit_raw(node) if node_raw_type(node)
         if contains_assignment?(node)
-          write "("; emit(node); write ").to_i64"
+          # Assignment nodes need parens even when raw-typed (Crystal precedence)
+          write "("; emit(node); write ")"
+          write ".to_i64" unless node_raw_type(node)
+        elsif node_raw_type(node)
+          emit_raw(node)
         else
           emit(node); write ".to_i64"
         end
