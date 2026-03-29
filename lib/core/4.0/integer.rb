@@ -335,7 +335,7 @@ class Integer
   # Call coerce even if private; propagate non-NoMethodError exceptions
   def __require_integer__(n)  = (raise TypeError, "not an integer" unless n.is_a?(Integer))
   def __raise_zero_division__    = (raise ZeroDivisionError, "divided by 0")
-  def __check_zero_divisor__(n)  = (raise ZeroDivisionError, "divided by 0" if n == 0)
+  def __check_zero_divisor__(n)  = (__raise_zero_division__ if n == 0)
 
   def __bitwise_op__(n, op)
     raise TypeError, "no implicit conversion of Float into Integer" if n.is_a?(Float)
