@@ -478,6 +478,8 @@ module Frozone
           return true if %i[require require_relative load].include?(name) && node.receiver_node.nil?
           # Top-level attribute methods (attr_reader, attr_writer, attr_accessor)
           return true if %i[attr_reader attr_writer attr_accessor].include?(name) && node.receiver_node.nil?
+          # Method calls on global variables ($LOADED_FEATURES << x, etc.)
+          return true if node.receiver_node.is_a?(Ast::GlobalVariableRead)
           false
         when Ast::MethodDef, Ast::ClassDef, Ast::ModuleDef, Ast::SingletonClassDef
           true
