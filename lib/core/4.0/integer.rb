@@ -154,7 +154,7 @@ class Integer
       __check_zero_divisor__(n)
       return self / n
     end
-    __check_zero_divisor__(n) if n.is_a?(Float)
+    __check_zero_divisor__(n) if n.is_a?(Float) # TODO: remove once Float#div(0.0) raises ZeroDivisionError
     a, b = __coerce_pair__(n)
     a.div(b)
   end
@@ -180,7 +180,7 @@ class Integer
   def gcdlcm(n)  = (__require_integer__(n); [gcd(n), lcm(n)])
 
   def digits(base = 10)
-    base = base.to_int if base.respond_to?(:to_int) && !base.is_a?(Integer)
+    base = __coerce_to_int__(base) unless base.is_a?(Integer)
     raise ArgumentError, "invalid radix #{base}" if base < 2
     raise Math::DomainError, "out of domain" if self < 0
     return [0] if self == 0
@@ -237,20 +237,12 @@ class Integer
       width = hi_pos - lo_i + 1
       (self >> lo_i) & ((1 << width) - 1)
     else
-      unless idx.is_a?(Integer)
-        if idx.is_a?(Float)
-          idx = idx.to_i
-        elsif idx.respond_to?(:to_int)
-          idx = idx.to_int
-          raise TypeError, "to_int should return Integer" unless idx.is_a?(Integer)
-        else
-          raise TypeError, "no implicit conversion of #{idx.class} into Integer"
-        end
-      end
+      idx = idx.to_i if idx.is_a?(Float)
+      idx = __coerce_to_int__(idx) unless idx.is_a?(Integer)
       if len.nil?
         (self >> idx) & 1
       else
-        len = len.to_int unless len.is_a?(Integer)
+        len = __coerce_to_int__(len) unless len.is_a?(Integer)
         return self >> idx if len < 0
         (self >> idx) & ((1 << len) - 1)
       end
@@ -307,8 +299,7 @@ class Integer
   end
 
   def self.sqrt(n)
-    n = n.to_int if n.respond_to?(:to_int) && !n.is_a?(Integer)
-    raise TypeError, "no implicit conversion of #{n.class} into Integer" unless n.is_a?(Integer)
+    n = __coerce_to_int__(n) unless n.is_a?(Integer)
     raise Math::DomainError, "out of domain" if n < 0
     return 0 if n == 0
     sqrt_f = Math.sqrt(n.to_f)
