@@ -1,11 +1,7 @@
 class Array
   include Enumerable
 
-  def self.[](*args)
-    a = allocate
-    args.each { |x| a << x }
-    a
-  end
+  def self.[](*args) = allocate.tap { |a| args.each { |x| a << x } }
 
   def self.try_convert(obj)
     return obj if obj.is_a?(Array)
@@ -16,26 +12,22 @@ class Array
   end
 
   def initialize(size_or_array = nil, fill = nil, &block)
-    raise FrozenError, "can't modify frozen #{self.class}" if frozen?
-    if size_or_array.nil?
-      Intrinsics.kernel_verbose_warn(self, "given block not used") if block
-      Intrinsics.array_initialize(self, nil, nil, nil)
-    elsif size_or_array.is_a?(Array)
+    __check_frozen__
+    # Array-like: copy from array or to_ary coercion (include private to_ary)
+    ary = size_or_array.is_a?(Array) ? size_or_array :
+          (size_or_array.respond_to?(:to_ary, true) ? size_or_array.send(:to_ary) : nil)
+    if ary
       raise TypeError, "wrong number of arguments (given 2, expected 0..1)" if !fill.nil?
       Intrinsics.kernel_verbose_warn(self, "given block not used") if block
-      Intrinsics.array_initialize(self, size_or_array, nil, nil)
-    elsif size_or_array.respond_to?(:to_ary, true)
-      raise TypeError, "wrong number of arguments (given 2, expected 0..1)" if !fill.nil?
-      Intrinsics.kernel_verbose_warn(self, "given block not used") if block
-      Intrinsics.array_initialize(self, size_or_array.send(:to_ary), nil, nil)
-    elsif size_or_array.is_a?(Integer)
-      warn "warning: block supersedes default value argument" if block && !fill.nil?
-      Intrinsics.array_initialize(self, size_or_array, fill, block)
-    else
-      n = __coerce_to_int__(size_or_array)
-      warn "warning: block supersedes default value argument" if block && !fill.nil?
-      Intrinsics.array_initialize(self, n, fill, block)
+      return Intrinsics.array_initialize(self, ary, nil, nil)
     end
+    # Size: integer or coercible to integer
+    unless size_or_array.nil?
+      size_or_array = __coerce_to_int__(size_or_array)
+    end
+    warn "warning: block supersedes default value argument" if block && !fill.nil? && !size_or_array.nil?
+    Intrinsics.kernel_verbose_warn(self, "given block not used") if block && size_or_array.nil?
+    Intrinsics.array_initialize(self, size_or_array, fill, block)
   end
 
   ARRAY_MAX_INDEX = (1 << 63)
