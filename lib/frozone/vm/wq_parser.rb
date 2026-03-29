@@ -1507,16 +1507,14 @@ module Frozone
           when :restarg
             seen_rest = true
             rest_name = arg.children[0]
-            if rest_name.nil?
-              # Bare `*` with no name: trailing comma `|a, |` if required/optional already seen,
-              # otherwise anonymous rest `|*|` / `-> (*) {}`.
-              if required.empty? && optional.empty?
-                rest = :__anon_rest__
-              else
-                implicit_rest = true
-              end
-            else
+            if rest_name
               rest = rest_name
+            elsif arg.location&.expression&.source&.include?('*')
+              # Explicit anonymous `*` — real rest param (e.g. `|a, *|`, `-> (*) {}`)
+              rest = :__anon_rest__
+            else
+              # Trailing comma `|a, |` — implicit rest (auto-splat, no arity effect)
+              implicit_rest = true
             end
           when :kwarg
             req_kw << arg.children[0]
