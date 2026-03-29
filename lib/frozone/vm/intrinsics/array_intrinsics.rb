@@ -361,11 +361,12 @@ module Frozone
         def array_clone(_, v, freeze_opt = FNIL, klass = FNIL)
           cls = klass.is_a?(ClassObject) ? klass : nil
           cloned = n2f_arr(v.raw.dup, cls)
-          # Copy singleton class (eigenclass) including its methods
+          # freeze: nil → preserve original's frozen state; true/false → explicit
+          should_freeze = fnil?(freeze_opt) ? v.frozen_object? : !ffalse?(freeze_opt)
           if v.eigenclass
             new_sc = ClassObject.clone_singleton(v.eigenclass, cloned)
-            cloned.copy_fields_from(cloned, eigenclass: new_sc, frozen: freeze_opt.truthy?)
-          elsif freeze_opt.truthy?
+            cloned.copy_fields_from(cloned, eigenclass: new_sc, frozen: should_freeze)
+          elsif should_freeze
             cloned.freeze_object!
           end
           cloned
