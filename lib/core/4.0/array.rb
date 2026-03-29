@@ -36,19 +36,19 @@ class Array
 
   def length = Intrinsics.array_length(self)
   alias size length
-  def empty?       = length == 0
-  def to_s         = Intrinsics.array_to_s(self)
+  def empty? = length == 0
+  def to_s = Intrinsics.array_to_s(self)
   alias inspect to_s
-  def to_ary       = self
-  def dup          = Intrinsics.array_dup(self)
+  def to_ary = self
+  def dup = Intrinsics.array_dup(self)
   def clone(freeze: nil) = Intrinsics.array_clone(self, freeze, self.class)
   def pack(fmt, buffer: nil) = Intrinsics.array_pack(self, fmt, buffer)
-  def compact  = reject { |x| x.nil? }
+  def compact = reject { |x| x.nil? }
   def compact! = reject! { |x| x.nil? }
   def include?(elem) = any? { |x| x == elem }
-  def unshift(*elems)  = Intrinsics.array_unshift(self, *elems)
+  def unshift(*elems) = Intrinsics.array_unshift(self, *elems)
   alias prepend unshift
-  def deconstruct      = self
+  def deconstruct = self
   def fetch_values(*indices, &block) = indices.map { |i| fetch(i, &block) }
   def <<(v); Intrinsics.array_push(self, v); self; end
   def clear; replace([]); self; end
