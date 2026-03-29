@@ -78,6 +78,8 @@ After any broad refactoring pass (sed/perl sweeps, agent conversions, coercion r
 4. Run `bundle exec rspec` to verify no regressions.
 5. Smoke test the interpreter: `bundle exec rake language` (takes ~1-2 min, broader coverage than rspec).
 
+Each step may create opportunities for earlier steps (e.g., extracting a helper may make a method simple enough to become a one-liner, which then needs herding). Repeat until stable.
+
 ---
 
 ## Intrinsics vs Ruby-land
