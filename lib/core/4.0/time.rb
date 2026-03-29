@@ -87,16 +87,13 @@ class Time
     end
   end
 
-  # Offset from local_to_utc result: tentative - utc_result.
-  # tentative is a UTC-treated calendar time; utc_result is what local_to_utc returned.
   def self.mktime(*args) = _mktime_args(args, false)
   def self.utc(*args) = _mktime_args(args, true)
   def self.gm(*args) = _mktime_args(args, true)
   def self.local(*args) = _mktime_args(args, false)
-
-  def self._local_to_utc_offset(tentative, utc_result)
-    tentative.to_i - (utc_result.respond_to?(:to_i) ? utc_result.to_i : tentative.to_i)
-  end
+  # Offset from local_to_utc result: tentative - utc_result.
+  # tentative is a UTC-treated calendar time; utc_result is what local_to_utc returned.
+  def self._local_to_utc_offset(tentative, utc_result) = tentative.to_i - (utc_result.respond_to?(:to_i) ? utc_result.to_i : tentative.to_i)
 
   def self.now(in: nil)
     tz = _coerce_tz_arg(binding.local_variable_get(:in))
@@ -285,9 +282,7 @@ class Time
     off
   end
 
-  def self._time_zone_utc?(zone)
-    zone.match?(/\A(?:-00:00|-0000|-00|UTC|Z|UT)\z/i)
-  end
+  def self._time_zone_utc?(zone) = zone.match?(/\A(?:-00:00|-0000|-00|UTC|Z|UT)\z/i)
   private_class_method :_time_zone_utc?
 
   def self._time_force_zone!(t, zone, offset = nil)
@@ -305,13 +300,7 @@ class Time
   LeapYearMonthDays   = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31].freeze
   CommonYearMonthDays = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31].freeze
 
-  def self._time_month_days(y, m)
-    if ((y % 4 == 0) && (y % 100 != 0)) || (y % 400 == 0)
-      LeapYearMonthDays[m - 1]
-    else
-      CommonYearMonthDays[m - 1]
-    end
-  end
+  def self._time_month_days(y, m) = (((y % 4 == 0) && (y % 100 != 0)) || (y % 400 == 0) ? LeapYearMonthDays : CommonYearMonthDays)[m - 1]
   private_class_method :_time_month_days
 
   def self._time_apply_offset(year, mon, day, hour, min, sec, off)

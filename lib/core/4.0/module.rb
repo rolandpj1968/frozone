@@ -50,6 +50,32 @@ class Module
   def class_variable_set(name, value) = Intrinsics.module_class_variable_set(self, name, value)
   def class_variables(inherit = true) = Intrinsics.module_class_variables(self, inherit)
   def remove_const(name) = Intrinsics.module_remove_const(self, name)
+  def remove_class_variable(name) = Intrinsics.module_remove_class_variable(self, name)
+  def ruby2_keywords(*names) = Intrinsics.module_ruby2_keywords(self, names)
+  def autoload(name, path) = Intrinsics.module_autoload(self, name, path)
+  def autoload?(name, inherit = true) = Intrinsics.module_autoload_q(self, name, inherit)
+  def singleton_class? = Intrinsics.module_singleton_class_q(self)
+  def set_temporary_name(name) = Intrinsics.module_set_temporary_name(self, name)
+  def const_source_location(name, inherit = true) = Intrinsics.module_const_source_location(self, name, inherit)
+  def const_added(name) = nil
+  def method_added(name) = nil
+  def method_removed(name) = nil
+  def method_undefined(name) = nil
+  def singleton_method_added(name) = nil
+  def singleton_method_removed(name) = nil
+  def singleton_method_undefined(name) = nil
+  def deprecate_constant(*names) = Intrinsics.module_deprecate_constant(self, names)
+  def extend_object(obj) = Intrinsics.module_extend_object(self, obj)
+  def extended(obj) = nil
+  def refinements = (@__refinements__&.values) || []
+  def self.nesting = Intrinsics.module_nesting(self)
+  def self.used_refinements = Intrinsics.module_used_refinements(self)
+  private :remove_const
+  private :const_added
+  private :method_added, :method_removed, :method_undefined
+  private :singleton_method_added, :singleton_method_removed, :singleton_method_undefined
+  private :extend_object
+  private :extended
 
   def attr(*names_and_writable)
     # Handle legacy form: attr :name, true/false
@@ -121,39 +147,12 @@ class Module
     raise TypeError, "wrong argument type #{mod.class} (expected Module)" unless mod.is_a?(Module) && !mod.is_a?(Class)
     ancestors.drop(1).include?(mod)
   end
-  private :remove_const
-  def remove_class_variable(name) = Intrinsics.module_remove_class_variable(self, name)
-  def ruby2_keywords(*names) = Intrinsics.module_ruby2_keywords(self, names)
-  def self.nesting = Intrinsics.module_nesting(self)
+
   # Module.constants (no args) returns all accessible top-level constants (MRI singleton method).
   # Module.constants(true/false) uses the normal Module#constants instance-method semantics.
-  def autoload(name, path) = Intrinsics.module_autoload(self, name, path)
-  def autoload?(name, inherit = true) = Intrinsics.module_autoload_q(self, name, inherit)
-  def singleton_class? = Intrinsics.module_singleton_class_q(self)
-  def set_temporary_name(name) = Intrinsics.module_set_temporary_name(self, name)
-  def const_source_location(name, inherit = true) = Intrinsics.module_const_source_location(self, name, inherit)
-  def const_added(name) = nil
-
   def self.constants(*args)
     args.empty? ? Object.constants : Intrinsics.module_constants(self, args.first)
   end
-  private :const_added
-
-  def method_added(name) = nil
-  def method_removed(name) = nil
-  def method_undefined(name) = nil
-  def singleton_method_added(name) = nil
-  def singleton_method_removed(name) = nil
-  def singleton_method_undefined(name) = nil
-  private :method_added, :method_removed, :method_undefined
-  private :singleton_method_added, :singleton_method_removed, :singleton_method_undefined
-
-  def deprecate_constant(*names) = Intrinsics.module_deprecate_constant(self, names)
-  def extend_object(obj) = Intrinsics.module_extend_object(self, obj)
-  private :extend_object
-
-  def extended(obj) = nil
-  private :extended
 
   def <(other)
     raise TypeError, "compared with non class/module" unless other.is_a?(Module)
@@ -223,8 +222,6 @@ class Module
     refinement
   end
 
-  def refinements = (@__refinements__&.values) || []
-
   def using(mod)
     raise TypeError, "wrong argument type #{mod.class} (expected Module)" unless mod.is_a?(Module)
     raise TypeError, "wrong argument type Class (expected Module)" if mod.is_a?(Class)
@@ -232,6 +229,4 @@ class Module
     self
   end
   private :using
-
-  def self.used_refinements = Intrinsics.module_used_refinements(self)
 end

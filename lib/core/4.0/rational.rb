@@ -1,5 +1,4 @@
 class Rational < Numeric
-
   def numerator = @numerator
   def denominator = @denominator
   def to_i = @numerator < 0 ? -(-@numerator / @denominator) : @numerator / @denominator

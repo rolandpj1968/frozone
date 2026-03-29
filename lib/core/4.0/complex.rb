@@ -23,11 +23,7 @@ class Complex
     new(real, imag)
   end
 
-  def self.rectangular(real, imag = 0)
-    real = _real_check(real)
-    imag = _real_check(imag)
-    new(real, imag)
-  end
+  class << self; alias rectangular rect; end
 
   def initialize(real, imaginary = 0)
     @real = real
@@ -54,7 +50,6 @@ class Complex
   def integer? = false
   def zero? = @real == 0 && @imaginary == 0
   def nonzero? = zero? ? nil : self
-  def real? = false
   def quo(other) = self / other
   def hash = [@real, @imaginary].hash
   def -@ = Complex(-@real, -@imaginary)
@@ -232,9 +227,7 @@ class Complex
 
   def eql?(other)
     return false unless other.instance_of?(Complex)
-    @real.class == other.real.class &&
-    @imaginary.class == other.imaginary.class &&
-    self == other
+    @real.class == other.real.class && @imaginary.class == other.imaginary.class && self == other
   end
 
   def inspect
