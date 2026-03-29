@@ -27,7 +27,7 @@ The goal of Frozone is to explore the opportunity of a **two-phase approach**: l
 
 **Self-hosting:** Frozone runs itself (Frozone²) with no shims or special infrastructure. The full language spec suite passes through Frozone² with identical results. See [docs/self-hosting.md](docs/self-hosting.md).
 
-See [docs/spec-status.md](docs/spec-status.md) for detailed breakdowns.
+See [docs/spec-status.md](docs/spec-status.md) for detailed breakdowns, [docs/interpreter.md](docs/interpreter.md) for VM architecture, [docs/compilation.md](docs/compilation.md) for the AOT compiler.
 
 ### Compiler Benchmarks
 
