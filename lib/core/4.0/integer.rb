@@ -166,15 +166,15 @@ class Integer
     __with_coercion__(n, :remainder)
   end
 
+  def lcm(n)     = (self == 0 || n == 0) ? 0 : (self.abs / gcd(n) * n.abs)
+  def gcdlcm(n)  = [gcd(n), lcm(n)]
+
   def gcd(n)
     __require_integer__(n)
     a, b = self.abs, n.abs
     while b != 0; a, b = b, a % b; end
     a
   end
-
-  def lcm(n)     = (__require_integer__(n); (self == 0 || n == 0) ? 0 : (self.abs / gcd(n) * n.abs))
-  def gcdlcm(n)  = (__require_integer__(n); [gcd(n), lcm(n)])
 
   def digits(base = 10)
     base = __coerce_to_int__(base) unless base.is_a?(Integer)
