@@ -118,3 +118,47 @@ Use `coerce_*` for operator and indexing arguments (mirrors MRI `rb_convert_type
 Use `try_*` for optional coercion where nil is a valid "not applicable" result (mirrors MRI `rb_check_convert_type`).
 
 **Never** use `to_i`, `to_s`, etc. directly on Frozone objects in operator/indexing context — those are explicit conversions and bypass the implicit coercion protocol.
+
+### Frozone-Ruby coercion helpers (`lib/core/4.0/kernel.rb`)
+
+In `lib/core/4.0/` (Frozone-Ruby code), use the `__coerce_to_*__` helpers defined on Kernel instead of writing manual type-check cascades:
+
+| Helper | Coerces via | Raises on failure |
+|--------|-------------|-------------------|
+| `__coerce_to_int__(val)` | `to_int` | TypeError |
+| `__coerce_to_str__(val)` | `to_str` | TypeError |
+| `__coerce_to_ary__(val)` | `to_ary` | TypeError |
+| `__coerce_to_hash__(val)` | `to_hash` | TypeError |
+| `__coerce_to_io__(val)` | `to_io` | TypeError |
+| `__coerce_to_path__(val)` | `to_path` / `to_str` | TypeError |
+
+Soft variants return `nil` on failure: `__try_coerce_to_str__`, `__try_coerce_to_ary__`, `__try_coerce_to_hash__`, `__try_coerce_to_io__`.
+
+**Do not** write manual `unless x.is_a?(Integer)` / `if x.nil?` / `elsif x.respond_to?(:to_int)` cascades — use `__coerce_to_int__(x)` instead. If a specific type needs special error handling before coercion (e.g., Float → RangeError for infinity), add the special case first, then delegate:
+
+```ruby
+# Good — special case then delegate
+def round(n = 0, half: nil)
+  if n.is_a?(Float)
+    raise RangeError, "#{n} is out of range" if n.infinite?
+    raise TypeError, "no implicit conversion of Float into Integer"
+  end
+  n = __coerce_to_int__(n)
+  # ...
+end
+
+# Bad — manual cascade duplicating __coerce_to_int__ logic
+def round(n = 0, half: nil)
+  unless n.is_a?(Integer)
+    if n.nil?
+      raise TypeError, "no implicit conversion of NilClass into Integer"
+    elsif n.respond_to?(:to_int)
+      n = n.to_int
+      raise TypeError, "can't convert to Integer" unless n.is_a?(Integer)
+    else
+      raise TypeError, "no implicit conversion of #{n.class} into Integer"
+    end
+  end
+  # ...
+end
+```
