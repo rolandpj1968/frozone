@@ -3,7 +3,6 @@ require_relative 'globals'
 require_relative 'proc_object'
 
 require_relative 'parser'
-require_relative 'ast_cache'
 
 require_relative 'context'
 require_relative 'frame'
@@ -26,6 +25,8 @@ require_relative 'process_status_object'
 
 module Frozone
   module Vm
+    ParseResult = Struct.new(:ast, :top_level_locals, :prism_always_warnings, :prism_verbose_warnings)
+
     class Vm
       # TODO - the most recent docs as of time of writing
       #   https://docs.ruby-lang.org/en/4.0/
@@ -390,40 +391,15 @@ module Frozone
 
       private
 
-      def parser_name
-        @parser_name ||= begin
-          defined?(WqParser) && Parser == WqParser ? "wq" : "prism"
-        end
-      end
-
-      def cached_parse(script, dump_ast = false, filepath: nil, raise_syntax_errors: false)
-        # Only cache when not dumping AST and caching is not disabled.
-        # eval() calls (with outer_locals) go through Parser directly, not here.
-        if !dump_ast && AstCache.enabled?
-          # L1: in-memory cache by [filepath, mtime] — no SHA256 needed, no disk I/O.
-          if filepath && (cached = AstCache.fetch_file(filepath, parser_name))
-            return cached
-          end
-          # L2: on-disk content-addressed cache by SHA256(source).
-          cached = AstCache.fetch(script, parser_name)
-          return cached if cached
-        end
-
+      def parse(script, dump_ast = false, filepath: nil, raise_syntax_errors: false)
         parser = Parser.new(script, dump_ast, filepath: filepath)
         ast = parser.ast(raise_syntax_errors: raise_syntax_errors)
-        result = AstCache::ParseResult.new(
+        ParseResult.new(
           ast,
           parser.top_level_locals,
           parser.prism_always_warnings,
           parser.prism_verbose_warnings,
         )
-
-        if !dump_ast && AstCache.enabled?
-          AstCache.store(script, parser_name, result)
-          AstCache.store_file(filepath, parser_name, result) if filepath
-        end
-
-        result
       end
 
       # Maps expanded file paths → their real (symlink-resolved) paths, populated at load time.
@@ -436,7 +412,7 @@ module Frozone
       def aot_compile(path)
         full_path = File.expand_path(path)
         source = File.read(full_path)
-        parse_result = cached_parse(source, false, filepath: full_path)
+        parse_result = parse(source, false, filepath: full_path)
         ast = parse_result.ast
 
         # Split AST into load and execute phases.
@@ -543,7 +519,7 @@ module Frozone
       end
 
       def evaluate(script, dump_ast = false, filepath: nil, raise_syntax_errors: false)
-        parse_result = cached_parse(script, dump_ast, filepath: filepath, raise_syntax_errors: raise_syntax_errors)
+        parse_result = parse(script, dump_ast, filepath: filepath, raise_syntax_errors: raise_syntax_errors)
         ast = parse_result.ast
 
         if dump_ast

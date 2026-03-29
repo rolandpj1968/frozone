@@ -1,9 +1,5 @@
 require 'optparse'
 
-# Detect when running inside an outer Frozone (RUBY_DESCRIPTION starts with "frozone").
-# Inner Frozone-land has no AstCache, no parser require needed.
-$is_inner = defined?(RUBY_DESCRIPTION) && RUBY_DESCRIPTION.to_s.start_with?('frozone')
-
 require_relative 'lib/frozone/vm/vm'
 
 options = {
@@ -11,7 +7,6 @@ options = {
   scripts:   [],
   requires:  [],
   parser:    :prism,
-  ast_cache: ENV['FROZONE_NO_AST_CACHE'] != '1',
   aot:       false,
 }
 
@@ -38,24 +33,12 @@ OptionParser.new do |opts|
           "Parser to use: prism (default) or wq (Parser::Ruby40)") do |v|
     options[:parser] = v.to_sym
   end
-
-  opts.on("--no-ast-cache", "Disable the AST cache (~/.frozone/ast/)") do
-    options[:ast_cache] = false
-  end
 end.order!
 
 if options[:parser] == :wq
   require_relative 'lib/frozone/vm/wq_parser'
   Frozone::Vm.send(:remove_const, :Parser)
   Frozone::Vm::Parser = Frozone::Vm::WqParser
-end
-
-unless $is_inner
-  if options[:ast_cache]
-    Frozone::Vm::AstCache.cleanup_old_versions
-  else
-    Frozone::Vm::AstCache.disable!
-  end
 end
 
 options[:argv] = ARGV

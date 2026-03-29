@@ -19,7 +19,7 @@ bench_script = <<~RUBY
 RUBY
 
 profile = StackProf.run(mode: :cpu, interval: 500) do
-  vm = Frozone::Vm::Vm.new(scripts: [bench_script], argv: [], verbose: false, parser: :prism, ast_cache: false)
+  vm = Frozone::Vm::Vm.new(scripts: [bench_script], argv: [], verbose: false, parser: :prism)
   vm.run
 end
 
