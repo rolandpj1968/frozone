@@ -571,10 +571,25 @@ module Frozone
             emit_newline
           end
 
+          # Emit typed overload when inferred params have complex types (Array, etc.)
+          # that need a separate generic fallback for untyped callers.
+          inferred = @inferred_params[name]
+          has_complex_params = !@typed_params[name] && inferred&.any? { |t| t && t != 'RubyObject' && t.start_with?('Array(') }
+          if has_complex_params
+            emit_indent
+            emit_vm_method(name, method, param_types: inferred)
+            emit_newline
+            emit_newline
+          end
+
           emit_indent
-          # If a specialized raw overload exists, the generic must use RubyObject params
-          # to avoid conflicting with the Int64/Float64 overload (Crystal picks last def).
-          generic_params = @typed_params[name] ? nil : @inferred_params[name]
+          # Generic overload: genericise complex array params to RubyObject,
+          # keep simple params (Int64, Array(Int64)) as-is.
+          if has_complex_params
+            generic_params = inferred.map { |t| t&.start_with?('Array(Array') ? 'RubyObject' : t }
+          else
+            generic_params = @typed_params[name] ? nil : inferred
+          end
           emit_vm_method(name, method, param_types: generic_params)
           emit_newline
           emit_newline
