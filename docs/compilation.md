@@ -135,7 +135,7 @@ The split strategy exploits this:
 Ruby source
     ↓  (Frozone interpreter — load phase runs normally)
 Stable object model  ← closed world snapshot point
-    ↓  (CrystalCodegen — compile the snapshot)
+    ↓  (CrystalEmitter — compile the snapshot)
 Crystal source
     ↓  (crystal build)
 Native binary  ← execute phase runs here at full speed
@@ -309,34 +309,34 @@ The snapshot-based compilation pipeline is implemented and working end-to-end.
 
 ### The stub pattern
 
-A bench stub:
+A bench stub — load phase (requires, defs) then execute phase (benchmark code):
 ```ruby
 # bench/stubs/matmul.rb
 $LOADED_FEATURES << File.expand_path('../harness/loader.rb', __dir__)
-def run_benchmark(*); end          # silence harness during load phase
+def run_benchmark(*, &); end       # silence harness during load phase
 require_relative '../benchmarks/matmul'   # settles methods and constants
 
-Frozone.compile! do
-  run_benchmark(20) do
-    a = matgen(N)
-    b = matgen(N)
-    _c = matmul(a, b)
-  end
+# Under --aot, everything below is compiled to Crystal.
+run_benchmark(20) do
+  a = matgen(N)
+  b = matgen(N)
+  _c = matmul(a, b)
 end
 ```
 
-Running through the Frozone interpreter generates Crystal source; `crystal
-build` then produces a native binary:
+The `--aot` flag splits the file into load phase (requires, defs, constant/global
+writes) and execute phase (everything else), runs the load phase through the
+interpreter, then compiles the execute phase to Crystal:
 
 ```bash
-bundle exec ruby frozone.rb bench/stubs/matmul.rb
-# => Frozone.compile!: wrote crystal/matmul.cr
-cd crystal && crystal build matmul.cr -o matmul && ./matmul
+bundle exec ruby frozone.rb --aot bench/stubs/matmul.rb
+# => Frozone.compile!: wrote crystal/gen/matmul.cr
+cd crystal/gen && crystal build matmul.cr -o matmul && ./matmul
 ```
 
-### `SnapshotCodegen` — VM-state-driven Crystal emission
+### `Codegen` — VM-state-driven Crystal emission
 
-`lib/frozone/compiler/snapshot_codegen.rb` inherits from `CrystalCodegen`
+`lib/frozone/compiler/codegen.rb` inherits from `CrystalEmitter`
 (AST-to-Crystal expression emitter) and adds a top-level driver that walks the
 *settled VM state* rather than raw source AST:
 
@@ -346,7 +346,7 @@ cd crystal && crystal build matmul.cr -o matmul && ./matmul
 3. Emit user-defined classes (with their user-defined methods)
 4. Emit user-defined top-level methods
 5. Emit settled non-class constants (e.g. `N = 200` → `Ruby_N = RubyInteger.new(200_i64)`)
-6. Emit the `Frozone.compile!` block body as Crystal `main`
+6. Emit the execute phase as Crystal `main`
 
 `Vm::Method` duck-types as `Ast::MethodDef` (same ivar names), so
 `emit_param_list` works on VM method objects directly.
@@ -391,7 +391,7 @@ The compiler has two complementary type inference layers:
 1. **Whole-program TypeInference** (`lib/frozone/compiler/type_inference.rb`,
    ~1100 lines) — forward dataflow analysis over the settled VM state.
 2. **Method-body literal inference** (`infer_local_types` in
-   `snapshot_codegen.rb`) — fixed-point pass seeding types from literal
+   `codegen.rb`) — fixed-point pass seeding types from literal
    assignments.
 
 Both run before code emission. Their results are unpacked into codegen lookup
@@ -451,20 +451,22 @@ The TI runs 3 iterations (configurable):
 
 ### How results flow into codegen
 
-After TI runs, `SnapshotCodegen.run_type_inference` unpacks the slot map into
-per-flag lookup structures:
+After TI runs, `CrystalTypeMapper` maps the raw TI lattice values into
+Crystal-specific type decisions, then `GlobalContext.load_from_mapper!`
+populates the `@gctx` maps that drive all downstream optimisations:
 
-| TI slot → | Codegen map | Gated by flag |
+| TI slot → | `@gctx` map | Gated by flag |
 |-----------|-------------|---------------|
-| `:local` scalars | `@ti_locals` → `@typed_locals` | `unbox_locals` |
-| `:local` classes | `@ti_class_locals` → `@current_class_locals` | `devirtualize` |
-| `:local` arrays | `@ti_local_array_elems` | `native_arrays` |
-| `:param` | `@inferred_params` | `call_site_types` |
-| `:return` | `@typed_method_returns`, `@instance_method_raw_returns` | `method_specialization`, `raw_returns` |
-| `:ivar` | `@typed_ivars` | `typed_ivars` |
-| `:array_elem` | `@ti_arrays` → `@typed_array_locals` | `native_arrays` |
-| `:block_param` | `@ti_block_params` | `native_iteration` |
-| `:const` | `@const_raw_types` | `unbox_locals` |
+| `:local` scalars | `locals` → `@mctx.typed_locals` | `unbox_locals` |
+| `:local` classes | `class_locals` → `@mctx.class_locals` | `devirtualize` |
+| `:local` arrays | `local_array_elems` | `native_arrays` |
+| `:local` unified | `local_types` → `@mctx.local_types` | (always) |
+| `:param` | `inferred_params` | `call_site_types` |
+| `:return` | `typed_method_returns`, `instance_method_raw_returns` | `method_specialization`, `raw_returns` |
+| `:ivar` | `typed_ivars` | `typed_ivars` |
+| `:array_elem` | `arrays` → `@mctx.typed_array_locals` | `native_arrays` |
+| `:block_param` | `block_params` | `native_iteration` |
+| `:const` | `const_raw_types` | `unbox_locals` |
 
 Each flag gates whether its map is populated; when the flag is off, the map
 stays empty and the optimisation naturally doesn't fire.

@@ -20,7 +20,7 @@ if (a < b)
 ```
 
 ### Status
-Implemented in `CrystalCodegen#emit_truthy`. The `SnapshotCodegen` subclass overrides
+Implemented in `CrystalEmitter#emit_truthy`. The `Codegen` subclass overrides
 `comparison_op_call?` to add a soundness guard: the optimisation is suppressed if the
 user has overridden the comparison operator on `Integer`, `Float`, or `String` (checked
 against the settled VM method table at compile time).
@@ -74,7 +74,7 @@ to a boxed slow path. For now we accept the unsoundness as a known limitation of
 AoT backend.
 
 ### Implementation
-Two-phase fixed-point inference in `SnapshotCodegen#infer_local_types`:
+Two-phase fixed-point inference in `Codegen#infer_local_types`:
 1. Seed from literal assignments (`IntegerLiteral → :i64`, `FloatLiteral → :f64`)
 2. Expand: type any local whose ALL assignments are uniformly typed (propagates through
    assignments like `_iopw_i0 = j` when `j` is already typed)
@@ -114,7 +114,7 @@ results, propagate through local variable assignments, then narrow method parame
 declarations at call sites.
 
 ### Status
-Implemented in `SnapshotCodegen#infer_call_site_types`. Currently handles:
+Implemented in `Codegen#infer_call_site_types`. Currently handles:
 - Integer/Float/String/Symbol/Bool literals → concrete types
 - Arithmetic (`+`, `-`, `*`, `**`) on same-type operands → same type
 - Comparison ops on typed operands → `RubyBool`
@@ -198,12 +198,12 @@ end
 ```
 
 ### Implementation
-Three-pass pre-analysis in `SnapshotCodegen`:
+Three-pass pre-analysis in `Codegen`:
 1. **`collect_raw_call_sites`** — walks the execute block (with unboxed-local types
    active); for each free call where ALL args are raw-typed (`:i64`/`:f64`), records the
    per-param raw types. Only methods with consistent types across all call sites qualify.
 2. **`collect_typed_method_returns`** — tentatively assigns the return type (same raw type
-   as params for same-type methods), then verifies by seeding `@typed_locals` with the
+   as params for same-type methods), then verifies by seeding `@mctx.typed_locals` with the
    param types and calling `infer_body_return_type`. Self-recursive calls work because the
    tentative return type is already set when the body is walked.
 3. **`body_all_raw_safe?`** — guards specialisation: only emits the raw overload when the
@@ -257,11 +257,11 @@ When all constructor call sites for a user class use raw-typed arguments (e.g. a
 1. **`collect_const_raw_types`** — walks the user constants table; maps numeric constants (FloatObject → `:f64`, IntegerObject → `:i64`) for use in type inference.
 2. **`collect_all_ivar_types`** — for each user class:
    - Calls `collect_class_new_arg_types` to find all `ClassName.new(...)` calls in the execute block and merge their positional arg raw types.
-   - Seeds `@typed_locals` with the merged param types, then calls `collect_ivar_assignments` to walk the `initialize` body collecting ivar types from `InstanceVariableWrite` and `MultipleAssignment` nodes.
+   - Seeds `@mctx.typed_locals` with the merged param types, then calls `collect_ivar_assignments` to walk the `initialize` body collecting ivar types from `InstanceVariableWrite` and `MultipleAssignment` nodes.
 
 **`node_raw_type` extensions**:
-- `InstanceVariableRead(:@x)` → `@current_class_ivars[:@x]` (typed if declared raw)
-- `ConstantRead(:SOLAR_MASS)` → `@const_raw_types[:SOLAR_MASS]` (`:f64` for float constants)
+- `InstanceVariableRead(:@x)` → `@cctx.ivars[:@x]` (typed if declared raw)
+- `ConstantRead(:SOLAR_MASS)` → `@gctx.const_raw_types[:SOLAR_MASS]` (`:f64` for float constants)
 - Mixed arithmetic: if **at least one** operand is raw-typed, returns the promoted raw type (`:f64` if either is `:f64`, else `:i64`). This allows `dx = @x - b2.x` (where `@x` is `:f64` and `b2.x` is `RubyObject`) to be inferred as `:f64`.
 
 **`emit_as(node, ty)`** — new coercion helper. Emits `node` as the target raw type:
@@ -271,7 +271,7 @@ When all constructor call sites for a user class use raw-typed arguments (e.g. a
 - Fallback (boxed RubyObject) → `emit(node); write ".to_f64"` (or `.to_i64`)
 
 **Emit changes**:
-- `emit_user_class`: emits `@x : Float64 = 0.0_f64` instead of `@x : RubyObject = RUBY_NIL`; sets `@current_class_ivars` around method emission
+- `emit_user_class`: emits `@x : Float64 = 0.0_f64` instead of `@x : RubyObject = RUBY_NIL`; sets `@cctx.ivars` around method emission
 - `emit_accessor_method`: getters box (`RubyFloat.new(@x)`); setters coerce (`@x = v.to_f64; v`)
 - `emit_ivar_read` (boxed context): boxes typed ivars (`RubyFloat.new(@x)`)
 - `emit_ivar_write`: uses `emit_as(value_node, ty)` for typed ivar writes
@@ -300,7 +300,7 @@ Typed ivars assume the object is only ever initialised through the tracked `init
 
 When a method body calls an accessor on `self` (e.g. `levar` inside `TheClass#get_value_loop`), and the accessor has a `_raw` variant (because the underlying ivar is typed `:i64`/`:f64`), emit `levar_raw` instead of `levar.to_i64`. Eliminates boxing/unboxing round-trip.
 
-**Implementation:** `node_raw_type` checks `@instance_method_raw_returns[[@current_class_name, name]]` for nil-receiver method calls. `emit_raw` emits `method_raw` directly.
+**Implementation:** `node_raw_type` checks `@gctx.instance_method_raw_returns[[@cctx.name, name]]` for nil-receiver method calls. `emit_raw` emits `method_raw` directly.
 
 **Impact:** attr_accessor benchmark: 1.28 ms → 0.01 ms (**128×**).
 
@@ -338,7 +338,7 @@ When TI identifies a function parameter as `Array[:i64]` (e.g. `sd_update_forwar
 
 When TI identifies a method's return type as `:i64`/`:f64` but the params are NOT all typed (so §8's specialised overload isn't emitted), the generic method is emitted with `emit_raw_body` and a Crystal return type annotation (`: Int64`). The body uses raw arithmetic throughout.
 
-**Implementation:** In `emit_vm_method`, checks `@typed_method_returns[name]` when `@typed_params[name]` is nil. Adds Crystal return type, emits body via `emit_raw_body`.
+**Implementation:** In `emit_vm_method`, checks `@gctx.typed_method_returns[name]` when `@gctx.typed_params[name]` is nil. Adds Crystal return type, emits body via `emit_raw_body`.
 
 **Impact:** binarytrees `item_check`: recursive calls produce raw Int64 instead of boxing `RubyInteger` at every level. 250 ms → 88 ms.
 
@@ -366,7 +366,7 @@ Scans ALL methods of each user class for ivar assignments. When the set of types
 
 **Self-referential detection:** Assignments from local variables (tracked via TI class locals), accessor calls on `self`, and ivar reads on `self` are treated as `:self_ivar` (compatible with the identified class). The pattern `{nil, self_ivar}` detects tree/list nodes (e.g. `@left`/`@right` in a `Node` class).
 
-**Implementation:** `collect_class_typed_ivars` / `collect_class_typed_ivars_from` (recursive for nested classes). `collect_user_classes_recursive` ensures nested classes are in `@ti_user_class_names`.
+**Implementation:** `collect_class_typed_ivars` / `collect_class_typed_ivars_from` (recursive for nested classes). `collect_user_classes_recursive` ensures nested classes are in `@gctx.user_class_names`.
 
 **Impact:** splay `@root`, `@left`, `@right` typed as `Ruby_Node | RubyNil`. Performance impact minimal (~187 ms, was 179 ms) — Crystal's union dispatch adds per-call overhead vs YJIT's monomorphic inline caches.
 
@@ -378,7 +378,7 @@ Scans ALL methods of each user class for ivar assignments. When the set of types
 
 When a method is called on a local variable that TI has classified as a specific user class, cast the receiver with `.as(Ruby_ClassName)` so Crystal can inline and devirtualise the method call.
 
-**Implementation:** In `emit_method_call`, checks `@current_class_locals[recv_name]`. In `emit_local_var_write`, casts class-typed assignments with `.as(Ruby_ClassName)`.
+**Implementation:** In `emit_method_call`, checks `@mctx.class_locals[recv_name]`. In `emit_local_var_write`, casts class-typed assignments with `.as(Ruby_ClassName)`.
 
 ---
 
@@ -398,7 +398,7 @@ Ruby allows `if (q1 = p[1]) != 1`. Crystal parses this differently — `!=` bind
 
 ## 19. Method-body infer_local_types (implemented)
 
-`infer_local_types` is now called in `emit_vm_method` (not just `emit_specialized_vm_method`). Seeds `@typed_locals` from literal assignments for methods that TI didn't fully analyse.
+`infer_local_types` is now called in `emit_vm_method` (not just `emit_specialized_vm_method`). Seeds `@mctx.typed_locals` from literal assignments for methods that TI didn't fully analyse.
 
 ---
 
@@ -424,7 +424,7 @@ Ruby allows `if (q1 = p[1]) != 1`. Crystal parses this differently — `!=` bind
 **Control:**
 - `FROZONE_OPT_LEVEL=0|1|2` — sets the level (default: 2)
 - `FROZONE_NO_<FLAG>=1` — disables individual flags (e.g. `FROZONE_NO_UNBOX_LOCALS=1`)
-- `SnapshotCodegen.new(opt_level: 0)` — programmatic control
+- `Codegen.new(opt_level: 0)` — programmatic control
 
 **-O0 vs -O2 speedup** (Crystal `--release` builds):
 
