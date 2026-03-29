@@ -63,6 +63,7 @@ After any broad refactoring pass (sed/perl sweeps, agent conversions, coercion r
 2. Re-herd: move all one-liners before multi-liners within each section.
 3. Look for repeated patterns and extract common helpers.
 4. Run `bundle exec rspec` to verify no regressions.
+5. Smoke test the interpreter: `bundle exec rake language` (takes ~1-2 min, broader coverage than rspec).
 
 ---
 
