@@ -42,10 +42,12 @@ end
 ```
 
 ### Section structure
-Each class/module should be ordered: `class << self` block (class methods) → `initialize` → public instance methods → `private` → private instance methods. Use `class << self` blocks for class methods, not `def self.method`:
+Each class/module should be ordered: constants → `class << self` block (class methods) → `initialize` → public instance methods → `private` → private instance methods. Use `class << self` blocks for class methods, not `def self.method`:
 
 ```ruby
 class Foo
+  MAX_SIZE = 1024
+
   class << self
     def try_convert(obj) = ...
     def [](*args) = ...
