@@ -241,8 +241,18 @@ def print_results_table(label, results, ordered_names)
   puts '=' * 60
 end
 
-desc "Fast smoke test — key modules only (~60-90s), use before committing"
+desc "Fast smoke test — rspec + language + key core modules + Frozone² + compiler (~2-3 min)"
 task :smoke do
+  # RSpec unit tests
+  sh "bundle exec rspec --format progress"
+  # Language specs
+  run_language_specs(*Dir["#{RUBY_SPEC_DIR}/language/*_spec.rb"].sort)
+  # Frozone² self-hosting
+  sh "bundle exec ruby frozone.rb frozone.rb -e 'puts \"frozone² ok\"'"
+  # Compiled benchmark (fib with assertion)
+  sh "bundle exec ruby frozone.rb bench/stubs/fib.rb"
+  sh "cd crystal && crystal run fib.cr"
+  # Core module specs (parallel)
   work = SMOKE_MODULES.filter_map do |name|
     specs = Dir["#{RUBY_SPEC_DIR}/core/#{name}/**/*_spec.rb"].sort
     specs -= SKIP_SPEC_FILES
