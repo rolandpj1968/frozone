@@ -65,18 +65,26 @@ is pure Ruby (no C extensions), so the inner Frozone could eventually use it.
 
 ## Self-Hosting (Frozone²)
 
-Frozone can run itself:
+Frozone genuinely runs itself — no shims, no proxies, no special infrastructure:
 
 ```
-bundle exec ruby frozone.rb frozone.rb -e "puts 'hello from frozone²'"
-# => hello from frozone²
+$ bundle exec ruby frozone.rb frozone.rb -e "puts 'hello from frozone²'"
+hello from frozone²
+
+$ bundle exec ruby frozone.rb frozone.rb frozone.rb -e "puts 'hello from frozone³'"
+hello from frozone³
 ```
 
-**The cheat:** the inner Frozone's `Vm::Vm` class is replaced by a thin proxy that
-routes evaluation back to the outer Frozone's MRI-backed evaluator. All Frozone source
-files are pre-stubbed in the inner `$LOADED_FEATURES`. The inner Frozone detects it is
-running inside Frozone via `RUBY_DESCRIPTION.start_with?('frozone')`.
+There is no bootstrap problem. Level 1 Frozone is just a Ruby interpreter. Level 2
+Frozone is just a Ruby program. When level 2 calls `Intrinsics.string_get_byte(self, i)`,
+the parser emits an `IntrinsicCall` node, and level 1's evaluator calls
+`Vm::Intrinsics.string_get_byte` — which is plain MRI Ruby. Level 1 doesn't know or
+care that its target is another Frozone.
 
-True self-hosting — where the inner Frozone runs its own AST evaluator on its own class
-objects — requires the core library to be fully de-intrinsified (all `String`, `Array`,
-`Hash` methods in pure Frozone-Ruby rather than delegating to MRI).
+The full ruby/spec language suite passes through Frozone² with identical results
+(2630 examples, 15 failures, 3 errors — same as level 1, ~55 seconds).
+
+With `--parser=wq`, the inner Frozone uses the pure-Ruby whitequark parser,
+eliminating all C extension dependencies from the parse path.
+
+See [self-hosting.md](self-hosting.md) for detailed examples and performance.
