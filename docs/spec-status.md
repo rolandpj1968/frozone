@@ -7,7 +7,7 @@ Compiler spec coverage is tracked separately via `--aot` compiled test files (se
 
 Run with `bundle exec rake language` (or `rake language:NAME` for a single spec).
 
-**Prism parser: 2615 / 2630 passing** — as of 2026-03-24 (v4.0.1)
+**Prism parser: 2615 / 2630 passing** — as of 2026-03-29 (v4.0.4)
 
 Specs with 100% pass rate:
 `alias`, `and`, `array`, `assignments`, `BEGIN`, `block`, `break`, `case`, `class`,
@@ -44,7 +44,7 @@ Switch with `PARSER=wq bundle exec rake language` or `--parser=wq`.
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 22708 / 22913 passing (99.1%)** — as of 2026-03-27
+**Overall: 22708 / 22913 passing (99.1%)** — as of 2026-03-29
 
 `tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation).
 Hanging specs (blocking IO, threading primitives, GC-dependent) excluded via `SKIP_SPEC_FILES` in `Rakefile`.
@@ -73,7 +73,7 @@ Modules with 100% pass rate:
 
 Run with `bundle exec rake library` (or `rake library:NAME` for a single module).
 
-**Overall: 1979 / 2467 passing (80%)** — as of 2026-03-27
+**Overall: 1979 / 2467 passing (80%)** — as of 2026-03-29
 
 Many modules report 0 examples because they require C extensions or unavailable gems.
 
