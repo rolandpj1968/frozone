@@ -1074,6 +1074,7 @@ module Frozone
         emit(ivar(node, :value_node))
         @mctx.suppress_tuple_literals = old_suppress
         write ".as(RubyArray)" unless ivar(node, :value_node).is_a?(Ast::ArrayLiteral)
+        true
       end
 
       # Class-typed local → devirtualize cast.
@@ -1282,6 +1283,7 @@ module Frozone
         emit(node.receiver_node)
         write ".#{crystal_method_name(node.name)}"
         emit_typed_call_args(node.arg_nodes || [], tp)
+        true
       end
 
       # arr << val on native arrays → array push (not integer shift).
@@ -1289,12 +1291,12 @@ module Frozone
         return unless node.name == :<< && node.receiver_node && node.arg_nodes&.size == 1
         recv = node.receiver_node
         if recv.is_a?(Ast::LocalVariableRead) && (elem = native_array_elem_type(ivar(recv, :name)))
-          emit(recv); write " << "; emit_as(node.arg_nodes[0], elem)
+          emit(recv); write " << "; emit_as(node.arg_nodes[0], elem); true
         elsif recv.is_a?(Ast::MethodCall) && recv.name == :[] &&
               recv.receiver_node.is_a?(Ast::LocalVariableRead)
           arr_elem = native_array_elem_type(ivar(recv.receiver_node, :name))
           return unless arr_elem && CrystalType.array?(arr_elem)
-          emit(recv); write " << "; emit_as(node.arg_nodes[0], CrystalType.elem(arr_elem))
+          emit(recv); write " << "; emit_as(node.arg_nodes[0], CrystalType.elem(arr_elem)); true
         end
       end
 
@@ -1352,6 +1354,7 @@ module Frozone
         else
           emit_call_args(node)
         end
+        true
       end
 
       # Free call with inferred param types → coerce args.
@@ -1360,6 +1363,7 @@ module Frozone
         tp = @gctx.inferred_params[node.name] or return
         write crystal_method_name(node.name)
         emit_typed_call_args(node.arg_nodes || [], tp)
+        true
       end
 
       # Devirtualize: cast class-typed receiver for static dispatch.
@@ -1369,6 +1373,7 @@ module Frozone
         write crystal_local(ivar(node.receiver_node, :name)), ".as(", crystal_class_name(recv_class),
               ").", crystal_method_name(node.name)
         emit_call_args(node)
+        true
       end
 
       # Both operands raw-typed → Crystal arithmetic/comparison, skip RubyObject dispatch.
