@@ -184,7 +184,7 @@ module Frozone
       # Main fixed-point loop
       # ------------------------------------------------------------------
 
-      def run(iterations: 3)
+      def run(iterations: 10)
         seed_constants
 
         iterations.times do
