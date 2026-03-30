@@ -628,27 +628,6 @@ module Frozone
             @mctx.native_array_locals[lname] = [:array, inner_elem]
           end
         end
-        # Pre-register locals assigned from nested_array[i] reads.
-        # If TI says a local is Array(T) and its source is a nested native array read,
-        # register it as native so downstream []= writes emit raw values.
-        if opt?(:native_arrays)
-          (@mctx.local_array_elems).each do |lname, elem_ty|
-            next if @mctx.native_array_locals.key?(lname)
-            # Check all assignments to this local for nested array reads
-            assignments = Hash.new { |h, k| h[k] = [] }
-            collect_local_assignments(method.body, assignments)
-            (assignments[lname] || []).each do |rhs|
-              next unless rhs.is_a?(Ast::MethodCall) && ivar(rhs, :name) == :[]
-              recv = ivar(rhs, :receiver_node)
-              next unless recv.is_a?(Ast::LocalVariableRead)
-              recv_elem = @mctx.native_array_locals[ivar(recv, :name)]
-              if recv_elem && CrystalType.array?(recv_elem)
-                @mctx.native_array_locals[lname] = elem_ty
-                break
-              end
-            end
-          end
-        end
         # Include raw-typed params in @mctx.typed_locals so node_raw_type works for them
         # and they are correctly boxed/unboxed in mixed expressions.
         if param_types
@@ -660,6 +639,25 @@ module Frozone
             elsif CrystalType.array?(pt)
               inner = CrystalType.elem(pt)
               @mctx.native_array_locals[p] = inner if CrystalType.native?(inner)
+            end
+          end
+        end
+        # Pre-register locals assigned from nested_array[i] reads.
+        # Must run after param seeding so params with Array(Array(T)) types are visible.
+        if opt?(:native_arrays) && @mctx.local_array_elems.any?
+          assignments = Hash.new { |h, k| h[k] = [] }
+          collect_local_assignments(method.body, assignments)
+          @mctx.local_array_elems.each do |lname, elem_ty|
+            next if @mctx.native_array_locals.key?(lname)
+            (assignments[lname] || []).each do |rhs|
+              next unless rhs.is_a?(Ast::MethodCall) && ivar(rhs, :name) == :[]
+              recv = ivar(rhs, :receiver_node)
+              next unless recv.is_a?(Ast::LocalVariableRead)
+              recv_elem = @mctx.native_array_locals[ivar(recv, :name)]
+              if recv_elem && CrystalType.array?(recv_elem)
+                @mctx.native_array_locals[lname] = elem_ty
+                break
+              end
             end
           end
         end
@@ -962,15 +960,17 @@ module Frozone
           return
         end
         if (arr_ty = @mctx.typed_array_locals[name])
-          rhs  = ivar(node, :value_node)
-          args = ivar(rhs, :arg_nodes) || []
-          crystal_ty = arr_ty == :f64 ? "Float64" : "Int64"
-          write "#{crystal_local(name)} = Array(#{crystal_ty}).new("
-          emit_coerce_i64(args[0])
-          write ", "
-          emit_as(args[1], arr_ty)
-          write ")"
-          return
+          rhs = ivar(node, :value_node)
+          if array_new_call?(rhs)
+            args = ivar(rhs, :arg_nodes) || []
+            crystal_ty = arr_ty == :f64 ? "Float64" : "Int64"
+            write "#{crystal_local(name)} = Array(#{crystal_ty}).new("
+            emit_coerce_i64(args[0])
+            write ", "
+            emit_as(args[1], arr_ty)
+            write ")"
+            return
+          end
         end
         # Promote boxed-array local to native Array(T) when initialized via Array.new(n, default).
         if (elem_ty = @mctx.local_array_elems[name]) && !@mctx.typed_array_locals.key?(name)

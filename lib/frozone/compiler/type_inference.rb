@@ -417,7 +417,80 @@ module Frozone
 
           changed |= @env.meet!([:array_elem, ctx.method_key, name], fill_ty)
         end
+
+        # Infer element types from push operations (<<, push, []=) on array locals.
+        # Only promote when ALL writes to the array's elements are consistently typed.
+        elem_writes = collect_array_elem_writes(body)
+        elem_writes.each do |key, value_nodes|
+          # Direct writes: arr << val, arr[i] = val
+          if key.is_a?(Symbol)
+            next if param_names.include?(key)
+            types = value_nodes.map { |v| infer_expr(v, ctx) }
+            next unless types.all? { |t| NUMERIC_TYPES.include?(t) }
+            unique = types.uniq
+            next unless unique.size == 1
+            changed |= @env.meet!([:array_elem, ctx.method_key, key], unique[0])
+          # Nested writes: arr[i] << val — refine arr's local type to Array(Array(T))
+          elsif key.is_a?(Array) && key[0] == :sub
+            arr_name = key[1]
+            types = value_nodes.map { |v| infer_expr(v, ctx) }
+            next unless types.all? { |t| NUMERIC_TYPES.include?(t) }
+            unique = types.uniq
+            next unless unique.size == 1
+            local_ty = @env[[:local, ctx.method_key, arr_name]]
+            if local_ty.is_a?(Hash) && local_ty[:class] == :Array
+              inner = { class: :Array, elem: unique[0] }
+              changed |= @env.meet!([:local, ctx.method_key, arr_name], { class: :Array, elem: inner })
+            end
+          end
+        end
         changed
+      end
+
+      # Collect value nodes pushed/written to array locals.
+      # Handles: arr << val, arr.push(val), arr[i] = val,
+      # and nested: arr[i] << val (propagates to arr's sub-arrays).
+      def collect_array_elem_writes(node, result = Hash.new { |h, k| h[k] = [] }, depth: 0)
+        return result unless node
+        case node
+        when Ast::MethodCall
+          args = node.instance_variable_get(:@arg_nodes) || []
+          recv = node.receiver_node
+          if (node.name == :<< || node.name == :push) && args.size == 1
+            if recv.is_a?(Ast::LocalVariableRead)
+              result[recv.instance_variable_get(:@name)] << args[0]
+            elsif recv.is_a?(Ast::MethodCall) && recv.name == :[] &&
+                  recv.receiver_node.is_a?(Ast::LocalVariableRead)
+              # arr[i] << val — val is an elem of arr's sub-arrays
+              # Store with a [:sub, name] key to distinguish from direct writes
+              result[[:sub, recv.receiver_node.instance_variable_get(:@name)]] << args[0]
+            end
+          end
+          # Recurse into children
+          collect_array_elem_writes(recv, result, depth: depth)
+          args.each { |a| collect_array_elem_writes(a, result, depth: depth) }
+          blk = node.instance_variable_get(:@block_node)
+          collect_array_elem_writes(blk.body, result, depth: depth) if blk.is_a?(Ast::Block)
+        when Ast::AttributeWrite
+          if node.instance_variable_get(:@name) == :[]=
+            recv = node.instance_variable_get(:@receiver_node)
+            args = node.instance_variable_get(:@arg_nodes) || []
+            if recv.is_a?(Ast::LocalVariableRead) && args.size == 2
+              result[recv.instance_variable_get(:@name)] << args[1]
+            end
+          end
+        when Ast::Sequence
+          node.nodes.each { |n| collect_array_elem_writes(n, result, depth: depth) }
+        when Ast::If
+          %i[@condition_node @then_node @else_node].each do |iv|
+            collect_array_elem_writes(node.instance_variable_get(iv), result, depth: depth) if node.instance_variable_defined?(iv)
+          end
+        when Ast::While, Ast::Until
+          collect_array_elem_writes(node.instance_variable_get(:@body_node), result, depth: depth)
+        when Ast::Block
+          collect_array_elem_writes(node.body, result, depth: depth)
+        end
+        result
       end
 
       # ------------------------------------------------------------------
@@ -1122,9 +1195,17 @@ module Frozone
       # Only merges params (elem, key, val) that are present in BOTH sides.
       def merge_collection_params(a, b)
         result = {class: a[:class]}
-        result[:elem] = meet(a[:elem], b[:elem]) if a.key?(:elem) && b.key?(:elem)
-        result[:key]  = meet(a[:key],  b[:key])  if a.key?(:key)  && b.key?(:key)
-        result[:val]  = meet(a[:val],  b[:val])  if a.key?(:val)  && b.key?(:val)
+        # For each param (:elem, :key, :val): merge if both present, take whichever
+        # side has it if only one does (absent = not yet observed, not "unknowable").
+        %i[elem key val].each do |param|
+          if a.key?(param) && b.key?(param)
+            result[param] = meet(a[param], b[param])
+          elsif a.key?(param)
+            result[param] = a[param]
+          elsif b.key?(param)
+            result[param] = b[param]
+          end
+        end
         result.freeze
       end
 
