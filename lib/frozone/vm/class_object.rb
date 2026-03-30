@@ -56,13 +56,9 @@ module Frozone
         elsif ancestors_list.any? { |a| a.equal?(Core::STRING_CLASS) }
           StringObject.new("".b, class_obj: self)
         elsif ancestors_list.any? { |a| a.equal?(Core::HASH_CLASS) }
-          h = HashObject.new({})
-          h.class_object = self
-          h
+          HashObject.new({}).tap { |h| h.class_object = self }
         elsif ancestors_list.any? { |a| a.name == :Random }
-          obj = RandomObject.new(nil)
-          obj.class_object = self
-          obj
+          RandomObject.new(nil).tap { |o| o.class_object = self }
         else
           ObjectObject.new(self)
         end
@@ -76,12 +72,12 @@ module Frozone
       end
 
       def ancestors_list
-        result = []
-        @prepends&.each { |mod| result.concat(mod.ancestors_list) }
-        result << self
-        @modules&.each { |mod| result.concat(mod.ancestors_list) }
-        result.concat(@superclass.ancestors_list) unless @superclass.nil?
-        result
+        [].tap do |result|
+          @prepends&.each { |mod| result.concat(mod.ancestors_list) }
+          result << self
+          @modules&.each { |mod| result.concat(mod.ancestors_list) }
+          result.concat(@superclass.ancestors_list) unless @superclass.nil?
+        end
       end
 
       UNDEF_FOUND = :__undef_found__

@@ -88,11 +88,11 @@ module Frozone
       end
 
       def ancestors_list
-        result = []
-        @prepends&.each { |mod| result.concat(mod.ancestors_list) }
-        result << self
-        @modules&.each { |mod| result.concat(mod.ancestors_list) }
-        result
+        [].tap do |result|
+          @prepends&.each { |mod| result.concat(mod.ancestors_list) }
+          result << self
+          @modules&.each { |mod| result.concat(mod.ancestors_list) }
+        end
       end
 
       def lookup_method(name)
