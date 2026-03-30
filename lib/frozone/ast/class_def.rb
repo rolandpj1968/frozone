@@ -12,7 +12,7 @@ module Frozone
         @locals = locals
 
         @superclass_node = superclass_node
-        @namespace_node  = namespace_node
+        @namespace_node = namespace_node
         @body = body
         @source_location = source_location
       end

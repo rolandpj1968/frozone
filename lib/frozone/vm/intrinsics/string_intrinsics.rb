@@ -1816,7 +1816,7 @@ module Frozone
         # Encoding::Converter intrinsics — delegate to MRI Encoding::Converter
         def encoding_converter_new(context, from_str, to_str, opts_hash = FNIL)
           from_raw = fstr?(from_str) ? from_str.raw : from_str.to_s
-          to_raw   = fstr?(to_str) ? to_str.raw : to_str.to_s
+          to_raw = fstr?(to_str) ? to_str.raw : to_str.to_s
           opts = {}
           if fhash?(opts_hash)
             opts_hash.raw.each do |k, v|
@@ -2051,7 +2051,7 @@ module Frozone
 
         def encoding_converter_search_convpath(_, from_str, to_str, opts_arg = FNIL)
           from_raw = fstr?(from_str) ? from_str.raw : from_str.to_s
-          to_raw   = fstr?(to_str) ? to_str.raw : to_str.to_s
+          to_raw = fstr?(to_str) ? to_str.raw : to_str.to_s
           opts = {}
           if fhash?(opts_arg)
             opts_arg.raw.each do |k, v|

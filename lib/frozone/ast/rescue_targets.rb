@@ -6,8 +6,8 @@ module Frozone
     class RescueCallTarget
       def initialize(receiver_node, setter_name, safe_nav = false)
         @receiver_node = receiver_node  # nil means implicit self
-        @setter_name   = setter_name    # Symbol, e.g. :foo=
-        @safe_nav      = safe_nav
+        @setter_name = setter_name    # Symbol, e.g. :foo=
+        @safe_nav = safe_nav
       end
 
       def store(context, value)
@@ -23,7 +23,7 @@ module Frozone
     class RescueIndexTarget
       def initialize(receiver_node, arg_nodes)
         @receiver_node = receiver_node
-        @arg_nodes     = arg_nodes
+        @arg_nodes = arg_nodes
       end
 
       def store(context, value)

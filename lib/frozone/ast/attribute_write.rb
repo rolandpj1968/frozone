@@ -6,11 +6,11 @@ module Frozone
     # Ruby semantics: the value of `a.foo = val` is `val`, regardless of what `foo=` returns
     class AttributeWrite < Node
       def initialize(name, receiver_node, arg_nodes, kw_arg_nodes, safe_nav: false)
-        @name          = name
+        @name = name
         @receiver_node = receiver_node
-        @arg_nodes     = arg_nodes
-        @kw_arg_nodes  = kw_arg_nodes
-        @safe_nav      = safe_nav
+        @arg_nodes = arg_nodes
+        @kw_arg_nodes = kw_arg_nodes
+        @safe_nav = safe_nav
       end
 
       def children = [@receiver_node, *@arg_nodes, *@kw_arg_nodes.flat_map { |k, v| [k, v] }].compact

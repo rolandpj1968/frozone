@@ -8,18 +8,18 @@ module Frozone
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
                      block_param, locals, body, it_param: false, source_location: nil)
-        @required_params    = required_params
-        @optional_params    = optional_params
-        @rest_param         = rest_param
-        @post_params        = post_params
+        @required_params = required_params
+        @optional_params = optional_params
+        @rest_param = rest_param
+        @post_params = post_params
         @required_kw_params = required_kw_params
         @optional_kw_params = optional_kw_params
-        @kw_rest_param      = kw_rest_param
-        @block_param        = block_param
-        @it_param           = it_param
-        @locals             = locals
-        @body               = body
-        @source_location    = source_location
+        @kw_rest_param = kw_rest_param
+        @block_param = block_param
+        @it_param = it_param
+        @locals = locals
+        @body = body
+        @source_location = source_location
       end
 
       def children = [*@optional_params.map { |_, n| n }, *@optional_kw_params.map { |_, n| n }, @body].compact

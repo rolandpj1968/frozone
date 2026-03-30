@@ -6,7 +6,7 @@ module Frozone
     class MatchWrite < Node
       def initialize(call_node, targets)
         @call_node = call_node   # the =~ CallNode
-        @targets   = targets     # array of [depth, name] pairs for local vars
+        @targets = targets     # array of [depth, name] pairs for local vars
       end
 
       def children = [@call_node]

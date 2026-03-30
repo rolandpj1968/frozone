@@ -7,18 +7,18 @@ module Frozone
 
       def initialize(begin_val, end_val, exclusive, initialized: true)
         super(Core::OBJECT_CLASS.get_constant(:Range))
-        @begin_val   = begin_val
-        @end_val     = end_val
-        @exclusive   = exclusive
+        @begin_val = begin_val
+        @end_val = end_val
+        @exclusive = exclusive
         @initialized = initialized
       end
 
       def initialized? = @initialized
 
       def set_range(begin_val, end_val, exclusive)
-        @begin_val   = begin_val
-        @end_val     = end_val
-        @exclusive   = exclusive
+        @begin_val = begin_val
+        @end_val = end_val
+        @exclusive = exclusive
         @initialized = true
       end
 

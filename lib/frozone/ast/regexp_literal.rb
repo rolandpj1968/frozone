@@ -6,7 +6,7 @@ module Frozone
     class RegexpLiteral < Node
       def initialize(source, flags, encoding_name = nil)
         @source = source
-        @flags  = flags
+        @flags = flags
         @encoding_name = encoding_name
         @cached = nil
       end

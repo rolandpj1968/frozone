@@ -60,7 +60,7 @@ module Frozone
         # Skip: duplicated_hash_key (handled by hash_literal.rb), unused_local_variable (noisy)
         always_warn_types = %i[integer_in_flip_flop literal_in_condition_default]
         verbose_warn_types = %i[void_statement duplicated_when_clause]
-        @prism_always_warnings  = result.warnings.select { |w| always_warn_types.include?(w.type) }.map(&:message)
+        @prism_always_warnings = result.warnings.select { |w| always_warn_types.include?(w.type) }.map(&:message)
         @prism_verbose_warnings = result.warnings
                                         .select { |w| verbose_warn_types.include?(w.type) }
                                         .map(&:message)

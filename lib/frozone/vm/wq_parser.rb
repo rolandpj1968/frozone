@@ -82,8 +82,8 @@ module Frozone
         validate_semantics!(wq_ast) if raise_syntax_errors && wq_ast
 
         @scope_chain = ScopeChain.new(@outer_locals || [])
-        @raise_syntax_errors    = raise_syntax_errors
-        @prism_always_warnings  = []
+        @raise_syntax_errors = raise_syntax_errors
+        @prism_always_warnings = []
         @prism_verbose_warnings = []
         result = transform(wq_ast)
         @top_level_locals = @scope_chain.current.claimed.to_a

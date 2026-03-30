@@ -128,7 +128,7 @@ module Frozone
       def assign_targets(context, targets, values, cached)
         splat_idx = targets.index { |t| t[0].to_s.end_with?('_splat') || t[0] == :splat_nil }
         if splat_idx
-          pre  = targets[0...splat_idx]
+          pre = targets[0...splat_idx]
           post = targets[(splat_idx + 1)..]
 
           pre_vals = values[0, pre.length].map { |v| v || Vm::NilObject::NIL }

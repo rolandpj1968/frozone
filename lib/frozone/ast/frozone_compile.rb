@@ -19,9 +19,9 @@ module Frozone
       CRYSTAL_DIR = File.expand_path('../../../crystal/gen', __dir__)
 
       def initialize(block_node, output_path: nil, aot_mode: false)
-        @block_node  = block_node
+        @block_node = block_node
         @output_path = output_path
-        @aot_mode    = aot_mode
+        @aot_mode = aot_mode
       end
 
       def children = [@block_node].compact
@@ -66,7 +66,7 @@ module Frozone
       end
 
       def run_type_inference_debug(stub_file)
-        scope     = Vm::Core::OBJECT_CLASS
+        scope = Vm::Core::OBJECT_CLASS
         core_markers = %w[lib/core/4.0/ lib/frozone/vm/ lib/frozone/ast/]
 
         user_loc = ->(loc) {

@@ -106,9 +106,9 @@ module Frozone
           # if multiple yielded args, treat all args as the array.
           item = args.length == 1 ? args[0] : Vm::ArrayObject.new(args)
           arr = item.is_a?(Vm::ArrayObject) ? item.raw : [item]
-          n_lefts  = lefts.length
+          n_lefts = lefts.length
           n_rights = rights.length
-          n_rest   = [arr.length - n_lefts - n_rights, 0].max
+          n_rest = [arr.length - n_lefts - n_rights, 0].max
 
           lefts.each_with_index do |name, idx|
             frame.set_local(name, arr.fetch(idx, Vm::NilObject::NIL))

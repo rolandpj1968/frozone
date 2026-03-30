@@ -7,7 +7,7 @@ module Frozone
       attr_reader :kind
 
       def initialize(kind, extra = nil)
-        @kind  = kind   # Symbol: :self, :nil, :true, :false, :literal, :constant,
+        @kind = kind   # Symbol: :self, :nil, :true, :false, :literal, :constant,
         #         :local_var, :ivar, :cvar, :gvar, :method, :yield, :super
         @extra = extra  # varies by kind
       end
@@ -109,7 +109,7 @@ module Frozone
                    return nil unless mf
                    current_method = mf.current_method
                    return nil unless current_method
-                   method_name    = current_method.name
+                   method_name = current_method.name
                    defining_class = current_method.scopes.last
                    receiver = context.frame.the_self
                    klass = receiver.is_a?(Vm::ClassObject) ? receiver.singleton_class : receiver.class_object

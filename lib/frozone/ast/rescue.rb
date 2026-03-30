@@ -9,8 +9,8 @@ module Frozone
 
       def initialize(exception_nodes, var_name, var_depth, body, assign_node: nil)
         @exception_nodes = exception_nodes  # Array<Node> — empty means catch-all
-        @var_name    = var_name             # Symbol or nil (for local var target)
-        @var_depth   = var_depth            # Integer or nil
+        @var_name = var_name             # Symbol or nil (for local var target)
+        @var_depth = var_depth            # Integer or nil
         @assign_node = assign_node          # Node or nil (for ivar/gvar targets)
         @body = body
       end
@@ -116,17 +116,17 @@ module Frozone
       attr_reader :body, :rescue_clauses, :else_node, :ensure_node
 
       def initialize(body, rescue_clauses, else_node, ensure_node)
-        @body           = body
+        @body = body
         @rescue_clauses = rescue_clauses  # Array<RescueClause>
-        @else_node      = else_node
-        @ensure_node    = ensure_node
+        @else_node = else_node
+        @ensure_node = ensure_node
       end
 
       def children = [@body, *@rescue_clauses.flat_map { |c| [*c.exception_nodes, c.assign_node, c.body] }, @else_node, @ensure_node].compact
 
       def evaluate(context)
         rescued = false
-        result  = nil
+        result = nil
         retry_requested = false
 
         loop do

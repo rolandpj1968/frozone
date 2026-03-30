@@ -254,12 +254,12 @@ module Frozone
       def assign_param(context, frame, param, val)
         if param.is_a?(Hash)
           sub_args = coerce_to_array(context, val)
-          sub_names  = param[:names]
-          sub_rest   = param[:rest]
+          sub_names = param[:names]
+          sub_rest = param[:rest]
           sub_rights = param[:rights] || []
           sub_names.each_with_index  { |n, j| assign_param(context, frame, n, sub_args.fetch(j, NilObject::NIL)) }
           if sub_rest
-            rest_end  = sub_rights.length > 0 ? -(sub_rights.length + 1) : -1
+            rest_end = sub_rights.length > 0 ? -(sub_rights.length + 1) : -1
             rest_vals = sub_args[sub_names.length..rest_end] || []
             frame.set_local(sub_rest, ArrayObject.new(rest_vals))
           end

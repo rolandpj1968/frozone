@@ -763,7 +763,7 @@ module Frozone
             return nil unless farray?(arr_obj)
             arr_obj.raw.map { |io| fio?(io) ? io.native_io : nil }.compact
           end
-          native_reads  = to_native.call(reads_obj)
+          native_reads = to_native.call(reads_obj)
           native_writes = to_native.call(writes_obj)
           native_errors = to_native.call(errors_obj)
           timeout = fnil?(timeout_obj) ? nil : (fint?(timeout_obj) ? timeout_obj.raw.to_f : (ffloat?(timeout_obj) ? timeout_obj.raw : nil))
@@ -827,8 +827,8 @@ module Frozone
 
         def io_pwrite(_, receiver, str_obj, offset_obj)
           native = native_io_for(receiver)
-          str    = fstr?(str_obj) ? str_obj.raw : str_obj.raw.to_s
-          off    = fint?(offset_obj) ? offset_obj.raw : offset_obj.raw.to_i
+          str = fstr?(str_obj) ? str_obj.raw : str_obj.raw.to_s
+          off = fint?(offset_obj) ? offset_obj.raw : offset_obj.raw.to_i
           reraise(::IOError, ::SystemCallError) do
             n2f_int(native.pwrite(str, off))
           end

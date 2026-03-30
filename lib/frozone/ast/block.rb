@@ -12,20 +12,20 @@ module Frozone
                      required_kw_params, optional_kw_params, kw_rest_param,
                      block_param, auto_splat, locals, body, is_lambda: false, it_param: false,
                      source_location: nil)
-        @required_params    = required_params  # Array of Symbol or {destructure: [names...]} Hash
-        @optional_params    = optional_params  # [[name, node], ...]
-        @rest_param         = rest_param       # Symbol or nil
-        @post_params        = post_params
+        @required_params = required_params  # Array of Symbol or {destructure: [names...]} Hash
+        @optional_params = optional_params  # [[name, node], ...]
+        @rest_param = rest_param       # Symbol or nil
+        @post_params = post_params
         @required_kw_params = required_kw_params
         @optional_kw_params = optional_kw_params  # [[name, node], ...]
-        @kw_rest_param      = kw_rest_param   # Symbol or nil
-        @block_param        = block_param     # Symbol or nil
-        @auto_splat         = auto_splat      # Boolean
-        @is_lambda          = is_lambda       # Boolean: true for lambdas (strict arg checking)
-        @it_param           = it_param        # Boolean: true for `it` implicit parameter
-        @locals             = locals
-        @body               = body
-        @source_location    = source_location # [file, line] or nil
+        @kw_rest_param = kw_rest_param   # Symbol or nil
+        @block_param = block_param     # Symbol or nil
+        @auto_splat = auto_splat      # Boolean
+        @is_lambda = is_lambda       # Boolean: true for lambdas (strict arg checking)
+        @it_param = it_param        # Boolean: true for `it` implicit parameter
+        @locals = locals
+        @body = body
+        @source_location = source_location # [file, line] or nil
       end
 
       def children = [*@optional_params.map { |_, n| n }, *@optional_kw_params.map { |_, n| n }, @body].compact

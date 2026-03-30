@@ -16,21 +16,21 @@ module Frozone
                      required_kw_params, optional_kw_params, kw_rest_param,
                      block_param, auto_splat, locals, body, enclosing_frame,
                      is_lambda: false, it_param: false, source_location: nil)
-        @required_params     = required_params
-        @optional_params     = optional_params
-        @rest_param          = rest_param
-        @post_params         = post_params
-        @required_kw_params  = required_kw_params
-        @optional_kw_params  = optional_kw_params
-        @kw_rest_param       = kw_rest_param
-        @block_param         = block_param
-        @auto_splat          = auto_splat
-        @is_lambda           = is_lambda
-        @it_param            = it_param
-        @locals              = locals
-        @body                = body
-        @enclosing_frame     = enclosing_frame
-        @source_location     = source_location # [file, line] or nil
+        @required_params = required_params
+        @optional_params = optional_params
+        @rest_param = rest_param
+        @post_params = post_params
+        @required_kw_params = required_kw_params
+        @optional_kw_params = optional_kw_params
+        @kw_rest_param = kw_rest_param
+        @block_param = block_param
+        @auto_splat = auto_splat
+        @is_lambda = is_lambda
+        @it_param = it_param
+        @locals = locals
+        @body = body
+        @enclosing_frame = enclosing_frame
+        @source_location = source_location # [file, line] or nil
       end
 
       def make_lambda!

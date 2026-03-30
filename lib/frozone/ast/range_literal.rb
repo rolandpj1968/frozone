@@ -6,8 +6,8 @@ module Frozone
     class RangeLiteral < Node
       def initialize(begin_node, end_node, exclusive)
         @begin_node = begin_node
-        @end_node   = end_node
-        @exclusive  = exclusive
+        @end_node = end_node
+        @exclusive = exclusive
       end
 
       def children = [@begin_node, @end_node].compact

@@ -332,7 +332,7 @@ module Frozone
 
       def initialize(predicate, arms, else_node)
         @predicate = predicate
-        @arms      = arms
+        @arms = arms
         @else_node = else_node
       end
 
@@ -374,7 +374,7 @@ module Frozone
 
       def initialize(value_node, pattern)
         @value_node = value_node
-        @pattern    = pattern
+        @pattern = pattern
       end
 
       def children = [@value_node]
@@ -401,7 +401,7 @@ module Frozone
 
       def initialize(value_node, pattern)
         @value_node = value_node
-        @pattern    = pattern
+        @pattern = pattern
       end
 
       def children = [@value_node]

@@ -5,10 +5,10 @@ module Frozone
     # a[*args] += val — evaluates receiver and index args once, returns new value (not []= result)
     class IndexOperatorWrite < Node
       def initialize(operator, receiver_node, index_arg_nodes, value_node)
-        @operator        = operator
-        @receiver_node   = receiver_node
+        @operator = operator
+        @receiver_node = receiver_node
         @index_arg_nodes = index_arg_nodes
-        @value_node      = value_node
+        @value_node = value_node
       end
 
       def children = [@receiver_node, *@index_arg_nodes, @value_node].compact
@@ -30,9 +30,9 @@ module Frozone
     # a[*args] ||= val — evaluates receiver and index args once, returns new value
     class IndexOrWrite < Node
       def initialize(receiver_node, index_arg_nodes, value_node)
-        @receiver_node   = receiver_node
+        @receiver_node = receiver_node
         @index_arg_nodes = index_arg_nodes
-        @value_node      = value_node
+        @value_node = value_node
       end
 
       def children = [@receiver_node, *@index_arg_nodes, @value_node].compact
@@ -54,9 +54,9 @@ module Frozone
     # a[*args] &&= val — evaluates receiver and index args once, returns new value
     class IndexAndWrite < Node
       def initialize(receiver_node, index_arg_nodes, value_node)
-        @receiver_node   = receiver_node
+        @receiver_node = receiver_node
         @index_arg_nodes = index_arg_nodes
-        @value_node      = value_node
+        @value_node = value_node
       end
 
       def children = [@receiver_node, *@index_arg_nodes, @value_node].compact
