@@ -679,12 +679,12 @@ module Frozone
 
         if bool_return
           indented do
-            write "(begin"
+            write "((begin"
             emit_newline
             indented { emit(method.body) }
             emit_newline
             emit_indent
-            write "end).truthy?"
+            write "end) || RUBY_NIL).truthy?"
           end
         elsif string_return
           indented do
