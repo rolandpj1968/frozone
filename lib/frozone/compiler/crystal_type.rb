@@ -50,7 +50,7 @@ module Frozone
         when Array
           case ty[0]
           when :array then "Array(#{to_crystal(ty[1])})"
-          when :ruby_class then "Ruby_#{ty[1]}"
+          when :ruby_class then CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[ty[1]] || "Ruby_#{ty[1]}"
           when :ruby_builtin
             case ty[1]
             when :Array  then 'RubyArray'
@@ -85,6 +85,7 @@ module Frozone
           when :Proc   then [:ruby_builtin, :Proc]
           when :String, :Symbol, :Integer, :Float then :ruby_object
           when :NilClass, :TrueClass, :FalseClass then :ruby_object
+          when :Object, :Numeric, :BasicObject, :Comparable, :Enumerable then :ruby_object
           else
             cls = ty[:class]
             if user_class_names.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls)

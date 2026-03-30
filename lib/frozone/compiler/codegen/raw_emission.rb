@@ -279,10 +279,12 @@ module Frozone
               emit_raw(a)
             end
             write ")"
-            # Method may return RubyObject even if TI says the value is :i64/:f64;
-            # coerce the return to raw Crystal type so callers get Int64/Float64.
-            if (ret = @gctx.typed_method_returns[name])
-              write(ret == :f64 ? ".to_f64" : ".to_i64")
+            # When a specialized overload exists (typed_method_returns set), the
+            # return type is already Int64/Float64 — no coerce needed.
+            # Otherwise the generic overload returns RubyObject, so coerce.
+            unless @gctx.typed_method_returns[name]
+              ret = node_raw_type(node)
+              write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
             end
           elsif recv.is_a?(Ast::LocalVariableRead) &&
                 (recv_class = @mctx.class_locals[ivar(recv, :name)]) &&

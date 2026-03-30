@@ -733,16 +733,12 @@ module Frozone
         emit_truthy(node.pred_node)
         emit_newline
         indented { emit(node.then_node) }
-        emit_newline
-        emit_indent
         if node.else_node
+          emit_newline
+          emit_indent
           write "else"
           emit_newline
           indented { emit(node.else_node) }
-        else
-          write "else"
-          emit_newline
-          indented { write "RUBY_NIL" }
         end
         emit_newline
         emit_indent

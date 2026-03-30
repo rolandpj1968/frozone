@@ -989,6 +989,10 @@ module Frozone
         return if try_native_array_alias(node, name)
         return if try_boxed_array_write(node, name)
         return if try_class_cast_write(node, name)
+        # TI may have typed this local as Array(T), but since no native
+        # construction path matched, the Crystal variable is actually RubyArray.
+        # Evict so subsequent reads/writes don't use the native array path.
+        @mctx.typed_array_locals.delete(name)
         # Default: plain assignment (inlined from CrystalEmitter)
         old_suppress = @mctx.suppress_tuple_literals
         @mctx.suppress_tuple_literals = true
@@ -1050,6 +1054,7 @@ module Frozone
         raw_ty = @mctx.typed_locals[name] or return
         write crystal_local(name), " = "
         emit_as(ivar(node, :value_node), raw_ty)
+        true
       end
 
       # ci = c[i] where c is native nested array → emit bare, Crystal infers.
@@ -1057,6 +1062,7 @@ module Frozone
         return unless @mctx.local_array_elems.key?(name) && native_array_elem_type(name)
         write crystal_local(name), " = "
         emit(ivar(node, :value_node))
+        true
       end
 
       # Boxed array local with known elem type → cast to RubyArray.
@@ -1315,15 +1321,12 @@ module Frozone
       end
 
       # a[k] with raw index on known array/tuple receivers → use Int64 overload.
+      # Emit a[k] with raw Int64 index when the index is typed.
+      # RubyObject#[](Int64) and RubyArray#[](Int64) both accept raw indices,
+      # so boxing the index in RubyInteger.new is never necessary.
       def try_raw_index_read(node)
         return unless node.name == :[] && node.arg_nodes&.size == 1 && node_raw_type(node.arg_nodes[0])
-        recv = node.receiver_node
-        recv_is_array = recv.is_a?(Ast::LocalVariableRead) &&
-          (@mctx.typed_array_locals[ivar(recv, :name)] ||
-           @mctx.local_array_elems[ivar(recv, :name)] ||
-           native_array_elem_type(ivar(recv, :name)))
-        return unless recv_is_array || !recv.is_a?(Ast::LocalVariableRead)
-        emit(recv); write "["; emit_raw(node.arg_nodes[0]); write "]"
+        emit(recv = node.receiver_node); write "["; emit_raw(node.arg_nodes[0]); write "]"
       end
 
       # Free call to fully-specialized method with all-raw args → raw Int64 overload.
@@ -1467,7 +1470,15 @@ module Frozone
             write "["
             emit_raw(args[0])
             write "] = "
-            emit(args[1])
+            val = args[1]
+            vt = node_raw_type(val)
+            if vt == :i64
+              write "RubyInteger.new("; emit_raw(val); write ")"
+            elsif vt == :f64
+              write "RubyFloat.new("; emit_raw(val); write ")"
+            else
+              emit(val)
+            end
             return
           end
         end
