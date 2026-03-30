@@ -11,6 +11,7 @@ module Frozone
         @value_node = value_node
       end
 
+      def children = [@value_node]
       def to_s = "gvar(#{@name}) = #{@value_node}"
 
       def evaluate(context)

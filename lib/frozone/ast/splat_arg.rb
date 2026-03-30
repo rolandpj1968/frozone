@@ -8,6 +8,8 @@ module Frozone
         @value_node = value_node
       end
 
+      def children = [@value_node].compact
+
       def evaluate(context)
         return Vm::ArrayObject.new([]) if @value_node.nil?
         val = @value_node.evaluate(context)

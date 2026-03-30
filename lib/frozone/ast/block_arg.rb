@@ -10,6 +10,8 @@ module Frozone
         @value_node = value_node
       end
 
+      def children = [@value_node]
+
       def evaluate(context)
         val = @value_node.evaluate(context)
         return nil if val.is_a?(Vm::NilObject)

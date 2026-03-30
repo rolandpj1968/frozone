@@ -8,6 +8,8 @@ module Frozone
         @element_nodes = element_nodes
       end
 
+      def children = @element_nodes
+
       def to_s = "arr(TODO)"
 
       def evaluate(context)

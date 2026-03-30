@@ -11,6 +11,8 @@ module Frozone
         @else_node = else_node
       end
 
+      def children = [@pred_node, @then_node, @else_node].compact
+
       def to_s
         "if(#{@pred_node} ? #{@then_node} : #{@else_node || '_'})"
       end

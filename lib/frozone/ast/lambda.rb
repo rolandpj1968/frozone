@@ -22,6 +22,8 @@ module Frozone
         @source_location    = source_location
       end
 
+      def children = [*@optional_params.map { |_, n| n }, *@optional_kw_params.map { |_, n| n }, @body].compact
+
       def evaluate(context)
         # Lambdas do NOT auto-splat (auto_splat: false), and have strict arg checking (is_lambda: true)
         block = Vm::BlockObject.new(

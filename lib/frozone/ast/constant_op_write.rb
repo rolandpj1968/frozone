@@ -13,6 +13,8 @@ module Frozone
         @value_node = value_node
       end
 
+      def children = [@value_node]
+
       def evaluate(context)
         current = Vm::ModuleObject.lookup_constant(@name, context.frame.scopes)
         if !current.nil? && current.truthy?
@@ -34,6 +36,8 @@ module Frozone
         @value_node = value_node
       end
 
+      def children = [@value_node]
+
       def evaluate(context)
         current = Vm::ModuleObject.lookup_constant(@name, context.frame.scopes)
         raise Vm::FrozoneException.make(:NameError, "uninitialized constant #{@name}") if current.nil?
@@ -51,6 +55,8 @@ module Frozone
         @name = name
         @value_node = value_node
       end
+
+      def children = [@parent_node, @value_node]
 
       def evaluate(context)
         parent = @parent_node.evaluate(context)
@@ -74,6 +80,8 @@ module Frozone
         @name = name
         @value_node = value_node
       end
+
+      def children = [@parent_node, @value_node]
 
       def evaluate(context)
         parent = @parent_node.evaluate(context)

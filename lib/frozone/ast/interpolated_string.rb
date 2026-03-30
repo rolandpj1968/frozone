@@ -12,6 +12,7 @@ module Frozone
         @chilled = chilled
       end
 
+      def children = @parts
       def to_s = "interp_str(#{@parts.map(&:to_s).join(', ')})"
 
       def evaluate(context)

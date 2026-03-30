@@ -29,6 +29,8 @@ module Frozone
         @source_location = source_location
       end
 
+      def children = [@receiver_node, *@optional_params.map { |_, n| n }, *@optional_kw_params.map { |_, n| n }, @body].compact
+
       def evaluate(context)
         # Determine the defining scope: def_scope from frame (set by instance_eval or Method#invoke)
         # takes priority over the lexical context.scopes.last.

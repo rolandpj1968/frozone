@@ -22,6 +22,8 @@ module Frozone
         @body_node = body_node
       end
 
+      def children = [@collection_node, @body_node]
+
       def evaluate(context)
         collection = @collection_node.evaluate(context)
         enclosing_frame = context.frame

@@ -11,6 +11,7 @@ module Frozone
         @source_location = source_location
       end
 
+      def children = [@value_node]
       def to_s = "con=(#{@name}, #{@value_node})"
 
       def evaluate(context) = store(context, @value_node.evaluate(context))

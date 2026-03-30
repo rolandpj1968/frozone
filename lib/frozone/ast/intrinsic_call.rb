@@ -10,6 +10,8 @@ module Frozone
         @param_nodes = param_nodes
       end
 
+      def children = @param_nodes
+
       def to_s
         # @method.owner is class's eigenclass??? - not sure how to get the Class name
         "intrinsic[#{@method.name}](#{@param_nodes.map(&:to_s).join(', ')})"

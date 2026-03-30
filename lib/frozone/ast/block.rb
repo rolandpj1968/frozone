@@ -28,6 +28,8 @@ module Frozone
         @source_location    = source_location # [file, line] or nil
       end
 
+      def children = [*@optional_params.map { |_, n| n }, *@optional_kw_params.map { |_, n| n }, @body].compact
+
       def evaluate(context)
         Vm::BlockObject.new(
           @required_params, @optional_params, @rest_param, @post_params,

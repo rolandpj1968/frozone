@@ -24,6 +24,8 @@ module Frozone
         @aot_mode    = aot_mode
       end
 
+      def children = [@block_node].compact
+
       def evaluate(context)
         require_relative '../compiler/codegen'
 

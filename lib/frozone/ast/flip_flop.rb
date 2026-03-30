@@ -12,6 +12,7 @@ module Frozone
         @state = false
       end
 
+      def children = [@left_node, @right_node]
       def to_s = "flip_flop(#{@left_node}#{@exclude_end ? '...' : '..'}#{@right_node})"
 
       def evaluate(context)

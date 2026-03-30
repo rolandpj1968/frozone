@@ -13,6 +13,8 @@ module Frozone
         @kw_splat_nodes  = kw_splat_nodes
       end
 
+      def children = [*@arg_nodes, *@kw_splat_nodes, @block_node].compact
+
       def evaluate(context)
         mf = context.frame.method_frame
         current_method = mf.current_method

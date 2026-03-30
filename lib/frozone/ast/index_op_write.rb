@@ -11,6 +11,8 @@ module Frozone
         @value_node      = value_node
       end
 
+      def children = [@receiver_node, *@index_arg_nodes, @value_node].compact
+
       def evaluate(context)
         implicit = @receiver_node.nil?
         receiver = implicit ? context.frame.the_self : @receiver_node.evaluate(context)
@@ -33,6 +35,8 @@ module Frozone
         @value_node      = value_node
       end
 
+      def children = [@receiver_node, *@index_arg_nodes, @value_node].compact
+
       def evaluate(context)
         implicit = @receiver_node.nil?
         receiver   = implicit ? context.frame.the_self : @receiver_node.evaluate(context)
@@ -54,6 +58,8 @@ module Frozone
         @index_arg_nodes = index_arg_nodes
         @value_node      = value_node
       end
+
+      def children = [@receiver_node, *@index_arg_nodes, @value_node].compact
 
       def evaluate(context)
         implicit = @receiver_node.nil?

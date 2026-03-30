@@ -20,6 +20,7 @@ module Frozone
         @name = name
       end
 
+      def children = [@parent_node]
       def to_s = "#{@parent_node}::#{@name}"
 
       def defined_check?(context)
@@ -99,6 +100,8 @@ module Frozone
         @source_location = source_location
       end
 
+      def children = [@parent_node, @value_node]
+
       def evaluate(context)
         parent = @parent_node.evaluate(context)
         value = @value_node.evaluate(context)
@@ -119,6 +122,8 @@ module Frozone
         @operator = operator
         @value_node = value_node
       end
+
+      def children = [@parent_node, @value_node]
 
       def evaluate(context)
         parent = @parent_node.evaluate(context)

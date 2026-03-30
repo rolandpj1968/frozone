@@ -9,6 +9,8 @@ module Frozone
         @targets   = targets     # array of [depth, name] pairs for local vars
       end
 
+      def children = [@call_node]
+
       def evaluate(context)
         result = @call_node.evaluate(context)
         m = Fiber[:last_match]

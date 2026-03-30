@@ -17,6 +17,8 @@ module Frozone
         @source_location = source_location
       end
 
+      def children = [@namespace_node, @superclass_node, @body].compact
+
       def to_s
         "class(#{@name}, locals: #{@locals} body: #{@body})"
       end

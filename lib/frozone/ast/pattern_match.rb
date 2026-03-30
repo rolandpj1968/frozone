@@ -336,6 +336,7 @@ module Frozone
         @else_node = else_node
       end
 
+      def children = [@predicate, *@arms.flat_map { |a| [a[:guard], a[:body]] }, @else_node].compact
       def to_s = "case_match(#{@predicate}, #{@arms.length} arms)"
 
       def evaluate(context)
@@ -376,6 +377,7 @@ module Frozone
         @pattern    = pattern
       end
 
+      def children = [@value_node]
       def to_s = "match_required(#{@value_node})"
 
       def evaluate(context)
@@ -402,6 +404,7 @@ module Frozone
         @pattern    = pattern
       end
 
+      def children = [@value_node]
       def to_s = "match_predicate(#{@value_node})"
 
       def evaluate(context)

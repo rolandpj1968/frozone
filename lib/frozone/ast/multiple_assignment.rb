@@ -16,6 +16,8 @@ module Frozone
         @value_node = value_node
       end
 
+      def children = [@value_node]
+
       def evaluate(context)
         # Ruby evaluation order: pre-evaluate LHS receivers/indices (left to right),
         # then evaluate RHS, then perform assignments.

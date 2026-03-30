@@ -12,6 +12,8 @@ module Frozone
         @else_node = else_node
       end
 
+      def children = [@subject_node, *@whens.flat_map { |w| [*w.condition_nodes, w.body_node] }, @else_node].compact
+
       def to_s = "case(#{@subject_node}, #{@whens.length} whens)"
 
       def evaluate(context)

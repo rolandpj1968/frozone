@@ -9,6 +9,8 @@ module Frozone
         @kw_arg_nodes = kw_arg_nodes  # Hash<Symbol, Node>
       end
 
+      def children = [*@arg_nodes, *@kw_arg_nodes.values]
+
       def evaluate(context)
         block = context.frame.block
         raise Vm::FrozoneException.make(:LocalJumpError, "no block given (yield)") if block.nil? || block.is_a?(Vm::NilObject)

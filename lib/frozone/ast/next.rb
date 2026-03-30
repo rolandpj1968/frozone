@@ -14,6 +14,8 @@ module Frozone
         @value_node = value_node
       end
 
+      def children = [@value_node].compact
+
       def evaluate(context)
         value = @value_node ? @value_node.evaluate(context) : Vm::NilObject::NIL
         raise NextException.new(value)

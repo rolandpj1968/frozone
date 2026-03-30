@@ -10,6 +10,8 @@ module Frozone
         @body = body
       end
 
+      def children = [@expression_node, @body]
+
       def evaluate(context)
         obj = @expression_node.evaluate(context)
         if obj.is_a?(Vm::IntegerObject) || obj.is_a?(Vm::SymbolObject) || obj.is_a?(Vm::FloatObject)

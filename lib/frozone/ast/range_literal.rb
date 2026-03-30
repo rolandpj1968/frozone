@@ -10,6 +10,8 @@ module Frozone
         @exclusive  = exclusive
       end
 
+      def children = [@begin_node, @end_node].compact
+
       def evaluate(context)
         b = @begin_node ? @begin_node.evaluate(context) : Vm::NilObject::NIL
         e = @end_node   ? @end_node.evaluate(context)   : Vm::NilObject::NIL

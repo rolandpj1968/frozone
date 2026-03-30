@@ -9,6 +9,8 @@ module Frozone
         @nodes = nodes
       end
 
+      def children = @nodes
+
       def to_s
         "seq(#{@nodes.map(&:to_s).join('; ')})"
       end

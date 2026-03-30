@@ -16,6 +16,8 @@ module Frozone
         @value_node = value_node
       end
 
+      def children = [@value_node].compact
+
       def evaluate(context)
         value = @value_node ? @value_node.evaluate(context) : Vm::NilObject::NIL
         # When break runs inside a Thread body (outside any while/until loop), it raises

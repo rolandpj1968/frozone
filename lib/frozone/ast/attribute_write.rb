@@ -13,6 +13,8 @@ module Frozone
         @safe_nav      = safe_nav
       end
 
+      def children = [@receiver_node, *@arg_nodes, *@kw_arg_nodes.flat_map { |k, v| [k, v] }].compact
+
       def evaluate(context)
         implicit_receiver = @receiver_node.nil?
         receiver = implicit_receiver ? context.frame.the_self : @receiver_node.evaluate(context)

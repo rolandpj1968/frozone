@@ -22,6 +22,8 @@ module Frozone
         @flags = flags
       end
 
+      def children = @parts
+
       def evaluate(context)
         source = @parts.map do |p|
           val = p.evaluate(context)

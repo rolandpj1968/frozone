@@ -122,6 +122,8 @@ module Frozone
         @ensure_node    = ensure_node
       end
 
+      def children = [@body, *@rescue_clauses.flat_map { |c| [*c.exception_nodes, c.assign_node, c.body] }, @else_node, @ensure_node].compact
+
       def evaluate(context)
         rescued = false
         result  = nil

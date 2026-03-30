@@ -9,6 +9,8 @@ module Frozone
         @begin_modifier = begin_modifier
       end
 
+      def children = [@condition_node, @body_node]
+
       def to_s
         "until(#{@condition_node}, #{@body_node})"
       end

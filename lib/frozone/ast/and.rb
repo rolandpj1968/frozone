@@ -8,6 +8,8 @@ module Frozone
         @right_node = right_node
       end
 
+      def children = [@left_node, @right_node]
+
       def to_s
         "and(#{@left_node}, #{@right_node})"
       end

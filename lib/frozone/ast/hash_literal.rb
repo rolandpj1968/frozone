@@ -9,6 +9,7 @@ module Frozone
         @kv_nodes = kv_nodes
       end
 
+      def children = @kv_nodes.flat_map { |k, v| k.nil? ? [v] : [k, v] }
       def to_s = "hash(TODO)"
 
       def evaluate(context)
