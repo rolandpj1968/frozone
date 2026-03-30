@@ -141,6 +141,51 @@ end
 
 Bang methods (`push!`, `clear!`) are the explicit marker for intentional mutation — they signal "this changes state" so the reader knows to look for side effects. Non-bang methods should be pure where possible.
 
+### Break up monolithic methods
+A method longer than ~30 lines is almost always doing multiple things. Extract each logical step into a named method — the name documents intent, the body is testable in isolation, and the dispatch method becomes a readable pipeline:
+
+```ruby
+# Good — each strategy is named and focused
+def emit_method_call(node)
+  try_constant_fold(node) ||
+    try_native_iteration(node) ||
+    try_typed_call(node) ||
+    emit_default_call(node)
+end
+
+# Bad — 200-line if/return chain
+def emit_method_call(node)
+  if node.name == :respond_to? && ...
+    ...
+    return
+  end
+  if node.name == :times && ...
+    ...
+    return
+  end
+  # ... 15 more blocks ...
+end
+```
+
+### Avoid `super`
+`super` is implicit dynamic dispatch up the MRO chain. It creates a hidden dependency on the parent class structure that is hard to reason about and blocks self-compilation. Inline the parent behavior or delegate explicitly:
+
+```ruby
+# Good — explicit, compilable
+def emit_local_var_write(node)
+  return if try_typed_write(node)
+  # Inline the base behavior
+  write crystal_local(name), " = "
+  emit(value)
+end
+
+# Bad — hidden dependency on parent class
+def emit_local_var_write(node)
+  return if try_typed_write(node)
+  super  # what does this do? depends on inheritance chain
+end
+```
+
 ### Extract common patterns
 When you see the same code pattern repeated, extract it into a helper. Three similar lines are fine; four is a smell. But don't create abstractions for hypothetical future use — extract only when the pattern already exists in multiple places.
 
