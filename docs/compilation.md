@@ -402,19 +402,30 @@ maps that drive all downstream optimisations.
 The TI uses a type lattice where lower = more specific:
 
 ```
-:unknown                   — bottom (not yet analysed)
+:unknown                                — bottom (not yet analysed)
 
-:i64  :f64                 — unboxed Crystal numerics
-:array_i64  :array_f64     — typed arrays (Array(Int64), etc.)
-{class: :Node}             — user-defined class instance
-{class: :Integer}          — boxed Integer (wider than :i64)
-{class: :Array, elem: ...} — Array with element type
-{class: :Object}           — top of Ruby hierarchy
+:i64  :f64                              — unboxed Crystal numerics
+{class: :Integer}                       — boxed Integer (wider than :i64)
+{class: :Node}                          — user-defined class instance
+{class: :Array, elem: :i64}             — Array(Int64)
+{class: :Array, elem: {class: :Array, elem: :i64}}  — Array(Array(Int64))
+{class: :Array}                         — Array with unknown element type
+{class: :Object}                        — top of Ruby hierarchy
 ```
+
+Types are recursive: `{class: :Array, elem: ...}` nests arbitrarily deep.
+The codegen's `CrystalType` module mirrors this with a parallel recursive
+representation: `:i64`, `[:array, :i64]`, `[:array, [:array, :i64]]`, etc.
 
 `meet(a, b)` computes the LCA (least common ancestor) by walking the VM's
 class hierarchy. Unboxed types widen to their boxed class before LCA:
 `meet(:i64, :f64)` → `{class: :Numeric}`. `:unknown` is the identity.
+
+Collection params (`:elem`, `:key`, `:val`) merge recursively via
+`merge_collection_params`. When one side has a param and the other doesn't,
+the present side is taken — "absent" means "not yet observed", not
+"unknowable". This lets empty arrays (`[]`) acquire element types when
+values are pushed into them later.
 
 ### Slots
 
@@ -433,21 +444,52 @@ Everything the TI tracks is a "slot" — a `[kind, context, name]` tuple:
 
 ### Fixed-point iteration
 
-The TI runs 3 iterations (configurable):
+The TI runs up to 10 iterations, early-exiting when no types change.
+Each iteration propagates through several phases:
 
-**Round 1** — seed from literals, propagate through immediate arithmetic:
-- Integer/float/string/nil/true/false literals → precise types
-- `x = 1 + 2` → `x` is `:i64`
-- Method calls with typed args → typed params → typed returns
-- Ivar assignments from constructor params → typed ivars
+1. **Call site propagation** — argument types at each call site flow into
+   the callee's param slots.
+2. **Execute block propagation** — types in the top-level execute block,
+   including multi-assignment destructuring from return values.
+3. **Method body propagation** — for each user method:
+   - Array locals: `Array.new(n, fill)` seeds element types
+   - Array push/write: `arr << val`, `arr.push(val)`, `arr[i] = val` infer
+     element types when all writes are consistently typed. Nested pushes
+     (`arr[i] << val`) propagate inner element types.
+   - For-loop targets: typed like block params
+   - Local variables: fixed-point over literal seeds + `node_raw_type` expansion
+   - Multi-assignment from method returns: destructure into target locals
+4. **Ivar and class method propagation** — instance variable types from
+   constructor analysis, class method params from call sites.
 
-**Round 2** — return types feed callers:
-- `fib(n)` returns `:i64` → callers of `fib` now see `:i64` at call sites
-- Array element types propagate through `Array.new(n) { block }`
+Types flow through multi-hop chains: push inference → local type →
+method return → caller local → next call site → callee param. Each
+hop requires one iteration, so complex programs may need 5+ iterations
+to stabilise. The 10-iteration cap is generous; most programs converge
+in 3-5.
 
-**Round 3** — one more hop for recursion / indirect propagation:
-- Recursive methods see their own return type
-- Transitive type flow stabilises
+### Relationship to partial evaluation
+
+The TI is conceptually a form of **abstract interpretation** — the same
+technique underlying partial evaluation (PE). Where PE evaluates a program
+with some inputs known and others symbolic, the TI "evaluates" type
+expressions with concrete type values flowing through the same control flow
+paths the runtime would take.
+
+The key analogy: PE specialises code by propagating known values and
+eliminating dead branches. The TI specialises types by propagating known
+type constraints and eliminating impossible type combinations. Both are
+fixed-point computations over a lattice — PE uses a value lattice
+(concrete values ↔ ⊤), TI uses a type lattice (`:i64` ↔ `{class: :Object}`).
+
+The compiler exploits this connection directly:
+- `respond_to?(:name)` with a known receiver class → constant-fold to
+  `true`/`false` (PE-style value specialisation)
+- `is_a?(Constant)` with a known receiver type → constant-fold (type
+  specialisation)
+- Method overloads (typed + generic) are the code-generation analogue of
+  PE's residual program: the typed overload is the specialised version,
+  the generic is the residual
 
 ### How results flow into codegen
 
