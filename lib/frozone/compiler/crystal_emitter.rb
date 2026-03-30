@@ -739,6 +739,17 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def emit_if(node)
+        # Detect `unless` pattern: if cond; nil; else; body; end → unless cond; body; end
+        if node.then_node.is_a?(Ast::NilLiteral) && node.else_node
+          write "unless "
+          emit_truthy(node.pred_node)
+          emit_newline
+          indented { emit(node.else_node) }
+          emit_newline
+          emit_indent
+          write "end"
+          return
+        end
         write "if "
         emit_truthy(node.pred_node)
         emit_newline
