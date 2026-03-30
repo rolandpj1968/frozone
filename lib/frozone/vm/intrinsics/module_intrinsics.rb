@@ -5,8 +5,8 @@ module Frozone
     module Intrinsics
       # Frozone singleton value constants — shorthand for the three universal singletons.
       # Read as "Frozone nil/true/false" — complement to the fnil?/ftrue?/ffalse? predicates.
-      FNIL   = NilObject::NIL
-      FTRUE  = TrueObject::TRUE
+      FNIL = NilObject::NIL
+      FTRUE = TrueObject::TRUE
       FFALSE = FalseObject::FALSE
 
       class << self
@@ -1197,10 +1197,10 @@ module Frozone
           end
         end
 
-        ANON_REST    = :__anon_rest__
-        ANON_KWARGS  = :__anon_kwargs__
-        ANON_BLOCK   = :__anon_block__
-        ANON_REQ     = :__anon_req__
+        ANON_REST = :__anon_rest__
+        ANON_KWARGS = :__anon_kwargs__
+        ANON_BLOCK = :__anon_block__
+        ANON_REQ = :__anon_req__
 
         # Returns nil to indicate the parameter is anonymous (no name in output)
         # ANON_REST maps to :* for both methods and procs (anonymous splat shows as *)
@@ -2001,7 +2001,7 @@ module Frozone
           mods_obj.raw.reverse_each do |mod|
             # Must be a Module but not a Class (MRI allows Module subclass instances)
             is_module = mod.is_a?(ModuleObject) || object_is_a(nil, mod, Core::MODULE_CLASS).truthy?
-            is_class  = mod.is_a?(ClassObject)  || object_is_a(nil, mod, Core::CLASS_CLASS).truthy?
+            is_class = mod.is_a?(ClassObject)  || object_is_a(nil, mod, Core::CLASS_CLASS).truthy?
             if !is_module || is_class
               type = frozone_class_name(mod)
               raise FrozoneException.make(:TypeError, "wrong argument type #{type} (expected Module)")
@@ -2025,7 +2025,7 @@ module Frozone
           raise FrozoneException.make(:ArgumentError, "wrong number of arguments (given 0, expected 1+)") if mods_obj.raw.empty?
           mods_obj.raw.reverse_each do |mod|
             is_module = mod.is_a?(ModuleObject) || object_is_a(nil, mod, Core::MODULE_CLASS).truthy?
-            is_class  = mod.is_a?(ClassObject)  || object_is_a(nil, mod, Core::CLASS_CLASS).truthy?
+            is_class = mod.is_a?(ClassObject)  || object_is_a(nil, mod, Core::CLASS_CLASS).truthy?
             if !is_module || is_class
               type = frozone_class_name(mod)
               raise FrozoneException.make(:TypeError, "wrong argument type #{type} (expected Module)")

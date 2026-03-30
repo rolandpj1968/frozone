@@ -4,12 +4,12 @@ module Frozone
   module Vm
     module Intrinsics
       # Max value of a C `long` on 64-bit — guards conversions from Frozone Integer to native long.
-      LONG_MAX     = 2**63 - 1
+      LONG_MAX = 2**63 - 1
       # MRI's maximum string/array allocation size — prevents hangs for pathological inputs.
       MRI_MAX_SIZE = 2**30 - 1
       # Bounds used when checking if a value fits in a C `unsigned int` (e.g. file mode).
       UINT32_UPPER = 2**32     # first value that overflows unsigned 32-bit
-      INT32_LOWER  = -(2**31)  # minimum signed 32-bit value
+      INT32_LOWER = -(2**31)  # minimum signed 32-bit value
 
       class << self
         def frozone_class_name(obj) = obj.is_a?(ObjectObject) ? (obj.class_object&.name || "Object") : obj.class.name
@@ -863,10 +863,10 @@ module Frozone
           opts = fhash?(fl_options) ? fl_options.raw : {}
 
           scripts_obj = opts[n2f_sym(:scripts)]
-          argv_obj    = opts[n2f_sym(:argv)]
+          argv_obj = opts[n2f_sym(:argv)]
 
           scripts = farray?(scripts_obj) ? scripts_obj.raw.map { |s| fstr?(s) ? s.raw : s.to_s } : []
-          argv    = farray?(argv_obj)    ? argv_obj.raw.map    { |a| fstr?(a) ? a.raw : a.to_s } : []
+          argv = farray?(argv_obj)    ? argv_obj.raw.map    { |a| fstr?(a) ? a.raw : a.to_s } : []
 
           # Set Frozone-land ARGV for the inner script
           script_argv = scripts.empty? ? (argv[1..] || []) : []

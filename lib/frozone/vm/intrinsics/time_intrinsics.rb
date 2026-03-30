@@ -111,12 +111,12 @@ module Frozone
         end
 
         def time_mktime(context, year, month, day, hour, min, sec, usec, use_utc, isdst = FNIL)
-          y  = frozone_to_mri_numeric(year).to_i
+          y = frozone_to_mri_numeric(year).to_i
           mo = frozone_to_mri_numeric(month).to_i
-          d  = frozone_to_mri_numeric(day).to_i
-          h  = frozone_to_mri_numeric(hour).to_i
+          d = frozone_to_mri_numeric(day).to_i
+          h = frozone_to_mri_numeric(hour).to_i
           mi = frozone_to_mri_numeric(min).to_i
-          s  = frozone_to_mri_numeric(sec)   # Rational preserved
+          s = frozone_to_mri_numeric(sec)   # Rational preserved
           us = frozone_to_mri_numeric(usec)  # Rational preserved
           # 10-arg C-style form with isdst hint for DST disambiguation (local only).
           if !(ftrue?(use_utc) || use_utc == true) &&

@@ -384,7 +384,7 @@ module Frozone
         return Ast::NilLiteral::NIL if node.nil?
 
         type = node.type
-        c    = node.children
+        c = node.children
 
         case type
 
@@ -573,11 +573,11 @@ module Frozone
           # Use AttributeWrite so the expression evaluates to the assigned value.
           children = node.children
           recv_node = children[0]
-          val_node  = children[-1]
+          val_node = children[-1]
           idx_nodes = children[1..-2]
           receiver_ast = recv_node ? transform(recv_node) : nil
-          idx_asts     = idx_nodes.map { |a| transform(a) }
-          val_ast      = transform(val_node)
+          idx_asts = idx_nodes.map { |a| transform(a) }
+          val_ast = transform(val_node)
           Ast::AttributeWrite.new(:[]=, receiver_ast, idx_asts + [val_ast], {})
 
         when :block
@@ -601,7 +601,7 @@ module Frozone
 
         when :defs
           recv_node = c[0]
-          name      = c[1]
+          name = c[1]
           args_node = c[2]
           body_node = c[3]
           def_line = node.location&.line
@@ -857,10 +857,10 @@ module Frozone
                               {})
 
         when :iflipflop, :eflipflop
-          left_node  = c[0] ? transform(c[0]) : Ast::NilLiteral::NIL
+          left_node = c[0] ? transform(c[0]) : Ast::NilLiteral::NIL
           right_node = c[1] ? transform(c[1]) : Ast::NilLiteral::NIL
           exclude_end = (type == :eflipflop)
-          left_int  = c[0]&.type == :int
+          left_int = c[0]&.type == :int
           right_int = c[1]&.type == :int
           @prism_always_warnings << "integer literal in flip-flop" if left_int
           @prism_always_warnings << "integer literal in flip-flop" if right_int
@@ -971,7 +971,7 @@ module Frozone
 
       def transform_send(node)
         type = node.type  # :send or :csend
-        c    = node.children
+        c = node.children
         recv_node, name, *raw_args = c[0], c[1], *c[2..]
         safe_nav = (type == :csend)
 
@@ -1061,7 +1061,7 @@ module Frozone
         # Note: s(:block, s(:send, nil, :lambda), ...) is the `lambda { }` call form — must dispatch
         # to the `lambda` method (so it can be mocked/overridden), not directly create Ast::Lambda.
         is_arrow_lambda = send_node.type == :lambda
-        is_lambda_call  = (send_node.type == :send &&
+        is_lambda_call = (send_node.type == :send &&
                            send_node.children[0].nil? &&
                            send_node.children[1] == :lambda)
         is_lambda = is_arrow_lambda || is_lambda_call
@@ -1335,13 +1335,13 @@ module Frozone
       # Parse a :args node for method definitions.
       # Returns [required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param]
       def parse_method_args(args_node)
-        required    = []
-        optional    = []
-        rest        = nil
-        post        = []
-        req_kw      = []
-        opt_kw      = []
-        kw_rest     = nil
+        required = []
+        optional = []
+        rest = nil
+        post = []
+        req_kw = []
+        opt_kw = []
+        kw_rest = nil
         block_param = nil
 
         return [required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param] if args_node.nil?
@@ -1352,8 +1352,8 @@ module Frozone
                   :__forward_kwargs__, :__forward_block__]
         end
 
-        seen_optional   = false
-        seen_rest       = false
+        seen_optional = false
+        seen_rest = false
         seen_underscore = false
         # Helper: rename `_` params uniquely if duplicated
         unique_underscore = ->(name, arg) {
@@ -1415,8 +1415,8 @@ module Frozone
                           inner.children[0]
                         end
           when :forward_args, :forward_arg
-            rest      = :__forward_args__
-            kw_rest   = :__forward_kwargs__
+            rest = :__forward_args__
+            kw_rest = :__forward_kwargs__
             block_param = :__forward_block__
           when :anon_restarg
             seen_rest = true
@@ -1434,21 +1434,21 @@ module Frozone
       # Parse block/lambda args node.
       # Returns [required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, shadow, implicit_rest]
       def parse_block_args(args_node, is_lambda: false)
-        required     = []
-        optional     = []
-        rest         = nil
-        post         = []
-        req_kw       = []
-        opt_kw       = []
-        kw_rest      = nil
-        block_param  = nil
-        shadow       = []
+        required = []
+        optional = []
+        rest = nil
+        post = []
+        req_kw = []
+        opt_kw = []
+        kw_rest = nil
+        block_param = nil
+        shadow = []
         implicit_rest = false
 
         return [required, optional, rest, post, req_kw, opt_kw, kw_rest, block_param, shadow, implicit_rest] if args_node.nil?
 
         seen_optional = false
-        seen_rest     = false
+        seen_rest = false
         seen_param_names = {}
 
         args_to_parse =
@@ -1547,11 +1547,11 @@ module Frozone
 
       # Compute auto_splat for blocks (not lambdas)
       def compute_auto_splat(required, optional, rest, post, req_kw, opt_kw, implicit_rest: false)
-        is_empty      = required.empty? && optional.empty? && rest.nil? && post.empty? && !implicit_rest
+        is_empty = required.empty? && optional.empty? && rest.nil? && post.empty? && !implicit_rest
         is_single_req = required.length == 1 && optional.empty? && rest.nil? && post.empty? && !implicit_rest
         is_single_opt = required.empty? && optional.length == 1 && rest.nil? && post.empty? &&
                         req_kw.empty? && opt_kw.empty?
-        is_rest_only  = required.empty? && optional.empty? && rest && post.empty?
+        is_rest_only = required.empty? && optional.empty? && rest && post.empty?
         !is_empty && !is_single_req && !is_single_opt && !is_rest_only
       end
 
@@ -1580,10 +1580,10 @@ module Frozone
       # Parse call args (positional, keyword, splat, block_pass) from raw arg nodes
       # Returns [arg_nodes, kw_args, kw_splat_nodes, block_node]
       def parse_call_args(raw_args)
-        arg_nodes   = []
-        kw_args     = {}
-        kw_splats   = []
-        block_node  = nil
+        arg_nodes = []
+        kw_args = {}
+        kw_splats = []
+        block_node = nil
         has_forwarding = false
 
         raw_args.each do |arg|
@@ -1662,8 +1662,8 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def parse_multi_target_param(mlhs_node)
-        names  = []
-        rest   = nil
+        names = []
+        rest = nil
         rights = []
 
         children = mlhs_node.children
@@ -1786,27 +1786,27 @@ module Frozone
         case target_node.type
         when :lvasgn
           name = target_node.children[0]
-          d    = @scope_chain.register_write(name)
+          d = @scope_chain.register_write(name)
           read = Ast::LocalVariableRead.new(name, d)
-          rhs  = Ast::MethodCall.new(op, read, [transform(value_node)], {})
+          rhs = Ast::MethodCall.new(op, read, [transform(value_node)], {})
           Ast::LocalVariableWrite.new(name, d, rhs)
 
         when :ivasgn
           name = target_node.children[0]
           read = Ast::InstanceVariableRead.new(name)
-          rhs  = Ast::MethodCall.new(op, read, [transform(value_node)], {})
+          rhs = Ast::MethodCall.new(op, read, [transform(value_node)], {})
           Ast::InstanceVariableWrite.new(name, rhs)
 
         when :cvasgn
           name = target_node.children[0]
           read = Ast::ClassVariableRead.new(name)
-          rhs  = Ast::MethodCall.new(op, read, [transform(value_node)], {})
+          rhs = Ast::MethodCall.new(op, read, [transform(value_node)], {})
           Ast::ClassVariableWrite.new(name, rhs)
 
         when :gvasgn
           name = target_node.children[0]
           read = Ast::GlobalVariableRead.new(name)
-          rhs  = Ast::MethodCall.new(op, read, [transform(value_node)], {})
+          rhs = Ast::MethodCall.new(op, read, [transform(value_node)], {})
           Ast::GlobalVariableWrite.new(name, rhs)
 
         when :casgn
@@ -1814,7 +1814,7 @@ module Frozone
           name = target_node.children[1]
           if parent.nil? || parent.type == :cbase
             read = Ast::ConstantRead.new(name)
-            rhs  = Ast::MethodCall.new(op, read, [transform(value_node)], {})
+            rhs = Ast::MethodCall.new(op, read, [transform(value_node)], {})
             Ast::ConstantWrite.new(name, rhs)
           else
             # Use ConstantPathOperatorWrite so parent is evaluated only once.
@@ -1838,7 +1838,7 @@ module Frozone
             val_node = transform(value_node)
             Ast::IndexOperatorWrite.new(op, receiver_ast, index_arg_nodes, val_node)
           else
-            read_name  = mname
+            read_name = mname
             write_name = :"#{mname}="
             val_node = transform(value_node)
             Ast::CallOperatorWrite.new(read_name, write_name, op, receiver_ast, val_node, safe_nav: safe_nav)
@@ -1857,8 +1857,8 @@ module Frozone
         case target_node.type
         when :lvasgn
           name = target_node.children[0]
-          d    = @scope_chain.register_write(name)
-          read  = Ast::LocalVariableRead.new(name, d)
+          d = @scope_chain.register_write(name)
+          read = Ast::LocalVariableRead.new(name, d)
           write = Ast::LocalVariableWrite.new(name, d, transform(value_node))
           Ast::Or.new(read, write)
 
@@ -1916,8 +1916,8 @@ module Frozone
         case target_node.type
         when :lvasgn
           name = target_node.children[0]
-          d    = @scope_chain.register_write(name)
-          read  = Ast::LocalVariableRead.new(name, d)
+          d = @scope_chain.register_write(name)
+          read = Ast::LocalVariableRead.new(name, d)
           write = Ast::LocalVariableWrite.new(name, d, transform(value_node))
           Ast::And.new(read, write)
 
@@ -1975,9 +1975,9 @@ module Frozone
       def transform_case(node)
         c = node.children
         subject_node = c[0]
-        subject_ast  = subject_node ? transform(subject_node) : nil
+        subject_ast = subject_node ? transform(subject_node) : nil
 
-        whens    = []
+        whens = []
         else_ast = nil
         # Track seen condition sources for duplicate detection (verbose warning)
         seen_cond_lines = {}
@@ -1999,7 +1999,7 @@ module Frozone
               transform(cnd)
             end
             body_node = child.children.last
-            body_ast  = body_node.nil? ? Ast::NilLiteral::NIL : transform(body_node)
+            body_ast = body_node.nil? ? Ast::NilLiteral::NIL : transform(body_node)
             whens << Ast::Case::When.new(conds, body_ast)
           else
             # else branch
@@ -2020,7 +2020,7 @@ module Frozone
         c = rescue_node.children
         # c[0] = body, c[1..] = resbodies except last which is the else
         body_node = c[0]
-        body_ast  = transform(body_node)
+        body_ast = transform(body_node)
 
         rescue_clauses = []
         else_ast = nil
@@ -2070,8 +2070,8 @@ module Frozone
             exc_node.children.map { |e| transform(e) }
           end
 
-        var_name   = nil
-        var_depth  = nil
+        var_name = nil
+        var_depth = nil
         assign_node = nil
 
         if var_node
@@ -2079,7 +2079,7 @@ module Frozone
           when :lvasgn
             name = var_node.children[0]
             d = @scope_chain.register_write(name)
-            var_name  = name
+            var_name = name
             var_depth = d
           when :ivasgn
             assign_node = Ast::InstanceVariableWrite.new(var_node.children[0], Ast::NilLiteral::NIL)
@@ -2274,8 +2274,8 @@ module Frozone
           # Constant assignment: children = [scope, name] (scope nil = unscoped)
           [:constant, node.children[1]]
         when :mlhs
-          lefts  = []
-          rest   = nil
+          lefts = []
+          rest = nil
           rights = []
           seen_splat = false
 
@@ -2331,7 +2331,7 @@ module Frozone
 
       def extract_const_name(const_node)
         parent = const_node.children[0]
-        name   = const_node.children[1]
+        name = const_node.children[1]
         if parent.nil?
           [name, nil]
         elsif parent.type == :cbase

@@ -58,7 +58,7 @@ module Frozone
         # - always: integer_in_flip_flop (default level)
         # - verbose only: void_statement, duplicated_when_clause
         # Skip: duplicated_hash_key (handled by hash_literal.rb), unused_local_variable (noisy)
-        always_warn_types  = %i[integer_in_flip_flop literal_in_condition_default]
+        always_warn_types = %i[integer_in_flip_flop literal_in_condition_default]
         verbose_warn_types = %i[void_statement duplicated_when_clause]
         @prism_always_warnings  = result.warnings.select { |w| always_warn_types.include?(w.type) }.map(&:message)
         @prism_verbose_warnings = result.warnings
@@ -139,17 +139,17 @@ module Frozone
           )
 
         when Prism::ArrayPatternNode
-          const    = prism_pat.constant ? transform(prism_pat.constant) : nil
-          reqs     = prism_pat.requireds.map { |r| transform_pattern(r) }
-          rest     = prism_pat.rest
-          posts    = prism_pat.posts.map { |p| transform_pattern(p) }
+          const = prism_pat.constant ? transform(prism_pat.constant) : nil
+          reqs = prism_pat.requireds.map { |r| transform_pattern(r) }
+          rest = prism_pat.rest
+          posts = prism_pat.posts.map { |p| transform_pattern(p) }
           has_rest = !rest.nil?  # includes ImplicitRestNode (trailing comma)
           rest_name, rest_depth = extract_splat_binding(rest)
           Ast::Pattern::Array.new(const, reqs, has_rest, rest_name, rest_depth, posts)
 
         when Prism::FindPatternNode
           const = prism_pat.constant ? transform(prism_pat.constant) : nil
-          reqs  = prism_pat.requireds.map { |r| transform_pattern(r) }
+          reqs = prism_pat.requireds.map { |r| transform_pattern(r) }
           left_name, left_depth   = extract_splat_binding(prism_pat.left)
           right_name, right_depth = extract_splat_binding(prism_pat.right)
           Ast::Pattern::Find.new(const, left_name, left_depth, reqs, right_name, right_depth)
@@ -210,14 +210,14 @@ module Frozone
 
       def transform_in_node(in_node)
         prism_pat = in_node.pattern
-        body      = in_node.statements.nil? ? nil : transform(in_node.statements)
+        body = in_node.statements.nil? ? nil : transform(in_node.statements)
 
         # Guard clause: the pattern is wrapped in an IfNode
         if prism_pat.is_a?(Prism::IfNode)
-          guard   = transform(prism_pat.predicate)
+          guard = transform(prism_pat.predicate)
           pattern = transform_pattern(prism_pat.statements.body.first)
         else
-          guard   = nil
+          guard = nil
           pattern = transform_pattern(prism_pat)
         end
 
@@ -282,13 +282,13 @@ module Frozone
       def parse_multi_target_param(node)
         # Returns {names: [...], rest: name_or_nil, rights: [...]}
         # Each element of names/rights is either a Symbol or a nested Hash (for nested destructuring).
-        names  = node.lefts.map { |n|
+        names = node.lefts.map { |n|
           case n
           when Prism::RequiredParameterNode then n.name
           when Prism::MultiTargetNode       then parse_multi_target_param(n)
           end
         }.compact
-        rest   = case node.rest
+        rest = case node.rest
                  when Prism::RestParameterNode then node.rest.name || :__anon_rest__
                  when Prism::SplatNode then node.rest.expression.is_a?(Prism::RequiredParameterNode) ? node.rest.expression.name : :__anon_rest__
                  else nil
@@ -424,10 +424,10 @@ module Frozone
         if auto_splat
           no_req_kw = required_kw_params.empty? && optional_kw_params.empty?
           no_post = post_params.empty?
-          is_empty        = required_params.empty? && optional_params.empty? && rest_param.nil? && !implicit_rest && no_post
-          is_single_req   = required_params.length == 1 && optional_params.empty? && rest_param.nil? && !implicit_rest && no_post
-          is_single_opt   = required_params.empty? && optional_params.length == 1 && rest_param.nil? && !implicit_rest && no_post && no_req_kw
-          is_rest_only    = required_params.empty? && optional_params.empty? && rest_param && !implicit_rest && no_post
+          is_empty = required_params.empty? && optional_params.empty? && rest_param.nil? && !implicit_rest && no_post
+          is_single_req = required_params.length == 1 && optional_params.empty? && rest_param.nil? && !implicit_rest && no_post
+          is_single_opt = required_params.empty? && optional_params.length == 1 && rest_param.nil? && !implicit_rest && no_post && no_req_kw
+          is_rest_only = required_params.empty? && optional_params.empty? && rest_param && !implicit_rest && no_post
           auto_splat = !is_empty && !is_single_req && !is_single_opt && !is_rest_only
         end
 
@@ -520,9 +520,9 @@ module Frozone
           unless parameters.keyword_rest.nil?
             if parameters.keyword_rest.is_a?(Prism::ForwardingParameterNode)
               # def foo(...) — capture all args, kwargs, block for forwarding
-              rest_param     = :__forward_args__
-              kw_rest_param  = :__forward_kwargs__
-              block_param    = :__forward_block__
+              rest_param = :__forward_args__
+              kw_rest_param = :__forward_kwargs__
+              block_param = :__forward_block__
             elsif parameters.keyword_rest.is_a?(Prism::NoKeywordsParameterNode)
               # **nil disallows all keyword arguments
               kw_rest_param = :__no_kwargs__
@@ -680,7 +680,7 @@ module Frozone
         when Prism::UnlessNode
           # unless cond; body; else alt; end  ==  if cond; alt; else body; end
           body = prism_node.statements.nil? ? Ast::NilLiteral::NIL : transform(prism_node.statements)
-          alt  = prism_node.consequent.nil? ? Ast::NilLiteral::NIL : transform(prism_node.consequent)
+          alt = prism_node.consequent.nil? ? Ast::NilLiteral::NIL : transform(prism_node.consequent)
           Ast::If.new(transform(prism_node.predicate), alt, body)
 
         when Prism::CaseNode
@@ -695,7 +695,7 @@ module Frozone
 
         when Prism::CaseMatchNode
           predicate = transform(prism_node.predicate)
-          arms      = prism_node.conditions.map { |in_node| transform_in_node(in_node) }
+          arms = prism_node.conditions.map { |in_node| transform_in_node(in_node) }
           else_node = prism_node.else_clause.nil? ? nil : transform(prism_node.else_clause)
           Ast::PatternMatch.new(predicate, arms, else_node)
 
@@ -742,22 +742,22 @@ module Frozone
         when Prism::LocalVariableOperatorWriteNode
           # i += rhs  →  i = i.op(rhs)
           read = Ast::LocalVariableRead.new(prism_node.name, prism_node.depth)
-          rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
+          rhs = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
           Ast::LocalVariableWrite.new(prism_node.name, prism_node.depth, rhs)
 
         when Prism::InstanceVariableOperatorWriteNode
           read = Ast::InstanceVariableRead.new(prism_node.name)
-          rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
+          rhs = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
           Ast::InstanceVariableWrite.new(prism_node.name, rhs)
 
         when Prism::GlobalVariableOperatorWriteNode
           read = Ast::GlobalVariableRead.new(prism_node.name)
-          rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
+          rhs = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
           Ast::GlobalVariableWrite.new(prism_node.name, rhs)
 
         when Prism::ConstantOperatorWriteNode
           read = Ast::ConstantRead.new(prism_node.name)
-          rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
+          rhs = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
           Ast::ConstantWrite.new(prism_node.name, rhs)
 
         when Prism::InstanceVariableReadNode
@@ -949,7 +949,7 @@ module Frozone
 
         when Prism::YieldNode
           arg_nodes = []
-          kw_args   = {}
+          kw_args = {}
           unless prism_node.arguments.nil?
             prism_node.arguments.arguments.each do |argument|
               case argument
@@ -1017,7 +1017,7 @@ module Frozone
             if rc.reference.nil?
               # no-op
             elsif rc.reference.is_a?(Prism::LocalVariableTargetNode)
-              var_name  = rc.reference.name
+              var_name = rc.reference.name
               var_depth = rc.reference.depth
             elsif rc.reference.is_a?(Prism::InstanceVariableTargetNode)
               assign_node = Ast::InstanceVariableWrite.new(rc.reference.name, Ast::NilLiteral::NIL)
@@ -1041,7 +1041,7 @@ module Frozone
             rescue_clauses << Ast::RescueClause.new(exc_nodes, var_name, var_depth, rc_body, assign_node: assign_node)
             rc = rc.consequent
           end
-          else_node   = prism_node.else_clause.nil?   ? nil : transform(prism_node.else_clause)
+          else_node = prism_node.else_clause.nil?   ? nil : transform(prism_node.else_clause)
           ensure_node = prism_node.ensure_clause.nil? ? nil : transform(prism_node.ensure_clause.statements)
           Ast::Rescue.new(body, rescue_clauses, else_node, ensure_node)
 
@@ -1164,32 +1164,32 @@ module Frozone
           Ast::Super.new([], block_node, forwarding: true)
 
         when Prism::LocalVariableOrWriteNode
-          read  = Ast::LocalVariableRead.new(prism_node.name, prism_node.depth)
+          read = Ast::LocalVariableRead.new(prism_node.name, prism_node.depth)
           write = Ast::LocalVariableWrite.new(prism_node.name, prism_node.depth, transform(prism_node.value))
           Ast::Or.new(read, write)
 
         when Prism::LocalVariableAndWriteNode
-          read  = Ast::LocalVariableRead.new(prism_node.name, prism_node.depth)
+          read = Ast::LocalVariableRead.new(prism_node.name, prism_node.depth)
           write = Ast::LocalVariableWrite.new(prism_node.name, prism_node.depth, transform(prism_node.value))
           Ast::And.new(read, write)
 
         when Prism::InstanceVariableOrWriteNode
-          read  = Ast::InstanceVariableRead.new(prism_node.name)
+          read = Ast::InstanceVariableRead.new(prism_node.name)
           write = Ast::InstanceVariableWrite.new(prism_node.name, transform(prism_node.value))
           Ast::Or.new(read, write)
 
         when Prism::InstanceVariableAndWriteNode
-          read  = Ast::InstanceVariableRead.new(prism_node.name)
+          read = Ast::InstanceVariableRead.new(prism_node.name)
           write = Ast::InstanceVariableWrite.new(prism_node.name, transform(prism_node.value))
           Ast::And.new(read, write)
 
         when Prism::GlobalVariableOrWriteNode
-          read  = Ast::GlobalVariableRead.new(prism_node.name, no_warn: true)
+          read = Ast::GlobalVariableRead.new(prism_node.name, no_warn: true)
           write = Ast::GlobalVariableWrite.new(prism_node.name, transform(prism_node.value))
           Ast::Or.new(read, write)
 
         when Prism::GlobalVariableAndWriteNode
-          read  = Ast::GlobalVariableRead.new(prism_node.name, no_warn: true)
+          read = Ast::GlobalVariableRead.new(prism_node.name, no_warn: true)
           write = Ast::GlobalVariableWrite.new(prism_node.name, transform(prism_node.value))
           Ast::And.new(read, write)
 
@@ -1232,16 +1232,16 @@ module Frozone
 
         when Prism::ClassVariableOperatorWriteNode
           read = Ast::ClassVariableRead.new(prism_node.name)
-          rhs  = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
+          rhs = Ast::MethodCall.new(prism_node.operator, read, [transform(prism_node.value)], {})
           Ast::ClassVariableWrite.new(prism_node.name, rhs)
 
         when Prism::ClassVariableOrWriteNode
-          read  = Ast::ClassVariableRead.new(prism_node.name)
+          read = Ast::ClassVariableRead.new(prism_node.name)
           write = Ast::ClassVariableWrite.new(prism_node.name, transform(prism_node.value))
           Ast::Or.new(read, write)
 
         when Prism::ClassVariableAndWriteNode
-          read  = Ast::ClassVariableRead.new(prism_node.name)
+          read = Ast::ClassVariableRead.new(prism_node.name)
           write = Ast::ClassVariableWrite.new(prism_node.name, transform(prism_node.value))
           Ast::And.new(read, write)
 
@@ -1275,7 +1275,7 @@ module Frozone
 
         when Prism::RangeNode
           begin_node = prism_node.left.nil? ? nil : transform(prism_node.left)
-          end_node   = prism_node.right.nil? ? nil : transform(prism_node.right)
+          end_node = prism_node.right.nil? ? nil : transform(prism_node.right)
           Ast::RangeLiteral.new(begin_node, end_node, prism_node.exclude_end?)
 
         when Prism::SourceFileNode
@@ -1314,7 +1314,7 @@ module Frozone
 
         when Prism::ConstantPathOperatorWriteNode
           parent_node = transform(prism_node.target.parent)
-          child_name  = prism_node.target.child.name
+          child_name = prism_node.target.child.name
           Ast::ConstantPathOperatorWrite.new(parent_node, child_name, prism_node.operator, transform(prism_node.value))
 
         when Prism::CallOrWriteNode

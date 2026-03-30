@@ -41,6 +41,25 @@ def <<(n)
 end
 ```
 
+### Use `tap` for build/modify-and-return
+Any pattern that creates or mutates an object then returns it — use `tap` to eliminate the temporary variable and trailing return:
+
+```ruby
+# Good — tap eliminates the temporary
+def build_map = {}.tap { |h| items.each { |i| h[i.key] = i.value } }
+def clear_elements = tap { @elements.clear }
+def freeze = tap { @frozen = true }
+
+# Bad — unnecessary temporary, trailing return
+def build_map
+  h = {}
+  items.each { |i| h[key] = i.value }
+  h
+end
+```
+
+This applies to methods and blocks alike. If the last line of a block is just returning the variable you've been building, `tap` is cleaner.
+
 ### Section structure
 Each class/module should be ordered: constants → `class << self` block (class methods) → `initialize` → public instance methods → `private` → private instance methods. Use `class << self` blocks for class methods, not `def self.method`:
 

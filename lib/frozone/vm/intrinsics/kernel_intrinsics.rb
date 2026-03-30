@@ -119,8 +119,8 @@ module Frozone
         def kernel_raise(context, _receiver, msg = FNIL, message_arg = FNIL, backtrace_arg = FNIL, cause_arg = FNIL)
           current_exc = GLOBALS[:"$!"]
           no_cause_sentinel = fsym?(cause_arg) && cause_arg.raw == :__raise_no_cause__
-          cause_was_given  = !no_cause_sentinel  # true if cause: was explicitly passed (even as nil)
-          explicit_cause   = cause_was_given && !fnil?(cause_arg)
+          cause_was_given = !no_cause_sentinel  # true if cause: was explicitly passed (even as nil)
+          explicit_cause = cause_was_given && !fnil?(cause_arg)
 
           # Distinguish bare `raise` (no args → :__raise_no_arg__ sentinel) from `raise(nil)` (explicit nil → TypeError)
           no_arg_sentinel = fsym?(msg) && msg.raw == :__raise_no_arg__
@@ -155,11 +155,11 @@ module Frozone
         def caller_slice(entries, start_obj, length_obj)
           if start_obj.is_a?(RangeObject)
             r_begin = fnil?(start_obj.begin_val) ? 0 : start_obj.begin_val.raw
-            r_end   = fnil?(start_obj.end_val)   ? nil : start_obj.end_val.raw
+            r_end = fnil?(start_obj.end_val)   ? nil : start_obj.end_val.raw
             mri_range = r_end.nil? ? (r_begin..) : (start_obj.exclusive? ? (r_begin...r_end) : (r_begin..r_end))
             entries[mri_range]
           else
-            start  = fint?(start_obj)  ? start_obj.raw : 1
+            start = fint?(start_obj)  ? start_obj.raw : 1
             length = fint?(length_obj) ? length_obj.raw : nil
             length ? entries[start, length] : entries[start..]
           end
@@ -431,7 +431,7 @@ module Frozone
         end
 
         def process_wait(_, _receiver, pid_obj = FNIL, flags_obj = FNIL)
-          pid   = fint?(pid_obj)   ? pid_obj.raw   : -1
+          pid = fint?(pid_obj)   ? pid_obj.raw   : -1
           flags = fint?(flags_obj) ? flags_obj.raw :  0
           reraise(::Errno::ECHILD) do
             result_pid = ::Process.wait(pid, flags)
@@ -441,7 +441,7 @@ module Frozone
         end
 
         def process_wait2(_, _receiver, pid_obj = FNIL, flags_obj = FNIL)
-          pid   = fint?(pid_obj)   ? pid_obj.raw   : -1
+          pid = fint?(pid_obj)   ? pid_obj.raw   : -1
           flags = fint?(flags_obj) ? flags_obj.raw :  0
           reraise(::Errno::ECHILD) do
             result_pid, status = ::Process.wait2(pid, flags)

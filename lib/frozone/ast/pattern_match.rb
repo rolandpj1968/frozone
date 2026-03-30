@@ -26,17 +26,17 @@ module Frozone
     # Internal pattern data structures (plain Ruby structs, not AST nodes)
     # --------------------------------------------------------------------------
     module Pattern
-      Literal     = Struct.new(:node)                                             # evaluatable node matched via ===
-      LocalBind   = Struct.new(:name, :depth)                                    # bare lvar — always matches, binds
-      Wildcard    = Struct.new(:keyword_singleton)                                # _ (anonymous)
-      Pin         = Struct.new(:node)                                             # ^expr (node is Ast::Node)
+      Literal = Struct.new(:node)                                             # evaluatable node matched via ===
+      LocalBind = Struct.new(:name, :depth)                                    # bare lvar — always matches, binds
+      Wildcard = Struct.new(:keyword_singleton)                                # _ (anonymous)
+      Pin = Struct.new(:node)                                             # ^expr (node is Ast::Node)
       Alternation = Struct.new(:left, :right)
-      Capture     = Struct.new(:sub_pattern, :name, :depth)                      # sub_pattern => var
+      Capture = Struct.new(:sub_pattern, :name, :depth)                      # sub_pattern => var
       # constant is an Ast::Node or nil; has_rest=true if * present (even unnamed)
-      Array       = Struct.new(:constant, :requireds, :has_rest, :rest_name, :rest_depth, :posts)
-      Find        = Struct.new(:constant, :left_name, :left_depth, :requireds, :right_name, :right_depth)
+      Array = Struct.new(:constant, :requireds, :has_rest, :rest_name, :rest_depth, :posts)
+      Find = Struct.new(:constant, :left_name, :left_depth, :requireds, :right_name, :right_depth)
       # rest_name=:__no_extra_keys__ means **nil (reject extra keys)
-      Hash        = Struct.new(:constant, :pairs, :rest_name, :rest_depth)       # pairs=[{key:, pattern:}]
+      Hash = Struct.new(:constant, :pairs, :rest_name, :rest_depth)       # pairs=[{key:, pattern:}]
 
       WILDCARD = Wildcard.new(:_)
     end
@@ -114,7 +114,7 @@ module Frozone
         arr = call_deconstruct(value, context, dcache)
         return false if arr.nil?
 
-        n_req  = pattern.requireds.length
+        n_req = pattern.requireds.length
         n_post = pattern.posts.length
 
         len_obj = arr.dispatch(context, :length, [], {}, nil, private_ok: true)
@@ -135,7 +135,7 @@ module Frozone
 
         # Match posts (from the right)
         n_post.times do |i|
-          idx  = arr_len - n_post + i
+          idx = arr_len - n_post + i
           elem = arr.dispatch(context, :[], [Vm::IntegerObject.new(idx)], {}, nil, private_ok: true)
           return false unless pattern_match?(pattern.posts[i], elem, context, bindings, dcache)
         end
@@ -163,7 +163,7 @@ module Frozone
         len_obj = arr.dispatch(context, :length, [], {}, nil, private_ok: true)
         return false unless len_obj.is_a?(Vm::IntegerObject)
         arr_len = len_obj.raw
-        n_req   = pattern.requireds.length
+        n_req = pattern.requireds.length
         return false if arr_len < n_req
 
         (0..(arr_len - n_req)).each do |start|
@@ -200,7 +200,7 @@ module Frozone
 
         # Build keys list for deconstruct_keys
         keys_list = pattern.pairs.map { |pair| Vm::SymbolObject.from(pair[:key]) }
-        keys_arr  = Vm::ArrayObject.new(keys_list)
+        keys_arr = Vm::ArrayObject.new(keys_list)
 
         has_rest = !pattern.rest_name.nil?
         # Named **rest passes nil (get all keys); unnamed ** passes the key list
@@ -294,7 +294,7 @@ module Frozone
       def with_temp_bindings(bindings, context)
         saved = bindings.map do |(name, depth), val|
           frame = context.frame.frame_at_depth(depth)
-          old   = frame.get_local(name)  # nil if not set — acceptable since locals default to nil
+          old = frame.get_local(name)  # nil if not set — acceptable since locals default to nil
           frame.set_local(name, val)
           [[name, depth], old]
         end.to_h
@@ -341,7 +341,7 @@ module Frozone
 
       def evaluate(context)
         subject = @predicate.evaluate(context)
-        dcache  = {}
+        dcache = {}
 
         @arms.each do |arm|
           bindings = {}
@@ -381,7 +381,7 @@ module Frozone
       def to_s = "match_required(#{@value_node})"
 
       def evaluate(context)
-        value    = @value_node.evaluate(context)
+        value = @value_node.evaluate(context)
         bindings = {}
 
         unless pattern_match?(@pattern, value, context, bindings)
@@ -408,7 +408,7 @@ module Frozone
       def to_s = "match_predicate(#{@value_node})"
 
       def evaluate(context)
-        value    = @value_node.evaluate(context)
+        value = @value_node.evaluate(context)
         bindings = {}
 
         if pattern_match?(@pattern, value, context, bindings)

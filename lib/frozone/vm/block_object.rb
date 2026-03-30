@@ -169,9 +169,9 @@ module Frozone
       private
 
       def populate_params(context, frame, args, as_method: false)
-        n_req  = @required_params.length
+        n_req = @required_params.length
         n_post = @post_params.length
-        n_opt  = @optional_params.length
+        n_opt = @optional_params.length
 
         if @is_lambda || as_method
           # Lambdas and define_method blocks have strict argument checking
@@ -220,7 +220,7 @@ module Frozone
         unless @rest_param.nil?
           filled_opt = [n_middle, n_opt].min
           rest_start = n_req + filled_opt
-          rest_end   = post_start - 1
+          rest_end = post_start - 1
           rest_items = rest_end >= rest_start ? (args[rest_start..rest_end] || []) : []
           frame.set_local(@rest_param, ArrayObject.new(rest_items))
         end
@@ -260,12 +260,12 @@ module Frozone
         if param.is_a?(Hash)
           # Destructuring: |(a, b)| or |(a, *b, c)| — possibly nested
           sub_args = coerce_to_array(context, val)
-          sub_names  = param[:names]
-          sub_rest   = param[:rest]
+          sub_names = param[:names]
+          sub_rest = param[:rest]
           sub_rights = param[:rights] || []
           sub_names.each_with_index  { |n, j| assign_param(context, frame, n, sub_args.fetch(j, NilObject::NIL)) }
           if sub_rest
-            rest_end  = sub_rights.length > 0 ? -(sub_rights.length + 1) : -1
+            rest_end = sub_rights.length > 0 ? -(sub_rights.length + 1) : -1
             rest_vals = sub_args[sub_names.length..rest_end] || []
             frame.set_local(sub_rest, ArrayObject.new(rest_vals))
           end

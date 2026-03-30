@@ -20,7 +20,7 @@ module Frozone
         current_method = mf.current_method
         raise "super called outside of method" if current_method.nil?
 
-        method_name    = current_method.name
+        method_name = current_method.name
         defining_class = current_method.scopes.last
 
         receiver = context.frame.the_self
@@ -39,7 +39,7 @@ module Frozone
           super_method = klass.lookup_method(method_name)
         elsif receiver.is_a?(Vm::ClassObject)
           # Class method: search in singleton class hierarchy
-          klass  = receiver.singleton_class
+          klass = receiver.singleton_class
           # Regular `def self.foo` in class body uses scopes=[Foo] (ClassObject, not singleton),
           # so origin = Foo.singleton_class (look after Foo's singleton class in its MRO).
           # `define_singleton_method` uses scopes=[Foo.singleton_class] (already a singleton),
@@ -55,8 +55,8 @@ module Frozone
           # (or an unbound method from a foreign module bound via UnboundMethod#bind).
           class_ancs = receiver.class_object.ancestors_list
           if class_ancs.any? { |a| a.equal?(defining_class) }
-            klass        = receiver.class_object
-            origin       = defining_class
+            klass = receiver.class_object
+            origin = defining_class
             super_method = klass.lookup_method_after(method_name, origin)
           else
             # Foreign-module bind: defining_class is not in receiver's hierarchy at all.

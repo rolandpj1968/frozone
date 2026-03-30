@@ -42,15 +42,15 @@ module Frozone
       def run
         load_core
 
-        ruby_version     = StringObject.new('4.0.1')
-        ruby_platform    = StringObject.new(RUBY_PLATFORM)
-        ruby_engine      = StringObject.new('ruby')
+        ruby_version = StringObject.new('4.0.1')
+        ruby_platform = StringObject.new(RUBY_PLATFORM)
+        ruby_engine = StringObject.new('ruby')
         ruby_eng_version = StringObject.new('4.0.1')
-        ruby_patchlevel  = IntegerObject.new(0)
-        ruby_revision    = StringObject.new('0')
-        ruby_release     = StringObject.new('2025-01-01')
+        ruby_patchlevel = IntegerObject.new(0)
+        ruby_revision = StringObject.new('0')
+        ruby_release = StringObject.new('2025-01-01')
         ruby_description = StringObject.new("frozone 4.0.1 (#{RUBY_PLATFORM})")
-        ruby_copyright   = StringObject.new('frozone - Copyright (C) 2024 frozone')
+        ruby_copyright = StringObject.new('frozone - Copyright (C) 2024 frozone')
         Core::OBJECT_CLASS.set_constant(:RUBY_VERSION,        ruby_version)
         Core::OBJECT_CLASS.set_constant(:RUBY_PLATFORM,       ruby_platform)
         Core::OBJECT_CLASS.set_constant(:RUBY_ENGINE,         ruby_engine)
@@ -307,23 +307,23 @@ module Frozone
         stringio_path = $LOAD_PATH.map { |d| File.join(d, 'stringio') }.find { |f| File.exist?("#{f}.so") || File.exist?("#{f}.rb") } || 'stringio'
         GLOBALS[:"$LOADED_FEATURES"] = ArrayObject.new([StringObject.new(pp_path), StringObject.new(stringio_path)])
         GLOBALS[:"$\""] = GLOBALS[:"$LOADED_FEATURES"]  # $" is alias for $LOADED_FEATURES
-        GLOBALS[:"$/"]               = StringObject.new("\n")
-        GLOBALS[:"$\\"]              = NilObject::NIL
-        GLOBALS[:"$,"]               = NilObject::NIL
-        GLOBALS[:"$;"]               = NilObject::NIL
-        GLOBALS[:"$."]               = IntegerObject.new(0)
-        GLOBALS[:"$$"]               = IntegerObject.new(Process.pid)
-        GLOBALS[:"$VERBOSE"]         = FalseObject::FALSE
-        GLOBALS[:"$DEBUG"]           = FalseObject::FALSE
-        GLOBALS[:"$!"]               = NilObject::NIL
+        GLOBALS[:"$/"] = StringObject.new("\n")
+        GLOBALS[:"$\\"] = NilObject::NIL
+        GLOBALS[:"$,"] = NilObject::NIL
+        GLOBALS[:"$;"] = NilObject::NIL
+        GLOBALS[:"$."] = IntegerObject.new(0)
+        GLOBALS[:"$$"] = IntegerObject.new(Process.pid)
+        GLOBALS[:"$VERBOSE"] = FalseObject::FALSE
+        GLOBALS[:"$DEBUG"] = FalseObject::FALSE
+        GLOBALS[:"$!"] = NilObject::NIL
         io_class = Core.io_class
-        GLOBALS[:"$stdout"]          = IOObject.new($stdout, io_class)
-        GLOBALS[:"$stderr"]          = IOObject.new($stderr, io_class)
-        GLOBALS[:"$stdin"]           = IOObject.new($stdin,  io_class)
-        GLOBALS[:"$>"]               = GLOBALS[:"$stdout"]
-        GLOBALS[:"$<"]               = GLOBALS[:"$stdin"]
-        GLOBALS[:"$0"]               = StringObject.new($PROGRAM_NAME.to_s)
-        GLOBALS[:"$PROGRAM_NAME"]    = GLOBALS[:"$0"]
+        GLOBALS[:"$stdout"] = IOObject.new($stdout, io_class)
+        GLOBALS[:"$stderr"] = IOObject.new($stderr, io_class)
+        GLOBALS[:"$stdin"] = IOObject.new($stdin,  io_class)
+        GLOBALS[:"$>"] = GLOBALS[:"$stdout"]
+        GLOBALS[:"$<"] = GLOBALS[:"$stdin"]
+        GLOBALS[:"$0"] = StringObject.new($PROGRAM_NAME.to_s)
+        GLOBALS[:"$PROGRAM_NAME"] = GLOBALS[:"$0"]
         setup_frozone_land
       end
 
@@ -336,8 +336,8 @@ module Frozone
       def setup_frozone_land
         # Pre-stub Frozone source files so the inner Frozone's require calls skip them.
         frozone_src = File.expand_path('..', __dir__)       # lib/frozone/
-        core_src    = File.expand_path('../../core', __dir__) # lib/core/
-        existing    = GLOBALS[:"$LOADED_FEATURES"].raw.map(&:raw)
+        core_src = File.expand_path('../../core', __dir__) # lib/core/
+        existing = GLOBALS[:"$LOADED_FEATURES"].raw.map(&:raw)
         $LOADED_FEATURES.each do |path|
           next unless (path.start_with?(frozone_src) || path.start_with?(core_src)) && path.end_with?('.rb')
           GLOBALS[:"$LOADED_FEATURES"].push(StringObject.new(path)) unless existing.include?(path)
@@ -347,7 +347,7 @@ module Frozone
         return if Core::OBJECT_CLASS.get_constant(:Frozone)
 
         frozone_mod = ModuleObject.new(:Frozone, nil)
-        vm_mod      = ModuleObject.new(:Vm, frozone_mod)
+        vm_mod = ModuleObject.new(:Vm, frozone_mod)
         frozone_mod.set_constant(:Vm, vm_mod)
         Core::OBJECT_CLASS.set_constant(:Frozone, frozone_mod)
 
@@ -362,7 +362,7 @@ module Frozone
         vm_mod.set_constant(:WqParser, ClassObject.new(:WqParser, vm_mod, Core::OBJECT_CLASS))
 
         # Vm#initialize(options = {}) — stores Frozone-land options hash.
-        init_body   = Ast::IntrinsicCall.new(:kernel_vm_initialize,
+        init_body = Ast::IntrinsicCall.new(:kernel_vm_initialize,
                                              [Ast::SelfLiteral::SELF,
                                               Ast::LocalVariableRead.new(:options, 0)])
         init_method = Method.new([vm_class], :initialize,
@@ -376,7 +376,7 @@ module Frozone
         vm_class.set_method(:initialize, init_method)
 
         # Vm#run — delegates to outer Frozone's MRI evaluator.
-        run_body   = Ast::IntrinsicCall.new(:kernel_run_vm, [Ast::SelfLiteral::SELF])
+        run_body = Ast::IntrinsicCall.new(:kernel_run_vm, [Ast::SelfLiteral::SELF])
         run_method = Method.new([vm_class], :run,
                                 [], [],
                                 nil, [],

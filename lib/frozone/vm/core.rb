@@ -50,8 +50,8 @@ module Frozone
       end
 
       # Trivial singleton classes — simpler to define here than bootstrap from hierarchy.rb
-      NIL_CLASS_CLASS   = define_class(:NilClass,   OBJECT_CLASS)
-      TRUE_CLASS_CLASS  = define_class(:TrueClass,  OBJECT_CLASS)
+      NIL_CLASS_CLASS = define_class(:NilClass,   OBJECT_CLASS)
+      TRUE_CLASS_CLASS = define_class(:TrueClass,  OBJECT_CLASS)
       FALSE_CLASS_CLASS = define_class(:FalseClass, OBJECT_CLASS)
 
       # Needed before any parsing happens (SymbolObject instances are created by the parser)
@@ -60,10 +60,10 @@ module Frozone
       # Defined here so VM objects can reference them as constants; hierarchy.rb adds module includes
       NUMERIC_CLASS = define_class(:Numeric, OBJECT_CLASS)
       INTEGER_CLASS = define_class(:Integer, NUMERIC_CLASS)
-      FLOAT_CLASS   = define_class(:Float,   NUMERIC_CLASS)
-      STRING_CLASS  = define_class(:String,  OBJECT_CLASS)
-      ARRAY_CLASS   = define_class(:Array,   OBJECT_CLASS)
-      HASH_CLASS    = define_class(:Hash,    OBJECT_CLASS)
+      FLOAT_CLASS = define_class(:Float,   NUMERIC_CLASS)
+      STRING_CLASS = define_class(:String,  OBJECT_CLASS)
+      ARRAY_CLASS = define_class(:Array,   OBJECT_CLASS)
+      HASH_CLASS = define_class(:Hash,    OBJECT_CLASS)
 
       # Refinement is a subclass of Module (refinement objects are Module instances with extra methods)
       REFINEMENT_CLASS = define_class(:Refinement, MODULE_CLASS)
