@@ -181,7 +181,7 @@ module Frozone
         recv = node.receiver_node
         return false unless recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == :Array
         return false unless (node.arg_nodes || []).size == 2
-        node.instance_variable_get(:@block_node).nil?
+        ivar(node, :block_node).nil?
       end
 
       # Walk body detecting uses of candidate array locals that would disqualify them.
@@ -217,7 +217,7 @@ module Frozone
               scan_array_uses(a, candidates, escaped)
             end
           end
-          blk = node.instance_variable_get(:@block_node)
+          blk = ivar(node, :block_node)
           scan_array_uses(blk&.body, candidates, escaped) if blk
         when Ast::AttributeWrite
           recv = ivar(node, :receiver_node)

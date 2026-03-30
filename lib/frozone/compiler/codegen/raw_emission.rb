@@ -122,7 +122,7 @@ module Frozone
           nodes.each do |n|
             # Unwrap chained assignments: sum = maxflips = 0 → IntegerLiteral
             inner = n
-            inner = inner.instance_variable_get(:@value_node) while inner.is_a?(Ast::LocalVariableWrite)
+            inner = ivar(inner, :value_node) while inner.is_a?(Ast::LocalVariableWrite)
             case inner
             when Ast::IntegerLiteral then @mctx.typed_locals[name] ||= :i64
             when Ast::FloatLiteral   then @mctx.typed_locals[name]  = :f64
@@ -188,7 +188,7 @@ module Frozone
             collect_local_assignments(child, result) if child.is_a?(Ast::Node)
           end
           if node.instance_variable_defined?(:@arg_nodes)
-            Array(node.instance_variable_get(:@arg_nodes)).each do |a|
+            Array(ivar(node, :arg_nodes)).each do |a|
               collect_local_assignments(a, result) if a.is_a?(Ast::Node)
             end
           end

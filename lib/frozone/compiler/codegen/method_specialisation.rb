@@ -48,15 +48,15 @@ module Frozone
             raw_calls[name] << args.map { |a| node_raw_type(a) }
           end
           args.each { |a| walk_raw_free_calls(a, raw_calls) }
-          blk = node.instance_variable_get(:@block_node)
+          blk = ivar(node, :block_node)
           walk_raw_free_calls(blk.body, raw_calls) if blk&.respond_to?(:body) && blk.body
         when Ast::If
-          walk_raw_free_calls(node.instance_variable_get(:@pred_node), raw_calls)
-          walk_raw_free_calls(node.instance_variable_get(:@then_node), raw_calls)
-          walk_raw_free_calls(node.instance_variable_get(:@else_node), raw_calls)
+          walk_raw_free_calls(ivar(node, :pred_node), raw_calls)
+          walk_raw_free_calls(ivar(node, :then_node), raw_calls)
+          walk_raw_free_calls(ivar(node, :else_node), raw_calls)
         when Ast::While, Ast::Until
-          walk_raw_free_calls(node.instance_variable_get(:@condition_node), raw_calls)
-          walk_raw_free_calls(node.instance_variable_get(:@body_node), raw_calls)
+          walk_raw_free_calls(ivar(node, :condition_node), raw_calls)
+          walk_raw_free_calls(ivar(node, :body_node), raw_calls)
         else
           %i[body_node value_node then_node else_node condition_node].each do |slot|
             next unless node.instance_variable_defined?(:"@#{slot}")
@@ -64,7 +64,7 @@ module Frozone
             walk_raw_free_calls(child, raw_calls) if child.is_a?(Ast::Node)
           end
           if node.instance_variable_defined?(:@arg_nodes)
-            Array(node.instance_variable_get(:@arg_nodes)).each do |a|
+            Array(ivar(node, :arg_nodes)).each do |a|
               walk_raw_free_calls(a, raw_calls) if a.is_a?(Ast::Node)
             end
           end
@@ -76,7 +76,7 @@ module Frozone
       # are removed from both @gctx.typed_params and @gctx.typed_method_returns.
       def collect_typed_method_returns
         return if @gctx.typed_params.empty?
-        methods_table = @top_level_scope.instance_variable_get(:@methods_table) || {}
+        methods_table = @top_level_scope.methods_table || {}
 
         # Tentative assignment (allows recursive calls to see a return type during verification)
         @gctx.typed_params.each do |name, param_types|

@@ -119,7 +119,7 @@ module Frozone
 
         # Pre-scan: find methods on Object that will get real instance method
         # implementations on RubyObject (so we skip *args stubs for them).
-        top_level_scope.instance_variable_get(:@methods_table)&.each do |name, m|
+        top_level_scope.methods_table&.each do |name, m|
           @object_instance_methods << name if m.is_a?(Vm::Method) && user_source_location?(m.source_location)
         end
 
@@ -185,7 +185,7 @@ module Frozone
 
       # Look up a VM class/module by name in the top-level constant table.
       def lookup_vm_class(name)
-        val = @top_level_scope.instance_variable_get(:@constants_table)&.fetch(name, nil)
+        val = @top_level_scope.constants_table&.fetch(name, nil)
         val.is_a?(Vm::ModuleObject) ? val : nil
       end
 
@@ -213,14 +213,14 @@ module Frozone
         # For user-defined classes, also include accessor methods (attr_accessor
         # etc.) whose source_location points to core but whose body is a simple
         # ivar read/write on this user-defined class.
-        class_is_user = scope.instance_variable_get(:@constants_locations)&.any? do |_, loc|
+        class_is_user = scope.constants_locations&.any? do |_, loc|
           user_source_location?(loc)
         end || (scope != Vm::Core::OBJECT_CLASS &&
-                scope.instance_variable_get(:@methods_table)&.any? do |_, m|
+                scope.methods_table&.any? do |_, m|
                   m.is_a?(Vm::Method) && user_source_location?(m.source_location)
                 end)
 
-        scope.instance_variable_get(:@methods_table)&.each do |name, method|
+        scope.methods_table&.each do |name, method|
           next unless method.is_a?(Vm::Method)
           if user_source_location?(method.source_location)
             @user_methods << name
@@ -229,7 +229,7 @@ module Frozone
           end
         end
 
-        scope.instance_variable_get(:@constants_table)&.each do |_name, value|
+        scope.constants_table&.each do |_name, value|
           next unless value.is_a?(Vm::ModuleObject)
           collect_user_methods_from_scope(value, visited)
         end
@@ -248,8 +248,8 @@ module Frozone
         return if visited.include?(scope.object_id)
         visited << scope.object_id
 
-        const_locs = scope.instance_variable_get(:@constants_locations) || {}
-        scope.instance_variable_get(:@constants_table)&.each do |name, value|
+        const_locs = scope.constants_locations || {}
+        scope.constants_table&.each do |name, value|
           next unless value.is_a?(Vm::ModuleObject)
           next if SKIP_CONSTANTS.include?(name)
           emit_user_class(name, value, const_loc: const_locs[name])
@@ -261,7 +261,7 @@ module Frozone
         # For Struct subclasses: include initialize (it's defined in core but
         # we need it for the Crystal class to work)
         is_struct = mod.is_a?(Vm::ClassObject) && struct_subclass?(mod)
-        user_methods = mod.instance_variable_get(:@methods_table)&.select do |_n, m|
+        user_methods = mod.methods_table&.select do |_n, m|
           m.is_a?(Vm::Method) &&
             (user_source_location?(m.source_location) || accessor_method?(m) ||
              (is_struct && _n == :initialize))
@@ -276,8 +276,8 @@ module Frozone
         is_class = mod.is_a?(Vm::ClassObject)
         kw = is_class ? "class" : "module"
 
-        sc = is_class ? mod.instance_variable_get(:@superclass) : nil
-        sc_name = sc&.instance_variable_get(:@name)
+        sc = is_class ? mod.superclass : nil
+        sc_name = sc&.name
 
         write "#{kw} Ruby_#{crystal_name}"
         if sc_name && !%i[Object BasicObject Struct Data].include?(sc_name)
@@ -346,10 +346,10 @@ module Frozone
           emit_newline
 
           # Collect eigenclass method names for dispatch and dedup
-          eigenclass = mod.instance_variable_get(:@eigenclass)
+          eigenclass = mod.eigenclass
           @cctx.eigen_methods = nil
           eigen_method_names = if eigenclass
-            (eigenclass.instance_variable_get(:@methods_table) || {}).select { |_, m|
+            (eigenclass.methods_table || {}).select { |_, m|
               m.is_a?(Vm::Method) && user_source_location?(m.source_location)
             }.keys.to_set
           else
@@ -384,7 +384,7 @@ module Frozone
           # Emit class/module methods (def self.x) from the eigenclass
           @cctx.eigen_methods = eigen_method_names
           if eigenclass
-            class_methods = eigenclass.instance_variable_get(:@methods_table)&.select do |_n, m|
+            class_methods = eigenclass.methods_table&.select do |_n, m|
               m.is_a?(Vm::Method) && user_source_location?(m.source_location)
             end
             (class_methods || {}).each do |mname, method|
@@ -431,15 +431,15 @@ module Frozone
         collect_all_method_names = ->(klass) {
           c = klass
           while c && c.is_a?(Vm::ClassObject)
-            (c.instance_variable_get(:@methods_table) || {}).each_key { |m| all_method_names << m }
+            (c.methods_table || {}).each_key { |m| all_method_names << m }
             c.modules.each do |mod|
-              (mod.instance_variable_get(:@methods_table) || {}).each_key { |m| all_method_names << m }
+              (mod.methods_table || {}).each_key { |m| all_method_names << m }
             end
             c = c.superclass
           end
         }
         # Walk user classes
-        (scope.instance_variable_get(:@constants_table) || {}).each_value do |val|
+        (scope.constants_table || {}).each_value do |val|
           collect_all_method_names.call(val) if val.is_a?(Vm::ClassObject)
         end
         # Also collect from Object (for top-level methods)
@@ -468,9 +468,9 @@ module Frozone
         all_methods = Set.new
         c = klass
         while c && c.is_a?(Vm::ClassObject)
-          (c.instance_variable_get(:@methods_table) || {}).each_key { |m| all_methods << m }
+          (c.methods_table || {}).each_key { |m| all_methods << m }
           c.modules.each do |mod|
-            (mod.instance_variable_get(:@methods_table) || {}).each_key { |m| all_methods << m }
+            (mod.methods_table || {}).each_key { |m| all_methods << m }
           end
           c = c.superclass
         end
@@ -536,7 +536,7 @@ module Frozone
 
       def emit_user_top_level_methods(scope)
         user_methods_on_object = []
-        scope.instance_variable_get(:@methods_table)&.each do |name, method|
+        scope.methods_table&.each do |name, method|
           next unless method.is_a?(Vm::Method)
           next unless user_source_location?(method.source_location)
           user_methods_on_object << [name, method]
@@ -757,8 +757,8 @@ module Frozone
       end
 
       def emit_user_constants(scope)
-        const_table = scope.instance_variable_get(:@constants_table) || {}
-        const_locs  = scope.instance_variable_get(:@constants_locations) || {}
+        const_table = scope.constants_table || {}
+        const_locs  = scope.constants_locations || {}
 
         const_table.each do |name, value|
           next if SKIP_CONSTANTS.include?(name)
@@ -806,14 +806,14 @@ module Frozone
       def run_type_inference(execute_block, top_level_scope)
 
         user_methods_hash = {}
-        top_level_scope.instance_variable_get(:@methods_table)&.each do |name, m|
+        top_level_scope.methods_table&.each do |name, m|
           user_methods_hash[name] = m if m.is_a?(Vm::Method) && user_source_location?(m.source_location)
         end
         user_classes_hash = {}
         collect_user_classes_recursive(top_level_scope, user_classes_hash)
         @gctx.user_class_names = user_classes_hash.keys.to_set
 
-        all_constants = top_level_scope.instance_variable_get(:@constants_table) || {}
+        all_constants = top_level_scope.constants_table || {}
         ti  = TypeInference.new(
           user_methods:  user_methods_hash,
           user_classes:  user_classes_hash,
@@ -857,28 +857,28 @@ module Frozone
           return unless node
           case node
           when Ast::MultipleAssignment
-            rhs = node.instance_variable_get(:@value_node)
-            if rhs.is_a?(Ast::MethodCall) && rhs.instance_variable_get(:@receiver_node).nil?
-              mname = rhs.instance_variable_get(:@name)
-              method = scope.instance_variable_get(:@methods_table)&.fetch(mname, nil)
+            rhs = ivar(node, :value_node)
+            if rhs.is_a?(Ast::MethodCall) && ivar(rhs, :receiver_node).nil?
+              mname = rhs.name
+              method = scope.methods_table&.fetch(mname, nil)
               result << mname if method.is_a?(Vm::Method) && returns_array_literal?(method.body)
             end
           when Ast::Sequence
             node.nodes.each { |n| collect_masgn_rhs.call(n) }
           when Ast::If
-            collect_masgn_rhs.call(node.instance_variable_get(:@then_node))
-            collect_masgn_rhs.call(node.instance_variable_get(:@else_node))
+            collect_masgn_rhs.call(ivar(node, :then_node))
+            collect_masgn_rhs.call(ivar(node, :else_node))
           when Ast::While, Ast::Until
-            collect_masgn_rhs.call(node.instance_variable_get(:@body_node))
+            collect_masgn_rhs.call(ivar(node, :body_node))
           when Ast::MethodCall
-            blk = node.instance_variable_get(:@block_node)
-            collect_masgn_rhs.call(blk.instance_variable_get(:@body)) if blk.respond_to?(:body)
+            blk = ivar(node, :block_node)
+            collect_masgn_rhs.call(blk.body) if blk.respond_to?(:body)
           end
         }
         # Scan execute block
         collect_masgn_rhs.call(body)
         # Scan user method bodies
-        (scope.instance_variable_get(:@methods_table) || {}).each_value do |m|
+        (scope.methods_table || {}).each_value do |m|
           collect_masgn_rhs.call(m.body) if m.is_a?(Vm::Method)
         end
         result
@@ -1603,9 +1603,9 @@ module Frozone
         @user_overridden_ops ||= begin
           ops = Set.new
           PRIMITIVE_CLASS_NAMES.each do |klass_name|
-            klass = @top_level_scope.instance_variable_get(:@constants_table)&.fetch(klass_name, nil)
+            klass = @top_level_scope.constants_table&.fetch(klass_name, nil)
             next unless klass.is_a?(Vm::ModuleObject)
-            klass.instance_variable_get(:@methods_table)&.each do |mname, method|
+            klass.methods_table&.each do |mname, method|
               next unless method.is_a?(Vm::Method)
               next unless user_source_location?(method.source_location)
               ops << mname if COMPARE_OPS.include?(mname)
@@ -1628,7 +1628,7 @@ module Frozone
         has_splat = targets.any? { |t| t[0].to_s.end_with?('_splat') || t[0] == :splat_nil }
         if !has_splat && rhs.is_a?(Ast::MethodCall) && ivar(rhs, :receiver_node).nil?
           method_name = ivar(rhs, :name)
-          method = @top_level_scope.instance_variable_get(:@methods_table)&.fetch(method_name, nil)
+          method = @top_level_scope.methods_table&.fetch(method_name, nil)
           if method.is_a?(Vm::Method) && returns_array_literal?(method.body)
             # Emit: _t0, _t1 = func(args)
             tmp_names = targets.each_with_index.map { |_, i| "_tup#{@temp_counter}_#{i}" }

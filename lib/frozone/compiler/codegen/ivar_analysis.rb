@@ -20,8 +20,8 @@ module Frozone
       # Collect user numeric constants → raw type map.
       def collect_const_raw_types(scope)
         @gctx.const_raw_types = {}
-        const_table = scope.instance_variable_get(:@constants_table) || {}
-        const_locs  = scope.instance_variable_get(:@constants_locations) || {}
+        const_table = scope.constants_table || {}
+        const_locs  = scope.constants_locations || {}
         const_table.each do |name, value|
           next if Codegen::SKIP_CONSTANTS.include?(name) || value.is_a?(Vm::ModuleObject)
           next unless user_source_location?(const_locs[name])
@@ -38,16 +38,16 @@ module Frozone
         @gctx.typed_ivars = {}
         return unless execute_block
 
-        scope.instance_variable_get(:@constants_table)&.each do |name, value|
+        scope.constants_table&.each do |name, value|
           next unless value.is_a?(Vm::ClassObject) && !Codegen::SKIP_CONSTANTS.include?(name)
 
           param_types = collect_class_new_arg_types(execute_block.body, name)
           next unless param_types&.all?
 
-          init_method = value.instance_variable_get(:@methods_table)&.fetch(:initialize, nil)
+          init_method = value.methods_table&.fetch(:initialize, nil)
           next unless init_method.is_a?(Vm::Method) && init_method.body
 
-          req_params = init_method.instance_variable_get(:@required_params) || []
+          req_params = init_method.required_params || []
           next unless req_params.size == param_types.size
 
           old_typed     = @mctx.typed_locals
@@ -62,7 +62,7 @@ module Frozone
 
       # Recursively collect user-defined classes (including nested classes)
       def collect_user_classes_recursive(scope, result)
-        (scope.instance_variable_get(:@constants_table) || {}).each do |name, val|
+        (scope.constants_table || {}).each do |name, val|
           next if Codegen::SKIP_CONSTANTS.include?(name)
           if val.is_a?(Vm::ModuleObject)  # includes ClassObject (subclass)
             result[name] = val
@@ -80,11 +80,11 @@ module Frozone
       end
 
       def collect_class_typed_ivars_from(scope)
-        scope.instance_variable_get(:@constants_table)&.each do |class_name, value|
+        scope.constants_table&.each do |class_name, value|
           next unless value.is_a?(Vm::ModuleObject) && !Codegen::SKIP_CONSTANTS.include?(class_name)
           collect_class_typed_ivars_from(value)  # recurse into nested modules/classes
           next unless value.is_a?(Vm::ClassObject)  # only collect ivars for classes
-          methods = value.instance_variable_get(:@methods_table) || {}
+          methods = value.methods_table || {}
           next unless methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
 
           # Collect all ivar assignment types across ALL methods

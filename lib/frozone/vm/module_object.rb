@@ -8,7 +8,7 @@ module Frozone
       # TODO - the Module class _can_ be subclassed in ruby - need to work out how to deal with that
       attr_reader :name, :class_variables
       attr_accessor :namespace
-      attr_reader :methods_table, :constants_table
+      attr_reader :methods_table, :constants_table, :constants_locations
       attr_accessor :current_visibility
       def private_constants_table = @private_constants
       def is_singleton_class = false
