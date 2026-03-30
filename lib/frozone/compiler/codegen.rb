@@ -891,6 +891,66 @@ module Frozone
         end
       end
 
+      # Override: when condition_simplify is enabled, emit && / || as native Crystal
+      # boolean operators instead of RubyObject truthy dispatch.
+      def crystal_bool_emittable?(node)
+        return false unless opt?(:condition_simplify)
+        case node
+        when Ast::And then crystal_bool_emittable?(ivar(node, :left_node)) && crystal_bool_emittable?(ivar(node, :right_node))
+        when Ast::Or  then crystal_bool_emittable?(ivar(node, :left_node)) && crystal_bool_emittable?(ivar(node, :right_node))
+        when Ast::MethodCall
+          if comparison_op_call?(node)
+            node_raw_type(node.receiver_node) && node_raw_type(node.arg_nodes[0])
+          else
+            false
+          end
+        when Ast::TrueLiteral, Ast::FalseLiteral then true
+        else false
+        end
+      end
+
+      def emit_crystal_bool(node)
+        case node
+        when Ast::And
+          write "("
+          emit_crystal_bool(ivar(node, :left_node))
+          write " && "
+          emit_crystal_bool(ivar(node, :right_node))
+          write ")"
+        when Ast::Or
+          write "("
+          emit_crystal_bool(ivar(node, :left_node))
+          write " || "
+          emit_crystal_bool(ivar(node, :right_node))
+          write ")"
+        when Ast::MethodCall
+          rt = node_raw_type(node.receiver_node)
+          at = node_raw_type(node.arg_nodes[0])
+          ty = (rt == :f64 || at == :f64) ? :f64 : :i64
+          # Wrap in parens to protect embedded assignment precedence
+          needs_parens = recv_contains_assignment?(node.receiver_node)
+          write "("
+          write "(" if needs_parens
+          emit_as(node.receiver_node, ty)
+          write ")" if needs_parens
+          write " #{node.name} "
+          emit_as(node.arg_nodes[0], ty)
+          write ")"
+        when Ast::TrueLiteral then write "true"
+        when Ast::FalseLiteral then write "false"
+        end
+      end
+
+      def emit_and(node)
+        return super unless crystal_bool_emittable?(node)
+        emit_crystal_bool(node)
+      end
+
+      def emit_or(node)
+        return super unless crystal_bool_emittable?(node)
+        emit_crystal_bool(node)
+      end
+
       # Combined element type for typed-array and native-array locals.
 
       # Override emit_param_list to apply inferred types for required params.
@@ -1504,6 +1564,10 @@ module Frozone
       # Override: for comparisons with at least one raw-typed operand, use bare
       # Crystal comparison with .to_i64/.to_f64 coercion on the untyped side.
       def emit_truthy(node)
+        if crystal_bool_emittable?(node)
+          emit_crystal_bool(node)
+          return
+        end
         if opt?(:condition_simplify) && comparison_op_call?(node)
           recv = node.receiver_node
           arg  = node.arg_nodes[0]
