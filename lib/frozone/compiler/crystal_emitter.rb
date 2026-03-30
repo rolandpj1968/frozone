@@ -1458,7 +1458,7 @@ module Frozone
       # Output helpers
       # -----------------------------------------------------------------------
 
-      def write(str)     = @out << str
+      def write(*strs)   = strs.each { |s| @out << s }
       def line(str)      = @out << ("  " * @indent) << str << "\n"
       def emit_indent    = @out << ("  " * @indent)
       def emit_newline   = @out << "\n"
