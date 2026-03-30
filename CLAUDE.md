@@ -118,6 +118,29 @@ def reverse
 end
 ```
 
+### Precompute over mutate
+Prefer computing results upfront and passing them through, over mutating shared state during traversal and hoping downstream code sees the change. This applies at every level — method setup, class emission, whole-program passes:
+
+```ruby
+# Good — compute the full map at setup, read-only during emission
+native_locals = detect_nested_arrays(body).merge(detect_alias_reads(body, nested))
+emit_body(body, native_locals: native_locals)
+
+# Bad — mutate shared state mid-traversal, hope later emitters see it
+def emit_local_write(node)
+  if nested_array_read?(node)
+    @native_locals[name] = elem_type  # mutation during emission
+  end
+end
+def emit_index_write(node)
+  if @native_locals[recv_name]  # may or may not be set yet
+    emit_raw(value)
+  end
+end
+```
+
+Bang methods (`push!`, `clear!`) are the explicit marker for intentional mutation — they signal "this changes state" so the reader knows to look for side effects. Non-bang methods should be pure where possible.
+
 ### Extract common patterns
 When you see the same code pattern repeated, extract it into a helper. Three similar lines are fine; four is a smell. But don't create abstractions for hypothetical future use — extract only when the pattern already exists in multiple places.
 
