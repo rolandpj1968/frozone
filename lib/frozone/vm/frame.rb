@@ -31,13 +31,9 @@ module Frozone
         @block = nil
       end
 
-      def kill!
-        @alive = false
-      end
+      def kill! = @alive = false
 
-      def set_local(local, value)
-        @locals[local] = value
-      end
+      def set_local(local, value) = @locals[local] = value
 
       def frame_at_depth(depth, original_depth = depth)
         return self if depth == 0

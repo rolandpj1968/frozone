@@ -25,14 +25,10 @@ module Frozone
         @subclasses << klass unless @subclasses.include?(klass)
       end
 
-      def direct_subclasses
-        (@subclasses ||= []).reject { |sc| sc.is_singleton_class }
-      end
+      def direct_subclasses = (@subclasses ||= []).reject { |sc| sc.is_singleton_class }
 
       # Called after CLASS_CLASS is defined to wire up the class pointer on bootstrap ClassObjects
-      def patch_class_object
-        @class_object = Core::CLASS_CLASS
-      end
+      def patch_class_object = @class_object = Core::CLASS_CLASS
 
       # Create a singleton-class copy of original_sc, owned by new_owner.
       # Used by dup/clone implementations to copy singleton-class state.
@@ -72,12 +68,9 @@ module Frozone
       end
 
       def ancestors_list
-        [].tap do |result|
-          @prepends&.each { |mod| result.concat(mod.ancestors_list) }
-          result << self
-          @modules&.each { |mod| result.concat(mod.ancestors_list) }
-          result.concat(@superclass.ancestors_list) unless @superclass.nil?
-        end
+        (@prepends&.flat_map(&:ancestors_list) || []) + [self] +
+          (@modules&.flat_map(&:ancestors_list) || []) +
+          (@superclass&.ancestors_list || [])
       end
 
       UNDEF_FOUND = :__undef_found__
@@ -154,9 +147,7 @@ module Frozone
 
       # Class-hierarchy look-up
       # Note that full constant lookup starts with the lexical scopes in ModuleObject.lookup_constant.
-      def lookup_constant(name)
-        lookup_constant_with_owner(name).first
-      end
+      def lookup_constant(name) = lookup_constant_with_owner(name).first
 
       def lookup_constant_with_owner(name, stop_at_object: false, skip_own: false)
         # 1. Prepended modules

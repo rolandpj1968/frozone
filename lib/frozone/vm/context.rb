@@ -15,9 +15,7 @@ module Frozone
         @frames.push(frame)
       end
 
-      def pop_frame
-        @frames.pop
-      end
+      def pop_frame = @frames.pop
 
       def frame = @frames.last
       def frames = @frames
@@ -32,9 +30,7 @@ module Frozone
         @scopes.push(scope)
       end
 
-      def pop_scope
-        @scopes.pop
-      end
+      def pop_scope = @scopes.pop
 
       def scopes = @scopes
       def top_level? = @scopes.length == 1

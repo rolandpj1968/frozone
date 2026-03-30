@@ -87,13 +87,7 @@ module Frozone
         @modules.unshift(mod)
       end
 
-      def ancestors_list
-        [].tap do |result|
-          @prepends&.each { |mod| result.concat(mod.ancestors_list) }
-          result << self
-          @modules&.each { |mod| result.concat(mod.ancestors_list) }
-        end
-      end
+      def ancestors_list = (@prepends&.flat_map(&:ancestors_list) || []) + [self] + (@modules&.flat_map(&:ancestors_list) || [])
 
       def lookup_method(name)
         raise "name must be a Symbol" unless name.is_a?(Symbol)
