@@ -624,9 +624,29 @@ module Frozone
         @mctx.native_array_locals = {}
         # Detect nested Array.new(n) { Array.new(m, fill) } construction patterns
         if opt?(:native_arrays)
-          detect_nested_array_locals(method.body, param_set)
           detect_nested_array_locals(method.body, param_set).each do |lname, inner_elem|
             @mctx.native_array_locals[lname] = [:array, inner_elem]
+          end
+        end
+        # Pre-register locals assigned from nested_array[i] reads.
+        # If TI says a local is Array(T) and its source is a nested native array read,
+        # register it as native so downstream []= writes emit raw values.
+        if opt?(:native_arrays)
+          (@mctx.local_array_elems).each do |lname, elem_ty|
+            next if @mctx.native_array_locals.key?(lname)
+            # Check all assignments to this local for nested array reads
+            assignments = Hash.new { |h, k| h[k] = [] }
+            collect_local_assignments(method.body, assignments)
+            (assignments[lname] || []).each do |rhs|
+              next unless rhs.is_a?(Ast::MethodCall) && ivar(rhs, :name) == :[]
+              recv = ivar(rhs, :receiver_node)
+              next unless recv.is_a?(Ast::LocalVariableRead)
+              recv_elem = @mctx.native_array_locals[ivar(recv, :name)]
+              if recv_elem && CrystalType.array?(recv_elem)
+                @mctx.native_array_locals[lname] = elem_ty
+                break
+              end
+            end
           end
         end
         # Include raw-typed params in @mctx.typed_locals so node_raw_type works for them
@@ -977,19 +997,11 @@ module Frozone
           return
         end
         if @mctx.local_array_elems.key?(name)
-          # Check if RHS is a read from a nested native array: ci = c[i]
-          value = ivar(node, :value_node)
-          if value.is_a?(Ast::MethodCall) && ivar(value, :name) == :[] &&
-             (vargs = ivar(value, :arg_nodes) || []).size == 1 &&
-             ivar(value, :receiver_node).is_a?(Ast::LocalVariableRead)
-            recv_elem = native_array_elem_type(ivar(ivar(value, :receiver_node), :name))
-            if recv_elem && CrystalType.array?(recv_elem)
-              # Emit: ci = c[raw_i]  (Crystal infers ci : Array(T))
-              write "#{crystal_local(name)} = "
-              emit(value)
-              @mctx.native_array_locals[name] = @mctx.local_array_elems[name]
-              return
-            end
+          # Nested native array read: ci = c[i] — emit bare, Crystal infers type
+          if native_array_elem_type(name)
+            write "#{crystal_local(name)} = "
+            emit(ivar(node, :value_node))
+            return
           end
           write "#{crystal_local(name)} = "
           old_suppress = @suppress_tuple_literals
