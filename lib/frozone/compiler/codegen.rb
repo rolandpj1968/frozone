@@ -642,6 +642,15 @@ module Frozone
             end
           end
         end
+        # Pre-register nested arrays from TI: if local_types says Array(Array(T)),
+        # register so downstream construction and read/write emit native code.
+        if opt?(:native_arrays)
+          @mctx.local_types.each do |lname, ty|
+            next if @mctx.native_array_locals.key?(lname) || param_set.include?(lname)
+            next unless CrystalType.array?(ty) && CrystalType.array?(CrystalType.elem(ty))
+            @mctx.native_array_locals[lname] = CrystalType.elem(ty)
+          end
+        end
         # Pre-register locals assigned from nested_array[i] reads.
         # Must run after param seeding so params with Array(Array(T)) types are visible.
         if opt?(:native_arrays) && @mctx.local_array_elems.any?
@@ -938,26 +947,36 @@ module Frozone
       # For class-typed locals, add .as(Ruby_ClassName) cast for static dispatch.
       def emit_local_var_write(node)
         name = ivar(node, :name)
-        # Nested array construction: c = Array.new(m) { Array.new(p, 0.0) }
-        # Emit as Array(Array(Float64)).new(m) { Array(Float64).new(p, 0.0) }
+        # Nested array construction: c = Array.new(m) { Array.new(p, fill) }
+        # Emit as Array(Array(T)).new(m) { Array(T).new(p, fill) }
         nat_elem = native_array_elem_type(name)
         if nat_elem && CrystalType.array?(nat_elem)
-          inner_scalar = CrystalType.elem(nat_elem)
-          inner_crystal = CrystalType.to_crystal(nat_elem)
-          rhs  = ivar(node, :value_node)
-          blk  = ivar(rhs, :block_node)
-          outer_args = ivar(rhs, :arg_nodes) || []
-          inner = ivar(blk, :body)
-          inner = inner.nodes.first if inner.is_a?(Ast::Sequence) && inner.nodes.size == 1
-          inner_args = ivar(inner, :arg_nodes) || []
-          write "#{crystal_local(name)} = Array(#{inner_crystal}).new("
-          emit_coerce_i64(outer_args[0])
-          write ") { #{inner_crystal}.new("
-          emit_coerce_i64(inner_args[0])
-          write ", "
-          emit_as(inner_args[1], inner_scalar)
-          write ") }"
-          return
+          rhs = ivar(node, :value_node)
+          blk = rhs.is_a?(Ast::MethodCall) ? ivar(rhs, :block_node) : nil
+          if blk.is_a?(Ast::Block)
+            inner = blk.body
+            inner = inner.nodes.first if inner.is_a?(Ast::Sequence) && inner.nodes.size == 1
+            inner_crystal = CrystalType.to_crystal(nat_elem)
+            outer_args = ivar(rhs, :arg_nodes) || []
+            if array_new_call?(inner)
+              # Array.new(m) { Array.new(p, fill) } — emit with fill
+              inner_args = ivar(inner, :arg_nodes) || []
+              write "#{crystal_local(name)} = Array(#{inner_crystal}).new("
+              emit_coerce_i64(outer_args[0])
+              write ") { #{inner_crystal}.new("
+              emit_coerce_i64(inner_args[0])
+              write ", "
+              emit_as(inner_args[1], CrystalType.elem(nat_elem))
+              write ") }"
+              return
+            elsif inner.is_a?(Ast::ArrayLiteral) && (ivar(inner, :element_nodes) || []).empty?
+              # Array.new(n) { [] } — emit with empty inner arrays
+              write "#{crystal_local(name)} = Array(#{inner_crystal}).new("
+              emit_coerce_i64(outer_args[0])
+              write ") { #{inner_crystal}.new }"
+              return
+            end
+          end
         end
         if (arr_ty = @mctx.typed_array_locals[name])
           rhs = ivar(node, :value_node)
@@ -1239,6 +1258,28 @@ module Frozone
             write ".#{crystal_method_name(node.name)}"
             emit_typed_call_args(node.arg_nodes || [], tp)
             return
+          end
+        end
+
+        # Array push: arr << val where arr is a native array — emit as push, not integer shift
+        if node.name == :<< && node.receiver_node && node.arg_nodes&.size == 1
+          recv = node.receiver_node
+          # Direct: arr << val
+          if recv.is_a?(Ast::LocalVariableRead) && native_array_elem_type(ivar(recv, :name))
+            emit(recv)
+            write " << "
+            emit_as(node.arg_nodes[0], native_array_elem_type(ivar(recv, :name)))
+            return
+          end
+          # Nested: arr[i] << val where arr is Array(Array(T))
+          if recv.is_a?(Ast::MethodCall) && recv.name == :[] && recv.receiver_node.is_a?(Ast::LocalVariableRead)
+            arr_elem = native_array_elem_type(ivar(recv.receiver_node, :name))
+            if arr_elem && CrystalType.array?(arr_elem)
+              emit(recv)
+              write " << "
+              emit_as(node.arg_nodes[0], CrystalType.elem(arr_elem))
+              return
+            end
           end
         end
 
