@@ -164,34 +164,15 @@ module Frozone
       # Walk a body AST collecting all LocalVariableWrite RHS nodes per name.
       # Does not descend into block bodies (block params share Ruby scope but
       # may receive heterogeneous types from the block caller).
+      # Does not descend into block bodies (block params share Ruby scope but
+      # may receive heterogeneous types from the block caller).
       def collect_local_assignments(node, result)
         return unless node
-        case node
-        when Ast::LocalVariableWrite
+        if node.is_a?(Ast::LocalVariableWrite)
           result[ivar(node, :name)] << ivar(node, :value_node)
-          collect_local_assignments(ivar(node, :value_node), result)
-        when Ast::Sequence
-          node.nodes.each { |n| collect_local_assignments(n, result) }
-        when Ast::If
-          collect_local_assignments(ivar(node, :condition_node), result)
-          collect_local_assignments(ivar(node, :then_node), result)
-          collect_local_assignments(ivar(node, :else_node), result)
-        when Ast::While, Ast::Until
-          collect_local_assignments(ivar(node, :condition_node), result)
-          collect_local_assignments(ivar(node, :body_node), result)
-        when Ast::Return
-          collect_local_assignments(ivar(node, :value_node), result)
-        else
-          %i[body_node value_node then_node else_node condition_node receiver_node].each do |slot|
-            next unless node.instance_variable_defined?(:"@#{slot}")
-            child = node.instance_variable_get(:"@#{slot}")
-            collect_local_assignments(child, result) if child.is_a?(Ast::Node)
-          end
-          if node.instance_variable_defined?(:@arg_nodes)
-            Array(ivar(node, :arg_nodes)).each do |a|
-              collect_local_assignments(a, result) if a.is_a?(Ast::Node)
-            end
-          end
+        end
+        node.children.each do |c|
+          collect_local_assignments(c, result) unless c.is_a?(Ast::Block)
         end
       end
 

@@ -196,34 +196,11 @@ module Frozone
 
       def walk_class_new_calls(node, class_name, &block)
         return unless node
-        case node
-        when Ast::MethodCall
-          recv = node.receiver_node
-          args = node.arg_nodes || []
-          if node.name == :new && recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == class_name
-            block.call(args.map { |a| node_raw_type(a) })
-          end
-          args.each { |a| walk_class_new_calls(a, class_name, &block) }
-          blk = node.instance_variable_get(:@block_node)
-          walk_class_new_calls(blk&.body, class_name, &block) if blk
-        when Ast::Sequence
-          node.nodes.each { |n| walk_class_new_calls(n, class_name, &block) }
-        when Ast::If
-          walk_class_new_calls(ivar(node, :then_node), class_name, &block)
-          walk_class_new_calls(ivar(node, :else_node), class_name, &block)
-        when Ast::While, Ast::Until
-          walk_class_new_calls(ivar(node, :body_node), class_name, &block)
-        when Ast::ArrayLiteral
-          node.instance_variable_get(:@element_nodes)&.each do |n|
-            walk_class_new_calls(n, class_name, &block)
-          end
-        else
-          %i[body_node value_node].each do |slot|
-            next unless node.instance_variable_defined?(:"@#{slot}")
-            child = node.instance_variable_get(:"@#{slot}")
-            walk_class_new_calls(child, class_name, &block) if child.is_a?(Ast::Node)
-          end
+        if node.is_a?(Ast::MethodCall) && node.name == :new &&
+           node.receiver_node.is_a?(Ast::ConstantRead) && ivar(node.receiver_node, :name) == class_name
+          block.call((node.arg_nodes || []).map { |a| node_raw_type(a) })
         end
+        node.children.each { |c| walk_class_new_calls(c, class_name, &block) }
       end
 
       # Walk an initialize body collecting ivar types from assignments.

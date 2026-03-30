@@ -37,38 +37,10 @@ module Frozone
 
       def walk_raw_free_calls(node, raw_calls)
         return unless node
-        case node
-        when Ast::Sequence
-          node.nodes.each { |n| walk_raw_free_calls(n, raw_calls) }
-        when Ast::MethodCall
-          recv = node.receiver_node
-          name = node.name
-          args = node.arg_nodes || []
-          if recv.nil? && @user_methods.include?(name)
-            raw_calls[name] << args.map { |a| node_raw_type(a) }
-          end
-          args.each { |a| walk_raw_free_calls(a, raw_calls) }
-          blk = ivar(node, :block_node)
-          walk_raw_free_calls(blk.body, raw_calls) if blk&.respond_to?(:body) && blk.body
-        when Ast::If
-          walk_raw_free_calls(ivar(node, :pred_node), raw_calls)
-          walk_raw_free_calls(ivar(node, :then_node), raw_calls)
-          walk_raw_free_calls(ivar(node, :else_node), raw_calls)
-        when Ast::While, Ast::Until
-          walk_raw_free_calls(ivar(node, :condition_node), raw_calls)
-          walk_raw_free_calls(ivar(node, :body_node), raw_calls)
-        else
-          %i[body_node value_node then_node else_node condition_node].each do |slot|
-            next unless node.instance_variable_defined?(:"@#{slot}")
-            child = node.instance_variable_get(:"@#{slot}")
-            walk_raw_free_calls(child, raw_calls) if child.is_a?(Ast::Node)
-          end
-          if node.instance_variable_defined?(:@arg_nodes)
-            Array(ivar(node, :arg_nodes)).each do |a|
-              walk_raw_free_calls(a, raw_calls) if a.is_a?(Ast::Node)
-            end
-          end
+        if node.is_a?(Ast::MethodCall) && node.receiver_node.nil? && @user_methods.include?(node.name)
+          raw_calls[node.name] << (node.arg_nodes || []).map { |a| node_raw_type(a) }
         end
+        node.children.each { |c| walk_raw_free_calls(c, raw_calls) }
       end
 
       # For each method in @gctx.typed_params, tentatively assume same-type return,
