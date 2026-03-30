@@ -877,9 +877,10 @@ module Frozone
       # If the receiver is the method's &block param, call directly (it's a Crystal Proc).
       def emit_proc_call(node)
         recv = node.receiver_node
-        is_block_param = recv.is_a?(Ast::LocalVariableRead) &&
-          defined?(@current_block_param_name) &&
-          ivar(recv, :name) == @current_block_param_name
+        bp_name = (defined?(@mctx) && @mctx&.block_param_name) ||
+          (defined?(@current_block_param_name) && @current_block_param_name)
+        is_block_param = recv.is_a?(Ast::LocalVariableRead) && bp_name &&
+          ivar(recv, :name) == bp_name
         write "("
         emit(recv)
         if is_block_param
