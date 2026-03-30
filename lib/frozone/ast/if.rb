@@ -13,9 +13,7 @@ module Frozone
 
       def children = [@pred_node, @then_node, @else_node].compact
 
-      def to_s
-        "if(#{@pred_node} ? #{@then_node} : #{@else_node || '_'})"
-      end
+      def to_s = "if(#{@pred_node} ? #{@then_node} : #{@else_node || '_'})"
 
       def evaluate(context)
         pred = @pred_node.evaluate(context)

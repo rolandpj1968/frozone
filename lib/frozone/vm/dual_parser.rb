@@ -24,9 +24,7 @@ module Frozone
     #   FROZONE_DUAL_PARSER=1
     module DualParser
       Result = Struct.new(:ast, :ast_prism, :errors_primary, :errors_prism, keyword_init: true) do
-        def agree?
-          ast.inspect == ast_prism.inspect
-        end
+        def agree? = ast.inspect == ast_prism.inspect
 
         def diff
           return nil if agree?

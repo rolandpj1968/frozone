@@ -11,9 +11,7 @@ module Frozone
         @cached = nil
       end
 
-      def evaluate(_context)
-        @cached ||= Vm::RegexpObject.new(@source, @flags, @encoding_name).tap(&:freeze_object!)
-      end
+      def evaluate(_context) = @cached ||= Vm::RegexpObject.new(@source, @flags, @encoding_name).tap(&:freeze_object!)
     end
 
     class InterpolatedRegexpLiteral < Node

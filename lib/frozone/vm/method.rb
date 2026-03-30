@@ -23,9 +23,7 @@ module Frozone
       # TODO
       def to_s = "method(#{@scopes.map(&:to_s)}, :#{@name}, #{@required_params} -> #{@body})"
 
-      def ruby2_keywords=(val)
-        @ruby2_keywords_holder[0] = val
-      end
+      def ruby2_keywords=(val); @ruby2_keywords_holder[0] = val; end
 
       def initialize(scopes, name, required_params, optional_params, rest_param, post_params, required_kw_params, optional_kw_params, kw_rest_param, block_param, locals, body, uses_block: nil, source_location: nil)
         @scopes = self.class.unique_scopes(scopes)
@@ -357,9 +355,7 @@ module Frozone
         e.value
       end
 
-      def dup_with_visibility(vis)
-        DefinedMethod.new(@name, @block_obj, @scopes.first).tap { |m| m.visibility = vis }
-      end
+      def dup_with_visibility(vis) = DefinedMethod.new(@name, @block_obj, @scopes.first).tap { |m| m.visibility = vis }
     end
   end
 end

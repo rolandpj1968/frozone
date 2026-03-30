@@ -5,7 +5,7 @@ require_relative '../benchmarks/sudoku'
 
 # Under --aot, everything below is compiled to Crystal.
 mr, mc = sd_genmat
-run_benchmark(20) do
+20.times do
   HARD20.each do |line|
     sd_solve(mr, mc, line)
   end

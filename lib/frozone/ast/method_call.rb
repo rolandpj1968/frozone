@@ -19,9 +19,7 @@ module Frozone
 
       def children = [@receiver_node, *@arg_nodes, *@kw_arg_nodes.flat_map { |k, v| [k, v] }, *@kw_splat_nodes, @block_node].compact
 
-      def to_s
-        "call(#{@name}, #{@receiver_node || '_'}, #{@arg_nodes.map(&:to_s).join(', ')})"
-      end
+      def to_s = "call(#{@name}, #{@receiver_node || '_'}, #{@arg_nodes.map(&:to_s).join(', ')})"
 
       def evaluate(context)
         implicit_receiver = @receiver_node.nil?

@@ -15,9 +15,7 @@ module Frozone
       def buffered_write? = @buffered_write || false
       def buffered_write=(v); @buffered_write = v; end
 
-      def patch_class_object(io_class)
-        @class_object = io_class
-      end
+      def patch_class_object(io_class) = @class_object = io_class
     end
   end
 end

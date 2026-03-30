@@ -17,9 +17,7 @@ module Frozone
 
       def truthy? = true
 
-      def patch_class_object(klass)
-        @class_object = klass
-      end
+      def patch_class_object(klass) = @class_object = klass
     end
   end
 end

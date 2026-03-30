@@ -7,6 +7,4 @@ require_relative '../benchmarks/fib'
 result = fib(35)
 raise "fib(35) = #{result}, expected 9227465" unless result == 9227465
 
-run_benchmark(3) do
-  fib(35)
-end
+3.times { fib(35) }

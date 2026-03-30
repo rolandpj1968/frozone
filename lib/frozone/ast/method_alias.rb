@@ -10,9 +10,7 @@ module Frozone
 
       def children = [@new_name, @old_name].select { |n| n.is_a?(Node) }
 
-      def to_s
-        "alias(#{@new_name}, #{old_name})"
-      end
+      def to_s = "alias(#{@new_name}, #{old_name})"
 
       def evaluate(context)
         new_name = resolve_name(context, @new_name)

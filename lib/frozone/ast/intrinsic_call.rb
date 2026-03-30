@@ -25,9 +25,7 @@ module Frozone
         @method.call(context, *args)
       end
 
-      def marshal_dump
-        [@method.name, @param_nodes]
-      end
+      def marshal_dump = [@method.name, @param_nodes]
 
       def marshal_load(data)
         name, param_nodes = data

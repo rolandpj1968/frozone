@@ -15,17 +15,11 @@ module Frozone
           push(:method, initial_names)  # top-level acts like a method scope
         end
 
-        def push(kind, initial_names)
-          @stack.push(Scope.new(Set.new(initial_names), kind))
-        end
+        def push(kind, initial_names) = @stack.push(Scope.new(Set.new(initial_names), kind))
 
-        def pop
-          @stack.pop
-        end
+        def pop = @stack.pop
 
-        def current
-          @stack.last
-        end
+        def current = @stack.last
 
         # Register an lvasgn. Search outward (up to method boundary) for existing claim.
         # Returns depth (block boundaries between here and claiming scope, 0 = current).
@@ -96,9 +90,7 @@ module Frozone
         result || Ast::NilLiteral::NIL
       end
 
-      def top_level_locals
-        @top_level_locals || []
-      end
+      def top_level_locals = @top_level_locals || []
 
       def prism_always_warnings  = @prism_always_warnings  || []
 

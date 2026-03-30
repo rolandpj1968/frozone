@@ -15,9 +15,7 @@ module Frozone
         @symbol_name = symbol_name
       end
 
-      def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil, def_scope: nil, current_method: nil, as_method: false, callee_name: nil, thread_boundary: false)
-        @proc.call(context, args, block: block) || NilObject::NIL
-      end
+      def invoke(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil, def_scope: nil, current_method: nil, as_method: false, callee_name: nil, thread_boundary: false) = @proc.call(context, args, block: block) || NilObject::NIL
 
       def call(context, args, kw_args: {}, receiver: nil, block: nil, instance_eval_receiver: nil, def_scope: nil, current_method: nil, as_method: false, callee_name: nil, thread_boundary: false)
         invoke(context, args, kw_args: kw_args, receiver: receiver, block: block, instance_eval_receiver: instance_eval_receiver)

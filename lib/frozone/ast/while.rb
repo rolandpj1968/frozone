@@ -11,9 +11,7 @@ module Frozone
 
       def children = [@condition_node, @body_node]
 
-      def to_s
-        "while(#{@condition_node}, #{@body_node})"
-      end
+      def to_s = "while(#{@condition_node}, #{@body_node})"
 
       def evaluate(context)
         first = @begin_modifier

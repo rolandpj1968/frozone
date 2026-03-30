@@ -312,9 +312,7 @@ module Frozone
           end
         end
 
-        def load_add_rb(path)
-          LOAD_EXTENSIONS.any? { |ext| path.end_with?(ext) } ? path : "#{path}.rb"
-        end
+        def load_add_rb(path) = LOAD_EXTENSIONS.any? { |ext| path.end_with?(ext) } ? path : "#{path}.rb"
 
         def resolve_load_path(path)
           path = ::File.expand_path(path) if path.start_with?('~')
@@ -487,9 +485,7 @@ module Frozone
         # Returns true when frame is a lambda body frame (lambda's own method_frame, no current_method).
         # Lambdas are transparent in that their bodies should be attributed to the enclosing
         # method, but each lambda boundary counts as one block-nesting level.
-        def lambda_body_frame?(frame)
-          frame.current_method.nil? && frame.method_frame.equal?(frame)
-        end
+        def lambda_body_frame?(frame) = frame.current_method.nil? && frame.method_frame.equal?(frame)
 
         # Finds the effective outer method frame for a backtrace entry, starting at index j,
         # skipping transparent Proc#call frames and lambda body frames.

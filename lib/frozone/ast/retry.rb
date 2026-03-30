@@ -5,9 +5,7 @@ module Frozone
     class RetryException < StandardError; end
 
     class Retry < Node
-      def evaluate(_context)
-        raise RetryException
-      end
+      def evaluate(_context) = raise RetryException
     end
   end
 end

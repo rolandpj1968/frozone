@@ -86,9 +86,7 @@ module Frozone
 
       private
 
-      def wrap(key)
-        @compare_by_identity_flag ? IdentityKeyWrapper.new(key) : KeyWrapper.new(key)
-      end
+      def wrap(key) = @compare_by_identity_flag ? IdentityKeyWrapper.new(key) : KeyWrapper.new(key)
     end
   end
 end

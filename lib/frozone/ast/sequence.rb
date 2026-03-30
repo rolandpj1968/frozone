@@ -11,9 +11,7 @@ module Frozone
 
       def children = @nodes
 
-      def to_s
-        "seq(#{@nodes.map(&:to_s).join('; ')})"
-      end
+      def to_s = "seq(#{@nodes.map(&:to_s).join('; ')})"
 
       def evaluate(context)
         result = Vm::NilObject::NIL

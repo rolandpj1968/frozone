@@ -21,7 +21,7 @@ result = c[n / 2][n / 2]
 expected = -18.9179166625
 raise "matmul: got #{result}, expected #{expected}" unless result == expected
 
-run_benchmark(20) do
+20.times do
   a = matgen(N)
   b = matgen(N)
   _c = matmul(a, b)

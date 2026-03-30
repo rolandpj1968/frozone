@@ -873,9 +873,7 @@ module Frozone
             true
           end
 
-          def method_missing(name, *args)
-            Intrinsics.fobj?(@vm_obj) ? @vm_obj.raw.send(name, *args) : super
-          end
+          def method_missing(name, *args) = Intrinsics.fobj?(@vm_obj) ? @vm_obj.raw.send(name, *args) : super
         end
 
         # Proxy for Hash args to support named format references %{name}, %<name>s

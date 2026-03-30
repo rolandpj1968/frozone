@@ -9,9 +9,7 @@ module Frozone
     class RootNamespaceNode < Node
       INSTANCE = new
 
-      def evaluate(_context)
-        Vm::Core::OBJECT_CLASS
-      end
+      def evaluate(_context) = Vm::Core::OBJECT_CLASS
     end
 
     class ConstantPath < Node

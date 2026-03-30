@@ -107,14 +107,10 @@ module Frozone
       end
 
       # Schedule an exception to be raised on next resume
-      def schedule_raise(exception)
-        @raise_exception = exception
-      end
+      def schedule_raise(exception) = @raise_exception = exception
 
       # Schedule a kill (uses a special exception that bypasses rescue)
-      def schedule_kill
-        @kill_pending = true
-      end
+      def schedule_kill = @kill_pending = true
 
       # Kill an unborn fiber (never resumed)
       def kill_unborn!

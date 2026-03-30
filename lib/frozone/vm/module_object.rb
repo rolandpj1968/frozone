@@ -39,9 +39,7 @@ module Frozone
 
       def name_permanent = @name_permanent
 
-      def mark_name_permanent!
-        @name_permanent = true
-      end
+      def mark_name_permanent! = @name_permanent = true
 
       def clear_name!
         @name = nil

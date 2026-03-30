@@ -6,9 +6,7 @@ module Frozone
     class ForwardBlock < Node
       INSTANCE = new
 
-      def evaluate(context)
-        context.frame.block  # already a ProcObject or nil
-      end
+      def evaluate(context) = context.frame.block  # already a ProcObject or nil
     end
   end
 end

@@ -10,9 +10,7 @@ module Frozone
 
       def children = [@left_node, @right_node]
 
-      def to_s
-        "and(#{@left_node}, #{@right_node})"
-      end
+      def to_s = "and(#{@left_node}, #{@right_node})"
 
       def evaluate(context)
         left_value = @left_node.evaluate(context)

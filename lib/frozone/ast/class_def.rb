@@ -19,9 +19,7 @@ module Frozone
 
       def children = [@namespace_node, @superclass_node, @body].compact
 
-      def to_s
-        "class(#{@name}, locals: #{@locals} body: #{@body})"
-      end
+      def to_s = "class(#{@name}, locals: #{@locals} body: #{@body})"
 
       def evaluate(context)
         if @namespace_node
