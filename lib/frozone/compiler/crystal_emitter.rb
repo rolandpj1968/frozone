@@ -207,6 +207,16 @@ module Frozone
         line "RUBY_FALSE  = RubyBool::FALSE"
         line "RUBY_GLOBALS = {} of String => RubyObject"
         line "Ruby_ARGV   = RubyArray.new(ARGV.map { |s| RubyString.new(s).as(RubyObject) })"
+        line "module Ruby_ENV"
+        line "  def self.[](key : RubyObject) : RubyObject"
+        line '    val = ENV[key.to_s]?'
+        line "    val ? RubyString.new(val).as(RubyObject) : RUBY_NIL"
+        line "  end"
+        line "  def self.[]=(key : RubyObject, val : RubyObject) : RubyObject"
+        line '    ENV[key.to_s] = val.to_s'
+        line "    val"
+        line "  end"
+        line "end"
         emit_newline
       end
 
