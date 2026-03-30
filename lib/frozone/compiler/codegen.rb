@@ -258,35 +258,11 @@ module Frozone
       end
 
       def emit_user_class(name, mod, const_loc: nil)
-        # For Struct subclasses: include initialize (it's defined in core but
-        # we need it for the Crystal class to work)
-        is_struct = mod.is_a?(Vm::ClassObject) && struct_subclass?(mod)
-        user_methods = mod.methods_table&.select do |_n, m|
-          m.is_a?(Vm::Method) &&
-            (user_source_location?(m.source_location) || accessor_method?(m) ||
-             (is_struct && _n == :initialize))
-        end
-        user_methods ||= {}
-        has_user_methods = user_methods.any? { |_, m| user_source_location?(m.source_location) }
-        # Emit if: has user methods, OR the class constant was defined in user code
-        # (catches empty subclasses like `class B < A; end`)
-        return unless has_user_methods || user_source_location?(const_loc)
+        user_methods = collect_class_user_methods(mod)
+        return unless user_methods.any? { |_, m| user_source_location?(m.source_location) } ||
+                      user_source_location?(const_loc)
 
-        crystal_name = crystal_constant(name)
-        is_class = mod.is_a?(Vm::ClassObject)
-        kw = is_class ? "class" : "module"
-
-        sc = is_class ? mod.superclass : nil
-        sc_name = sc&.name
-
-        write "#{kw} Ruby_#{crystal_name}"
-        if sc_name && !%i[Object BasicObject Struct Data].include?(sc_name)
-          write " < Ruby_#{crystal_constant(sc_name)}"
-        elsif is_class
-          write " < RubyObject"
-        end
-        emit_newline
-
+        emit_class_header(name, mod)
         old_cctx = @cctx
         @cctx = ClassContext.new
         @cctx.name        = name
@@ -294,124 +270,14 @@ module Frozone
         @cctx.typed_ivars = @gctx.class_typed_ivars.fetch(name, {})
 
         indented do
-          # Collect and emit ivar declarations (Crystal requires them upfront)
-          all_ivars = []
-          user_methods.each do |_mname, method|
-            all_ivars |= collect_ivars(method.body) if method.body
-          end
-          all_ivars.each do |iv|
-            emit_indent
-            iv_sym = iv.to_sym
-            type_ann, default = case @cctx.ivars[iv_sym]
-              when :f64 then ["Float64", "0.0_f64"]
-              when :i64 then ["Int64",   "0_i64"]
-              else
-                ct = @cctx.typed_ivars[iv_sym]
-                if ct
-                  kind, cls = ct
-                  crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
-                  if kind == :class_or_nil
-                    ["#{crystal_cls} | RubyNil", "RUBY_NIL"]
-                  else
-                    # Non-nullable: provide a valid default
-                    default = case cls
-                              when :Array  then "RubyArray.new"
-                              when :Hash   then "RubyHash.new"
-                              when :String then "RubyString.new"
-                              else "RUBY_NIL"
-                              end
-                    # Fall back to nullable if we can't provide a default
-                    default == "RUBY_NIL" ? ["#{crystal_cls} | RubyNil", "RUBY_NIL"] : [crystal_cls, default]
-                  end
-                else
-                  ["RubyObject", "RUBY_NIL"]
-                end
-            end
-            line "#{iv} : #{type_ann} = #{default}"
-          end
-          emit_newline unless all_ivars.empty?
-
-          # Emit default to_s / inspect unless the user defined them
-          unless user_methods.key?(:to_s)
-            emit_indent
-            line "def to_s : String; \"#<#{name}>\"; end"
-          end
-          unless user_methods.key?(:inspect)
-            emit_indent
-            line "def inspect : String; \"#<#{name}>\"; end"
-          end
-
-          # Emit module/class-level constants
+          emit_ivar_declarations(user_methods)
+          emit_default_stringifiers(name, user_methods)
           emit_user_constants(mod)
           emit_newline
-
-          # Collect eigenclass method names for dispatch and dedup
-          eigenclass = mod.eigenclass
-          @cctx.eigen_methods = nil
-          eigen_method_names = if eigenclass
-            (eigenclass.methods_table || {}).select { |_, m|
-              m.is_a?(Vm::Method) && user_source_location?(m.source_location)
-            }.keys.to_set
-          else
-            Set.new
-          end
-
-          user_methods.each do |mname, method|
-            # Skip instance methods that are duplicated as class methods
-            # (from module_function) — the class method version is typed
-            next if eigen_method_names.include?(mname) && mname != :initialize
-            emit_indent
-            if accessor_method?(method)
-              emit_accessor_method(mname, method)
-            else
-              inst_param_types = @gctx.class_params[[name, mname]]
-              has_typed = inst_param_types&.any? { |t| t && t != :ruby_object }
-              if has_typed
-                # Emit typed overload first, then generic (RubyObject) fallback
-                emit_vm_method(mname, method, param_types: inst_param_types)
-                emit_newline
-                emit_newline
-                emit_indent
-                emit_vm_method(mname, method)  # generic
-              else
-                emit_vm_method(mname, method, param_types: inst_param_types)
-              end
-              emit_newline
-              emit_newline
-            end
-          end
-
-          # Emit class/module methods (def self.x) from the eigenclass
-          @cctx.eigen_methods = eigen_method_names
-          if eigenclass
-            class_methods = eigenclass.methods_table&.select do |_n, m|
-              m.is_a?(Vm::Method) && user_source_location?(m.source_location)
-            end
-            (class_methods || {}).each do |mname, method|
-              # Check both class-keyed and free-call-keyed params
-              class_param_types = @gctx.class_params[[name, mname]] || @gctx.inferred_params[mname]
-              # Emit specialized (typed) overload if params have raw types
-              raw_types = class_param_types&.map { |t| CrystalType.raw(t) }
-              class_return = @gctx.instance_method_raw_returns[[name, mname]]
-              if opt?(:method_specialization) && raw_types&.any?
-                emit_indent
-                emit_specialized_class_method(name, mname, method, raw_types, class_return, crystal_param_types: class_param_types)
-                emit_newline
-                emit_newline
-              end
-              # Emit generic (RubyObject) overload — always present for boxed callers.
-              # Use RubyObject params when a specialized overload exists, to avoid
-              # conflicting with the typed overload.
-              emit_indent
-              generic_params = raw_types&.any? ? nil : class_param_types
-              emit_vm_method(mname, method, param_types: generic_params, class_method: true)
-              emit_newline
-              emit_newline
-            end
-          end
-
-          # Emit respond_to? — closed-world boolean lookup of all methods
-          emit_respond_to(mod) if is_class
+          eigen_names = collect_eigen_method_names(mod)
+          emit_instance_methods(name, user_methods, eigen_names)
+          emit_class_methods(name, mod, eigen_names)
+          emit_respond_to(mod) if mod.is_a?(Vm::ClassObject)
         end
 
         @cctx = old_cctx
@@ -419,7 +285,120 @@ module Frozone
         emit_indent
         write "end"
         emit_newline
+      end
 
+      def collect_class_user_methods(mod)
+        is_struct = mod.is_a?(Vm::ClassObject) && struct_subclass?(mod)
+        methods = mod.methods_table&.select do |_n, m|
+          m.is_a?(Vm::Method) &&
+            (user_source_location?(m.source_location) || accessor_method?(m) ||
+             (is_struct && _n == :initialize))
+        end
+        methods || {}
+      end
+
+      def emit_class_header(name, mod)
+        is_class = mod.is_a?(Vm::ClassObject)
+        kw = is_class ? "class" : "module"
+        sc_name = is_class ? mod.superclass&.name : nil
+        write "#{kw} Ruby_#{crystal_constant(name)}"
+        if sc_name && !%i[Object BasicObject Struct Data].include?(sc_name)
+          write " < Ruby_#{crystal_constant(sc_name)}"
+        elsif is_class
+          write " < RubyObject"
+        end
+        emit_newline
+      end
+
+      def emit_ivar_declarations(user_methods)
+        all_ivars = user_methods.each_with_object([]) do |(_, m), acc|
+          acc.concat(collect_ivars(m.body)) if m.body
+        end.uniq
+        all_ivars.each do |iv|
+          type_ann, default = ivar_type_annotation(iv.to_sym)
+          emit_indent
+          line "#{iv} : #{type_ann} = #{default}"
+        end
+        emit_newline unless all_ivars.empty?
+      end
+
+      def ivar_type_annotation(iv_sym)
+        case @cctx.ivars[iv_sym]
+        when :f64 then ["Float64", "0.0_f64"]
+        when :i64 then ["Int64", "0_i64"]
+        else
+          ct = @cctx.typed_ivars[iv_sym]
+          return ["RubyObject", "RUBY_NIL"] unless ct
+          kind, cls = ct
+          crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
+          return ["#{crystal_cls} | RubyNil", "RUBY_NIL"] if kind == :class_or_nil
+          default = { Array: "RubyArray.new", Hash: "RubyHash.new", String: "RubyString.new" }[cls]
+          default ? [crystal_cls, default] : ["#{crystal_cls} | RubyNil", "RUBY_NIL"]
+        end
+      end
+
+      def emit_default_stringifiers(name, user_methods)
+        emit_indent; line "def to_s : String; \"#<#{name}>\"; end" unless user_methods.key?(:to_s)
+        emit_indent; line "def inspect : String; \"#<#{name}>\"; end" unless user_methods.key?(:inspect)
+      end
+
+      def collect_eigen_method_names(mod)
+        eigenclass = mod.eigenclass or return Set.new
+        (eigenclass.methods_table || {}).select { |_, m|
+          m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+        }.keys.to_set
+      end
+
+      def emit_instance_methods(class_name, user_methods, eigen_names)
+        @cctx.eigen_methods = nil
+        user_methods.each do |mname, method|
+          next if eigen_names.include?(mname) && mname != :initialize
+          emit_indent
+          if accessor_method?(method)
+            emit_accessor_method(mname, method)
+          else
+            emit_instance_method_overloads(class_name, mname, method)
+          end
+        end
+      end
+
+      def emit_instance_method_overloads(class_name, mname, method)
+        inst_param_types = @gctx.class_params[[class_name, mname]]
+        has_typed = inst_param_types&.any? { |t| t && t != :ruby_object }
+        if has_typed
+          emit_vm_method(mname, method, param_types: inst_param_types)
+          emit_newline; emit_newline; emit_indent
+          emit_vm_method(mname, method)
+        else
+          emit_vm_method(mname, method, param_types: inst_param_types)
+        end
+        emit_newline; emit_newline
+      end
+
+      def emit_class_methods(class_name, mod, eigen_names)
+        @cctx.eigen_methods = eigen_names
+        eigenclass = mod.eigenclass or return
+        class_methods = eigenclass.methods_table&.select { |_, m|
+          m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+        } || {}
+        class_methods.each do |mname, method|
+          emit_class_method_overloads(class_name, mname, method)
+        end
+      end
+
+      def emit_class_method_overloads(class_name, mname, method)
+        class_param_types = @gctx.class_params[[class_name, mname]] || @gctx.inferred_params[mname]
+        raw_types = class_param_types&.map { |t| CrystalType.raw(t) }
+        if opt?(:method_specialization) && raw_types&.any?
+          class_return = @gctx.instance_method_raw_returns[[class_name, mname]]
+          emit_indent
+          emit_specialized_class_method(class_name, mname, method, raw_types, class_return, crystal_param_types: class_param_types)
+          emit_newline; emit_newline
+        end
+        emit_indent
+        generic_params = raw_types&.any? ? nil : class_param_types
+        emit_vm_method(mname, method, param_types: generic_params, class_method: true)
+        emit_newline; emit_newline
       end
 
       # Emit respond_to? as a closed-world method-presence lookup.
@@ -1007,101 +986,102 @@ module Frozone
       # For class-typed locals, add .as(Ruby_ClassName) cast for static dispatch.
       def emit_local_var_write(node)
         name = ivar(node, :name)
-        # Nested array construction: c = Array.new(m) { Array.new(p, fill) }
-        # Emit as Array(Array(T)).new(m) { Array(T).new(p, fill) }
-        nat_elem = native_array_elem_type(name)
-        if nat_elem && CrystalType.array?(nat_elem)
-          rhs = ivar(node, :value_node)
-          blk = rhs.is_a?(Ast::MethodCall) ? ivar(rhs, :block_node) : nil
-          if blk.is_a?(Ast::Block)
-            inner = blk.body
-            inner = inner.nodes.first if inner.is_a?(Ast::Sequence) && inner.nodes.size == 1
-            inner_crystal = CrystalType.to_crystal(nat_elem)
-            outer_args = ivar(rhs, :arg_nodes) || []
-            if array_new_call?(inner)
-              # Array.new(m) { Array.new(p, fill) } — emit with fill
-              inner_args = ivar(inner, :arg_nodes) || []
-              write "#{crystal_local(name)} = Array(#{inner_crystal}).new("
-              emit_coerce_i64(outer_args[0])
-              write ") { #{inner_crystal}.new("
-              emit_coerce_i64(inner_args[0])
-              write ", "
-              emit_as(inner_args[1], CrystalType.elem(nat_elem))
-              write ") }"
-              return
-            elsif inner.is_a?(Ast::ArrayLiteral) && (ivar(inner, :element_nodes) || []).empty?
-              # Array.new(n) { [] } — emit with empty inner arrays
-              write "#{crystal_local(name)} = Array(#{inner_crystal}).new("
-              emit_coerce_i64(outer_args[0])
-              write ") { #{inner_crystal}.new }"
-              return
-            end
-          end
-        end
-        if (arr_ty = @mctx.typed_array_locals[name])
-          rhs = ivar(node, :value_node)
-          if array_new_call?(rhs)
-            args = ivar(rhs, :arg_nodes) || []
-            crystal_ty = arr_ty == :f64 ? "Float64" : "Int64"
-            write "#{crystal_local(name)} = Array(#{crystal_ty}).new("
-            emit_coerce_i64(args[0])
-            write ", "
-            emit_as(args[1], arr_ty)
-            write ")"
-            return
-          end
-        end
-        # Promote boxed-array local to native Array(T) when initialized via Array.new(n, default).
-        if (elem_ty = @mctx.local_array_elems[name]) && !@mctx.typed_array_locals.key?(name)
-          rhs  = ivar(node, :value_node)
-          if rhs.is_a?(Ast::MethodCall) && ivar(rhs, :name) == :new &&
-             ivar(rhs, :receiver_node).is_a?(Ast::ConstantRead) &&
-             ivar(ivar(rhs, :receiver_node), :name) == :Array
-            args = ivar(rhs, :arg_nodes) || []
-            if args.size == 2
-              crystal_ty = elem_ty == :f64 ? "Float64" : "Int64"
-              write "#{crystal_local(name)} = Array(#{crystal_ty}).new("
-              emit_coerce_i64(args[0])
-              write ", "
-              emit_as(args[1], elem_ty)
-              write ")"
-              @mctx.native_array_locals[name] = elem_ty
-              return
-            end
-          end
-        end
-        if (raw_ty = @mctx.typed_locals[name])
-          write "#{crystal_local(name)} = "
-          emit_as(ivar(node, :value_node), raw_ty)
-          return
-        end
-        if @mctx.local_array_elems.key?(name)
-          # Nested native array read: ci = c[i] — emit bare, Crystal infers type
-          if native_array_elem_type(name)
-            write "#{crystal_local(name)} = "
-            emit(ivar(node, :value_node))
-            return
-          end
-          write "#{crystal_local(name)} = "
-          old_suppress = @suppress_tuple_literals
-          @suppress_tuple_literals = true  # local assignment — might be mutated later
-          emit(ivar(node, :value_node))
-          @suppress_tuple_literals = old_suppress
-          write ".as(RubyArray)" unless ivar(node, :value_node).is_a?(Ast::ArrayLiteral)
-          return
-        end
-        if (cls = @mctx.class_locals[name])
-          write "#{crystal_local(name)} = "
-          emit(ivar(node, :value_node))
-          write ".as(#{crystal_class_name(cls)})"
-          return
-        end
-        # Suppress tuple literals for plain local assignments — arrays may be mutated later
+        return if try_nested_array_write(node, name)
+        return if try_typed_array_write(node, name)
+        return if try_boxed_array_promote(node, name)
+        return if try_scalar_write(node, name)
+        return if try_native_array_alias(node, name)
+        return if try_boxed_array_write(node, name)
+        return if try_class_cast_write(node, name)
+        # Default: plain assignment (inlined from CrystalEmitter)
         old_suppress = @suppress_tuple_literals
         @suppress_tuple_literals = true
-        super
+        write crystal_local(name), " = "
+        emit(ivar(node, :value_node))
         @suppress_tuple_literals = old_suppress
       end
+
+      # Array.new(m) { Array.new(p, fill) } or Array.new(n) { [] } — nested native construction.
+      def try_nested_array_write(node, name)
+        nat_elem = native_array_elem_type(name)
+        return unless nat_elem && CrystalType.array?(nat_elem)
+        rhs = ivar(node, :value_node)
+        blk = rhs.is_a?(Ast::MethodCall) ? ivar(rhs, :block_node) : nil
+        return unless blk.is_a?(Ast::Block)
+        inner = blk.body
+        inner = inner.nodes.first if inner.is_a?(Ast::Sequence) && inner.nodes.size == 1
+        inner_crystal = CrystalType.to_crystal(nat_elem)
+        outer_args = ivar(rhs, :arg_nodes) || []
+        if array_new_call?(inner)
+          inner_args = ivar(inner, :arg_nodes) || []
+          write crystal_local(name), " = Array(", inner_crystal, ").new("
+          emit_coerce_i64(outer_args[0])
+          write ") { ", inner_crystal, ".new("
+          emit_coerce_i64(inner_args[0])
+          write ", "; emit_as(inner_args[1], CrystalType.elem(nat_elem)); write ") }"
+        elsif inner.is_a?(Ast::ArrayLiteral) && (ivar(inner, :element_nodes) || []).empty?
+          write crystal_local(name), " = Array(", inner_crystal, ").new("
+          emit_coerce_i64(outer_args[0])
+          write ") { ", inner_crystal, ".new }"
+        end
+      end
+
+      # Array.new(n, fill) with TI-known element type → native Array(T) construction.
+      def try_typed_array_write(node, name)
+        arr_ty = @mctx.typed_array_locals[name] or return
+        rhs = ivar(node, :value_node)
+        return unless array_new_call?(rhs)
+        args = ivar(rhs, :arg_nodes) || []
+        write crystal_local(name), " = Array(", CrystalType.to_crystal(arr_ty), ").new("
+        emit_coerce_i64(args[0]); write ", "; emit_as(args[1], arr_ty); write ")"
+      end
+
+      # Promote boxed-array local to native Array(T) from Array.new(n, default).
+      def try_boxed_array_promote(node, name)
+        elem_ty = @mctx.local_array_elems[name] or return
+        return if @mctx.typed_array_locals.key?(name)
+        rhs = ivar(node, :value_node)
+        return unless array_new_call?(rhs)
+        args = ivar(rhs, :arg_nodes) || []
+        return unless args.size == 2
+        write crystal_local(name), " = Array(", CrystalType.to_crystal(elem_ty), ").new("
+        emit_coerce_i64(args[0]); write ", "; emit_as(args[1], elem_ty); write ")"
+        @mctx.native_array_locals[name] = elem_ty
+      end
+
+      # Typed scalar local → emit raw value.
+      def try_scalar_write(node, name)
+        raw_ty = @mctx.typed_locals[name] or return
+        write crystal_local(name), " = "
+        emit_as(ivar(node, :value_node), raw_ty)
+      end
+
+      # ci = c[i] where c is native nested array → emit bare, Crystal infers.
+      def try_native_array_alias(node, name)
+        return unless @mctx.local_array_elems.key?(name) && native_array_elem_type(name)
+        write crystal_local(name), " = "
+        emit(ivar(node, :value_node))
+      end
+
+      # Boxed array local with known elem type → cast to RubyArray.
+      def try_boxed_array_write(node, name)
+        return unless @mctx.local_array_elems.key?(name)
+        write crystal_local(name), " = "
+        old_suppress = @suppress_tuple_literals
+        @suppress_tuple_literals = true
+        emit(ivar(node, :value_node))
+        @suppress_tuple_literals = old_suppress
+        write ".as(RubyArray)" unless ivar(node, :value_node).is_a?(Ast::ArrayLiteral)
+      end
+
+      # Class-typed local → devirtualize cast.
+      def try_class_cast_write(node, name)
+        cls = @mctx.class_locals[name] or return
+        write crystal_local(name), " = "
+        emit(ivar(node, :value_node))
+        write ".as(", crystal_class_name(cls), ")"
+      end
+
 
       # Override: emit small fixed-size array literals as RubyTupleN (single
       # allocation, N inline fields) instead of RubyArray (3 allocations).
