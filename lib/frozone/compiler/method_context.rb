@@ -22,6 +22,7 @@ module Frozone
       attr_accessor :block_param_name # Symbol or nil — &block param name
       attr_accessor :suppress_typed_call_args # Bool — disable typed call args in generic overloads
       attr_accessor :emit_crystal_tuple # Bool — emit Crystal tuple for return array literal
+      attr_accessor :suppress_tuple_literals # Bool — suppress RubyTupleN for array locals (may be mutated)
 
       def initialize
         @typed_locals = {}
@@ -37,6 +38,7 @@ module Frozone
         @block_param_name = nil
         @suppress_typed_call_args = false
         @emit_crystal_tuple = false
+        @suppress_tuple_literals = false
       end
 
       def param?(name) = @param_set.include?(name)

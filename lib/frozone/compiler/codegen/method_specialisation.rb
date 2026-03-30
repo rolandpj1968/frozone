@@ -37,7 +37,7 @@ module Frozone
 
       def walk_raw_free_calls(node, raw_calls)
         return unless node
-        if node.is_a?(Ast::MethodCall) && node.receiver_node.nil? && @user_methods.include?(node.name)
+        if node.is_a?(Ast::MethodCall) && node.receiver_node.nil? && @cc.user_methods.include?(node.name)
           raw_calls[node.name] << (node.arg_nodes || []).map { |a| node_raw_type(a) }
         end
         node.children.each { |c| walk_raw_free_calls(c, raw_calls) }
@@ -48,7 +48,7 @@ module Frozone
       # are removed from both @gctx.typed_params and @gctx.typed_method_returns.
       def collect_typed_method_returns
         return if @gctx.typed_params.empty?
-        methods_table = @top_level_scope.methods_table || {}
+        methods_table = @cc.top_level_scope.methods_table || {}
 
         # Tentative assignment (allows recursive calls to see a return type during verification)
         @gctx.typed_params.each do |name, param_types|

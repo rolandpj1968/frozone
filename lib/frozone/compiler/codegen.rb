@@ -5,6 +5,7 @@ require_relative 'type_inference'
 require_relative 'method_context'
 require_relative 'class_context'
 require_relative 'global_context'
+require_relative 'compile_context'
 require_relative '../vm/module_object'
 require_relative '../vm/method'
 require_relative 'codegen/raw_emission'
@@ -100,15 +101,10 @@ module Frozone
       # @param top_level_scope [Vm::ClassObject] Core::OBJECT_CLASS
       # @param globals [Hash] Vm::GLOBALS
       def generate(execute_block:, top_level_scope:, globals:, stub_file: nil)
-        @top_level_scope = top_level_scope
-        @stub_file = stub_file
-        @mctx = MethodContext.new # per-method emission state (replaced per emit_vm_method)
+        @cc = CompileContext.new(top_level_scope: top_level_scope, stub_file: stub_file)
+        @mctx = MethodContext.new
         @cctx = ClassContext.new
         @gctx = GlobalContext.new
-        @mctx.emit_crystal_tuple = false # true when emitting last expression of method body (multi-return)
-        @masgn_return_methods = nil   # Set of method names called in masgn RHS position
-        @object_instance_methods = Set.new # methods emitted on RubyObject (skip *args stubs)
-        @suppress_tuple_literals = false  # true inside local var assignment (arrays may be mutated)
 
         # Pre-pass: collect user method names for RubyObject stubs
         collect_user_methods_from_scope(top_level_scope)
@@ -120,18 +116,18 @@ module Frozone
         # Pre-scan: find methods on Object that will get real instance method
         # implementations on RubyObject (so we skip *args stubs for them).
         top_level_scope.methods_table&.each do |name, m|
-          @object_instance_methods << name if m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+          @cc.object_instance_methods << name if m.is_a?(Vm::Method) && user_source_location?(m.source_location)
         end
 
         emit_header
         emit_bench_harness_require if bench_stub?
-        emit_user_method_stubs unless @user_methods.empty?
+        emit_user_method_stubs unless @cc.user_methods.empty?
 
         # Collect class-typed ivars (X | nil patterns) across all methods
         collect_class_typed_ivars(top_level_scope) if opt?(:ivar_narrowing)
 
         # Scan for methods called in masgn RHS (multi-return → Crystal tuple)
-        @masgn_return_methods = collect_masgn_return_methods(execute_block&.body, top_level_scope)
+        @cc.masgn_return_methods = collect_masgn_return_methods(execute_block&.body, top_level_scope)
 
         # Build global method-name → index map for respond_to? bit arrays.
         build_method_index(top_level_scope)
@@ -159,11 +155,11 @@ module Frozone
           @mctx.block_params = @gctx.block_params[nil] || {}
           @mctx.local_types = @gctx.local_types[nil] || {}
           @mctx.method_body = execute_block.body
-          @in_execute_block = true
+          @cc.in_execute_block = true
           emit_indent
           emit(execute_block.body)
           emit_newline
-          @in_execute_block = false
+          @cc.in_execute_block = false
         end
 
         @out
@@ -175,7 +171,7 @@ module Frozone
       # Source-location filtering
       # -----------------------------------------------------------------------
 
-      def bench_stub? = @stub_file&.include?('bench/stubs/')
+      def bench_stub? = @cc.bench_stub?
 
       # Resolve a receiver AST node to a known class Symbol (from TI devirtualize).
       def receiver_known_class(recv)
@@ -185,7 +181,7 @@ module Frozone
 
       # Look up a VM class/module by name in the top-level constant table.
       def lookup_vm_class(name)
-        val = @top_level_scope.constants_table&.fetch(name, nil)
+        val = @cc.top_level_scope.constants_table&.fetch(name, nil)
         val.is_a?(Vm::ModuleObject) ? val : nil
       end
 
@@ -193,7 +189,7 @@ module Frozone
         return false if loc.nil?
         # source_location is "file:line" — strip the :line suffix for comparison
         file = loc.is_a?(Array) ? loc.first.to_s : loc.to_s.sub(/:[\d]+\z/, '')
-        return false if @stub_file && file == @stub_file
+        return false if @cc.stub_file && file == @cc.stub_file
         CORE_PATH_MARKERS.none? { |marker| file.include?(marker) }
       end
 
@@ -223,9 +219,9 @@ module Frozone
         scope.methods_table&.each do |name, method|
           next unless method.is_a?(Vm::Method)
           if user_source_location?(method.source_location)
-            @user_methods << name
+            @cc.user_methods << name
           elsif class_is_user && accessor_method?(method)
-            @user_methods << name
+            @cc.user_methods << name
           end
         end
 
@@ -485,9 +481,9 @@ module Frozone
       # Override: skip *args stubs for methods that get real implementations
       # on RubyObject (user methods defined on Object).
       def emit_user_method_stubs
-        stubs = @user_methods.reject { |n|
+        stubs = @cc.user_methods.reject { |n|
           self.class.const_get(:RUBY_OBJECT_METHODS).include?(n) ||
-            operator?(n) || @object_instance_methods.include?(n)
+            operator?(n) || @cc.object_instance_methods.include?(n)
         }
         return if stubs.empty?
         write "# User-defined method stubs on RubyObject for polymorphic dispatch"
@@ -557,7 +553,7 @@ module Frozone
         # (e.g., obj.should) dispatch correctly via Crystal's virtual dispatch.
         # This mirrors Ruby where Object methods are available both ways.
         # Track these so we skip generating *args stubs for them.
-        @object_instance_methods = user_methods_on_object.map(&:first).to_set
+        @cc.object_instance_methods = user_methods_on_object.map(&:first).to_set
         return if user_methods_on_object.empty?
         line "# User methods on Object — also available as instance methods"
         line "class RubyObject"
@@ -703,7 +699,7 @@ module Frozone
           indented { emit_raw_body(method.body) }
         else
           # Emit Crystal tuple return when method is called in masgn context
-          @mctx.emit_crystal_tuple = @masgn_return_methods&.include?(name)
+          @mctx.emit_crystal_tuple = @cc.masgn_return_methods&.include?(name)
           indented { emit(method.body) }
           @mctx.emit_crystal_tuple = false
         end
@@ -994,11 +990,11 @@ module Frozone
         return if try_boxed_array_write(node, name)
         return if try_class_cast_write(node, name)
         # Default: plain assignment (inlined from CrystalEmitter)
-        old_suppress = @suppress_tuple_literals
-        @suppress_tuple_literals = true
+        old_suppress = @mctx.suppress_tuple_literals
+        @mctx.suppress_tuple_literals = true
         write crystal_local(name), " = "
         emit(ivar(node, :value_node))
-        @suppress_tuple_literals = old_suppress
+        @mctx.suppress_tuple_literals = old_suppress
       end
 
       # Array.new(m) { Array.new(p, fill) } or Array.new(n) { [] } — nested native construction.
@@ -1067,10 +1063,10 @@ module Frozone
       def try_boxed_array_write(node, name)
         return unless @mctx.local_array_elems.key?(name)
         write crystal_local(name), " = "
-        old_suppress = @suppress_tuple_literals
-        @suppress_tuple_literals = true
+        old_suppress = @mctx.suppress_tuple_literals
+        @mctx.suppress_tuple_literals = true
         emit(ivar(node, :value_node))
-        @suppress_tuple_literals = old_suppress
+        @mctx.suppress_tuple_literals = old_suppress
         write ".as(RubyArray)" unless ivar(node, :value_node).is_a?(Ast::ArrayLiteral)
       end
 
@@ -1090,7 +1086,7 @@ module Frozone
       MAX_TUPLE_SIZE = 8
 
       def emit_array_literal(node)
-        return super unless opt?(:tuple_literals) && !@suppress_tuple_literals
+        return super unless opt?(:tuple_literals) && !@mctx.suppress_tuple_literals
         elems = ivar(node, :element_nodes) || []
         if elems.size >= 1 && elems.size <= MAX_TUPLE_SIZE &&
            elems.none? { |e| e.is_a?(Ast::SplatArg) }
@@ -1520,7 +1516,7 @@ module Frozone
         @user_overridden_ops ||= begin
           ops = Set.new
           PRIMITIVE_CLASS_NAMES.each do |klass_name|
-            klass = @top_level_scope.constants_table&.fetch(klass_name, nil)
+            klass = @cc.top_level_scope.constants_table&.fetch(klass_name, nil)
             next unless klass.is_a?(Vm::ModuleObject)
             klass.methods_table&.each do |mname, method|
               next unless method.is_a?(Vm::Method)
@@ -1545,7 +1541,7 @@ module Frozone
         has_splat = targets.any? { |t| t[0].to_s.end_with?('_splat') || t[0] == :splat_nil }
         if !has_splat && rhs.is_a?(Ast::MethodCall) && ivar(rhs, :receiver_node).nil?
           method_name = ivar(rhs, :name)
-          method = @top_level_scope.methods_table&.fetch(method_name, nil)
+          method = @cc.top_level_scope.methods_table&.fetch(method_name, nil)
           if method.is_a?(Vm::Method) && returns_array_literal?(method.body)
             # Emit: _t0, _t1 = func(args)
             tmp_names = targets.each_with_index.map { |_, i| "_tup#{@temp_counter}_#{i}" }
