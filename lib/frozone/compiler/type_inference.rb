@@ -727,6 +727,16 @@ module Frozone
                                    recv_ty.key?(:elem)
         end
 
+        # Range#to_a → Array with endpoint element type
+        # Unwrap parenthesised Sequence: (0..n).to_a parses as Sequence([RangeLiteral])
+        unwrapped_recv = recv
+        unwrapped_recv = unwrapped_recv.nodes.first while unwrapped_recv.is_a?(Ast::Sequence) && unwrapped_recv.nodes.size == 1
+        if (name == :to_a || name == :to_ary) && unwrapped_recv.is_a?(Ast::RangeLiteral)
+          begin_ty = infer_expr(unwrapped_recv.instance_variable_get(:@begin_node), ctx)
+          return {class: :Array, elem: begin_ty}.freeze if NUMERIC_TYPES.include?(begin_ty)
+          return {class: :Array}
+        end
+
         # Built-in Array methods with known return types.
         if recv
           recv_ty = infer_expr(recv, ctx)
