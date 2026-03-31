@@ -16,9 +16,10 @@ require "./ruby_string"  # pulls in RubyEncoding
 class RubySymbol < RubyObject
   include Comparable(RubySymbol)
 
-  getter name     : String
+  getter name : String
   getter encoding : RubyEncoding
   getter object_id : UInt64
+  property method_index : Int32 = 0  # compile-time index for O(1) respond_to?
 
   # -------------------------------------------------------------------------
   # Intern table — keyed by {name, encoding}

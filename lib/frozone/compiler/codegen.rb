@@ -429,13 +429,11 @@ module Frozone
 
       def emit_method_index_table
         return if @method_name_index.size <= 1 # only sentinel
-        line "# Global method-name → index for O(1) respond_to? lookup"
-        line "FROZONE_METHOD_INDEX = {"
+        line "# Pre-intern method-name symbols with compile-time indices for O(1) respond_to?"
         @method_name_index.each do |name, idx|
           next if name == '__sentinel__'
-          line "  #{name.inspect} => #{idx},"
+          line "RubySymbol.from(#{name.inspect}).method_index = #{idx}"
         end
-        line "}"
         emit_newline
       end
 
@@ -467,10 +465,13 @@ module Frozone
         line "def respond_to?(name : RubyObject, _include_all : RubyObject = RUBY_FALSE) : RubyBool"
         indented do
           emit_indent
-          write "idx = FROZONE_METHOD_INDEX.fetch(name.is_a?(RubySymbol) ? name.to_s : name.to_s, 0)"
+          write "sym = name.is_a?(RubySymbol) ? name : RubySymbol.from(name.to_s)"
           emit_newline
           emit_indent
-          write "RESPOND_TO_TABLE[idx] ? RUBY_TRUE : RUBY_FALSE"
+          write "idx = sym.method_index"
+          emit_newline
+          emit_indent
+          write "(idx > 0 && RESPOND_TO_TABLE[idx]) ? RUBY_TRUE : RUBY_FALSE"
         end
         emit_newline
         emit_indent
