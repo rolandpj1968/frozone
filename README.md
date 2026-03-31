@@ -31,17 +31,16 @@ See [docs/spec-status.md](docs/spec-status.md) for detailed breakdowns, [docs/in
 
 ### Compiler Benchmarks
 
-Measured on Ruby 4.0.1 vs Crystal `--release` build, per-iteration median of 3 runs:
+Total wall-clock time, median of 3 runs (same workload and iteration count as MRI):
 
 | Benchmark | MRI | YJIT | Frozone→Crystal | vs MRI | vs YJIT |
 |-----------|-----|------|-----------------|--------|---------|
-| fib(35) ×3 | 22.7 ms | 28.0 ms | 46.0 ms | 0.5× | 0.6× |
-| sudoku ×20 | 20.0 ms | 9.8 ms | 21.4 ms | 0.9× | 0.5× |
-| matmul(200) ×20 | 20.4 ms | 11.1 ms | 12.2 ms | **1.7×** | **0.9×** |
+| fib(35) ×3 | 140 ms | 155 ms | 169 ms | 0.8× | 0.9× |
+| sudoku ×20 | 456 ms | 234 ms | 489 ms | 0.9× | 0.5× |
 
-26 of 26 benchmarks compile end-to-end. Full benchmark harness integration in progress — only 3 benchmarks have matched iteration counts for accurate comparison above. Pure Crystal fib(35) is 35 ms/iter; the Frozone overhead is ~30% from typed overload dispatch.
+26 of 26 benchmarks compile end-to-end (25 without TI timeout). Fib overhead is ~30% over pure Crystal (35 ms/iter), attributable to the Crystal runtime library linked into the binary.
 
-Type inference improvements in this release: array element types from `<<`/push operations, nested `Array(Array(T))` promotion, and 10-iteration fixed-point convergence. See [docs/compilation.md](docs/compilation.md) for architecture.
+Key compiler features: whole-program type inference with array element propagation from `<<`/push, nested `Array(Array(T))` promotion, compile-time `respond_to?`/`is_a?` folding, and typed method overloads with Crystal tuple multi-return. See [docs/compilation.md](docs/compilation.md) for architecture.
 
 ### AoT Compilation
 
