@@ -402,6 +402,19 @@ module Frozone
       # Collect ALL method names across ALL user classes and assign indices.
       # Index 0 is the sentinel (always-false for unknown method names).
       def build_method_index(scope)
+        # Only build the method index if there are user-defined classes
+        # that will emit respond_to? tables. Skip for programs with only
+        # top-level methods — saves 900+ lines of symbol interning.
+        has_user_classes = (scope.constants_table || {}).any? do |name, val|
+          next unless val.is_a?(Vm::ClassObject)
+          const_loc = scope.constants_locations&.dig(name)
+          (user_source_location?(const_loc) ||
+           val.methods_table&.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }) &&
+            !%i[Object BasicObject Kernel].include?(name)
+        end
+        @cc.method_index = { '__sentinel__' => 0 }
+        return unless has_user_classes
+
         all_method_names = Set.new
         collect_all_method_names = ->(klass) {
           c = klass
@@ -413,24 +426,20 @@ module Frozone
             c = c.superclass
           end
         }
-        # Walk user classes
         (scope.constants_table || {}).each_value do |val|
           collect_all_method_names.call(val) if val.is_a?(Vm::ClassObject)
         end
-        # Also collect from Object (for top-level methods)
         collect_all_method_names.call(scope) if scope.is_a?(Vm::ClassObject)
 
         all_method_names.delete(:initialize)
         sorted = all_method_names.map(&:to_s).sort
-        # Index 0 = sentinel (unknown method → always false)
-        @method_name_index = { '__sentinel__' => 0 }
-        sorted.each_with_index { |name, i| @method_name_index[name] = i + 1 }
+        sorted.each_with_index { |name, i| @cc.method_index[name] = i + 1 }
       end
 
       def emit_method_index_table
-        return if @method_name_index.size <= 1 # only sentinel
+        return if @cc.method_index.size <= 1 # only sentinel
         line "# Pre-intern method-name symbols with compile-time indices for O(1) respond_to?"
-        @method_name_index.each do |name, idx|
+        @cc.method_index.each do |name, idx|
           next if name == '__sentinel__'
           line "RubySymbol.from(#{name.inspect}).method_index = #{idx}"
         end
@@ -450,10 +459,10 @@ module Frozone
         all_methods.delete(:initialize)
 
         # Build bit array: index 0 (sentinel) is always false
-        table_size = @method_name_index.size
+        table_size = @cc.method_index.size
         bits = Array.new(table_size, false)
         all_methods.each do |m|
-          idx = @method_name_index[m.to_s]
+          idx = @cc.method_index[m.to_s]
           bits[idx] = true if idx
         end
 
