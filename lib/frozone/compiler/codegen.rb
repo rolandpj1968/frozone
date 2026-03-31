@@ -1208,6 +1208,18 @@ module Frozone
         write ")"
       end
 
+      # Emit a value guaranteed to be RubyObject — box raw Int64/Float64 locals.
+      def emit_boxed(node)
+        vt = node_raw_type(node)
+        if vt == :i64
+          write "RubyInteger.new("; emit_raw(node); write ")"
+        elsif vt == :f64
+          write "RubyFloat.new("; emit_raw(node); write ")"
+        else
+          emit(node)
+        end
+      end
+
       # Emit block after typed call args (emit_call_args handles blocks itself).
       def emit_block_if_present(node)
         blk = node.block_node
@@ -1537,7 +1549,21 @@ module Frozone
             return
           end
         end
-        super
+        # Default: emit attribute write with raw value boxing for []=
+        if ivar(node, :name) == :[]=
+          emit(recv)
+          write "["
+          emit(args[0])
+          write "] = "
+          emit_boxed(args[1])
+        else
+          # Non-[]= attribute write: obj.setter = val
+          name = ivar(node, :name)
+          setter_name = name.to_s.chomp('=')
+          emit(recv)
+          write ".#{setter_name} = "
+          emit(args[0])
+        end
       end
 
       # -----------------------------------------------------------------------
