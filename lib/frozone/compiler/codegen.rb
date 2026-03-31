@@ -1199,6 +1199,14 @@ module Frozone
         write ")"
       end
 
+      # Emit block after typed call args (emit_call_args handles blocks itself).
+      def emit_block_if_present(node)
+        blk = node.block_node
+        return unless blk && !blk.is_a?(Ast::BlockArg)
+        write " "
+        emit_block(blk)
+      end
+
       def emit_method_call(node)
         try_constant_fold(node) ||
           try_native_array_new(node) ||
@@ -1284,6 +1292,7 @@ module Frozone
         emit(node.receiver_node)
         write ".#{crystal_method_name(node.name)}"
         emit_typed_call_args(node.arg_nodes || [], tp)
+        emit_block_if_present(node)
         true
       end
 
@@ -1351,7 +1360,12 @@ module Frozone
           tp = @gctx.inferred_params[node.name] || @gctx.class_params[[@cctx.name, node.name]]
           can_use_typed = tp&.any? { |t| t && t != :ruby_object } &&
             tp.all? { |pt| !pt || CrystalType.generic_compatible?(pt) || CrystalType.scalar?(pt) }
-          can_use_typed ? emit_typed_call_args(node.arg_nodes || [], tp) : emit_call_args(node)
+          if can_use_typed
+            emit_typed_call_args(node.arg_nodes || [], tp)
+            emit_block_if_present(node)
+          else
+            emit_call_args(node)
+          end
         else
           emit_call_args(node)
         end
@@ -1364,6 +1378,7 @@ module Frozone
         tp = @gctx.inferred_params[node.name] or return
         write crystal_method_name(node.name)
         emit_typed_call_args(node.arg_nodes || [], tp)
+        emit_block_if_present(node)
         true
       end
 
