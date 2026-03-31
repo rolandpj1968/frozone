@@ -184,8 +184,10 @@ module Frozone
       # Main fixed-point loop
       # ------------------------------------------------------------------
 
-      def run(iterations: 10)
+      def run(iterations: 3)
         seed_constants
+        @_assign_cache = {}
+        @_elem_write_cache = {}
 
         iterations.times do
           changed = false
@@ -330,7 +332,7 @@ module Frozone
       # ------------------------------------------------------------------
 
       def propagate_locals(body, ctx)
-        assignments = collect_assignments(body)
+        assignments = @_assign_cache[ctx.method_key] ||= collect_assignments(body)
         return false if assignments.empty?
         changed = false
         loop do
@@ -398,7 +400,7 @@ module Frozone
 
       def propagate_array_locals(body, ctx)
         return false unless body
-        assignments = collect_assignments(body)
+        assignments = @_assign_cache[ctx.method_key] ||= collect_assignments(body)
         param_names = param_names_for(ctx)
         changed = false
 
@@ -420,7 +422,7 @@ module Frozone
 
         # Infer element types from push operations (<<, push, []=) on array locals.
         # Only promote when ALL writes to the array's elements are consistently typed.
-        elem_writes = collect_array_elem_writes(body)
+        elem_writes = @_elem_write_cache[ctx.method_key] ||= collect_array_elem_writes(body)
         elem_writes.each do |key, value_nodes|
           # Direct writes: arr << val, arr[i] = val
           if key.is_a?(Symbol)
