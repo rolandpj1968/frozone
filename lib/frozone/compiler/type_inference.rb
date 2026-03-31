@@ -184,13 +184,14 @@ module Frozone
       # Main fixed-point loop
       # ------------------------------------------------------------------
 
-      def run(iterations: 3)
+      def run(iterations: 10)
         seed_constants
         @_assign_cache = {}
         @_elem_write_cache = {}
 
         iterations.times do
           changed = false
+          @_expr_cache = {}  # clear per-iteration; types evolve between rounds
 
           # Propagate argument types from every call site into param slots.
           changed |= update_call_sites(@execute_block&.body, TOP_LEVEL_CTX)
@@ -568,6 +569,13 @@ module Frozone
 
       def infer_expr(node, ctx)
         return :unknown unless node
+        cache_key = node.object_id * 31 + ctx.method_key.hash
+        return @_expr_cache[cache_key] if @_expr_cache.key?(cache_key)
+        result = infer_expr_uncached(node, ctx)
+        @_expr_cache[cache_key] = result
+      end
+
+      def infer_expr_uncached(node, ctx)
         case node
         # Exact class types for all literals.
         when Ast::IntegerLiteral  then :i64
