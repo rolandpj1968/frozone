@@ -138,6 +138,15 @@ class RubyArray < RubyObject
     v
   end
 
+  # Auto-boxing overloads: accept raw Int64/Float64 values
+  def []=(i : Int64, v : Int64) : RubyObject
+    self[i] = RubyInteger.new(v)
+  end
+
+  def []=(i : Int64, v : Float64) : RubyObject
+    self[i] = RubyFloat.new(v)
+  end
+
   def []=(i : RubyInteger, v : RubyObject) : RubyObject
     self[i.to_i64] = v
   end

@@ -544,19 +544,22 @@ module Frozone
             emit_newline
           end
 
-          emit_indent
-          # Generic overload: genericise any Crystal-native param types to
-          # RubyObject. Types that are already RubyObject subtypes stay as-is.
-          generic_params = if has_complex_params
-            inferred.map { |t| CrystalType.native?(t) ? :ruby_object : t }
-          elsif @gctx.typed_params[name]
-            nil
-          else
-            inferred
+          # Skip generic overload when ALL params are native-typed — in the
+          # closed world, all callers use the typed overload.
+          all_native = inferred&.all? { |t| t && CrystalType.native?(t) }
+          unless all_native
+            emit_indent
+            generic_params = if has_complex_params
+              inferred.map { |t| CrystalType.native?(t) ? :ruby_object : t }
+            elsif @gctx.typed_params[name]
+              nil
+            else
+              inferred
+            end
+            emit_vm_method(name, method, param_types: generic_params)
+            emit_newline
+            emit_newline
           end
-          emit_vm_method(name, method, param_types: generic_params)
-          emit_newline
-          emit_newline
         end
 
         # Also emit as instance methods on RubyObject so receiver-based calls
@@ -565,9 +568,15 @@ module Frozone
         # Track these so we skip generating *args stubs for them.
         @cc.object_instance_methods = user_methods_on_object.map(&:first).to_set
         return if user_methods_on_object.empty?
+        # Filter out methods where all params are native — no generic needed
+        generic_methods = user_methods_on_object.reject do |name, _|
+          inferred = @gctx.inferred_params[name]
+          inferred&.all? { |t| t && CrystalType.native?(t) }
+        end
+        return if generic_methods.empty?
         line "# User methods on Object — also available as instance methods"
         line "class RubyObject"
-        user_methods_on_object.each do |name, method|
+        generic_methods.each do |name, method|
           emit_indent
           write "  "
           generic_params = @gctx.typed_params[name] ? nil : @gctx.inferred_params[name]
