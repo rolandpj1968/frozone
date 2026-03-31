@@ -31,16 +31,21 @@ See [docs/spec-status.md](docs/spec-status.md) for detailed breakdowns, [docs/in
 
 ### Compiler Benchmarks
 
-Total wall-clock time, median of 3 runs (same workload and iteration count as MRI):
+Total wall-clock time (Ruby 4.0.1, Crystal `--release`):
 
-| Benchmark | MRI | YJIT | Frozone→Crystal | vs MRI | vs YJIT |
-|-----------|-----|------|-----------------|--------|---------|
-| fib(35) ×3 | 140 ms | 155 ms | 169 ms | 0.8× | 0.9× |
-| sudoku ×20 | 456 ms | 234 ms | 489 ms | 0.9× | 0.5× |
+| Benchmark | Frozone | MRI | YJIT | vs MRI | vs YJIT |
+|-----------|---------|-----|------|--------|---------|
+| matmul(200) ×20 | 251 ms | 435 ms | 252 ms | **1.7×** | **1.0×** |
+| loops\_times | 13 ms | 832 ms | 269 ms | **64×** | **21×** |
+| gcbench | 32 ms | 1953 ms | 730 ms | **61×** | **23×** |
+| fib(35) ×3 | 141 ms | 107 ms | 109 ms | 0.8× | 0.8× |
+| sudoku ×20 | 432 ms | 425 ms | 226 ms | 1.0× | 0.5× |
+| blurhash | 698 ms | 317 ms | 174 ms | 0.5× | 0.2× |
+| fannkuchredux | 577 ms | 387 ms | 383 ms | 0.7× | 0.7× |
 
-26 of 26 benchmarks compile end-to-end (25 without TI timeout). Fib overhead is ~30% over pure Crystal (35 ms/iter), attributable to the Crystal runtime library linked into the binary.
+26 of 26 benchmarks compile end-to-end. matmul achieves YJIT parity; loops\_times and gcbench are 20-60× faster. blurhash and fannkuchredux need Float unboxing to close the gap.
 
-Key compiler features: whole-program type inference with array element propagation from `<<`/push, nested `Array(Array(T))` promotion, compile-time `respond_to?`/`is_a?` folding, and typed method overloads with Crystal tuple multi-return. See [docs/compilation.md](docs/compilation.md) for architecture.
+Key compiler features: whole-program type inference with array element propagation from `<<`/push, nested `Array(Array(T))` promotion, compile-time `respond_to?`/`is_a?` folding, symbol-indexed `respond_to?` dispatch, and typed method overloads with Crystal tuple multi-return. See [docs/compilation.md](docs/compilation.md) for architecture.
 
 ### AoT Compilation
 
