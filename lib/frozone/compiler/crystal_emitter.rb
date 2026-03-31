@@ -243,8 +243,16 @@ module Frozone
       # Uses unsafe_as reinterpretation so the bit pattern round-trips perfectly
       # regardless of decimal formatting precision.
       def float_bits_expr(val)
-        bits = [val].pack("d").unpack1("q")
-        "#{bits}_i64.unsafe_as(Float64)"
+        # Common values: emit readable Crystal float literals
+        return "0.0_f64" if val == 0.0 && !val.negative?  # exclude -0.0
+        s = val.inspect  # Ruby's Float#inspect is round-trip safe
+        # If Crystal can parse it back to the same bits, use the readable form
+        if s =~ /\A-?\d+\.\d+([eE][+-]?\d+)?\z/
+          "#{s}_f64"
+        else
+          bits = [val].pack("d").unpack1("q")
+          "#{bits}_i64.unsafe_as(Float64)"
+        end
       end
 
       def emit_string_literal(node)
