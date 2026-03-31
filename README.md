@@ -31,28 +31,17 @@ See [docs/spec-status.md](docs/spec-status.md) for detailed breakdowns, [docs/in
 
 ### Compiler Benchmarks
 
-Measured on Ruby 4.0.1 vs Crystal `--release` build (same workload per benchmark):
+Measured on Ruby 4.0.1 vs Crystal `--release` build, per-iteration median of 3 runs:
 
 | Benchmark | MRI | YJIT | Frozone→Crystal | vs MRI | vs YJIT |
 |-----------|-----|------|-----------------|--------|---------|
-| fib(20) | 0.87 ms | 0.53 ms | 0.04 ms | **22×** | **13×** |
-| nqueens(8) | 0.87 ms | 1.31 ms | 0.05 ms | **17×** | **26×** |
-| nbody 20k | 167 ms | 58 ms | 1.76 ms | **95×** | **33×** |
-| matmul(200) | 581 ms | 272 ms | 21.3 ms | **27×** | **13×** |
-| getivar 50K | 0.28 ms | 0.28 ms | 0.01 ms | **28×** | **28×** |
-| setivar 50K | 0.27 ms | 0.25 ms | <0.01 ms | **>27×** | **>25×** |
-| attr\_accessor | 0.72 ms | 0.72 ms | 0.01 ms | **72×** | **72×** |
-| loops\_times | 791 ms | 196 ms | 10.9 ms | **73×** | **18×** |
-| binarytrees(14) | 292 ms | 115 ms | 31 ms | **9.4×** | **3.7×** |
-| keyword\_args | 1.0 ms | 2.2 ms | 1.97 ms | 0.5× | 1.1× |
-| gcbench | 1751 ms | 558 ms | 158 ms | **11×** | **3.5×** |
-| respond\_to | 162 ms | 15 ms | 0.3 ms | **540×** | **50×** |
-| ruby-xor | 97 ms | 19 ms | 53 ms | **1.8×** | 0.4× |
-| fannkuchredux | 311 ms | 311 ms | 176 ms | **1.8×** | **1.8×** |
-| blurhash | 234 ms | 102 ms | 662 ms | 0.4× | 0.2× |
-| splay | 87 ms | 60 ms | 179 ms | 0.5× | 0.3× |
+| fib(35) ×3 | 22.7 ms | 28.0 ms | 46.0 ms | 0.5× | 0.6× |
+| sudoku ×20 | 20.0 ms | 9.8 ms | 21.4 ms | 0.9× | 0.5× |
+| matmul(200) ×20 | 20.4 ms | 11.1 ms | 12.2 ms | **1.7×** | **0.9×** |
 
-22 compiled benchmarks. `respond_to?` uses compile-time constant folding (closed-world method lookup resolved at compile time). See [docs/compilation.md](docs/compilation.md) for architecture.
+26 of 26 benchmarks compile end-to-end. Full benchmark harness integration in progress — only 3 benchmarks have matched iteration counts for accurate comparison above. Pure Crystal fib(35) is 35 ms/iter; the Frozone overhead is ~30% from typed overload dispatch.
+
+Type inference improvements in this release: array element types from `<<`/push operations, nested `Array(Array(T))` promotion, and 10-iteration fixed-point convergence. See [docs/compilation.md](docs/compilation.md) for architecture.
 
 ### AoT Compilation
 
