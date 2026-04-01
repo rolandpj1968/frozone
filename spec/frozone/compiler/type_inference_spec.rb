@@ -273,6 +273,19 @@ RSpec.describe Frozone::Compiler::TypeInference do
       end
     end
 
+    context "logical operators" do
+      it "Or node infers meet of both sides" do
+        t = ti
+        t.instance_variable_set(:@_expr_cache, {})
+        left = parse("1").nodes.first   # IntegerLiteral
+        right = parse("2.0").nodes.first # FloatLiteral
+        or_node = Frozone::Ast::Or.new(left, right)
+        result = t.send(:infer_expr, or_node, TI::TOP_LEVEL_CTX)
+        expect(result).to be_a(Hash)
+        expect(result[:class]).to eq(:Numeric)
+      end
+    end
+
     context "comparisons" do
       it "== does not crash (result may be unknown)" do
         env = infer_method("1 == 2")

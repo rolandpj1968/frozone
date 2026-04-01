@@ -741,6 +741,25 @@ module Frozone
         when Ast::MethodCall
           infer_call(node, ctx)
 
+        when Ast::Or
+          # a || b — result type is meet of both sides (either could be returned)
+          lt = infer_expr(node.instance_variable_get(:@left_node), ctx)
+          rt = infer_expr(node.instance_variable_get(:@right_node), ctx)
+          return rt if lt == :unknown
+          return lt if rt == :unknown
+          meet(lt, rt)
+
+        when Ast::And
+          # a && b — result is the right side's type (if both truthy) or left (if falsy)
+          lt = infer_expr(node.instance_variable_get(:@left_node), ctx)
+          rt = infer_expr(node.instance_variable_get(:@right_node), ctx)
+          return rt if lt == :unknown
+          return lt if rt == :unknown
+          meet(lt, rt)
+
+        when Ast::Not
+          {class: :TrueClass}  # !x always returns boolean
+
         else
           :unknown
         end
