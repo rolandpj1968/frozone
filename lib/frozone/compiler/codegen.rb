@@ -1565,20 +1565,25 @@ module Frozone
             return
           end
         end
-        # Default: emit attribute write with raw value boxing for []=
-        if ivar(node, :name) == :[]=
+        # Default: inline base emitter behavior
+        name = ivar(node, :name)
+        recv = ivar(node, :receiver_node)
+        args = ivar(node, :arg_nodes) || []
+        if name == :[]=
           emit(recv)
           write "["
           emit(args[0])
           write "] = "
           emit_boxed(args[1])
-        else
-          # Non-[]= attribute write: obj.setter = val
-          setter_name = ivar(node, :name).to_s.chomp('=')
-          emit(ivar(node, :receiver_node))
-          write ".#{setter_name} = "
-          args = ivar(node, :arg_nodes) || []
+        elsif name.to_s.end_with?('=') && !operator?(name)
+          emit(recv)
+          write ".#{name.to_s.chomp('=')} = "
           emit(args[0]) if args[0]
+        else
+          # Operator or other: delegate to base emitter
+          emit(recv)
+          write ".#{crystal_method_name(name)}"
+          write "("; emit(args[0]); write ")" if args[0]
         end
       end
 
