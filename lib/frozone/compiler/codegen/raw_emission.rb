@@ -60,7 +60,8 @@ module Frozone
           end
           # Instance method call on a class-typed local with known raw return type
           if recv.is_a?(Ast::LocalVariableRead)
-            recv_class = @mctx.class_locals[ivar(recv, :name)]
+            cls_entry = @mctx.class_locals[ivar(recv, :name)]
+            recv_class = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
             if recv_class && (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
               return ret_ty
             end
@@ -296,12 +297,11 @@ module Frozone
               write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
             end
           elsif recv.is_a?(Ast::LocalVariableRead) &&
-                (recv_class = @mctx.class_locals[ivar(recv, :name)]) &&
+                (cls_entry = @mctx.class_locals[ivar(recv, :name)]) &&
+                (recv_class = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry) &&
                 (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
             # Instance method call on class-typed local with raw return:
             # use _raw accessor (avoids box allocation) if available, else add .to_f64/.to_i64.
-            # Always emit .as(Ruby_ClassName) so Crystal's type system is happy even when
-            # the variable comes from a block parameter (typed as RubyObject).
             emit_raw(recv)
             write ".as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(name)}_raw"
           elsif recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == :Math &&
