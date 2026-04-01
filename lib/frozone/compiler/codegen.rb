@@ -1038,6 +1038,8 @@ module Frozone
       def emit_local_var_write(node)
         name = ivar(node, :name)
         return if try_nested_array_write(node, name)
+        return if try_range_to_a_write(node, name)
+        return if try_native_dup_write(node, name)
         return if try_typed_array_write(node, name)
         return if try_boxed_array_promote(node, name)
         return if try_scalar_write(node, name)
@@ -1054,6 +1056,30 @@ module Frozone
         write crystal_local(name), " = "
         emit(ivar(node, :value_node))
         @mctx.suppress_tuple_literals = old_suppress
+      end
+
+      # (0..n).to_a where TI says the result is Array[:i64] → native Crystal range to_a.
+      def try_range_to_a_write(node, name)
+        # Check: TI says this local is a typed array
+        elem = @mctx.local_array_elems[name] || @mctx.typed_array_locals[name]
+        return unless elem && (elem == :i64 || elem == :f64)
+        rhs = ivar(node, :value_node)
+        return unless rhs.is_a?(Ast::MethodCall) && ivar(rhs, :name) == :to_a
+        recv = ivar(rhs, :receiver_node)
+        # Unwrap parens: (0..n).to_a → Sequence([RangeLiteral]).to_a
+        recv = recv.nodes.first while recv.is_a?(Ast::Sequence) && recv.nodes.size == 1
+        return unless recv.is_a?(Ast::RangeLiteral)
+        begin_node = recv.instance_variable_get(:@begin_node)
+        end_node = recv.instance_variable_get(:@end_node)
+        exclusive = recv.instance_variable_get(:@exclusive)
+        crystal_ty = elem == :f64 ? "Float64" : "Int64"
+        write crystal_local(name), " = ("
+        emit_coerce_i64(begin_node)
+        write exclusive ? "..." : ".."
+        emit_coerce_i64(end_node)
+        write ").to_a"
+        @mctx.native_array_locals[name] = elem
+        true
       end
 
       # Array.new(m) { Array.new(p, fill) } or Array.new(n) { [] } — nested native construction.
@@ -1102,6 +1128,21 @@ module Frozone
         write crystal_local(name), " = Array(", CrystalType.to_crystal(elem_ty), ").new("
         emit_coerce_i64(args[0]); write ", "; emit_as(args[1], elem_ty); write ")"
         @mctx.native_array_locals[name] = elem_ty
+      end
+
+      # s = native_array.dup → propagate native type
+      def try_native_dup_write(node, name)
+        elem = @mctx.local_array_elems[name] || @mctx.typed_array_locals[name]
+        return unless elem && (elem == :i64 || elem == :f64)
+        rhs = ivar(node, :value_node)
+        return unless rhs.is_a?(Ast::MethodCall) && (ivar(rhs, :name) == :dup || ivar(rhs, :name) == :clone)
+        recv = ivar(rhs, :receiver_node)
+        return unless recv.is_a?(Ast::LocalVariableRead)
+        recv_elem = native_array_elem_type(ivar(recv, :name))
+        return unless recv_elem
+        write crystal_local(name), " = ", crystal_local(ivar(recv, :name)), ".dup"
+        @mctx.native_array_locals[name] = elem
+        true
       end
 
       # Typed scalar local → emit raw value.
@@ -1278,6 +1319,7 @@ module Frozone
           try_native_array_new(node) ||
           try_native_iteration(node) ||
           try_typed_instance_call(node) ||
+          try_native_array_method(node) ||
           try_array_push(node) ||
           try_native_array_read(node) ||
           try_boxed_array_read(node) ||
@@ -1359,6 +1401,23 @@ module Frozone
         write ".#{crystal_method_name(node.name)}"
         emit_typed_call_args(node.arg_nodes || [], tp)
         emit_block_if_present(node)
+        true
+      end
+
+      # Method call on native array local → emit raw args (Crystal Array methods expect Int, not RubyInteger)
+      def try_native_array_method(node)
+        return unless node.receiver_node&.is_a?(Ast::LocalVariableRead)
+        recv_name = ivar(node.receiver_node, :name)
+        return unless native_array_elem_type(recv_name)
+        # Known array methods that take integer args
+        return unless %i[delete_at insert push unshift].include?(node.name)
+        write crystal_local(recv_name), ".", crystal_method_name(node.name), "("
+        (node.arg_nodes || []).each_with_index do |arg, i|
+          write ", " if i > 0
+          rt = node_raw_type(arg)
+          rt ? emit_raw(arg) : emit(arg)
+        end
+        write ")"
         true
       end
 
@@ -1532,10 +1591,24 @@ module Frozone
           if recv.is_a?(Ast::LocalVariableRead) &&
              (arr_ty = native_array_elem_type(ivar(recv, :name))) &&
              args&.size == 2
-            write "#{crystal_local(ivar(recv, :name))}["
-            emit_coerce_i64(args[0])
-            write "] = "
-            emit_as(args[1], arr_ty)
+            recv_name = ivar(recv, :name)
+            if args[0].is_a?(Ast::RangeLiteral)
+              # Range slice assignment: q[0..-1] = p → Crystal native slice
+              begin_node = args[0].instance_variable_get(:@begin_node)
+              end_node = args[0].instance_variable_get(:@end_node)
+              exclusive = args[0].instance_variable_get(:@exclusive)
+              write crystal_local(recv_name), "["
+              emit_coerce_i64(begin_node)
+              write exclusive ? "..." : ".."
+              emit_coerce_i64(end_node)
+              write "] = "
+              emit(args[1])
+            else
+              write crystal_local(recv_name), "["
+              emit_coerce_i64(args[0])
+              write "] = "
+              emit_as(args[1], arr_ty)
+            end
             return
           end
           # Boxed RubyArray with known elem type: box raw value on write
