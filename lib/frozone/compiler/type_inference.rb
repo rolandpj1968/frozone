@@ -228,6 +228,10 @@ module Frozone
             changed |= propagate_method(mkey, method, TypeContext.new(mkey, nil))
           end
 
+          # Clear cache again — propagate_locals may have cached :unknown for
+          # params that update_call_sites has since typed.
+          @_expr_cache = {}
+
           # Propagate ivar and instance-method types for each class.
           @user_classes.each do |cname, klass|
             changed |= propagate_ivars(cname, klass)
@@ -671,7 +675,7 @@ module Frozone
           if recv.is_a?(Ast::InstanceVariableRead) && args.size == 2
             ivar_name = recv.instance_variable_get(:@name)
             val_ty = infer_expr(args[1], ctx)
-
+            set_p1 = @env.raw([:param, [:ThreeDArray, :set], 1])
             # Accept raw numerics and boxed Float/Integer (unbox to raw)
             if val_ty && val_ty != :unknown
               raw = if NUMERIC_TYPES.include?(val_ty) then val_ty
@@ -787,8 +791,15 @@ module Frozone
           @env.raw([:const, name])
 
         when Ast::LocalVariableWrite
-          # Chained assignment: r = g = b = 0.0 — type is the inner value's type
           infer_expr(node.instance_variable_get(:@value_node), ctx)
+
+        when Ast::If
+          t = infer_expr(node.instance_variable_get(:@then_node), ctx)
+          e = node.instance_variable_get(:@else_node)
+          e_ty = e ? infer_expr(e, ctx) : {class: :NilClass}
+          return t if e_ty == :unknown
+          return e_ty if t == :unknown
+          meet(t, e_ty)
 
         when Ast::MethodCall
           infer_call(node, ctx)
