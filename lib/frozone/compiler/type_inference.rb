@@ -550,13 +550,31 @@ module Frozone
         @ivar_param_seeds = req_params.zip(param_types).to_h
 
         changed = false
-        collect_ivar_assignments(init.body).each do |ivar_name, rhs_nodes|
+        # Collect ivar assignments from initialize
+        all_ivar_assigns = collect_ivar_assignments(init.body)
+
+        # Infer ivar types from initialize
+        all_ivar_assigns.each do |ivar_name, rhs_nodes|
           ty = rhs_nodes.reduce(:unknown) do |acc, rhs|
             t = infer_expr(rhs, ctx)
             meet(acc, t || :unknown)
           end
           next if ty == :unknown
           changed |= @env.meet!([:ivar, class_name, ivar_name], ty)
+        end
+
+        # Also collect from all other instance methods — ivars may be
+        # assigned outside initialize (e.g. @root = Node.new in insert)
+        (klass.methods_table || {}).each do |mname, method|
+          next if mname == :initialize || !method.is_a?(Vm::Method) || !method.body
+          method_ctx = TypeContext.new([class_name, mname], class_name)
+          collect_ivar_assignments(method.body).each do |ivar_name, rhs_nodes|
+            rhs_nodes.each do |rhs|
+              ty = infer_expr(rhs, method_ctx)
+              next if ty.nil? || ty == :unknown
+              changed |= @env.meet!([:ivar, class_name, ivar_name], ty)
+            end
+          end
         end
 
         @ivar_param_seeds = old_seeds
