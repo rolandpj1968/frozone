@@ -223,8 +223,13 @@ module Frozone
           write ty == :f64 ? ".to_f64" : ".to_i64"
         when Ast::ConstantPath
           # Math::PI → Math::PI (already Float64 in Crystal)
-          emit(node)  # emit_constant_path handles Math::PI → RubyFloat.new(Math::PI)
-          write ".to_f64"  # unwrap to bare Float64
+          parent = ivar(node, :parent_node)
+          if parent.is_a?(Ast::ConstantRead) && ivar(parent, :name) == :Math
+            write "Math::#{ivar(node, :name)}"
+          else
+            emit(node)
+            write ".to_f64"
+          end
         when Ast::MethodCall
           name = ivar(node, :name)
           recv = ivar(node, :receiver_node)
