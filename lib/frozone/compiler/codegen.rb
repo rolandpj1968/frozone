@@ -1208,9 +1208,12 @@ module Frozone
       def try_class_cast_write(node, name)
         cls_entry = @mctx.class_locals[name] or return
         @_declared_typed_locals ||= Set.new
+        val = ivar(node, :value_node)
         write crystal_local(name)
         # Type annotation only on first assignment — Crystal doesn't allow re-declaration.
-        unless @_declared_typed_locals.include?(name)
+        # Only annotate when Crystal can verify the type (constructors, ivar reads,
+        # local reads — not arbitrary method calls which may return wider types).
+        if !@_declared_typed_locals.include?(name) && safe_for_type_annotation?(val, cls_entry)
           @_declared_typed_locals << name
           cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
           crystal_cls = crystal_class_name(cls)
@@ -1218,8 +1221,35 @@ module Frozone
           write "?" if cls_entry.is_a?(Array) && cls_entry[1] == :nullable
         end
         write " = "
-        emit(ivar(node, :value_node))
+        emit(val)
         true
+      end
+
+      # Can we safely annotate this local with a Crystal type?
+      # True only when Crystal's inferred type exactly matches our annotation.
+      def safe_for_type_annotation?(val, cls_entry)
+        case val
+        when Ast::MethodCall
+          # Constructor: Node.new(...) → exact type, always safe
+          return true if val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
+          # Accessor on a typed local whose Crystal return type is already
+          # the class type (e.g., left returning Ruby_Node?) — safe.
+          if val.receiver_node.is_a?(Ast::LocalVariableRead)
+            recv_cls = receiver_known_class(val.receiver_node)
+            ct = recv_cls && @gctx.class_typed_ivars.dig(recv_cls, :"@#{val.name}")
+            return true if ct.is_a?(Array) # [:class_or_nil, :X] or [:class, :X]
+          end
+          false
+        when Ast::LocalVariableRead
+          # Re-assigning from another typed local — safe if already declared
+          @_declared_typed_locals.include?(ivar(val, :name))
+        when Ast::InstanceVariableRead
+          true
+        when Ast::Or, Ast::And
+          true
+        else
+          false
+        end
       end
 
 
@@ -1595,12 +1625,19 @@ module Frozone
         true
       end
 
-      # Devirtualize: class-typed locals have Crystal type annotations,
-      # so Crystal dispatches directly — no .as() cast needed.
+      # Devirtualize: dispatch to the concrete class method.
+      # Use type annotation (no cast) when available, fall back to .as() otherwise.
       def try_devirtualized_call(node)
         return unless node.receiver_node.is_a?(Ast::LocalVariableRead)
         cls_entry = @mctx.class_locals[ivar(node.receiver_node, :name)] or return
-        write crystal_local(ivar(node.receiver_node, :name)), ".", crystal_method_name(node.name)
+        name = ivar(node.receiver_node, :name)
+        cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
+        @_declared_typed_locals ||= Set.new
+        if @_declared_typed_locals.include?(name)
+          write crystal_local(name), ".", crystal_method_name(node.name)
+        else
+          write crystal_local(name), ".as(", crystal_class_name(cls), ").", crystal_method_name(node.name)
+        end
         emit_call_args(node)
         true
       end
