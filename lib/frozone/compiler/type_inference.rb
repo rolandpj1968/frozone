@@ -757,9 +757,6 @@ module Frozone
           return lt if rt == :unknown
           meet(lt, rt)
 
-        when Ast::Not
-          {class: :TrueClass}  # !x always returns boolean
-
         else
           :unknown
         end
