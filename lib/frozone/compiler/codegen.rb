@@ -1565,25 +1565,12 @@ module Frozone
             return
           end
         end
-        # Default: inline base emitter behavior
-        name = ivar(node, :name)
-        recv = ivar(node, :receiver_node)
-        args = ivar(node, :arg_nodes) || []
-        if name == :[]=
-          emit(recv)
-          write "["
-          emit(args[0])
-          write "] = "
-          emit_boxed(args[1])
-        elsif name.to_s.end_with?('=') && !operator?(name)
-          emit(recv)
-          write ".#{name.to_s.chomp('=')} = "
-          emit(args[0]) if args[0]
-        else
-          # Operator or other: delegate to base emitter
-          emit(recv)
-          write ".#{crystal_method_name(name)}"
-          write "("; emit(args[0]); write ")" if args[0]
+        # Inline base emit_truthy for remaining cases
+        if node.is_a?(Ast::TrueLiteral) then write "true"
+        elsif node.is_a?(Ast::FalseLiteral) then write "false"
+        elsif node.is_a?(Ast::NilLiteral) then write "false"
+        elsif boolean_valued?(node) then emit(node)
+        else emit(node); write ".truthy?"
         end
       end
 
