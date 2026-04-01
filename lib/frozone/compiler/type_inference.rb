@@ -786,6 +786,10 @@ module Frozone
           name = node.instance_variable_get(:@name)
           @env.raw([:const, name])
 
+        when Ast::LocalVariableWrite
+          # Chained assignment: r = g = b = 0.0 — type is the inner value's type
+          infer_expr(node.instance_variable_get(:@value_node), ctx)
+
         when Ast::MethodCall
           infer_call(node, ctx)
 
