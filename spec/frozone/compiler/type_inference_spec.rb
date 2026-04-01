@@ -383,6 +383,43 @@ RSpec.describe Frozone::Compiler::TypeInference do
   end
 
   # =====================================================================
+  # Constructor context sensitivity
+  # =====================================================================
+
+  describe "constructor context sensitivity" do
+    it "excludes NilClass contexts from ivar typing" do
+      t = ti
+      env = t.env
+      # Simulate two calling contexts: insert passes :f64, splay! passes NilClass
+      env.meet!([:constructor_param, :Node, 0, :insert], :f64)
+      env.meet!([:constructor_param, :Node, 0, :"splay!"], {class: :NilClass})
+
+      result = t.send(:best_constructor_param_types, :Node, 1)
+      expect(result).to eq([:f64])
+    end
+
+    it "merges non-nil contexts normally" do
+      t = ti
+      env = t.env
+      env.meet!([:constructor_param, :Pt, 0, :make_pt], :f64)
+      env.meet!([:constructor_param, :Pt, 0, :make_pt2], :i64)
+
+      result = t.send(:best_constructor_param_types, :Pt, 1)
+      expect(result[0]).to be_a(Hash)
+      expect(result[0][:class]).to eq(:Numeric)
+    end
+
+    it "falls back to NilClass when all contexts are nil" do
+      t = ti
+      env = t.env
+      env.meet!([:constructor_param, :Dummy, 0, :foo], {class: :NilClass})
+
+      result = t.send(:best_constructor_param_types, :Dummy, 1)
+      expect(result[0][:class]).to eq(:NilClass)
+    end
+  end
+
+  # =====================================================================
   # TypeEnv
   # =====================================================================
 

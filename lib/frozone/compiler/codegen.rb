@@ -1278,8 +1278,17 @@ module Frozone
       def emit_ivar_write(node)
         iv_name = ivar(node, :name)
         if (ty = @cctx.ivars[iv_name])
+          val = ivar(node, :value_node)
           write "#{iv_name} = "
-          emit_as(ivar(node, :value_node), ty)
+          # Nil-safe coercion: when an untyped param feeds a scalar ivar,
+          # guard against nil (sentinel construction like Node.new(nil, nil)).
+          if val.is_a?(Ast::LocalVariableRead) && !@mctx.typed_locals[ivar(val, :name)] && !node_raw_type(val)
+            default = ty == :f64 ? "0.0_f64" : "0_i64"
+            coerce = ty == :f64 ? ".to_f64" : ".to_i64"
+            write "((_v = "; emit(val); write "); _v.ruby_nil? ? #{default} : _v#{coerce})"
+          else
+            emit_as(val, ty)
+          end
         elsif @cctx.typed_ivars[iv_name]&.first == :class_or_nil
           val = ivar(node, :value_node)
           write "#{iv_name} = "

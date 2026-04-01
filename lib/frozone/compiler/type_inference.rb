@@ -292,11 +292,14 @@ module Frozone
               changed |= @env.meet!([:param, [ctx.class_name, n.name], i], ty) if ctx.class_name
             end
           elsif recv.is_a?(Ast::ConstantRead) && n.name == :new
-            # ClassName.new(...) → constructor params.
+            # ClassName.new(...) → constructor params, keyed by calling context.
+            # Per-context tracking enables constructor specialisation: sentinel
+            # Node.new(nil, nil) won't pollute real Node.new(key, value) types.
             class_sym = recv.instance_variable_get(:@name)
+            ctor_ctx = ctx.method_key || :__execute__
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
-              changed |= @env.meet!([:constructor_param, class_sym, i], ty) if ty && ty != :unknown
+              changed |= @env.meet!([:constructor_param, class_sym, i, ctor_ctx], ty) if ty && ty != :unknown
             end
           elsif recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.instance_variable_get(:@name))
             # Module.method(...) → class method params (keyed by module name).
@@ -571,10 +574,8 @@ module Frozone
         return false unless init.is_a?(Vm::Method) && init.body
 
         req_params = init.instance_variable_get(:@required_params) || []
-        param_types = req_params.each_with_index.map { |_, i|
-          @env[[:constructor_param, class_name, i]]
-        }
-        return false unless param_types.all?
+        param_types = best_constructor_param_types(class_name, req_params.size)
+        return false unless param_types
 
         ctx = TypeContext.new([class_name, :initialize], class_name)
         old_seeds = @ivar_param_seeds
@@ -1328,6 +1329,32 @@ module Frozone
       # Only merges params (elem, key, val) that are present in BOTH sides.
       # Strip nullable from a type and convert back to raw unboxed form if possible.
       # {class: :Float, nullable: true} → :f64, {class: :Integer, nullable: true} → :i64
+      # Collect constructor param types across all calling contexts and pick
+      # the best (most precise) type for each param. Contexts that pass only
+      # NilClass are excluded — sentinel construction shouldn't widen ivars.
+      # Returns nil if no typed contexts exist.
+      def best_constructor_param_types(class_name, param_count)
+        # Find all calling contexts that construct this class
+        slots = @env.instance_variable_get(:@slots)
+        contexts = Set.new
+        slots.each_key do |slot|
+          next unless slot.is_a?(Array) && slot[0] == :constructor_param && slot[1] == class_name && slot.size == 4
+          contexts << slot[3]
+        end
+        return nil if contexts.empty?
+
+        param_count.times.map do |i|
+          # Collect types from all contexts for this param
+          types = contexts.filter_map { |ctx_key| @env[[:constructor_param, class_name, i, ctx_key]] }
+          # Separate NilClass-only contexts from real ones
+          non_nil = types.reject { |t| t.is_a?(Hash) && t[:class] == :NilClass }
+          # Use non-nil types if available, otherwise fall back to all types
+          chosen = non_nil.empty? ? types : non_nil
+          return nil if chosen.empty?
+          chosen.reduce { |a, b| meet(a, b) }
+        end
+      end
+
       def strip_nullable_to_raw(ty)
         return ty unless ty.is_a?(Hash) && ty[:nullable]
         case ty[:class]
