@@ -94,6 +94,7 @@ module Frozone
         Enumerable:  %i[Object BasicObject],
         Set:         %i[Object BasicObject],
         Struct:      %i[Object BasicObject],
+        Random:      %i[Object BasicObject],
       }.freeze
 
       # ------------------------------------------------------------------
@@ -850,6 +851,10 @@ module Frozone
             return :i64 if recv_ty[:class] == :Float   && FLOAT_INT_METHODS.include?(name)
             # String byte methods return Integer
             return :i64 if recv_ty[:class] == :String && %i[getbyte ord bytesize].include?(name)
+            # Random#rand(int) → Integer, Random#rand → Float
+            if recv_ty[:class] == :Random && name == :rand
+              return args.empty? ? :f64 : :i64
+            end
           end
           # dup/clone/freeze always return the same type as the receiver
           return recv_ty if recv_ty != :unknown && (name == :dup || name == :clone || name == :freeze)

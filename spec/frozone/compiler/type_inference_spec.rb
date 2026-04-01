@@ -276,10 +276,30 @@ RSpec.describe Frozone::Compiler::TypeInference do
     context "comparisons" do
       it "== does not crash (result may be unknown)" do
         env = infer_method("1 == 2")
-        # TI may return :unknown for comparison results — that's fine.
-        # The important thing is it doesn't raise.
         ret = env[[:return, :test_method]]
         expect(ret).to be_nil.or be_a(Hash).or be_a(Symbol)
+      end
+    end
+
+    context "built-in method returns" do
+      it "Random#rand → :f64 (no args)" do
+        env = infer_method("r = Random.new(42)\nr.rand")
+        expect(env[[:return, :test_method]]).to eq(:f64)
+      end
+
+      it "Random#rand(n) → :i64" do
+        env = infer_method("r = Random.new(42)\nr.rand(100)")
+        expect(env[[:return, :test_method]]).to eq(:i64)
+      end
+
+      it "to_i → :i64" do
+        env = infer_method("3.14.to_i")
+        expect(env[[:return, :test_method]]).to eq(:i64)
+      end
+
+      it "to_f → :f64" do
+        env = infer_method("42.to_f")
+        expect(env[[:return, :test_method]]).to eq(:f64)
       end
     end
   end
