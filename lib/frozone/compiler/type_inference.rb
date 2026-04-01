@@ -574,8 +574,8 @@ module Frozone
         return false unless init.is_a?(Vm::Method) && init.body
 
         req_params = init.instance_variable_get(:@required_params) || []
-        param_types = best_constructor_param_types(class_name, req_params.size)
-        return false unless param_types&.any? { |t| t != :unknown }
+        param_types = req_params.empty? ? [] : best_constructor_param_types(class_name, req_params.size)
+        return false unless param_types
 
         ctx = TypeContext.new([class_name, :initialize], class_name)
         old_seeds = @ivar_param_seeds
