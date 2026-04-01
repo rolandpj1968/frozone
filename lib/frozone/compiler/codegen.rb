@@ -1567,11 +1567,11 @@ module Frozone
           emit_boxed(args[1])
         else
           # Non-[]= attribute write: obj.setter = val
-          name = ivar(node, :name)
-          setter_name = name.to_s.chomp('=')
-          emit(recv)
+          setter_name = ivar(node, :name).to_s.chomp('=')
+          emit(ivar(node, :receiver_node))
           write ".#{setter_name} = "
-          emit(args[0])
+          args = ivar(node, :arg_nodes) || []
+          emit(args[0]) if args[0]
         end
       end
 
