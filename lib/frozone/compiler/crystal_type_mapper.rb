@@ -81,8 +81,8 @@ module Frozone
         if ty.is_a?(Hash) && opt?(:devirtualize)
           cls = ty[:class]
           skip_builtin = %i[Object BasicObject Numeric Array Hash].include?(cls)
-          if cls && !skip_builtin && !ty[:nullable] && (@user_class_names.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls))
-            (@class_locals[mkey] ||= {})[name] = cls
+          if cls && !skip_builtin && (@user_class_names.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls))
+            (@class_locals[mkey] ||= {})[name] = ty[:nullable] ? [cls, :nullable] : cls
           end
         end
         # Array element type (boxed RubyArray with known elem type)

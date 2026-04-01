@@ -176,7 +176,8 @@ module Frozone
       # Resolve a receiver AST node to a known class Symbol (from TI devirtualize).
       def receiver_known_class(recv)
         return nil unless recv.is_a?(Ast::LocalVariableRead)
-        @mctx.class_locals[ivar(recv, :name)]
+        cls_entry = @mctx.class_locals[ivar(recv, :name)]
+        cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
       end
 
       # Look up a VM class/module by name in the top-level constant table.
@@ -1175,10 +1176,17 @@ module Frozone
 
       # Class-typed local → devirtualize cast.
       def try_class_cast_write(node, name)
-        cls = @mctx.class_locals[name] or return
-        write crystal_local(name), " = "
-        emit(ivar(node, :value_node))
-        write ".as(", crystal_class_name(cls), ")"
+        cls_entry = @mctx.class_locals[name] or return
+        # Nullable types: no cast at assignment (value might be nil).
+        # Crystal narrows after nil check in if-branch.
+        if cls_entry.is_a?(Array) && cls_entry[1] == :nullable
+          write crystal_local(name), " = "
+          emit(ivar(node, :value_node))
+        else
+          write crystal_local(name), " = "
+          emit(ivar(node, :value_node))
+          write ".as(", crystal_class_name(cls_entry), ")"
+        end
       end
 
 
@@ -1395,7 +1403,8 @@ module Frozone
       # Typed instance method call on a class-typed receiver → emit args with declared types.
       def try_typed_instance_call(node)
         return unless node.receiver_node.is_a?(Ast::LocalVariableRead)
-        recv_class = @mctx.class_locals[ivar(node.receiver_node, :name)] or return
+        cls_entry = @mctx.class_locals[ivar(node.receiver_node, :name)] or return
+        recv_class = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
         tp = @gctx.class_params[[recv_class, node.name]] or return
         emit(node.receiver_node)
         write ".#{crystal_method_name(node.name)}"
@@ -1510,8 +1519,9 @@ module Frozone
       # Devirtualize: cast class-typed receiver for static dispatch.
       def try_devirtualized_call(node)
         return unless node.receiver_node.is_a?(Ast::LocalVariableRead)
-        recv_class = @mctx.class_locals[ivar(node.receiver_node, :name)] or return
-        write crystal_local(ivar(node.receiver_node, :name)), ".as(", crystal_class_name(recv_class),
+        cls_entry = @mctx.class_locals[ivar(node.receiver_node, :name)] or return
+        cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
+        write crystal_local(ivar(node.receiver_node, :name)), ".as(", crystal_class_name(cls),
               ").", crystal_method_name(node.name)
         emit_call_args(node)
         true
