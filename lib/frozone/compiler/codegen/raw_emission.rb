@@ -180,6 +180,10 @@ module Frozone
       # Only call when node_raw_type(node) is non-nil.
       def emit_raw(node)
         case node
+        when Ast::LocalVariableRead
+          # In raw context, typed locals emit bare Crystal value (no boxing).
+          write crystal_local(ivar(node, :name))
+          return
         when Ast::And
           # Emit as Crystal &&: both sides must produce Crystal-compatible booleans.
           # Comparisons (CrystalEmitter::COMPARE_OPS) in emit_raw produce Crystal Bool already.
