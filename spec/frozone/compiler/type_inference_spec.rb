@@ -409,13 +409,13 @@ RSpec.describe Frozone::Compiler::TypeInference do
       expect(result[0][:class]).to eq(:Numeric)
     end
 
-    it "falls back to NilClass when all contexts are nil" do
+    it "defers when all contexts are nil (returns :unknown)" do
       t = ti
       env = t.env
       env.meet!([:constructor_param, :Dummy, 0, :foo], {class: :NilClass})
 
       result = t.send(:best_constructor_param_types, :Dummy, 1)
-      expect(result[0][:class]).to eq(:NilClass)
+      expect(result[0]).to eq(:unknown)
     end
   end
 

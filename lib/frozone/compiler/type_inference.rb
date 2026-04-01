@@ -575,7 +575,7 @@ module Frozone
 
         req_params = init.instance_variable_get(:@required_params) || []
         param_types = best_constructor_param_types(class_name, req_params.size)
-        return false unless param_types
+        return false unless param_types&.any? { |t| t != :unknown }
 
         ctx = TypeContext.new([class_name, :initialize], class_name)
         old_seeds = @ivar_param_seeds
@@ -1346,12 +1346,13 @@ module Frozone
         param_count.times.map do |i|
           # Collect types from all contexts for this param
           types = contexts.filter_map { |ctx_key| @env[[:constructor_param, class_name, i, ctx_key]] }
-          # Separate NilClass-only contexts from real ones
+          return nil if types.empty?
+          # Exclude NilClass-only contributions — sentinel construction
           non_nil = types.reject { |t| t.is_a?(Hash) && t[:class] == :NilClass }
-          # Use non-nil types if available, otherwise fall back to all types
-          chosen = non_nil.empty? ? types : non_nil
-          return nil if chosen.empty?
-          chosen.reduce { |a, b| meet(a, b) }
+          # If only NilClass contexts exist for this param, use :unknown so it
+          # doesn't poison ivar typing. Real types will arrive in later iterations.
+          next :unknown if non_nil.empty?
+          non_nil.reduce { |a, b| meet(a, b) }
         end
       end
 
