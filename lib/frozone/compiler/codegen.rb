@@ -871,6 +871,26 @@ module Frozone
         end
       end
 
+      # Does the callee have a typed overload that accepts raw (Int64/Float64) params?
+      # If not, raw args must be boxed to RubyObject at the call site.
+      def callee_accepts_raw?(node)
+        name = node.name
+        recv = node.receiver_node
+        if recv.nil?
+          # Free call: check top-level typed_params or class-keyed params
+          return true if @gctx.typed_params.key?(name)
+          return true if @cctx && @gctx.class_params.key?([@cctx.name, name])
+          false
+        elsif recv.is_a?(Ast::ConstantRead)
+          true  # Class.method — constructor or class method, likely has overload
+        else
+          # Instance method: check if the receiver's class has a typed overload
+          recv_class = receiver_known_class(recv)
+          return false unless recv_class
+          @gctx.class_params.key?([recv_class, name])
+        end
+      end
+
       # Collect method names called as RHS of multiple assignment (candidates for Crystal tuple return).
       def collect_masgn_return_methods(body, scope)
         result = Set.new
@@ -1596,6 +1616,10 @@ module Frozone
         has_raw_arg = args.any? { |a| raw_passable_arg?(a) }
         return super unless has_raw_arg
 
+        # Check whether the callee has a typed overload that accepts raw args.
+        # If not, box raw args to RubyObject so Crystal resolves the generic overload.
+        callee_has_raw = callee_accepts_raw?(node)
+
         write "("
         first = true
         args.each do |arg|
@@ -1604,7 +1628,7 @@ module Frozone
           if arg.is_a?(Ast::SplatArg)
             write "# UNSUPPORTED_SPLAT("; emit(ivar(arg, :value_node)); write ")"
           elsif raw_passable_arg?(arg)
-            emit_raw(arg)
+            callee_has_raw ? emit_raw(arg) : emit_boxed(arg)
           else
             emit(arg)
           end
