@@ -338,6 +338,30 @@ RSpec.describe Frozone::Compiler::TypeInference do
       env = infer_execute("inc(42)", methods: { inc: method })
       expect(env[[:return, :inc]]).to eq(:i64)
     end
+
+    it "infers return type from explicit return inside block" do
+      scope = Frozone::Vm::Core::OBJECT_CLASS
+      # loop { return 42 } — the explicit return inside the block
+      body = parse("loop { return 42 }")
+      method = make_method(scope, :loopy, body: body)
+
+      t = ti(user_methods: { loopy: method })
+      env = t.run
+      expect(env[[:return, :loopy]]).to eq(:i64)
+    end
+
+    it "propagates return type through callers" do
+      scope = Frozone::Vm::Core::OBJECT_CLASS
+      getter_body = parse("42")
+      getter = make_method(scope, :get_val, body: getter_body)
+
+      user_body = parse("x = get_val\nx", locals: [:x])
+      user = make_method(scope, :use_val, body: user_body)
+
+      env = infer_execute("use_val", methods: { get_val: getter, use_val: user })
+      expect(env[[:return, :get_val]]).to eq(:i64)
+      expect(env[[:return, :use_val]]).to eq(:i64)
+    end
   end
 
   # =====================================================================

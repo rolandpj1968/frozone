@@ -966,6 +966,8 @@ module Frozone
               scan_returns(n, ctx, types)
             end
           end
+          # Also scan the last node for explicit returns (e.g., loop { return x })
+          scan_returns(node.nodes.last, ctx, types) if types.empty?
           return :unknown if types.empty?
           types.reduce { |a, b| meet(a, b) }
         when Ast::If
@@ -997,6 +999,12 @@ module Frozone
           scan_returns(node.instance_variable_get(:@else_node), ctx, acc)
         when Ast::While, Ast::Until
           scan_returns(node.instance_variable_get(:@body_node), ctx, acc)
+        when Ast::MethodCall
+          # Recurse into block bodies (e.g., loop { return x } or each { return x })
+          blk = node.instance_variable_get(:@block_node)
+          scan_returns(blk.body, ctx, acc) if blk.respond_to?(:body)
+        when Ast::Block
+          scan_returns(node.body, ctx, acc)
         end
       end
 
