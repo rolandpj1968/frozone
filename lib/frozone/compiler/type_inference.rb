@@ -177,7 +177,20 @@ module Frozone
         b2 = b.is_a?(Hash) ? b : boxed_type(b)
         return meet(a2, b2) if a2 != a || b2 != b   # retry with normalised forms
         # Both are Hash class types.
-        a[:class] == b[:class] ? merge_collection_params(a, b) : lca_of(a[:class], b[:class])
+        if a[:class] == b[:class]
+          merge_collection_params(a, b)
+        elsif a[:class] == :NilClass
+          # X | nil → preserve X with nullable flag
+          b.is_a?(Hash) ? b.merge(nullable: true).freeze : {class: b[:class], nullable: true}.freeze
+        elsif b[:class] == :NilClass
+          a.is_a?(Hash) ? a.merge(nullable: true).freeze : {class: a[:class], nullable: true}.freeze
+        elsif a[:nullable] && a[:class] == b[:class]
+          merge_collection_params(a, b)
+        elsif b[:nullable] && a[:class] == b[:class]
+          merge_collection_params(a, b).merge(nullable: true).freeze
+        else
+          lca_of(a[:class], b[:class])
+        end
       end
 
       # ------------------------------------------------------------------
@@ -598,8 +611,57 @@ module Frozone
           end
         end
 
+        # Track setter calls (obj.left = val) as ivar assignments.
+        # When a method on this class calls self.attr= or obj.attr= where obj
+        # is known to be this class, treat it as @attr = val.
+        accessor_names = Set.new
+        (klass.methods_table || {}).each_key do |mn|
+          accessor_names << mn.to_s.chomp('=').to_sym if mn.to_s.end_with?('=') && mn != :initialize
+        end
+        unless accessor_names.empty?
+          # Scan all user methods (top-level + instance methods on all classes)
+          all_methods = @user_methods.to_a
+          @user_classes.each do |cname, ck|
+            (ck.methods_table || {}).each do |mn, m|
+              all_methods << [[cname, mn], m] if m.is_a?(Vm::Method)
+            end
+          end
+          all_methods.each do |mkey, method|
+            next unless method.body
+            method_ctx = TypeContext.new(mkey, mkey.is_a?(Array) ? mkey[0] : nil)
+            collect_setter_calls(method.body, class_name, accessor_names, method_ctx) do |attr_name, ty|
+              changed |= @env.meet!([:ivar, class_name, :"@#{attr_name}"], ty)
+            end
+          end
+        end
+
         @ivar_param_seeds = old_seeds
         changed
+      end
+
+      # Walk body for setter calls (obj.attr= val) on known-class receivers.
+      def collect_setter_calls(node, class_name, accessor_names, ctx, &block)
+        return unless node
+        if node.is_a?(Ast::AttributeWrite)
+          name_sym = node.instance_variable_get(:@name)
+          attr = name_sym.to_s.chomp('=').to_sym
+          if accessor_names.include?(attr)
+            recv = node.instance_variable_get(:@receiver_node)
+            recv_cls = nil
+            if recv.is_a?(Ast::LocalVariableRead)
+              recv_ty = @env[[:local, ctx.method_key, recv.instance_variable_get(:@name)]]
+              recv_cls = recv_ty[:class] if recv_ty.is_a?(Hash)
+            end
+            if recv_cls == class_name
+              args = node.instance_variable_get(:@arg_nodes) || []
+              if args[0]
+                ty = infer_expr(args[0], ctx)
+                block.call(attr, ty) if ty && ty != :unknown
+              end
+            end
+          end
+        end
+        node.children.each { |c| collect_setter_calls(c, class_name, accessor_names, ctx, &block) }
       end
 
       # ------------------------------------------------------------------
