@@ -218,6 +218,10 @@ module Frozone
             end
           end
 
+          # Clear expr cache between phases — call site propagation may have
+          # cached :unknown for expressions that propagate_locals will type.
+          @_expr_cache = {}
+
           # Propagate types within each method / block body.
           changed |= propagate_execute_block
           @user_methods.each do |mkey, method|
@@ -666,7 +670,15 @@ module Frozone
           if recv.is_a?(Ast::InstanceVariableRead) && args.size == 2
             ivar_name = recv.instance_variable_get(:@name)
             val_ty = infer_expr(args[1], ctx)
-            yield ivar_name, val_ty if val_ty && val_ty != :unknown && NUMERIC_TYPES.include?(val_ty)
+            # debug removed
+            # Accept raw numerics and boxed Float/Integer (unbox to raw)
+            if val_ty && val_ty != :unknown
+              raw = if NUMERIC_TYPES.include?(val_ty) then val_ty
+                    elsif val_ty.is_a?(Hash) && val_ty[:class] == :Float then :f64
+                    elsif val_ty.is_a?(Hash) && val_ty[:class] == :Integer then :i64
+                    end
+              yield ivar_name, raw if raw
+            end
           end
         end
         node.children.each { |c| collect_ivar_array_elem_writes(c, class_name, ctx, &block) }
@@ -703,7 +715,7 @@ module Frozone
 
       def infer_expr(node, ctx)
         return :unknown unless node
-        cache_key = node.object_id * 31 + ctx.method_key.hash
+        cache_key = [node, ctx.method_key]
         return @_expr_cache[cache_key] if @_expr_cache.key?(cache_key)
         result = infer_expr_uncached(node, ctx)
         @_expr_cache[cache_key] = result
