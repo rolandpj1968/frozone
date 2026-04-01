@@ -58,13 +58,10 @@ module Frozone
           if recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == :Math
             return :f64
           end
-          # Instance method call on a class-typed local with known raw return type
-          if recv.is_a?(Ast::LocalVariableRead)
-            cls_entry = @mctx.class_locals[ivar(recv, :name)]
-            recv_class = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
-            if recv_class && (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
-              return ret_ty
-            end
+          # Instance method call on a known-class receiver with raw return type
+          recv_class = receiver_known_class(recv)
+          if recv_class && (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
+            return ret_ty
           end
           # Chained accessor: local.accessor1.accessor2 — if accessor1 returns a
           # known class (even nullable), check accessor2's raw return on that class.
@@ -314,17 +311,10 @@ module Frozone
               ret = node_raw_type(node)
               write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
             end
-          elsif recv.is_a?(Ast::LocalVariableRead) &&
-                (cls_entry = @mctx.class_locals[ivar(recv, :name)]) &&
-                (recv_class = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry) &&
-                (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
-            # Instance method call on class-typed local with raw return:
-            # use _raw accessor. If local has type annotation, no cast needed.
-            @_declared_typed_locals ||= Set.new
-            emit_raw(recv)
-            unless @_declared_typed_locals.include?(ivar(recv, :name))
-              write ".as(Ruby_#{crystal_constant(recv_class)})"
-            end
+          elsif (recv_class = receiver_known_class(recv)) &&
+                @gctx.instance_method_raw_returns[[recv_class, name]]
+            # Accessor on a known-class receiver with raw return: use _raw accessor.
+            emit(recv)
             write ".#{crystal_method_name(name)}_raw"
           elsif recv.is_a?(Ast::MethodCall) && recv.receiver_node
             # Chained accessor: local.left.key → local.as(Node).left.as(Node).key_raw
