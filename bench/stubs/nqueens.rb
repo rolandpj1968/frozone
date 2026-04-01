@@ -6,6 +6,4 @@ require_relative '../benchmarks/nqueens'
 result = nq_solve(8)
 raise "nq_solve(8) = #{result}, expected 92" unless result == 92
 
-run_benchmark(3) do
-  nq_solve(8)
-end
+3.times { nq_solve(8) }

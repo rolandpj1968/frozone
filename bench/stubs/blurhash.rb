@@ -9,6 +9,4 @@ result = Blurhash.encode_rb(204, 204, ARRAY)
 expected = "LFE.@D9F01_2%L%MIVD*9Goe-;WB"
 raise "blurhash wrong: got #{result}, expected #{expected}" unless result == expected
 
-run_benchmark(10) do
-  Blurhash.encode_rb(204, 204, ARRAY)
-end
+10.times { Blurhash.encode_rb(204, 204, ARRAY) }

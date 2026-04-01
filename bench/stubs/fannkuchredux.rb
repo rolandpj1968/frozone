@@ -6,6 +6,4 @@ require_relative '../benchmarks/fannkuchredux/benchmark'
 sum, flips = fannkuch(N)
 raise "fannkuch(9): sum=#{sum} flips=#{flips}, expected 8629 30" unless sum == 8629 && flips == 30
 
-run_benchmark(10) do
-  sum, flips = fannkuch(N)
-end
+10.times { fannkuch(N) }

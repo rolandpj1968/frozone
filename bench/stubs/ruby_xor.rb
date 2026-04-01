@@ -14,10 +14,6 @@ while i < out.bytesize
 end
 raise "ruby_xor! wrong output" unless actual == expected
 
-run_benchmark(20) do
-  a = A
-  b = B
-  for i in 0...20_000
-    ruby_xor!(a.dup, b)
-  end
-end
+a = A
+b = B
+20.times { ruby_xor!(a.dup, b) }

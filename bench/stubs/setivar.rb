@@ -3,7 +3,5 @@ def run_benchmark(*, &); end
 require_relative '../benchmarks/setivar'
 
 # Under --aot, everything below is compiled to Crystal.
-obj = TheClass.new
-run_benchmark(3) do
-  obj.set_value_loop
-end
+obj = SetIvar.new
+3.times { obj.set_value_loop }
