@@ -662,6 +662,9 @@ module Frozone
             pv = @env.raw([:param, ctx.method_key, idx])
             return pv unless pv == :unknown
           end
+          # Keyword param slots
+          kp = @env.raw([:kwparam, ctx.method_key, name])
+          return kp if kp != :unknown
           # Block param seeds (separate slot so codegen doesn't treat them as raw locals).
           bp = @env.raw([:block_param, ctx.method_key, name])
           return bp if bp != :unknown

@@ -964,10 +964,11 @@ module Frozone
 
       # Override emit_param_list to apply inferred types for required params.
       def emit_param_list(node, param_types: nil)
-        # Apply kwarg typing even without positional param_types
+        # Apply kwarg typing only when positional params are also typed —
+        # the generic overload needs all-RubyObject for Crystal dispatch.
         mkey = @cctx.name ? [@cctx.name, ivar(node, :name)] : ivar(node, :name)
-        kw_types = @gctx.inferred_kw_params[mkey] || {}
-        return super(node) unless param_types || kw_types.any?
+        kw_types = param_types ? (@gctx.inferred_kw_params[mkey] || {}) : {}
+        return super(node) unless param_types
 
         parts  = []
         req    = ivar(node, :required_params) || []
