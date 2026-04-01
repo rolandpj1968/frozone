@@ -124,7 +124,7 @@ module Frozone
         emit_user_method_stubs unless @cc.user_methods.empty?
 
         # Collect class-typed ivars (X | nil patterns) across all methods
-        collect_class_typed_ivars(top_level_scope) if opt?(:ivar_narrowing)
+        collect_class_typed_ivars(top_level_scope, execute_block: execute_block) if opt?(:ivar_narrowing)
 
         # Scan for methods called in masgn RHS (multi-return → Crystal tuple)
         @cc.masgn_return_methods = collect_masgn_return_methods(execute_block&.body, top_level_scope)
@@ -1345,7 +1345,8 @@ module Frozone
       end
 
       def emit_method_call(node)
-        try_constant_fold(node) ||
+        try_crystal_nil_check(node) ||
+          try_constant_fold(node) ||
           try_native_array_new(node) ||
           try_native_iteration(node) ||
           try_typed_instance_call(node) ||
@@ -1361,6 +1362,19 @@ module Frozone
           try_raw_arithmetic(node) ||
           super
       end
+
+      # .nil? on a Crystal nilable expression → Crystal native .nil? (not .ruby_nil?)
+      # This enables Crystal's flow-sensitive nil narrowing in if/unless branches.
+      def try_crystal_nil_check(node)
+        return unless node.name == :nil? && node.receiver_node && (node.arg_nodes.nil? || node.arg_nodes.empty?)
+        recv = node.receiver_node
+        return unless crystal_nilable_expr?(recv)
+        emit(recv)
+        write ".nil?"
+        true
+      end
+
+      def crystal_nilable_expr?(node) = returns_crystal_nilable?(node)
 
       # Constant-fold respond_to?(:literal) and is_a?/kind_of?(Constant) when
       # receiver type is known from TI devirtualization.

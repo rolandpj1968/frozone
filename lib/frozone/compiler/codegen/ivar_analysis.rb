@@ -74,9 +74,11 @@ module Frozone
       # Scan all methods of each user class for ivar assignments, collecting
       # the set of class types assigned. Produces @gctx.class_typed_ivars entries
       # for ivars with pattern {UserClass} or {UserClass, NilClass}.
-      def collect_class_typed_ivars(scope)
+      def collect_class_typed_ivars(scope, execute_block: nil)
         @gctx.class_typed_ivars = {}
+        @_execute_block_body = execute_block&.body
         collect_class_typed_ivars_from(scope)
+        @_execute_block_body = nil
       end
 
       def collect_class_typed_ivars_from(scope)
@@ -110,6 +112,12 @@ module Frozone
                 next unless m.is_a?(Vm::Method) && m.body
                 walk_setter_ivar_types(m.body, class_name, accessor_names, ivar_type_sets)
               end
+            end
+            # Also scan the execute block and top-level methods
+            walk_setter_ivar_types(@_execute_block_body, class_name, accessor_names, ivar_type_sets) if @_execute_block_body
+            @cc.top_level_scope.methods_table&.each do |_, m|
+              next unless m.is_a?(Vm::Method) && m.body && user_source_location?(m.source_location)
+              walk_setter_ivar_types(m.body, class_name, accessor_names, ivar_type_sets)
             end
           end
 
