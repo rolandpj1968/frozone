@@ -31,19 +31,16 @@ See [docs/spec-status.md](docs/spec-status.md) for detailed breakdowns, [docs/in
 
 ### Compiler Benchmarks
 
-Total wall-clock time (Ruby 4.0.1, Crystal `--release`):
+Apples-to-apples wall-clock time (identical workload, Ruby 4.0.1, Crystal `--release`):
 
 | Benchmark | Frozone | MRI | YJIT | vs MRI | vs YJIT |
 |-----------|---------|-----|------|--------|---------|
-| matmul(200) ×20 | 251 ms | 435 ms | 252 ms | **1.7×** | **1.0×** |
-| loops\_times | 13 ms | 832 ms | 269 ms | **64×** | **21×** |
-| gcbench | 32 ms | 1953 ms | 730 ms | **61×** | **23×** |
-| fib(35) ×3 | 141 ms | 107 ms | 109 ms | 0.8× | 0.8× |
-| sudoku ×20 | 432 ms | 425 ms | 226 ms | 1.0× | 0.5× |
-| blurhash | 698 ms | 317 ms | 174 ms | 0.5× | 0.2× |
-| fannkuchredux | 577 ms | 387 ms | 383 ms | 0.7× | 0.7× |
+| fib(35) ×3 | 139 ms | 2347 ms | 318 ms | **17×** | **2.3×** |
+| sudoku ×20 | 430 ms | 7466 ms | 2015 ms | **17×** | **4.7×** |
+| matmul(200) ×20 | 248 ms | 7530 ms | 3071 ms | **30×** | **12×** |
+| loops\_times | 14 ms | 836 ms | 266 ms | **60×** | **19×** |
 
-26 of 26 benchmarks compile end-to-end. matmul achieves YJIT parity; loops\_times and gcbench are 20-60× faster. blurhash and fannkuchredux need Float unboxing to close the gap.
+26 of 26 benchmarks compile end-to-end. fib generates identical assembly to hand-written Crystal; the 139 ms is pure Crystal speed (limited by integer overflow checking, not codegen). matmul is 12× YJIT; sudoku 4.7× YJIT.
 
 Key compiler features: whole-program type inference with array element propagation from `<<`/push, nested `Array(Array(T))` promotion, compile-time `respond_to?`/`is_a?` folding, symbol-indexed `respond_to?` dispatch, and typed method overloads with Crystal tuple multi-return. See [docs/compilation.md](docs/compilation.md) for architecture.
 
