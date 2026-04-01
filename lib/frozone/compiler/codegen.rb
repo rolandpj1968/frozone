@@ -794,10 +794,10 @@ module Frozone
         when Vm::FalseObject   then "RUBY_FALSE"
         when Vm::SymbolObject  then "RubySymbol.new(#{value.raw.inspect})"
         when Vm::ArrayObject
-          # Large byte arrays: emit compact Bytes literal + map
-          if value.raw.size > 256 && value.raw.all? { |e| e.is_a?(Vm::IntegerObject) && e.raw >= 0 && e.raw <= 255 }
-            bytes = value.raw.map { |e| e.raw.to_s }.join(', ')
-            return "RubyArray.new(Bytes[#{bytes}].to_a.map { |b| RubyInteger.new(b.to_i64).as(RubyObject) })"
+          # Native Array(Int64) for all-integer arrays
+          if value.raw.all? { |e| e.is_a?(Vm::IntegerObject) }
+            elems_str = value.raw.map { |e| "#{e.raw}_i64" }.join(', ')
+            return "[#{elems_str}] of Int64"
           end
           return nil if value.raw.size > 1000  # Skip very large non-byte arrays
           elems = value.raw.map { |e| vm_value_to_crystal(e) }
@@ -859,8 +859,8 @@ module Frozone
         return false unless node_raw_type(node)
         case node
         when Ast::LocalVariableRead then true
-        # Literals NOT passed raw — callee might not have matching overload for all arg types
         when Ast::IntegerLiteral, Ast::FloatLiteral then false
+        when Ast::ConstantRead then false
         when Ast::MethodCall
           # Arithmetic/bitwise on raw operands: ba ^ bb, a + b, etc.
           ARITH_OPS_UNBOX.include?(node.name) && node.receiver_node && node_raw_type(node.receiver_node)

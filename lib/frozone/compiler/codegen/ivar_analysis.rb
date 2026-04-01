@@ -28,6 +28,12 @@ module Frozone
           case value
           when Vm::FloatObject   then @gctx.const_raw_types[name] = :f64
           when Vm::IntegerObject then @gctx.const_raw_types[name] = :i64
+          when Vm::ArrayObject
+            if value.raw.all? { |e| e.is_a?(Vm::IntegerObject) }
+              @gctx.const_raw_types[name] = :array_i64
+            elsif value.raw.all? { |e| e.is_a?(Vm::FloatObject) }
+              @gctx.const_raw_types[name] = :array_f64
+            end
           end
         end
       end
