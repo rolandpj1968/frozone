@@ -491,6 +491,53 @@ The compiler exploits this connection directly:
   PE's residual program: the typed overload is the specialised version,
   the generic is the residual
 
+### Keyword argument compilation strategy
+
+Ruby keyword arguments have three distinct usage patterns, each with a
+different optimal compilation strategy:
+
+**Tier 1 — Named positional params** (covers ~90% of real-world kwargs)
+
+```ruby
+def encode(width:, height:, x_comp: 4, y_comp: 3)
+  ...
+end
+encode(width: 204, height: 204)  # static names, known at parse time
+```
+
+Both caller and callee use static symbol keys. These are positional args
+in disguise — the compiler can type-infer them exactly like regular params
+and emit them as Crystal named parameters:
+
+```crystal
+def encode(width : Int64, height : Int64, x_comp : Int64 = 4, y_comp : Int64 = 3)
+```
+
+TI propagates types through `[:kwparam, method, :width]` slots, matching
+call-site keyword args to callee keyword params by name. This is the
+highest-priority kwargs optimisation — it unblocks blurhash and any
+benchmark using keyword defaults.
+
+**Tier 2 — Lightweight kwargs struct** (for `**opts` and small option sets)
+
+Instead of allocating a full `HashObject` (with KeyWrapper, VM dispatch
+for eql?/hash), represent kwargs as a flat sorted array of
+`{Symbol, Value}` pairs. Matching is O(n) linear scan but n is typically
+2-3. No allocation, no hash dispatch.
+
+`**kwargs` forwarding passes the struct through unchanged. Only operations
+that introspect keys dynamically (`kwargs.keys`, `kwargs.each`,
+`kwargs.merge(other_hash)`) require promotion to a full hash.
+
+**Tier 3 — Full hash** (genuinely dynamic kwargs)
+
+Only needed when kwargs are constructed from runtime-computed keys or
+merged with arbitrary hashes. Promote from tier 2 on demand.
+
+**Current status:** All kwargs are tier 3 (full HashObject with SymbolObject
+keys). Tier 1 is the immediate target — static keyword names are visible
+at parse time and directly amenable to type inference.
+
 ### How results flow into codegen
 
 After TI runs, `CrystalTypeMapper` maps the raw TI lattice values into

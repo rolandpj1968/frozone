@@ -256,6 +256,21 @@ module Frozone
 
           next if args.empty?
 
+          # Propagate keyword arg types from call site
+          kw_args = n.instance_variable_get(:@kw_arg_nodes) || {}
+          unless kw_args.empty?
+            mkey = recv.nil? ? n.name : nil
+            mkey ||= [recv.instance_variable_get(:@name), n.name] if recv.is_a?(Ast::ConstantRead)
+            if mkey
+              kw_args.each do |kw_name_node, val_node|
+                kw_sym = kw_name_node.is_a?(Ast::SymbolLiteral) ? kw_name_node.instance_variable_get(:@value).raw : nil
+                next unless kw_sym
+                ty = infer_expr(val_node, ctx)
+                changed |= @env.meet!([:kwparam, mkey, kw_sym], ty) if ty && ty != :unknown
+              end
+            end
+          end
+
           if recv.nil?
             # Free call → top-level method params.
             args.each_with_index do |arg, i|
@@ -316,6 +331,12 @@ module Frozone
       def propagate_method(mkey, method, ctx)
         return false unless method.body
         changed = false
+        # Seed kwarg types from default values
+        (method.instance_variable_get(:@optional_kw_params) || []).each do |kw_name, default_node|
+          next unless default_node
+          ty = infer_expr(default_node, ctx)
+          changed |= @env.meet!([:kwparam, mkey, kw_name], ty) if ty && ty != :unknown
+        end
         # Array locals first so scalar locals that depend on array reads are typed.
         changed |= propagate_array_locals(method.body, ctx)
         # For-loop target variables (typed like block params to reflect Crystal level).

@@ -19,6 +19,7 @@ module Frozone
       attr_accessor :typed_method_returns # {method => :i64/:f64} — raw return types
       attr_accessor :instance_method_raw_returns # {[class, method] => :i64/:f64}
       attr_accessor :const_raw_types # {name => :i64/:f64} — constant types
+      attr_accessor :inferred_kw_params # {mkey => {name => CrystalType}} — keyword param types
       attr_accessor :typed_ivars # {class => {ivar => :i64/:f64}} — scalar ivars
       attr_accessor :class_typed_ivars # {class => {ivar => [:kind, :Class]}} — class-typed ivars
 
@@ -36,6 +37,7 @@ module Frozone
         @typed_method_returns = {}
         @instance_method_raw_returns = {}
         @const_raw_types = {}
+        @inferred_kw_params = {}
         @typed_ivars = {}
         @class_typed_ivars = {}
       end

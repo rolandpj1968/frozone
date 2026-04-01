@@ -831,6 +831,14 @@ module Frozone
         ).build!
 
         @gctx.load_from_mapper!(mapper)
+
+        # Extract kwarg types from TI env
+        env.instance_variable_get(:@slots).each do |slot, ty|
+          next unless slot.is_a?(Array) && slot[0] == :kwparam && ty != :unknown
+          mkey, kw_name = slot[1], slot[2]
+          ct = CrystalType.from_ti(ty, user_class_names: @gctx.user_class_names)
+          (@gctx.inferred_kw_params[mkey] ||= {})[kw_name] = ct if ct != :ruby_object
+        end
       end
 
       def param_name?(name) = @mctx.param_set&.include?(name)
@@ -956,14 +964,18 @@ module Frozone
 
       # Override emit_param_list to apply inferred types for required params.
       def emit_param_list(node, param_types: nil)
-        return super(node) unless param_types
+        # Apply kwarg typing even without positional param_types
+        mkey = @cctx.name ? [@cctx.name, ivar(node, :name)] : ivar(node, :name)
+        kw_types = @gctx.inferred_kw_params[mkey] || {}
+        return super(node) unless param_types || kw_types.any?
 
         parts  = []
         req    = ivar(node, :required_params) || []
-        types  = param_types + [:ruby_object] * [req.size - param_types.size, 0].max
-
-        req.each_with_index do |p, i|
-          parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(types[i] || :ruby_object)}"
+        if param_types
+          types = param_types + [:ruby_object] * [req.size - param_types.size, 0].max
+          req.each_with_index { |p, i| parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(types[i] || :ruby_object)}" }
+        else
+          req.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
         end
 
         ivar(node, :optional_params).each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
@@ -976,8 +988,22 @@ module Frozone
         if (!req_kw.empty? || !opt_kw.empty?) && !rp
           parts << "*"  # Crystal keyword-only separator
         end
-        req_kw.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
-        opt_kw.each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
+        req_kw.each do |p|
+          ct = kw_types[p]
+          parts << "#{crystal_local(p)} : #{ct ? CrystalType.to_crystal(ct) : 'RubyObject'}"
+        end
+        opt_kw.each do |p, default|
+          ct = kw_types[p]
+          if ct && CrystalType.scalar?(ct) && default
+            # Emit raw default for scalar-typed kwargs
+            raw_default = ct == :i64 ? "#{default.instance_variable_get(:@value).raw}_i64" : "#{default.instance_variable_get(:@value).raw}_f64"
+            parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(ct)} = #{raw_default}"
+          elsif ct
+            parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(ct)} = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}"
+          else
+            parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}"
+          end
+        end
         parts << "**#{crystal_local(kr)}" if kr
         bp = ivar(node, :block_param)
         parts << "&#{crystal_local(bp)}" if bp
