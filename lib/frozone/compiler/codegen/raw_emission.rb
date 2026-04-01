@@ -319,9 +319,9 @@ module Frozone
                 (recv_class = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry) &&
                 (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
             # Instance method call on class-typed local with raw return:
-            # use _raw accessor (avoids box allocation) if available.
+            # use _raw accessor. Local has Crystal type annotation, no .as() needed.
             emit_raw(recv)
-            write ".as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(name)}_raw"
+            write ".#{crystal_method_name(name)}_raw"
           elsif recv.is_a?(Ast::MethodCall) && recv.receiver_node
             # Chained accessor: local.left.key → local.as(Node).left.as(Node).key_raw
             inner_class = receiver_known_class(recv.receiver_node)

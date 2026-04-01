@@ -610,6 +610,7 @@ module Frozone
       def emit_vm_method(name, method, param_types: nil, class_method: false)
         old_mctx = @mctx
         @mctx = MethodContext.new
+        @_declared_typed_locals = Set.new
         param_names = (ivar(method, :required_params) || []) +
                       (ivar(method, :optional_params) || []).map(&:first) +
                       [ivar(method, :rest_param)].compact +
@@ -1206,16 +1207,18 @@ module Frozone
       # Class-typed local → devirtualize cast.
       def try_class_cast_write(node, name)
         cls_entry = @mctx.class_locals[name] or return
-        # Nullable types: no cast at assignment (value might be nil).
-        # Crystal narrows after nil check in if-branch.
-        if cls_entry.is_a?(Array) && cls_entry[1] == :nullable
-          write crystal_local(name), " = "
-          emit(ivar(node, :value_node))
-        else
-          write crystal_local(name), " = "
-          emit(ivar(node, :value_node))
-          write ".as(", crystal_class_name(cls_entry), ")"
+        @_declared_typed_locals ||= Set.new
+        write crystal_local(name)
+        # Type annotation only on first assignment — Crystal doesn't allow re-declaration.
+        unless @_declared_typed_locals.include?(name)
+          @_declared_typed_locals << name
+          cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
+          crystal_cls = crystal_class_name(cls)
+          write " : ", crystal_cls
+          write "?" if cls_entry.is_a?(Array) && cls_entry[1] == :nullable
         end
+        write " = "
+        emit(ivar(node, :value_node))
         true
       end
 
@@ -1592,13 +1595,12 @@ module Frozone
         true
       end
 
-      # Devirtualize: cast class-typed receiver for static dispatch.
+      # Devirtualize: class-typed locals have Crystal type annotations,
+      # so Crystal dispatches directly — no .as() cast needed.
       def try_devirtualized_call(node)
         return unless node.receiver_node.is_a?(Ast::LocalVariableRead)
         cls_entry = @mctx.class_locals[ivar(node.receiver_node, :name)] or return
-        cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
-        write crystal_local(ivar(node.receiver_node, :name)), ".as(", crystal_class_name(cls),
-              ").", crystal_method_name(node.name)
+        write crystal_local(ivar(node.receiver_node, :name)), ".", crystal_method_name(node.name)
         emit_call_args(node)
         true
       end
