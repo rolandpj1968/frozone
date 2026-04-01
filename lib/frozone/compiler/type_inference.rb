@@ -318,6 +318,7 @@ module Frozone
           elsif recv
             # Instance method call — propagate typed args to instance method params.
             recv_ty = infer_expr(recv, ctx)
+
             if recv_ty.is_a?(Hash) && recv_ty[:class]
               class_name = recv_ty[:class]
               mkey = [class_name, n.name]
@@ -670,7 +671,7 @@ module Frozone
           if recv.is_a?(Ast::InstanceVariableRead) && args.size == 2
             ivar_name = recv.instance_variable_get(:@name)
             val_ty = infer_expr(args[1], ctx)
-            # debug removed
+
             # Accept raw numerics and boxed Float/Integer (unbox to raw)
             if val_ty && val_ty != :unknown
               raw = if NUMERIC_TYPES.include?(val_ty) then val_ty
