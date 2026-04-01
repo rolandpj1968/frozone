@@ -616,7 +616,7 @@ module Frozone
         @mctx.suppress_typed_call_args = generic_with_specialized
         @mctx.typed_locals = (!generic_with_specialized && opt?(:unbox_locals)) ? ((@gctx.locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @mctx.typed_array_locals = opt?(:native_arrays) ? ((@gctx.arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
-        @mctx.class_locals = opt?(:devirtualize) ? ((@gctx.class_locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @mctx.class_locals = opt?(:devirtualize) ? ((@gctx.class_locals[mkey] || {}).reject { |k, _| !param_types && param_set.include?(k) }) : {}
         @mctx.local_array_elems = opt?(:native_arrays) ? ((@gctx.local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @mctx.block_params = (@gctx.block_params[mkey] || {}).reject { |k, _| param_set.include?(k) }
         @mctx.local_types = (@gctx.local_types[mkey] || {}).reject { |k, _| param_set.include?(k) }
@@ -640,6 +640,8 @@ module Frozone
             elsif CrystalType.array?(pt)
               inner = CrystalType.elem(pt)
               @mctx.native_array_locals[p] = inner if CrystalType.native?(inner)
+            elsif pt.is_a?(Array) && pt[0] == :ruby_class
+              @mctx.class_locals[p] = pt[1]
             end
           end
         end
