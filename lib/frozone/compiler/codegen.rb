@@ -546,7 +546,14 @@ module Frozone
 
           # Skip generic overload when ALL params are native-typed — in the
           # closed world, all callers use the typed overload.
+          # Ensure the typed overload is emitted if neither specialized nor complex did.
           all_native = inferred&.all? { |t| t && CrystalType.native?(t) }
+          if all_native && !has_complex_params && !(@gctx.typed_params[name] && @gctx.typed_method_returns[name])
+            emit_indent
+            emit_vm_method(name, method, param_types: inferred)
+            emit_newline
+            emit_newline
+          end
           unless all_native
             emit_indent
             generic_params = if has_complex_params
