@@ -44,7 +44,7 @@ Apples-to-apples wall-clock time (identical workload, Ruby 4.0.1, Crystal `--rel
 | splay ×200 | 35130 ms | 19963 ms | 13923 ms | 0.6× | 0.4× |
 | blurhash ×10 | 7057 ms | 2480 ms | 1050 ms | 0.4× | 0.1× |
 
-26 of 26 benchmarks compile end-to-end. 5 benchmarks faster than YJIT; fannkuchredux at parity (native Array(Int64) from Range#to\_a promotion).
+26 of 26 yjit-bench benchmarks compile to Crystal. The table above shows the 8 with matched iteration harnesses for apples-to-apples comparison; the remaining 18 (getivar, setivar, attr\_accessor, keyword\_args, object\_new, etc.) are micro-benchmarks that complete in <5 ms — too fast to meaningfully time against MRI's ~30 ms startup overhead. 5 benchmarks faster than YJIT; fannkuchredux at parity (native Array(Int64) from Range#to\_a promotion).
 
 Key compiler features: whole-program type inference with array element propagation from `<<`/push, nested `Array(Array(T))` promotion, compile-time `respond_to?`/`is_a?` folding, symbol-indexed `respond_to?` dispatch, and typed method overloads with Crystal tuple multi-return. See [docs/compilation.md](docs/compilation.md) for architecture.
 
