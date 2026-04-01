@@ -115,8 +115,16 @@ module Frozone
 
       def unpack_ivar(slot, ty)
         return unless opt?(:typed_ivars)
-        raw = raw_type(ty) or return
-        (@typed_ivars[slot[1]] ||= {})[slot[2]] = raw
+        # Scalar ivars: :i64, :f64
+        raw = raw_type(ty)
+        if raw
+          (@typed_ivars[slot[1]] ||= {})[slot[2]] = raw
+          return
+        end
+        # Array ivars with known element type: {class: :Array, elem: :f64}
+        if ty.is_a?(Hash) && ty[:class] == :Array && ty[:elem] && raw_type(ty[:elem])
+          (@typed_ivars[slot[1]] ||= {})[slot[2]] = ty[:elem] == :f64 ? :array_f64 : :array_i64
+        end
       end
 
       def unpack_return(slot, ty)

@@ -323,6 +323,8 @@ module Frozone
         case @cctx.ivars[iv_sym]
         when :f64 then ["Float64", "0.0_f64"]
         when :i64 then ["Int64", "0_i64"]
+        when :array_f64 then ["Array(Float64)", "Array(Float64).new"]
+        when :array_i64 then ["Array(Int64)", "Array(Int64).new"]
         else
           ct = @cctx.typed_ivars[iv_sym]
           return ["RubyObject", "RUBY_NIL"] unless ct
@@ -1239,8 +1241,20 @@ module Frozone
       def emit_ivar_write(node)
         iv_name = ivar(node, :name)
         if (ty = @cctx.ivars[iv_name])
+          val = ivar(node, :value_node)
+          # Array-typed ivars: @list = Array.new(n) → Array(Float64).new(n, 0.0)
+          if (ty == :array_f64 || ty == :array_i64) && val.is_a?(Ast::MethodCall) &&
+             val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
+            crystal_ty = ty == :array_f64 ? "Float64" : "Int64"
+            default = ty == :array_f64 ? "0.0" : "0"
+            args = val.arg_nodes || []
+            write "#{iv_name} = Array(#{crystal_ty}).new("
+            args.empty? ? write("0") : emit_coerce_i64(args[0])
+            write ", #{default})"
+            return
+          end
           write "#{iv_name} = "
-          emit_as(ivar(node, :value_node), ty)
+          emit_as(val, ty)
         elsif @cctx.typed_ivars[iv_name]&.first == :class_or_nil
           val = ivar(node, :value_node)
           write "#{iv_name} = "
@@ -1337,7 +1351,8 @@ module Frozone
       end
 
       def emit_method_call(node)
-        try_constant_fold(node) ||
+        try_ivar_array_access(node) ||
+          try_constant_fold(node) ||
           try_native_array_new(node) ||
           try_native_iteration(node) ||
           try_typed_instance_call(node) ||
@@ -1352,6 +1367,22 @@ module Frozone
           try_devirtualized_call(node) ||
           try_raw_arithmetic(node) ||
           super
+      end
+
+      # @list.fetch(i) or @list[i] on native array ivar → box result for RubyObject context
+      def try_ivar_array_access(node)
+        recv = node.receiver_node
+        return unless recv.is_a?(Ast::InstanceVariableRead)
+        iv_ty = @cctx&.ivars&.dig(ivar(recv, :name))
+        return unless iv_ty == :array_f64 || iv_ty == :array_i64
+        args = node.arg_nodes || []
+        if (node.name == :fetch || node.name == :[]) && args.size == 1
+          box = iv_ty == :array_f64 ? "RubyFloat" : "RubyInteger"
+          write "#{box}.new(", ivar(recv, :name).to_s, "["
+          emit_coerce_i64(args[0])
+          write "])"
+          true
+        end
       end
 
       # Constant-fold respond_to?(:literal) and is_a?/kind_of?(Constant) when
@@ -1611,6 +1642,18 @@ module Frozone
         if ivar(node, :name) == :[]=
           args = ivar(node, :arg_nodes)
           recv = ivar(node, :receiver_node)
+          # Ivar array write: @list[i] = val where @list is Array(Float64)
+          if recv.is_a?(Ast::InstanceVariableRead) && args&.size == 2
+            iv_name = ivar(recv, :name)
+            iv_ty = @cctx&.ivars&.dig(iv_name)
+            if iv_ty == :array_f64 || iv_ty == :array_i64
+              write ivar(recv, :name).to_s, "["
+              emit_coerce_i64(args[0])
+              write "] = "
+              iv_ty == :array_f64 ? emit_coerce_f64(args[1]) : emit_coerce_i64(args[1])
+              return
+            end
+          end
           # Unboxed/native Array(T) write: emit value as bare native type
           if recv.is_a?(Ast::LocalVariableRead) &&
              (arr_ty = native_array_elem_type(ivar(recv, :name))) &&
