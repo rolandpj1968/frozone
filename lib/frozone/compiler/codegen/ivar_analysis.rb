@@ -93,7 +93,21 @@ module Frozone
             next unless method.is_a?(Vm::Method) && method.body
             mkey = [class_name, mname]
             method_class_locals = @gctx.class_locals[mkey] || {}
-            collect_ivar_class_types(method.body, ivar_type_sets, method_class_locals)
+            method_params = Set.new((method.required_params || []) + (method.instance_variable_get(:@optional_params) || []).map(&:first))
+            collect_ivar_class_types(method.body, ivar_type_sets, method_class_locals, param_names: method_params)
+          end
+
+          # Also scan setter calls (obj.left = val) from any method
+          accessor_names = methods.keys.select { |n| n.to_s.end_with?('=') && n != :initialize }.map { |n| n.to_s.chomp('=').to_sym }.to_set
+          unless accessor_names.empty?
+            # Scan ALL class instance methods for setter calls to this class's ivars
+            @gctx.user_class_names&.each do |cn|
+              scope = lookup_vm_class(cn)
+              (scope&.methods_table || {}).each do |_, m|
+                next unless m.is_a?(Vm::Method) && m.body
+                walk_setter_ivar_types(m.body, class_name, accessor_names, ivar_type_sets)
+              end
+            end
           end
 
           # Resolve: {ClassName} → [:class, name], {ClassName, :nil} → [:class_or_nil, name]
@@ -119,30 +133,43 @@ module Frozone
       end
 
       # Walk AST collecting class type of each ivar assignment.
-      def collect_ivar_class_types(node, ivar_type_sets, class_locals)
+      def collect_ivar_class_types(node, ivar_type_sets, class_locals, param_names: nil)
         return unless node
         case node
         when Ast::Sequence
-          node.nodes.each { |n| collect_ivar_class_types(n, ivar_type_sets, class_locals) }
+          node.nodes.each { |n| collect_ivar_class_types(n, ivar_type_sets, class_locals, param_names: param_names) }
         when Ast::InstanceVariableWrite
           iv = ivar(node, :name)
-          ty = ivar_assign_class_type(ivar(node, :value_node), class_locals)
+          ty = ivar_assign_class_type(ivar(node, :value_node), class_locals, param_names: param_names)
           ivar_type_sets[iv] << ty
         when Ast::If
-          collect_ivar_class_types(ivar(node, :then_node), ivar_type_sets, class_locals)
-          collect_ivar_class_types(ivar(node, :else_node), ivar_type_sets, class_locals)
+          collect_ivar_class_types(ivar(node, :then_node), ivar_type_sets, class_locals, param_names: param_names)
+          collect_ivar_class_types(ivar(node, :else_node), ivar_type_sets, class_locals, param_names: param_names)
         when Ast::While, Ast::Until
-          collect_ivar_class_types(ivar(node, :body_node), ivar_type_sets, class_locals)
+          collect_ivar_class_types(ivar(node, :body_node), ivar_type_sets, class_locals, param_names: param_names)
         when Ast::Block
-          collect_ivar_class_types(ivar(node, :body), ivar_type_sets, class_locals)
+          collect_ivar_class_types(ivar(node, :body), ivar_type_sets, class_locals, param_names: param_names)
         when Ast::Rescue
-          collect_ivar_class_types(ivar(node, :body), ivar_type_sets, class_locals)
+          collect_ivar_class_types(ivar(node, :body), ivar_type_sets, class_locals, param_names: param_names)
         end
       end
 
       # Determine the class type of an expression for ivar assignment.
       # Returns: class Symbol (user/builtin class name), :nil, :self_ivar, or :unknown.
-      def ivar_assign_class_type(node, class_locals = {})
+      # Walk for setter calls: obj.attr= val where obj is typed as class_name
+      def walk_setter_ivar_types(node, class_name, accessor_names, ivar_type_sets)
+        return unless node
+        if node.is_a?(Ast::AttributeWrite)
+          attr = ivar(node, :name).to_s.chomp('=').to_sym
+          if accessor_names.include?(attr)
+            # Value is self-referential if it comes from same-class ivar/accessor
+            ivar_type_sets[:"@#{attr}"] << :self_ivar
+          end
+        end
+        node.children.each { |c| walk_setter_ivar_types(c, class_name, accessor_names, ivar_type_sets) }
+      end
+
+      def ivar_assign_class_type(node, class_locals = {}, param_names: nil)
         case node
         when Ast::NilLiteral then :nil
         when Ast::IntegerLiteral then :Integer
@@ -165,11 +192,15 @@ module Frozone
             :unknown
           end
         when Ast::LocalVariableRead
-          cls = class_locals[ivar(node, :name)]
-          if cls && (@gctx.user_class_names&.include?(cls) || KNOWN_BUILTIN_CLASSES.include?(cls))
-            cls
+          name = ivar(node, :name)
+          cls = class_locals[name]
+          if cls
+            cls_sym = cls.is_a?(Array) ? cls[0] : cls
+            (@gctx.user_class_names&.include?(cls_sym) || KNOWN_BUILTIN_CLASSES.include?(cls_sym)) ? cls_sym : :self_ivar
+          elsif param_names&.include?(name)
+            :unknown  # constructor/method params store arbitrary values
           else
-            :self_ivar
+            :self_ivar  # untyped locals likely derived from self's ivars
           end
         when Ast::InstanceVariableRead
           :self_ivar
