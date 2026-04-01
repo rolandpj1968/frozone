@@ -430,6 +430,15 @@ lost at join points where different call sites contribute incompatible types.
 See "Constructor specialisation" under Future Ideas for how context sensitivity
 recovers precision at constructor join points.
 
+**Future type tags:** An `:exact` flag (`{class: :Node, exact: true}`) would
+distinguish "exactly this class" from "this class or a subclass". Constructors
+(`Node.new`) always produce exact types; parameters and ivar reads may not.
+Exactness enables direct method calls without vtable dispatch — in Crystal,
+the difference between `Ruby_Node#method` (direct) and
+`Ruby_Node | Ruby_SubNode` (union dispatch). Current benchmarks have no
+subclassing so this is deferred, but it matters for real-world code with
+inheritance.
+
 Nullable types are tracked via `{class: :X, nullable: true}`. `NilClass` meet
 any class X preserves X with the nullable flag: `meet(NilClass, {class: :Node})`
 → `{class: :Node, nullable: true}`. Nullable is preserved through same-class
