@@ -158,7 +158,7 @@ module Frozone
         end
         # Populate typed array locals from TI (non-param only).
         @mctx.typed_array_locals = (@gctx.arrays[name] || {}).reject { |k, _| param_set.include?(k) }
-        indented { emit_raw_body(method.body) }
+        indented { emit_raw_expr(method.body) }
         @mctx.typed_locals       = old_typed
         @mctx.typed_array_locals = old_typed_arr
 
@@ -216,8 +216,8 @@ module Frozone
             end
           end
         end
-        # Always use raw body for specialized overloads
-        indented { emit_raw_body(method.body) }
+        # Use raw expression emitter for specialized overloads — never boxes
+        indented { emit_raw_expr(method.body) }
         @mctx.typed_locals       = old_typed
         @mctx.typed_array_locals = old_typed_arr
         @cctx.name = old_class_name
@@ -304,7 +304,7 @@ module Frozone
         return unless node
         case node
         when Ast::Sequence
-          node.nodes.each { |n| emit_indent; emit_raw_body(n); emit_newline }
+          node.nodes.each { |n| emit_indent; emit_raw_expr(n); emit_newline }
         when Ast::If
           write "if "
           cond = ivar(node, :pred_node)
@@ -358,7 +358,7 @@ module Frozone
             emit_raw(ivar(node, :value_node))
           end
         else
-          emit_raw(node)
+          emit_raw_expr(node)
         end
       end
       end

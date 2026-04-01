@@ -398,6 +398,211 @@ module Frozone
 
       # Emit node coerced to Float64: raw if already typed, else .to_f64 on boxed.
       def emit_coerce_f64(node) = node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_f64")
+
+      # -----------------------------------------------------------------------
+      # emit_raw_expr — complete raw expression emitter for typed method bodies.
+      # Never boxes. Every expression emits as a bare Crystal value.
+      # Falls back to emit(node) ONLY for node types that are inherently
+      # RubyObject-valued (string literals, hash literals, etc.)
+      # -----------------------------------------------------------------------
+
+      def emit_raw_expr(node)
+        case node
+        when Ast::IntegerLiteral
+          write "#{ivar(node, :value).raw}_i64"
+        when Ast::FloatLiteral
+          raw = ivar(node, :value)
+          val = raw.respond_to?(:raw) ? raw.raw : raw
+          write float_bits_expr(val)
+        when Ast::NilLiteral
+          write "RUBY_NIL"
+        when Ast::TrueLiteral
+          write "true"
+        when Ast::FalseLiteral
+          write "false"
+        when Ast::LocalVariableRead
+          # Bare Crystal local — no boxing. Typed locals are already the right type.
+          write crystal_local(ivar(node, :name))
+        when Ast::InstanceVariableRead
+          iv = ivar(node, :name)
+          case @cctx&.ivars&.dig(iv)
+          when :i64, :f64, :array_i64, :array_f64
+            write iv.to_s  # bare ivar
+          else
+            write iv.to_s  # still bare — caller decides whether to box
+          end
+        when Ast::LocalVariableWrite
+          name = ivar(node, :name)
+          write crystal_local(name), " = "
+          emit_raw_expr(ivar(node, :value_node))
+        when Ast::Sequence
+          node.nodes.each_with_index do |n, i|
+            if i < node.nodes.size - 1
+              emit_indent; emit_raw_expr(n); emit_newline
+            else
+              emit_raw_expr(n)
+            end
+          end
+        when Ast::MethodCall
+          # Try raw paths first, fall back to normal emit for RubyObject methods
+          if emit_raw_method_call(node)
+            # handled
+          else
+            emit(node)  # inherently RubyObject method — can't avoid boxing
+          end
+        when Ast::AttributeWrite
+          # @list[i] = val on typed array ivars
+          recv = ivar(node, :receiver_node)
+          if ivar(node, :name) == :[]= && recv.is_a?(Ast::InstanceVariableRead)
+            iv_ty = @cctx&.ivars&.dig(ivar(recv, :name))
+            if iv_ty == :array_f64 || iv_ty == :array_i64
+              args = ivar(node, :arg_nodes)
+              write ivar(recv, :name).to_s, "["
+              emit_raw_expr(args[0])
+              write "] = "
+              emit_raw_expr(args[1])
+              return
+            end
+          end
+          emit(node)  # fall back for non-array attribute writes
+        when Ast::If
+          write "if "
+          emit_raw_truthy(ivar(node, :pred_node))
+          emit_newline
+          indented { emit_indent; emit_raw_expr(ivar(node, :then_node)) }
+          if node.instance_variable_get(:@else_node)
+            emit_newline; emit_indent; write "else"; emit_newline
+            indented { emit_indent; emit_raw_expr(node.instance_variable_get(:@else_node)) }
+          end
+          emit_newline; emit_indent; write "end"
+        when Ast::And
+          write "("; emit_raw_expr(ivar(node, :left_node))
+          write " && "; emit_raw_expr(ivar(node, :right_node)); write ")"
+        when Ast::Or
+          write "("; emit_raw_expr(ivar(node, :left_node))
+          write " || "; emit_raw_expr(ivar(node, :right_node)); write ")"
+        when Ast::Return
+          write "return "
+          emit_raw_expr(ivar(node, :value_node)) if ivar(node, :value_node)
+        when Ast::ConstantRead
+          name = ivar(node, :name)
+          write "Ruby_#{crystal_constant(name)}"
+        when Ast::ConstantPath
+          parent = ivar(node, :parent_node)
+          if parent.is_a?(Ast::ConstantRead) && ivar(parent, :name) == :Math
+            write "Math::#{ivar(node, :name)}"
+          else
+            emit(node)
+          end
+        else
+          emit(node)  # unhandled node type — fall back to boxed emit
+        end
+      end
+
+      # Emit a truthy check in raw context — use native Crystal booleans
+      def emit_raw_truthy(node)
+        if node.is_a?(Ast::MethodCall) &&
+           (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(node.name) &&
+           node.receiver_node && (node.arg_nodes || []).size == 1
+          write "("; emit_raw_expr(node.receiver_node)
+          write " #{node.name} "
+          emit_raw_expr(node.arg_nodes[0]); write ")"
+        elsif node.is_a?(Ast::And)
+          write "("; emit_raw_truthy(ivar(node, :left_node))
+          write " && "; emit_raw_truthy(ivar(node, :right_node)); write ")"
+        elsif node.is_a?(Ast::Or)
+          write "("; emit_raw_truthy(ivar(node, :left_node))
+          write " || "; emit_raw_truthy(ivar(node, :right_node)); write ")"
+        else
+          emit_raw_expr(node)
+        end
+      end
+
+      # Try to emit a method call in raw mode. Returns true if handled.
+      def emit_raw_method_call(node)
+        name = node.name
+        recv = node.receiver_node
+        args = node.arg_nodes || []
+
+        # Math.cos, Math.sin, etc.
+        if recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == :Math
+          write "Math.#{name}("
+          args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+          write ")"
+          return true
+        end
+
+        # Arithmetic/comparison with raw operands
+        if (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
+          write "("; emit_raw_expr(recv); write " #{name} "; emit_raw_expr(args[0]); write ")"
+          return true
+        end
+
+        # .to_f / .to_f64 / .to_i / .to_i64
+        if %i[to_f to_f64].include?(name) && args.empty? && recv
+          emit_raw_expr(recv); write ".to_f64"
+          return true
+        end
+        if %i[to_i to_i64].include?(name) && args.empty? && recv
+          emit_raw_expr(recv); write ".to_i64"
+          return true
+        end
+
+        # Unary operators: -x, +x
+        if name == :-@ && args.empty? && recv
+          write "(-"; emit_raw_expr(recv); write ")"
+          return true
+        end
+        if name == :+@ && args.empty? && recv
+          emit_raw_expr(recv)
+          return true
+        end
+
+        # .abs on numeric
+        if name == :abs && args.empty? && recv
+          emit_raw_expr(recv); write ".abs"
+          return true
+        end
+
+        # self.method(...) — eigenclass method call, pass raw args
+        if recv.nil? || (recv.is_a?(Ast::SelfLiteral))
+          write "self." if recv.is_a?(Ast::SelfLiteral)
+          write crystal_method_name(name)
+          write "("
+          args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+          write ")"
+          emit_raw_block(node)
+          return true
+        end
+
+        # Instance method on typed local — direct dispatch
+        if recv.is_a?(Ast::LocalVariableRead)
+          write crystal_local(ivar(recv, :name)), ".", crystal_method_name(name)
+          write "("
+          args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+          write ")"
+          emit_raw_block(node)
+          return true
+        end
+
+        false  # unhandled — caller falls back to emit(node)
+      end
+
+      # Emit a block in raw context (e.g., n.times { |i| ... })
+      def emit_raw_block(node)
+        blk = node.block_node
+        return unless blk.is_a?(Ast::Block)
+        params = ivar(blk, :required_params) || []
+        write " { "
+        unless params.empty?
+          write "|"
+          params.each_with_index { |p, i| write ", " if i > 0; write crystal_local(p) }
+          write "| "
+        end
+        emit_raw_expr(blk.body) if blk.body
+        write " }"
+      end
+
       end
     end
   end
