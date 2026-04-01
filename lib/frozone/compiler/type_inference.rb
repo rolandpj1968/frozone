@@ -293,12 +293,9 @@ module Frozone
             end
           elsif recv.is_a?(Ast::ConstantRead) && n.name == :new
             # ClassName.new(...) → constructor params.
-            # Skip NilClass args — sentinel construction (e.g. Node.new(nil, nil))
-            # shouldn't widen ivar types from unboxed to boxed nullable.
             class_sym = recv.instance_variable_get(:@name)
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
-              next if ty.is_a?(Hash) && ty[:class] == :NilClass
               changed |= @env.meet!([:constructor_param, class_sym, i], ty) if ty && ty != :unknown
             end
           elsif recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.instance_variable_get(:@name))

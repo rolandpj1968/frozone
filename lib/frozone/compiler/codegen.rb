@@ -1264,6 +1264,17 @@ module Frozone
       end
 
       # Override: for typed ivars, coerce RHS to the raw type.
+      # Override: when returning a raw-typed local from a typed method, emit bare value.
+      def emit_return(node)
+        val = ivar(node, :value_node)
+        if val && val.is_a?(Ast::LocalVariableRead) && @mctx.typed_locals[ivar(val, :name)]
+          write "return "
+          write crystal_local(ivar(val, :name))
+        else
+          super
+        end
+      end
+
       def emit_ivar_write(node)
         iv_name = ivar(node, :name)
         if (ty = @cctx.ivars[iv_name])
