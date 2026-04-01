@@ -88,9 +88,12 @@ module Frozone
           next unless methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
 
           # Collect all ivar assignment types across ALL methods
+          # Skip accessor setters — their @ivar = param would produce :unknown,
+          # but setter calls are tracked separately via walk_setter_ivar_types.
           ivar_type_sets = Hash.new { |h, k| h[k] = Set.new }
           methods.each do |mname, method|
             next unless method.is_a?(Vm::Method) && method.body
+            next if accessor_method?(method) && mname.to_s.end_with?('=')
             mkey = [class_name, mname]
             method_class_locals = @gctx.class_locals[mkey] || {}
             method_params = Set.new((method.required_params || []) + (method.instance_variable_get(:@optional_params) || []).map(&:first))
@@ -161,10 +164,7 @@ module Frozone
         return unless node
         if node.is_a?(Ast::AttributeWrite)
           attr = ivar(node, :name).to_s.chomp('=').to_sym
-          if accessor_names.include?(attr)
-            # Value is self-referential if it comes from same-class ivar/accessor
-            ivar_type_sets[:"@#{attr}"] << :self_ivar
-          end
+          ivar_type_sets[:"@#{attr}"] << :self_ivar if accessor_names.include?(attr)
         end
         node.children.each { |c| walk_setter_ivar_types(c, class_name, accessor_names, ivar_type_sets) }
       end

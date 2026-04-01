@@ -175,9 +175,18 @@ module Frozone
 
       # Resolve a receiver AST node to a known class Symbol (from TI devirtualize).
       def receiver_known_class(recv)
-        return nil unless recv.is_a?(Ast::LocalVariableRead)
-        cls_entry = @mctx.class_locals[ivar(recv, :name)]
-        cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
+        case recv
+        when Ast::LocalVariableRead
+          cls_entry = @mctx.class_locals[ivar(recv, :name)]
+          cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
+        when Ast::InstanceVariableRead
+          ct = @cctx&.typed_ivars&.dig(ivar(recv, :name))
+          ct.is_a?(Array) ? ct[1] : nil
+        when Ast::SelfLiteral
+          @cctx&.name
+        else
+          nil
+        end
       end
 
       # Look up a VM class/module by name in the top-level constant table.
@@ -328,11 +337,9 @@ module Frozone
           return ["RubyObject", "RUBY_NIL"] unless ct
           kind, cls = ct
           crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
-          # Crystal nilable only for self-referential tree links (e.g. Node @left : Node?)
-          # Other class_or_nil ivars stay as RubyObject (they store heterogeneous values)
-          return ["#{crystal_cls}?", "nil"] if kind == :class_or_nil && cls == @cctx.name
+          return ["#{crystal_cls}?", "nil"] if kind == :class_or_nil
           default = { Array: "RubyArray.new", Hash: "RubyHash.new", String: "RubyString.new" }[cls]
-          default ? [crystal_cls, default] : ["#{crystal_cls} | RubyNil", "RUBY_NIL"]
+          default ? [crystal_cls, default] : ["RubyObject", "RUBY_NIL"]
         end
       end
 
@@ -1189,6 +1196,7 @@ module Frozone
           emit(ivar(node, :value_node))
           write ".as(", crystal_class_name(cls_entry), ")"
         end
+        true
       end
 
 
@@ -1674,12 +1682,20 @@ module Frozone
       # Does this expression return a Crystal nilable type (T? not T | RubyNil)?
       # True for accessor reads on class_or_nil typed ivars.
       def returns_crystal_nilable?(node)
-        return false unless node.is_a?(Ast::MethodCall) && node.receiver_node
-        recv_class = receiver_known_class(node.receiver_node)
-        return false unless recv_class
-        # Check if the called method is an accessor for a class_or_nil ivar
-        ct = @gctx.class_typed_ivars.dig(recv_class, :"@#{node.name}")
-        ct.is_a?(Array) && ct[0] == :class_or_nil
+        case node
+        when Ast::MethodCall
+          return false unless node.receiver_node
+          recv_class = receiver_known_class(node.receiver_node)
+          return false unless recv_class
+          ct = @gctx.class_typed_ivars.dig(recv_class, :"@#{node.name}")
+          ct.is_a?(Array) && ct[0] == :class_or_nil
+        when Ast::InstanceVariableRead
+          return false unless @cctx
+          ct = @cctx.typed_ivars[ivar(node, :name)]
+          ct.is_a?(Array) && ct[0] == :class_or_nil
+        else
+          false
+        end
       end
 
       def emit_truthy(node)
@@ -1871,7 +1887,7 @@ module Frozone
             if ct
               kind, cls = ct
               crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
-              ret_type = (kind == :class_or_nil && cls == @cctx.name) ? "#{crystal_cls}?" : crystal_cls
+              ret_type = kind == :class_or_nil ? "#{crystal_cls}?" : crystal_cls
               line "def #{crystal_method_name(mname)} : #{ret_type}; #{iv}; end"
             else
               line "def #{crystal_method_name(mname)} : RubyObject; #{iv}; end"
@@ -1886,11 +1902,12 @@ module Frozone
             line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v.to_i64; v; end"
           else
             ct = @cctx.typed_ivars[iv]
-            if ct && ct[0] == :class_or_nil && ct[1] == @cctx.name
+            if ct && ct[0] == :class_or_nil
               crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[ct[1]] || "Ruby_#{crystal_constant(ct[1])}"
               line "def #{crystal_method_name(mname)}(v : #{crystal_cls}) : #{crystal_cls}; #{iv} = v; end"
               line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v.as(#{crystal_cls}); end"
               line "def #{crystal_method_name(mname)}(v : RubyNil) : Nil; #{iv} = nil; end"
+              line "def #{crystal_method_name(mname)}(v : #{crystal_cls}?) : #{crystal_cls}?; #{iv} = v; end"
             else
               line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v; end"
             end

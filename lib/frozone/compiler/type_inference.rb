@@ -184,10 +184,6 @@ module Frozone
           b.is_a?(Hash) ? b.merge(nullable: true).freeze : {class: b[:class], nullable: true}.freeze
         elsif b[:class] == :NilClass
           a.is_a?(Hash) ? a.merge(nullable: true).freeze : {class: a[:class], nullable: true}.freeze
-        elsif a[:nullable] && a[:class] == b[:class]
-          merge_collection_params(a, b)
-        elsif b[:nullable] && a[:class] == b[:class]
-          merge_collection_params(a, b).merge(nullable: true).freeze
         else
           lca_of(a[:class], b[:class])
         end
@@ -1319,6 +1315,7 @@ module Frozone
       # Only merges params (elem, key, val) that are present in BOTH sides.
       def merge_collection_params(a, b)
         result = {class: a[:class]}
+        result[:nullable] = true if a[:nullable] || b[:nullable]
         # For each param (:elem, :key, :val): merge if both present, take whichever
         # side has it if only one does (absent = not yet observed, not "unknowable").
         %i[elem key val].each do |param|
