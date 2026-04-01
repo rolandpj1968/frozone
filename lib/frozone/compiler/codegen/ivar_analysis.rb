@@ -74,11 +74,9 @@ module Frozone
       # Scan all methods of each user class for ivar assignments, collecting
       # the set of class types assigned. Produces @gctx.class_typed_ivars entries
       # for ivars with pattern {UserClass} or {UserClass, NilClass}.
-      def collect_class_typed_ivars(scope, execute_block: nil)
+      def collect_class_typed_ivars(scope)
         @gctx.class_typed_ivars = {}
-        @_execute_block_body = execute_block&.body
         collect_class_typed_ivars_from(scope)
-        @_execute_block_body = nil
       end
 
       def collect_class_typed_ivars_from(scope)
@@ -90,12 +88,9 @@ module Frozone
           next unless methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
 
           # Collect all ivar assignment types across ALL methods
-          # Skip accessor setters — their @ivar = param would produce :unknown,
-          # but setter calls are tracked separately via walk_setter_ivar_types.
           ivar_type_sets = Hash.new { |h, k| h[k] = Set.new }
           methods.each do |mname, method|
             next unless method.is_a?(Vm::Method) && method.body
-            next if accessor_method?(method) && mname.to_s.end_with?('=')
             mkey = [class_name, mname]
             method_class_locals = @gctx.class_locals[mkey] || {}
             method_params = Set.new((method.required_params || []) + (method.instance_variable_get(:@optional_params) || []).map(&:first))
@@ -112,12 +107,6 @@ module Frozone
                 next unless m.is_a?(Vm::Method) && m.body
                 walk_setter_ivar_types(m.body, class_name, accessor_names, ivar_type_sets)
               end
-            end
-            # Also scan the execute block and top-level methods
-            walk_setter_ivar_types(@_execute_block_body, class_name, accessor_names, ivar_type_sets) if @_execute_block_body
-            @cc.top_level_scope.methods_table&.each do |_, m|
-              next unless m.is_a?(Vm::Method) && m.body && user_source_location?(m.source_location)
-              walk_setter_ivar_types(m.body, class_name, accessor_names, ivar_type_sets)
             end
           end
 
@@ -172,7 +161,10 @@ module Frozone
         return unless node
         if node.is_a?(Ast::AttributeWrite)
           attr = ivar(node, :name).to_s.chomp('=').to_sym
-          ivar_type_sets[:"@#{attr}"] << :self_ivar if accessor_names.include?(attr)
+          if accessor_names.include?(attr)
+            # Value is self-referential if it comes from same-class ivar/accessor
+            ivar_type_sets[:"@#{attr}"] << :self_ivar
+          end
         end
         node.children.each { |c| walk_setter_ivar_types(c, class_name, accessor_names, ivar_type_sets) }
       end

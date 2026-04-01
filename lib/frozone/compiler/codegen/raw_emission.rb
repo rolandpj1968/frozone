@@ -58,27 +58,11 @@ module Frozone
           if recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == :Math
             return :f64
           end
-          # Instance method call on a known-class receiver with raw return type
-          recv_class = receiver_known_class(recv)
-          if recv_class && (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
-            return ret_ty
-          end
-          # Chained accessor: local.accessor1.accessor2 — if accessor1 returns a
-          # known class (even nullable), check accessor2's raw return on that class.
-          # e.g., current.left.key where left returns Node? and key returns Float64.
-          if recv.is_a?(Ast::MethodCall) && recv.receiver_node
-            inner_class = receiver_known_class(recv.receiver_node)
-            if inner_class
-              # What class does the inner accessor return?
-              ct = @gctx.class_typed_ivars.dig(inner_class, :"@#{recv.name}")
-              chain_class = ct.is_a?(Array) ? ct[1] : nil
-              chain_class ||= begin
-                inner_ret = @gctx.instance_method_raw_returns[[inner_class, recv.name]]
-                nil  # raw returns are scalars, not classes — skip
-              end
-              if chain_class && (ret_ty = @gctx.instance_method_raw_returns[[chain_class, name]])
-                return ret_ty
-              end
+          # Instance method call on a class-typed local with known raw return type
+          if recv.is_a?(Ast::LocalVariableRead)
+            recv_class = @mctx.class_locals[ivar(recv, :name)]
+            if recv_class && (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
+              return ret_ty
             end
           end
           # Typed array element read: a[k] where a is a typed or native array local
@@ -196,10 +180,6 @@ module Frozone
       # Only call when node_raw_type(node) is non-nil.
       def emit_raw(node)
         case node
-        when Ast::LocalVariableRead
-          # In raw context, typed locals emit bare Crystal value (no boxing).
-          write crystal_local(ivar(node, :name))
-          return
         when Ast::And
           # Emit as Crystal &&: both sides must produce Crystal-compatible booleans.
           # Comparisons (CrystalEmitter::COMPARE_OPS) in emit_raw produce Crystal Bool already.
@@ -311,26 +291,15 @@ module Frozone
               ret = node_raw_type(node)
               write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
             end
-          elsif (recv_class = receiver_known_class(recv)) &&
-                @gctx.instance_method_raw_returns[[recv_class, name]]
-            # Accessor on a known-class receiver with raw return: use _raw accessor.
-            # Emit receiver, adding .as() cast only if Crystal doesn't know the type.
-            emit(recv)
-            @_declared_typed_locals ||= Set.new
-            needs_cast = recv.is_a?(Ast::LocalVariableRead) && !@_declared_typed_locals.include?(ivar(recv, :name))
-            write ".as(Ruby_#{crystal_constant(recv_class)})" if needs_cast
-            write ".#{crystal_method_name(name)}_raw"
-          elsif recv.is_a?(Ast::MethodCall) && recv.receiver_node
-            # Chained accessor: local.left.key → local.as(Node).left.as(Node).key_raw
-            inner_class = receiver_known_class(recv.receiver_node)
-            ct = inner_class && @gctx.class_typed_ivars.dig(inner_class, :"@#{recv.name}")
-            chain_class = ct.is_a?(Array) ? ct[1] : nil
-            if chain_class && @gctx.instance_method_raw_returns[[chain_class, name]]
-              emit(recv)  # emits e.g. current.as(Ruby_Node).left
-              write ".as(Ruby_#{crystal_constant(chain_class)}).#{crystal_method_name(name)}_raw"
-            else
-              emit(node)
-            end
+          elsif recv.is_a?(Ast::LocalVariableRead) &&
+                (recv_class = @mctx.class_locals[ivar(recv, :name)]) &&
+                (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
+            # Instance method call on class-typed local with raw return:
+            # use _raw accessor (avoids box allocation) if available, else add .to_f64/.to_i64.
+            # Always emit .as(Ruby_ClassName) so Crystal's type system is happy even when
+            # the variable comes from a block parameter (typed as RubyObject).
+            emit_raw(recv)
+            write ".as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(name)}_raw"
           elsif recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == :Math &&
                 args.size >= 1 && args.all? { |a| node_raw_type(a) }
             # Math.sqrt(typed_arg) etc. → Crystal Math.sqrt(raw_arg), no allocation

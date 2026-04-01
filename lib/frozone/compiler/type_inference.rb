@@ -185,6 +185,10 @@ module Frozone
           b.is_a?(Hash) ? b.merge(nullable: true).freeze : {class: b[:class], nullable: true}.freeze
         elsif b[:class] == :NilClass
           a.is_a?(Hash) ? a.merge(nullable: true).freeze : {class: a[:class], nullable: true}.freeze
+        elsif a[:nullable] && a[:class] == b[:class]
+          merge_collection_params(a, b)
+        elsif b[:nullable] && a[:class] == b[:class]
+          merge_collection_params(a, b).merge(nullable: true).freeze
         else
           lca_of(a[:class], b[:class])
         end
@@ -293,8 +297,6 @@ module Frozone
             end
           elsif recv.is_a?(Ast::ConstantRead) && n.name == :new
             # ClassName.new(...) → constructor params, keyed by calling context.
-            # Per-context tracking enables constructor specialisation: sentinel
-            # Node.new(nil, nil) won't pollute real Node.new(key, value) types.
             class_sym = recv.instance_variable_get(:@name)
             ctor_ctx = ctx.method_key || :__execute__
             args.each_with_index do |arg, i|
@@ -577,15 +579,14 @@ module Frozone
         param_types = req_params.empty? ? [] : best_constructor_param_types(class_name, req_params.size)
         return false unless param_types
 
-        ctx = TypeContext.new([class_name, :initialize], class_name)
-        old_seeds = @ivar_param_seeds
-        @ivar_param_seeds = req_params.zip(param_types).to_h
-
         # Seed initialize param slots from best constructor types (NilClass filtered).
-        # This enables CrystalTypeMapper to generate typed constructor overloads.
         param_types.each_with_index do |ty, i|
           changed |= @env.meet!([:param, [class_name, :initialize], i], ty) if ty && ty != :unknown
         end
+
+        ctx = TypeContext.new([class_name, :initialize], class_name)
+        old_seeds = @ivar_param_seeds
+        @ivar_param_seeds = req_params.zip(param_types).to_h
 
         changed = false
         # Collect ivar assignments from initialize
@@ -639,8 +640,36 @@ module Frozone
           end
         end
 
+        # Infer element types for ivar arrays from []=, <<, push writes.
+        # e.g., @list[i] = val in set() where val is :f64 → @list is Array(:f64).
+        (klass.methods_table || {}).each do |mname, method|
+          next unless method.is_a?(Vm::Method) && method.body
+          method_ctx = TypeContext.new([class_name, mname], class_name)
+          collect_ivar_array_elem_writes(method.body, class_name, method_ctx) do |ivar_name, elem_ty|
+            current = @env.raw([:ivar, class_name, ivar_name])
+            if current.is_a?(Hash) && current[:class] == :Array && !current.key?(:elem)
+              changed |= @env.meet!([:ivar, class_name, ivar_name], {class: :Array, elem: elem_ty}.freeze)
+            end
+          end
+        end
+
         @ivar_param_seeds = old_seeds
         changed
+      end
+
+      # Scan body for @ivar[i] = val patterns and yield ivar_name + value type.
+      def collect_ivar_array_elem_writes(node, class_name, ctx, &block)
+        return unless node
+        if node.is_a?(Ast::AttributeWrite) && node.instance_variable_get(:@name) == :[]=
+          recv = node.instance_variable_get(:@receiver_node)
+          args = node.instance_variable_get(:@arg_nodes) || []
+          if recv.is_a?(Ast::InstanceVariableRead) && args.size == 2
+            ivar_name = recv.instance_variable_get(:@name)
+            val_ty = infer_expr(args[1], ctx)
+            yield ivar_name, val_ty if val_ty && val_ty != :unknown && NUMERIC_TYPES.include?(val_ty)
+          end
+        end
+        node.children.each { |c| collect_ivar_array_elem_writes(c, class_name, ctx, &block) }
       end
 
       # Walk body for setter calls (obj.attr= val) on known-class receivers.
@@ -748,7 +777,6 @@ module Frozone
           infer_call(node, ctx)
 
         when Ast::Or
-          # a || b — result type is meet of both sides (either could be returned)
           lt = infer_expr(node.instance_variable_get(:@left_node), ctx)
           rt = infer_expr(node.instance_variable_get(:@right_node), ctx)
           return rt if lt == :unknown
@@ -756,7 +784,6 @@ module Frozone
           meet(lt, rt)
 
         when Ast::And
-          # a && b — result is the right side's type (if both truthy) or left (if falsy)
           lt = infer_expr(node.instance_variable_get(:@left_node), ctx)
           rt = infer_expr(node.instance_variable_get(:@right_node), ctx)
           return rt if lt == :unknown
@@ -874,7 +901,6 @@ module Frozone
             return :i64 if recv_ty[:class] == :Float   && FLOAT_INT_METHODS.include?(name)
             # String byte methods return Integer
             return :i64 if recv_ty[:class] == :String && %i[getbyte ord bytesize].include?(name)
-            # Random#rand(int) → Integer, Random#rand → Float
             if recv_ty[:class] == :Random && name == :rand
               return args.empty? ? :f64 : :i64
             end
@@ -989,7 +1015,6 @@ module Frozone
               scan_returns(n, ctx, types)
             end
           end
-          # Also scan the last node for explicit returns (e.g., loop { return x })
           scan_returns(node.nodes.last, ctx, types) if types.empty?
           return :unknown if types.empty?
           types.reduce { |a, b| meet(a, b) }
@@ -1023,7 +1048,6 @@ module Frozone
         when Ast::While, Ast::Until
           scan_returns(node.instance_variable_get(:@body_node), ctx, acc)
         when Ast::MethodCall
-          # Recurse into block bodies (e.g., loop { return x } or each { return x })
           blk = node.instance_variable_get(:@block_node)
           scan_returns(blk.body, ctx, acc) if blk.respond_to?(:body)
         when Ast::Block
@@ -1349,14 +1373,10 @@ module Frozone
 
       # Meet two parameterized collection types that share the same base class.
       # Only merges params (elem, key, val) that are present in BOTH sides.
-      # Strip nullable from a type and convert back to raw unboxed form if possible.
-      # {class: :Float, nullable: true} → :f64, {class: :Integer, nullable: true} → :i64
       # Collect constructor param types across all calling contexts and pick
       # the best (most precise) type for each param. Contexts that pass only
       # NilClass are excluded — sentinel construction shouldn't widen ivars.
-      # Returns nil if no typed contexts exist.
       def best_constructor_param_types(class_name, param_count)
-        # Find all calling contexts that construct this class
         slots = @env.instance_variable_get(:@slots)
         contexts = Set.new
         slots.each_key do |slot|
@@ -1366,13 +1386,9 @@ module Frozone
         return nil if contexts.empty?
 
         param_count.times.map do |i|
-          # Collect types from all contexts for this param
           types = contexts.filter_map { |ctx_key| @env[[:constructor_param, class_name, i, ctx_key]] }
           return nil if types.empty?
-          # Exclude NilClass-only contributions — sentinel construction
           non_nil = types.reject { |t| t.is_a?(Hash) && t[:class] == :NilClass }
-          # If only NilClass contexts exist for this param, use :unknown so it
-          # doesn't poison ivar typing. Real types will arrive in later iterations.
           next :unknown if non_nil.empty?
           non_nil.reduce { |a, b| meet(a, b) }
         end

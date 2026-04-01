@@ -191,11 +191,8 @@ module Frozone
 
         old_typed       = @mctx.typed_locals
         old_typed_arr   = @mctx.typed_array_locals
-        old_class_loc   = @mctx.class_locals
-        old_declared    = @_declared_typed_locals
         old_class_name  = @cctx.name
         @cctx.name = class_name
-        @_declared_typed_locals = Set.new
         param_set     = req_params.to_set
         mkey = [class_name, mname]
         # Start with param types
@@ -209,7 +206,6 @@ module Frozone
           @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
         end
         @mctx.typed_array_locals = (@gctx.arrays[mkey] || @gctx.arrays[mname] || {}).reject { |k, _| param_set.include?(k) }
-        @mctx.class_locals = @gctx.class_locals[mkey] || @gctx.class_locals[mname] || {}
         # Register Array(Int64)/Array(Float64) params as native arrays
         @mctx.native_array_locals = {}
         if crystal_param_types
@@ -224,8 +220,6 @@ module Frozone
         indented { emit_raw_body(method.body) }
         @mctx.typed_locals       = old_typed
         @mctx.typed_array_locals = old_typed_arr
-        @mctx.class_locals       = old_class_loc
-        @_declared_typed_locals  = old_declared
         @cctx.name = old_class_name
 
         emit_newline
