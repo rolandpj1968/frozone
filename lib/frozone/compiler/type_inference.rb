@@ -293,13 +293,9 @@ module Frozone
             end
           elsif recv.is_a?(Ast::ConstantRead) && n.name == :new
             # ClassName.new(...) → constructor params.
-            # Skip NilClass args — sentinel construction (e.g. Node.new(nil, nil))
-            # shouldn't widen ivar types. The codegen emits nil-safe coercion in
-            # the generic constructor for scalar ivars.
             class_sym = recv.instance_variable_get(:@name)
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
-              next if ty.is_a?(Hash) && ty[:class] == :NilClass
               changed |= @env.meet!([:constructor_param, class_sym, i], ty) if ty && ty != :unknown
             end
           elsif recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.instance_variable_get(:@name))
@@ -576,15 +572,9 @@ module Frozone
 
         req_params = init.instance_variable_get(:@required_params) || []
         param_types = req_params.each_with_index.map { |_, i|
-          ty = @env[[:constructor_param, class_name, i]]
-          # Strip nullable from constructor params for ivar seeding — sentinel
-          # construction like Node.new(nil, nil) shouldn't widen ivar types.
-          ty = strip_nullable_to_raw(ty) if ty
-          ty
+          @env[[:constructor_param, class_name, i]]
         }
-        # Need at least one typed param; nil params (all-NilClass) use :unknown.
-        return false unless param_types.any?
-        param_types = param_types.map { |t| t || :unknown }
+        return false unless param_types.all?
 
         ctx = TypeContext.new([class_name, :initialize], class_name)
         old_seeds = @ivar_param_seeds
@@ -594,19 +584,14 @@ module Frozone
         # Collect ivar assignments from initialize
         all_ivar_assigns = collect_ivar_assignments(init.body)
 
-        # Infer ivar types from initialize.
-        # Reset ivar slots from init first — stripped constructor params may have
-        # narrowed, and meet! is monotonically widening so stale wider types persist.
+        # Infer ivar types from initialize
         all_ivar_assigns.each do |ivar_name, rhs_nodes|
           ty = rhs_nodes.reduce(:unknown) do |acc, rhs|
             t = infer_expr(rhs, ctx)
             meet(acc, t || :unknown)
           end
           next if ty == :unknown
-          slot = [:ivar, class_name, ivar_name]
-          old = @env.raw(slot)
-          @env.instance_variable_get(:@slots)[slot] = ty
-          changed = true if old != ty
+          changed |= @env.meet!([:ivar, class_name, ivar_name], ty)
         end
 
         # Also collect from all other instance methods — ivars may be
