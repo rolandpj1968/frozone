@@ -38,11 +38,13 @@ Apples-to-apples wall-clock time (identical workload, Ruby 4.0.1, Crystal `--rel
 | fib(35) ×3 | 139 ms | 2347 ms | 318 ms | **17×** | **2.3×** |
 | sudoku ×20 | 430 ms | 7466 ms | 2015 ms | **17×** | **4.7×** |
 | matmul(200) ×20 | 248 ms | 7530 ms | 3071 ms | **30×** | **12×** |
-| splay ×200 | 391 ms | 20221 ms | 14213 ms | **52×** | **36×** |
+| binarytrees ×60 | 2285 ms | 16586 ms | 7225 ms | **7.3×** | **3.2×** |
 | loops\_times | 14 ms | 836 ms | 266 ms | **60×** | **19×** |
+| fannkuchredux ×10 | 3773 ms | 3171 ms | 3194 ms | 0.8× | **0.8×** |
+| splay ×200 | 35130 ms | 19963 ms | 13923 ms | 0.6× | 0.4× |
 | blurhash ×10 | 7057 ms | 2480 ms | 1050 ms | 0.4× | 0.1× |
 
-26 of 26 benchmarks compile end-to-end. splay (OOP: classes, attr\_accessor, Random, Hash) is 36× YJIT. blurhash needs keyword arg type inference to close the gap.
+26 of 26 benchmarks compile end-to-end. 5 benchmarks faster than YJIT; fannkuchredux at parity (native Array(Int64) from Range#to\_a promotion).
 
 Key compiler features: whole-program type inference with array element propagation from `<<`/push, nested `Array(Array(T))` promotion, compile-time `respond_to?`/`is_a?` folding, symbol-indexed `respond_to?` dispatch, and typed method overloads with Crystal tuple multi-return. See [docs/compilation.md](docs/compilation.md) for architecture.
 
