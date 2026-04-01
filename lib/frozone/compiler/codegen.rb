@@ -859,6 +859,8 @@ module Frozone
         return false unless node_raw_type(node)
         case node
         when Ast::LocalVariableRead then true
+        # Literals NOT passed raw — callee might not have matching overload for all arg types
+        when Ast::IntegerLiteral, Ast::FloatLiteral then false
         when Ast::MethodCall
           # Arithmetic/bitwise on raw operands: ba ^ bb, a + b, etc.
           ARITH_OPS_UNBOX.include?(node.name) && node.receiver_node && node_raw_type(node.receiver_node)
