@@ -314,7 +314,11 @@ module Frozone
           elsif (recv_class = receiver_known_class(recv)) &&
                 @gctx.instance_method_raw_returns[[recv_class, name]]
             # Accessor on a known-class receiver with raw return: use _raw accessor.
+            # Emit receiver, adding .as() cast only if Crystal doesn't know the type.
             emit(recv)
+            @_declared_typed_locals ||= Set.new
+            needs_cast = recv.is_a?(Ast::LocalVariableRead) && !@_declared_typed_locals.include?(ivar(recv, :name))
+            write ".as(Ruby_#{crystal_constant(recv_class)})" if needs_cast
             write ".#{crystal_method_name(name)}_raw"
           elsif recv.is_a?(Ast::MethodCall) && recv.receiver_node
             # Chained accessor: local.left.key → local.as(Node).left.as(Node).key_raw
