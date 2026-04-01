@@ -1664,6 +1664,11 @@ module Frozone
       # available, and *args stubs accept any type.
       def emit_call_args(node)
         return super unless opt?(:unbox_locals)
+        # Constructors: only pass raw args if the class has a typed initialize overload.
+        if node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
+          cls = ivar(node.receiver_node, :name)
+          return super unless @gctx.class_params.key?([cls, :initialize])
+        end
         args = node.arg_nodes
         kw_args = node.kw_arg_nodes
         return if args.empty? && kw_args.empty? && node.block_node.nil?
