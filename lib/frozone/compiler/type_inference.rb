@@ -581,6 +581,12 @@ module Frozone
         old_seeds = @ivar_param_seeds
         @ivar_param_seeds = req_params.zip(param_types).to_h
 
+        # Seed initialize param slots from best constructor types (NilClass filtered).
+        # This enables CrystalTypeMapper to generate typed constructor overloads.
+        param_types.each_with_index do |ty, i|
+          changed |= @env.meet!([:param, [class_name, :initialize], i], ty) if ty && ty != :unknown
+        end
+
         changed = false
         # Collect ivar assignments from initialize
         all_ivar_assigns = collect_ivar_assignments(init.body)

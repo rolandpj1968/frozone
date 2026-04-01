@@ -1664,7 +1664,6 @@ module Frozone
       # available, and *args stubs accept any type.
       def emit_call_args(node)
         return super unless opt?(:unbox_locals)
-        return super if node.name == :new  # constructors may not have Int64 overloads
         args = node.arg_nodes
         kw_args = node.kw_arg_nodes
         return if args.empty? && kw_args.empty? && node.block_node.nil?
