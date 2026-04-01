@@ -22,6 +22,22 @@ class RubyGenericObject < RubyObject
   def inspect : String; "#<Object>"; end
 end
 
+# Crystal Nil extensions — needed when methods return RubyObject | Nil.
+# Ruby semantics: nil is falsy and responds to common methods.
+struct Nil
+  def truthy? : Bool; false; end
+  def ruby_nil? : Bool; true; end
+  def to_s : String; ""; end
+  def ruby_to_s : String; ""; end
+  def ruby_inspect : String; "nil"; end
+  # Catch-all for method calls on Crystal nil from missing else branches.
+  # Ruby nil would use RubyNil's methods; Crystal nil means the codegen
+  # dropped an else branch. These should never be reached at runtime.
+  macro method_missing(call)
+    raise "BUG: method " + {{call.name.stringify}} + " called on Crystal nil (missing else RUBY_NIL?)"
+  end
+end
+
 # Crystal native type extensions for mixed arithmetic with RubyObject.
 # When specialised methods return raw Float64/Int64 but operate on
 # RubyObject values, Crystal needs these overloads.
