@@ -421,6 +421,21 @@ representation: `:i64`, `[:array, :i64]`, `[:array, [:array, :i64]]`, etc.
 class hierarchy. Unboxed types widen to their boxed class before LCA:
 `meet(:i64, :f64)` → `{class: :Numeric}`. `:unknown` is the identity.
 
+The lattice is a **forward abstract interpretation** — types flow upward from
+specific to general. `meet` is really a JOIN (least upper bound): it finds
+the widest type that covers both inputs. This means types can only **widen**
+over successive iterations, never narrow. Once a slot reaches `{class: :Object}`,
+it stays there. This guarantees termination and soundness, but precision is
+lost at join points where different call sites contribute incompatible types.
+See "Constructor specialisation" under Future Ideas for how context sensitivity
+recovers precision at constructor join points.
+
+Nullable types are tracked via `{class: :X, nullable: true}`. `NilClass` meet
+any class X preserves X with the nullable flag: `meet(NilClass, {class: :Node})`
+→ `{class: :Node, nullable: true}`. Nullable is preserved through same-class
+meets: `meet({class: :Node, nullable: true}, {class: :Node, nullable: true})`
+→ `{class: :Node, nullable: true}`.
+
 Collection params (`:elem`, `:key`, `:val`) merge recursively via
 `merge_collection_params`. When one side has a param and the other doesn't,
 the present side is taken — "absent" means "not yet observed", not
@@ -686,6 +701,93 @@ tables. The interpreter keeps the real module hierarchy; the compiler flattens
 before emission. Benefits: simpler TI (no module lookup chains), unambiguous ivar
 ownership, handles Crystal's lack of prepend support. Kernel methods map to the
 Crystal runtime, so duplication explosion is limited to user-defined modules.
+
+### Constructor specialisation and generic extraction
+
+**The problem — sentinel poisoning:**
+
+The splay benchmark defines `Node` with `attr_accessor :key`, constructed as
+both `Node.new(key, value)` where `key` is a Float and `Node.new(nil, nil)` as
+a sentinel/dummy node. Because the TI tracks constructor params globally, these
+merge: `meet(:f64, NilClass)` → `{class: :Float, nullable: true}`. The `@key`
+ivar widens from unboxed `Float64` to boxed `RubyObject`, which cascades
+through every comparison in the hot loop — making them virtual dispatch instead
+of native `Float64 <`.
+
+This is a classic **context sensitivity** problem from the program analysis
+literature. The TI is context-insensitive: it merges all call sites to the same
+constructor into one type.
+
+**The solution — 1-CFA on constructors:**
+
+Track constructor param types per calling method context:
+
+```
+[:constructor_param, :Node, 0, :insert]   → :f64       (real keys)
+[:constructor_param, :Node, 0, :splay!]   → NilClass   (sentinel)
+```
+
+When contexts produce different ivar type signatures, emit separate Crystal
+class instantiations — one per distinct signature. For splay:
+
+- `Ruby_Node_f64` with `@key : Float64` — used by `insert`, `remove`, `find`
+- `Ruby_Node` with `@key : RubyObject` — used by `splay!` sentinel
+
+**Why this is generic extraction:**
+
+Constructor specialisation is a special case of extracting parametric
+polymorphism from untyped Ruby. The constructor tells you which instantiation
+to create, but the real generic parameter is the **ivar type signature**. A
+class with `@key : K, @value : V` is implicitly `Node<K, V>` — the types
+just aren't declared.
+
+This is the same mechanism as:
+- Julia's runtime method specialisation per concrete argument tuple
+- MLton's whole-program monomorphisation of ML polymorphism
+- C++ template instantiation / Rust monomorphisation
+
+The closed-world snapshot makes it tractable: we see ALL constructor call sites,
+ALL ivar assignments, and ALL method bodies. No need for type annotations or
+runtime guards.
+
+**Heuristics for when to split:**
+
+Not all constructor merges need splitting. Heuristics to trigger:
+
+1. **Raw type lost** — a constructor param that would be `:i64`/`:f64` in one
+   context gets widened to a boxed class type by another. This is the signal
+   that unboxing precision was lost at the join.
+2. **NilClass polluter** — one context passes `nil` where others pass a
+   concrete type. Sentinel/dummy construction patterns.
+3. **Distinct class hierarchies** — one context passes `Node`, another passes
+   `String`. Different enough that separate instantiations would benefit
+   downstream devirtualisation.
+
+Do NOT split when:
+- All contexts pass the same type (nothing to gain)
+- The widened type is still usable (e.g., `Integer` vs `Float` → `Numeric`
+  still enables arithmetic optimisation)
+- Instantiation count would exceed a threshold (explosion guard)
+
+**Implementation sketch:**
+
+1. **TI:** Key `[:constructor_param]` slots by
+   `[class, param_index, calling_method]`. Group by ivar type signature
+   (the set of ivar types that result from each context's param types).
+2. **CrystalTypeMapper:** For each distinct ivar signature, create a separate
+   class mapping. `class_locals` entries point to the specific instantiation.
+3. **Codegen:** Emit one Crystal class per distinct signature. Each has its
+   own ivar declarations, typed accessors, and method bodies. Constructor
+   call sites dispatch to the matching instantiation.
+
+**Explosion bounds:**
+
+- Split only constructors, not all method calls: bounded by
+  (classes × constructor call sites), not (methods × call sites^k).
+- Practical programs have 1-3 instantiations per class.
+- Depth limit: don't recursively specialise (`Node<Node<Node<T>>>`).
+- Fallback: if a class exceeds the instantiation threshold, emit the
+  unsplit generic version.
 
 ### String encoding specialization
 
