@@ -1,0 +1,379 @@
+require_relative '../../support/vm_loader'
+require_relative '../../../lib/frozone/compiler/type_inference'
+
+TI = Frozone::Compiler::TypeInference
+
+RSpec.describe Frozone::Compiler::TypeInference do
+  # Helper: build a minimal TI instance (no user code).
+  def ti(user_methods: {}, user_classes: {}, execute_block: nil, constants: {})
+    TI.new(user_methods: user_methods, user_classes: user_classes,
+           execute_block: execute_block, constants: constants)
+  end
+
+  # Helper: parse a Ruby snippet and return its AST.
+  # Pass locals: to tell Prism which names are local variables (not method calls).
+  def parse(code, locals: [])
+    Frozone::Vm::Parser.new(code, outer_locals: locals).ast
+  end
+
+  # Helper: parse a method body, build TI, run it, and return the env.
+  # The method is registered as top-level :test_method.
+  def infer_method(code, params: [], constants: {})
+    scope = Frozone::Vm::Core::OBJECT_CLASS
+    body = parse(code, locals: params)
+    method = make_method(scope, :test_method, body: body, required_params: params)
+    t = ti(user_methods: { test_method: method }, constants: constants)
+    t.run
+  end
+
+  # Helper: parse an execute block + optional methods, run TI, return env.
+  def infer_execute(code, methods: {}, constants: {})
+    body = parse(code)
+    block = Frozone::Ast::Block.new(
+      [], [], nil, [],   # required, optional, rest, post params
+      [], [], nil, nil,  # kw params, block_param
+      false, [], body    # auto_splat, locals, body
+    )
+    t = ti(user_methods: methods, execute_block: block, constants: constants)
+    t.run
+  end
+
+  # =====================================================================
+  # meet — lattice operations
+  # =====================================================================
+
+  describe "#meet" do
+    let(:t) { ti }
+
+    context "identity" do
+      it ":unknown is the identity element" do
+        expect(t.meet(:unknown, :i64)).to eq(:i64)
+        expect(t.meet(:f64, :unknown)).to eq(:f64)
+        expect(t.meet(:unknown, :unknown)).to eq(:unknown)
+      end
+    end
+
+    context "same type" do
+      it "returns the type unchanged" do
+        expect(t.meet(:i64, :i64)).to eq(:i64)
+        expect(t.meet(:f64, :f64)).to eq(:f64)
+        expect(t.meet({class: :String}, {class: :String})).to eq({class: :String})
+      end
+    end
+
+    context "numeric widening" do
+      it "i64 meet f64 → Numeric" do
+        result = t.meet(:i64, :f64)
+        expect(result).to be_a(Hash)
+        expect(result[:class]).to eq(:Numeric)
+      end
+
+      it "f64 meet i64 → Numeric (commutative)" do
+        expect(t.meet(:f64, :i64)).to eq(t.meet(:i64, :f64))
+      end
+    end
+
+    context "NilClass preserves nullable" do
+      it "NilClass meet X → X with nullable" do
+        result = t.meet({class: :NilClass}, {class: :String})
+        expect(result[:class]).to eq(:String)
+        expect(result[:nullable]).to eq(true)
+      end
+
+      it "X meet NilClass → X with nullable (commutative)" do
+        result = t.meet({class: :Integer}, {class: :NilClass})
+        expect(result[:class]).to eq(:Integer)
+        expect(result[:nullable]).to eq(true)
+      end
+
+      it "NilClass meet :i64 → Integer with nullable" do
+        result = t.meet({class: :NilClass}, :i64)
+        expect(result[:class]).to eq(:Integer)
+        expect(result[:nullable]).to eq(true)
+      end
+    end
+
+    context "nullable preservation through same-class meet" do
+      it "(X|Nil) meet (X|Nil) → (X|Nil)" do
+        a = {class: :Node, nullable: true}
+        b = {class: :Node, nullable: true}
+        result = t.meet(a, b)
+        expect(result[:class]).to eq(:Node)
+        expect(result[:nullable]).to eq(true)
+      end
+
+      it "(X|Nil) meet X → (X|Nil)" do
+        a = {class: :String, nullable: true}
+        b = {class: :String}
+        result = t.meet(a, b)
+        expect(result[:class]).to eq(:String)
+        expect(result[:nullable]).to eq(true)
+      end
+
+      it "X meet (X|Nil) → (X|Nil)" do
+        a = {class: :String}
+        b = {class: :String, nullable: true}
+        result = t.meet(a, b)
+        expect(result[:class]).to eq(:String)
+        expect(result[:nullable]).to eq(true)
+      end
+    end
+
+    context "nullable preservation with collection params" do
+      it "Array(i64)|Nil meet Array(i64)|Nil preserves nullable and elem" do
+        a = {class: :Array, elem: :i64, nullable: true}
+        b = {class: :Array, elem: :i64, nullable: true}
+        result = t.meet(a, b)
+        expect(result[:class]).to eq(:Array)
+        expect(result[:elem]).to eq(:i64)
+        expect(result[:nullable]).to eq(true)
+      end
+    end
+
+    context "LCA for different classes" do
+      it "Integer meet String → Object" do
+        result = t.meet({class: :Integer}, {class: :String})
+        expect(result[:class]).to eq(:Object)
+      end
+
+      it "Integer meet Float → Numeric" do
+        result = t.meet({class: :Integer}, {class: :Float})
+        expect(result[:class]).to eq(:Numeric)
+      end
+
+      it "File meet String → Object" do
+        result = t.meet({class: :File}, {class: :String})
+        expect(result[:class]).to eq(:Object)
+      end
+    end
+
+    context "array type widening" do
+      it "array_i64 meet array_f64 → Array" do
+        result = t.meet(:array_i64, :array_f64)
+        expect(result).to be_a(Hash)
+        expect(result[:class]).to eq(:Array)
+      end
+
+      it "array_i64 meet i64 → Object (array vs scalar)" do
+        result = t.meet(:array_i64, :i64)
+        expect(result).to be_a(Hash)
+        # Array meets Integer → Object
+        expect(result[:class]).to eq(:Object)
+      end
+    end
+  end
+
+  # =====================================================================
+  # infer_expr — expression-level type inference
+  # =====================================================================
+
+  describe "#infer_expr" do
+    context "literals" do
+      it "integer → :i64" do
+        env = infer_method("42")
+        # The return slot should be :i64
+        expect(env[[:return, :test_method]]).to eq(:i64)
+      end
+
+      it "float → :f64" do
+        env = infer_method("3.14")
+        expect(env[[:return, :test_method]]).to eq(:f64)
+      end
+
+      it "nil → NilClass" do
+        env = infer_method("nil")
+        expect(env[[:return, :test_method]]).to eq({class: :NilClass})
+      end
+
+      it "true → TrueClass" do
+        env = infer_method("true")
+        expect(env[[:return, :test_method]]).to eq({class: :TrueClass})
+      end
+
+      it "string → String" do
+        env = infer_method("'hello'")
+        expect(env[[:return, :test_method]]).to eq({class: :String})
+      end
+
+      it "symbol → Symbol" do
+        env = infer_method(":foo")
+        expect(env[[:return, :test_method]]).to eq({class: :Symbol})
+      end
+    end
+
+    context "array literals" do
+      it "empty array → Array (no elem)" do
+        env = infer_method("[]")
+        ret = env[[:return, :test_method]]
+        expect(ret[:class]).to eq(:Array)
+        expect(ret[:elem]).to be_nil
+      end
+
+      it "[1, 2, 3] → Array with elem :i64" do
+        env = infer_method("[1, 2, 3]")
+        ret = env[[:return, :test_method]]
+        expect(ret[:class]).to eq(:Array)
+        expect(ret[:elem]).to eq(:i64)
+      end
+
+      it "[1.0, 2.0] → Array with elem :f64" do
+        env = infer_method("[1.0, 2.0]")
+        ret = env[[:return, :test_method]]
+        expect(ret[:class]).to eq(:Array)
+        expect(ret[:elem]).to eq(:f64)
+      end
+
+      it "[1, 2.0] → Array with elem Numeric" do
+        env = infer_method("[1, 2.0]")
+        ret = env[[:return, :test_method]]
+        expect(ret[:class]).to eq(:Array)
+        expect(ret[:elem]).to be_a(Hash)
+        expect(ret[:elem][:class]).to eq(:Numeric)
+      end
+    end
+
+    context "arithmetic" do
+      it "i64 + i64 → i64" do
+        env = infer_method("1 + 2")
+        expect(env[[:return, :test_method]]).to eq(:i64)
+      end
+
+      it "f64 + f64 → f64" do
+        env = infer_method("1.0 + 2.0")
+        expect(env[[:return, :test_method]]).to eq(:f64)
+      end
+
+      it "i64 + f64 → f64" do
+        env = infer_method("1 + 2.0")
+        expect(env[[:return, :test_method]]).to eq(:f64)
+      end
+
+      it "i64 * i64 → i64" do
+        env = infer_method("3 * 4")
+        expect(env[[:return, :test_method]]).to eq(:i64)
+      end
+    end
+
+    context "local variable assignment" do
+      it "tracks local types through assignment" do
+        env = infer_method("x = 42\nx")
+        expect(env[[:local, :test_method, :x]]).to eq(:i64)
+        expect(env[[:return, :test_method]]).to eq(:i64)
+      end
+
+      it "local widened by multiple assignments" do
+        env = infer_method("x = 42\nx = 3.14\nx")
+        expect(env[[:local, :test_method, :x]]).to be_a(Hash)
+        expect(env[[:local, :test_method, :x]][:class]).to eq(:Numeric)
+      end
+
+      it "local tracks nil assignment" do
+        env = infer_method("x = nil\nx")
+        expect(env[[:local, :test_method, :x]]).to eq({class: :NilClass})
+      end
+    end
+
+    context "comparisons" do
+      it "== does not crash (result may be unknown)" do
+        env = infer_method("1 == 2")
+        # TI may return :unknown for comparison results — that's fine.
+        # The important thing is it doesn't raise.
+        ret = env[[:return, :test_method]]
+        expect(ret).to be_nil.or be_a(Hash).or be_a(Symbol)
+      end
+    end
+  end
+
+  # =====================================================================
+  # Functional: call-site propagation
+  # =====================================================================
+
+  describe "call-site type propagation" do
+    it "propagates argument types to method params" do
+      scope = Frozone::Vm::Core::OBJECT_CLASS
+      body = parse("n", locals: [:n])
+      method = make_method(scope, :identity, body: body, required_params: [:n])
+
+      env = infer_execute("identity(42)", methods: { identity: method })
+      expect(env[[:param, :identity, 0]]).to eq(:i64)
+      expect(env[[:return, :identity]]).to eq(:i64)
+    end
+
+    it "widens params from multiple call sites" do
+      scope = Frozone::Vm::Core::OBJECT_CLASS
+      body = parse("n", locals: [:n])
+      method = make_method(scope, :echo, body: body, required_params: [:n])
+
+      env = infer_execute("echo(42)\necho(3.14)", methods: { echo: method })
+      param_type = env[[:param, :echo, 0]]
+      expect(param_type).to be_a(Hash)
+      expect(param_type[:class]).to eq(:Numeric)
+    end
+
+    it "infers return type from body" do
+      scope = Frozone::Vm::Core::OBJECT_CLASS
+      body = parse("n + 1", locals: [:n])
+      method = make_method(scope, :inc, body: body, required_params: [:n])
+
+      env = infer_execute("inc(42)", methods: { inc: method })
+      expect(env[[:return, :inc]]).to eq(:i64)
+    end
+  end
+
+  # =====================================================================
+  # Functional: constant typing
+  # =====================================================================
+
+  describe "constant typing" do
+    it "types integer constants" do
+      int_obj = Frozone::Vm::IntegerObject.new(42)
+      env = infer_execute("1", constants: { ANSWER: int_obj })
+      expect(env[[:const, :ANSWER]]).to eq(:i64)
+    end
+
+    it "types float constants" do
+      float_obj = Frozone::Vm::FloatObject.new(3.14)
+      env = infer_execute("1", constants: { PI: float_obj })
+      expect(env[[:const, :PI]]).to eq(:f64)
+    end
+  end
+
+  # =====================================================================
+  # TypeEnv
+  # =====================================================================
+
+  describe TI::TypeEnv do
+    let(:t) { ti }
+    let(:env) { t.env }
+
+    it "returns nil for unset slots" do
+      expect(env[[:local, :foo, :x]]).to be_nil
+    end
+
+    it "meet! stores and returns changed" do
+      expect(env.meet!([:local, :foo, :x], :i64)).to be true
+      expect(env[[:local, :foo, :x]]).to eq(:i64)
+    end
+
+    it "meet! returns false when unchanged" do
+      env.meet!([:local, :foo, :x], :i64)
+      expect(env.meet!([:local, :foo, :x], :i64)).to be false
+    end
+
+    it "meet! widens on second meet" do
+      env.meet!([:local, :foo, :x], :i64)
+      env.meet!([:local, :foo, :x], :f64)
+      result = env[[:local, :foo, :x]]
+      expect(result).to be_a(Hash)
+      expect(result[:class]).to eq(:Numeric)
+    end
+
+    it "meet! with NilClass adds nullable" do
+      env.meet!([:local, :foo, :x], {class: :String})
+      env.meet!([:local, :foo, :x], {class: :NilClass})
+      result = env[[:local, :foo, :x]]
+      expect(result[:class]).to eq(:String)
+      expect(result[:nullable]).to eq(true)
+    end
+  end
+end
