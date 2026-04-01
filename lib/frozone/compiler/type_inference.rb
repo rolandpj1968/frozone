@@ -572,7 +572,13 @@ module Frozone
 
         req_params = init.instance_variable_get(:@required_params) || []
         param_types = req_params.each_with_index.map { |_, i|
-          @env[[:constructor_param, class_name, i]]
+          ty = @env[[:constructor_param, class_name, i]]
+          # Strip nullable from constructor params for ivar seeding — sentinel
+          # construction like Node.new(nil, nil) shouldn't widen ivar types.
+          # The nullable param still produces a {class: X, nullable: true} boxed
+          # type; strip it to the unboxed form when possible.
+          ty = strip_nullable_to_raw(ty)
+          ty
         }
         return false unless param_types.all?
 
@@ -1326,6 +1332,17 @@ module Frozone
 
       # Meet two parameterized collection types that share the same base class.
       # Only merges params (elem, key, val) that are present in BOTH sides.
+      # Strip nullable from a type and convert back to raw unboxed form if possible.
+      # {class: :Float, nullable: true} → :f64, {class: :Integer, nullable: true} → :i64
+      def strip_nullable_to_raw(ty)
+        return ty unless ty.is_a?(Hash) && ty[:nullable]
+        case ty[:class]
+        when :Float   then :f64
+        when :Integer then :i64
+        else ty.reject { |k, _| k == :nullable }.freeze
+        end
+      end
+
       def merge_collection_params(a, b)
         result = {class: a[:class]}
         result[:nullable] = true if a[:nullable] || b[:nullable]
