@@ -957,6 +957,25 @@ module Frozone
           return :unknown
         end
 
+        # max/min with 2 args: return the wider numeric type
+        if (name == :max || name == :min) && args.size == 2
+          at = infer_expr(args[0], ctx)
+          bt = infer_expr(args[1], ctx)
+          if at != :unknown && bt != :unknown
+            # Both raw numeric → use f64 if either is float, else i64
+            if NUMERIC_TYPES.include?(at) && NUMERIC_TYPES.include?(bt)
+              return (at == :f64 || bt == :f64) ? :f64 : :i64
+            end
+            # One raw, one boxed numeric → use raw f64 if float involved
+            at_num = NUMERIC_TYPES.include?(at) || numeric_class_type?(at)
+            bt_num = NUMERIC_TYPES.include?(bt) || numeric_class_type?(bt)
+            if at_num && bt_num
+              return :f64 if at == :f64 || bt == :f64 || (at.is_a?(Hash) && at[:class] == :Float) || (bt.is_a?(Hash) && bt[:class] == :Float)
+              return :i64 if NUMERIC_TYPES.include?(at) || NUMERIC_TYPES.include?(bt)
+            end
+          end
+        end
+
         # Class method call: Module.method(...) → look up by module name.
         if recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.instance_variable_get(:@name))
           class_sym = recv.instance_variable_get(:@name)

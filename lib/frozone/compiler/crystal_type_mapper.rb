@@ -139,10 +139,22 @@ module Frozone
         mkey = slot[1]
         raw = raw_type(ty) or return
         if mkey.is_a?(Symbol)
+          # Only annotate return as raw when the typed overload has all raw params
+          params = @typed_params[mkey]
+          return if params && params.any? { |t| !raw_type(t) }
           @typed_method_returns[mkey] = raw
         elsif mkey.is_a?(Array) && mkey.size == 2
           cname, fname = mkey
-          @instance_method_raw_returns[[cname, fname]] = raw if @user_class_names.include?(cname)
+          if @user_class_names.include?(cname)
+            # Skip raw return annotation when typed overload has mixed params
+            # (e.g., min(Int64, RubyObject) can't return Int64 since RubyObject path returns RubyObject)
+            params = @class_params[mkey]
+            if params && params.any? { |t| !raw_type(t) } && params.any? { |t| raw_type(t) }
+              # Mixed params — skip raw return
+            else
+              @instance_method_raw_returns[[cname, fname]] = raw
+            end
+          end
         end
       end
 

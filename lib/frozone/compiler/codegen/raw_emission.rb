@@ -449,7 +449,10 @@ module Frozone
           if emit_raw_method_call(node)
             # handled
           else
-            emit(node)  # inherently RubyObject method — can't avoid boxing
+            emit(node)
+            # Coerce boxed return to raw if TI knows the type
+            ret = node_raw_type(node)
+            write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
           end
         when Ast::AttributeWrite
           # @list[i] = val on typed array ivars
@@ -604,11 +607,10 @@ module Frozone
           end
           write ")"
           # Coerce return to raw if TI knows the return type
-          ret = @gctx.instance_method_raw_returns&.dig(mkey) ||
-                @gctx.instance_method_raw_returns&.dig([@cctx&.name, name]) ||
-                @gctx.typed_method_returns&.dig(name) ||
-                @gctx.typed_method_returns&.dig(mkey)
-          write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
+          unless has_typed  # typed overloads already return raw
+            ret = node_raw_type(node)
+            write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
+          end
           emit_raw_block(node)
           return true
         end

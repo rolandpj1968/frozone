@@ -205,7 +205,8 @@ module Frozone
         end
 
         write "def self.#{crystal_method_name(mname)}(#{parts.join(', ')})"
-        write " : #{cr[return_type]}" if return_type
+        # Only annotate return type when all positional params are raw-typed
+        write " : #{cr[return_type]}" if return_type && raw_types.all?
         emit_newline
 
         old_typed       = @mctx.typed_locals
