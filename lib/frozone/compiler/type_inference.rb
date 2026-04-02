@@ -933,6 +933,10 @@ module Frozone
               return args.empty? ? :f64 : :i64
             end
           end
+          # Array#max/min/sum return element type when known
+          if recv_ty.is_a?(Hash) && recv_ty[:class] == :Array && recv_ty[:elem] && %i[max min sum first last].include?(name)
+            return recv_ty[:elem]
+          end
           # dup/clone/freeze always return the same type as the receiver
           return recv_ty if recv_ty != :unknown && (name == :dup || name == :clone || name == :freeze)
         end
