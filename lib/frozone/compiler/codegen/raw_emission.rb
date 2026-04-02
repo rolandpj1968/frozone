@@ -605,10 +605,11 @@ module Frozone
               write ", " if i > 0
               emit_raw_expr(a)
               # Coerce union types to match typed overload param
-              if raw_params && raw_params[i]
+              if raw_params && i < raw_params.size && raw_params[i]
                 pty = CrystalType.raw(raw_params[i])
-                write ".to_i64" if pty == :i64 && node_raw_type(a) != :i64
-                write ".to_f64" if pty == :f64 && node_raw_type(a) != :f64
+                nrt = node_raw_type(a)
+                  write ".to_i64" if pty == :i64
+                write ".to_f64" if pty == :f64
               end
             end
           else
