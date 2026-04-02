@@ -775,7 +775,7 @@ module Frozone
           loc = const_locs[name]
           next unless user_source_location?(loc)
 
-          crystal_val = vm_value_to_crystal(value)
+          crystal_val = vm_value_to_crystal(value, const_name: name)
           next unless crystal_val
 
           line "Ruby_#{crystal_constant(name)} = #{crystal_val}"
@@ -784,7 +784,7 @@ module Frozone
 
       # Serialize a simple VM value to a Crystal expression string.
       # Returns nil for values that cannot be serialised (IO, Proc, etc.).
-      def vm_value_to_crystal(value)
+      def vm_value_to_crystal(value, const_name: nil)
         case value
         when Vm::IntegerObject then "RubyInteger.new(#{value.raw}_i64)"
         when Vm::FloatObject   then "RubyFloat.new(#{float_bits_expr(value.raw)})"
@@ -794,8 +794,8 @@ module Frozone
         when Vm::FalseObject   then "RUBY_FALSE"
         when Vm::SymbolObject  then "RubySymbol.new(#{value.raw.inspect})"
         when Vm::ArrayObject
-          # Native Array(Int64) for all-integer arrays
-          if value.raw.all? { |e| e.is_a?(Vm::IntegerObject) }
+          # Native Array(Int64) when const_raw_types says so (TI confirmed usage as native)
+          if @gctx.const_raw_types[const_name] == :array_i64 && value.raw.all? { |e| e.is_a?(Vm::IntegerObject) }
             elems_str = value.raw.map { |e| "#{e.raw}_i64" }.join(', ')
             return "[#{elems_str}] of Int64"
           end

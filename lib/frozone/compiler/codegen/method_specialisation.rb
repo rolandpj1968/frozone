@@ -185,6 +185,25 @@ module Frozone
           end
         end
 
+        # Include optional kwargs with default values (semi-positional kwargs).
+        # Emit as typed Crystal params so the body can reference them.
+        opt_kw = ivar(method, :optional_kw_params) || []
+        opt_kw.each do |kw_name, default_node|
+          default_val = case default_node
+                        when Ast::IntegerLiteral then "#{ivar(default_node, :value).raw}_i64"
+                        when Ast::FloatLiteral then float_bits_expr(ivar(default_node, :value).respond_to?(:raw) ? ivar(default_node, :value).raw : ivar(default_node, :value))
+                        else "RubyInteger.new(0_i64)"
+                        end
+          # Check if TI inferred a type for this kwarg
+          mkey_for_kw = [class_name, mname]
+          kw_ty = @gctx.inferred_kw_params.dig(mkey_for_kw, kw_name) || @gctx.inferred_kw_params.dig(mname, kw_name)
+          if kw_ty && cr[kw_ty]
+            parts << "#{crystal_local(kw_name)} : #{cr[kw_ty]} = #{default_val}"
+          else
+            parts << "#{crystal_local(kw_name)} : Int64 = #{default_val}"
+          end
+        end
+
         write "def self.#{crystal_method_name(mname)}(#{parts.join(', ')})"
         write " : #{cr[return_type]}" if return_type
         emit_newline
@@ -198,6 +217,12 @@ module Frozone
         # Start with param types
         @mctx.typed_locals = {}
         req_params.zip(raw_types).each { |p, ty| @mctx.typed_locals[p] = ty if ty }
+        # Kwargs are also typed locals in the raw context
+        opt_kw.each do |kw_name, _|
+          mkey_for_kw = [class_name, mname]
+          kw_ty = @gctx.inferred_kw_params.dig(mkey_for_kw, kw_name) || @gctx.inferred_kw_params.dig(mname, kw_name)
+          @mctx.typed_locals[kw_name] = kw_ty if kw_ty && (kw_ty == :i64 || kw_ty == :f64)
+        end
         # Add TI-inferred locals
         (@gctx.locals[mkey] || @gctx.locals[mname] || {}).each do |lname, ty|
           @mctx.typed_locals[lname] = ty unless param_set.include?(lname)
