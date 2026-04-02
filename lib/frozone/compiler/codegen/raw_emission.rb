@@ -465,13 +465,19 @@ module Frozone
           end
           emit(node)  # fall back for non-array attribute writes
         when Ast::If
+          then_n = ivar(node, :then_node)
+          else_n = node.instance_variable_get(:@else_node)
+          # Check if branches produce mixed numeric types — coerce to Float64
+          then_ty = node_raw_type(then_n)
+          else_ty = else_n ? node_raw_type(else_n) : nil
+          needs_float = (then_ty == :f64 && else_ty == :i64) || (then_ty == :i64 && else_ty == :f64)
           write "if "
           emit_raw_truthy(ivar(node, :pred_node))
           emit_newline
-          indented { emit_indent; emit_raw_expr(ivar(node, :then_node)) }
-          if node.instance_variable_get(:@else_node)
+          indented { emit_indent; needs_float && then_ty == :i64 ? (emit_raw_expr(then_n); write ".to_f64") : emit_raw_expr(then_n) }
+          if else_n
             emit_newline; emit_indent; write "else"; emit_newline
-            indented { emit_indent; emit_raw_expr(node.instance_variable_get(:@else_node)) }
+            indented { emit_indent; needs_float && else_ty == :i64 ? (emit_raw_expr(else_n); write ".to_f64") : emit_raw_expr(else_n) }
           end
           emit_newline; emit_indent; write "end"
         when Ast::And
@@ -595,7 +601,16 @@ module Frozone
           write crystal_method_name(name)
           write "("
           if has_typed
-            args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+            args.each_with_index do |a, i|
+              write ", " if i > 0
+              emit_raw_expr(a)
+              # Coerce union types to match typed overload param
+              if raw_params && raw_params[i]
+                pty = CrystalType.raw(raw_params[i])
+                write ".to_i64" if pty == :i64 && node_raw_type(a) != :i64
+                write ".to_f64" if pty == :f64 && node_raw_type(a) != :f64
+              end
+            end
           else
             # No typed overload — box args, but coerce return if TI knows it
             args.each_with_index { |a, i| write ", " if i > 0; emit(a) }
