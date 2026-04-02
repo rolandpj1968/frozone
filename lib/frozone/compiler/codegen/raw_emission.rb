@@ -446,13 +446,8 @@ module Frozone
           end
         when Ast::MethodCall
           # Try raw paths first, fall back to normal emit for RubyObject methods
-          if emit_raw_method_call(node)
-            # handled
-          else
+          unless emit_raw_method_call(node)
             emit(node)
-            # Coerce boxed return to raw if TI knows the type
-            ret = node_raw_type(node)
-            write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
           end
         when Ast::AttributeWrite
           # @list[i] = val on typed array ivars
@@ -606,10 +601,10 @@ module Frozone
             args.each_with_index { |a, i| write ", " if i > 0; emit(a) }
           end
           write ")"
-          # Coerce return to raw if TI knows the return type
-          unless has_typed  # typed overloads already return raw
-            ret = node_raw_type(node)
-            write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
+          # For non-typed callees, result is RubyObject — coerce if needed.
+          # Use .to_i64/.to_f64 which RubyInteger/RubyFloat support.
+          unless has_typed
+            write ".to_i64"  # safe: RubyObject#to_i64 exists on all numeric types
           end
           emit_raw_block(node)
           return true
