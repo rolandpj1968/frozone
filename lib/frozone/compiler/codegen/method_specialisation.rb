@@ -223,6 +223,8 @@ module Frozone
           kw_ty = @gctx.inferred_kw_params.dig(mkey_for_kw, kw_name) || @gctx.inferred_kw_params.dig(mname, kw_name)
           @mctx.typed_locals[kw_name] = kw_ty if kw_ty && (kw_ty == :i64 || kw_ty == :f64)
         end
+        # Class-typed locals for devirtualisation
+        @mctx.class_locals = @gctx.class_locals[mkey] || @gctx.class_locals[mname] || {}
         # Add TI-inferred locals
         (@gctx.locals[mkey] || @gctx.locals[mname] || {}).each do |lname, ty|
           @mctx.typed_locals[lname] = ty unless param_set.include?(lname)

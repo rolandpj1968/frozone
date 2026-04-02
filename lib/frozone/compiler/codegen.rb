@@ -794,10 +794,14 @@ module Frozone
         when Vm::FalseObject   then "RUBY_FALSE"
         when Vm::SymbolObject  then "RubySymbol.new(#{value.raw.inspect})"
         when Vm::ArrayObject
-          # Native Array(Int64) when const_raw_types says so (TI confirmed usage as native)
-          if @gctx.const_raw_types[const_name] == :array_i64 && value.raw.all? { |e| e.is_a?(Vm::IntegerObject) }
-            elems_str = value.raw.map { |e| "#{e.raw}_i64" }.join(', ')
-            return "[#{elems_str}] of Int64"
+          # Native Array(Int64) for constants confirmed by TI as all-integer
+          if const_name && @gctx.const_raw_types[const_name] == :array_i64
+            return "Bytes[#{value.raw.map { |e| e.raw.to_s }.join(', ')}].to_a.map(&.to_i64)"
+          end
+          # Large byte arrays: emit compact Bytes literal + map
+          if value.raw.size > 256 && value.raw.all? { |e| e.is_a?(Vm::IntegerObject) && e.raw >= 0 && e.raw <= 255 }
+            bytes = value.raw.map { |e| e.raw.to_s }.join(', ')
+            return "RubyArray.new(Bytes[#{bytes}].to_a.map { |b| RubyInteger.new(b.to_i64).as(RubyObject) })"
           end
           return nil if value.raw.size > 1000  # Skip very large non-byte arrays
           elems = value.raw.map { |e| vm_value_to_crystal(e) }
@@ -859,8 +863,9 @@ module Frozone
         return false unless node_raw_type(node)
         case node
         when Ast::LocalVariableRead then true
-        when Ast::IntegerLiteral, Ast::FloatLiteral then false
-        when Ast::ConstantRead then false
+        when Ast::IntegerLiteral, Ast::FloatLiteral then true
+        when Ast::ConstantRead
+          @gctx.const_raw_types.key?(ivar(node, :name))
         when Ast::MethodCall
           # Arithmetic/bitwise on raw operands: ba ^ bb, a + b, etc.
           ARITH_OPS_UNBOX.include?(node.name) && node.receiver_node && node_raw_type(node.receiver_node)
@@ -1604,8 +1609,10 @@ module Frozone
         # Pass typed local variables and raw arithmetic expressions as raw —
         # Crystal's overload resolution picks the Int64/Float64 overload when available.
         # Don't pass literals raw (they might reach functions expecting RubyObject).
-        has_raw_arg = args.any? { |a| raw_passable_arg?(a) }
-        return super unless has_raw_arg
+        # Only pass raw when ALL positional args are raw-passable.
+        # Mixed (Int64, RubyObject) tuples don't match either overload.
+        all_raw = args.all? { |a| a.is_a?(Ast::SplatArg) || raw_passable_arg?(a) }
+        return super unless all_raw
 
         write "("
         first = true

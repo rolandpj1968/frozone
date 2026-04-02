@@ -535,7 +535,9 @@ module Frozone
 
         # Arithmetic/comparison with raw operands
         if (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
-          write "("; emit_raw_expr(recv); write " #{name} "; emit_raw_expr(args[0]); write ")"
+          # Crystal uses // for integer division (Ruby's / on integers)
+          op = (name == :/ && node_raw_type(recv) == :i64 && node_raw_type(args[0]) == :i64) ? "//" : name.to_s
+          write "("; emit_raw_expr(recv); write " #{op} "; emit_raw_expr(args[0]); write ")"
           return true
         end
 
@@ -559,31 +561,76 @@ module Frozone
           return true
         end
 
-        # .abs on numeric
-        if name == :abs && args.empty? && recv
-          emit_raw_expr(recv); write ".abs"
+        # .abs, .floor, .ceil, .round on numeric
+        if %i[abs floor ceil round].include?(name) && args.empty? && recv
+          emit_raw_expr(recv); write ".#{name}"
+          # floor/ceil/round on Float64 returns Float64 in Crystal; add .to_i64 if needed
+          write ".to_i64" if %i[floor ceil round].include?(name) && node_raw_type(recv) == :f64
           return true
         end
 
-        # self.method(...) — eigenclass method call, pass raw args
+        # Module.method(...) — class/module method call, pass raw args
+        if recv.is_a?(Ast::ConstantRead)
+          write "Ruby_#{crystal_constant(ivar(recv, :name))}.", crystal_method_name(name)
+          write "("
+          args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+          write ")"
+          emit_raw_block(node)
+          return true
+        end
+
+        # min/max with two raw args → Crystal Math.min/Math.max
+        if (name == :min || name == :max) && args.size == 2 && (recv.nil? || recv.is_a?(Ast::SelfLiteral))
+          write "Math.#{name}("
+          emit_raw_expr(args[0]); write ", "; emit_raw_expr(args[1])
+          write ")"
+          return true
+        end
+
+        # self.method(...) — eigenclass/free method call
         if recv.nil? || (recv.is_a?(Ast::SelfLiteral))
+          # Check if callee has a typed overload with raw params
+          mkey = @cctx&.name ? [@cctx.name, name] : name
+          raw_params = @gctx.class_params&.dig(mkey) || @gctx.typed_params&.dig(name)
+          has_typed = raw_params&.any? { |t| CrystalType.raw(t) }
           write "self." if recv.is_a?(Ast::SelfLiteral)
           write crystal_method_name(name)
           write "("
-          args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+          if has_typed
+            args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+          else
+            # No typed overload — box args, but coerce return if TI knows it
+            args.each_with_index { |a, i| write ", " if i > 0; emit(a) }
+          end
           write ")"
+          # Coerce return to raw if TI knows the return type
+          ret = @gctx.instance_method_raw_returns&.dig(mkey) ||
+                @gctx.instance_method_raw_returns&.dig([@cctx&.name, name]) ||
+                @gctx.typed_method_returns&.dig(name) ||
+                @gctx.typed_method_returns&.dig(mkey)
+          write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
           emit_raw_block(node)
           return true
         end
 
-        # Instance method on typed local — direct dispatch
+        # Instance method on typed/known local — direct dispatch with raw args
         if recv.is_a?(Ast::LocalVariableRead)
-          write crystal_local(ivar(recv, :name)), ".", crystal_method_name(name)
-          write "("
-          args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
-          write ")"
-          emit_raw_block(node)
-          return true
+          recv_name = ivar(recv, :name)
+          if @mctx.typed_locals[recv_name] || @mctx.class_locals&.dig(recv_name) || @mctx.native_array_locals&.dig(recv_name)
+            write crystal_local(recv_name), ".", crystal_method_name(name)
+            write "("
+            args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+            write ")"
+            # Coerce result to raw type if the method returns a boxed numeric
+            # (e.g., ThreeDArray#[] returns RubyFloat but we need Float64)
+            recv_cls = @mctx.class_locals&.dig(recv_name)
+            recv_cls = recv_cls.is_a?(Array) ? recv_cls[0] : recv_cls
+            if recv_cls && (ret = @gctx.instance_method_raw_returns&.dig([recv_cls, name]))
+              write(ret == :f64 ? ".to_f64" : ".to_i64")
+            end
+            emit_raw_block(node)
+            return true
+          end
         end
 
         false  # unhandled — caller falls back to emit(node)

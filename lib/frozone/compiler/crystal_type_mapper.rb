@@ -109,8 +109,15 @@ module Frozone
 
       def unpack_const(slot, ty)
         return unless opt?(:unbox_locals)
-        raw = raw_type(ty) or return
-        @const_raw_types[slot[1]] = raw
+        raw = raw_type(ty)
+        if raw
+          @const_raw_types[slot[1]] = raw
+          return
+        end
+        # Array constants with known element type
+        if ty.is_a?(Hash) && ty[:class] == :Array && ty[:elem] && raw_type(ty[:elem])
+          @const_raw_types[slot[1]] = ty[:elem] == :f64 ? :array_f64 : :array_i64
+        end
       end
 
       def unpack_ivar(slot, ty)
