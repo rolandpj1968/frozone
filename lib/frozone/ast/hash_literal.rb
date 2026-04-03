@@ -4,6 +4,7 @@ require_relative '../vm/hash_object'
 module Frozone
   module Ast
     class HashLiteral < Node
+      attr_reader :kv_nodes
       # kv_nodes: Array of [key_node, val_node] pairs, or [nil, splat_node] for **splat
       def initialize(kv_nodes)
         @kv_nodes = kv_nodes

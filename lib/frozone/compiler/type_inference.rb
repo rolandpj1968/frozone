@@ -102,6 +102,8 @@ module Frozone
       # ------------------------------------------------------------------
 
       class TypeEnv
+        attr_reader :slots
+
         def initialize(ti)
           @slots = {}
           @ti = ti
@@ -285,7 +287,7 @@ module Frozone
             mkey ||= [recv.name, n.name] if recv.is_a?(Ast::ConstantRead)
             if mkey
               kw_args.each do |kw_name_node, val_node|
-                kw_sym = kw_name_node.is_a?(Ast::SymbolLiteral) ? kw_name_node.value.raw : nil
+                kw_sym = kw_name_node.is_a?(Ast::SymbolLiteral) ? kw_name_node.value : nil
                 next unless kw_sym
                 ty = infer_expr(val_node, ctx)
                 changed |= @env.meet!([:kwparam, mkey, kw_sym], ty) if ty && ty != :unknown
@@ -530,9 +532,8 @@ module Frozone
         when Ast::Sequence
           node.nodes.each { |n| collect_array_elem_writes(n, result, depth: depth) }
         when Ast::If
-          %i[@condition_node @then_node @else_node].each do |iv|
-            collect_array_elem_writes(node.instance_variable_get(iv), result, depth: depth) if node.instance_variable_defined?(iv)
-          end
+          collect_array_elem_writes(node.then_node, result, depth: depth)
+          collect_array_elem_writes(node.else_node, result, depth: depth)
         when Ast::While, Ast::Until
           collect_array_elem_writes(node.body_node, result, depth: depth)
         when Ast::Block
@@ -1130,7 +1131,7 @@ module Frozone
         when Ast::Sequence
           node.nodes.each { |n| collect_assignments(n, result) }
         when Ast::If
-          collect_assignments(node.condition_node, result)
+          collect_assignments(node.pred_node, result)
           collect_assignments(node.then_node, result)
           collect_assignments(node.else_node, result)
         when Ast::While, Ast::Until
@@ -1142,23 +1143,11 @@ module Frozone
         when Ast::Return
           collect_assignments(node.value_node, result)
         else
-          %i[@body_node @value_node @then_node @else_node @condition_node].each do |slot|
-            next unless node.instance_variable_defined?(slot)
-            child = node.instance_variable_get(slot)
-            collect_assignments(child, result) if child.is_a?(Ast::Node)
-          end
-          if node.instance_variable_defined?(:@arg_nodes)
-            Array(node.arg_nodes).each do |a|
-              collect_assignments(a, result) if a.is_a?(Ast::Node)
-            end
-          end
+          node.children.each { |c| collect_assignments(c, result) if c.is_a?(Ast::Node) }
           # Ruby blocks are closures — assignments inside a block body are
           # visible in the enclosing scope, so descend into block bodies.
-          if node.instance_variable_defined?(:@block_node)
-            blk = node.block_node
-            if blk&.instance_variable_defined?(:@body)
-              collect_assignments(blk.body, result)
-            end
+          if node.respond_to?(:block_node) && (blk = node.block_node)
+            collect_assignments(blk.body, result) if blk.respond_to?(:body)
           end
         end
         result
@@ -1312,7 +1301,7 @@ module Frozone
         when Ast::Sequence
           node.nodes.each { |n| walk(n, &block) }
         when Ast::If
-          walk(node.condition_node, &block)
+          walk(node.pred_node, &block)
           walk(node.then_node, &block)
           walk(node.else_node, &block)
         when Ast::While, Ast::Until
@@ -1326,7 +1315,7 @@ module Frozone
           walk(node.receiver_node, &block)
           (node.arg_nodes || []).each { |a| walk(a, &block) }
           blk = node.block_node
-          walk(blk&.body, &block) if blk
+          walk(blk.body, &block) if blk.respond_to?(:body)
         when Ast::AttributeWrite
           walk(node.receiver_node, &block)
           (node.arg_nodes || []).each { |a| walk(a, &block) }
@@ -1338,17 +1327,7 @@ module Frozone
         when Ast::ArrayLiteral
           (node.element_nodes || []).each { |e| walk(e, &block) }
         else
-          %i[@body_node @value_node @then_node @else_node @condition_node @receiver_node].each do |s|
-            next unless node.instance_variable_defined?(s)
-            child = node.instance_variable_get(s)
-            walk(child, &block) if child.is_a?(Ast::Node)
-          end
-          if node.instance_variable_defined?(:@arg_nodes)
-            Array(node.arg_nodes).each { |a| walk(a, &block) if a.is_a?(Ast::Node) }
-          end
-          if node.instance_variable_defined?(:@element_nodes)
-            Array(node.element_nodes).each { |e| walk(e, &block) if e.is_a?(Ast::Node) }
-          end
+          node.children.each { |c| walk(c, &block) if c.is_a?(Ast::Node) }
         end
       end
 
@@ -1366,7 +1345,7 @@ module Frozone
       # Full ancestor chain (excluding self) for a user-defined class.
       def compute_user_ancestors(klass)
         chain = []
-        current = klass.superclass
+        current = klass.respond_to?(:superclass) ? klass.superclass : nil
         while current
           cname = current.name
           break unless cname
@@ -1428,7 +1407,7 @@ module Frozone
       # the best (most precise) type for each param. Contexts that pass only
       # NilClass are excluded — sentinel construction shouldn't widen ivars.
       def best_constructor_param_types(class_name, param_count)
-        slots = @env.instance_variable_get(:@slots)
+        slots = @env.slots
         contexts = Set.new
         slots.each_key do |slot|
           next unless slot.is_a?(Array) && slot[0] == :constructor_param && slot[1] == class_name && slot.size == 4

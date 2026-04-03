@@ -4,6 +4,7 @@ require_relative '../vm/globals'
 module Frozone
   module Ast
     class GlobalVariableRead < Node
+      attr_reader :name
       def initialize(name, no_warn: false)
         @name = name
         @no_warn = no_warn

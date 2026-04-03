@@ -5,6 +5,8 @@ module Frozone
     # a.foo = val or a[i] = val — calls setter but returns the assigned value (not setter result)
     # Ruby semantics: the value of `a.foo = val` is `val`, regardless of what `foo=` returns
     class AttributeWrite < Node
+      attr_reader :name, :receiver_node, :arg_nodes, :kw_arg_nodes
+
       def initialize(name, receiver_node, arg_nodes, kw_arg_nodes, safe_nav: false)
         @name = name
         @receiver_node = receiver_node

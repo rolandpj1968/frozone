@@ -6,6 +6,7 @@ require_relative '../vm/match_data_object'
 module Frozone
   module Ast
     class GlobalVariableWrite < Node
+      attr_reader :name
       def initialize(name, value_node)
         @name = name
         @value_node = value_node

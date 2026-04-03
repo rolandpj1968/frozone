@@ -3,6 +3,7 @@ require_relative 'node'
 module Frozone
   module Ast
     class ClassVariableRead < Node
+      attr_reader :name
       def initialize(name)
         @name = name
       end

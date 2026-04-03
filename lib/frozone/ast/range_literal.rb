@@ -4,6 +4,7 @@ require_relative '../vm/range_object'
 module Frozone
   module Ast
     class RangeLiteral < Node
+      attr_reader :begin_node, :end_node, :exclusive
       def initialize(begin_node, end_node, exclusive)
         @begin_node = begin_node
         @end_node = end_node

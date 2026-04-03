@@ -13,6 +13,7 @@ module Frozone
     end
 
     class ConstantPath < Node
+      attr_reader :name, :parent_node
       def initialize(parent_node, name)
         @parent_node = parent_node
         @name = name

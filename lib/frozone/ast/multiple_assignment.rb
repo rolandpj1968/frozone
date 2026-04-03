@@ -11,6 +11,7 @@ module Frozone
     #   [:const, name]
     #   [:splat_nil]                  — bare `*` (discard)
     class MultipleAssignment < Node
+      attr_reader :targets, :value_node
       def initialize(targets, value_node)
         @targets = targets      # Array of target descriptors (validated by parser)
         @value_node = value_node
