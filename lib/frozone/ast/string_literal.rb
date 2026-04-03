@@ -4,6 +4,7 @@ require_relative '../vm/string_object'
 module Frozone
   module Ast
     class StringLiteral < Node
+      attr_reader :value
       # mode: :chilled = no frozen_string_literal magic → chilled (warn on mutation)
       #        :mutable = frozen_string_literal: false → regular mutable (no warning)
       #        :frozen  = frozen_string_literal: true or explicit .freeze → shared frozen object

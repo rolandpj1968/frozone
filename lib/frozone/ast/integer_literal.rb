@@ -4,6 +4,7 @@ require_relative '../vm/integer_object'
 module Frozone
   module Ast
     class IntegerLiteral < Node
+      attr_reader :value
       def initialize(value)
         @value = value
       end

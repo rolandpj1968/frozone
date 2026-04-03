@@ -6,6 +6,8 @@ module Frozone
     class Case < Node
       When = Struct.new(:condition_nodes, :body_node)
 
+      attr_reader :subject_node, :whens, :else_node
+
       def initialize(subject_node, whens, else_node)
         @subject_node = subject_node
         @whens = whens

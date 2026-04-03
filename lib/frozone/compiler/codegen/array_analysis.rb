@@ -30,16 +30,16 @@ module Frozone
           # Outer: Array.new(count_i64) { inner_body } — block form with one arg
           next unless rhs.is_a?(Ast::MethodCall) && rhs.name == :new
           outer_recv = rhs.receiver_node
-          next unless outer_recv.is_a?(Ast::ConstantRead) && ivar(outer_recv, :name) == :Array
-          blk = ivar(rhs, :block_node)
+          next unless outer_recv.is_a?(Ast::ConstantRead) && outer_recv.name == :Array
+          blk = rhs.block_node
           next unless blk.is_a?(Ast::Block)
-          outer_args = ivar(rhs, :arg_nodes) || []
+          outer_args = rhs.arg_nodes || []
           next unless outer_args.size == 1 && node_raw_type(outer_args[0]) == :i64
           # Inner block body must be Array.new(count2_i64, fill_scalar) — no block
-          inner = ivar(blk, :body)
+          inner = blk.body
           inner = inner.nodes.first if inner.is_a?(Ast::Sequence) && inner.nodes.size == 1
           next unless array_new_call?(inner)
-          inner_args = ivar(inner, :arg_nodes) || []
+          inner_args = inner.arg_nodes || []
           fill_ty = node_raw_type(inner_args[1])
           next unless fill_ty
           # Don't promote if the variable escapes — UNLESS it only escapes
@@ -55,8 +55,8 @@ module Frozone
       def escapes_only_via_return_literal?(body, name)
         last = body.is_a?(Ast::Sequence) ? body.nodes.last : body
         return false unless last.is_a?(Ast::ArrayLiteral)
-        elems = ivar(last, :element_nodes) || []
-        elems.any? { |e| e.is_a?(Ast::LocalVariableRead) && ivar(e, :name) == name }
+        elems = last.element_nodes || []
+        elems.any? { |e| e.is_a?(Ast::LocalVariableRead) && e.name == name }
       end
 
       # Check if a local variable is used beyond simple indexing (read/write).
@@ -64,54 +64,54 @@ module Frozone
         return false unless node
         case node
         when Ast::LocalVariableRead
-          ivar(node, :name) == name
+          node.name == name
         when Ast::MethodCall
-          call_name = ivar(node, :name)
-          recv = ivar(node, :receiver_node)
-          args = ivar(node, :arg_nodes) || []
-          if (call_name == :[] || call_name == :[]=) && recv.is_a?(Ast::LocalVariableRead) && ivar(recv, :name) == name
+          call_name = node.name
+          recv = node.receiver_node
+          args = node.arg_nodes || []
+          if (call_name == :[] || call_name == :[]=) && recv.is_a?(Ast::LocalVariableRead) && recv.name == name
             return args.any? { |a| local_escapes?(a, name) } ||
-                   (ivar(node, :block_node) ? local_escapes?(ivar(node, :block_node), name) : false)
+                   (node.block_node ? local_escapes?(node.block_node, name) : false)
           end
           (recv ? local_escapes?(recv, name) : false) ||
             args.any? { |a| local_escapes?(a, name) } ||
-            (ivar(node, :block_node) ? local_escapes?(ivar(node, :block_node), name) : false)
+            (node.block_node ? local_escapes?(node.block_node, name) : false)
         when Ast::Sequence then node.nodes.any? { |n| local_escapes?(n, name) }
         when Ast::If
-          [ivar(node, :condition), ivar(node, :then_node), ivar(node, :else_node)].any? { |n| local_escapes?(n, name) }
+          [node.condition, node.then_node, node.else_node].any? { |n| local_escapes?(n, name) }
         when Ast::While
-          local_escapes?(ivar(node, :condition_node), name) || local_escapes?(ivar(node, :body_node), name)
-        when Ast::Block then local_escapes?(ivar(node, :body), name)
+          local_escapes?(node.condition_node, name) || local_escapes?(node.body_node, name)
+        when Ast::Block then local_escapes?(node.body, name)
         when Ast::LocalVariableWrite
-          ivar(node, :name) != name && local_escapes?(ivar(node, :value_node), name)
-        when Ast::ArrayLiteral then (ivar(node, :element_nodes) || []).any? { |e| local_escapes?(e, name) }
+          node.name != name && local_escapes?(node.value_node, name)
+        when Ast::ArrayLiteral then (node.element_nodes || []).any? { |e| local_escapes?(e, name) }
         when Ast::Until
-          local_escapes?(ivar(node, :condition_node), name) || local_escapes?(ivar(node, :body_node), name)
+          local_escapes?(node.condition_node, name) || local_escapes?(node.body_node, name)
         when Ast::Return
-          local_escapes?(ivar(node, :value_node), name)
+          local_escapes?(node.value_node, name)
         when Ast::MultipleAssignment
-          local_escapes?(ivar(node, :value_node), name)
+          local_escapes?(node.value_node, name)
         when Ast::HashLiteral
-          (ivar(node, :kv_nodes) || []).any? { |k, v| local_escapes?(k, name) || local_escapes?(v, name) }
+          (node.kv_nodes || []).any? { |k, v| local_escapes?(k, name) || local_escapes?(v, name) }
         when Ast::Case
-          local_escapes?(ivar(node, :subject_node), name) ||
-            (ivar(node, :whens) || []).any? { |w| w.condition_nodes.any? { |c| local_escapes?(c, name) } || local_escapes?(w.body_node, name) } ||
-            local_escapes?(ivar(node, :else_node), name)
+          local_escapes?(node.subject_node, name) ||
+            (node.whens || []).any? { |w| w.condition_nodes.any? { |c| local_escapes?(c, name) } || local_escapes?(w.body_node, name) } ||
+            local_escapes?(node.else_node, name)
         when Ast::IndexOperatorWrite
-          recv = ivar(node, :receiver_node)
-          idx_args = ivar(node, :index_arg_nodes) || []
-          val = ivar(node, :value_node)
-          if recv.is_a?(Ast::LocalVariableRead) && ivar(recv, :name) == name
+          recv = node.receiver_node
+          idx_args = node.index_arg_nodes || []
+          val = node.value_node
+          if recv.is_a?(Ast::LocalVariableRead) && recv.name == name
             idx_args.any? { |a| local_escapes?(a, name) } || local_escapes?(val, name)
           else
             local_escapes?(recv, name) || idx_args.any? { |a| local_escapes?(a, name) } || local_escapes?(val, name)
           end
         when Ast::InstanceVariableWrite
-          local_escapes?(ivar(node, :value_node), name)
+          local_escapes?(node.value_node, name)
         when Ast::Rescue
-          local_escapes?(ivar(node, :body), name) ||
-            local_escapes?(ivar(node, :else_node), name) ||
-            local_escapes?(ivar(node, :ensure_node), name)
+          local_escapes?(node.body, name) ||
+            local_escapes?(node.else_node, name) ||
+            local_escapes?(node.ensure_node, name)
         else false
         end
       end
@@ -131,7 +131,7 @@ module Frozone
           next unless rhs_nodes.size == 1
           rhs = rhs_nodes.first
           next unless array_new_call?(rhs)
-          args = ivar(rhs, :arg_nodes) || []
+          args = rhs.arg_nodes || []
           next unless args.size == 2
           fill_ty = node_raw_type(args[1])
           next unless fill_ty
@@ -161,7 +161,7 @@ module Frozone
           next unless rhs_nodes.size == 1
           rhs = rhs_nodes.first
           next unless array_new_call?(rhs)
-          args = ivar(rhs, :arg_nodes) || []
+          args = rhs.arg_nodes || []
           next unless args.size == 2
           fill_ty = node_raw_type(args[1])
           next unless fill_ty
@@ -179,9 +179,9 @@ module Frozone
         return false unless node.is_a?(Ast::MethodCall)
         return false unless node.name == :new
         recv = node.receiver_node
-        return false unless recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == :Array
+        return false unless recv.is_a?(Ast::ConstantRead) && recv.name == :Array
         return false unless (node.arg_nodes || []).size == 2
-        ivar(node, :block_node).nil?
+        node.block_node.nil?
       end
 
       # Walk body detecting uses of candidate array locals that would disqualify them.
@@ -192,8 +192,8 @@ module Frozone
         when Ast::MethodCall
           recv = node.receiver_node
           args = node.arg_nodes || []
-          if recv.is_a?(Ast::LocalVariableRead) && candidates.key?(ivar(recv, :name))
-            lv = ivar(recv, :name)
+          if recv.is_a?(Ast::LocalVariableRead) && candidates.key?(recv.name)
+            lv = recv.name
             if node.name == :[]
               # Read — OK; index and any block arg are checked below
             elsif node.name == :[]=
@@ -211,20 +211,20 @@ module Frozone
           end
           # Any arg that IS a candidate local itself = passed to method = escape
           args.each do |a|
-            if a.is_a?(Ast::LocalVariableRead) && candidates.key?(ivar(a, :name))
-              escaped << ivar(a, :name)
+            if a.is_a?(Ast::LocalVariableRead) && candidates.key?(a.name)
+              escaped << a.name
             else
               scan_array_uses(a, candidates, escaped)
             end
           end
-          blk = ivar(node, :block_node)
+          blk = node.block_node
           scan_array_uses(blk&.body, candidates, escaped) if blk
         when Ast::AttributeWrite
-          recv = ivar(node, :receiver_node)
-          args = ivar(node, :arg_nodes) || []
-          if ivar(node, :name) == :[]= && recv.is_a?(Ast::LocalVariableRead) &&
-             candidates.key?(ivar(recv, :name))
-            lv = ivar(recv, :name)
+          recv = node.receiver_node
+          args = node.arg_nodes || []
+          if node.name == :[]= && recv.is_a?(Ast::LocalVariableRead) &&
+             candidates.key?(recv.name)
+            lv = recv.name
             val = args[1]
             val_ty = val ? node_raw_type(val) : nil
             expected = candidates[lv]
@@ -234,40 +234,40 @@ module Frozone
             scan_array_uses(recv, candidates, escaped)
           end
           args.each do |a|
-            if a.is_a?(Ast::LocalVariableRead) && candidates.key?(ivar(a, :name))
-              escaped << ivar(a, :name)
+            if a.is_a?(Ast::LocalVariableRead) && candidates.key?(a.name)
+              escaped << a.name
             else
               scan_array_uses(a, candidates, escaped)
             end
           end
         when Ast::LocalVariableWrite
-          val = ivar(node, :value_node)
+          val = node.value_node
           # Aliasing: another variable assigned from a candidate array = escape
-          if val.is_a?(Ast::LocalVariableRead) && candidates.key?(ivar(val, :name))
-            escaped << ivar(val, :name)
+          if val.is_a?(Ast::LocalVariableRead) && candidates.key?(val.name)
+            escaped << val.name
           else
             scan_array_uses(val, candidates, escaped)
           end
         when Ast::Sequence
           node.nodes.each { |n| scan_array_uses(n, candidates, escaped) }
         when Ast::If
-          scan_array_uses(ivar(node, :condition_node), candidates, escaped)
-          scan_array_uses(ivar(node, :then_node), candidates, escaped)
-          scan_array_uses(ivar(node, :else_node), candidates, escaped)
+          scan_array_uses(node.condition_node, candidates, escaped)
+          scan_array_uses(node.then_node, candidates, escaped)
+          scan_array_uses(node.else_node, candidates, escaped)
         when Ast::While, Ast::Until
-          scan_array_uses(ivar(node, :condition_node), candidates, escaped)
-          scan_array_uses(ivar(node, :body_node), candidates, escaped)
+          scan_array_uses(node.condition_node, candidates, escaped)
+          scan_array_uses(node.body_node, candidates, escaped)
         when Ast::Return
-          val = ivar(node, :value_node)
-          if val.is_a?(Ast::LocalVariableRead) && candidates.key?(ivar(val, :name))
-            escaped << ivar(val, :name)
+          val = node.value_node
+          if val.is_a?(Ast::LocalVariableRead) && candidates.key?(val.name)
+            escaped << val.name
           else
             scan_array_uses(val, candidates, escaped)
           end
         when Ast::InstanceVariableWrite
-          val = ivar(node, :value_node)
-          if val.is_a?(Ast::LocalVariableRead) && candidates.key?(ivar(val, :name))
-            escaped << ivar(val, :name)
+          val = node.value_node
+          if val.is_a?(Ast::LocalVariableRead) && candidates.key?(val.name)
+            escaped << val.name
           else
             scan_array_uses(val, candidates, escaped)
           end

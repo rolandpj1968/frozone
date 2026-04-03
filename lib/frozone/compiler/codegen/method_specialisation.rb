@@ -62,10 +62,10 @@ module Frozone
             to_remove << name; next
           end
           # Only specialise methods with purely required params (no optionals/rest/kw)
-          req = ivar(method, :required_params) || []
+          req = method.required_params || []
           unless req.size == param_types.size &&
-                 ivar(method, :optional_params).to_a.empty? &&
-                 ivar(method, :rest_param).nil?
+                 method.optional_params.to_a.empty? &&
+                 method.rest_param.nil?
             to_remove << name; next
           end
 
@@ -90,10 +90,10 @@ module Frozone
         case body
         when Ast::Sequence then infer_body_return_type(body.nodes.last)
         when Ast::If
-          t = infer_body_return_type(ivar(body, :then_node))
-          e = infer_body_return_type(ivar(body, :else_node))
+          t = infer_body_return_type(body.then_node)
+          e = infer_body_return_type(body.else_node)
           (t && t == e) ? t : nil
-        when Ast::Return   then infer_body_return_type(ivar(body, :value_node))
+        when Ast::Return   then infer_body_return_type(body.value_node)
         else               node_raw_type(body)
         end
       end
@@ -107,17 +107,17 @@ module Frozone
         when Ast::IntegerLiteral, Ast::FloatLiteral, Ast::NilLiteral,
              Ast::TrueLiteral, Ast::FalseLiteral then true
         when Ast::LocalVariableRead  then true
-        when Ast::LocalVariableWrite then body_all_raw_safe?(ivar(node, :value_node))
+        when Ast::LocalVariableWrite then body_all_raw_safe?(node.value_node)
         when Ast::Sequence           then node.nodes.all? { |n| body_all_raw_safe?(n) }
-        when Ast::Return             then body_all_raw_safe?(ivar(node, :value_node))
+        when Ast::Return             then body_all_raw_safe?(node.value_node)
         when Ast::If
-          body_all_raw_safe?(ivar(node, :pred_node)) &&
-            body_all_raw_safe?(ivar(node, :then_node)) &&
-            body_all_raw_safe?(ivar(node, :else_node))
+          body_all_raw_safe?(node.pred_node) &&
+            body_all_raw_safe?(node.then_node) &&
+            body_all_raw_safe?(node.else_node)
         when Ast::MethodCall
-          name = ivar(node, :name)
-          recv = ivar(node, :receiver_node)
-          args = ivar(node, :arg_nodes) || []
+          name = node.name
+          recv = node.receiver_node
+          args = node.arg_nodes || []
           if recv.nil?
             # Free call — must be to a specialised method
             @gctx.typed_method_returns.key?(name) ? args.all? { |a| body_all_raw_safe?(a) } : false
@@ -135,7 +135,7 @@ module Frozone
       def emit_specialized_vm_method(name, method)
         param_types = @gctx.typed_params[name]
         return_type = @gctx.typed_method_returns[name]
-        req_params  = ivar(method, :required_params) || []
+        req_params  = method.required_params || []
         return unless req_params.size == param_types.size
 
         cr = { i64: 'Int64', f64: 'Float64' }
@@ -171,7 +171,7 @@ module Frozone
       # Like emit_specialized_vm_method but with `def self.` prefix and
       # class-keyed TI lookups.
       def emit_specialized_class_method(class_name, mname, method, raw_types, return_type, crystal_param_types: nil)
-        req_params = ivar(method, :required_params) || []
+        req_params = method.required_params || []
         return unless req_params.size == raw_types.size
 
         cr = { i64: 'Int64', f64: 'Float64' }
@@ -187,11 +187,11 @@ module Frozone
 
         # Include optional kwargs with default values (semi-positional kwargs).
         # Emit as typed Crystal params so the body can reference them.
-        opt_kw = ivar(method, :optional_kw_params) || []
+        opt_kw = method.optional_kw_params || []
         opt_kw.each do |kw_name, default_node|
           default_val = case default_node
-                        when Ast::IntegerLiteral then "#{ivar(default_node, :value).raw}_i64"
-                        when Ast::FloatLiteral then float_bits_expr(ivar(default_node, :value).respond_to?(:raw) ? ivar(default_node, :value).raw : ivar(default_node, :value))
+                        when Ast::IntegerLiteral then "#{default_node.value.raw}_i64"
+                        when Ast::FloatLiteral then float_bits_expr(default_node.value.respond_to?(:raw) ? default_node.value.raw : default_node.value)
                         else "RubyInteger.new(0_i64)"
                         end
           # Check if TI inferred a type for this kwarg
@@ -279,15 +279,15 @@ module Frozone
       # Emit a block for native integer iteration (times/upto/downto),
       # registering block params as raw :i64 so arithmetic inside is unboxed.
       def emit_native_iter_block(blk)
-        params = (ivar(blk, :required_params) || []) + (ivar(blk, :optional_params) || []).map(&:first)
-        params += [ivar(blk, :rest_param)].compact
+        params = (blk.required_params || []) + (blk.optional_params || []).map(&:first)
+        params += [blk.rest_param].compact
         write "{ "
         unless params.empty?
           write "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
         end
         old_rbp = @mctx.raw_block_params
         @mctx.raw_block_params = old_rbp.merge(params.map { |p| [p, :i64] }.to_h)
-        emit(ivar(blk, :body))
+        emit(blk.body)
         @mctx.raw_block_params = old_rbp
         write " }"
       end
@@ -295,15 +295,15 @@ module Frozone
       # Override: emit `for i in lo...hi` as a native Crystal integer range loop
       # when the iteration variable is typed :i64 in TI.
       def emit_for_loop(node)
-        target = ivar(node, :target)
+        target = node.target
         if target[0] == :local
           name = target[1]
           if @mctx.block_params[name] == :i64
-            coll = ivar(node, :collection_node)
+            coll = node.collection_node
             if coll.is_a?(Ast::RangeLiteral)
-              lo   = ivar(coll, :begin_node)
-              hi   = ivar(coll, :end_node)
-              excl = ivar(coll, :exclusive)
+              lo   = coll.begin_node
+              hi   = coll.end_node
+              excl = coll.exclusive
               if node_raw_type(lo) == :i64 && node_raw_type(hi) == :i64
                 write "("
                 emit_raw(lo)
@@ -313,7 +313,7 @@ module Frozone
                 emit_newline
                 old_rbp = @mctx.raw_block_params
                 @mctx.raw_block_params = old_rbp.merge(name => :i64)
-                indented { emit(ivar(node, :body_node)) }
+                indented { emit(node.body_node) }
                 @mctx.raw_block_params = old_rbp
                 emit_newline
                 emit_indent
@@ -335,10 +335,10 @@ module Frozone
           node.nodes.each { |n| emit_indent; emit_raw_expr(n); emit_newline }
         when Ast::If
           write "if "
-          cond = ivar(node, :pred_node)
-          if cond.is_a?(Ast::MethodCall) && (RawEmission::ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(ivar(cond, :name)) &&
-             (ivar(cond, :arg_nodes) || []).size == 1
-            recv = ivar(cond, :receiver_node)
+          cond = node.pred_node
+          if cond.is_a?(Ast::MethodCall) && (RawEmission::ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(cond.name) &&
+             (cond.arg_nodes || []).size == 1
+            recv = cond.receiver_node
             # Wrap embedded assignments in parens so (q1 = expr) != val
             # doesn't become q1 = (expr != val) due to Crystal precedence
             if contains_assignment?(recv)
@@ -346,14 +346,14 @@ module Frozone
             else
               emit_raw(recv)
             end
-            write " #{ivar(cond, :name)} "
-            emit_raw((ivar(cond, :arg_nodes))[0])
+            write " #{cond.name} "
+            emit_raw((cond.arg_nodes)[0])
           else
             emit_raw(cond)
           end
           emit_newline
-          indented { emit_raw_body(ivar(node, :then_node)) }
-          else_node = ivar(node, :else_node)
+          indented { emit_raw_body(node.then_node) }
+          else_node = node.else_node
           if else_node
             emit_indent; write "else"; emit_newline
             indented { emit_raw_body(else_node) }
@@ -361,29 +361,29 @@ module Frozone
           emit_indent; write "end"
         when Ast::While
           write "while "
-          emit_raw(ivar(node, :condition_node))
+          emit_raw(node.condition_node)
           emit_newline
-          indented { emit_raw_body(ivar(node, :body_node)) }
+          indented { emit_raw_body(node.body_node) }
           emit_indent; write "end"
         when Ast::Until
           write "until "
-          emit_raw(ivar(node, :condition_node))
+          emit_raw(node.condition_node)
           emit_newline
-          indented { emit_raw_body(ivar(node, :body_node)) }
+          indented { emit_raw_body(node.body_node) }
           emit_indent; write "end"
         when Ast::Return
           write "return "
-          val = ivar(node, :value_node)
+          val = node.value_node
           emit_raw(val) if val
         when Ast::LocalVariableWrite
           # Delegate typed-array construction to emit_local_var_write (handles Array(T).new).
           # For scalar typed locals, emit assignment with raw RHS.
-          name = ivar(node, :name)
+          name = node.name
           if @mctx.typed_array_locals[name]
             emit_local_var_write(node)
           else
             write "#{crystal_local(name)} = "
-            emit_raw(ivar(node, :value_node))
+            emit_raw(node.value_node)
           end
         else
           emit_raw_expr(node)

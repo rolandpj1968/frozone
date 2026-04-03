@@ -3,6 +3,8 @@ require_relative 'node'
 module Frozone
   module Ast
     class InterpolatedString < Node
+      attr_reader :parts
+
       # chilled: true = no frozen_string_literal magic (chilled, warn on mutation)
       # chilled: false = frozen_string_literal: false (regular mutable, no warning)
       # chilled: nil = interpolated with runtime expression (always mutable, no warning)

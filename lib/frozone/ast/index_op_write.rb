@@ -4,6 +4,8 @@ module Frozone
   module Ast
     # a[*args] += val — evaluates receiver and index args once, returns new value (not []= result)
     class IndexOperatorWrite < Node
+      attr_reader :operator, :receiver_node, :index_arg_nodes, :value_node
+
       def initialize(operator, receiver_node, index_arg_nodes, value_node)
         @operator = operator
         @receiver_node = receiver_node

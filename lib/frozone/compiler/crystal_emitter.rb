@@ -65,27 +65,27 @@ module Frozone
         when Ast::Sequence
           node.nodes.each { |n| collect_user_methods(n) }
         when Ast::ClassDef
-          sc = ivar(node, :superclass_node)
+          sc = node.superclass_node
           if sc.is_a?(Ast::ConstantRead)
-            sc_name = ivar(sc, :name).to_s
+            sc_name = sc.name.to_s
             if EXCEPTION_BASE_NAMES.include?(sc_name) || @exception_classes.include?(sc_name.to_sym)
-              @exception_classes << ivar(node, :name)
+              @exception_classes << node.name
             end
           end
-          body = ivar(node, :body)
+          body = node.body
           collect_user_methods(body) if body
         when Ast::ModuleDef
-          body = ivar(node, :body)
+          body = node.body
           collect_user_methods(body) if body
         when Ast::MethodDef
-          @user_methods << ivar(node, :name)
+          @user_methods << node.name
         when Ast::MethodCall
           # attr_accessor/reader/writer implicitly define methods
-          mname = ivar(node, :name)
+          mname = node.name
           if ATTR_METHODS.include?(mname)
-            ivar(node, :arg_nodes).each do |a|
+            node.arg_nodes.each do |a|
               next unless a.is_a?(Ast::SymbolLiteral)
-              sym_name = ivar(a, :value).raw
+              sym_name = a.value.raw
               @user_methods << sym_name           unless mname == :attr_writer
               @user_methods << :"#{sym_name}="    unless mname == :attr_reader
             end
@@ -229,12 +229,12 @@ module Frozone
       def emit_false_literal = write "RUBY_FALSE"
 
       def emit_integer_literal(node)
-        val = ivar(node, :value).raw
+        val = node.value.raw
         write "RubyInteger.new(#{val}_i64)"
       end
 
       def emit_float_literal(node)
-        raw = ivar(node, :value)
+        raw = node.value
         val = raw.respond_to?(:raw) ? raw.raw : raw
         write "RubyFloat.new(#{float_bits_expr(val)})"
       end
@@ -256,12 +256,12 @@ module Frozone
       end
 
       def emit_string_literal(node)
-        raw = ivar(node, :value).raw
+        raw = node.value.raw
         write %(RubyString.new(#{crystal_string_literal(raw)}))
       end
 
       def emit_symbol_literal(node)
-        sym = ivar(node, :value).raw  # SymbolObject#raw → native Ruby Symbol
+        sym = node.value.raw  # SymbolObject#raw → native Ruby Symbol
         write %(RubySymbol.from(#{sym.to_s.inspect}))
       end
 
@@ -271,31 +271,31 @@ module Frozone
       # Variables
       # -----------------------------------------------------------------------
 
-      def emit_local_var_read(node) = write crystal_local(ivar(node, :name))
+      def emit_local_var_read(node) = write crystal_local(node.name)
 
       def emit_local_var_write(node)
-        write "#{crystal_local(ivar(node, :name))} = "
-        emit(ivar(node, :value_node))
+        write "#{crystal_local(node.name)} = "
+        emit(node.value_node)
       end
 
-      def emit_ivar_read(node) = write ivar(node, :name).to_s  # already includes leading @
+      def emit_ivar_read(node) = write node.name.to_s  # already includes leading @
 
       def emit_ivar_write(node)
-        write "#{ivar(node, :name)} = "
-        emit(ivar(node, :value_node))
+        write "#{node.name} = "
+        emit(node.value_node)
       end
 
       def emit_constant_read(node)
-        name = ivar(node, :name)
+        name = node.name
         crystal_type = RUBY_TO_CRYSTAL_TYPE[name]
         crystal_type ? write(crystal_type) : write("Ruby_#{crystal_constant(name)}")
       end
 
       def emit_constant_path(node)
-        parent = ivar(node, :parent_node)
-        name   = ivar(node, :name)
+        parent = node.parent_node
+        name   = node.name
         # Special cases: Math::PI, Math::E → Crystal constants
-        if parent.is_a?(Ast::ConstantRead) && ivar(parent, :name) == :Math
+        if parent.is_a?(Ast::ConstantRead) && parent.name == :Math
           case name
           when :PI then write "RubyFloat.new(Math::PI)"
           when :E  then write "RubyFloat.new(Math::E)"
@@ -309,15 +309,15 @@ module Frozone
       end
 
       def emit_constant_write(node)
-        write "Ruby_#{crystal_constant(ivar(node, :name))} = "
-        emit(ivar(node, :value_node))
+        write "Ruby_#{crystal_constant(node.name)} = "
+        emit(node.value_node)
       end
 
-      def emit_class_var_read(node) = write ivar(node, :name).to_s
+      def emit_class_var_read(node) = write node.name.to_s
 
       def emit_class_var_write(node)
-        write "#{ivar(node, :name)} = "
-        emit(ivar(node, :value_node))
+        write "#{node.name} = "
+        emit(node.value_node)
       end
 
       # -----------------------------------------------------------------------
@@ -355,14 +355,14 @@ module Frozone
           when :include, :extend, :prepend
             mods = node.arg_nodes.map do |a|
               if a.is_a?(Ast::ConstantRead)
-                mod_name = ivar(a, :name).to_s
-                RUBY_TO_CRYSTAL_TYPE[ivar(a, :name)] || "Ruby_#{mod_name}"
+                mod_name = a.name.to_s
+                RUBY_TO_CRYSTAL_TYPE[a.name] || "Ruby_#{mod_name}"
               else
                 nil
               end
             end.compact
             return mods.each { |m| write("include #{m}") } if name == :include && !mods.empty?
-            return write("# #{name} #{node.arg_nodes.map { |a| a.is_a?(Ast::ConstantRead) ? ivar(a, :name) : '?' }.join(', ')}")
+            return write("# #{name} #{node.arg_nodes.map { |a| a.is_a?(Ast::ConstantRead) ? a.name : '?' }.join(', ')}")
           end
         end
 
@@ -373,7 +373,7 @@ module Frozone
 
         # Built-in class .new: Array.new(n, default), Hash.new, etc.
         if name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
-          cr_type = RUBY_TO_CRYSTAL_TYPE[ivar(node.receiver_node, :name)]
+          cr_type = RUBY_TO_CRYSTAL_TYPE[node.receiver_node.name]
           if cr_type
             write "#{cr_type}.new"
             emit_call_args(node)
@@ -383,7 +383,7 @@ module Frozone
 
         # Proc.new { |...| ... } → RubyProc wrapping a Crystal proc
         if name == :new && node.receiver_node.is_a?(Ast::ConstantRead) &&
-           ivar(node.receiver_node, :name) == :Proc && node.block_node
+           node.receiver_node.name == :Proc && node.block_node
           return emit_proc_new(node.block_node)
         end
 
@@ -409,8 +409,8 @@ module Frozone
         # is_a?/kind_of? with a constant → Crystal native is_a?(Type) check → RubyBool
         if (name == :is_a? || name == :kind_of?) && node.receiver_node &&
            node.arg_nodes.size == 1 && node.arg_nodes[0].is_a?(Ast::ConstantRead)
-          const_name = ivar(node.arg_nodes[0], :name).to_s
-          crystal_type = RUBY_TO_CRYSTAL_TYPE[ivar(node.arg_nodes[0], :name)] ||
+          const_name = node.arg_nodes[0].name.to_s
+          crystal_type = RUBY_TO_CRYSTAL_TYPE[node.arg_nodes[0].name] ||
                          (BUILTIN_SUPERCLASSES.include?(const_name) ? "Ruby#{const_name}" : "Ruby_#{const_name}")
           write "("
           emit(node.receiver_node)
@@ -436,9 +436,9 @@ module Frozone
 
       # AttributeWrite: obj.foo = val (setter) or obj[i] = val (index assign)
       def emit_attribute_write(node)
-        name = ivar(node, :name)
-        recv = ivar(node, :receiver_node)
-        args = ivar(node, :arg_nodes)
+        name = node.name
+        recv = node.receiver_node
+        args = node.arg_nodes
         if name == :[]=
           # Index assignment: receiver[idx] = val
           emit(recv)
@@ -558,7 +558,7 @@ module Frozone
           case arg
           when Ast::StringLiteral
             # raise "msg" → raise RuntimeError.new("msg")
-            write "RuntimeError.new(#{crystal_string_literal(ivar(arg, :value).raw)})"
+            write "RuntimeError.new(#{crystal_string_literal(arg.value.raw)})"
           when Ast::InterpolatedString
             # raise "msg #{x}" → raise RuntimeError.new(...)
             write "RuntimeError.new("
@@ -566,7 +566,7 @@ module Frozone
             write ".to_s)"
           when Ast::ConstantRead
             # raise ExcClass → raise Ruby_ExcClass.new
-            write "Ruby_#{crystal_constant(ivar(arg, :name))}.new"
+            write "Ruby_#{crystal_constant(arg.name)}.new"
           else
             # raise exception_instance (e.g. raise MyError.new(...))
             emit(arg)
@@ -576,7 +576,7 @@ module Frozone
           exc_node = args[0]
           msg_node = args[1]
           if exc_node.is_a?(Ast::ConstantRead)
-            write "Ruby_#{crystal_constant(ivar(exc_node, :name))}.new("
+            write "Ruby_#{crystal_constant(exc_node.name)}.new("
           else
             emit(exc_node)
             write ".new("
@@ -589,10 +589,10 @@ module Frozone
       def emit_rescue(node)
         write "begin"
         emit_newline
-        indented { emit(ivar(node, :body)) }
+        indented { emit(node.body) }
         emit_newline
 
-        ivar(node, :rescue_clauses).each do |clause|
+        node.rescue_clauses.each do |clause|
           emit_indent
           var_name  = clause.var_name
           exc_nodes = clause.exception_nodes
@@ -603,7 +603,7 @@ module Frozone
           else
             # rescue ExcA, ExcB => e
             exc_types = exc_nodes.map do |en|
-              en.is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(ivar(en, :name))}" : "Exception"
+              en.is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(en.name)}" : "Exception"
             end.join(" | ")
             write var_name ? "rescue #{crystal_local(var_name)} : #{exc_types}" : "rescue #{exc_types}"
           end
@@ -612,7 +612,7 @@ module Frozone
           emit_newline
         end
 
-        if (else_node = ivar(node, :else_node))
+        if (else_node = node.else_node)
           emit_indent
           write "else"
           emit_newline
@@ -620,7 +620,7 @@ module Frozone
           emit_newline
         end
 
-        if (ensure_node = ivar(node, :ensure_node))
+        if (ensure_node = node.ensure_node)
           emit_indent
           write "ensure"
           emit_newline
@@ -633,8 +633,8 @@ module Frozone
       end
 
       def emit_super(node)
-        forwarding = ivar(node, :forwarding)
-        args = ivar(node, :arg_nodes)
+        forwarding = node.forwarding
+        args = node.arg_nodes
         if forwarding || args.nil? || args.empty?
           write "super"
         else
@@ -660,7 +660,7 @@ module Frozone
         first = true
         node.arg_nodes.each do |sym|
           next unless sym.is_a?(Ast::SymbolLiteral)
-          name = ivar(sym, :value).raw.to_s
+          name = sym.value.raw.to_s
           if first
             first = false
           else
@@ -688,7 +688,7 @@ module Frozone
           if arg.is_a?(Ast::SplatArg)
             # SplatArg: Crystal can't splat Array (only Tuple); emit unsupported marker
             write "# UNSUPPORTED_SPLAT("
-            emit(ivar(arg, :value_node))
+            emit(arg.value_node)
             write ")"
           else
             emit(arg)
@@ -718,21 +718,21 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def emit_block(node)
-        params = (ivar(node, :required_params) || []) + (ivar(node, :optional_params) || []).map(&:first)
-        params += [ivar(node, :rest_param)].compact
+        params = (node.required_params || []) + (node.optional_params || []).map(&:first)
+        params += [node.rest_param].compact
         write "{ "
         unless params.empty?
           write "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
         end
-        emit(ivar(node, :body))
+        emit(node.body)
         write " }"
       end
 
       # &:method — emit as a single-arg block that calls the method
       def emit_block_arg(block_arg_node)
-        value_node = ivar(block_arg_node, :value_node)
+        value_node = block_arg_node.value_node
         if value_node.is_a?(Ast::SymbolLiteral)
-          method_name = crystal_method_name(ivar(value_node, :value).raw)
+          method_name = crystal_method_name(value_node.value.raw)
           # Wrap with .as(RubyObject) to avoid Crystal type-union issues when
           # the same method name exists on multiple types with different return types
           write "{ |_sym2proc| _sym2proc.#{method_name}.as(RubyObject) }"
@@ -775,8 +775,8 @@ module Frozone
       end
 
       def emit_for_loop(node)
-        target = ivar(node, :target)
-        emit(ivar(node, :collection_node))
+        target = node.target
+        emit(node.collection_node)
         write ".each do |"
         case target[0]
         when :local    then write crystal_local(target[1])
@@ -791,7 +791,7 @@ module Frozone
         end
         write "|"
         emit_newline
-        indented { emit(ivar(node, :body_node)) }
+        indented { emit(node.body_node) }
         emit_newline
         emit_indent
         write "end"
@@ -799,9 +799,9 @@ module Frozone
 
       def emit_while(node)
         write "while "
-        emit_truthy(ivar(node, :condition_node))
+        emit_truthy(node.condition_node)
         emit_newline
-        indented { emit(ivar(node, :body_node)) }
+        indented { emit(node.body_node) }
         emit_newline
         emit_indent
         write "end"
@@ -809,9 +809,9 @@ module Frozone
 
       def emit_until(node)
         write "until "
-        emit_truthy(ivar(node, :condition_node))
+        emit_truthy(node.condition_node)
         emit_newline
-        indented { emit(ivar(node, :body_node)) }
+        indented { emit(node.body_node) }
         emit_newline
         emit_indent
         write "end"
@@ -819,7 +819,7 @@ module Frozone
 
       def emit_return(node)
         write "return"
-        val = ivar(node, :value_node)
+        val = node.value_node
         if val
           write " "
           emit(val)
@@ -827,7 +827,7 @@ module Frozone
       end
 
       def emit_next(node)
-        val = ivar(node, :value_node)
+        val = node.value_node
         if val.nil? || val.is_a?(Ast::NilLiteral)
           write "next"
         else
@@ -838,7 +838,7 @@ module Frozone
       end
 
       def emit_break(node)
-        val = ivar(node, :value_node)
+        val = node.value_node
         if val.nil? || val.is_a?(Ast::NilLiteral)
           write "break"
         else
@@ -852,7 +852,7 @@ module Frozone
         write "loop do"
         if node.block_node
           emit_newline
-          indented { emit(ivar(node.block_node, :body)) }
+          indented { emit(node.block_node.body) }
           emit_newline
           emit_indent
         end
@@ -861,23 +861,23 @@ module Frozone
 
       # Lambda node (-> syntax): ->(x) { body }
       def emit_lambda(node)
-        params = ivar(node, :required_params)
+        params = node.required_params
         write "RubyProc.new(->(args : Array(RubyObject)) { "
         params.each_with_index do |p, i|
           write "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL; "
         end
-        emit(ivar(node, :body))
+        emit(node.body)
         write " })"
       end
 
       # Proc.new { |x| ... } or lambda { |x| ... } → RubyProc
       def emit_proc_new(block_node)
-        params = ivar(block_node, :required_params)
+        params = block_node.required_params
         write "RubyProc.new(->(args : Array(RubyObject)) { "
         params.each_with_index do |p, i|
           write "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL; "
         end
-        emit(ivar(block_node, :body))
+        emit(block_node.body)
         write " })"
       end
 
@@ -888,7 +888,7 @@ module Frozone
         bp_name = (defined?(@mctx) && @mctx&.block_param_name) ||
           (defined?(@current_block_param_name) && @current_block_param_name)
         is_block_param = recv.is_a?(Ast::LocalVariableRead) && bp_name &&
-          ivar(recv, :name) == bp_name
+          recv.name == bp_name
         write "("
         emit(recv)
         if is_block_param
@@ -911,7 +911,7 @@ module Frozone
       }.freeze
 
       def emit_global_var_read(node)
-        name = ivar(node, :name)
+        name = node.name
         if (mapped = MAPPED_GLOBALS[name])
           write mapped
         else
@@ -921,17 +921,17 @@ module Frozone
       end
 
       def emit_global_var_write(node)
-        name = ivar(node, :name)
+        name = node.name
         key  = name.to_s.sub(/^\$/, '')
         write %(RUBY_GLOBALS[#{key.inspect}] = )
-        emit(ivar(node, :value_node))
+        emit(node.value_node)
       end
 
       # a[i] ||= val → (_r = recv; _i = idx; _c = _r[_i]; _c.truthy? ? _c : (_r[_i] = val))
       def emit_index_or_write(node)
-        recv_node  = ivar(node, :receiver_node)
-        index_args = ivar(node, :index_arg_nodes)
-        val_node   = ivar(node, :value_node)
+        recv_node  = node.receiver_node
+        index_args = node.index_arg_nodes
+        val_node   = node.value_node
         r = "_iorw_r#{@temp_counter}"
         i = "_iorw_i#{@temp_counter}"
         c = "_iorw_c#{@temp_counter}"
@@ -947,9 +947,9 @@ module Frozone
 
       # a[i] &&= val → (_r = recv; _i = idx; _c = _r[_i]; _c.truthy? ? (_r[_i] = val) : _c)
       def emit_index_and_write(node)
-        recv_node  = ivar(node, :receiver_node)
-        index_args = ivar(node, :index_arg_nodes)
-        val_node   = ivar(node, :value_node)
+        recv_node  = node.receiver_node
+        index_args = node.index_arg_nodes
+        val_node   = node.value_node
         r = "_iandw_r#{@temp_counter}"
         i = "_iandw_i#{@temp_counter}"
         c = "_iandw_c#{@temp_counter}"
@@ -965,10 +965,10 @@ module Frozone
 
       # a[i] += val → (_r = recv; _i = idx; _r[_i] = _r[_i] op val)
       def emit_index_op_write(node)
-        op         = ivar(node, :operator)
-        recv_node  = ivar(node, :receiver_node)
-        index_args = ivar(node, :index_arg_nodes)
-        val_node   = ivar(node, :value_node)
+        op         = node.operator
+        recv_node  = node.receiver_node
+        index_args = node.index_arg_nodes
+        val_node   = node.value_node
         r = "_iopw_r#{@temp_counter}"
         i = "_iopw_i#{@temp_counter}"
         @temp_counter += 1
@@ -982,7 +982,7 @@ module Frozone
       end
 
       def emit_yield(node)
-        args = ivar(node, :arg_nodes)
+        args = node.arg_nodes
         if args.empty?
           write "yield"
         else
@@ -1007,9 +1007,9 @@ module Frozone
         tmp = "_and#{@temp_counter}"
         @temp_counter += 1
         write "(#{tmp} = "
-        emit(ivar(node, :left_node))
+        emit(node.left_node)
         write "; #{tmp}.truthy? ? ("
-        emit(ivar(node, :right_node))
+        emit(node.right_node)
         write ") : #{tmp})"
       end
 
@@ -1017,9 +1017,9 @@ module Frozone
         tmp = "_or#{@temp_counter}"
         @temp_counter += 1
         write "(#{tmp} = "
-        emit(ivar(node, :left_node))
+        emit(node.left_node)
         write "; #{tmp}.truthy? ? #{tmp} : ("
-        emit(ivar(node, :right_node))
+        emit(node.right_node)
         write "))"
       end
 
@@ -1099,9 +1099,9 @@ module Frozone
       def type_check_cond?(cond) = cond.is_a?(Ast::NilLiteral) || cond.is_a?(Ast::ConstantRead)
 
       def emit_case(node)
-        subject = ivar(node, :subject_node)
-        whens   = ivar(node, :whens)
-        else_n  = ivar(node, :else_node)
+        subject = node.subject_node
+        whens   = node.whens
+        else_n  = node.else_node
 
         no_subject = subject.nil? || subject.is_a?(Ast::NilLiteral)
 
@@ -1112,7 +1112,7 @@ module Frozone
         all_type   = !no_subject && whens.all? { |w| w.condition_nodes.all? { |c| type_check_cond?(c) } }
 
         if is_local && all_type
-          emit_case_native(crystal_local(ivar(subject, :name)), whens, else_n)
+          emit_case_native(crystal_local(subject.name), whens, else_n)
           return
         end
 
@@ -1143,7 +1143,7 @@ module Frozone
             if cond.is_a?(Ast::NilLiteral)
               write "RubyNil"
             elsif cond.is_a?(Ast::ConstantRead)
-              name = ivar(cond, :name)
+              name = cond.name
               write RUBY_TO_CRYSTAL_TYPE[name] || "Ruby_#{crystal_constant(name)}"
             end
           end
@@ -1192,7 +1192,7 @@ module Frozone
         when Ast::FalseLiteral
           write "!#{subj_var}.truthy?"
         when Ast::ConstantRead
-          type_name = ivar(cond_node, :name)
+          type_name = cond_node.name
           crystal_type = RUBY_TO_CRYSTAL_TYPE[type_name] || "Ruby_#{crystal_constant(type_name)}"
           write "#{subj_var}.is_a?(#{crystal_type})"
         else
@@ -1209,7 +1209,7 @@ module Frozone
 
       def emit_array_literal(node)
         write "RubyArray.new(["
-        ivar(node, :element_nodes).each_with_index do |el, i|
+        node.element_nodes.each_with_index do |el, i|
           write ", " if i > 0
           emit(el)
         end
@@ -1218,7 +1218,7 @@ module Frozone
 
       def emit_hash_literal(node)
         write "RubyHash.new"
-        pairs = ivar(node, :kv_nodes)
+        pairs = node.kv_nodes
         unless pairs.empty?
           write ".tap { |_h| "
           pairs.each do |k, v|
@@ -1233,9 +1233,9 @@ module Frozone
       end
 
       def emit_range_literal(node)
-        b = ivar(node, :begin_node)
-        e = ivar(node, :end_node)
-        excl = ivar(node, :exclusive)
+        b = node.begin_node
+        e = node.end_node
+        excl = node.exclusive
         write "RubyRange.new("
         b ? emit(b) : write("RUBY_NIL")
         write ", "
@@ -1244,8 +1244,8 @@ module Frozone
       end
 
       def emit_multiple_assignment(node)
-        targets = ivar(node, :targets)
-        rhs     = ivar(node, :value_node)
+        targets = node.targets
+        rhs     = node.value_node
 
         tmp = "_ma#{@temp_counter}"
         @temp_counter += 1
@@ -1316,10 +1316,10 @@ module Frozone
 
       def emit_interpolated_string(node)
         write "RubyString.new(String.build { |_s| "
-        ivar(node, :parts).each do |part|
+        node.parts.each do |part|
           case part
           when Ast::StringLiteral
-            raw = ivar(part, :value).raw
+            raw = part.value.raw
             write "_s << #{crystal_string_literal(raw)}; "
           else
             write "_s << ("
@@ -1338,8 +1338,8 @@ module Frozone
       STRING_RETURN_METHODS = %i[to_s inspect].to_set
 
       def emit_method_def(node)
-        recv = ivar(node, :receiver_node)
-        name = ivar(node, :name)
+        recv = node.receiver_node
+        name = node.name
         string_return = STRING_RETURN_METHODS.include?(name)
         # Method definition: don't translate to_s → ruby_to_s; emit as-is (Crystal protocol)
         crystal_name = string_return ? name.to_s : crystal_method_name(name)
@@ -1359,13 +1359,13 @@ module Frozone
           indented do
             write "(begin"
             emit_newline
-            indented { emit(ivar(node, :body)) }
+            indented { emit(node.body) }
             emit_newline
             emit_indent
             write "end).to_s"
           end
         else
-          indented { emit(ivar(node, :body)) }
+          indented { emit(node.body) }
         end
         emit_newline
         emit_indent
@@ -1374,21 +1374,21 @@ module Frozone
 
       def emit_param_list(node)
         parts = []
-        ivar(node, :required_params).each { |p| parts << "#{crystal_local(p)} : RubyObject" }
-        ivar(node, :optional_params).each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
-        rp = ivar(node, :rest_param)
+        node.required_params.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
+        node.optional_params.each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
+        rp = node.rest_param
         parts << "*#{crystal_local(rp)} : RubyObject" if rp
-        ivar(node, :post_params).each { |p| parts << "#{crystal_local(p)} : RubyObject" }
-        req_kw = ivar(node, :required_kw_params) || []
-        opt_kw = ivar(node, :optional_kw_params) || []
-        kr = ivar(node, :kw_rest_param)
+        node.post_params.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
+        req_kw = node.required_kw_params || []
+        opt_kw = node.optional_kw_params || []
+        kr = node.kw_rest_param
         if (!req_kw.empty? || !opt_kw.empty?) && !rp
           parts << "*"  # Crystal keyword-only separator
         end
         req_kw.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
         opt_kw.each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
         parts << "**#{crystal_local(kr)}" if kr
-        bp = ivar(node, :block_param)
+        bp = node.block_param
         parts << "&#{crystal_local(bp)}" if bp
         write "(#{parts.join(', ')})" unless parts.empty?
       end
@@ -1398,21 +1398,21 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def emit_class_def(node)
-        name     = crystal_constant(ivar(node, :name))
-        sym_name = ivar(node, :name)
+        name     = crystal_constant(node.name)
+        sym_name = node.name
         is_exc   = @exception_classes.include?(sym_name)
-        sc       = ivar(node, :superclass_node)
+        sc       = node.superclass_node
 
         write "class Ruby_#{name}"
         if is_exc
           # Exception classes inherit from RubyException (< Exception) or a Ruby_ exc superclass
-          if sc && !EXCEPTION_BASE_NAMES.include?(ivar(sc, :name).to_s)
-            write " < Ruby_#{crystal_constant(ivar(sc, :name))}"
+          if sc && !EXCEPTION_BASE_NAMES.include?(sc.name.to_s)
+            write " < Ruby_#{crystal_constant(sc.name)}"
           else
             write " < RubyException"
           end
         elsif sc
-          write " < Ruby_#{crystal_constant(ivar(sc, :name))}"
+          write " < Ruby_#{crystal_constant(sc.name)}"
         else
           write " < RubyObject"
         end
@@ -1424,20 +1424,20 @@ module Frozone
         indented do
           if is_exc
             # Exception classes: ivar declarations + default message initializer
-            ivars = collect_ivars(ivar(node, :body))
+            ivars = collect_ivars(node.body)
             ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
             emit_newline unless ivars.empty?
             # Default no-arg initializer passes class name as message if not overridden
-            line "def initialize(msg : String = \"#{name}\"); super(msg); end" unless has_initialize?(ivar(node, :body))
+            line "def initialize(msg : String = \"#{name}\"); super(msg); end" unless has_initialize?(node.body)
           else
             # Regular classes: ivars + class vars + default to_s/inspect/==
             # Only emit default stubs if this class doesn't inherit from another user class
             # (inheriting from a user class would override inherited to_s/inspect/==).
-            sc_name = sc.is_a?(Ast::ConstantRead) ? ivar(sc, :name).to_s : nil
+            sc_name = sc.is_a?(Ast::ConstantRead) ? sc.name.to_s : nil
             user_superclass = sc_name && !BUILTIN_SUPERCLASSES.include?(sc_name)
-            ivars = collect_ivars(ivar(node, :body))
+            ivars = collect_ivars(node.body)
             ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
-            cvars = collect_cvars(ivar(node, :body))
+            cvars = collect_cvars(node.body)
             cvars.each { |cv| line "#{cv} : RubyObject = RUBY_NIL" }
             emit_newline unless ivars.empty? && cvars.empty?
             unless user_superclass
@@ -1447,7 +1447,7 @@ module Frozone
               emit_newline
             end
           end
-          body = ivar(node, :body)
+          body = node.body
           emit_indent
           emit(body) unless body.is_a?(Ast::NilLiteral)
         end
@@ -1463,17 +1463,17 @@ module Frozone
         return false unless body
         case body
         when Ast::Sequence
-          body.nodes.any? { |n| n.is_a?(Ast::MethodDef) && ivar(n, :name) == :initialize }
+          body.nodes.any? { |n| n.is_a?(Ast::MethodDef) && n.name == :initialize }
         when Ast::MethodDef
-          ivar(body, :name) == :initialize
+          body.name == :initialize
         else false
         end
       end
 
       def emit_module_def(node)
-        write "module Ruby_#{crystal_constant(ivar(node, :name))}"
+        write "module Ruby_#{crystal_constant(node.name)}"
         emit_newline
-        body = ivar(node, :body)
+        body = node.body
         indented { emit(body) unless body.is_a?(Ast::NilLiteral) }
         emit_newline
         emit_indent
@@ -1554,14 +1554,14 @@ module Frozone
       def collect_cvars(node, seen = Set.new)
         case node
         when Ast::ClassVariableWrite
-          seen << ivar(node, :name).to_s
-          collect_cvars(ivar(node, :value_node), seen)
+          seen << node.name.to_s
+          collect_cvars(node.value_node, seen)
         when Ast::ClassVariableRead
-          seen << ivar(node, :name).to_s
+          seen << node.name.to_s
         when Ast::Sequence
           node.nodes.each { |n| collect_cvars(n, seen) }
         when Ast::MethodDef
-          collect_cvars(ivar(node, :body), seen) if ivar(node, :body)
+          collect_cvars(node.body, seen) if node.body
         when Ast::If
           collect_cvars(node.then_node, seen)
           collect_cvars(node.else_node, seen) if node.else_node
@@ -1581,17 +1581,17 @@ module Frozone
       def collect_ivars(node, seen = Set.new)
         case node
         when Ast::InstanceVariableWrite
-          seen << ivar(node, :name).to_s
-          collect_ivars(ivar(node, :value_node), seen)
+          seen << node.name.to_s
+          collect_ivars(node.value_node, seen)
         when Ast::Sequence
           node.nodes.each { |n| collect_ivars(n, seen) }
         when Ast::MethodDef
-          collect_ivars(ivar(node, :body), seen) if ivar(node, :body)
+          collect_ivars(node.body, seen) if node.body
         when Ast::MethodCall
           # attr_accessor/reader/writer declare implicit ivars
-          if ATTR_METHODS.include?(ivar(node, :name))
-            ivar(node, :arg_nodes).each do |a|
-              seen << "@#{ivar(a, :value).raw}" if a.is_a?(Ast::SymbolLiteral)
+          if ATTR_METHODS.include?(node.name)
+            node.arg_nodes.each do |a|
+              seen << "@#{a.value.raw}" if a.is_a?(Ast::SymbolLiteral)
             end
           end
         when Ast::If

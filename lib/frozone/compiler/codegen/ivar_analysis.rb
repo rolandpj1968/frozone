@@ -145,18 +145,18 @@ module Frozone
         when Ast::Sequence
           node.nodes.each { |n| collect_ivar_class_types(n, ivar_type_sets, class_locals, param_names: param_names) }
         when Ast::InstanceVariableWrite
-          iv = ivar(node, :name)
-          ty = ivar_assign_class_type(ivar(node, :value_node), class_locals, param_names: param_names)
+          iv = node.name
+          ty = ivar_assign_class_type(node.value_node, class_locals, param_names: param_names)
           ivar_type_sets[iv] << ty
         when Ast::If
-          collect_ivar_class_types(ivar(node, :then_node), ivar_type_sets, class_locals, param_names: param_names)
-          collect_ivar_class_types(ivar(node, :else_node), ivar_type_sets, class_locals, param_names: param_names)
+          collect_ivar_class_types(node.then_node, ivar_type_sets, class_locals, param_names: param_names)
+          collect_ivar_class_types(node.else_node, ivar_type_sets, class_locals, param_names: param_names)
         when Ast::While, Ast::Until
-          collect_ivar_class_types(ivar(node, :body_node), ivar_type_sets, class_locals, param_names: param_names)
+          collect_ivar_class_types(node.body_node, ivar_type_sets, class_locals, param_names: param_names)
         when Ast::Block
-          collect_ivar_class_types(ivar(node, :body), ivar_type_sets, class_locals, param_names: param_names)
+          collect_ivar_class_types(node.body, ivar_type_sets, class_locals, param_names: param_names)
         when Ast::Rescue
-          collect_ivar_class_types(ivar(node, :body), ivar_type_sets, class_locals, param_names: param_names)
+          collect_ivar_class_types(node.body, ivar_type_sets, class_locals, param_names: param_names)
         end
       end
 
@@ -166,7 +166,7 @@ module Frozone
       def walk_setter_ivar_types(node, class_name, accessor_names, ivar_type_sets)
         return unless node
         if node.is_a?(Ast::AttributeWrite)
-          attr = ivar(node, :name).to_s.chomp('=').to_sym
+          attr = node.name.to_s.chomp('=').to_sym
           if accessor_names.include?(attr)
             # Value is self-referential if it comes from same-class ivar/accessor
             ivar_type_sets[:"@#{attr}"] << :self_ivar
@@ -186,10 +186,10 @@ module Frozone
         when Ast::HashLiteral then :Hash
         when Ast::RangeLiteral then :Range
         when Ast::MethodCall
-          name = ivar(node, :name)
-          recv = ivar(node, :receiver_node)
+          name = node.name
+          recv = node.receiver_node
           if name == :new && recv.is_a?(Ast::ConstantRead)
-            ivar(recv, :name)  # Returns class name for both user and built-in
+            recv.name  # Returns class name for both user and built-in
           elsif recv.nil?
             :self_ivar
           elsif recv.is_a?(Ast::InstanceVariableRead)
@@ -198,7 +198,7 @@ module Frozone
             :unknown
           end
         when Ast::LocalVariableRead
-          name = ivar(node, :name)
+          name = node.name
           cls = class_locals[name]
           if cls
             cls_sym = cls.is_a?(Array) ? cls[0] : cls
@@ -234,7 +234,7 @@ module Frozone
       def walk_class_new_calls(node, class_name, &block)
         return unless node
         if node.is_a?(Ast::MethodCall) && node.name == :new &&
-           node.receiver_node.is_a?(Ast::ConstantRead) && ivar(node.receiver_node, :name) == class_name
+           node.receiver_node.is_a?(Ast::ConstantRead) && node.receiver_node.name == class_name
           block.call((node.arg_nodes || []).map { |a| node_raw_type(a) })
         end
         node.children.each { |c| walk_class_new_calls(c, class_name, &block) }
@@ -248,12 +248,12 @@ module Frozone
         when Ast::Sequence
           node.nodes.each { |n| collect_ivar_assignments(n, ivar_types) }
         when Ast::InstanceVariableWrite
-          iv = ivar(node, :name)
-          ty = node_raw_type(ivar(node, :value_node))
+          iv = node.name
+          ty = node_raw_type(node.value_node)
           update_ivar_type(ivar_types, iv, ty)
         when Ast::MultipleAssignment
-          targets = ivar(node, :targets)
-          value   = ivar(node, :value_node)
+          targets = node.targets
+          value   = node.value_node
           # Handle ArrayLiteral RHS: @a, @b = expr_a, expr_b
           if value.is_a?(Ast::ArrayLiteral)
             elems = value.instance_variable_get(:@element_nodes) || []

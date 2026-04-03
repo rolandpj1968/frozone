@@ -6,6 +6,8 @@ require_relative '../vm/nil_object'
 module Frozone
   module Ast
     class ClassDef < Node
+      attr_reader :name, :superclass_node, :namespace_node, :body
+
       def initialize(name, locals, superclass_node, body, namespace_node: nil, source_location: nil)
         @name = name
 

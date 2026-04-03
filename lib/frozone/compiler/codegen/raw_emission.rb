@@ -27,24 +27,24 @@ module Frozone
         when Ast::FloatLiteral   then :f64
         when Ast::Sequence       then node_raw_type(node.nodes.last) if node.nodes.any?
         when Ast::LocalVariableRead
-          @mctx.typed_locals[ivar(node, :name)] || @mctx.raw_block_params[ivar(node, :name)]
+          @mctx.typed_locals[node.name] || @mctx.raw_block_params[node.name]
         when Ast::LocalVariableWrite
           # Chained assignment: sum = maxflips = 0 — type is the inner value's type
-          node_raw_type(ivar(node, :value_node))
+          node_raw_type(node.value_node)
         when Ast::InstanceVariableRead
-          @cctx.ivars[ivar(node, :name)]
+          @cctx.ivars[node.name]
         when Ast::ConstantRead
-          @gctx.const_raw_types[ivar(node, :name)]
+          @gctx.const_raw_types[node.name]
         when Ast::ConstantPath
           # Math::PI, Math::E → :f64
-          parent = ivar(node, :parent_node)
-          if parent.is_a?(Ast::ConstantRead) && ivar(parent, :name) == :Math
+          parent = node.parent_node
+          if parent.is_a?(Ast::ConstantRead) && parent.name == :Math
             :f64
           end
         when Ast::MethodCall
-          name = ivar(node, :name)
-          recv = ivar(node, :receiver_node)
-          args = ivar(node, :arg_nodes) || []
+          name = node.name
+          recv = node.receiver_node
+          args = node.arg_nodes || []
           # Free call to a typed-return method
           if recv.nil? && (ret_ty = @gctx.typed_method_returns[name])
             return ret_ty
@@ -55,19 +55,19 @@ module Frozone
             return ret_ty
           end
           # Math.sqrt, Math.sin, etc. always return Float64
-          if recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == :Math
+          if recv.is_a?(Ast::ConstantRead) && recv.name == :Math
             return :f64
           end
           # Instance method call on a class-typed local with known raw return type
           if recv.is_a?(Ast::LocalVariableRead)
-            recv_class = @mctx.class_locals[ivar(recv, :name)]
+            recv_class = @mctx.class_locals[recv.name]
             if recv_class && (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
               return ret_ty
             end
           end
           # Typed array element read: a[k] where a is a typed or native array local
           if name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
-            arr_name = ivar(recv, :name)
+            arr_name = recv.name
             nat_ty = native_array_elem_type(arr_name)
             return nat_ty if nat_ty
             # Boxed RubyArray with known elem type from TI
@@ -89,9 +89,9 @@ module Frozone
           (rt == :f64 || at == :f64) ? :f64 : :i64
         when Ast::IndexOperatorWrite
           # sr[i] += 1 on a native Array(Int64) returns Int64
-          recv = ivar(node, :receiver_node)
+          recv = node.receiver_node
           if recv.is_a?(Ast::LocalVariableRead)
-            arr_name = ivar(recv, :name)
+            arr_name = recv.name
             nat_ty = native_array_elem_type(arr_name)
             return nat_ty if nat_ty
           end
@@ -122,7 +122,7 @@ module Frozone
           nodes.each do |n|
             # Unwrap chained assignments: sum = maxflips = 0 → IntegerLiteral
             inner = n
-            inner = ivar(inner, :value_node) while inner.is_a?(Ast::LocalVariableWrite)
+            inner = inner.value_node while inner.is_a?(Ast::LocalVariableWrite)
             case inner
             when Ast::IntegerLiteral then @mctx.typed_locals[name] ||= :i64
             when Ast::FloatLiteral   then @mctx.typed_locals[name]  = :f64
@@ -169,7 +169,7 @@ module Frozone
       def collect_local_assignments(node, result)
         return unless node
         if node.is_a?(Ast::LocalVariableWrite)
-          result[ivar(node, :name)] << ivar(node, :value_node)
+          result[node.name] << node.value_node
         end
         node.children.each do |c|
           collect_local_assignments(c, result) unless c.is_a?(Ast::Block)
@@ -184,20 +184,20 @@ module Frozone
           # Emit as Crystal &&: both sides must produce Crystal-compatible booleans.
           # Comparisons (CrystalEmitter::COMPARE_OPS) in emit_raw produce Crystal Bool already.
           write "("
-          emit_raw(ivar(node, :left_node))
+          emit_raw(node.left_node)
           write " && "
-          emit_raw(ivar(node, :right_node))
+          emit_raw(node.right_node)
           write ")"
         when Ast::Or
           write "("
-          emit_raw(ivar(node, :left_node))
+          emit_raw(node.left_node)
           write " || "
-          emit_raw(ivar(node, :right_node))
+          emit_raw(node.right_node)
           write ")"
         when Ast::IntegerLiteral
-          write "#{ivar(node, :value).raw}_i64"
+          write "#{node.value.raw}_i64"
         when Ast::FloatLiteral
-          raw = ivar(node, :value)
+          raw = node.value
           val = raw.respond_to?(:raw) ? raw.raw : raw
           write float_bits_expr(val)
         when Ast::Sequence
@@ -214,27 +214,27 @@ module Frozone
             write ")"
           end
         when Ast::LocalVariableRead
-          write crystal_local(ivar(node, :name))
+          write crystal_local(node.name)
         when Ast::InstanceVariableRead
-          write ivar(node, :name).to_s
+          write node.name.to_s
         when Ast::ConstantRead
-          ty = @gctx.const_raw_types[ivar(node, :name)]
+          ty = @gctx.const_raw_types[node.name]
           emit_constant_read(node)
           # Array constants are already native — no coercion needed
           write(ty == :f64 ? ".to_f64" : ".to_i64") unless ty == :array_i64 || ty == :array_f64
         when Ast::ConstantPath
           # Math::PI → Math::PI (already Float64 in Crystal)
-          parent = ivar(node, :parent_node)
-          if parent.is_a?(Ast::ConstantRead) && ivar(parent, :name) == :Math
-            write "Math::#{ivar(node, :name)}"
+          parent = node.parent_node
+          if parent.is_a?(Ast::ConstantRead) && parent.name == :Math
+            write "Math::#{node.name}"
           else
             emit(node)
             write ".to_f64"
           end
         when Ast::MethodCall
-          name = ivar(node, :name)
-          recv = ivar(node, :receiver_node)
-          args = ivar(node, :arg_nodes) || []
+          name = node.name
+          recv = node.receiver_node
+          args = node.arg_nodes || []
           # to_f / to_i coercion → emit raw coercion
           if %i[to_f to_f64].include?(name) && args.empty? && recv
             emit_raw(recv)
@@ -254,7 +254,7 @@ module Frozone
             return
           end
           if name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
-            arr_name = ivar(recv, :name)
+            arr_name = recv.name
             if (nat_ty = native_array_elem_type(arr_name))
               # Unboxed Array(T) local (typed or nested parent): a[k] → bare Int64/Float64
               write crystal_local(arr_name)
@@ -293,7 +293,7 @@ module Frozone
               write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
             end
           elsif recv.is_a?(Ast::LocalVariableRead) &&
-                (recv_class = @mctx.class_locals[ivar(recv, :name)]) &&
+                (recv_class = @mctx.class_locals[recv.name]) &&
                 (ret_ty = @gctx.instance_method_raw_returns[[recv_class, name]])
             # Instance method call on class-typed local with raw return:
             # use _raw accessor (avoids box allocation) if available, else add .to_f64/.to_i64.
@@ -301,7 +301,7 @@ module Frozone
             # the variable comes from a block parameter (typed as RubyObject).
             emit_raw(recv)
             write ".as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(name)}_raw"
-          elsif recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == :Math &&
+          elsif recv.is_a?(Ast::ConstantRead) && recv.name == :Math &&
                 args.size >= 1 && args.all? { |a| node_raw_type(a) }
             # Math.sqrt(typed_arg) etc. → Crystal Math.sqrt(raw_arg), no allocation
             write "Math.#{name}("
@@ -348,9 +348,9 @@ module Frozone
         end
         # Try to recurse into arithmetic with at least one typed operand
         if node.is_a?(Ast::MethodCall)
-          name = ivar(node, :name)
-          recv = ivar(node, :receiver_node)
-          args = ivar(node, :arg_nodes) || []
+          name = node.name
+          recv = node.receiver_node
+          args = node.arg_nodes || []
           if (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
             rt = node_raw_type(recv)
             at = node_raw_type(args[0])
@@ -410,9 +410,9 @@ module Frozone
       def emit_raw_expr(node)
         case node
         when Ast::IntegerLiteral
-          write "#{ivar(node, :value).raw}_i64"
+          write "#{node.value.raw}_i64"
         when Ast::FloatLiteral
-          raw = ivar(node, :value)
+          raw = node.value
           val = raw.respond_to?(:raw) ? raw.raw : raw
           write float_bits_expr(val)
         when Ast::NilLiteral
@@ -423,9 +423,9 @@ module Frozone
           write "false"
         when Ast::LocalVariableRead
           # Bare Crystal local — no boxing. Typed locals are already the right type.
-          write crystal_local(ivar(node, :name))
+          write crystal_local(node.name)
         when Ast::InstanceVariableRead
-          iv = ivar(node, :name)
+          iv = node.name
           case @cctx&.ivars&.dig(iv)
           when :i64, :f64, :array_i64, :array_f64
             write iv.to_s  # bare ivar
@@ -433,9 +433,9 @@ module Frozone
             write iv.to_s  # still bare — caller decides whether to box
           end
         when Ast::LocalVariableWrite
-          name = ivar(node, :name)
+          name = node.name
           write crystal_local(name), " = "
-          emit_raw_expr(ivar(node, :value_node))
+          emit_raw_expr(node.value_node)
         when Ast::Sequence
           node.nodes.each_with_index do |n, i|
             if i < node.nodes.size - 1
@@ -451,12 +451,12 @@ module Frozone
           end
         when Ast::AttributeWrite
           # @list[i] = val on typed array ivars
-          recv = ivar(node, :receiver_node)
-          if ivar(node, :name) == :[]= && recv.is_a?(Ast::InstanceVariableRead)
-            iv_ty = @cctx&.ivars&.dig(ivar(recv, :name))
+          recv = node.receiver_node
+          if node.name == :[]= && recv.is_a?(Ast::InstanceVariableRead)
+            iv_ty = @cctx&.ivars&.dig(recv.name)
             if iv_ty == :array_f64 || iv_ty == :array_i64
-              args = ivar(node, :arg_nodes)
-              write ivar(recv, :name).to_s, "["
+              args = node.arg_nodes
+              write recv.name.to_s, "["
               emit_raw_expr(args[0])
               write "] = "
               emit_raw_expr(args[1])
@@ -465,14 +465,14 @@ module Frozone
           end
           emit(node)  # fall back for non-array attribute writes
         when Ast::If
-          then_n = ivar(node, :then_node)
+          then_n = node.then_node
           else_n = node.instance_variable_get(:@else_node)
           # Check if branches produce mixed numeric types — coerce to Float64
           then_ty = node_raw_type(then_n)
           else_ty = else_n ? node_raw_type(else_n) : nil
           needs_float = (then_ty == :f64 && else_ty == :i64) || (then_ty == :i64 && else_ty == :f64)
           write "if "
-          emit_raw_truthy(ivar(node, :pred_node))
+          emit_raw_truthy(node.pred_node)
           emit_newline
           indented { emit_indent; needs_float && then_ty == :i64 ? (emit_raw_expr(then_n); write ".to_f64") : emit_raw_expr(then_n) }
           if else_n
@@ -481,21 +481,21 @@ module Frozone
           end
           emit_newline; emit_indent; write "end"
         when Ast::And
-          write "("; emit_raw_expr(ivar(node, :left_node))
-          write " && "; emit_raw_expr(ivar(node, :right_node)); write ")"
+          write "("; emit_raw_expr(node.left_node)
+          write " && "; emit_raw_expr(node.right_node); write ")"
         when Ast::Or
-          write "("; emit_raw_expr(ivar(node, :left_node))
-          write " || "; emit_raw_expr(ivar(node, :right_node)); write ")"
+          write "("; emit_raw_expr(node.left_node)
+          write " || "; emit_raw_expr(node.right_node); write ")"
         when Ast::Return
           write "return "
-          emit_raw_expr(ivar(node, :value_node)) if ivar(node, :value_node)
+          emit_raw_expr(node.value_node) if node.value_node
         when Ast::ConstantRead
-          name = ivar(node, :name)
+          name = node.name
           write "Ruby_#{crystal_constant(name)}"
         when Ast::ConstantPath
-          parent = ivar(node, :parent_node)
-          if parent.is_a?(Ast::ConstantRead) && ivar(parent, :name) == :Math
-            write "Math::#{ivar(node, :name)}"
+          parent = node.parent_node
+          if parent.is_a?(Ast::ConstantRead) && parent.name == :Math
+            write "Math::#{node.name}"
           else
             emit(node)
           end
@@ -513,11 +513,11 @@ module Frozone
           write " #{node.name} "
           emit_raw_expr(node.arg_nodes[0]); write ")"
         elsif node.is_a?(Ast::And)
-          write "("; emit_raw_truthy(ivar(node, :left_node))
-          write " && "; emit_raw_truthy(ivar(node, :right_node)); write ")"
+          write "("; emit_raw_truthy(node.left_node)
+          write " && "; emit_raw_truthy(node.right_node); write ")"
         elsif node.is_a?(Ast::Or)
-          write "("; emit_raw_truthy(ivar(node, :left_node))
-          write " || "; emit_raw_truthy(ivar(node, :right_node)); write ")"
+          write "("; emit_raw_truthy(node.left_node)
+          write " || "; emit_raw_truthy(node.right_node); write ")"
         else
           emit_raw_expr(node)
         end
@@ -530,7 +530,7 @@ module Frozone
         args = node.arg_nodes || []
 
         # Math.cos, Math.sin, etc.
-        if recv.is_a?(Ast::ConstantRead) && ivar(recv, :name) == :Math
+        if recv.is_a?(Ast::ConstantRead) && recv.name == :Math
           write "Math.#{name}("
           args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
           write ")"
@@ -575,7 +575,7 @@ module Frozone
 
         # Module.method(...) — class/module method call, pass raw args
         if recv.is_a?(Ast::ConstantRead)
-          write "Ruby_#{crystal_constant(ivar(recv, :name))}.", crystal_method_name(name)
+          write "Ruby_#{crystal_constant(recv.name)}.", crystal_method_name(name)
           write "("
           args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
           write ")"
@@ -628,7 +628,7 @@ module Frozone
 
         # Instance method on typed/known local — direct dispatch with raw args
         if recv.is_a?(Ast::LocalVariableRead)
-          recv_name = ivar(recv, :name)
+          recv_name = recv.name
           if @mctx.typed_locals[recv_name] || @mctx.class_locals&.dig(recv_name) || @mctx.native_array_locals&.dig(recv_name)
             write crystal_local(recv_name), ".", crystal_method_name(name)
             write "("
@@ -653,7 +653,7 @@ module Frozone
       def emit_raw_block(node)
         blk = node.block_node
         return unless blk.is_a?(Ast::Block)
-        params = ivar(blk, :required_params) || []
+        params = blk.required_params || []
         write " { "
         unless params.empty?
           write "|"

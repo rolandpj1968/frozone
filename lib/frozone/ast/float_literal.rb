@@ -4,6 +4,7 @@ require_relative '../vm/float_object'
 module Frozone
   module Ast
     class FloatLiteral < Node
+      attr_reader :value
       def initialize(value)
         @value = value
       end
