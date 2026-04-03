@@ -3,6 +3,7 @@ require_relative 'node'
 module Frozone
   module Ast
     class LocalVariableRead < Node
+      attr_reader :name
       def initialize(name, depth)
         @name = name
         @depth = depth

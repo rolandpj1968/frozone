@@ -12,6 +12,7 @@ module Frozone
       attr_reader :instance_variables_hash
 
       def frozen_object? = @frozen_object
+      def eigenclass = @eigenclass
       def lookup_class = @eigenclass || @class_object
       # Returns a method from the eigenclass (including its included modules).
       def eigenclass_method(name) = @eigenclass&.lookup_method(name)

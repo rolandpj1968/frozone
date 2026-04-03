@@ -10,6 +10,8 @@ module Frozone
     end
 
     class Return < Node
+      attr_reader :value_node
+
       def initialize(value_node)
         @value_node = value_node
       end

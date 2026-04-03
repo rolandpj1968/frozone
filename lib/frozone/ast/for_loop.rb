@@ -16,6 +16,7 @@ module Frozone
     #   [:call,  receiver_node, write_name]       - method call target (ofor.target)
     #   [:index, receiver_node, [arg_nodes]]      - index target (arr[1])
     class ForLoop < Node
+      attr_reader :target, :collection_node, :body_node
       def initialize(target, collection_node, body_node)
         @target = target
         @collection_node = collection_node

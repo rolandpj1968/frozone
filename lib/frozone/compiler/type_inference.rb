@@ -268,7 +268,7 @@ module Frozone
           next unless n.is_a?(Ast::MethodCall)
           recv = n.receiver_node
           args = n.arg_nodes || []
-          blk  = n.instance_variable_get(:@block_node)
+          blk  = n.block_node
 
           # Seed block params for iteration methods (times, each, etc.)
           if blk
@@ -279,13 +279,13 @@ module Frozone
           next if args.empty?
 
           # Propagate keyword arg types from call site
-          kw_args = n.instance_variable_get(:@kw_arg_nodes) || {}
+          kw_args = n.kw_arg_nodes || {}
           unless kw_args.empty?
             mkey = recv.nil? ? n.name : nil
-            mkey ||= [recv.instance_variable_get(:@name), n.name] if recv.is_a?(Ast::ConstantRead)
+            mkey ||= [recv.name, n.name] if recv.is_a?(Ast::ConstantRead)
             if mkey
               kw_args.each do |kw_name_node, val_node|
-                kw_sym = kw_name_node.is_a?(Ast::SymbolLiteral) ? kw_name_node.instance_variable_get(:@value).raw : nil
+                kw_sym = kw_name_node.is_a?(Ast::SymbolLiteral) ? kw_name_node.value.raw : nil
                 next unless kw_sym
                 ty = infer_expr(val_node, ctx)
                 changed |= @env.meet!([:kwparam, mkey, kw_sym], ty) if ty && ty != :unknown
@@ -305,15 +305,15 @@ module Frozone
             end
           elsif recv.is_a?(Ast::ConstantRead) && n.name == :new
             # ClassName.new(...) → constructor params, keyed by calling context.
-            class_sym = recv.instance_variable_get(:@name)
+            class_sym = recv.name
             ctor_ctx = ctx.method_key || :__execute__
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
               changed |= @env.meet!([:constructor_param, class_sym, i, ctor_ctx], ty) if ty && ty != :unknown
             end
-          elsif recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.instance_variable_get(:@name))
+          elsif recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.name)
             # Module.method(...) → class method params (keyed by module name).
-            class_sym = recv.instance_variable_get(:@name)
+            class_sym = recv.name
             mkey = [class_sym, n.name]
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
@@ -356,7 +356,7 @@ module Frozone
         return false unless method.body
         changed = false
         # Seed kwarg types from default values
-        (method.instance_variable_get(:@optional_kw_params) || []).each do |kw_name, default_node|
+        (method.optional_kw_params || []).each do |kw_name, default_node|
           next unless default_node
           ty = infer_expr(default_node, ctx)
           changed |= @env.meet!([:kwparam, mkey, kw_name], ty) if ty && ty != :unknown
@@ -404,16 +404,16 @@ module Frozone
         changed = false
         walk(body) do |node|
           next unless node.is_a?(Ast::MultipleAssignment)
-          targets = node.instance_variable_get(:@targets) || []
-          value = node.instance_variable_get(:@value_node)
-          next unless value.is_a?(Ast::MethodCall) && value.instance_variable_get(:@receiver_node).nil?
-          method_name = value.instance_variable_get(:@name)
+          targets = node.targets || []
+          value = node.value_node
+          next unless value.is_a?(Ast::MethodCall) && value.receiver_node.nil?
+          method_name = value.name
           method = @user_methods[method_name]
           next unless method
           # Find the return expression — walk method body for the last expression
           ret_node = last_expression(method.body)
           next unless ret_node.is_a?(Ast::ArrayLiteral)
-          ret_elems = ret_node.instance_variable_get(:@element_nodes) || []
+          ret_elems = ret_node.element_nodes || []
           # Map each element's type to the corresponding target local
           targets.each_with_index do |t, i|
             next unless t[0] == :local && ret_elems[i]
@@ -455,7 +455,7 @@ module Frozone
           next unless rhs_nodes.size == 1
           rhs = rhs_nodes.first
           next unless array_new_call?(rhs)
-          args = rhs.instance_variable_get(:@arg_nodes) || []
+          args = rhs.arg_nodes || []
           next unless args.size == 2
           fill_ty = infer_expr(args[1], ctx)
           next unless NUMERIC_TYPES.include?(fill_ty)
@@ -502,29 +502,29 @@ module Frozone
         return result unless node
         case node
         when Ast::MethodCall
-          args = node.instance_variable_get(:@arg_nodes) || []
+          args = node.arg_nodes || []
           recv = node.receiver_node
           if (node.name == :<< || node.name == :push) && args.size == 1
             if recv.is_a?(Ast::LocalVariableRead)
-              result[recv.instance_variable_get(:@name)] << args[0]
+              result[recv.name] << args[0]
             elsif recv.is_a?(Ast::MethodCall) && recv.name == :[] &&
                   recv.receiver_node.is_a?(Ast::LocalVariableRead)
               # arr[i] << val — val is an elem of arr's sub-arrays
               # Store with a [:sub, name] key to distinguish from direct writes
-              result[[:sub, recv.receiver_node.instance_variable_get(:@name)]] << args[0]
+              result[[:sub, recv.receiver_node.name]] << args[0]
             end
           end
           # Recurse into children
           collect_array_elem_writes(recv, result, depth: depth)
           args.each { |a| collect_array_elem_writes(a, result, depth: depth) }
-          blk = node.instance_variable_get(:@block_node)
+          blk = node.block_node
           collect_array_elem_writes(blk.body, result, depth: depth) if blk.is_a?(Ast::Block)
         when Ast::AttributeWrite
-          if node.instance_variable_get(:@name) == :[]=
-            recv = node.instance_variable_get(:@receiver_node)
-            args = node.instance_variable_get(:@arg_nodes) || []
+          if node.name == :[]=
+            recv = node.receiver_node
+            args = node.arg_nodes || []
             if recv.is_a?(Ast::LocalVariableRead) && args.size == 2
-              result[recv.instance_variable_get(:@name)] << args[1]
+              result[recv.name] << args[1]
             end
           end
         when Ast::Sequence
@@ -534,7 +534,7 @@ module Frozone
             collect_array_elem_writes(node.instance_variable_get(iv), result, depth: depth) if node.instance_variable_defined?(iv)
           end
         when Ast::While, Ast::Until
-          collect_array_elem_writes(node.instance_variable_get(:@body_node), result, depth: depth)
+          collect_array_elem_writes(node.body_node, result, depth: depth)
         when Ast::Block
           collect_array_elem_writes(node.body, result, depth: depth)
         end
@@ -558,10 +558,10 @@ module Frozone
         changed = false
         walk(body) do |node|
           next unless node.is_a?(Ast::ForLoop)
-          target = node.instance_variable_get(:@target)
+          target = node.target
           next unless target[0] == :local
           name = target[1]
-          coll_node = node.instance_variable_get(:@collection_node)
+          coll_node = node.collection_node
           coll_ty = infer_expr(coll_node, ctx)
           elem_ty = for_loop_elem_type(coll_ty)
           next unless elem_ty && elem_ty != :unknown
@@ -581,10 +581,10 @@ module Frozone
       # ------------------------------------------------------------------
 
       def propagate_ivars(class_name, klass)
-        init = (klass.instance_variable_get(:@methods_table) || {})[:initialize]
+        init = (klass.methods_table || {})[:initialize]
         return false unless init.is_a?(Vm::Method) && init.body
 
-        req_params = init.instance_variable_get(:@required_params) || []
+        req_params = init.required_params || []
         param_types = req_params.empty? ? [] : best_constructor_param_types(class_name, req_params.size)
         return false unless param_types
 
@@ -669,11 +669,11 @@ module Frozone
       # Scan body for @ivar[i] = val patterns and yield ivar_name + value type.
       def collect_ivar_array_elem_writes(node, class_name, ctx, &block)
         return unless node
-        if node.is_a?(Ast::AttributeWrite) && node.instance_variable_get(:@name) == :[]=
-          recv = node.instance_variable_get(:@receiver_node)
-          args = node.instance_variable_get(:@arg_nodes) || []
+        if node.is_a?(Ast::AttributeWrite) && node.name == :[]=
+          recv = node.receiver_node
+          args = node.arg_nodes || []
           if recv.is_a?(Ast::InstanceVariableRead) && args.size == 2
-            ivar_name = recv.instance_variable_get(:@name)
+            ivar_name = recv.name
             val_ty = infer_expr(args[1], ctx)
             set_p1 = @env.raw([:param, [:ThreeDArray, :set], 1])
             # Accept raw numerics and boxed Float/Integer (unbox to raw)
@@ -693,17 +693,17 @@ module Frozone
       def collect_setter_calls(node, class_name, accessor_names, ctx, &block)
         return unless node
         if node.is_a?(Ast::AttributeWrite)
-          name_sym = node.instance_variable_get(:@name)
+          name_sym = node.name
           attr = name_sym.to_s.chomp('=').to_sym
           if accessor_names.include?(attr)
-            recv = node.instance_variable_get(:@receiver_node)
+            recv = node.receiver_node
             recv_cls = nil
             if recv.is_a?(Ast::LocalVariableRead)
-              recv_ty = @env[[:local, ctx.method_key, recv.instance_variable_get(:@name)]]
+              recv_ty = @env[[:local, ctx.method_key, recv.name]]
               recv_cls = recv_ty[:class] if recv_ty.is_a?(Hash)
             end
             if recv_cls == class_name
-              args = node.instance_variable_get(:@arg_nodes) || []
+              args = node.arg_nodes || []
               if args[0]
                 ty = infer_expr(args[0], ctx)
                 block.call(attr, ty) if ty && ty != :unknown
@@ -737,7 +737,7 @@ module Frozone
         when Ast::StringLiteral   then {class: :String}
         when Ast::SymbolLiteral   then {class: :Symbol}
         when Ast::ArrayLiteral
-          elems = node.instance_variable_get(:@element_nodes) || []
+          elems = node.element_nodes || []
           if elems.empty?
             {class: :Array}
           else
@@ -746,7 +746,7 @@ module Frozone
           end
 
         when Ast::HashLiteral
-          pairs = node.instance_variable_get(:@kv_nodes) || []
+          pairs = node.kv_nodes || []
           if pairs.empty?
             {class: :Hash}
           else
@@ -765,7 +765,7 @@ module Frozone
           infer_expr(node.nodes.last, ctx)
 
         when Ast::LocalVariableRead
-          name = node.instance_variable_get(:@name)
+          name = node.name
           # During propagate_ivars, @ivar_param_seeds provides constructor param types.
           return @ivar_param_seeds[name] if @ivar_param_seeds&.key?(name)
           # Param slots (use raw so :unknown defers rather than collapsing).
@@ -783,19 +783,19 @@ module Frozone
           @env.raw([:local, ctx.method_key, name])
 
         when Ast::InstanceVariableRead
-          name = node.instance_variable_get(:@name)
+          name = node.name
           @env.raw([:ivar, ctx.class_name, name])
 
         when Ast::ConstantRead
-          name = node.instance_variable_get(:@name)
+          name = node.name
           @env.raw([:const, name])
 
         when Ast::LocalVariableWrite
-          infer_expr(node.instance_variable_get(:@value_node), ctx)
+          infer_expr(node.value_node, ctx)
 
         when Ast::If
-          t = infer_expr(node.instance_variable_get(:@then_node), ctx)
-          e = node.instance_variable_get(:@else_node)
+          t = infer_expr(node.then_node, ctx)
+          e = node.else_node
           e_ty = e ? infer_expr(e, ctx) : {class: :NilClass}
           return t if e_ty == :unknown
           return e_ty if t == :unknown
@@ -805,15 +805,15 @@ module Frozone
           infer_call(node, ctx)
 
         when Ast::Or
-          lt = infer_expr(node.instance_variable_get(:@left_node), ctx)
-          rt = infer_expr(node.instance_variable_get(:@right_node), ctx)
+          lt = infer_expr(node.left_node, ctx)
+          rt = infer_expr(node.right_node, ctx)
           return rt if lt == :unknown
           return lt if rt == :unknown
           meet(lt, rt)
 
         when Ast::And
-          lt = infer_expr(node.instance_variable_get(:@left_node), ctx)
-          rt = infer_expr(node.instance_variable_get(:@right_node), ctx)
+          lt = infer_expr(node.left_node, ctx)
+          rt = infer_expr(node.right_node, ctx)
           return rt if lt == :unknown
           return lt if rt == :unknown
           meet(lt, rt)
@@ -841,15 +841,15 @@ module Frozone
       COERCE_TO_INT      = %i[to_i to_i64 to_int].to_set
 
       def infer_call(node, ctx)
-        name = node.instance_variable_get(:@name)
-        recv = node.instance_variable_get(:@receiver_node)
-        args = node.instance_variable_get(:@arg_nodes) || []
-        blk  = node.instance_variable_get(:@block_node)
+        name = node.name
+        recv = node.receiver_node
+        args = node.arg_nodes || []
+        blk  = node.block_node
 
         # Array.new(n) { |i| expr }  → Array with block-inferred element type.
         # Array.new(n, fill)         → Array with fill-typed elements.
         if name == :new && recv.is_a?(Ast::ConstantRead) &&
-           recv.instance_variable_get(:@name) == :Array
+           recv.name == :Array
           if blk
             elem_ty = infer_block_return(blk, [:i64], ctx)
             return (elem_ty && elem_ty != :unknown) ?
@@ -881,13 +881,13 @@ module Frozone
 
         # ClassName.new(...) → exact class instance type.
         if name == :new && recv.is_a?(Ast::ConstantRead)
-          class_sym = recv.instance_variable_get(:@name)
+          class_sym = recv.name
           return {class: class_sym}
         end
 
         # Math.method(...) → always returns Float (f64).
         if recv.is_a?(Ast::ConstantRead) &&
-           recv.instance_variable_get(:@name) == :Math &&
+           recv.name == :Math &&
            MATH_FLOAT_METHODS.include?(name)
           return :f64
         end
@@ -896,7 +896,7 @@ module Frozone
         if name == :[] && args.size == 1
           # Unboxed Array(T) local — use raw to propagate :unknown through arithmetic.
           if recv.is_a?(Ast::LocalVariableRead)
-            lv = recv.instance_variable_get(:@name)
+            lv = recv.name
             raw = @env.raw([:array_elem, ctx.method_key, lv])
             return raw if raw != :unknown
           end
@@ -911,7 +911,7 @@ module Frozone
         unwrapped_recv = recv
         unwrapped_recv = unwrapped_recv.nodes.first while unwrapped_recv.is_a?(Ast::Sequence) && unwrapped_recv.nodes.size == 1
         if (name == :to_a || name == :to_ary) && unwrapped_recv.is_a?(Ast::RangeLiteral)
-          begin_ty = infer_expr(unwrapped_recv.instance_variable_get(:@begin_node), ctx)
+          begin_ty = infer_expr(unwrapped_recv.begin_node, ctx)
           return {class: :Array, elem: begin_ty}.freeze if NUMERIC_TYPES.include?(begin_ty)
           return {class: :Array}
         end
@@ -977,8 +977,8 @@ module Frozone
         end
 
         # Class method call: Module.method(...) → look up by module name.
-        if recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.instance_variable_get(:@name))
-          class_sym = recv.instance_variable_get(:@name)
+        if recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.name)
+          class_sym = recv.name
           ret = @env.raw([:return, [class_sym, name]])
           return ret if ret != :unknown
         end
@@ -1070,13 +1070,13 @@ module Frozone
           return :unknown if types.empty?
           types.reduce { |a, b| meet(a, b) }
         when Ast::If
-          then_n = node.instance_variable_get(:@then_node)
-          else_n = node.instance_variable_get(:@else_node)
+          then_n = node.then_node
+          else_n = node.else_node
           t = infer_body_return(then_n, ctx)
           e = else_n ? infer_body_return(else_n, ctx) : {class: :NilClass}
           meet(t == :unknown ? :unknown : t, e == :unknown ? :unknown : e)
         when Ast::Return
-          infer_expr(node.instance_variable_get(:@value_node), ctx)
+          infer_expr(node.value_node, ctx)
         when Ast::While, Ast::Until
           {class: :NilClass}  # while/until always returns nil in Ruby
         else
@@ -1089,17 +1089,17 @@ module Frozone
         return unless node
         case node
         when Ast::Return
-          ty = infer_expr(node.instance_variable_get(:@value_node), ctx)
+          ty = infer_expr(node.value_node, ctx)
           acc << ty if ty && ty != :unknown
         when Ast::Sequence
           node.nodes.each { |n| scan_returns(n, ctx, acc) }
         when Ast::If
-          scan_returns(node.instance_variable_get(:@then_node), ctx, acc)
-          scan_returns(node.instance_variable_get(:@else_node), ctx, acc)
+          scan_returns(node.then_node, ctx, acc)
+          scan_returns(node.else_node, ctx, acc)
         when Ast::While, Ast::Until
-          scan_returns(node.instance_variable_get(:@body_node), ctx, acc)
+          scan_returns(node.body_node, ctx, acc)
         when Ast::MethodCall
-          blk = node.instance_variable_get(:@block_node)
+          blk = node.block_node
           scan_returns(blk.body, ctx, acc) if blk.respond_to?(:body)
         when Ast::Block
           scan_returns(node.body, ctx, acc)
@@ -1114,14 +1114,14 @@ module Frozone
         return result unless node
         case node
         when Ast::LocalVariableWrite
-          name = node.instance_variable_get(:@name)
-          result[name] << node.instance_variable_get(:@value_node)
-          collect_assignments(node.instance_variable_get(:@value_node), result)
+          name = node.name
+          result[name] << node.value_node
+          collect_assignments(node.value_node, result)
         when Ast::MultipleAssignment
-          targets = node.instance_variable_get(:@targets) || []
-          value   = node.instance_variable_get(:@value_node)
+          targets = node.targets || []
+          value   = node.value_node
           if value.is_a?(Ast::ArrayLiteral)
-            elems = value.instance_variable_get(:@element_nodes) || []
+            elems = value.element_nodes || []
             targets.each_with_index do |t, i|
               next unless t[0] == :local
               result[t[1]] << elems[i] if elems[i]
@@ -1130,17 +1130,17 @@ module Frozone
         when Ast::Sequence
           node.nodes.each { |n| collect_assignments(n, result) }
         when Ast::If
-          collect_assignments(node.instance_variable_get(:@condition_node), result)
-          collect_assignments(node.instance_variable_get(:@then_node), result)
-          collect_assignments(node.instance_variable_get(:@else_node), result)
+          collect_assignments(node.condition_node, result)
+          collect_assignments(node.then_node, result)
+          collect_assignments(node.else_node, result)
         when Ast::While, Ast::Until
-          collect_assignments(node.instance_variable_get(:@condition_node), result)
-          collect_assignments(node.instance_variable_get(:@body_node), result)
+          collect_assignments(node.condition_node, result)
+          collect_assignments(node.body_node, result)
         when Ast::ForLoop
-          collect_assignments(node.instance_variable_get(:@collection_node), result)
-          collect_assignments(node.instance_variable_get(:@body_node), result)
+          collect_assignments(node.collection_node, result)
+          collect_assignments(node.body_node, result)
         when Ast::Return
-          collect_assignments(node.instance_variable_get(:@value_node), result)
+          collect_assignments(node.value_node, result)
         else
           %i[@body_node @value_node @then_node @else_node @condition_node].each do |slot|
             next unless node.instance_variable_defined?(slot)
@@ -1148,16 +1148,16 @@ module Frozone
             collect_assignments(child, result) if child.is_a?(Ast::Node)
           end
           if node.instance_variable_defined?(:@arg_nodes)
-            Array(node.instance_variable_get(:@arg_nodes)).each do |a|
+            Array(node.arg_nodes).each do |a|
               collect_assignments(a, result) if a.is_a?(Ast::Node)
             end
           end
           # Ruby blocks are closures — assignments inside a block body are
           # visible in the enclosing scope, so descend into block bodies.
           if node.instance_variable_defined?(:@block_node)
-            blk = node.instance_variable_get(:@block_node)
+            blk = node.block_node
             if blk&.instance_variable_defined?(:@body)
-              collect_assignments(blk.instance_variable_get(:@body), result)
+              collect_assignments(blk.body, result)
             end
           end
         end
@@ -1174,13 +1174,13 @@ module Frozone
         when Ast::Sequence
           node.nodes.each { |n| collect_ivar_assignments(n, result) }
         when Ast::InstanceVariableWrite
-          name = node.instance_variable_get(:@name)
-          result[name] << node.instance_variable_get(:@value_node)
+          name = node.name
+          result[name] << node.value_node
         when Ast::MultipleAssignment
-          targets = node.instance_variable_get(:@targets) || []
-          value   = node.instance_variable_get(:@value_node)
+          targets = node.targets || []
+          value   = node.value_node
           if value.is_a?(Ast::ArrayLiteral)
-            elems = value.instance_variable_get(:@element_nodes) || []
+            elems = value.element_nodes || []
             targets.each_with_index do |t, i|
               next unless t[0] == :ivar
               result[t[1]] << elems[i] if elems[i]
@@ -1199,37 +1199,37 @@ module Frozone
         walk(body) do |node|
           case node
           when Ast::MethodCall
-            recv = node.instance_variable_get(:@receiver_node)
-            args = node.instance_variable_get(:@arg_nodes) || []
+            recv = node.receiver_node
+            args = node.arg_nodes || []
             if recv.is_a?(Ast::LocalVariableRead) &&
-               recv.instance_variable_get(:@name) == name
+               recv.name == name
               escaped = true unless node.name == :[] || node.name == :[]=
             end
             args.each do |a|
               escaped = true if a.is_a?(Ast::LocalVariableRead) &&
-                                a.instance_variable_get(:@name) == name
+                                a.name == name
             end
           when Ast::AttributeWrite
-            recv = node.instance_variable_get(:@receiver_node)
-            args = node.instance_variable_get(:@arg_nodes) || []
+            recv = node.receiver_node
+            args = node.arg_nodes || []
             if recv.is_a?(Ast::LocalVariableRead) &&
-               recv.instance_variable_get(:@name) == name
-              escaped = true unless node.instance_variable_get(:@name) == :[]=
+               recv.name == name
+              escaped = true unless node.name == :[]=
             end
             args.each do |a|
               escaped = true if a.is_a?(Ast::LocalVariableRead) &&
-                                a.instance_variable_get(:@name) == name
+                                a.name == name
             end
           when Ast::LocalVariableWrite
-            val = node.instance_variable_get(:@value_node)
+            val = node.value_node
             if val.is_a?(Ast::LocalVariableRead) &&
-               val.instance_variable_get(:@name) == name
+               val.name == name
               escaped = true
             end
           when Ast::Return, Ast::InstanceVariableWrite
-            val = node.instance_variable_get(:@value_node)
+            val = node.value_node
             if val.is_a?(Ast::LocalVariableRead) &&
-               val.instance_variable_get(:@name) == name
+               val.name == name
               escaped = true
             end
           end
@@ -1246,9 +1246,9 @@ module Frozone
         last = last_expression(body)
         return false unless last.is_a?(Ast::ArrayLiteral)
         # Check that the local appears in the return array literal
-        ret_elems = last.instance_variable_get(:@element_nodes) || []
+        ret_elems = last.element_nodes || []
         in_return = ret_elems.any? { |e|
-          e.is_a?(Ast::LocalVariableRead) && e.instance_variable_get(:@name) == name
+          e.is_a?(Ast::LocalVariableRead) && e.name == name
         }
         return false unless in_return
         # Check no other escapes besides the return array and normal []/[]= use
@@ -1258,24 +1258,24 @@ module Frozone
           next if node.equal?(last)
           case node
           when Ast::MethodCall
-            recv = node.instance_variable_get(:@receiver_node)
-            args = node.instance_variable_get(:@arg_nodes) || []
+            recv = node.receiver_node
+            args = node.arg_nodes || []
             # Receiver use is OK for []/[]=
-            if recv.is_a?(Ast::LocalVariableRead) && recv.instance_variable_get(:@name) == name
+            if recv.is_a?(Ast::LocalVariableRead) && recv.name == name
               escaped_elsewhere = true unless node.name == :[] || node.name == :[]=
             end
             # Arg use is an escape (passed to another function)
             args.each do |a|
-              escaped_elsewhere = true if a.is_a?(Ast::LocalVariableRead) && a.instance_variable_get(:@name) == name
+              escaped_elsewhere = true if a.is_a?(Ast::LocalVariableRead) && a.name == name
             end
           when Ast::AttributeWrite
-            recv = node.instance_variable_get(:@receiver_node)
-            if recv.is_a?(Ast::LocalVariableRead) && recv.instance_variable_get(:@name) == name
-              escaped_elsewhere = true unless node.instance_variable_get(:@name) == :[]=
+            recv = node.receiver_node
+            if recv.is_a?(Ast::LocalVariableRead) && recv.name == name
+              escaped_elsewhere = true unless node.name == :[]=
             end
           when Ast::Return, Ast::InstanceVariableWrite
-            val = node.instance_variable_get(:@value_node)
-            escaped_elsewhere = true if val.is_a?(Ast::LocalVariableRead) && val.instance_variable_get(:@name) == name
+            val = node.value_node
+            escaped_elsewhere = true if val.is_a?(Ast::LocalVariableRead) && val.name == name
           end
           throw :stop if escaped_elsewhere
         end
@@ -1288,11 +1288,11 @@ module Frozone
         ok = true
         walk(body) do |node|
           next unless node.is_a?(Ast::AttributeWrite) &&
-                      node.instance_variable_get(:@name) == :[]= &&
-                      node.instance_variable_get(:@receiver_node)
+                      node.name == :[]= &&
+                      node.receiver_node
                           .then { |r| r.is_a?(Ast::LocalVariableRead) &&
-                                      r.instance_variable_get(:@name) == name }
-          args = node.instance_variable_get(:@arg_nodes) || []
+                                      r.name == name }
+          args = node.arg_nodes || []
           val_ty = infer_expr(args[1], ctx) if args[1]
           next if val_ty == :unknown
           ok = false unless val_ty == elem_ty ||
@@ -1312,31 +1312,31 @@ module Frozone
         when Ast::Sequence
           node.nodes.each { |n| walk(n, &block) }
         when Ast::If
-          walk(node.instance_variable_get(:@condition_node), &block)
-          walk(node.instance_variable_get(:@then_node), &block)
-          walk(node.instance_variable_get(:@else_node), &block)
+          walk(node.condition_node, &block)
+          walk(node.then_node, &block)
+          walk(node.else_node, &block)
         when Ast::While, Ast::Until
-          walk(node.instance_variable_get(:@condition_node), &block)
-          walk(node.instance_variable_get(:@body_node), &block)
+          walk(node.condition_node, &block)
+          walk(node.body_node, &block)
         when Ast::Return
-          walk(node.instance_variable_get(:@value_node), &block)
+          walk(node.value_node, &block)
         when Ast::LocalVariableWrite, Ast::InstanceVariableWrite
-          walk(node.instance_variable_get(:@value_node), &block)
+          walk(node.value_node, &block)
         when Ast::MethodCall
-          walk(node.instance_variable_get(:@receiver_node), &block)
-          (node.instance_variable_get(:@arg_nodes) || []).each { |a| walk(a, &block) }
-          blk = node.instance_variable_get(:@block_node)
-          walk(blk&.instance_variable_get(:@body), &block) if blk
+          walk(node.receiver_node, &block)
+          (node.arg_nodes || []).each { |a| walk(a, &block) }
+          blk = node.block_node
+          walk(blk&.body, &block) if blk
         when Ast::AttributeWrite
-          walk(node.instance_variable_get(:@receiver_node), &block)
-          (node.instance_variable_get(:@arg_nodes) || []).each { |a| walk(a, &block) }
+          walk(node.receiver_node, &block)
+          (node.arg_nodes || []).each { |a| walk(a, &block) }
         when Ast::MultipleAssignment
-          walk(node.instance_variable_get(:@value_node), &block)
+          walk(node.value_node, &block)
         when Ast::ForLoop
-          walk(node.instance_variable_get(:@collection_node), &block)
-          walk(node.instance_variable_get(:@body_node), &block)
+          walk(node.collection_node, &block)
+          walk(node.body_node, &block)
         when Ast::ArrayLiteral
-          (node.instance_variable_get(:@element_nodes) || []).each { |e| walk(e, &block) }
+          (node.element_nodes || []).each { |e| walk(e, &block) }
         else
           %i[@body_node @value_node @then_node @else_node @condition_node @receiver_node].each do |s|
             next unless node.instance_variable_defined?(s)
@@ -1344,10 +1344,10 @@ module Frozone
             walk(child, &block) if child.is_a?(Ast::Node)
           end
           if node.instance_variable_defined?(:@arg_nodes)
-            Array(node.instance_variable_get(:@arg_nodes)).each { |a| walk(a, &block) if a.is_a?(Ast::Node) }
+            Array(node.arg_nodes).each { |a| walk(a, &block) if a.is_a?(Ast::Node) }
           end
           if node.instance_variable_defined?(:@element_nodes)
-            Array(node.instance_variable_get(:@element_nodes)).each { |e| walk(e, &block) if e.is_a?(Ast::Node) }
+            Array(node.element_nodes).each { |e| walk(e, &block) if e.is_a?(Ast::Node) }
           end
         end
       end
@@ -1366,9 +1366,9 @@ module Frozone
       # Full ancestor chain (excluding self) for a user-defined class.
       def compute_user_ancestors(klass)
         chain = []
-        current = klass.instance_variable_get(:@superclass)
+        current = klass.superclass
         while current
-          cname = current.instance_variable_get(:@name)
+          cname = current.name
           break unless cname
           chain << cname
           # If we've reached a built-in class, append its known ancestors.
@@ -1376,7 +1376,7 @@ module Frozone
             chain.concat(BUILTIN_ANCESTORS[cname])
             break
           end
-          current = current.instance_variable_get(:@superclass)
+          current = current.superclass
         end
         # Ensure Object and BasicObject are always at the end.
         chain |= %i[Object BasicObject]
@@ -1508,7 +1508,7 @@ module Frozone
           end
         else
           class_obj  = value.respond_to?(:class_object) ? value.class_object : nil
-          class_name = class_obj&.instance_variable_get(:@name)
+          class_name = class_obj&.name
           return nil unless class_name
           {class: class_name}
         end
@@ -1520,22 +1520,22 @@ module Frozone
 
       def array_new_call?(node)
         return false unless node.is_a?(Ast::MethodCall)
-        return false unless node.instance_variable_get(:@name) == :new
-        recv = node.instance_variable_get(:@receiver_node)
+        return false unless node.name == :new
+        recv = node.receiver_node
         return false unless recv.is_a?(Ast::ConstantRead) &&
-                            recv.instance_variable_get(:@name) == :Array
-        node.instance_variable_get(:@block_node).nil?
+                            recv.name == :Array
+        node.block_node.nil?
       end
 
       def each_user_instance_method(class_name, klass)
-        (klass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
+        (klass.methods_table || {}).each do |mname, method|
           next unless method.is_a?(Vm::Method) && method.body
           yield [class_name, mname], method
         end
         # Also walk eigenclass (class methods / module methods)
-        eigenclass = klass.instance_variable_get(:@eigenclass)
+        eigenclass = klass.eigenclass
         if eigenclass
-          (eigenclass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
+          (eigenclass.methods_table || {}).each do |mname, method|
             next unless method.is_a?(Vm::Method) && method.body
             yield [class_name, mname], method
           end
@@ -1549,19 +1549,19 @@ module Frozone
         return [] unless mkey
         method = method_for_key(mkey)
         return [] unless method
-        (method.instance_variable_get(:@required_params) || []) +
-          (method.instance_variable_get(:@optional_params) || []).map(&:first) +
-          [method.instance_variable_get(:@rest_param)].compact +
-          (method.instance_variable_get(:@post_params) || [])
+        (method.required_params || []) +
+          (method.optional_params || []).map(&:first) +
+          [method.rest_param].compact +
+          (method.post_params || [])
       end
 
       def method_for_key(mkey)
         if mkey.is_a?(Array)
           class_name, method_name = mkey
           klass = @user_classes[class_name]
-          m = klass&.instance_variable_get(:@methods_table)&.fetch(method_name, nil)
+          m = klass&.methods_table&.fetch(method_name, nil)
           # Also check eigenclass for class/module methods
-          m ||= klass&.instance_variable_get(:@eigenclass)&.instance_variable_get(:@methods_table)&.fetch(method_name, nil)
+          m ||= klass&.eigenclass&.methods_table&.fetch(method_name, nil)
           m
         else
           @user_methods[mkey]

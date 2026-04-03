@@ -3,6 +3,7 @@ require_relative 'node'
 module Frozone
   module Ast
     class LocalVariableWrite < Node
+      attr_reader :name, :value_node
       def initialize(name, depth, value_node)
         @name = name
         @depth = depth

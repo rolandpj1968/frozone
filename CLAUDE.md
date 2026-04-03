@@ -205,6 +205,27 @@ def emit_local_var_write(node)
 end
 ```
 
+### Use accessors, not `instance_variable_get`
+Never use `node.instance_variable_get(:@foo)` to read an object's state. Add a public accessor (`attr_reader :foo`) and call `node.foo` instead. `instance_variable_get` bypasses encapsulation, is slower, blocks self-compilation, and makes code harder to grep:
+
+```ruby
+# Good — clean, fast, compilable
+def infer_expr(node, ctx)
+  case node
+  when Ast::LocalVariableRead
+    name = node.name
+    @env.raw([:local, ctx.method_key, name])
+
+# Bad — introspective, slow, uncompilable
+def infer_expr(node, ctx)
+  case node
+  when Ast::LocalVariableRead
+    name = node.instance_variable_get(:@name)
+    @env.raw([:local, ctx.method_key, name])
+```
+
+This applies throughout the codebase but especially in the compiler (`type_inference.rb`, `codegen.rb`, `raw_emission.rb`) where AST nodes are walked intensively.
+
 ### Extract common patterns
 When you see the same code pattern repeated, extract it into a helper. Three similar lines are fine; four is a smell. But don't create abstractions for hypothetical future use — extract only when the pattern already exists in multiple places.
 

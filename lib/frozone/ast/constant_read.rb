@@ -5,6 +5,7 @@ require_relative '../vm/frozone_exception'
 module Frozone
   module Ast
     class ConstantRead < Node
+      attr_reader :name
       def initialize(name)
         @name = name
       end

@@ -3,6 +3,7 @@ require_relative 'node'
 module Frozone
   module Ast
     class While < Node
+      attr_reader :condition_node, :body_node
       def initialize(condition_node, body_node, begin_modifier: false)
         @condition_node = condition_node
         @body_node = body_node

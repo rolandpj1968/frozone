@@ -4,6 +4,7 @@ require_relative '../vm/array_object'
 module Frozone
   module Ast
     class ArrayLiteral < Node
+      attr_reader :element_nodes
       def initialize(element_nodes)
         @element_nodes = element_nodes
       end
