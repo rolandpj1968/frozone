@@ -130,15 +130,14 @@ module Frozone
         raw = ty.to_legacy
         if mkey.is_a?(Symbol)
           params = @typed_params[mkey]
-          return if params && params.any? { |t| !raw_type(t) }
+          return if params && params.any? { |t| !t&.raw? }
           @typed_method_returns[mkey] = raw
         elsif mkey.is_a?(Array) && mkey.size == 2
           cname, fname = mkey
           if @user_class_names.include?(cname)
             params = @class_params[mkey]
-            unless params && params.any? { |t| !raw_type(t) } && params.any? { |t| raw_type(t) }
-              @instance_method_raw_returns[[cname, fname]] = raw
-            end
+            skip = params && params.any? { |t| !CrystalType.native?(t) } && params.any? { |t| CrystalType.native?(t) }
+            @instance_method_raw_returns[[cname, fname]] = raw unless skip
           end
         end
       end
@@ -202,10 +201,6 @@ module Frozone
           @class_params[mkey] = crystal_types if crystal_types.any? { |t| t != :ruby_object }
         end
       end
-
-      # --- Type conversion helpers (legacy — used by unpack_return) ---
-
-      def raw_type(ty) = (ty == :i64 || ty == :f64) ? ty : nil
     end
   end
 end

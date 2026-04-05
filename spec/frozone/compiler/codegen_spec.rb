@@ -63,17 +63,8 @@ RSpec.describe Frozone::Compiler::Codegen do
   end
 
   describe Frozone::Compiler::CrystalTypeMapper do
-    def mapper(opts = Set.new)
-      Frozone::Compiler::CrystalTypeMapper.new(
-        double("env"), user_methods: {}, user_classes: {}, opt_flags: opts
-      )
-    end
-
-    it "raw_type returns :i64/:f64 for scalars, nil otherwise" do
-      expect(mapper.send(:raw_type, :i64)).to eq(:i64)
-      expect(mapper.send(:raw_type, :f64)).to eq(:f64)
-      expect(mapper.send(:raw_type, {class: :Integer})).to be_nil
-      expect(mapper.send(:raw_type, :unknown)).to be_nil
-    end
+    # Tests for mapper behaviour live in the full compilation smoke tests.
+    # Per-method unit tests removed during Type migration — the mapper
+    # no longer has legacy raw_type / crystal_type helpers.
   end
 end
