@@ -434,6 +434,14 @@ module Frozone
           end
         when Ast::LocalVariableWrite
           name = node.name
+          # Delegate array construction to specialised handlers
+          return if try_nested_array_write(node, name)
+          return if try_range_to_a_write(node, name)
+          return if try_native_dup_write(node, name)
+          return if try_typed_array_write(node, name)
+          return if try_boxed_array_promote(node, name)
+          # Skip try_scalar_write and try_class_cast_write in raw context —
+          # they use emit_as/emit which box. Raw context handles these natively.
           write crystal_local(name), " = "
           emit_raw_expr(node.value_node)
         when Ast::Sequence
