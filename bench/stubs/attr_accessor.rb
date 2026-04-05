@@ -3,4 +3,4 @@ def run_benchmark(*, &); end
 require_relative '../benchmarks/attr_accessor'
 
 # Under --aot, everything below is compiled to Crystal.
-3.times { OBJ.get_value_loop }
+300.times { OBJ.get_value_loop }

@@ -5,4 +5,4 @@ require_relative '../benchmarks/ruby-xor'
 # Under --aot, everything below is compiled to Crystal.
 a = A
 b = B
-20.times { ruby_xor!(a.dup, b) }
+2000.times { ruby_xor!(a.dup, b) }
