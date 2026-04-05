@@ -1,3 +1,5 @@
+require_relative 'type'
+
 # Structured Crystal type representation for the AoT compiler.
 #
 # Instead of string-matching on "Array(Int64)" or "RubyObject", the type
@@ -65,38 +67,42 @@ module Frozone
         end
       end
 
-      # Convert from the TI lattice value to a CrystalType.
-      def self.from_ti(ty, user_class_names: Set.new)
-        case ty
-        when :i64 then :i64
-        when :f64 then :f64
-        when :array_i64 then [:array, :i64]
-        when :array_f64 then [:array, :f64]
-        when Hash
-          case ty[:class]
-          when :Array
-            if ty[:elem]
-              elem = from_ti(ty[:elem], user_class_names: user_class_names)
-              native?(elem) ? [:array, elem] : :ruby_object
-            else
-              :ruby_object
-            end
-          when :Hash   then [:ruby_builtin, :Hash]
-          when :Proc   then [:ruby_builtin, :Proc]
-          when :String, :Symbol, :Integer, :Float then :ruby_object
-          when :NilClass, :TrueClass, :FalseClass then :ruby_object
-          when :Object, :Numeric, :BasicObject, :Comparable, :Enumerable then :ruby_object
-          else
-            cls = ty[:class]
-            if user_class_names.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls)
-              [:ruby_class, cls]
-            else
-              :ruby_object
-            end
-          end
-        when :unknown, nil then :ruby_object
-        else :ruby_object
+      # Convert from a Type value object to a CrystalType.
+      def self.from_type(ty, user_class_names: Set.new)
+        return :ruby_object if ty.nil? || ty.bottom?
+        return :i64 if ty.i64?
+        return :f64 if ty.f64?
+        if ty.array_scalar?
+          return [:array, ty.elem.i64? ? :i64 : :f64]
         end
+        return :ruby_object unless ty.class_type?
+        case ty.class_name
+        when :Array
+          if ty.elem
+            elem = from_type(ty.elem, user_class_names: user_class_names)
+            native?(elem) ? [:array, elem] : :ruby_object
+          else
+            :ruby_object
+          end
+        when :Hash   then [:ruby_builtin, :Hash]
+        when :Proc   then [:ruby_builtin, :Proc]
+        when :String, :Symbol, :Integer, :Float,
+             :NilClass, :TrueClass, :FalseClass,
+             :Object, :Numeric, :BasicObject, :Comparable, :Enumerable
+          :ruby_object
+        else
+          cls = ty.class_name
+          if user_class_names.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls)
+            [:ruby_class, cls]
+          else
+            :ruby_object
+          end
+        end
+      end
+
+      # Legacy adapter — convert from old Symbol/Hash representation.
+      def self.from_ti(ty, user_class_names: Set.new)
+        from_type(Type.from_legacy(ty), user_class_names: user_class_names)
       end
     end
   end

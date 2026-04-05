@@ -59,10 +59,10 @@ module Frozone
 
       # Unpack TypeEnv slots into per-kind lookup maps.
       def unpack_slots
-        @env.slots.each do |slot, ty|
-          next if ty == :unknown || !slot.is_a?(Array)
+        @env.each_typed do |slot, ty|
+          next unless slot.is_a?(Array)
           case slot[0]
-          when :local    then unpack_local(slot, ty)
+          when :local       then unpack_local(slot, ty)
           when :block_param then unpack_block_param(slot, ty)
           when :array_elem  then unpack_array_elem(slot, ty)
           when :const       then unpack_const(slot, ty)
@@ -74,182 +74,138 @@ module Frozone
 
       def unpack_local(slot, ty)
         mkey, name = slot[1], slot[2]
-        # Unified local type
-        ct = CrystalType.from_ti(ty, user_class_names: @user_class_names)
+        ct = CrystalType.from_type(ty, user_class_names: @user_class_names)
         (@local_types[mkey] ||= {})[name] = ct if ct != :ruby_object
-        # Class-typed locals (devirtualize)
-        if ty.is_a?(Hash) && opt?(:devirtualize)
-          cls = ty[:class]
+        if ty.class_type? && opt?(:devirtualize)
+          cls = ty.class_name
           skip_builtin = %i[Object BasicObject Numeric Array Hash].include?(cls)
-          if cls && !skip_builtin && (@user_class_names.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls))
-            (@class_locals[mkey] ||= {})[name] = ty[:nullable] ? [cls, :nullable] : cls
+          if !skip_builtin && (@user_class_names.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls))
+            (@class_locals[mkey] ||= {})[name] = ty.nullable? ? [cls, :nullable] : cls
           end
         end
-        # Array element type (boxed RubyArray with known elem type)
-        if ty.is_a?(Hash) && ty[:class] == :Array && opt?(:native_arrays) && (elem_raw = raw_type(ty[:elem]))
-          (@local_array_elems[mkey] ||= {})[name] = elem_raw
+        if ty.array? && opt?(:native_arrays) && ty.elem&.raw?
+          (@local_array_elems[mkey] ||= {})[name] = ty.elem.to_legacy
         end
-        # Scalar unboxing
-        if opt?(:unbox_locals) && (raw = raw_type(ty))
-          (@locals[mkey] ||= {})[name] = raw
+        if opt?(:unbox_locals) && ty.raw?
+          (@locals[mkey] ||= {})[name] = ty.to_legacy
         end
       end
 
       def unpack_block_param(slot, ty)
-        return unless opt?(:native_iteration)
-        raw = raw_type(ty) or return
-        (@block_params[slot[1]] ||= {})[slot[2]] = raw
+        return unless opt?(:native_iteration) && ty.raw?
+        (@block_params[slot[1]] ||= {})[slot[2]] = ty.to_legacy
       end
 
       def unpack_array_elem(slot, ty)
-        return unless opt?(:native_arrays)
-        raw = raw_type(ty) or return
-        (@arrays[slot[1]] ||= {})[slot[2]] = raw
+        return unless opt?(:native_arrays) && ty.raw?
+        (@arrays[slot[1]] ||= {})[slot[2]] = ty.to_legacy
       end
 
       def unpack_const(slot, ty)
         return unless opt?(:unbox_locals)
-        raw = raw_type(ty)
-        if raw
-          @const_raw_types[slot[1]] = raw
+        if ty.raw?
+          @const_raw_types[slot[1]] = ty.to_legacy
           return
         end
-        # Array constants with known element type
-        if ty.is_a?(Hash) && ty[:class] == :Array && ty[:elem] && raw_type(ty[:elem])
-          @const_raw_types[slot[1]] = ty[:elem] == :f64 ? :array_f64 : :array_i64
+        if ty.array? && ty.elem&.raw?
+          @const_raw_types[slot[1]] = ty.elem.f64? ? :array_f64 : :array_i64
         end
       end
 
       def unpack_ivar(slot, ty)
         return unless opt?(:typed_ivars)
-        # Scalar ivars: :i64, :f64
-        raw = raw_type(ty)
-        if raw
-          (@typed_ivars[slot[1]] ||= {})[slot[2]] = raw
+        if ty.raw?
+          (@typed_ivars[slot[1]] ||= {})[slot[2]] = ty.to_legacy
           return
         end
-        # Array ivars with known element type: {class: :Array, elem: :f64}
-        if ty.is_a?(Hash) && ty[:class] == :Array && ty[:elem] && raw_type(ty[:elem])
-          (@typed_ivars[slot[1]] ||= {})[slot[2]] = ty[:elem] == :f64 ? :array_f64 : :array_i64
+        if ty.array? && ty.elem&.raw?
+          (@typed_ivars[slot[1]] ||= {})[slot[2]] = ty.elem.f64? ? :array_f64 : :array_i64
         end
       end
 
       def unpack_return(slot, ty)
         return unless opt?(:method_specialization) || opt?(:raw_returns) || opt?(:accessor_inline)
+        return unless ty.raw?
         mkey = slot[1]
-        raw = raw_type(ty) or return
+        raw = ty.to_legacy
         if mkey.is_a?(Symbol)
-          # Only annotate return as raw when the typed overload has all raw params
           params = @typed_params[mkey]
           return if params && params.any? { |t| !raw_type(t) }
           @typed_method_returns[mkey] = raw
         elsif mkey.is_a?(Array) && mkey.size == 2
           cname, fname = mkey
           if @user_class_names.include?(cname)
-            # Skip raw return annotation when typed overload has mixed params
-            # (e.g., min(Int64, RubyObject) can't return Int64 since RubyObject path returns RubyObject)
             params = @class_params[mkey]
-            if params && params.any? { |t| !raw_type(t) } && params.any? { |t| raw_type(t) }
-              # Mixed params — skip raw return
-            else
+            unless params && params.any? { |t| !raw_type(t) } && params.any? { |t| raw_type(t) }
               @instance_method_raw_returns[[cname, fname]] = raw
             end
           end
         end
       end
 
-      # Build @inferred_params and @typed_params for top-level methods
       def build_top_level_params
         return unless opt?(:call_site_types) || opt?(:method_specialization)
         @user_methods.each do |mname, method|
-          req = method.instance_variable_get(:@required_params) || []
+          req = method.required_params || []
           next if req.empty?
           crystal_types = req.each_with_index.map { |_, i|
-            ty = @env[[:param, mname, i]]
-            ty ? CrystalType.from_ti(ty, user_class_names: @user_class_names) : :ruby_object
+            ty = @env.type_of([:param, mname, i])
+            ty.bottom? ? :ruby_object : CrystalType.from_type(ty, user_class_names: @user_class_names)
           }
           next unless crystal_types.any? { |t| t != :ruby_object }
           @inferred_params[mname] = crystal_types
-          raw_types = req.each_with_index.map { |_, i| raw_type(@env[[:param, mname, i]]) }
+          raw_types = req.each_with_index.map { |_, i|
+            ty = @env.type_of([:param, mname, i])
+            ty.raw? ? ty.to_legacy : nil
+          }
           @typed_params[mname] = raw_types if raw_types.all? && @typed_method_returns[mname]
         end
       end
 
-      # Build @inferred_params for eigenclass methods
       def build_eigenclass_params
         return unless opt?(:call_site_types) || opt?(:method_specialization)
         @user_classes.each do |_cname, klass|
-          eigenclass = klass.instance_variable_get(:@eigenclass)
+          eigenclass = klass.eigenclass
           next unless eigenclass
-          (eigenclass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
+          (eigenclass.methods_table || {}).each do |mname, method|
             next unless method.is_a?(Vm::Method)
             next if @inferred_params.key?(mname)
-            req = method.instance_variable_get(:@required_params) || []
+            req = method.required_params || []
             next if req.empty?
             crystal_types = req.each_with_index.map { |_, i|
-              ty = @env[[:param, mname, i]]
-              ty ? CrystalType.from_ti(ty, user_class_names: @user_class_names) : :ruby_object
+              ty = @env.type_of([:param, mname, i])
+              ty.bottom? ? :ruby_object : CrystalType.from_type(ty, user_class_names: @user_class_names)
             }
             @inferred_params[mname] = crystal_types if crystal_types.any? { |t| t != :ruby_object }
           end
         end
       end
 
-      # Build @class_params for instance AND class methods
       def build_class_params
         @user_classes.each do |cname, klass|
           build_method_params(klass, cname)
-          eigenclass = klass.instance_variable_get(:@eigenclass)
+          eigenclass = klass.eigenclass
           build_method_params(eigenclass, cname) if eigenclass
         end
       end
 
       def build_method_params(klass, cname)
-        (klass.instance_variable_get(:@methods_table) || {}).each do |mname, method|
+        (klass.methods_table || {}).each do |mname, method|
           next unless method.is_a?(Vm::Method)
-          req = method.instance_variable_get(:@required_params) || []
+          req = method.required_params || []
           next if req.empty?
           mkey = [cname, mname]
           crystal_types = req.each_with_index.map { |_, i|
-            ty = @env[[:param, mkey, i]]
-            ty ? CrystalType.from_ti(ty, user_class_names: @user_class_names) : :ruby_object
+            ty = @env.type_of([:param, mkey, i])
+            ty.bottom? ? :ruby_object : CrystalType.from_type(ty, user_class_names: @user_class_names)
           }
           @class_params[mkey] = crystal_types if crystal_types.any? { |t| t != :ruby_object }
         end
       end
 
-      # --- Type conversion helpers ---
+      # --- Type conversion helpers (legacy — used by unpack_return) ---
 
       def raw_type(ty) = (ty == :i64 || ty == :f64) ? ty : nil
-      def native_elem?(ct) = ct == 'Int64' || ct == 'Float64' || ct.start_with?('Array(')
-      def crystal_class_name(cls) = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{cls}"
-
-      def crystal_type(ty)
-        case ty
-        when :i64 then 'Int64'
-        when :f64 then 'Float64'
-        when :array_i64 then 'Array(Int64)'
-        when :array_f64 then 'Array(Float64)'
-        when Hash
-          case ty[:class]
-          when :Integer, :Float, :String, :Symbol then 'RubyObject'
-          when :NilClass, :TrueClass, :FalseClass then 'RubyObject'
-          when :Array
-            if ty[:elem]
-              elem_crystal = crystal_type(ty[:elem])
-              native_elem?(elem_crystal) ? "Array(#{elem_crystal})" : 'RubyObject'
-            else
-              'RubyObject'
-            end
-          when :Hash then 'RubyHash'
-          when :Proc then 'RubyProc'
-          else
-            cls = ty[:class]
-            (@user_class_names.include?(cls) || CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls)) ? crystal_class_name(cls) : 'RubyObject'
-          end
-        else 'RubyObject'
-        end
-      end
     end
   end
 end

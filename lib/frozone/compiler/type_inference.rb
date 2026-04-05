@@ -45,19 +45,6 @@ module Frozone
     #   env[:ivar,   :Planet,  :@x]      # => :f64
     #   env[:local,  :advance, :bi]      # => {class: :Planet}
     class TypeInference
-      # ------------------------------------------------------------------
-      # Type lattice constants
-      # ------------------------------------------------------------------
-
-      # Legacy constants — kept for downstream consumers not yet migrated.
-      NUMERIC_TYPES = %i[i64 f64].to_set
-      ARRAY_TYPES   = %i[array_i64 array_f64].to_set
-      RAW_TYPES     = (NUMERIC_TYPES | ARRAY_TYPES).freeze
-      ARRAY_ELEM_TYPE = { array_i64: :i64, array_f64: :f64 }.freeze
-      ARRAY_TYPE_FOR  = { i64: :array_i64, f64: :array_f64 }.freeze
-      BOXED_CLASS = { i64: :Integer, f64: :Float,
-                      array_i64: :Array, array_f64: :Array }.freeze
-
       # Binary arithmetic / bitwise operators; result type follows Ruby semantics.
       ARITH_OPS = %i[+ - * ** / % | & ^ << >>].to_set
 
@@ -125,6 +112,9 @@ module Frozone
         # Type-native accessors (return Type objects directly).
         def type_of(slot) = @typed_slots.fetch(slot, Type::BOTTOM)
         def type_at(slot) = @typed_slots[slot]  # nil if absent (not BOTTOM)
+
+        # Iterate all non-bottom slots yielding (slot_key, Type).
+        def each_typed(&block) = @typed_slots.each(&block)
 
         # Join `type` into `slot`. Accepts both Type and legacy values.
         # Returns true if the slot changed.
