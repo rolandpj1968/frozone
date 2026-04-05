@@ -421,12 +421,12 @@ Types are recursive: `{class: :Array, elem: ...}` nests arbitrarily deep.
 The codegen's `CrystalType` module mirrors this with a parallel recursive
 representation: `:i64`, `[:array, :i64]`, `[:array, [:array, :i64]]`, etc.
 
-`meet(a, b)` computes the LCA (least common ancestor) by walking the VM's
+`join(a, b)` computes the LCA (least common ancestor) by walking the VM's
 class hierarchy. Unboxed types widen to their boxed class before LCA:
-`meet(:i64, :f64)` → `{class: :Numeric}`. `:unknown` is the identity.
+`join(:i64, :f64)` → `{class: :Numeric}`. `:unknown` is the identity.
 
 The lattice is a **forward abstract interpretation** — types flow upward from
-specific to general. `meet` is really a JOIN (least upper bound): it finds
+specific to general. `join` is the least upper bound: it finds
 the widest type that covers both inputs. This means types can only **widen**
 over successive iterations, never narrow. Once a slot reaches `{class: :Object}`,
 it stays there. This guarantees termination and soundness, but precision is
@@ -443,10 +443,10 @@ the difference between `Ruby_Node#method` (direct) and
 subclassing so this is deferred, but it matters for real-world code with
 inheritance.
 
-Nullable types are tracked via `{class: :X, nullable: true}`. `NilClass` meet
-any class X preserves X with the nullable flag: `meet(NilClass, {class: :Node})`
+Nullable types are tracked via `{class: :X, nullable: true}`. `NilClass` joined
+with any class X preserves X with the nullable flag: `join(NilClass, {class: :Node})`
 → `{class: :Node, nullable: true}`. Nullable is preserved through same-class
-meets: `meet({class: :Node, nullable: true}, {class: :Node, nullable: true})`
+joins: `join({class: :Node, nullable: true}, {class: :Node, nullable: true})`
 → `{class: :Node, nullable: true}`.
 
 Collection params (`:elem`, `:key`, `:val`) merge recursively via
@@ -722,7 +722,7 @@ Crystal runtime, so duplication explosion is limited to user-defined modules.
 The splay benchmark defines `Node` with `attr_accessor :key`, constructed as
 both `Node.new(key, value)` where `key` is a Float and `Node.new(nil, nil)` as
 a sentinel/dummy node. Because the TI tracks constructor params globally, these
-merge: `meet(:f64, NilClass)` → `{class: :Float, nullable: true}`. The `@key`
+merge: `join(:f64, NilClass)` → `{class: :Float, nullable: true}`. The `@key`
 ivar widens from unboxed `Float64` to boxed `RubyObject`, which cascades
 through every comparison in the hot loop — making them virtual dispatch instead
 of native `Float64 <`.

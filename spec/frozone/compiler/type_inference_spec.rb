@@ -39,91 +39,91 @@ RSpec.describe Frozone::Compiler::TypeInference do
   end
 
   # =====================================================================
-  # meet — lattice operations
+  # join— lattice operations
   # =====================================================================
 
-  describe "#meet" do
+  describe "#join" do
     let(:t) { ti }
 
     context "identity" do
       it ":unknown is the identity element" do
-        expect(t.meet(:unknown, :i64)).to eq(:i64)
-        expect(t.meet(:f64, :unknown)).to eq(:f64)
-        expect(t.meet(:unknown, :unknown)).to eq(:unknown)
+        expect(t.join(:unknown, :i64)).to eq(:i64)
+        expect(t.join(:f64, :unknown)).to eq(:f64)
+        expect(t.join(:unknown, :unknown)).to eq(:unknown)
       end
     end
 
     context "same type" do
       it "returns the type unchanged" do
-        expect(t.meet(:i64, :i64)).to eq(:i64)
-        expect(t.meet(:f64, :f64)).to eq(:f64)
-        expect(t.meet({class: :String}, {class: :String})).to eq({class: :String})
+        expect(t.join(:i64, :i64)).to eq(:i64)
+        expect(t.join(:f64, :f64)).to eq(:f64)
+        expect(t.join({class: :String}, {class: :String})).to eq({class: :String})
       end
     end
 
     context "numeric widening" do
-      it "i64 meet f64 → Numeric" do
-        result = t.meet(:i64, :f64)
+      it "i64 joinf64 → Numeric" do
+        result = t.join(:i64, :f64)
         expect(result).to be_a(Hash)
         expect(result[:class]).to eq(:Numeric)
       end
 
-      it "f64 meet i64 → Numeric (commutative)" do
-        expect(t.meet(:f64, :i64)).to eq(t.meet(:i64, :f64))
+      it "f64 joini64 → Numeric (commutative)" do
+        expect(t.join(:f64, :i64)).to eq(t.join(:i64, :f64))
       end
     end
 
     context "NilClass preserves nullable" do
-      it "NilClass meet X → X with nullable" do
-        result = t.meet({class: :NilClass}, {class: :String})
+      it "NilClass joinX → X with nullable" do
+        result = t.join({class: :NilClass}, {class: :String})
         expect(result[:class]).to eq(:String)
         expect(result[:nullable]).to eq(true)
       end
 
-      it "X meet NilClass → X with nullable (commutative)" do
-        result = t.meet({class: :Integer}, {class: :NilClass})
+      it "X joinNilClass → X with nullable (commutative)" do
+        result = t.join({class: :Integer}, {class: :NilClass})
         expect(result[:class]).to eq(:Integer)
         expect(result[:nullable]).to eq(true)
       end
 
-      it "NilClass meet :i64 → Integer with nullable" do
-        result = t.meet({class: :NilClass}, :i64)
+      it "NilClass join:i64 → Integer with nullable" do
+        result = t.join({class: :NilClass}, :i64)
         expect(result[:class]).to eq(:Integer)
         expect(result[:nullable]).to eq(true)
       end
     end
 
-    context "nullable preservation through same-class meet" do
-      it "(X|Nil) meet (X|Nil) → (X|Nil)" do
+    context "nullable preservation through same-class join" do
+      it "(X|Nil) join(X|Nil) → (X|Nil)" do
         a = {class: :Node, nullable: true}
         b = {class: :Node, nullable: true}
-        result = t.meet(a, b)
+        result = t.join(a, b)
         expect(result[:class]).to eq(:Node)
         expect(result[:nullable]).to eq(true)
       end
 
-      it "(X|Nil) meet X → (X|Nil)" do
+      it "(X|Nil) joinX → (X|Nil)" do
         a = {class: :String, nullable: true}
         b = {class: :String}
-        result = t.meet(a, b)
+        result = t.join(a, b)
         expect(result[:class]).to eq(:String)
         expect(result[:nullable]).to eq(true)
       end
 
-      it "X meet (X|Nil) → (X|Nil)" do
+      it "X join(X|Nil) → (X|Nil)" do
         a = {class: :String}
         b = {class: :String, nullable: true}
-        result = t.meet(a, b)
+        result = t.join(a, b)
         expect(result[:class]).to eq(:String)
         expect(result[:nullable]).to eq(true)
       end
     end
 
     context "nullable preservation with collection params" do
-      it "Array(i64)|Nil meet Array(i64)|Nil preserves nullable and elem" do
+      it "Array(i64)|Nil joinArray(i64)|Nil preserves nullable and elem" do
         a = {class: :Array, elem: :i64, nullable: true}
         b = {class: :Array, elem: :i64, nullable: true}
-        result = t.meet(a, b)
+        result = t.join(a, b)
         expect(result[:class]).to eq(:Array)
         expect(result[:elem]).to eq(:i64)
         expect(result[:nullable]).to eq(true)
@@ -131,31 +131,31 @@ RSpec.describe Frozone::Compiler::TypeInference do
     end
 
     context "LCA for different classes" do
-      it "Integer meet String → Object" do
-        result = t.meet({class: :Integer}, {class: :String})
+      it "Integer joinString → Object" do
+        result = t.join({class: :Integer}, {class: :String})
         expect(result[:class]).to eq(:Object)
       end
 
-      it "Integer meet Float → Numeric" do
-        result = t.meet({class: :Integer}, {class: :Float})
+      it "Integer joinFloat → Numeric" do
+        result = t.join({class: :Integer}, {class: :Float})
         expect(result[:class]).to eq(:Numeric)
       end
 
-      it "File meet String → Object" do
-        result = t.meet({class: :File}, {class: :String})
+      it "File joinString → Object" do
+        result = t.join({class: :File}, {class: :String})
         expect(result[:class]).to eq(:Object)
       end
     end
 
     context "array type widening" do
-      it "array_i64 meet array_f64 → Array" do
-        result = t.meet(:array_i64, :array_f64)
+      it "array_i64 joinarray_f64 → Array" do
+        result = t.join(:array_i64, :array_f64)
         expect(result).to be_a(Hash)
         expect(result[:class]).to eq(:Array)
       end
 
-      it "array_i64 meet i64 → Object (array vs scalar)" do
-        result = t.meet(:array_i64, :i64)
+      it "array_i64 joini64 → Object (array vs scalar)" do
+        result = t.join(:array_i64, :i64)
         expect(result).to be_a(Hash)
         # Array meets Integer → Object
         expect(result[:class]).to eq(:Object)
@@ -274,7 +274,7 @@ RSpec.describe Frozone::Compiler::TypeInference do
     end
 
     context "logical operators" do
-      it "Or node infers meet of both sides" do
+      it "Or node infers joinof both sides" do
         t = ti
         t.instance_variable_set(:@_expr_cache, {})
         left = parse("1").nodes.first   # IntegerLiteral
@@ -404,8 +404,8 @@ RSpec.describe Frozone::Compiler::TypeInference do
       t = ti
       env = t.env
       # Simulate two calling contexts: insert passes :f64, splay! passes NilClass
-      env.meet!([:constructor_param, :Node, 0, :insert], :f64)
-      env.meet!([:constructor_param, :Node, 0, :"splay!"], {class: :NilClass})
+      env.join!([:constructor_param, :Node, 0, :insert], :f64)
+      env.join!([:constructor_param, :Node, 0, :"splay!"], {class: :NilClass})
 
       result = t.send(:best_constructor_param_types, :Node, 1)
       expect(result).to eq([:f64])
@@ -414,8 +414,8 @@ RSpec.describe Frozone::Compiler::TypeInference do
     it "merges non-nil contexts normally" do
       t = ti
       env = t.env
-      env.meet!([:constructor_param, :Pt, 0, :make_pt], :f64)
-      env.meet!([:constructor_param, :Pt, 0, :make_pt2], :i64)
+      env.join!([:constructor_param, :Pt, 0, :make_pt], :f64)
+      env.join!([:constructor_param, :Pt, 0, :make_pt2], :i64)
 
       result = t.send(:best_constructor_param_types, :Pt, 1)
       expect(result[0]).to be_a(Hash)
@@ -425,7 +425,7 @@ RSpec.describe Frozone::Compiler::TypeInference do
     it "defers when all contexts are nil (returns :unknown)" do
       t = ti
       env = t.env
-      env.meet!([:constructor_param, :Dummy, 0, :foo], {class: :NilClass})
+      env.join!([:constructor_param, :Dummy, 0, :foo], {class: :NilClass})
 
       result = t.send(:best_constructor_param_types, :Dummy, 1)
       expect(result[0]).to eq(:unknown)
@@ -444,27 +444,27 @@ RSpec.describe Frozone::Compiler::TypeInference do
       expect(env[[:local, :foo, :x]]).to be_nil
     end
 
-    it "meet! stores and returns changed" do
-      expect(env.meet!([:local, :foo, :x], :i64)).to be true
+    it "join! stores and returns changed" do
+      expect(env.join!([:local, :foo, :x], :i64)).to be true
       expect(env[[:local, :foo, :x]]).to eq(:i64)
     end
 
-    it "meet! returns false when unchanged" do
-      env.meet!([:local, :foo, :x], :i64)
-      expect(env.meet!([:local, :foo, :x], :i64)).to be false
+    it "join! returns false when unchanged" do
+      env.join!([:local, :foo, :x], :i64)
+      expect(env.join!([:local, :foo, :x], :i64)).to be false
     end
 
-    it "meet! widens on second meet" do
-      env.meet!([:local, :foo, :x], :i64)
-      env.meet!([:local, :foo, :x], :f64)
+    it "join! widens on second join" do
+      env.join!([:local, :foo, :x], :i64)
+      env.join!([:local, :foo, :x], :f64)
       result = env[[:local, :foo, :x]]
       expect(result).to be_a(Hash)
       expect(result[:class]).to eq(:Numeric)
     end
 
-    it "meet! with NilClass adds nullable" do
-      env.meet!([:local, :foo, :x], {class: :String})
-      env.meet!([:local, :foo, :x], {class: :NilClass})
+    it "join! with NilClass adds nullable" do
+      env.join!([:local, :foo, :x], {class: :String})
+      env.join!([:local, :foo, :x], {class: :NilClass})
       result = env[[:local, :foo, :x]]
       expect(result[:class]).to eq(:String)
       expect(result[:nullable]).to eq(true)

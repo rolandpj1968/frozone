@@ -19,7 +19,7 @@ module Frozone
     #   {class: :Object}           — any Object
     #   {class: :BasicObject}      — absolute top
     #
-    # meet(a, b) walks the VM class hierarchy to find the LCA of two types.
+    # join(a, b) walks the VM class hierarchy to find the LCA of two types.
     # Unboxed types (:i64, :f64) sit below their boxed counterparts and are
     # widened to the boxed class before LCA. :unknown is the identity element.
     #
@@ -120,10 +120,10 @@ module Frozone
         end
 
         # Meet `type` into `slot`. Returns true if the slot changed.
-        def meet!(slot, type)
+        def join!(slot, type)
           return false unless type
           current = @slots.fetch(slot, :unknown)
-          merged  = @ti.meet(current, type)
+          merged  = @ti.join(current, type)
           return false if merged == current
           @slots[slot] = merged
           true
@@ -167,10 +167,10 @@ module Frozone
       attr_reader :env
 
       # ------------------------------------------------------------------
-      # meet — the lattice join operation (instance method for LCA access)
+      # join — the lattice join operation (instance method for LCA access)
       # ------------------------------------------------------------------
 
-      def meet(a, b)
+      def join(a, b)
         return b if a == :unknown
         return a if b == :unknown
         return a if a == b
@@ -178,7 +178,7 @@ module Frozone
         # types before comparing, so the collection-param merge path sees them.
         a2 = a.is_a?(Hash) ? a : boxed_type(a)
         b2 = b.is_a?(Hash) ? b : boxed_type(b)
-        return meet(a2, b2) if a2 != a || b2 != b   # retry with normalised forms
+        return join(a2, b2) if a2 != a || b2 != b   # retry with normalised forms
         # Both are Hash class types.
         if a[:class] == b[:class]
           merge_collection_params(a, b)
@@ -255,7 +255,7 @@ module Frozone
       def seed_constants
         @constants.each do |name, value|
           ty = vm_object_type(value)
-          @env.meet!([:const, name], ty) if ty
+          @env.join!([:const, name], ty) if ty
         end
       end
 
@@ -290,7 +290,7 @@ module Frozone
                 kw_sym = kw_name_node.is_a?(Ast::SymbolLiteral) ? kw_name_node.value : nil
                 next unless kw_sym
                 ty = infer_expr(val_node, ctx)
-                changed |= @env.meet!([:kwparam, mkey, kw_sym], ty) if ty && ty != :unknown
+                changed |= @env.join!([:kwparam, mkey, kw_sym], ty) if ty && ty != :unknown
               end
             end
           end
@@ -300,10 +300,10 @@ module Frozone
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
               next unless ty && ty != :unknown
-              changed |= @env.meet!([:param, n.name, i], ty)
+              changed |= @env.join!([:param, n.name, i], ty)
               # Also store under class-keyed slot if inside a class method
               # (free calls inside class methods are actually class method calls)
-              changed |= @env.meet!([:param, [ctx.class_name, n.name], i], ty) if ctx.class_name
+              changed |= @env.join!([:param, [ctx.class_name, n.name], i], ty) if ctx.class_name
             end
           elsif recv.is_a?(Ast::ConstantRead) && n.name == :new
             # ClassName.new(...) → constructor params, keyed by calling context.
@@ -311,7 +311,7 @@ module Frozone
             ctor_ctx = ctx.method_key || :__execute__
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
-              changed |= @env.meet!([:constructor_param, class_sym, i, ctor_ctx], ty) if ty && ty != :unknown
+              changed |= @env.join!([:constructor_param, class_sym, i, ctor_ctx], ty) if ty && ty != :unknown
             end
           elsif recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.name)
             # Module.method(...) → class method params (keyed by module name).
@@ -319,7 +319,7 @@ module Frozone
             mkey = [class_sym, n.name]
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
-              changed |= @env.meet!([:param, mkey, i], ty) if ty && ty != :unknown
+              changed |= @env.join!([:param, mkey, i], ty) if ty && ty != :unknown
             end
           elsif recv
             # Instance method call — propagate typed args to instance method params.
@@ -330,7 +330,7 @@ module Frozone
               mkey = [class_name, n.name]
               args.each_with_index do |arg, i|
                 ty = infer_expr(arg, ctx)
-                changed |= @env.meet!([:param, mkey, i], ty) if ty && ty != :unknown
+                changed |= @env.join!([:param, mkey, i], ty) if ty && ty != :unknown
               end
             end
           end
@@ -361,7 +361,7 @@ module Frozone
         (method.optional_kw_params || []).each do |kw_name, default_node|
           next unless default_node
           ty = infer_expr(default_node, ctx)
-          changed |= @env.meet!([:kwparam, mkey, kw_name], ty) if ty && ty != :unknown
+          changed |= @env.join!([:kwparam, mkey, kw_name], ty) if ty && ty != :unknown
         end
         # Array locals first so scalar locals that depend on array reads are typed.
         changed |= propagate_array_locals(method.body, ctx)
@@ -371,7 +371,7 @@ module Frozone
         changed |= propagate_masgn_from_calls(method.body, ctx)
         ret_ty = infer_body_return(method.body, ctx)
         # Commit any definite (non-:unknown) return type.
-        changed |= @env.meet!([:return, mkey], ret_ty) if ret_ty && ret_ty != :unknown
+        changed |= @env.join!([:return, mkey], ret_ty) if ret_ty && ret_ty != :unknown
         changed
       end
 
@@ -388,10 +388,10 @@ module Frozone
           assignments.each do |name, rhs_nodes|
             ty = rhs_nodes.reduce(:unknown) do |acc, rhs|
               t = infer_expr(rhs, ctx)
-              meet(acc, t || :unknown)
+              join(acc, t || :unknown)
             end
             next if ty == :unknown
-            iter_changed |= @env.meet!([:local, ctx.method_key, name], ty)
+            iter_changed |= @env.join!([:local, ctx.method_key, name], ty)
           end
           changed |= iter_changed
           break unless iter_changed
@@ -423,7 +423,7 @@ module Frozone
             callee_ctx = TypeContext.new(method_name, nil)
             elem_ty = infer_expr(ret_elems[i], callee_ctx)
             next unless elem_ty && elem_ty != :unknown
-            changed |= @env.meet!([:local, ctx.method_key, t[1]], elem_ty)
+            changed |= @env.join!([:local, ctx.method_key, t[1]], elem_ty)
           end
         end
         changed
@@ -465,7 +465,7 @@ module Frozone
           next if escapes?(name, body, ctx) && !escapes_only_via_return_array?(name, body)
           next unless writes_consistent?(name, body, ctx, fill_ty)
 
-          changed |= @env.meet!([:array_elem, ctx.method_key, name], fill_ty)
+          changed |= @env.join!([:array_elem, ctx.method_key, name], fill_ty)
         end
 
         # Infer element types from push operations (<<, push, []=) on array locals.
@@ -479,7 +479,7 @@ module Frozone
             next unless types.all? { |t| NUMERIC_TYPES.include?(t) }
             unique = types.uniq
             next unless unique.size == 1
-            changed |= @env.meet!([:array_elem, ctx.method_key, key], unique[0])
+            changed |= @env.join!([:array_elem, ctx.method_key, key], unique[0])
           # Nested writes: arr[i] << val — refine arr's local type to Array(Array(T))
           elsif key.is_a?(Array) && key[0] == :sub
             arr_name = key[1]
@@ -490,7 +490,7 @@ module Frozone
             local_ty = @env[[:local, ctx.method_key, arr_name]]
             if local_ty.is_a?(Hash) && local_ty[:class] == :Array
               inner = { class: :Array, elem: unique[0] }
-              changed |= @env.meet!([:local, ctx.method_key, arr_name], { class: :Array, elem: inner })
+              changed |= @env.join!([:local, ctx.method_key, arr_name], { class: :Array, elem: inner })
             end
           end
         end
@@ -566,7 +566,7 @@ module Frozone
           coll_ty = infer_expr(coll_node, ctx)
           elem_ty = for_loop_elem_type(coll_ty)
           next unless elem_ty && elem_ty != :unknown
-          changed |= @env.meet!([:block_param, ctx.method_key, name], elem_ty)
+          changed |= @env.join!([:block_param, ctx.method_key, name], elem_ty)
         end
         changed
       end
@@ -591,7 +591,7 @@ module Frozone
 
         # Seed initialize param slots from best constructor types (NilClass filtered).
         param_types.each_with_index do |ty, i|
-          changed |= @env.meet!([:param, [class_name, :initialize], i], ty) if ty && ty != :unknown
+          changed |= @env.join!([:param, [class_name, :initialize], i], ty) if ty && ty != :unknown
         end
 
         ctx = TypeContext.new([class_name, :initialize], class_name)
@@ -606,10 +606,10 @@ module Frozone
         all_ivar_assigns.each do |ivar_name, rhs_nodes|
           ty = rhs_nodes.reduce(:unknown) do |acc, rhs|
             t = infer_expr(rhs, ctx)
-            meet(acc, t || :unknown)
+            join(acc, t || :unknown)
           end
           next if ty == :unknown
-          changed |= @env.meet!([:ivar, class_name, ivar_name], ty)
+          changed |= @env.join!([:ivar, class_name, ivar_name], ty)
         end
 
         # Also collect from all other instance methods — ivars may be
@@ -621,7 +621,7 @@ module Frozone
             rhs_nodes.each do |rhs|
               ty = infer_expr(rhs, method_ctx)
               next if ty.nil? || ty == :unknown
-              changed |= @env.meet!([:ivar, class_name, ivar_name], ty)
+              changed |= @env.join!([:ivar, class_name, ivar_name], ty)
             end
           end
         end
@@ -645,7 +645,7 @@ module Frozone
             next unless method.body
             method_ctx = TypeContext.new(mkey, mkey.is_a?(Array) ? mkey[0] : nil)
             collect_setter_calls(method.body, class_name, accessor_names, method_ctx) do |attr_name, ty|
-              changed |= @env.meet!([:ivar, class_name, :"@#{attr_name}"], ty)
+              changed |= @env.join!([:ivar, class_name, :"@#{attr_name}"], ty)
             end
           end
         end
@@ -658,7 +658,7 @@ module Frozone
           collect_ivar_array_elem_writes(method.body, class_name, method_ctx) do |ivar_name, elem_ty|
             current = @env.raw([:ivar, class_name, ivar_name])
             if current.is_a?(Hash) && current[:class] == :Array && !current.key?(:elem)
-              changed |= @env.meet!([:ivar, class_name, ivar_name], {class: :Array, elem: elem_ty}.freeze)
+              changed |= @env.join!([:ivar, class_name, ivar_name], {class: :Array, elem: elem_ty}.freeze)
             end
           end
         end
@@ -742,7 +742,7 @@ module Frozone
           if elems.empty?
             {class: :Array}
           else
-            elem_ty = elems.reduce(:unknown) { |acc, e| meet(acc, infer_expr(e, ctx)) }
+            elem_ty = elems.reduce(:unknown) { |acc, e| join(acc, infer_expr(e, ctx)) }
             elem_ty == :unknown ? {class: :Array} : {class: :Array, elem: elem_ty}.freeze
           end
 
@@ -751,8 +751,8 @@ module Frozone
           if pairs.empty?
             {class: :Hash}
           else
-            key_ty = pairs.reduce(:unknown) { |acc, (k, _)| meet(acc, infer_expr(k, ctx)) }
-            val_ty = pairs.reduce(:unknown) { |acc, (_, v)| meet(acc, infer_expr(v, ctx)) }
+            key_ty = pairs.reduce(:unknown) { |acc, (k, _)| join(acc, infer_expr(k, ctx)) }
+            val_ty = pairs.reduce(:unknown) { |acc, (_, v)| join(acc, infer_expr(v, ctx)) }
             result = {class: :Hash}
             result[:key] = key_ty unless key_ty == :unknown
             result[:val] = val_ty unless val_ty == :unknown
@@ -800,7 +800,7 @@ module Frozone
           e_ty = e ? infer_expr(e, ctx) : {class: :NilClass}
           return t if e_ty == :unknown
           return e_ty if t == :unknown
-          meet(t, e_ty)
+          join(t, e_ty)
 
         when Ast::MethodCall
           infer_call(node, ctx)
@@ -810,14 +810,14 @@ module Frozone
           rt = infer_expr(node.right_node, ctx)
           return rt if lt == :unknown
           return lt if rt == :unknown
-          meet(lt, rt)
+          join(lt, rt)
 
         when Ast::And
           lt = infer_expr(node.left_node, ctx)
           rt = infer_expr(node.right_node, ctx)
           return rt if lt == :unknown
           return lt if rt == :unknown
-          meet(lt, rt)
+          join(lt, rt)
 
         else
           :unknown
@@ -1019,7 +1019,7 @@ module Frozone
           next unless pname.is_a?(Symbol)
           ty = param_types[i]
           next unless ty && ty != :unknown
-          @env.meet!([:block_param, ctx.method_key, pname], ty)
+          @env.join!([:block_param, ctx.method_key, pname], ty)
         end
       end
 
@@ -1069,13 +1069,13 @@ module Frozone
           end
           scan_returns(node.nodes.last, ctx, types) if types.empty?
           return :unknown if types.empty?
-          types.reduce { |a, b| meet(a, b) }
+          types.reduce { |a, b| join(a, b) }
         when Ast::If
           then_n = node.then_node
           else_n = node.else_node
           t = infer_body_return(then_n, ctx)
           e = else_n ? infer_body_return(else_n, ctx) : {class: :NilClass}
-          meet(t == :unknown ? :unknown : t, e == :unknown ? :unknown : e)
+          join(t == :unknown ? :unknown : t, e == :unknown ? :unknown : e)
         when Ast::Return
           infer_expr(node.value_node, ctx)
         when Ast::While, Ast::Until
@@ -1420,7 +1420,7 @@ module Frozone
           return nil if types.empty?
           non_nil = types.reject { |t| t.is_a?(Hash) && t[:class] == :NilClass }
           next :unknown if non_nil.empty?
-          non_nil.reduce { |a, b| meet(a, b) }
+          non_nil.reduce { |a, b| join(a, b) }
         end
       end
 
@@ -1440,7 +1440,7 @@ module Frozone
         # side has it if only one does (absent = not yet observed, not "unknowable").
         %i[elem key val].each do |param|
           if a.key?(param) && b.key?(param)
-            result[param] = meet(a[param], b[param])
+            result[param] = join(a[param], b[param])
           elsif a.key?(param)
             result[param] = a[param]
           elsif b.key?(param)
@@ -1470,7 +1470,7 @@ module Frozone
           if elems.empty?
             {class: :Array}
           else
-            elem_ty = elems.reduce(:unknown) { |acc, e| meet(acc, vm_object_type(e) || :unknown) }
+            elem_ty = elems.reduce(:unknown) { |acc, e| join(acc, vm_object_type(e) || :unknown) }
             elem_ty == :unknown ? {class: :Array} : {class: :Array, elem: elem_ty}.freeze
           end
         when Vm::HashObject
@@ -1478,8 +1478,8 @@ module Frozone
           if pairs.empty?
             {class: :Hash}
           else
-            key_ty = pairs.keys.reduce(:unknown)  { |acc, kw| meet(acc, vm_object_type(kw.key) || :unknown) }
-            val_ty = pairs.values.reduce(:unknown) { |acc, v|  meet(acc, vm_object_type(v) || :unknown) }
+            key_ty = pairs.keys.reduce(:unknown)  { |acc, kw| join(acc, vm_object_type(kw.key) || :unknown) }
+            val_ty = pairs.values.reduce(:unknown) { |acc, v|  join(acc, vm_object_type(v) || :unknown) }
             result = {class: :Hash}
             result[:key] = key_ty unless key_ty == :unknown
             result[:val] = val_ty unless val_ty == :unknown

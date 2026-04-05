@@ -13,7 +13,7 @@ The type lattice **(L, ⊑, ⊔, ⊥)** is a join-semilattice with bottom:
 |--------|---------|
 | **⊥** (`unknown`) | Bottom — not yet analysed; the initial value for every slot |
 | **⊤** (`BasicObject`) | Top — no useful type information remains |
-| **⊔** (`meet`) | Join / least upper bound — widens toward ⊤ |
+| **⊔** (`join`) | Join / least upper bound — widens toward ⊤ |
 | **⊑** | Subtype: `a ⊑ b` iff `a ⊔ b = b` (a is at least as precise as b) |
 
 The analysis is a **forward abstract interpretation** (Cousot & Cousot, POPL
@@ -22,10 +22,8 @@ consumers (params, locals, ivars) through the program's control flow graph.
 The join operator widens at merge points. Because L has finite height and ⊔
 is monotonic, the fixed-point iteration terminates.
 
-> **Naming note.** The code calls the join operator `meet` — a historical
-> misnomer from thinking "meet the types together". In lattice theory, our
-> operation is a **join** (least upper bound), moving *up* toward ⊤. We keep
-> the code name for compatibility but use the correct term in this document.
+> **Naming.** The code method is `TypeInference#join` and `TypeEnv#join!`,
+> matching the lattice-theoretic term for least upper bound.
 
 ---
 
@@ -189,7 +187,7 @@ every typeable location in the program:
 Where `mkey` is either a Symbol (top-level method) or `[class, method]`
 pair (instance/class method).
 
-**TypeEnv** stores the mapping from slots to types. `meet!(slot, type)`
+**TypeEnv** stores the mapping from slots to types. `join!(slot, type)`
 computes `⊔(current, type)` and returns true if the slot changed —
 driving the fixed-point iteration.
 
@@ -334,7 +332,7 @@ clearing, stale cache entries prevent convergence.
 
 ## 8. Invariants and soundness
 
-1. **Monotonicity.** `meet!(slot, τ)` only widens: if the slot was σ,
+1. **Monotonicity.** `join!(slot, τ)` only widens: if the slot was σ,
    the new value is `⊔(σ, τ) ⊒ σ`. Slots never move downward.
 
 2. **Termination.** Finite lattice height + monotonicity → fixed point
@@ -365,11 +363,11 @@ clearing, stale cache entries prevent convergence.
 | Formal concept | Code |
 |---------------|------|
 | L (lattice) | Symbols `:unknown`, `:i64`, `:f64`, `:array_i64`, `:array_f64` and frozen Hashes `{class: C, ...}` |
-| ⊔ (join) | `TypeInference#meet(a, b)` |
+| ⊔ (join) | `TypeInference#join(a, b)` |
 | ⊥ (bottom) | `:unknown` |
 | ⊤ (top) | `{class: :BasicObject}` |
 | Slot | `[kind, context, name]` Array keys in `TypeEnv#slots` |
-| meet! | `TypeEnv#meet!(slot, type)` — returns true if changed |
+| join! | `TypeEnv#join!(slot, type)` — returns true if changed |
 | infer_expr | `TypeInference#infer_expr_uncached(node, ctx)` |
 | 1-CFA key | `[:constructor_param, class, index, caller_method]` |
 | Fixed point | `TypeInference#run(iterations: 10)` |
@@ -392,7 +390,7 @@ class Type
   Type.hash(key: Type.bottom, val: Type.bottom)
 
   # Lattice operations
-  def join(other)   # least upper bound (currently called meet)
+  def join(other)   # least upper bound
   def <=(other)     # subtype check: self ⊑ other
 
   # Queries
