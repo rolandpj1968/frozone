@@ -1613,7 +1613,7 @@ module Frozone
       # AST accessor helper — most AST nodes lack attr_reader
       # -----------------------------------------------------------------------
 
-      def ivar(node, name) = node.instance_variable_get(:"@#{name}")
+      # REMOVED: def ivar(node, name) — replaced by direct attr_reader accessors
 
       # -----------------------------------------------------------------------
       # Error handling

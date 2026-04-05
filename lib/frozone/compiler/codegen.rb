@@ -735,7 +735,7 @@ module Frozone
             write "end).to_s"
           end
         elsif raw_return
-          indented { emit_raw_body(method.body) }
+          indented { emit_raw_expr(method.body) }
         else
           # Emit Crystal tuple return when method is called in masgn context
           @mctx.emit_crystal_tuple = @cc.masgn_return_methods&.include?(name)

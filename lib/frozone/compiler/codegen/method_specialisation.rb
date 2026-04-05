@@ -326,69 +326,8 @@ module Frozone
         super
       end
 
-      # Emit a method body in raw (unboxed) mode: structural nodes are handled
-      # normally (if/sequence/assignments), expressions are emitted via emit_raw.
-      def emit_raw_body(node)
-        return unless node
-        case node
-        when Ast::Sequence
-          node.nodes.each { |n| emit_indent; emit_raw_expr(n); emit_newline }
-        when Ast::If
-          write "if "
-          cond = node.pred_node
-          if cond.is_a?(Ast::MethodCall) && (RawEmission::ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(cond.name) &&
-             (cond.arg_nodes || []).size == 1
-            recv = cond.receiver_node
-            # Wrap embedded assignments in parens so (q1 = expr) != val
-            # doesn't become q1 = (expr != val) due to Crystal precedence
-            if contains_assignment?(recv)
-              write "("; emit_raw(recv); write ")"
-            else
-              emit_raw(recv)
-            end
-            write " #{cond.name} "
-            emit_raw((cond.arg_nodes)[0])
-          else
-            emit_raw(cond)
-          end
-          emit_newline
-          indented { emit_raw_body(node.then_node) }
-          else_node = node.else_node
-          if else_node
-            emit_indent; write "else"; emit_newline
-            indented { emit_raw_body(else_node) }
-          end
-          emit_indent; write "end"
-        when Ast::While
-          write "while "
-          emit_raw(node.condition_node)
-          emit_newline
-          indented { emit_raw_body(node.body_node) }
-          emit_indent; write "end"
-        when Ast::Until
-          write "until "
-          emit_raw(node.condition_node)
-          emit_newline
-          indented { emit_raw_body(node.body_node) }
-          emit_indent; write "end"
-        when Ast::Return
-          write "return "
-          val = node.value_node
-          emit_raw(val) if val
-        when Ast::LocalVariableWrite
-          # Delegate typed-array construction to emit_local_var_write (handles Array(T).new).
-          # For scalar typed locals, emit assignment with raw RHS.
-          name = node.name
-          if @mctx.typed_array_locals[name]
-            emit_local_var_write(node)
-          else
-            write "#{crystal_local(name)} = "
-            emit_raw(node.value_node)
-          end
-        else
-          emit_raw_expr(node)
-        end
-      end
+      # DELETED: emit_raw_body — replaced by emit_raw_expr in raw_emission.rb
+      # All callers now use emit_raw_expr directly.
       end
     end
   end
