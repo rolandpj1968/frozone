@@ -35,18 +35,21 @@ Apples-to-apples wall-clock time (identical workload, Ruby 4.0.1, Crystal `--rel
 
 | Benchmark | Frozone | MRI | YJIT | vs MRI | vs YJIT |
 |-----------|---------|-----|------|--------|---------|
-| fib(35) ×3 | 139 ms | 2347 ms | 318 ms | **17×** | **2.3×** |
-| sudoku ×20 | 430 ms | 7466 ms | 2015 ms | **17×** | **4.7×** |
-| matmul(200) ×20 | 248 ms | 7530 ms | 3071 ms | **30×** | **12×** |
-| binarytrees ×60 | 2285 ms | 16586 ms | 7225 ms | **7.3×** | **3.2×** |
-| loops\_times | 14 ms | 836 ms | 266 ms | **60×** | **19×** |
-| fannkuchredux ×10 | 3773 ms | 3171 ms | 3194 ms | 0.8× | **0.8×** |
-| splay ×200 | 35130 ms | 19963 ms | 13923 ms | 0.6× | 0.4× |
-| blurhash ×10 | 7057 ms | 2480 ms | 1050 ms | 0.4× | 0.1× |
+| loops\_times | 13 ms | 836 ms | 266 ms | **65×** | **21×** |
+| nbody ×100 | 117 ms | 7293 ms | 2684 ms | **62×** | **23×** |
+| matmul(200) ×20 | 244 ms | 7530 ms | 3071 ms | **31×** | **13×** |
+| nqueens 500×12 | 6800 ms | 199000 ms | 49500 ms | **29×** | **7.3×** |
+| fib(35) ×3 | 115 ms | 2347 ms | 318 ms | **20×** | **2.7×** |
+| sudoku ×20 | 429 ms | 7466 ms | 2015 ms | **17×** | **4.7×** |
+| structaref ×850 | 1100 ms | 113000 ms | 10619 ms | **103×** | **10×** |
+| blurhash ×10 | 242 ms | 2480 ms | 1050 ms | **10×** | **4.2×** |
+| binarytrees ×60 | 2290 ms | 16586 ms | 7225 ms | **7.2×** | **3.1×** |
+| fannkuchredux ×10 | 1238 ms | 3171 ms | 3194 ms | **2.6×** | **2.6×** |
+| splay ×200 | 53900 ms | 19963 ms | 13923 ms | 0.4× | 0.3× |
 
-26 of 26 yjit-bench benchmarks compile to Crystal. The table above shows the 8 with matched iteration harnesses for apples-to-apples comparison; the remaining 18 (getivar, setivar, attr\_accessor, keyword\_args, object\_new, etc.) are micro-benchmarks that complete in <5 ms — too fast to meaningfully time against MRI's ~30 ms startup overhead. 5 benchmarks faster than YJIT; fannkuchredux at parity (native Array(Int64) from Range#to\_a promotion).
+24 of 25 benchmarks compile end-to-end (AOT → Crystal → native binary); gcbench excluded (GC-specific). 10 of 11 timed benchmarks faster than YJIT, with the top 3 at 13–23× faster. Splay is GC-bound (Boehm conservative GC vs MRI's generational GC).
 
-Key compiler features: whole-program type inference with array element propagation from `<<`/push, nested `Array(Array(T))` promotion, compile-time `respond_to?`/`is_a?` folding, symbol-indexed `respond_to?` dispatch, and typed method overloads with Crystal tuple multi-return. See [docs/compilation.md](docs/compilation.md) for architecture.
+Key compiler features: whole-program type inference with 1-CFA constructor specialisation, `emit_raw_expr` boxing-free typed overloads, class-typed parameter devirtualisation, native `Array(Int64)`/`Array(Float64)` ivar and constant promotion, compile-time `respond_to?`/`is_a?` folding, and kwargs in typed overloads. See [docs/compilation.md](docs/compilation.md) for architecture.
 
 ### AoT Compilation
 
