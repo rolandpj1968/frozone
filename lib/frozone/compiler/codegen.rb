@@ -812,6 +812,20 @@ module Frozone
           elems = value.raw.map { |e| vm_value_to_crystal(e) }
           return nil if elems.any?(&:nil?)
           "RubyArray.new([#{elems.join(', ')}] of RubyObject)"
+        when Vm::ObjectObject
+          # User class instance: emit Ruby_ClassName.new(ivar_values...)
+          klass = value.class_object
+          return nil unless klass.is_a?(Vm::ClassObject)
+          class_name = klass.name
+          return nil unless class_name && !SKIP_CONSTANTS.include?(class_name)
+          init = klass.methods_table&.fetch(:initialize, nil)
+          return nil unless init.is_a?(Vm::Method)
+          # Only handle no-arg constructors for now
+          if (init.required_params || []).empty?
+            "Ruby_#{crystal_constant(class_name)}.new"
+          else
+            nil  # Can't serialize constructor args
+          end
         else                        nil
         end
       end

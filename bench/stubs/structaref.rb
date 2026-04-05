@@ -3,4 +3,5 @@ def run_benchmark(*, &); end
 require_relative '../benchmarks/structaref_compiled'
 
 # Under --aot, everything below is compiled to Crystal.
-850.times { OBJ.get_value_loop }
+obj = TheClass.new(1, 2, 3, 1)
+850.times { get_value_loop(obj) }
