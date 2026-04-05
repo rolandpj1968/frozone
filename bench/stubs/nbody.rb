@@ -3,7 +3,7 @@ def run_benchmark(*, &); end
 require_relative '../benchmarks/nbody/benchmark'
 
 # Under --aot, everything below is compiled to Crystal.
-3.times do
+100.times do
   nbodies = NBODIES
   n = N
   dt = DT
