@@ -1609,10 +1609,13 @@ module Frozone
         # Pass typed local variables and raw arithmetic expressions as raw —
         # Crystal's overload resolution picks the Int64/Float64 overload when available.
         # Don't pass literals raw (they might reach functions expecting RubyObject).
-        # Only pass raw when ALL positional args are raw-passable.
-        # Mixed (Int64, RubyObject) tuples don't match either overload.
+        # Only pass raw when ALL positional args are raw-passable AND the
+        # callee has a typed overload (otherwise Crystal can't match raw args).
         all_raw = args.all? { |a| a.is_a?(Ast::SplatArg) || raw_passable_arg?(a) }
-        return super unless all_raw
+        has_typed_overload = @gctx.typed_params&.key?(node.name) ||
+          (@cctx&.name && @gctx.class_params&.key?([@cctx.name, node.name])) ||
+          (node.receiver_node.is_a?(Ast::ConstantRead) && @gctx.class_params&.key?([node.receiver_node.name, node.name]))
+        return super unless all_raw && has_typed_overload
 
         write "("
         first = true

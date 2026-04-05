@@ -573,11 +573,17 @@ module Frozone
           return true
         end
 
-        # Module.method(...) — class/module method call, pass raw args
+        # Module.method(...) — class/module method call
         if recv.is_a?(Ast::ConstantRead)
-          write "Ruby_#{crystal_constant(recv.name)}.", crystal_method_name(name)
+          cr_type = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[recv.name] || "Ruby_#{crystal_constant(recv.name)}"
+          write "#{cr_type}.", crystal_method_name(name)
           write "("
-          args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+          # For .new on built-in types (Array, Hash, etc.), box args — no typed constructor
+          if name == :new && CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(recv.name)
+            args.each_with_index { |a, i| write ", " if i > 0; emit(a) }
+          else
+            args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+          end
           write ")"
           emit_raw_block(node)
           return true
