@@ -239,7 +239,7 @@ module Frozone
         when :i64 then INTEGER
         when :f64 then FLOAT
         when :array_scalar
-          @elem&.i64? ? array(elem: I64) : array(elem: F64)
+          @elem&.i64? ? Type.array(elem: I64) : Type.array(elem: F64)
         when :class_type then self
         else OBJECT
         end

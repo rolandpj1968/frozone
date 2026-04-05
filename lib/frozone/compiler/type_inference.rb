@@ -49,18 +49,12 @@ module Frozone
       # Type lattice constants
       # ------------------------------------------------------------------
 
+      # Legacy constants — kept for downstream consumers not yet migrated.
       NUMERIC_TYPES = %i[i64 f64].to_set
       ARRAY_TYPES   = %i[array_i64 array_f64].to_set
       RAW_TYPES     = (NUMERIC_TYPES | ARRAY_TYPES).freeze
-
       ARRAY_ELEM_TYPE = { array_i64: :i64, array_f64: :f64 }.freeze
       ARRAY_TYPE_FOR  = { i64: :array_i64, f64: :array_f64 }.freeze
-
-      # Sentinel class-type values used frequently.
-      OBJECT_TYPE      = {class: :Object}.freeze
-      BASIC_OBJECT_TYPE = {class: :BasicObject}.freeze
-
-      # Boxed class for each unboxed type.
       BOXED_CLASS = { i64: :Integer, f64: :Float,
                       array_i64: :Array, array_f64: :Array }.freeze
 
@@ -139,7 +133,7 @@ module Frozone
           type = Type.from_legacy(type) unless type.is_a?(Type)
           return false if type.bottom?
           current = @typed_slots.fetch(slot, Type::BOTTOM)
-          merged = @ti.join_types(current, type)
+          merged = @ti.join(current, type)
           return false if merged == current
           @typed_slots[slot] = merged
           true
@@ -182,47 +176,17 @@ module Frozone
       attr_reader :env
 
       # ------------------------------------------------------------------
-      # join — the lattice join operation (instance method for LCA access)
+      # join — lattice join on Type value objects
       # ------------------------------------------------------------------
 
       def join(a, b)
-        return b if a == :unknown
-        return a if b == :unknown
-        return a if a == b
-        # Normalise unboxed symbols (:i64, :array_i64, …) to parameterised Hash
-        # types before comparing, so the collection-param merge path sees them.
-        a2 = a.is_a?(Hash) ? a : boxed_type(a)
-        b2 = b.is_a?(Hash) ? b : boxed_type(b)
-        return join(a2, b2) if a2 != a || b2 != b   # retry with normalised forms
-        # Both are Hash class types.
-        if a[:class] == b[:class]
-          merge_collection_params(a, b)
-        elsif a[:class] == :NilClass
-          # X | nil → preserve X with nullable flag
-          b.is_a?(Hash) ? b.merge(nullable: true).freeze : {class: b[:class], nullable: true}.freeze
-        elsif b[:class] == :NilClass
-          a.is_a?(Hash) ? a.merge(nullable: true).freeze : {class: a[:class], nullable: true}.freeze
-        elsif a[:nullable] && a[:class] == b[:class]
-          merge_collection_params(a, b)
-        elsif b[:nullable] && a[:class] == b[:class]
-          merge_collection_params(a, b).merge(nullable: true).freeze
-        else
-          lca_of(a[:class], b[:class])
-        end
-      end
-
-      # ------------------------------------------------------------------
-      # join_types — lattice join on Type value objects
-      # ------------------------------------------------------------------
-
-      def join_types(a, b)
         return b if a.bottom?
         return a if b.bottom?
         return a if a == b
 
         # Normalise scalars/array_scalars to class types for comparison.
         if !a.class_type? || !b.class_type?
-          return join_types(a.to_class_type, b.to_class_type)
+          return join(a.to_class_type, b.to_class_type)
         end
 
         # Both are class types.
@@ -333,7 +297,7 @@ module Frozone
                 kw_sym = kw_name_node.is_a?(Ast::SymbolLiteral) ? kw_name_node.value : nil
                 next unless kw_sym
                 ty = infer_expr(val_node, ctx)
-                changed |= @env.join!([:kwparam, mkey, kw_sym], ty) if ty && ty != :unknown
+                changed |= @env.join!([:kwparam, mkey, kw_sym], ty) unless ty.bottom?
               end
             end
           end
@@ -342,7 +306,7 @@ module Frozone
             # Free call → top-level method params.
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
-              next unless ty && ty != :unknown
+              next if ty.bottom?
               changed |= @env.join!([:param, n.name, i], ty)
               # Also store under class-keyed slot if inside a class method
               # (free calls inside class methods are actually class method calls)
@@ -354,7 +318,7 @@ module Frozone
             ctor_ctx = ctx.method_key || :__execute__
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
-              changed |= @env.join!([:constructor_param, class_sym, i, ctor_ctx], ty) if ty && ty != :unknown
+              changed |= @env.join!([:constructor_param, class_sym, i, ctor_ctx], ty) unless ty.bottom?
             end
           elsif recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.name)
             # Module.method(...) → class method params (keyed by module name).
@@ -362,18 +326,18 @@ module Frozone
             mkey = [class_sym, n.name]
             args.each_with_index do |arg, i|
               ty = infer_expr(arg, ctx)
-              changed |= @env.join!([:param, mkey, i], ty) if ty && ty != :unknown
+              changed |= @env.join!([:param, mkey, i], ty) unless ty.bottom?
             end
           elsif recv
             # Instance method call — propagate typed args to instance method params.
             recv_ty = infer_expr(recv, ctx)
 
-            if recv_ty.is_a?(Hash) && recv_ty[:class]
-              class_name = recv_ty[:class]
+            if recv_ty.class_type?
+              class_name = recv_ty.class_name
               mkey = [class_name, n.name]
               args.each_with_index do |arg, i|
                 ty = infer_expr(arg, ctx)
-                changed |= @env.join!([:param, mkey, i], ty) if ty && ty != :unknown
+                changed |= @env.join!([:param, mkey, i], ty) unless ty.bottom?
               end
             end
           end
@@ -404,7 +368,7 @@ module Frozone
         (method.optional_kw_params || []).each do |kw_name, default_node|
           next unless default_node
           ty = infer_expr(default_node, ctx)
-          changed |= @env.join!([:kwparam, mkey, kw_name], ty) if ty && ty != :unknown
+          changed |= @env.join!([:kwparam, mkey, kw_name], ty) unless ty.bottom?
         end
         # Array locals first so scalar locals that depend on array reads are typed.
         changed |= propagate_array_locals(method.body, ctx)
@@ -413,8 +377,7 @@ module Frozone
         changed |= propagate_locals(method.body, ctx)
         changed |= propagate_masgn_from_calls(method.body, ctx)
         ret_ty = infer_body_return(method.body, ctx)
-        # Commit any definite (non-:unknown) return type.
-        changed |= @env.join!([:return, mkey], ret_ty) if ret_ty && ret_ty != :unknown
+        changed |= @env.join!([:return, mkey], ret_ty) unless ret_ty.bottom?
         changed
       end
 
@@ -429,11 +392,10 @@ module Frozone
         loop do
           iter_changed = false
           assignments.each do |name, rhs_nodes|
-            ty = rhs_nodes.reduce(:unknown) do |acc, rhs|
-              t = infer_expr(rhs, ctx)
-              join(acc, t || :unknown)
+            ty = rhs_nodes.reduce(Type::BOTTOM) do |acc, rhs|
+              join(acc, infer_expr(rhs, ctx))
             end
-            next if ty == :unknown
+            next if ty.bottom?
             iter_changed |= @env.join!([:local, ctx.method_key, name], ty)
           end
           changed |= iter_changed
@@ -465,7 +427,7 @@ module Frozone
             # Infer the return element's type in the CALLED method's context
             callee_ctx = TypeContext.new(method_name, nil)
             elem_ty = infer_expr(ret_elems[i], callee_ctx)
-            next unless elem_ty && elem_ty != :unknown
+            next if elem_ty.bottom?
             changed |= @env.join!([:local, ctx.method_key, t[1]], elem_ty)
           end
         end
@@ -503,7 +465,7 @@ module Frozone
           args = rhs.arg_nodes || []
           next unless args.size == 2
           fill_ty = infer_expr(args[1], ctx)
-          next unless NUMERIC_TYPES.include?(fill_ty)
+          next unless fill_ty.raw?
 
           next if escapes?(name, body, ctx) && !escapes_only_via_return_array?(name, body)
           next unless writes_consistent?(name, body, ctx, fill_ty)
@@ -519,21 +481,20 @@ module Frozone
           if key.is_a?(Symbol)
             next if param_names.include?(key)
             types = value_nodes.map { |v| infer_expr(v, ctx) }
-            next unless types.all? { |t| NUMERIC_TYPES.include?(t) }
+            next unless types.all?(&:raw?)
             unique = types.uniq
             next unless unique.size == 1
             changed |= @env.join!([:array_elem, ctx.method_key, key], unique[0])
-          # Nested writes: arr[i] << val — refine arr's local type to Array(Array(T))
           elsif key.is_a?(Array) && key[0] == :sub
             arr_name = key[1]
             types = value_nodes.map { |v| infer_expr(v, ctx) }
-            next unless types.all? { |t| NUMERIC_TYPES.include?(t) }
+            next unless types.all?(&:raw?)
             unique = types.uniq
             next unless unique.size == 1
-            local_ty = @env[[:local, ctx.method_key, arr_name]]
-            if local_ty.is_a?(Hash) && local_ty[:class] == :Array
-              inner = { class: :Array, elem: unique[0] }
-              changed |= @env.join!([:local, ctx.method_key, arr_name], { class: :Array, elem: inner })
+            local_ty = @env.type_of([:local, ctx.method_key, arr_name])
+            if local_ty.array?
+              inner = Type.array(elem: unique[0])
+              changed |= @env.join!([:local, ctx.method_key, arr_name], Type.array(elem: inner))
             end
           end
         end
@@ -608,15 +569,15 @@ module Frozone
           coll_node = node.collection_node
           coll_ty = infer_expr(coll_node, ctx)
           elem_ty = for_loop_elem_type(coll_ty)
-          next unless elem_ty && elem_ty != :unknown
+          next if elem_ty.nil? || elem_ty.bottom?
           changed |= @env.join!([:block_param, ctx.method_key, name], elem_ty)
         end
         changed
       end
 
       def for_loop_elem_type(coll_ty)
-        return :i64 if coll_ty.is_a?(Hash) && coll_ty[:class] == :Range
-        return coll_ty[:elem] if coll_ty.is_a?(Hash) && coll_ty[:class] == :Array && coll_ty.key?(:elem)
+        return Type::I64 if coll_ty.class_type? && coll_ty.class_name == :Range
+        return coll_ty.elem if coll_ty.array? && coll_ty.elem
         nil
       end
 
@@ -633,25 +594,24 @@ module Frozone
         return false unless param_types
 
         # Seed initialize param slots from best constructor types (NilClass filtered).
+        changed = false
         param_types.each_with_index do |ty, i|
-          changed |= @env.join!([:param, [class_name, :initialize], i], ty) if ty && ty != :unknown
+          changed |= @env.join!([:param, [class_name, :initialize], i], ty) unless ty.bottom?
         end
 
         ctx = TypeContext.new([class_name, :initialize], class_name)
         old_seeds = @ivar_param_seeds
         @ivar_param_seeds = req_params.zip(param_types).to_h
 
-        changed = false
         # Collect ivar assignments from initialize
         all_ivar_assigns = collect_ivar_assignments(init.body)
 
         # Infer ivar types from initialize
         all_ivar_assigns.each do |ivar_name, rhs_nodes|
-          ty = rhs_nodes.reduce(:unknown) do |acc, rhs|
-            t = infer_expr(rhs, ctx)
-            join(acc, t || :unknown)
+          ty = rhs_nodes.reduce(Type::BOTTOM) do |acc, rhs|
+            join(acc, infer_expr(rhs, ctx))
           end
-          next if ty == :unknown
+          next if ty.bottom?
           changed |= @env.join!([:ivar, class_name, ivar_name], ty)
         end
 
@@ -663,7 +623,7 @@ module Frozone
           collect_ivar_assignments(method.body).each do |ivar_name, rhs_nodes|
             rhs_nodes.each do |rhs|
               ty = infer_expr(rhs, method_ctx)
-              next if ty.nil? || ty == :unknown
+              next if ty.nil? || ty.bottom?
               changed |= @env.join!([:ivar, class_name, ivar_name], ty)
             end
           end
@@ -699,9 +659,9 @@ module Frozone
           next unless method.is_a?(Vm::Method) && method.body
           method_ctx = TypeContext.new([class_name, mname], class_name)
           collect_ivar_array_elem_writes(method.body, class_name, method_ctx) do |ivar_name, elem_ty|
-            current = @env.raw([:ivar, class_name, ivar_name])
-            if current.is_a?(Hash) && current[:class] == :Array && !current.key?(:elem)
-              changed |= @env.join!([:ivar, class_name, ivar_name], {class: :Array, elem: elem_ty}.freeze)
+            current = @env.type_of([:ivar, class_name, ivar_name])
+            if current.array? && !current.elem
+              changed |= @env.join!([:ivar, class_name, ivar_name], Type.array(elem: elem_ty))
             end
           end
         end
@@ -719,12 +679,11 @@ module Frozone
           if recv.is_a?(Ast::InstanceVariableRead) && args.size == 2
             ivar_name = recv.name
             val_ty = infer_expr(args[1], ctx)
-            set_p1 = @env.raw([:param, [:ThreeDArray, :set], 1])
             # Accept raw numerics and boxed Float/Integer (unbox to raw)
-            if val_ty && val_ty != :unknown
-              raw = if NUMERIC_TYPES.include?(val_ty) then val_ty
-                    elsif val_ty.is_a?(Hash) && val_ty[:class] == :Float then :f64
-                    elsif val_ty.is_a?(Hash) && val_ty[:class] == :Integer then :i64
+            unless val_ty.bottom?
+              raw = if val_ty.raw? then val_ty
+                    elsif val_ty.class_type? && val_ty.class_name == :Float then Type::F64
+                    elsif val_ty.class_type? && val_ty.class_name == :Integer then Type::I64
                     end
               yield ivar_name, raw if raw
             end
@@ -743,14 +702,14 @@ module Frozone
             recv = node.receiver_node
             recv_cls = nil
             if recv.is_a?(Ast::LocalVariableRead)
-              recv_ty = @env[[:local, ctx.method_key, recv.name]]
-              recv_cls = recv_ty[:class] if recv_ty.is_a?(Hash)
+              recv_ty = @env.type_of([:local, ctx.method_key, recv.name])
+              recv_cls = recv_ty.class_name if recv_ty.class_type?
             end
             if recv_cls == class_name
               args = node.arg_nodes || []
               if args[0]
                 ty = infer_expr(args[0], ctx)
-                block.call(attr, ty) if ty && ty != :unknown
+                block.call(attr, ty) unless ty.bottom?
               end
             end
           end
@@ -763,7 +722,7 @@ module Frozone
       # ------------------------------------------------------------------
 
       def infer_expr(node, ctx)
-        return :unknown unless node
+        return Type::BOTTOM unless node
         cache_key = [node, ctx.method_key]
         return @_expr_cache[cache_key] if @_expr_cache.key?(cache_key)
         result = infer_expr_uncached(node, ctx)
@@ -772,77 +731,68 @@ module Frozone
 
       def infer_expr_uncached(node, ctx)
         case node
-        # Exact class types for all literals.
-        when Ast::IntegerLiteral  then :i64
-        when Ast::FloatLiteral    then :f64
-        when Ast::NilLiteral      then {class: :NilClass}
-        when Ast::TrueLiteral     then {class: :TrueClass}
-        when Ast::FalseLiteral    then {class: :FalseClass}
-        when Ast::StringLiteral   then {class: :String}
-        when Ast::SymbolLiteral   then {class: :Symbol}
+        when Ast::IntegerLiteral  then Type::I64
+        when Ast::FloatLiteral    then Type::F64
+        when Ast::NilLiteral      then Type::NIL_CLASS
+        when Ast::TrueLiteral     then Type::TRUE_CLASS
+        when Ast::FalseLiteral    then Type::FALSE_CLASS
+        when Ast::StringLiteral   then Type::STRING
+        when Ast::SymbolLiteral   then Type::SYMBOL
         when Ast::ArrayLiteral
           elems = node.element_nodes || []
           if elems.empty?
-            {class: :Array}
+            Type::ARRAY
           else
-            elem_ty = elems.reduce(:unknown) { |acc, e| join(acc, infer_expr(e, ctx)) }
-            elem_ty == :unknown ? {class: :Array} : {class: :Array, elem: elem_ty}.freeze
+            elem_ty = elems.reduce(Type::BOTTOM) { |acc, e| join(acc, infer_expr(e, ctx)) }
+            elem_ty.bottom? ? Type::ARRAY : Type.array(elem: elem_ty)
           end
 
         when Ast::HashLiteral
           pairs = node.kv_nodes || []
           if pairs.empty?
-            {class: :Hash}
+            Type::HASH
           else
-            key_ty = pairs.reduce(:unknown) { |acc, (k, _)| join(acc, infer_expr(k, ctx)) }
-            val_ty = pairs.reduce(:unknown) { |acc, (_, v)| join(acc, infer_expr(v, ctx)) }
-            result = {class: :Hash}
-            result[:key] = key_ty unless key_ty == :unknown
-            result[:val] = val_ty unless val_ty == :unknown
-            result.freeze
+            key_ty = pairs.reduce(Type::BOTTOM) { |acc, (k, _)| join(acc, infer_expr(k, ctx)) }
+            val_ty = pairs.reduce(Type::BOTTOM) { |acc, (_, v)| join(acc, infer_expr(v, ctx)) }
+            Type.hash_type(
+              key: key_ty.bottom? ? nil : key_ty,
+              val: val_ty.bottom? ? nil : val_ty
+            )
           end
-        when Ast::RangeLiteral    then {class: :Range}
-        when Ast::RegexpLiteral   then {class: :Regexp}
+        when Ast::RangeLiteral    then Type::RANGE
+        when Ast::RegexpLiteral   then Type::REGEXP
 
-        # Parenthesised expression: (a | b) → Sequence([a | b]).
         when Ast::Sequence
           infer_expr(node.nodes.last, ctx)
 
         when Ast::LocalVariableRead
           name = node.name
-          # During propagate_ivars, @ivar_param_seeds provides constructor param types.
           return @ivar_param_seeds[name] if @ivar_param_seeds&.key?(name)
-          # Param slots (use raw so :unknown defers rather than collapsing).
           idx = param_index(ctx, name)
           if idx
-            pv = @env.raw([:param, ctx.method_key, idx])
-            return pv unless pv == :unknown
+            pv = @env.type_of([:param, ctx.method_key, idx])
+            return pv unless pv.bottom?
           end
-          # Keyword param slots
-          kp = @env.raw([:kwparam, ctx.method_key, name])
-          return kp if kp != :unknown
-          # Block param seeds (separate slot so codegen doesn't treat them as raw locals).
-          bp = @env.raw([:block_param, ctx.method_key, name])
-          return bp if bp != :unknown
-          @env.raw([:local, ctx.method_key, name])
+          kp = @env.type_of([:kwparam, ctx.method_key, name])
+          return kp unless kp.bottom?
+          bp = @env.type_of([:block_param, ctx.method_key, name])
+          return bp unless bp.bottom?
+          @env.type_of([:local, ctx.method_key, name])
 
         when Ast::InstanceVariableRead
-          name = node.name
-          @env.raw([:ivar, ctx.class_name, name])
+          @env.type_of([:ivar, ctx.class_name, node.name])
 
         when Ast::ConstantRead
-          name = node.name
-          @env.raw([:const, name])
+          @env.type_of([:const, node.name])
 
         when Ast::LocalVariableWrite
           infer_expr(node.value_node, ctx)
 
         when Ast::If
           t = infer_expr(node.then_node, ctx)
-          e = node.else_node
-          e_ty = e ? infer_expr(e, ctx) : {class: :NilClass}
-          return t if e_ty == :unknown
-          return e_ty if t == :unknown
+          e_ty = node.else_node ? infer_expr(node.else_node, ctx) : Type::NIL_CLASS
+          return t if e_ty.bottom?
+          return e_ty if t.bottom?
           join(t, e_ty)
 
         when Ast::MethodCall
@@ -851,19 +801,19 @@ module Frozone
         when Ast::Or
           lt = infer_expr(node.left_node, ctx)
           rt = infer_expr(node.right_node, ctx)
-          return rt if lt == :unknown
-          return lt if rt == :unknown
+          return rt if lt.bottom?
+          return lt if rt.bottom?
           join(lt, rt)
 
         when Ast::And
           lt = infer_expr(node.left_node, ctx)
           rt = infer_expr(node.right_node, ctx)
-          return rt if lt == :unknown
-          return lt if rt == :unknown
+          return rt if lt.bottom?
+          return lt if rt.bottom?
           join(lt, rt)
 
         else
-          :unknown
+          Type::BOTTOM
         end
       end
 
@@ -890,178 +840,147 @@ module Frozone
         args = node.arg_nodes || []
         blk  = node.block_node
 
-        # Array.new(n) { |i| expr }  → Array with block-inferred element type.
-        # Array.new(n, fill)         → Array with fill-typed elements.
-        if name == :new && recv.is_a?(Ast::ConstantRead) &&
-           recv.name == :Array
+        # Array.new(n) { |i| expr } or Array.new(n, fill)
+        if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name == :Array
           if blk
-            elem_ty = infer_block_return(blk, [:i64], ctx)
-            return (elem_ty && elem_ty != :unknown) ?
-                   {class: :Array, elem: elem_ty}.freeze : {class: :Array}
+            elem_ty = infer_block_return(blk, [Type::I64], ctx)
+            return elem_ty.bottom? ? Type::ARRAY : Type.array(elem: elem_ty)
           elsif args.size == 2
             fill_ty = infer_expr(args[1], ctx)
-            return (fill_ty && fill_ty != :unknown) ?
-                   {class: :Array, elem: fill_ty}.freeze : {class: :Array}
+            return fill_ty.bottom? ? Type::ARRAY : Type.array(elem: fill_ty)
           end
         end
 
         # Array#map { |x| expr } → new Array with block-inferred element type.
         if name == :map && blk && recv
           recv_ty = infer_expr(recv, ctx)
-          if recv_ty.is_a?(Hash) && recv_ty[:class] == :Array
-            elem_in  = recv_ty.fetch(:elem, :unknown)
+          if recv_ty.array?
+            elem_in = recv_ty.elem || Type::BOTTOM
             elem_out = infer_block_return(blk, [elem_in], ctx)
-            return (elem_out && elem_out != :unknown) ?
-                   {class: :Array, elem: elem_out}.freeze : {class: :Array}
+            return elem_out.bottom? ? Type::ARRAY : Type.array(elem: elem_out)
           end
         end
 
-        # Seed block params for common iteration methods (each, times, upto, etc.)
-        # so that block body expressions can be typed in subsequent passes.
+        # Seed block params for common iteration methods.
         if blk
           ptypes = block_param_types(name, recv, ctx)
           seed_block_params(blk, ptypes, ctx) unless ptypes.empty?
         end
 
-        # ClassName.new(...) → exact class instance type.
+        # ClassName.new(...) → class instance type.
         if name == :new && recv.is_a?(Ast::ConstantRead)
-          class_sym = recv.name
-          return {class: class_sym}
+          return Type.of(recv.name)
         end
 
-        # Math.method(...) → always returns Float (f64).
-        if recv.is_a?(Ast::ConstantRead) &&
-           recv.name == :Math &&
-           MATH_FLOAT_METHODS.include?(name)
-          return :f64
+        # Math.method(...) → always Float64.
+        if recv.is_a?(Ast::ConstantRead) && recv.name == :Math && MATH_FLOAT_METHODS.include?(name)
+          return Type::F64
         end
 
         # Array element read recv[k].
         if name == :[] && args.size == 1
-          # Unboxed Array(T) local — use raw to propagate :unknown through arithmetic.
           if recv.is_a?(Ast::LocalVariableRead)
-            lv = recv.name
-            raw = @env.raw([:array_elem, ctx.method_key, lv])
-            return raw if raw != :unknown
+            ae = @env.type_of([:array_elem, ctx.method_key, recv.name])
+            return ae unless ae.bottom?
           end
-          # Typed (boxed) Array with known elem type — covers constants, params, locals.
           recv_ty = infer_expr(recv, ctx)
-          return recv_ty[:elem] if recv_ty.is_a?(Hash) && recv_ty[:class] == :Array &&
-                                   recv_ty.key?(:elem)
+          return recv_ty.elem if recv_ty.array? && recv_ty.elem
         end
 
         # Range#to_a → Array with endpoint element type
-        # Unwrap parenthesised Sequence: (0..n).to_a parses as Sequence([RangeLiteral])
         unwrapped_recv = recv
         unwrapped_recv = unwrapped_recv.nodes.first while unwrapped_recv.is_a?(Ast::Sequence) && unwrapped_recv.nodes.size == 1
         if (name == :to_a || name == :to_ary) && unwrapped_recv.is_a?(Ast::RangeLiteral)
           begin_ty = infer_expr(unwrapped_recv.begin_node, ctx)
-          return {class: :Array, elem: begin_ty}.freeze if NUMERIC_TYPES.include?(begin_ty)
-          return {class: :Array}
+          return begin_ty.raw? ? Type.array(elem: begin_ty) : Type::ARRAY
         end
 
-        # Built-in Array methods with known return types.
+        # Built-in methods with known return types.
         if recv
           recv_ty = infer_expr(recv, ctx)
-          # Explicit coercion: to_f/to_f64 always yield Float64, to_i/to_i64 always Int64.
-          return :f64 if COERCE_TO_FLOAT.include?(name) && recv_ty != :unknown
-          return :i64 if COERCE_TO_INT.include?(name) && recv_ty != :unknown
-          if recv_ty.is_a?(Hash)
-            return :i64 if recv_ty[:class] == :Array   && ARRAY_INT_METHODS.include?(name)
-            return :i64 if recv_ty[:class] == :Integer && INT_INT_METHODS.include?(name)
-            return :f64 if recv_ty[:class] == :Float   && FLOAT_FLOAT_METHODS.include?(name)
-            return :i64 if recv_ty[:class] == :Float   && FLOAT_INT_METHODS.include?(name)
-            # String byte methods return Integer
-            return :i64 if recv_ty[:class] == :String && %i[getbyte ord bytesize].include?(name)
-            if recv_ty[:class] == :Random && name == :rand
-              return args.empty? ? :f64 : :i64
-            end
+          return Type::F64 if COERCE_TO_FLOAT.include?(name) && !recv_ty.bottom?
+          return Type::I64 if COERCE_TO_INT.include?(name) && !recv_ty.bottom?
+          if recv_ty.class_type?
+            cn = recv_ty.class_name
+            return Type::I64 if cn == :Array   && ARRAY_INT_METHODS.include?(name)
+            return Type::I64 if cn == :Integer && INT_INT_METHODS.include?(name)
+            return Type::F64 if cn == :Float   && FLOAT_FLOAT_METHODS.include?(name)
+            return Type::I64 if cn == :Float   && FLOAT_INT_METHODS.include?(name)
+            return Type::I64 if cn == :String  && %i[getbyte ord bytesize].include?(name)
+            return (args.empty? ? Type::F64 : Type::I64) if cn == :Random && name == :rand
           end
-          # Array#max/min/sum return element type when known
-          if recv_ty.is_a?(Hash) && recv_ty[:class] == :Array && recv_ty[:elem] && %i[max min sum first last].include?(name)
-            return recv_ty[:elem]
+          # Array#max/min/sum/first/last return element type when known
+          if recv_ty.array? && recv_ty.elem && %i[max min sum first last].include?(name)
+            return recv_ty.elem
           end
-          # dup/clone/freeze always return the same type as the receiver
-          return recv_ty if recv_ty != :unknown && (name == :dup || name == :clone || name == :freeze)
+          # dup/clone/freeze return the same type
+          return recv_ty if !recv_ty.bottom? && (name == :dup || name == :clone || name == :freeze)
         end
 
         # Arithmetic / bitwise — Ruby-semantic result type.
-        # :unknown operand → defer; non-numeric operand → give up.
         if ARITH_OPS.include?(name) && args.size == 1 && recv
           rt = infer_expr(recv, ctx)
           at = infer_expr(args[0], ctx)
-          return :unknown if rt == :unknown || at == :unknown
-          if NUMERIC_TYPES.include?(rt) && NUMERIC_TYPES.include?(at)
-            return (rt == :f64 || at == :f64) ? :f64 : :i64
+          return Type::BOTTOM if rt.bottom? || at.bottom?
+          if rt.raw? && at.raw?
+            return (rt.f64? || at.f64?) ? Type::F64 : Type::I64
           end
-          # One side is a boxed numeric — still may produce a numeric result.
-          if numeric_class_type?(rt) && numeric_class_type?(at)
-            return :unknown  # defer; not enough info to unbox
-          end
-          return :unknown
+          return Type::BOTTOM if rt.numeric? && at.numeric?
+          return Type::BOTTOM
         end
 
         # max/min with 2 args: return the wider numeric type
         if (name == :max || name == :min) && args.size == 2
           at = infer_expr(args[0], ctx)
           bt = infer_expr(args[1], ctx)
-          if at != :unknown && bt != :unknown
-            # Both raw numeric → use f64 if either is float, else i64
-            if NUMERIC_TYPES.include?(at) && NUMERIC_TYPES.include?(bt)
-              return (at == :f64 || bt == :f64) ? :f64 : :i64
+          if !at.bottom? && !bt.bottom?
+            if at.raw? && bt.raw?
+              return (at.f64? || bt.f64?) ? Type::F64 : Type::I64
             end
-            # One raw, one boxed numeric → use raw f64 if float involved
-            at_num = NUMERIC_TYPES.include?(at) || numeric_class_type?(at)
-            bt_num = NUMERIC_TYPES.include?(bt) || numeric_class_type?(bt)
-            if at_num && bt_num
-              return :f64 if at == :f64 || bt == :f64 || (at.is_a?(Hash) && at[:class] == :Float) || (bt.is_a?(Hash) && bt[:class] == :Float)
-              return :i64 if NUMERIC_TYPES.include?(at) || NUMERIC_TYPES.include?(bt)
+            if at.numeric? && bt.numeric?
+              return Type::F64 if at.f64? || bt.f64? ||
+                (at.class_type? && at.class_name == :Float) ||
+                (bt.class_type? && bt.class_name == :Float)
+              return Type::I64 if at.raw? || bt.raw?
             end
           end
         end
 
         # Class method call: Module.method(...) → look up by module name.
         if recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.name)
-          class_sym = recv.name
-          ret = @env.raw([:return, [class_sym, name]])
-          return ret if ret != :unknown
+          ret = @env.type_of([:return, [recv.name, name]])
+          return ret unless ret.bottom?
         end
 
         # Method call on a known class instance — look up return type.
         if recv
           recv_ty = infer_expr(recv, ctx)
-          if recv_ty.is_a?(Hash) && recv_ty[:class]
-            mkey = [recv_ty[:class], name]
-            return @env.raw([:return, mkey])
+          if recv_ty.class_type?
+            return @env.type_of([:return, [recv_ty.class_name, name]])
           end
         end
 
         # Free call to a top-level user method.
-        if recv.nil?
-          return @env.raw([:return, name])
-        end
+        return @env.type_of([:return, name]) if recv.nil?
 
-        :unknown
+        Type::BOTTOM
       end
 
       # Infer the return type of a block body, seeding required params as locals
       # in the enclosing method's namespace (Ruby closure semantics).
       def infer_block_return(block_node, param_types, ctx)
-        return :unknown unless block_node.is_a?(Ast::Block)
+        return Type::BOTTOM unless block_node.is_a?(Ast::Block)
         seed_block_params(block_node, param_types, ctx)
         infer_body_return(block_node.body, ctx)
       end
 
-      # Seed block required_params into [:block_param, mkey, name] env slots.
-      # These are separate from [:local, ...] so the codegen doesn't treat them
-      # as raw Crystal Int64/Float64 locals (block params arrive as RubyObject).
       def seed_block_params(block_node, param_types, ctx)
         return unless block_node.is_a?(Ast::Block)
         params = block_node.required_params || []
         params.each_with_index do |pname, i|
           next unless pname.is_a?(Symbol)
           ty = param_types[i]
-          next unless ty && ty != :unknown
+          next unless ty.is_a?(Type) && !ty.bottom?
           @env.join!([:block_param, ctx.method_key, pname], ty)
         end
       end
@@ -1070,23 +989,22 @@ module Frozone
       def block_param_types(method_name, recv_node, ctx)
         case method_name
         when :times, :upto, :downto
-          [:i64]
+          [Type::I64]
         when :each, :map, :flat_map, :select, :reject, :filter,
              :each_with_object, :min_by, :max_by, :sort_by, :any?, :all?, :none?,
              :find, :detect, :count, :sum, :reduce, :inject
-          recv_ty = recv_node ? infer_expr(recv_node, ctx) : :unknown
-          if recv_ty.is_a?(Hash)
-            elem = recv_ty[:elem] || :unknown
-            return [elem] if recv_ty[:class] == :Array
-            return [:i64] if recv_ty[:class] == :Range
+          recv_ty = recv_node ? infer_expr(recv_node, ctx) : Type::BOTTOM
+          if recv_ty.class_type?
+            return [recv_ty.elem || Type::BOTTOM] if recv_ty.array?
+            return [Type::I64] if recv_ty.class_name == :Range
           end
           []
         when :each_with_index
-          recv_ty = recv_node ? infer_expr(recv_node, ctx) : :unknown
-          if recv_ty.is_a?(Hash) && recv_ty[:class] == :Array
-            [recv_ty[:elem] || :unknown, :i64]
+          recv_ty = recv_node ? infer_expr(recv_node, ctx) : Type::BOTTOM
+          if recv_ty.array?
+            [recv_ty.elem || Type::BOTTOM, Type::I64]
           else
-            [:unknown, :i64]
+            [Type::BOTTOM, Type::I64]
           end
         else
           []
@@ -1098,43 +1016,40 @@ module Frozone
       # ------------------------------------------------------------------
 
       def infer_body_return(node, ctx)
-        return :unknown unless node
+        return Type::BOTTOM unless node
         case node
         when Ast::Sequence
           types = []
           node.nodes.each_with_index do |n, i|
             if i == node.nodes.size - 1
               ty = infer_body_return(n, ctx)
-              types << ty if ty && ty != :unknown
+              types << ty unless ty.bottom?
             else
               scan_returns(n, ctx, types)
             end
           end
           scan_returns(node.nodes.last, ctx, types) if types.empty?
-          return :unknown if types.empty?
+          return Type::BOTTOM if types.empty?
           types.reduce { |a, b| join(a, b) }
         when Ast::If
-          then_n = node.then_node
-          else_n = node.else_node
-          t = infer_body_return(then_n, ctx)
-          e = else_n ? infer_body_return(else_n, ctx) : {class: :NilClass}
-          join(t == :unknown ? :unknown : t, e == :unknown ? :unknown : e)
+          t = infer_body_return(node.then_node, ctx)
+          e = node.else_node ? infer_body_return(node.else_node, ctx) : Type::NIL_CLASS
+          join(t, e)
         when Ast::Return
           infer_expr(node.value_node, ctx)
         when Ast::While, Ast::Until
-          {class: :NilClass}  # while/until always returns nil in Ruby
+          Type::NIL_CLASS
         else
           infer_expr(node, ctx)
         end
       end
 
-      # Collect explicit return types from a node (not the last-expression path).
       def scan_returns(node, ctx, acc)
         return unless node
         case node
         when Ast::Return
           ty = infer_expr(node.value_node, ctx)
-          acc << ty if ty && ty != :unknown
+          acc << ty unless ty.bottom?
         when Ast::Sequence
           node.nodes.each { |n| scan_returns(n, ctx, acc) }
         when Ast::If
@@ -1326,9 +1241,9 @@ module Frozone
                                       r.name == name }
           args = node.arg_nodes || []
           val_ty = infer_expr(args[1], ctx) if args[1]
-          next if val_ty == :unknown
+          next if val_ty.nil? || val_ty.bottom?
           ok = false unless val_ty == elem_ty ||
-                            (val_ty == :i64 && elem_ty == :f64)
+                            (val_ty.i64? && elem_ty.f64?)
         end
         ok
       end
@@ -1415,17 +1330,7 @@ module Frozone
           end
       end
 
-      # Least common ancestor of two class names → {class: lca_name}.
-      def lca_of(a_name, b_name)
-        return {class: a_name} if a_name == b_name
-        chain_a = ancestors_of(a_name)
-        set_a = chain_a.to_set
-        chain_b = ancestors_of(b_name)
-        lca = chain_b.find { |c| set_a.include?(c) }
-        lca ? {class: lca} : BASIC_OBJECT_TYPE
-      end
-
-      # LCA returning a Type object (for join_types).
+      # LCA returning a Type object.
       def lca_type(a_name, b_name)
         return Type.of(a_name) if a_name == b_name
         chain_a = ancestors_of(a_name)
@@ -1438,9 +1343,9 @@ module Frozone
       # Resolve :needs_join sentinels in merged collection params.
       def resolve_param_joins(a, b, merged)
         return merged unless needs_param_resolution?(merged)
-        elem = merged.elem == :needs_join ? join_types(a.elem, b.elem) : merged.elem
-        key = merged.key == :needs_join ? join_types(a.key, b.key) : merged.key
-        val = merged.val == :needs_join ? join_types(a.val, b.val) : merged.val
+        elem = merged.elem == :needs_join ? join(a.elem, b.elem) : merged.elem
+        key = merged.key == :needs_join ? join(a.key, b.key) : merged.key
+        val = merged.val == :needs_join ? join(a.val, b.val) : merged.val
         Type.new(:class_type, class_name: merged.class_name,
                  nullable: merged.nullable?, exact: merged.exact?,
                  elem: elem, key: key, val: val)
@@ -1450,27 +1355,6 @@ module Frozone
         t.elem == :needs_join || t.key == :needs_join || t.val == :needs_join
       end
 
-      # Full boxed (parameterized) class type for an unboxed type.
-      # :i64 → {class: :Integer}, :array_i64 → {class: :Array, elem: :i64}, etc.
-      def boxed_type(ty)
-        case ty
-        when :i64       then {class: :Integer}
-        when :f64       then {class: :Float}
-        when :array_i64 then {class: :Array, elem: :i64}
-        when :array_f64 then {class: :Array, elem: :f64}
-        when Hash       then ty
-        else OBJECT_TYPE
-        end
-      end
-
-      # Bare Ruby class name for a lattice type value (ignores params).
-      def boxed_class(ty)
-        return ty[:class] if ty.is_a?(Hash)
-        BOXED_CLASS[ty] || :Object
-      end
-
-      # Meet two parameterized collection types that share the same base class.
-      # Only merges params (elem, key, val) that are present in BOTH sides.
       # Collect constructor param types across all calling contexts and pick
       # the best (most precise) type for each param. Contexts that pass only
       # NilClass are excluded — sentinel construction shouldn't widen ivars.
@@ -1484,45 +1368,15 @@ module Frozone
         return nil if contexts.empty?
 
         param_count.times.map do |i|
-          types = contexts.filter_map { |ctx_key| @env[[:constructor_param, class_name, i, ctx_key]] }
+          types = contexts.filter_map { |ctx_key|
+            t = @env.type_of([:constructor_param, class_name, i, ctx_key])
+            t.bottom? ? nil : t
+          }
           return nil if types.empty?
-          non_nil = types.reject { |t| t.is_a?(Hash) && t[:class] == :NilClass }
-          next :unknown if non_nil.empty?
+          non_nil = types.reject(&:nil_type?)
+          next Type::BOTTOM if non_nil.empty?
           non_nil.reduce { |a, b| join(a, b) }
         end
-      end
-
-      def strip_nullable_to_raw(ty)
-        return ty unless ty.is_a?(Hash) && ty[:nullable]
-        case ty[:class]
-        when :Float   then :f64
-        when :Integer then :i64
-        else ty.reject { |k, _| k == :nullable }.freeze
-        end
-      end
-
-      def merge_collection_params(a, b)
-        result = {class: a[:class]}
-        result[:nullable] = true if a[:nullable] || b[:nullable]
-        # For each param (:elem, :key, :val): merge if both present, take whichever
-        # side has it if only one does (absent = not yet observed, not "unknowable").
-        %i[elem key val].each do |param|
-          if a.key?(param) && b.key?(param)
-            result[param] = join(a[param], b[param])
-          elsif a.key?(param)
-            result[param] = a[param]
-          elsif b.key?(param)
-            result[param] = b[param]
-          end
-        end
-        result.freeze
-      end
-
-      # True if ty is a class type known to be Numeric or a subclass.
-      def numeric_class_type?(ty)
-        return true if NUMERIC_TYPES.include?(ty)
-        return false unless ty.is_a?(Hash)
-        ancestors_of(ty[:class]).include?(:Numeric)
       end
 
       # ------------------------------------------------------------------
@@ -1531,33 +1385,33 @@ module Frozone
 
       def vm_object_type(value)
         case value
-        when Vm::IntegerObject then :i64
-        when Vm::FloatObject   then :f64
+        when Vm::IntegerObject then Type::I64
+        when Vm::FloatObject   then Type::F64
         when Vm::ArrayObject
           elems = value.raw
           if elems.empty?
-            {class: :Array}
+            Type::ARRAY
           else
-            elem_ty = elems.reduce(:unknown) { |acc, e| join(acc, vm_object_type(e) || :unknown) }
-            elem_ty == :unknown ? {class: :Array} : {class: :Array, elem: elem_ty}.freeze
+            elem_ty = elems.reduce(Type::BOTTOM) { |acc, e| join(acc, vm_object_type(e) || Type::BOTTOM) }
+            elem_ty.bottom? ? Type::ARRAY : Type.array(elem: elem_ty)
           end
         when Vm::HashObject
-          pairs = value.raw  # Hash<KeyWrapper, RubyObject>
+          pairs = value.raw
           if pairs.empty?
-            {class: :Hash}
+            Type::HASH
           else
-            key_ty = pairs.keys.reduce(:unknown)  { |acc, kw| join(acc, vm_object_type(kw.key) || :unknown) }
-            val_ty = pairs.values.reduce(:unknown) { |acc, v|  join(acc, vm_object_type(v) || :unknown) }
-            result = {class: :Hash}
-            result[:key] = key_ty unless key_ty == :unknown
-            result[:val] = val_ty unless val_ty == :unknown
-            result.freeze
+            key_ty = pairs.keys.reduce(Type::BOTTOM)  { |acc, kw| join(acc, vm_object_type(kw.key) || Type::BOTTOM) }
+            val_ty = pairs.values.reduce(Type::BOTTOM) { |acc, v|  join(acc, vm_object_type(v) || Type::BOTTOM) }
+            Type.hash_type(
+              key: key_ty.bottom? ? nil : key_ty,
+              val: val_ty.bottom? ? nil : val_ty
+            )
           end
         else
           class_obj  = value.respond_to?(:class_object) ? value.class_object : nil
           class_name = class_obj&.name
           return nil unless class_name
-          {class: class_name}
+          Type.of(class_name)
         end
       end
 
