@@ -399,6 +399,10 @@ maps that drive all downstream optimisations.
 
 ### Type lattice
 
+> **Full formal specification:** see [type-lattice.md](type-lattice.md) for
+> the complete lattice definition, join rules, soundness invariants, and
+> 1-CFA context sensitivity design.
+
 The TI uses a type lattice where lower = more specific:
 
 ```

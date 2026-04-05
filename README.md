@@ -91,6 +91,7 @@ bundle exec rake core                    # ruby/spec core suite
 
 **Compiler:**
 - [docs/compilation.md](docs/compilation.md) — AoT compiler architecture, type inference, benchmarks
+- [docs/type-lattice.md](docs/type-lattice.md) — formal type lattice specification
 - [docs/optimisations.md](docs/optimisations.md) — per-optimization flag reference
 
 ## Architecture
