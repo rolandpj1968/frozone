@@ -563,9 +563,11 @@ module Frozone
             generic_params = if has_complex_params
               inferred.map { |t| CrystalType.native?(t) ? :ruby_object : t }
             elsif @gctx.typed_params[name]
-              nil
+              nil  # fully-typed → generic uses all RubyObject
+            elsif all_native
+              nil  # all-native typed overload handles raw; generic uses all RubyObject
             else
-              inferred
+              nil  # mixed params — generic uses all RubyObject
             end
             emit_vm_method(name, method, param_types: generic_params)
             emit_newline
@@ -590,7 +592,8 @@ module Frozone
         generic_methods.each do |name, method|
           emit_indent
           write "  "
-          generic_params = @gctx.typed_params[name] ? nil : @gctx.inferred_params[name]
+          # Always use all-RubyObject for the Object instance method copy
+          generic_params = nil
           emit_vm_method(name, method, param_types: generic_params)
           emit_newline
         end
@@ -697,7 +700,10 @@ module Frozone
         # (the specialized handles the raw return).
         has_specialized = class_method && @cctx.eigen_methods&.any? &&
           (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| t != :ruby_object }
-        raw_return = !has_specialized && opt?(:raw_returns) && !@gctx.typed_params[name] &&
+        # Only emit raw body when params are typed — generic overloads with
+        # all-RubyObject params must use normal emit for correct boxing.
+        has_any_typed_param = param_types&.any? { |t| t && t != :ruby_object }
+        raw_return = has_any_typed_param && !has_specialized && opt?(:raw_returns) && !@gctx.typed_params[name] &&
           (@gctx.typed_method_returns[name] ||
            (@cctx.name && @gctx.instance_method_raw_returns[[@cctx.name, name]]))
         cr_return_types = { i64: 'Int64', f64: 'Float64' }
@@ -1187,15 +1193,32 @@ module Frozone
       # Class-typed local → devirtualize cast.
       def try_class_cast_write(node, name)
         cls_entry = @mctx.class_locals[name] or return
-        # Nullable types: no cast at assignment (value might be nil).
-        # Crystal narrows after nil check in if-branch.
-        if cls_entry.is_a?(Array) && cls_entry[1] == :nullable
-          write crystal_local(name), " = "
-          emit(node.value_node)
+        @_declared_typed_locals ||= Set.new
+        val = node.value_node
+        write crystal_local(name)
+        # Only annotate when Crystal can verify the type matches
+        if !@_declared_typed_locals.include?(name) && safe_for_type_annotation?(val)
+          @_declared_typed_locals << name
+          cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
+          crystal_cls = crystal_class_name(cls)
+          write " : ", crystal_cls
+          write "?" if cls_entry.is_a?(Array) && cls_entry[1] == :nullable
+        end
+        write " = "
+        emit(val)
+        true
+      end
+
+      def safe_for_type_annotation?(val)
+        case val
+        when Ast::MethodCall
+          val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
+        when Ast::LocalVariableRead
+          @_declared_typed_locals&.include?(val.name)
+        when Ast::InstanceVariableRead
+          true
         else
-          write crystal_local(name), " = "
-          emit(node.value_node)
-          write ".as(", crystal_class_name(cls_entry), ")"
+          false
         end
       end
 
@@ -1260,7 +1283,14 @@ module Frozone
             return
           end
           write "#{iv_name} = "
-          emit_as(val, ty)
+          # Nil-safe coercion: untyped params may be nil (sentinel construction).
+          if val.is_a?(Ast::LocalVariableRead) && !@mctx.typed_locals[val.name] && !node_raw_type(val)
+            default = ty == :f64 ? "0.0_f64" : "0_i64"
+            coerce = ty == :f64 ? ".to_f64" : ".to_i64"
+            write "((_v = "; emit(val); write "); _v.ruby_nil? ? #{default} : _v#{coerce})"
+          else
+            emit_as(val, ty)
+          end
         elsif @cctx.typed_ivars[iv_name]&.first == :class_or_nil
           val = node.value_node
           write "#{iv_name} = "
@@ -1562,6 +1592,9 @@ module Frozone
       def try_typed_free_call(node)
         return unless !@mctx.suppress_typed_call_args && node.receiver_node.nil?
         tp = @gctx.inferred_params[node.name] or return
+        # Only dispatch typed args when there's a matching typed Crystal overload.
+        # Mixed params (some raw, some RubyObject) don't have a typed overload.
+        return unless tp.all? { |t| t && CrystalType.native?(t) } || @gctx.typed_params[node.name]
         write crystal_method_name(node.name)
         emit_typed_call_args(node.arg_nodes || [], tp)
         emit_block_if_present(node)

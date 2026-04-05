@@ -221,7 +221,7 @@ module Frozone
           ty = @gctx.const_raw_types[node.name]
           emit_constant_read(node)
           # Array constants are already native — no coercion needed
-          write(ty == :f64 ? ".to_f64" : ".to_i64") unless ty == :array_i64 || ty == :array_f64
+          write(ty == :f64 ? ".to_f64" : ".to_i64") unless ty == :array_i64 || ty == :array_f64 || ty.nil?
         when Ast::ConstantPath
           # Math::PI → Math::PI (already Float64 in Crystal)
           parent = node.parent_node
