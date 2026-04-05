@@ -18,14 +18,16 @@ module Frozone
 
       # Is this method name a simple accessor (getter for a typed ivar)?
       def accessor_method_name?(name) = @cctx.name && @gctx.typed_ivars.fetch(@cctx.name, {})[:"@#{name}"]
+      # Emit node coerced to Float64: raw if already typed, else .to_f64 on boxed.
+      def emit_coerce_f64(node) = node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_f64")
 
       # Returns :i64, :f64, or nil for the provable bare Crystal type of a node.
       def node_raw_type(node)
         return nil unless node
         case node
         when Ast::IntegerLiteral then :i64
-        when Ast::FloatLiteral   then :f64
-        when Ast::Sequence       then node_raw_type(node.nodes.last) if node.nodes.any?
+        when Ast::FloatLiteral then :f64
+        when Ast::Sequence then node_raw_type(node.nodes.last) if node.nodes.any?
         when Ast::LocalVariableRead
           @mctx.typed_locals[node.name] || @mctx.raw_block_params[node.name]
         when Ast::LocalVariableWrite
@@ -125,7 +127,7 @@ module Frozone
             inner = inner.value_node while inner.is_a?(Ast::LocalVariableWrite)
             case inner
             when Ast::IntegerLiteral then @mctx.typed_locals[name] ||= :i64
-            when Ast::FloatLiteral   then @mctx.typed_locals[name]  = :f64
+            when Ast::FloatLiteral then @mctx.typed_locals[name] = :f64
             end
           end
         end
@@ -162,8 +164,6 @@ module Frozone
       end
 
       # Walk a body AST collecting all LocalVariableWrite RHS nodes per name.
-      # Does not descend into block bodies (block params share Ruby scope but
-      # may receive heterogeneous types from the block caller).
       # Does not descend into block bodies (block params share Ruby scope but
       # may receive heterogeneous types from the block caller).
       def collect_local_assignments(node, result)
@@ -397,9 +397,6 @@ module Frozone
         node.is_a?(Ast::Sequence) && node.nodes.size == 1 && contains_assignment?(node.nodes.first)
       end
 
-      # Emit node coerced to Float64: raw if already typed, else .to_f64 on boxed.
-      def emit_coerce_f64(node) = node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_f64")
-
       # -----------------------------------------------------------------------
       # emit_raw_expr — complete raw expression emitter for typed method bodies.
       # Never boxes. Every expression emits as a bare Crystal value.
@@ -474,7 +471,7 @@ module Frozone
           emit(node)  # fall back for non-array attribute writes
         when Ast::If
           then_n = node.then_node
-          else_n = node.instance_variable_get(:@else_node)
+          else_n = node.else_node
           # Check if branches produce mixed numeric types — coerce to Float64
           then_ty = node_raw_type(then_n)
           else_ty = else_n ? node_raw_type(else_n) : nil

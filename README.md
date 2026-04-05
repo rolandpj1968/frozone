@@ -107,3 +107,13 @@ bench/stubs/             Compilation stubs for benchmarks
 bench/specs/             Compilable spec files
 spec/                    RSpec unit tests + ruby-spec integration
 ```
+
+## Acknowledgements
+
+Frozone builds on the shoulders of several projects and people:
+
+- **[Natalie](https://github.com/natalie-lang/natalie)** — a Ruby implementation that compiles to C++. Natalie demonstrated that a full Ruby implementation could target a compiled language, and its architecture was a key inspiration for Frozone's two-phase (interpret-then-compile) approach.
+- **[Chris Coetzee](https://github.com/chriscz)** (`chriscz`) — for the insight that [Crystal](https://crystal-lang.org/) is a better compilation target than C++ for a Ruby compiler. Crystal's Ruby-like syntax and type system make the generated code readable and the type mapping natural, which proved essential for debugging and iterating on the compiler.
+- **[Crystal](https://crystal-lang.org/)** — the compilation backend. Crystal's type inference, union types, and struct value types make it an ideal target for ahead-of-time Ruby compilation.
+- **[Prism](https://github.com/ruby/prism)** — Ruby's official parser, used as Frozone's primary front-end.
+- **[whitequark/parser](https://github.com/whitequark/parser)** ([Frozone fork](https://github.com/rolandpj1968/parser)) — alternative pure-Ruby parser enabling self-hosting without C extensions.

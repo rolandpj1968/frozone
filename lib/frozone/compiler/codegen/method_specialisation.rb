@@ -19,9 +19,9 @@ module Frozone
       # Populates @gctx.typed_params with {method_name => [:i64/:f64, ...]} for consistent sites.
       def collect_raw_call_sites(execute_block)
         return unless execute_block
-        old_typed    = @mctx.typed_locals
+        old_typed = @mctx.typed_locals
         @mctx.typed_locals = infer_local_types(execute_block.body)
-        raw_calls    = Hash.new { |h, k| h[k] = [] }
+        raw_calls = Hash.new { |h, k| h[k] = [] }
         walk_raw_free_calls(execute_block.body, raw_calls)
         @mctx.typed_locals = old_typed
 
@@ -69,10 +69,10 @@ module Frozone
             to_remove << name; next
           end
 
-          old_typed     = @mctx.typed_locals
+          old_typed = @mctx.typed_locals
           @mctx.typed_locals = req.zip(param_types).to_h
           actual_return = infer_body_return_type(method.body)
-          raw_safe      = body_all_raw_safe?(method.body)
+          raw_safe = body_all_raw_safe?(method.body)
           @mctx.typed_locals = old_typed
 
           unless actual_return == @gctx.typed_method_returns[name] && raw_safe
@@ -93,8 +93,8 @@ module Frozone
           t = infer_body_return_type(body.then_node)
           e = infer_body_return_type(body.else_node)
           (t && t == e) ? t : nil
-        when Ast::Return   then infer_body_return_type(body.value_node)
-        else               node_raw_type(body)
+        when Ast::Return then infer_body_return_type(body.value_node)
+        else node_raw_type(body)
         end
       end
 
@@ -106,10 +106,10 @@ module Frozone
         case node
         when Ast::IntegerLiteral, Ast::FloatLiteral, Ast::NilLiteral,
              Ast::TrueLiteral, Ast::FalseLiteral then true
-        when Ast::LocalVariableRead  then true
+        when Ast::LocalVariableRead then true
         when Ast::LocalVariableWrite then body_all_raw_safe?(node.value_node)
-        when Ast::Sequence           then node.nodes.all? { |n| body_all_raw_safe?(n) }
-        when Ast::Return             then body_all_raw_safe?(node.value_node)
+        when Ast::Sequence then node.nodes.all? { |n| body_all_raw_safe?(n) }
+        when Ast::Return then body_all_raw_safe?(node.value_node)
         when Ast::If
           body_all_raw_safe?(node.pred_node) &&
             body_all_raw_safe?(node.then_node) &&
@@ -135,7 +135,7 @@ module Frozone
       def emit_specialized_vm_method(name, method)
         param_types = @gctx.typed_params[name]
         return_type = @gctx.typed_method_returns[name]
-        req_params  = method.required_params || []
+        req_params = method.required_params || []
         return unless req_params.size == param_types.size
 
         cr = { i64: 'Int64', f64: 'Float64' }
@@ -144,9 +144,9 @@ module Frozone
         write "def #{crystal_method_name(name)}(#{parts.join(', ')}) : #{cr[return_type]}"
         emit_newline
 
-        old_typed     = @mctx.typed_locals
+        old_typed = @mctx.typed_locals
         old_typed_arr = @mctx.typed_array_locals
-        param_set     = req_params.to_set
+        param_set = req_params.to_set
         # Start with param types, add TI-inferred locals, then infer from literals.
         @mctx.typed_locals = req_params.zip(param_types).to_h
         (@gctx.locals[name] || {}).each do |lname, ty|
@@ -159,7 +159,7 @@ module Frozone
         # Populate typed array locals from TI (non-param only).
         @mctx.typed_array_locals = (@gctx.arrays[name] || {}).reject { |k, _| param_set.include?(k) }
         indented { emit_raw_expr(method.body) }
-        @mctx.typed_locals       = old_typed
+        @mctx.typed_locals = old_typed
         @mctx.typed_array_locals = old_typed_arr
 
         emit_newline
@@ -209,11 +209,11 @@ module Frozone
         write " : #{cr[return_type]}" if return_type && raw_types.all?
         emit_newline
 
-        old_typed       = @mctx.typed_locals
-        old_typed_arr   = @mctx.typed_array_locals
-        old_class_name  = @cctx.name
+        old_typed = @mctx.typed_locals
+        old_typed_arr = @mctx.typed_array_locals
+        old_class_name = @cctx.name
         @cctx.name = class_name
-        param_set     = req_params.to_set
+        param_set = req_params.to_set
         mkey = [class_name, mname]
         # Start with param types
         @mctx.typed_locals = {}
@@ -246,7 +246,7 @@ module Frozone
         end
         # Use raw expression emitter for specialized overloads — never boxes
         indented { emit_raw_expr(method.body) }
-        @mctx.typed_locals       = old_typed
+        @mctx.typed_locals = old_typed
         @mctx.typed_array_locals = old_typed_arr
         @cctx.name = old_class_name
 
@@ -301,8 +301,8 @@ module Frozone
           if @mctx.block_params[name] == :i64
             coll = node.collection_node
             if coll.is_a?(Ast::RangeLiteral)
-              lo   = coll.begin_node
-              hi   = coll.end_node
+              lo = coll.begin_node
+              hi = coll.end_node
               excl = coll.exclusive
               if node_raw_type(lo) == :i64 && node_raw_type(hi) == :i64
                 write "("
@@ -326,8 +326,6 @@ module Frozone
         super
       end
 
-      # DELETED: emit_raw_body — replaced by emit_raw_expr in raw_emission.rb
-      # All callers now use emit_raw_expr directly.
       end
     end
   end
