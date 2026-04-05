@@ -549,9 +549,8 @@ module Frozone
             emit_newline
           end
 
-          # Skip generic overload when ALL params are native-typed — in the
-          # closed world, all callers use the typed overload.
-          # Ensure the typed overload is emitted if neither specialized nor complex did.
+          # Always emit the generic overload — the execute block and other
+          # untyped callers need it even when typed overloads exist.
           all_native = inferred&.all? { |t| t && CrystalType.native?(t) }
           if all_native && !has_complex_params && !(@gctx.typed_params[name] && @gctx.typed_method_returns[name])
             emit_indent
@@ -559,7 +558,7 @@ module Frozone
             emit_newline
             emit_newline
           end
-          unless all_native
+          unless false  # always emit generic
             emit_indent
             generic_params = if has_complex_params
               inferred.map { |t| CrystalType.native?(t) ? :ruby_object : t }
@@ -1265,9 +1264,10 @@ module Frozone
         elsif @cctx.typed_ivars[iv_name]&.first == :class_or_nil
           val = node.value_node
           write "#{iv_name} = "
-          # nil literal → Crystal nil for nilable ivars
           if val.is_a?(Ast::NilLiteral)
-            write "nil"
+            ct = @cctx.typed_ivars[iv_name]
+            # Self-referential (T?) uses Crystal nil; cross-class (T | RubyNil) uses RUBY_NIL
+            write(ct[1] == @cctx.name ? "nil" : "RUBY_NIL")
           else
             emit(val)
           end

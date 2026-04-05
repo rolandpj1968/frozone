@@ -631,12 +631,12 @@ module Frozone
             args.each_with_index { |a, i| write ", " if i > 0; emit(a) }
           end
           write ")"
-          # For non-typed callees, result is RubyObject — coerce if needed.
-          # Use .to_i64/.to_f64 which RubyInteger/RubyFloat support.
-          unless has_typed
-            write ".to_i64"  # safe: RubyObject#to_i64 exists on all numeric types
-          end
           emit_raw_block(node)
+          # Coerce return to raw if TI knows the return type
+          unless has_typed
+            ret = node_raw_type(node)
+            write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
+          end
           return true
         end
 
