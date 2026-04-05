@@ -6,6 +6,7 @@ module Frozone
     # forwarding: true  → ForwardingSuperNode (super without parens — passes current method args)
     # forwarding: false → SuperNode (super with explicit args or empty parens)
     class Super < Node
+      attr_reader :forwarding, :arg_nodes, :block_node
       def initialize(arg_nodes, block_node, forwarding:, kw_splat_nodes: [])
         @arg_nodes = arg_nodes
         @block_node = block_node
