@@ -808,6 +808,70 @@ comparisons. Eliminating encoding guards from hot paths enables direct Crystal
 
 ---
 
+## Acknowledgements and intellectual heritage
+
+The Frozone compiler draws on decades of programming language research. We
+acknowledge the following foundational work:
+
+**Abstract interpretation.** The type inference engine is a forward dataflow
+analysis over a type lattice — textbook abstract interpretation as introduced
+by Patrick Cousot and Radhia Cousot, "Abstract Interpretation: A Unified
+Lattice Model for Static Analysis of Programs by Construction or Approximation
+of Fixpoints," POPL 1977.
+
+**k-CFA.** The 1-CFA constructor specialisation (tracking constructor param
+types per calling context) is a restricted form of Olin Shivers' k-CFA
+hierarchy. Shivers, "Control-Flow Analysis in Scheme," PLDI 1988, and his PhD
+thesis "Control-Flow Analysis of Higher-Order Languages; or Taming Lambda,"
+CMU-CS-91-145, 1991.
+
+**Hindley-Milner.** While we use forward abstract interpretation rather than
+unification, the idea of inferring types without annotations originates with
+J. Roger Hindley, "The Principal Type-Scheme of an Object in Combinatory
+Logic," Transactions of the AMS, 1969; Robin Milner, "A Theory of Type
+Polymorphism in Programming," JCSS 17, 1978; and Luis Damas and Robin Milner,
+"Principal Type-Schemes for Functional Programs," POPL 1982.
+
+**Self and customisation.** Class-typed parameter devirtualisation —
+specialising methods per receiver type for direct dispatch — follows Craig
+Chambers and David Ungar, "Customization: Optimizing Compiler Technology for
+SELF, a Dynamically-Typed Object-Oriented Programming Language," PLDI 1989.
+Chambers' PhD thesis, "The Design and Implementation of the SELF Compiler,"
+Stanford, 1992, formalises the approach.
+
+**MLton.** The "closed world → specialise everything" strategy mirrors MLton's
+whole-program monomorphisation of Standard ML. MLton (Stephen Weeks, Matthew
+Fluet, Henry Cejtin et al.) demonstrated that whole-program compilation with
+aggressive specialisation scales to real programs. See Fluet and Weeks,
+"Contification Using Dominators," ICFP 2001, and the MLton system
+(mlton.org).
+
+**Julia.** Runtime method specialisation per concrete argument tuple, as in
+Jeff Bezanson, Alan Edelman, Stefan Karpinski, and Viral B. Shah, "Julia: A
+Fresh Approach to Numerical Computing," SIAM Review 59(1), 2017. Our
+TI-driven overload generation is the compile-time equivalent. Bezanson's PhD
+thesis "Abstraction in Technical Computing," MIT, 2015, covers the type
+dispatch design.
+
+**YJIT.** Our benchmark target. Maxime Chevalier-Boisvert et al., "YJIT: A
+Basic Block Versioning JIT Compiler for CRuby," MPLR 2021. The lazy basic
+block versioning technique originates in Chevalier-Boisvert and Marc Feeley,
+"Simple and Effective Type Check Removal through Lazy Basic Block Versioning,"
+ECOOP 2015.
+
+**Tabled resolution.** The TI's memoised fixed-point iteration is analogous to
+tabled resolution in logic programming. Terrance Swift and David S. Warren,
+"An Abstract Machine for SLG Resolution: Definite Programs," ILPS 1994. See
+also Swift and Warren, "XSB: Extending Prolog with Tabled Logic Programming,"
+TPLP 12(1–2), 2012.
+
+**Constraint logic programming.** The backward type propagation direction
+(inferring types from how values are used rather than how they are produced)
+connects to constraint-based inference and CLP. Joxan Jaffar and Jean-Louis
+Lassez, "Constraint Logic Programming," POPL 1987.
+
+---
+
 For detailed pre-implementation design exploration (dispatch architecture,
 singleton classes, vtable analysis, eval strategies, constant lookup, etc.),
 see [compilation-design-notes.md](compilation-design-notes.md).
