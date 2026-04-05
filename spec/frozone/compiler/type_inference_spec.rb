@@ -454,7 +454,7 @@ RSpec.describe Frozone::Compiler::TypeInference do
       expect(env.join!([:local, :foo, :x], :i64)).to be false
     end
 
-    it "join! widens i64 + f64 to Numeric" do
+    it "join! computes LCA of i64 and f64 as Numeric" do
       env.join!([:local, :foo, :x], :i64)
       env.join!([:local, :foo, :x], :f64)
       result = env[[:local, :foo, :x]]
