@@ -567,7 +567,8 @@ module Frozone
             elsif all_native
               nil  # all-native typed overload handles raw; generic uses all RubyObject
             else
-              nil  # mixed params — generic uses all RubyObject
+              # Drop raw scalar types to RubyObject, keep class types for devirtualization
+              inferred&.map { |t| CrystalType.raw(t) ? :ruby_object : t }
             end
             emit_vm_method(name, method, param_types: generic_params)
             emit_newline
@@ -702,8 +703,8 @@ module Frozone
           (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| t != :ruby_object }
         # Only emit raw body when params are typed — generic overloads with
         # all-RubyObject params must use normal emit for correct boxing.
-        has_any_typed_param = param_types&.any? { |t| t && t != :ruby_object }
-        raw_return = has_any_typed_param && !has_specialized && opt?(:raw_returns) && !@gctx.typed_params[name] &&
+        has_any_raw_param = param_types&.any? { |t| CrystalType.raw(t) }
+        raw_return = has_any_raw_param && !has_specialized && opt?(:raw_returns) && !@gctx.typed_params[name] &&
           (@gctx.typed_method_returns[name] ||
            (@cctx.name && @gctx.instance_method_raw_returns[[@cctx.name, name]]))
         cr_return_types = { i64: 'Int64', f64: 'Float64' }
@@ -1210,13 +1211,13 @@ module Frozone
         @_declared_typed_locals ||= Set.new
         val = node.value_node
         write crystal_local(name)
-        # Only annotate when Crystal can verify the type matches
-        if !@_declared_typed_locals.include?(name) && safe_for_type_annotation?(val)
+        # Only annotate non-nullable class locals on first assignment from safe sources.
+        # Nullable locals get reassigned from different types (if/else branches) — skip.
+        nullable = cls_entry.is_a?(Array) && cls_entry[1] == :nullable
+        if !nullable && !@_declared_typed_locals.include?(name) && safe_for_type_annotation?(val)
           @_declared_typed_locals << name
           cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
-          crystal_cls = crystal_class_name(cls)
-          write " : ", crystal_cls
-          write "?" if cls_entry.is_a?(Array) && cls_entry[1] == :nullable
+          write " : ", crystal_class_name(cls)
         end
         write " = "
         emit(val)
@@ -1230,7 +1231,9 @@ module Frozone
         when Ast::LocalVariableRead
           @_declared_typed_locals&.include?(val.name)
         when Ast::InstanceVariableRead
-          true
+          # Cross-class nilable ivars use RubyNil, not Crystal Nil — annotation would mismatch
+          ct = @cctx&.typed_ivars&.dig(val.name)
+          !(ct.is_a?(Array) && ct[0] == :class_or_nil && ct[1] != @cctx&.name)
         else
           false
         end
