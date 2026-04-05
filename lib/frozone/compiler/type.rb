@@ -93,6 +93,47 @@ module Frozone
 
       alias to_s inspect
 
+      # -- Crystal codegen -----------------------------------------------------
+
+      # Ruby class name → Crystal class name mapping.
+      # Must match CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.
+      CRYSTAL_CLASS_NAMES = {
+        Object: 'RubyGenericObject', Integer: 'RubyInteger', Float: 'RubyFloat',
+        String: 'RubyString', Symbol: 'RubySymbol', Array: 'RubyArray',
+        Hash: 'RubyHash', NilClass: 'RubyNil', Numeric: 'RubyObject',
+        Struct: 'RubyObject', Math: 'RubyMath', Random: 'Ruby_Random',
+        Proc: 'RubyProc',
+      }.freeze
+
+      # Crystal source string for this type.
+      def to_crystal
+        case @kind
+        when :i64 then 'Int64'
+        when :f64 then 'Float64'
+        when :array_scalar then "Array(#{@elem.to_crystal})"
+        when :class_type then class_to_crystal
+        else 'RubyObject'
+        end
+      end
+
+      # Is this a Crystal-native type (not a RubyObject subtype)?
+      # Native types need raw emission, can't be passed where RubyObject expected.
+      def native?
+        raw? || array_scalar? || (array? && @elem&.native?)
+      end
+
+      # Can this type appear in a generic (all-RubyObject) overload?
+      def generic_compatible? = !native?
+
+      private
+
+      def class_to_crystal
+        return "Array(#{@elem.to_crystal})" if array? && @elem&.native?
+        CRYSTAL_CLASS_NAMES[@class_name] || "Ruby_#{@class_name}"
+      end
+
+      public
+
       # -- Singletons ----------------------------------------------------------
 
       BOTTOM = new(:bottom)

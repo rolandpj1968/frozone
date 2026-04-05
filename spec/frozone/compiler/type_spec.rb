@@ -219,4 +219,66 @@ RSpec.describe Frozone::Compiler::Type do
       expect(T::STRING.to_class_type).to equal(T::STRING)
     end
   end
+
+  # -- Crystal codegen -------------------------------------------------------
+
+  describe "#to_crystal" do
+    it "scalars" do
+      expect(T::I64.to_crystal).to eq('Int64')
+      expect(T::F64.to_crystal).to eq('Float64')
+    end
+
+    it "array scalars" do
+      expect(T::ARRAY_I64.to_crystal).to eq('Array(Int64)')
+      expect(T::ARRAY_F64.to_crystal).to eq('Array(Float64)')
+    end
+
+    it "class types with Crystal names" do
+      expect(T::INTEGER.to_crystal).to eq('RubyInteger')
+      expect(T::FLOAT.to_crystal).to eq('RubyFloat')
+      expect(T::STRING.to_crystal).to eq('RubyString')
+      expect(T::ARRAY.to_crystal).to eq('RubyArray')
+      expect(T::HASH.to_crystal).to eq('RubyHash')
+      expect(T::NIL_CLASS.to_crystal).to eq('RubyNil')
+    end
+
+    it "user classes" do
+      expect(T.of(:Planet).to_crystal).to eq('Ruby_Planet')
+      expect(T.of(:Node).to_crystal).to eq('Ruby_Node')
+    end
+
+    it "parameterised arrays with native elems" do
+      expect(T.array(elem: T::I64).to_crystal).to eq('Array(Int64)')
+      expect(T.array(elem: T::F64).to_crystal).to eq('Array(Float64)')
+    end
+
+    it "bottom" do
+      expect(T::BOTTOM.to_crystal).to eq('RubyObject')
+    end
+  end
+
+  describe "#native?" do
+    it "scalars are native" do
+      expect(T::I64).to be_native
+      expect(T::F64).to be_native
+    end
+
+    it "array scalars are native" do
+      expect(T::ARRAY_I64).to be_native
+      expect(T::ARRAY_F64).to be_native
+    end
+
+    it "class types are not native" do
+      expect(T::STRING).not_to be_native
+      expect(T::INTEGER).not_to be_native
+    end
+
+    it "parameterised arrays with native elems are native" do
+      expect(T.array(elem: T::I64)).to be_native
+    end
+
+    it "bottom is not native" do
+      expect(T::BOTTOM).not_to be_native
+    end
+  end
 end
