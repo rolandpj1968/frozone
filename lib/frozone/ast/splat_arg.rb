@@ -4,6 +4,7 @@ module Frozone
   module Ast
     # Represents *expr in a method call argument list
     class SplatArg < Node
+      attr_reader :value_node
       def initialize(value_node)
         @value_node = value_node
       end

@@ -5,6 +5,7 @@ require_relative '../vm/globals'
 module Frozone
   module Ast
     class ConstantWrite < Node
+      attr_reader :value_node
       attr_reader :name
       def initialize(name, value_node, source_location: nil)
         @name = name

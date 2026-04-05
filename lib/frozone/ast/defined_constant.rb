@@ -4,6 +4,7 @@ module Frozone
   module Ast
     # defined?(ConstantName) — returns "constant" if the constant is defined, nil otherwise
     class DefinedConstant < Node
+      attr_reader :name
       def initialize(name)
         @name = name
       end

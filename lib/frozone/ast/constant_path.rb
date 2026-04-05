@@ -7,6 +7,7 @@ module Frozone
   module Ast
     # Evaluates to the root Object class (for ::Foo absolute constant paths)
     class RootNamespaceNode < Node
+      attr_reader :value_node
       INSTANCE = new
 
       def evaluate(_context) = Vm::Core::OBJECT_CLASS

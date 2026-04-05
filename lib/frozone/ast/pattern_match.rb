@@ -328,6 +328,7 @@ module Frozone
     # case x; in Pattern; body; end
     # --------------------------------------------------------------------------
     class PatternMatch < Node
+      attr_reader :value_node
       include PatternMatchLogic
 
       def initialize(predicate, arms, else_node)

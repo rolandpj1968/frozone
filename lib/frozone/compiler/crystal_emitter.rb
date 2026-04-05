@@ -85,7 +85,7 @@ module Frozone
           if ATTR_METHODS.include?(mname)
             node.arg_nodes.each do |a|
               next unless a.is_a?(Ast::SymbolLiteral)
-              sym_name = a.value.raw
+              sym_name = a.value
               @user_methods << sym_name           unless mname == :attr_writer
               @user_methods << :"#{sym_name}="    unless mname == :attr_reader
             end
@@ -261,7 +261,7 @@ module Frozone
       end
 
       def emit_symbol_literal(node)
-        sym = node.value.raw  # SymbolObject#raw → native Ruby Symbol
+        sym = node.value  # SymbolObject#raw → native Ruby Symbol
         write %(RubySymbol.from(#{sym.to_s.inspect}))
       end
 
@@ -660,7 +660,7 @@ module Frozone
         first = true
         node.arg_nodes.each do |sym|
           next unless sym.is_a?(Ast::SymbolLiteral)
-          name = sym.value.raw.to_s
+          name = sym.value.to_s
           if first
             first = false
           else
@@ -732,7 +732,7 @@ module Frozone
       def emit_block_arg(block_arg_node)
         value_node = block_arg_node.value_node
         if value_node.is_a?(Ast::SymbolLiteral)
-          method_name = crystal_method_name(value_node.value.raw)
+          method_name = crystal_method_name(value_node.value)
           # Wrap with .as(RubyObject) to avoid Crystal type-union issues when
           # the same method name exists on multiple types with different return types
           write "{ |_sym2proc| _sym2proc.#{method_name}.as(RubyObject) }"
@@ -1591,7 +1591,7 @@ module Frozone
           # attr_accessor/reader/writer declare implicit ivars
           if ATTR_METHODS.include?(node.name)
             node.arg_nodes.each do |a|
-              seen << "@#{a.value.raw}" if a.is_a?(Ast::SymbolLiteral)
+              seen << "@#{a.value}" if a.is_a?(Ast::SymbolLiteral)
             end
           end
         when Ast::If

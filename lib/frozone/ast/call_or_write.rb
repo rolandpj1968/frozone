@@ -4,6 +4,7 @@ module Frozone
   module Ast
     # a.b ||= val — evaluates receiver once, returns new value (not setter result)
     class CallOrWrite < Node
+      attr_reader :value_node
       def initialize(read_name, write_name, receiver_node, value_node, safe_nav: false)
         @read_name = read_name
         @write_name = write_name

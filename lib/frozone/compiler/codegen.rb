@@ -1399,7 +1399,7 @@ module Frozone
         klass = lookup_vm_class(recv_class) or return
         if node.name == :respond_to? && node.arg_nodes&.size&.between?(1, 2) &&
            node.arg_nodes[0].is_a?(Ast::SymbolLiteral)
-          write(klass.lookup_method(node.arg_nodes[0].value.raw) ? "RUBY_TRUE" : "RUBY_FALSE")
+          write(klass.lookup_method(node.arg_nodes[0].value) ? "RUBY_TRUE" : "RUBY_FALSE")
         elsif (node.name == :is_a? || node.name == :kind_of?) &&
               node.arg_nodes&.size == 1 && node.arg_nodes[0].is_a?(Ast::ConstantRead)
           target = lookup_vm_class(node.arg_nodes[0].name) or return

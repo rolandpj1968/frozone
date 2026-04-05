@@ -6,6 +6,7 @@ module Frozone
     # Represents &expr passed as a block in a method call.
     # Evaluates expr (expected to be a ProcObject or SymbolObject) and wraps it as a block.
     class BlockArg < Node
+      attr_reader :value_node
       def initialize(value_node)
         @value_node = value_node
       end

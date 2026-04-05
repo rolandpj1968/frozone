@@ -8,6 +8,8 @@ module Frozone
   module Ast
     # FOO ||= val — assigns only if FOO is undefined or falsy
     class ConstantOrWrite < Node
+      attr_reader :name
+      attr_reader :value_node
       def initialize(name, value_node)
         @name = name
         @value_node = value_node
