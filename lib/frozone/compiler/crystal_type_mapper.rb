@@ -59,7 +59,7 @@ module Frozone
 
       # Unpack TypeEnv slots into per-kind lookup maps.
       def unpack_slots
-        @env.instance_variable_get(:@slots).each do |slot, ty|
+        @env.slots.each do |slot, ty|
           next if ty == :unknown || !slot.is_a?(Array)
           case slot[0]
           when :local    then unpack_local(slot, ty)

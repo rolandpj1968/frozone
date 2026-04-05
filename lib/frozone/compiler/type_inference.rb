@@ -1,3 +1,5 @@
+require_relative 'type'
+
 module Frozone
   module Compiler
     # Whole-program type inference over a settled Frozone VM snapshot.
@@ -102,36 +104,49 @@ module Frozone
       # ------------------------------------------------------------------
 
       class TypeEnv
-        attr_reader :slots
-
         def initialize(ti)
-          @slots = {}
+          @typed_slots = {}  # slot → Type (only non-bottom entries)
           @ti = ti
         end
 
-        # Raw lattice value including :unknown sentinel.
-        def raw(slot) = @slots.fetch(slot, :unknown)
-        def typed?(slot) = !self[slot].nil?
-
-        # Public type for a slot: nil when still :unknown, else the lattice value.
-        def [](slot)
-          v = @slots[slot]
-          v == :unknown ? nil : v
+        # Legacy-compatible accessors (return old Symbol/Hash representation).
+        # These are the boundary for downstream consumers that haven't migrated.
+        def raw(slot)
+          t = @typed_slots[slot]
+          t ? t.to_legacy : :unknown
         end
 
-        # Meet `type` into `slot`. Returns true if the slot changed.
+        def typed?(slot) = @typed_slots.key?(slot)
+
+        def [](slot)
+          t = @typed_slots[slot]
+          t ? t.to_legacy : nil
+        end
+
+        # Legacy-compatible slots hash (for callers that iterate @env.slots).
+        def slots
+          @typed_slots.transform_values(&:to_legacy)
+        end
+
+        # Type-native accessors (return Type objects directly).
+        def type_of(slot) = @typed_slots.fetch(slot, Type::BOTTOM)
+        def type_at(slot) = @typed_slots[slot]  # nil if absent (not BOTTOM)
+
+        # Join `type` into `slot`. Accepts both Type and legacy values.
+        # Returns true if the slot changed.
         def join!(slot, type)
           return false unless type
-          current = @slots.fetch(slot, :unknown)
-          merged  = @ti.join(current, type)
+          type = Type.from_legacy(type) unless type.is_a?(Type)
+          return false if type.bottom?
+          current = @typed_slots.fetch(slot, Type::BOTTOM)
+          merged = @ti.join_types(current, type)
           return false if merged == current
-          @slots[slot] = merged
+          @typed_slots[slot] = merged
           true
         end
 
         def inspect
-          typed = @slots.reject { |_, v| v == :unknown }
-          "#<TypeEnv #{typed.size} typed slots>"
+          "#<TypeEnv #{@typed_slots.size} typed slots>"
         end
       end
 
@@ -193,6 +208,34 @@ module Frozone
           merge_collection_params(a, b).merge(nullable: true).freeze
         else
           lca_of(a[:class], b[:class])
+        end
+      end
+
+      # ------------------------------------------------------------------
+      # join_types — lattice join on Type value objects
+      # ------------------------------------------------------------------
+
+      def join_types(a, b)
+        return b if a.bottom?
+        return a if b.bottom?
+        return a if a == b
+
+        # Normalise scalars/array_scalars to class types for comparison.
+        if !a.class_type? || !b.class_type?
+          return join_types(a.to_class_type, b.to_class_type)
+        end
+
+        # Both are class types.
+        if a.class_name == b.class_name
+          merged = a.merge_params(b)
+          # merge_params returns :needs_join sentinels for params that need joining.
+          resolve_param_joins(a, b, merged)
+        elsif a.nil_type?
+          Type.nullable(b)
+        elsif b.nil_type?
+          Type.nullable(a)
+        else
+          lca_type(a.class_name, b.class_name)
         end
       end
 
@@ -1380,6 +1423,31 @@ module Frozone
         chain_b = ancestors_of(b_name)
         lca = chain_b.find { |c| set_a.include?(c) }
         lca ? {class: lca} : BASIC_OBJECT_TYPE
+      end
+
+      # LCA returning a Type object (for join_types).
+      def lca_type(a_name, b_name)
+        return Type.of(a_name) if a_name == b_name
+        chain_a = ancestors_of(a_name)
+        set_a = chain_a.to_set
+        chain_b = ancestors_of(b_name)
+        lca = chain_b.find { |c| set_a.include?(c) }
+        lca ? Type.of(lca) : Type::BASIC_OBJECT
+      end
+
+      # Resolve :needs_join sentinels in merged collection params.
+      def resolve_param_joins(a, b, merged)
+        return merged unless needs_param_resolution?(merged)
+        elem = merged.elem == :needs_join ? join_types(a.elem, b.elem) : merged.elem
+        key = merged.key == :needs_join ? join_types(a.key, b.key) : merged.key
+        val = merged.val == :needs_join ? join_types(a.val, b.val) : merged.val
+        Type.new(:class_type, class_name: merged.class_name,
+                 nullable: merged.nullable?, exact: merged.exact?,
+                 elem: elem, key: key, val: val)
+      end
+
+      def needs_param_resolution?(t)
+        t.elem == :needs_join || t.key == :needs_join || t.val == :needs_join
       end
 
       # Full boxed (parameterized) class type for an unboxed type.
