@@ -21,12 +21,12 @@ module Frozone
       # Emit node coerced to Float64: raw if already typed, else .to_f64 on boxed.
       def emit_coerce_f64(node) = node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_f64")
 
-      # Returns :i64, :f64, or nil for the provable bare Crystal type of a node.
+      # Returns Type::I64, Type::F64, or nil for the provable bare Crystal type of a node.
       def node_raw_type(node)
         return nil unless node
         case node
-        when Ast::IntegerLiteral then :i64
-        when Ast::FloatLiteral then :f64
+        when Ast::IntegerLiteral then Type::I64
+        when Ast::FloatLiteral then Type::F64
         when Ast::Sequence then node_raw_type(node.nodes.last) if node.nodes.any?
         when Ast::LocalVariableRead
           @mctx.typed_locals[node.name] || @mctx.raw_block_params[node.name]
@@ -38,10 +38,10 @@ module Frozone
         when Ast::ConstantRead
           @gctx.const_raw_types[node.name]
         when Ast::ConstantPath
-          # Math::PI, Math::E → :f64
+          # Math::PI, Math::E → Type::F64
           parent = node.parent_node
           if parent.is_a?(Ast::ConstantRead) && parent.name == :Math
-            :f64
+            Type::F64
           end
         when Ast::MethodCall
           name = node.name
@@ -58,7 +58,7 @@ module Frozone
           end
           # Math.sqrt, Math.sin, etc. always return Float64
           if recv.is_a?(Ast::ConstantRead) && recv.name == :Math
-            return :f64
+            return Type::F64
           end
           # Instance method call on a class-typed local with known raw return type
           if recv.is_a?(Ast::LocalVariableRead)
@@ -77,18 +77,18 @@ module Frozone
             return elem_ty if elem_ty
           end
           # succ/pred on typed integer → same type
-          if (name == :succ || name == :pred) && args.empty? && node_raw_type(recv) == :i64
-            return :i64
+          if (name == :succ || name == :pred) && args.empty? && node_raw_type(recv)&.i64?
+            return Type::I64
           end
           # Explicit coercion methods → known return type
-          return :f64 if %i[to_f to_f64].include?(name) && args.empty? && recv
-          return :i64 if %i[to_i to_i64].include?(name) && args.empty? && recv
+          return Type::F64 if %i[to_f to_f64].include?(name) && args.empty? && recv
+          return Type::I64 if %i[to_i to_i64].include?(name) && args.empty? && recv
           # Arithmetic op: BOTH operands must be raw-typed
           return nil unless ARITH_OPS_UNBOX.include?(name) && args.size == 1
           rt = node_raw_type(recv)
           at = node_raw_type(args[0])
           return nil unless rt && at
-          (rt == :f64 || at == :f64) ? :f64 : :i64
+          (rt.f64? || at.f64?) ? Type::F64 : Type::I64
         when Ast::IndexOperatorWrite
           # sr[i] += 1 on a native Array(Int64) returns Int64
           recv = node.receiver_node
@@ -126,8 +126,8 @@ module Frozone
             inner = n
             inner = inner.value_node while inner.is_a?(Ast::LocalVariableWrite)
             case inner
-            when Ast::IntegerLiteral then @mctx.typed_locals[name] ||= :i64
-            when Ast::FloatLiteral then @mctx.typed_locals[name] = :f64
+            when Ast::IntegerLiteral then @mctx.typed_locals[name] ||= Type::I64
+            when Ast::FloatLiteral then @mctx.typed_locals[name] = Type::F64
             end
           end
         end
@@ -150,7 +150,7 @@ module Frozone
             next unless (ty = @mctx.typed_locals[name])
             ok = nodes.all? do |n|
               nt = node_raw_type(n)
-              nt == ty || (ty == :f64 && nt == :i64)
+              nt == ty || (ty.f64? && nt&.i64?)
             end
             @mctx.typed_locals.delete(name) unless ok
           end
@@ -221,7 +221,7 @@ module Frozone
           ty = @gctx.const_raw_types[node.name]
           emit_constant_read(node)
           # Array constants are already native — no coercion needed
-          write(ty == :f64 ? ".to_f64" : ".to_i64") unless ty == :array_i64 || ty == :array_f64 || ty.nil?
+          write(ty.f64? ? ".to_f64" : ".to_i64") unless ty.nil? || ty == Type::ARRAY_I64 || ty == Type::ARRAY_F64
         when Ast::ConstantPath
           # Math::PI → Math::PI (already Float64 in Crystal)
           parent = node.parent_node
@@ -238,16 +238,16 @@ module Frozone
           # to_f / to_i coercion → emit raw coercion
           if %i[to_f to_f64].include?(name) && args.empty? && recv
             emit_raw(recv)
-            write ".to_f64" unless node_raw_type(recv) == :f64
+            write ".to_f64" unless node_raw_type(recv)&.f64?
             return
           end
           if %i[to_i to_i64].include?(name) && args.empty? && recv
             emit_raw(recv)
-            write ".to_i64" unless node_raw_type(recv) == :i64
+            write ".to_i64" unless node_raw_type(recv)&.i64?
             return
           end
           # succ/pred on raw Int64 → emit as (val +/- 1)
-          if (name == :succ || name == :pred) && args.empty? && node_raw_type(recv) == :i64
+          if (name == :succ || name == :pred) && args.empty? && node_raw_type(recv)&.i64?
             write "("
             emit_raw(recv)
             write(name == :succ ? " + 1_i64)" : " - 1_i64)")
@@ -267,7 +267,7 @@ module Frozone
               write "["
               emit_coerce_i64(args[0])
               write "]"
-              write elem_ty == :f64 ? ".as(RubyFloat).to_f64" : ".as(RubyInteger).to_i64"
+              write elem_ty.f64? ? ".as(RubyFloat).to_f64" : ".as(RubyInteger).to_i64"
             else
               emit(node)
             end
@@ -290,7 +290,7 @@ module Frozone
             # Otherwise the generic overload returns RubyObject, so coerce.
             unless @gctx.typed_method_returns[name]
               ret = node_raw_type(node)
-              write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
+              write(ret&.f64? ? ".to_f64" : ".to_i64") if ret
             end
           elsif recv.is_a?(Ast::LocalVariableRead) &&
                 (recv_class = @mctx.class_locals[recv.name]) &&
@@ -313,20 +313,20 @@ module Frozone
           elsif (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
             rt = node_raw_type(recv)
             at = node_raw_type(args[0])
-            ty = (rt == :f64 || at == :f64) ? :f64 : :i64
+            ty = (rt&.f64? || at&.f64?) ? Type::F64 : Type::I64
             write "("
             emit_as(recv, ty)
             # Crystal uses // for integer division (Ruby's / on integers)
-            op = (name == :/ && ty == :i64) ? "//" : name.to_s
+            op = (name == :/ && ty.i64?) ? "//" : name.to_s
             write " #{op} "
             emit_as(args[0], ty)
             write ")"
           else
             emit(node)
-            # If TI says this free call returns :i64/:f64 but we emitted
+            # If TI says this free call returns Type::I64/Type::F64 but we emitted
             # the boxed path, coerce so callers get the raw Crystal type.
             if recv.nil? && (ret = @gctx.typed_method_returns[name])
-              write(ret == :f64 ? ".to_f64" : ".to_i64")
+              write(ret.f64? ? ".to_f64" : ".to_i64")
             end
           end
         else
@@ -334,14 +334,14 @@ module Frozone
         end
       end
 
-      # Emit node coerced to the given raw type (:i64 or :f64).
+      # Emit node coerced to the given raw type (Type::I64 or Type::F64).
       # Recurses into arithmetic where at least one operand is typed.
       def emit_as(node, ty)
         nt = node_raw_type(node)
         # Already the right type — emit raw
         return emit_raw(node) if nt == ty
         # Int64 → Float64 promotion
-        if nt == :i64 && ty == :f64
+        if nt&.i64? && ty.f64?
           emit_raw(node)
           write ".to_f64"
           return
@@ -357,7 +357,7 @@ module Frozone
             if rt || at
               write "("
               emit_as(recv, ty)
-              op = (name == :/ && ty == :i64) ? "//" : name.to_s
+              op = (name == :/ && ty.i64?) ? "//" : name.to_s
               write " #{op} "
               emit_as(args[0], ty)
               write ")"
@@ -372,7 +372,7 @@ module Frozone
         else
           emit(node)
         end
-        write ty == :f64 ? ".to_f64" : ".to_i64"
+        write ty.f64? ? ".to_f64" : ".to_i64"
       end
 
       # Emit node coerced to Int64: raw if already typed, else .to_i64 on boxed.
@@ -423,8 +423,8 @@ module Frozone
           write crystal_local(node.name)
         when Ast::InstanceVariableRead
           iv = node.name
-          case @cctx&.ivars&.dig(iv)
-          when :i64, :f64, :array_i64, :array_f64
+          case (iv_ty = @cctx&.ivars&.dig(iv))
+          when Type::I64, Type::F64, Type::ARRAY_I64, Type::ARRAY_F64
             write iv.to_s  # bare ivar
           else
             write iv.to_s  # still bare — caller decides whether to box
@@ -459,7 +459,7 @@ module Frozone
           recv = node.receiver_node
           if node.name == :[]= && recv.is_a?(Ast::InstanceVariableRead)
             iv_ty = @cctx&.ivars&.dig(recv.name)
-            if iv_ty == :array_f64 || iv_ty == :array_i64
+            if iv_ty == Type::ARRAY_F64 || iv_ty == Type::ARRAY_I64
               args = node.arg_nodes
               write recv.name.to_s, "["
               emit_raw_expr(args[0])
@@ -475,14 +475,14 @@ module Frozone
           # Check if branches produce mixed numeric types — coerce to Float64
           then_ty = node_raw_type(then_n)
           else_ty = else_n ? node_raw_type(else_n) : nil
-          needs_float = (then_ty == :f64 && else_ty == :i64) || (then_ty == :i64 && else_ty == :f64)
+          needs_float = (then_ty&.f64? && else_ty&.i64?) || (then_ty&.i64? && else_ty&.f64?)
           write "if "
           emit_raw_truthy(node.pred_node)
           emit_newline
-          indented { emit_indent; needs_float && then_ty == :i64 ? (emit_raw_expr(then_n); write ".to_f64") : emit_raw_expr(then_n) }
+          indented { emit_indent; needs_float && then_ty&.i64? ? (emit_raw_expr(then_n); write ".to_f64") : emit_raw_expr(then_n) }
           if else_n
             emit_newline; emit_indent; write "else"; emit_newline
-            indented { emit_indent; needs_float && else_ty == :i64 ? (emit_raw_expr(else_n); write ".to_f64") : emit_raw_expr(else_n) }
+            indented { emit_indent; needs_float && else_ty&.i64? ? (emit_raw_expr(else_n); write ".to_f64") : emit_raw_expr(else_n) }
           end
           emit_newline; emit_indent; write "end"
         when Ast::And
@@ -545,7 +545,7 @@ module Frozone
         # Arithmetic/comparison with raw operands
         if (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
           # Crystal uses // for integer division (Ruby's / on integers)
-          op = (name == :/ && node_raw_type(recv) == :i64 && node_raw_type(args[0]) == :i64) ? "//" : name.to_s
+          op = (name == :/ && node_raw_type(recv)&.i64? && node_raw_type(args[0])&.i64?) ? "//" : name.to_s
           write "("; emit_raw_expr(recv); write " #{op} "; emit_raw_expr(args[0]); write ")"
           return true
         end
@@ -574,7 +574,7 @@ module Frozone
         if %i[abs floor ceil round].include?(name) && args.empty? && recv
           emit_raw_expr(recv); write ".#{name}"
           # floor/ceil/round on Float64 returns Float64 in Crystal; add .to_i64 if needed
-          write ".to_i64" if %i[floor ceil round].include?(name) && node_raw_type(recv) == :f64
+          write ".to_i64" if %i[floor ceil round].include?(name) && node_raw_type(recv)&.f64?
           return true
         end
 
@@ -607,7 +607,7 @@ module Frozone
           # Check if callee has a typed overload with raw params
           mkey = @cctx&.name ? [@cctx.name, name] : name
           raw_params = @gctx.class_params&.dig(mkey) || @gctx.typed_params&.dig(name)
-          has_typed = raw_params&.any? { |t| CrystalType.raw(t) }
+          has_typed = raw_params&.any? { |t| t.is_a?(Type) ? t.raw? : CrystalType.raw(t) }
           write "self." if recv.is_a?(Ast::SelfLiteral)
           write crystal_method_name(name)
           write "("
@@ -617,10 +617,15 @@ module Frozone
               emit_raw_expr(a)
               # Coerce union types to match typed overload param
               if raw_params && i < raw_params.size && raw_params[i]
-                pty = CrystalType.raw(raw_params[i])
-                nrt = node_raw_type(a)
+                pty = raw_params[i]
+                if pty.is_a?(Type)
+                  write ".to_i64" if pty.i64?
+                  write ".to_f64" if pty.f64?
+                else
+                  pty = CrystalType.raw(pty)
                   write ".to_i64" if pty == :i64
-                write ".to_f64" if pty == :f64
+                  write ".to_f64" if pty == :f64
+                end
               end
             end
           else
@@ -632,7 +637,7 @@ module Frozone
           # Coerce return to raw if TI knows the return type
           unless has_typed
             ret = node_raw_type(node)
-            write(ret == :f64 ? ".to_f64" : ".to_i64") if ret
+            write(ret&.f64? ? ".to_f64" : ".to_i64") if ret
           end
           return true
         end
@@ -650,7 +655,7 @@ module Frozone
             recv_cls = @mctx.class_locals&.dig(recv_name)
             recv_cls = recv_cls.is_a?(Array) ? recv_cls[0] : recv_cls
             if recv_cls && (ret = @gctx.instance_method_raw_returns&.dig([recv_cls, name]))
-              write(ret == :f64 ? ".to_f64" : ".to_i64")
+              write(ret.f64? ? ".to_f64" : ".to_i64")
             end
             emit_raw_block(node)
             return true

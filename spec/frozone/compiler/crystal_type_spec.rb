@@ -1,4 +1,5 @@
 require_relative '../../support/vm_loader'
+require_relative '../../../lib/frozone/compiler/crystal_emitter'
 require_relative '../../../lib/frozone/compiler/crystal_type'
 
 CT = Frozone::Compiler::CrystalType

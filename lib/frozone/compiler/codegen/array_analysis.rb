@@ -34,7 +34,7 @@ module Frozone
           blk = rhs.block_node
           next unless blk.is_a?(Ast::Block)
           outer_args = rhs.arg_nodes || []
-          next unless outer_args.size == 1 && node_raw_type(outer_args[0]) == :i64
+          next unless outer_args.size == 1 && node_raw_type(outer_args[0])&.i64?
           # Inner block body must be Array.new(count2_i64, fill_scalar) — no block
           inner = blk.body
           inner = inner.nodes.first if inner.is_a?(Ast::Sequence) && inner.nodes.size == 1
@@ -201,7 +201,7 @@ module Frozone
               val = args[1]
               val_ty = val ? node_raw_type(val) : nil
               expected = candidates[lv]
-              ok = val_ty == expected || (val_ty == :i64 && expected == :f64)
+              ok = val_ty == expected || (val_ty&.i64? && expected&.f64?)
               escaped << lv unless ok
             else
               escaped << lv  # other method on array = escape
@@ -228,7 +228,7 @@ module Frozone
             val = args[1]
             val_ty = val ? node_raw_type(val) : nil
             expected = candidates[lv]
-            ok = val_ty == expected || (val_ty == :i64 && expected == :f64)
+            ok = val_ty == expected || (val_ty&.i64? && expected&.f64?)
             escaped << lv unless ok
           else
             scan_array_uses(recv, candidates, escaped)
