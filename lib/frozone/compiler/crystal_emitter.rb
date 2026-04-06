@@ -164,6 +164,16 @@ module Frozone
         when Ast::Next               then cr_next(node)
         when Ast::Break              then cr_break(node)
         when Ast::GlobalVariableRead then cr_global_var_read(node)
+        when Ast::ConstantPath       then cr_constant_path(node)
+        when Ast::LocalVariableWrite then cr_local_var_write(node)
+        when Ast::InstanceVariableWrite then cr_ivar_write(node)
+        when Ast::ConstantWrite      then cr_constant_write(node)
+        when Ast::ClassVariableWrite then cr_class_var_write(node)
+        when Ast::GlobalVariableWrite then cr_global_var_write(node)
+        when Ast::IndexOrWrite       then cr_index_or_write(node)
+        when Ast::IndexOperatorWrite then cr_index_op_write(node)
+        when Ast::IndexAndWrite      then cr_index_and_write(node)
+        when Ast::Yield              then cr_yield(node)
         when Ast::Retry              then "retry"
         else
           # Nodes without cr_* yet — delegate to imperative emit and capture
@@ -181,12 +191,6 @@ module Frozone
       def emit_node(node)
         case node
         when Ast::Sequence              then emit_sequence(node)
-        when Ast::LocalVariableWrite    then emit_local_var_write(node)
-        when Ast::InstanceVariableWrite then emit_ivar_write(node)
-        when Ast::ConstantPath          then emit_constant_path(node)
-        when Ast::ConstantWrite         then emit_constant_write(node)
-        when Ast::ClassVariableWrite    then emit_class_var_write(node)
-        when Ast::Yield                 then emit_yield(node)
         when Ast::MethodCall            then emit_method_call(node)
         when Ast::AttributeWrite        then emit_attribute_write(node)
         when Ast::MethodDef             then emit_method_def(node)
@@ -200,10 +204,6 @@ module Frozone
         when Ast::Case                  then emit_case(node)
         when Ast::MultipleAssignment    then emit_multiple_assignment(node)
         when Ast::Lambda                then emit_lambda(node)
-        when Ast::GlobalVariableWrite   then emit_global_var_write(node)
-        when Ast::IndexOrWrite          then emit_index_or_write(node)
-        when Ast::IndexOperatorWrite    then emit_index_op_write(node)
-        when Ast::IndexAndWrite         then emit_index_and_write(node)
         when Ast::ForLoop               then emit_for_loop(node)
         when Ast::Block                 then unsupported!(node, "bare Block outside method call")
         else unsupported!(node)
@@ -283,51 +283,41 @@ module Frozone
       def cr_local_read(node) = crystal_local(node.name)
       def emit_local_var_read(node) = write cr_local_read(node)
 
-      def emit_local_var_write(node)
-        write "#{crystal_local(node.name)} = "
-        emit(node.value_node)
-      end
+      def cr_local_var_write(node) = "#{crystal_local(node.name)} = #{cr(node.value_node)}"
+      def emit_local_var_write(node) = write cr_local_var_write(node)
 
       def cr_ivar_read(node) = node.name.to_s
       def emit_ivar_read(node) = write cr_ivar_read(node)
 
-      def emit_ivar_write(node)
-        write "#{node.name} = "
-        emit(node.value_node)
-      end
+      def cr_ivar_write(node) = "#{node.name} = #{cr(node.value_node)}"
+      def emit_ivar_write(node) = write cr_ivar_write(node)
 
       def cr_constant_read(node) = RUBY_TO_CRYSTAL_TYPE[node.name] || "Ruby_#{crystal_constant(node.name)}"
       def emit_constant_read(node) = write cr_constant_read(node)
 
-      def emit_constant_path(node)
+      def cr_constant_path(node)
         parent = node.parent_node
-        name   = node.name
-        # Special cases: Math::PI, Math::E → Crystal constants
+        name = node.name
         if parent.is_a?(Ast::ConstantRead) && parent.name == :Math
           case name
-          when :PI then write "RubyFloat.new(Math::PI)"
-          when :E  then write "RubyFloat.new(Math::E)"
-          else write "RubyMath.#{crystal_method_name(name)}"
+          when :PI then "RubyFloat.new(Math::PI)"
+          when :E  then "RubyFloat.new(Math::E)"
+          else "RubyMath.#{crystal_method_name(name)}"
           end
         else
-          # General: Parent::Name → Ruby_Parent::Ruby_Name or Ruby_Parent.Name
-          emit(parent)
-          write "::Ruby_#{crystal_constant(name)}"
+          "#{cr(parent)}::Ruby_#{crystal_constant(name)}"
         end
       end
 
-      def emit_constant_write(node)
-        write "Ruby_#{crystal_constant(node.name)} = "
-        emit(node.value_node)
-      end
+      def cr_constant_write(node) = "Ruby_#{crystal_constant(node.name)} = #{cr(node.value_node)}"
+      def emit_constant_path(node) = write cr_constant_path(node)
+      def emit_constant_write(node) = write cr_constant_write(node)
 
       def cr_class_var_read(node) = node.name.to_s
       def emit_class_var_read(node) = write cr_class_var_read(node)
 
-      def emit_class_var_write(node)
-        write "#{node.name} = "
-        emit(node.value_node)
-      end
+      def cr_class_var_write(node) = "#{node.name} = #{cr(node.value_node)}"
+      def emit_class_var_write(node) = write cr_class_var_write(node)
 
       # -----------------------------------------------------------------------
       # Sequence
@@ -900,81 +890,51 @@ module Frozone
 
       def emit_global_var_read(node) = write cr_global_var_read(node)
 
-      def emit_global_var_write(node)
-        name = node.name
-        key  = name.to_s.sub(/^\$/, '')
-        write %(RUBY_GLOBALS[#{key.inspect}] = )
-        emit(node.value_node)
+      def cr_global_var_write(node)
+        key = node.name.to_s.sub(/^\$/, '')
+        %(RUBY_GLOBALS[#{key.inspect}] = #{cr(node.value_node)})
       end
 
-      # a[i] ||= val → (_r = recv; _i = idx; _c = _r[_i]; _c.truthy? ? _c : (_r[_i] = val))
-      def emit_index_or_write(node)
-        recv_node  = node.receiver_node
-        index_args = node.index_arg_nodes
-        val_node   = node.value_node
-        r = "_iorw_r#{@temp_counter}"
-        i = "_iorw_i#{@temp_counter}"
-        c = "_iorw_c#{@temp_counter}"
+      def emit_global_var_write(node) = write cr_global_var_write(node)
+
+      def cr_index_or_write(node)
+        r, i, c = "_iorw_r#{@temp_counter}", "_iorw_i#{@temp_counter}", "_iorw_c#{@temp_counter}"
         @temp_counter += 1
-        write "(#{r} = "
-        recv_node ? emit(recv_node) : write("self")
-        write "; #{i} = "
-        emit(index_args[0])
-        write "; #{c} = #{r}[#{i}]; #{c}.truthy? ? #{c} : (#{r}[#{i}] = "
-        emit(val_node)
-        write "))"
+        recv = node.receiver_node ? cr(node.receiver_node) : "self"
+        idx = cr(node.index_arg_nodes[0])
+        val = cr(node.value_node)
+        "(#{r} = #{recv}; #{i} = #{idx}; #{c} = #{r}[#{i}]; #{c}.truthy? ? #{c} : (#{r}[#{i}] = #{val}))"
       end
 
-      # a[i] &&= val → (_r = recv; _i = idx; _c = _r[_i]; _c.truthy? ? (_r[_i] = val) : _c)
-      def emit_index_and_write(node)
-        recv_node  = node.receiver_node
-        index_args = node.index_arg_nodes
-        val_node   = node.value_node
-        r = "_iandw_r#{@temp_counter}"
-        i = "_iandw_i#{@temp_counter}"
-        c = "_iandw_c#{@temp_counter}"
+      def cr_index_and_write(node)
+        r, i, c = "_iandw_r#{@temp_counter}", "_iandw_i#{@temp_counter}", "_iandw_c#{@temp_counter}"
         @temp_counter += 1
-        write "(#{r} = "
-        recv_node ? emit(recv_node) : write("self")
-        write "; #{i} = "
-        emit(index_args[0])
-        write "; #{c} = #{r}[#{i}]; #{c}.truthy? ? (#{r}[#{i}] = "
-        emit(val_node)
-        write ") : #{c})"
+        recv = node.receiver_node ? cr(node.receiver_node) : "self"
+        idx = cr(node.index_arg_nodes[0])
+        val = cr(node.value_node)
+        "(#{r} = #{recv}; #{i} = #{idx}; #{c} = #{r}[#{i}]; #{c}.truthy? ? (#{r}[#{i}] = #{val}) : #{c})"
       end
+
+      def emit_index_or_write(node) = write cr_index_or_write(node)
+      def emit_index_and_write(node) = write cr_index_and_write(node)
 
       # a[i] += val → (_r = recv; _i = idx; _r[_i] = _r[_i] op val)
-      def emit_index_op_write(node)
-        op         = node.operator
-        recv_node  = node.receiver_node
-        index_args = node.index_arg_nodes
-        val_node   = node.value_node
-        r = "_iopw_r#{@temp_counter}"
-        i = "_iopw_i#{@temp_counter}"
+      def cr_index_op_write(node)
+        r, i = "_iopw_r#{@temp_counter}", "_iopw_i#{@temp_counter}"
         @temp_counter += 1
-        write "(#{r} = "
-        recv_node ? emit(recv_node) : write("self")
-        write "; #{i} = "
-        emit(index_args[0])
-        write "; #{r}[#{i}] = (#{r}[#{i}] #{op} "
-        emit(val_node)
-        write "))"
+        recv = node.receiver_node ? cr(node.receiver_node) : "self"
+        idx = cr(node.index_arg_nodes[0])
+        val = cr(node.value_node)
+        "(#{r} = #{recv}; #{i} = #{idx}; #{r}[#{i}] = (#{r}[#{i}] #{node.operator} #{val}))"
       end
 
-      def emit_yield(node)
+      def cr_yield(node)
         args = node.arg_nodes
-        if args.empty?
-          write "yield"
-        else
-          write "yield "
-          args.each_with_index do |arg, i|
-            write ", " if i > 0
-            write "("
-            emit(arg)
-            write ")"
-          end
-        end
+        args.empty? ? "yield" : "yield #{args.map { |a| "(#{cr(a)})" }.join(', ')}"
       end
+
+      def emit_index_op_write(node) = write cr_index_op_write(node)
+      def emit_yield(node) = write cr_yield(node)
 
       # -----------------------------------------------------------------------
       # Boolean operators
