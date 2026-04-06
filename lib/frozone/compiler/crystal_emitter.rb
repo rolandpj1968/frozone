@@ -422,11 +422,6 @@ module Frozone
 
       def emit_method_call(node) = write cr_method_call(node)
 
-      # Capture-wrapper helpers for emitters not yet converted
-      def cr_loop(node) = capture { emit_loop(node) }
-      def cr_operator(node, name) = capture { emit_operator(node, name) }
-      def cr_proc_new(blk) = capture { emit_proc_new(blk) }
-      def cr_proc_call(node) = capture { emit_proc_call(node) }
 
       BINARY_OPS = %i[+ - * / % ** == != < <= > >= <=> << >> & | ^ === =~].to_set
       UNARY_OPS  = %i[-@ +@ ~ !].to_set
@@ -449,43 +444,23 @@ module Frozone
 
       def emit_attribute_write(node) = write cr_attribute_write(node)
 
-      def emit_operator(node, name)
+      def cr_operator(node, name)
         if UNARY_OPS.include?(name)
-          # Crystal unary minus is a zero-arg def -, called as recv.-
-          # Emit as method call for -@ and ~; inline for +@ (no-op)
+          recv = cr(node.receiver_node)
           case name
-          when :"-@"
-            write "("
-            emit(node.receiver_node)
-            write ".-)"
-          when :"+@"
-            emit(node.receiver_node)
-          when :"~"
-            write "~("
-            emit(node.receiver_node)
-            write ")"
-          when :"!"
-            write "(("
-            emit_truthy(node.receiver_node)
-            write ") ? RUBY_FALSE : RUBY_TRUE)"
+          when :"-@" then "(#{recv}.-)"
+          when :"+@" then recv
+          when :"~"  then "~(#{recv})"
+          when :"!"  then "((#{cr_truthy(node.receiver_node)}) ? RUBY_FALSE : RUBY_TRUE)"
           end
         elsif COMPARE_OPS.include?(name)
-          # Comparison: wrap in RubyBool so return type is RubyObject-compatible
-          # (a >= b) ? RUBY_TRUE : RUBY_FALSE
-          write "(("
-          emit_operator_recv(node.receiver_node)
-          write " #{name} "
-          emit(node.arg_nodes[0])
-          write ") ? RUBY_TRUE : RUBY_FALSE)"
+          "((#{cr_operator_recv(node.receiver_node)} #{name} #{cr(node.arg_nodes[0])}) ? RUBY_TRUE : RUBY_FALSE)"
         else
-          # Arithmetic binary: (lhs op rhs) — returns RubyObject via Crystal dispatch
-          write "("
-          emit_operator_recv(node.receiver_node)
-          write " #{name} "
-          emit(node.arg_nodes[0])
-          write ")"
+          "(#{cr_operator_recv(node.receiver_node)} #{name} #{cr(node.arg_nodes[0])})"
         end
       end
+
+      def emit_operator(node, name) = write cr_operator(node, name)
 
       # Emit operator receiver, wrapping in parens if it contains an
       # embedded assignment (so Crystal groups `(q1 = expr) != 1` correctly).
@@ -703,15 +678,17 @@ module Frozone
       def emit_next(node) = write cr_next(node)
       def emit_break(node) = write cr_break(node)
 
+      def cr_loop_lines(node)
+        body_lines = node.block_node ? cr_lines(node.block_node.body) : []
+        ["loop do", *indent(body_lines), "end"]
+      end
+
+      # cr_loop is called from cr_method_call (returns String). Loop is multi-line
+      # so it needs joining with newlines and current indent.
+      def cr_loop(node) = cr_loop_lines(node).join("\n#{'  ' * @indent}")
+
       def emit_loop(node)
-        write "loop do"
-        if node.block_node
-          emit_newline
-          indented { emit(node.block_node.body) }
-          emit_newline
-          emit_indent
-        end
-        write "end"
+        cr_loop_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
       end
 
       def cr_lambda(node)
@@ -724,38 +701,25 @@ module Frozone
 
       def emit_lambda(node) = write cr_lambda(node)
 
-      # Proc.new { |x| ... } or lambda { |x| ... } → RubyProc
-      def emit_proc_new(block_node)
+      def cr_proc_new(block_node)
         params = block_node.required_params
-        write "RubyProc.new(->(args : Array(RubyObject)) { "
-        params.each_with_index do |p, i|
-          write "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL; "
-        end
-        emit(block_node.body)
-        write " })"
+        assigns = params.each_with_index.map { |p, i| "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL" }.join("; ")
+        prefix = assigns.empty? ? "" : "#{assigns}; "
+        "RubyProc.new(->(args : Array(RubyObject)) { #{prefix}#{cr(block_node.body)} })"
       end
 
-      # proc.call(args) → cast to RubyProc and call.
-      # If the receiver is the method's &block param, call directly (it's a Crystal Proc).
-      def emit_proc_call(node)
+      def cr_proc_call(node)
         recv = node.receiver_node
         bp_name = (defined?(@mctx) && @mctx&.block_param_name) ||
           (defined?(@current_block_param_name) && @current_block_param_name)
-        is_block_param = recv.is_a?(Ast::LocalVariableRead) && bp_name &&
-          recv.name == bp_name
-        write "("
-        emit(recv)
-        if is_block_param
-          write ").call("
-        else
-          write ").as(RubyProc).call("
-        end
-        node.arg_nodes.each_with_index do |arg, i|
-          write ", " if i > 0
-          emit(arg)
-        end
-        write ")"
+        is_block_param = recv.is_a?(Ast::LocalVariableRead) && bp_name && recv.name == bp_name
+        cast = is_block_param ? "" : ".as(RubyProc)"
+        args = node.arg_nodes.map { |a| cr(a) }.join(", ")
+        "(#{cr(recv)})#{cast}.call(#{args})"
       end
+
+      def emit_proc_new(block_node) = write cr_proc_new(block_node)
+      def emit_proc_call(node) = write cr_proc_call(node)
 
       # Global variable read: $name → RUBY_GLOBALS["name"]? || RUBY_NIL
       MAPPED_GLOBALS = {
