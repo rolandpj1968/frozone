@@ -19,8 +19,8 @@ module Frozone
       # Is this method name a simple accessor (getter for a typed ivar)?
       def accessor_method_name?(name) = @cctx.name && @gctx.typed_ivars.fetch(@cctx.name, {})[:"@#{name}"]
       def emit_coerce_f64(node) = node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_f64")
-      def emit_raw_args(args) = emit_raw_args(args)
-      def emit_raw_expr_args(args) = emit_raw_expr_args(args)
+      def emit_raw_args(args) = write args.map { |a| capture { emit_raw(a) } }.join(", ")
+      def emit_raw_expr_args(args) = write args.map { |a| capture { emit_raw_expr(a) } }.join(", ")
 
       # Returns Type::I64, Type::F64, or nil for the provable bare Crystal type of a node.
       def node_raw_type(node)
@@ -581,7 +581,7 @@ module Frozone
           write "("
           # For .new on built-in types (Array, Hash, etc.), box args — no typed constructor
           if name == :new && CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(recv.name)
-            args.each_with_index { |a, i| write ", " if i > 0; emit(a) }
+            write args.map { |a| capture { emit(a) } }.join(", ")
           else
             emit_raw_expr_args(args)
           end
@@ -617,7 +617,7 @@ module Frozone
             end
           else
             # No typed overload — box args, but coerce return if TI knows it
-            args.each_with_index { |a, i| write ", " if i > 0; emit(a) }
+            write args.map { |a| capture { emit(a) } }.join(", ")
           end
           write ")"
           emit_raw_block(node)
@@ -660,7 +660,7 @@ module Frozone
         write " { "
         unless params.empty?
           write "|"
-          params.each_with_index { |p, i| write ", " if i > 0; write crystal_local(p) }
+          write params.map { |p| crystal_local(p) }.join(", ")
           write "| "
         end
         emit_raw_expr(blk.body) if blk.body
