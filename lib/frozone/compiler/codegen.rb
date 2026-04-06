@@ -605,146 +605,140 @@ module Frozone
       def emit_vm_method(name, method, param_types: nil, class_method: false)
         old_mctx = @mctx
         @mctx = MethodContext.new
-        param_names = (method.required_params || []) +
-                      (method.optional_params || []).map(&:first) +
-                      [method.rest_param].compact +
-                      (method.post_params || [])
-        param_set = param_names.to_set
-        @mctx.param_set = param_set
         mkey = @cctx.name ? [@cctx.name, name] : name
-        # For generic class method overloads with a specialized version,
-        # disable ALL type optimizations (the specialized handles raw paths).
-        generic_with_specialized = class_method && param_types.nil? &&
-          @cctx.eigen_methods&.any? &&
-          (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| !t.bottom? }
-        # Use TypeInference results for local types (omit params — they have declared types)
-        @mctx.suppress_typed_call_args = generic_with_specialized
-        @mctx.typed_locals = (!generic_with_specialized && opt?(:unbox_locals)) ? ((@gctx.locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
-        @mctx.typed_array_locals = opt?(:native_arrays) ? ((@gctx.arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
-        @mctx.class_locals = opt?(:devirtualize) ? ((@gctx.class_locals[mkey] || {}).reject { |k, _| !param_types && param_set.include?(k) }) : {}
-        @mctx.local_array_elems = opt?(:native_arrays) ? ((@gctx.local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
-        @mctx.block_params = (@gctx.block_params[mkey] || {}).reject { |k, _| param_set.include?(k) }
-        @mctx.local_types = (@gctx.local_types[mkey] || {}).reject { |k, _| param_set.include?(k) }
-        @mctx.method_body = method.body
-        @mctx.block_param_name = method.block_param
-        @mctx.native_array_locals = {}
-        # Detect nested Array.new(n) { Array.new(m, fill) } construction patterns
-        if opt?(:native_arrays)
-          detect_nested_array_locals(method.body, param_set).each do |lname, inner_elem|
-            @mctx.native_array_locals[lname] = inner_elem.is_a?(Type) ? (inner_elem.i64? ? Type::ARRAY_I64 : Type::ARRAY_F64) : [:array, inner_elem]
-          end
-        end
-        # Include raw-typed params in @mctx.typed_locals so node_raw_type works for them
-        # and they are correctly boxed/unboxed in mixed expressions.
-        if param_types
-          req = method.required_params || []
-          req.each_with_index do |p, i|
-            pt = param_types[i]
-            if pt.raw?
-              @mctx.typed_locals[p] = pt
-            elsif pt.array? || pt.array_scalar?
-              @mctx.native_array_locals[p] = pt.elem if pt.elem&.native?
-            elsif pt.class_type? && !pt.bottom?
-              @mctx.class_locals[p] = pt.class_name
-            end
-          end
-        end
-        # Pre-register nested arrays from TI: if local_types says Array(Array(T)),
-        # register so downstream construction and read/write emit native code.
-        if opt?(:native_arrays)
-          @mctx.local_types.each do |lname, ty|
-            next if @mctx.native_array_locals.key?(lname) || param_set.include?(lname)
-            next unless (ty.array? || ty.array_scalar?) && (ty.elem.array? || ty.elem.array_scalar?)
-            ct_elem = ty.elem
-            @mctx.native_array_locals[lname] = ty.elem
-          end
-        end
-        # Pre-register locals assigned from nested_array[i] reads.
-        # Must run after param seeding so params with Array(Array(T)) types are visible.
-        if opt?(:native_arrays) && @mctx.local_array_elems.any?
-          assignments = Hash.new { |h, k| h[k] = [] }
-          collect_local_assignments(method.body, assignments)
-          @mctx.local_array_elems.each do |lname, elem_ty|
-            next if @mctx.native_array_locals.key?(lname)
-            (assignments[lname] || []).each do |rhs|
-              next unless rhs.is_a?(Ast::MethodCall) && rhs.name == :[]
-              recv = rhs.receiver_node
-              next unless recv.is_a?(Ast::LocalVariableRead)
-              recv_elem = @mctx.native_array_locals[recv.name]
-              if recv_elem && (recv_elem.array_scalar?)
-                @mctx.native_array_locals[lname] = elem_ty
-                break
-              end
-            end
-          end
-        end
-        # Infer types from literal assignments for locals TI didn't cover.
-        # Skip for generic class method overloads when a specialized version exists
-        # (typed locals in the generic cause Float64/Int64 mismatches with RubyObject ops).
-        has_specialized = class_method && @cctx.eigen_methods&.any? &&
-          (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| !t.bottom? }
-        unless has_specialized && param_types.nil?
-          infer_local_types(method.body).each do |lname, ty|
-            @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
-          end
-        end
+        setup_method_context(name, method, mkey, param_types, class_method)
+
         string_return = STRING_RETURN_METHODS.include?(name)
         bool_return = %i[== != < <= > >= equal?].include?(name) && !class_method
+        raw_return = compute_raw_return(name, param_types, class_method)
         crystal_name = string_return ? name.to_s : crystal_method_name(name)
-
-        # If method has a typed return but no fully-typed-params overload,
-        # emit with raw body and return type annotation.
-        # Skip for generic class method overloads when a specialized overload exists
-        # (the specialized handles the raw return).
-        has_specialized = class_method && @cctx.eigen_methods&.any? &&
-          (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| !t.bottom? }
-        # Only emit raw body when params are typed — generic overloads with
-        # all-RubyObject params must use normal emit for correct boxing.
-        has_any_raw_param = param_types&.any? { |t| t.raw? ? t : nil }
-        raw_return = has_any_raw_param && !has_specialized && opt?(:raw_returns) && !@gctx.typed_params[name] &&
-          (@gctx.typed_method_returns[name] ||
-           (@cctx.name && @gctx.instance_method_raw_returns[[@cctx.name, name]]))
-        cr_return_types = { i64: 'Int64', f64: 'Float64' }
 
         write class_method ? "def self.#{crystal_name}" : "def #{crystal_name}"
         emit_param_list(method, param_types: param_types)
         write " : String" if string_return
         write " : Bool" if bool_return && !string_return
-        write " : #{cr_return_types[raw_return]}" if raw_return && !bool_return
+        write " : #{raw_return.to_crystal}" if raw_return && !bool_return
         emit_newline
+        emit_vm_method_body(method.body, name, bool_return: bool_return,
+                            string_return: string_return, raw_return: raw_return)
+        emit_newline; emit_indent; write "end"
+      ensure
+        @mctx = old_mctx
+      end
 
+      # -- emit_vm_method helpers -----------------------------------------------
+
+      def has_specialized_overload?(name, class_method)
+        class_method && @cctx.eigen_methods&.any? &&
+          (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| !t.bottom? }
+      end
+
+      def setup_method_context(name, method, mkey, param_types, class_method)
+        param_set = all_param_names(method).to_set
+        @mctx.param_set = param_set
+        generic_suppressed = has_specialized_overload?(name, class_method) && param_types.nil?
+        @mctx.suppress_typed_call_args = generic_suppressed
+        seed_ti_locals(mkey, param_set, generic_suppressed, param_types)
+        @mctx.method_body = method.body
+        @mctx.block_param_name = method.block_param
+        @mctx.native_array_locals = {}
+        seed_native_arrays(method.body, param_set)
+        seed_param_types(method, param_types)
+        seed_nested_array_locals(method.body, param_set)
+        seed_literal_types(name, method.body, param_set, param_types, class_method)
+      end
+
+      def all_param_names(method)
+        (method.required_params || []) +
+          (method.optional_params || []).map(&:first) +
+          [method.rest_param].compact +
+          (method.post_params || [])
+      end
+
+      def seed_ti_locals(mkey, param_set, generic_suppressed, param_types)
+        @mctx.typed_locals = (!generic_suppressed && opt?(:unbox_locals)) ? ((@gctx.locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @mctx.typed_array_locals = opt?(:native_arrays) ? ((@gctx.arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @mctx.class_locals = opt?(:devirtualize) ? ((@gctx.class_locals[mkey] || {}).reject { |k, _| !param_types && param_set.include?(k) }) : {}
+        @mctx.local_array_elems = opt?(:native_arrays) ? ((@gctx.local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        @mctx.block_params = (@gctx.block_params[mkey] || {}).reject { |k, _| param_set.include?(k) }
+        @mctx.local_types = (@gctx.local_types[mkey] || {}).reject { |k, _| param_set.include?(k) }
+      end
+
+      def seed_native_arrays(body, param_set)
+        return unless opt?(:native_arrays)
+        detect_nested_array_locals(body, param_set).each do |lname, inner_elem|
+          @mctx.native_array_locals[lname] = inner_elem.is_a?(Type) ? (inner_elem.i64? ? Type::ARRAY_I64 : Type::ARRAY_F64) : [:array, inner_elem]
+        end
+      end
+
+      def seed_param_types(method, param_types)
+        return unless param_types
+        (method.required_params || []).each_with_index do |p, i|
+          pt = param_types[i] or next
+          if pt.raw? then @mctx.typed_locals[p] = pt
+          elsif pt.array? || pt.array_scalar? then @mctx.native_array_locals[p] = pt.elem if pt.elem&.native?
+          elsif pt.class_type? && !pt.bottom? then @mctx.class_locals[p] = pt.class_name
+          end
+        end
+      end
+
+      def seed_nested_array_locals(body, param_set)
+        return unless opt?(:native_arrays)
+        @mctx.local_types.each do |lname, ty|
+          next if @mctx.native_array_locals.key?(lname) || param_set.include?(lname)
+          next unless (ty.array? || ty.array_scalar?) && (ty.elem&.array? || ty.elem&.array_scalar?)
+          @mctx.native_array_locals[lname] = ty.elem
+        end
+        return unless @mctx.local_array_elems.any?
+        assignments = Hash.new { |h, k| h[k] = [] }
+        collect_local_assignments(body, assignments)
+        @mctx.local_array_elems.each do |lname, elem_ty|
+          next if @mctx.native_array_locals.key?(lname)
+          (assignments[lname] || []).each do |rhs|
+            next unless rhs.is_a?(Ast::MethodCall) && rhs.name == :[] &&
+                        rhs.receiver_node.is_a?(Ast::LocalVariableRead)
+            if @mctx.native_array_locals[rhs.receiver_node.name]&.array_scalar?
+              @mctx.native_array_locals[lname] = elem_ty
+              break
+            end
+          end
+        end
+      end
+
+      def seed_literal_types(name, body, param_set, param_types, class_method)
+        return if has_specialized_overload?(name, class_method) && param_types.nil?
+        infer_local_types(body).each do |lname, ty|
+          @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
+        end
+      end
+
+      def compute_raw_return(name, param_types, class_method)
+        return if has_specialized_overload?(name, class_method)
+        return unless param_types&.any?(&:raw?) && opt?(:raw_returns) && !@gctx.typed_params[name]
+        @gctx.typed_method_returns[name] ||
+          (@cctx.name && @gctx.instance_method_raw_returns[[@cctx.name, name]])
+      end
+
+      def emit_vm_method_body(body, name, bool_return:, string_return:, raw_return:)
         if bool_return
           indented do
-            write "((begin"
-            emit_newline
-            indented { emit(method.body) }
-            emit_newline
-            emit_indent
-            write "end) || RUBY_NIL).truthy?"
+            write "((begin"; emit_newline
+            indented { emit(body) }
+            emit_newline; emit_indent; write "end) || RUBY_NIL).truthy?"
           end
         elsif string_return
           indented do
-            write "(begin"
-            emit_newline
-            indented { emit(method.body) }
-            emit_newline
-            emit_indent
-            write "end).to_s"
+            write "(begin"; emit_newline
+            indented { emit(body) }
+            emit_newline; emit_indent; write "end).to_s"
           end
         elsif raw_return
-          indented { emit_raw_expr(method.body) }
+          indented { emit_raw_expr(body) }
         else
-          # Emit Crystal tuple return when method is called in masgn context
           @mctx.emit_crystal_tuple = @cc.masgn_return_methods&.include?(name)
-          indented { emit(method.body) }
+          indented { emit(body) }
           @mctx.emit_crystal_tuple = false
         end
-
-        emit_newline
-        emit_indent
-        write "end"
-      ensure
-        @mctx = old_mctx
       end
 
       # -----------------------------------------------------------------------
