@@ -175,6 +175,7 @@ module Frozone
         when Ast::IndexAndWrite      then cr_index_and_write(node)
         when Ast::Yield              then cr_yield(node)
         when Ast::Super              then cr_super(node)
+        when Ast::Lambda             then cr_lambda(node)
         when Ast::Retry              then "retry"
         else
           # Nodes without cr_* yet — capture at indent 0 for clean composition
@@ -194,7 +195,9 @@ module Frozone
         when Ast::If       then cr_if_lines(node)
         when Ast::While    then cr_while_lines(node)
         when Ast::Until    then cr_until_lines(node)
-        when Ast::Rescue   then cr_rescue_lines(node)
+        when Ast::Rescue              then cr_rescue_lines(node)
+        when Ast::ForLoop             then cr_for_loop_lines(node)
+        when Ast::MultipleAssignment  then cr_multiple_assignment_lines(node)
         else
           # Inline nodes or unconverted structural nodes
           s = cr(node)
@@ -224,9 +227,6 @@ module Frozone
         when Ast::ClassDef              then emit_class_def(node)
         when Ast::ModuleDef             then emit_module_def(node)
         when Ast::Case                  then emit_case(node)
-        when Ast::MultipleAssignment    then emit_multiple_assignment(node)
-        when Ast::Lambda                then emit_lambda(node)
-        when Ast::ForLoop               then emit_for_loop(node)
         when Ast::Block                 then unsupported!(node, "bare Block outside method call")
         else unsupported!(node)
         end
@@ -747,27 +747,23 @@ module Frozone
         cr_if_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
       end
 
-      def emit_for_loop(node)
+      def cr_for_loop_lines(node)
         target = node.target
-        emit(node.collection_node)
-        write ".each do |"
-        case target[0]
-        when :local    then write crystal_local(target[1])
+        var = case target[0]
+        when :local then crystal_local(target[1])
         when :multi
           _, lefts, rest_sym, rights = target
           parts = lefts.map { |n| crystal_local(n) }
           parts << "*#{crystal_local(rest_sym)}" if rest_sym
           parts += rights.map { |n| crystal_local(n) }
-          write parts.join(", ")
-        else
-          write "_for_var"
+          parts.join(", ")
+        else "_for_var"
         end
-        write "|"
-        emit_newline
-        indented { emit(node.body_node) }
-        emit_newline
-        emit_indent
-        write "end"
+        ["#{cr(node.collection_node)}.each do |#{var}|", *indent(cr_lines(node.body_node)), "end"]
+      end
+
+      def emit_for_loop(node)
+        cr_for_loop_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
       end
 
       def cr_while_lines(node)
@@ -813,16 +809,15 @@ module Frozone
         write "end"
       end
 
-      # Lambda node (-> syntax): ->(x) { body }
-      def emit_lambda(node)
+      def cr_lambda(node)
         params = node.required_params
-        write "RubyProc.new(->(args : Array(RubyObject)) { "
-        params.each_with_index do |p, i|
-          write "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL; "
-        end
-        emit(node.body)
-        write " })"
+        assigns = params.each_with_index.map { |p, i| "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL" }.join("; ")
+        body = cr(node.body)
+        prefix = assigns.empty? ? "" : "#{assigns}; "
+        "RubyProc.new(->(args : Array(RubyObject)) { #{prefix}#{body} })"
       end
+
+      def emit_lambda(node) = write cr_lambda(node)
 
       # Proc.new { |x| ... } or lambda { |x| ... } → RubyProc
       def emit_proc_new(block_node)
@@ -1136,74 +1131,41 @@ module Frozone
       def emit_hash_literal(node) = write cr_hash_literal(node)
       def emit_range_literal(node) = write cr_range_literal(node)
 
-      def emit_multiple_assignment(node)
+      def cr_multiple_assignment_lines(node)
         targets = node.targets
-        rhs     = node.value_node
-
-        tmp = "_ma#{@temp_counter}"
-        @temp_counter += 1
-
-        write "#{tmp} = masgn_coerce("
-        emit(rhs)
-        write ")"
-
+        tmp = "_ma#{@temp_counter}"; @temp_counter += 1
+        lines = ["#{tmp} = masgn_coerce(#{cr(node.value_node)})"]
         splat_idx = targets.index { |t| t[0].to_s.end_with?('_splat') || t[0] == :splat_nil }
-
         if splat_idx
-          pre  = targets[0...splat_idx]
+          pre = targets[0...splat_idx]
           post = targets[(splat_idx + 1)..]
-
-          pre.each_with_index do |t, i|
-            emit_newline; emit_indent
-            emit_masgn_assign(t, "#{tmp}[#{i}_i64]")
-          end
-
+          pre.each_with_index { |t, i| lines << cr_masgn_assign(t, "#{tmp}[#{i}_i64]") }
           splat_t = targets[splat_idx]
           unless splat_t[0] == :splat_nil
-            emit_newline; emit_indent
-            pc = post.length
-            splat_code = "RubyArray.new(#{tmp}.data[#{pre.length}...(#{tmp}.data.size - #{pc})])"
-            emit_masgn_assign(splat_t, splat_code)
+            lines << cr_masgn_assign(splat_t, "RubyArray.new(#{tmp}.data[#{pre.length}...(#{tmp}.data.size - #{post.length})])")
           end
-
-          post.each_with_index do |t, i|
-            emit_newline; emit_indent
-            neg = post.length - i
-            emit_masgn_assign(t, "#{tmp}[(-#{neg})_i64]")
-          end
+          post.each_with_index { |t, i| lines << cr_masgn_assign(t, "#{tmp}[(-#{post.length - i})_i64]") }
         else
-          targets.each_with_index do |t, i|
-            emit_newline; emit_indent
-            emit_masgn_assign(t, "#{tmp}[#{i}_i64]")
-          end
+          targets.each_with_index { |t, i| lines << cr_masgn_assign(t, "#{tmp}[#{i}_i64]") }
         end
+        lines.compact
       end
 
-      def emit_masgn_assign(target, value_code)
+      def emit_multiple_assignment(node)
+        cr_multiple_assignment_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
+      end
+
+      def cr_masgn_assign(target, value_code)
         case target[0]
-        when :local, :local_splat
-          write "#{crystal_local(target[1])} = #{value_code}"
-        when :ivar, :ivar_splat
-          write "#{target[1]} = #{value_code}"
-        when :const, :const_splat
-          write "Ruby_#{crystal_constant(target[1])} = #{value_code}"
+        when :local, :local_splat then "#{crystal_local(target[1])} = #{value_code}"
+        when :ivar, :ivar_splat then "#{target[1]} = #{value_code}"
+        when :const, :const_splat then "Ruby_#{crystal_constant(target[1])} = #{value_code}"
         when :index, :index_splat
-          # a[i] = val — target[1] is receiver node, target[2] is array of index arg nodes
-          emit(target[1])
-          write "["
-          target[2].each_with_index do |idx, i|
-            write ", " if i > 0
-            emit(idx)
-          end
-          write "] = #{value_code}"
+          "#{cr(target[1])}[#{target[2].map { |idx| cr(idx) }.join(', ')}] = #{value_code}"
         when :call, :call_splat
-          # obj.method = val — target[1] is receiver node, target[2] is method name
-          emit(target[1])
-          write ".#{crystal_method_name(target[2])} = #{value_code}"
-        when :splat_nil
-          # discard — already skipped in caller, but guard here too
-        else
-          write "# UNSUPPORTED masgn target: #{target[0]}"
+          "#{cr(target[1])}.#{crystal_method_name(target[2])} = #{value_code}"
+        when :splat_nil then nil
+        else "# UNSUPPORTED masgn target: #{target[0]}"
         end
       end
 
