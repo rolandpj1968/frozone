@@ -174,6 +174,7 @@ module Frozone
         when Ast::IndexOperatorWrite then cr_index_op_write(node)
         when Ast::IndexAndWrite      then cr_index_and_write(node)
         when Ast::Yield              then cr_yield(node)
+        when Ast::Super              then cr_super(node)
         when Ast::Retry              then "retry"
         else
           # Nodes without cr_* yet — capture at indent 0 for clean composition
@@ -193,6 +194,7 @@ module Frozone
         when Ast::If       then cr_if_lines(node)
         when Ast::While    then cr_while_lines(node)
         when Ast::Until    then cr_until_lines(node)
+        when Ast::Rescue   then cr_rescue_lines(node)
         else
           # Inline nodes or unconverted structural nodes
           s = cr(node)
@@ -216,17 +218,11 @@ module Frozone
       # Called by cr() via capture for unconverted nodes.
       def emit_node(node)
         case node
-        when Ast::Sequence              then emit_sequence(node)
         when Ast::MethodCall            then emit_method_call(node)
         when Ast::AttributeWrite        then emit_attribute_write(node)
         when Ast::MethodDef             then emit_method_def(node)
         when Ast::ClassDef              then emit_class_def(node)
         when Ast::ModuleDef             then emit_module_def(node)
-        when Ast::If                    then emit_if(node)
-        when Ast::While                 then emit_while(node)
-        when Ast::Until                 then emit_until(node)
-        when Ast::Rescue                then emit_rescue(node)
-        when Ast::Super                 then emit_super(node)
         when Ast::Case                  then emit_case(node)
         when Ast::MultipleAssignment    then emit_multiple_assignment(node)
         when Ast::Lambda                then emit_lambda(node)
@@ -604,68 +600,39 @@ module Frozone
         end
       end
 
-      def emit_rescue(node)
-        write "begin"
-        emit_newline
-        indented { emit(node.body) }
-        emit_newline
-
+      def cr_rescue_lines(node)
+        lines = ["begin", *indent(cr_lines(node.body))]
         node.rescue_clauses.each do |clause|
-          emit_indent
-          var_name  = clause.var_name
-          exc_nodes = clause.exception_nodes
-
-          if exc_nodes.empty?
-            # bare rescue → catch all Crystal exceptions
-            write var_name ? "rescue #{crystal_local(var_name)} : Exception" : "rescue"
+          var = clause.var_name
+          exc = clause.exception_nodes
+          header = if exc.empty?
+            var ? "rescue #{crystal_local(var)} : Exception" : "rescue"
           else
-            # rescue ExcA, ExcB => e
-            exc_types = exc_nodes.map do |en|
-              en.is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(en.name)}" : "Exception"
-            end.join(" | ")
-            write var_name ? "rescue #{crystal_local(var_name)} : #{exc_types}" : "rescue #{exc_types}"
+            types = exc.map { |en| en.is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(en.name)}" : "Exception" }.join(" | ")
+            var ? "rescue #{crystal_local(var)} : #{types}" : "rescue #{types}"
           end
-          emit_newline
-          indented { emit(clause.body) }
-          emit_newline
+          lines.push(header, *indent(cr_lines(clause.body)))
         end
-
-        if (else_node = node.else_node)
-          emit_indent
-          write "else"
-          emit_newline
-          indented { emit(else_node) }
-          emit_newline
-        end
-
-        if (ensure_node = node.ensure_node)
-          emit_indent
-          write "ensure"
-          emit_newline
-          indented { emit(ensure_node) }
-          emit_newline
-        end
-
-        emit_indent
-        write "end"
+        lines.push("else", *indent(cr_lines(node.else_node))) if node.else_node
+        lines.push("ensure", *indent(cr_lines(node.ensure_node))) if node.ensure_node
+        lines << "end"
       end
 
-      def emit_super(node)
-        forwarding = node.forwarding
+      def emit_rescue(node)
+        cr_rescue_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
+      end
+
+      def cr_super(node)
         args = node.arg_nodes
-        if forwarding || args.nil? || args.empty?
-          write "super"
+        if node.forwarding || args.nil? || args.empty?
+          "super"
         else
-          write "super("
-          args.each_with_index do |arg, i|
-            write ", " if i > 0
-            emit(arg)
-            # In exception class initializers, super(msg) expects Crystal String
-            write ".to_s" if @in_exception_class
-          end
-          write ")"
+          suffix = @in_exception_class ? ".to_s" : ""
+          "super(#{args.map { |a| "#{cr(a)}#{suffix}" }.join(', ')})"
         end
       end
+
+      def emit_super(node) = write cr_super(node)
 
       def emit_require_call(node)
         # Silently drop require calls — closed world, all files already compiled.
