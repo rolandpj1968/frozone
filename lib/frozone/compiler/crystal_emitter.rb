@@ -422,11 +422,7 @@ module Frozone
 
       def emit_method_call(node) = write cr_method_call(node)
 
-      # Capture-wrapper helpers for kernel methods (still imperative inside)
-      def cr_puts(node) = capture { emit_puts(node) }
-      def cr_print(node) = capture { emit_print(node) }
-      def cr_p(node) = capture { emit_p(node) }
-      def cr_raise(node) = capture { emit_raise(node) }
+      # Capture-wrapper helpers for emitters not yet converted
       def cr_require_call(node) = capture { emit_require_call(node) }
       def cr_loop(node) = capture { emit_loop(node) }
       def cr_attr_methods(node, **kw) = capture { emit_attr_methods(node, **kw) }
@@ -506,79 +502,46 @@ module Frozone
         node.is_a?(Ast::Sequence) && node.nodes.size == 1 && recv_contains_assignment?(node.nodes.first)
       end
 
-      def emit_puts(node)
-        if node.arg_nodes.empty?
-          write "STDOUT.puts; RUBY_NIL"
-        elsif node.arg_nodes.length == 1
-          write "STDOUT.puts("
-          emit(node.arg_nodes[0])
-          write ".to_s); RUBY_NIL"
-        else
-          node.arg_nodes.each do |arg|
-            write "STDOUT.puts("
-            emit(arg)
-            write ".to_s); "
-          end
-          write "RUBY_NIL"
-        end
-      end
-
-      def emit_print(node)
-        write "STDOUT.print("
-        node.arg_nodes.each_with_index do |arg, i|
-          write ", " if i > 0
-          emit(arg)
-          write ".to_s"
-        end
-        write ")"
-      end
-
-      def emit_p(node)
-        node.arg_nodes.each_with_index do |arg, i|
-          write "; " if i > 0
-          write "STDOUT.puts("
-          emit(arg)
-          write ".inspect)"
-        end
-      end
-
-      def emit_raise(node)
-        write "raise "
+      def cr_puts(node)
         args = node.arg_nodes
-        if args.empty?
-          write "RuntimeError.new"
+        return "STDOUT.puts; RUBY_NIL" if args.empty?
+        return "STDOUT.puts(#{cr(args[0])}.to_s); RUBY_NIL" if args.length == 1
+        args.map { |a| "STDOUT.puts(#{cr(a)}.to_s)" }.join("; ") + "; RUBY_NIL"
+      end
+
+      def cr_print(node)
+        args = node.arg_nodes.map { |a| "#{cr(a)}.to_s" }.join(", ")
+        "STDOUT.print(#{args})"
+      end
+
+      def cr_p(node)
+        node.arg_nodes.map { |a| "STDOUT.puts(#{cr(a)}.inspect)" }.join("; ")
+      end
+
+      def cr_raise(node)
+        args = node.arg_nodes
+        body = if args.empty?
+          "RuntimeError.new"
         elsif args.size == 1
           arg = args[0]
           case arg
-          when Ast::StringLiteral
-            # raise "msg" → raise RuntimeError.new("msg")
-            write "RuntimeError.new(#{crystal_string_literal(arg.value.raw)})"
-          when Ast::InterpolatedString
-            # raise "msg #{x}" → raise RuntimeError.new(...)
-            write "RuntimeError.new("
-            emit(arg)
-            write ".to_s)"
-          when Ast::ConstantRead
-            # raise ExcClass → raise Ruby_ExcClass.new
-            write "Ruby_#{crystal_constant(arg.name)}.new"
-          else
-            # raise exception_instance (e.g. raise MyError.new(...))
-            emit(arg)
+          when Ast::StringLiteral then "RuntimeError.new(#{crystal_string_literal(arg.value.raw)})"
+          when Ast::InterpolatedString then "RuntimeError.new(#{cr(arg)}.to_s)"
+          when Ast::ConstantRead then "Ruby_#{crystal_constant(arg.name)}.new"
+          else cr(arg)
           end
-        elsif args.size >= 2
-          # raise ExcClass, "msg" [, backtrace] → raise Ruby_ExcClass.new("msg")
-          exc_node = args[0]
-          msg_node = args[1]
-          if exc_node.is_a?(Ast::ConstantRead)
-            write "Ruby_#{crystal_constant(exc_node.name)}.new("
-          else
-            emit(exc_node)
-            write ".new("
-          end
-          emit(msg_node)
-          write ".to_s)"
+        else
+          exc = args[0].is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(args[0].name)}" : cr(args[0])
+          "#{exc}.new(#{cr(args[1])}.to_s)"
         end
+        "raise #{body}"
       end
+
+      # Imperative wrappers for backward compat
+      def emit_puts(node) = write cr_puts(node)
+      def emit_print(node) = write cr_print(node)
+      def emit_p(node) = write cr_p(node)
+      def emit_raise(node) = write cr_raise(node)
 
       def cr_rescue_lines(node)
         lines = ["begin", *indent(cr_lines(node.body))]
