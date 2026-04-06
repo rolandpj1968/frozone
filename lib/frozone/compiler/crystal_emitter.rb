@@ -356,96 +356,84 @@ module Frozone
       # Method call
       # -----------------------------------------------------------------------
 
-      def emit_method_call(node)
+      # Functional method call emission. Returns String. Subclasses (Codegen)
+      # override this to add optimized paths via cr_method_call_optimized.
+      def cr_method_call(node)
         name = node.name
+        recv = node.receiver_node
 
-        # Kernel-level methods with no receiver map to top-level helpers
-        if node.receiver_node.nil?
+        # Kernel methods (no receiver)
+        if recv.nil?
           case name
-          when :puts         then return emit_puts(node)
-          when :print        then return emit_print(node)
-          when :p            then return emit_p(node)
-          when :raise        then return emit_raise(node)
-          when :require, :require_relative then return emit_require_call(node)
-          when :block_given? then return write("block_given?")
-          when :loop         then return emit_loop(node)
-          when :attr_accessor then return emit_attr_methods(node, reader: true, writer: true)
-          when :attr_reader   then return emit_attr_methods(node, reader: true, writer: false)
-          when :attr_writer   then return emit_attr_methods(node, reader: false, writer: true)
+          when :puts then return cr_puts(node)
+          when :print then return cr_print(node)
+          when :p then return cr_p(node)
+          when :raise then return cr_raise(node)
+          when :require, :require_relative then return cr_require_call(node)
+          when :block_given? then return "block_given?"
+          when :loop then return cr_loop(node)
+          when :attr_accessor then return cr_attr_methods(node, reader: true, writer: true)
+          when :attr_reader then return cr_attr_methods(node, reader: true, writer: false)
+          when :attr_writer then return cr_attr_methods(node, reader: false, writer: true)
           when :include, :extend, :prepend
-            mods = node.arg_nodes.map do |a|
-              if a.is_a?(Ast::ConstantRead)
-                mod_name = a.name.to_s
-                RUBY_TO_CRYSTAL_TYPE[a.name] || "Ruby_#{mod_name}"
-              else
-                nil
-              end
-            end.compact
-            return mods.each { |m| write("include #{m}") } if name == :include && !mods.empty?
-            return write("# #{name} #{node.arg_nodes.map { |a| a.is_a?(Ast::ConstantRead) ? a.name : '?' }.join(', ')}")
+            mods = node.arg_nodes.map { |a|
+              a.is_a?(Ast::ConstantRead) ? (RUBY_TO_CRYSTAL_TYPE[a.name] || "Ruby_#{a.name}") : nil
+            }.compact
+            return mods.map { |m| "include #{m}" }.join("\n") if name == :include && !mods.empty?
+            return "# #{name} #{node.arg_nodes.map { |a| a.is_a?(Ast::ConstantRead) ? a.name : '?' }.join(', ')}"
           end
         end
 
-        # Operator and unary methods — emit as Crystal operator syntax
-        if node.receiver_node
-          return emit_operator(node, name) if operator?(name)
-        end
+        # Operators
+        return cr_operator(node, name) if recv && operator?(name)
 
-        # Built-in class .new: Array.new(n, default), Hash.new, etc.
-        if name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
-          cr_type = RUBY_TO_CRYSTAL_TYPE[node.receiver_node.name]
-          if cr_type
-            write "#{cr_type}.new"
-            emit_call_args(node)
-            return
+        # Built-in class .new
+        if name == :new && recv.is_a?(Ast::ConstantRead)
+          if (cr_type = RUBY_TO_CRYSTAL_TYPE[recv.name])
+            return "#{cr_type}.new#{cr_call_args(node)}"
+          end
+          if recv.name == :Proc && node.block_node
+            return cr_proc_new(node.block_node)
           end
         end
 
-        # Proc.new { |...| ... } → RubyProc wrapping a Crystal proc
-        if name == :new && node.receiver_node.is_a?(Ast::ConstantRead) &&
-           node.receiver_node.name == :Proc && node.block_node
-          return emit_proc_new(node.block_node)
+        # lambda { } and proc { }
+        return cr_proc_new(node.block_node) if name == :lambda && recv.nil? && node.block_node
+        return cr_proc_call(node) if name == :call && recv
+
+        # [] subscript
+        if name == :[] && recv && node.arg_nodes.size == 1
+          return "#{cr(recv)}[#{cr(node.arg_nodes[0])}]"
         end
 
-        # lambda { |...| ... } (no receiver) → same as Proc.new
-        if name == :lambda && node.receiver_node.nil? && node.block_node
-          return emit_proc_new(node.block_node)
-        end
-
-        # proc.call(args) → cast receiver to RubyProc then call
-        if name == :call && node.receiver_node
-          return emit_proc_call(node)
-        end
-
-        # [] subscript: emit receiver[arg] instead of receiver.[](arg)
-        if name == :[] && node.receiver_node && node.arg_nodes.size == 1
-          emit(node.receiver_node)
-          write "["
-          emit(node.arg_nodes[0])
-          write "]"
-          return
-        end
-
-        # is_a?/kind_of? with a constant → Crystal native is_a?(Type) check → RubyBool
-        if (name == :is_a? || name == :kind_of?) && node.receiver_node &&
+        # is_a? / kind_of? with constant
+        if (name == :is_a? || name == :kind_of?) && recv &&
            node.arg_nodes.size == 1 && node.arg_nodes[0].is_a?(Ast::ConstantRead)
           const_name = node.arg_nodes[0].name.to_s
-          crystal_type = RUBY_TO_CRYSTAL_TYPE[node.arg_nodes[0].name] ||
-                         (BUILTIN_SUPERCLASSES.include?(const_name) ? "Ruby#{const_name}" : "Ruby_#{const_name}")
-          write "("
-          emit(node.receiver_node)
-          write ".is_a?(#{crystal_type}) ? RUBY_TRUE : RUBY_FALSE)"
-          return
+          ct = RUBY_TO_CRYSTAL_TYPE[node.arg_nodes[0].name] ||
+               (BUILTIN_SUPERCLASSES.include?(const_name) ? "Ruby#{const_name}" : "Ruby_#{const_name}")
+          return "(#{cr(recv)}.is_a?(#{ct}) ? RUBY_TRUE : RUBY_FALSE)"
         end
 
-        # General method call: receiver.method(args)
-        if node.receiver_node
-          emit(node.receiver_node)
-          write "."
-        end
-        write crystal_method_name(name)
-        emit_call_args(node)
+        # General method call
+        prefix = recv ? "#{cr(recv)}." : ""
+        "#{prefix}#{crystal_method_name(name)}#{cr_call_args(node)}"
       end
+
+      def emit_method_call(node) = write cr_method_call(node)
+
+      # Capture-wrapper helpers for kernel methods (still imperative inside)
+      def cr_puts(node) = capture { emit_puts(node) }
+      def cr_print(node) = capture { emit_print(node) }
+      def cr_p(node) = capture { emit_p(node) }
+      def cr_raise(node) = capture { emit_raise(node) }
+      def cr_require_call(node) = capture { emit_require_call(node) }
+      def cr_loop(node) = capture { emit_loop(node) }
+      def cr_attr_methods(node, **kw) = capture { emit_attr_methods(node, **kw) }
+      def cr_operator(node, name) = capture { emit_operator(node, name) }
+      def cr_proc_new(blk) = capture { emit_proc_new(blk) }
+      def cr_proc_call(node) = capture { emit_proc_call(node) }
+      def cr_call_args(node) = capture { emit_call_args(node) }
 
       BINARY_OPS = %i[+ - * / % ** == != < <= > >= <=> << >> & | ^ === =~].to_set
       UNARY_OPS  = %i[-@ +@ ~ !].to_set
@@ -467,15 +455,6 @@ module Frozone
       end
 
       def emit_attribute_write(node) = write cr_attribute_write(node)
-
-      # Default cr_method_call — falls through to imperative emit_method_call.
-      # Subclasses (Codegen) override this to add optimized paths.
-      def cr_method_call(node)
-        saved = @indent; @indent = 0
-        s = capture { emit_method_call(node) }
-        @indent = saved
-        s
-      end
 
       def emit_operator(node, name)
         if UNARY_OPS.include?(name)
