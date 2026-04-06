@@ -201,55 +201,40 @@ module Frozone
           end
         end
 
-        write "def self.#{crystal_method_name(mname)}(#{parts.join(', ')})"
-        # Only annotate return type when all positional params are raw-typed
-        write " : #{return_type.to_crystal}" if return_type && raw_types.all?
-        emit_newline
+        sig = "def self.#{crystal_method_name(mname)}(#{parts.join(', ')})"
+        sig += " : #{return_type.to_crystal}" if return_type && raw_types.all?
+        ctx = class_method_raw_ctx(class_name, mname, method, req_params, raw_types, opt_kw, crystal_param_types)
+        body_lines = raw_lines(method.body, ctx)
+        write [sig, *indent(body_lines), "end"].join("\n#{' ' * (@indent * 2)}")
+      end
 
-        old_typed = @mctx.typed_locals
-        old_typed_arr = @mctx.typed_array_locals
-        old_class_name = @cctx.name
-        @cctx.name = class_name
+      def class_method_raw_ctx(class_name, mname, method, req_params, raw_types, opt_kw, crystal_param_types)
         param_set = req_params.to_set
         mkey = [class_name, mname]
-        # Start with param types
-        @mctx.typed_locals = {}
-        req_params.zip(raw_types).each { |p, ty| @mctx.typed_locals[p] = (ty) if ty }
-        # Kwargs are also typed locals in the raw context
+        locals = {}
+        req_params.zip(raw_types).each { |p, ty| locals[p] = ty if ty }
         opt_kw.each do |kw_name, _|
-          mkey_for_kw = [class_name, mname]
-          kw_ty = @gctx.inferred_kw_params.dig(mkey_for_kw, kw_name) || @gctx.inferred_kw_params.dig(mname, kw_name)
-          @mctx.typed_locals[kw_name] = kw_ty if kw_ty.is_a?(Type) && kw_ty.raw?
+          kw_ty = @gctx.inferred_kw_params.dig(mkey, kw_name) || @gctx.inferred_kw_params.dig(mname, kw_name)
+          locals[kw_name] = kw_ty if kw_ty.is_a?(Type) && kw_ty.raw?
         end
-        # Class-typed locals for devirtualisation
-        @mctx.class_locals = @gctx.class_locals[mkey] || @gctx.class_locals[mname] || {}
-        # Add TI-inferred locals
-        (@gctx.locals[mkey] || @gctx.locals[mname] || {}).each do |lname, ty|
-          @mctx.typed_locals[lname] = ty unless param_set.include?(lname)
-        end
-        infer_local_types(method.body).each do |lname, ty|
-          @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
-        end
-        @mctx.typed_array_locals = (@gctx.arrays[mkey] || @gctx.arrays[mname] || {}).reject { |k, _| param_set.include?(k) }
-        # Register Array(Int64)/Array(Float64) params as native arrays
-        @mctx.native_array_locals = {}
+        (@gctx.locals[mkey] || @gctx.locals[mname] || {}).each { |l, ty| locals[l] = ty unless param_set.include?(l) }
+        infer_local_types(method.body).each { |l, ty| locals[l] ||= ty unless param_set.include?(l) }
+        native_arrays = {}
         if crystal_param_types
           req_params.each_with_index do |p, i|
             pt = crystal_param_types[i]
-            if (pt.array? || pt.array_scalar?) && pt.elem&.raw?
-              @mctx.native_array_locals[p] = pt.elem
-            end
+            native_arrays[p] = pt.elem if (pt.array? || pt.array_scalar?) && pt.elem&.raw?
           end
         end
-        # Use raw expression emitter for specialized overloads — never boxes
-        indented { emit_raw_expr(method.body) }
-        @mctx.typed_locals = old_typed
-        @mctx.typed_array_locals = old_typed_arr
-        @cctx.name = old_class_name
-
-        emit_newline
-        emit_indent
-        write "end"
+        RawEmission::RawCtx.new(
+          typed_locals: locals.freeze,
+          raw_block_params: {},
+          class_locals: (@gctx.class_locals[mkey] || @gctx.class_locals[mname] || {}).freeze,
+          local_array_elems: {},
+          typed_array_locals: (@gctx.arrays[mkey] || @gctx.arrays[mname] || {}).reject { |k, _| param_set.include?(k) }.freeze,
+          native_array_locals: native_arrays.freeze,
+          ivars: (@cctx&.ivars || {})
+        ).freeze
       end
 
       # Emit a block body that may return a boxable raw numeric.
