@@ -176,15 +176,41 @@ module Frozone
         when Ast::Yield              then cr_yield(node)
         when Ast::Retry              then "retry"
         else
-          # Nodes without cr_* yet — delegate to imperative emit and capture
-          capture { emit_node(node) }
+          # Nodes without cr_* yet — capture at indent 0 for clean composition
+          saved = @indent; @indent = 0
+          s = capture { emit_node(node) }
+          @indent = saved
+          s
+        end
+      end
+
+      # Return unindented Array<String> for an AST node.
+      # Structural nodes (if, while, sequence) compose via indent(cr_lines(body)).
+      # Inline nodes return a single-element array.
+      def cr_lines(node)
+        case node
+        when Ast::Sequence then cr_sequence_lines(node)
+        when Ast::If       then cr_if_lines(node)
+        when Ast::While    then cr_while_lines(node)
+        when Ast::Until    then cr_until_lines(node)
+        else
+          # Inline nodes or unconverted structural nodes
+          s = cr(node)
+          s.include?("\n") ? s.split("\n") : [s]
         end
       end
 
       # Write Crystal source for an AST node to the output buffer.
-      # First line at current position (caller handles indent); subsequent lines
-      # get emit_indent. This is the backward-compat wrapper.
-      def emit(node) = write cr(node)
+      def emit(node)
+        lines = cr_lines(node)
+        lines.each_with_index do |line, i|
+          if i > 0
+            emit_newline
+            emit_indent
+          end
+          write line
+        end
+      end
 
       # Imperative dispatch — handles nodes not yet converted to cr_*.
       # Called by cr() via capture for unconverted nodes.
@@ -323,11 +349,11 @@ module Frozone
       # Sequence
       # -----------------------------------------------------------------------
 
+      def cr_sequence_lines(node) = node.nodes.flat_map { |child| cr_lines(child) }
+
       def emit_sequence(node)
-        node.nodes.each_with_index do |child, i|
-          emit_newline if i > 0
-          emit_indent
-          emit(child)
+        cr_sequence_lines(node).each_with_index do |line, i|
+          emit_newline if i > 0; emit_indent; write line
         end
       end
 
@@ -494,15 +520,8 @@ module Frozone
 
       # Emit operator receiver, wrapping in parens if it contains an
       # embedded assignment (so Crystal groups `(q1 = expr) != 1` correctly).
-      def emit_operator_recv(recv)
-        if recv_contains_assignment?(recv)
-          write "("
-          emit(recv)
-          write ")"
-        else
-          emit(recv)
-        end
-      end
+      def cr_operator_recv(recv) = recv_contains_assignment?(recv) ? "(#{cr(recv)})" : cr(recv)
+      def emit_operator_recv(recv) = write cr_operator_recv(recv)
 
       def recv_contains_assignment?(node)
         return true if node.is_a?(Ast::LocalVariableWrite) || node.is_a?(Ast::InstanceVariableWrite)
@@ -745,21 +764,20 @@ module Frozone
       # Control flow
       # -----------------------------------------------------------------------
 
-      def emit_if(node)
-        # Detect `unless` pattern: if cond; nil; else; body; end
+      def cr_if_lines(node)
+        cond = cr_truthy(node.pred_node)
         if node.then_node.is_a?(Ast::NilLiteral) && node.else_node
-          write "unless "; emit_truthy(node.pred_node); emit_newline
-          indented { emit(node.else_node) }
-          emit_newline; emit_indent; write "end"
-          return
+          return ["unless #{cond}", *indent(cr_lines(node.else_node)), "end"]
         end
-        write "if "; emit_truthy(node.pred_node); emit_newline
-        indented { emit(node.then_node) }
+        lines = ["if #{cond}", *indent(cr_lines(node.then_node))]
         if node.else_node
-          emit_newline; emit_indent; write "else"; emit_newline
-          indented { emit(node.else_node) }
+          lines.push("else", *indent(cr_lines(node.else_node)))
         end
-        emit_newline; emit_indent; write "end"
+        lines << "end"
+      end
+
+      def emit_if(node)
+        cr_if_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
       end
 
       def emit_for_loop(node)
@@ -785,24 +803,20 @@ module Frozone
         write "end"
       end
 
+      def cr_while_lines(node)
+        ["while #{cr_truthy(node.condition_node)}", *indent(cr_lines(node.body_node)), "end"]
+      end
+
+      def cr_until_lines(node)
+        ["until #{cr_truthy(node.condition_node)}", *indent(cr_lines(node.body_node)), "end"]
+      end
+
       def emit_while(node)
-        write "while "
-        emit_truthy(node.condition_node)
-        emit_newline
-        indented { emit(node.body_node) }
-        emit_newline
-        emit_indent
-        write "end"
+        cr_while_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
       end
 
       def emit_until(node)
-        write "until "
-        emit_truthy(node.condition_node)
-        emit_newline
-        indented { emit(node.body_node) }
-        emit_newline
-        emit_indent
-        write "end"
+        cr_until_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
       end
 
       def cr_return(node) = node.value_node ? "return #{cr(node.value_node)}" : "return"
@@ -959,29 +973,22 @@ module Frozone
       # Wrap a value in a Crystal truthy check when used as a condition.
       # If the node is already a comparison/predicate that returns Bool, emit
       # it directly; otherwise wrap in .truthy?
-      def emit_truthy(node)
-        # Ruby true/false literals: emit Crystal true/false for proper Crystal truthiness
-        if node.is_a?(Ast::TrueLiteral)
-          return write("true")
-        elsif node.is_a?(Ast::FalseLiteral)
-          return write("false")
-        elsif node.is_a?(Ast::NilLiteral)
-          return write("false")
-        elsif boolean_valued?(node)
-          emit(node)
-        elsif comparison_op_call?(node)
-          # Emit comparison directly as Crystal Bool — no RUBY_TRUE/RUBY_FALSE wrapper.
-          # This is correct because Crystal's comparison dispatch already returns Bool.
-          write "("
-          emit_operator_recv(node.receiver_node)
-          write " #{node.name} "
-          emit(node.arg_nodes[0])
-          write ")"
+      def cr_truthy(node)
+        case node
+        when Ast::TrueLiteral then "true"
+        when Ast::FalseLiteral, Ast::NilLiteral then "false"
         else
-          emit(node)
-          write ".truthy?"
+          if boolean_valued?(node)
+            cr(node)
+          elsif comparison_op_call?(node)
+            "(#{cr_operator_recv(node.receiver_node)} #{node.name} #{cr(node.arg_nodes[0])})"
+          else
+            "#{cr(node)}.truthy?"
+          end
         end
       end
+
+      def emit_truthy(node) = write cr_truthy(node)
 
       # Methods that return Crystal Bool directly (not RubyObject).
       # Use the Crystal name (after RUBY_TO_CRYSTAL_METHOD mapping).
