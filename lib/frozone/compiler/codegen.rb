@@ -1,5 +1,4 @@
 require_relative 'crystal_emitter'
-require_relative 'crystal_type'
 require_relative 'crystal_type_mapper'
 require_relative 'type_inference'
 require_relative 'method_context'
@@ -866,11 +865,10 @@ module Frozone
         @gctx.load_from_mapper!(mapper)
 
         # Extract kwarg types from TI env
-        env.slots.each do |slot, ty|
-          next unless slot.is_a?(Array) && slot[0] == :kwparam && ty != :unknown
+        env.each_typed do |slot, ty|
+          next unless slot.is_a?(Array) && slot[0] == :kwparam
           mkey, kw_name = slot[1], slot[2]
-          ct = Type.from_legacy(ty)
-          (@gctx.inferred_kw_params[mkey] ||= {})[kw_name] = ct unless ct.bottom?
+          (@gctx.inferred_kw_params[mkey] ||= {})[kw_name] = ty unless ty.bottom?
         end
       end
 

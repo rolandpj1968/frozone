@@ -178,8 +178,8 @@ module Frozone
           if rt
             cr = rt.to_crystal
             "#{crystal_local(p)} : #{cr}"
-          elsif crystal_param_types && crystal_param_types[i] && crystal_param_types[i] != :ruby_object
-            "#{crystal_local(p)} : #{CrystalType.to_crystal(crystal_param_types[i])}"
+          elsif crystal_param_types && crystal_param_types[i] && !crystal_param_types[i].bottom?
+            "#{crystal_local(p)} : #{crystal_param_types[i].to_crystal}"
           else
             "#{crystal_local(p)} : RubyObject"
           end
@@ -239,8 +239,8 @@ module Frozone
         if crystal_param_types
           req_params.each_with_index do |p, i|
             pt = crystal_param_types[i]
-            if CrystalType.array?(pt) && CrystalType.scalar?(CrystalType.elem(pt))
-              @mctx.native_array_locals[p] = crystal_type_to_type(CrystalType.elem(pt))
+            if (pt.array? || pt.array_scalar?) && pt.elem&.raw?
+              @mctx.native_array_locals[p] = pt.elem
             end
           end
         end

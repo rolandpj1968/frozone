@@ -90,30 +90,10 @@ module Frozone
           @ti = ti
         end
 
-        # Legacy-compatible accessors (return old Symbol/Hash representation).
-        # These are the boundary for downstream consumers that haven't migrated.
-        def raw(slot)
-          t = @typed_slots[slot]
-          t ? t.to_legacy : :unknown
-        end
-
         def typed?(slot) = @typed_slots.key?(slot)
-
-        def [](slot)
-          t = @typed_slots[slot]
-          t ? t.to_legacy : nil
-        end
-
-        # Legacy-compatible slots hash (for callers that iterate @env.slots).
-        def slots
-          @typed_slots.transform_values(&:to_legacy)
-        end
-
-        # Type-native accessors (return Type objects directly).
         def type_of(slot) = @typed_slots.fetch(slot, Type::BOTTOM)
+        def [](slot) = type_of(slot)
         def type_at(slot) = @typed_slots[slot]  # nil if absent (not BOTTOM)
-
-        # Iterate all non-bottom slots yielding (slot_key, Type).
         def each_typed(&block) = @typed_slots.each(&block)
 
         # Join `type` into `slot`. Accepts both Type and legacy values.
@@ -1349,9 +1329,8 @@ module Frozone
       # the best (most precise) type for each param. Contexts that pass only
       # NilClass are excluded — sentinel construction shouldn't widen ivars.
       def best_constructor_param_types(class_name, param_count)
-        slots = @env.slots
         contexts = Set.new
-        slots.each_key do |slot|
+        @env.each_typed do |slot, _|
           next unless slot.is_a?(Array) && slot[0] == :constructor_param && slot[1] == class_name && slot.size == 4
           contexts << slot[3]
         end

@@ -607,7 +607,7 @@ module Frozone
           # Check if callee has a typed overload with raw params
           mkey = @cctx&.name ? [@cctx.name, name] : name
           raw_params = @gctx.class_params&.dig(mkey) || @gctx.typed_params&.dig(name)
-          has_typed = raw_params&.any? { |t| t.is_a?(Type) ? t.raw? : CrystalType.raw(t) }
+          has_typed = raw_params&.any? { |t| t&.raw? }
           write "self." if recv.is_a?(Ast::SelfLiteral)
           write crystal_method_name(name)
           write "("
@@ -615,18 +615,9 @@ module Frozone
             args.each_with_index do |a, i|
               write ", " if i > 0
               emit_raw_expr(a)
-              # Coerce union types to match typed overload param
-              if raw_params && i < raw_params.size && raw_params[i]
-                pty = raw_params[i]
-                if pty.is_a?(Type)
-                  write ".to_i64" if pty.i64?
-                  write ".to_f64" if pty.f64?
-                else
-                  pty = CrystalType.raw(pty)
-                  write ".to_i64" if pty == :i64
-                  write ".to_f64" if pty == :f64
-                end
-              end
+              pty = raw_params[i] if raw_params && i < raw_params.size
+              write ".to_i64" if pty&.i64?
+              write ".to_f64" if pty&.f64?
             end
           else
             # No typed overload — box args, but coerce return if TI knows it
