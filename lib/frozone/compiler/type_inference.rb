@@ -810,130 +810,130 @@ module Frozone
         args = node.arg_nodes || []
         blk  = node.block_node
 
-        # Array.new(n) { |i| expr } or Array.new(n, fill)
-        if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name == :Array
-          if blk
-            elem_ty = infer_block_return(blk, [Type::I64], ctx)
-            return elem_ty.bottom? ? Type::ARRAY : Type.array(elem: elem_ty)
-          elsif args.size == 2
-            fill_ty = infer_expr(args[1], ctx)
-            return fill_ty.bottom? ? Type::ARRAY : Type.array(elem: fill_ty)
-          end
-        end
-
-        # Array#map { |x| expr } → new Array with block-inferred element type.
-        if name == :map && blk && recv
-          recv_ty = infer_expr(recv, ctx)
-          if recv_ty.array?
-            elem_in = recv_ty.elem || Type::BOTTOM
-            elem_out = infer_block_return(blk, [elem_in], ctx)
-            return elem_out.bottom? ? Type::ARRAY : Type.array(elem: elem_out)
-          end
-        end
-
         # Seed block params for common iteration methods.
         if blk
           ptypes = block_param_types(name, recv, ctx)
           seed_block_params(blk, ptypes, ctx) unless ptypes.empty?
         end
 
-        # ClassName.new(...) → class instance type.
-        if name == :new && recv.is_a?(Ast::ConstantRead)
-          return Type.of(recv.name)
-        end
+        infer_array_constructor(recv, args, blk, ctx) ||
+          infer_array_map(name, recv, blk, ctx) ||
+          infer_constructor(name, recv) ||
+          infer_element_read(name, recv, args, ctx) ||
+          infer_range_to_a(name, recv, ctx) ||
+          infer_builtin_return(name, recv, args, ctx) ||
+          infer_arithmetic(name, recv, args, ctx) ||
+          infer_max_min(name, args, ctx) ||
+          infer_return_lookup(name, recv, ctx) ||
+          Type::BOTTOM
+      end
 
-        # Math.method(...) → always Float64.
-        if recv.is_a?(Ast::ConstantRead) && recv.name == :Math && MATH_FLOAT_METHODS.include?(name)
-          return Type::F64
+      # Array.new(n) { |i| expr } or Array.new(n, fill)
+      def infer_array_constructor(recv, args, blk, ctx)
+        return unless recv.is_a?(Ast::ConstantRead) && recv.name == :Array
+        if blk
+          elem_ty = infer_block_return(blk, [Type::I64], ctx)
+          elem_ty.bottom? ? Type::ARRAY : Type.array(elem: elem_ty)
+        elsif args.size == 2
+          fill_ty = infer_expr(args[1], ctx)
+          fill_ty.bottom? ? Type::ARRAY : Type.array(elem: fill_ty)
         end
+      end
 
-        # Array element read recv[k].
-        if name == :[] && args.size == 1
-          if recv.is_a?(Ast::LocalVariableRead)
-            ae = @env.type_of([:array_elem, ctx.method_key, recv.name])
-            return ae unless ae.bottom?
-          end
-          recv_ty = infer_expr(recv, ctx)
-          return recv_ty.elem if recv_ty.array? && recv_ty.elem
+      # Array#map { |x| expr } → Array with block-inferred element type.
+      def infer_array_map(name, recv, blk, ctx)
+        return unless name == :map && blk && recv
+        recv_ty = infer_expr(recv, ctx)
+        return unless recv_ty.array?
+        elem_out = infer_block_return(blk, [recv_ty.elem || Type::BOTTOM], ctx)
+        elem_out.bottom? ? Type::ARRAY : Type.array(elem: elem_out)
+      end
+
+      # ClassName.new(...) → class instance; Math.method → Float64.
+      def infer_constructor(name, recv)
+        return unless recv.is_a?(Ast::ConstantRead)
+        return Type.of(recv.name) if name == :new
+        Type::F64 if recv.name == :Math && MATH_FLOAT_METHODS.include?(name)
+      end
+
+      # Array element read: arr[k] with known element type.
+      def infer_element_read(name, recv, args, ctx)
+        return unless name == :[] && args.size == 1
+        if recv.is_a?(Ast::LocalVariableRead)
+          ae = @env.type_of([:array_elem, ctx.method_key, recv.name])
+          return ae unless ae.bottom?
         end
+        recv_ty = infer_expr(recv, ctx)
+        recv_ty.elem if recv_ty.array? && recv_ty.elem
+      end
 
-        # Range#to_a → Array with endpoint element type
-        unwrapped_recv = recv
-        unwrapped_recv = unwrapped_recv.nodes.first while unwrapped_recv.is_a?(Ast::Sequence) && unwrapped_recv.nodes.size == 1
-        if (name == :to_a || name == :to_ary) && unwrapped_recv.is_a?(Ast::RangeLiteral)
-          begin_ty = infer_expr(unwrapped_recv.begin_node, ctx)
-          return begin_ty.raw? ? Type.array(elem: begin_ty) : Type::ARRAY
+      # Range#to_a → Array with endpoint element type.
+      def infer_range_to_a(name, recv, ctx)
+        return unless name == :to_a || name == :to_ary
+        unwrapped = recv
+        unwrapped = unwrapped.nodes.first while unwrapped.is_a?(Ast::Sequence) && unwrapped.nodes.size == 1
+        return unless unwrapped.is_a?(Ast::RangeLiteral)
+        begin_ty = infer_expr(unwrapped.begin_node, ctx)
+        begin_ty.raw? ? Type.array(elem: begin_ty) : Type::ARRAY
+      end
+
+      # Built-in methods with known return types (coercions, array methods, etc.)
+      def infer_builtin_return(name, recv, args, ctx)
+        return unless recv
+        recv_ty = infer_expr(recv, ctx)
+        return Type::F64 if COERCE_TO_FLOAT.include?(name) && !recv_ty.bottom?
+        return Type::I64 if COERCE_TO_INT.include?(name) && !recv_ty.bottom?
+        if recv_ty.class_type?
+          cn = recv_ty.class_name
+          return Type::I64 if cn == :Array   && ARRAY_INT_METHODS.include?(name)
+          return Type::I64 if cn == :Integer && INT_INT_METHODS.include?(name)
+          return Type::F64 if cn == :Float   && FLOAT_FLOAT_METHODS.include?(name)
+          return Type::I64 if cn == :Float   && FLOAT_INT_METHODS.include?(name)
+          return Type::I64 if cn == :String  && %i[getbyte ord bytesize].include?(name)
+          return (args.empty? ? Type::F64 : Type::I64) if cn == :Random && name == :rand
         end
+        return recv_ty.elem if recv_ty.array? && recv_ty.elem && %i[max min sum first last].include?(name)
+        recv_ty if !recv_ty.bottom? && %i[dup clone freeze].include?(name)
+      end
 
-        # Built-in methods with known return types.
-        if recv
-          recv_ty = infer_expr(recv, ctx)
-          return Type::F64 if COERCE_TO_FLOAT.include?(name) && !recv_ty.bottom?
-          return Type::I64 if COERCE_TO_INT.include?(name) && !recv_ty.bottom?
-          if recv_ty.class_type?
-            cn = recv_ty.class_name
-            return Type::I64 if cn == :Array   && ARRAY_INT_METHODS.include?(name)
-            return Type::I64 if cn == :Integer && INT_INT_METHODS.include?(name)
-            return Type::F64 if cn == :Float   && FLOAT_FLOAT_METHODS.include?(name)
-            return Type::I64 if cn == :Float   && FLOAT_INT_METHODS.include?(name)
-            return Type::I64 if cn == :String  && %i[getbyte ord bytesize].include?(name)
-            return (args.empty? ? Type::F64 : Type::I64) if cn == :Random && name == :rand
-          end
-          # Array#max/min/sum/first/last return element type when known
-          if recv_ty.array? && recv_ty.elem && %i[max min sum first last].include?(name)
-            return recv_ty.elem
-          end
-          # dup/clone/freeze return the same type
-          return recv_ty if !recv_ty.bottom? && (name == :dup || name == :clone || name == :freeze)
+      # Arithmetic / bitwise — Ruby-semantic result type.
+      def infer_arithmetic(name, recv, args, ctx)
+        return unless ARITH_OPS.include?(name) && args.size == 1 && recv
+        rt = infer_expr(recv, ctx)
+        at = infer_expr(args[0], ctx)
+        return Type::BOTTOM if rt.bottom? || at.bottom?
+        return ((rt.f64? || at.f64?) ? Type::F64 : Type::I64) if rt.raw? && at.raw?
+        Type::BOTTOM
+      end
+
+      # max/min with 2 args: return the wider numeric type.
+      def infer_max_min(name, args, ctx)
+        return unless (name == :max || name == :min) && args.size == 2
+        at = infer_expr(args[0], ctx)
+        bt = infer_expr(args[1], ctx)
+        return if at.bottom? || bt.bottom?
+        if at.raw? && bt.raw?
+          return (at.f64? || bt.f64?) ? Type::F64 : Type::I64
         end
+        return unless at.numeric? && bt.numeric?
+        has_float = at.f64? || bt.f64? ||
+          (at.class_type? && at.class_name == :Float) ||
+          (bt.class_type? && bt.class_name == :Float)
+        return Type::F64 if has_float
+        Type::I64 if at.raw? || bt.raw?
+      end
 
-        # Arithmetic / bitwise — Ruby-semantic result type.
-        if ARITH_OPS.include?(name) && args.size == 1 && recv
-          rt = infer_expr(recv, ctx)
-          at = infer_expr(args[0], ctx)
-          return Type::BOTTOM if rt.bottom? || at.bottom?
-          if rt.raw? && at.raw?
-            return (rt.f64? || at.f64?) ? Type::F64 : Type::I64
-          end
-          return Type::BOTTOM if rt.numeric? && at.numeric?
-          return Type::BOTTOM
-        end
-
-        # max/min with 2 args: return the wider numeric type
-        if (name == :max || name == :min) && args.size == 2
-          at = infer_expr(args[0], ctx)
-          bt = infer_expr(args[1], ctx)
-          if !at.bottom? && !bt.bottom?
-            if at.raw? && bt.raw?
-              return (at.f64? || bt.f64?) ? Type::F64 : Type::I64
-            end
-            if at.numeric? && bt.numeric?
-              return Type::F64 if at.f64? || bt.f64? ||
-                (at.class_type? && at.class_name == :Float) ||
-                (bt.class_type? && bt.class_name == :Float)
-              return Type::I64 if at.raw? || bt.raw?
-            end
-          end
-        end
-
-        # Class method call: Module.method(...) → look up by module name.
+      # Look up return type from TI slots (class methods, instance methods, free calls).
+      def infer_return_lookup(name, recv, ctx)
         if recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.name)
           ret = @env.type_of([:return, [recv.name, name]])
           return ret unless ret.bottom?
         end
-
-        # Method call on a known class instance — look up return type.
         if recv
           recv_ty = infer_expr(recv, ctx)
-          if recv_ty.class_type?
-            return @env.type_of([:return, [recv_ty.class_name, name]])
-          end
+          return @env.type_of([:return, [recv_ty.class_name, name]]) if recv_ty.class_type?
         end
-
-        # Free call to a top-level user method.
-        return @env.type_of([:return, name]) if recv.nil?
-
-        Type::BOTTOM
+        @env.type_of([:return, name]) if recv.nil?
       end
 
       # Infer the return type of a block body, seeding required params as locals
