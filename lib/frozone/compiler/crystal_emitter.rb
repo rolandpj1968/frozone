@@ -136,103 +136,59 @@ module Frozone
       # Top-level dispatch
       # -----------------------------------------------------------------------
 
-      # Return Crystal source string for an AST node.
-      # Inline nodes return a single string. Structural nodes (if, while, etc.)
-      # return a string with embedded \n — callers split if they need lines.
-      # This is the functional core; emit(node) is the write wrapper.
-      def cr(node)
-        case node
-        when Ast::NilLiteral         then cr_nil
-        when Ast::TrueLiteral        then cr_true
-        when Ast::FalseLiteral       then cr_false
-        when Ast::IntegerLiteral     then cr_integer(node)
-        when Ast::FloatLiteral       then cr_float(node)
-        when Ast::StringLiteral      then cr_string(node)
-        when Ast::SymbolLiteral      then cr_symbol(node)
-        when Ast::SelfLiteral        then cr_self
-        when Ast::LocalVariableRead  then cr_local_read(node)
-        when Ast::InstanceVariableRead then cr_ivar_read(node)
-        when Ast::ConstantRead       then cr_constant_read(node)
-        when Ast::ClassVariableRead  then cr_class_var_read(node)
-        when Ast::And                then cr_and(node)
-        when Ast::Or                 then cr_or(node)
-        when Ast::ArrayLiteral       then cr_array_literal(node)
-        when Ast::HashLiteral        then cr_hash_literal(node)
-        when Ast::RangeLiteral       then cr_range_literal(node)
-        when Ast::InterpolatedString then cr_interpolated_string(node)
-        when Ast::Return             then cr_return(node)
-        when Ast::Next               then cr_next(node)
-        when Ast::Break              then cr_break(node)
-        when Ast::GlobalVariableRead then cr_global_var_read(node)
-        when Ast::ConstantPath       then cr_constant_path(node)
-        when Ast::LocalVariableWrite then cr_local_var_write(node)
-        when Ast::InstanceVariableWrite then cr_ivar_write(node)
-        when Ast::ConstantWrite      then cr_constant_write(node)
-        when Ast::ClassVariableWrite then cr_class_var_write(node)
-        when Ast::GlobalVariableWrite then cr_global_var_write(node)
-        when Ast::IndexOrWrite       then cr_index_or_write(node)
-        when Ast::IndexOperatorWrite then cr_index_op_write(node)
-        when Ast::IndexAndWrite      then cr_index_and_write(node)
-        when Ast::Yield              then cr_yield(node)
-        when Ast::Super              then cr_super(node)
-        when Ast::Lambda             then cr_lambda(node)
-        when Ast::AttributeWrite     then cr_attribute_write(node)
-        when Ast::MethodCall         then cr_method_call(node)
-        when Ast::Retry              then "retry"
-        # Structural nodes — join lines with current indent
-        when Ast::Sequence, Ast::If, Ast::While, Ast::Until, Ast::Rescue,
-             Ast::ForLoop, Ast::MultipleAssignment, Ast::Case,
-             Ast::MethodDef, Ast::ClassDef, Ast::ModuleDef
-          cr_lines(node).join("\n#{'  ' * @indent}")
-        else
-          # Nodes without cr_* yet — capture at indent 0 for clean composition
-          saved = @indent; @indent = 0
-          s = capture { emit_node(node) }
-          @indent = saved
-          s
-        end
-      end
-
-      # Return unindented Array<String> for an AST node.
-      # Structural nodes (if, while, sequence) compose via indent(cr_lines(body)).
-      # Inline nodes return a single-element array.
-      def cr_lines(node)
-        case node
-        when Ast::Sequence then cr_sequence_lines(node)
-        when Ast::If       then cr_if_lines(node)
-        when Ast::While    then cr_while_lines(node)
-        when Ast::Until    then cr_until_lines(node)
-        when Ast::Rescue              then cr_rescue_lines(node)
-        when Ast::ForLoop             then cr_for_loop_lines(node)
-        when Ast::MultipleAssignment  then cr_multiple_assignment_lines(node)
-        when Ast::Case                then cr_case_lines(node)
-        when Ast::MethodDef           then cr_method_def_lines(node)
-        when Ast::ClassDef            then cr_class_def_lines(node)
-        when Ast::ModuleDef           then cr_module_def_lines(node)
-        else
-          # Inline nodes or unconverted structural nodes
-          s = cr(node)
-          s.include?("\n") ? s.split("\n") : [s]
-        end
-      end
-
-      # Write Crystal source for an AST node to the output buffer.
       def emit(node)
-        lines = cr_lines(node)
-        lines.each_with_index do |line, i|
-          if i > 0
-            emit_newline
-            emit_indent
-          end
-          write line
-        end
-      end
-
-      # Imperative dispatch — fallback for nodes not in cr() dispatch.
-      def emit_node(node)
         case node
-        when Ast::Block then unsupported!(node, "bare Block outside method call")
-        else unsupported!(node)
+        when Ast::Sequence              then emit_sequence(node)
+        when Ast::NilLiteral            then emit_nil_literal
+        when Ast::TrueLiteral           then emit_true_literal
+        when Ast::FalseLiteral          then emit_false_literal
+        when Ast::IntegerLiteral        then emit_integer_literal(node)
+        when Ast::FloatLiteral          then emit_float_literal(node)
+        when Ast::StringLiteral         then emit_string_literal(node)
+        when Ast::SymbolLiteral         then emit_symbol_literal(node)
+        when Ast::SelfLiteral           then emit_self_literal
+        when Ast::LocalVariableRead     then emit_local_var_read(node)
+        when Ast::LocalVariableWrite    then emit_local_var_write(node)
+        when Ast::InstanceVariableRead  then emit_ivar_read(node)
+        when Ast::InstanceVariableWrite then emit_ivar_write(node)
+        when Ast::ConstantRead          then emit_constant_read(node)
+        when Ast::ConstantPath          then emit_constant_path(node)
+        when Ast::ConstantWrite         then emit_constant_write(node)
+        when Ast::ClassVariableRead     then emit_class_var_read(node)
+        when Ast::ClassVariableWrite    then emit_class_var_write(node)
+        when Ast::Yield                 then emit_yield(node)
+        when Ast::MethodCall            then emit_method_call(node)
+        when Ast::AttributeWrite        then emit_attribute_write(node)
+        when Ast::MethodDef             then emit_method_def(node)
+        when Ast::ClassDef              then emit_class_def(node)
+        when Ast::ModuleDef             then emit_module_def(node)
+        when Ast::If                    then emit_if(node)
+        when Ast::While                 then emit_while(node)
+        when Ast::Until                 then emit_until(node)
+        when Ast::Return                then emit_return(node)
+        when Ast::And                   then emit_and(node)
+        when Ast::Or                    then emit_or(node)
+        when Ast::ArrayLiteral          then emit_array_literal(node)
+        when Ast::HashLiteral           then emit_hash_literal(node)
+        when Ast::InterpolatedString    then emit_interpolated_string(node)
+        when Ast::Rescue                then emit_rescue(node)
+        when Ast::Retry                 then write "retry"
+        when Ast::Super                 then emit_super(node)
+        when Ast::Case                  then emit_case(node)
+        when Ast::Next                  then emit_next(node)
+        when Ast::Break                 then emit_break(node)
+        when Ast::RangeLiteral          then emit_range_literal(node)
+        when Ast::MultipleAssignment    then emit_multiple_assignment(node)
+        when Ast::Lambda                then emit_lambda(node)
+        when Ast::GlobalVariableRead    then emit_global_var_read(node)
+        when Ast::GlobalVariableWrite   then emit_global_var_write(node)
+        when Ast::IndexOrWrite          then emit_index_or_write(node)
+        when Ast::IndexOperatorWrite    then emit_index_op_write(node)
+        when Ast::IndexAndWrite         then emit_index_and_write(node)
+        when Ast::ForLoop               then emit_for_loop(node)
+        when Ast::Block                 then unsupported!(node, "bare Block outside method call")
+        else
+          unsupported!(node)
         end
       end
 
@@ -268,16 +224,20 @@ module Frozone
       # Literals
       # -----------------------------------------------------------------------
 
-      def cr_nil = "RUBY_NIL"
-      def cr_true = "RUBY_TRUE"
-      def cr_false = "RUBY_FALSE"
-      def cr_integer(node) = "RubyInteger.new(#{node.value.raw}_i64)"
-      def cr_float(node) = "RubyFloat.new(#{float_bits_expr(node.value.respond_to?(:raw) ? node.value.raw : node.value)})"
-      def emit_nil_literal = write cr_nil
-      def emit_true_literal = write cr_true
-      def emit_false_literal = write cr_false
-      def emit_integer_literal(node) = write cr_integer(node)
-      def emit_float_literal(node) = write cr_float(node)
+      def emit_nil_literal   = write "RUBY_NIL"
+      def emit_true_literal  = write "RUBY_TRUE"
+      def emit_false_literal = write "RUBY_FALSE"
+
+      def emit_integer_literal(node)
+        val = node.value.raw
+        write "RubyInteger.new(#{val}_i64)"
+      end
+
+      def emit_float_literal(node)
+        raw = node.value
+        val = raw.respond_to?(:raw) ? raw.raw : raw
+        write "RubyFloat.new(#{float_bits_expr(val)})"
+      end
 
       # Bit-exact IEEE 754 Float64 expression for Crystal.
       # Uses unsafe_as reinterpretation so the bit pattern round-trips perfectly
@@ -295,65 +255,80 @@ module Frozone
         end
       end
 
-      def cr_string(node) = %(RubyString.new(#{crystal_string_literal(node.value.raw)}))
-      def cr_symbol(node) = %(RubySymbol.from(#{node.value.to_s.inspect}))
-      def cr_self = "self"
-      def emit_string_literal(node) = write cr_string(node)
-      def emit_symbol_literal(node) = write cr_symbol(node)
-      def emit_self_literal = write cr_self
+      def emit_string_literal(node)
+        raw = node.value.raw
+        write %(RubyString.new(#{crystal_string_literal(raw)}))
+      end
+
+      def emit_symbol_literal(node)
+        sym = node.value  # SymbolObject#raw → native Ruby Symbol
+        write %(RubySymbol.from(#{sym.to_s.inspect}))
+      end
+
+      def emit_self_literal = write "self"
 
       # -----------------------------------------------------------------------
       # Variables
       # -----------------------------------------------------------------------
 
-      def cr_local_read(node) = crystal_local(node.name)
-      def emit_local_var_read(node) = write cr_local_read(node)
+      def emit_local_var_read(node) = write crystal_local(node.name)
 
-      def cr_local_var_write(node) = "#{crystal_local(node.name)} = #{cr(node.value_node)}"
-      def emit_local_var_write(node) = write cr_local_var_write(node)
+      def emit_local_var_write(node)
+        write "#{crystal_local(node.name)} = "
+        emit(node.value_node)
+      end
 
-      def cr_ivar_read(node) = node.name.to_s
-      def emit_ivar_read(node) = write cr_ivar_read(node)
+      def emit_ivar_read(node) = write node.name.to_s  # already includes leading @
 
-      def cr_ivar_write(node) = "#{node.name} = #{cr(node.value_node)}"
-      def emit_ivar_write(node) = write cr_ivar_write(node)
+      def emit_ivar_write(node)
+        write "#{node.name} = "
+        emit(node.value_node)
+      end
 
-      def cr_constant_read(node) = RUBY_TO_CRYSTAL_TYPE[node.name] || "Ruby_#{crystal_constant(node.name)}"
-      def emit_constant_read(node) = write cr_constant_read(node)
-
-      def cr_constant_path(node)
-        parent = node.parent_node
+      def emit_constant_read(node)
         name = node.name
+        crystal_type = RUBY_TO_CRYSTAL_TYPE[name]
+        crystal_type ? write(crystal_type) : write("Ruby_#{crystal_constant(name)}")
+      end
+
+      def emit_constant_path(node)
+        parent = node.parent_node
+        name   = node.name
+        # Special cases: Math::PI, Math::E → Crystal constants
         if parent.is_a?(Ast::ConstantRead) && parent.name == :Math
           case name
-          when :PI then "RubyFloat.new(Math::PI)"
-          when :E  then "RubyFloat.new(Math::E)"
-          else "RubyMath.#{crystal_method_name(name)}"
+          when :PI then write "RubyFloat.new(Math::PI)"
+          when :E  then write "RubyFloat.new(Math::E)"
+          else write "RubyMath.#{crystal_method_name(name)}"
           end
         else
-          "#{cr(parent)}::Ruby_#{crystal_constant(name)}"
+          # General: Parent::Name → Ruby_Parent::Ruby_Name or Ruby_Parent.Name
+          emit(parent)
+          write "::Ruby_#{crystal_constant(name)}"
         end
       end
 
-      def cr_constant_write(node) = "Ruby_#{crystal_constant(node.name)} = #{cr(node.value_node)}"
-      def emit_constant_path(node) = write cr_constant_path(node)
-      def emit_constant_write(node) = write cr_constant_write(node)
+      def emit_constant_write(node)
+        write "Ruby_#{crystal_constant(node.name)} = "
+        emit(node.value_node)
+      end
 
-      def cr_class_var_read(node) = node.name.to_s
-      def emit_class_var_read(node) = write cr_class_var_read(node)
+      def emit_class_var_read(node) = write node.name.to_s
 
-      def cr_class_var_write(node) = "#{node.name} = #{cr(node.value_node)}"
-      def emit_class_var_write(node) = write cr_class_var_write(node)
+      def emit_class_var_write(node)
+        write "#{node.name} = "
+        emit(node.value_node)
+      end
 
       # -----------------------------------------------------------------------
       # Sequence
       # -----------------------------------------------------------------------
 
-      def cr_sequence_lines(node) = node.nodes.flat_map { |child| cr_lines(child) }
-
       def emit_sequence(node)
-        cr_sequence_lines(node).each_with_index do |line, i|
-          emit_newline if i > 0; emit_indent; write line
+        node.nodes.each_with_index do |child, i|
+          emit_newline if i > 0
+          emit_indent
+          emit(child)
         end
       end
 
@@ -361,72 +336,96 @@ module Frozone
       # Method call
       # -----------------------------------------------------------------------
 
-      # Functional method call emission. Returns String. Subclasses (Codegen)
-      # override this to add optimized paths via cr_method_call_optimized.
-      def cr_method_call(node)
+      def emit_method_call(node)
         name = node.name
-        recv = node.receiver_node
 
-        # Kernel methods (no receiver)
-        if recv.nil?
+        # Kernel-level methods with no receiver map to top-level helpers
+        if node.receiver_node.nil?
           case name
-          when :puts then return cr_puts(node)
-          when :print then return cr_print(node)
-          when :p then return cr_p(node)
-          when :raise then return cr_raise(node)
-          when :require, :require_relative then return cr_require_call(node)
-          when :block_given? then return "block_given?"
-          when :loop then return cr_loop(node)
-          when :attr_accessor then return cr_attr_methods(node, reader: true, writer: true)
-          when :attr_reader then return cr_attr_methods(node, reader: true, writer: false)
-          when :attr_writer then return cr_attr_methods(node, reader: false, writer: true)
+          when :puts         then return emit_puts(node)
+          when :print        then return emit_print(node)
+          when :p            then return emit_p(node)
+          when :raise        then return emit_raise(node)
+          when :require, :require_relative then return emit_require_call(node)
+          when :block_given? then return write("block_given?")
+          when :loop         then return emit_loop(node)
+          when :attr_accessor then return emit_attr_methods(node, reader: true, writer: true)
+          when :attr_reader   then return emit_attr_methods(node, reader: true, writer: false)
+          when :attr_writer   then return emit_attr_methods(node, reader: false, writer: true)
           when :include, :extend, :prepend
-            mods = node.arg_nodes.map { |a|
-              a.is_a?(Ast::ConstantRead) ? (RUBY_TO_CRYSTAL_TYPE[a.name] || "Ruby_#{a.name}") : nil
-            }.compact
-            return mods.map { |m| "include #{m}" }.join("\n") if name == :include && !mods.empty?
-            return "# #{name} #{node.arg_nodes.map { |a| a.is_a?(Ast::ConstantRead) ? a.name : '?' }.join(', ')}"
+            mods = node.arg_nodes.map do |a|
+              if a.is_a?(Ast::ConstantRead)
+                mod_name = a.name.to_s
+                RUBY_TO_CRYSTAL_TYPE[a.name] || "Ruby_#{mod_name}"
+              else
+                nil
+              end
+            end.compact
+            return mods.each { |m| write("include #{m}") } if name == :include && !mods.empty?
+            return write("# #{name} #{node.arg_nodes.map { |a| a.is_a?(Ast::ConstantRead) ? a.name : '?' }.join(', ')}")
           end
         end
 
-        # Operators
-        return cr_operator(node, name) if recv && operator?(name)
+        # Operator and unary methods — emit as Crystal operator syntax
+        if node.receiver_node
+          return emit_operator(node, name) if operator?(name)
+        end
 
-        # Built-in class .new
-        if name == :new && recv.is_a?(Ast::ConstantRead)
-          if (cr_type = RUBY_TO_CRYSTAL_TYPE[recv.name])
-            return "#{cr_type}.new#{cr_call_args(node)}"
-          end
-          if recv.name == :Proc && node.block_node
-            return cr_proc_new(node.block_node)
+        # Built-in class .new: Array.new(n, default), Hash.new, etc.
+        if name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
+          cr_type = RUBY_TO_CRYSTAL_TYPE[node.receiver_node.name]
+          if cr_type
+            write "#{cr_type}.new"
+            emit_call_args(node)
+            return
           end
         end
 
-        # lambda { } and proc { }
-        return cr_proc_new(node.block_node) if name == :lambda && recv.nil? && node.block_node
-        return cr_proc_call(node) if name == :call && recv
-
-        # [] subscript
-        if name == :[] && recv && node.arg_nodes.size == 1
-          return "#{cr(recv)}[#{cr(node.arg_nodes[0])}]"
+        # Proc.new { |...| ... } → RubyProc wrapping a Crystal proc
+        if name == :new && node.receiver_node.is_a?(Ast::ConstantRead) &&
+           node.receiver_node.name == :Proc && node.block_node
+          return emit_proc_new(node.block_node)
         end
 
-        # is_a? / kind_of? with constant
-        if (name == :is_a? || name == :kind_of?) && recv &&
+        # lambda { |...| ... } (no receiver) → same as Proc.new
+        if name == :lambda && node.receiver_node.nil? && node.block_node
+          return emit_proc_new(node.block_node)
+        end
+
+        # proc.call(args) → cast receiver to RubyProc then call
+        if name == :call && node.receiver_node
+          return emit_proc_call(node)
+        end
+
+        # [] subscript: emit receiver[arg] instead of receiver.[](arg)
+        if name == :[] && node.receiver_node && node.arg_nodes.size == 1
+          emit(node.receiver_node)
+          write "["
+          emit(node.arg_nodes[0])
+          write "]"
+          return
+        end
+
+        # is_a?/kind_of? with a constant → Crystal native is_a?(Type) check → RubyBool
+        if (name == :is_a? || name == :kind_of?) && node.receiver_node &&
            node.arg_nodes.size == 1 && node.arg_nodes[0].is_a?(Ast::ConstantRead)
           const_name = node.arg_nodes[0].name.to_s
-          ct = RUBY_TO_CRYSTAL_TYPE[node.arg_nodes[0].name] ||
-               (BUILTIN_SUPERCLASSES.include?(const_name) ? "Ruby#{const_name}" : "Ruby_#{const_name}")
-          return "(#{cr(recv)}.is_a?(#{ct}) ? RUBY_TRUE : RUBY_FALSE)"
+          crystal_type = RUBY_TO_CRYSTAL_TYPE[node.arg_nodes[0].name] ||
+                         (BUILTIN_SUPERCLASSES.include?(const_name) ? "Ruby#{const_name}" : "Ruby_#{const_name}")
+          write "("
+          emit(node.receiver_node)
+          write ".is_a?(#{crystal_type}) ? RUBY_TRUE : RUBY_FALSE)"
+          return
         end
 
-        # General method call
-        prefix = recv ? "#{cr(recv)}." : ""
-        "#{prefix}#{crystal_method_name(name)}#{cr_call_args(node)}"
+        # General method call: receiver.method(args)
+        if node.receiver_node
+          emit(node.receiver_node)
+          write "."
+        end
+        write crystal_method_name(name)
+        emit_call_args(node)
       end
-
-      def emit_method_call(node) = write cr_method_call(node)
-
 
       BINARY_OPS = %i[+ - * / % ** == != < <= > >= <=> << >> & | ^ === =~].to_set
       UNARY_OPS  = %i[-@ +@ ~ !].to_set
@@ -436,41 +435,75 @@ module Frozone
       def operator?(name) = BINARY_OPS.include?(name) || UNARY_OPS.include?(name)
 
       # AttributeWrite: obj.foo = val (setter) or obj[i] = val (index assign)
-      def cr_attribute_write(node)
+      def emit_attribute_write(node)
         name = node.name
         recv = node.receiver_node
         args = node.arg_nodes
         if name == :[]=
-          "#{cr(recv)}[#{cr(args[0])}] = #{cr(args[1])}"
+          # Index assignment: receiver[idx] = val
+          emit(recv)
+          write "["
+          emit(args[0])
+          write "] = "
+          emit(args[1])
         else
-          "#{cr(recv)}.#{name.to_s.chomp('=')} = #{cr(args[0])}"
+          # Setter method: receiver.foo = val
+          setter_name = name.to_s.chomp('=')
+          emit(recv)
+          write ".#{setter_name} = "
+          emit(args[0])
         end
       end
 
-      def emit_attribute_write(node) = write cr_attribute_write(node)
-
-      def cr_operator(node, name)
+      def emit_operator(node, name)
         if UNARY_OPS.include?(name)
-          recv = cr(node.receiver_node)
+          # Crystal unary minus is a zero-arg def -, called as recv.-
+          # Emit as method call for -@ and ~; inline for +@ (no-op)
           case name
-          when :"-@" then "(#{recv}.-)"
-          when :"+@" then recv
-          when :"~"  then "~(#{recv})"
-          when :"!"  then "((#{cr_truthy(node.receiver_node)}) ? RUBY_FALSE : RUBY_TRUE)"
+          when :"-@"
+            write "("
+            emit(node.receiver_node)
+            write ".-)"
+          when :"+@"
+            emit(node.receiver_node)
+          when :"~"
+            write "~("
+            emit(node.receiver_node)
+            write ")"
+          when :"!"
+            write "(("
+            emit_truthy(node.receiver_node)
+            write ") ? RUBY_FALSE : RUBY_TRUE)"
           end
         elsif COMPARE_OPS.include?(name)
-          "((#{cr_operator_recv(node.receiver_node)} #{name} #{cr(node.arg_nodes[0])}) ? RUBY_TRUE : RUBY_FALSE)"
+          # Comparison: wrap in RubyBool so return type is RubyObject-compatible
+          # (a >= b) ? RUBY_TRUE : RUBY_FALSE
+          write "(("
+          emit_operator_recv(node.receiver_node)
+          write " #{name} "
+          emit(node.arg_nodes[0])
+          write ") ? RUBY_TRUE : RUBY_FALSE)"
         else
-          "(#{cr_operator_recv(node.receiver_node)} #{name} #{cr(node.arg_nodes[0])})"
+          # Arithmetic binary: (lhs op rhs) — returns RubyObject via Crystal dispatch
+          write "("
+          emit_operator_recv(node.receiver_node)
+          write " #{name} "
+          emit(node.arg_nodes[0])
+          write ")"
         end
       end
-
-      def emit_operator(node, name) = write cr_operator(node, name)
 
       # Emit operator receiver, wrapping in parens if it contains an
       # embedded assignment (so Crystal groups `(q1 = expr) != 1` correctly).
-      def cr_operator_recv(recv) = recv_contains_assignment?(recv) ? "(#{cr(recv)})" : cr(recv)
-      def emit_operator_recv(recv) = write cr_operator_recv(recv)
+      def emit_operator_recv(recv)
+        if recv_contains_assignment?(recv)
+          write "("
+          emit(recv)
+          write ")"
+        else
+          emit(recv)
+        end
+      end
 
       def recv_contains_assignment?(node)
         return true if node.is_a?(Ast::LocalVariableWrite) || node.is_a?(Ast::InstanceVariableWrite)
@@ -479,252 +512,396 @@ module Frozone
         node.is_a?(Ast::Sequence) && node.nodes.size == 1 && recv_contains_assignment?(node.nodes.first)
       end
 
-      def cr_puts(node)
+      def emit_puts(node)
+        if node.arg_nodes.empty?
+          write "STDOUT.puts; RUBY_NIL"
+        elsif node.arg_nodes.length == 1
+          write "STDOUT.puts("
+          emit(node.arg_nodes[0])
+          write ".to_s); RUBY_NIL"
+        else
+          node.arg_nodes.each do |arg|
+            write "STDOUT.puts("
+            emit(arg)
+            write ".to_s); "
+          end
+          write "RUBY_NIL"
+        end
+      end
+
+      def emit_print(node)
+        write "STDOUT.print("
+        node.arg_nodes.each_with_index do |arg, i|
+          write ", " if i > 0
+          emit(arg)
+          write ".to_s"
+        end
+        write ")"
+      end
+
+      def emit_p(node)
+        node.arg_nodes.each_with_index do |arg, i|
+          write "; " if i > 0
+          write "STDOUT.puts("
+          emit(arg)
+          write ".inspect)"
+        end
+      end
+
+      def emit_raise(node)
+        write "raise "
         args = node.arg_nodes
-        return "STDOUT.puts; RUBY_NIL" if args.empty?
-        return "STDOUT.puts(#{cr(args[0])}.to_s); RUBY_NIL" if args.length == 1
-        args.map { |a| "STDOUT.puts(#{cr(a)}.to_s)" }.join("; ") + "; RUBY_NIL"
-      end
-
-      def cr_print(node)
-        args = node.arg_nodes.map { |a| "#{cr(a)}.to_s" }.join(", ")
-        "STDOUT.print(#{args})"
-      end
-
-      def cr_p(node)
-        node.arg_nodes.map { |a| "STDOUT.puts(#{cr(a)}.inspect)" }.join("; ")
-      end
-
-      def cr_raise(node)
-        args = node.arg_nodes
-        body = if args.empty?
-          "RuntimeError.new"
+        if args.empty?
+          write "RuntimeError.new"
         elsif args.size == 1
           arg = args[0]
           case arg
-          when Ast::StringLiteral then "RuntimeError.new(#{crystal_string_literal(arg.value.raw)})"
-          when Ast::InterpolatedString then "RuntimeError.new(#{cr(arg)}.to_s)"
-          when Ast::ConstantRead then "Ruby_#{crystal_constant(arg.name)}.new"
-          else cr(arg)
-          end
-        else
-          exc = args[0].is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(args[0].name)}" : cr(args[0])
-          "#{exc}.new(#{cr(args[1])}.to_s)"
-        end
-        "raise #{body}"
-      end
-
-      # Imperative wrappers for backward compat
-      def emit_puts(node) = write cr_puts(node)
-      def emit_print(node) = write cr_print(node)
-      def emit_p(node) = write cr_p(node)
-      def emit_raise(node) = write cr_raise(node)
-
-      def cr_rescue_lines(node)
-        lines = ["begin", *indent(cr_lines(node.body))]
-        node.rescue_clauses.each do |clause|
-          var = clause.var_name
-          exc = clause.exception_nodes
-          header = if exc.empty?
-            var ? "rescue #{crystal_local(var)} : Exception" : "rescue"
+          when Ast::StringLiteral
+            # raise "msg" → raise RuntimeError.new("msg")
+            write "RuntimeError.new(#{crystal_string_literal(arg.value.raw)})"
+          when Ast::InterpolatedString
+            # raise "msg #{x}" → raise RuntimeError.new(...)
+            write "RuntimeError.new("
+            emit(arg)
+            write ".to_s)"
+          when Ast::ConstantRead
+            # raise ExcClass → raise Ruby_ExcClass.new
+            write "Ruby_#{crystal_constant(arg.name)}.new"
           else
-            types = exc.map { |en| en.is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(en.name)}" : "Exception" }.join(" | ")
-            var ? "rescue #{crystal_local(var)} : #{types}" : "rescue #{types}"
+            # raise exception_instance (e.g. raise MyError.new(...))
+            emit(arg)
           end
-          lines.push(header, *indent(cr_lines(clause.body)))
+        elsif args.size >= 2
+          # raise ExcClass, "msg" [, backtrace] → raise Ruby_ExcClass.new("msg")
+          exc_node = args[0]
+          msg_node = args[1]
+          if exc_node.is_a?(Ast::ConstantRead)
+            write "Ruby_#{crystal_constant(exc_node.name)}.new("
+          else
+            emit(exc_node)
+            write ".new("
+          end
+          emit(msg_node)
+          write ".to_s)"
         end
-        lines.push("else", *indent(cr_lines(node.else_node))) if node.else_node
-        lines.push("ensure", *indent(cr_lines(node.ensure_node))) if node.ensure_node
-        lines << "end"
       end
 
       def emit_rescue(node)
-        cr_rescue_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
+        write "begin"
+        emit_newline
+        indented { emit(node.body) }
+        emit_newline
+
+        node.rescue_clauses.each do |clause|
+          emit_indent
+          var_name  = clause.var_name
+          exc_nodes = clause.exception_nodes
+
+          if exc_nodes.empty?
+            # bare rescue → catch all Crystal exceptions
+            write var_name ? "rescue #{crystal_local(var_name)} : Exception" : "rescue"
+          else
+            # rescue ExcA, ExcB => e
+            exc_types = exc_nodes.map do |en|
+              en.is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(en.name)}" : "Exception"
+            end.join(" | ")
+            write var_name ? "rescue #{crystal_local(var_name)} : #{exc_types}" : "rescue #{exc_types}"
+          end
+          emit_newline
+          indented { emit(clause.body) }
+          emit_newline
+        end
+
+        if (else_node = node.else_node)
+          emit_indent
+          write "else"
+          emit_newline
+          indented { emit(else_node) }
+          emit_newline
+        end
+
+        if (ensure_node = node.ensure_node)
+          emit_indent
+          write "ensure"
+          emit_newline
+          indented { emit(ensure_node) }
+          emit_newline
+        end
+
+        emit_indent
+        write "end"
       end
 
-      def cr_super(node)
+      def emit_super(node)
+        forwarding = node.forwarding
         args = node.arg_nodes
-        if node.forwarding || args.nil? || args.empty?
-          "super"
+        if forwarding || args.nil? || args.empty?
+          write "super"
         else
-          suffix = @in_exception_class ? ".to_s" : ""
-          "super(#{args.map { |a| "#{cr(a)}#{suffix}" }.join(', ')})"
+          write "super("
+          args.each_with_index do |arg, i|
+            write ", " if i > 0
+            emit(arg)
+            # In exception class initializers, super(msg) expects Crystal String
+            write ".to_s" if @in_exception_class
+          end
+          write ")"
         end
       end
 
-      def emit_super(node) = write cr_super(node)
-
-      def cr_require_call(node) = "# require #{node.arg_nodes[0].inspect} (dropped — closed world)"
+      def emit_require_call(node)
+        # Silently drop require calls — closed world, all files already compiled.
+        write "# require #{node.arg_nodes[0].inspect} (dropped — closed world)"
+      end
 
       # attr_accessor/attr_reader/attr_writer :name, :other, ...
-      def cr_attr_methods(node, reader:, writer:)
-        node.arg_nodes.flat_map { |sym|
-          next [] unless sym.is_a?(Ast::SymbolLiteral)
+      # Emits Crystal getter and/or setter methods for each symbol arg.
+      def emit_attr_methods(node, reader:, writer:)
+        first = true
+        node.arg_nodes.each do |sym|
+          next unless sym.is_a?(Ast::SymbolLiteral)
           name = sym.value.to_s
-          methods = []
-          methods << "def #{name} : RubyObject; @#{name}; end" if reader
-          methods << "def #{name}=(val : RubyObject) : RubyObject; @#{name} = val; val; end" if writer
-          methods
-        }.join("\n#{'  ' * @indent}")
+          if first
+            first = false
+          else
+            emit_newline
+            emit_indent
+          end
+          if reader
+            write "def #{name} : RubyObject; @#{name}; end"
+          end
+          if writer
+            emit_newline; emit_indent if reader
+            write "def #{name}=(val : RubyObject) : RubyObject; @#{name} = val; val; end"
+          end
+        end
       end
 
-      def cr_call_args(node)
-        return "" if node.arg_nodes.empty? && node.kw_arg_nodes.empty? && node.block_node.nil?
-        parts = node.arg_nodes.map { |arg|
-          arg.is_a?(Ast::SplatArg) ? "# UNSUPPORTED_SPLAT(#{cr(arg.value_node)})" : cr(arg)
-        }
+      def emit_call_args(node)
+        return if node.arg_nodes.empty? && node.kw_arg_nodes.empty? && node.block_node.nil?
+
+        write "("
+        first = true
+        node.arg_nodes.each do |arg|
+          write ", " unless first
+          first = false
+          if arg.is_a?(Ast::SplatArg)
+            # SplatArg: Crystal can't splat Array (only Tuple); emit unsupported marker
+            write "# UNSUPPORTED_SPLAT("
+            emit(arg.value_node)
+            write ")"
+          else
+            emit(arg)
+          end
+        end
         node.kw_arg_nodes.each do |kw_name, val_node|
+          write ", " unless first
+          first = false
           key = kw_name.is_a?(Ast::SymbolLiteral) ? kw_name.value : kw_name
-          parts << "#{key}: #{cr(val_node)}"
+          write "#{key}: "
+          emit(val_node)
         end
-        result = "(#{parts.join(', ')})"
-        if node.block_node
-          blk = node.block_node.is_a?(Ast::BlockArg) ? cr_block_arg(node.block_node) : cr_block(node.block_node)
-          result += " #{blk}"
-        end
-        result
-      end
+        write ")"
 
-      def emit_require_call(node) = write cr_require_call(node)
-      def emit_attr_methods(node, reader:, writer:) = write cr_attr_methods(node, reader: reader, writer: writer)
-      def emit_call_args(node) = write cr_call_args(node)
+        if node.block_node
+          write " "
+          if node.block_node.is_a?(Ast::BlockArg)
+            emit_block_arg(node.block_node)
+          else
+            emit_block(node.block_node)
+          end
+        end
+      end
 
       # -----------------------------------------------------------------------
       # Block
       # -----------------------------------------------------------------------
 
-      def cr_block(node)
+      def emit_block(node)
         params = (node.required_params || []) + (node.optional_params || []).map(&:first)
         params += [node.rest_param].compact
-        param_str = params.empty? ? "" : "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
-        "{ #{param_str}#{cr(node.body)} }"
+        write "{ "
+        unless params.empty?
+          write "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
+        end
+        emit(node.body)
+        write " }"
       end
 
-      def cr_block_arg(block_arg_node)
+      # &:method — emit as a single-arg block that calls the method
+      def emit_block_arg(block_arg_node)
         value_node = block_arg_node.value_node
         if value_node.is_a?(Ast::SymbolLiteral)
-          "{ |_sym2proc| _sym2proc.#{crystal_method_name(value_node.value)}.as(RubyObject) }"
+          method_name = crystal_method_name(value_node.value)
+          # Wrap with .as(RubyObject) to avoid Crystal type-union issues when
+          # the same method name exists on multiple types with different return types
+          write "{ |_sym2proc| _sym2proc.#{method_name}.as(RubyObject) }"
         else
-          "{ |_blkarg| (#{cr(value_node)}).as(RubyProc).call(_blkarg) }"
+          # Generic block-pass: convert to a Proc and call it
+          write "{ |_blkarg| ("; emit(value_node); write ").as(RubyProc).call(_blkarg) }"
         end
       end
-
-      def emit_block(node) = write cr_block(node)
-      def emit_block_arg(node) = write cr_block_arg(node)
 
       # -----------------------------------------------------------------------
       # Control flow
       # -----------------------------------------------------------------------
 
-      def cr_if_lines(node)
-        cond = cr_truthy(node.pred_node)
-        if node.then_node.is_a?(Ast::NilLiteral) && node.else_node
-          return ["unless #{cond}", *indent(cr_lines(node.else_node)), "end"]
-        end
-        lines = ["if #{cond}", *indent(cr_lines(node.then_node))]
-        if node.else_node
-          lines.push("else", *indent(cr_lines(node.else_node)))
-        end
-        lines << "end"
-      end
-
       def emit_if(node)
-        cr_if_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
+        # Detect `unless` pattern: if cond; nil; else; body; end → unless cond; body; end
+        if node.then_node.is_a?(Ast::NilLiteral) && node.else_node
+          write "unless "
+          emit_truthy(node.pred_node)
+          emit_newline
+          indented { emit(node.else_node) }
+          emit_newline
+          emit_indent
+          write "end"
+          return
+        end
+        write "if "
+        emit_truthy(node.pred_node)
+        emit_newline
+        indented { emit(node.then_node) }
+        if node.else_node
+          emit_newline
+          emit_indent
+          write "else"
+          emit_newline
+          indented { emit(node.else_node) }
+        end
+        emit_newline
+        emit_indent
+        write "end"
       end
 
-      def cr_for_loop_lines(node)
+      def emit_for_loop(node)
         target = node.target
-        var = case target[0]
-        when :local then crystal_local(target[1])
+        emit(node.collection_node)
+        write ".each do |"
+        case target[0]
+        when :local    then write crystal_local(target[1])
         when :multi
           _, lefts, rest_sym, rights = target
           parts = lefts.map { |n| crystal_local(n) }
           parts << "*#{crystal_local(rest_sym)}" if rest_sym
           parts += rights.map { |n| crystal_local(n) }
-          parts.join(", ")
-        else "_for_var"
+          write parts.join(", ")
+        else
+          write "_for_var"
         end
-        ["#{cr(node.collection_node)}.each do |#{var}|", *indent(cr_lines(node.body_node)), "end"]
-      end
-
-      def emit_for_loop(node)
-        cr_for_loop_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
-      end
-
-      def cr_while_lines(node)
-        ["while #{cr_truthy(node.condition_node)}", *indent(cr_lines(node.body_node)), "end"]
-      end
-
-      def cr_until_lines(node)
-        ["until #{cr_truthy(node.condition_node)}", *indent(cr_lines(node.body_node)), "end"]
+        write "|"
+        emit_newline
+        indented { emit(node.body_node) }
+        emit_newline
+        emit_indent
+        write "end"
       end
 
       def emit_while(node)
-        cr_while_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
+        write "while "
+        emit_truthy(node.condition_node)
+        emit_newline
+        indented { emit(node.body_node) }
+        emit_newline
+        emit_indent
+        write "end"
       end
 
       def emit_until(node)
-        cr_until_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
+        write "until "
+        emit_truthy(node.condition_node)
+        emit_newline
+        indented { emit(node.body_node) }
+        emit_newline
+        emit_indent
+        write "end"
       end
 
-      def cr_return(node) = node.value_node ? "return #{cr(node.value_node)}" : "return"
-
-      def cr_next(node)
+      def emit_return(node)
+        write "return"
         val = node.value_node
-        (val.nil? || val.is_a?(Ast::NilLiteral)) ? "next" : "next (#{cr(val)})"
+        if val
+          write " "
+          emit(val)
+        end
       end
 
-      def cr_break(node)
+      def emit_next(node)
         val = node.value_node
-        (val.nil? || val.is_a?(Ast::NilLiteral)) ? "break" : "break (#{cr(val)})"
+        if val.nil? || val.is_a?(Ast::NilLiteral)
+          write "next"
+        else
+          write "next ("
+          emit(val)
+          write ")"
+        end
       end
 
-      def emit_return(node) = write cr_return(node)
-      def emit_next(node) = write cr_next(node)
-      def emit_break(node) = write cr_break(node)
-
-      def cr_loop_lines(node)
-        body_lines = node.block_node ? cr_lines(node.block_node.body) : []
-        ["loop do", *indent(body_lines), "end"]
+      def emit_break(node)
+        val = node.value_node
+        if val.nil? || val.is_a?(Ast::NilLiteral)
+          write "break"
+        else
+          write "break ("
+          emit(val)
+          write ")"
+        end
       end
-
-      # cr_loop is called from cr_method_call (returns String). Loop is multi-line
-      # so it needs joining with newlines and current indent.
-      def cr_loop(node) = cr_loop_lines(node).join("\n#{'  ' * @indent}")
 
       def emit_loop(node)
-        cr_loop_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
+        write "loop do"
+        if node.block_node
+          emit_newline
+          indented { emit(node.block_node.body) }
+          emit_newline
+          emit_indent
+        end
+        write "end"
       end
 
-      def cr_lambda(node)
+      # Lambda node (-> syntax): ->(x) { body }
+      def emit_lambda(node)
         params = node.required_params
-        assigns = params.each_with_index.map { |p, i| "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL" }.join("; ")
-        body = cr(node.body)
-        prefix = assigns.empty? ? "" : "#{assigns}; "
-        "RubyProc.new(->(args : Array(RubyObject)) { #{prefix}#{body} })"
+        write "RubyProc.new(->(args : Array(RubyObject)) { "
+        params.each_with_index do |p, i|
+          write "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL; "
+        end
+        emit(node.body)
+        write " })"
       end
 
-      def emit_lambda(node) = write cr_lambda(node)
-
-      def cr_proc_new(block_node)
+      # Proc.new { |x| ... } or lambda { |x| ... } → RubyProc
+      def emit_proc_new(block_node)
         params = block_node.required_params
-        assigns = params.each_with_index.map { |p, i| "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL" }.join("; ")
-        prefix = assigns.empty? ? "" : "#{assigns}; "
-        "RubyProc.new(->(args : Array(RubyObject)) { #{prefix}#{cr(block_node.body)} })"
+        write "RubyProc.new(->(args : Array(RubyObject)) { "
+        params.each_with_index do |p, i|
+          write "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL; "
+        end
+        emit(block_node.body)
+        write " })"
       end
 
-      def cr_proc_call(node)
+      # proc.call(args) → cast to RubyProc and call.
+      # If the receiver is the method's &block param, call directly (it's a Crystal Proc).
+      def emit_proc_call(node)
         recv = node.receiver_node
         bp_name = (defined?(@mctx) && @mctx&.block_param_name) ||
           (defined?(@current_block_param_name) && @current_block_param_name)
-        is_block_param = recv.is_a?(Ast::LocalVariableRead) && bp_name && recv.name == bp_name
-        cast = is_block_param ? "" : ".as(RubyProc)"
-        args = node.arg_nodes.map { |a| cr(a) }.join(", ")
-        "(#{cr(recv)})#{cast}.call(#{args})"
+        is_block_param = recv.is_a?(Ast::LocalVariableRead) && bp_name &&
+          recv.name == bp_name
+        write "("
+        emit(recv)
+        if is_block_param
+          write ").call("
+        else
+          write ").as(RubyProc).call("
+        end
+        node.arg_nodes.each_with_index do |arg, i|
+          write ", " if i > 0
+          emit(arg)
+        end
+        write ")"
       end
-
-      def emit_proc_new(block_node) = write cr_proc_new(block_node)
-      def emit_proc_call(node) = write cr_proc_call(node)
 
       # Global variable read: $name → RUBY_GLOBALS["name"]? || RUBY_NIL
       MAPPED_GLOBALS = {
@@ -733,58 +910,91 @@ module Frozone
         :"$stdin"  => "RUBY_NIL",
       }.freeze
 
-      def cr_global_var_read(node)
-        mapped = MAPPED_GLOBALS[node.name]
-        mapped || %((RUBY_GLOBALS[#{node.name.to_s.sub(/^\$/, '').inspect}]? || RUBY_NIL))
+      def emit_global_var_read(node)
+        name = node.name
+        if (mapped = MAPPED_GLOBALS[name])
+          write mapped
+        else
+          key = name.to_s.sub(/^\$/, '')
+          write %((RUBY_GLOBALS[#{key.inspect}]? || RUBY_NIL))
+        end
       end
 
-      def emit_global_var_read(node) = write cr_global_var_read(node)
-
-      def cr_global_var_write(node)
-        key = node.name.to_s.sub(/^\$/, '')
-        %(RUBY_GLOBALS[#{key.inspect}] = #{cr(node.value_node)})
+      def emit_global_var_write(node)
+        name = node.name
+        key  = name.to_s.sub(/^\$/, '')
+        write %(RUBY_GLOBALS[#{key.inspect}] = )
+        emit(node.value_node)
       end
 
-      def emit_global_var_write(node) = write cr_global_var_write(node)
-
-      def cr_index_or_write(node)
-        r, i, c = "_iorw_r#{@temp_counter}", "_iorw_i#{@temp_counter}", "_iorw_c#{@temp_counter}"
+      # a[i] ||= val → (_r = recv; _i = idx; _c = _r[_i]; _c.truthy? ? _c : (_r[_i] = val))
+      def emit_index_or_write(node)
+        recv_node  = node.receiver_node
+        index_args = node.index_arg_nodes
+        val_node   = node.value_node
+        r = "_iorw_r#{@temp_counter}"
+        i = "_iorw_i#{@temp_counter}"
+        c = "_iorw_c#{@temp_counter}"
         @temp_counter += 1
-        recv = node.receiver_node ? cr(node.receiver_node) : "self"
-        idx = cr(node.index_arg_nodes[0])
-        val = cr(node.value_node)
-        "(#{r} = #{recv}; #{i} = #{idx}; #{c} = #{r}[#{i}]; #{c}.truthy? ? #{c} : (#{r}[#{i}] = #{val}))"
+        write "(#{r} = "
+        recv_node ? emit(recv_node) : write("self")
+        write "; #{i} = "
+        emit(index_args[0])
+        write "; #{c} = #{r}[#{i}]; #{c}.truthy? ? #{c} : (#{r}[#{i}] = "
+        emit(val_node)
+        write "))"
       end
 
-      def cr_index_and_write(node)
-        r, i, c = "_iandw_r#{@temp_counter}", "_iandw_i#{@temp_counter}", "_iandw_c#{@temp_counter}"
+      # a[i] &&= val → (_r = recv; _i = idx; _c = _r[_i]; _c.truthy? ? (_r[_i] = val) : _c)
+      def emit_index_and_write(node)
+        recv_node  = node.receiver_node
+        index_args = node.index_arg_nodes
+        val_node   = node.value_node
+        r = "_iandw_r#{@temp_counter}"
+        i = "_iandw_i#{@temp_counter}"
+        c = "_iandw_c#{@temp_counter}"
         @temp_counter += 1
-        recv = node.receiver_node ? cr(node.receiver_node) : "self"
-        idx = cr(node.index_arg_nodes[0])
-        val = cr(node.value_node)
-        "(#{r} = #{recv}; #{i} = #{idx}; #{c} = #{r}[#{i}]; #{c}.truthy? ? (#{r}[#{i}] = #{val}) : #{c})"
+        write "(#{r} = "
+        recv_node ? emit(recv_node) : write("self")
+        write "; #{i} = "
+        emit(index_args[0])
+        write "; #{c} = #{r}[#{i}]; #{c}.truthy? ? (#{r}[#{i}] = "
+        emit(val_node)
+        write ") : #{c})"
       end
-
-      def emit_index_or_write(node) = write cr_index_or_write(node)
-      def emit_index_and_write(node) = write cr_index_and_write(node)
 
       # a[i] += val → (_r = recv; _i = idx; _r[_i] = _r[_i] op val)
-      def cr_index_op_write(node)
-        r, i = "_iopw_r#{@temp_counter}", "_iopw_i#{@temp_counter}"
+      def emit_index_op_write(node)
+        op         = node.operator
+        recv_node  = node.receiver_node
+        index_args = node.index_arg_nodes
+        val_node   = node.value_node
+        r = "_iopw_r#{@temp_counter}"
+        i = "_iopw_i#{@temp_counter}"
         @temp_counter += 1
-        recv = node.receiver_node ? cr(node.receiver_node) : "self"
-        idx = cr(node.index_arg_nodes[0])
-        val = cr(node.value_node)
-        "(#{r} = #{recv}; #{i} = #{idx}; #{r}[#{i}] = (#{r}[#{i}] #{node.operator} #{val}))"
+        write "(#{r} = "
+        recv_node ? emit(recv_node) : write("self")
+        write "; #{i} = "
+        emit(index_args[0])
+        write "; #{r}[#{i}] = (#{r}[#{i}] #{op} "
+        emit(val_node)
+        write "))"
       end
 
-      def cr_yield(node)
+      def emit_yield(node)
         args = node.arg_nodes
-        args.empty? ? "yield" : "yield #{args.map { |a| "(#{cr(a)})" }.join(', ')}"
+        if args.empty?
+          write "yield"
+        else
+          write "yield "
+          args.each_with_index do |arg, i|
+            write ", " if i > 0
+            write "("
+            emit(arg)
+            write ")"
+          end
+        end
       end
-
-      def emit_index_op_write(node) = write cr_index_op_write(node)
-      def emit_yield(node) = write cr_yield(node)
 
       # -----------------------------------------------------------------------
       # Boolean operators
@@ -793,38 +1003,52 @@ module Frozone
       # emit_and/emit_or return RubyObject (not Bool) so they work in value
       # contexts like `x = a && b` or `x ||= val`. emit_truthy adds .truthy?
       # when the result is used as a Crystal condition.
-      def cr_and(node)
-        tmp = "_and#{@temp_counter}"; @temp_counter += 1
-        "(#{tmp} = #{cr(node.left_node)}; #{tmp}.truthy? ? (#{cr(node.right_node)}) : #{tmp})"
+      def emit_and(node)
+        tmp = "_and#{@temp_counter}"
+        @temp_counter += 1
+        write "(#{tmp} = "
+        emit(node.left_node)
+        write "; #{tmp}.truthy? ? ("
+        emit(node.right_node)
+        write ") : #{tmp})"
       end
 
-      def cr_or(node)
-        tmp = "_or#{@temp_counter}"; @temp_counter += 1
-        "(#{tmp} = #{cr(node.left_node)}; #{tmp}.truthy? ? #{tmp} : (#{cr(node.right_node)}))"
+      def emit_or(node)
+        tmp = "_or#{@temp_counter}"
+        @temp_counter += 1
+        write "(#{tmp} = "
+        emit(node.left_node)
+        write "; #{tmp}.truthy? ? #{tmp} : ("
+        emit(node.right_node)
+        write "))"
       end
-
-      def emit_and(node) = write cr_and(node)
-      def emit_or(node) = write cr_or(node)
 
       # Wrap a value in a Crystal truthy check when used as a condition.
       # If the node is already a comparison/predicate that returns Bool, emit
       # it directly; otherwise wrap in .truthy?
-      def cr_truthy(node)
-        case node
-        when Ast::TrueLiteral then "true"
-        when Ast::FalseLiteral, Ast::NilLiteral then "false"
+      def emit_truthy(node)
+        # Ruby true/false literals: emit Crystal true/false for proper Crystal truthiness
+        if node.is_a?(Ast::TrueLiteral)
+          return write("true")
+        elsif node.is_a?(Ast::FalseLiteral)
+          return write("false")
+        elsif node.is_a?(Ast::NilLiteral)
+          return write("false")
+        elsif boolean_valued?(node)
+          emit(node)
+        elsif comparison_op_call?(node)
+          # Emit comparison directly as Crystal Bool — no RUBY_TRUE/RUBY_FALSE wrapper.
+          # This is correct because Crystal's comparison dispatch already returns Bool.
+          write "("
+          emit_operator_recv(node.receiver_node)
+          write " #{node.name} "
+          emit(node.arg_nodes[0])
+          write ")"
         else
-          if boolean_valued?(node)
-            cr(node)
-          elsif comparison_op_call?(node)
-            "(#{cr_operator_recv(node.receiver_node)} #{node.name} #{cr(node.arg_nodes[0])})"
-          else
-            "#{cr(node)}.truthy?"
-          end
+          emit(node)
+          write ".truthy?"
         end
       end
-
-      def emit_truthy(node) = write cr_truthy(node)
 
       # Methods that return Crystal Bool directly (not RubyObject).
       # Use the Crystal name (after RUBY_TO_CRYSTAL_METHOD mapping).
@@ -874,136 +1098,237 @@ module Frozone
       # Returns true if a `when` condition node is a type-check (ConstantRead or nil).
       def type_check_cond?(cond) = cond.is_a?(Ast::NilLiteral) || cond.is_a?(Ast::ConstantRead)
 
-      def cr_case_lines(node)
+      def emit_case(node)
         subject = node.subject_node
-        whens = node.whens
-        else_n = node.else_node
+        whens   = node.whens
+        else_n  = node.else_node
+
         no_subject = subject.nil? || subject.is_a?(Ast::NilLiteral)
-        is_local = !no_subject && subject.is_a?(Ast::LocalVariableRead)
-        all_type = !no_subject && whens.all? { |w| w.condition_nodes.all? { |c| type_check_cond?(c) } }
+
+        # When subject is a simple local variable AND all when conditions are type
+        # checks, use Crystal's native case/when so that Crystal narrows the
+        # variable type inside each branch (allows calling Array#size etc).
+        is_local   = !no_subject && subject.is_a?(Ast::LocalVariableRead)
+        all_type   = !no_subject && whens.all? { |w| w.condition_nodes.all? { |c| type_check_cond?(c) } }
 
         if is_local && all_type
-          cr_case_native_lines(crystal_local(subject.name), whens, else_n)
-        else
-          lines = no_subject ? [] : ["_case_subj = #{cr(subject)}"]
-          lines + cr_case_if_chain_lines(no_subject ? nil : "_case_subj", whens, else_n)
+          emit_case_native(crystal_local(subject.name), whens, else_n)
+          return
         end
+
+        # General case: capture subject in temp var (avoids double-evaluation)
+        # and emit an if/elsif chain with explicit matches.
+        subj_var = nil
+        unless no_subject
+          subj_var = "_case_subj"
+          write "_case_subj = "
+          emit(subject)
+          emit_newline
+          emit_indent
+        end
+
+        emit_case_if_chain(subj_var, whens, else_n)
       end
 
-      def cr_case_native_lines(subj_name, whens, else_n)
-        lines = ["case #{subj_name}"]
+      # Crystal native case/when — uses Crystal type narrowing.
+      # Only valid when subject is a known local variable name.
+      def emit_case_native(subj_name, whens, else_n)
+        write "case #{subj_name}"
+        emit_newline
         whens.each do |w|
-          types = w.condition_nodes.map { |c|
-            c.is_a?(Ast::NilLiteral) ? "RubyNil" : (RUBY_TO_CRYSTAL_TYPE[c.name] || "Ruby_#{crystal_constant(c.name)}")
-          }.join(", ")
-          lines.push("when #{types}", *indent(cr_lines(w.body_node)))
+          emit_indent
+          write "when "
+          w.condition_nodes.each_with_index do |cond, j|
+            write ", " if j > 0
+            if cond.is_a?(Ast::NilLiteral)
+              write "RubyNil"
+            elsif cond.is_a?(Ast::ConstantRead)
+              name = cond.name
+              write RUBY_TO_CRYSTAL_TYPE[name] || "Ruby_#{crystal_constant(name)}"
+            end
+          end
+          emit_newline
+          indented { emit(w.body_node) }
+          emit_newline
         end
-        lines.push("else", *indent(cr_lines(else_n))) if else_n
-        lines << "end"
+        if else_n
+          emit_indent; write "else"; emit_newline
+          indented { emit(else_n) }
+          emit_newline
+        end
+        emit_indent
+        write "end"
       end
 
-      def cr_case_if_chain_lines(subj_var, whens, else_n)
-        lines = []
+      # If/elsif chain — used when Crystal type narrowing is not possible.
+      def emit_case_if_chain(subj_var, whens, else_n)
         whens.each_with_index do |w, idx|
-          keyword = idx == 0 ? "if " : "elsif "
-          conds = w.condition_nodes.map { |c| subj_var ? cr_case_match(c, subj_var) : cr_truthy(c) }.join(" || ")
-          lines.push("#{keyword}#{conds}", *indent(cr_lines(w.body_node)))
+          write idx == 0 ? "if " : "elsif "
+          w.condition_nodes.each_with_index do |cond, j|
+            write " || " if j > 0
+            subj_var ? emit_case_match(cond, subj_var) : emit_truthy(cond)
+          end
+          emit_newline
+          indented { emit(w.body_node) }
+          emit_newline
+          emit_indent
         end
-        lines.push("else", *indent(cr_lines(else_n))) if else_n
-        lines << "end"
+        if else_n
+          write "else"; emit_newline
+          indented { emit(else_n) }
+          emit_newline
+          emit_indent
+        end
+        write "end"
       end
 
-      def cr_case_match(cond_node, subj_var)
+      # Emit a single `when` condition match against subj_var.
+      def emit_case_match(cond_node, subj_var)
         case cond_node
-        when Ast::NilLiteral then "#{subj_var}.ruby_nil?"
-        when Ast::TrueLiteral then "#{subj_var}.truthy? && !#{subj_var}.ruby_nil?"
-        when Ast::FalseLiteral then "!#{subj_var}.truthy?"
+        when Ast::NilLiteral
+          write "#{subj_var}.ruby_nil?"
+        when Ast::TrueLiteral
+          write "#{subj_var}.truthy? && !#{subj_var}.ruby_nil?"
+        when Ast::FalseLiteral
+          write "!#{subj_var}.truthy?"
         when Ast::ConstantRead
-          ct = RUBY_TO_CRYSTAL_TYPE[cond_node.name] || "Ruby_#{crystal_constant(cond_node.name)}"
-          "#{subj_var}.is_a?(#{ct})"
-        else "(#{cr(cond_node)}) == #{subj_var}"
+          type_name = cond_node.name
+          crystal_type = RUBY_TO_CRYSTAL_TYPE[type_name] || "Ruby_#{crystal_constant(type_name)}"
+          write "#{subj_var}.is_a?(#{crystal_type})"
+        else
+          # Value equality: emit (cond_val) == subj_var
+          write "("
+          emit(cond_node)
+          write ") == #{subj_var}"
         end
-      end
-
-      def emit_case(node)
-        cr_case_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
       end
 
       # -----------------------------------------------------------------------
       # Collections
       # -----------------------------------------------------------------------
 
-      def cr_array_literal(node)
-        elems = node.element_nodes.map { |el| cr(el) }.join(", ")
-        "RubyArray.new([#{elems}] of RubyObject)"
-      end
-
-      def cr_hash_literal(node)
-        pairs = node.kv_nodes
-        return "RubyHash.new" if pairs.empty?
-        stores = pairs.map { |k, v| "_h.store(#{cr(k)}, #{cr(v)})" }.join("; ")
-        "RubyHash.new.tap { |_h| #{stores} }"
-      end
-
-      def cr_range_literal(node)
-        b = node.begin_node ? cr(node.begin_node) : "RUBY_NIL"
-        e = node.end_node ? cr(node.end_node) : "RUBY_NIL"
-        "RubyRange.new(#{b}, #{e}, #{node.exclusive})"
-      end
-
-      def emit_array_literal(node) = write cr_array_literal(node)
-      def emit_hash_literal(node) = write cr_hash_literal(node)
-      def emit_range_literal(node) = write cr_range_literal(node)
-
-      def cr_multiple_assignment_lines(node)
-        targets = node.targets
-        tmp = "_ma#{@temp_counter}"; @temp_counter += 1
-        lines = ["#{tmp} = masgn_coerce(#{cr(node.value_node)})"]
-        splat_idx = targets.index { |t| t[0].to_s.end_with?('_splat') || t[0] == :splat_nil }
-        if splat_idx
-          pre = targets[0...splat_idx]
-          post = targets[(splat_idx + 1)..]
-          pre.each_with_index { |t, i| lines << cr_masgn_assign(t, "#{tmp}[#{i}_i64]") }
-          splat_t = targets[splat_idx]
-          unless splat_t[0] == :splat_nil
-            lines << cr_masgn_assign(splat_t, "RubyArray.new(#{tmp}.data[#{pre.length}...(#{tmp}.data.size - #{post.length})])")
-          end
-          post.each_with_index { |t, i| lines << cr_masgn_assign(t, "#{tmp}[(-#{post.length - i})_i64]") }
-        else
-          targets.each_with_index { |t, i| lines << cr_masgn_assign(t, "#{tmp}[#{i}_i64]") }
+      def emit_array_literal(node)
+        write "RubyArray.new(["
+        node.element_nodes.each_with_index do |el, i|
+          write ", " if i > 0
+          emit(el)
         end
-        lines.compact
+        write "] of RubyObject)"
+      end
+
+      def emit_hash_literal(node)
+        write "RubyHash.new"
+        pairs = node.kv_nodes
+        unless pairs.empty?
+          write ".tap { |_h| "
+          pairs.each do |k, v|
+            write "_h.store("
+            emit(k)
+            write ", "
+            emit(v)
+            write "); "
+          end
+          write "}"
+        end
+      end
+
+      def emit_range_literal(node)
+        b = node.begin_node
+        e = node.end_node
+        excl = node.exclusive
+        write "RubyRange.new("
+        b ? emit(b) : write("RUBY_NIL")
+        write ", "
+        e ? emit(e) : write("RUBY_NIL")
+        write ", #{excl})"
       end
 
       def emit_multiple_assignment(node)
-        cr_multiple_assignment_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
-      end
+        targets = node.targets
+        rhs     = node.value_node
 
-      def cr_masgn_assign(target, value_code)
-        case target[0]
-        when :local, :local_splat then "#{crystal_local(target[1])} = #{value_code}"
-        when :ivar, :ivar_splat then "#{target[1]} = #{value_code}"
-        when :const, :const_splat then "Ruby_#{crystal_constant(target[1])} = #{value_code}"
-        when :index, :index_splat
-          "#{cr(target[1])}[#{target[2].map { |idx| cr(idx) }.join(', ')}] = #{value_code}"
-        when :call, :call_splat
-          "#{cr(target[1])}.#{crystal_method_name(target[2])} = #{value_code}"
-        when :splat_nil then nil
-        else "# UNSUPPORTED masgn target: #{target[0]}"
+        tmp = "_ma#{@temp_counter}"
+        @temp_counter += 1
+
+        write "#{tmp} = masgn_coerce("
+        emit(rhs)
+        write ")"
+
+        splat_idx = targets.index { |t| t[0].to_s.end_with?('_splat') || t[0] == :splat_nil }
+
+        if splat_idx
+          pre  = targets[0...splat_idx]
+          post = targets[(splat_idx + 1)..]
+
+          pre.each_with_index do |t, i|
+            emit_newline; emit_indent
+            emit_masgn_assign(t, "#{tmp}[#{i}_i64]")
+          end
+
+          splat_t = targets[splat_idx]
+          unless splat_t[0] == :splat_nil
+            emit_newline; emit_indent
+            pc = post.length
+            splat_code = "RubyArray.new(#{tmp}.data[#{pre.length}...(#{tmp}.data.size - #{pc})])"
+            emit_masgn_assign(splat_t, splat_code)
+          end
+
+          post.each_with_index do |t, i|
+            emit_newline; emit_indent
+            neg = post.length - i
+            emit_masgn_assign(t, "#{tmp}[(-#{neg})_i64]")
+          end
+        else
+          targets.each_with_index do |t, i|
+            emit_newline; emit_indent
+            emit_masgn_assign(t, "#{tmp}[#{i}_i64]")
+          end
         end
       end
 
-      def cr_interpolated_string(node)
-        parts = node.parts.map { |part|
-          case part
-          when Ast::StringLiteral then "_s << #{crystal_string_literal(part.value.raw)}"
-          else "_s << (#{cr(part)}).to_s"
+      def emit_masgn_assign(target, value_code)
+        case target[0]
+        when :local, :local_splat
+          write "#{crystal_local(target[1])} = #{value_code}"
+        when :ivar, :ivar_splat
+          write "#{target[1]} = #{value_code}"
+        when :const, :const_splat
+          write "Ruby_#{crystal_constant(target[1])} = #{value_code}"
+        when :index, :index_splat
+          # a[i] = val — target[1] is receiver node, target[2] is array of index arg nodes
+          emit(target[1])
+          write "["
+          target[2].each_with_index do |idx, i|
+            write ", " if i > 0
+            emit(idx)
           end
-        }
-        "RubyString.new(String.build { |_s| #{parts.join('; ')} })"
+          write "] = #{value_code}"
+        when :call, :call_splat
+          # obj.method = val — target[1] is receiver node, target[2] is method name
+          emit(target[1])
+          write ".#{crystal_method_name(target[2])} = #{value_code}"
+        when :splat_nil
+          # discard — already skipped in caller, but guard here too
+        else
+          write "# UNSUPPORTED masgn target: #{target[0]}"
+        end
       end
 
-      def emit_interpolated_string(node) = write cr_interpolated_string(node)
+      def emit_interpolated_string(node)
+        write "RubyString.new(String.build { |_s| "
+        node.parts.each do |part|
+          case part
+          when Ast::StringLiteral
+            raw = part.value.raw
+            write "_s << #{crystal_string_literal(raw)}; "
+          else
+            write "_s << ("
+            emit(part)
+            write ").to_s; "
+          end
+        end
+        write "})"
+      end
 
       # -----------------------------------------------------------------------
       # Method definition
@@ -1012,27 +1337,42 @@ module Frozone
       # Methods that must return Crystal String (override RubyObject abstract defs)
       STRING_RETURN_METHODS = %i[to_s inspect].to_set
 
-      def cr_method_def_lines(node)
+      def emit_method_def(node)
         recv = node.receiver_node
         name = node.name
         string_return = STRING_RETURN_METHODS.include?(name)
+        # Method definition: don't translate to_s → ruby_to_s; emit as-is (Crystal protocol)
         crystal_name = string_return ? name.to_s : crystal_method_name(name)
-        sig = recv ? "def #{cr(recv)}.#{crystal_name}" : "def #{crystal_name}"
-        sig += " : String" if string_return
-        sig += cr_param_list(node)
-        body = if string_return
-          ["(begin", *indent(cr_lines(node.body)), "end).to_s"]
+
+        if recv
+          write "def "
+          emit(recv)
+          write ".#{crystal_name}"
         else
-          cr_lines(node.body)
+          write "def #{crystal_name}"
         end
-        [sig, *indent(body), "end"]
+        write " : String" if string_return
+        emit_param_list(node)
+        emit_newline
+        if string_return
+          # Body may return RubyString; wrap in .to_s to produce Crystal String
+          indented do
+            write "(begin"
+            emit_newline
+            indented { emit(node.body) }
+            emit_newline
+            emit_indent
+            write "end).to_s"
+          end
+        else
+          indented { emit(node.body) }
+        end
+        emit_newline
+        emit_indent
+        write "end"
       end
 
-      def emit_method_def(node)
-        cr_method_def_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
-      end
-
-      def cr_param_list(node)
+      def emit_param_list(node)
         parts = []
         node.required_params.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
         node.optional_params.each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
@@ -1042,69 +1382,80 @@ module Frozone
         req_kw = node.required_kw_params || []
         opt_kw = node.optional_kw_params || []
         kr = node.kw_rest_param
-        parts << "*" if (!req_kw.empty? || !opt_kw.empty?) && !rp
+        if (!req_kw.empty? || !opt_kw.empty?) && !rp
+          parts << "*"  # Crystal keyword-only separator
+        end
         req_kw.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
         opt_kw.each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
         parts << "**#{crystal_local(kr)}" if kr
         bp = node.block_param
         parts << "&#{crystal_local(bp)}" if bp
-        parts.empty? ? "" : "(#{parts.join(', ')})"
+        write "(#{parts.join(', ')})" unless parts.empty?
       end
-
-      def emit_param_list(node) = write cr_param_list(node)
 
       # -----------------------------------------------------------------------
       # Class / module definitions
       # -----------------------------------------------------------------------
 
-      def cr_class_def_lines(node)
-        name = crystal_constant(node.name)
-        is_exc = @exception_classes.include?(node.name)
-        sc = node.superclass_node
-        parent = if is_exc
-          (sc && !EXCEPTION_BASE_NAMES.include?(sc.name.to_s)) ? "Ruby_#{crystal_constant(sc.name)}" : "RubyException"
-        elsif sc then "Ruby_#{crystal_constant(sc.name)}"
-        else "RubyObject"
+      def emit_class_def(node)
+        name     = crystal_constant(node.name)
+        sym_name = node.name
+        is_exc   = @exception_classes.include?(sym_name)
+        sc       = node.superclass_node
+
+        write "class Ruby_#{name}"
+        if is_exc
+          # Exception classes inherit from RubyException (< Exception) or a Ruby_ exc superclass
+          if sc && !EXCEPTION_BASE_NAMES.include?(sc.name.to_s)
+            write " < Ruby_#{crystal_constant(sc.name)}"
+          else
+            write " < RubyException"
+          end
+        elsif sc
+          write " < Ruby_#{crystal_constant(sc.name)}"
+        else
+          write " < RubyObject"
         end
-        header = "class Ruby_#{name} < #{parent}"
+        emit_newline
 
         prev_exc = @in_exception_class
         @in_exception_class = is_exc
-        preamble = cr_class_preamble(name, node, is_exc, sc)
-        body = node.body
-        body_lines = body.is_a?(Ast::NilLiteral) ? [] : cr_lines(body)
-        @in_exception_class = prev_exc
 
-        [header, *indent(preamble + body_lines), "end"]
-      end
-
-      def cr_class_preamble(name, node, is_exc, sc)
-        lines = []
-        ivars = collect_ivars(node.body)
-        if is_exc
-          ivars.each { |iv| lines << "#{iv} : RubyObject = RUBY_NIL" }
-          lines << "" unless ivars.empty?
-          lines << "def initialize(msg : String = \"#{name}\"); super(msg); end" unless has_initialize?(node.body)
-        else
-          cvars = collect_cvars(node.body)
-          ivars.each { |iv| lines << "#{iv} : RubyObject = RUBY_NIL" }
-          cvars.each { |cv| lines << "#{cv} : RubyObject = RUBY_NIL" }
-          lines << "" unless ivars.empty? && cvars.empty?
-          sc_name = sc.is_a?(Ast::ConstantRead) ? sc.name.to_s : nil
-          unless sc_name && !BUILTIN_SUPERCLASSES.include?(sc_name)
-            lines.push(
-              "def to_s : String; \"#<#{name}>\"; end",
-              "def inspect : String; \"#<#{name}>\"; end",
-              "def ==(other : RubyObject) : Bool; same?(other); end",
-              ""
-            )
+        indented do
+          if is_exc
+            # Exception classes: ivar declarations + default message initializer
+            ivars = collect_ivars(node.body)
+            ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
+            emit_newline unless ivars.empty?
+            # Default no-arg initializer passes class name as message if not overridden
+            line "def initialize(msg : String = \"#{name}\"); super(msg); end" unless has_initialize?(node.body)
+          else
+            # Regular classes: ivars + class vars + default to_s/inspect/==
+            # Only emit default stubs if this class doesn't inherit from another user class
+            # (inheriting from a user class would override inherited to_s/inspect/==).
+            sc_name = sc.is_a?(Ast::ConstantRead) ? sc.name.to_s : nil
+            user_superclass = sc_name && !BUILTIN_SUPERCLASSES.include?(sc_name)
+            ivars = collect_ivars(node.body)
+            ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
+            cvars = collect_cvars(node.body)
+            cvars.each { |cv| line "#{cv} : RubyObject = RUBY_NIL" }
+            emit_newline unless ivars.empty? && cvars.empty?
+            unless user_superclass
+              line "def to_s : String; \"#<#{name}>\"; end"
+              line "def inspect : String; \"#<#{name}>\"; end"
+              line "def ==(other : RubyObject) : Bool; same?(other); end"
+              emit_newline
+            end
           end
+          body = node.body
+          emit_indent
+          emit(body) unless body.is_a?(Ast::NilLiteral)
         end
-        lines
-      end
 
-      def emit_class_def(node)
-        cr_class_def_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
+        @in_exception_class = prev_exc
+        emit_newline
+        emit_indent
+        write "end"
       end
 
       # Returns true if the class body contains an explicit `initialize` method.
@@ -1119,33 +1470,24 @@ module Frozone
         end
       end
 
-      def cr_module_def_lines(node)
-        body = node.body
-        body_lines = body.is_a?(Ast::NilLiteral) ? [] : cr_lines(body)
-        ["module Ruby_#{crystal_constant(node.name)}", *indent(body_lines), "end"]
-      end
-
       def emit_module_def(node)
-        cr_module_def_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
+        write "module Ruby_#{crystal_constant(node.name)}"
+        emit_newline
+        body = node.body
+        indented { emit(body) unless body.is_a?(Ast::NilLiteral) }
+        emit_newline
+        emit_indent
+        write "end"
       end
 
       # -----------------------------------------------------------------------
       # Output helpers
       # -----------------------------------------------------------------------
 
-      def write(*strs) = strs.each { |s| @out << s }
-      def line(str) = @out << ("  " * @indent) << str << "\n"
-      def emit_indent = @out << ("  " * @indent)
-      def emit_newline = @out << "\n"
-
-      def capture
-        saved = @out
-        @out = +""
-        yield
-        @out
-      ensure
-        @out = saved
-      end
+      def write(*strs)   = strs.each { |s| @out << s }
+      def line(str)      = @out << ("  " * @indent) << str << "\n"
+      def emit_indent    = @out << ("  " * @indent)
+      def emit_newline   = @out << "\n"
 
       def indented
         @indent += 1

@@ -74,7 +74,8 @@ module Frozone
 
       def unpack_local(slot, ty)
         mkey, name = slot[1], slot[2]
-        (@local_types[mkey] ||= {})[name] = ty unless ty.bottom?
+        ct = CrystalType.from_type(ty, user_class_names: @user_class_names)
+        (@local_types[mkey] ||= {})[name] = ct if ct != :ruby_object
         if ty.class_type? && opt?(:devirtualize)
           cls = ty.class_name
           skip_builtin = %i[Object BasicObject Numeric Array Hash].include?(cls)
@@ -83,42 +84,42 @@ module Frozone
           end
         end
         if ty.array? && opt?(:native_arrays) && ty.elem&.raw?
-          (@local_array_elems[mkey] ||= {})[name] = ty.elem
+          (@local_array_elems[mkey] ||= {})[name] = ty.elem.to_legacy
         end
         if opt?(:unbox_locals) && ty.raw?
-          (@locals[mkey] ||= {})[name] = ty
+          (@locals[mkey] ||= {})[name] = ty.to_legacy
         end
       end
 
       def unpack_block_param(slot, ty)
         return unless opt?(:native_iteration) && ty.raw?
-        (@block_params[slot[1]] ||= {})[slot[2]] = ty
+        (@block_params[slot[1]] ||= {})[slot[2]] = ty.to_legacy
       end
 
       def unpack_array_elem(slot, ty)
         return unless opt?(:native_arrays) && ty.raw?
-        (@arrays[slot[1]] ||= {})[slot[2]] = ty
+        (@arrays[slot[1]] ||= {})[slot[2]] = ty.to_legacy
       end
 
       def unpack_const(slot, ty)
         return unless opt?(:unbox_locals)
         if ty.raw?
-          @const_raw_types[slot[1]] = ty
+          @const_raw_types[slot[1]] = ty.to_legacy
           return
         end
         if ty.array? && ty.elem&.raw?
-          @const_raw_types[slot[1]] = ty.elem.f64? ? Type::ARRAY_F64 : Type::ARRAY_I64
+          @const_raw_types[slot[1]] = ty.elem.f64? ? :array_f64 : :array_i64
         end
       end
 
       def unpack_ivar(slot, ty)
         return unless opt?(:typed_ivars)
         if ty.raw?
-          (@typed_ivars[slot[1]] ||= {})[slot[2]] = ty
+          (@typed_ivars[slot[1]] ||= {})[slot[2]] = ty.to_legacy
           return
         end
         if ty.array? && ty.elem&.raw?
-          (@typed_ivars[slot[1]] ||= {})[slot[2]] = ty.elem.f64? ? Type::ARRAY_F64 : Type::ARRAY_I64
+          (@typed_ivars[slot[1]] ||= {})[slot[2]] = ty.elem.f64? ? :array_f64 : :array_i64
         end
       end
 
@@ -126,16 +127,18 @@ module Frozone
         return unless opt?(:method_specialization) || opt?(:raw_returns) || opt?(:accessor_inline)
         return unless ty.raw?
         mkey = slot[1]
+        raw = ty.to_legacy
         if mkey.is_a?(Symbol)
           params = @typed_params[mkey]
-          return if params && params.any? { |t| !t&.raw? }
-          @typed_method_returns[mkey] = ty
+          return if params && params.any? { |t| !raw_type(t) }
+          @typed_method_returns[mkey] = raw
         elsif mkey.is_a?(Array) && mkey.size == 2
           cname, fname = mkey
           if @user_class_names.include?(cname)
             params = @class_params[mkey]
-            skip = params && params.any? { |t| !t.native? } && params.any? { |t| t.native? }
-            @instance_method_raw_returns[[cname, fname]] = ty unless skip
+            unless params && params.any? { |t| !raw_type(t) } && params.any? { |t| raw_type(t) }
+              @instance_method_raw_returns[[cname, fname]] = raw
+            end
           end
         end
       end
@@ -145,10 +148,17 @@ module Frozone
         @user_methods.each do |mname, method|
           req = method.required_params || []
           next if req.empty?
-          param_types = req.each_with_index.map { |_, i| @env.type_of([:param, mname, i]) }
-          next unless param_types.any? { |t| !t.bottom? }
-          @inferred_params[mname] = param_types
-          @typed_params[mname] = param_types if param_types.all?(&:raw?) && @typed_method_returns[mname]
+          crystal_types = req.each_with_index.map { |_, i|
+            ty = @env.type_of([:param, mname, i])
+            ty.bottom? ? :ruby_object : CrystalType.from_type(ty, user_class_names: @user_class_names)
+          }
+          next unless crystal_types.any? { |t| t != :ruby_object }
+          @inferred_params[mname] = crystal_types
+          raw_types = req.each_with_index.map { |_, i|
+            ty = @env.type_of([:param, mname, i])
+            ty.raw? ? ty.to_legacy : nil
+          }
+          @typed_params[mname] = raw_types if raw_types.all? && @typed_method_returns[mname]
         end
       end
 
@@ -162,8 +172,11 @@ module Frozone
             next if @inferred_params.key?(mname)
             req = method.required_params || []
             next if req.empty?
-            param_types = req.each_with_index.map { |_, i| @env.type_of([:param, mname, i]) }
-            @inferred_params[mname] = param_types if param_types.any? { |t| !t.bottom? }
+            crystal_types = req.each_with_index.map { |_, i|
+              ty = @env.type_of([:param, mname, i])
+              ty.bottom? ? :ruby_object : CrystalType.from_type(ty, user_class_names: @user_class_names)
+            }
+            @inferred_params[mname] = crystal_types if crystal_types.any? { |t| t != :ruby_object }
           end
         end
       end
@@ -182,10 +195,17 @@ module Frozone
           req = method.required_params || []
           next if req.empty?
           mkey = [cname, mname]
-          param_types = req.each_with_index.map { |_, i| @env.type_of([:param, mkey, i]) }
-          @class_params[mkey] = param_types if param_types.any? { |t| !t.bottom? }
+          crystal_types = req.each_with_index.map { |_, i|
+            ty = @env.type_of([:param, mkey, i])
+            ty.bottom? ? :ruby_object : CrystalType.from_type(ty, user_class_names: @user_class_names)
+          }
+          @class_params[mkey] = crystal_types if crystal_types.any? { |t| t != :ruby_object }
         end
       end
+
+      # --- Type conversion helpers (legacy — used by unpack_return) ---
+
+      def raw_type(ty) = (ty == :i64 || ty == :f64) ? ty : nil
     end
   end
 end

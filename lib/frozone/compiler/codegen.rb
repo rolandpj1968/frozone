@@ -1,4 +1,5 @@
 require_relative 'crystal_emitter'
+require_relative 'crystal_type'
 require_relative 'crystal_type_mapper'
 require_relative 'type_inference'
 require_relative 'method_context'
@@ -320,10 +321,10 @@ module Frozone
 
       def ivar_type_annotation(iv_sym)
         case @cctx.ivars[iv_sym]
-        when Type::F64 then ["Float64", "0.0_f64"]
-        when Type::I64 then ["Int64", "0_i64"]
-        when Type::ARRAY_F64 then ["Array(Float64)", "Array(Float64).new"]
-        when Type::ARRAY_I64 then ["Array(Int64)", "Array(Int64).new"]
+        when :f64 then ["Float64", "0.0_f64"]
+        when :i64 then ["Int64", "0_i64"]
+        when :array_f64 then ["Array(Float64)", "Array(Float64).new"]
+        when :array_i64 then ["Array(Int64)", "Array(Int64).new"]
         else
           ct = @cctx.typed_ivars[iv_sym]
           return ["RubyObject", "RUBY_NIL"] unless ct
@@ -364,7 +365,7 @@ module Frozone
 
       def emit_instance_method_overloads(class_name, mname, method)
         inst_param_types = @gctx.class_params[[class_name, mname]]
-        has_typed = inst_param_types&.any? { |t| t && !t.bottom? }
+        has_typed = inst_param_types&.any? { |t| t && t != :ruby_object }
         if has_typed
           emit_vm_method(mname, method, param_types: inst_param_types)
           emit_newline; emit_newline; emit_indent
@@ -388,7 +389,7 @@ module Frozone
 
       def emit_class_method_overloads(class_name, mname, method)
         class_param_types = @gctx.class_params[[class_name, mname]] || @gctx.inferred_params[mname]
-        raw_types = class_param_types&.map { |t| t.raw? ? t : nil }
+        raw_types = class_param_types&.map { |t| CrystalType.raw(t) }
         if opt?(:method_specialization) && raw_types&.any?
           class_return = @gctx.instance_method_raw_returns[[class_name, mname]]
           emit_indent
@@ -550,7 +551,7 @@ module Frozone
 
           # Always emit the generic overload — the execute block and other
           # untyped callers need it even when typed overloads exist.
-          all_native = inferred&.all? { |t| t && t.native? }
+          all_native = inferred&.all? { |t| t && CrystalType.native?(t) }
           if all_native && !has_complex_params && !(@gctx.typed_params[name] && @gctx.typed_method_returns[name])
             emit_indent
             emit_vm_method(name, method, param_types: inferred)
@@ -559,14 +560,14 @@ module Frozone
           end
           emit_indent
           generic_params = if has_complex_params
-            inferred.map { |t| t.native? ? Type::BOTTOM : t }
+            inferred.map { |t| CrystalType.native?(t) ? :ruby_object : t }
           elsif @gctx.typed_params[name]
             nil  # fully-typed → generic uses all RubyObject
           elsif all_native
             nil  # all-native typed overload handles raw; generic uses all RubyObject
           else
             # Drop raw scalar types to RubyObject, keep class types for devirtualization
-            inferred&.map { |t| t.raw? ? Type::BOTTOM : t }
+            inferred&.map { |t| CrystalType.raw(t) ? :ruby_object : t }
           end
           emit_vm_method(name, method, param_types: generic_params)
           emit_newline
@@ -582,7 +583,7 @@ module Frozone
         # Filter out methods where all params are native — no generic needed
         generic_methods = user_methods_on_object.reject do |name, _|
           inferred = @gctx.inferred_params[name]
-          inferred&.all? { |t| t && t.native? }
+          inferred&.all? { |t| t && CrystalType.native?(t) }
         end
         return if generic_methods.empty?
         line "# User methods on Object — also available as instance methods"
@@ -605,140 +606,146 @@ module Frozone
       def emit_vm_method(name, method, param_types: nil, class_method: false)
         old_mctx = @mctx
         @mctx = MethodContext.new
-        mkey = @cctx.name ? [@cctx.name, name] : name
-        setup_method_context(name, method, mkey, param_types, class_method)
-
-        string_return = STRING_RETURN_METHODS.include?(name)
-        bool_return = %i[== != < <= > >= equal?].include?(name) && !class_method
-        raw_return = compute_raw_return(name, param_types, class_method)
-        crystal_name = string_return ? name.to_s : crystal_method_name(name)
-
-        write class_method ? "def self.#{crystal_name}" : "def #{crystal_name}"
-        emit_param_list(method, param_types: param_types)
-        write " : String" if string_return
-        write " : Bool" if bool_return && !string_return
-        write " : #{raw_return.to_crystal}" if raw_return && !bool_return
-        emit_newline
-        emit_vm_method_body(method.body, name, bool_return: bool_return,
-                            string_return: string_return, raw_return: raw_return)
-        emit_newline; emit_indent; write "end"
-      ensure
-        @mctx = old_mctx
-      end
-
-      # -- emit_vm_method helpers -----------------------------------------------
-
-      def has_specialized_overload?(name, class_method)
-        class_method && @cctx.eigen_methods&.any? &&
-          (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| !t.bottom? }
-      end
-
-      def setup_method_context(name, method, mkey, param_types, class_method)
-        param_set = all_param_names(method).to_set
+        param_names = (method.required_params || []) +
+                      (method.optional_params || []).map(&:first) +
+                      [method.rest_param].compact +
+                      (method.post_params || [])
+        param_set = param_names.to_set
         @mctx.param_set = param_set
-        generic_suppressed = has_specialized_overload?(name, class_method) && param_types.nil?
-        @mctx.suppress_typed_call_args = generic_suppressed
-        seed_ti_locals(mkey, param_set, generic_suppressed, param_types)
-        @mctx.method_body = method.body
-        @mctx.block_param_name = method.block_param
-        @mctx.native_array_locals = {}
-        seed_native_arrays(method.body, param_set)
-        seed_param_types(method, param_types)
-        seed_nested_array_locals(method.body, param_set)
-        seed_literal_types(name, method.body, param_set, param_types, class_method)
-      end
-
-      def all_param_names(method)
-        (method.required_params || []) +
-          (method.optional_params || []).map(&:first) +
-          [method.rest_param].compact +
-          (method.post_params || [])
-      end
-
-      def seed_ti_locals(mkey, param_set, generic_suppressed, param_types)
-        @mctx.typed_locals = (!generic_suppressed && opt?(:unbox_locals)) ? ((@gctx.locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
+        mkey = @cctx.name ? [@cctx.name, name] : name
+        # For generic class method overloads with a specialized version,
+        # disable ALL type optimizations (the specialized handles raw paths).
+        generic_with_specialized = class_method && param_types.nil? &&
+          @cctx.eigen_methods&.any? &&
+          (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| t != :ruby_object }
+        # Use TypeInference results for local types (omit params — they have declared types)
+        @mctx.suppress_typed_call_args = generic_with_specialized
+        @mctx.typed_locals = (!generic_with_specialized && opt?(:unbox_locals)) ? ((@gctx.locals[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @mctx.typed_array_locals = opt?(:native_arrays) ? ((@gctx.arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @mctx.class_locals = opt?(:devirtualize) ? ((@gctx.class_locals[mkey] || {}).reject { |k, _| !param_types && param_set.include?(k) }) : {}
         @mctx.local_array_elems = opt?(:native_arrays) ? ((@gctx.local_array_elems[mkey] || {}).reject { |k, _| param_set.include?(k) }) : {}
         @mctx.block_params = (@gctx.block_params[mkey] || {}).reject { |k, _| param_set.include?(k) }
         @mctx.local_types = (@gctx.local_types[mkey] || {}).reject { |k, _| param_set.include?(k) }
-      end
-
-      def seed_native_arrays(body, param_set)
-        return unless opt?(:native_arrays)
-        detect_nested_array_locals(body, param_set).each do |lname, inner_elem|
-          @mctx.native_array_locals[lname] = inner_elem.is_a?(Type) ? (inner_elem.i64? ? Type::ARRAY_I64 : Type::ARRAY_F64) : [:array, inner_elem]
-        end
-      end
-
-      def seed_param_types(method, param_types)
-        return unless param_types
-        (method.required_params || []).each_with_index do |p, i|
-          pt = param_types[i] or next
-          if pt.raw? then @mctx.typed_locals[p] = pt
-          elsif pt.array? || pt.array_scalar? then @mctx.native_array_locals[p] = pt.elem if pt.elem&.native?
-          elsif pt.class_type? && !pt.bottom? then @mctx.class_locals[p] = pt.class_name
+        @mctx.method_body = method.body
+        @mctx.block_param_name = method.block_param
+        @mctx.native_array_locals = {}
+        # Detect nested Array.new(n) { Array.new(m, fill) } construction patterns
+        if opt?(:native_arrays)
+          detect_nested_array_locals(method.body, param_set).each do |lname, inner_elem|
+            @mctx.native_array_locals[lname] = [:array, inner_elem]
           end
         end
-      end
-
-      def seed_nested_array_locals(body, param_set)
-        return unless opt?(:native_arrays)
-        @mctx.local_types.each do |lname, ty|
-          next if @mctx.native_array_locals.key?(lname) || param_set.include?(lname)
-          next unless (ty.array? || ty.array_scalar?) && (ty.elem&.array? || ty.elem&.array_scalar?)
-          @mctx.native_array_locals[lname] = ty.elem
-        end
-        return unless @mctx.local_array_elems.any?
-        assignments = Hash.new { |h, k| h[k] = [] }
-        collect_local_assignments(body, assignments)
-        @mctx.local_array_elems.each do |lname, elem_ty|
-          next if @mctx.native_array_locals.key?(lname)
-          (assignments[lname] || []).each do |rhs|
-            next unless rhs.is_a?(Ast::MethodCall) && rhs.name == :[] &&
-                        rhs.receiver_node.is_a?(Ast::LocalVariableRead)
-            if @mctx.native_array_locals[rhs.receiver_node.name]&.array_scalar?
-              @mctx.native_array_locals[lname] = elem_ty
-              break
+        # Include raw-typed params in @mctx.typed_locals so node_raw_type works for them
+        # and they are correctly boxed/unboxed in mixed expressions.
+        if param_types
+          req = method.required_params || []
+          req.each_with_index do |p, i|
+            pt = param_types[i]
+            if CrystalType.scalar?(pt)
+              @mctx.typed_locals[p] = pt
+            elsif CrystalType.array?(pt)
+              inner = CrystalType.elem(pt)
+              @mctx.native_array_locals[p] = inner if CrystalType.native?(inner)
+            elsif pt.is_a?(Array) && pt[0] == :ruby_class
+              @mctx.class_locals[p] = pt[1]
             end
           end
         end
-      end
-
-      def seed_literal_types(name, body, param_set, param_types, class_method)
-        return if has_specialized_overload?(name, class_method) && param_types.nil?
-        infer_local_types(body).each do |lname, ty|
-          @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
+        # Pre-register nested arrays from TI: if local_types says Array(Array(T)),
+        # register so downstream construction and read/write emit native code.
+        if opt?(:native_arrays)
+          @mctx.local_types.each do |lname, ty|
+            next if @mctx.native_array_locals.key?(lname) || param_set.include?(lname)
+            next unless CrystalType.array?(ty) && CrystalType.array?(CrystalType.elem(ty))
+            @mctx.native_array_locals[lname] = CrystalType.elem(ty)
+          end
         end
-      end
+        # Pre-register locals assigned from nested_array[i] reads.
+        # Must run after param seeding so params with Array(Array(T)) types are visible.
+        if opt?(:native_arrays) && @mctx.local_array_elems.any?
+          assignments = Hash.new { |h, k| h[k] = [] }
+          collect_local_assignments(method.body, assignments)
+          @mctx.local_array_elems.each do |lname, elem_ty|
+            next if @mctx.native_array_locals.key?(lname)
+            (assignments[lname] || []).each do |rhs|
+              next unless rhs.is_a?(Ast::MethodCall) && rhs.name == :[]
+              recv = rhs.receiver_node
+              next unless recv.is_a?(Ast::LocalVariableRead)
+              recv_elem = @mctx.native_array_locals[recv.name]
+              if recv_elem && CrystalType.array?(recv_elem)
+                @mctx.native_array_locals[lname] = elem_ty
+                break
+              end
+            end
+          end
+        end
+        # Infer types from literal assignments for locals TI didn't cover.
+        # Skip for generic class method overloads when a specialized version exists
+        # (typed locals in the generic cause Float64/Int64 mismatches with RubyObject ops).
+        has_specialized = class_method && @cctx.eigen_methods&.any? &&
+          (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| t != :ruby_object }
+        unless has_specialized && param_types.nil?
+          infer_local_types(method.body).each do |lname, ty|
+            @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
+          end
+        end
+        string_return = STRING_RETURN_METHODS.include?(name)
+        bool_return = %i[== != < <= > >= equal?].include?(name) && !class_method
+        crystal_name = string_return ? name.to_s : crystal_method_name(name)
 
-      def compute_raw_return(name, param_types, class_method)
-        return if has_specialized_overload?(name, class_method)
-        return unless param_types&.any?(&:raw?) && opt?(:raw_returns) && !@gctx.typed_params[name]
-        @gctx.typed_method_returns[name] ||
-          (@cctx.name && @gctx.instance_method_raw_returns[[@cctx.name, name]])
-      end
+        # If method has a typed return but no fully-typed-params overload,
+        # emit with raw body and return type annotation.
+        # Skip for generic class method overloads when a specialized overload exists
+        # (the specialized handles the raw return).
+        has_specialized = class_method && @cctx.eigen_methods&.any? &&
+          (@gctx.inferred_params[name] || @gctx.class_params[[@cctx.name, name]])&.any? { |t| t != :ruby_object }
+        # Only emit raw body when params are typed — generic overloads with
+        # all-RubyObject params must use normal emit for correct boxing.
+        has_any_raw_param = param_types&.any? { |t| CrystalType.raw(t) }
+        raw_return = has_any_raw_param && !has_specialized && opt?(:raw_returns) && !@gctx.typed_params[name] &&
+          (@gctx.typed_method_returns[name] ||
+           (@cctx.name && @gctx.instance_method_raw_returns[[@cctx.name, name]]))
+        cr_return_types = { i64: 'Int64', f64: 'Float64' }
 
-      def emit_vm_method_body(body, name, bool_return:, string_return:, raw_return:)
+        write class_method ? "def self.#{crystal_name}" : "def #{crystal_name}"
+        emit_param_list(method, param_types: param_types)
+        write " : String" if string_return
+        write " : Bool" if bool_return && !string_return
+        write " : #{cr_return_types[raw_return]}" if raw_return && !bool_return
+        emit_newline
+
         if bool_return
           indented do
-            write "((begin"; emit_newline
-            indented { emit_indent; emit(body) }
-            emit_newline; emit_indent; write "end) || RUBY_NIL).truthy?"
+            write "((begin"
+            emit_newline
+            indented { emit(method.body) }
+            emit_newline
+            emit_indent
+            write "end) || RUBY_NIL).truthy?"
           end
         elsif string_return
           indented do
-            write "(begin"; emit_newline
-            indented { emit_indent; emit(body) }
-            emit_newline; emit_indent; write "end).to_s"
+            write "(begin"
+            emit_newline
+            indented { emit(method.body) }
+            emit_newline
+            emit_indent
+            write "end).to_s"
           end
         elsif raw_return
-          indented { emit_indent; emit_raw_expr(body) }
+          indented { emit_raw_expr(method.body) }
         else
+          # Emit Crystal tuple return when method is called in masgn context
           @mctx.emit_crystal_tuple = @cc.masgn_return_methods&.include?(name)
-          indented { emit_indent; emit(body) }
+          indented { emit(method.body) }
           @mctx.emit_crystal_tuple = false
         end
+
+        emit_newline
+        emit_indent
+        write "end"
+      ensure
+        @mctx = old_mctx
       end
 
       # -----------------------------------------------------------------------
@@ -792,7 +799,7 @@ module Frozone
         when Vm::SymbolObject then "RubySymbol.new(#{value.raw.inspect})"
         when Vm::ArrayObject
           # Native Array(Int64) for constants confirmed by TI as all-integer
-          if const_name && @gctx.const_raw_types[const_name] == Type::ARRAY_I64
+          if const_name && @gctx.const_raw_types[const_name] == :array_i64
             return "Bytes[#{value.raw.map { |e| e.raw.to_s }.join(', ')}].to_a.map(&.to_i64)"
           end
           # Large byte arrays: emit compact Bytes literal + map
@@ -827,8 +834,7 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def param_name?(name) = @mctx.param_set&.include?(name)
-      def complex_native_type?(t) = (t.array? || t.array_scalar?) && (t.elem.array? || t.elem.array_scalar?)
-
+      def complex_native_type?(t) = CrystalType.array?(t) && CrystalType.array?(CrystalType.elem(t))
       def returns_array_literal?(body) = last_body_expression(body).is_a?(Ast::ArrayLiteral)
 
       def run_type_inference(execute_block, top_level_scope)
@@ -859,10 +865,11 @@ module Frozone
         @gctx.load_from_mapper!(mapper)
 
         # Extract kwarg types from TI env
-        env.each_typed do |slot, ty|
-          next unless slot.is_a?(Array) && slot[0] == :kwparam
+        env.slots.each do |slot, ty|
+          next unless slot.is_a?(Array) && slot[0] == :kwparam && ty != :unknown
           mkey, kw_name = slot[1], slot[2]
-          (@gctx.inferred_kw_params[mkey] ||= {})[kw_name] = ty unless ty.bottom?
+          ct = CrystalType.from_ti(ty, user_class_names: @gctx.user_class_names)
+          (@gctx.inferred_kw_params[mkey] ||= {})[kw_name] = ct if ct != :ruby_object
         end
       end
 
@@ -959,7 +966,7 @@ module Frozone
         when Ast::MethodCall
           rt = node_raw_type(node.receiver_node)
           at = node_raw_type(node.arg_nodes[0])
-          ty = (rt&.f64? || at&.f64?) ? Type::F64 : Type::I64
+          ty = (rt == :f64 || at == :f64) ? :f64 : :i64
           # Wrap in parens to protect embedded assignment precedence
           needs_parens = recv_contains_assignment?(node.receiver_node)
           write "("
@@ -995,8 +1002,8 @@ module Frozone
         parts = []
         req = node.required_params || []
         if param_types
-          types = param_types + [Type::BOTTOM] * [req.size - param_types.size, 0].max
-          req.each_with_index { |p, i| t = types[i]; parts << "#{crystal_local(p)} : #{t&.bottom? == false ? t.to_crystal : 'RubyObject'}" }
+          types = param_types + [:ruby_object] * [req.size - param_types.size, 0].max
+          req.each_with_index { |p, i| parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(types[i] || :ruby_object)}" }
         else
           req.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
         end
@@ -1013,16 +1020,16 @@ module Frozone
         end
         req_kw.each do |p|
           ct = kw_types[p]
-          parts << "#{crystal_local(p)} : #{ct ? ct.to_crystal : 'RubyObject'}"
+          parts << "#{crystal_local(p)} : #{ct ? CrystalType.to_crystal(ct) : 'RubyObject'}"
         end
         opt_kw.each do |p, default|
           ct = kw_types[p]
-          if ct && ct.raw? && default
+          if ct && CrystalType.scalar?(ct) && default
             # Emit raw default for scalar-typed kwargs
             raw_default = ct == :i64 ? "#{default.value.raw}_i64" : "#{default.value.raw}_f64"
-            parts << "#{crystal_local(p)} : #{ct.to_crystal} = #{raw_default}"
+            parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(ct)} = #{raw_default}"
           elsif ct
-            parts << "#{crystal_local(p)} : #{ct.to_crystal} = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}"
+            parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(ct)} = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}"
           else
             parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}"
           end
@@ -1041,12 +1048,12 @@ module Frozone
       def emit_local_var_read(node)
         name = node.name
         case @mctx.typed_locals[name]
-        when Type::I64 then write "RubyInteger.new(#{crystal_local(name)})"
-        when Type::F64 then write "RubyFloat.new(#{crystal_local(name)})"
+        when :i64 then write "RubyInteger.new(#{crystal_local(name)})"
+        when :f64 then write "RubyFloat.new(#{crystal_local(name)})"
         else
           case @mctx.raw_block_params[name]
-          when Type::I64 then write "RubyInteger.new(#{crystal_local(name)})"
-          when Type::F64 then write "RubyFloat.new(#{crystal_local(name)})"
+          when :i64 then write "RubyInteger.new(#{crystal_local(name)})"
+          when :f64 then write "RubyFloat.new(#{crystal_local(name)})"
           else super
           end
         end
@@ -1055,32 +1062,34 @@ module Frozone
       # Override: for typed locals, emit RHS as bare Crystal numeric.
       # For typed array locals, emit Array(T).new construction.
       # For class-typed locals, add .as(Ruby_ClassName) cast for static dispatch.
-      def cr_local_var_write(node)
+      def emit_local_var_write(node)
         name = node.name
-        # try_* helpers write imperatively; capture and return non-empty.
-        handled = capture {
-          try_nested_array_write(node, name) || try_range_to_a_write(node, name) ||
-            try_native_dup_write(node, name) || try_typed_array_write(node, name) ||
-            try_boxed_array_promote(node, name) || try_scalar_write(node, name) ||
-            try_native_array_alias(node, name) || try_boxed_array_write(node, name) ||
-            try_class_cast_write(node, name)
-        }
-        return handled unless handled.empty?
+        return if try_nested_array_write(node, name)
+        return if try_range_to_a_write(node, name)
+        return if try_native_dup_write(node, name)
+        return if try_typed_array_write(node, name)
+        return if try_boxed_array_promote(node, name)
+        return if try_scalar_write(node, name)
+        return if try_native_array_alias(node, name)
+        return if try_boxed_array_write(node, name)
+        return if try_class_cast_write(node, name)
+        # TI may have typed this local as Array(T), but since no native
+        # construction path matched, the Crystal variable is actually RubyArray.
+        # Evict so subsequent reads/writes don't use the native array path.
         @mctx.typed_array_locals.delete(name)
+        # Default: plain assignment (inlined from CrystalEmitter)
         old_suppress = @mctx.suppress_tuple_literals
         @mctx.suppress_tuple_literals = true
-        result = "#{crystal_local(name)} = #{cr(node.value_node)}"
+        write crystal_local(name), " = "
+        emit(node.value_node)
         @mctx.suppress_tuple_literals = old_suppress
-        result
       end
-
-      def emit_local_var_write(node) = write cr_local_var_write(node)
 
       # (0..n).to_a where TI says the result is Array[:i64] → native Crystal range to_a.
       def try_range_to_a_write(node, name)
         # Check: TI says this local is a typed array
         elem = @mctx.local_array_elems[name] || @mctx.typed_array_locals[name]
-        return unless elem&.is_a?(Type) && elem.raw?
+        return unless elem && (elem == :i64 || elem == :f64)
         rhs = node.value_node
         return unless rhs.is_a?(Ast::MethodCall) && rhs.name == :to_a
         recv = rhs.receiver_node
@@ -1090,7 +1099,7 @@ module Frozone
         begin_node = recv.begin_node
         end_node = recv.end_node
         exclusive = recv.exclusive
-        crystal_ty = elem.to_crystal
+        crystal_ty = elem == :f64 ? "Float64" : "Int64"
         write crystal_local(name), " = ("
         emit_coerce_i64(begin_node)
         write exclusive ? "..." : ".."
@@ -1103,16 +1112,13 @@ module Frozone
       # Array.new(m) { Array.new(p, fill) } or Array.new(n) { [] } — nested native construction.
       def try_nested_array_write(node, name)
         nat_elem = native_array_elem_type(name)
-        return unless nat_elem
-        is_array = nat_elem.array_scalar?
-        return unless is_array
+        return unless nat_elem && CrystalType.array?(nat_elem)
         rhs = node.value_node
         blk = rhs.is_a?(Ast::MethodCall) ? rhs.block_node : nil
         return unless blk.is_a?(Ast::Block)
         inner = blk.body
         inner = inner.nodes.first if inner.is_a?(Ast::Sequence) && inner.nodes.size == 1
-        inner_crystal = nat_elem.to_crystal
-        elem_of_nat = nat_elem.elem
+        inner_crystal = CrystalType.to_crystal(nat_elem)
         outer_args = rhs.arg_nodes || []
         if array_new_call?(inner)
           inner_args = inner.arg_nodes || []
@@ -1120,7 +1126,7 @@ module Frozone
           emit_coerce_i64(outer_args[0])
           write ") { ", inner_crystal, ".new("
           emit_coerce_i64(inner_args[0])
-          write ", "; emit_as(inner_args[1], elem_of_nat); write ") }"
+          write ", "; emit_as(inner_args[1], CrystalType.elem(nat_elem)); write ") }"
         elsif inner.is_a?(Ast::ArrayLiteral) && (inner.element_nodes || []).empty?
           write crystal_local(name), " = Array(", inner_crystal, ").new("
           emit_coerce_i64(outer_args[0])
@@ -1134,8 +1140,7 @@ module Frozone
         rhs = node.value_node
         return unless array_new_call?(rhs)
         args = rhs.arg_nodes || []
-        crystal_ty = arr_ty.to_crystal
-        write crystal_local(name), " = Array(", crystal_ty, ").new("
+        write crystal_local(name), " = Array(", CrystalType.to_crystal(arr_ty), ").new("
         emit_coerce_i64(args[0]); write ", "; emit_as(args[1], arr_ty); write ")"
       end
 
@@ -1147,8 +1152,7 @@ module Frozone
         return unless array_new_call?(rhs)
         args = rhs.arg_nodes || []
         return unless args.size == 2
-        crystal_ty = elem_ty.to_crystal
-        write crystal_local(name), " = Array(", crystal_ty, ").new("
+        write crystal_local(name), " = Array(", CrystalType.to_crystal(elem_ty), ").new("
         emit_coerce_i64(args[0]); write ", "; emit_as(args[1], elem_ty); write ")"
         @mctx.native_array_locals[name] = elem_ty
       end
@@ -1156,7 +1160,7 @@ module Frozone
       # s = native_array.dup → propagate native type
       def try_native_dup_write(node, name)
         elem = @mctx.local_array_elems[name] || @mctx.typed_array_locals[name]
-        return unless elem&.is_a?(Type) && elem.raw?
+        return unless elem && (elem == :i64 || elem == :f64)
         rhs = node.value_node
         return unless rhs.is_a?(Ast::MethodCall) && (rhs.name == :dup || rhs.name == :clone)
         recv = rhs.receiver_node
@@ -1267,47 +1271,51 @@ module Frozone
       # Override: for typed ivars in boxed context, wrap in RubyFloat/RubyInteger.
       def emit_ivar_read(node)
         case @cctx.ivars[node.name]
-        when Type::F64 then write "RubyFloat.new(#{node.name})"
-        when Type::I64 then write "RubyInteger.new(#{node.name})"
+        when :f64 then write "RubyFloat.new(#{node.name})"
+        when :i64 then write "RubyInteger.new(#{node.name})"
         else super
         end
       end
 
       # Override: for typed ivars, coerce RHS to the raw type.
-      def cr_ivar_write(node)
+      def emit_ivar_write(node)
         iv_name = node.name
         if (ty = @cctx.ivars[iv_name])
           val = node.value_node
           # Array-typed ivars: @list = Array.new(n) → Array(Float64).new(n, 0.0)
-          if (ty == Type::ARRAY_F64 || ty == Type::ARRAY_I64) && val.is_a?(Ast::MethodCall) &&
+          if (ty == :array_f64 || ty == :array_i64) && val.is_a?(Ast::MethodCall) &&
              val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
-            crystal_ty = ty == Type::ARRAY_F64 ? "Float64" : "Int64"
-            default = ty == Type::ARRAY_F64 ? "0.0" : "0"
+            crystal_ty = ty == :array_f64 ? "Float64" : "Int64"
+            default = ty == :array_f64 ? "0.0" : "0"
             args = val.arg_nodes || []
-            count = args.empty? ? "0" : coerce_i64(args[0])
-            return "#{iv_name} = Array(#{crystal_ty}).new(#{count}, #{default})"
+            write "#{iv_name} = Array(#{crystal_ty}).new("
+            args.empty? ? write("0") : emit_coerce_i64(args[0])
+            write ", #{default})"
+            return
           end
-          # Nil-safe coercion for sentinel params
+          write "#{iv_name} = "
+          # Nil-safe coercion: untyped params may be nil (sentinel construction).
           if val.is_a?(Ast::LocalVariableRead) && !@mctx.typed_locals[val.name] && !node_raw_type(val)
-            default = ty.f64? ? "0.0_f64" : "0_i64"
-            coerce = ty.f64? ? ".to_f64" : ".to_i64"
-            return "#{iv_name} = ((_v = #{cr(val)}); _v.ruby_nil? ? #{default} : _v#{coerce})"
+            default = ty == :f64 ? "0.0_f64" : "0_i64"
+            coerce = ty == :f64 ? ".to_f64" : ".to_i64"
+            write "((_v = "; emit(val); write "); _v.ruby_nil? ? #{default} : _v#{coerce})"
+          else
+            emit_as(val, ty)
           end
-          return "#{iv_name} = #{raw_as(val, ty)}"
         elsif @cctx.typed_ivars[iv_name]&.first == :class_or_nil
           val = node.value_node
-          rhs = if val.is_a?(Ast::NilLiteral)
+          write "#{iv_name} = "
+          if val.is_a?(Ast::NilLiteral)
             ct = @cctx.typed_ivars[iv_name]
-            ct[1] == @cctx.name ? "nil" : "RUBY_NIL"
+            # Self-referential (T?) uses Crystal nil; cross-class (T | RubyNil) uses RUBY_NIL
+            write(ct[1] == @cctx.name ? "nil" : "RUBY_NIL")
           else
-            cr(val)
+            emit(val)
           end
-          return "#{iv_name} = #{rhs}"
+        else
+          super
         end
-        super
       end
-
-      def emit_ivar_write(node) = write cr_ivar_write(node)
 
       # Override: for index op-write (ci[j] += ...) with a raw-typed index,
       # emit the index temp as bare Int64 so the Int64 array overload is used.
@@ -1338,8 +1346,8 @@ module Frozone
         recv_elem_ty = recv_node.is_a?(Ast::LocalVariableRead) &&
                        @mctx.local_array_elems[recv_node.name]
         if recv_elem_ty
-          unbox = recv_elem_ty.f64? ? ".as(RubyFloat).to_f64" : ".as(RubyInteger).to_i64"
-          box = recv_elem_ty.f64? ? "RubyFloat" : "RubyInteger"
+          unbox = recv_elem_ty == :f64 ? ".as(RubyFloat).to_f64" : ".as(RubyInteger).to_i64"
+          box = recv_elem_ty == :f64 ? "RubyFloat" : "RubyInteger"
           write "; #{r}[#{i}] = #{box}.new(#{r}[#{i}]#{unbox} #{op} "
           emit_as(val_node, recv_elem_ty)
           write "))"
@@ -1359,7 +1367,13 @@ module Frozone
         args.each_with_index do |arg, i|
           write ", " if i > 0
           pt = param_types[i]
-          pt&.raw? ? emit_as(arg, pt) : emit(arg)
+          if CrystalType.scalar?(pt)
+            # Coerce arg to raw type: use emit_raw if already typed,
+            # otherwise emit and append .to_i64/.to_f64
+            emit_as(arg, pt)
+          else
+            emit(arg)
+          end
         end
         write ")"
       end
@@ -1367,331 +1381,391 @@ module Frozone
       # Emit a value guaranteed to be RubyObject — box raw Int64/Float64 locals.
       def emit_boxed(node)
         vt = node_raw_type(node)
-        if vt&.i64?
+        if vt == :i64
           write "RubyInteger.new("; emit_raw(node); write ")"
-        elsif vt&.f64?
+        elsif vt == :f64
           write "RubyFloat.new("; emit_raw(node); write ")"
         else
           emit(node)
         end
       end
 
-      def emit_method_call(node)
-        s = cr_method_call_optimized(node)
-        s ? write(s) : super
-      end
-
-      def cr_method_call(node) = cr_method_call_optimized(node) || super
-
-      # Functional dispatch: try each cr_try_* helper, return first non-nil String, else nil.
-      def cr_method_call_optimized(node)
-        cr_try_ivar_array_access(node) ||
-          cr_try_constant_fold(node) ||
-          cr_try_native_array_new(node) ||
-          cr_try_native_iteration(node) ||
-          cr_try_typed_instance_call(node) ||
-          cr_try_native_array_method(node) ||
-          cr_try_array_push(node) ||
-          cr_try_native_array_read(node) ||
-          cr_try_boxed_array_read(node) ||
-          cr_try_raw_index_read(node) ||
-          cr_try_specialized_free_call(node) ||
-          cr_try_eigen_dispatch(node) ||
-          cr_try_typed_free_call(node) ||
-          cr_try_devirtualized_call(node) ||
-          cr_try_raw_arithmetic(node)
-      end
-
-      # Block string after typed call args (emit_call_args handles blocks itself).
-      def cr_block_if_present(node)
+      # Emit block after typed call args (emit_call_args handles blocks itself).
+      def emit_block_if_present(node)
         blk = node.block_node
-        return "" unless blk && !blk.is_a?(Ast::BlockArg)
-        " #{capture { emit_block(blk) }}"
+        return unless blk && !blk.is_a?(Ast::BlockArg)
+        write " "
+        emit_block(blk)
+      end
+
+      def emit_method_call(node)
+        try_ivar_array_access(node) ||
+          try_constant_fold(node) ||
+          try_native_array_new(node) ||
+          try_native_iteration(node) ||
+          try_typed_instance_call(node) ||
+          try_native_array_method(node) ||
+          try_array_push(node) ||
+          try_native_array_read(node) ||
+          try_boxed_array_read(node) ||
+          try_raw_index_read(node) ||
+          try_specialized_free_call(node) ||
+          try_eigen_dispatch(node) ||
+          try_typed_free_call(node) ||
+          try_devirtualized_call(node) ||
+          try_raw_arithmetic(node) ||
+          super
       end
 
       # @list.fetch(i) or @list[i] on native array ivar → box result for RubyObject context
-      def cr_try_ivar_array_access(node)
+      def try_ivar_array_access(node)
         recv = node.receiver_node
-        return nil unless recv.is_a?(Ast::InstanceVariableRead)
+        return unless recv.is_a?(Ast::InstanceVariableRead)
         iv_ty = @cctx&.ivars&.dig(recv.name)
-        return nil unless iv_ty == Type::ARRAY_F64 || iv_ty == Type::ARRAY_I64
+        return unless iv_ty == :array_f64 || iv_ty == :array_i64
         args = node.arg_nodes || []
-        return nil unless (node.name == :fetch || node.name == :[]) && args.size == 1
-        box = iv_ty == Type::ARRAY_F64 ? "RubyFloat" : "RubyInteger"
-        "#{box}.new(#{recv.name}[#{coerce_i64(args[0])}])"
+        if (node.name == :fetch || node.name == :[]) && args.size == 1
+          box = iv_ty == :array_f64 ? "RubyFloat" : "RubyInteger"
+          write "#{box}.new(", recv.name.to_s, "["
+          emit_coerce_i64(args[0])
+          write "])"
+          true
+        end
       end
 
       # Constant-fold respond_to?(:literal) and is_a?/kind_of?(Constant) when
       # receiver type is known from TI devirtualization.
-      def cr_try_constant_fold(node)
-        return nil unless node.receiver_node && (recv_class = receiver_known_class(node.receiver_node))
-        klass = lookup_vm_class(recv_class) or return nil
+      def try_constant_fold(node)
+        return unless node.receiver_node && (recv_class = receiver_known_class(node.receiver_node))
+        klass = lookup_vm_class(recv_class) or return
         if node.name == :respond_to? && node.arg_nodes&.size&.between?(1, 2) &&
            node.arg_nodes[0].is_a?(Ast::SymbolLiteral)
-          klass.lookup_method(node.arg_nodes[0].value) ? "RUBY_TRUE" : "RUBY_FALSE"
+          write(klass.lookup_method(node.arg_nodes[0].value) ? "RUBY_TRUE" : "RUBY_FALSE")
         elsif (node.name == :is_a? || node.name == :kind_of?) &&
               node.arg_nodes&.size == 1 && node.arg_nodes[0].is_a?(Ast::ConstantRead)
-          target = lookup_vm_class(node.arg_nodes[0].name) or return nil
-          klass.ancestors_include?(target) ? "RUBY_TRUE" : "RUBY_FALSE"
+          target = lookup_vm_class(node.arg_nodes[0].name) or return
+          write(klass.ancestors_include?(target) ? "RUBY_TRUE" : "RUBY_FALSE")
         end
       end
 
       # Array.new(n) { |i| body } with all-integer block params → native Int64 iteration.
-      def cr_try_native_array_new(node)
-        return nil unless node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead) &&
-                          node.receiver_node.name == :Array && node.block_node.is_a?(Ast::Block)
+      def try_native_array_new(node)
+        return unless node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead) &&
+                      node.receiver_node.name == :Array && node.block_node.is_a?(Ast::Block)
         blk = node.block_node
         params = blk.required_params || []
         args = node.arg_nodes || []
-        return nil unless !params.empty? && args.size == 1 && node_raw_type(args[0])&.i64? &&
-                          params.all? { |p| p.is_a?(Symbol) && @mctx.block_params[p]&.i64? }
-        body_str = capture do
-          old_rbp = @mctx.raw_block_params
-          @mctx.raw_block_params = old_rbp.merge(params.map { |p| [p, Type::I64] }.to_h)
-          emit_newline
-          indented { emit_native_block_body(blk.body) }
-          @mctx.raw_block_params = old_rbp
-          emit_newline
-          emit_indent
-        end
-        "RubyArray.new(#{raw(args[0])}) { |#{params.map { |p| crystal_local(p) }.join(", ")}|#{body_str}}"
+        return unless !params.empty? && args.size == 1 && node_raw_type(args[0]) == :i64 &&
+                      params.all? { |p| p.is_a?(Symbol) && @mctx.block_params[p] == :i64 }
+        write "RubyArray.new("
+        emit_raw(args[0])
+        write ") { |", params.map { |p| crystal_local(p) }.join(", "), "|"
+        emit_newline
+        old_rbp = @mctx.raw_block_params
+        @mctx.raw_block_params = old_rbp.merge(params.map { |p| [p, :i64] }.to_h)
+        indented { emit_native_block_body(blk.body) }
+        @mctx.raw_block_params = old_rbp
+        emit_newline
+        emit_indent
+        write "}"
       end
 
       # n.times/upto/downto { block } when n is raw i64 → Crystal native iteration.
-      def cr_try_native_iteration(node)
-        return nil unless opt?(:native_iteration) && node.block_node &&
-                          !node.block_node.is_a?(Ast::BlockArg) &&
-                          (node.arg_nodes || []).size <= 1 && node_raw_type(node.receiver_node)&.i64?
-        blk_str = ->(b) { capture { emit_native_iter_block(b) } }
+      def try_native_iteration(node)
+        return unless opt?(:native_iteration) && node.block_node &&
+                      !node.block_node.is_a?(Ast::BlockArg) &&
+                      (node.arg_nodes || []).size <= 1 && node_raw_type(node.receiver_node) == :i64
         case node.name
         when :times
-          "#{raw(node.receiver_node)}.times #{blk_str.call(node.block_node)}"
+          emit_raw(node.receiver_node)
+          write ".times "
+          emit_native_iter_block(node.block_node)
         when :upto
           limit = (node.arg_nodes || [])[0]
-          return nil unless limit && node_raw_type(limit)&.i64?
-          "(#{raw(node.receiver_node)}..#{raw(limit)}).each #{blk_str.call(node.block_node)}"
+          return unless limit && node_raw_type(limit) == :i64
+          write "("; emit_raw(node.receiver_node); write ".."; emit_raw(limit); write ").each "
+          emit_native_iter_block(node.block_node)
         when :downto
           limit = (node.arg_nodes || [])[0]
-          return nil unless limit && node_raw_type(limit)&.i64?
-          "(#{raw(limit)}..#{raw(node.receiver_node)}).reverse_each #{blk_str.call(node.block_node)}"
+          return unless limit && node_raw_type(limit) == :i64
+          write "("; emit_raw(limit); write ".."; emit_raw(node.receiver_node); write ").reverse_each "
+          emit_native_iter_block(node.block_node)
         end
       end
 
       # Typed instance method call on a class-typed receiver → emit args with declared types.
-      def cr_try_typed_instance_call(node)
-        return nil unless node.receiver_node.is_a?(Ast::LocalVariableRead)
-        cls_entry = @mctx.class_locals[node.receiver_node.name] or return nil
+      def try_typed_instance_call(node)
+        return unless node.receiver_node.is_a?(Ast::LocalVariableRead)
+        cls_entry = @mctx.class_locals[node.receiver_node.name] or return
         recv_class = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
-        tp = @gctx.class_params[[recv_class, node.name]] or return nil
-        args_str = capture { emit_typed_call_args(node.arg_nodes || [], tp) }
-        "#{cr(node.receiver_node)}.#{crystal_method_name(node.name)}#{args_str}#{cr_block_if_present(node)}"
+        tp = @gctx.class_params[[recv_class, node.name]] or return
+        emit(node.receiver_node)
+        write ".#{crystal_method_name(node.name)}"
+        emit_typed_call_args(node.arg_nodes || [], tp)
+        emit_block_if_present(node)
+        true
       end
 
       # Method call on native array local → emit raw args (Crystal Array methods expect Int, not RubyInteger)
-      def cr_try_native_array_method(node)
-        return nil unless node.receiver_node&.is_a?(Ast::LocalVariableRead)
+      def try_native_array_method(node)
+        return unless node.receiver_node&.is_a?(Ast::LocalVariableRead)
         recv_name = node.receiver_node.name
-        return nil unless native_array_elem_type(recv_name)
-        return nil unless %i[delete_at insert push unshift].include?(node.name)
-        args_str = (node.arg_nodes || []).map { |a| node_raw_type(a) ? raw(a) : cr(a) }.join(", ")
-        "#{crystal_local(recv_name)}.#{crystal_method_name(node.name)}(#{args_str})"
+        return unless native_array_elem_type(recv_name)
+        # Known array methods that take integer args
+        return unless %i[delete_at insert push unshift].include?(node.name)
+        write crystal_local(recv_name), ".", crystal_method_name(node.name), "("
+        (node.arg_nodes || []).each_with_index do |arg, i|
+          write ", " if i > 0
+          rt = node_raw_type(arg)
+          rt ? emit_raw(arg) : emit(arg)
+        end
+        write ")"
+        true
       end
 
       # arr << val on native arrays → array push (not integer shift).
-      def cr_try_array_push(node)
-        return nil unless node.name == :<< && node.receiver_node && node.arg_nodes&.size == 1
+      def try_array_push(node)
+        return unless node.name == :<< && node.receiver_node && node.arg_nodes&.size == 1
         recv = node.receiver_node
         if recv.is_a?(Ast::LocalVariableRead) && (elem = native_array_elem_type(recv.name))
-          "#{cr(recv)} << #{raw_as(node.arg_nodes[0], elem)}"
+          emit(recv); write " << "; emit_as(node.arg_nodes[0], elem); true
         elsif recv.is_a?(Ast::MethodCall) && recv.name == :[] &&
               recv.receiver_node.is_a?(Ast::LocalVariableRead)
           arr_elem = native_array_elem_type(recv.receiver_node.name)
-          return nil unless arr_elem && arr_elem.array_scalar?
-          "#{cr(recv)} << #{raw_as(node.arg_nodes[0], arr_elem.elem)}"
+          return unless arr_elem && CrystalType.array?(arr_elem)
+          emit(recv); write " << "; emit_as(node.arg_nodes[0], CrystalType.elem(arr_elem)); true
         end
       end
 
       # mc[i] where mc is Array(Array(T)) → coerce index, no boxing.
-      def cr_try_native_array_read(node)
-        return nil unless node.name == :[] && node.arg_nodes&.size == 1 &&
-                          node.receiver_node&.is_a?(Ast::LocalVariableRead)
+      def try_native_array_read(node)
+        return unless node.name == :[] && node.arg_nodes&.size == 1 &&
+                      node.receiver_node&.is_a?(Ast::LocalVariableRead)
         recv_elem = native_array_elem_type(node.receiver_node.name)
-        return nil unless recv_elem&.array_scalar? || recv_elem&.array?
-        "#{crystal_local(node.receiver_node.name)}[#{coerce_i64(node.arg_nodes[0])}]"
+        return unless recv_elem && CrystalType.array?(recv_elem)
+        write crystal_local(node.receiver_node.name), "["
+        emit_coerce_i64(node.arg_nodes[0])
+        write "]"
       end
 
       # a[k] where a is native Array(T) in boxed context → box the element.
-      def cr_try_boxed_array_read(node)
-        return nil unless node.name == :[] && node.arg_nodes&.size == 1 &&
-                          node.receiver_node&.is_a?(Ast::LocalVariableRead)
-        arr_ty = native_array_elem_type(node.receiver_node.name) or return nil
-        box_fn = arr_ty.f64? ? "RubyFloat" : "RubyInteger"
-        "#{box_fn}.new(#{crystal_local(node.receiver_node.name)}[#{coerce_i64(node.arg_nodes[0])}])"
+      def try_boxed_array_read(node)
+        return unless node.name == :[] && node.arg_nodes&.size == 1 &&
+                      node.receiver_node&.is_a?(Ast::LocalVariableRead)
+        arr_ty = native_array_elem_type(node.receiver_node.name) or return
+        box_fn = arr_ty == :f64 ? "RubyFloat" : "RubyInteger"
+        write box_fn, ".new(", crystal_local(node.receiver_node.name), "["
+        emit_coerce_i64(node.arg_nodes[0])
+        write "])"
       end
 
       # a[k] with raw index on known array/tuple receivers → use Int64 overload.
-      def cr_try_raw_index_read(node)
-        return nil unless node.name == :[] && node.arg_nodes&.size == 1 && node_raw_type(node.arg_nodes[0])
-        "#{cr(node.receiver_node)}[#{raw(node.arg_nodes[0])}]"
+      # Emit a[k] with raw Int64 index when the index is typed.
+      # RubyObject#[](Int64) and RubyArray#[](Int64) both accept raw indices,
+      # so boxing the index in RubyInteger.new is never necessary.
+      def try_raw_index_read(node)
+        return unless node.name == :[] && node.arg_nodes&.size == 1 && node_raw_type(node.arg_nodes[0])
+        emit(recv = node.receiver_node); write "["; emit_raw(node.arg_nodes[0]); write "]"
       end
 
       # Free call to fully-specialized method with all-raw args → raw Int64 overload.
-      def cr_try_specialized_free_call(node)
-        return nil unless node.receiver_node.nil? && @gctx.typed_method_returns[node.name]
-        tp = @gctx.typed_params[node.name] or return nil
+      def try_specialized_free_call(node)
+        return unless node.receiver_node.nil? && @gctx.typed_method_returns[node.name]
+        tp = @gctx.typed_params[node.name] or return
         args = node.arg_nodes || []
-        return nil unless args.size == tp.size && args.all? { |a| node_raw_type(a) }
-        "#{crystal_method_name(node.name)}(#{raw_args(args)})"
+        return unless args.size == tp.size && args.all? { |a| node_raw_type(a) }
+        write crystal_method_name(node.name), "("
+        args.each_with_index { |a, i| write ", " if i > 0; emit_raw(a) }
+        write ")"
       end
 
       # Free call inside class → dispatch to eigenclass method (self.x).
-      def cr_try_eigen_dispatch(node)
-        return nil unless node.receiver_node.nil? && @cctx.eigen_methods&.include?(node.name)
-        head = "self.#{crystal_method_name(node.name)}"
+      def try_eigen_dispatch(node)
+        return unless node.receiver_node.nil? && @cctx.eigen_methods&.include?(node.name)
+        write "self.", crystal_method_name(node.name)
         if !@mctx.suppress_typed_call_args && (opt?(:call_site_types) || opt?(:method_specialization))
           tp = @gctx.inferred_params[node.name] || @gctx.class_params[[@cctx.name, node.name]]
-          can_use_typed = tp&.any? { |t| t && !t.bottom? } &&
-            tp.all? { |pt| !pt || pt.generic_compatible? || pt.raw? }
+          can_use_typed = tp&.any? { |t| t && t != :ruby_object } &&
+            tp.all? { |pt| !pt || CrystalType.generic_compatible?(pt) || CrystalType.scalar?(pt) }
           if can_use_typed
-            args_str = capture { emit_typed_call_args(node.arg_nodes || [], tp) }
-            return "#{head}#{args_str}#{cr_block_if_present(node)}"
+            emit_typed_call_args(node.arg_nodes || [], tp)
+            emit_block_if_present(node)
+          else
+            emit_call_args(node)
           end
+        else
+          emit_call_args(node)
         end
-        "#{head}#{capture { emit_call_args(node) }}"
+        true
       end
 
       # Free call with inferred param types → coerce args.
-      def cr_try_typed_free_call(node)
-        return nil unless !@mctx.suppress_typed_call_args && node.receiver_node.nil?
-        tp = @gctx.inferred_params[node.name] or return nil
-        return nil unless tp.all? { |t| t && t.native? } || @gctx.typed_params[node.name]
-        args_str = capture { emit_typed_call_args(node.arg_nodes || [], tp) }
-        "#{crystal_method_name(node.name)}#{args_str}#{cr_block_if_present(node)}"
+      def try_typed_free_call(node)
+        return unless !@mctx.suppress_typed_call_args && node.receiver_node.nil?
+        tp = @gctx.inferred_params[node.name] or return
+        # Only dispatch typed args when there's a matching typed Crystal overload.
+        # Mixed params (some raw, some RubyObject) don't have a typed overload.
+        return unless tp.all? { |t| t && CrystalType.native?(t) } || @gctx.typed_params[node.name]
+        write crystal_method_name(node.name)
+        emit_typed_call_args(node.arg_nodes || [], tp)
+        emit_block_if_present(node)
+        true
       end
 
       # Devirtualize: cast class-typed receiver for static dispatch.
-      def cr_try_devirtualized_call(node)
-        return nil unless node.receiver_node.is_a?(Ast::LocalVariableRead)
-        cls_entry = @mctx.class_locals[node.receiver_node.name] or return nil
+      def try_devirtualized_call(node)
+        return unless node.receiver_node.is_a?(Ast::LocalVariableRead)
+        cls_entry = @mctx.class_locals[node.receiver_node.name] or return
         cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
-        "#{crystal_local(node.receiver_node.name)}.as(#{crystal_class_name(cls)}).#{crystal_method_name(node.name)}#{capture { emit_call_args(node) }}"
+        write crystal_local(node.receiver_node.name), ".as(", crystal_class_name(cls),
+              ").", crystal_method_name(node.name)
+        emit_call_args(node)
+        true
       end
 
       # Both operands raw-typed → Crystal arithmetic/comparison, skip RubyObject dispatch.
-      def cr_try_raw_arithmetic(node)
-        return nil unless node.receiver_node && (node.arg_nodes || []).size == 1 &&
-                          (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(node.name)
+      def try_raw_arithmetic(node)
+        return unless node.receiver_node && (node.arg_nodes || []).size == 1 &&
+                      (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(node.name)
         rt = node_raw_type(node.receiver_node)
         at = node_raw_type(node.arg_nodes[0])
-        return nil unless rt && at
-        ty = (rt.f64? || at.f64?) ? Type::F64 : Type::I64
-        op = (node.name == :/ && ty.i64?) ? "//" : node.name.to_s
-        lhs = raw_as(node.receiver_node, ty)
-        rhs = raw_as(node.arg_nodes[0], ty)
+        return unless rt && at
+        ty = (rt == :f64 || at == :f64) ? :f64 : :i64
+        op = (node.name == :/ && ty == :i64) ? "//" : node.name.to_s
         if CrystalEmitter::COMPARE_OPS.include?(node.name)
-          "((#{lhs} #{op} #{rhs}) ? RUBY_TRUE : RUBY_FALSE)"
+          write "(("; emit_as(node.receiver_node, ty); write " #{op} "; emit_as(node.arg_nodes[0], ty); write ") ? RUBY_TRUE : RUBY_FALSE)"
         else
-          "#{ty.i64? ? 'RubyInteger.new(' : 'RubyFloat.new('}#{lhs} #{op} #{rhs})"
+          write(ty == :i64 ? "RubyInteger.new(" : "RubyFloat.new(")
+          emit_as(node.receiver_node, ty); write " #{op} "; emit_as(node.arg_nodes[0], ty); write ")"
         end
       end
 
       # Override: emit typed local args as raw in method calls.
       # Crystal's overload resolution picks Int64/Float64 overloads where
       # available, and *args stubs accept any type.
-      def cr_call_args(node)
+      def emit_call_args(node)
         return super unless opt?(:unbox_locals)
-        return super if node.name == :new
+        return super if node.name == :new  # constructors may not have Int64 overloads
         args = node.arg_nodes
-        return super if args.empty? && node.kw_arg_nodes.empty? && node.block_node.nil?
+        kw_args = node.kw_arg_nodes
+        return if args.empty? && kw_args.empty? && node.block_node.nil?
 
+        # Pass typed local variables and raw arithmetic expressions as raw —
+        # Crystal's overload resolution picks the Int64/Float64 overload when available.
+        # Don't pass literals raw (they might reach functions expecting RubyObject).
+        # Only pass raw when ALL positional args are raw-passable AND the
+        # callee has a typed overload (otherwise Crystal can't match raw args).
         all_raw = args.all? { |a| a.is_a?(Ast::SplatArg) || raw_passable_arg?(a) }
         has_typed_overload = @gctx.typed_params&.key?(node.name) ||
           (@cctx&.name && @gctx.class_params&.key?([@cctx.name, node.name])) ||
           (node.receiver_node.is_a?(Ast::ConstantRead) && @gctx.class_params&.key?([node.receiver_node.name, node.name]))
         return super unless all_raw && has_typed_overload
 
-        parts = args.map { |arg|
-          if arg.is_a?(Ast::SplatArg) then "# UNSUPPORTED_SPLAT(#{cr(arg.value_node)})"
-          elsif raw_passable_arg?(arg) then raw(arg)
-          else cr(arg)
+        write "("
+        first = true
+        args.each do |arg|
+          write ", " unless first
+          first = false
+          if arg.is_a?(Ast::SplatArg)
+            write "# UNSUPPORTED_SPLAT("; emit(arg.value_node); write ")"
+          elsif raw_passable_arg?(arg)
+            emit_raw(arg)
+          else
+            emit(arg)
           end
-        }
-        node.kw_arg_nodes.each do |kw_name, val_node|
+        end
+        kw_args.each do |kw_name, val_node|
+          write ", " unless first
+          first = false
           key = kw_name.is_a?(Ast::SymbolLiteral) ? kw_name.value : kw_name
-          parts << "#{key}: #{cr(val_node)}"
+          write "#{key}: "
+          emit(val_node)
         end
-        result = "(#{parts.join(', ')})"
-        if node.block_node
-          blk = node.block_node.is_a?(Ast::BlockArg) ? cr_block_arg(node.block_node) : cr_block(node.block_node)
-          result += " #{blk}"
-        end
-        result
-      end
+        write ")"
 
-      def emit_call_args(node) = write cr_call_args(node)
+        if node.block_node
+          write " "
+          if node.block_node.is_a?(Ast::BlockArg)
+            emit_block_arg(node.block_node)
+          else
+            emit_block(node.block_node)
+          end
+        end
+      end
 
       # Override: for []= with typed array or raw-typed index, emit accordingly.
-      def cr_attribute_write(node)
-        try_cr_attribute_write_optimized(node) || cr_attribute_write_default(node)
-      end
-
-      def cr_attribute_write_default(node)
-        name = node.name
-        recv = node.receiver_node
-        args = node.arg_nodes
-        if name == :[]=
-          "#{cr(recv)}[#{cr(args[0])}] = #{cr(args[1])}"
-        else
-          "#{cr(recv)}.#{name.to_s.chomp('=')} = #{cr(args[0])}"
-        end
-      end
-
-      def emit_attribute_write(node) = write cr_attribute_write(node)
-
-      def try_cr_attribute_write_optimized(node)
-        return unless node.name == :[]=
-        args = node.arg_nodes
-        recv = node.receiver_node
-        return unless args&.size == 2
-
-        # Ivar array write: @list[i] = val where @list is Array(Float64/Int64)
-        if recv.is_a?(Ast::InstanceVariableRead)
-          iv_ty = @cctx&.ivars&.dig(recv.name)
-          if iv_ty == Type::ARRAY_F64 || iv_ty == Type::ARRAY_I64
-            val = iv_ty == Type::ARRAY_F64 ? coerce_f64(args[1]) : coerce_i64(args[1])
-            return "#{recv.name}[#{coerce_i64(args[0])}] = #{val}"
-          end
-        end
-
-        if recv.is_a?(Ast::LocalVariableRead)
-          # Unboxed/native Array(T) write
-          if (arr_ty = native_array_elem_type(recv.name))
-            if args[0].is_a?(Ast::RangeLiteral)
-              r = args[0]
-              op = r.exclusive ? "..." : ".."
-              return "#{crystal_local(recv.name)}[#{coerce_i64(r.begin_node)}#{op}#{coerce_i64(r.end_node)}] = #{cr(args[1])}"
-            else
-              return "#{crystal_local(recv.name)}[#{coerce_i64(args[0])}] = #{raw_as(args[1], arr_ty)}"
+      def emit_attribute_write(node)
+        if node.name == :[]=
+          args = node.arg_nodes
+          recv = node.receiver_node
+          # Ivar array write: @list[i] = val where @list is Array(Float64)
+          if recv.is_a?(Ast::InstanceVariableRead) && args&.size == 2
+            iv_name = recv.name
+            iv_ty = @cctx&.ivars&.dig(iv_name)
+            if iv_ty == :array_f64 || iv_ty == :array_i64
+              write recv.name.to_s, "["
+              emit_coerce_i64(args[0])
+              write "] = "
+              iv_ty == :array_f64 ? emit_coerce_f64(args[1]) : emit_coerce_i64(args[1])
+              return
             end
           end
-          # Boxed RubyArray with known elem type
-          if (elem_ty = @mctx.local_array_elems[recv.name]) && node_raw_type(args[1])
-            box = elem_ty.f64? ? "RubyFloat" : "RubyInteger"
-            return "#{cr(recv)}[#{coerce_i64(args[0])}] = #{box}.new(#{raw(args[1])})"
+          # Unboxed/native Array(T) write: emit value as bare native type
+          if recv.is_a?(Ast::LocalVariableRead) &&
+             (arr_ty = native_array_elem_type(recv.name)) &&
+             args&.size == 2
+            recv_name = recv.name
+            if args[0].is_a?(Ast::RangeLiteral)
+              # Range slice assignment: q[0..-1] = p → Crystal native slice
+              begin_node = args[0].begin_node
+              end_node = args[0].end_node
+              exclusive = args[0].exclusive
+              write crystal_local(recv_name), "["
+              emit_coerce_i64(begin_node)
+              write exclusive ? "..." : ".."
+              emit_coerce_i64(end_node)
+              write "] = "
+              emit(args[1])
+            else
+              write crystal_local(recv_name), "["
+              emit_coerce_i64(args[0])
+              write "] = "
+              emit_as(args[1], arr_ty)
+            end
+            return
+          end
+          # Boxed RubyArray with known elem type: box raw value on write
+          if recv.is_a?(Ast::LocalVariableRead) &&
+             (elem_ty = @mctx.local_array_elems[recv.name]) &&
+             args&.size == 2 && node_raw_type(args[1])
+            box = elem_ty == :f64 ? "RubyFloat" : "RubyInteger"
+            emit(recv)
+            write "["
+            emit_coerce_i64(args[0])
+            write "] = #{box}.new("
+            emit_raw(args[1])
+            write ")"
+            return
+          end
+          # Non-typed array with raw-typed index: use Int64 overload
+          if node_raw_type(args&.first)
+            emit(recv)
+            write "["
+            emit_raw(args[0])
+            write "] = "
+            val = args[1]
+            vt = node_raw_type(val)
+            if vt == :i64
+              write "RubyInteger.new("; emit_raw(val); write ")"
+            elsif vt == :f64
+              write "RubyFloat.new("; emit_raw(val); write ")"
+            else
+              emit(val)
+            end
+            return
           end
         end
-
-        # Non-typed array with raw-typed index
-        if node_raw_type(args.first)
-          val = args[1]
-          vt = node_raw_type(val)
-          val_s = if vt&.i64? then "RubyInteger.new(#{raw(val)})"
-                  elsif vt&.f64? then "RubyFloat.new(#{raw(val)})"
-                  else cr(val)
-                  end
-          return "#{cr(recv)}[#{raw(args[0])}] = #{val_s}"
-        end
-        nil
+        super
       end
 
       # Override: for comparisons with at least one raw-typed operand, use bare
@@ -1718,11 +1792,11 @@ module Frozone
           rt = node_raw_type(recv)
           at = node_raw_type(arg)
           if rt && at
-            ty = (rt.f64? || at.f64?) ? Type::F64 : Type::I64
+            ty = (rt == :f64 || at == :f64) ? :f64 : :i64
             write "("
-            ty.i64? ? emit_coerce_i64(recv) : emit_coerce_f64(recv)
+            ty == :i64 ? emit_coerce_i64(recv) : emit_coerce_f64(recv)
             write " #{node.name} "
-            ty.i64? ? emit_coerce_i64(arg) : emit_coerce_f64(arg)
+            ty == :i64 ? emit_coerce_i64(arg) : emit_coerce_f64(arg)
             write ")"
             return
           end
@@ -1832,17 +1906,17 @@ module Frozone
 
       def emit_masgn_assign(target, value_code)
         if target[0] == :ivar && (ty = @cctx.ivars[target[1]])
-          coerce = ty.f64? ? ".to_f64" : ".to_i64"
+          coerce = ty == :f64 ? ".to_f64" : ".to_i64"
           write "#{target[1]} = #{value_code}#{coerce}"
         elsif (target[0] == :local || target[0] == :local_splat) &&
               (ty = @mctx.typed_locals[target[1]])
-          coerce = ty.f64? ? ".to_f64" : ".to_i64"
+          coerce = ty == :f64 ? ".to_f64" : ".to_i64"
           write "#{crystal_local(target[1])} = #{value_code}#{coerce}"
         elsif (target[0] == :index || target[0] == :index_splat) &&
               target[1].is_a?(Ast::LocalVariableRead) &&
               (nat_ty = native_array_elem_type(target[1].name))
           # Native Array(T) index write: coerce index to Int64 and value to T
-          coerce = nat_ty.f64? ? ".to_f64" : ".to_i64"
+          coerce = nat_ty == :f64 ? ".to_f64" : ".to_i64"
           write "#{crystal_local(target[1].name)}["
           target[2].each_with_index do |idx, i|
             write ", " if i > 0
@@ -1877,10 +1951,10 @@ module Frozone
         when Ast::InstanceVariableRead
           iv = body.name
           case @cctx.ivars[iv]
-          when Type::F64
+          when :f64
             line "def #{crystal_method_name(mname)} : RubyObject; RubyFloat.new(#{iv}); end"
             line "def #{crystal_method_name(mname)}_raw : Float64; #{iv}; end"
-          when Type::I64
+          when :i64
             line "def #{crystal_method_name(mname)} : RubyObject; RubyInteger.new(#{iv}); end"
             line "def #{crystal_method_name(mname)}_raw : Int64; #{iv}; end"
           else
@@ -1897,9 +1971,9 @@ module Frozone
         when Ast::InstanceVariableWrite
           iv = body.name
           case @cctx.ivars[iv]
-          when Type::F64
+          when :f64
             line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v.to_f64; v; end"
-          when Type::I64
+          when :i64
             line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v.to_i64; v; end"
           else
             ct = @cctx.typed_ivars[iv]
