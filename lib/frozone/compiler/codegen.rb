@@ -1055,28 +1055,26 @@ module Frozone
       # Override: for typed locals, emit RHS as bare Crystal numeric.
       # For typed array locals, emit Array(T).new construction.
       # For class-typed locals, add .as(Ruby_ClassName) cast for static dispatch.
-      def emit_local_var_write(node)
+      def cr_local_var_write(node)
         name = node.name
-        return if try_nested_array_write(node, name)
-        return if try_range_to_a_write(node, name)
-        return if try_native_dup_write(node, name)
-        return if try_typed_array_write(node, name)
-        return if try_boxed_array_promote(node, name)
-        return if try_scalar_write(node, name)
-        return if try_native_array_alias(node, name)
-        return if try_boxed_array_write(node, name)
-        return if try_class_cast_write(node, name)
-        # TI may have typed this local as Array(T), but since no native
-        # construction path matched, the Crystal variable is actually RubyArray.
-        # Evict so subsequent reads/writes don't use the native array path.
+        # try_* helpers write imperatively; capture and return non-empty.
+        handled = capture {
+          try_nested_array_write(node, name) || try_range_to_a_write(node, name) ||
+            try_native_dup_write(node, name) || try_typed_array_write(node, name) ||
+            try_boxed_array_promote(node, name) || try_scalar_write(node, name) ||
+            try_native_array_alias(node, name) || try_boxed_array_write(node, name) ||
+            try_class_cast_write(node, name)
+        }
+        return handled unless handled.empty?
         @mctx.typed_array_locals.delete(name)
-        # Default: plain assignment (inlined from CrystalEmitter)
         old_suppress = @mctx.suppress_tuple_literals
         @mctx.suppress_tuple_literals = true
-        write crystal_local(name), " = "
-        emit(node.value_node)
+        result = "#{crystal_local(name)} = #{cr(node.value_node)}"
         @mctx.suppress_tuple_literals = old_suppress
+        result
       end
+
+      def emit_local_var_write(node) = write cr_local_var_write(node)
 
       # (0..n).to_a where TI says the result is Array[:i64] → native Crystal range to_a.
       def try_range_to_a_write(node, name)
@@ -1276,7 +1274,7 @@ module Frozone
       end
 
       # Override: for typed ivars, coerce RHS to the raw type.
-      def emit_ivar_write(node)
+      def cr_ivar_write(node)
         iv_name = node.name
         if (ty = @cctx.ivars[iv_name])
           val = node.value_node
@@ -1286,34 +1284,30 @@ module Frozone
             crystal_ty = ty == Type::ARRAY_F64 ? "Float64" : "Int64"
             default = ty == Type::ARRAY_F64 ? "0.0" : "0"
             args = val.arg_nodes || []
-            write "#{iv_name} = Array(#{crystal_ty}).new("
-            args.empty? ? write("0") : emit_coerce_i64(args[0])
-            write ", #{default})"
-            return
+            count = args.empty? ? "0" : coerce_i64(args[0])
+            return "#{iv_name} = Array(#{crystal_ty}).new(#{count}, #{default})"
           end
-          write "#{iv_name} = "
-          # Nil-safe coercion: untyped params may be nil (sentinel construction).
+          # Nil-safe coercion for sentinel params
           if val.is_a?(Ast::LocalVariableRead) && !@mctx.typed_locals[val.name] && !node_raw_type(val)
             default = ty.f64? ? "0.0_f64" : "0_i64"
             coerce = ty.f64? ? ".to_f64" : ".to_i64"
-            write "((_v = "; emit(val); write "); _v.ruby_nil? ? #{default} : _v#{coerce})"
-          else
-            emit_as(val, ty)
+            return "#{iv_name} = ((_v = #{cr(val)}); _v.ruby_nil? ? #{default} : _v#{coerce})"
           end
+          return "#{iv_name} = #{raw_as(val, ty)}"
         elsif @cctx.typed_ivars[iv_name]&.first == :class_or_nil
           val = node.value_node
-          write "#{iv_name} = "
-          if val.is_a?(Ast::NilLiteral)
+          rhs = if val.is_a?(Ast::NilLiteral)
             ct = @cctx.typed_ivars[iv_name]
-            # Self-referential (T?) uses Crystal nil; cross-class (T | RubyNil) uses RUBY_NIL
-            write(ct[1] == @cctx.name ? "nil" : "RUBY_NIL")
+            ct[1] == @cctx.name ? "nil" : "RUBY_NIL"
           else
-            emit(val)
+            cr(val)
           end
-        else
-          super
+          return "#{iv_name} = #{rhs}"
         end
+        super
       end
+
+      def emit_ivar_write(node) = write cr_ivar_write(node)
 
       # Override: for index op-write (ci[j] += ...) with a raw-typed index,
       # emit the index temp as bare Int64 so the Int64 array overload is used.
@@ -1604,55 +1598,37 @@ module Frozone
       # Override: emit typed local args as raw in method calls.
       # Crystal's overload resolution picks Int64/Float64 overloads where
       # available, and *args stubs accept any type.
-      def emit_call_args(node)
+      def cr_call_args(node)
         return super unless opt?(:unbox_locals)
-        return super if node.name == :new  # constructors may not have Int64 overloads
+        return super if node.name == :new
         args = node.arg_nodes
-        kw_args = node.kw_arg_nodes
-        return if args.empty? && kw_args.empty? && node.block_node.nil?
+        return super if args.empty? && node.kw_arg_nodes.empty? && node.block_node.nil?
 
-        # Pass typed local variables and raw arithmetic expressions as raw —
-        # Crystal's overload resolution picks the Int64/Float64 overload when available.
-        # Don't pass literals raw (they might reach functions expecting RubyObject).
-        # Only pass raw when ALL positional args are raw-passable AND the
-        # callee has a typed overload (otherwise Crystal can't match raw args).
         all_raw = args.all? { |a| a.is_a?(Ast::SplatArg) || raw_passable_arg?(a) }
         has_typed_overload = @gctx.typed_params&.key?(node.name) ||
           (@cctx&.name && @gctx.class_params&.key?([@cctx.name, node.name])) ||
           (node.receiver_node.is_a?(Ast::ConstantRead) && @gctx.class_params&.key?([node.receiver_node.name, node.name]))
         return super unless all_raw && has_typed_overload
 
-        write "("
-        first = true
-        args.each do |arg|
-          write ", " unless first
-          first = false
-          if arg.is_a?(Ast::SplatArg)
-            write "# UNSUPPORTED_SPLAT("; emit(arg.value_node); write ")"
-          elsif raw_passable_arg?(arg)
-            emit_raw(arg)
-          else
-            emit(arg)
+        parts = args.map { |arg|
+          if arg.is_a?(Ast::SplatArg) then "# UNSUPPORTED_SPLAT(#{cr(arg.value_node)})"
+          elsif raw_passable_arg?(arg) then raw(arg)
+          else cr(arg)
           end
-        end
-        kw_args.each do |kw_name, val_node|
-          write ", " unless first
-          first = false
+        }
+        node.kw_arg_nodes.each do |kw_name, val_node|
           key = kw_name.is_a?(Ast::SymbolLiteral) ? kw_name.value : kw_name
-          write "#{key}: "
-          emit(val_node)
+          parts << "#{key}: #{cr(val_node)}"
         end
-        write ")"
-
+        result = "(#{parts.join(', ')})"
         if node.block_node
-          write " "
-          if node.block_node.is_a?(Ast::BlockArg)
-            emit_block_arg(node.block_node)
-          else
-            emit_block(node.block_node)
-          end
+          blk = node.block_node.is_a?(Ast::BlockArg) ? cr_block_arg(node.block_node) : cr_block(node.block_node)
+          result += " #{blk}"
         end
+        result
       end
+
+      def emit_call_args(node) = write cr_call_args(node)
 
       # Override: for []= with typed array or raw-typed index, emit accordingly.
       def cr_attribute_write(node)

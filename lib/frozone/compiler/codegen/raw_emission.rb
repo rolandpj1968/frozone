@@ -429,13 +429,13 @@ module Frozone
         if node.is_a?(Ast::MethodCall) &&
            (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(node.name) &&
            node.receiver_node && (node.arg_nodes || []).size == 1
-          "(#{raw_lines(node.receiver_node).join} #{node.name} #{raw_lines(node.arg_nodes[0]).join})"
+          "(#{raw_lines(node.receiver_node, ctx).join} #{node.name} #{raw_lines(node.arg_nodes[0], ctx).join})"
         elsif node.is_a?(Ast::And)
           "(#{raw_truthy(node.left_node, ctx)} && #{raw_truthy(node.right_node, ctx)})"
         elsif node.is_a?(Ast::Or)
           "(#{raw_truthy(node.left_node, ctx)} || #{raw_truthy(node.right_node, ctx)})"
         else
-          raw_lines(node).join("\n")
+          raw_lines(node, ctx).join("\n")
         end
       end
 
@@ -552,7 +552,7 @@ module Frozone
         return "" unless blk.is_a?(Ast::Block)
         params = blk.required_params || []
         param_str = params.empty? ? "" : "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
-        body_lines = blk.body ? raw_lines(blk.body) : []
+        body_lines = blk.body ? raw_lines(blk.body, ctx) : []
         if body_lines.size <= 1
           " { #{param_str}#{body_lines.first || ''} }"
         else

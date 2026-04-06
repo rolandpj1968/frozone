@@ -140,10 +140,35 @@ module Frozone
 
         sig = req_params.zip(param_types).map { |p, ty| "#{crystal_local(p)} : #{ty.to_crystal}" }.join(', ')
         ctx = specialized_raw_ctx(name, method, req_params, param_types)
-        body_lines = raw_lines(method.body, ctx)
+        body_lines = with_mctx_from(ctx) { raw_lines(method.body, ctx) }
         write ["def #{crystal_method_name(name)}(#{sig}) : #{return_type.to_crystal}",
                *indent(body_lines),
                "end"].join("\n#{' ' * (@indent * 2)}")
+      end
+
+      # Set @mctx fields from a RawCtx so codegen overrides (cr_try_*, cr_call_args)
+      # that read @mctx.typed_locals etc. see the specialized context. Restore on exit.
+      def with_mctx_from(ctx)
+        old_typed = @mctx.typed_locals
+        old_typed_arr = @mctx.typed_array_locals
+        old_class = @mctx.class_locals
+        old_local_arr = @mctx.local_array_elems
+        old_native = @mctx.native_array_locals
+        old_block = @mctx.raw_block_params
+        @mctx.typed_locals = ctx.typed_locals
+        @mctx.typed_array_locals = ctx.typed_array_locals
+        @mctx.class_locals = ctx.class_locals
+        @mctx.local_array_elems = ctx.local_array_elems
+        @mctx.native_array_locals = ctx.native_array_locals
+        @mctx.raw_block_params = ctx.raw_block_params
+        yield
+      ensure
+        @mctx.typed_locals = old_typed
+        @mctx.typed_array_locals = old_typed_arr
+        @mctx.class_locals = old_class
+        @mctx.local_array_elems = old_local_arr
+        @mctx.native_array_locals = old_native
+        @mctx.raw_block_params = old_block
       end
 
       # Build a RawCtx for a specialized method — no mutation of @mctx.
@@ -204,7 +229,10 @@ module Frozone
         sig = "def self.#{crystal_method_name(mname)}(#{parts.join(', ')})"
         sig += " : #{return_type.to_crystal}" if return_type && raw_types.all?
         ctx = class_method_raw_ctx(class_name, mname, method, req_params, raw_types, opt_kw, crystal_param_types)
-        body_lines = raw_lines(method.body, ctx)
+        old_class_name = @cctx.name
+        @cctx.name = class_name
+        body_lines = with_mctx_from(ctx) { raw_lines(method.body, ctx) }
+        @cctx.name = old_class_name
         write [sig, *indent(body_lines), "end"].join("\n#{' ' * (@indent * 2)}")
       end
 

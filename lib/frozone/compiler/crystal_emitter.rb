@@ -179,6 +179,11 @@ module Frozone
         when Ast::AttributeWrite     then cr_attribute_write(node)
         when Ast::MethodCall         then cr_method_call(node)
         when Ast::Retry              then "retry"
+        # Structural nodes — join lines with current indent
+        when Ast::Sequence, Ast::If, Ast::While, Ast::Until, Ast::Rescue,
+             Ast::ForLoop, Ast::MultipleAssignment, Ast::Case,
+             Ast::MethodDef, Ast::ClassDef, Ast::ModuleDef
+          cr_lines(node).join("\n#{'  ' * @indent}")
         else
           # Nodes without cr_* yet — capture at indent 0 for clean composition
           saved = @indent; @indent = 0
