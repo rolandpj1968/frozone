@@ -199,6 +199,9 @@ module Frozone
         when Ast::ForLoop             then cr_for_loop_lines(node)
         when Ast::MultipleAssignment  then cr_multiple_assignment_lines(node)
         when Ast::Case                then cr_case_lines(node)
+        when Ast::MethodDef           then cr_method_def_lines(node)
+        when Ast::ClassDef            then cr_class_def_lines(node)
+        when Ast::ModuleDef           then cr_module_def_lines(node)
         else
           # Inline nodes or unconverted structural nodes
           s = cr(node)
@@ -224,9 +227,6 @@ module Frozone
         case node
         when Ast::MethodCall            then emit_method_call(node)
         when Ast::AttributeWrite        then emit_attribute_write(node)
-        when Ast::MethodDef             then emit_method_def(node)
-        when Ast::ClassDef              then emit_class_def(node)
-        when Ast::ModuleDef             then emit_module_def(node)
         when Ast::Block                 then unsupported!(node, "bare Block outside method call")
         else unsupported!(node)
         end
@@ -1138,42 +1138,27 @@ module Frozone
       # Methods that must return Crystal String (override RubyObject abstract defs)
       STRING_RETURN_METHODS = %i[to_s inspect].to_set
 
-      def emit_method_def(node)
+      def cr_method_def_lines(node)
         recv = node.receiver_node
         name = node.name
         string_return = STRING_RETURN_METHODS.include?(name)
-        # Method definition: don't translate to_s → ruby_to_s; emit as-is (Crystal protocol)
         crystal_name = string_return ? name.to_s : crystal_method_name(name)
-
-        if recv
-          write "def "
-          emit(recv)
-          write ".#{crystal_name}"
+        sig = recv ? "def #{cr(recv)}.#{crystal_name}" : "def #{crystal_name}"
+        sig += " : String" if string_return
+        sig += cr_param_list(node)
+        body = if string_return
+          ["(begin", *indent(cr_lines(node.body)), "end).to_s"]
         else
-          write "def #{crystal_name}"
+          cr_lines(node.body)
         end
-        write " : String" if string_return
-        emit_param_list(node)
-        emit_newline
-        if string_return
-          # Body may return RubyString; wrap in .to_s to produce Crystal String
-          indented do
-            write "(begin"
-            emit_newline
-            indented { emit(node.body) }
-            emit_newline
-            emit_indent
-            write "end).to_s"
-          end
-        else
-          indented { emit(node.body) }
-        end
-        emit_newline
-        emit_indent
-        write "end"
+        [sig, *indent(body), "end"]
       end
 
-      def emit_param_list(node)
+      def emit_method_def(node)
+        cr_method_def_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
+      end
+
+      def cr_param_list(node)
         parts = []
         node.required_params.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
         node.optional_params.each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
@@ -1183,80 +1168,69 @@ module Frozone
         req_kw = node.required_kw_params || []
         opt_kw = node.optional_kw_params || []
         kr = node.kw_rest_param
-        if (!req_kw.empty? || !opt_kw.empty?) && !rp
-          parts << "*"  # Crystal keyword-only separator
-        end
+        parts << "*" if (!req_kw.empty? || !opt_kw.empty?) && !rp
         req_kw.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
         opt_kw.each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
         parts << "**#{crystal_local(kr)}" if kr
         bp = node.block_param
         parts << "&#{crystal_local(bp)}" if bp
-        write "(#{parts.join(', ')})" unless parts.empty?
+        parts.empty? ? "" : "(#{parts.join(', ')})"
       end
+
+      def emit_param_list(node) = write cr_param_list(node)
 
       # -----------------------------------------------------------------------
       # Class / module definitions
       # -----------------------------------------------------------------------
 
-      def emit_class_def(node)
-        name     = crystal_constant(node.name)
-        sym_name = node.name
-        is_exc   = @exception_classes.include?(sym_name)
-        sc       = node.superclass_node
-
-        write "class Ruby_#{name}"
-        if is_exc
-          # Exception classes inherit from RubyException (< Exception) or a Ruby_ exc superclass
-          if sc && !EXCEPTION_BASE_NAMES.include?(sc.name.to_s)
-            write " < Ruby_#{crystal_constant(sc.name)}"
-          else
-            write " < RubyException"
-          end
-        elsif sc
-          write " < Ruby_#{crystal_constant(sc.name)}"
-        else
-          write " < RubyObject"
+      def cr_class_def_lines(node)
+        name = crystal_constant(node.name)
+        is_exc = @exception_classes.include?(node.name)
+        sc = node.superclass_node
+        parent = if is_exc
+          (sc && !EXCEPTION_BASE_NAMES.include?(sc.name.to_s)) ? "Ruby_#{crystal_constant(sc.name)}" : "RubyException"
+        elsif sc then "Ruby_#{crystal_constant(sc.name)}"
+        else "RubyObject"
         end
-        emit_newline
+        header = "class Ruby_#{name} < #{parent}"
 
         prev_exc = @in_exception_class
         @in_exception_class = is_exc
-
-        indented do
-          if is_exc
-            # Exception classes: ivar declarations + default message initializer
-            ivars = collect_ivars(node.body)
-            ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
-            emit_newline unless ivars.empty?
-            # Default no-arg initializer passes class name as message if not overridden
-            line "def initialize(msg : String = \"#{name}\"); super(msg); end" unless has_initialize?(node.body)
-          else
-            # Regular classes: ivars + class vars + default to_s/inspect/==
-            # Only emit default stubs if this class doesn't inherit from another user class
-            # (inheriting from a user class would override inherited to_s/inspect/==).
-            sc_name = sc.is_a?(Ast::ConstantRead) ? sc.name.to_s : nil
-            user_superclass = sc_name && !BUILTIN_SUPERCLASSES.include?(sc_name)
-            ivars = collect_ivars(node.body)
-            ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
-            cvars = collect_cvars(node.body)
-            cvars.each { |cv| line "#{cv} : RubyObject = RUBY_NIL" }
-            emit_newline unless ivars.empty? && cvars.empty?
-            unless user_superclass
-              line "def to_s : String; \"#<#{name}>\"; end"
-              line "def inspect : String; \"#<#{name}>\"; end"
-              line "def ==(other : RubyObject) : Bool; same?(other); end"
-              emit_newline
-            end
-          end
-          body = node.body
-          emit_indent
-          emit(body) unless body.is_a?(Ast::NilLiteral)
-        end
-
+        preamble = cr_class_preamble(name, node, is_exc, sc)
+        body = node.body
+        body_lines = body.is_a?(Ast::NilLiteral) ? [] : cr_lines(body)
         @in_exception_class = prev_exc
-        emit_newline
-        emit_indent
-        write "end"
+
+        [header, *indent(preamble + body_lines), "end"]
+      end
+
+      def cr_class_preamble(name, node, is_exc, sc)
+        lines = []
+        ivars = collect_ivars(node.body)
+        if is_exc
+          ivars.each { |iv| lines << "#{iv} : RubyObject = RUBY_NIL" }
+          lines << "" unless ivars.empty?
+          lines << "def initialize(msg : String = \"#{name}\"); super(msg); end" unless has_initialize?(node.body)
+        else
+          cvars = collect_cvars(node.body)
+          ivars.each { |iv| lines << "#{iv} : RubyObject = RUBY_NIL" }
+          cvars.each { |cv| lines << "#{cv} : RubyObject = RUBY_NIL" }
+          lines << "" unless ivars.empty? && cvars.empty?
+          sc_name = sc.is_a?(Ast::ConstantRead) ? sc.name.to_s : nil
+          unless sc_name && !BUILTIN_SUPERCLASSES.include?(sc_name)
+            lines.push(
+              "def to_s : String; \"#<#{name}>\"; end",
+              "def inspect : String; \"#<#{name}>\"; end",
+              "def ==(other : RubyObject) : Bool; same?(other); end",
+              ""
+            )
+          end
+        end
+        lines
+      end
+
+      def emit_class_def(node)
+        cr_class_def_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
       end
 
       # Returns true if the class body contains an explicit `initialize` method.
@@ -1271,14 +1245,14 @@ module Frozone
         end
       end
 
-      def emit_module_def(node)
-        write "module Ruby_#{crystal_constant(node.name)}"
-        emit_newline
+      def cr_module_def_lines(node)
         body = node.body
-        indented { emit(body) unless body.is_a?(Ast::NilLiteral) }
-        emit_newline
-        emit_indent
-        write "end"
+        body_lines = body.is_a?(Ast::NilLiteral) ? [] : cr_lines(body)
+        ["module Ruby_#{crystal_constant(node.name)}", *indent(body_lines), "end"]
+      end
+
+      def emit_module_def(node)
+        cr_module_def_lines(node).each_with_index { |l, i| emit_newline if i > 0; emit_indent if i > 0; write l }
       end
 
       # -----------------------------------------------------------------------
