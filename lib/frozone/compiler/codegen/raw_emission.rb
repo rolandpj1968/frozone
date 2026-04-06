@@ -19,7 +19,8 @@ module Frozone
       # Is this method name a simple accessor (getter for a typed ivar)?
       def accessor_method_name?(name) = @cctx.name && @gctx.typed_ivars.fetch(@cctx.name, {})[:"@#{name}"]
       def emit_coerce_f64(node) = node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_f64")
-      def emit_raw_args(args) = write args.map { |a| capture { emit_raw(a) } }.join(", ")
+      def raw_args(args) = args.map { |a| raw(a) }.join(", ")
+      def emit_raw_args(args) = write raw_args(args)
       def emit_raw_expr_args(args) = write args.map { |a| capture { emit_raw_expr(a) } }.join(", ")
 
       # Returns Type::I64, Type::F64, or nil for the provable bare Crystal type of a node.
@@ -177,172 +178,133 @@ module Frozone
         end
       end
 
-      # Emit a node as a bare Crystal numeric (Int64 or Float64).
+      # Return a bare Crystal numeric string (Int64 or Float64) for a node.
       # Only call when node_raw_type(node) is non-nil.
-      def emit_raw(node)
+      # Returns String — callers write the result.
+      def raw(node)
         case node
-        when Ast::And
-          # Emit as Crystal &&: both sides must produce Crystal-compatible booleans.
-          # Comparisons (CrystalEmitter::COMPARE_OPS) in emit_raw produce Crystal Bool already.
-          write "("
-          emit_raw(node.left_node)
-          write " && "
-          emit_raw(node.right_node)
-          write ")"
-        when Ast::Or
-          write "("
-          emit_raw(node.left_node)
-          write " || "
-          emit_raw(node.right_node)
-          write ")"
-        when Ast::IntegerLiteral
-          write "#{node.value.raw}_i64"
+        when Ast::And then "(#{raw(node.left_node)} && #{raw(node.right_node)})"
+        when Ast::Or  then "(#{raw(node.left_node)} || #{raw(node.right_node)})"
+        when Ast::IntegerLiteral then "#{node.value.raw}_i64"
         when Ast::FloatLiteral
-          raw = node.value
-          val = raw.respond_to?(:raw) ? raw.raw : raw
-          write float_bits_expr(val)
+          val = node.value.respond_to?(:raw) ? node.value.raw : node.value
+          float_bits_expr(val)
         when Ast::Sequence
-          # Transparent grouping — recurse raw on the semantically relevant last node.
           nodes = node.nodes
           if nodes.size == 1
-            emit_raw(nodes.first)
+            raw(nodes.first)
           else
-            write "("
-            nodes.each_with_index do |n, i|
-              write "; " if i > 0
-              i == nodes.size - 1 ? emit_raw(n) : emit(n)
-            end
-            write ")"
+            parts = nodes.each_with_index.map { |n, i| i == nodes.size - 1 ? raw(n) : capture { emit(n) } }
+            "(#{parts.join('; ')})"
           end
-        when Ast::LocalVariableRead
-          write crystal_local(node.name)
-        when Ast::InstanceVariableRead
-          write node.name.to_s
+        when Ast::LocalVariableRead then crystal_local(node.name)
+        when Ast::InstanceVariableRead then node.name.to_s
         when Ast::ConstantRead
           ty = @gctx.const_raw_types[node.name]
-          emit_constant_read(node)
-          # Array constants are already native — no coercion needed
-          write(ty.f64? ? ".to_f64" : ".to_i64") unless ty.nil? || ty == Type::ARRAY_I64 || ty == Type::ARRAY_F64
+          s = capture { emit_constant_read(node) }
+          (ty.nil? || ty == Type::ARRAY_I64 || ty == Type::ARRAY_F64) ? s : "#{s}#{ty.f64? ? '.to_f64' : '.to_i64'}"
         when Ast::ConstantPath
-          # Math::PI → Math::PI (already Float64 in Crystal)
           parent = node.parent_node
-          if parent.is_a?(Ast::ConstantRead) && parent.name == :Math
-            write "Math::#{node.name}"
-          else
-            emit(node)
-            write ".to_f64"
-          end
-        when Ast::MethodCall then emit_raw_call(node)
-        else emit(node)
+          (parent.is_a?(Ast::ConstantRead) && parent.name == :Math) ? "Math::#{node.name}" : "#{capture { emit(node) }}.to_f64"
+        when Ast::MethodCall then raw_call(node)
+        else capture { emit(node) }
         end
       end
 
+      # Backward compat — imperative callers that expect write side effect.
+      def emit_raw(node) = write raw(node)
+
       # Emit a MethodCall node as bare Crystal numeric in raw context.
-      def emit_raw_call(node)
+      # Return Crystal source for a MethodCall in raw context.
+      def raw_call(node)
         name = node.name
         recv = node.receiver_node
         args = node.arg_nodes || []
-        emit_raw_coercion(name, recv, args) ||
-          emit_raw_succ_pred(name, recv, args) ||
-          emit_raw_array_read(name, recv, args, node) ||
-          emit_raw_self_accessor(name, recv) ||
-          emit_raw_typed_free_call(name, recv, args, node) ||
-          emit_raw_class_instance_call(name, recv) ||
-          emit_raw_math_call(name, recv, args) ||
-          emit_raw_arithmetic(name, recv, args) ||
-          emit_raw_call_fallback(node, name, recv)
+        raw_coercion(name, recv) ||
+          raw_succ_pred(name, recv) ||
+          raw_array_read(name, recv, args, node) ||
+          raw_self_accessor(name, recv) ||
+          raw_typed_free_call(name, recv, args, node) ||
+          raw_class_instance_call(name, recv) ||
+          raw_math_call(name, recv, args) ||
+          raw_arithmetic(name, recv, args) ||
+          raw_call_fallback(node, name, recv)
       end
 
-      def emit_raw_coercion(name, recv, args)
-        return unless args.empty? && recv
-        if %i[to_f to_f64].include?(name)
-          emit_raw(recv); write ".to_f64" unless node_raw_type(recv)&.f64?; true
-        elsif %i[to_i to_i64].include?(name)
-          emit_raw(recv); write ".to_i64" unless node_raw_type(recv)&.i64?; true
+      def raw_coercion(name, recv)
+        return unless recv
+        if %i[to_f to_f64].include?(name) then node_raw_type(recv)&.f64? ? raw(recv) : "#{raw(recv)}.to_f64"
+        elsif %i[to_i to_i64].include?(name) then node_raw_type(recv)&.i64? ? raw(recv) : "#{raw(recv)}.to_i64"
         end
       end
 
-      def emit_raw_succ_pred(name, recv, args)
-        return unless (name == :succ || name == :pred) && args.empty? && node_raw_type(recv)&.i64?
-        write "("; emit_raw(recv); write(name == :succ ? " + 1_i64)" : " - 1_i64)"); true
+      def raw_succ_pred(name, recv)
+        return unless (name == :succ || name == :pred) && node_raw_type(recv)&.i64?
+        "(#{raw(recv)} #{name == :succ ? '+ 1_i64' : '- 1_i64'})"
       end
 
-      def emit_raw_array_read(name, recv, args, node)
+      def raw_array_read(name, recv, args, node)
         return unless name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
         arr_name = recv.name
-        if (nat_ty = native_array_elem_type(arr_name))
-          write crystal_local(arr_name), "["; emit_coerce_i64(args[0]); write "]"
+        idx = capture { emit_coerce_i64(args[0]) }
+        if native_array_elem_type(arr_name)
+          "#{crystal_local(arr_name)}[#{idx}]"
         elsif (elem_ty = @mctx.local_array_elems[arr_name])
-          write crystal_local(arr_name), "["; emit_coerce_i64(args[0]); write "]"
-          write elem_ty.f64? ? ".as(RubyFloat).to_f64" : ".as(RubyInteger).to_i64"
+          cast = elem_ty.f64? ? ".as(RubyFloat).to_f64" : ".as(RubyInteger).to_i64"
+          "#{crystal_local(arr_name)}[#{idx}]#{cast}"
         else
-          emit(node); return true
+          capture { emit(node) }
         end
-        true
       end
 
-      def emit_raw_self_accessor(name, recv)
+      def raw_self_accessor(name, recv)
         return unless recv.nil? && @cctx.name &&
           @gctx.instance_method_raw_returns[[@cctx.name, name]] && accessor_method_name?(name)
-        write "#{crystal_method_name(name)}_raw"; true
+        "#{crystal_method_name(name)}_raw"
       end
 
-      def emit_raw_typed_free_call(name, recv, args, node)
+      def raw_typed_free_call(name, recv, args, node)
         return unless recv.nil? && @gctx.typed_params[name]
-        write crystal_method_name(name), "("
-        emit_raw_args(args)
-        write ")"
+        s = "#{crystal_method_name(name)}(#{args.map { |a| raw(a) }.join(', ')})"
         unless @gctx.typed_method_returns[name]
           ret = node_raw_type(node)
-          write(ret&.f64? ? ".to_f64" : ".to_i64") if ret
+          s += (ret&.f64? ? ".to_f64" : ".to_i64") if ret
         end
-        true
+        s
       end
 
-      def emit_raw_class_instance_call(name, recv)
+      def raw_class_instance_call(name, recv)
         return unless recv.is_a?(Ast::LocalVariableRead)
         recv_class = @mctx.class_locals[recv.name] or return
         @gctx.instance_method_raw_returns[[recv_class, name]] or return
-        emit_raw(recv)
-        write ".as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(name)}_raw"
-        true
+        "#{raw(recv)}.as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(name)}_raw"
       end
 
-      def emit_raw_math_call(name, recv, args)
+      def raw_math_call(name, recv, args)
         return unless recv.is_a?(Ast::ConstantRead) && recv.name == :Math &&
           args.size >= 1 && args.all? { |a| node_raw_type(a) }
-        write "Math.#{name}("
-        emit_raw_args(args)
-        write ")"; true
+        "Math.#{name}(#{args.map { |a| raw(a) }.join(', ')})"
       end
 
-      def emit_raw_arithmetic(name, recv, args)
+      def raw_arithmetic(name, recv, args)
         return unless (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
         ty = (node_raw_type(recv)&.f64? || node_raw_type(args[0])&.f64?) ? Type::F64 : Type::I64
         op = (name == :/ && ty.i64?) ? "//" : name.to_s
-        write "("; emit_as(recv, ty); write " #{op} "; emit_as(args[0], ty); write ")"; true
+        "(#{raw_as(recv, ty)} #{op} #{raw_as(args[0], ty)})"
       end
 
-      def emit_raw_call_fallback(node, name, recv)
-        emit(node)
-        if recv.nil? && (ret = @gctx.typed_method_returns[name])
-          write(ret.f64? ? ".to_f64" : ".to_i64")
-        end
+      def raw_call_fallback(node, name, recv)
+        s = capture { emit(node) }
+        ret = @gctx.typed_method_returns[name] if recv.nil?
+        ret ? "#{s}#{ret.f64? ? '.to_f64' : '.to_i64'}" : s
       end
 
-      # Emit node coerced to the given raw type (Type::I64 or Type::F64).
-      # Recurses into arithmetic where at least one operand is typed.
-      def emit_as(node, ty)
+      # Return Crystal source for node coerced to the given raw type.
+      def raw_as(node, ty)
         nt = node_raw_type(node)
-        # Already the right type — emit raw
-        return emit_raw(node) if nt == ty
-        # Int64 → Float64 promotion
-        if nt&.i64? && ty.f64?
-          emit_raw(node)
-          write ".to_f64"
-          return
-        end
-        # Try to recurse into arithmetic with at least one typed operand
+        return raw(node) if nt == ty
+        return "#{raw(node)}.to_f64" if nt&.i64? && ty.f64?
+        # Recurse into arithmetic with at least one typed operand
         if node.is_a?(Ast::MethodCall)
           name = node.name
           recv = node.receiver_node
@@ -351,25 +313,19 @@ module Frozone
             rt = node_raw_type(recv)
             at = node_raw_type(args[0])
             if rt || at
-              write "("
-              emit_as(recv, ty)
               op = (name == :/ && ty.i64?) ? "//" : name.to_s
-              write " #{op} "
-              emit_as(args[0], ty)
-              write ")"
-              return
+              return "(#{raw_as(recv, ty)} #{op} #{raw_as(args[0], ty)})"
             end
           end
         end
         # Fallback: emit boxed and coerce.
-        # Wrap assignments in parens so (q1 = expr).to_i64 groups correctly.
-        if contains_assignment?(node)
-          write "("; emit(node); write ")"
-        else
-          emit(node)
-        end
-        write ty.f64? ? ".to_f64" : ".to_i64"
+        s = capture { emit(node) }
+        s = "(#{s})" if contains_assignment?(node)
+        "#{s}#{ty.f64? ? '.to_f64' : '.to_i64'}"
       end
+
+      # Backward compat — imperative callers.
+      def emit_as(node, ty) = write raw_as(node, ty)
 
       # Emit node coerced to Int64: raw if already typed, else .to_i64 on boxed.
       # Wrap assignments in parens so (q1 = expr).to_i64 groups correctly.
