@@ -177,6 +177,7 @@ module Frozone
         when Ast::Super              then cr_super(node)
         when Ast::Lambda             then cr_lambda(node)
         when Ast::AttributeWrite     then cr_attribute_write(node)
+        when Ast::MethodCall         then cr_method_call(node)
         when Ast::Retry              then "retry"
         else
           # Nodes without cr_* yet — capture at indent 0 for clean composition
@@ -222,12 +223,10 @@ module Frozone
         end
       end
 
-      # Imperative dispatch — handles nodes not yet converted to cr_*.
-      # Called by cr() via capture for unconverted nodes.
+      # Imperative dispatch — fallback for nodes not in cr() dispatch.
       def emit_node(node)
         case node
-        when Ast::MethodCall            then emit_method_call(node)
-        when Ast::Block                 then unsupported!(node, "bare Block outside method call")
+        when Ast::Block then unsupported!(node, "bare Block outside method call")
         else unsupported!(node)
         end
       end
@@ -468,6 +467,15 @@ module Frozone
       end
 
       def emit_attribute_write(node) = write cr_attribute_write(node)
+
+      # Default cr_method_call — falls through to imperative emit_method_call.
+      # Subclasses (Codegen) override this to add optimized paths.
+      def cr_method_call(node)
+        saved = @indent; @indent = 0
+        s = capture { emit_method_call(node) }
+        @indent = saved
+        s
+      end
 
       def emit_operator(node, name)
         if UNARY_OPS.include?(name)

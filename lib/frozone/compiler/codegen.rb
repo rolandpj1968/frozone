@@ -1395,6 +1395,8 @@ module Frozone
         s ? write(s) : super
       end
 
+      def cr_method_call(node) = cr_method_call_optimized(node) || super
+
       # Functional dispatch: try each cr_try_* helper, return first non-nil String, else nil.
       def cr_method_call_optimized(node)
         cr_try_ivar_array_access(node) ||
