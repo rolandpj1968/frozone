@@ -423,13 +423,10 @@ module Frozone
       def emit_method_call(node) = write cr_method_call(node)
 
       # Capture-wrapper helpers for emitters not yet converted
-      def cr_require_call(node) = capture { emit_require_call(node) }
       def cr_loop(node) = capture { emit_loop(node) }
-      def cr_attr_methods(node, **kw) = capture { emit_attr_methods(node, **kw) }
       def cr_operator(node, name) = capture { emit_operator(node, name) }
       def cr_proc_new(blk) = capture { emit_proc_new(blk) }
       def cr_proc_call(node) = capture { emit_proc_call(node) }
-      def cr_call_args(node) = capture { emit_call_args(node) }
 
       BINARY_OPS = %i[+ - * / % ** == != < <= > >= <=> << >> & | ^ === =~].to_set
       UNARY_OPS  = %i[-@ +@ ~ !].to_set
@@ -577,98 +574,63 @@ module Frozone
 
       def emit_super(node) = write cr_super(node)
 
-      def emit_require_call(node)
-        # Silently drop require calls — closed world, all files already compiled.
-        write "# require #{node.arg_nodes[0].inspect} (dropped — closed world)"
-      end
+      def cr_require_call(node) = "# require #{node.arg_nodes[0].inspect} (dropped — closed world)"
 
       # attr_accessor/attr_reader/attr_writer :name, :other, ...
-      # Emits Crystal getter and/or setter methods for each symbol arg.
-      def emit_attr_methods(node, reader:, writer:)
-        first = true
-        node.arg_nodes.each do |sym|
-          next unless sym.is_a?(Ast::SymbolLiteral)
+      def cr_attr_methods(node, reader:, writer:)
+        node.arg_nodes.flat_map { |sym|
+          next [] unless sym.is_a?(Ast::SymbolLiteral)
           name = sym.value.to_s
-          if first
-            first = false
-          else
-            emit_newline
-            emit_indent
-          end
-          if reader
-            write "def #{name} : RubyObject; @#{name}; end"
-          end
-          if writer
-            emit_newline; emit_indent if reader
-            write "def #{name}=(val : RubyObject) : RubyObject; @#{name} = val; val; end"
-          end
-        end
+          methods = []
+          methods << "def #{name} : RubyObject; @#{name}; end" if reader
+          methods << "def #{name}=(val : RubyObject) : RubyObject; @#{name} = val; val; end" if writer
+          methods
+        }.join("\n#{'  ' * @indent}")
       end
 
-      def emit_call_args(node)
-        return if node.arg_nodes.empty? && node.kw_arg_nodes.empty? && node.block_node.nil?
-
-        write "("
-        first = true
-        node.arg_nodes.each do |arg|
-          write ", " unless first
-          first = false
-          if arg.is_a?(Ast::SplatArg)
-            # SplatArg: Crystal can't splat Array (only Tuple); emit unsupported marker
-            write "# UNSUPPORTED_SPLAT("
-            emit(arg.value_node)
-            write ")"
-          else
-            emit(arg)
-          end
-        end
+      def cr_call_args(node)
+        return "" if node.arg_nodes.empty? && node.kw_arg_nodes.empty? && node.block_node.nil?
+        parts = node.arg_nodes.map { |arg|
+          arg.is_a?(Ast::SplatArg) ? "# UNSUPPORTED_SPLAT(#{cr(arg.value_node)})" : cr(arg)
+        }
         node.kw_arg_nodes.each do |kw_name, val_node|
-          write ", " unless first
-          first = false
           key = kw_name.is_a?(Ast::SymbolLiteral) ? kw_name.value : kw_name
-          write "#{key}: "
-          emit(val_node)
+          parts << "#{key}: #{cr(val_node)}"
         end
-        write ")"
-
+        result = "(#{parts.join(', ')})"
         if node.block_node
-          write " "
-          if node.block_node.is_a?(Ast::BlockArg)
-            emit_block_arg(node.block_node)
-          else
-            emit_block(node.block_node)
-          end
+          blk = node.block_node.is_a?(Ast::BlockArg) ? cr_block_arg(node.block_node) : cr_block(node.block_node)
+          result += " #{blk}"
         end
+        result
       end
+
+      def emit_require_call(node) = write cr_require_call(node)
+      def emit_attr_methods(node, reader:, writer:) = write cr_attr_methods(node, reader: reader, writer: writer)
+      def emit_call_args(node) = write cr_call_args(node)
 
       # -----------------------------------------------------------------------
       # Block
       # -----------------------------------------------------------------------
 
-      def emit_block(node)
+      def cr_block(node)
         params = (node.required_params || []) + (node.optional_params || []).map(&:first)
         params += [node.rest_param].compact
-        write "{ "
-        unless params.empty?
-          write "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
-        end
-        emit(node.body)
-        write " }"
+        param_str = params.empty? ? "" : "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
+        "{ #{param_str}#{cr(node.body)} }"
       end
 
-      # &:method — emit as a single-arg block that calls the method
-      def emit_block_arg(block_arg_node)
+      def cr_block_arg(block_arg_node)
         value_node = block_arg_node.value_node
         if value_node.is_a?(Ast::SymbolLiteral)
-          method_name = crystal_method_name(value_node.value)
-          # Wrap with .as(RubyObject) to avoid Crystal type-union issues when
-          # the same method name exists on multiple types with different return types
-          write "{ |_sym2proc| _sym2proc.#{method_name}.as(RubyObject) }"
+          "{ |_sym2proc| _sym2proc.#{crystal_method_name(value_node.value)}.as(RubyObject) }"
         else
-          # Generic block-pass: convert to a Proc and call it
-          write "{ |_blkarg| ("; emit(value_node); write ").as(RubyProc).call(_blkarg) }"
+          "{ |_blkarg| (#{cr(value_node)}).as(RubyProc).call(_blkarg) }"
         end
       end
+
+      def emit_block(node) = write cr_block(node)
+      def emit_block_arg(node) = write cr_block_arg(node)
 
       # -----------------------------------------------------------------------
       # Control flow
