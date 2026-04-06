@@ -243,7 +243,7 @@ module Frozone
       # Return lines for a block body that may need boxing on the last expression.
       def native_block_body_lines(node)
         if node.is_a?(Ast::Sequence) && node.nodes.size > 1
-          leading = node.nodes[0..-2].map { |n| capture { emit(n) } }
+          leading = node.nodes[0..-2].map { |n| cr(n) }
           leading + native_block_body_lines(node.nodes.last)
         else
           expr = node.is_a?(Ast::Sequence) ? node.nodes.first : node
@@ -252,7 +252,7 @@ module Frozone
             box = rt.f64? ? "RubyFloat" : "RubyInteger"
             ["#{box}.new(#{raw(expr)})"]
           else
-            [capture { emit(expr || node) }]
+            [cr(expr || node)]
           end
         end
       end

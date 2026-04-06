@@ -136,25 +136,55 @@ module Frozone
       # Top-level dispatch
       # -----------------------------------------------------------------------
 
-      def emit(node)
+      # Return Crystal source string for an AST node.
+      # Inline nodes return a single string. Structural nodes (if, while, etc.)
+      # return a string with embedded \n — callers split if they need lines.
+      # This is the functional core; emit(node) is the write wrapper.
+      def cr(node)
+        case node
+        when Ast::NilLiteral         then cr_nil
+        when Ast::TrueLiteral        then cr_true
+        when Ast::FalseLiteral       then cr_false
+        when Ast::IntegerLiteral     then cr_integer(node)
+        when Ast::FloatLiteral       then cr_float(node)
+        when Ast::StringLiteral      then cr_string(node)
+        when Ast::SymbolLiteral      then cr_symbol(node)
+        when Ast::SelfLiteral        then cr_self
+        when Ast::LocalVariableRead  then cr_local_read(node)
+        when Ast::InstanceVariableRead then cr_ivar_read(node)
+        when Ast::ConstantRead       then cr_constant_read(node)
+        when Ast::ClassVariableRead  then cr_class_var_read(node)
+        when Ast::And                then cr_and(node)
+        when Ast::Or                 then cr_or(node)
+        when Ast::ArrayLiteral       then cr_array_literal(node)
+        when Ast::HashLiteral        then cr_hash_literal(node)
+        when Ast::RangeLiteral       then cr_range_literal(node)
+        when Ast::InterpolatedString then cr_interpolated_string(node)
+        when Ast::Return             then cr_return(node)
+        when Ast::Next               then cr_next(node)
+        when Ast::Break              then cr_break(node)
+        when Ast::GlobalVariableRead then cr_global_var_read(node)
+        when Ast::Retry              then "retry"
+        else
+          # Nodes without cr_* yet — delegate to imperative emit and capture
+          capture { emit_node(node) }
+        end
+      end
+
+      # Write Crystal source for an AST node to the output buffer.
+      # First line at current position (caller handles indent); subsequent lines
+      # get emit_indent. This is the backward-compat wrapper.
+      def emit(node) = write cr(node)
+
+      # Imperative dispatch — handles nodes not yet converted to cr_*.
+      # Called by cr() via capture for unconverted nodes.
+      def emit_node(node)
         case node
         when Ast::Sequence              then emit_sequence(node)
-        when Ast::NilLiteral            then emit_nil_literal
-        when Ast::TrueLiteral           then emit_true_literal
-        when Ast::FalseLiteral          then emit_false_literal
-        when Ast::IntegerLiteral        then emit_integer_literal(node)
-        when Ast::FloatLiteral          then emit_float_literal(node)
-        when Ast::StringLiteral         then emit_string_literal(node)
-        when Ast::SymbolLiteral         then emit_symbol_literal(node)
-        when Ast::SelfLiteral           then emit_self_literal
-        when Ast::LocalVariableRead     then emit_local_var_read(node)
         when Ast::LocalVariableWrite    then emit_local_var_write(node)
-        when Ast::InstanceVariableRead  then emit_ivar_read(node)
         when Ast::InstanceVariableWrite then emit_ivar_write(node)
-        when Ast::ConstantRead          then emit_constant_read(node)
         when Ast::ConstantPath          then emit_constant_path(node)
         when Ast::ConstantWrite         then emit_constant_write(node)
-        when Ast::ClassVariableRead     then emit_class_var_read(node)
         when Ast::ClassVariableWrite    then emit_class_var_write(node)
         when Ast::Yield                 then emit_yield(node)
         when Ast::MethodCall            then emit_method_call(node)
@@ -165,30 +195,18 @@ module Frozone
         when Ast::If                    then emit_if(node)
         when Ast::While                 then emit_while(node)
         when Ast::Until                 then emit_until(node)
-        when Ast::Return                then emit_return(node)
-        when Ast::And                   then emit_and(node)
-        when Ast::Or                    then emit_or(node)
-        when Ast::ArrayLiteral          then emit_array_literal(node)
-        when Ast::HashLiteral           then emit_hash_literal(node)
-        when Ast::InterpolatedString    then emit_interpolated_string(node)
         when Ast::Rescue                then emit_rescue(node)
-        when Ast::Retry                 then write "retry"
         when Ast::Super                 then emit_super(node)
         when Ast::Case                  then emit_case(node)
-        when Ast::Next                  then emit_next(node)
-        when Ast::Break                 then emit_break(node)
-        when Ast::RangeLiteral          then emit_range_literal(node)
         when Ast::MultipleAssignment    then emit_multiple_assignment(node)
         when Ast::Lambda                then emit_lambda(node)
-        when Ast::GlobalVariableRead    then emit_global_var_read(node)
         when Ast::GlobalVariableWrite   then emit_global_var_write(node)
         when Ast::IndexOrWrite          then emit_index_or_write(node)
         when Ast::IndexOperatorWrite    then emit_index_op_write(node)
         when Ast::IndexAndWrite         then emit_index_and_write(node)
         when Ast::ForLoop               then emit_for_loop(node)
         when Ast::Block                 then unsupported!(node, "bare Block outside method call")
-        else
-          unsupported!(node)
+        else unsupported!(node)
         end
       end
 
@@ -797,16 +815,16 @@ module Frozone
         write "end"
       end
 
-      def cr_return(node) = node.value_node ? "return #{capture { emit(node.value_node) }}" : "return"
+      def cr_return(node) = node.value_node ? "return #{cr(node.value_node)}" : "return"
 
       def cr_next(node)
         val = node.value_node
-        (val.nil? || val.is_a?(Ast::NilLiteral)) ? "next" : "next (#{capture { emit(val) }})"
+        (val.nil? || val.is_a?(Ast::NilLiteral)) ? "next" : "next (#{cr(val)})"
       end
 
       def cr_break(node)
         val = node.value_node
-        (val.nil? || val.is_a?(Ast::NilLiteral)) ? "break" : "break (#{capture { emit(val) }})"
+        (val.nil? || val.is_a?(Ast::NilLiteral)) ? "break" : "break (#{cr(val)})"
       end
 
       def emit_return(node) = write cr_return(node)
@@ -967,12 +985,12 @@ module Frozone
       # when the result is used as a Crystal condition.
       def cr_and(node)
         tmp = "_and#{@temp_counter}"; @temp_counter += 1
-        "(#{tmp} = #{capture { emit(node.left_node) }}; #{tmp}.truthy? ? (#{capture { emit(node.right_node) }}) : #{tmp})"
+        "(#{tmp} = #{cr(node.left_node)}; #{tmp}.truthy? ? (#{cr(node.right_node)}) : #{tmp})"
       end
 
       def cr_or(node)
         tmp = "_or#{@temp_counter}"; @temp_counter += 1
-        "(#{tmp} = #{capture { emit(node.left_node) }}; #{tmp}.truthy? ? #{tmp} : (#{capture { emit(node.right_node) }}))"
+        "(#{tmp} = #{cr(node.left_node)}; #{tmp}.truthy? ? #{tmp} : (#{cr(node.right_node)}))"
       end
 
       def emit_and(node) = write cr_and(node)
@@ -1163,20 +1181,20 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def cr_array_literal(node)
-        elems = node.element_nodes.map { |el| capture { emit(el) } }.join(", ")
+        elems = node.element_nodes.map { |el| cr(el) }.join(", ")
         "RubyArray.new([#{elems}] of RubyObject)"
       end
 
       def cr_hash_literal(node)
         pairs = node.kv_nodes
         return "RubyHash.new" if pairs.empty?
-        stores = pairs.map { |k, v| "_h.store(#{capture { emit(k) }}, #{capture { emit(v) }})" }.join("; ")
+        stores = pairs.map { |k, v| "_h.store(#{cr(k)}, #{cr(v)})" }.join("; ")
         "RubyHash.new.tap { |_h| #{stores} }"
       end
 
       def cr_range_literal(node)
-        b = node.begin_node ? capture { emit(node.begin_node) } : "RUBY_NIL"
-        e = node.end_node ? capture { emit(node.end_node) } : "RUBY_NIL"
+        b = node.begin_node ? cr(node.begin_node) : "RUBY_NIL"
+        e = node.end_node ? cr(node.end_node) : "RUBY_NIL"
         "RubyRange.new(#{b}, #{e}, #{node.exclusive})"
       end
 
@@ -1259,7 +1277,7 @@ module Frozone
         parts = node.parts.map { |part|
           case part
           when Ast::StringLiteral then "_s << #{crystal_string_literal(part.value.raw)}"
-          else "_s << (#{capture { emit(part) }}).to_s"
+          else "_s << (#{cr(part)}).to_s"
           end
         }
         "RubyString.new(String.build { |_s| #{parts.join('; ')} })"
