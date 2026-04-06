@@ -1391,23 +1391,48 @@ module Frozone
       end
 
       def emit_method_call(node)
-        try_ivar_array_access(node) ||
-          try_constant_fold(node) ||
-          try_native_array_new(node) ||
-          try_native_iteration(node) ||
-          try_typed_instance_call(node) ||
-          try_native_array_method(node) ||
-          try_array_push(node) ||
-          try_native_array_read(node) ||
-          try_boxed_array_read(node) ||
-          try_raw_index_read(node) ||
-          try_specialized_free_call(node) ||
-          try_eigen_dispatch(node) ||
-          try_typed_free_call(node) ||
-          try_devirtualized_call(node) ||
-          try_raw_arithmetic(node) ||
-          super
+        s = cr_method_call_optimized(node)
+        s ? write(s) : super
       end
+
+      # Functional dispatch: try each cr_try_* helper, return first non-nil String, else nil.
+      def cr_method_call_optimized(node)
+        cr_try_ivar_array_access(node) ||
+          cr_try_constant_fold(node) ||
+          cr_try_native_array_new(node) ||
+          cr_try_native_iteration(node) ||
+          cr_try_typed_instance_call(node) ||
+          cr_try_native_array_method(node) ||
+          cr_try_array_push(node) ||
+          cr_try_native_array_read(node) ||
+          cr_try_boxed_array_read(node) ||
+          cr_try_raw_index_read(node) ||
+          cr_try_specialized_free_call(node) ||
+          cr_try_eigen_dispatch(node) ||
+          cr_try_typed_free_call(node) ||
+          cr_try_devirtualized_call(node) ||
+          cr_try_raw_arithmetic(node)
+      end
+
+      # Wrap an imperative try_* body: capture its writes and return the String,
+      # or nil if the helper didn't emit anything (i.e., not applicable).
+      def cr_try(&blk) = (s = capture(&blk); s.empty? ? nil : s)
+
+      def cr_try_ivar_array_access(node) = cr_try { try_ivar_array_access(node) }
+      def cr_try_constant_fold(node) = cr_try { try_constant_fold(node) }
+      def cr_try_native_array_new(node) = cr_try { try_native_array_new(node) }
+      def cr_try_native_iteration(node) = cr_try { try_native_iteration(node) }
+      def cr_try_typed_instance_call(node) = cr_try { try_typed_instance_call(node) }
+      def cr_try_native_array_method(node) = cr_try { try_native_array_method(node) }
+      def cr_try_array_push(node) = cr_try { try_array_push(node) }
+      def cr_try_native_array_read(node) = cr_try { try_native_array_read(node) }
+      def cr_try_boxed_array_read(node) = cr_try { try_boxed_array_read(node) }
+      def cr_try_raw_index_read(node) = cr_try { try_raw_index_read(node) }
+      def cr_try_specialized_free_call(node) = cr_try { try_specialized_free_call(node) }
+      def cr_try_eigen_dispatch(node) = cr_try { try_eigen_dispatch(node) }
+      def cr_try_typed_free_call(node) = cr_try { try_typed_free_call(node) }
+      def cr_try_devirtualized_call(node) = cr_try { try_devirtualized_call(node) }
+      def cr_try_raw_arithmetic(node) = cr_try { try_raw_arithmetic(node) }
 
       # @list.fetch(i) or @list[i] on native array ivar → box result for RubyObject context
       def try_ivar_array_access(node)
