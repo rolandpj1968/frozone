@@ -723,20 +723,20 @@ module Frozone
         if bool_return
           indented do
             write "((begin"; emit_newline
-            indented { emit(body) }
+            indented { emit_indent; emit(body) }
             emit_newline; emit_indent; write "end) || RUBY_NIL).truthy?"
           end
         elsif string_return
           indented do
             write "(begin"; emit_newline
-            indented { emit(body) }
+            indented { emit_indent; emit(body) }
             emit_newline; emit_indent; write "end).to_s"
           end
         elsif raw_return
-          indented { emit_raw_expr(body) }
+          indented { emit_indent; emit_raw_expr(body) }
         else
           @mctx.emit_crystal_tuple = @cc.masgn_return_methods&.include?(name)
-          indented { emit(body) }
+          indented { emit_indent; emit(body) }
           @mctx.emit_crystal_tuple = false
         end
       end

@@ -248,16 +248,21 @@ module Frozone
         (@gctx.locals[mkey] || @gctx.locals[mname] || {}).each { |l, ty| locals[l] = ty unless param_set.include?(l) }
         infer_local_types(method.body).each { |l, ty| locals[l] ||= ty unless param_set.include?(l) }
         native_arrays = {}
+        class_locals = (@gctx.class_locals[mkey] || @gctx.class_locals[mname] || {}).dup
         if crystal_param_types
           req_params.each_with_index do |p, i|
             pt = crystal_param_types[i]
-            native_arrays[p] = pt.elem if (pt.array? || pt.array_scalar?) && pt.elem&.raw?
+            if (pt.array? || pt.array_scalar?) && pt.elem&.raw?
+              native_arrays[p] = pt.elem
+            elsif pt.class_type? && !pt.bottom?
+              class_locals[p] = pt.class_name
+            end
           end
         end
         RawEmission::RawCtx.new(
           typed_locals: locals.freeze,
           raw_block_params: {},
-          class_locals: (@gctx.class_locals[mkey] || @gctx.class_locals[mname] || {}).freeze,
+          class_locals: class_locals.freeze,
           local_array_elems: {},
           typed_array_locals: (@gctx.arrays[mkey] || @gctx.arrays[mname] || {}).reject { |k, _| param_set.include?(k) }.freeze,
           native_array_locals: native_arrays.freeze,
