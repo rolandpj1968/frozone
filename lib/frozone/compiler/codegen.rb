@@ -1688,78 +1688,67 @@ module Frozone
       end
 
       # Override: for []= with typed array or raw-typed index, emit accordingly.
-      def emit_attribute_write(node)
-        if node.name == :[]=
-          args = node.arg_nodes
-          recv = node.receiver_node
-          # Ivar array write: @list[i] = val where @list is Array(Float64)
-          if recv.is_a?(Ast::InstanceVariableRead) && args&.size == 2
-            iv_name = recv.name
-            iv_ty = @cctx&.ivars&.dig(iv_name)
-            if iv_ty == Type::ARRAY_F64 || iv_ty == Type::ARRAY_I64
-              write recv.name.to_s, "["
-              emit_coerce_i64(args[0])
-              write "] = "
-              iv_ty == Type::ARRAY_F64 ? emit_coerce_f64(args[1]) : emit_coerce_i64(args[1])
-              return
-            end
-          end
-          # Unboxed/native Array(T) write: emit value as bare native type
-          if recv.is_a?(Ast::LocalVariableRead) &&
-             (arr_ty = native_array_elem_type(recv.name)) &&
-             args&.size == 2
-            recv_name = recv.name
-            if args[0].is_a?(Ast::RangeLiteral)
-              # Range slice assignment: q[0..-1] = p → Crystal native slice
-              begin_node = args[0].begin_node
-              end_node = args[0].end_node
-              exclusive = args[0].exclusive
-              write crystal_local(recv_name), "["
-              emit_coerce_i64(begin_node)
-              write exclusive ? "..." : ".."
-              emit_coerce_i64(end_node)
-              write "] = "
-              emit(args[1])
-            else
-              write crystal_local(recv_name), "["
-              emit_coerce_i64(args[0])
-              write "] = "
-              emit_as(args[1], arr_ty)
-            end
-            return
-          end
-          # Boxed RubyArray with known elem type: box raw value on write
-          if recv.is_a?(Ast::LocalVariableRead) &&
-             (elem_ty = @mctx.local_array_elems[recv.name]) &&
-             args&.size == 2 && node_raw_type(args[1])
-            box = elem_ty.f64? ? "RubyFloat" : "RubyInteger"
-            emit(recv)
-            write "["
-            emit_coerce_i64(args[0])
-            write "] = #{box}.new("
-            emit_raw(args[1])
-            write ")"
-            return
-          end
-          # Non-typed array with raw-typed index: use Int64 overload
-          if node_raw_type(args&.first)
-            emit(recv)
-            write "["
-            emit_raw(args[0])
-            write "] = "
-            val = args[1]
-            vt = node_raw_type(val)
-            if vt&.i64?
-              write "RubyInteger.new("; emit_raw(val); write ")"
-            elsif vt&.f64?
-              write "RubyFloat.new("; emit_raw(val); write ")"
-            else
-              emit(val)
-            end
-            return
+      def cr_attribute_write(node)
+        try_cr_attribute_write_optimized(node) || cr_attribute_write_default(node)
+      end
+
+      def cr_attribute_write_default(node)
+        name = node.name
+        recv = node.receiver_node
+        args = node.arg_nodes
+        if name == :[]=
+          "#{cr(recv)}[#{cr(args[0])}] = #{cr(args[1])}"
+        else
+          "#{cr(recv)}.#{name.to_s.chomp('=')} = #{cr(args[0])}"
+        end
+      end
+
+      def emit_attribute_write(node) = write cr_attribute_write(node)
+
+      def try_cr_attribute_write_optimized(node)
+        return unless node.name == :[]=
+        args = node.arg_nodes
+        recv = node.receiver_node
+        return unless args&.size == 2
+
+        # Ivar array write: @list[i] = val where @list is Array(Float64/Int64)
+        if recv.is_a?(Ast::InstanceVariableRead)
+          iv_ty = @cctx&.ivars&.dig(recv.name)
+          if iv_ty == Type::ARRAY_F64 || iv_ty == Type::ARRAY_I64
+            val = iv_ty == Type::ARRAY_F64 ? coerce_f64(args[1]) : coerce_i64(args[1])
+            return "#{recv.name}[#{coerce_i64(args[0])}] = #{val}"
           end
         end
-        super
+
+        if recv.is_a?(Ast::LocalVariableRead)
+          # Unboxed/native Array(T) write
+          if (arr_ty = native_array_elem_type(recv.name))
+            if args[0].is_a?(Ast::RangeLiteral)
+              r = args[0]
+              op = r.exclusive ? "..." : ".."
+              return "#{crystal_local(recv.name)}[#{coerce_i64(r.begin_node)}#{op}#{coerce_i64(r.end_node)}] = #{cr(args[1])}"
+            else
+              return "#{crystal_local(recv.name)}[#{coerce_i64(args[0])}] = #{raw_as(args[1], arr_ty)}"
+            end
+          end
+          # Boxed RubyArray with known elem type
+          if (elem_ty = @mctx.local_array_elems[recv.name]) && node_raw_type(args[1])
+            box = elem_ty.f64? ? "RubyFloat" : "RubyInteger"
+            return "#{cr(recv)}[#{coerce_i64(args[0])}] = #{box}.new(#{raw(args[1])})"
+          end
+        end
+
+        # Non-typed array with raw-typed index
+        if node_raw_type(args.first)
+          val = args[1]
+          vt = node_raw_type(val)
+          val_s = if vt&.i64? then "RubyInteger.new(#{raw(val)})"
+                  elsif vt&.f64? then "RubyFloat.new(#{raw(val)})"
+                  else cr(val)
+                  end
+          return "#{cr(recv)}[#{raw(args[0])}] = #{val_s}"
+        end
+        nil
       end
 
       # Override: for comparisons with at least one raw-typed operand, use bare

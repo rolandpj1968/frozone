@@ -176,6 +176,7 @@ module Frozone
         when Ast::Yield              then cr_yield(node)
         when Ast::Super              then cr_super(node)
         when Ast::Lambda             then cr_lambda(node)
+        when Ast::AttributeWrite     then cr_attribute_write(node)
         when Ast::Retry              then "retry"
         else
           # Nodes without cr_* yet — capture at indent 0 for clean composition
@@ -226,7 +227,6 @@ module Frozone
       def emit_node(node)
         case node
         when Ast::MethodCall            then emit_method_call(node)
-        when Ast::AttributeWrite        then emit_attribute_write(node)
         when Ast::Block                 then unsupported!(node, "bare Block outside method call")
         else unsupported!(node)
         end
@@ -456,25 +456,18 @@ module Frozone
       def operator?(name) = BINARY_OPS.include?(name) || UNARY_OPS.include?(name)
 
       # AttributeWrite: obj.foo = val (setter) or obj[i] = val (index assign)
-      def emit_attribute_write(node)
+      def cr_attribute_write(node)
         name = node.name
         recv = node.receiver_node
         args = node.arg_nodes
         if name == :[]=
-          # Index assignment: receiver[idx] = val
-          emit(recv)
-          write "["
-          emit(args[0])
-          write "] = "
-          emit(args[1])
+          "#{cr(recv)}[#{cr(args[0])}] = #{cr(args[1])}"
         else
-          # Setter method: receiver.foo = val
-          setter_name = name.to_s.chomp('=')
-          emit(recv)
-          write ".#{setter_name} = "
-          emit(args[0])
+          "#{cr(recv)}.#{name.to_s.chomp('=')} = #{cr(args[0])}"
         end
       end
+
+      def emit_attribute_write(node) = write cr_attribute_write(node)
 
       def emit_operator(node, name)
         if UNARY_OPS.include?(name)
