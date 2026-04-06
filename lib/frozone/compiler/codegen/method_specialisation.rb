@@ -138,32 +138,29 @@ module Frozone
         req_params = method.required_params || []
         return unless req_params.size == param_types.size
 
-        parts = req_params.zip(param_types).map { |p, ty| "#{crystal_local(p)} : #{ty.to_crystal}" }
+        sig = req_params.zip(param_types).map { |p, ty| "#{crystal_local(p)} : #{ty.to_crystal}" }.join(', ')
+        ctx = specialized_raw_ctx(name, method, req_params, param_types)
+        body_lines = raw_lines(method.body, ctx)
+        write ["def #{crystal_method_name(name)}(#{sig}) : #{return_type.to_crystal}",
+               *indent(body_lines),
+               "end"].join("\n#{' ' * (@indent * 2)}")
+      end
 
-        write "def #{crystal_method_name(name)}(#{parts.join(', ')}) : #{return_type.to_crystal}"
-        emit_newline
-
-        old_typed = @mctx.typed_locals
-        old_typed_arr = @mctx.typed_array_locals
+      # Build a RawCtx for a specialized method — no mutation of @mctx.
+      def specialized_raw_ctx(mkey, method, req_params, param_types)
         param_set = req_params.to_set
-        # Start with param types, add TI-inferred locals, then infer from literals.
-        @mctx.typed_locals = req_params.zip(param_types).to_h
-        (@gctx.locals[name] || {}).each do |lname, ty|
-          @mctx.typed_locals[lname] = ty unless param_set.include?(lname)
-        end
-        # Infer types from literal assignments for locals TI didn't cover
-        infer_local_types(method.body).each do |lname, ty|
-          @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
-        end
-        # Populate typed array locals from TI (non-param only).
-        @mctx.typed_array_locals = (@gctx.arrays[name] || {}).reject { |k, _| param_set.include?(k) }
-        indented { emit_raw_expr(method.body) }
-        @mctx.typed_locals = old_typed
-        @mctx.typed_array_locals = old_typed_arr
-
-        emit_newline
-        emit_indent
-        write "end"
+        locals = req_params.zip(param_types).to_h
+        (@gctx.locals[mkey] || {}).each { |lname, ty| locals[lname] = ty unless param_set.include?(lname) }
+        infer_local_types(method.body).each { |lname, ty| locals[lname] ||= ty unless param_set.include?(lname) }
+        RawEmission::RawCtx.new(
+          typed_locals: locals.freeze,
+          raw_block_params: {},
+          class_locals: {},
+          local_array_elems: {},
+          typed_array_locals: (@gctx.arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }.freeze,
+          native_array_locals: {},
+          ivars: (@cctx&.ivars || {})
+        ).freeze
       end
 
       # Emit a specialized (typed) class method overload.
