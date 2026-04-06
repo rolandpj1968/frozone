@@ -22,7 +22,6 @@ module Frozone
       def emit_coerce_f64(node) = write coerce_f64(node)
       def raw_args(args) = args.map { |a| raw(a) }.join(", ")
       def emit_raw_args(args) = write raw_args(args)
-      def emit_raw_expr_args(args) = write args.map { |a| capture { emit_raw_expr(a) } }.join(", ")
 
       # Returns Type::I64, Type::F64, or nil for the provable bare Crystal type of a node.
       def node_raw_type(node)
@@ -392,9 +391,9 @@ module Frozone
             end
           end
         when Ast::MethodCall
-          # Try raw paths first, fall back to normal emit for RubyObject methods
-          unless emit_raw_method_call(node)
-            emit(node)
+          result = raw_expr_call(node)
+          if result.is_a?(String) then write result
+          elsif !result then emit(node)
           end
         when Ast::AttributeWrite
           # @list[i] = val on typed array ivars
@@ -469,132 +468,115 @@ module Frozone
       def emit_raw_truthy(node) = write raw_truthy(node)
 
       # Try to emit a method call in raw mode. Returns true if handled.
-      def emit_raw_method_call(node)
+      # Try to produce Crystal source for a method call in raw_expr context.
+      # Returns String or nil (unhandled — caller falls back to emit).
+      def raw_expr_call(node)
         name = node.name
         recv = node.receiver_node
         args = node.arg_nodes || []
-
-        # Math.cos, Math.sin, etc.
-        if recv.is_a?(Ast::ConstantRead) && recv.name == :Math
-          write "Math.#{name}("
-          emit_raw_expr_args(args)
-          write ")"
-          return true
-        end
-
-        # Arithmetic/comparison with raw operands
-        if (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
-          # Crystal uses // for integer division (Ruby's / on integers)
-          op = (name == :/ && node_raw_type(recv)&.i64? && node_raw_type(args[0])&.i64?) ? "//" : name.to_s
-          write "("; emit_raw_expr(recv); write " #{op} "; emit_raw_expr(args[0]); write ")"
-          return true
-        end
-
-        # .to_f / .to_f64 / .to_i / .to_i64
-        if %i[to_f to_f64].include?(name) && args.empty? && recv
-          emit_raw_expr(recv); write ".to_f64"
-          return true
-        end
-        if %i[to_i to_i64].include?(name) && args.empty? && recv
-          emit_raw_expr(recv); write ".to_i64"
-          return true
-        end
-
-        # Unary operators: -x, +x
-        if name == :-@ && args.empty? && recv
-          write "(-"; emit_raw_expr(recv); write ")"
-          return true
-        end
-        if name == :+@ && args.empty? && recv
-          emit_raw_expr(recv)
-          return true
-        end
-
-        # .abs, .floor, .ceil, .round on numeric
-        if %i[abs floor ceil round].include?(name) && args.empty? && recv
-          emit_raw_expr(recv); write ".#{name}"
-          # floor/ceil/round on Float64 returns Float64 in Crystal; add .to_i64 if needed
-          write ".to_i64" if %i[floor ceil round].include?(name) && node_raw_type(recv)&.f64?
-          return true
-        end
-
-        # Module.method(...) — class/module method call
-        if recv.is_a?(Ast::ConstantRead)
-          cr_type = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[recv.name] || "Ruby_#{crystal_constant(recv.name)}"
-          write "#{cr_type}.", crystal_method_name(name)
-          write "("
-          # For .new on built-in types (Array, Hash, etc.), box args — no typed constructor
-          if name == :new && CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(recv.name)
-            write args.map { |a| capture { emit(a) } }.join(", ")
-          else
-            emit_raw_expr_args(args)
-          end
-          write ")"
-          emit_raw_block(node)
-          return true
-        end
-
-        # min/max with two raw args → Crystal Math.min/Math.max
-        if (name == :min || name == :max) && args.size == 2 && (recv.nil? || recv.is_a?(Ast::SelfLiteral))
-          write "Math.#{name}("
-          emit_raw_expr(args[0]); write ", "; emit_raw_expr(args[1])
-          write ")"
-          return true
-        end
-
-        # self.method(...) — eigenclass/free method call
-        if recv.nil? || (recv.is_a?(Ast::SelfLiteral))
-          # Check if callee has a typed overload with raw params
-          mkey = @cctx&.name ? [@cctx.name, name] : name
-          raw_params = @gctx.class_params&.dig(mkey) || @gctx.typed_params&.dig(name)
-          has_typed = raw_params&.any? { |t| t&.raw? }
-          write "self." if recv.is_a?(Ast::SelfLiteral)
-          write crystal_method_name(name)
-          write "("
-          if has_typed
-            args.each_with_index do |a, i|
-              write ", " if i > 0
-              emit_raw_expr(a)
-              pty = raw_params[i] if raw_params && i < raw_params.size
-              write ".to_i64" if pty&.i64?
-              write ".to_f64" if pty&.f64?
-            end
-          else
-            # No typed overload — box args, but coerce return if TI knows it
-            write args.map { |a| capture { emit(a) } }.join(", ")
-          end
-          write ")"
-          emit_raw_block(node)
-          # Coerce return to raw if TI knows the return type
-          unless has_typed
-            ret = node_raw_type(node)
-            write(ret&.f64? ? ".to_f64" : ".to_i64") if ret
-          end
-          return true
-        end
-
-        # Instance method on typed/known local — direct dispatch with raw args
-        if recv.is_a?(Ast::LocalVariableRead)
-          recv_name = recv.name
-          if @mctx.typed_locals[recv_name] || @mctx.class_locals&.dig(recv_name) || @mctx.native_array_locals&.dig(recv_name)
-            write crystal_local(recv_name), ".", crystal_method_name(name)
-            write "("
-            emit_raw_expr_args(args)
-            write ")"
-            # Coerce result to raw type if the method returns a boxed numeric
-            # (e.g., ThreeDArray#[] returns RubyFloat but we need Float64)
-            recv_cls = @mctx.class_locals&.dig(recv_name)
-            recv_cls = recv_cls.is_a?(Array) ? recv_cls[0] : recv_cls
-            if recv_cls && (ret = @gctx.instance_method_raw_returns&.dig([recv_cls, name]))
-              write(ret.f64? ? ".to_f64" : ".to_i64")
-            end
-            emit_raw_block(node)
-            return true
-          end
-        end
-
-        false  # unhandled — caller falls back to emit(node)
+        raw_expr_math(name, recv, args) ||
+          raw_expr_arith(name, recv, args) ||
+          raw_expr_coerce(name, recv) ||
+          raw_expr_unary(name, recv) ||
+          raw_expr_numeric_method(name, recv) ||
+          raw_expr_module_call(name, recv, args, node) ||
+          raw_expr_min_max(name, recv, args) ||
+          raw_expr_free_call(name, recv, args, node) ||
+          raw_expr_instance_call(name, recv, args, node)
       end
+
+      def raw_expr_math(name, recv, args)
+        return unless recv.is_a?(Ast::ConstantRead) && recv.name == :Math
+        "Math.#{name}(#{expr_args(args)})"
+      end
+
+      def raw_expr_arith(name, recv, args)
+        return unless (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
+        op = (name == :/ && node_raw_type(recv)&.i64? && node_raw_type(args[0])&.i64?) ? "//" : name.to_s
+        "(#{capture { emit_raw_expr(recv) }} #{op} #{capture { emit_raw_expr(args[0]) }})"
+      end
+
+      def raw_expr_coerce(name, recv)
+        return unless recv
+        s = capture { emit_raw_expr(recv) }
+        if %i[to_f to_f64].include?(name) then "#{s}.to_f64"
+        elsif %i[to_i to_i64].include?(name) then "#{s}.to_i64"
+        end
+      end
+
+      def raw_expr_unary(name, recv)
+        return unless recv
+        s = capture { emit_raw_expr(recv) }
+        if name == :-@ then "(-#{s})"
+        elsif name == :+@ then s
+        end
+      end
+
+      def raw_expr_numeric_method(name, recv)
+        return unless %i[abs floor ceil round].include?(name) && recv
+        s = "#{capture { emit_raw_expr(recv) }}.#{name}"
+        s += ".to_i64" if %i[floor ceil round].include?(name) && node_raw_type(recv)&.f64?
+        s
+      end
+
+      def raw_expr_module_call(name, recv, args, node)
+        return unless recv.is_a?(Ast::ConstantRead)
+        cr_type = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[recv.name] || "Ruby_#{crystal_constant(recv.name)}"
+        arg_str = (name == :new && CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(recv.name)) ?
+          args.map { |a| capture { emit(a) } }.join(", ") : expr_args(args)
+        write "#{cr_type}.#{crystal_method_name(name)}(#{arg_str})"
+        emit_raw_block(node)
+        true  # special: writes + block side effect, returns truthy
+      end
+
+      def raw_expr_min_max(name, recv, args)
+        return unless (name == :min || name == :max) && args.size == 2 && (recv.nil? || recv.is_a?(Ast::SelfLiteral))
+        "Math.#{name}(#{expr_args(args)})"
+      end
+
+      def raw_expr_free_call(name, recv, args, node)
+        return unless recv.nil? || recv.is_a?(Ast::SelfLiteral)
+        mkey = @cctx&.name ? [@cctx.name, name] : name
+        raw_params = @gctx.class_params&.dig(mkey) || @gctx.typed_params&.dig(name)
+        has_typed = raw_params&.any? { |t| t&.raw? }
+        prefix = recv.is_a?(Ast::SelfLiteral) ? "self." : ""
+        arg_str = if has_typed
+          args.each_with_index.map { |a, i|
+            s = capture { emit_raw_expr(a) }
+            pty = (raw_params && i < raw_params.size) ? raw_params[i] : nil
+            s += ".to_i64" if pty&.i64?
+            s += ".to_f64" if pty&.f64?
+            s
+          }.join(", ")
+        else
+          args.map { |a| capture { emit(a) } }.join(", ")
+        end
+        write "#{prefix}#{crystal_method_name(name)}(#{arg_str})"
+        emit_raw_block(node)
+        unless has_typed
+          ret = node_raw_type(node)
+          write(ret&.f64? ? ".to_f64" : ".to_i64") if ret
+        end
+        true  # writes + block side effect
+      end
+
+      def raw_expr_instance_call(name, recv, args, node)
+        return unless recv.is_a?(Ast::LocalVariableRead)
+        recv_name = recv.name
+        return unless @mctx.typed_locals[recv_name] || @mctx.class_locals&.dig(recv_name) || @mctx.native_array_locals&.dig(recv_name)
+        s = "#{crystal_local(recv_name)}.#{crystal_method_name(name)}(#{expr_args(args)})"
+        recv_cls = @mctx.class_locals&.dig(recv_name)
+        recv_cls = recv_cls.is_a?(Array) ? recv_cls[0] : recv_cls
+        if recv_cls && (ret = @gctx.instance_method_raw_returns&.dig([recv_cls, name]))
+          s += ret.f64? ? ".to_f64" : ".to_i64"
+        end
+        write s
+        emit_raw_block(node)
+        true  # writes + block side effect
+      end
+
+      # Comma-separated args emitted through emit_raw_expr.
+      def expr_args(args) = args.map { |a| capture { emit_raw_expr(a) } }.join(", ")
 
       # Emit a block in raw context (e.g., n.times { |i| ... })
       def emit_raw_block(node)
