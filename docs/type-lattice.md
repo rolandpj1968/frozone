@@ -362,59 +362,53 @@ clearing, stale cache entries prevent convergence.
 
 | Formal concept | Code |
 |---------------|------|
-| L (lattice) | Symbols `:unknown`, `:i64`, `:f64`, `:array_i64`, `:array_f64` and frozen Hashes `{class: C, ...}` |
-| ⊔ (join) | `TypeInference#join(a, b)` |
-| ⊥ (bottom) | `:unknown` |
-| ⊤ (top) | `{class: :BasicObject}` |
-| Slot | `[kind, context, name]` Array keys in `TypeEnv#slots` |
+| L (lattice) | `Type` value objects: `Type::BOTTOM`, `Type::I64`, `Type::F64`, `Type.of(:C)`, `Type.array(elem: ...)` |
+| ⊔ (join) | `TypeInference#join(a, b)` — operates on `Type` objects |
+| ⊥ (bottom) | `Type::BOTTOM` |
+| ⊤ (top) | `Type::BASIC_OBJECT` |
+| Slot | `[kind, context, name]` Array keys in `TypeEnv` |
 | join! | `TypeEnv#join!(slot, type)` — returns true if changed |
-| infer_expr | `TypeInference#infer_expr_uncached(node, ctx)` |
+| infer_expr | `TypeInference#infer_expr_uncached(node, ctx)` — returns `Type` |
 | 1-CFA key | `[:constructor_param, class, index, caller_method]` |
 | Fixed point | `TypeInference#run(iterations: 10)` |
-| Expr cache | `@_expr_cache` — `[node, method_key] → type`, cleared between phases |
+| Expr cache | `@_expr_cache` — `[node, method_key] → Type`, cleared between phases |
+| Crystal emission | `Type#to_crystal` — renders `"Int64"`, `"Float64"`, `"Ruby_Planet"`, etc. |
 
-### 9.1 Future: Type value object
+### 9.1 The Type value object
 
-The current representation uses a mix of Symbols and frozen Hashes. A
-dedicated `Type` value object would make the lattice operations more
-discoverable and type-safe:
+`Type` (`lib/frozone/compiler/type.rb`) is an immutable frozen value object
+used as the single type representation throughout the entire pipeline —
+from TI through codegen maps to Crystal string emission.
 
 ```ruby
 class Type
-  # Constructors
-  Type.bottom                              # :unknown
-  Type.i64                                 # unboxed Int64
-  Type.f64                                 # unboxed Float64
-  Type.of(class_name, exact: false, nullable: false)
-  Type.array(elem: Type.bottom)
-  Type.hash(key: Type.bottom, val: Type.bottom)
+  # Singletons
+  BOTTOM, I64, F64, ARRAY_I64, ARRAY_F64
+  NIL_CLASS, TRUE_CLASS, FALSE_CLASS, STRING, SYMBOL, INTEGER, FLOAT, ...
 
-  # Lattice operations
-  def join(other)   # least upper bound
-  def <=(other)     # subtype check: self ⊑ other
+  # Factories
+  Type.of(:Planet, nullable: false, exact: false)
+  Type.array(elem: Type::I64)
+  Type.hash_type(key: Type::SYMBOL, val: Type::I64)
+  Type.nullable(type)
 
-  # Queries
-  def bottom?       # :unknown
-  def raw?          # i64 or f64
-  def numeric?      # raw or boxed Integer/Float/Numeric
-  def nullable?
-  def exact?
-  def class_name    # Symbol
-  def elem          # for arrays
-  def key, val      # for hashes
+  # Predicates
+  def bottom?, raw?, i64?, f64?, numeric?, class_type?
+  def nullable?, exact?, array?, array_scalar?, hash_type?, nil_type?
+  def native?, generic_compatible?
+
+  # Accessors
+  def class_name, elem, key, val
+
+  # Crystal codegen
+  def to_crystal  # "Int64", "Float64", "Ruby_Planet", "Array(Int64)", ...
 end
 ```
 
-This is a mechanical refactoring — every `ty.is_a?(Hash) && ty[:class]`
-becomes `ty.class_type?`, every `NUMERIC_TYPES.include?(ty)` becomes
-`ty.raw?`. The lattice semantics are unchanged.
-
-The trade-off is churn vs clarity. The current Symbols-and-Hashes
-representation works and is tested. A `Type` class adds a layer of
-indirection but makes the lattice contract explicit and self-documenting.
-The refactoring is worthwhile when the TI grows — more type forms, more
-lattice operations, more places that inspect types — because each new
-feature is one method instead of a scattered pattern match.
+Common types are interned singletons (`Type.of(:String)` returns
+`Type::STRING`). Value equality: two `Type` objects with the same fields
+are `==`. The join operation lives on `TypeInference` (not `Type`) because
+it requires class hierarchy context for LCA computation.
 
 ---
 

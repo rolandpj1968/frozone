@@ -2,16 +2,16 @@
 
 Frozone compiles Ruby to native binaries via [Crystal](https://crystal-lang.org/)
 (which compiles through LLVM).
-Numeric benchmarks run **13–95× faster than YJIT**; closed-world optimisations
+Numeric benchmarks run **10–23× faster than YJIT**; closed-world optimisations
 like `respond_to?` constant folding achieve **540× faster than MRI**.
 
 | Highlight | vs MRI | vs YJIT |
 |-----------|--------|---------|
-| fib(20) | 22× | 13× |
-| nbody 20k | 95× | 33× |
-| attr_accessor 50K | 72× | 72× |
-| loops_times | 73× | 18× |
-| respond_to? (6M calls) | 540× | 50× |
+| structaref | 103× | 10× |
+| loops_times | 65× | 21× |
+| nbody ×100 | 62× | 23× |
+| matmul(200) | 31× | 13× |
+| fib(35) | 20× | 2.7× |
 
 Full benchmark table in [README.md](../README.md).
 
@@ -403,23 +403,24 @@ maps that drive all downstream optimisations.
 > the complete lattice definition, join rules, soundness invariants, and
 > 1-CFA context sensitivity design.
 
-The TI uses a type lattice where lower = more specific:
+The TI uses a type lattice where lower = more specific, represented as
+`Type` value objects (`lib/frozone/compiler/type.rb`):
 
 ```
-:unknown                                — bottom (not yet analysed)
-
-:i64  :f64                              — unboxed Crystal numerics
-{class: :Integer}                       — boxed Integer (wider than :i64)
-{class: :Node}                          — user-defined class instance
-{class: :Array, elem: :i64}             — Array(Int64)
-{class: :Array, elem: {class: :Array, elem: :i64}}  — Array(Array(Int64))
-{class: :Array}                         — Array with unknown element type
-{class: :Object}                        — top of Ruby hierarchy
+Type::BOTTOM                            — not yet analysed
+Type::I64  Type::F64                    — unboxed Crystal numerics
+Type.of(:Integer)                       — boxed Integer (wider than I64)
+Type.of(:Node)                          — user-defined class instance
+Type.array(elem: Type::I64)             — Array(Int64)
+Type.array(elem: Type.array(elem: ...)) — Array(Array(Int64))
+Type::ARRAY                             — Array with unknown element type
+Type::OBJECT                            — top of Ruby hierarchy
 ```
 
 Types are recursive: `{class: :Array, elem: ...}` nests arbitrarily deep.
-The codegen's `CrystalType` module mirrors this with a parallel recursive
-representation: `:i64`, `[:array, :i64]`, `[:array, [:array, :i64]]`, etc.
+The `Type` value object (`lib/frozone/compiler/type.rb`) is the single
+type representation used throughout the pipeline — from TI through codegen
+to Crystal string emission via `Type#to_crystal`.
 
 `join(a, b)` computes the LCA (least common ancestor) by walking the VM's
 class hierarchy. Unboxed types widen to their boxed class before LCA:
@@ -568,9 +569,10 @@ at parse time and directly amenable to type inference.
 
 ### How results flow into codegen
 
-After TI runs, `CrystalTypeMapper` maps the raw TI lattice values into
-Crystal-specific type decisions, then `GlobalContext.load_from_mapper!`
-populates the `@gctx` maps that drive all downstream optimisations:
+After TI runs, `CrystalTypeMapper` makes per-flag decisions on which
+`Type` values to promote (unbox, devirtualise, etc.) and populates the
+`@gctx` maps that drive all downstream optimisations. All maps store
+`Type` objects directly — `Type#to_crystal` is called only at emission:
 
 | TI slot → | `@gctx` map | Gated by flag |
 |-----------|-------------|---------------|
@@ -620,9 +622,9 @@ Type inference is implemented in two complementary layers:
 
 1. **Whole-program TypeInference** (`type_inference.rb`): forward dataflow
    over the settled VM state. Tracks locals, params, ivars, returns, array
-   elements, and constants as a type lattice (`:unknown` → class-typed →
-   scalar `:i64`/`:f64`). Three fixed-point iterations. Results are unpacked
-   into per-flag codegen lookup maps.
+   elements, and constants as `Type` value objects (`Type::BOTTOM` →
+   class-typed → scalar `Type::I64`/`Type::F64`). Up to 10 fixed-point
+   iterations. Results flow directly to codegen as `Type` objects.
 
 2. **Method-body literal inference** (`infer_local_types`): fixed-point
    pass over method ASTs seeding types from literal assignments, then
@@ -637,14 +639,14 @@ output on numeric benchmarks.
 For numeric benchmarks, the inner loops reduce to native `Int64`/`Float64`
 arithmetic with no allocation. Results (Crystal `--release` vs MRI):
 
-- fib(20): **22x faster than MRI**, 13x faster than YJIT
-- nbody: **95x faster than MRI**, 33x faster than YJIT
-- loops_times: **73x faster than MRI**, 18x faster than YJIT
-- attr_accessor: **72x faster than MRI/YJIT**
+- structaref: **103× faster than MRI**, 10× faster than YJIT
+- loops_times: **65× faster than MRI**, 21× faster than YJIT
+- nbody: **62× faster than MRI**, 23× faster than YJIT
+- matmul: **31× faster than MRI**, 13× faster than YJIT
 
-Mixed benchmarks (binarytrees, sudoku) are 3-9x faster than MRI.
-Object-heavy benchmarks (splay) remain slower than YJIT due to
-Crystal's union dispatch overhead vs YJIT's inline caches.
+Mixed benchmarks (binarytrees, sudoku) are 5–17× faster than MRI.
+10 of 11 timed benchmarks faster than YJIT. Splay is GC-bound
+(Boehm conservative GC vs MRI's generational GC).
 
 ---
 
