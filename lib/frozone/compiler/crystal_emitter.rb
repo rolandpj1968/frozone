@@ -179,6 +179,8 @@ module Frozone
         when Ast::Rescue             then cr_rescue(node)
         when Ast::Case               then cr_case(node)
         when Ast::MethodDef          then cr_method_def(node)
+        when Ast::ClassDef           then cr_class_def(node)
+        when Ast::ModuleDef          then cr_module_def(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -1223,66 +1225,55 @@ module Frozone
       # Class / module definitions
       # -----------------------------------------------------------------------
 
-      def emit_class_def(node)
-        name     = crystal_constant(node.name)
+      def cr_class_def(node)
+        name = crystal_constant(node.name)
         sym_name = node.name
-        is_exc   = @exception_classes.include?(sym_name)
-        sc       = node.superclass_node
-
-        write "class Ruby_#{name}"
-        if is_exc
-          # Exception classes inherit from RubyException (< Exception) or a Ruby_ exc superclass
-          if sc && !EXCEPTION_BASE_NAMES.include?(sc.name.to_s)
-            write " < Ruby_#{crystal_constant(sc.name)}"
-          else
-            write " < RubyException"
-          end
-        elsif sc
-          write " < Ruby_#{crystal_constant(sc.name)}"
-        else
-          write " < RubyObject"
-        end
-        emit_newline
-
+        is_exc = @exception_classes.include?(sym_name)
+        sc = node.superclass_node
+        super_str = if is_exc
+                      (sc && !EXCEPTION_BASE_NAMES.include?(sc.name.to_s)) ? "Ruby_#{crystal_constant(sc.name)}" : "RubyException"
+                    elsif sc
+                      "Ruby_#{crystal_constant(sc.name)}"
+                    else
+                      "RubyObject"
+                    end
+        indent_str = "  " * @indent
         prev_exc = @in_exception_class
         @in_exception_class = is_exc
-
+        body_lines = []
         indented do
+          inner_indent = "  " * @indent
           if is_exc
-            # Exception classes: ivar declarations + default message initializer
             ivars = collect_ivars(node.body)
-            ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
-            emit_newline unless ivars.empty?
-            # Default no-arg initializer passes class name as message if not overridden
-            line "def initialize(msg : String = \"#{name}\"); super(msg); end" unless has_initialize?(node.body)
+            ivars.each { |iv| body_lines << "#{inner_indent}#{iv} : RubyObject = RUBY_NIL" }
+            body_lines << "" unless ivars.empty?
+            unless has_initialize?(node.body)
+              body_lines << "#{inner_indent}def initialize(msg : String = \"#{name}\"); super(msg); end"
+            end
           else
-            # Regular classes: ivars + class vars + default to_s/inspect/==
-            # Only emit default stubs if this class doesn't inherit from another user class
-            # (inheriting from a user class would override inherited to_s/inspect/==).
             sc_name = sc.is_a?(Ast::ConstantRead) ? sc.name.to_s : nil
             user_superclass = sc_name && !BUILTIN_SUPERCLASSES.include?(sc_name)
             ivars = collect_ivars(node.body)
-            ivars.each { |iv| line "#{iv} : RubyObject = RUBY_NIL" }
+            ivars.each { |iv| body_lines << "#{inner_indent}#{iv} : RubyObject = RUBY_NIL" }
             cvars = collect_cvars(node.body)
-            cvars.each { |cv| line "#{cv} : RubyObject = RUBY_NIL" }
-            emit_newline unless ivars.empty? && cvars.empty?
+            cvars.each { |cv| body_lines << "#{inner_indent}#{cv} : RubyObject = RUBY_NIL" }
+            body_lines << "" unless ivars.empty? && cvars.empty?
             unless user_superclass
-              line "def to_s : String; \"#<#{name}>\"; end"
-              line "def inspect : String; \"#<#{name}>\"; end"
-              line "def ==(other : RubyObject) : Bool; same?(other); end"
-              emit_newline
+              body_lines << "#{inner_indent}def to_s : String; \"#<#{name}>\"; end"
+              body_lines << "#{inner_indent}def inspect : String; \"#<#{name}>\"; end"
+              body_lines << "#{inner_indent}def ==(other : RubyObject) : Bool; same?(other); end"
+              body_lines << ""
             end
           end
-          body = node.body
-          emit_indent
-          emit(body) unless body.is_a?(Ast::NilLiteral)
+          unless node.body.is_a?(Ast::NilLiteral)
+            body_lines << "#{inner_indent}#{cr(node.body)}"
+          end
         end
-
         @in_exception_class = prev_exc
-        emit_newline
-        emit_indent
-        write "end"
+        body_str = body_lines.join("\n")
+        "class Ruby_#{name} < #{super_str}\n#{body_str}\n#{indent_str}end"
       end
+      def emit_class_def(node) = write cr_class_def(node)
 
       # Returns true if the class body contains an explicit `initialize` method.
       def has_initialize?(body)
@@ -1296,15 +1287,18 @@ module Frozone
         end
       end
 
-      def emit_module_def(node)
-        write "module Ruby_#{crystal_constant(node.name)}"
-        emit_newline
-        body = node.body
-        indented { emit(body) unless body.is_a?(Ast::NilLiteral) }
-        emit_newline
-        emit_indent
-        write "end"
+      def cr_module_def(node)
+        indent_str = "  " * @indent
+        body_str = ""
+        unless node.body.is_a?(Ast::NilLiteral)
+          inner = nil
+          indented { inner = cr(node.body) }
+          inner_indent = "  " * (@indent + 1)
+          body_str = "\n#{inner_indent}#{inner}"
+        end
+        "module Ruby_#{crystal_constant(node.name)}#{body_str}\n#{indent_str}end"
       end
+      def emit_module_def(node) = write cr_module_def(node)
 
       # -----------------------------------------------------------------------
       # Output helpers
