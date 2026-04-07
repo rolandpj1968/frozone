@@ -138,10 +138,9 @@ module Frozone
         req_params = method.required_params || []
         return unless req_params.size == param_types.size
 
-        cr = { i64: 'Int64', f64: 'Float64' }
-        parts = req_params.zip(param_types).map { |p, ty| "#{crystal_local(p)} : #{cr[ty]}" }
+        parts = req_params.zip(param_types).map { |p, ty| "#{crystal_local(p)} : #{ty.to_crystal}" }
 
-        write "def #{crystal_method_name(name)}(#{parts.join(', ')}) : #{cr[return_type]}"
+        write "def #{crystal_method_name(name)}(#{parts.join(', ')}) : #{return_type.to_crystal}"
         emit_newline
 
         old_typed = @mctx.typed_locals
@@ -174,10 +173,9 @@ module Frozone
         req_params = method.required_params || []
         return unless req_params.size == raw_types.size
 
-        cr = { i64: 'Int64', f64: 'Float64' }
         parts = req_params.each_with_index.map do |p, i|
           if raw_types[i]
-            "#{crystal_local(p)} : #{cr[raw_types[i]]}"
+            "#{crystal_local(p)} : #{raw_types[i].to_crystal}"
           elsif crystal_param_types && crystal_param_types[i] && crystal_param_types[i] != :ruby_object
             "#{crystal_local(p)} : #{CrystalType.to_crystal(crystal_param_types[i])}"
           else
@@ -197,8 +195,8 @@ module Frozone
           # Check if TI inferred a type for this kwarg
           mkey_for_kw = [class_name, mname]
           kw_ty = @gctx.inferred_kw_params.dig(mkey_for_kw, kw_name) || @gctx.inferred_kw_params.dig(mname, kw_name)
-          if kw_ty && cr[kw_ty]
-            parts << "#{crystal_local(kw_name)} : #{cr[kw_ty]} = #{default_val}"
+          if (kw_t = CrystalType.raw(kw_ty))
+            parts << "#{crystal_local(kw_name)} : #{kw_t.to_crystal} = #{default_val}"
           else
             parts << "#{crystal_local(kw_name)} : Int64 = #{default_val}"
           end
@@ -206,7 +204,7 @@ module Frozone
 
         write "def self.#{crystal_method_name(mname)}(#{parts.join(', ')})"
         # Only annotate return type when all positional params are raw-typed
-        write " : #{cr[return_type]}" if return_type && raw_types.all?
+        write " : #{return_type.to_crystal}" if return_type && raw_types.all?
         emit_newline
 
         old_typed = @mctx.typed_locals

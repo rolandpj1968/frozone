@@ -127,7 +127,7 @@ module Frozone
         return unless opt?(:method_specialization) || opt?(:raw_returns) || opt?(:accessor_inline)
         return unless ty.raw?
         mkey = slot[1]
-        raw = ty.to_legacy
+        raw = ty
         if mkey.is_a?(Symbol)
           params = @typed_params[mkey]
           return if params && params.any? { |t| !raw_type(t) }
@@ -156,7 +156,7 @@ module Frozone
           @inferred_params[mname] = crystal_types
           raw_types = req.each_with_index.map { |_, i|
             ty = @env.type_of([:param, mname, i])
-            ty.raw? ? ty.to_legacy : nil
+            ty.raw? ? ty : nil
           }
           @typed_params[mname] = raw_types if raw_types.all? && @typed_method_returns[mname]
         end
@@ -205,7 +205,7 @@ module Frozone
 
       # --- Type conversion helpers (legacy — used by unpack_return) ---
 
-      def raw_type(ty) = (ty == :i64 || ty == :f64) ? ty : nil
+      def raw_type(ty) = Type.raw?(ty) ? ty : nil
     end
   end
 end

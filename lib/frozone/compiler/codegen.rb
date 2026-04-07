@@ -703,13 +703,11 @@ module Frozone
         raw_return = has_any_raw_param && !has_specialized && opt?(:raw_returns) && !@gctx.typed_params[name] &&
           (@gctx.typed_method_returns[name] ||
            (@cctx.name && @gctx.instance_method_raw_returns[[@cctx.name, name]]))
-        cr_return_types = { i64: 'Int64', f64: 'Float64' }
-
         write class_method ? "def self.#{crystal_name}" : "def #{crystal_name}"
         emit_param_list(method, param_types: param_types)
         write " : String" if string_return
         write " : Bool" if bool_return && !string_return
-        write " : #{cr_return_types[raw_return]}" if raw_return && !bool_return
+        write " : #{raw_return.to_crystal}" if raw_return && !bool_return
         emit_newline
 
         if bool_return
