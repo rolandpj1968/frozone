@@ -296,34 +296,26 @@ module Frozone
 
       # Override: emit `for i in lo...hi` as a native Crystal integer range loop
       # when the iteration variable is typed Type::I64 in TI.
-      def emit_for_loop(node)
+      def cr_for_loop(node)
         target = node.target
-        if target[0] == :local
-          name = target[1]
-          if Type.i64?(@mctx.block_params[name])
-            coll = node.collection_node
-            if coll.is_a?(Ast::RangeLiteral)
-              lo = coll.begin_node
-              hi = coll.end_node
-              excl = coll.exclusive
-              if Type.i64?(node_raw_type(lo)) && Type.i64?(node_raw_type(hi))
-                range_op = excl ? "..." : ".."
-                write "(#{raw(lo)}#{range_op}#{raw(hi)}).each do |#{crystal_local(name)}|"
-                emit_newline
-                old_rbp = @mctx.raw_block_params
-                @mctx.raw_block_params = old_rbp.merge(name => Type::I64)
-                indented { emit(node.body_node) }
-                @mctx.raw_block_params = old_rbp
-                emit_newline
-                emit_indent
-                write "end"
-                return
-              end
-            end
-          end
-        end
-        super
+        return super unless target[0] == :local
+        name = target[1]
+        return super unless Type.i64?(@mctx.block_params[name])
+        coll = node.collection_node
+        return super unless coll.is_a?(Ast::RangeLiteral)
+        lo = coll.begin_node
+        hi = coll.end_node
+        return super unless Type.i64?(node_raw_type(lo)) && Type.i64?(node_raw_type(hi))
+        range_op = coll.exclusive ? "..." : ".."
+        indent_str = "  " * @indent
+        body = nil
+        old_rbp = @mctx.raw_block_params
+        @mctx.raw_block_params = old_rbp.merge(name => Type::I64)
+        indented { body = cr(node.body_node) }
+        @mctx.raw_block_params = old_rbp
+        "(#{raw(lo)}#{range_op}#{raw(hi)}).each do |#{crystal_local(name)}|\n#{body}\n#{indent_str}end"
       end
+      def emit_for_loop(node) = write cr_for_loop(node)
 
       end
     end

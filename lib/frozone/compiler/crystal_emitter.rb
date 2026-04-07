@@ -172,6 +172,7 @@ module Frozone
         when Ast::If                 then cr_if(node)
         when Ast::While              then cr_while(node)
         when Ast::Until              then cr_until(node)
+        when Ast::ForLoop            then cr_for_loop(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -768,28 +769,24 @@ module Frozone
       end
       def emit_if(node) = write cr_if(node)
 
-      def emit_for_loop(node)
+      def cr_for_loop(node)
         target = node.target
-        emit(node.collection_node)
-        write ".each do |"
-        case target[0]
-        when :local    then write crystal_local(target[1])
-        when :multi
-          _, lefts, rest_sym, rights = target
-          parts = lefts.map { |n| crystal_local(n) }
-          parts << "*#{crystal_local(rest_sym)}" if rest_sym
-          parts += rights.map { |n| crystal_local(n) }
-          write parts.join(", ")
-        else
-          write "_for_var"
-        end
-        write "|"
-        emit_newline
-        indented { emit(node.body_node) }
-        emit_newline
-        emit_indent
-        write "end"
+        var_str = case target[0]
+                  when :local then crystal_local(target[1])
+                  when :multi
+                    _, lefts, rest_sym, rights = target
+                    parts = lefts.map { |n| crystal_local(n) }
+                    parts << "*#{crystal_local(rest_sym)}" if rest_sym
+                    parts += rights.map { |n| crystal_local(n) }
+                    parts.join(", ")
+                  else "_for_var"
+                  end
+        indent_str = "  " * @indent
+        body = nil
+        indented { body = cr(node.body_node) }
+        "#{cr(node.collection_node)}.each do |#{var_str}|\n#{body}\n#{indent_str}end"
       end
+      def emit_for_loop(node) = write cr_for_loop(node)
 
       def cr_while(node) = cr_loop("while", node)
       def cr_until(node) = cr_loop("until", node)
