@@ -227,7 +227,8 @@ module Frozone
       #     (renders as RubyObject in codegen).
       #
       # Returns the same shape that codegen consumers want — replaces
-      # Replaces the old CrystalType.from_type that produced legacy Symbol/Array.
+      # The codegen-side counterpart to TI's lattice — narrows TI types into the
+      # subset that the Crystal backend cares about.
       def self.from_ti(ty, user_class_names: Set.new)
         return BOTTOM if ty.nil? || ty.bottom?
         return ty if ty.raw? || ty.array_scalar?

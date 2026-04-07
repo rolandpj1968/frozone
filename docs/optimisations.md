@@ -326,7 +326,7 @@ When TI identifies a local array has scalar element type (`:i64`/`:f64`) and the
 
 When TI identifies a function parameter as `Array[:i64]` (e.g. `sd_update_forward`'s `sr` and `sc` params), emit `Array(Int64)` in the function signature instead of `RubyArray`. Register the param in `@native_array_locals` so array operations inside the method use native indexing.
 
-**Implementation:** `ti_crystal_type` maps `Array[:i64]` → `'Array(Int64)'`. `emit_vm_method` registers `Array(Int64)` params in `@native_array_locals`.
+**Implementation:** `Type.from_ti` maps the TI `Type::ARRAY_I64` to `Array(Int64)` Crystal source via `Type#to_crystal`. `emit_vm_method` registers `Array(Int64)` params in `@mctx.native_array_locals`.
 
 **Impact:** sudoku: 524 ms → 134 ms (**3.8× faster than MRI**).
 

@@ -99,7 +99,7 @@ bundle exec rake core                    # ruby/spec core suite
 ```
 lib/frozone/vm/          VM runtime (ClassObject, Method, Frame, Context, intrinsics)
 lib/frozone/ast/         AST nodes evaluated by the tree-walker
-lib/frozone/compiler/    AoT compiler (Codegen, TypeInference, CrystalEmitter, CrystalTypeMapper)
+lib/frozone/compiler/    AoT compiler (Codegen, TypeInference, CrystalEmitter, TypeMapper)
 lib/frozone/vm/parser.rb Prism-based front-end
 lib/frozone/vm/wq_parser.rb  whitequark parser front-end (self-hostable path)
 lib/core/4.0/            Ruby stdlib in Ruby — parsed at VM startup, compilable as user code
