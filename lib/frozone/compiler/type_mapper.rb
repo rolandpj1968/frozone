@@ -15,7 +15,7 @@
 
 module Frozone
   module Compiler
-    class CrystalTypeMapper
+    class TypeMapper
       attr_reader :local_types
       attr_reader :locals, :arrays, :class_locals, :local_array_elems
       attr_reader :block_params, :class_params, :inferred_params, :typed_params

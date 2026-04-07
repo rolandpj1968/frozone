@@ -53,9 +53,9 @@ RSpec.describe Frozone::Compiler::Codegen do
     end
   end
 
-  describe Frozone::Compiler::CrystalTypeMapper do
+  describe Frozone::Compiler::TypeMapper do
     def mapper(opts = Set.new)
-      Frozone::Compiler::CrystalTypeMapper.new(
+      Frozone::Compiler::TypeMapper.new(
         double("env"), user_methods: {}, user_classes: {}, opt_flags: opts
       )
     end

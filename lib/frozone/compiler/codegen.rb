@@ -1,5 +1,5 @@
 require_relative 'crystal_emitter'
-require_relative 'crystal_type_mapper'
+require_relative 'type_mapper'
 require_relative 'type_inference'
 require_relative 'method_context'
 require_relative 'class_context'
@@ -853,8 +853,8 @@ module Frozone
         )
         env = ti.run
 
-        # Delegate all type-to-Crystal mapping to CrystalTypeMapper
-        mapper = CrystalTypeMapper.new(env,
+        # Delegate all type-to-Crystal mapping to TypeMapper
+        mapper = TypeMapper.new(env,
           user_methods: user_methods_hash,
           user_classes: user_classes_hash,
           opt_flags: @opt_flags

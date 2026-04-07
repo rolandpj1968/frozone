@@ -1,6 +1,6 @@
 # Whole-program type information for the Codegen.
 #
-# Populated once from CrystalTypeMapper after type inference runs.
+# Populated once from TypeMapper after type inference runs.
 # Read-only during emission — all per-method lookups index into these maps.
 
 module Frozone
@@ -42,7 +42,7 @@ module Frozone
         @class_typed_ivars = {}
       end
 
-      # Populate from a CrystalTypeMapper after type inference.
+      # Populate from a TypeMapper after type inference.
       def load_from_mapper!(mapper)
         @user_class_names = mapper.user_class_names
         @local_types = mapper.local_types
