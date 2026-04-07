@@ -182,7 +182,7 @@ module Frozone
           if nodes.size == 1
             raw(nodes.first)
           else
-            parts = nodes.each_with_index.map { |n, i| i == nodes.size - 1 ? raw(n) : capture { emit(n) } }
+            parts = nodes.each_with_index.map { |n, i| i == nodes.size - 1 ? raw(n) : cr(n) }
             "(#{parts.join('; ')})"
           end
         when Ast::LocalVariableRead then crystal_local(node.name)
@@ -193,9 +193,9 @@ module Frozone
           (ty.nil? || ty == Type::ARRAY_I64 || ty == Type::ARRAY_F64) ? s : "#{s}#{ty.f64? ? '.to_f64' : '.to_i64'}"
         when Ast::ConstantPath
           parent = node.parent_node
-          (parent.is_a?(Ast::ConstantRead) && parent.name == :Math) ? "Math::#{node.name}" : "#{capture { emit(node) }}.to_f64"
+          (parent.is_a?(Ast::ConstantRead) && parent.name == :Math) ? "Math::#{node.name}" : "#{cr(node)}.to_f64"
         when Ast::MethodCall then raw_call(node, ctx)
-        else capture { emit(node) }
+        else cr(node)
         end
       end
 
@@ -281,7 +281,7 @@ module Frozone
       end
 
       def raw_call_fallback(node, name, recv, ctx)
-        s = capture { emit(node) }
+        s = cr(node)
         ret = @gctx.typed_method_returns[name] if recv.nil?
         ret ? "#{s}#{Type.f64?(ret) ? '.to_f64' : '.to_i64'}" : s
       end
@@ -308,7 +308,7 @@ module Frozone
           end
         end
         # Fallback: emit boxed and coerce.
-        s = capture { emit(node) }
+        s = cr(node)
         s = "(#{s})" if contains_assignment?(node)
         "#{s}#{ty_f64 ? '.to_f64' : '.to_i64'}"
       end
@@ -328,7 +328,7 @@ module Frozone
       # -----------------------------------------------------------------------
       # raw_lines — pure functional raw expression emitter.
       # Returns Array<String> (lines of Crystal source, no trailing newlines).
-      # Never boxes. Falls back to capture { emit(node) } for inherently
+      # Never boxes. Falls back to cr(node) for inherently
       # RubyObject-valued nodes (string literals, hash literals, etc.)
       # -----------------------------------------------------------------------
 
@@ -349,7 +349,7 @@ module Frozone
         when Ast::ConstantRead then ["Ruby_#{crystal_constant(node.name)}"]
         when Ast::ConstantPath
           parent = node.parent_node
-          [(parent.is_a?(Ast::ConstantRead) && parent.name == :Math) ? "Math::#{node.name}" : capture { emit(node) }]
+          [(parent.is_a?(Ast::ConstantRead) && parent.name == :Math) ? "Math::#{node.name}" : cr(node)]
         when Ast::And then ["(#{raw_lines(node.left_node, ctx).join} && #{raw_lines(node.right_node, ctx).join})"]
         when Ast::Or  then ["(#{raw_lines(node.left_node, ctx).join} || #{raw_lines(node.right_node, ctx).join})"]
         when Ast::Sequence then node.nodes.flat_map { |n| raw_lines(n, ctx) }
@@ -358,7 +358,7 @@ module Frozone
         when Ast::LocalVariableWrite then raw_lines_local_write(node, ctx)
         when Ast::AttributeWrite then raw_lines_attr_write(node, ctx)
         when Ast::MethodCall then raw_lines_method_call(node, ctx)
-        else [capture { emit(node) }]
+        else [cr(node)]
         end
       end
 
@@ -403,12 +403,12 @@ module Frozone
             return ["#{recv.name}[#{raw_lines(args[0], ctx).join}] = #{raw_lines(args[1], ctx).join}"]
           end
         end
-        [capture { emit(node) }]
+        [cr(node)]
       end
 
       def raw_lines_method_call(node, ctx)
         result = raw_expr_call(node, ctx)
-        result ? [result] : [capture { emit(node) }]
+        result ? [result] : [cr(node)]
       end
 
       # Emit a truthy check in raw context — use native Crystal booleans
@@ -483,7 +483,7 @@ module Frozone
         return unless recv.is_a?(Ast::ConstantRead)
         cr_type = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[recv.name] || "Ruby_#{crystal_constant(recv.name)}"
         arg_str = (name == :new && CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(recv.name)) ?
-          args.map { |a| capture { emit(a) } }.join(", ") : expr_args(args, ctx)
+          args.map { |a| cr(a) }.join(", ") : expr_args(args, ctx)
         "#{cr_type}.#{crystal_method_name(name)}(#{arg_str})#{raw_block(node, ctx)}"
       end
 
@@ -507,7 +507,7 @@ module Frozone
             s
           }.join(", ")
         else
-          args.map { |a| capture { emit(a) } }.join(", ")
+          args.map { |a| cr(a) }.join(", ")
         end
         s = "#{prefix}#{crystal_method_name(name)}(#{arg_str})#{raw_block(node, ctx)}"
         unless has_typed

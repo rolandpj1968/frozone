@@ -601,16 +601,16 @@ module Frozone
         "#{keyword} #{cond}\n#{body}\n#{indent_str}end"
       end
 
-      def cr_return(node) = node.value_node ? "return #{capture { emit(node.value_node) }}" : "return"
+      def cr_return(node) = node.value_node ? "return #{cr(node.value_node)}" : "return"
 
       def cr_next(node)
         val = node.value_node
-        (val.nil? || val.is_a?(Ast::NilLiteral)) ? "next" : "next (#{capture { emit(val) }})"
+        (val.nil? || val.is_a?(Ast::NilLiteral)) ? "next" : "next (#{cr(val)})"
       end
 
       def cr_break(node)
         val = node.value_node
-        (val.nil? || val.is_a?(Ast::NilLiteral)) ? "break" : "break (#{capture { emit(val) }})"
+        (val.nil? || val.is_a?(Ast::NilLiteral)) ? "break" : "break (#{cr(val)})"
       end
 
 
@@ -710,12 +710,12 @@ module Frozone
       # when the result is used as a Crystal condition.
       def cr_and(node)
         tmp = "_and#{@temp_counter}"; @temp_counter += 1
-        "(#{tmp} = #{capture { emit(node.left_node) }}; #{tmp}.truthy? ? (#{capture { emit(node.right_node) }}) : #{tmp})"
+        "(#{tmp} = #{cr(node.left_node)}; #{tmp}.truthy? ? (#{cr(node.right_node)}) : #{tmp})"
       end
 
       def cr_or(node)
         tmp = "_or#{@temp_counter}"; @temp_counter += 1
-        "(#{tmp} = #{capture { emit(node.left_node) }}; #{tmp}.truthy? ? #{tmp} : (#{capture { emit(node.right_node) }}))"
+        "(#{tmp} = #{cr(node.left_node)}; #{tmp}.truthy? ? #{tmp} : (#{cr(node.right_node)}))"
       end
 
 
@@ -864,20 +864,20 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def cr_array_literal(node)
-        elems = node.element_nodes.map { |el| capture { emit(el) } }.join(", ")
+        elems = node.element_nodes.map { |el| cr(el) }.join(", ")
         "RubyArray.new([#{elems}] of RubyObject)"
       end
 
       def cr_hash_literal(node)
         pairs = node.kv_nodes
         return "RubyHash.new" if pairs.empty?
-        stores = pairs.map { |k, v| "_h.store(#{capture { emit(k) }}, #{capture { emit(v) }})" }.join("; ")
+        stores = pairs.map { |k, v| "_h.store(#{cr(k)}, #{cr(v)})" }.join("; ")
         "RubyHash.new.tap { |_h| #{stores} }"
       end
 
       def cr_range_literal(node)
-        b = node.begin_node ? capture { emit(node.begin_node) } : "RUBY_NIL"
-        e = node.end_node ? capture { emit(node.end_node) } : "RUBY_NIL"
+        b = node.begin_node ? cr(node.begin_node) : "RUBY_NIL"
+        e = node.end_node ? cr(node.end_node) : "RUBY_NIL"
         "RubyRange.new(#{b}, #{e}, #{node.exclusive})"
       end
 
@@ -928,7 +928,7 @@ module Frozone
         parts = node.parts.map { |part|
           case part
           when Ast::StringLiteral then "_s << #{crystal_string_literal(part.value.raw)}"
-          else "_s << (#{capture { emit(part) }}).to_s"
+          else "_s << (#{cr(part)}).to_s"
           end
         }
         "RubyString.new(String.build { |_s| #{parts.join('; ')} })"
