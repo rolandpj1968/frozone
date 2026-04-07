@@ -33,7 +33,7 @@ module Frozone
 
       # Is this a scalar (Int64/Float64)?
       def self.scalar?(ty) = Type.raw?(ty)
-      # Extract the raw scalar type (:i64/:f64) or nil.
+      # Extract the raw scalar Type (Type::I64/F64) or nil.
       def self.raw(ty)
         return ty if ty.is_a?(Type) && ty.raw?
         return Type::I64 if ty == :i64

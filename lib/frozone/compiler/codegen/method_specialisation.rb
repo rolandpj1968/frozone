@@ -16,7 +16,7 @@ module Frozone
     module CodegenSupport
       module MethodSpecialisation
       # Walk the execute block looking for free calls where ALL args are raw-typed.
-      # Populates @gctx.typed_params with {method_name => [:i64/:f64, ...]} for consistent sites.
+      # Populates @gctx.typed_params with {method_name => [Type::I64/F64, ...]} for consistent sites.
       def collect_raw_call_sites(execute_block)
         return unless execute_block
         old_typed = @mctx.typed_locals
@@ -83,7 +83,7 @@ module Frozone
         to_remove.each { |n| @gctx.typed_params.delete(n); @gctx.typed_method_returns.delete(n) }
       end
 
-      # Returns the raw Crystal type (:i64/:f64) of the last expression in a body,
+      # Returns the raw Type (Type::I64/F64) of the last expression in a body,
       # or nil if it cannot be determined or is not a raw numeric type.
       def infer_body_return_type(body)
         return nil unless body
@@ -279,7 +279,7 @@ module Frozone
       end
 
       # Emit a block for native integer iteration (times/upto/downto),
-      # registering block params as raw :i64 so arithmetic inside is unboxed.
+      # registering block params as Type::I64 so arithmetic inside is unboxed.
       def emit_native_iter_block(blk)
         params = (blk.required_params || []) + (blk.optional_params || []).map(&:first)
         params += [blk.rest_param].compact
@@ -295,7 +295,7 @@ module Frozone
       end
 
       # Override: emit `for i in lo...hi` as a native Crystal integer range loop
-      # when the iteration variable is typed :i64 in TI.
+      # when the iteration variable is typed Type::I64 in TI.
       def emit_for_loop(node)
         target = node.target
         if target[0] == :local

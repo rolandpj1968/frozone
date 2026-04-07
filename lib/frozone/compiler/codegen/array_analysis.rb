@@ -20,7 +20,7 @@ module Frozone
       end
 
       # Detect locals assigned from Array.new(count_i64) { Array.new(count2_i64, fill) }
-      # where fill is a typed scalar. Returns {name => :i64 | :f64}.
+      # where fill is a typed scalar. Returns {name => Type::I64 | Type::F64}.
       def detect_nested_array_locals(body, exclude_names)
         return {} unless body
         assignments = Hash.new { |h, k| h[k] = [] }

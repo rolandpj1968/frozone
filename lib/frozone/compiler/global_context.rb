@@ -7,20 +7,20 @@ module Frozone
   module Compiler
     class GlobalContext
       attr_accessor :user_class_names # Set of user-defined class name symbols
-      attr_accessor :locals # {mkey => {name => :i64/:f64}} — scalar unboxing
-      attr_accessor :arrays # {mkey => {name => :i64/:f64}} — native Array(T) from TI
+      attr_accessor :locals # {mkey => {name => Type}} — scalar unboxing (Type::I64/F64)
+      attr_accessor :arrays # {mkey => {name => Type}} — native Array(T) elem type from TI
       attr_accessor :class_locals # {mkey => {name => class_sym}} — devirtualized locals
-      attr_accessor :local_array_elems # {mkey => {name => :i64/:f64}} — boxed array elem type
-      attr_accessor :local_types # {mkey => {name => CrystalType}} — unified type map
-      attr_accessor :block_params # {mkey => {name => :i64/:f64}} — block param types
-      attr_accessor :class_params # {[class, method] => [CrystalType]} — class method params
-      attr_accessor :inferred_params # {method => [CrystalType]} — top-level method params
-      attr_accessor :typed_params # {method => [:i64/:f64]} — fully raw-typed params
-      attr_accessor :typed_method_returns # {method => :i64/:f64} — raw return types
-      attr_accessor :instance_method_raw_returns # {[class, method] => :i64/:f64}
-      attr_accessor :const_raw_types # {name => :i64/:f64} — constant types
-      attr_accessor :inferred_kw_params # {mkey => {name => CrystalType}} — keyword param types
-      attr_accessor :typed_ivars # {class => {ivar => :i64/:f64}} — scalar ivars
+      attr_accessor :local_array_elems # {mkey => {name => Type}} — boxed RubyArray elem type
+      attr_accessor :local_types # {mkey => {name => CrystalType}} — unified type map (legacy)
+      attr_accessor :block_params # {mkey => {name => Type}} — block param types from TI
+      attr_accessor :class_params # {[class, method] => [CrystalType]} — class method params (legacy)
+      attr_accessor :inferred_params # {method => [CrystalType]} — top-level method params (legacy)
+      attr_accessor :typed_params # {method => [Type]} — fully raw-typed params (Type::I64/F64)
+      attr_accessor :typed_method_returns # {method => Type} — raw return types (Type::I64/F64)
+      attr_accessor :instance_method_raw_returns # {[class, method] => Type}
+      attr_accessor :const_raw_types # {name => Type} — Type::I64/F64/ARRAY_I64/ARRAY_F64
+      attr_accessor :inferred_kw_params # {mkey => {name => CrystalType}} — keyword param types (legacy)
+      attr_accessor :typed_ivars # {class => {ivar => Type}} — scalar / array-scalar ivars
       attr_accessor :class_typed_ivars # {class => {ivar => [:kind, :Class]}} — class-typed ivars
 
       def initialize
