@@ -160,6 +160,7 @@ module Frozone
         when Ast::InstanceVariableWrite then cr_ivar_write(node)
         when Ast::AttributeWrite     then cr_attribute_write(node)
         when Ast::IndexOperatorWrite then cr_index_op_write(node)
+        when Ast::MultipleAssignment then cr_multiple_assignment(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -1196,76 +1197,49 @@ module Frozone
       def emit_hash_literal(node) = write cr_hash_literal(node)
       def emit_range_literal(node) = write cr_range_literal(node)
 
-      def emit_multiple_assignment(node)
+      def cr_multiple_assignment(node)
         targets = node.targets
         rhs     = node.value_node
-
         tmp = "_ma#{@temp_counter}"
         @temp_counter += 1
-
-        write "#{tmp} = masgn_coerce("
-        emit(rhs)
-        write ")"
-
+        indent_str = "  " * @indent
+        lines = ["#{tmp} = masgn_coerce(#{cr(rhs)})"]
         splat_idx = targets.index { |t| t[0].to_s.end_with?('_splat') || t[0] == :splat_nil }
-
         if splat_idx
           pre  = targets[0...splat_idx]
           post = targets[(splat_idx + 1)..]
-
-          pre.each_with_index do |t, i|
-            emit_newline; emit_indent
-            emit_masgn_assign(t, "#{tmp}[#{i}_i64]")
-          end
-
+          pre.each_with_index { |t, i| lines << cr_masgn_assign(t, "#{tmp}[#{i}_i64]") }
           splat_t = targets[splat_idx]
           unless splat_t[0] == :splat_nil
-            emit_newline; emit_indent
-            pc = post.length
-            splat_code = "RubyArray.new(#{tmp}.data[#{pre.length}...(#{tmp}.data.size - #{pc})])"
-            emit_masgn_assign(splat_t, splat_code)
+            splat_code = "RubyArray.new(#{tmp}.data[#{pre.length}...(#{tmp}.data.size - #{post.length})])"
+            lines << cr_masgn_assign(splat_t, splat_code)
           end
-
           post.each_with_index do |t, i|
-            emit_newline; emit_indent
             neg = post.length - i
-            emit_masgn_assign(t, "#{tmp}[(-#{neg})_i64]")
+            lines << cr_masgn_assign(t, "#{tmp}[(-#{neg})_i64]")
           end
         else
-          targets.each_with_index do |t, i|
-            emit_newline; emit_indent
-            emit_masgn_assign(t, "#{tmp}[#{i}_i64]")
-          end
+          targets.each_with_index { |t, i| lines << cr_masgn_assign(t, "#{tmp}[#{i}_i64]") }
         end
+        lines.join("\n#{indent_str}")
       end
+      def emit_multiple_assignment(node) = write cr_multiple_assignment(node)
 
-      def emit_masgn_assign(target, value_code)
+      def cr_masgn_assign(target, value_code)
         case target[0]
-        when :local, :local_splat
-          write "#{crystal_local(target[1])} = #{value_code}"
-        when :ivar, :ivar_splat
-          write "#{target[1]} = #{value_code}"
-        when :const, :const_splat
-          write "Ruby_#{crystal_constant(target[1])} = #{value_code}"
+        when :local, :local_splat then "#{crystal_local(target[1])} = #{value_code}"
+        when :ivar, :ivar_splat   then "#{target[1]} = #{value_code}"
+        when :const, :const_splat then "Ruby_#{crystal_constant(target[1])} = #{value_code}"
         when :index, :index_splat
-          # a[i] = val — target[1] is receiver node, target[2] is array of index arg nodes
-          emit(target[1])
-          write "["
-          target[2].each_with_index do |idx, i|
-            write ", " if i > 0
-            emit(idx)
-          end
-          write "] = #{value_code}"
+          idxs = target[2].map { |idx| cr(idx) }.join(", ")
+          "#{cr(target[1])}[#{idxs}] = #{value_code}"
         when :call, :call_splat
-          # obj.method = val — target[1] is receiver node, target[2] is method name
-          emit(target[1])
-          write ".#{crystal_method_name(target[2])} = #{value_code}"
-        when :splat_nil
-          # discard — already skipped in caller, but guard here too
-        else
-          write "# UNSUPPORTED masgn target: #{target[0]}"
+          "#{cr(target[1])}.#{crystal_method_name(target[2])} = #{value_code}"
+        when :splat_nil then ""
+        else "# UNSUPPORTED masgn target: #{target[0]}"
         end
       end
+      def emit_masgn_assign(target, value_code) = write cr_masgn_assign(target, value_code)
 
       def cr_interpolated_string(node)
         parts = node.parts.map { |part|
