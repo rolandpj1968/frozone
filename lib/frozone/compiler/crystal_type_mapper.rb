@@ -115,11 +115,11 @@ module Frozone
       def unpack_ivar(slot, ty)
         return unless opt?(:typed_ivars)
         if ty.raw?
-          (@typed_ivars[slot[1]] ||= {})[slot[2]] = ty.to_legacy
+          (@typed_ivars[slot[1]] ||= {})[slot[2]] = ty
           return
         end
         if ty.array? && ty.elem&.raw?
-          (@typed_ivars[slot[1]] ||= {})[slot[2]] = ty.elem.f64? ? :array_f64 : :array_i64
+          (@typed_ivars[slot[1]] ||= {})[slot[2]] = ty.elem.f64? ? Type::ARRAY_F64 : Type::ARRAY_I64
         end
       end
 
