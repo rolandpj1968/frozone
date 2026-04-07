@@ -224,20 +224,16 @@ module Frozone
       # Literals
       # -----------------------------------------------------------------------
 
-      def emit_nil_literal   = write "RUBY_NIL"
-      def emit_true_literal  = write "RUBY_TRUE"
-      def emit_false_literal = write "RUBY_FALSE"
-
-      def emit_integer_literal(node)
-        val = node.value.raw
-        write "RubyInteger.new(#{val}_i64)"
-      end
-
-      def emit_float_literal(node)
-        raw = node.value
-        val = raw.respond_to?(:raw) ? raw.raw : raw
-        write "RubyFloat.new(#{float_bits_expr(val)})"
-      end
+      def cr_nil = "RUBY_NIL"
+      def cr_true = "RUBY_TRUE"
+      def cr_false = "RUBY_FALSE"
+      def cr_integer(node) = "RubyInteger.new(#{node.value.raw}_i64)"
+      def cr_float(node) = "RubyFloat.new(#{float_bits_expr(node.value.respond_to?(:raw) ? node.value.raw : node.value)})"
+      def emit_nil_literal = write cr_nil
+      def emit_true_literal = write cr_true
+      def emit_false_literal = write cr_false
+      def emit_integer_literal(node) = write cr_integer(node)
+      def emit_float_literal(node) = write cr_float(node)
 
       # Bit-exact IEEE 754 Float64 expression for Crystal.
       # Uses unsafe_as reinterpretation so the bit pattern round-trips perfectly
@@ -255,41 +251,35 @@ module Frozone
         end
       end
 
-      def emit_string_literal(node)
-        raw = node.value.raw
-        write %(RubyString.new(#{crystal_string_literal(raw)}))
-      end
-
-      def emit_symbol_literal(node)
-        sym = node.value  # SymbolObject#raw → native Ruby Symbol
-        write %(RubySymbol.from(#{sym.to_s.inspect}))
-      end
-
-      def emit_self_literal = write "self"
+      def cr_string(node) = %(RubyString.new(#{crystal_string_literal(node.value.raw)}))
+      def cr_symbol(node) = %(RubySymbol.from(#{node.value.to_s.inspect}))
+      def cr_self = "self"
+      def emit_string_literal(node) = write cr_string(node)
+      def emit_symbol_literal(node) = write cr_symbol(node)
+      def emit_self_literal = write cr_self
 
       # -----------------------------------------------------------------------
       # Variables
       # -----------------------------------------------------------------------
 
-      def emit_local_var_read(node) = write crystal_local(node.name)
+      def cr_local_read(node) = crystal_local(node.name)
+      def emit_local_var_read(node) = write cr_local_read(node)
 
       def emit_local_var_write(node)
         write "#{crystal_local(node.name)} = "
         emit(node.value_node)
       end
 
-      def emit_ivar_read(node) = write node.name.to_s  # already includes leading @
+      def cr_ivar_read(node) = node.name.to_s
+      def emit_ivar_read(node) = write cr_ivar_read(node)
 
       def emit_ivar_write(node)
         write "#{node.name} = "
         emit(node.value_node)
       end
 
-      def emit_constant_read(node)
-        name = node.name
-        crystal_type = RUBY_TO_CRYSTAL_TYPE[name]
-        crystal_type ? write(crystal_type) : write("Ruby_#{crystal_constant(name)}")
-      end
+      def cr_constant_read(node) = RUBY_TO_CRYSTAL_TYPE[node.name] || "Ruby_#{crystal_constant(node.name)}"
+      def emit_constant_read(node) = write cr_constant_read(node)
 
       def emit_constant_path(node)
         parent = node.parent_node
