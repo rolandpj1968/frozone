@@ -173,6 +173,7 @@ module Frozone
         when Ast::While              then cr_while(node)
         when Ast::Until              then cr_until(node)
         when Ast::ForLoop            then cr_for_loop(node)
+        when Ast::Sequence           then "#{'  ' * @indent}#{cr_sequence(node)}"
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -328,7 +329,14 @@ module Frozone
       # Sequence
       # -----------------------------------------------------------------------
 
+      def cr_sequence(node)
+        indent_str = "  " * @indent
+        node.nodes.map { |child| cr(child) }.join("\n#{indent_str}")
+      end
       def emit_sequence(node)
+        # Imperative emit_sequence keeps emit_indent so the first line is
+        # indented by the caller's context. cr_sequence assumes the caller
+        # already wrote a leading indent.
         node.nodes.each_with_index do |child, i|
           emit_newline if i > 0
           emit_indent
