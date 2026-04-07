@@ -18,6 +18,7 @@ module Frozone
       # The directory that generated .cr files should be placed in (so that
       # relative require paths to the runtime resolve correctly).
       def output_dir = @output_dir
+      attr_reader :out
       attr_reader :errors
 
       def initialize(output_dir: CRYSTAL_DIR)
@@ -1126,9 +1127,8 @@ module Frozone
 
       def codegen_inline(node)
         sub = CrystalEmitter.new
-        sub.instance_variable_set(:@indent, 0)
         sub.send(:emit, node)
-        sub.instance_variable_get(:@out)
+        sub.out
       end
 
       # -----------------------------------------------------------------------
@@ -1152,10 +1152,7 @@ module Frozone
         when nil
           # nothing
         else
-          %i[body value_node then_node else_node body_node].each do |slot|
-            child = node.instance_variable_defined?(:"@#{slot}") && node.instance_variable_get(:"@#{slot}")
-            collect_cvars(child, seen) if child && child.is_a?(Ast::Node)
-          end
+          node.children.each { |c| collect_cvars(c, seen) if c.is_a?(Ast::Node) }
         end
         seen.to_a.sort
       end
@@ -1184,11 +1181,7 @@ module Frozone
         when nil
           # nothing
         else
-          # For other nodes, recurse into known child slots
-          %i[body value_node then_node else_node body_node].each do |slot|
-            child = node.instance_variable_defined?(:"@#{slot}") && node.instance_variable_get(:"@#{slot}")
-            collect_ivars(child, seen) if child && child.is_a?(Ast::Node)
-          end
+          node.children.each { |c| collect_ivars(c, seen) if c.is_a?(Ast::Node) }
         end
         seen.to_a.sort
       end
