@@ -1689,11 +1689,8 @@ module Frozone
         ct.is_a?(Array) && ct[0] == :class_or_nil
       end
 
-      def emit_truthy(node)
-        if crystal_bool_emittable?(node)
-          emit_crystal_bool(node)
-          return
-        end
+      def cr_truthy(node)
+        return cr_crystal_bool(node) if crystal_bool_emittable?(node)
         if opt?(:condition_simplify) && comparison_op_call?(node)
           recv = node.receiver_node
           arg = node.arg_nodes[0]
@@ -1701,23 +1698,22 @@ module Frozone
           at = node_raw_type(arg)
           if rt && at
             ty = (Type.f64?(rt) || Type.f64?(at)) ? Type::F64 : Type::I64
-            write "("
-            ty.i64? ? emit_coerce_i64(recv) : emit_coerce_f64(recv)
-            write " #{node.name} "
-            ty.i64? ? emit_coerce_i64(arg) : emit_coerce_f64(arg)
-            write ")"
-            return
+            recv_str = ty.i64? ? coerce_i64(recv) : coerce_f64(recv)
+            arg_str = ty.i64? ? coerce_i64(arg) : coerce_f64(arg)
+            return "(#{recv_str} #{node.name} #{arg_str})"
           end
         end
-        # Inline base emit_truthy for remaining cases
-        if node.is_a?(Ast::TrueLiteral) then write "true"
-        elsif node.is_a?(Ast::FalseLiteral) then write "false"
-        elsif node.is_a?(Ast::NilLiteral) then write "false"
-        elsif boolean_valued?(node) then emit(node)
-        elsif returns_crystal_nilable?(node) then write "!"; emit(node); write ".nil?"
-        else emit(node); write ".truthy?"
+        case node
+        when Ast::TrueLiteral then "true"
+        when Ast::FalseLiteral, Ast::NilLiteral then "false"
+        else
+          if boolean_valued?(node) then cr(node)
+          elsif returns_crystal_nilable?(node) then "!#{cr(node)}.nil?"
+          else "#{cr(node)}.truthy?"
+          end
         end
       end
+      def emit_truthy(node) = write cr_truthy(node)
 
       # -----------------------------------------------------------------------
       # Soundness guard for comparison-operator simplification

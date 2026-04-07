@@ -1003,29 +1003,19 @@ module Frozone
       # Wrap a value in a Crystal truthy check when used as a condition.
       # If the node is already a comparison/predicate that returns Bool, emit
       # it directly; otherwise wrap in .truthy?
-      def emit_truthy(node)
-        # Ruby true/false literals: emit Crystal true/false for proper Crystal truthiness
-        if node.is_a?(Ast::TrueLiteral)
-          return write("true")
-        elsif node.is_a?(Ast::FalseLiteral)
-          return write("false")
-        elsif node.is_a?(Ast::NilLiteral)
-          return write("false")
-        elsif boolean_valued?(node)
-          emit(node)
-        elsif comparison_op_call?(node)
-          # Emit comparison directly as Crystal Bool — no RUBY_TRUE/RUBY_FALSE wrapper.
-          # This is correct because Crystal's comparison dispatch already returns Bool.
-          write "("
-          emit_operator_recv(node.receiver_node)
-          write " #{node.name} "
-          emit(node.arg_nodes[0])
-          write ")"
+      def cr_truthy(node)
+        case node
+        when Ast::TrueLiteral then "true"
+        when Ast::FalseLiteral, Ast::NilLiteral then "false"
         else
-          emit(node)
-          write ".truthy?"
+          if boolean_valued?(node) then cr(node)
+          elsif comparison_op_call?(node)
+            "(#{capture { emit_operator_recv(node.receiver_node) }} #{node.name} #{cr(node.arg_nodes[0])})"
+          else "#{cr(node)}.truthy?"
+          end
         end
       end
+      def emit_truthy(node) = write cr_truthy(node)
 
       # Methods that return Crystal Bool directly (not RubyObject).
       # Use the Crystal name (after RUBY_TO_CRYSTAL_METHOD mapping).
