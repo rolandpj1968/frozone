@@ -158,6 +158,7 @@ module Frozone
         when Ast::ArrayLiteral       then cr_array_literal(node)
         when Ast::LocalVariableWrite then cr_local_write(node)
         when Ast::InstanceVariableWrite then cr_ivar_write(node)
+        when Ast::AttributeWrite     then cr_attribute_write(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -462,25 +463,17 @@ module Frozone
       def operator?(name) = BINARY_OPS.include?(name) || UNARY_OPS.include?(name)
 
       # AttributeWrite: obj.foo = val (setter) or obj[i] = val (index assign)
-      def emit_attribute_write(node)
+      def cr_attribute_write(node)
         name = node.name
         recv = node.receiver_node
         args = node.arg_nodes
         if name == :[]=
-          # Index assignment: receiver[idx] = val
-          emit(recv)
-          write "["
-          emit(args[0])
-          write "] = "
-          emit(args[1])
+          "#{cr(recv)}[#{cr(args[0])}] = #{cr(args[1])}"
         else
-          # Setter method: receiver.foo = val
-          setter_name = name.to_s.chomp('=')
-          emit(recv)
-          write ".#{setter_name} = "
-          emit(args[0])
+          "#{cr(recv)}.#{name.to_s.chomp('=')} = #{cr(args[0])}"
         end
       end
+      def emit_attribute_write(node) = write cr_attribute_write(node)
 
       def emit_operator(node, name)
         if UNARY_OPS.include?(name)
