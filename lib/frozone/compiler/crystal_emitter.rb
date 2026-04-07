@@ -169,6 +169,9 @@ module Frozone
         when Ast::IndexOperatorWrite then cr_index_op_write(node)
         when Ast::MultipleAssignment then cr_multiple_assignment(node)
         when Ast::MethodCall         then cr_method_call(node)
+        when Ast::If                 then cr_if(node)
+        when Ast::While              then cr_while(node)
+        when Ast::Until              then cr_until(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -744,22 +747,26 @@ module Frozone
       # Control flow
       # -----------------------------------------------------------------------
 
-      def emit_if(node)
+      def cr_if(node)
+        pred = cr_truthy(node.pred_node)
+        indent_str = "  " * @indent
         # Detect `unless` pattern: if cond; nil; else; body; end
         if node.then_node.is_a?(Ast::NilLiteral) && node.else_node
-          write "unless "; emit_truthy(node.pred_node); emit_newline
-          indented { emit(node.else_node) }
-          emit_newline; emit_indent; write "end"
-          return
+          body = nil
+          indented { body = cr(node.else_node) }
+          return "unless #{pred}\n#{body}\n#{indent_str}end"
         end
-        write "if "; emit_truthy(node.pred_node); emit_newline
-        indented { emit(node.then_node) }
+        then_body = nil
+        indented { then_body = cr(node.then_node) }
         if node.else_node
-          emit_newline; emit_indent; write "else"; emit_newline
-          indented { emit(node.else_node) }
+          else_body = nil
+          indented { else_body = cr(node.else_node) }
+          "if #{pred}\n#{then_body}\n#{indent_str}else\n#{else_body}\n#{indent_str}end"
+        else
+          "if #{pred}\n#{then_body}\n#{indent_str}end"
         end
-        emit_newline; emit_indent; write "end"
       end
+      def emit_if(node) = write cr_if(node)
 
       def emit_for_loop(node)
         target = node.target
@@ -784,24 +791,17 @@ module Frozone
         write "end"
       end
 
-      def emit_while(node)
-        write "while "
-        emit_truthy(node.condition_node)
-        emit_newline
-        indented { emit(node.body_node) }
-        emit_newline
-        emit_indent
-        write "end"
-      end
+      def cr_while(node) = cr_loop("while", node)
+      def cr_until(node) = cr_loop("until", node)
+      def emit_while(node) = write cr_while(node)
+      def emit_until(node) = write cr_until(node)
 
-      def emit_until(node)
-        write "until "
-        emit_truthy(node.condition_node)
-        emit_newline
-        indented { emit(node.body_node) }
-        emit_newline
-        emit_indent
-        write "end"
+      def cr_loop(keyword, node)
+        cond = cr_truthy(node.condition_node)
+        indent_str = "  " * @indent
+        body = nil
+        indented { body = cr(node.body_node) }
+        "#{keyword} #{cond}\n#{body}\n#{indent_str}end"
       end
 
       def cr_return(node) = node.value_node ? "return #{capture { emit(node.value_node) }}" : "return"
