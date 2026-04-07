@@ -14,7 +14,32 @@ nil,
 }
 \[:child,
 
+# Compiled Crystal benchmark executables (built into crystal/ root)
+crystal/attr_accessor
+crystal/binarytrees
+crystal/blurhash
+crystal/cfunc_itself
+crystal/fannkuchredux
 crystal/fib
+crystal/getivar
+crystal/keyword_args
+crystal/loops_times
+crystal/matmul
+crystal/nbody
 crystal/nqueens
+crystal/nqueens_tinf
+crystal/object_new
+crystal/object_new_initialize
+crystal/respond_to
+crystal/ruby_xor
+crystal/send_rubyfunc_block
+crystal/setivar
+crystal/spec_array_basic
+crystal/splay
+crystal/str_concat
+crystal/structaref
+crystal/structaset
+crystal/sudoku
+crystal/perf.data
 bench/benchmarks/lee/
 crystal/lang_debug*
