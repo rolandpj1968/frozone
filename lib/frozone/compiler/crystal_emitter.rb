@@ -233,11 +233,6 @@ module Frozone
       def cr_false = "RUBY_FALSE"
       def cr_integer(node) = "RubyInteger.new(#{node.value.raw}_i64)"
       def cr_float(node) = "RubyFloat.new(#{float_bits_expr(node.value.respond_to?(:raw) ? node.value.raw : node.value)})"
-      def emit_nil_literal = write cr_nil
-      def emit_true_literal = write cr_true
-      def emit_false_literal = write cr_false
-      def emit_integer_literal(node) = write cr_integer(node)
-      def emit_float_literal(node) = write cr_float(node)
 
       # Bit-exact IEEE 754 Float64 expression for Crystal.
       # Uses unsafe_as reinterpretation so the bit pattern round-trips perfectly
@@ -258,28 +253,20 @@ module Frozone
       def cr_string(node) = %(RubyString.new(#{crystal_string_literal(node.value.raw)}))
       def cr_symbol(node) = %(RubySymbol.from(#{node.value.to_s.inspect}))
       def cr_self = "self"
-      def emit_string_literal(node) = write cr_string(node)
-      def emit_symbol_literal(node) = write cr_symbol(node)
-      def emit_self_literal = write cr_self
 
       # -----------------------------------------------------------------------
       # Variables
       # -----------------------------------------------------------------------
 
       def cr_local_read(node) = crystal_local(node.name)
-      def emit_local_var_read(node) = write cr_local_read(node)
 
       def cr_local_write(node) = "#{crystal_local(node.name)} = #{cr(node.value_node)}"
-      def emit_local_var_write(node) = write cr_local_write(node)
 
       def cr_ivar_read(node) = node.name.to_s
-      def emit_ivar_read(node) = write cr_ivar_read(node)
 
       def cr_ivar_write(node) = "#{node.name} = #{cr(node.value_node)}"
-      def emit_ivar_write(node) = write cr_ivar_write(node)
 
       def cr_constant_read(node) = RUBY_TO_CRYSTAL_TYPE[node.name] || "Ruby_#{crystal_constant(node.name)}"
-      def emit_constant_read(node) = write cr_constant_read(node)
 
       def cr_constant_path(node)
         parent = node.parent_node
@@ -295,16 +282,12 @@ module Frozone
           "#{cr(parent)}::Ruby_#{crystal_constant(name)}"
         end
       end
-      def emit_constant_path(node) = write cr_constant_path(node)
 
       def cr_constant_write(node) = "Ruby_#{crystal_constant(node.name)} = #{cr(node.value_node)}"
-      def emit_constant_write(node) = write cr_constant_write(node)
 
       def cr_class_var_read(node) = node.name.to_s
-      def emit_class_var_read(node) = write cr_class_var_read(node)
 
       def cr_class_var_write(node) = "#{node.name} = #{cr(node.value_node)}"
-      def emit_class_var_write(node) = write cr_class_var_write(node)
 
       # -----------------------------------------------------------------------
       # Sequence
@@ -323,7 +306,6 @@ module Frozone
       # so cr_method_call returns the captured output and Codegen subclass
       # overrides can compose String results via super.
       def cr_method_call(node) = capture { emit_method_call_imperative(node) }
-      def emit_method_call(node) = write cr_method_call(node)
 
       def emit_method_call_imperative(node)
         name = node.name
@@ -434,7 +416,6 @@ module Frozone
           "#{cr(recv)}.#{name.to_s.chomp('=')} = #{cr(args[0])}"
         end
       end
-      def emit_attribute_write(node) = write cr_attribute_write(node)
 
       def emit_operator(node, name)
         if UNARY_OPS.include?(name)
@@ -452,9 +433,7 @@ module Frozone
             emit(node.receiver_node)
             write ")"
           when :"!"
-            write "(("
-            emit_truthy(node.receiver_node)
-            write ") ? RUBY_FALSE : RUBY_TRUE)"
+            write "((#{cr_truthy(node.receiver_node)}) ? RUBY_FALSE : RUBY_TRUE)"
           end
         elsif COMPARE_OPS.include?(name)
           # Comparison: wrap in RubyBool so return type is RubyObject-compatible
@@ -601,7 +580,6 @@ module Frozone
         parts << "#{indent_str}end"
         parts.join("\n")
       end
-      def emit_rescue(node) = write cr_rescue(node)
 
       def cr_super(node)
         args = node.arg_nodes
@@ -609,7 +587,6 @@ module Frozone
         suffix = @in_exception_class ? ".to_s" : ""
         "super(#{args.map { |a| "#{cr(a)}#{suffix}" }.join(', ')})"
       end
-      def emit_super(node) = write cr_super(node)
 
       def emit_require_call(node)
         # Silently drop require calls — closed world, all files already compiled.
@@ -727,7 +704,6 @@ module Frozone
           "if #{pred}\n#{then_body}\n#{indent_str}end"
         end
       end
-      def emit_if(node) = write cr_if(node)
 
       def cr_for_loop(node)
         target = node.target
@@ -746,12 +722,9 @@ module Frozone
         indented { body = cr(node.body_node) }
         "#{cr(node.collection_node)}.each do |#{var_str}|\n#{body}\n#{indent_str}end"
       end
-      def emit_for_loop(node) = write cr_for_loop(node)
 
       def cr_while(node) = cr_loop("while", node)
       def cr_until(node) = cr_loop("until", node)
-      def emit_while(node) = write cr_while(node)
-      def emit_until(node) = write cr_until(node)
 
       def cr_loop(keyword, node)
         cond = cr_truthy(node.condition_node)
@@ -773,9 +746,6 @@ module Frozone
         (val.nil? || val.is_a?(Ast::NilLiteral)) ? "break" : "break (#{capture { emit(val) }})"
       end
 
-      def emit_return(node) = write cr_return(node)
-      def emit_next(node) = write cr_next(node)
-      def emit_break(node) = write cr_break(node)
 
       def emit_loop(node)
         write "loop do"
@@ -795,7 +765,6 @@ module Frozone
         }.join
         "RubyProc.new(->(args : Array(RubyObject)) { #{param_binds}#{cr(node.body)} })"
       end
-      def emit_lambda(node) = write cr_lambda(node)
 
       # Proc.new { |x| ... } or lambda { |x| ... } → RubyProc
       def emit_proc_new(block_node)
@@ -842,13 +811,11 @@ module Frozone
         mapped || %((RUBY_GLOBALS[#{node.name.to_s.sub(/^\$/, '').inspect}]? || RUBY_NIL))
       end
 
-      def emit_global_var_read(node) = write cr_global_var_read(node)
 
       def cr_global_var_write(node)
         key = node.name.to_s.sub(/^\$/, '')
         %(RUBY_GLOBALS[#{key.inspect}] = #{cr(node.value_node)})
       end
-      def emit_global_var_write(node) = write cr_global_var_write(node)
 
       # a[i] ||= val → (_r = recv; _i = idx; _c = _r[_i]; _c.truthy? ? _c : (_r[_i] = val))
       def cr_index_or_write(node)
@@ -859,7 +826,6 @@ module Frozone
         recv_str = node.receiver_node ? cr(node.receiver_node) : "self"
         "(#{r} = #{recv_str}; #{i} = #{cr(node.index_arg_nodes[0])}; #{c} = #{r}[#{i}]; #{c}.truthy? ? #{c} : (#{r}[#{i}] = #{cr(node.value_node)}))"
       end
-      def emit_index_or_write(node) = write cr_index_or_write(node)
 
       # a[i] &&= val → (_r = recv; _i = idx; _c = _r[_i]; _c.truthy? ? (_r[_i] = val) : _c)
       def cr_index_and_write(node)
@@ -870,7 +836,6 @@ module Frozone
         recv_str = node.receiver_node ? cr(node.receiver_node) : "self"
         "(#{r} = #{recv_str}; #{i} = #{cr(node.index_arg_nodes[0])}; #{c} = #{r}[#{i}]; #{c}.truthy? ? (#{r}[#{i}] = #{cr(node.value_node)}) : #{c})"
       end
-      def emit_index_and_write(node) = write cr_index_and_write(node)
 
       # a[i] += val → (_r = recv; _i = idx; _r[_i] = _r[_i] op val)
       def cr_index_op_write(node)
@@ -880,14 +845,12 @@ module Frozone
         recv_str = node.receiver_node ? cr(node.receiver_node) : "self"
         "(#{r} = #{recv_str}; #{i} = #{cr(node.index_arg_nodes[0])}; #{r}[#{i}] = (#{r}[#{i}] #{node.operator} #{cr(node.value_node)}))"
       end
-      def emit_index_op_write(node) = write cr_index_op_write(node)
 
       def cr_yield(node)
         args = node.arg_nodes
         return "yield" if args.empty?
         "yield #{args.map { |a| "(#{cr(a)})" }.join(', ')}"
       end
-      def emit_yield(node) = write cr_yield(node)
 
       # -----------------------------------------------------------------------
       # Boolean operators
@@ -906,8 +869,6 @@ module Frozone
         "(#{tmp} = #{capture { emit(node.left_node) }}; #{tmp}.truthy? ? #{tmp} : (#{capture { emit(node.right_node) }}))"
       end
 
-      def emit_and(node) = write cr_and(node)
-      def emit_or(node) = write cr_or(node)
 
       # Wrap a value in a Crystal truthy check when used as a condition.
       # If the node is already a comparison/predicate that returns Bool, emit
@@ -924,7 +885,6 @@ module Frozone
           end
         end
       end
-      def emit_truthy(node) = write cr_truthy(node)
 
       # Methods that return Crystal Bool directly (not RubyObject).
       # Use the Crystal name (after RUBY_TO_CRYSTAL_METHOD mapping).
@@ -989,7 +949,6 @@ module Frozone
           "_case_subj = #{cr(subject)}\n#{indent_str}#{cr_case_if_chain('_case_subj', whens, else_n)}"
         end
       end
-      def emit_case(node) = write cr_case(node)
 
       def cr_case_native(subj_name, whens, else_n)
         indent_str = "  " * @indent
@@ -1073,9 +1032,6 @@ module Frozone
         "RubyRange.new(#{b}, #{e}, #{node.exclusive})"
       end
 
-      def emit_array_literal(node) = write cr_array_literal(node)
-      def emit_hash_literal(node) = write cr_hash_literal(node)
-      def emit_range_literal(node) = write cr_range_literal(node)
 
       def cr_multiple_assignment(node)
         targets = node.targets
@@ -1103,7 +1059,6 @@ module Frozone
         end
         lines.join("\n#{indent_str}")
       end
-      def emit_multiple_assignment(node) = write cr_multiple_assignment(node)
 
       def cr_masgn_assign(target, value_code)
         case target[0]
@@ -1119,7 +1074,6 @@ module Frozone
         else "# UNSUPPORTED masgn target: #{target[0]}"
         end
       end
-      def emit_masgn_assign(target, value_code) = write cr_masgn_assign(target, value_code)
 
       def cr_interpolated_string(node)
         parts = node.parts.map { |part|
@@ -1131,7 +1085,6 @@ module Frozone
         "RubyString.new(String.build { |_s| #{parts.join('; ')} })"
       end
 
-      def emit_interpolated_string(node) = write cr_interpolated_string(node)
 
       # -----------------------------------------------------------------------
       # Method definition
@@ -1162,7 +1115,6 @@ module Frozone
         end
         "#{prefix}#{params}#{ret_anno}\n#{body}\n#{indent_str}end"
       end
-      def emit_method_def(node) = write cr_method_def(node)
 
       def cr_param_list(node)
         parts = []
@@ -1183,7 +1135,6 @@ module Frozone
         parts.empty? ? "" : "(#{parts.join(', ')})"
       end
 
-      def emit_param_list(node) = write cr_param_list(node)
 
       # -----------------------------------------------------------------------
       # Class / module definitions
@@ -1237,7 +1188,6 @@ module Frozone
         body_str = body_lines.join("\n")
         "class Ruby_#{name} < #{super_str}\n#{body_str}\n#{indent_str}end"
       end
-      def emit_class_def(node) = write cr_class_def(node)
 
       # Returns true if the class body contains an explicit `initialize` method.
       def has_initialize?(body)
@@ -1262,7 +1212,6 @@ module Frozone
         end
         "module Ruby_#{crystal_constant(node.name)}#{body_str}\n#{indent_str}end"
       end
-      def emit_module_def(node) = write cr_module_def(node)
 
       # -----------------------------------------------------------------------
       # Output helpers

@@ -191,7 +191,7 @@ module Frozone
         when Ast::InstanceVariableRead then node.name.to_s
         when Ast::ConstantRead
           ty = @gctx.const_raw_types[node.name]
-          s = capture { emit_constant_read(node) }
+          s = cr_constant_read(node)
           (ty.nil? || ty == Type::ARRAY_I64 || ty == Type::ARRAY_F64) ? s : "#{s}#{ty.f64? ? '.to_f64' : '.to_i64'}"
         when Ast::ConstantPath
           parent = node.parent_node
