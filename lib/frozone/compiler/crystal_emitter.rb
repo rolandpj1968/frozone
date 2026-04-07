@@ -563,9 +563,11 @@ module Frozone
         end
         then_body = nil
         indented { then_body = cr(node.then_node) }
+        then_body = "  #{indent_str}#{then_body}" unless node.then_node.is_a?(Ast::Sequence)
         if node.else_node
           else_body = nil
           indented { else_body = cr(node.else_node) }
+          else_body = "  #{indent_str}#{else_body}" unless node.else_node.is_a?(Ast::Sequence)
           "if #{pred}\n#{then_body}\n#{indent_str}else\n#{else_body}\n#{indent_str}end"
         else
           "if #{pred}\n#{then_body}\n#{indent_str}end"

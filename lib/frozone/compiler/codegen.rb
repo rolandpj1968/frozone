@@ -1554,9 +1554,13 @@ module Frozone
         # dispatch correctly.
         if node.name != :[]= && recv.is_a?(Ast::LocalVariableRead) &&
            (cls_entry = @mctx.class_locals[recv.name])
-          cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
           setter = node.name.to_s.chomp('=')
-          return "#{crystal_local(recv.name)}.as(#{crystal_class_name(cls)}).#{setter} = #{cr(args[0])}"
+          if cls_entry.is_a?(Array)
+            # Nullable: cast to concrete class for typed setter dispatch
+            return "#{crystal_local(recv.name)}.as(#{crystal_class_name(cls_entry[0])}).#{setter} = #{cr(args[0])}"
+          end
+          # Non-nullable: local is already concrete class, no cast needed
+          return "#{crystal_local(recv.name)}.#{setter} = #{cr(args[0])}"
         end
         return super unless node.name == :[]=
         # Ivar array write: @list[i] = val where @list is Array(Float64)
