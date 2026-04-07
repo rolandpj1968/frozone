@@ -346,8 +346,7 @@ module Frozone
         if name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
           cr_type = RUBY_TO_CRYSTAL_TYPE[node.receiver_node.name]
           if cr_type
-            write "#{cr_type}.new"
-            emit_call_args(node)
+            write "#{cr_type}.new#{cr_call_args(node)}"
             return
           end
         end
@@ -390,12 +389,8 @@ module Frozone
         end
 
         # General method call: receiver.method(args)
-        if node.receiver_node
-          emit(node.receiver_node)
-          write "."
-        end
-        write crystal_method_name(name)
-        emit_call_args(node)
+        recv_str = node.receiver_node ? "#{cr(node.receiver_node)}." : ""
+        write "#{recv_str}#{crystal_method_name(name)}#{cr_call_args(node)}"
       end
 
       BINARY_OPS = %i[+ - * / % ** == != < <= > >= <=> << >> & | ^ === =~].to_set
@@ -532,68 +527,47 @@ module Frozone
         lines.join("\n#{indent_str}")
       end
 
-      def emit_call_args(node)
-        return if node.arg_nodes.empty? && node.kw_arg_nodes.empty? && node.block_node.nil?
-
-        write "("
-        first = true
+      def cr_call_args(node)
+        return "" if node.arg_nodes.empty? && node.kw_arg_nodes.empty? && node.block_node.nil?
+        parts = []
         node.arg_nodes.each do |arg|
-          write ", " unless first
-          first = false
           if arg.is_a?(Ast::SplatArg)
-            # SplatArg: Crystal can't splat Array (only Tuple); emit unsupported marker
-            write "# UNSUPPORTED_SPLAT("
-            emit(arg.value_node)
-            write ")"
+            parts << "# UNSUPPORTED_SPLAT(#{cr(arg.value_node)})"
           else
-            emit(arg)
+            parts << cr(arg)
           end
         end
         node.kw_arg_nodes.each do |kw_name, val_node|
-          write ", " unless first
-          first = false
           key = kw_name.is_a?(Ast::SymbolLiteral) ? kw_name.value : kw_name
-          write "#{key}: "
-          emit(val_node)
+          parts << "#{key}: #{cr(val_node)}"
         end
-        write ")"
-
+        s = "(#{parts.join(', ')})"
         if node.block_node
-          write " "
-          if node.block_node.is_a?(Ast::BlockArg)
-            emit_block_arg(node.block_node)
-          else
-            emit_block(node.block_node)
-          end
+          s += " "
+          s += node.block_node.is_a?(Ast::BlockArg) ? cr_block_arg(node.block_node) : cr_block(node.block_node)
         end
+        s
       end
 
       # -----------------------------------------------------------------------
       # Block
       # -----------------------------------------------------------------------
 
-      def emit_block(node)
+      def cr_block(node)
         params = (node.required_params || []) + (node.optional_params || []).map(&:first)
         params += [node.rest_param].compact
-        write "{ "
-        unless params.empty?
-          write "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
-        end
-        emit(node.body)
-        write " }"
+        param_str = params.empty? ? "" : "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
+        "{ #{param_str}#{cr(node.body)} }"
       end
 
-      # &:method — emit as a single-arg block that calls the method
-      def emit_block_arg(block_arg_node)
+      # &:method — single-arg block that calls the method
+      def cr_block_arg(block_arg_node)
         value_node = block_arg_node.value_node
         if value_node.is_a?(Ast::SymbolLiteral)
           method_name = crystal_method_name(value_node.value)
-          # Wrap with .as(RubyObject) to avoid Crystal type-union issues when
-          # the same method name exists on multiple types with different return types
-          write "{ |_sym2proc| _sym2proc.#{method_name}.as(RubyObject) }"
+          "{ |_sym2proc| _sym2proc.#{method_name}.as(RubyObject) }"
         else
-          # Generic block-pass: convert to a Proc and call it
-          write "{ |_blkarg| ("; emit(value_node); write ").as(RubyProc).call(_blkarg) }"
+          "{ |_blkarg| (#{cr(value_node)}).as(RubyProc).call(_blkarg) }"
         end
       end
 

@@ -1315,12 +1315,11 @@ module Frozone
         end
       end
 
-      # Emit block after typed call args (emit_call_args handles blocks itself).
+      # Emit block after typed call args (cr_call_args handles blocks itself).
       def emit_block_if_present(node)
         blk = node.block_node
         return unless blk && !blk.is_a?(Ast::BlockArg)
-        write " "
-        emit_block(blk)
+        write " #{cr_block(blk)}"
       end
 
       def cr_method_call(node)
@@ -1519,10 +1518,10 @@ module Frozone
             emit_typed_call_args(node.arg_nodes || [], tp)
             emit_block_if_present(node)
           else
-            emit_call_args(node)
+            write cr_call_args(node)
           end
         else
-          emit_call_args(node)
+          write cr_call_args(node)
         end
         true
       end
@@ -1547,7 +1546,7 @@ module Frozone
         cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
         write crystal_local(node.receiver_node.name), ".as(", crystal_class_name(cls),
               ").", crystal_method_name(node.name)
-        emit_call_args(node)
+        write cr_call_args(node)
         true
       end
 
@@ -1571,54 +1570,38 @@ module Frozone
       # Override: emit typed local args as raw in method calls.
       # Crystal's overload resolution picks Int64/Float64 overloads where
       # available, and *args stubs accept any type.
-      def emit_call_args(node)
+      def cr_call_args(node)
         return super unless opt?(:unbox_locals)
-        return super if node.name == :new  # constructors may not have Int64 overloads
+        return super if node.name == :new
         args = node.arg_nodes
         kw_args = node.kw_arg_nodes
-        return if args.empty? && kw_args.empty? && node.block_node.nil?
+        return "" if args.empty? && kw_args.empty? && node.block_node.nil?
 
-        # Pass typed local variables and raw arithmetic expressions as raw —
-        # Crystal's overload resolution picks the Int64/Float64 overload when available.
-        # Don't pass literals raw (they might reach functions expecting RubyObject).
-        # Only pass raw when ALL positional args are raw-passable AND the
-        # callee has a typed overload (otherwise Crystal can't match raw args).
         all_raw = args.all? { |a| a.is_a?(Ast::SplatArg) || raw_passable_arg?(a) }
         has_typed_overload = @gctx.typed_params&.key?(node.name) ||
           (@cctx&.name && @gctx.class_params&.key?([@cctx.name, node.name])) ||
           (node.receiver_node.is_a?(Ast::ConstantRead) && @gctx.class_params&.key?([node.receiver_node.name, node.name]))
         return super unless all_raw && has_typed_overload
 
-        write "("
-        first = true
-        args.each do |arg|
-          write ", " unless first
-          first = false
+        parts = args.map do |arg|
           if arg.is_a?(Ast::SplatArg)
-            write "# UNSUPPORTED_SPLAT("; emit(arg.value_node); write ")"
+            "# UNSUPPORTED_SPLAT(#{cr(arg.value_node)})"
           elsif raw_passable_arg?(arg)
-            emit_raw(arg)
+            raw(arg)
           else
-            emit(arg)
+            cr(arg)
           end
         end
-        kw_args.each do |kw_name, val_node|
-          write ", " unless first
-          first = false
+        parts += kw_args.map do |kw_name, val_node|
           key = kw_name.is_a?(Ast::SymbolLiteral) ? kw_name.value : kw_name
-          write "#{key}: "
-          emit(val_node)
+          "#{key}: #{cr(val_node)}"
         end
-        write ")"
-
+        s = "(#{parts.join(', ')})"
         if node.block_node
-          write " "
-          if node.block_node.is_a?(Ast::BlockArg)
-            emit_block_arg(node.block_node)
-          else
-            emit_block(node.block_node)
-          end
+          s += " "
+          s += node.block_node.is_a?(Ast::BlockArg) ? cr_block_arg(node.block_node) : cr_block(node.block_node)
         end
+        s
       end
 
       # Override: for []= with typed array or raw-typed index, emit accordingly.
