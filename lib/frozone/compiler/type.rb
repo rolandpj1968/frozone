@@ -42,6 +42,10 @@ module Frozone
         class_type? && @class_name == :Array
       end
 
+      # Any array form: scalar-elem flat array OR class_type Array.
+      # Equivalent to the legacy CrystalType.array? predicate.
+      def array_like? = array_scalar? || array?
+
       def hash_type?
         class_type? && @class_name == :Hash
       end
@@ -226,6 +230,45 @@ module Frozone
             new(:class_type, class_name: type.class_name, nullable: true,
                 exact: type.exact?, elem: type.elem, key: type.key, val: type.val)
           else type
+          end
+        end
+      end
+
+      # -- Codegen-side type derivation from a TI Type ------------------------
+
+      # Map a Type from the inference layer to a codegen-friendly Type:
+      #   - Raw scalars and array_scalars pass through
+      #   - Class types Array(T) with native elem → nested array (Type.array)
+      #   - User class types in user_class_names → Type.of(class_name)
+      #   - Builtin Hash / Proc / Array → Type.of(...)
+      #   - Other class types (String, Integer, etc.), nil, BOTTOM → Type::BOTTOM
+      #     (renders as RubyObject in codegen).
+      #
+      # Returns the same shape that codegen consumers want — replaces
+      # CrystalType.from_type which produced legacy Symbol/Array representations.
+      def self.from_ti(ty, user_class_names: Set.new)
+        return BOTTOM if ty.nil? || ty.bottom?
+        return ty if ty.raw? || ty.array_scalar?
+        return BOTTOM unless ty.class_type?
+        case ty.class_name
+        when :Array
+          if ty.elem
+            mapped_elem = from_ti(ty.elem, user_class_names: user_class_names)
+            mapped_elem.native? ? Type.array(elem: mapped_elem) : BOTTOM
+          else
+            BOTTOM
+          end
+        when :Hash, :Proc then of(ty.class_name)
+        when :String, :Symbol, :Integer, :Float,
+             :NilClass, :TrueClass, :FalseClass,
+             :Object, :Numeric, :BasicObject, :Comparable, :Enumerable
+          BOTTOM
+        else
+          cls = ty.class_name
+          if user_class_names.include?(cls) || CRYSTAL_CLASS_NAMES.key?(cls)
+            of(cls)
+          else
+            BOTTOM
           end
         end
       end
