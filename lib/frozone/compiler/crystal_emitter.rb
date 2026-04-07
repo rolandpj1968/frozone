@@ -171,9 +171,9 @@ module Frozone
         when Ast::GlobalVariableRead then cr_global_var_read(node)
         when Ast::Retry              then "retry"
         else
-          # InstanceVariableRead, LocalVariableRead, And, Or, ArrayLiteral,
-          # MethodCall, AttributeWrite and structural nodes go through the
-          # imperative path so subclass emit_* overrides apply.
+          # Structural nodes (if/while/method_def/class_def/case/etc.) and
+          # the few remaining unconverted leaves still go through the
+          # imperative path. Captured here so cr() always returns a String.
           capture { emit_node(node) }
         end
       end
