@@ -342,114 +342,104 @@ module Frozone
       end
 
       # -----------------------------------------------------------------------
-      # emit_raw_expr — complete raw expression emitter for typed method bodies.
-      # Never boxes. Every expression emits as a bare Crystal value.
-      # Falls back to emit(node) ONLY for node types that are inherently
-      # RubyObject-valued (string literals, hash literals, etc.)
+      # raw_lines — pure functional raw expression emitter.
+      # Returns Array<String> (lines of Crystal source, no trailing newlines).
+      # Never boxes. Falls back to capture { emit(node) } for inherently
+      # RubyObject-valued nodes (string literals, hash literals, etc.)
       # -----------------------------------------------------------------------
 
-      def emit_raw_expr(node)
+      def indent(lines) = lines.map { |l| "  #{l}" }
+
+      def raw_lines(node)
         case node
-        when Ast::IntegerLiteral
-          write "#{node.value.raw}_i64"
+        when Ast::IntegerLiteral then ["#{node.value.raw}_i64"]
         when Ast::FloatLiteral
-          raw = node.value
-          val = raw.respond_to?(:raw) ? raw.raw : raw
-          write float_bits_expr(val)
-        when Ast::NilLiteral
-          write "RUBY_NIL"
-        when Ast::TrueLiteral
-          write "true"
-        when Ast::FalseLiteral
-          write "false"
-        when Ast::LocalVariableRead
-          # Bare Crystal local — no boxing. Typed locals are already the right type.
-          write crystal_local(node.name)
-        when Ast::InstanceVariableRead
-          iv = node.name
-          case (iv_ty = @cctx&.ivars&.dig(iv))
-          when Type::I64, Type::F64, Type::ARRAY_I64, Type::ARRAY_F64
-            write iv.to_s  # bare ivar
-          else
-            write iv.to_s  # still bare — caller decides whether to box
-          end
-        when Ast::LocalVariableWrite
-          name = node.name
-          # Delegate array construction to specialised handlers
-          return if try_nested_array_write(node, name)
-          return if try_range_to_a_write(node, name)
-          return if try_native_dup_write(node, name)
-          return if try_typed_array_write(node, name)
-          return if try_boxed_array_promote(node, name)
-          # Skip try_scalar_write and try_class_cast_write in raw context —
-          # they use emit_as/emit which box. Raw context handles these natively.
-          write crystal_local(name), " = "
-          emit_raw_expr(node.value_node)
-        when Ast::Sequence
-          node.nodes.each_with_index do |n, i|
-            if i < node.nodes.size - 1
-              emit_indent; emit_raw_expr(n); emit_newline
-            else
-              emit_raw_expr(n)
-            end
-          end
-        when Ast::MethodCall
-          result = raw_expr_call(node)
-          if result.is_a?(String) then write result
-          elsif !result then emit(node)
-          end
-        when Ast::AttributeWrite
-          # @list[i] = val on typed array ivars
-          recv = node.receiver_node
-          if node.name == :[]= && recv.is_a?(Ast::InstanceVariableRead)
-            iv_ty = @cctx&.ivars&.dig(recv.name)
-            if iv_ty == Type::ARRAY_F64 || iv_ty == Type::ARRAY_I64
-              args = node.arg_nodes
-              write recv.name.to_s, "["
-              emit_raw_expr(args[0])
-              write "] = "
-              emit_raw_expr(args[1])
-              return
-            end
-          end
-          emit(node)  # fall back for non-array attribute writes
-        when Ast::If
-          then_n = node.then_node
-          else_n = node.else_node
-          # Check if branches produce mixed numeric types — coerce to Float64
-          then_ty = node_raw_type(then_n)
-          else_ty = else_n ? node_raw_type(else_n) : nil
-          needs_float = (Type.f64?(then_ty) && Type.i64?(else_ty)) || (Type.i64?(then_ty) && Type.f64?(else_ty))
-          write "if "
-          emit_raw_truthy(node.pred_node)
-          emit_newline
-          indented { emit_indent; needs_float && Type.i64?(then_ty) ? (emit_raw_expr(then_n); write ".to_f64") : emit_raw_expr(then_n) }
-          if else_n
-            emit_newline; emit_indent; write "else"; emit_newline
-            indented { emit_indent; needs_float && Type.i64?(else_ty) ? (emit_raw_expr(else_n); write ".to_f64") : emit_raw_expr(else_n) }
-          end
-          emit_newline; emit_indent; write "end"
-        when Ast::And
-          write "("; emit_raw_expr(node.left_node)
-          write " && "; emit_raw_expr(node.right_node); write ")"
-        when Ast::Or
-          write "("; emit_raw_expr(node.left_node)
-          write " || "; emit_raw_expr(node.right_node); write ")"
-        when Ast::Return
-          write "return "
-          emit_raw_expr(node.value_node) if node.value_node
-        when Ast::ConstantRead
-          name = node.name
-          write "Ruby_#{crystal_constant(name)}"
+          val = node.value.respond_to?(:raw) ? node.value.raw : node.value
+          [float_bits_expr(val)]
+        when Ast::NilLiteral then ["RUBY_NIL"]
+        when Ast::TrueLiteral then ["true"]
+        when Ast::FalseLiteral then ["false"]
+        when Ast::LocalVariableRead then [crystal_local(node.name)]
+        when Ast::InstanceVariableRead then [node.name.to_s]
+        when Ast::ConstantRead then ["Ruby_#{crystal_constant(node.name)}"]
         when Ast::ConstantPath
           parent = node.parent_node
-          if parent.is_a?(Ast::ConstantRead) && parent.name == :Math
-            write "Math::#{node.name}"
-          else
-            emit(node)
-          end
+          [(parent.is_a?(Ast::ConstantRead) && parent.name == :Math) ? "Math::#{node.name}" : capture { emit(node) }]
+        when Ast::And then ["(#{raw_lines(node.left_node).join} && #{raw_lines(node.right_node).join})"]
+        when Ast::Or  then ["(#{raw_lines(node.left_node).join} || #{raw_lines(node.right_node).join})"]
+        when Ast::Sequence then node.nodes.flat_map { |n| raw_lines(n) }
+        when Ast::If then raw_lines_if(node)
+        when Ast::Return then node.value_node ? ["return #{raw_lines(node.value_node).join}"] : ["return"]
+        when Ast::LocalVariableWrite then raw_lines_local_write(node)
+        when Ast::AttributeWrite then raw_lines_attr_write(node)
+        when Ast::MethodCall then raw_lines_method_call(node)
+        else [capture { emit(node) }]
+        end
+      end
+
+      def raw_lines_if(node)
+        then_ty = node_raw_type(node.then_node)
+        else_ty = node.else_node ? node_raw_type(node.else_node) : nil
+        needs_float = (Type.f64?(then_ty) && Type.i64?(else_ty)) || (Type.i64?(then_ty) && Type.f64?(else_ty))
+        then_lines = raw_lines(node.then_node)
+        then_lines[-1] += ".to_f64" if needs_float && Type.i64?(then_ty) && then_lines.any?
+        lines = ["if #{raw_truthy(node.pred_node)}", *indent(then_lines)]
+        if node.else_node
+          else_lines = raw_lines(node.else_node)
+          else_lines[-1] += ".to_f64" if needs_float && Type.i64?(else_ty) && else_lines.any?
+          lines.push("else", *indent(else_lines))
+        end
+        lines << "end"
+      end
+
+      def raw_lines_local_write(node)
+        name = node.name
+        # Specialised array constructors still write imperatively.
+        handled = capture {
+          try_nested_array_write(node, name) || try_range_to_a_write(node, name) ||
+            try_native_dup_write(node, name) || try_typed_array_write(node, name) ||
+            try_boxed_array_promote(node, name)
+        }
+        return [handled] unless handled.empty?
+        val = raw_lines(node.value_node)
+        if val.size == 1
+          ["#{crystal_local(name)} = #{val[0]}"]
         else
-          emit(node)  # unhandled node type — fall back to boxed emit
+          ["#{crystal_local(name)} = begin", *indent(val), "end"]
+        end
+      end
+
+      def raw_lines_attr_write(node)
+        recv = node.receiver_node
+        if node.name == :[]= && recv.is_a?(Ast::InstanceVariableRead)
+          iv_ty = @cctx&.ivars&.dig(recv.name)
+          if Type.array_raw?(iv_ty)
+            args = node.arg_nodes
+            return ["#{recv.name}[#{raw_lines(args[0]).join}] = #{raw_lines(args[1]).join}"]
+          end
+        end
+        [capture { emit(node) }]
+      end
+
+      def raw_lines_method_call(node)
+        result = nil
+        captured = capture { result = raw_expr_call(node) }
+        if result.is_a?(String)
+          [result]
+        elsif result
+          [captured]
+        else
+          [capture { emit(node) }]
+        end
+      end
+
+      # Backward compat — imperative callers write raw_lines to buffer.
+      def emit_raw_expr(node)
+        lines = raw_lines(node)
+        lines.each_with_index do |line, i|
+          emit_indent if i > 0
+          write line
+          emit_newline if i < lines.size - 1
         end
       end
 
@@ -458,13 +448,13 @@ module Frozone
         if node.is_a?(Ast::MethodCall) &&
            (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(node.name) &&
            node.receiver_node && (node.arg_nodes || []).size == 1
-          "(#{capture { emit_raw_expr(node.receiver_node) }} #{node.name} #{capture { emit_raw_expr(node.arg_nodes[0]) }})"
+          "(#{raw_lines(node.receiver_node).join} #{node.name} #{raw_lines(node.arg_nodes[0]).join})"
         elsif node.is_a?(Ast::And)
           "(#{raw_truthy(node.left_node)} && #{raw_truthy(node.right_node)})"
         elsif node.is_a?(Ast::Or)
           "(#{raw_truthy(node.left_node)} || #{raw_truthy(node.right_node)})"
         else
-          capture { emit_raw_expr(node) }
+          raw_lines(node).join("\n")
         end
       end
 
