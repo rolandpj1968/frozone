@@ -156,6 +156,7 @@ module Frozone
         when Ast::And                then cr_and(node)
         when Ast::Or                 then cr_or(node)
         when Ast::ArrayLiteral       then cr_array_literal(node)
+        when Ast::LocalVariableWrite then cr_local_write(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -303,10 +304,8 @@ module Frozone
       def cr_local_read(node) = crystal_local(node.name)
       def emit_local_var_read(node) = write cr_local_read(node)
 
-      def emit_local_var_write(node)
-        write "#{crystal_local(node.name)} = "
-        emit(node.value_node)
-      end
+      def cr_local_write(node) = "#{crystal_local(node.name)} = #{cr(node.value_node)}"
+      def emit_local_var_write(node) = write cr_local_write(node)
 
       def cr_ivar_read(node) = node.name.to_s
       def emit_ivar_read(node) = write cr_ivar_read(node)

@@ -1030,28 +1030,27 @@ module Frozone
       # Override: for typed locals, emit RHS as bare Crystal numeric.
       # For typed array locals, emit Array(T).new construction.
       # For class-typed locals, add .as(Ruby_ClassName) cast for static dispatch.
-      def emit_local_var_write(node)
+      def cr_local_write(node)
         name = node.name
-        return if try_nested_array_write(node, name)
-        return if try_range_to_a_write(node, name)
-        return if try_native_dup_write(node, name)
-        return if try_typed_array_write(node, name)
-        return if try_boxed_array_promote(node, name)
-        return if try_scalar_write(node, name)
-        return if try_native_array_alias(node, name)
-        return if try_boxed_array_write(node, name)
-        return if try_class_cast_write(node, name)
+        # try_* helpers are still imperative; capture their output if they fire.
+        captured = capture {
+          try_nested_array_write(node, name) || try_range_to_a_write(node, name) ||
+            try_native_dup_write(node, name) || try_typed_array_write(node, name) ||
+            try_boxed_array_promote(node, name) || try_scalar_write(node, name) ||
+            try_native_array_alias(node, name) || try_boxed_array_write(node, name) ||
+            try_class_cast_write(node, name)
+        }
+        return captured unless captured.empty?
         # TI may have typed this local as Array(T), but since no native
         # construction path matched, the Crystal variable is actually RubyArray.
-        # Evict so subsequent reads/writes don't use the native array path.
         @mctx.typed_array_locals.delete(name)
-        # Default: plain assignment (inlined from CrystalEmitter)
         old_suppress = @mctx.suppress_tuple_literals
         @mctx.suppress_tuple_literals = true
-        write crystal_local(name), " = "
-        emit(node.value_node)
+        result = "#{crystal_local(name)} = #{cr(node.value_node)}"
         @mctx.suppress_tuple_literals = old_suppress
+        result
       end
+      def emit_local_var_write(node) = write cr_local_write(node)
 
       # (0..n).to_a where TI says the result is Array[:i64] → native Crystal range to_a.
       def try_range_to_a_write(node, name)
