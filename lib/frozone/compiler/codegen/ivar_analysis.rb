@@ -93,10 +93,13 @@ module Frozone
           methods = value.methods_table || {}
           next unless methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
 
-          # Collect all ivar assignment types across ALL methods
+          # Collect all ivar assignment types across ALL methods. Skip
+          # attr_accessor-generated setters: their `@x = v` body writes
+          # `:unknown` (v is a param) which poisons the analysis.
           ivar_type_sets = Hash.new { |h, k| h[k] = Set.new }
           methods.each do |mname, method|
             next unless method.is_a?(Vm::Method) && method.body
+            next if accessor_method?(method)
             mkey = [class_name, mname]
             method_class_locals = @gctx.class_locals[mkey] || {}
             method_params = Set.new((method.required_params || []) + (method.instance_variable_get(:@optional_params) || []).map(&:first))

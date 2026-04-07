@@ -68,6 +68,25 @@ module Frozone
         end
       end
 
+      # Best-effort: what user-class does this expression evaluate to?
+      # Used to chain class-typed accessor calls like `current.left.key`.
+      def expr_class(node, ctx = nil)
+        return nil unless node
+        class_locals = ctx&.class_locals || @mctx.class_locals
+        case node
+        when Ast::LocalVariableRead
+          cls = class_locals[node.name] or return nil
+          cls.is_a?(Array) ? cls[0] : cls
+        when Ast::InstanceVariableRead
+          ct = @cctx&.typed_ivars&.[](node.name)
+          (ct.is_a?(Array) && (ct[0] == :class_or_nil || ct[0] == :class)) ? ct[1] : nil
+        when Ast::MethodCall
+          rec_cls = expr_class(node.receiver_node, ctx) or return nil
+          ct = @gctx.class_typed_ivars.dig(rec_cls, :"@#{node.name}")
+          (ct.is_a?(Array) && (ct[0] == :class_or_nil || ct[0] == :class)) ? ct[1] : nil
+        end
+      end
+
       def node_raw_type_call(node, ctx)
         name = node.name
         recv = node.receiver_node
@@ -75,10 +94,9 @@ module Frozone
         return @gctx.typed_method_returns[name] if recv.nil? && @gctx.typed_method_returns[name]
         return @gctx.instance_method_raw_returns[[@cctx.name, name]] if recv.nil? && @cctx.name && @gctx.instance_method_raw_returns[[@cctx.name, name]]
         return Type::F64 if recv.is_a?(Ast::ConstantRead) && recv.name == :Math
-        if recv.is_a?(Ast::LocalVariableRead)
-          recv_class = ctx.class_locals[recv.name]
-          recv_class = recv_class[0] if recv_class.is_a?(Array)
-          return @gctx.instance_method_raw_returns[[recv_class, name]] if recv_class && @gctx.instance_method_raw_returns[[recv_class, name]]
+        if (recv_class = expr_class(recv, ctx)) &&
+           (ret = @gctx.instance_method_raw_returns[[recv_class, name]])
+          return ret
         end
         if name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
           nat_ty = native_array_elem_type(recv.name, ctx) and return nat_ty
@@ -262,11 +280,10 @@ module Frozone
       end
 
       def raw_class_instance_call(name, recv, ctx)
-        return unless recv.is_a?(Ast::LocalVariableRead)
-        recv_class = @mctx.class_locals[recv.name] or return
-        recv_class = recv_class[0] if recv_class.is_a?(Array)
+        recv_class = expr_class(recv, ctx) or return
         @gctx.instance_method_raw_returns[[recv_class, name]] or return
-        "#{raw(recv, ctx)}.as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(name)}_raw"
+        recv_str = recv.is_a?(Ast::LocalVariableRead) ? raw(recv, ctx) : cr(recv)
+        "#{recv_str}.as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(name)}_raw"
       end
 
       def raw_math_call(name, recv, args, ctx)

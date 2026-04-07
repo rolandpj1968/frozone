@@ -92,9 +92,9 @@ end
     end
     height.times() { |y|     y_coef = RubyMath.cos((((RubyFloat.new(Math::PI) * yComponent) * y) / height))
     width.times() { |x|     basis = (RubyMath.cos((((RubyFloat.new(Math::PI) * xComponent) * x) / width)) * y_coef)
-    r = (r + (basis * self.sRGBToLinear(rgb[(((RubyInteger.new(3_i64) * x) + RubyInteger.new(0_i64)) + (y * bytesPerRow))])))
-    g = (g + (basis * self.sRGBToLinear(rgb[(((RubyInteger.new(3_i64) * x) + RubyInteger.new(1_i64)) + (y * bytesPerRow))])))
-    b = (b + (basis * self.sRGBToLinear(rgb[(((RubyInteger.new(3_i64) * x) + RubyInteger.new(2_i64)) + (y * bytesPerRow))]))) } }
+    r = (r + (basis * self.sRGBToLinear(rgb[(((RubyInteger.new(3_i64) * x) + RubyInteger.new(0_i64)) + (y * bytesPerRow))].to_i64)))
+    g = (g + (basis * self.sRGBToLinear(rgb[(((RubyInteger.new(3_i64) * x) + RubyInteger.new(1_i64)) + (y * bytesPerRow))].to_i64)))
+    b = (b + (basis * self.sRGBToLinear(rgb[(((RubyInteger.new(3_i64) * x) + RubyInteger.new(2_i64)) + (y * bytesPerRow))].to_i64))) } }
     scale = (normalisation.to_f /     (width * height))
     factors.set(yComponent, xComponent, RubyInteger.new(0_i64), (r * scale))
     factors.set(yComponent, xComponent, RubyInteger.new(1_i64), (g * scale))
@@ -171,9 +171,9 @@ end
   end
 
   def self.encodeAC(r : RubyObject, g : RubyObject, b : RubyObject, maximumValue : RubyObject)
-    quantR = self.max(RubyInteger.new(0_i64), self.min(RubyInteger.new(18_i64),     ((self.signPow((r / maximumValue), RubyFloat.new(0.5_f64)) * RubyInteger.new(9_i64)) + RubyFloat.new(9.5_f64)).floor))
-    quantG = self.max(RubyInteger.new(0_i64), self.min(RubyInteger.new(18_i64),     ((self.signPow((g / maximumValue), RubyFloat.new(0.5_f64)) * RubyInteger.new(9_i64)) + RubyFloat.new(9.5_f64)).floor))
-    quantB = self.max(RubyInteger.new(0_i64), self.min(RubyInteger.new(18_i64),     ((self.signPow((b / maximumValue), RubyFloat.new(0.5_f64)) * RubyInteger.new(9_i64)) + RubyFloat.new(9.5_f64)).floor))
+    quantR = self.max(RubyInteger.new(0_i64), self.min(18_i64,     ((self.signPow((r / maximumValue), 0.5_f64) * RubyInteger.new(9_i64)) + RubyFloat.new(9.5_f64)).floor))
+    quantG = self.max(RubyInteger.new(0_i64), self.min(18_i64,     ((self.signPow((g / maximumValue), 0.5_f64) * RubyInteger.new(9_i64)) + RubyFloat.new(9.5_f64)).floor))
+    quantB = self.max(RubyInteger.new(0_i64), self.min(18_i64,     ((self.signPow((b / maximumValue), 0.5_f64) * RubyInteger.new(9_i64)) + RubyFloat.new(9.5_f64)).floor))
     ((((quantR * RubyInteger.new(19_i64)) * RubyInteger.new(19_i64)) + (quantG * RubyInteger.new(19_i64))) + quantB)
   end
 
@@ -214,22 +214,22 @@ end
     end
     factors : Ruby_ThreeDArray = Ruby_ThreeDArray.new(yComponents, xComponents, RubyInteger.new(3_i64))
     ptr : Ruby_Buffer = Ruby_Buffer.new(RubyInteger.new(((2_i64 + 4_i64) + (((9_i64 * 9_i64) - 1_i64) * 2_i64)) + 1_i64))
-    yComponents.times() { |y|     xComponents.times() { |x|     self.multiplyBasisFunction(x, y, width, height, rgb, bytesPerRow, factors) } }
+    yComponents.times() { |y|     xComponents.times() { |x|     self.multiplyBasisFunction(x.to_i64, y.to_i64, width.to_i64, height.to_i64, rgb, bytesPerRow.to_i64, factors) } }
     acCount = ((xComponents * yComponents) - RubyInteger.new(1_i64))
     sizeFlag = (    (xComponents - RubyInteger.new(1_i64)) + (    (yComponents - RubyInteger.new(1_i64)) * RubyInteger.new(9_i64)))
-    self.encode_int(sizeFlag, RubyInteger.new(1_i64), ptr)
+    self.encode_int(sizeFlag.to_i64, 1_i64, ptr)
     if ((acCount > RubyInteger.new(0_i64)) ? RUBY_TRUE : RUBY_FALSE).truthy?
       actualMaximumValue = RubyFloat.new(0.0_f64)
             (acCount * RubyInteger.new(3_i64)).times() { |i|       actualMaximumValue = self.max(actualMaximumValue, factors.[]((i.to_i64 + 3_i64)).abs) }
-      quantisedMaximumValue = self.max(RubyInteger.new(0_i64), self.min(RubyInteger.new(82_i64),       ((actualMaximumValue * RubyInteger.new(166_i64)) - RubyFloat.new(0.5_f64)).floor))
+      quantisedMaximumValue = self.max(RubyInteger.new(0_i64), self.min(82_i64,       ((actualMaximumValue * RubyInteger.new(166_i64)) - RubyFloat.new(0.5_f64)).floor))
       maximumValue = RubyFloat.new((quantisedMaximumValue.to_f64 + 1_i64.to_f64) / 166_i64.to_f64)
-      self.encode_int(quantisedMaximumValue, RubyInteger.new(1_i64), ptr)
+      self.encode_int(quantisedMaximumValue.to_i64, 1_i64, ptr)
     else
       maximumValue = RubyInteger.new(1_i64)
-      self.encode_int(RubyInteger.new(0_i64), RubyInteger.new(1_i64), ptr)
+      self.encode_int(0_i64, 1_i64, ptr)
     end
-    self.encode_int(self.encodeDC(factors.[](0_i64), factors.[](1_i64), factors.[](2_i64)), RubyInteger.new(4_i64), ptr)
-    acCount.times() { |i|     self.encode_int(self.encodeAC(factors.[](((i.to_i64 * 3_i64) + 3_i64)), factors.[](((i.to_i64 * 3_i64) + 4_i64)), factors.[](((i.to_i64 * 3_i64) + 5_i64)), maximumValue), RubyInteger.new(2_i64), ptr) }
+    self.encode_int(self.encodeDC(factors.[](0_i64), factors.[](1_i64), factors.[](2_i64)).to_i64, 4_i64, ptr)
+    acCount.times() { |i|     self.encode_int(self.encodeAC(factors.[](((i.to_i64 * 3_i64) + 3_i64)), factors.[](((i.to_i64 * 3_i64) + 4_i64)), factors.[](((i.to_i64 * 3_i64) + 5_i64)), maximumValue.to_i64).to_i64, 2_i64, ptr) }
     ptr.[](0_i64, ptr.as(Ruby_Buffer).pos_raw)
   end
 

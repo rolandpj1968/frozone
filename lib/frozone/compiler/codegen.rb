@@ -328,9 +328,10 @@ module Frozone
         return ["RubyObject", "RUBY_NIL"] unless ct
         kind, cls = ct
         crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
-        # Crystal nilable only for self-referential tree links (e.g. Node @left : Node?)
-        # Other class_or_nil ivars stay as RubyObject (they store heterogeneous values)
-        return ["#{crystal_cls}?", "nil"] if kind == :class_or_nil && cls == @cctx.name
+        # Self-referential class-or-nil ivars (e.g. Node@left → Ruby_Node | RubyNil).
+        # Use the boxed-nil form so the value flows uniformly through other ivars
+        # of the same union type (e.g. SplayTree@root).
+        return ["#{crystal_cls} | RubyNil", "RUBY_NIL"] if kind == :class_or_nil && cls == @cctx.name
         default = { Array: "RubyArray.new", Hash: "RubyHash.new", String: "RubyString.new" }[cls]
         default ? [crystal_cls, default] : ["#{crystal_cls} | RubyNil", "RUBY_NIL"]
       end
@@ -527,7 +528,6 @@ module Frozone
           next unless method.is_a?(Vm::Method)
           next unless user_source_location?(method.source_location)
           user_methods_on_object << [name, method]
-
           if opt?(:method_specialization) && @gctx.typed_params[name] && @gctx.typed_method_returns[name]
             emit_indent
             emit_specialized_vm_method(name, method)
@@ -549,7 +549,11 @@ module Frozone
           # Always emit the generic overload — the execute block and other
           # untyped callers need it even when typed overloads exist.
           all_native = inferred&.all? { |t| t&.native? }
-          if all_native && !has_complex_params && !(@gctx.typed_params[name] && @gctx.typed_method_returns[name])
+          # Mixed-raw: at least one param is raw scalar, but not all are native.
+          # Worth emitting a typed overload so the body avoids boxing on the
+          # raw param (e.g. generate_payload(depth : Int64, tag : RubyObject)).
+          some_raw = inferred&.any? { |t| t&.raw? }
+          if (all_native || some_raw) && !has_complex_params && !(@gctx.typed_params[name] && @gctx.typed_method_returns[name])
             emit_indent
             emit_vm_method(name, method, param_types: inferred)
             emit_newline
@@ -560,8 +564,8 @@ module Frozone
             inferred.map { |t| t&.native? ? Type::BOTTOM : t }
           elsif @gctx.typed_params[name]
             nil  # fully-typed → generic uses all RubyObject
-          elsif all_native
-            nil  # all-native typed overload handles raw; generic uses all RubyObject
+          elsif all_native || some_raw
+            nil  # typed overload handles raw; generic uses all RubyObject
           else
             # Drop raw scalar types to RubyObject, keep class types for devirtualization
             inferred&.map { |t| t&.raw? ? Type::BOTTOM : t }
@@ -1219,9 +1223,7 @@ module Frozone
         elsif @cctx.typed_ivars[iv_name]&.first == :class_or_nil
           val = node.value_node
           if val.is_a?(Ast::NilLiteral)
-            ct = @cctx.typed_ivars[iv_name]
-            # Self-referential (T?) uses Crystal nil; cross-class (T | RubyNil) uses RUBY_NIL
-            "#{iv_name} = #{ct[1] == @cctx.name ? 'nil' : 'RUBY_NIL'}"
+            "#{iv_name} = RUBY_NIL"
           else
             "#{iv_name} = #{cr(val)}"
           end
@@ -1494,6 +1496,28 @@ module Frozone
         kw_args = node.kw_arg_nodes
         return "" if args.empty? && kw_args.empty? && node.block_node.nil?
 
+        # Per-arg typed dispatch: if the callee has inferred raw param types,
+        # pass each raw-typed arg via raw_as so it matches the typed overload
+        # without boxing. Mixed raw + non-raw args work because the typed
+        # overload uses RubyObject for the non-raw positions.
+        callee_inferred = node.receiver_node.nil? ? @gctx.inferred_params[node.name] : nil
+        if callee_inferred && callee_inferred.any? { |t| t&.raw? } && args.size == callee_inferred.size
+          parts = args.each_with_index.map do |arg, i|
+            pt = callee_inferred[i]
+            pt&.raw? ? raw_as(arg, pt) : cr(arg)
+          end
+          parts += kw_args.map do |kw_name, val_node|
+            key = kw_name.is_a?(Ast::SymbolLiteral) ? kw_name.value : kw_name
+            "#{key}: #{cr(val_node)}"
+          end
+          s = "(#{parts.join(', ')})"
+          if node.block_node
+            s += " "
+            s += node.block_node.is_a?(Ast::BlockArg) ? cr_block_arg(node.block_node) : cr_block(node.block_node)
+          end
+          return s
+        end
+
         all_raw = args.all? { |a| a.is_a?(Ast::SplatArg) || raw_passable_arg?(a) }
         has_typed_overload = @gctx.typed_params&.key?(node.name) ||
           (@cctx&.name && @gctx.class_params&.key?([@cctx.name, node.name])) ||
@@ -1523,9 +1547,18 @@ module Frozone
 
       # Override: for []= with typed array or raw-typed index, emit accordingly.
       def cr_attribute_write(node)
-        return super unless node.name == :[]=
-        args = node.arg_nodes
         recv = node.receiver_node
+        args = node.arg_nodes
+        # Setter call on class-typed local receiver (e.g. current.left = X):
+        # cast to the non-nullable concrete class so typed setter overloads
+        # dispatch correctly.
+        if node.name != :[]= && recv.is_a?(Ast::LocalVariableRead) &&
+           (cls_entry = @mctx.class_locals[recv.name])
+          cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
+          setter = node.name.to_s.chomp('=')
+          return "#{crystal_local(recv.name)}.as(#{crystal_class_name(cls)}).#{setter} = #{cr(args[0])}"
+        end
+        return super unless node.name == :[]=
         # Ivar array write: @list[i] = val where @list is Array(Float64)
         if recv.is_a?(Ast::InstanceVariableRead) && args&.size == 2
           iv_ty = @cctx&.ivars&.dig(recv.name)
@@ -1567,17 +1600,6 @@ module Frozone
 
       # Override: for comparisons with at least one raw-typed operand, use bare
       # Crystal comparison with .to_i64/.to_f64 coercion on the untyped side.
-      # Does this expression return a Crystal nilable type (T? not T | RubyNil)?
-      # True for accessor reads on class_or_nil typed ivars.
-      def returns_crystal_nilable?(node)
-        return false unless node.is_a?(Ast::MethodCall) && node.receiver_node
-        recv_class = receiver_known_class(node.receiver_node)
-        return false unless recv_class
-        # Check if the called method is an accessor for a class_or_nil ivar
-        ct = @gctx.class_typed_ivars.dig(recv_class, :"@#{node.name}")
-        ct.is_a?(Array) && ct[0] == :class_or_nil
-      end
-
       def cr_truthy(node)
         return cr_crystal_bool(node) if crystal_bool_emittable?(node)
         if opt?(:condition_simplify) && comparison_op_call?(node)
@@ -1597,7 +1619,6 @@ module Frozone
         when Ast::FalseLiteral, Ast::NilLiteral then "false"
         else
           if boolean_valued?(node) then cr(node)
-          elsif returns_crystal_nilable?(node) then "!#{cr(node)}.nil?"
           else "#{cr(node)}.truthy?"
           end
         end
@@ -1738,7 +1759,7 @@ module Frozone
             if ct
               kind, cls = ct
               crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
-              ret_type = (kind == :class_or_nil && cls == @cctx.name) ? "#{crystal_cls}?" : crystal_cls
+              ret_type = (kind == :class_or_nil && cls == @cctx.name) ? "#{crystal_cls} | RubyNil" : crystal_cls
               line "def #{crystal_method_name(mname)} : #{ret_type}; #{iv}; end"
             else
               line "def #{crystal_method_name(mname)} : RubyObject; #{iv}; end"
@@ -1755,9 +1776,10 @@ module Frozone
             ct = @cctx.typed_ivars[iv]
             if ct && ct[0] == :class_or_nil && ct[1] == @cctx.name
               crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[ct[1]] || "Ruby_#{crystal_constant(ct[1])}"
-              line "def #{crystal_method_name(mname)}(v : #{crystal_cls}) : #{crystal_cls}; #{iv} = v; end"
-              line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v.as(#{crystal_cls}); end"
-              line "def #{crystal_method_name(mname)}(v : RubyNil) : Nil; #{iv} = nil; end"
+              # Self-referential nullable ivar stored as Ruby_X | RubyNil. The
+              # union accepts both branches; one overload covers both via
+              # RubyObject (which subsumes Ruby_X and RubyNil).
+              line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v.as(#{crystal_cls} | RubyNil); v; end"
             else
               line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v; end"
             end
