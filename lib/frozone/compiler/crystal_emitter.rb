@@ -137,11 +137,35 @@ module Frozone
       # -----------------------------------------------------------------------
 
       # Functional dispatch entry point — returns Crystal source as a String.
-      # Migration window: defaults to `capture { emit_node(node) }` so subclass
-      # `emit_*` overrides are preserved. Per-node cr_* dispatch is added one
-      # leaf at a time, with the matching subclass cr_* override in the same
-      # commit.
-      def cr(node) = capture { emit_node(node) }
+      # Migration window: leaves with no subclass override go through direct
+      # cr_* dispatch; everything else falls through to capture { emit_node }.
+      def cr(node)
+        case node
+        when Ast::NilLiteral         then cr_nil
+        when Ast::TrueLiteral        then cr_true
+        when Ast::FalseLiteral       then cr_false
+        when Ast::IntegerLiteral     then cr_integer(node)
+        when Ast::FloatLiteral       then cr_float(node)
+        when Ast::StringLiteral      then cr_string(node)
+        when Ast::SymbolLiteral      then cr_symbol(node)
+        when Ast::SelfLiteral        then cr_self
+        when Ast::ConstantRead       then cr_constant_read(node)
+        when Ast::ClassVariableRead  then cr_class_var_read(node)
+        when Ast::RangeLiteral       then cr_range_literal(node)
+        when Ast::HashLiteral        then cr_hash_literal(node)
+        when Ast::InterpolatedString then cr_interpolated_string(node)
+        when Ast::Return             then cr_return(node)
+        when Ast::Next               then cr_next(node)
+        when Ast::Break              then cr_break(node)
+        when Ast::GlobalVariableRead then cr_global_var_read(node)
+        when Ast::Retry              then "retry"
+        else
+          # InstanceVariableRead, LocalVariableRead, And, Or, ArrayLiteral,
+          # MethodCall, AttributeWrite and structural nodes go through the
+          # imperative path so subclass emit_* overrides apply.
+          capture { emit_node(node) }
+        end
+      end
 
       def emit(node) = write cr(node)
 
