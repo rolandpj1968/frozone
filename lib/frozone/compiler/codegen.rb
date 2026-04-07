@@ -1336,24 +1336,28 @@ module Frozone
         emit_block(blk)
       end
 
-      def emit_method_call(node)
-        try_ivar_array_access(node) ||
-          try_constant_fold(node) ||
-          try_native_array_new(node) ||
-          try_native_iteration(node) ||
-          try_typed_instance_call(node) ||
-          try_native_array_method(node) ||
-          try_array_push(node) ||
-          try_native_array_read(node) ||
-          try_boxed_array_read(node) ||
-          try_raw_index_read(node) ||
-          try_specialized_free_call(node) ||
-          try_eigen_dispatch(node) ||
-          try_typed_free_call(node) ||
-          try_devirtualized_call(node) ||
-          try_raw_arithmetic(node) ||
-          super
+      def cr_method_call(node)
+        # try_* helpers are still imperative; capture their output if any fires.
+        captured = capture {
+          try_ivar_array_access(node) ||
+            try_constant_fold(node) ||
+            try_native_array_new(node) ||
+            try_native_iteration(node) ||
+            try_typed_instance_call(node) ||
+            try_native_array_method(node) ||
+            try_array_push(node) ||
+            try_native_array_read(node) ||
+            try_boxed_array_read(node) ||
+            try_raw_index_read(node) ||
+            try_specialized_free_call(node) ||
+            try_eigen_dispatch(node) ||
+            try_typed_free_call(node) ||
+            try_devirtualized_call(node) ||
+            try_raw_arithmetic(node)
+        }
+        captured.empty? ? super : captured
       end
+      def emit_method_call(node) = write cr_method_call(node)
 
       # @list.fetch(i) or @list[i] on native array ivar → box result for RubyObject context
       def try_ivar_array_access(node)

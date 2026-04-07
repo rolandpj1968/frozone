@@ -161,6 +161,7 @@ module Frozone
         when Ast::AttributeWrite     then cr_attribute_write(node)
         when Ast::IndexOperatorWrite then cr_index_op_write(node)
         when Ast::MultipleAssignment then cr_multiple_assignment(node)
+        when Ast::MethodCall         then cr_method_call(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -366,7 +367,13 @@ module Frozone
       # Method call
       # -----------------------------------------------------------------------
 
-      def emit_method_call(node)
+      # Method call dispatch is still imperative inside the case body. Wrap it
+      # so cr_method_call returns the captured output and Codegen subclass
+      # overrides can compose String results via super.
+      def cr_method_call(node) = capture { emit_method_call_imperative(node) }
+      def emit_method_call(node) = write cr_method_call(node)
+
+      def emit_method_call_imperative(node)
         name = node.name
 
         # Kernel-level methods with no receiver map to top-level helpers
