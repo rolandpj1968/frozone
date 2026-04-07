@@ -175,8 +175,8 @@ module Frozone
           if rt
             cr = rt.to_crystal
             "#{crystal_local(p)} : #{cr}"
-          elsif crystal_param_types && crystal_param_types[i] && crystal_param_types[i] != :ruby_object
-            "#{crystal_local(p)} : #{CrystalType.to_crystal(crystal_param_types[i])}"
+          elsif crystal_param_types && crystal_param_types[i] && !crystal_param_types[i].bottom?
+            "#{crystal_local(p)} : #{crystal_param_types[i].to_crystal}"
           else
             "#{crystal_local(p)} : RubyObject"
           end
@@ -240,8 +240,8 @@ module Frozone
         if crystal_param_types
           req_params.each_with_index do |p, i|
             pt = crystal_param_types[i]
-            if CrystalType.array?(pt) && CrystalType.scalar?(CrystalType.elem(pt))
-              native_arrays[p] = CrystalType.elem(pt)
+            if pt&.array_like? && pt.elem&.raw?
+              native_arrays[p] = pt.elem
             end
           end
         end
@@ -265,7 +265,7 @@ module Frozone
           expr = node.is_a?(Ast::Sequence) ? node.nodes.first : node
           rt = expr ? node_raw_type(expr) : nil
           if rt
-            box = Type.f64?(rt) ? "RubyFloat" : "RubyInteger"
+            box = rt&.f64? ? "RubyFloat" : "RubyInteger"
             ["#{box}.new(#{raw(expr)})"]
           else
             [cr(expr || node)]
@@ -292,12 +292,12 @@ module Frozone
         target = node.target
         return super unless target[0] == :local
         name = target[1]
-        return super unless Type.i64?(@mctx.block_params[name])
+        return super unless @mctx.block_params[name]&.i64?
         coll = node.collection_node
         return super unless coll.is_a?(Ast::RangeLiteral)
         lo = coll.begin_node
         hi = coll.end_node
-        return super unless Type.i64?(node_raw_type(lo)) && Type.i64?(node_raw_type(hi))
+        return super unless node_raw_type(lo)&.i64? && node_raw_type(hi)&.i64?
         range_op = coll.exclusive ? "..." : ".."
         indent_str = "  " * @indent
         body = nil

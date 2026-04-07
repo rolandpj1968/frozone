@@ -4,17 +4,17 @@
 # type information and flags live here — no @current_* or @typed_* ivars
 # on the Codegen class.
 
-require_relative 'crystal_type'
+require_relative 'type'
 
 module Frozone
   module Compiler
     class MethodContext
       attr_accessor :typed_locals # {name => Type} — scalar unboxing (Type::I64/F64)
       attr_accessor :typed_array_locals # {name => Type} — native Array(T) elem from TI
-      attr_accessor :native_array_locals # {name => Type | [:array, X]} — params + nested arrays (mixed during migration)
+      attr_accessor :native_array_locals # {name => Type} — params + nested arrays
       attr_accessor :class_locals # {name => class_sym} — devirtualized class-typed locals
       attr_accessor :local_array_elems # {name => Type} — boxed RubyArray elem type
-      attr_accessor :local_types # {name => CrystalType} — unified type map (legacy)
+      attr_accessor :local_types # {name => Type} — unified type map
       attr_accessor :block_params # {name => Type} — block param types from TI
       attr_accessor :raw_block_params # {name => Type} — currently-active native block params
       attr_accessor :param_set # Set of param names

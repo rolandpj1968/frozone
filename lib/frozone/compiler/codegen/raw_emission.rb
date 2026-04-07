@@ -83,13 +83,13 @@ module Frozone
           nat_ty = native_array_elem_type(recv.name, ctx) and return nat_ty
           elem_ty = ctx.local_array_elems[recv.name] and return elem_ty
         end
-        return Type::I64 if (name == :succ || name == :pred) && args.empty? && Type.i64?(node_raw_type(recv, ctx))
+        return Type::I64 if (name == :succ || name == :pred) && args.empty? && node_raw_type(recv, ctx)&.i64?
         return Type::F64 if %i[to_f to_f64].include?(name) && args.empty? && recv
         return Type::I64 if %i[to_i to_i64].include?(name) && args.empty? && recv
         return nil unless ARITH_OPS_UNBOX.include?(name) && args.size == 1
         rt = node_raw_type(recv, ctx)
         at = node_raw_type(args[0], ctx)
-        (rt && at) ? ((Type.f64?(rt) || Type.f64?(at)) ? Type::F64 : Type::I64) : nil
+        (rt && at) ? ((rt&.f64? || at&.f64?) ? Type::F64 : Type::I64) : nil
       end
 
       # Infer which method-body locals can be emitted as bare Int64/Float64.
@@ -140,7 +140,7 @@ module Frozone
             next unless (ty = @mctx.typed_locals[name])
             ok = nodes.all? do |n|
               nt = node_raw_type(n)
-              nt == ty || (Type.f64?(ty) && Type.i64?(nt))
+              nt == ty || (ty&.f64? && nt&.i64?)
             end
             @mctx.typed_locals.delete(name) unless ok
           end
@@ -220,13 +220,13 @@ module Frozone
 
       def raw_coercion(name, recv, ctx)
         return unless recv
-        if %i[to_f to_f64].include?(name) then Type.f64?(node_raw_type(recv, ctx)) ? raw(recv, ctx) : "#{raw(recv, ctx)}.to_f64"
-        elsif %i[to_i to_i64].include?(name) then Type.i64?(node_raw_type(recv, ctx)) ? raw(recv, ctx) : "#{raw(recv, ctx)}.to_i64"
+        if %i[to_f to_f64].include?(name) then node_raw_type(recv, ctx)&.f64? ? raw(recv, ctx) : "#{raw(recv, ctx)}.to_f64"
+        elsif %i[to_i to_i64].include?(name) then node_raw_type(recv, ctx)&.i64? ? raw(recv, ctx) : "#{raw(recv, ctx)}.to_i64"
         end
       end
 
       def raw_succ_pred(name, recv, ctx)
-        return unless (name == :succ || name == :pred) && Type.i64?(node_raw_type(recv, ctx))
+        return unless (name == :succ || name == :pred) && node_raw_type(recv, ctx)&.i64?
         "(#{raw(recv, ctx)} #{name == :succ ? '+ 1_i64' : '- 1_i64'})"
       end
 
@@ -255,7 +255,7 @@ module Frozone
         s = "#{crystal_method_name(name)}(#{args.map { |a| raw(a, ctx) }.join(', ')})"
         unless @gctx.typed_method_returns[name]
           ret = node_raw_type(node, ctx)
-          s += (Type.f64?(ret) ? ".to_f64" : ".to_i64") if ret
+          s += (ret&.f64? ? ".to_f64" : ".to_i64") if ret
         end
         s
       end
@@ -275,7 +275,7 @@ module Frozone
 
       def raw_arithmetic(name, recv, args, ctx)
         return unless (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
-        ty = (Type.f64?(node_raw_type(recv, ctx)) || Type.f64?(node_raw_type(args[0], ctx))) ? Type::F64 : Type::I64
+        ty = (node_raw_type(recv, ctx)&.f64? || node_raw_type(args[0], ctx)&.f64?) ? Type::F64 : Type::I64
         op = (name == :/ && ty.i64?) ? "//" : name.to_s
         "(#{raw_as(recv, ty, ctx)} #{op} #{raw_as(args[0], ty, ctx)})"
       end
@@ -283,16 +283,16 @@ module Frozone
       def raw_call_fallback(node, name, recv, ctx)
         s = cr(node)
         ret = @gctx.typed_method_returns[name] if recv.nil?
-        ret ? "#{s}#{Type.f64?(ret) ? '.to_f64' : '.to_i64'}" : s
+        ret ? "#{s}#{ret&.f64? ? '.to_f64' : '.to_i64'}" : s
       end
 
       # Return Crystal source for node coerced to the given raw type.
       def raw_as(node, ty, ctx = nil)
-        ty_f64 = Type.f64?(ty)
-        ty_i64 = Type.i64?(ty)
+        ty_f64 = ty&.f64?
+        ty_i64 = ty&.i64?
         nt = node_raw_type(node, ctx)
-        return raw(node, ctx) if nt == ty || (Type.f64?(nt) && ty_f64) || (Type.i64?(nt) && ty_i64)
-        return "#{raw(node, ctx)}.to_f64" if Type.i64?(nt) && ty_f64
+        return raw(node, ctx) if nt == ty || (nt&.f64? && ty_f64) || (nt&.i64? && ty_i64)
+        return "#{raw(node, ctx)}.to_f64" if nt&.i64? && ty_f64
         # Recurse into arithmetic with at least one typed operand
         if node.is_a?(Ast::MethodCall)
           name = node.name
@@ -365,13 +365,13 @@ module Frozone
       def raw_lines_if(node, ctx)
         then_ty = node_raw_type(node.then_node, ctx)
         else_ty = node.else_node ? node_raw_type(node.else_node, ctx) : nil
-        needs_float = (Type.f64?(then_ty) && Type.i64?(else_ty)) || (Type.i64?(then_ty) && Type.f64?(else_ty))
+        needs_float = (then_ty&.f64? && else_ty&.i64?) || (then_ty&.i64? && else_ty&.f64?)
         then_lines = raw_lines(node.then_node, ctx)
-        then_lines[-1] += ".to_f64" if needs_float && Type.i64?(then_ty) && then_lines.any?
+        then_lines[-1] += ".to_f64" if needs_float && then_ty&.i64? && then_lines.any?
         lines = ["if #{raw_truthy(node.pred_node, ctx)}", *indent(then_lines)]
         if node.else_node
           else_lines = raw_lines(node.else_node, ctx)
-          else_lines[-1] += ".to_f64" if needs_float && Type.i64?(else_ty) && else_lines.any?
+          else_lines[-1] += ".to_f64" if needs_float && else_ty&.i64? && else_lines.any?
           lines.push("else", *indent(else_lines))
         end
         lines << "end"
@@ -452,7 +452,7 @@ module Frozone
 
       def raw_expr_arith(name, recv, args, ctx)
         return unless (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
-        op = (name == :/ && Type.i64?(node_raw_type(recv, ctx)) && Type.i64?(node_raw_type(args[0], ctx))) ? "//" : name.to_s
+        op = (name == :/ && node_raw_type(recv, ctx)&.i64? && node_raw_type(args[0], ctx)&.i64?) ? "//" : name.to_s
         "(#{raw_lines(recv, ctx).join} #{op} #{raw_lines(args[0], ctx).join})"
       end
 
@@ -475,7 +475,7 @@ module Frozone
       def raw_expr_numeric_method(name, recv, ctx)
         return unless %i[abs floor ceil round].include?(name) && recv
         s = "#{raw_lines(recv, ctx).join}.#{name}"
-        s += ".to_i64" if %i[floor ceil round].include?(name) && Type.f64?(node_raw_type(recv, ctx))
+        s += ".to_i64" if %i[floor ceil round].include?(name) && node_raw_type(recv, ctx)&.f64?
         s
       end
 
@@ -496,14 +496,14 @@ module Frozone
         return unless recv.nil? || recv.is_a?(Ast::SelfLiteral)
         mkey = @cctx&.name ? [@cctx.name, name] : name
         raw_params = @gctx.class_params&.dig(mkey) || @gctx.typed_params&.dig(name)
-        has_typed = raw_params&.any? { |t| Type.raw?(t) }
+        has_typed = raw_params&.any? { |t| t&.raw? }
         prefix = recv.is_a?(Ast::SelfLiteral) ? "self." : ""
         arg_str = if has_typed
           args.each_with_index.map { |a, i|
             s = raw_lines(a, ctx).join
             pty = (raw_params && i < raw_params.size) ? raw_params[i] : nil
-            s += ".to_i64" if Type.i64?(pty)
-            s += ".to_f64" if Type.f64?(pty)
+            s += ".to_i64" if pty&.i64?
+            s += ".to_f64" if pty&.f64?
             s
           }.join(", ")
         else
@@ -512,7 +512,7 @@ module Frozone
         s = "#{prefix}#{crystal_method_name(name)}(#{arg_str})#{raw_block(node, ctx)}"
         unless has_typed
           ret = node_raw_type(node, ctx)
-          s += (Type.f64?(ret) ? ".to_f64" : ".to_i64") if ret
+          s += (ret&.f64? ? ".to_f64" : ".to_i64") if ret
         end
         s
       end
@@ -525,7 +525,7 @@ module Frozone
         recv_cls = @mctx.class_locals&.dig(recv_name)
         recv_cls = recv_cls.is_a?(Array) ? recv_cls[0] : recv_cls
         if recv_cls && (ret = @gctx.instance_method_raw_returns&.dig([recv_cls, name]))
-          s += Type.f64?(ret) ? ".to_f64" : ".to_i64"
+          s += ret&.f64? ? ".to_f64" : ".to_i64"
         end
         "#{s}#{raw_block(node, ctx)}"
       end

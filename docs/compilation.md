@@ -569,7 +569,7 @@ at parse time and directly amenable to type inference.
 
 ### How results flow into codegen
 
-After TI runs, `CrystalTypeMapper` makes per-flag decisions on which
+After TI runs, `TypeMapper` makes per-flag decisions on which
 `Type` values to promote (unbox, devirtualise, etc.) and populates the
 `@gctx` maps that drive all downstream optimisations. All maps store
 `Type` objects directly — `Type#to_crystal` is called only at emission:
@@ -789,7 +789,7 @@ Do NOT split when:
 1. **TI:** Key `[:constructor_param]` slots by
    `[class, param_index, calling_method]`. Group by ivar type signature
    (the set of ivar types that result from each context's param types).
-2. **CrystalTypeMapper:** For each distinct ivar signature, create a separate
+2. **TypeMapper:** For each distinct ivar signature, create a separate
    class mapping. `class_locals` entries point to the specific instantiation.
 3. **Codegen:** Emit one Crystal class per distinct signature. Each has its
    own ivar declarations, typed accessors, and method bodies. Constructor

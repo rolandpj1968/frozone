@@ -42,6 +42,9 @@ module Frozone
         class_type? && @class_name == :Array
       end
 
+      # Any array form: scalar-elem flat array OR class_type Array.
+      def array_like? = array_scalar? || array?
+
       def hash_type?
         class_type? && @class_name == :Hash
       end
@@ -162,23 +165,6 @@ module Frozone
 
       # -- Factories -----------------------------------------------------------
 
-      # Nil-safe scalar predicates that also tolerate the legacy
-      # CrystalType representation still used by a few storage maps:
-      #   - native_array_locals stores [:array, X] for nested arrays
-      #   - class_params / inferred_params / inferred_kw_params store
-      #     legacy symbols (:i64/:f64/:ruby_object/[:ruby_class, X]/etc.)
-      # All return false for nil and for unrecognised inputs, so call sites
-      # can pass any value without dispatch errors. Migrating the remaining
-      # legacy maps would let these collapse to direct Type predicates.
-      class << self
-        def i64?(t) = t.is_a?(Type) ? t.i64? : t == :i64
-        def f64?(t) = t.is_a?(Type) ? t.f64? : t == :f64
-        def raw?(t) = t.is_a?(Type) ? t.raw? : (t == :i64 || t == :f64)
-        def array_i64?(t) = t == ARRAY_I64 || t == :array_i64
-        def array_f64?(t) = t == ARRAY_F64 || t == :array_f64
-        def array_raw?(t) = array_i64?(t) || array_f64?(t)
-      end
-
       class << self
         def of(class_name, nullable: false, exact: false)
           # Return interned singletons for common non-decorated types.
@@ -226,6 +212,46 @@ module Frozone
             new(:class_type, class_name: type.class_name, nullable: true,
                 exact: type.exact?, elem: type.elem, key: type.key, val: type.val)
           else type
+          end
+        end
+      end
+
+      # -- Codegen-side type derivation from a TI Type ------------------------
+
+      # Map a Type from the inference layer to a codegen-friendly Type:
+      #   - Raw scalars and array_scalars pass through
+      #   - Class types Array(T) with native elem → nested array (Type.array)
+      #   - User class types in user_class_names → Type.of(class_name)
+      #   - Builtin Hash / Proc / Array → Type.of(...)
+      #   - Other class types (String, Integer, etc.), nil, BOTTOM → Type::BOTTOM
+      #     (renders as RubyObject in codegen).
+      #
+      # Returns the same shape that codegen consumers want — replaces
+      # The codegen-side counterpart to TI's lattice — narrows TI types into the
+      # subset that the Crystal backend cares about.
+      def self.from_ti(ty, user_class_names: Set.new)
+        return BOTTOM if ty.nil? || ty.bottom?
+        return ty if ty.raw? || ty.array_scalar?
+        return BOTTOM unless ty.class_type?
+        case ty.class_name
+        when :Array
+          if ty.elem
+            mapped_elem = from_ti(ty.elem, user_class_names: user_class_names)
+            mapped_elem.native? ? Type.array(elem: mapped_elem) : BOTTOM
+          else
+            BOTTOM
+          end
+        when :Hash, :Proc then of(ty.class_name)
+        when :String, :Symbol, :Integer, :Float,
+             :NilClass, :TrueClass, :FalseClass,
+             :Object, :Numeric, :BasicObject, :Comparable, :Enumerable
+          BOTTOM
+        else
+          cls = ty.class_name
+          if user_class_names.include?(cls) || CRYSTAL_CLASS_NAMES.key?(cls)
+            of(cls)
+          else
+            BOTTOM
           end
         end
       end

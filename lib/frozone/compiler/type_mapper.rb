@@ -15,7 +15,7 @@
 
 module Frozone
   module Compiler
-    class CrystalTypeMapper
+    class TypeMapper
       attr_reader :local_types
       attr_reader :locals, :arrays, :class_locals, :local_array_elems
       attr_reader :block_params, :class_params, :inferred_params, :typed_params
@@ -74,8 +74,8 @@ module Frozone
 
       def unpack_local(slot, ty)
         mkey, name = slot[1], slot[2]
-        ct = CrystalType.from_type(ty, user_class_names: @user_class_names)
-        (@local_types[mkey] ||= {})[name] = ct if ct != :ruby_object
+        ct = Type.from_ti(ty, user_class_names: @user_class_names)
+        (@local_types[mkey] ||= {})[name] = ct unless ct.bottom?
         if ty.class_type? && opt?(:devirtualize)
           cls = ty.class_name
           skip_builtin = %i[Object BasicObject Numeric Array Hash].include?(cls)
@@ -148,12 +148,9 @@ module Frozone
         @user_methods.each do |mname, method|
           req = method.required_params || []
           next if req.empty?
-          crystal_types = req.each_with_index.map { |_, i|
-            ty = @env.type_of([:param, mname, i])
-            ty.bottom? ? :ruby_object : CrystalType.from_type(ty, user_class_names: @user_class_names)
-          }
-          next unless crystal_types.any? { |t| t != :ruby_object }
-          @inferred_params[mname] = crystal_types
+          types = req.each_with_index.map { |_, i| Type.from_ti(@env.type_of([:param, mname, i]), user_class_names: @user_class_names) }
+          next unless types.any? { |t| !t.bottom? }
+          @inferred_params[mname] = types
           raw_types = req.each_with_index.map { |_, i|
             ty = @env.type_of([:param, mname, i])
             ty.raw? ? ty : nil
@@ -172,11 +169,8 @@ module Frozone
             next if @inferred_params.key?(mname)
             req = method.required_params || []
             next if req.empty?
-            crystal_types = req.each_with_index.map { |_, i|
-              ty = @env.type_of([:param, mname, i])
-              ty.bottom? ? :ruby_object : CrystalType.from_type(ty, user_class_names: @user_class_names)
-            }
-            @inferred_params[mname] = crystal_types if crystal_types.any? { |t| t != :ruby_object }
+            types = req.each_with_index.map { |_, i| Type.from_ti(@env.type_of([:param, mname, i]), user_class_names: @user_class_names) }
+            @inferred_params[mname] = types if types.any? { |t| !t.bottom? }
           end
         end
       end
@@ -195,17 +189,12 @@ module Frozone
           req = method.required_params || []
           next if req.empty?
           mkey = [cname, mname]
-          crystal_types = req.each_with_index.map { |_, i|
-            ty = @env.type_of([:param, mkey, i])
-            ty.bottom? ? :ruby_object : CrystalType.from_type(ty, user_class_names: @user_class_names)
-          }
-          @class_params[mkey] = crystal_types if crystal_types.any? { |t| t != :ruby_object }
+          types = req.each_with_index.map { |_, i| Type.from_ti(@env.type_of([:param, mkey, i]), user_class_names: @user_class_names) }
+          @class_params[mkey] = types if types.any? { |t| !t.bottom? }
         end
       end
 
-      # --- Type conversion helpers (legacy — used by unpack_return) ---
-
-      def raw_type(ty) = Type.raw?(ty) ? ty : nil
+      def raw_type(ty) = ty&.raw? ? ty : nil
     end
   end
 end
