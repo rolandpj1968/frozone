@@ -422,15 +422,8 @@ module Frozone
       end
 
       def raw_lines_method_call(node)
-        result = nil
-        captured = capture { result = raw_expr_call(node) }
-        if result.is_a?(String)
-          [result]
-        elsif result
-          [captured]
-        else
-          [capture { emit(node) }]
-        end
+        result = raw_expr_call(node)
+        result ? [result] : [capture { emit(node) }]
       end
 
       # Backward compat — imperative callers write raw_lines to buffer.
@@ -485,12 +478,12 @@ module Frozone
       def raw_expr_arith(name, recv, args)
         return unless (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(name) && args.size == 1 && recv
         op = (name == :/ && Type.i64?(node_raw_type(recv)) && Type.i64?(node_raw_type(args[0]))) ? "//" : name.to_s
-        "(#{capture { emit_raw_expr(recv) }} #{op} #{capture { emit_raw_expr(args[0]) }})"
+        "(#{raw_lines(recv).join} #{op} #{raw_lines(args[0]).join})"
       end
 
       def raw_expr_coerce(name, recv)
         return unless recv
-        s = capture { emit_raw_expr(recv) }
+        s = raw_lines(recv).join
         if %i[to_f to_f64].include?(name) then "#{s}.to_f64"
         elsif %i[to_i to_i64].include?(name) then "#{s}.to_i64"
         end
@@ -498,7 +491,7 @@ module Frozone
 
       def raw_expr_unary(name, recv)
         return unless recv
-        s = capture { emit_raw_expr(recv) }
+        s = raw_lines(recv).join
         if name == :-@ then "(-#{s})"
         elsif name == :+@ then s
         end
@@ -506,7 +499,7 @@ module Frozone
 
       def raw_expr_numeric_method(name, recv)
         return unless %i[abs floor ceil round].include?(name) && recv
-        s = "#{capture { emit_raw_expr(recv) }}.#{name}"
+        s = "#{raw_lines(recv).join}.#{name}"
         s += ".to_i64" if %i[floor ceil round].include?(name) && Type.f64?(node_raw_type(recv))
         s
       end
@@ -516,9 +509,7 @@ module Frozone
         cr_type = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[recv.name] || "Ruby_#{crystal_constant(recv.name)}"
         arg_str = (name == :new && CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(recv.name)) ?
           args.map { |a| capture { emit(a) } }.join(", ") : expr_args(args)
-        write "#{cr_type}.#{crystal_method_name(name)}(#{arg_str})"
-        emit_raw_block(node)
-        true
+        "#{cr_type}.#{crystal_method_name(name)}(#{arg_str})#{raw_block(node)}"
       end
 
       def raw_expr_min_max(name, recv, args)
@@ -534,7 +525,7 @@ module Frozone
         prefix = recv.is_a?(Ast::SelfLiteral) ? "self." : ""
         arg_str = if has_typed
           args.each_with_index.map { |a, i|
-            s = capture { emit_raw_expr(a) }
+            s = raw_lines(a).join
             pty = (raw_params && i < raw_params.size) ? raw_params[i] : nil
             s += ".to_i64" if Type.i64?(pty)
             s += ".to_f64" if Type.f64?(pty)
@@ -543,13 +534,12 @@ module Frozone
         else
           args.map { |a| capture { emit(a) } }.join(", ")
         end
-        write "#{prefix}#{crystal_method_name(name)}(#{arg_str})"
-        emit_raw_block(node)
+        s = "#{prefix}#{crystal_method_name(name)}(#{arg_str})#{raw_block(node)}"
         unless has_typed
           ret = node_raw_type(node)
-          write(Type.f64?(ret) ? ".to_f64" : ".to_i64") if ret
+          s += (Type.f64?(ret) ? ".to_f64" : ".to_i64") if ret
         end
-        true
+        s
       end
 
       def raw_expr_instance_call(name, recv, args, node)
@@ -562,13 +552,10 @@ module Frozone
         if recv_cls && (ret = @gctx.instance_method_raw_returns&.dig([recv_cls, name]))
           s += Type.f64?(ret) ? ".to_f64" : ".to_i64"
         end
-        write s
-        emit_raw_block(node)
-        true
+        "#{s}#{raw_block(node)}"
       end
 
-      # Comma-separated args emitted through emit_raw_expr.
-      def expr_args(args) = args.map { |a| capture { emit_raw_expr(a) } }.join(", ")
+      def expr_args(args) = args.map { |a| raw_lines(a).join }.join(", ")
 
       # Backward compat — imperative dispatcher returning bool.
       def emit_raw_method_call(node)
@@ -581,20 +568,22 @@ module Frozone
         end
       end
 
-      # Emit a block in raw context (e.g., n.times { |i| ... })
-      def emit_raw_block(node)
+      # Block in raw context → inline string suffix.
+      def raw_block(node)
         blk = node.block_node
-        return unless blk.is_a?(Ast::Block)
+        return "" unless blk.is_a?(Ast::Block)
         params = blk.required_params || []
-        write " { "
-        unless params.empty?
-          write "|"
-          write params.map { |p| crystal_local(p) }.join(", ")
-          write "| "
+        param_str = params.empty? ? "" : "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
+        body_lines = blk.body ? raw_lines(blk.body) : []
+        if body_lines.size <= 1
+          " { #{param_str}#{body_lines.first || ''} }"
+        else
+          do_params = params.empty? ? '' : " |#{params.map { |p| crystal_local(p) }.join(', ')}|"
+          " do#{do_params}\n#{indent(body_lines).join("\n")}\nend"
         end
-        emit_raw_expr(blk.body) if blk.body
-        write " }"
       end
+
+      def emit_raw_block(node) = write raw_block(node)
 
       end
     end
