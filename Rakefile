@@ -264,8 +264,9 @@ task :smoke do
 end
 
 # Benchmark smoke test: AOT-compile + Crystal-build + run a representative set
-# of benchmarks to catch codegen regressions. Skips splay (slow GC-bound run).
-BENCH_SMOKE = %w[fib blurhash sudoku]
+# of benchmarks to catch codegen regressions. Skips splay (slow GC-bound run)
+# and structaset (pre-existing Struct subclass codegen bug).
+BENCH_SMOKE = %w[fib blurhash sudoku nqueens]
 
 desc "Compile + run key benchmarks end-to-end (catches codegen regressions)"
 task :bench_smoke do
