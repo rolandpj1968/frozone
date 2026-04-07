@@ -249,9 +249,8 @@ task :smoke do
   run_language_specs(*Dir["#{RUBY_SPEC_DIR}/language/*_spec.rb"].sort)
   # Frozone² self-hosting
   sh "bundle exec ruby frozone.rb frozone.rb -e 'puts \"frozone² ok\"'"
-  # Compiled benchmark (fib with assertion)
-  sh "bundle exec ruby frozone.rb bench/stubs/fib.rb"
-  sh "cd crystal && crystal run fib.cr"
+  # AOT compile + Crystal build + run for key benchmarks (catches codegen regressions)
+  Rake::Task[:bench_smoke].invoke
   # Core module specs (parallel)
   work = SMOKE_MODULES.filter_map do |name|
     specs = Dir["#{RUBY_SPEC_DIR}/core/#{name}/**/*_spec.rb"].sort
@@ -262,6 +261,30 @@ task :smoke do
 
   results = run_parallel_specs(work, timeout_secs: 120)
   print_results_table("Smoke test results", results, SMOKE_MODULES)
+end
+
+# Benchmark smoke test: AOT-compile + Crystal-build + run a representative set
+# of benchmarks to catch codegen regressions. Skips splay (slow GC-bound run).
+BENCH_SMOKE = %w[fib blurhash sudoku]
+
+desc "Compile + run key benchmarks end-to-end (catches codegen regressions)"
+task :bench_smoke do
+  failures = []
+  BENCH_SMOKE.each do |name|
+    print "  #{name.ljust(12)} "
+    begin
+      sh "bundle exec ruby frozone.rb --aot bench/stubs/#{name}.rb > /dev/null 2>&1"
+      sh "cd crystal && crystal build gen/#{name}.cr --release -o #{name} > /dev/null 2>&1"
+      t0 = Time.now
+      sh "cd crystal && ./#{name} > /dev/null 2>&1"
+      ms = ((Time.now - t0) * 1000).to_i
+      puts "✓ #{ms}ms"
+    rescue => e
+      puts "✗ #{e.message.lines.first&.strip}"
+      failures << name
+    end
+  end
+  abort "bench_smoke FAILED: #{failures.join(', ')}" unless failures.empty?
 end
 
 # Run all core specs in parallel (one process per module)
