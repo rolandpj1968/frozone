@@ -339,7 +339,7 @@ module Frozone
 
         # Operator and unary methods — emit as Crystal operator syntax
         if node.receiver_node
-          return emit_operator(node, name) if operator?(name)
+          return write cr_operator(node, name) if operator?(name)
         end
 
         # Built-in class .new: Array.new(n, default), Hash.new, etc.
@@ -417,53 +417,24 @@ module Frozone
         end
       end
 
-      def emit_operator(node, name)
+      def cr_operator(node, name)
         if UNARY_OPS.include?(name)
-          # Crystal unary minus is a zero-arg def -, called as recv.-
-          # Emit as method call for -@ and ~; inline for +@ (no-op)
           case name
-          when :"-@"
-            write "("
-            emit(node.receiver_node)
-            write ".-)"
-          when :"+@"
-            emit(node.receiver_node)
-          when :"~"
-            write "~("
-            emit(node.receiver_node)
-            write ")"
-          when :"!"
-            write "((#{cr_truthy(node.receiver_node)}) ? RUBY_FALSE : RUBY_TRUE)"
+          when :"-@" then "(#{cr(node.receiver_node)}.-)"
+          when :"+@" then cr(node.receiver_node)
+          when :"~"  then "~(#{cr(node.receiver_node)})"
+          when :"!"  then "((#{cr_truthy(node.receiver_node)}) ? RUBY_FALSE : RUBY_TRUE)"
           end
         elsif COMPARE_OPS.include?(name)
-          # Comparison: wrap in RubyBool so return type is RubyObject-compatible
-          # (a >= b) ? RUBY_TRUE : RUBY_FALSE
-          write "(("
-          emit_operator_recv(node.receiver_node)
-          write " #{name} "
-          emit(node.arg_nodes[0])
-          write ") ? RUBY_TRUE : RUBY_FALSE)"
+          "((#{cr_operator_recv(node.receiver_node)} #{name} #{cr(node.arg_nodes[0])}) ? RUBY_TRUE : RUBY_FALSE)"
         else
-          # Arithmetic binary: (lhs op rhs) — returns RubyObject via Crystal dispatch
-          write "("
-          emit_operator_recv(node.receiver_node)
-          write " #{name} "
-          emit(node.arg_nodes[0])
-          write ")"
+          "(#{cr_operator_recv(node.receiver_node)} #{name} #{cr(node.arg_nodes[0])})"
         end
       end
 
-      # Emit operator receiver, wrapping in parens if it contains an
-      # embedded assignment (so Crystal groups `(q1 = expr) != 1` correctly).
-      def emit_operator_recv(recv)
-        if recv_contains_assignment?(recv)
-          write "("
-          emit(recv)
-          write ")"
-        else
-          emit(recv)
-        end
-      end
+      # Operator receiver, wrapped in parens if it contains an embedded
+      # assignment (so Crystal groups `(q1 = expr) != 1` correctly).
+      def cr_operator_recv(recv) = recv_contains_assignment?(recv) ? "(#{cr(recv)})" : cr(recv)
 
       def recv_contains_assignment?(node)
         return true if node.is_a?(Ast::LocalVariableWrite) || node.is_a?(Ast::InstanceVariableWrite)
@@ -807,7 +778,7 @@ module Frozone
         else
           if boolean_valued?(node) then cr(node)
           elsif comparison_op_call?(node)
-            "(#{capture { emit_operator_recv(node.receiver_node) }} #{node.name} #{cr(node.arg_nodes[0])})"
+            "(#{cr_operator_recv(node.receiver_node)} #{node.name} #{cr(node.arg_nodes[0])})"
           else "#{cr(node)}.truthy?"
           end
         end
