@@ -808,36 +808,21 @@ module Frozone
         write "end"
       end
 
-      def emit_return(node)
-        write "return"
+      def cr_return(node) = node.value_node ? "return #{capture { emit(node.value_node) }}" : "return"
+
+      def cr_next(node)
         val = node.value_node
-        if val
-          write " "
-          emit(val)
-        end
+        (val.nil? || val.is_a?(Ast::NilLiteral)) ? "next" : "next (#{capture { emit(val) }})"
       end
 
-      def emit_next(node)
+      def cr_break(node)
         val = node.value_node
-        if val.nil? || val.is_a?(Ast::NilLiteral)
-          write "next"
-        else
-          write "next ("
-          emit(val)
-          write ")"
-        end
+        (val.nil? || val.is_a?(Ast::NilLiteral)) ? "break" : "break (#{capture { emit(val) }})"
       end
 
-      def emit_break(node)
-        val = node.value_node
-        if val.nil? || val.is_a?(Ast::NilLiteral)
-          write "break"
-        else
-          write "break ("
-          emit(val)
-          write ")"
-        end
-      end
+      def emit_return(node) = write cr_return(node)
+      def emit_next(node) = write cr_next(node)
+      def emit_break(node) = write cr_break(node)
 
       def emit_loop(node)
         write "loop do"
@@ -901,15 +886,12 @@ module Frozone
         :"$stdin"  => "RUBY_NIL",
       }.freeze
 
-      def emit_global_var_read(node)
-        name = node.name
-        if (mapped = MAPPED_GLOBALS[name])
-          write mapped
-        else
-          key = name.to_s.sub(/^\$/, '')
-          write %((RUBY_GLOBALS[#{key.inspect}]? || RUBY_NIL))
-        end
+      def cr_global_var_read(node)
+        mapped = MAPPED_GLOBALS[node.name]
+        mapped || %((RUBY_GLOBALS[#{node.name.to_s.sub(/^\$/, '').inspect}]? || RUBY_NIL))
       end
+
+      def emit_global_var_read(node) = write cr_global_var_read(node)
 
       def emit_global_var_write(node)
         name = node.name
@@ -1284,21 +1266,17 @@ module Frozone
         end
       end
 
-      def emit_interpolated_string(node)
-        write "RubyString.new(String.build { |_s| "
-        node.parts.each do |part|
+      def cr_interpolated_string(node)
+        parts = node.parts.map { |part|
           case part
-          when Ast::StringLiteral
-            raw = part.value.raw
-            write "_s << #{crystal_string_literal(raw)}; "
-          else
-            write "_s << ("
-            emit(part)
-            write ").to_s; "
+          when Ast::StringLiteral then "_s << #{crystal_string_literal(part.value.raw)}"
+          else "_s << (#{capture { emit(part) }}).to_s"
           end
-        end
-        write "})"
+        }
+        "RubyString.new(String.build { |_s| #{parts.join('; ')} })"
       end
+
+      def emit_interpolated_string(node) = write cr_interpolated_string(node)
 
       # -----------------------------------------------------------------------
       # Method definition
