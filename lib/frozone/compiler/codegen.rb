@@ -962,7 +962,7 @@ module Frozone
         when Ast::MethodCall
           rt = node_raw_type(node.receiver_node)
           at = node_raw_type(node.arg_nodes[0])
-          ty = (Type.f64?(rt) || Type.f64?(at)) ? :f64 : :i64
+          ty = (Type.f64?(rt) || Type.f64?(at)) ? Type::F64 : Type::I64
           # Wrap in parens to protect embedded assignment precedence
           needs_parens = recv_contains_assignment?(node.receiver_node)
           write "("
@@ -1627,12 +1627,12 @@ module Frozone
         rt = node_raw_type(node.receiver_node)
         at = node_raw_type(node.arg_nodes[0])
         return unless rt && at
-        ty = (Type.f64?(rt) || Type.f64?(at)) ? :f64 : :i64
-        op = (node.name == :/ && ty == :i64) ? "//" : node.name.to_s
+        ty = (Type.f64?(rt) || Type.f64?(at)) ? Type::F64 : Type::I64
+        op = (node.name == :/ && ty.i64?) ? "//" : node.name.to_s
         if CrystalEmitter::COMPARE_OPS.include?(node.name)
           write "(("; emit_as(node.receiver_node, ty); write " #{op} "; emit_as(node.arg_nodes[0], ty); write ") ? RUBY_TRUE : RUBY_FALSE)"
         else
-          write(ty == :i64 ? "RubyInteger.new(" : "RubyFloat.new(")
+          write(ty.i64? ? "RubyInteger.new(" : "RubyFloat.new(")
           emit_as(node.receiver_node, ty); write " #{op} "; emit_as(node.arg_nodes[0], ty); write ")"
         end
       end
@@ -1789,11 +1789,11 @@ module Frozone
           rt = node_raw_type(recv)
           at = node_raw_type(arg)
           if rt && at
-            ty = (Type.f64?(rt) || Type.f64?(at)) ? :f64 : :i64
+            ty = (Type.f64?(rt) || Type.f64?(at)) ? Type::F64 : Type::I64
             write "("
-            ty == :i64 ? emit_coerce_i64(recv) : emit_coerce_f64(recv)
+            ty.i64? ? emit_coerce_i64(recv) : emit_coerce_f64(recv)
             write " #{node.name} "
-            ty == :i64 ? emit_coerce_i64(arg) : emit_coerce_f64(arg)
+            ty.i64? ? emit_coerce_i64(arg) : emit_coerce_f64(arg)
             write ")"
             return
           end
