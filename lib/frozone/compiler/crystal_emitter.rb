@@ -178,6 +178,7 @@ module Frozone
         when Ast::Lambda             then cr_lambda(node)
         when Ast::Rescue             then cr_rescue(node)
         when Ast::Case               then cr_case(node)
+        when Ast::MethodDef          then cr_method_def(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -1173,42 +1174,31 @@ module Frozone
       # Methods that must return Crystal String (override RubyObject abstract defs)
       STRING_RETURN_METHODS = %i[to_s inspect].to_set
 
-      def emit_method_def(node)
+      def cr_method_def(node)
         recv = node.receiver_node
         name = node.name
         string_return = STRING_RETURN_METHODS.include?(name)
-        # Method definition: don't translate to_s → ruby_to_s; emit as-is (Crystal protocol)
         crystal_name = string_return ? name.to_s : crystal_method_name(name)
-
-        if recv
-          write "def "
-          emit(recv)
-          write ".#{crystal_name}"
-        else
-          write "def #{crystal_name}"
-        end
-        write " : String" if string_return
-        emit_param_list(node)
-        emit_newline
+        prefix = recv ? "def #{cr(recv)}.#{crystal_name}" : "def #{crystal_name}"
+        ret_anno = string_return ? " : String" : ""
+        params = cr_param_list(node)
+        indent_str = "  " * @indent
+        body = nil
         if string_return
-          # Body may return RubyString; wrap in .to_s to produce Crystal String
+          inner = nil
           indented do
-            write "(begin"
-            emit_newline
-            indented { emit(node.body) }
-            emit_newline
-            emit_indent
-            write "end).to_s"
+            indented { inner = cr(node.body) }
+            inner_indent = "  " * @indent
+            body = "#{inner_indent}(begin\n#{inner}\n#{inner_indent}end).to_s"
           end
         else
-          indented { emit(node.body) }
+          indented { body = cr(node.body) }
         end
-        emit_newline
-        emit_indent
-        write "end"
+        "#{prefix}#{params}#{ret_anno}\n#{body}\n#{indent_str}end"
       end
+      def emit_method_def(node) = write cr_method_def(node)
 
-      def emit_param_list(node)
+      def cr_param_list(node)
         parts = []
         node.required_params.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
         node.optional_params.each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
@@ -1218,16 +1208,16 @@ module Frozone
         req_kw = node.required_kw_params || []
         opt_kw = node.optional_kw_params || []
         kr = node.kw_rest_param
-        if (!req_kw.empty? || !opt_kw.empty?) && !rp
-          parts << "*"  # Crystal keyword-only separator
-        end
+        parts << "*" if (!req_kw.empty? || !opt_kw.empty?) && !rp
         req_kw.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
         opt_kw.each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
         parts << "**#{crystal_local(kr)}" if kr
         bp = node.block_param
         parts << "&#{crystal_local(bp)}" if bp
-        write "(#{parts.join(', ')})" unless parts.empty?
+        parts.empty? ? "" : "(#{parts.join(', ')})"
       end
+
+      def emit_param_list(node) = write cr_param_list(node)
 
       # -----------------------------------------------------------------------
       # Class / module definitions

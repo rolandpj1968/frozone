@@ -965,22 +965,16 @@ module Frozone
       def cr_and(node) = crystal_bool_emittable?(node) ? cr_crystal_bool(node) : super
       def cr_or(node) = crystal_bool_emittable?(node) ? cr_crystal_bool(node) : super
 
-      # Override emit_param_list to apply inferred types for required params.
-      def emit_param_list(node, param_types: nil)
-        # Apply kwarg typing only when positional params are also typed —
-        # the generic overload needs all-RubyObject for Crystal dispatch.
-        mkey = @cctx.name ? [@cctx.name, node.name] : node.name
-        kw_types = param_types ? (@gctx.inferred_kw_params[mkey] || {}) : {}
+      # Override cr_param_list to apply inferred types for required params.
+      def cr_param_list(node, param_types: nil)
         return super(node) unless param_types
+        mkey = @cctx.name ? [@cctx.name, node.name] : node.name
+        kw_types = @gctx.inferred_kw_params[mkey] || {}
 
         parts = []
         req = node.required_params || []
-        if param_types
-          types = param_types + [:ruby_object] * [req.size - param_types.size, 0].max
-          req.each_with_index { |p, i| parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(types[i] || :ruby_object)}" }
-        else
-          req.each { |p| parts << "#{crystal_local(p)} : RubyObject" }
-        end
+        types = param_types + [:ruby_object] * [req.size - param_types.size, 0].max
+        req.each_with_index { |p, i| parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(types[i] || :ruby_object)}" }
 
         node.optional_params.each { |p, default| parts << "#{crystal_local(p)} : RubyObject = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}" }
         rp = node.rest_param
@@ -989,9 +983,7 @@ module Frozone
         req_kw = node.required_kw_params || []
         opt_kw = node.optional_kw_params || []
         kr = node.kw_rest_param
-        if (!req_kw.empty? || !opt_kw.empty?) && !rp
-          parts << "*"  # Crystal keyword-only separator
-        end
+        parts << "*" if (!req_kw.empty? || !opt_kw.empty?) && !rp
         req_kw.each do |p|
           ct = kw_types[p]
           parts << "#{crystal_local(p)} : #{ct ? CrystalType.to_crystal(ct) : 'RubyObject'}"
@@ -999,7 +991,6 @@ module Frozone
         opt_kw.each do |p, default|
           ct = kw_types[p]
           if ct && CrystalType.scalar?(ct) && default
-            # Emit raw default for scalar-typed kwargs
             raw_default = Type.i64?(ct) ? "#{default.value.raw}_i64" : "#{default.value.raw}_f64"
             parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(ct)} = #{raw_default}"
           elsif ct
@@ -1011,8 +1002,9 @@ module Frozone
         parts << "**#{crystal_local(kr)}" if kr
         bp = node.block_param
         parts << "&#{crystal_local(bp)}" if bp
-        write "(#{parts.join(', ')})" unless parts.empty?
+        parts.empty? ? "" : "(#{parts.join(', ')})"
       end
+      def emit_param_list(node, param_types: nil) = write cr_param_list(node, param_types: param_types)
 
       # Map a class name symbol to the Crystal class name.
       # Uses RUBY_TO_CRYSTAL_TYPE for built-in classes, Ruby_ prefix for user classes.
