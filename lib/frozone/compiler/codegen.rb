@@ -1230,9 +1230,10 @@ module Frozone
       end
 
       # Override: for typed ivars, coerce RHS to the raw type.
-      def emit_ivar_write(node)
+      def cr_ivar_write(node)
         iv_name = node.name
-        if (ty = @cctx.ivars[iv_name])
+        ty = @cctx.ivars[iv_name]
+        if ty
           val = node.value_node
           # Array-typed ivars: @list = Array.new(n) → Array(Float64).new(n, 0.0)
           if Type.array_raw?(ty) && val.is_a?(Ast::MethodCall) &&
@@ -1240,34 +1241,31 @@ module Frozone
             crystal_ty = Type.array_f64?(ty) ? "Float64" : "Int64"
             default = Type.array_f64?(ty) ? "0.0" : "0"
             args = val.arg_nodes || []
-            write "#{iv_name} = Array(#{crystal_ty}).new("
-            args.empty? ? write("0") : emit_coerce_i64(args[0])
-            write ", #{default})"
-            return
+            count = args.empty? ? "0" : coerce_i64(args[0])
+            return "#{iv_name} = Array(#{crystal_ty}).new(#{count}, #{default})"
           end
-          write "#{iv_name} = "
           # Nil-safe coercion: untyped params may be nil (sentinel construction).
           if val.is_a?(Ast::LocalVariableRead) && !@mctx.typed_locals[val.name] && !node_raw_type(val)
             default = Type.f64?(ty) ? "0.0_f64" : "0_i64"
             coerce = Type.f64?(ty) ? ".to_f64" : ".to_i64"
-            write "((_v = "; emit(val); write "); _v.ruby_nil? ? #{default} : _v#{coerce})"
+            "#{iv_name} = ((_v = #{cr(val)}); _v.ruby_nil? ? #{default} : _v#{coerce})"
           else
-            emit_as(val, ty)
+            "#{iv_name} = #{raw_as(val, ty)}"
           end
         elsif @cctx.typed_ivars[iv_name]&.first == :class_or_nil
           val = node.value_node
-          write "#{iv_name} = "
           if val.is_a?(Ast::NilLiteral)
             ct = @cctx.typed_ivars[iv_name]
             # Self-referential (T?) uses Crystal nil; cross-class (T | RubyNil) uses RUBY_NIL
-            write(ct[1] == @cctx.name ? "nil" : "RUBY_NIL")
+            "#{iv_name} = #{ct[1] == @cctx.name ? 'nil' : 'RUBY_NIL'}"
           else
-            emit(val)
+            "#{iv_name} = #{cr(val)}"
           end
         else
           super
         end
       end
+      def emit_ivar_write(node) = write cr_ivar_write(node)
 
       # Override: for index op-write (ci[j] += ...) with a raw-typed index,
       # emit the index temp as bare Int64 so the Int64 array overload is used.

@@ -157,6 +157,7 @@ module Frozone
         when Ast::Or                 then cr_or(node)
         when Ast::ArrayLiteral       then cr_array_literal(node)
         when Ast::LocalVariableWrite then cr_local_write(node)
+        when Ast::InstanceVariableWrite then cr_ivar_write(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -310,10 +311,8 @@ module Frozone
       def cr_ivar_read(node) = node.name.to_s
       def emit_ivar_read(node) = write cr_ivar_read(node)
 
-      def emit_ivar_write(node)
-        write "#{node.name} = "
-        emit(node.value_node)
-      end
+      def cr_ivar_write(node) = "#{node.name} = #{cr(node.value_node)}"
+      def emit_ivar_write(node) = write cr_ivar_write(node)
 
       def cr_constant_read(node) = RUBY_TO_CRYSTAL_TYPE[node.name] || "Ruby_#{crystal_constant(node.name)}"
       def emit_constant_read(node) = write cr_constant_read(node)
