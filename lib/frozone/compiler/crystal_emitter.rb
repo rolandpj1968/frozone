@@ -138,7 +138,7 @@ module Frozone
 
       # Functional dispatch entry point — returns Crystal source as a String.
       # Migration window: leaves with no subclass override go through direct
-      # cr_* dispatch; everything else falls through to capture { emit_node }.
+      # cr_* dispatch for every supported AST node — emit_node is gone.
       def cr(node)
         case node
         when Ast::NilLiteral         then cr_nil
@@ -189,38 +189,12 @@ module Frozone
         when Ast::Break              then cr_break(node)
         when Ast::GlobalVariableRead then cr_global_var_read(node)
         when Ast::Retry              then "retry"
-        else
-          # Structural nodes (if/while/method_def/class_def/case/etc.) and
-          # the few remaining unconverted leaves still go through the
-          # imperative path. Captured here so cr() always returns a String.
-          capture { emit_node(node) }
+        when Ast::Block              then unsupported!(node, "bare Block outside method call")
+        else                              unsupported!(node)
         end
       end
 
       def emit(node) = write cr(node)
-
-      # Imperative dispatch for nodes still on emit_*. Reachable only via the
-      # cr() fall-through (capture { emit_node(node) }) — every node not in
-      # this case is handled directly by cr().
-      def emit_node(node)
-        case node
-        when Ast::Sequence              then emit_sequence(node)
-        when Ast::MethodDef             then emit_method_def(node)
-        when Ast::ClassDef              then emit_class_def(node)
-        when Ast::ModuleDef             then emit_module_def(node)
-        when Ast::If                    then emit_if(node)
-        when Ast::While                 then emit_while(node)
-        when Ast::Until                 then emit_until(node)
-        when Ast::Rescue                then emit_rescue(node)
-        when Ast::Super                 then emit_super(node)
-        when Ast::Case                  then emit_case(node)
-        when Ast::Lambda                then emit_lambda(node)
-        when Ast::ForLoop               then emit_for_loop(node)
-        when Ast::Block                 then unsupported!(node, "bare Block outside method call")
-        else
-          unsupported!(node)
-        end
-      end
 
       # -----------------------------------------------------------------------
       # Header
