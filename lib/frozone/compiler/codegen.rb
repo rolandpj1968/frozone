@@ -1459,7 +1459,7 @@ module Frozone
         write ") { |", params.map { |p| crystal_local(p) }.join(", "), "|"
         emit_newline
         old_rbp = @mctx.raw_block_params
-        @mctx.raw_block_params = old_rbp.merge(params.map { |p| [p, :i64] }.to_h)
+        @mctx.raw_block_params = old_rbp.merge(params.map { |p| [p, Type::I64] }.to_h)
         indented { emit_native_block_body(blk.body) }
         @mctx.raw_block_params = old_rbp
         emit_newline
