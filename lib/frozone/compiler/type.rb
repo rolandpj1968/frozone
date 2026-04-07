@@ -165,23 +165,6 @@ module Frozone
 
       # -- Factories -----------------------------------------------------------
 
-      # Nil-safe scalar predicates that also tolerate the legacy
-      # CrystalType representation still used by a few storage maps:
-      #   - native_array_locals stores [:array, X] for nested arrays
-      #   - class_params / inferred_params / inferred_kw_params store
-      #     legacy symbols (:i64/:f64/:ruby_object/[:ruby_class, X]/etc.)
-      # All return false for nil and for unrecognised inputs, so call sites
-      # can pass any value without dispatch errors. Migrating the remaining
-      # legacy maps would let these collapse to direct Type predicates.
-      class << self
-        def i64?(t) = t.is_a?(Type) ? t.i64? : t == :i64
-        def f64?(t) = t.is_a?(Type) ? t.f64? : t == :f64
-        def raw?(t) = t.is_a?(Type) ? t.raw? : (t == :i64 || t == :f64)
-        def array_i64?(t) = t == ARRAY_I64 || t == :array_i64
-        def array_f64?(t) = t == ARRAY_F64 || t == :array_f64
-        def array_raw?(t) = array_i64?(t) || array_f64?(t)
-      end
-
       class << self
         def of(class_name, nullable: false, exact: false)
           # Return interned singletons for common non-decorated types.

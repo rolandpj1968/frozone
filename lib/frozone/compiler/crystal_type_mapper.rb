@@ -194,7 +194,7 @@ module Frozone
         end
       end
 
-      def raw_type(ty) = Type.raw?(ty) ? ty : nil
+      def raw_type(ty) = ty&.raw? ? ty : nil
     end
   end
 end

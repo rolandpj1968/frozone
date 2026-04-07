@@ -265,7 +265,7 @@ module Frozone
           expr = node.is_a?(Ast::Sequence) ? node.nodes.first : node
           rt = expr ? node_raw_type(expr) : nil
           if rt
-            box = Type.f64?(rt) ? "RubyFloat" : "RubyInteger"
+            box = rt&.f64? ? "RubyFloat" : "RubyInteger"
             ["#{box}.new(#{raw(expr)})"]
           else
             [cr(expr || node)]
@@ -292,12 +292,12 @@ module Frozone
         target = node.target
         return super unless target[0] == :local
         name = target[1]
-        return super unless Type.i64?(@mctx.block_params[name])
+        return super unless @mctx.block_params[name]&.i64?
         coll = node.collection_node
         return super unless coll.is_a?(Ast::RangeLiteral)
         lo = coll.begin_node
         hi = coll.end_node
-        return super unless Type.i64?(node_raw_type(lo)) && Type.i64?(node_raw_type(hi))
+        return super unless node_raw_type(lo)&.i64? && node_raw_type(hi)&.i64?
         range_op = coll.exclusive ? "..." : ".."
         indent_str = "  " * @indent
         body = nil
