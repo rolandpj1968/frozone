@@ -138,32 +138,29 @@ module Frozone
         req_params = method.required_params || []
         return unless req_params.size == param_types.size
 
-        parts = req_params.zip(param_types).map { |p, ty| "#{crystal_local(p)} : #{ty.to_crystal}" }
+        sig = req_params.zip(param_types).map { |p, ty| "#{crystal_local(p)} : #{ty.to_crystal}" }.join(', ')
+        ctx = specialized_raw_ctx(name, method, req_params, param_types)
+        body_lines = raw_lines(method.body, ctx)
+        write ["def #{crystal_method_name(name)}(#{sig}) : #{return_type.to_crystal}",
+               *indent(body_lines),
+               "end"].join("\n#{' ' * (@indent * 2)}")
+      end
 
-        write "def #{crystal_method_name(name)}(#{parts.join(', ')}) : #{return_type.to_crystal}"
-        emit_newline
-
-        old_typed = @mctx.typed_locals
-        old_typed_arr = @mctx.typed_array_locals
+      # Build a RawCtx for a specialized method — no mutation of @mctx.
+      def specialized_raw_ctx(mkey, method, req_params, param_types)
         param_set = req_params.to_set
-        # Start with param types, add TI-inferred locals, then infer from literals.
-        @mctx.typed_locals = req_params.zip(param_types).to_h
-        (@gctx.locals[name] || {}).each do |lname, ty|
-          @mctx.typed_locals[lname] = ty unless param_set.include?(lname)
-        end
-        # Infer types from literal assignments for locals TI didn't cover
-        infer_local_types(method.body).each do |lname, ty|
-          @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
-        end
-        # Populate typed array locals from TI (non-param only).
-        @mctx.typed_array_locals = (@gctx.arrays[name] || {}).reject { |k, _| param_set.include?(k) }
-        indented { emit_raw_expr(method.body) }
-        @mctx.typed_locals = old_typed
-        @mctx.typed_array_locals = old_typed_arr
-
-        emit_newline
-        emit_indent
-        write "end"
+        locals = req_params.zip(param_types).to_h
+        (@gctx.locals[mkey] || {}).each { |lname, ty| locals[lname] = ty unless param_set.include?(lname) }
+        infer_local_types(method.body).each { |lname, ty| locals[lname] ||= ty unless param_set.include?(lname) }
+        RawEmission::RawCtx.new(
+          typed_locals: locals.freeze,
+          raw_block_params: {},
+          class_locals: {},
+          local_array_elems: {},
+          typed_array_locals: (@gctx.arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }.freeze,
+          native_array_locals: {},
+          ivars: (@cctx&.ivars || {})
+        ).freeze
       end
 
       # Emit a specialized (typed) class method overload.
@@ -174,8 +171,10 @@ module Frozone
         return unless req_params.size == raw_types.size
 
         parts = req_params.each_with_index.map do |p, i|
-          if raw_types[i]
-            "#{crystal_local(p)} : #{raw_types[i].to_crystal}"
+          rt = raw_types[i]
+          if rt
+            cr = rt.to_crystal
+            "#{crystal_local(p)} : #{cr}"
           elsif crystal_param_types && crystal_param_types[i] && crystal_param_types[i] != :ruby_object
             "#{crystal_local(p)} : #{CrystalType.to_crystal(crystal_param_types[i])}"
           else
@@ -195,8 +194,8 @@ module Frozone
           # Check if TI inferred a type for this kwarg
           mkey_for_kw = [class_name, mname]
           kw_ty = @gctx.inferred_kw_params.dig(mkey_for_kw, kw_name) || @gctx.inferred_kw_params.dig(mname, kw_name)
-          if (kw_t = CrystalType.raw(kw_ty))
-            parts << "#{crystal_local(kw_name)} : #{kw_t.to_crystal} = #{default_val}"
+          if kw_ty.is_a?(Type) && kw_ty.raw?
+            parts << "#{crystal_local(kw_name)} : #{kw_ty.to_crystal} = #{default_val}"
           else
             parts << "#{crystal_local(kw_name)} : Int64 = #{default_val}"
           end
@@ -215,12 +214,12 @@ module Frozone
         mkey = [class_name, mname]
         # Start with param types
         @mctx.typed_locals = {}
-        req_params.zip(raw_types).each { |p, ty| @mctx.typed_locals[p] = ty if ty }
+        req_params.zip(raw_types).each { |p, ty| @mctx.typed_locals[p] = (ty) if ty }
         # Kwargs are also typed locals in the raw context
         opt_kw.each do |kw_name, _|
           mkey_for_kw = [class_name, mname]
           kw_ty = @gctx.inferred_kw_params.dig(mkey_for_kw, kw_name) || @gctx.inferred_kw_params.dig(mname, kw_name)
-          @mctx.typed_locals[kw_name] = kw_ty if Type.raw?(kw_ty)
+          @mctx.typed_locals[kw_name] = kw_ty if kw_ty.is_a?(Type) && kw_ty.raw?
         end
         # Class-typed locals for devirtualisation
         @mctx.class_locals = @gctx.class_locals[mkey] || @gctx.class_locals[mname] || {}
@@ -267,7 +266,7 @@ module Frozone
         expr = node.is_a?(Ast::Sequence) ? node.nodes.first : node
         emit_indent
         if expr && (rt = node_raw_type(expr))
-          box = Type.f64?(rt) ? "RubyFloat" : "RubyInteger"
+          box = rt.f64? ? "RubyFloat" : "RubyInteger"
           write "#{box}.new("; emit_raw(expr); write ")"
         else
           emit(expr || node)
@@ -284,7 +283,7 @@ module Frozone
           write "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
         end
         old_rbp = @mctx.raw_block_params
-        @mctx.raw_block_params = old_rbp.merge(params.map { |p| [p, :i64] }.to_h)
+        @mctx.raw_block_params = old_rbp.merge(params.map { |p| [p, Type::I64] }.to_h)
         emit(blk.body)
         @mctx.raw_block_params = old_rbp
         write " }"
@@ -296,13 +295,13 @@ module Frozone
         target = node.target
         if target[0] == :local
           name = target[1]
-          if Type.i64?(@mctx.block_params[name])
+          if @mctx.block_params[name]&.i64?
             coll = node.collection_node
             if coll.is_a?(Ast::RangeLiteral)
               lo = coll.begin_node
               hi = coll.end_node
               excl = coll.exclusive
-              if Type.i64?(node_raw_type(lo)) && Type.i64?(node_raw_type(hi))
+              if node_raw_type(lo)&.i64? && node_raw_type(hi)&.i64?
                 write "("
                 emit_raw(lo)
                 write excl ? "..." : ".."
@@ -310,7 +309,7 @@ module Frozone
                 write ").each do |#{crystal_local(name)}|"
                 emit_newline
                 old_rbp = @mctx.raw_block_params
-                @mctx.raw_block_params = old_rbp.merge(name => :i64)
+                @mctx.raw_block_params = old_rbp.merge(name => Type::I64)
                 indented { emit(node.body_node) }
                 @mctx.raw_block_params = old_rbp
                 emit_newline
