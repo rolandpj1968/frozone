@@ -314,16 +314,6 @@ module Frozone
         indent_str = "  " * @indent
         node.nodes.map { |child| cr(child) }.join("\n#{indent_str}")
       end
-      def emit_sequence(node)
-        # Imperative emit_sequence keeps emit_indent so the first line is
-        # indented by the caller's context. cr_sequence assumes the caller
-        # already wrote a leading indent.
-        node.nodes.each_with_index do |child, i|
-          emit_newline if i > 0
-          emit_indent
-          emit(child)
-        end
-      end
 
       # -----------------------------------------------------------------------
       # Method call
