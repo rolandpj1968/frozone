@@ -1575,7 +1575,7 @@ module Frozone
         args = node.arg_nodes || []
         return unless args.size == tp.size && args.all? { |a| node_raw_type(a) }
         write crystal_method_name(node.name), "("
-        args.each_with_index { |a, i| write ", " if i > 0; emit_raw(a) }
+        emit_raw_args(args)
         write ")"
       end
 

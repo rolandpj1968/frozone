@@ -20,6 +20,8 @@ module Frozone
       def accessor_method_name?(name) = @cctx.name && @gctx.typed_ivars.fetch(@cctx.name, {})[:"@#{name}"]
       # Emit node coerced to Float64: raw if already typed, else .to_f64 on boxed.
       def emit_coerce_f64(node) = node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_f64")
+      def emit_raw_args(args) = write args.map { |a| capture { emit_raw(a) } }.join(", ")
+      def emit_raw_expr_args(args) = write args.map { |a| capture { emit_raw_expr(a) } }.join(", ")
 
       # Returns :i64, :f64, or nil for the provable bare Crystal type of a node.
       def node_raw_type(node)
@@ -537,7 +539,7 @@ module Frozone
         # Math.cos, Math.sin, etc.
         if recv.is_a?(Ast::ConstantRead) && recv.name == :Math
           write "Math.#{name}("
-          args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+          emit_raw_expr_args(args)
           write ")"
           return true
         end
@@ -585,9 +587,9 @@ module Frozone
           write "("
           # For .new on built-in types (Array, Hash, etc.), box args — no typed constructor
           if name == :new && CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(recv.name)
-            args.each_with_index { |a, i| write ", " if i > 0; emit(a) }
+            write args.map { |a| capture { emit(a) } }.join(", ")
           else
-            args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+            emit_raw_expr_args(args)
           end
           write ")"
           emit_raw_block(node)
@@ -625,7 +627,7 @@ module Frozone
             end
           else
             # No typed overload — box args, but coerce return if TI knows it
-            args.each_with_index { |a, i| write ", " if i > 0; emit(a) }
+            write args.map { |a| capture { emit(a) } }.join(", ")
           end
           write ")"
           emit_raw_block(node)
@@ -643,7 +645,7 @@ module Frozone
           if @mctx.typed_locals[recv_name] || @mctx.class_locals&.dig(recv_name) || @mctx.native_array_locals&.dig(recv_name)
             write crystal_local(recv_name), ".", crystal_method_name(name)
             write "("
-            args.each_with_index { |a, i| write ", " if i > 0; emit_raw_expr(a) }
+            emit_raw_expr_args(args)
             write ")"
             # Coerce result to raw type if the method returns a boxed numeric
             # (e.g., ThreeDArray#[] returns RubyFloat but we need Float64)
@@ -667,9 +669,7 @@ module Frozone
         params = blk.required_params || []
         write " { "
         unless params.empty?
-          write "|"
-          params.each_with_index { |p, i| write ", " if i > 0; write crystal_local(p) }
-          write "| "
+          write "|", params.map { |p| crystal_local(p) }.join(", "), "| "
         end
         emit_raw_expr(blk.body) if blk.body
         write " }"
