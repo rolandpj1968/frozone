@@ -1071,15 +1071,6 @@ module Frozone
       def emit_indent = @out << ("  " * @indent)
       def emit_newline = @out << "\n"
 
-      def capture
-        saved = @out
-        @out = +""
-        yield
-        @out
-      ensure
-        @out = saved
-      end
-
       def indented
         @indent += 1
         yield
