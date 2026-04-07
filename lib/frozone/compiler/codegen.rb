@@ -1282,66 +1282,55 @@ module Frozone
         " #{cr_block(blk)}"
       end
 
-      # Imperative shims kept until try_*_call helpers are migrated.
-      def emit_typed_call_args(args, param_types) = write cr_typed_call_args(args, param_types)
-      def emit_boxed(node) = write cr_boxed(node)
-      def emit_block_if_present(node) = write cr_block_if_present(node)
 
       def cr_method_call(node)
-        # try_* helpers are still imperative; capture their output if any fires.
-        captured = capture {
-          try_ivar_array_access(node) ||
-            try_constant_fold(node) ||
-            try_native_array_new(node) ||
-            try_native_iteration(node) ||
-            try_typed_instance_call(node) ||
-            try_native_array_method(node) ||
-            try_array_push(node) ||
-            try_native_array_read(node) ||
-            try_boxed_array_read(node) ||
-            try_raw_index_read(node) ||
-            try_specialized_free_call(node) ||
-            try_eigen_dispatch(node) ||
-            try_typed_free_call(node) ||
-            try_devirtualized_call(node) ||
-            try_raw_arithmetic(node)
-        }
-        captured.empty? ? super : captured
+        cr_try_ivar_array_access(node) ||
+          cr_try_constant_fold(node) ||
+          cr_try_native_array_new(node) ||
+          cr_try_native_iteration(node) ||
+          cr_try_typed_instance_call(node) ||
+          cr_try_native_array_method(node) ||
+          cr_try_array_push(node) ||
+          cr_try_native_array_read(node) ||
+          cr_try_boxed_array_read(node) ||
+          cr_try_raw_index_read(node) ||
+          cr_try_specialized_free_call(node) ||
+          cr_try_eigen_dispatch(node) ||
+          cr_try_typed_free_call(node) ||
+          cr_try_devirtualized_call(node) ||
+          cr_try_raw_arithmetic(node) ||
+          super
       end
 
       # @list.fetch(i) or @list[i] on native array ivar → box result for RubyObject context
-      def try_ivar_array_access(node)
+      def cr_try_ivar_array_access(node)
         recv = node.receiver_node
         return unless recv.is_a?(Ast::InstanceVariableRead)
         iv_ty = @cctx&.ivars&.dig(recv.name)
         return unless Type.array_raw?(iv_ty)
         args = node.arg_nodes || []
-        if (node.name == :fetch || node.name == :[]) && args.size == 1
-          box = Type.array_f64?(iv_ty) ? "RubyFloat" : "RubyInteger"
-          write "#{box}.new(", recv.name.to_s, "["
-          emit_coerce_i64(args[0])
-          write "])"
-          true
-        end
+        return unless (node.name == :fetch || node.name == :[]) && args.size == 1
+        box = Type.array_f64?(iv_ty) ? "RubyFloat" : "RubyInteger"
+        "#{box}.new(#{recv.name}[#{coerce_i64(args[0])}])"
       end
 
       # Constant-fold respond_to?(:literal) and is_a?/kind_of?(Constant) when
       # receiver type is known from TI devirtualization.
-      def try_constant_fold(node)
+      def cr_try_constant_fold(node)
         return unless node.receiver_node && (recv_class = receiver_known_class(node.receiver_node))
         klass = lookup_vm_class(recv_class) or return
         if node.name == :respond_to? && node.arg_nodes&.size&.between?(1, 2) &&
            node.arg_nodes[0].is_a?(Ast::SymbolLiteral)
-          write(klass.lookup_method(node.arg_nodes[0].value) ? "RUBY_TRUE" : "RUBY_FALSE")
+          klass.lookup_method(node.arg_nodes[0].value) ? "RUBY_TRUE" : "RUBY_FALSE"
         elsif (node.name == :is_a? || node.name == :kind_of?) &&
               node.arg_nodes&.size == 1 && node.arg_nodes[0].is_a?(Ast::ConstantRead)
           target = lookup_vm_class(node.arg_nodes[0].name) or return
-          write(klass.ancestors_include?(target) ? "RUBY_TRUE" : "RUBY_FALSE")
+          klass.ancestors_include?(target) ? "RUBY_TRUE" : "RUBY_FALSE"
         end
       end
 
       # Array.new(n) { |i| body } with all-integer block params → native Int64 iteration.
-      def try_native_array_new(node)
+      def cr_try_native_array_new(node)
         return unless node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead) &&
                       node.receiver_node.name == :Array && node.block_node.is_a?(Ast::Block)
         blk = node.block_node
@@ -1349,174 +1338,134 @@ module Frozone
         args = node.arg_nodes || []
         return unless !params.empty? && args.size == 1 && Type.i64?(node_raw_type(args[0])) &&
                       params.all? { |p| p.is_a?(Symbol) && Type.i64?(@mctx.block_params[p]) }
-        write "RubyArray.new("
-        emit_raw(args[0])
-        write ") { |", params.map { |p| crystal_local(p) }.join(", "), "|"
-        emit_newline
+        indent_str = "  " * @indent
         old_rbp = @mctx.raw_block_params
         @mctx.raw_block_params = old_rbp.merge(params.map { |p| [p, Type::I64] }.to_h)
-        indented { emit_native_block_body(blk.body) }
+        body_lines = nil
+        indented { body_lines = native_block_body_lines(blk.body) }
         @mctx.raw_block_params = old_rbp
-        emit_newline
-        emit_indent
-        write "}"
+        body_str = body_lines.map { |l| "#{'  ' * (@indent + 1)}#{l}" }.join("\n")
+        "RubyArray.new(#{raw(args[0])}) { |#{params.map { |p| crystal_local(p) }.join(', ')}|\n#{body_str}\n#{indent_str}}"
       end
 
       # n.times/upto/downto { block } when n is raw i64 → Crystal native iteration.
-      def try_native_iteration(node)
+      def cr_try_native_iteration(node)
         return unless opt?(:native_iteration) && node.block_node &&
                       !node.block_node.is_a?(Ast::BlockArg) &&
                       (node.arg_nodes || []).size <= 1 && Type.i64?(node_raw_type(node.receiver_node))
         case node.name
         when :times
-          emit_raw(node.receiver_node)
-          write ".times "
-          emit_native_iter_block(node.block_node)
+          "#{raw(node.receiver_node)}.times #{cr_native_iter_block(node.block_node)}"
         when :upto
           limit = (node.arg_nodes || [])[0]
           return unless limit && Type.i64?(node_raw_type(limit))
-          write "("; emit_raw(node.receiver_node); write ".."; emit_raw(limit); write ").each "
-          emit_native_iter_block(node.block_node)
+          "(#{raw(node.receiver_node)}..#{raw(limit)}).each #{cr_native_iter_block(node.block_node)}"
         when :downto
           limit = (node.arg_nodes || [])[0]
           return unless limit && Type.i64?(node_raw_type(limit))
-          write "("; emit_raw(limit); write ".."; emit_raw(node.receiver_node); write ").reverse_each "
-          emit_native_iter_block(node.block_node)
+          "(#{raw(limit)}..#{raw(node.receiver_node)}).reverse_each #{cr_native_iter_block(node.block_node)}"
         end
       end
 
       # Typed instance method call on a class-typed receiver → emit args with declared types.
-      def try_typed_instance_call(node)
+      def cr_try_typed_instance_call(node)
         return unless node.receiver_node.is_a?(Ast::LocalVariableRead)
         cls_entry = @mctx.class_locals[node.receiver_node.name] or return
         recv_class = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
         tp = @gctx.class_params[[recv_class, node.name]] or return
-        emit(node.receiver_node)
-        write ".#{crystal_method_name(node.name)}"
-        emit_typed_call_args(node.arg_nodes || [], tp)
-        emit_block_if_present(node)
-        true
+        "#{cr(node.receiver_node)}.#{crystal_method_name(node.name)}#{cr_typed_call_args(node.arg_nodes || [], tp)}#{cr_block_if_present(node)}"
       end
 
       # Method call on native array local → emit raw args (Crystal Array methods expect Int, not RubyInteger)
-      def try_native_array_method(node)
+      def cr_try_native_array_method(node)
         return unless node.receiver_node&.is_a?(Ast::LocalVariableRead)
         recv_name = node.receiver_node.name
         return unless native_array_elem_type(recv_name)
-        # Known array methods that take integer args
         return unless %i[delete_at insert push unshift].include?(node.name)
-        write crystal_local(recv_name), ".", crystal_method_name(node.name), "("
-        (node.arg_nodes || []).each_with_index do |arg, i|
-          write ", " if i > 0
-          rt = node_raw_type(arg)
-          rt ? emit_raw(arg) : emit(arg)
-        end
-        write ")"
-        true
+        args = (node.arg_nodes || []).map { |arg| node_raw_type(arg) ? raw(arg) : cr(arg) }
+        "#{crystal_local(recv_name)}.#{crystal_method_name(node.name)}(#{args.join(', ')})"
       end
 
       # arr << val on native arrays → array push (not integer shift).
-      def try_array_push(node)
+      def cr_try_array_push(node)
         return unless node.name == :<< && node.receiver_node && node.arg_nodes&.size == 1
         recv = node.receiver_node
         if recv.is_a?(Ast::LocalVariableRead) && (elem = native_array_elem_type(recv.name))
-          emit(recv); write " << "; emit_as(node.arg_nodes[0], elem); true
+          "#{cr(recv)} << #{raw_as(node.arg_nodes[0], elem)}"
         elsif recv.is_a?(Ast::MethodCall) && recv.name == :[] &&
               recv.receiver_node.is_a?(Ast::LocalVariableRead)
           arr_elem = native_array_elem_type(recv.receiver_node.name)
           return unless arr_elem && CrystalType.array?(arr_elem)
-          emit(recv); write " << "; emit_as(node.arg_nodes[0], CrystalType.elem(arr_elem)); true
+          "#{cr(recv)} << #{raw_as(node.arg_nodes[0], CrystalType.elem(arr_elem))}"
         end
       end
 
       # mc[i] where mc is Array(Array(T)) → coerce index, no boxing.
-      def try_native_array_read(node)
+      def cr_try_native_array_read(node)
         return unless node.name == :[] && node.arg_nodes&.size == 1 &&
                       node.receiver_node&.is_a?(Ast::LocalVariableRead)
         recv_elem = native_array_elem_type(node.receiver_node.name)
         return unless recv_elem && CrystalType.array?(recv_elem)
-        write crystal_local(node.receiver_node.name), "["
-        emit_coerce_i64(node.arg_nodes[0])
-        write "]"
+        "#{crystal_local(node.receiver_node.name)}[#{coerce_i64(node.arg_nodes[0])}]"
       end
 
       # a[k] where a is native Array(T) in boxed context → box the element.
-      def try_boxed_array_read(node)
+      def cr_try_boxed_array_read(node)
         return unless node.name == :[] && node.arg_nodes&.size == 1 &&
                       node.receiver_node&.is_a?(Ast::LocalVariableRead)
         arr_ty = native_array_elem_type(node.receiver_node.name) or return
         box_fn = Type.f64?(arr_ty) ? "RubyFloat" : "RubyInteger"
-        write box_fn, ".new(", crystal_local(node.receiver_node.name), "["
-        emit_coerce_i64(node.arg_nodes[0])
-        write "])"
+        "#{box_fn}.new(#{crystal_local(node.receiver_node.name)}[#{coerce_i64(node.arg_nodes[0])}])"
       end
 
       # a[k] with raw index on known array/tuple receivers → use Int64 overload.
-      # Emit a[k] with raw Int64 index when the index is typed.
-      # RubyObject#[](Int64) and RubyArray#[](Int64) both accept raw indices,
-      # so boxing the index in RubyInteger.new is never necessary.
-      def try_raw_index_read(node)
+      def cr_try_raw_index_read(node)
         return unless node.name == :[] && node.arg_nodes&.size == 1 && node_raw_type(node.arg_nodes[0])
-        emit(recv = node.receiver_node); write "["; emit_raw(node.arg_nodes[0]); write "]"
+        "#{cr(node.receiver_node)}[#{raw(node.arg_nodes[0])}]"
       end
 
       # Free call to fully-specialized method with all-raw args → raw Int64 overload.
-      def try_specialized_free_call(node)
+      def cr_try_specialized_free_call(node)
         return unless node.receiver_node.nil? && @gctx.typed_method_returns[node.name]
         tp = @gctx.typed_params[node.name] or return
         args = node.arg_nodes || []
         return unless args.size == tp.size && args.all? { |a| node_raw_type(a) }
-        write crystal_method_name(node.name), "("
-        emit_raw_args(args)
-        write ")"
+        "#{crystal_method_name(node.name)}(#{args.map { |a| raw(a) }.join(', ')})"
       end
 
       # Free call inside class → dispatch to eigenclass method (self.x).
-      def try_eigen_dispatch(node)
+      def cr_try_eigen_dispatch(node)
         return unless node.receiver_node.nil? && @cctx.eigen_methods&.include?(node.name)
-        write "self.", crystal_method_name(node.name)
+        prefix = "self.#{crystal_method_name(node.name)}"
         if !@mctx.suppress_typed_call_args && (opt?(:call_site_types) || opt?(:method_specialization))
           tp = @gctx.inferred_params[node.name] || @gctx.class_params[[@cctx.name, node.name]]
           can_use_typed = tp&.any? { |t| t && t != :ruby_object } &&
             tp.all? { |pt| !pt || CrystalType.generic_compatible?(pt) || CrystalType.scalar?(pt) }
           if can_use_typed
-            emit_typed_call_args(node.arg_nodes || [], tp)
-            emit_block_if_present(node)
-          else
-            write cr_call_args(node)
+            return "#{prefix}#{cr_typed_call_args(node.arg_nodes || [], tp)}#{cr_block_if_present(node)}"
           end
-        else
-          write cr_call_args(node)
         end
-        true
+        "#{prefix}#{cr_call_args(node)}"
       end
 
       # Free call with inferred param types → coerce args.
-      def try_typed_free_call(node)
+      def cr_try_typed_free_call(node)
         return unless !@mctx.suppress_typed_call_args && node.receiver_node.nil?
         tp = @gctx.inferred_params[node.name] or return
-        # Only dispatch typed args when there's a matching typed Crystal overload.
-        # Mixed params (some raw, some RubyObject) don't have a typed overload.
         return unless tp.all? { |t| t && CrystalType.native?(t) } || @gctx.typed_params[node.name]
-        write crystal_method_name(node.name)
-        emit_typed_call_args(node.arg_nodes || [], tp)
-        emit_block_if_present(node)
-        true
+        "#{crystal_method_name(node.name)}#{cr_typed_call_args(node.arg_nodes || [], tp)}#{cr_block_if_present(node)}"
       end
 
       # Devirtualize: cast class-typed receiver for static dispatch.
-      def try_devirtualized_call(node)
+      def cr_try_devirtualized_call(node)
         return unless node.receiver_node.is_a?(Ast::LocalVariableRead)
         cls_entry = @mctx.class_locals[node.receiver_node.name] or return
         cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
-        write crystal_local(node.receiver_node.name), ".as(", crystal_class_name(cls),
-              ").", crystal_method_name(node.name)
-        write cr_call_args(node)
-        true
+        "#{crystal_local(node.receiver_node.name)}.as(#{crystal_class_name(cls)}).#{crystal_method_name(node.name)}#{cr_call_args(node)}"
       end
 
       # Both operands raw-typed → Crystal arithmetic/comparison, skip RubyObject dispatch.
-      def try_raw_arithmetic(node)
+      def cr_try_raw_arithmetic(node)
         return unless node.receiver_node && (node.arg_nodes || []).size == 1 &&
                       (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(node.name)
         rt = node_raw_type(node.receiver_node)
@@ -1524,11 +1473,12 @@ module Frozone
         return unless rt && at
         ty = (Type.f64?(rt) || Type.f64?(at)) ? Type::F64 : Type::I64
         op = (node.name == :/ && ty.i64?) ? "//" : node.name.to_s
+        recv_str = raw_as(node.receiver_node, ty)
+        arg_str = raw_as(node.arg_nodes[0], ty)
         if CrystalEmitter::COMPARE_OPS.include?(node.name)
-          write "(("; emit_as(node.receiver_node, ty); write " #{op} "; emit_as(node.arg_nodes[0], ty); write ") ? RUBY_TRUE : RUBY_FALSE)"
+          "((#{recv_str} #{op} #{arg_str}) ? RUBY_TRUE : RUBY_FALSE)"
         else
-          write(ty.i64? ? "RubyInteger.new(" : "RubyFloat.new(")
-          emit_as(node.receiver_node, ty); write " #{op} "; emit_as(node.arg_nodes[0], ty); write ")"
+          "#{ty.i64? ? 'RubyInteger.new(' : 'RubyFloat.new('}#{recv_str} #{op} #{arg_str})"
         end
       end
 

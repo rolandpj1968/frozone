@@ -259,7 +259,7 @@ module Frozone
       # Return lines for a block body that may need boxing on the last expression.
       def native_block_body_lines(node)
         if node.is_a?(Ast::Sequence) && node.nodes.size > 1
-          leading = node.nodes[0..-2].map { |n| capture { emit(n) } }
+          leading = node.nodes[0..-2].map { |n| cr(n) }
           leading + native_block_body_lines(node.nodes.last)
         else
           expr = node.is_a?(Ast::Sequence) ? node.nodes.first : node
@@ -268,30 +268,22 @@ module Frozone
             box = Type.f64?(rt) ? "RubyFloat" : "RubyInteger"
             ["#{box}.new(#{raw(expr)})"]
           else
-            [capture { emit(expr || node) }]
+            [cr(expr || node)]
           end
         end
       end
 
-      def emit_native_block_body(node)
-        lines = native_block_body_lines(node)
-        lines.each_with_index { |line, i| emit_indent; write line; emit_newline if i < lines.size - 1 }
-      end
-
-      # Emit a block for native integer iteration (times/upto/downto),
-      # registering block params as Type::I64 so arithmetic inside is unboxed.
-      def emit_native_iter_block(blk)
+      # Functional native iter block — registers block params as Type::I64 in
+      # @mctx around the body emission and restores. Returns Crystal source.
+      def cr_native_iter_block(blk)
         params = (blk.required_params || []) + (blk.optional_params || []).map(&:first)
         params += [blk.rest_param].compact
-        write "{ "
-        unless params.empty?
-          write "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
-        end
+        param_str = params.empty? ? "" : "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
         old_rbp = @mctx.raw_block_params
         @mctx.raw_block_params = old_rbp.merge(params.map { |p| [p, Type::I64] }.to_h)
-        emit(blk.body)
+        body = cr(blk.body)
         @mctx.raw_block_params = old_rbp
-        write " }"
+        "{ #{param_str}#{body} }"
       end
 
       # Override: emit `for i in lo...hi` as a native Crystal integer range loop
