@@ -1041,16 +1041,12 @@ module Frozone
       def crystal_class_name(cls) = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
 
       # Override: for typed locals in boxed context, wrap in RubyInteger/RubyFloat.
-      def emit_local_var_read(node)
+      def cr_local_read(node)
         name = node.name
         ty = @mctx.typed_locals[name] || @mctx.raw_block_params[name]
-        if Type.i64?(ty)
-          write "RubyInteger.new(#{crystal_local(name)})"
-        elsif Type.f64?(ty)
-          write "RubyFloat.new(#{crystal_local(name)})"
-        else
-          super
-        end
+        return "RubyInteger.new(#{crystal_local(name)})" if Type.i64?(ty)
+        return "RubyFloat.new(#{crystal_local(name)})" if Type.f64?(ty)
+        super
       end
 
       # Override: for typed locals, emit RHS as bare Crystal numeric.
