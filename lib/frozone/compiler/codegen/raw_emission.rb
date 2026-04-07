@@ -77,6 +77,7 @@ module Frozone
         return Type::F64 if recv.is_a?(Ast::ConstantRead) && recv.name == :Math
         if recv.is_a?(Ast::LocalVariableRead)
           recv_class = ctx.class_locals[recv.name]
+          recv_class = recv_class[0] if recv_class.is_a?(Array)
           return @gctx.instance_method_raw_returns[[recv_class, name]] if recv_class && @gctx.instance_method_raw_returns[[recv_class, name]]
         end
         if name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
@@ -263,6 +264,7 @@ module Frozone
       def raw_class_instance_call(name, recv, ctx)
         return unless recv.is_a?(Ast::LocalVariableRead)
         recv_class = @mctx.class_locals[recv.name] or return
+        recv_class = recv_class[0] if recv_class.is_a?(Array)
         @gctx.instance_method_raw_returns[[recv_class, name]] or return
         "#{raw(recv, ctx)}.as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(name)}_raw"
       end
