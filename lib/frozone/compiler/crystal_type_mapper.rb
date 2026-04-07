@@ -104,11 +104,11 @@ module Frozone
       def unpack_const(slot, ty)
         return unless opt?(:unbox_locals)
         if ty.raw?
-          @const_raw_types[slot[1]] = ty.to_legacy
+          @const_raw_types[slot[1]] = ty
           return
         end
         if ty.array? && ty.elem&.raw?
-          @const_raw_types[slot[1]] = ty.elem.f64? ? :array_f64 : :array_i64
+          @const_raw_types[slot[1]] = ty.elem.f64? ? Type::ARRAY_F64 : Type::ARRAY_I64
         end
       end
 
