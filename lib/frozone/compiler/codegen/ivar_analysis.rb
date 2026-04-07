@@ -102,7 +102,7 @@ module Frozone
             next if accessor_method?(method)
             mkey = [class_name, mname]
             method_class_locals = @gctx.class_locals[mkey] || {}
-            method_params = Set.new((method.required_params || []) + (method.instance_variable_get(:@optional_params) || []).map(&:first))
+            method_params = Set.new((method.required_params || []) + (method.optional_params || []).map(&:first))
             collect_ivar_class_types(method.body, ivar_type_sets, method_class_locals, param_names: method_params)
           end
 
@@ -259,7 +259,7 @@ module Frozone
           value   = node.value_node
           # Handle ArrayLiteral RHS: @a, @b = expr_a, expr_b
           if value.is_a?(Ast::ArrayLiteral)
-            elems = value.instance_variable_get(:@element_nodes) || []
+            elems = value.element_nodes || []
             targets.each_with_index do |t, i|
               next unless t[0] == :ivar
               update_ivar_type(ivar_types, t[1], elems[i] ? node_raw_type(elems[i]) : nil)

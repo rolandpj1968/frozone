@@ -301,25 +301,38 @@ module Frozone
       end
 
       # Override: emit `for i in lo...hi` as a native Crystal integer range loop
-      # when the iteration variable is typed Type::I64 in TI.
+      # when the iteration variable is typed Type::I64 in TI. Otherwise inline
+      # the base cr_for_loop behavior (no super, per CLAUDE.md).
       def cr_for_loop(node)
         target = node.target
-        return super unless target[0] == :local
-        name = target[1]
-        return super unless @mctx.block_params[name]&.i64?
         coll = node.collection_node
-        return super unless coll.is_a?(Ast::RangeLiteral)
-        lo = coll.begin_node
-        hi = coll.end_node
-        return super unless node_raw_type(lo)&.i64? && node_raw_type(hi)&.i64?
-        range_op = coll.exclusive ? "..." : ".."
+        if target[0] == :local && (name = target[1]) &&
+           @mctx.block_params[name]&.i64? && coll.is_a?(Ast::RangeLiteral) &&
+           node_raw_type(coll.begin_node)&.i64? && node_raw_type(coll.end_node)&.i64?
+          range_op = coll.exclusive ? "..." : ".."
+          indent_str = "  " * @indent
+          body = nil
+          old_rbp = @mctx.raw_block_params
+          @mctx.raw_block_params = old_rbp.merge(name => Type::I64)
+          indented { body = cr(node.body_node) }
+          @mctx.raw_block_params = old_rbp
+          return "(#{raw(coll.begin_node)}#{range_op}#{raw(coll.end_node)}).each do |#{crystal_local(name)}|\n#{body}\n#{indent_str}end"
+        end
+        # Inline base cr_for_loop (was: super)
+        var_str = case target[0]
+                  when :local then crystal_local(target[1])
+                  when :multi
+                    _, lefts, rest_sym, rights = target
+                    parts = lefts.map { |n| crystal_local(n) }
+                    parts << "*#{crystal_local(rest_sym)}" if rest_sym
+                    parts += rights.map { |n| crystal_local(n) }
+                    parts.join(", ")
+                  else "_for_var"
+                  end
         indent_str = "  " * @indent
         body = nil
-        old_rbp = @mctx.raw_block_params
-        @mctx.raw_block_params = old_rbp.merge(name => Type::I64)
         indented { body = cr(node.body_node) }
-        @mctx.raw_block_params = old_rbp
-        "(#{raw(lo)}#{range_op}#{raw(hi)}).each do |#{crystal_local(name)}|\n#{body}\n#{indent_str}end"
+        "#{cr(coll)}.each do |#{var_str}|\n#{body}\n#{indent_str}end"
       end
 
       end
