@@ -153,6 +153,8 @@ module Frozone
         when Ast::ConstantRead       then cr_constant_read(node)
         when Ast::InstanceVariableRead then cr_ivar_read(node)
         when Ast::ClassVariableRead  then cr_class_var_read(node)
+        when Ast::And                then cr_and(node)
+        when Ast::Or                 then cr_or(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)

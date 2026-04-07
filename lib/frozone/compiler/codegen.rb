@@ -945,47 +945,25 @@ module Frozone
         end
       end
 
-      def emit_crystal_bool(node)
+      def cr_crystal_bool(node)
         case node
-        when Ast::And
-          write "("
-          emit_crystal_bool(node.left_node)
-          write " && "
-          emit_crystal_bool(node.right_node)
-          write ")"
-        when Ast::Or
-          write "("
-          emit_crystal_bool(node.left_node)
-          write " || "
-          emit_crystal_bool(node.right_node)
-          write ")"
+        when Ast::And then "(#{cr_crystal_bool(node.left_node)} && #{cr_crystal_bool(node.right_node)})"
+        when Ast::Or  then "(#{cr_crystal_bool(node.left_node)} || #{cr_crystal_bool(node.right_node)})"
         when Ast::MethodCall
           rt = node_raw_type(node.receiver_node)
           at = node_raw_type(node.arg_nodes[0])
           ty = (Type.f64?(rt) || Type.f64?(at)) ? Type::F64 : Type::I64
-          # Wrap in parens to protect embedded assignment precedence
-          needs_parens = recv_contains_assignment?(node.receiver_node)
-          write "("
-          write "(" if needs_parens
-          emit_as(node.receiver_node, ty)
-          write ")" if needs_parens
-          write " #{node.name} "
-          emit_as(node.arg_nodes[0], ty)
-          write ")"
-        when Ast::TrueLiteral then write "true"
-        when Ast::FalseLiteral then write "false"
+          recv_str = raw_as(node.receiver_node, ty)
+          recv_str = "(#{recv_str})" if recv_contains_assignment?(node.receiver_node)
+          "(#{recv_str} #{node.name} #{raw_as(node.arg_nodes[0], ty)})"
+        when Ast::TrueLiteral then "true"
+        when Ast::FalseLiteral then "false"
         end
       end
+      def emit_crystal_bool(node) = write cr_crystal_bool(node)
 
-      def emit_and(node)
-        return super unless crystal_bool_emittable?(node)
-        emit_crystal_bool(node)
-      end
-
-      def emit_or(node)
-        return super unless crystal_bool_emittable?(node)
-        emit_crystal_bool(node)
-      end
+      def cr_and(node) = crystal_bool_emittable?(node) ? cr_crystal_bool(node) : super
+      def cr_or(node) = crystal_bool_emittable?(node) ? cr_crystal_bool(node) : super
 
       # Override emit_param_list to apply inferred types for required params.
       def emit_param_list(node, param_types: nil)
