@@ -162,6 +162,19 @@ module Frozone
 
       # -- Factories -----------------------------------------------------------
 
+      # Polymorphic predicates accepting either a Type or a legacy storage symbol
+      # (:i64/:f64/:array_i64/:array_f64). Used during the migration window where
+      # producer maps still hold legacy symbols. Once all producers are migrated,
+      # these collapse to direct Type predicates.
+      class << self
+        def i64?(t) = t.is_a?(Type) ? t.i64? : t == :i64
+        def f64?(t) = t.is_a?(Type) ? t.f64? : t == :f64
+        def raw?(t) = t.is_a?(Type) ? t.raw? : (t == :i64 || t == :f64)
+        def array_i64?(t) = t == ARRAY_I64 || t == :array_i64
+        def array_f64?(t) = t == ARRAY_F64 || t == :array_f64
+        def array_raw?(t) = array_i64?(t) || array_f64?(t)
+      end
+
       class << self
         def of(class_name, nullable: false, exact: false)
           # Return interned singletons for common non-decorated types.
