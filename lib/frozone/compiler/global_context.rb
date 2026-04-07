@@ -11,15 +11,15 @@ module Frozone
       attr_accessor :arrays # {mkey => {name => Type}} — native Array(T) elem type from TI
       attr_accessor :class_locals # {mkey => {name => class_sym}} — devirtualized locals
       attr_accessor :local_array_elems # {mkey => {name => Type}} — boxed RubyArray elem type
-      attr_accessor :local_types # {mkey => {name => CrystalType}} — unified type map (legacy)
+      attr_accessor :local_types # {mkey => {name => Type}} — unified type map
       attr_accessor :block_params # {mkey => {name => Type}} — block param types from TI
-      attr_accessor :class_params # {[class, method] => [CrystalType]} — class method params (legacy)
-      attr_accessor :inferred_params # {method => [CrystalType]} — top-level method params (legacy)
+      attr_accessor :class_params # {[class, method] => [Type]} — class method param types
+      attr_accessor :inferred_params # {method => [Type]} — top-level method param types
       attr_accessor :typed_params # {method => [Type]} — fully raw-typed params (Type::I64/F64)
       attr_accessor :typed_method_returns # {method => Type} — raw return types (Type::I64/F64)
       attr_accessor :instance_method_raw_returns # {[class, method] => Type}
       attr_accessor :const_raw_types # {name => Type} — Type::I64/F64/ARRAY_I64/ARRAY_F64
-      attr_accessor :inferred_kw_params # {mkey => {name => CrystalType}} — keyword param types (legacy)
+      attr_accessor :inferred_kw_params # {mkey => {name => Type}} — keyword param types
       attr_accessor :typed_ivars # {class => {ivar => Type}} — scalar / array-scalar ivars
       attr_accessor :class_typed_ivars # {class => {ivar => [:kind, :Class]}} — class-typed ivars
 

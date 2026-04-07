@@ -1,5 +1,4 @@
 require_relative 'crystal_emitter'
-require_relative 'crystal_type'
 require_relative 'crystal_type_mapper'
 require_relative 'type_inference'
 require_relative 'method_context'

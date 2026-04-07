@@ -43,7 +43,6 @@ module Frozone
       end
 
       # Any array form: scalar-elem flat array OR class_type Array.
-      # Equivalent to the legacy CrystalType.array? predicate.
       def array_like? = array_scalar? || array?
 
       def hash_type?
@@ -245,7 +244,7 @@ module Frozone
       #     (renders as RubyObject in codegen).
       #
       # Returns the same shape that codegen consumers want — replaces
-      # CrystalType.from_type which produced legacy Symbol/Array representations.
+      # Replaces the old CrystalType.from_type that produced legacy Symbol/Array.
       def self.from_ti(ty, user_class_names: Set.new)
         return BOTTOM if ty.nil? || ty.bottom?
         return ty if ty.raw? || ty.array_scalar?
