@@ -303,7 +303,8 @@ module Frozone
         emit(node.value_node)
       end
 
-      def emit_class_var_read(node) = write node.name.to_s
+      def cr_class_var_read(node) = node.name.to_s
+      def emit_class_var_read(node) = write cr_class_var_read(node)
 
       def emit_class_var_write(node)
         write "#{node.name} = "
@@ -993,25 +994,18 @@ module Frozone
       # emit_and/emit_or return RubyObject (not Bool) so they work in value
       # contexts like `x = a && b` or `x ||= val`. emit_truthy adds .truthy?
       # when the result is used as a Crystal condition.
-      def emit_and(node)
-        tmp = "_and#{@temp_counter}"
-        @temp_counter += 1
-        write "(#{tmp} = "
-        emit(node.left_node)
-        write "; #{tmp}.truthy? ? ("
-        emit(node.right_node)
-        write ") : #{tmp})"
+      def cr_and(node)
+        tmp = "_and#{@temp_counter}"; @temp_counter += 1
+        "(#{tmp} = #{capture { emit(node.left_node) }}; #{tmp}.truthy? ? (#{capture { emit(node.right_node) }}) : #{tmp})"
       end
 
-      def emit_or(node)
-        tmp = "_or#{@temp_counter}"
-        @temp_counter += 1
-        write "(#{tmp} = "
-        emit(node.left_node)
-        write "; #{tmp}.truthy? ? #{tmp} : ("
-        emit(node.right_node)
-        write "))"
+      def cr_or(node)
+        tmp = "_or#{@temp_counter}"; @temp_counter += 1
+        "(#{tmp} = #{capture { emit(node.left_node) }}; #{tmp}.truthy? ? #{tmp} : (#{capture { emit(node.right_node) }}))"
       end
+
+      def emit_and(node) = write cr_and(node)
+      def emit_or(node) = write cr_or(node)
 
       # Wrap a value in a Crystal truthy check when used as a condition.
       # If the node is already a comparison/predicate that returns Bool, emit
@@ -1197,41 +1191,27 @@ module Frozone
       # Collections
       # -----------------------------------------------------------------------
 
-      def emit_array_literal(node)
-        write "RubyArray.new(["
-        node.element_nodes.each_with_index do |el, i|
-          write ", " if i > 0
-          emit(el)
-        end
-        write "] of RubyObject)"
+      def cr_array_literal(node)
+        elems = node.element_nodes.map { |el| capture { emit(el) } }.join(", ")
+        "RubyArray.new([#{elems}] of RubyObject)"
       end
 
-      def emit_hash_literal(node)
-        write "RubyHash.new"
+      def cr_hash_literal(node)
         pairs = node.kv_nodes
-        unless pairs.empty?
-          write ".tap { |_h| "
-          pairs.each do |k, v|
-            write "_h.store("
-            emit(k)
-            write ", "
-            emit(v)
-            write "); "
-          end
-          write "}"
-        end
+        return "RubyHash.new" if pairs.empty?
+        stores = pairs.map { |k, v| "_h.store(#{capture { emit(k) }}, #{capture { emit(v) }})" }.join("; ")
+        "RubyHash.new.tap { |_h| #{stores} }"
       end
 
-      def emit_range_literal(node)
-        b = node.begin_node
-        e = node.end_node
-        excl = node.exclusive
-        write "RubyRange.new("
-        b ? emit(b) : write("RUBY_NIL")
-        write ", "
-        e ? emit(e) : write("RUBY_NIL")
-        write ", #{excl})"
+      def cr_range_literal(node)
+        b = node.begin_node ? capture { emit(node.begin_node) } : "RUBY_NIL"
+        e = node.end_node ? capture { emit(node.end_node) } : "RUBY_NIL"
+        "RubyRange.new(#{b}, #{e}, #{node.exclusive})"
       end
+
+      def emit_array_literal(node) = write cr_array_literal(node)
+      def emit_hash_literal(node) = write cr_hash_literal(node)
+      def emit_range_literal(node) = write cr_range_literal(node)
 
       def emit_multiple_assignment(node)
         targets = node.targets
