@@ -317,12 +317,12 @@ module Frozone
           when :print        then return write cr_print(node)
           when :p            then return write cr_p(node)
           when :raise        then return write cr_raise(node)
-          when :require, :require_relative then return emit_require_call(node)
+          when :require, :require_relative then return write cr_require_call(node)
           when :block_given? then return write("block_given?")
-          when :loop         then return emit_loop(node)
-          when :attr_accessor then return emit_attr_methods(node, reader: true, writer: true)
-          when :attr_reader   then return emit_attr_methods(node, reader: true, writer: false)
-          when :attr_writer   then return emit_attr_methods(node, reader: false, writer: true)
+          when :loop         then return write cr_loop_call(node)
+          when :attr_accessor then return write cr_attr_methods(node, reader: true, writer: true)
+          when :attr_reader   then return write cr_attr_methods(node, reader: true, writer: false)
+          when :attr_writer   then return write cr_attr_methods(node, reader: false, writer: true)
           when :include, :extend, :prepend
             mods = node.arg_nodes.map do |a|
               if a.is_a?(Ast::ConstantRead)
@@ -355,17 +355,17 @@ module Frozone
         # Proc.new { |...| ... } → RubyProc wrapping a Crystal proc
         if name == :new && node.receiver_node.is_a?(Ast::ConstantRead) &&
            node.receiver_node.name == :Proc && node.block_node
-          return emit_proc_new(node.block_node)
+          return write cr_proc_new(node.block_node)
         end
 
         # lambda { |...| ... } (no receiver) → same as Proc.new
         if name == :lambda && node.receiver_node.nil? && node.block_node
-          return emit_proc_new(node.block_node)
+          return write cr_proc_new(node.block_node)
         end
 
         # proc.call(args) → cast receiver to RubyProc then call
         if name == :call && node.receiver_node
-          return emit_proc_call(node)
+          return write cr_proc_call(node)
         end
 
         # [] subscript: emit receiver[arg] instead of receiver.[](arg)
@@ -545,32 +545,20 @@ module Frozone
         "super(#{args.map { |a| "#{cr(a)}#{suffix}" }.join(', ')})"
       end
 
-      def emit_require_call(node)
-        # Silently drop require calls — closed world, all files already compiled.
-        write "# require #{node.arg_nodes[0].inspect} (dropped — closed world)"
-      end
+      # Silently drop require calls — closed world, all files already compiled.
+      def cr_require_call(node) = "# require #{node.arg_nodes[0].inspect} (dropped — closed world)"
 
       # attr_accessor/attr_reader/attr_writer :name, :other, ...
-      # Emits Crystal getter and/or setter methods for each symbol arg.
-      def emit_attr_methods(node, reader:, writer:)
-        first = true
+      def cr_attr_methods(node, reader:, writer:)
+        indent_str = "  " * @indent
+        lines = []
         node.arg_nodes.each do |sym|
           next unless sym.is_a?(Ast::SymbolLiteral)
           name = sym.value.to_s
-          if first
-            first = false
-          else
-            emit_newline
-            emit_indent
-          end
-          if reader
-            write "def #{name} : RubyObject; @#{name}; end"
-          end
-          if writer
-            emit_newline; emit_indent if reader
-            write "def #{name}=(val : RubyObject) : RubyObject; @#{name} = val; val; end"
-          end
+          lines << "def #{name} : RubyObject; @#{name}; end" if reader
+          lines << "def #{name}=(val : RubyObject) : RubyObject; @#{name} = val; val; end" if writer
         end
+        lines.join("\n#{indent_str}")
       end
 
       def emit_call_args(node)
@@ -704,15 +692,12 @@ module Frozone
       end
 
 
-      def emit_loop(node)
-        write "loop do"
-        if node.block_node
-          emit_newline
-          indented { emit(node.block_node.body) }
-          emit_newline
-          emit_indent
-        end
-        write "end"
+      def cr_loop_call(node)
+        return "loop do\nend" unless node.block_node
+        indent_str = "  " * @indent
+        body = nil
+        indented { body = cr(node.block_node.body) }
+        "loop do\n#{body}\n#{indent_str}end"
       end
 
       # Lambda node (-> syntax): ->(x) { body }
@@ -724,36 +709,21 @@ module Frozone
       end
 
       # Proc.new { |x| ... } or lambda { |x| ... } → RubyProc
-      def emit_proc_new(block_node)
+      def cr_proc_new(block_node)
         params = block_node.required_params
-        write "RubyProc.new(->(args : Array(RubyObject)) { "
-        params.each_with_index do |p, i|
-          write "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL; "
-        end
-        emit(block_node.body)
-        write " })"
+        binds = params.each_with_index.map { |p, i| "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL; " }.join
+        "RubyProc.new(->(args : Array(RubyObject)) { #{binds}#{cr(block_node.body)} })"
       end
 
       # proc.call(args) → cast to RubyProc and call.
       # If the receiver is the method's &block param, call directly (it's a Crystal Proc).
-      def emit_proc_call(node)
+      def cr_proc_call(node)
         recv = node.receiver_node
         bp_name = (defined?(@mctx) && @mctx&.block_param_name) ||
           (defined?(@current_block_param_name) && @current_block_param_name)
-        is_block_param = recv.is_a?(Ast::LocalVariableRead) && bp_name &&
-          recv.name == bp_name
-        write "("
-        emit(recv)
-        if is_block_param
-          write ").call("
-        else
-          write ").as(RubyProc).call("
-        end
-        node.arg_nodes.each_with_index do |arg, i|
-          write ", " if i > 0
-          emit(arg)
-        end
-        write ")"
+        is_block_param = recv.is_a?(Ast::LocalVariableRead) && bp_name && recv.name == bp_name
+        cast = is_block_param ? "" : ".as(RubyProc)"
+        "(#{cr(recv)})#{cast}.call(#{node.arg_nodes.map { |a| cr(a) }.join(', ')})"
       end
 
       # Global variable read: $name → RUBY_GLOBALS["name"]? || RUBY_NIL
