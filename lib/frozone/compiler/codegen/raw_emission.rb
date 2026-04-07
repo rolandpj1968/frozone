@@ -36,9 +36,7 @@ module Frozone
 
       def accessor_method_name?(name) = @cctx.name && @gctx.typed_ivars.fetch(@cctx.name, {})[:"@#{name}"]
       def coerce_f64(node) = raw_as(node, Type::F64)
-      def emit_coerce_f64(node) = write coerce_f64(node)
       def raw_args(args, ctx = nil) = args.map { |a| raw(a, ctx) }.join(", ")
-      def emit_raw_args(args) = write raw_args(args)
 
       # Returns Type::I64, Type::F64, or nil for the provable bare Crystal type of a node.
       # ctx: RawCtx (immutable) — pass explicitly for functional paths, or omit for
@@ -202,7 +200,6 @@ module Frozone
       end
 
       # Backward compat — imperative callers that expect write side effect.
-      def emit_raw(node) = write raw(node)
 
       # Emit a MethodCall node as bare Crystal numeric in raw context.
       # Return Crystal source for a MethodCall in raw context.
@@ -236,14 +233,14 @@ module Frozone
       def raw_array_read(name, recv, args, node, ctx)
         return unless name == :[] && args.size == 1 && recv.is_a?(Ast::LocalVariableRead)
         arr_name = recv.name
-        idx = capture { emit_coerce_i64(args[0]) }
+        idx = coerce_i64(args[0])
         if native_array_elem_type(arr_name)
           "#{crystal_local(arr_name)}[#{idx}]"
         elsif (elem_ty = @mctx.local_array_elems[arr_name])
           cast = elem_ty.f64? ? ".as(RubyFloat).to_f64" : ".as(RubyInteger).to_i64"
           "#{crystal_local(arr_name)}[#{idx}]#{cast}"
         else
-          capture { emit(node) }
+          cr(node)
         end
       end
 
@@ -317,10 +314,8 @@ module Frozone
       end
 
       # Backward compat — imperative callers.
-      def emit_as(node, ty) = write raw_as(node, ty)
 
       def coerce_i64(node) = raw_as(node, Type::I64)
-      def emit_coerce_i64(node) = write coerce_i64(node)
 
       # Does this node contain an assignment that needs parens when used as an
       # operand? Handles Sequence([LocalVariableWrite]) from parser grouping.
@@ -416,16 +411,6 @@ module Frozone
         result ? [result] : [capture { emit(node) }]
       end
 
-      # Backward compat — imperative callers write raw_lines to buffer.
-      def emit_raw_expr(node)
-        lines = raw_lines(node)
-        lines.each_with_index do |line, i|
-          emit_indent if i > 0
-          write line
-          emit_newline if i < lines.size - 1
-        end
-      end
-
       # Emit a truthy check in raw context — use native Crystal booleans
       def raw_truthy(node, ctx = nil)
         if node.is_a?(Ast::MethodCall) &&
@@ -441,7 +426,6 @@ module Frozone
         end
       end
 
-      def emit_raw_truthy(node) = write raw_truthy(node)
 
       # Try to emit a method call in raw mode. Returns true if handled.
       # Try to produce Crystal source for a method call in raw_expr context.

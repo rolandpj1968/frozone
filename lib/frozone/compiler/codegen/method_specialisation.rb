@@ -307,7 +307,6 @@ module Frozone
         @mctx.raw_block_params = old_rbp
         "(#{raw(lo)}#{range_op}#{raw(hi)}).each do |#{crystal_local(name)}|\n#{body}\n#{indent_str}end"
       end
-      def emit_for_loop(node) = write cr_for_loop(node)
 
       end
     end

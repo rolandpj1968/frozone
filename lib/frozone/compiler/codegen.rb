@@ -729,7 +729,10 @@ module Frozone
             write "end).to_s"
           end
         elsif raw_return
-          indented { emit_raw_expr(method.body) }
+          indented {
+            lines = raw_lines(method.body)
+            lines.each_with_index { |l, i| emit_indent if i > 0; write l; emit_newline if i < lines.size - 1 }
+          }
         else
           # Emit Crystal tuple return when method is called in masgn context
           @mctx.emit_crystal_tuple = @cc.masgn_return_methods&.include?(name)
