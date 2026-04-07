@@ -150,6 +150,7 @@ module Frozone
         when Ast::SymbolLiteral      then cr_symbol(node)
         when Ast::SelfLiteral        then cr_self
         when Ast::ConstantRead       then cr_constant_read(node)
+        when Ast::InstanceVariableRead then cr_ivar_read(node)
         when Ast::ClassVariableRead  then cr_class_var_read(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)

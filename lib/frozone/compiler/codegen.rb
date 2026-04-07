@@ -1263,15 +1263,11 @@ module Frozone
       end
 
       # Override: for typed ivars in boxed context, wrap in RubyFloat/RubyInteger.
-      def emit_ivar_read(node)
+      def cr_ivar_read(node)
         ivt = @cctx.ivars[node.name]
-        if Type.f64?(ivt)
-          write "RubyFloat.new(#{node.name})"
-        elsif Type.i64?(ivt)
-          write "RubyInteger.new(#{node.name})"
-        else
-          super
-        end
+        return "RubyFloat.new(#{node.name})" if Type.f64?(ivt)
+        return "RubyInteger.new(#{node.name})" if Type.i64?(ivt)
+        super
       end
 
       # Override: for typed ivars, coerce RHS to the raw type.
