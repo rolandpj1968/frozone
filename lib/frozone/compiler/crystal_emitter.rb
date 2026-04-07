@@ -176,6 +176,7 @@ module Frozone
         when Ast::Sequence           then "#{'  ' * @indent}#{cr_sequence(node)}"
         when Ast::Super              then cr_super(node)
         when Ast::Lambda             then cr_lambda(node)
+        when Ast::Rescue             then cr_rescue(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -598,51 +599,41 @@ module Frozone
         end
       end
 
-      def emit_rescue(node)
-        write "begin"
-        emit_newline
-        indented { emit(node.body) }
-        emit_newline
-
+      def cr_rescue(node)
+        indent_str = "  " * @indent
+        body = nil
+        indented { body = cr(node.body) }
+        parts = ["begin", body]
         node.rescue_clauses.each do |clause|
-          emit_indent
-          var_name  = clause.var_name
-          exc_nodes = clause.exception_nodes
-
-          if exc_nodes.empty?
-            # bare rescue → catch all Crystal exceptions
-            write var_name ? "rescue #{crystal_local(var_name)} : Exception" : "rescue"
-          else
-            # rescue ExcA, ExcB => e
-            exc_types = exc_nodes.map do |en|
-              en.is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(en.name)}" : "Exception"
-            end.join(" | ")
-            write var_name ? "rescue #{crystal_local(var_name)} : #{exc_types}" : "rescue #{exc_types}"
-          end
-          emit_newline
-          indented { emit(clause.body) }
-          emit_newline
+          var = clause.var_name
+          excs = clause.exception_nodes
+          header = if excs.empty?
+                     var ? "rescue #{crystal_local(var)} : Exception" : "rescue"
+                   else
+                     types = excs.map { |en| en.is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(en.name)}" : "Exception" }.join(" | ")
+                     var ? "rescue #{crystal_local(var)} : #{types}" : "rescue #{types}"
+                   end
+          parts << "#{indent_str}#{header}"
+          clause_body = nil
+          indented { clause_body = cr(clause.body) }
+          parts << clause_body
         end
-
-        if (else_node = node.else_node)
-          emit_indent
-          write "else"
-          emit_newline
-          indented { emit(else_node) }
-          emit_newline
+        if (else_n = node.else_node)
+          parts << "#{indent_str}else"
+          else_body = nil
+          indented { else_body = cr(else_n) }
+          parts << else_body
         end
-
-        if (ensure_node = node.ensure_node)
-          emit_indent
-          write "ensure"
-          emit_newline
-          indented { emit(ensure_node) }
-          emit_newline
+        if (ensure_n = node.ensure_node)
+          parts << "#{indent_str}ensure"
+          ensure_body = nil
+          indented { ensure_body = cr(ensure_n) }
+          parts << ensure_body
         end
-
-        emit_indent
-        write "end"
+        parts << "#{indent_str}end"
+        parts.join("\n")
       end
+      def emit_rescue(node) = write cr_rescue(node)
 
       def cr_super(node)
         args = node.arg_nodes
