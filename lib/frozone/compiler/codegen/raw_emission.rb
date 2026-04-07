@@ -339,11 +339,12 @@ module Frozone
       # Emit node coerced to the given raw type (:i64 or :f64).
       # Recurses into arithmetic where at least one operand is typed.
       def emit_as(node, ty)
+        ty_f64 = Type.f64?(ty)
         nt = node_raw_type(node)
         # Already the right type — emit raw
-        return emit_raw(node) if nt == ty || (Type.i64?(nt) && ty == :i64) || (Type.f64?(nt) && ty == :f64)
+        return emit_raw(node) if nt == ty || (Type.f64?(nt) && ty_f64) || (Type.i64?(nt) && !ty_f64 && Type.i64?(ty))
         # Int64 → Float64 promotion
-        if Type.i64?(nt) && ty == :f64
+        if Type.i64?(nt) && ty_f64
           emit_raw(node)
           write ".to_f64"
           return
@@ -359,7 +360,7 @@ module Frozone
             if rt || at
               write "("
               emit_as(recv, ty)
-              op = (name == :/ && ty == :i64) ? "//" : name.to_s
+              op = (name == :/ && !ty_f64) ? "//" : name.to_s
               write " #{op} "
               emit_as(args[0], ty)
               write ")"
@@ -374,7 +375,7 @@ module Frozone
         else
           emit(node)
         end
-        write ty == :f64 ? ".to_f64" : ".to_i64"
+        write ty_f64 ? ".to_f64" : ".to_i64"
       end
 
       # Emit node coerced to Int64: raw if already typed, else .to_i64 on boxed.

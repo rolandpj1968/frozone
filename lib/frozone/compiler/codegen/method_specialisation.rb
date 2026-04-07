@@ -222,7 +222,7 @@ module Frozone
         opt_kw.each do |kw_name, _|
           mkey_for_kw = [class_name, mname]
           kw_ty = @gctx.inferred_kw_params.dig(mkey_for_kw, kw_name) || @gctx.inferred_kw_params.dig(mname, kw_name)
-          @mctx.typed_locals[kw_name] = kw_ty if kw_ty && (kw_ty == :i64 || kw_ty == :f64)
+          @mctx.typed_locals[kw_name] = kw_ty if Type.raw?(kw_ty)
         end
         # Class-typed locals for devirtualisation
         @mctx.class_locals = @gctx.class_locals[mkey] || @gctx.class_locals[mname] || {}
@@ -269,7 +269,7 @@ module Frozone
         expr = node.is_a?(Ast::Sequence) ? node.nodes.first : node
         emit_indent
         if expr && (rt = node_raw_type(expr))
-          box = rt == :f64 ? "RubyFloat" : "RubyInteger"
+          box = Type.f64?(rt) ? "RubyFloat" : "RubyInteger"
           write "#{box}.new("; emit_raw(expr); write ")"
         else
           emit(expr || node)
@@ -298,13 +298,13 @@ module Frozone
         target = node.target
         if target[0] == :local
           name = target[1]
-          if @mctx.block_params[name] == :i64
+          if Type.i64?(@mctx.block_params[name])
             coll = node.collection_node
             if coll.is_a?(Ast::RangeLiteral)
               lo = coll.begin_node
               hi = coll.end_node
               excl = coll.exclusive
-              if node_raw_type(lo) == :i64 && node_raw_type(hi) == :i64
+              if Type.i64?(node_raw_type(lo)) && Type.i64?(node_raw_type(hi))
                 write "("
                 emit_raw(lo)
                 write excl ? "..." : ".."

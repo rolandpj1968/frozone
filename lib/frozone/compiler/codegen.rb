@@ -320,22 +320,20 @@ module Frozone
       end
 
       def ivar_type_annotation(iv_sym)
-        case @cctx.ivars[iv_sym]
-        when :f64 then ["Float64", "0.0_f64"]
-        when :i64 then ["Int64", "0_i64"]
-        when :array_f64 then ["Array(Float64)", "Array(Float64).new"]
-        when :array_i64 then ["Array(Int64)", "Array(Int64).new"]
-        else
-          ct = @cctx.typed_ivars[iv_sym]
-          return ["RubyObject", "RUBY_NIL"] unless ct
-          kind, cls = ct
-          crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
-          # Crystal nilable only for self-referential tree links (e.g. Node @left : Node?)
-          # Other class_or_nil ivars stay as RubyObject (they store heterogeneous values)
-          return ["#{crystal_cls}?", "nil"] if kind == :class_or_nil && cls == @cctx.name
-          default = { Array: "RubyArray.new", Hash: "RubyHash.new", String: "RubyString.new" }[cls]
-          default ? [crystal_cls, default] : ["#{crystal_cls} | RubyNil", "RUBY_NIL"]
-        end
+        ivt = @cctx.ivars[iv_sym]
+        return ["Float64", "0.0_f64"] if Type.f64?(ivt)
+        return ["Int64", "0_i64"] if Type.i64?(ivt)
+        return ["Array(Float64)", "Array(Float64).new"] if Type.array_f64?(ivt)
+        return ["Array(Int64)", "Array(Int64).new"] if Type.array_i64?(ivt)
+        ct = @cctx.typed_ivars[iv_sym]
+        return ["RubyObject", "RUBY_NIL"] unless ct
+        kind, cls = ct
+        crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
+        # Crystal nilable only for self-referential tree links (e.g. Node @left : Node?)
+        # Other class_or_nil ivars stay as RubyObject (they store heterogeneous values)
+        return ["#{crystal_cls}?", "nil"] if kind == :class_or_nil && cls == @cctx.name
+        default = { Array: "RubyArray.new", Hash: "RubyHash.new", String: "RubyString.new" }[cls]
+        default ? [crystal_cls, default] : ["#{crystal_cls} | RubyNil", "RUBY_NIL"]
       end
 
       def emit_default_stringifiers(name, user_methods)
@@ -799,7 +797,7 @@ module Frozone
         when Vm::SymbolObject then "RubySymbol.new(#{value.raw.inspect})"
         when Vm::ArrayObject
           # Native Array(Int64) for constants confirmed by TI as all-integer
-          if const_name && @gctx.const_raw_types[const_name] == :array_i64
+          if const_name && Type.array_i64?(@gctx.const_raw_types[const_name])
             return "Bytes[#{value.raw.map { |e| e.raw.to_s }.join(', ')}].to_a.map(&.to_i64)"
           end
           # Large byte arrays: emit compact Bytes literal + map
@@ -966,7 +964,7 @@ module Frozone
         when Ast::MethodCall
           rt = node_raw_type(node.receiver_node)
           at = node_raw_type(node.arg_nodes[0])
-          ty = (rt == :f64 || at == :f64) ? :f64 : :i64
+          ty = (Type.f64?(rt) || Type.f64?(at)) ? :f64 : :i64
           # Wrap in parens to protect embedded assignment precedence
           needs_parens = recv_contains_assignment?(node.receiver_node)
           write "("
@@ -1026,7 +1024,7 @@ module Frozone
           ct = kw_types[p]
           if ct && CrystalType.scalar?(ct) && default
             # Emit raw default for scalar-typed kwargs
-            raw_default = ct == :i64 ? "#{default.value.raw}_i64" : "#{default.value.raw}_f64"
+            raw_default = Type.i64?(ct) ? "#{default.value.raw}_i64" : "#{default.value.raw}_f64"
             parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(ct)} = #{raw_default}"
           elsif ct
             parts << "#{crystal_local(p)} : #{CrystalType.to_crystal(ct)} = #{default ? "(#{codegen_inline(default)})" : 'RUBY_NIL'}"
@@ -1047,15 +1045,13 @@ module Frozone
       # Override: for typed locals in boxed context, wrap in RubyInteger/RubyFloat.
       def emit_local_var_read(node)
         name = node.name
-        case @mctx.typed_locals[name]
-        when :i64 then write "RubyInteger.new(#{crystal_local(name)})"
-        when :f64 then write "RubyFloat.new(#{crystal_local(name)})"
+        ty = @mctx.typed_locals[name] || @mctx.raw_block_params[name]
+        if Type.i64?(ty)
+          write "RubyInteger.new(#{crystal_local(name)})"
+        elsif Type.f64?(ty)
+          write "RubyFloat.new(#{crystal_local(name)})"
         else
-          case @mctx.raw_block_params[name]
-          when :i64 then write "RubyInteger.new(#{crystal_local(name)})"
-          when :f64 then write "RubyFloat.new(#{crystal_local(name)})"
-          else super
-          end
+          super
         end
       end
 
@@ -1089,7 +1085,7 @@ module Frozone
       def try_range_to_a_write(node, name)
         # Check: TI says this local is a typed array
         elem = @mctx.local_array_elems[name] || @mctx.typed_array_locals[name]
-        return unless elem && (elem == :i64 || elem == :f64)
+        return unless Type.raw?(elem)
         rhs = node.value_node
         return unless rhs.is_a?(Ast::MethodCall) && rhs.name == :to_a
         recv = rhs.receiver_node
@@ -1099,7 +1095,7 @@ module Frozone
         begin_node = recv.begin_node
         end_node = recv.end_node
         exclusive = recv.exclusive
-        crystal_ty = elem == :f64 ? "Float64" : "Int64"
+        crystal_ty = Type.f64?(elem) ? "Float64" : "Int64"
         write crystal_local(name), " = ("
         emit_coerce_i64(begin_node)
         write exclusive ? "..." : ".."
@@ -1160,7 +1156,7 @@ module Frozone
       # s = native_array.dup → propagate native type
       def try_native_dup_write(node, name)
         elem = @mctx.local_array_elems[name] || @mctx.typed_array_locals[name]
-        return unless elem && (elem == :i64 || elem == :f64)
+        return unless Type.raw?(elem)
         rhs = node.value_node
         return unless rhs.is_a?(Ast::MethodCall) && (rhs.name == :dup || rhs.name == :clone)
         recv = rhs.receiver_node
@@ -1270,10 +1266,13 @@ module Frozone
 
       # Override: for typed ivars in boxed context, wrap in RubyFloat/RubyInteger.
       def emit_ivar_read(node)
-        case @cctx.ivars[node.name]
-        when :f64 then write "RubyFloat.new(#{node.name})"
-        when :i64 then write "RubyInteger.new(#{node.name})"
-        else super
+        ivt = @cctx.ivars[node.name]
+        if Type.f64?(ivt)
+          write "RubyFloat.new(#{node.name})"
+        elsif Type.i64?(ivt)
+          write "RubyInteger.new(#{node.name})"
+        else
+          super
         end
       end
 
@@ -1283,10 +1282,10 @@ module Frozone
         if (ty = @cctx.ivars[iv_name])
           val = node.value_node
           # Array-typed ivars: @list = Array.new(n) → Array(Float64).new(n, 0.0)
-          if (ty == :array_f64 || ty == :array_i64) && val.is_a?(Ast::MethodCall) &&
+          if Type.array_raw?(ty) && val.is_a?(Ast::MethodCall) &&
              val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
-            crystal_ty = ty == :array_f64 ? "Float64" : "Int64"
-            default = ty == :array_f64 ? "0.0" : "0"
+            crystal_ty = Type.array_f64?(ty) ? "Float64" : "Int64"
+            default = Type.array_f64?(ty) ? "0.0" : "0"
             args = val.arg_nodes || []
             write "#{iv_name} = Array(#{crystal_ty}).new("
             args.empty? ? write("0") : emit_coerce_i64(args[0])
@@ -1296,8 +1295,8 @@ module Frozone
           write "#{iv_name} = "
           # Nil-safe coercion: untyped params may be nil (sentinel construction).
           if val.is_a?(Ast::LocalVariableRead) && !@mctx.typed_locals[val.name] && !node_raw_type(val)
-            default = ty == :f64 ? "0.0_f64" : "0_i64"
-            coerce = ty == :f64 ? ".to_f64" : ".to_i64"
+            default = Type.f64?(ty) ? "0.0_f64" : "0_i64"
+            coerce = Type.f64?(ty) ? ".to_f64" : ".to_i64"
             write "((_v = "; emit(val); write "); _v.ruby_nil? ? #{default} : _v#{coerce})"
           else
             emit_as(val, ty)
@@ -1346,8 +1345,8 @@ module Frozone
         recv_elem_ty = recv_node.is_a?(Ast::LocalVariableRead) &&
                        @mctx.local_array_elems[recv_node.name]
         if recv_elem_ty
-          unbox = recv_elem_ty == :f64 ? ".as(RubyFloat).to_f64" : ".as(RubyInteger).to_i64"
-          box = recv_elem_ty == :f64 ? "RubyFloat" : "RubyInteger"
+          unbox = Type.f64?(recv_elem_ty) ? ".as(RubyFloat).to_f64" : ".as(RubyInteger).to_i64"
+          box = Type.f64?(recv_elem_ty) ? "RubyFloat" : "RubyInteger"
           write "; #{r}[#{i}] = #{box}.new(#{r}[#{i}]#{unbox} #{op} "
           emit_as(val_node, recv_elem_ty)
           write "))"
@@ -1381,9 +1380,9 @@ module Frozone
       # Emit a value guaranteed to be RubyObject — box raw Int64/Float64 locals.
       def emit_boxed(node)
         vt = node_raw_type(node)
-        if vt == :i64
+        if Type.i64?(vt)
           write "RubyInteger.new("; emit_raw(node); write ")"
-        elsif vt == :f64
+        elsif Type.f64?(vt)
           write "RubyFloat.new("; emit_raw(node); write ")"
         else
           emit(node)
@@ -1422,10 +1421,10 @@ module Frozone
         recv = node.receiver_node
         return unless recv.is_a?(Ast::InstanceVariableRead)
         iv_ty = @cctx&.ivars&.dig(recv.name)
-        return unless iv_ty == :array_f64 || iv_ty == :array_i64
+        return unless Type.array_raw?(iv_ty)
         args = node.arg_nodes || []
         if (node.name == :fetch || node.name == :[]) && args.size == 1
-          box = iv_ty == :array_f64 ? "RubyFloat" : "RubyInteger"
+          box = Type.array_f64?(iv_ty) ? "RubyFloat" : "RubyInteger"
           write "#{box}.new(", recv.name.to_s, "["
           emit_coerce_i64(args[0])
           write "])"
@@ -1455,8 +1454,8 @@ module Frozone
         blk = node.block_node
         params = blk.required_params || []
         args = node.arg_nodes || []
-        return unless !params.empty? && args.size == 1 && node_raw_type(args[0]) == :i64 &&
-                      params.all? { |p| p.is_a?(Symbol) && @mctx.block_params[p] == :i64 }
+        return unless !params.empty? && args.size == 1 && Type.i64?(node_raw_type(args[0])) &&
+                      params.all? { |p| p.is_a?(Symbol) && Type.i64?(@mctx.block_params[p]) }
         write "RubyArray.new("
         emit_raw(args[0])
         write ") { |", params.map { |p| crystal_local(p) }.join(", "), "|"
@@ -1474,7 +1473,7 @@ module Frozone
       def try_native_iteration(node)
         return unless opt?(:native_iteration) && node.block_node &&
                       !node.block_node.is_a?(Ast::BlockArg) &&
-                      (node.arg_nodes || []).size <= 1 && node_raw_type(node.receiver_node) == :i64
+                      (node.arg_nodes || []).size <= 1 && Type.i64?(node_raw_type(node.receiver_node))
         case node.name
         when :times
           emit_raw(node.receiver_node)
@@ -1482,12 +1481,12 @@ module Frozone
           emit_native_iter_block(node.block_node)
         when :upto
           limit = (node.arg_nodes || [])[0]
-          return unless limit && node_raw_type(limit) == :i64
+          return unless limit && Type.i64?(node_raw_type(limit))
           write "("; emit_raw(node.receiver_node); write ".."; emit_raw(limit); write ").each "
           emit_native_iter_block(node.block_node)
         when :downto
           limit = (node.arg_nodes || [])[0]
-          return unless limit && node_raw_type(limit) == :i64
+          return unless limit && Type.i64?(node_raw_type(limit))
           write "("; emit_raw(limit); write ".."; emit_raw(node.receiver_node); write ").reverse_each "
           emit_native_iter_block(node.block_node)
         end
@@ -1553,7 +1552,7 @@ module Frozone
         return unless node.name == :[] && node.arg_nodes&.size == 1 &&
                       node.receiver_node&.is_a?(Ast::LocalVariableRead)
         arr_ty = native_array_elem_type(node.receiver_node.name) or return
-        box_fn = arr_ty == :f64 ? "RubyFloat" : "RubyInteger"
+        box_fn = Type.f64?(arr_ty) ? "RubyFloat" : "RubyInteger"
         write box_fn, ".new(", crystal_local(node.receiver_node.name), "["
         emit_coerce_i64(node.arg_nodes[0])
         write "])"
@@ -1630,7 +1629,7 @@ module Frozone
         rt = node_raw_type(node.receiver_node)
         at = node_raw_type(node.arg_nodes[0])
         return unless rt && at
-        ty = (rt == :f64 || at == :f64) ? :f64 : :i64
+        ty = (Type.f64?(rt) || Type.f64?(at)) ? :f64 : :i64
         op = (node.name == :/ && ty == :i64) ? "//" : node.name.to_s
         if CrystalEmitter::COMPARE_OPS.include?(node.name)
           write "(("; emit_as(node.receiver_node, ty); write " #{op} "; emit_as(node.arg_nodes[0], ty); write ") ? RUBY_TRUE : RUBY_FALSE)"
@@ -1702,11 +1701,11 @@ module Frozone
           if recv.is_a?(Ast::InstanceVariableRead) && args&.size == 2
             iv_name = recv.name
             iv_ty = @cctx&.ivars&.dig(iv_name)
-            if iv_ty == :array_f64 || iv_ty == :array_i64
+            if Type.array_raw?(iv_ty)
               write recv.name.to_s, "["
               emit_coerce_i64(args[0])
               write "] = "
-              iv_ty == :array_f64 ? emit_coerce_f64(args[1]) : emit_coerce_i64(args[1])
+              Type.array_f64?(iv_ty) ? emit_coerce_f64(args[1]) : emit_coerce_i64(args[1])
               return
             end
           end
@@ -1738,7 +1737,7 @@ module Frozone
           if recv.is_a?(Ast::LocalVariableRead) &&
              (elem_ty = @mctx.local_array_elems[recv.name]) &&
              args&.size == 2 && node_raw_type(args[1])
-            box = elem_ty == :f64 ? "RubyFloat" : "RubyInteger"
+            box = Type.f64?(elem_ty) ? "RubyFloat" : "RubyInteger"
             emit(recv)
             write "["
             emit_coerce_i64(args[0])
@@ -1755,9 +1754,9 @@ module Frozone
             write "] = "
             val = args[1]
             vt = node_raw_type(val)
-            if vt == :i64
+            if Type.i64?(vt)
               write "RubyInteger.new("; emit_raw(val); write ")"
-            elsif vt == :f64
+            elsif Type.f64?(vt)
               write "RubyFloat.new("; emit_raw(val); write ")"
             else
               emit(val)
@@ -1792,7 +1791,7 @@ module Frozone
           rt = node_raw_type(recv)
           at = node_raw_type(arg)
           if rt && at
-            ty = (rt == :f64 || at == :f64) ? :f64 : :i64
+            ty = (Type.f64?(rt) || Type.f64?(at)) ? :f64 : :i64
             write "("
             ty == :i64 ? emit_coerce_i64(recv) : emit_coerce_f64(recv)
             write " #{node.name} "
@@ -1906,17 +1905,17 @@ module Frozone
 
       def emit_masgn_assign(target, value_code)
         if target[0] == :ivar && (ty = @cctx.ivars[target[1]])
-          coerce = ty == :f64 ? ".to_f64" : ".to_i64"
+          coerce = Type.f64?(ty) ? ".to_f64" : ".to_i64"
           write "#{target[1]} = #{value_code}#{coerce}"
         elsif (target[0] == :local || target[0] == :local_splat) &&
               (ty = @mctx.typed_locals[target[1]])
-          coerce = ty == :f64 ? ".to_f64" : ".to_i64"
+          coerce = Type.f64?(ty) ? ".to_f64" : ".to_i64"
           write "#{crystal_local(target[1])} = #{value_code}#{coerce}"
         elsif (target[0] == :index || target[0] == :index_splat) &&
               target[1].is_a?(Ast::LocalVariableRead) &&
               (nat_ty = native_array_elem_type(target[1].name))
           # Native Array(T) index write: coerce index to Int64 and value to T
-          coerce = nat_ty == :f64 ? ".to_f64" : ".to_i64"
+          coerce = Type.f64?(nat_ty) ? ".to_f64" : ".to_i64"
           write "#{crystal_local(target[1].name)}["
           target[2].each_with_index do |idx, i|
             write ", " if i > 0
@@ -1950,11 +1949,11 @@ module Frozone
         case body
         when Ast::InstanceVariableRead
           iv = body.name
-          case @cctx.ivars[iv]
-          when :f64
+          ivt = @cctx.ivars[iv]
+          if Type.f64?(ivt)
             line "def #{crystal_method_name(mname)} : RubyObject; RubyFloat.new(#{iv}); end"
             line "def #{crystal_method_name(mname)}_raw : Float64; #{iv}; end"
-          when :i64
+          elsif Type.i64?(ivt)
             line "def #{crystal_method_name(mname)} : RubyObject; RubyInteger.new(#{iv}); end"
             line "def #{crystal_method_name(mname)}_raw : Int64; #{iv}; end"
           else
@@ -1970,10 +1969,10 @@ module Frozone
           end
         when Ast::InstanceVariableWrite
           iv = body.name
-          case @cctx.ivars[iv]
-          when :f64
+          ivt = @cctx.ivars[iv]
+          if Type.f64?(ivt)
             line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v.to_f64; v; end"
-          when :i64
+          elsif Type.i64?(ivt)
             line "def #{crystal_method_name(mname)}(v : RubyObject) : RubyObject; #{iv} = v.to_i64; v; end"
           else
             ct = @cctx.typed_ivars[iv]
