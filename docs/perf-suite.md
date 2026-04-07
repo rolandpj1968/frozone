@@ -144,7 +144,7 @@ count. The compiled binary runs the work at native speed.
 
 ## Benchmark Results
 
-### AOT Compiled — 2026-04-01
+### AOT Compiled — 2026-04-07
 
 **Environment**: Ruby 4.0.1 (MRI host), Crystal 1.16 `--release`, Linux x86-64 (AMD 6-core)
 **Frozone**: `--aot` generates Crystal source → `crystal build --release` → native binary
@@ -152,19 +152,28 @@ count. The compiled binary runs the work at native speed.
 
 | Benchmark | Frozone | MRI | YJIT | vs MRI | vs YJIT |
 |---|---|---|---|---|---|
-| fib(35) ×3 | 139 ms | 2347 ms | 318 ms | **17×** | **2.3×** |
-| sudoku ×20 | 403 ms | 7466 ms | 2015 ms | **19×** | **5.0×** |
-| matmul(200) ×20 | 248 ms | 7530 ms | 3071 ms | **30×** | **12×** |
-| loops\_times | 14 ms | 836 ms | 266 ms | **60×** | **19×** |
+| nbody ×100 | 115 ms | 7293 ms | 2684 ms | **63×** | **23×** |
+| fib(35) ×3 | 114 ms | 2347 ms | 318 ms | **21×** | **2.8×** |
+| matmul(200) ×20 | 252 ms | 7530 ms | 3071 ms | **30×** | **12×** |
+| sudoku ×20 | 429 ms | 7466 ms | 2015 ms | **17×** | **4.7×** |
+| blurhash ×10 | 241 ms | 2480 ms | 1050 ms | **10×** | **4.4×** |
+| nqueens 500×12 | 6804 ms | 199000 ms | 49500 ms | **29×** | **7.3×** |
+| binarytrees ×60 | 3704 ms | 16586 ms | 7225 ms | **4.5×** | **2.0×** |
+| fannkuchredux ×10 | 1310 ms | 3171 ms | 3194 ms | **2.4×** | **2.4×** |
+| splay ×200 | 35437 ms | 19963 ms | 14400 ms | 0.56× | 0.41× |
 
-26 of 26 benchmarks compile end-to-end. fib generates assembly identical to
+All benchmarks compile and run end-to-end. fib generates assembly identical to
 hand-written Crystal (overhead is Crystal's integer overflow checking, not codegen).
 
-**Known issues:**
-- blurhash: correctness bug (produces empty string) — keyword args untyped
-- fannkuchredux: compiles, runs correctly, but RubyArray boxing makes it 100×+ slower than MRI — needs native Array(Int64) promotion
-- splay: runtime crash (`.as(RubyNil)` devirtualization failure)
-- binarytrees: TI doesn't converge (merge_collection_params oscillation)
+**Status notes (2026-04-07):**
+- **splay**: 35.4s vs YJIT 14.4s. Profiling proves splay! is only 3% of runtime —
+  the gap is GC pressure from boxed payload allocation (75% in GC). Closed; the
+  fixes (skip scrub_utf8 for ASCII literals, constant-fold symbol literals, native
+  arrays in payload trees) apply to all benchmarks, not splay-specifically.
+- **binarytrees**: 3.7s — appears regressed vs earlier 2.29s. Needs bisection.
+- **fannkuchredux**: 1.31s — within striking distance of YJIT but still bottlenecked
+  by Array tuple multi-assignment overhead.
+- **blurhash**: now correct (was producing empty string before keyword arg fix).
 
 ### Interpreter-only — 2026-03-20, commit db16601
 

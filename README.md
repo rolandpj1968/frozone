@@ -36,18 +36,18 @@ Apples-to-apples wall-clock time (identical workload, Ruby 4.0.1, Crystal `--rel
 | Benchmark | Frozone | MRI | YJIT | vs MRI | vs YJIT |
 |-----------|---------|-----|------|--------|---------|
 | loops\_times | 13 ms | 836 ms | 266 ms | **65×** | **21×** |
-| nbody ×100 | 117 ms | 7293 ms | 2684 ms | **62×** | **23×** |
-| matmul(200) ×20 | 244 ms | 7530 ms | 3071 ms | **31×** | **13×** |
-| nqueens 500×12 | 6800 ms | 199000 ms | 49500 ms | **29×** | **7.3×** |
-| fib(35) ×3 | 115 ms | 2347 ms | 318 ms | **20×** | **2.7×** |
+| nbody ×100 | 115 ms | 7293 ms | 2684 ms | **63×** | **23×** |
+| matmul(200) ×20 | 252 ms | 7530 ms | 3071 ms | **30×** | **12×** |
+| nqueens 500×12 | 6804 ms | 199000 ms | 49500 ms | **29×** | **7.3×** |
+| fib(35) ×3 | 114 ms | 2347 ms | 318 ms | **21×** | **2.8×** |
 | sudoku ×20 | 429 ms | 7466 ms | 2015 ms | **17×** | **4.7×** |
 | structaref ×850 | 1100 ms | 113000 ms | 10619 ms | **103×** | **10×** |
-| blurhash ×10 | 242 ms | 2480 ms | 1050 ms | **10×** | **4.2×** |
-| binarytrees ×60 | 2290 ms | 16586 ms | 7225 ms | **7.2×** | **3.1×** |
-| fannkuchredux ×10 | 1238 ms | 3171 ms | 3194 ms | **2.6×** | **2.6×** |
-| splay ×200 | 53900 ms | 19963 ms | 13923 ms | 0.4× | 0.3× |
+| blurhash ×10 | 241 ms | 2480 ms | 1050 ms | **10×** | **4.4×** |
+| binarytrees ×60 | 3704 ms | 16586 ms | 7225 ms | **4.5×** | **2.0×** |
+| fannkuchredux ×10 | 1310 ms | 3171 ms | 3194 ms | **2.4×** | **2.4×** |
+| splay ×200 | 35437 ms | 19963 ms | 14400 ms | 0.6× | 0.4× |
 
-24 of 25 benchmarks compile end-to-end (AOT → Crystal → native binary); gcbench excluded (GC-specific). 10 of 11 timed benchmarks faster than YJIT, with the top 3 at 13–23× faster. Splay is GC-bound (Boehm conservative GC vs MRI's generational GC).
+All benchmarks compile and run end-to-end (AOT → Crystal → native binary). 10 of 11 timed benchmarks faster than YJIT, with the top 3 at 12–23× faster. Splay (35.4s vs YJIT 14.4s) is GC-pressure-bound — splay! itself is only 3% of runtime; 75% is in Boehm GC handling boxed payload allocations. Binarytrees regressed slightly (2.29s → 3.7s) and is being investigated.
 
 Key compiler features: whole-program type inference with 1-CFA constructor specialisation, `emit_raw_expr` boxing-free typed overloads, class-typed parameter devirtualisation, native `Array(Int64)`/`Array(Float64)` ivar and constant promotion, compile-time `respond_to?`/`is_a?` folding, and kwargs in typed overloads. See [docs/compilation.md](docs/compilation.md) for architecture.
 
