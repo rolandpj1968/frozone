@@ -18,7 +18,8 @@ module Frozone
 
       # Is this method name a simple accessor (getter for a typed ivar)?
       def accessor_method_name?(name) = @cctx.name && @gctx.typed_ivars.fetch(@cctx.name, {})[:"@#{name}"]
-      def emit_coerce_f64(node) = node_raw_type(node) ? emit_raw(node) : (emit(node); write ".to_f64")
+      def coerce_f64(node) = raw_as(node, Type::F64)
+      def emit_coerce_f64(node) = write coerce_f64(node)
       def raw_args(args) = args.map { |a| raw(a) }.join(", ")
       def emit_raw_args(args) = write raw_args(args)
       def emit_raw_expr_args(args) = write args.map { |a| capture { emit_raw_expr(a) } }.join(", ")
@@ -329,19 +330,8 @@ module Frozone
       # Backward compat — imperative callers.
       def emit_as(node, ty) = write raw_as(node, ty)
 
-      # Emit node coerced to Int64: raw if already typed, else .to_i64 on boxed.
-      # Wrap assignments in parens so (q1 = expr).to_i64 groups correctly.
-      def emit_coerce_i64(node)
-        if contains_assignment?(node)
-          # Assignment nodes need parens even when raw-typed (Crystal precedence)
-          write "("; emit(node); write ")"
-          write ".to_i64" unless node_raw_type(node)
-        elsif node_raw_type(node)
-          emit_raw(node)
-        else
-          emit(node); write ".to_i64"
-        end
-      end
+      def coerce_i64(node) = raw_as(node, Type::I64)
+      def emit_coerce_i64(node) = write coerce_i64(node)
 
       # Does this node contain an assignment that needs parens when used as an
       # operand? Handles Sequence([LocalVariableWrite]) from parser grouping.
@@ -463,24 +453,22 @@ module Frozone
         end
       end
 
-      # Emit a truthy check in raw context — use native Crystal booleans
-      def emit_raw_truthy(node)
+      # Return a Crystal boolean expression string for raw-context truthiness.
+      def raw_truthy(node)
         if node.is_a?(Ast::MethodCall) &&
            (ARITH_OPS_UNBOX | CrystalEmitter::COMPARE_OPS).include?(node.name) &&
            node.receiver_node && (node.arg_nodes || []).size == 1
-          write "("; emit_raw_expr(node.receiver_node)
-          write " #{node.name} "
-          emit_raw_expr(node.arg_nodes[0]); write ")"
+          "(#{capture { emit_raw_expr(node.receiver_node) }} #{node.name} #{capture { emit_raw_expr(node.arg_nodes[0]) }})"
         elsif node.is_a?(Ast::And)
-          write "("; emit_raw_truthy(node.left_node)
-          write " && "; emit_raw_truthy(node.right_node); write ")"
+          "(#{raw_truthy(node.left_node)} && #{raw_truthy(node.right_node)})"
         elsif node.is_a?(Ast::Or)
-          write "("; emit_raw_truthy(node.left_node)
-          write " || "; emit_raw_truthy(node.right_node); write ")"
+          "(#{raw_truthy(node.left_node)} || #{raw_truthy(node.right_node)})"
         else
-          emit_raw_expr(node)
+          capture { emit_raw_expr(node) }
         end
       end
+
+      def emit_raw_truthy(node) = write raw_truthy(node)
 
       # Try to emit a method call in raw mode. Returns true if handled.
       def emit_raw_method_call(node)
