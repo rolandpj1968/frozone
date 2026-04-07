@@ -159,6 +159,7 @@ module Frozone
         when Ast::LocalVariableWrite then cr_local_write(node)
         when Ast::InstanceVariableWrite then cr_ivar_write(node)
         when Ast::AttributeWrite     then cr_attribute_write(node)
+        when Ast::IndexOperatorWrite then cr_index_op_write(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -955,22 +956,14 @@ module Frozone
       end
 
       # a[i] += val → (_r = recv; _i = idx; _r[_i] = _r[_i] op val)
-      def emit_index_op_write(node)
-        op         = node.operator
-        recv_node  = node.receiver_node
-        index_args = node.index_arg_nodes
-        val_node   = node.value_node
+      def cr_index_op_write(node)
         r = "_iopw_r#{@temp_counter}"
         i = "_iopw_i#{@temp_counter}"
         @temp_counter += 1
-        write "(#{r} = "
-        recv_node ? emit(recv_node) : write("self")
-        write "; #{i} = "
-        emit(index_args[0])
-        write "; #{r}[#{i}] = (#{r}[#{i}] #{op} "
-        emit(val_node)
-        write "))"
+        recv_str = node.receiver_node ? cr(node.receiver_node) : "self"
+        "(#{r} = #{recv_str}; #{i} = #{cr(node.index_arg_nodes[0])}; #{r}[#{i}] = (#{r}[#{i}] #{node.operator} #{cr(node.value_node)}))"
       end
+      def emit_index_op_write(node) = write cr_index_op_write(node)
 
       def emit_yield(node)
         args = node.arg_nodes

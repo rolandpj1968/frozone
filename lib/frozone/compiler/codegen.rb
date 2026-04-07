@@ -1269,7 +1269,7 @@ module Frozone
 
       # Override: for index op-write (ci[j] += ...) with a raw-typed index,
       # emit the index temp as bare Int64 so the Int64 array overload is used.
-      def emit_index_op_write(node)
+      def cr_index_op_write(node)
         idx = node.index_arg_nodes&.first
         op = node.operator
         recv_node = node.receiver_node
@@ -1277,36 +1277,24 @@ module Frozone
         # Native Array(T) receiver: emit arr[i] op= val directly, coercing index to Int64
         recv_name = recv_node.is_a?(Ast::LocalVariableRead) && recv_node.name
         if recv_name && (nat_ty = native_array_elem_type(recv_name))
-          write "#{crystal_local(recv_name)}["
-          emit_coerce_i64(idx)
-          write "] #{op}= "
-          emit_as(val_node, nat_ty)
-          return
+          return "#{crystal_local(recv_name)}[#{coerce_i64(idx)}] #{op}= #{raw_as(val_node, nat_ty)}"
         end
         return super unless idx && node_raw_type(idx)
         r = "_iopw_r#{@temp_counter}"
         i = "_iopw_i#{@temp_counter}"
         @temp_counter += 1
-        write "(#{r} = "
-        recv_node ? emit(recv_node) : write("self")
-        write "; #{i} = "
-        emit_raw(idx)
-        # If the receiver array has a known scalar element type, emit raw arithmetic
-        # and rebox on write to avoid RubyFloat#op dispatch overhead.
+        recv_str = recv_node ? cr(recv_node) : "self"
         recv_elem_ty = recv_node.is_a?(Ast::LocalVariableRead) &&
                        @mctx.local_array_elems[recv_node.name]
         if recv_elem_ty
           unbox = Type.f64?(recv_elem_ty) ? ".as(RubyFloat).to_f64" : ".as(RubyInteger).to_i64"
           box = Type.f64?(recv_elem_ty) ? "RubyFloat" : "RubyInteger"
-          write "; #{r}[#{i}] = #{box}.new(#{r}[#{i}]#{unbox} #{op} "
-          emit_as(val_node, recv_elem_ty)
-          write "))"
+          "(#{r} = #{recv_str}; #{i} = #{raw(idx)}; #{r}[#{i}] = #{box}.new(#{r}[#{i}]#{unbox} #{op} #{raw_as(val_node, recv_elem_ty)}))"
         else
-          write "; #{r}[#{i}] = (#{r}[#{i}] #{op} "
-          emit(val_node)
-          write "))"
+          "(#{r} = #{recv_str}; #{i} = #{raw(idx)}; #{r}[#{i}] = (#{r}[#{i}] #{op} #{cr(val_node)}))"
         end
       end
+      def emit_index_op_write(node) = write cr_index_op_write(node)
 
       # Override: for [] with a raw-typed index, pass Int64 directly.
       # Also intercepts free calls to typed-param/return methods with all-raw args.
