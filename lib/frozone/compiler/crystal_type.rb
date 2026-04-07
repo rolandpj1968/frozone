@@ -32,7 +32,7 @@ module Frozone
       end
 
       # Is this a scalar (Int64/Float64)?
-      def self.scalar?(ty) = ty == :i64 || ty == :f64
+      def self.scalar?(ty) = Type.raw?(ty)
       # Extract the raw scalar type (:i64/:f64) or nil.
       def self.raw(ty) = scalar?(ty) ? ty : nil
       # Is this an array type at any depth?
@@ -45,6 +45,7 @@ module Frozone
 
       # Convert to Crystal source string.
       def self.to_crystal(ty)
+        return ty.to_crystal if ty.is_a?(Type)
         case ty
         when :i64 then 'Int64'
         when :f64 then 'Float64'

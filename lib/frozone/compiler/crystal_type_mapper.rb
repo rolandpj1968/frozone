@@ -84,21 +84,21 @@ module Frozone
           end
         end
         if ty.array? && opt?(:native_arrays) && ty.elem&.raw?
-          (@local_array_elems[mkey] ||= {})[name] = ty.elem.to_legacy
+          (@local_array_elems[mkey] ||= {})[name] = ty.elem
         end
         if opt?(:unbox_locals) && ty.raw?
-          (@locals[mkey] ||= {})[name] = ty.to_legacy
+          (@locals[mkey] ||= {})[name] = ty
         end
       end
 
       def unpack_block_param(slot, ty)
         return unless opt?(:native_iteration) && ty.raw?
-        (@block_params[slot[1]] ||= {})[slot[2]] = ty.to_legacy
+        (@block_params[slot[1]] ||= {})[slot[2]] = ty
       end
 
       def unpack_array_elem(slot, ty)
         return unless opt?(:native_arrays) && ty.raw?
-        (@arrays[slot[1]] ||= {})[slot[2]] = ty.to_legacy
+        (@arrays[slot[1]] ||= {})[slot[2]] = ty
       end
 
       def unpack_const(slot, ty)
