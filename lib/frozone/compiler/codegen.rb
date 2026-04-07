@@ -1208,31 +1208,17 @@ module Frozone
       # multi-return that preserves per-element types.
       MAX_TUPLE_SIZE = 8
 
-      def emit_array_literal(node)
+      def cr_array_literal(node)
         return super unless opt?(:tuple_literals) && !@mctx.suppress_tuple_literals
         elems = node.element_nodes || []
-        if elems.size >= 1 && elems.size <= MAX_TUPLE_SIZE &&
-           elems.none? { |e| e.is_a?(Ast::SplatArg) }
-          if @mctx.emit_crystal_tuple
-            # Return position: Crystal tuple preserves per-element types.
-            # Emit raw values for typed locals to avoid boxing.
-            write "{"
-            elems.each_with_index do |el, i|
-              write ", " if i > 0
-              rt = node_raw_type(el)
-              rt ? emit_raw(el) : emit(el)
-            end
-            write "}"
-          else
-            write "RubyTuple#{elems.size}.new("
-            elems.each_with_index do |el, i|
-              write ", " if i > 0
-              emit(el)
-            end
-            write ")"
-          end
+        return super unless elems.size >= 1 && elems.size <= MAX_TUPLE_SIZE &&
+                            elems.none? { |e| e.is_a?(Ast::SplatArg) }
+        if @mctx.emit_crystal_tuple
+          # Return position: Crystal tuple preserves per-element types.
+          parts = elems.map { |el| node_raw_type(el) ? raw(el) : cr(el) }
+          "{#{parts.join(', ')}}"
         else
-          super
+          "RubyTuple#{elems.size}.new(#{elems.map { |el| cr(el) }.join(', ')})"
         end
       end
 
