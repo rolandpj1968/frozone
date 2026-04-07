@@ -256,25 +256,26 @@ module Frozone
         ).freeze
       end
 
-      # Emit a block body that may return a boxable raw numeric.
-      # Sequences: all-but-last via emit, last via this method (tail-recursive).
-      # Single expression: if raw-typed, wrap with RubyFloat/RubyInteger.new.
-      def emit_native_block_body(node)
-        # Multi-statement sequence: emit all but last normally, last with possible boxing.
+      # Return lines for a block body that may need boxing on the last expression.
+      def native_block_body_lines(node)
         if node.is_a?(Ast::Sequence) && node.nodes.size > 1
-          node.nodes[0..-2].each { |n| emit_indent; emit(n); emit_newline }
-          emit_native_block_body(node.nodes.last)
-          return
-        end
-        # Single expression (or 1-element Sequence — unwrap it).
-        expr = node.is_a?(Ast::Sequence) ? node.nodes.first : node
-        emit_indent
-        if expr && (rt = node_raw_type(expr))
-          box = rt.f64? ? "RubyFloat" : "RubyInteger"
-          write "#{box}.new("; emit_raw(expr); write ")"
+          leading = node.nodes[0..-2].map { |n| capture { emit(n) } }
+          leading + native_block_body_lines(node.nodes.last)
         else
-          emit(expr || node)
+          expr = node.is_a?(Ast::Sequence) ? node.nodes.first : node
+          rt = expr ? node_raw_type(expr) : nil
+          if rt
+            box = Type.f64?(rt) ? "RubyFloat" : "RubyInteger"
+            ["#{box}.new(#{raw(expr)})"]
+          else
+            [capture { emit(expr || node) }]
+          end
         end
+      end
+
+      def emit_native_block_body(node)
+        lines = native_block_body_lines(node)
+        lines.each_with_index { |line, i| emit_indent; write line; emit_newline if i < lines.size - 1 }
       end
 
       # Emit a block for native integer iteration (times/upto/downto),
@@ -299,18 +300,15 @@ module Frozone
         target = node.target
         if target[0] == :local
           name = target[1]
-          if @mctx.block_params[name]&.i64?
+          if Type.i64?(@mctx.block_params[name])
             coll = node.collection_node
             if coll.is_a?(Ast::RangeLiteral)
               lo = coll.begin_node
               hi = coll.end_node
               excl = coll.exclusive
-              if node_raw_type(lo)&.i64? && node_raw_type(hi)&.i64?
-                write "("
-                emit_raw(lo)
-                write excl ? "..." : ".."
-                emit_raw(hi)
-                write ").each do |#{crystal_local(name)}|"
+              if Type.i64?(node_raw_type(lo)) && Type.i64?(node_raw_type(hi))
+                range_op = excl ? "..." : ".."
+                write "(#{raw(lo)}#{range_op}#{raw(hi)}).each do |#{crystal_local(name)}|"
                 emit_newline
                 old_rbp = @mctx.raw_block_params
                 @mctx.raw_block_params = old_rbp.merge(name => Type::I64)
