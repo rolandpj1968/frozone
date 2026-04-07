@@ -14,10 +14,13 @@ module Frozone
   module Compiler
     module CodegenSupport
       module ArrayAnalysis
-      def native_array_elem_type(arr_name) = @mctx.typed_array_locals[arr_name] || @mctx.native_array_locals[arr_name]
+      def native_array_elem_type(arr_name, ctx = nil)
+        ctx ? (ctx.typed_array_locals[arr_name] || ctx.native_array_locals[arr_name]) :
+              (@mctx.typed_array_locals[arr_name] || @mctx.native_array_locals[arr_name])
+      end
 
       # Detect locals assigned from Array.new(count_i64) { Array.new(count2_i64, fill) }
-      # where fill is a typed scalar. Returns {name => :i64 | :f64}.
+      # where fill is a typed scalar. Returns {name => Type::I64 | Type::F64}.
       def detect_nested_array_locals(body, exclude_names)
         return {} unless body
         assignments = Hash.new { |h, k| h[k] = [] }
@@ -34,7 +37,7 @@ module Frozone
           blk = rhs.block_node
           next unless blk.is_a?(Ast::Block)
           outer_args = rhs.arg_nodes || []
-          next unless outer_args.size == 1 && node_raw_type(outer_args[0]) == :i64
+          next unless outer_args.size == 1 && node_raw_type(outer_args[0])&.i64?
           # Inner block body must be Array.new(count2_i64, fill_scalar) — no block
           inner = blk.body
           inner = inner.nodes.first if inner.is_a?(Ast::Sequence) && inner.nodes.size == 1
@@ -201,7 +204,7 @@ module Frozone
               val = args[1]
               val_ty = val ? node_raw_type(val) : nil
               expected = candidates[lv]
-              ok = val_ty == expected || (val_ty == :i64 && expected == :f64)
+              ok = val_ty == expected || (val_ty&.i64? && expected&.f64?)
               escaped << lv unless ok
             else
               escaped << lv  # other method on array = escape
@@ -228,7 +231,7 @@ module Frozone
             val = args[1]
             val_ty = val ? node_raw_type(val) : nil
             expected = candidates[lv]
-            ok = val_ty == expected || (val_ty == :i64 && expected == :f64)
+            ok = val_ty == expected || (val_ty&.i64? && expected&.f64?)
             escaped << lv unless ok
           else
             scan_array_uses(recv, candidates, escaped)

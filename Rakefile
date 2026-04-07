@@ -287,6 +287,46 @@ task :bench_smoke do
   abort "bench_smoke FAILED: #{failures.join(', ')}" unless failures.empty?
 end
 
+# Codegen golden-file check: AOT-compile each smoke benchmark and diff its
+# generated .cr against the committed copy in spec/golden/codegen/. Catches
+# silent emission drift (optimization paths that stop firing, etc.) before
+# bench_smoke would only flag a perf regression or compile failure.
+desc "Compare current AOT codegen output against committed goldens"
+task :bench_check_codegen do
+  golden_dir = File.expand_path('spec/golden/codegen', __dir__)
+  failures = []
+  BENCH_SMOKE.each do |name|
+    print "  #{name.ljust(12)} "
+    sh "bundle exec ruby frozone.rb --aot bench/stubs/#{name}.rb > /dev/null 2>&1"
+    cur = File.expand_path("crystal/gen/#{name}.cr", __dir__)
+    gold = File.join(golden_dir, "#{name}.cr")
+    if File.read(cur) == File.read(gold)
+      puts '✓ matches golden'
+    else
+      puts '✗ DIFFERS from golden'
+      failures << name
+    end
+  end
+  unless failures.empty?
+    puts
+    puts "Drift detected. Review with:"
+    failures.each { |n| puts "  diff -u spec/golden/codegen/#{n}.cr crystal/gen/#{n}.cr" }
+    puts "Update goldens (after review) with: rake bench_update_goldens"
+    abort "bench_check_codegen FAILED: #{failures.join(', ')}"
+  end
+end
+
+desc "Update committed codegen goldens from current AOT output"
+task :bench_update_goldens do
+  golden_dir = File.expand_path('spec/golden/codegen', __dir__)
+  BENCH_SMOKE.each do |name|
+    sh "bundle exec ruby frozone.rb --aot bench/stubs/#{name}.rb > /dev/null 2>&1"
+    cur = File.expand_path("crystal/gen/#{name}.cr", __dir__)
+    FileUtils.cp(cur, File.join(golden_dir, "#{name}.cr"))
+    puts "  updated #{name}.cr"
+  end
+end
+
 # Run all core specs in parallel (one process per module)
 desc "Run all ruby/spec core specs (RUBY_SPEC_DIR=... PARSER=prism|wq JOBS=N to override)"
 task :core do

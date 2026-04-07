@@ -16,7 +16,7 @@ module Frozone
     module CodegenSupport
       module MethodSpecialisation
       # Walk the execute block looking for free calls where ALL args are raw-typed.
-      # Populates @gctx.typed_params with {method_name => [:i64/:f64, ...]} for consistent sites.
+      # Populates @gctx.typed_params with {method_name => [Type::I64/F64, ...]} for consistent sites.
       def collect_raw_call_sites(execute_block)
         return unless execute_block
         old_typed = @mctx.typed_locals
@@ -83,7 +83,7 @@ module Frozone
         to_remove.each { |n| @gctx.typed_params.delete(n); @gctx.typed_method_returns.delete(n) }
       end
 
-      # Returns the raw Crystal type (:i64/:f64) of the last expression in a body,
+      # Returns the raw Type (Type::I64/F64) of the last expression in a body,
       # or nil if it cannot be determined or is not a raw numeric type.
       def infer_body_return_type(body)
         return nil unless body
@@ -138,33 +138,29 @@ module Frozone
         req_params = method.required_params || []
         return unless req_params.size == param_types.size
 
-        cr = { i64: 'Int64', f64: 'Float64' }
-        parts = req_params.zip(param_types).map { |p, ty| "#{crystal_local(p)} : #{cr[ty]}" }
+        sig = req_params.zip(param_types).map { |p, ty| "#{crystal_local(p)} : #{ty.to_crystal}" }.join(', ')
+        ctx = specialized_raw_ctx(name, method, req_params, param_types)
+        body_lines = raw_lines(method.body, ctx)
+        write ["def #{crystal_method_name(name)}(#{sig}) : #{return_type.to_crystal}",
+               *indent(body_lines),
+               "end"].join("\n#{' ' * (@indent * 2)}")
+      end
 
-        write "def #{crystal_method_name(name)}(#{parts.join(', ')}) : #{cr[return_type]}"
-        emit_newline
-
-        old_typed = @mctx.typed_locals
-        old_typed_arr = @mctx.typed_array_locals
+      # Build a RawCtx for a specialized method — no mutation of @mctx.
+      def specialized_raw_ctx(mkey, method, req_params, param_types)
         param_set = req_params.to_set
-        # Start with param types, add TI-inferred locals, then infer from literals.
-        @mctx.typed_locals = req_params.zip(param_types).to_h
-        (@gctx.locals[name] || {}).each do |lname, ty|
-          @mctx.typed_locals[lname] = ty unless param_set.include?(lname)
-        end
-        # Infer types from literal assignments for locals TI didn't cover
-        infer_local_types(method.body).each do |lname, ty|
-          @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
-        end
-        # Populate typed array locals from TI (non-param only).
-        @mctx.typed_array_locals = (@gctx.arrays[name] || {}).reject { |k, _| param_set.include?(k) }
-        indented { emit_raw_expr(method.body) }
-        @mctx.typed_locals = old_typed
-        @mctx.typed_array_locals = old_typed_arr
-
-        emit_newline
-        emit_indent
-        write "end"
+        locals = req_params.zip(param_types).to_h
+        (@gctx.locals[mkey] || {}).each { |lname, ty| locals[lname] = ty unless param_set.include?(lname) }
+        infer_local_types(method.body).each { |lname, ty| locals[lname] ||= ty unless param_set.include?(lname) }
+        RawEmission::RawCtx.new(
+          typed_locals: locals.freeze,
+          raw_block_params: {},
+          class_locals: {},
+          local_array_elems: {},
+          typed_array_locals: (@gctx.arrays[mkey] || {}).reject { |k, _| param_set.include?(k) }.freeze,
+          native_array_locals: {},
+          ivars: (@cctx&.ivars || {})
+        ).freeze
       end
 
       # Emit a specialized (typed) class method overload.
@@ -174,10 +170,11 @@ module Frozone
         req_params = method.required_params || []
         return unless req_params.size == raw_types.size
 
-        cr = { i64: 'Int64', f64: 'Float64' }
         parts = req_params.each_with_index.map do |p, i|
-          if raw_types[i]
-            "#{crystal_local(p)} : #{cr[raw_types[i]]}"
+          rt = raw_types[i]
+          if rt
+            cr = rt.to_crystal
+            "#{crystal_local(p)} : #{cr}"
           elsif crystal_param_types && crystal_param_types[i] && crystal_param_types[i] != :ruby_object
             "#{crystal_local(p)} : #{CrystalType.to_crystal(crystal_param_types[i])}"
           else
@@ -197,133 +194,118 @@ module Frozone
           # Check if TI inferred a type for this kwarg
           mkey_for_kw = [class_name, mname]
           kw_ty = @gctx.inferred_kw_params.dig(mkey_for_kw, kw_name) || @gctx.inferred_kw_params.dig(mname, kw_name)
-          if kw_ty && cr[kw_ty]
-            parts << "#{crystal_local(kw_name)} : #{cr[kw_ty]} = #{default_val}"
+          if kw_ty.is_a?(Type) && kw_ty.raw?
+            parts << "#{crystal_local(kw_name)} : #{kw_ty.to_crystal} = #{default_val}"
           else
             parts << "#{crystal_local(kw_name)} : Int64 = #{default_val}"
           end
         end
 
-        write "def self.#{crystal_method_name(mname)}(#{parts.join(', ')})"
-        # Only annotate return type when all positional params are raw-typed
-        write " : #{cr[return_type]}" if return_type && raw_types.all?
-        emit_newline
-
+        sig = "def self.#{crystal_method_name(mname)}(#{parts.join(', ')})"
+        sig += " : #{return_type.to_crystal}" if return_type && raw_types.all?
+        old_class_name = @cctx.name
         old_typed = @mctx.typed_locals
         old_typed_arr = @mctx.typed_array_locals
-        old_class_name = @cctx.name
+        old_class_locals = @mctx.class_locals
+        old_native_arr = @mctx.native_array_locals
         @cctx.name = class_name
+        ctx = class_method_raw_ctx(class_name, mname, method, req_params, raw_types, opt_kw, crystal_param_types)
+        # Mirror ctx into @mctx so the imperative try_*_array_write helpers see it.
+        @mctx.typed_locals = ctx.typed_locals.dup
+        @mctx.typed_array_locals = ctx.typed_array_locals.dup
+        @mctx.class_locals = ctx.class_locals.dup
+        @mctx.native_array_locals = ctx.native_array_locals.dup
+        body_lines = raw_lines(method.body, ctx)
+        write [sig, *indent(body_lines), "end"].join("\n#{' ' * (@indent * 2)}")
+      ensure
+        @cctx.name = old_class_name if old_class_name
+        @mctx.typed_locals = old_typed if old_typed
+        @mctx.typed_array_locals = old_typed_arr if old_typed_arr
+        @mctx.class_locals = old_class_locals if old_class_locals
+        @mctx.native_array_locals = old_native_arr if old_native_arr
+      end
+
+      def class_method_raw_ctx(class_name, mname, method, req_params, raw_types, opt_kw, crystal_param_types)
         param_set = req_params.to_set
         mkey = [class_name, mname]
-        # Start with param types
-        @mctx.typed_locals = {}
-        req_params.zip(raw_types).each { |p, ty| @mctx.typed_locals[p] = ty if ty }
-        # Kwargs are also typed locals in the raw context
+        locals = {}
+        req_params.zip(raw_types).each { |p, ty| locals[p] = ty if ty }
         opt_kw.each do |kw_name, _|
-          mkey_for_kw = [class_name, mname]
-          kw_ty = @gctx.inferred_kw_params.dig(mkey_for_kw, kw_name) || @gctx.inferred_kw_params.dig(mname, kw_name)
-          @mctx.typed_locals[kw_name] = kw_ty if kw_ty && (kw_ty == :i64 || kw_ty == :f64)
+          kw_ty = @gctx.inferred_kw_params.dig(mkey, kw_name) || @gctx.inferred_kw_params.dig(mname, kw_name)
+          locals[kw_name] = kw_ty if kw_ty.is_a?(Type) && kw_ty.raw?
         end
-        # Class-typed locals for devirtualisation
-        @mctx.class_locals = @gctx.class_locals[mkey] || @gctx.class_locals[mname] || {}
-        # Add TI-inferred locals
-        (@gctx.locals[mkey] || @gctx.locals[mname] || {}).each do |lname, ty|
-          @mctx.typed_locals[lname] = ty unless param_set.include?(lname)
-        end
-        infer_local_types(method.body).each do |lname, ty|
-          @mctx.typed_locals[lname] ||= ty unless param_set.include?(lname)
-        end
-        @mctx.typed_array_locals = (@gctx.arrays[mkey] || @gctx.arrays[mname] || {}).reject { |k, _| param_set.include?(k) }
-        # Register Array(Int64)/Array(Float64) params as native arrays
-        @mctx.native_array_locals = {}
+        (@gctx.locals[mkey] || @gctx.locals[mname] || {}).each { |l, ty| locals[l] = ty unless param_set.include?(l) }
+        infer_local_types(method.body).each { |l, ty| locals[l] ||= ty unless param_set.include?(l) }
+        native_arrays = {}
         if crystal_param_types
           req_params.each_with_index do |p, i|
             pt = crystal_param_types[i]
             if CrystalType.array?(pt) && CrystalType.scalar?(CrystalType.elem(pt))
-              @mctx.native_array_locals[p] = CrystalType.elem(pt)
+              native_arrays[p] = CrystalType.elem(pt)
             end
           end
         end
-        # Use raw expression emitter for specialized overloads — never boxes
-        indented { emit_raw_expr(method.body) }
-        @mctx.typed_locals = old_typed
-        @mctx.typed_array_locals = old_typed_arr
-        @cctx.name = old_class_name
-
-        emit_newline
-        emit_indent
-        write "end"
+        RawEmission::RawCtx.new(
+          typed_locals: locals.freeze,
+          raw_block_params: {},
+          class_locals: (@gctx.class_locals[mkey] || @gctx.class_locals[mname] || {}).freeze,
+          local_array_elems: {},
+          typed_array_locals: (@gctx.arrays[mkey] || @gctx.arrays[mname] || {}).reject { |k, _| param_set.include?(k) }.freeze,
+          native_array_locals: native_arrays.freeze,
+          ivars: (@cctx&.ivars || {})
+        ).freeze
       end
 
-      # Emit a block body that may return a boxable raw numeric.
-      # Sequences: all-but-last via emit, last via this method (tail-recursive).
-      # Single expression: if raw-typed, wrap with RubyFloat/RubyInteger.new.
-      def emit_native_block_body(node)
-        # Multi-statement sequence: emit all but last normally, last with possible boxing.
+      # Return lines for a block body that may need boxing on the last expression.
+      def native_block_body_lines(node)
         if node.is_a?(Ast::Sequence) && node.nodes.size > 1
-          node.nodes[0..-2].each { |n| emit_indent; emit(n); emit_newline }
-          emit_native_block_body(node.nodes.last)
-          return
-        end
-        # Single expression (or 1-element Sequence — unwrap it).
-        expr = node.is_a?(Ast::Sequence) ? node.nodes.first : node
-        emit_indent
-        if expr && (rt = node_raw_type(expr))
-          box = rt == :f64 ? "RubyFloat" : "RubyInteger"
-          write "#{box}.new("; emit_raw(expr); write ")"
+          leading = node.nodes[0..-2].map { |n| cr(n) }
+          leading + native_block_body_lines(node.nodes.last)
         else
-          emit(expr || node)
+          expr = node.is_a?(Ast::Sequence) ? node.nodes.first : node
+          rt = expr ? node_raw_type(expr) : nil
+          if rt
+            box = Type.f64?(rt) ? "RubyFloat" : "RubyInteger"
+            ["#{box}.new(#{raw(expr)})"]
+          else
+            [cr(expr || node)]
+          end
         end
       end
 
-      # Emit a block for native integer iteration (times/upto/downto),
-      # registering block params as raw :i64 so arithmetic inside is unboxed.
-      def emit_native_iter_block(blk)
+      # Functional native iter block — registers block params as Type::I64 in
+      # @mctx around the body emission and restores. Returns Crystal source.
+      def cr_native_iter_block(blk)
         params = (blk.required_params || []) + (blk.optional_params || []).map(&:first)
         params += [blk.rest_param].compact
-        write "{ "
-        unless params.empty?
-          write "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
-        end
+        param_str = params.empty? ? "" : "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
         old_rbp = @mctx.raw_block_params
-        @mctx.raw_block_params = old_rbp.merge(params.map { |p| [p, :i64] }.to_h)
-        emit(blk.body)
+        @mctx.raw_block_params = old_rbp.merge(params.map { |p| [p, Type::I64] }.to_h)
+        body = cr(blk.body)
         @mctx.raw_block_params = old_rbp
-        write " }"
+        "{ #{param_str}#{body} }"
       end
 
       # Override: emit `for i in lo...hi` as a native Crystal integer range loop
-      # when the iteration variable is typed :i64 in TI.
-      def emit_for_loop(node)
+      # when the iteration variable is typed Type::I64 in TI.
+      def cr_for_loop(node)
         target = node.target
-        if target[0] == :local
-          name = target[1]
-          if @mctx.block_params[name] == :i64
-            coll = node.collection_node
-            if coll.is_a?(Ast::RangeLiteral)
-              lo = coll.begin_node
-              hi = coll.end_node
-              excl = coll.exclusive
-              if node_raw_type(lo) == :i64 && node_raw_type(hi) == :i64
-                write "("
-                emit_raw(lo)
-                write excl ? "..." : ".."
-                emit_raw(hi)
-                write ").each do |#{crystal_local(name)}|"
-                emit_newline
-                old_rbp = @mctx.raw_block_params
-                @mctx.raw_block_params = old_rbp.merge(name => :i64)
-                indented { emit(node.body_node) }
-                @mctx.raw_block_params = old_rbp
-                emit_newline
-                emit_indent
-                write "end"
-                return
-              end
-            end
-          end
-        end
-        super
+        return super unless target[0] == :local
+        name = target[1]
+        return super unless Type.i64?(@mctx.block_params[name])
+        coll = node.collection_node
+        return super unless coll.is_a?(Ast::RangeLiteral)
+        lo = coll.begin_node
+        hi = coll.end_node
+        return super unless Type.i64?(node_raw_type(lo)) && Type.i64?(node_raw_type(hi))
+        range_op = coll.exclusive ? "..." : ".."
+        indent_str = "  " * @indent
+        body = nil
+        old_rbp = @mctx.raw_block_params
+        @mctx.raw_block_params = old_rbp.merge(name => Type::I64)
+        indented { body = cr(node.body_node) }
+        @mctx.raw_block_params = old_rbp
+        "(#{raw(lo)}#{range_op}#{raw(hi)}).each do |#{crystal_local(name)}|\n#{body}\n#{indent_str}end"
       end
 
       end

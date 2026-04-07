@@ -26,13 +26,13 @@ module Frozone
           next if Codegen::SKIP_CONSTANTS.include?(name) || value.is_a?(Vm::ModuleObject)
           next unless user_source_location?(const_locs[name])
           case value
-          when Vm::FloatObject   then @gctx.const_raw_types[name] = :f64
-          when Vm::IntegerObject then @gctx.const_raw_types[name] = :i64
+          when Vm::FloatObject   then @gctx.const_raw_types[name] = Type::F64
+          when Vm::IntegerObject then @gctx.const_raw_types[name] = Type::I64
           when Vm::ArrayObject
             if value.raw.all? { |e| e.is_a?(Vm::IntegerObject) }
-              @gctx.const_raw_types[name] = :array_i64
+              @gctx.const_raw_types[name] = Type::ARRAY_I64
             elsif value.raw.all? { |e| e.is_a?(Vm::FloatObject) }
-              @gctx.const_raw_types[name] = :array_f64
+              @gctx.const_raw_types[name] = Type::ARRAY_F64
             end
           end
         end
