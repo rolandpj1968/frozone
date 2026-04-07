@@ -1022,15 +1022,16 @@ module Frozone
       # For class-typed locals, add .as(Ruby_ClassName) cast for static dispatch.
       def cr_local_write(node)
         name = node.name
-        # try_* helpers are still imperative; capture their output if they fire.
-        captured = capture {
-          try_nested_array_write(node, name) || try_range_to_a_write(node, name) ||
-            try_native_dup_write(node, name) || try_typed_array_write(node, name) ||
-            try_boxed_array_promote(node, name) || try_scalar_write(node, name) ||
-            try_native_array_alias(node, name) || try_boxed_array_write(node, name) ||
-            try_class_cast_write(node, name)
-        }
-        return captured unless captured.empty?
+        result = cr_try_nested_array_write(node, name) ||
+          cr_try_range_to_a_write(node, name) ||
+          cr_try_native_dup_write(node, name) ||
+          cr_try_typed_array_write(node, name) ||
+          cr_try_boxed_array_promote(node, name) ||
+          cr_try_scalar_write(node, name) ||
+          cr_try_native_array_alias(node, name) ||
+          cr_try_boxed_array_write(node, name) ||
+          cr_try_class_cast_write(node, name)
+        return result if result
         # TI may have typed this local as Array(T), but since no native
         # construction path matched, the Crystal variable is actually RubyArray.
         @mctx.typed_array_locals.delete(name)
@@ -1042,31 +1043,21 @@ module Frozone
       end
 
       # (0..n).to_a where TI says the result is Array[:i64] → native Crystal range to_a.
-      def try_range_to_a_write(node, name)
-        # Check: TI says this local is a typed array
+      def cr_try_range_to_a_write(node, name)
         elem = @mctx.local_array_elems[name] || @mctx.typed_array_locals[name]
         return unless Type.raw?(elem)
         rhs = node.value_node
         return unless rhs.is_a?(Ast::MethodCall) && rhs.name == :to_a
         recv = rhs.receiver_node
-        # Unwrap parens: (0..n).to_a → Sequence([RangeLiteral]).to_a
         recv = recv.nodes.first while recv.is_a?(Ast::Sequence) && recv.nodes.size == 1
         return unless recv.is_a?(Ast::RangeLiteral)
-        begin_node = recv.begin_node
-        end_node = recv.end_node
-        exclusive = recv.exclusive
-        crystal_ty = Type.f64?(elem) ? "Float64" : "Int64"
-        write crystal_local(name), " = ("
-        emit_coerce_i64(begin_node)
-        write exclusive ? "..." : ".."
-        emit_coerce_i64(end_node)
-        write ").to_a"
+        range_op = recv.exclusive ? "..." : ".."
         @mctx.native_array_locals[name] = elem
-        true
+        "#{crystal_local(name)} = (#{coerce_i64(recv.begin_node)}#{range_op}#{coerce_i64(recv.end_node)}).to_a"
       end
 
       # Array.new(m) { Array.new(p, fill) } or Array.new(n) { [] } — nested native construction.
-      def try_nested_array_write(node, name)
+      def cr_try_nested_array_write(node, name)
         nat_elem = native_array_elem_type(name)
         return unless nat_elem && CrystalType.array?(nat_elem)
         rhs = node.value_node
@@ -1078,101 +1069,83 @@ module Frozone
         outer_args = rhs.arg_nodes || []
         if array_new_call?(inner)
           inner_args = inner.arg_nodes || []
-          write crystal_local(name), " = Array(", inner_crystal, ").new("
-          emit_coerce_i64(outer_args[0])
-          write ") { ", inner_crystal, ".new("
-          emit_coerce_i64(inner_args[0])
-          write ", "; emit_as(inner_args[1], CrystalType.elem(nat_elem)); write ") }"
+          fill_str = raw_as(inner_args[1], CrystalType.elem(nat_elem))
+          "#{crystal_local(name)} = Array(#{inner_crystal}).new(#{coerce_i64(outer_args[0])}) { #{inner_crystal}.new(#{coerce_i64(inner_args[0])}, #{fill_str}) }"
         elsif inner.is_a?(Ast::ArrayLiteral) && (inner.element_nodes || []).empty?
-          write crystal_local(name), " = Array(", inner_crystal, ").new("
-          emit_coerce_i64(outer_args[0])
-          write ") { ", inner_crystal, ".new }"
+          "#{crystal_local(name)} = Array(#{inner_crystal}).new(#{coerce_i64(outer_args[0])}) { #{inner_crystal}.new }"
         end
       end
 
       # Array.new(n, fill) with TI-known element type → native Array(T) construction.
-      def try_typed_array_write(node, name)
+      def cr_try_typed_array_write(node, name)
         arr_ty = @mctx.typed_array_locals[name] or return
         rhs = node.value_node
         return unless array_new_call?(rhs)
         args = rhs.arg_nodes || []
-        write crystal_local(name), " = Array(", CrystalType.to_crystal(arr_ty), ").new("
-        emit_coerce_i64(args[0]); write ", "; emit_as(args[1], arr_ty); write ")"
+        "#{crystal_local(name)} = Array(#{CrystalType.to_crystal(arr_ty)}).new(#{coerce_i64(args[0])}, #{raw_as(args[1], arr_ty)})"
       end
 
       # Promote boxed-array local to native Array(T) from Array.new(n, default).
-      def try_boxed_array_promote(node, name)
+      def cr_try_boxed_array_promote(node, name)
         elem_ty = @mctx.local_array_elems[name] or return
         return if @mctx.typed_array_locals.key?(name)
         rhs = node.value_node
         return unless array_new_call?(rhs)
         args = rhs.arg_nodes || []
         return unless args.size == 2
-        write crystal_local(name), " = Array(", CrystalType.to_crystal(elem_ty), ").new("
-        emit_coerce_i64(args[0]); write ", "; emit_as(args[1], elem_ty); write ")"
         @mctx.native_array_locals[name] = elem_ty
+        "#{crystal_local(name)} = Array(#{CrystalType.to_crystal(elem_ty)}).new(#{coerce_i64(args[0])}, #{raw_as(args[1], elem_ty)})"
       end
 
       # s = native_array.dup → propagate native type
-      def try_native_dup_write(node, name)
+      def cr_try_native_dup_write(node, name)
         elem = @mctx.local_array_elems[name] || @mctx.typed_array_locals[name]
         return unless Type.raw?(elem)
         rhs = node.value_node
         return unless rhs.is_a?(Ast::MethodCall) && (rhs.name == :dup || rhs.name == :clone)
         recv = rhs.receiver_node
         return unless recv.is_a?(Ast::LocalVariableRead)
-        recv_elem = native_array_elem_type(recv.name)
-        return unless recv_elem
-        write crystal_local(name), " = ", crystal_local(recv.name), ".dup"
+        return unless native_array_elem_type(recv.name)
         @mctx.native_array_locals[name] = elem
-        true
+        "#{crystal_local(name)} = #{crystal_local(recv.name)}.dup"
       end
 
       # Typed scalar local → emit raw value.
-      def try_scalar_write(node, name)
+      def cr_try_scalar_write(node, name)
         raw_ty = @mctx.typed_locals[name] or return
-        write crystal_local(name), " = "
-        emit_as(node.value_node, raw_ty)
-        true
+        "#{crystal_local(name)} = #{raw_as(node.value_node, raw_ty)}"
       end
 
       # ci = c[i] where c is native nested array → emit bare, Crystal infers.
-      def try_native_array_alias(node, name)
+      def cr_try_native_array_alias(node, name)
         return unless @mctx.local_array_elems.key?(name) && native_array_elem_type(name)
-        write crystal_local(name), " = "
-        emit(node.value_node)
-        true
+        "#{crystal_local(name)} = #{cr(node.value_node)}"
       end
 
       # Boxed array local with known elem type → cast to RubyArray.
-      def try_boxed_array_write(node, name)
+      def cr_try_boxed_array_write(node, name)
         return unless @mctx.local_array_elems.key?(name)
-        write crystal_local(name), " = "
         old_suppress = @mctx.suppress_tuple_literals
         @mctx.suppress_tuple_literals = true
-        emit(node.value_node)
+        rhs_str = cr(node.value_node)
         @mctx.suppress_tuple_literals = old_suppress
-        write ".as(RubyArray)" unless node.value_node.is_a?(Ast::ArrayLiteral)
-        true
+        cast = node.value_node.is_a?(Ast::ArrayLiteral) ? "" : ".as(RubyArray)"
+        "#{crystal_local(name)} = #{rhs_str}#{cast}"
       end
 
       # Class-typed local → devirtualize cast.
-      def try_class_cast_write(node, name)
+      def cr_try_class_cast_write(node, name)
         cls_entry = @mctx.class_locals[name] or return
         @_declared_typed_locals ||= Set.new
         val = node.value_node
-        write crystal_local(name)
-        # Only annotate non-nullable class locals on first assignment from safe sources.
-        # Nullable locals get reassigned from different types (if/else branches) — skip.
         nullable = cls_entry.is_a?(Array) && cls_entry[1] == :nullable
+        anno = ""
         if !nullable && !@_declared_typed_locals.include?(name) && safe_for_type_annotation?(val)
           @_declared_typed_locals << name
           cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
-          write " : ", crystal_class_name(cls)
+          anno = " : #{crystal_class_name(cls)}"
         end
-        write " = "
-        emit(val)
-        true
+        "#{crystal_local(name)}#{anno} = #{cr(val)}"
       end
 
       def safe_for_type_annotation?(val)
@@ -1283,44 +1256,36 @@ module Frozone
         end
       end
 
-      # Override: for [] with a raw-typed index, pass Int64 directly.
-      # Also intercepts free calls to typed-param/return methods with all-raw args.
-      # Emit call args where each arg is emitted raw (if param type is Int64/Float64)
-      # or boxed (otherwise). param_types is an array of Crystal type strings.
-      def emit_typed_call_args(args, param_types)
-        write "("
-        args.each_with_index do |arg, i|
-          write ", " if i > 0
+      # Call args where each arg is coerced to its declared raw type
+      # (if Int64/Float64) or boxed (otherwise). Returns Crystal source.
+      def cr_typed_call_args(args, param_types)
+        parts = args.each_with_index.map do |arg, i|
           pt = param_types[i]
-          if CrystalType.scalar?(pt)
-            # Coerce arg to raw type: use emit_raw if already typed,
-            # otherwise emit and append .to_i64/.to_f64
-            emit_as(arg, pt)
-          else
-            emit(arg)
-          end
+          CrystalType.scalar?(pt) ? raw_as(arg, pt) : cr(arg)
         end
-        write ")"
+        "(#{parts.join(', ')})"
       end
 
-      # Emit a value guaranteed to be RubyObject — box raw Int64/Float64 locals.
-      def emit_boxed(node)
+      # Box a value guaranteed to be RubyObject — wrap raw Int64/Float64 in
+      # RubyInteger/RubyFloat. Returns Crystal source.
+      def cr_boxed(node)
         vt = node_raw_type(node)
-        if Type.i64?(vt)
-          write "RubyInteger.new("; emit_raw(node); write ")"
-        elsif Type.f64?(vt)
-          write "RubyFloat.new("; emit_raw(node); write ")"
-        else
-          emit(node)
-        end
+        return "RubyInteger.new(#{raw(node)})" if Type.i64?(vt)
+        return "RubyFloat.new(#{raw(node)})" if Type.f64?(vt)
+        cr(node)
       end
 
-      # Emit block after typed call args (cr_call_args handles blocks itself).
-      def emit_block_if_present(node)
+      # Block suffix after typed call args (cr_call_args handles its own block).
+      def cr_block_if_present(node)
         blk = node.block_node
-        return unless blk && !blk.is_a?(Ast::BlockArg)
-        write " #{cr_block(blk)}"
+        return "" unless blk && !blk.is_a?(Ast::BlockArg)
+        " #{cr_block(blk)}"
       end
+
+      # Imperative shims kept until try_*_call helpers are migrated.
+      def emit_typed_call_args(args, param_types) = write cr_typed_call_args(args, param_types)
+      def emit_boxed(node) = write cr_boxed(node)
+      def emit_block_if_present(node) = write cr_block_if_present(node)
 
       def cr_method_call(node)
         # try_* helpers are still imperative; capture their output if any fires.

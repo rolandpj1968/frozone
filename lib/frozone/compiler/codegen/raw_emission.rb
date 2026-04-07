@@ -384,13 +384,13 @@ module Frozone
 
       def raw_lines_local_write(node, ctx)
         name = node.name
-        # Delegate array construction to specialised handlers (still imperative)
-        handled = capture {
-          try_nested_array_write(node, name) || try_range_to_a_write(node, name) ||
-            try_native_dup_write(node, name) || try_typed_array_write(node, name) ||
-            try_boxed_array_promote(node, name)
-        }
-        return [handled] unless handled.empty?
+        # Delegate array construction to specialised handlers (now functional).
+        handled = cr_try_nested_array_write(node, name) ||
+          cr_try_range_to_a_write(node, name) ||
+          cr_try_native_dup_write(node, name) ||
+          cr_try_typed_array_write(node, name) ||
+          cr_try_boxed_array_promote(node, name)
+        return [handled] if handled
         val = raw_lines(node.value_node, ctx)
         if val.size == 1
           ["#{crystal_local(name)} = #{val[0]}"]
