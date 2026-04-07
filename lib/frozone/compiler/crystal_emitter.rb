@@ -313,10 +313,10 @@ module Frozone
         # Kernel-level methods with no receiver map to top-level helpers
         if node.receiver_node.nil?
           case name
-          when :puts         then return emit_puts(node)
-          when :print        then return emit_print(node)
-          when :p            then return emit_p(node)
-          when :raise        then return emit_raise(node)
+          when :puts         then return write cr_puts(node)
+          when :print        then return write cr_print(node)
+          when :p            then return write cr_p(node)
+          when :raise        then return write cr_raise(node)
           when :require, :require_relative then return emit_require_call(node)
           when :block_given? then return write("block_given?")
           when :loop         then return emit_loop(node)
@@ -472,78 +472,35 @@ module Frozone
         node.is_a?(Ast::Sequence) && node.nodes.size == 1 && recv_contains_assignment?(node.nodes.first)
       end
 
-      def emit_puts(node)
-        if node.arg_nodes.empty?
-          write "STDOUT.puts; RUBY_NIL"
-        elsif node.arg_nodes.length == 1
-          write "STDOUT.puts("
-          emit(node.arg_nodes[0])
-          write ".to_s); RUBY_NIL"
-        else
-          node.arg_nodes.each do |arg|
-            write "STDOUT.puts("
-            emit(arg)
-            write ".to_s); "
-          end
-          write "RUBY_NIL"
-        end
-      end
-
-      def emit_print(node)
-        write "STDOUT.print("
-        node.arg_nodes.each_with_index do |arg, i|
-          write ", " if i > 0
-          emit(arg)
-          write ".to_s"
-        end
-        write ")"
-      end
-
-      def emit_p(node)
-        node.arg_nodes.each_with_index do |arg, i|
-          write "; " if i > 0
-          write "STDOUT.puts("
-          emit(arg)
-          write ".inspect)"
-        end
-      end
-
-      def emit_raise(node)
-        write "raise "
+      def cr_puts(node)
         args = node.arg_nodes
-        if args.empty?
-          write "RuntimeError.new"
-        elsif args.size == 1
+        return "STDOUT.puts; RUBY_NIL" if args.empty?
+        return "STDOUT.puts(#{cr(args[0])}.to_s); RUBY_NIL" if args.length == 1
+        "#{args.map { |a| "STDOUT.puts(#{cr(a)}.to_s); " }.join}RUBY_NIL"
+      end
+
+      def cr_print(node) = "STDOUT.print(#{node.arg_nodes.map { |a| "#{cr(a)}.to_s" }.join(', ')})"
+
+      def cr_p(node) = node.arg_nodes.map { |a| "STDOUT.puts(#{cr(a)}.inspect)" }.join("; ")
+
+      def cr_raise(node)
+        args = node.arg_nodes
+        return "raise RuntimeError.new" if args.empty?
+        if args.size == 1
           arg = args[0]
-          case arg
-          when Ast::StringLiteral
-            # raise "msg" → raise RuntimeError.new("msg")
-            write "RuntimeError.new(#{crystal_string_literal(arg.value.raw)})"
-          when Ast::InterpolatedString
-            # raise "msg #{x}" → raise RuntimeError.new(...)
-            write "RuntimeError.new("
-            emit(arg)
-            write ".to_s)"
-          when Ast::ConstantRead
-            # raise ExcClass → raise Ruby_ExcClass.new
-            write "Ruby_#{crystal_constant(arg.name)}.new"
-          else
-            # raise exception_instance (e.g. raise MyError.new(...))
-            emit(arg)
-          end
-        elsif args.size >= 2
-          # raise ExcClass, "msg" [, backtrace] → raise Ruby_ExcClass.new("msg")
-          exc_node = args[0]
-          msg_node = args[1]
-          if exc_node.is_a?(Ast::ConstantRead)
-            write "Ruby_#{crystal_constant(exc_node.name)}.new("
-          else
-            emit(exc_node)
-            write ".new("
-          end
-          emit(msg_node)
-          write ".to_s)"
+          body = case arg
+                 when Ast::StringLiteral then "RuntimeError.new(#{crystal_string_literal(arg.value.raw)})"
+                 when Ast::InterpolatedString then "RuntimeError.new(#{cr(arg)}.to_s)"
+                 when Ast::ConstantRead then "Ruby_#{crystal_constant(arg.name)}.new"
+                 else cr(arg)
+                 end
+          return "raise #{body}"
         end
+        # args.size >= 2 — raise ExcClass, "msg"
+        exc_node = args[0]
+        msg_node = args[1]
+        ctor = exc_node.is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(exc_node.name)}.new" : "#{cr(exc_node)}.new"
+        "raise #{ctor}(#{cr(msg_node)}.to_s)"
       end
 
       def cr_rescue(node)
