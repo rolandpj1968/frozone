@@ -139,11 +139,25 @@ module Frozone
         return unless req_params.size == param_types.size
 
         sig = req_params.zip(param_types).map { |p, ty| "#{crystal_local(p)} : #{ty.to_crystal}" }.join(', ')
+        old_typed = @mctx.typed_locals
+        old_typed_arr = @mctx.typed_array_locals
+        old_class_locals = @mctx.class_locals
+        old_native_arr = @mctx.native_array_locals
         ctx = specialized_raw_ctx(name, method, req_params, param_types)
+        # Mirror ctx into @mctx so the imperative try_*_array_write helpers see it.
+        @mctx.typed_locals = ctx.typed_locals.dup
+        @mctx.typed_array_locals = ctx.typed_array_locals.dup
+        @mctx.class_locals = ctx.class_locals.dup
+        @mctx.native_array_locals = ctx.native_array_locals.dup
         body_lines = raw_lines(method.body, ctx)
         write ["def #{crystal_method_name(name)}(#{sig}) : #{return_type.to_crystal}",
                *indent(body_lines),
                "end"].join("\n#{' ' * (@indent * 2)}")
+      ensure
+        @mctx.typed_locals = old_typed if old_typed
+        @mctx.typed_array_locals = old_typed_arr if old_typed_arr
+        @mctx.class_locals = old_class_locals if old_class_locals
+        @mctx.native_array_locals = old_native_arr if old_native_arr
       end
 
       # Build a RawCtx for a specialized method — no mutation of @mctx.
