@@ -174,6 +174,8 @@ module Frozone
         when Ast::Until              then cr_until(node)
         when Ast::ForLoop            then cr_for_loop(node)
         when Ast::Sequence           then "#{'  ' * @indent}#{cr_sequence(node)}"
+        when Ast::Super              then cr_super(node)
+        when Ast::Lambda             then cr_lambda(node)
         when Ast::RangeLiteral       then cr_range_literal(node)
         when Ast::HashLiteral        then cr_hash_literal(node)
         when Ast::InterpolatedString then cr_interpolated_string(node)
@@ -642,22 +644,13 @@ module Frozone
         write "end"
       end
 
-      def emit_super(node)
-        forwarding = node.forwarding
+      def cr_super(node)
         args = node.arg_nodes
-        if forwarding || args.nil? || args.empty?
-          write "super"
-        else
-          write "super("
-          args.each_with_index do |arg, i|
-            write ", " if i > 0
-            emit(arg)
-            # In exception class initializers, super(msg) expects Crystal String
-            write ".to_s" if @in_exception_class
-          end
-          write ")"
-        end
+        return "super" if node.forwarding || args.nil? || args.empty?
+        suffix = @in_exception_class ? ".to_s" : ""
+        "super(#{args.map { |a| "#{cr(a)}#{suffix}" }.join(', ')})"
       end
+      def emit_super(node) = write cr_super(node)
 
       def emit_require_call(node)
         # Silently drop require calls — closed world, all files already compiled.
@@ -837,15 +830,13 @@ module Frozone
       end
 
       # Lambda node (-> syntax): ->(x) { body }
-      def emit_lambda(node)
-        params = node.required_params
-        write "RubyProc.new(->(args : Array(RubyObject)) { "
-        params.each_with_index do |p, i|
-          write "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL; "
-        end
-        emit(node.body)
-        write " })"
+      def cr_lambda(node)
+        param_binds = node.required_params.each_with_index.map { |p, i|
+          "#{crystal_local(p)} = args.size > #{i} ? args[#{i}] : RUBY_NIL; "
+        }.join
+        "RubyProc.new(->(args : Array(RubyObject)) { #{param_binds}#{cr(node.body)} })"
       end
+      def emit_lambda(node) = write cr_lambda(node)
 
       # Proc.new { |x| ... } or lambda { |x| ... } → RubyProc
       def emit_proc_new(block_node)
