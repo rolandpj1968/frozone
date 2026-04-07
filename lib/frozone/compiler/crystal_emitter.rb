@@ -738,31 +738,20 @@ module Frozone
       # -----------------------------------------------------------------------
 
       def emit_if(node)
-        # Detect `unless` pattern: if cond; nil; else; body; end → unless cond; body; end
+        # Detect `unless` pattern: if cond; nil; else; body; end
         if node.then_node.is_a?(Ast::NilLiteral) && node.else_node
-          write "unless "
-          emit_truthy(node.pred_node)
-          emit_newline
+          write "unless "; emit_truthy(node.pred_node); emit_newline
           indented { emit(node.else_node) }
-          emit_newline
-          emit_indent
-          write "end"
+          emit_newline; emit_indent; write "end"
           return
         end
-        write "if "
-        emit_truthy(node.pred_node)
-        emit_newline
+        write "if "; emit_truthy(node.pred_node); emit_newline
         indented { emit(node.then_node) }
         if node.else_node
-          emit_newline
-          emit_indent
-          write "else"
-          emit_newline
+          emit_newline; emit_indent; write "else"; emit_newline
           indented { emit(node.else_node) }
         end
-        emit_newline
-        emit_indent
-        write "end"
+        emit_newline; emit_indent; write "end"
       end
 
       def emit_for_loop(node)
