@@ -136,7 +136,16 @@ module Frozone
       # Top-level dispatch
       # -----------------------------------------------------------------------
 
-      def emit(node)
+      # Functional dispatch entry point — returns Crystal source as a String.
+      # Migration window: defaults to `capture { emit_node(node) }` so subclass
+      # `emit_*` overrides are preserved. Per-node cr_* dispatch is added one
+      # leaf at a time, with the matching subclass cr_* override in the same
+      # commit.
+      def cr(node) = capture { emit_node(node) }
+
+      def emit(node) = write cr(node)
+
+      def emit_node(node)
         case node
         when Ast::Sequence              then emit_sequence(node)
         when Ast::NilLiteral            then emit_nil_literal
