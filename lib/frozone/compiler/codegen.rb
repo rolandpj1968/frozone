@@ -124,10 +124,11 @@ module Frozone
         # constant instead of calling RubySymbol.from at runtime.
         collect_symbol_literals_from_scope(top_level_scope)
         collect_symbol_literals(execute_block.body) if execute_block
+        collect_string_constants_from_scope(top_level_scope)
 
         emit_header
         emit_bench_harness_require if bench_stub?
-        emit_literal_symbols unless @literal_symbols.empty?
+        emit_literal_symbols unless @literal_symbols.empty? && @literal_arrays.empty? && @literal_strings.empty?
         emit_user_method_stubs unless @cc.user_methods.empty?
 
         # Collect class-typed ivars (X | nil patterns) across all methods
@@ -259,6 +260,24 @@ module Frozone
         scope.constants_table&.each do |_name, value|
           next unless value.is_a?(Vm::ModuleObject)
           collect_symbol_literals_from_scope(value, visited)
+        end
+      end
+
+      # Pre-register settled StringObject constants for hoisting. Top-level
+      # constants like `TEST_STR = "..."` get serialised by
+      # vm_value_to_crystal, which bypasses cr_string entirely; without
+      # this pre-pass their string value would never reach @literal_strings
+      # and so couldn't share with the same literal appearing in source.
+      def collect_string_constants_from_scope(scope, visited = Set.new)
+        return if visited.include?(scope.object_id)
+        visited << scope.object_id
+        scope.constants_table&.each do |name, value|
+          next if SKIP_CONSTANTS.include?(name)
+          if value.is_a?(Vm::StringObject)
+            @literal_strings[value.raw] ||= @literal_strings.size
+          elsif value.is_a?(Vm::ModuleObject)
+            collect_string_constants_from_scope(value, visited)
+          end
         end
       end
 
@@ -885,7 +904,12 @@ module Frozone
         case value
         when Vm::IntegerObject then "RubyInteger.new(#{value.raw}_i64)"
         when Vm::FloatObject then "RubyFloat.new(#{float_bits_expr(value.raw)})"
-        when Vm::StringObject then "RubyString.new(#{value.raw.inspect})"
+        when Vm::StringObject
+          if (idx = @literal_strings[value.raw])
+            "Ruby_Str_#{idx}"
+          else
+            "RubyString.new(#{value.raw.inspect})"
+          end
         when Vm::NilObject then "RUBY_NIL"
         when Vm::TrueObject then "RUBY_TRUE"
         when Vm::FalseObject then "RUBY_FALSE"

@@ -32,6 +32,7 @@ module Frozone
         @temp_counter = 0           # unique suffix for generated temp variable names
         @literal_symbols = {}       # {Symbol => Int} — index per unique literal :foo for static constants
         @literal_arrays = {}        # {String key => Int} — index per unique all-literal-element array
+        @literal_strings = {}       # {String value => Int} — index per unique literal "..." for static constants
       end
 
       # Generate a complete Crystal source file from the top-level AST node.
@@ -55,7 +56,8 @@ module Frozone
       # Walk the entire AST collecting every unique :foo literal value
       # into @literal_symbols. The index becomes the constant suffix.
       # Also collects all-literal-numeric ArrayLiterals into
-      # @literal_arrays so they can be hoisted as static constants.
+      # @literal_arrays and bare StringLiterals into @literal_strings,
+      # all to be hoisted as static constants in the file header.
       def collect_symbol_literals(node)
         return unless node.is_a?(Ast::Node)
         if node.is_a?(Ast::SymbolLiteral)
@@ -66,6 +68,10 @@ module Frozone
           unless @literal_arrays.key?(key)
             @literal_arrays[key] = [@literal_arrays.size, node]
           end
+        end
+        if node.is_a?(Ast::StringLiteral)
+          val = node.value.respond_to?(:raw) ? node.value.raw : node.value
+          @literal_strings[val] ||= @literal_strings.size if val.is_a?(String)
         end
         node.children.each { |c| collect_symbol_literals(c) }
       end
@@ -114,6 +120,14 @@ module Frozone
         @literal_arrays.each_value do |idx, node|
           elems_str = node.element_nodes.map { |el| cr(el) }.join(", ")
           line "Ruby_Arr_#{idx} = RubyArray.new([#{elems_str}] of RubyObject)"
+        end
+        @literal_strings.each do |str, idx|
+          # Hoisting trades Ruby's "fresh string per literal" semantics
+          # for one allocation per unique value. Modern Ruby benchmarks
+          # almost always run with frozen_string_literal: true, so this
+          # is the same shape as MRI/YJIT. The constant is frozen at
+          # construction time so any in-place mutation raises loud.
+          line "Ruby_Str_#{idx} = RubyString.new(#{crystal_string_literal(str)}).tap { |_s| _s.freeze! }"
         end
         emit_newline
       end
@@ -325,7 +339,14 @@ module Frozone
         end
       end
 
-      def cr_string(node) = %(RubyString.new(#{crystal_string_literal(node.value.raw)}))
+      def cr_string(node)
+        val = node.value.respond_to?(:raw) ? node.value.raw : node.value
+        if val.is_a?(String) && (idx = @literal_strings[val])
+          "Ruby_Str_#{idx}"
+        else
+          "RubyString.new(#{crystal_string_literal(val)})"
+        end
+      end
       def cr_symbol(node)
         idx = @literal_symbols[node.value] ||= @literal_symbols.size
         "Ruby_Sym_#{idx}"
