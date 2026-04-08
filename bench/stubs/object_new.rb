@@ -3,4 +3,6 @@ def run_benchmark(*, &); end
 require_relative '../benchmarks/object_new'
 
 # Under --aot, everything below is compiled to Crystal.
-300.times { i = 0; while i < 1000; Object.new; i += 1; end }
+last = nil
+300.times { i = 0; while i < 1000; last = Object.new; i += 1; end }
+puts last.class

@@ -3,6 +3,7 @@ def run_benchmark(*, &); end
 require_relative '../benchmarks/nbody/benchmark'
 
 # Under --aot, everything below is compiled to Crystal.
+last_x = 0.0
 100.times do
   nbodies = NBODIES
   n = N
@@ -51,4 +52,6 @@ require_relative '../benchmarks/nbody/benchmark'
       i += 1
     end
   end
+  last_x = bodies[0].x
 end
+puts last_x

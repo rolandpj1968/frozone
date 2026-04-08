@@ -9,8 +9,11 @@ def make_shareable(x) = x
 require_relative '../benchmarks/matmul'
 
 # Under --aot, everything below is compiled to Crystal.
+last = 0.0
 20.times do
   a = matgen(N)
   b = matgen(N)
-  _c = matmul(a, b)
+  c = matmul(a, b)
+  last = c[N / 2][N / 2]
 end
+puts last

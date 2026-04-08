@@ -8,3 +8,5 @@ tree = splay_setup(rng)
 200.times do
   50.times { splay_run(tree, rng) }
 end
+m = tree.find_max
+puts m.key

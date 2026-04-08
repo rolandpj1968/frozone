@@ -3,4 +3,6 @@ def run_benchmark(*, &); end
 require_relative '../benchmarks/fannkuchredux/benchmark'
 
 # Under --aot, everything below is compiled to Crystal.
-10.times { fannkuch(N) }
+last = 0
+10.times { last = fannkuch(N) }
+puts last

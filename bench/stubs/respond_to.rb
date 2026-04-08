@@ -6,7 +6,8 @@ require_relative '../benchmarks/respond_to'
 a = A.new
 b = B.new
 c = C.new
-run_benchmark(1000) do
+last = false
+1000.times do
   500000.times do |i|
     a.respond_to?(:foo)
     a.respond_to?(:foo2)
@@ -19,6 +20,7 @@ run_benchmark(1000) do
     c.respond_to?(:foo)
     c.respond_to?(:foo2)
     c.respond_to?(:bar)
-    c.respond_to?(:bar2)
+    last = c.respond_to?(:bar2)
   end
 end
+puts last

@@ -4,4 +4,6 @@ require_relative '../benchmarks/structaref_compiled'
 
 # Under --aot, everything below is compiled to Crystal.
 obj = TheClass.new(1, 2, 3, 1)
-850.times { get_value_loop(obj) }
+last = 0
+850.times { last = get_value_loop(obj) }
+puts last

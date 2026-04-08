@@ -3,6 +3,7 @@ def run_benchmark(*, &); end
 require_relative '../benchmarks/binarytrees_nosplat'
 
 # Under --aot, everything below is compiled to Crystal.
+total = 0
 60.times do
   stretch_tree = bottom_up_tree(STRETCH_DEPTH)
   stretch_tree = nil
@@ -17,6 +18,8 @@ require_relative '../benchmarks/binarytrees_nosplat'
       temp_tree = bottom_up_tree(depth)
       check += item_check(temp_tree[0], temp_tree[1])
     end
+    total += check
     depth += 2
   end
 end
+puts total

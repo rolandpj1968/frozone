@@ -3,7 +3,8 @@ def run_benchmark(*, &); end
 require_relative '../benchmarks/cfunc_itself'
 
 # Under --aot, everything below is compiled to Crystal.
-run_benchmark(500) do
+count = 0
+500.times do
   500000.times do |i|
     itself
     itself
@@ -15,5 +16,7 @@ run_benchmark(500) do
     itself
     itself
     itself
+    count = count + 1
   end
 end
+puts count

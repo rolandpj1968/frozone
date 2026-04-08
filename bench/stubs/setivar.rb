@@ -4,4 +4,6 @@ require_relative '../benchmarks/setivar'
 
 # Under --aot, everything below is compiled to Crystal.
 obj = TheClass.new
-300.times { obj.set_value_loop }
+last = 0
+300.times { last = obj.set_value_loop }
+puts last

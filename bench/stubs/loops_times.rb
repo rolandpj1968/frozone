@@ -14,7 +14,8 @@ a = Array.new(10000, 0)
 end
 raise "loops_times: a[7] = #{a[7]}, expected 8007" unless a[7] == 8007
 
-run_benchmark(10) do
+last = 0
+10.times do
   u = U; r = R
   a = Array.new(10000, 0)
   4_000.times do |i|
@@ -23,4 +24,6 @@ run_benchmark(10) do
     end
     a[i] += r
   end
+  last = a[7]
 end
+puts last
