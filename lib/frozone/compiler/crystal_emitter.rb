@@ -30,18 +30,45 @@ module Frozone
         @exception_classes = Set.new # Ruby class names that inherit from exception bases
         @in_exception_class = false # true while emitting inside an exception class body
         @temp_counter = 0           # unique suffix for generated temp variable names
+        @literal_symbols = {}       # {Symbol => Int} — index per unique literal :foo for static constants
       end
 
       # Generate a complete Crystal source file from the top-level AST node.
       # Returns the Crystal source as a String.
       def generate(node)
-        # Two-pass: collect user-defined method names, then emit.
+        # Multi-pass: collect user-defined method names + literal symbol
+        # values from the whole AST before emitting, so the header can
+        # declare every Ruby_Sym_<i> constant once and call sites just
+        # reference them (skipping the runtime hash lookup in
+        # RubySymbol.from).
         collect_user_methods(node)
+        collect_symbol_literals(node)
         emit_header
+        emit_literal_symbols unless @literal_symbols.empty?
         emit_user_method_stubs unless @user_methods.empty?
         emit(node)
         emit_newline
         @out
+      end
+
+      # Walk the entire AST collecting every unique :foo literal value
+      # into @literal_symbols. The index becomes the constant suffix.
+      def collect_symbol_literals(node)
+        return unless node.is_a?(Ast::Node)
+        if node.is_a?(Ast::SymbolLiteral)
+          @literal_symbols[node.value] ||= @literal_symbols.size
+        end
+        node.children.each { |c| collect_symbol_literals(c) }
+      end
+
+      # Emit one `Ruby_Sym_<i> = RubySymbol.from("name")` constant per
+      # unique literal symbol. Constants are evaluated once at module
+      # load time, so subsequent uses are a single static load.
+      def emit_literal_symbols
+        @literal_symbols.each do |sym, idx|
+          line "Ruby_Sym_#{idx} = RubySymbol.from(#{sym.to_s.inspect})"
+        end
+        emit_newline
       end
 
       # Ruby base exception class names — subclasses of these become RubyException in Crystal.
@@ -252,7 +279,10 @@ module Frozone
       end
 
       def cr_string(node) = %(RubyString.new(#{crystal_string_literal(node.value.raw)}))
-      def cr_symbol(node) = %(RubySymbol.from(#{node.value.to_s.inspect}))
+      def cr_symbol(node)
+        idx = @literal_symbols[node.value] ||= @literal_symbols.size
+        "Ruby_Sym_#{idx}"
+      end
       def cr_self = "self"
 
       # -----------------------------------------------------------------------

@@ -118,8 +118,16 @@ module Frozone
           @cc.object_instance_methods << name if m.is_a?(Vm::Method) && user_source_location?(m.source_location)
         end
 
+        # Pre-pass: walk every emittable subtree to collect literal symbol
+        # values (`:foo`) so the header can declare each unique one as a
+        # static `Ruby_Sym_<i>` constant. Call sites then reference the
+        # constant instead of calling RubySymbol.from at runtime.
+        collect_symbol_literals_from_scope(top_level_scope)
+        collect_symbol_literals(execute_block.body) if execute_block
+
         emit_header
         emit_bench_harness_require if bench_stub?
+        emit_literal_symbols unless @literal_symbols.empty?
         emit_user_method_stubs unless @cc.user_methods.empty?
 
         # Collect class-typed ivars (X | nil patterns) across all methods
@@ -234,6 +242,24 @@ module Frozone
       def collect_user_methods_from_block(block_node)
         return unless block_node
         collect_user_methods(block_node.body)
+      end
+
+      # Walk every user-defined method body in the scope (and all nested
+      # classes/modules) collecting literal symbol values into
+      # @literal_symbols. Mirrors collect_user_methods_from_scope's
+      # traversal so symbols inside class methods get registered too.
+      def collect_symbol_literals_from_scope(scope, visited = Set.new)
+        return if visited.include?(scope.object_id)
+        visited << scope.object_id
+        scope.methods_table&.each do |_name, method|
+          next unless method.is_a?(Vm::Method)
+          next unless user_source_location?(method.source_location)
+          collect_symbol_literals(method.body) if method.body
+        end
+        scope.constants_table&.each do |_name, value|
+          next unless value.is_a?(Vm::ModuleObject)
+          collect_symbol_literals_from_scope(value, visited)
+        end
       end
 
       # -----------------------------------------------------------------------
