@@ -32,7 +32,7 @@ module Frozone
         # Source file of the stub (methods defined here are load-phase scaffolding,
         # not real user code — exclude them from the snapshot).
         # In --aot mode, the file IS the user code — don't exclude it.
-        stub_file = @aot_mode ? nil : @block_node&.instance_variable_get(:@source_location)&.first
+        stub_file = @aot_mode ? nil : @block_node&.source_location&.first
 
         if ENV['FROZONE_TYPE_INFERENCE']
           require_relative '../compiler/type_inference'
@@ -77,13 +77,13 @@ module Frozone
         }
 
         user_methods = {}
-        (scope.instance_variable_get(:@methods_table) || {}).each do |name, m|
+        (scope.methods_table || {}).each do |name, m|
           user_methods[name] = m if m.is_a?(Vm::Method) && user_loc.call(m.source_location)
         end
 
         user_classes = {}
         collect_debug_classes = ->(s) {
-          (s.instance_variable_get(:@constants_table) || {}).each do |name, val|
+          (s.constants_table || {}).each do |name, val|
             next if %i[BasicObject Object Module Class Kernel].include?(name)
             if val.is_a?(Vm::ModuleObject)
               user_classes[name] = val
@@ -93,7 +93,7 @@ module Frozone
         }
         collect_debug_classes.call(scope)
 
-        constants = scope.instance_variable_get(:@constants_table)&.dup || {}
+        constants = scope.constants_table&.dup || {}
 
         tinf = Frozone::Compiler::TypeInference.new(
           user_methods:  user_methods,
@@ -103,7 +103,7 @@ module Frozone
         )
         env = tinf.run
 
-        slots = env.instance_variable_get(:@slots)
+        slots = env.slots
         $stderr.puts "\n=== TypeInference results (#{slots.size} slots) ==="
         slots.each do |slot, ty|
           next if ty == :unknown
@@ -116,7 +116,7 @@ module Frozone
       def default_output_path
         # Prefer the block's source file (the stub path) over $PROGRAM_NAME
         # (which is frozone.rb — the interpreter, not the script).
-        src = @block_node&.instance_variable_get(:@source_location)&.first ||
+        src = @block_node&.source_location&.first ||
               Vm::GLOBALS[:"$0"]&.raw ||
               $PROGRAM_NAME
         base = File.basename(src.to_s, '.rb')

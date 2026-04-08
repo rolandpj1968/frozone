@@ -372,24 +372,22 @@ module Frozone
         end
 
         def module_name(_, receiver)
-          if receiver.instance_variable_defined?(:@temporary_name)
-            temp = receiver.instance_variable_get(:@temporary_name)
-            if temp
-              # Cached temp name string — keyed by temp string value
-              cached = receiver.instance_variable_get(:@cached_name_str)
-              return cached if cached&.raw == temp
-              s = n2f_str(temp)
-              receiver.instance_variable_set(:@cached_name_str, s)
-              return s
-            end
+          temp = receiver.temporary_name
+          if temp
+            # Cached temp name string — keyed by temp string value
+            cached = receiver.cached_name_str
+            return cached if cached&.raw == temp
+            s = n2f_str(temp)
+            receiver.cached_name_str = s
+            return s
           end
           return FNIL unless receiver.name
           # Cache the name string for identity stability
           full = receiver.full_name.to_s
-          cached = receiver.instance_variable_get(:@cached_name_str)
+          cached = receiver.cached_name_str
           return cached if cached&.raw == full
           s = n2f_str(full)
-          receiver.instance_variable_set(:@cached_name_str, s)
+          receiver.cached_name_str = s
           s
         end
 
@@ -488,7 +486,7 @@ module Frozone
                          end
           if fnil?(name_obj)
             raise FrozoneException.make(:RuntimeError, "can't change permanent name") if is_permanent
-            receiver.instance_variable_set(:@temporary_name, nil)
+            receiver.temporary_name = nil
             receiver.clear_name! unless is_permanent
             return receiver
           end
@@ -504,8 +502,8 @@ module Frozone
             raise FrozoneException.make(:ArgumentError, "the temporary name must not be a constant path to avoid confusion")
           end
           raise FrozoneException.make(:RuntimeError, "can't change permanent name") if is_permanent
-          receiver.instance_variable_set(:@temporary_name, name_s)
-          receiver.instance_variable_set(:@cached_name_str, nil)
+          receiver.temporary_name = name_s
+          receiver.cached_name_str = nil
           receiver
         end
 
@@ -813,7 +811,7 @@ module Frozone
             if value.name.nil? || container_permanent
               value.set_name(name)
               value.namespace = receiver.equal?(Core::OBJECT_CLASS) ? nil : receiver
-              value.instance_variable_set(:@temporary_name, nil) if value.instance_variable_defined?(:@temporary_name)
+              value.temporary_name = nil
               value.mark_name_permanent! if container_permanent
             end
           end

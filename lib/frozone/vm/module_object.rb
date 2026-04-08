@@ -10,6 +10,18 @@ module Frozone
       attr_accessor :namespace
       attr_reader :methods_table, :constants_table, :constants_locations
       attr_accessor :current_visibility
+      # Temporary / cached name fields (used by Module#set_temporary_name
+      # and the constant-write naming machinery). These were previously
+      # poked at via instance_variable_get/_set from outside the class;
+      # the accessors here remove the reflection holes.
+      attr_accessor :temporary_name, :cached_name_str
+
+      # Reset the temporary name cache. Called from ConstantWrite when
+      # a previously-anonymous module is given its permanent name.
+      def clear_name_cache!
+        @temporary_name = nil
+        @cached_name_str = nil
+      end
       def private_constants_table = @private_constants
       def is_singleton_class = false
       def singleton_of       = nil
@@ -30,6 +42,8 @@ module Frozone
         @autoloads = {}
         @class_variables = {}
         @current_visibility = :public
+        @temporary_name = nil
+        @cached_name_str = nil
       end
 
       def set_name(name)

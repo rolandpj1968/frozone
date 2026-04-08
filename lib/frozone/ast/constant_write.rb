@@ -41,16 +41,14 @@ module Frozone
         return unless value.is_a?(Vm::ModuleObject)
         return if value.name_permanent
 
-        has_temp_name = value.instance_variable_defined?(:@temporary_name) &&
-                        !value.instance_variable_get(:@temporary_name).nil?
+        has_temp_name = !value.temporary_name.nil?
         container_permanent = scope.equal?(Vm::Core::OBJECT_CLASS) || scope.name_permanent
 
         if container_permanent
           # Permanently name the module and propagate to its constants
           value.set_name(const_name)
           value.namespace = scope.equal?(Vm::Core::OBJECT_CLASS) ? nil : scope
-          value.instance_variable_set(:@temporary_name, nil) if value.instance_variable_defined?(:@temporary_name)
-          value.instance_variable_set(:@cached_name_str, nil)
+          value.clear_name_cache!
           value.mark_name_permanent!
           # Propagate permanence to nested constants
           propagate_permanent_name(value)
@@ -69,8 +67,7 @@ module Frozone
 
           nested.set_name(name)
           nested.namespace = mod
-          nested.instance_variable_set(:@temporary_name, nil) if nested.instance_variable_defined?(:@temporary_name)
-          nested.instance_variable_set(:@cached_name_str, nil)
+          nested.clear_name_cache!
           nested.mark_name_permanent!
           propagate_permanent_name(nested)
         end

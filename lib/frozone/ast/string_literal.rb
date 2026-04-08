@@ -51,7 +51,7 @@ module Frozone
       def self.frozen_from(value)
         FrozenStringLiterals[[value, value.encoding]] ||= new(Vm::StringObject.new(value, frozen: true), mode: :frozen).tap do |node|
           # Register in the dedup table so that str.dedup/-@ finds the literal's canonical frozen object
-          str_obj = node.instance_variable_get(:@value)
+          str_obj = node.value
           key = "#{value.b}\x00#{value.encoding.name}"
           Vm::Intrinsics::STRING_DEDUP_TABLE[key] ||= str_obj
         end
