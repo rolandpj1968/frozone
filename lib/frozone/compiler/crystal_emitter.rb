@@ -506,7 +506,17 @@ module Frozone
       end
 
       def cr_call_args(node)
-        return "" if node.arg_nodes.empty? && node.kw_arg_nodes.empty? && node.block_node.nil?
+        # Drop the block at call sites where the callee is statically known
+        # to not use one. Ruby allows passing a block to any method (silently
+        # ignored if unused), but Crystal requires the def to declare `&` —
+        # which Frozone only emits when the Ruby def actually has a block
+        # param. Without this elision, `instance.foo {}` calls to a
+        # block-less Ruby def fail to compile.
+        block_node = node.block_node
+        if block_node && callee_ignores_block?(node)
+          block_node = nil
+        end
+        return "" if node.arg_nodes.empty? && node.kw_arg_nodes.empty? && block_node.nil?
         parts = []
         node.arg_nodes.each do |arg|
           if arg.is_a?(Ast::SplatArg)
@@ -520,11 +530,26 @@ module Frozone
           parts << "#{key}: #{cr(val_node)}"
         end
         s = "(#{parts.join(', ')})"
-        if node.block_node
+        if block_node
           s += " "
-          s += node.block_node.is_a?(Ast::BlockArg) ? cr_block_arg(node.block_node) : cr_block(node.block_node)
+          s += block_node.is_a?(Ast::BlockArg) ? cr_block_arg(block_node) : cr_block(block_node)
         end
         s
+      end
+
+      # True when the call's callee is a user-defined Ruby method whose
+      # `uses_block` static analysis says it never references the block.
+      # Used to drop `{ ... }` from `instance.foo {}` style call sites.
+      def callee_ignores_block?(node)
+        return false unless defined?(@gctx) && @gctx&.method_uses_block
+        recv = node.receiver_node
+        if recv.nil?
+          uses = @gctx.method_uses_block[[nil, node.name]]
+          return uses == false
+        end
+        cls = expr_class(recv) rescue nil
+        return false unless cls
+        @gctx.method_uses_block[[cls, node.name]] == false
       end
 
       # -----------------------------------------------------------------------

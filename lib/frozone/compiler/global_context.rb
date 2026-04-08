@@ -22,9 +22,11 @@ module Frozone
       attr_accessor :inferred_kw_params # {mkey => {name => Type}} — keyword param types
       attr_accessor :typed_ivars # {class => {ivar => Type}} — scalar / array-scalar ivars
       attr_accessor :class_typed_ivars # {class => {ivar => [:kind, :Class]}} — class-typed ivars
+      attr_accessor :method_uses_block # {[class, method] => bool, [nil, method] => bool} — Method#uses_block lookup for call-site block elision
 
       def initialize
         @user_class_names = Set.new
+        @method_uses_block = {}
         @locals = {}
         @arrays = {}
         @class_locals = {}

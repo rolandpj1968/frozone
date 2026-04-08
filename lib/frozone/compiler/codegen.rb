@@ -848,6 +848,17 @@ module Frozone
         collect_user_classes_recursive(top_level_scope, user_classes_hash)
         @gctx.user_class_names = user_classes_hash.keys.to_set
 
+        # Index Method#uses_block for call-site block elision (see cr_call_args).
+        user_methods_hash.each do |mname, m|
+          @gctx.method_uses_block[[nil, mname]] = m.uses_block != false
+        end
+        user_classes_hash.each do |cname, klass|
+          (klass.methods_table || {}).each do |mname, m|
+            next unless m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+            @gctx.method_uses_block[[cname, mname]] = m.uses_block != false
+          end
+        end
+
         all_constants = top_level_scope.constants_table || {}
         ti = TypeInference.new(
           user_methods: user_methods_hash,
