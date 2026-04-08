@@ -96,6 +96,18 @@ module Frozone
       CORE_PATH_MARKERS = %w[lib/core/4.0/ lib/frozone/vm/ lib/frozone/ast/].freeze
 
       # Known VM-built constants on OBJECT_CLASS that should not be re-emitted.
+      # Crystal integer-literal suffixes for narrow integer types.
+      # Used by storage-narrowing in vm_value_to_crystal — when an
+      # all-Integer constant array's element bounds fit in a smaller
+      # type than Int64, we emit per-element literals with the
+      # corresponding suffix.
+      CRYSTAL_INT_SUFFIX = {
+        "UInt8"  => "u8",   "Int8"  => "i8",
+        "UInt16" => "u16",  "Int16" => "i16",
+        "UInt32" => "u32",  "Int32" => "i32",
+        "UInt64" => "u64",  "Int64" => "i64",
+      }.freeze
+
       SKIP_CONSTANTS = %i[
         STDOUT STDERR STDIN ARGF
         RUBY_VERSION RUBY_PLATFORM RUBY_ENGINE RUBY_ENGINE_VERSION
@@ -1006,7 +1018,15 @@ module Frozone
         when Vm::FalseObject then "RUBY_FALSE"
         when Vm::SymbolObject then "RubySymbol.new(#{value.raw.inspect})"
         when Vm::ArrayObject
-          # Native Array(Int64) for constants confirmed by TI as all-integer
+          # Native Array(Int64) for constants confirmed by TI as all-integer.
+          # NOTE: storage-narrowing to Array(UInt8) etc. is correct in
+          # isolation but breaks every call site that expects
+          # Array(Int64) — the typed-overload pipeline currently
+          # generates per-method overloads against Array(Int64), and
+          # call sites would need to widen-on-pass. The bounds machinery
+          # in Type#narrowest_int_type is in place; wiring it through
+          # requires teaching the typed-overload generator to accept
+          # narrow array types too. Tracked separately.
           if const_name && (@gctx.const_raw_types[const_name]) == Type::ARRAY_I64
             return "Bytes[#{value.raw.map { |e| e.raw.to_s }.join(', ')}].to_a.map(&.to_i64)"
           end

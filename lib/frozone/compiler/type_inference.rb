@@ -1034,11 +1034,68 @@ module Frozone
         at = infer_expr(args[0], ctx)
         return Type::BOTTOM if rt.bottom? || at.bottom?
         if rt.raw? && at.raw?
-          return (rt.f64? || at.f64?) ? Type::F64 : Type::I64
+          return Type::F64 if rt.f64? || at.f64?
+          # Both Int64 — try to propagate bounds.
+          return propagate_int_bounds(node.name, rt, at)
         end
         # Numeric × numeric or anything else → unknown specific type;
         # Type::BOTTOM is a *result*, not a "no match", so return it.
         Type::BOTTOM
+      end
+
+      # Compute the integer bounds of `lhs op rhs` for the bitwise /
+      # arithmetic operators we currently track. Returns plain
+      # Type::I64 (unbounded) when bounds aren't tracked on either
+      # side, when the operator's bounds are unknown, or when the
+      # result would overflow Int64.
+      def propagate_int_bounds(op, lhs, rhs)
+        a = lhs.int_bounds
+        b = rhs.int_bounds
+        return Type::I64 unless a && b
+        amin, amax = a
+        bmin, bmax = b
+        result = case op
+                 when :+ then [amin + bmin, amax + bmax]
+                 when :- then [amin - bmax, amax - bmin]
+                 when :*
+                   corners = [amin * bmin, amin * bmax, amax * bmin, amax * bmax]
+                   [corners.min, corners.max]
+                 when :%
+                   # x % n where n > 0 → [0, n-1]; conservative otherwise.
+                   bmin > 0 ? [0, bmax - 1] : nil
+                 when :&
+                   # Both non-negative: result ≤ min(amax, bmax).
+                   (amin >= 0 && bmin >= 0) ? [0, [amax, bmax].min] : nil
+                 when :|
+                   # Both non-negative: result ≤ next_pow2(max(amax, bmax)) - 1.
+                   if amin >= 0 && bmin >= 0
+                     hi = [amax, bmax].max
+                     # Round up to all-ones below the next power of two.
+                     bits = hi == 0 ? 0 : Math.log2(hi).to_i + 1
+                     [[amin, bmin].max, (1 << bits) - 1]
+                   end
+                 when :^
+                   if amin >= 0 && bmin >= 0
+                     hi = [amax, bmax].max
+                     bits = hi == 0 ? 0 : Math.log2(hi).to_i + 1
+                     [0, (1 << bits) - 1]
+                   end
+                 when :<<
+                   # x << n: only safe when n is a small constant and
+                   # both bounds are non-negative.
+                   if bmin == bmax && bmin >= 0 && bmin < 63 && amin >= 0
+                     [amin << bmin, amax << bmin]
+                   end
+                 when :>>
+                   if bmin == bmax && bmin >= 0 && bmin < 63 && amin >= 0
+                     [amin >> bmin, amax >> bmin]
+                   end
+                 end
+        return Type::I64 if result.nil?
+        new_min, new_max = result
+        # Overflow guard: drop to unbounded if either bound escapes Int64.
+        return Type::I64 if new_min < -(2**63) || new_max > 2**63 - 1
+        Type.i64_bounded(new_min, new_max)
       end
 
       # max/min with 2 args: return the wider numeric type.
