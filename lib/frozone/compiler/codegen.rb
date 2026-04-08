@@ -635,63 +635,87 @@ module Frozone
       def emit_user_top_level_methods(scope)
         user_methods_on_object = []
         scope.methods_table&.each do |name, method|
-          next unless method.is_a?(Vm::Method)
-          next unless user_source_location?(method.source_location)
+          next unless method.is_a?(Vm::Method) && user_source_location?(method.source_location)
           user_methods_on_object << [name, method]
-          if opt?(:method_specialization) && @gctx.typed_params[name] && @gctx.typed_method_returns[name]
-            emit_indent
-            emit_specialized_vm_method(name, method)
-            emit_newline
-            emit_newline
-          end
-
-          # Emit typed overload when inferred params have complex types (Array, etc.)
-          # that need a separate generic fallback for untyped callers.
-          inferred = @gctx.inferred_params[name]
-          has_complex_params = !@gctx.typed_params[name] && inferred&.any? { |t| complex_native_type?(t) }
-          if has_complex_params
-            emit_indent
-            emit_vm_method(name, method, param_types: inferred)
-            emit_newline
-            emit_newline
-          end
-
-          # Always emit the generic overload — the execute block and other
-          # untyped callers need it even when typed overloads exist.
-          all_native = inferred&.all? { |t| t&.native? }
-          # Mixed-raw: at least one param is raw scalar, but not all are native.
-          # Worth emitting a typed overload so the body avoids boxing on the
-          # raw param (e.g. generate_payload(depth : Int64, tag : RubyObject)).
-          some_raw = inferred&.any? { |t| t&.raw? }
-          if (all_native || some_raw) && !has_complex_params && !(@gctx.typed_params[name] && @gctx.typed_method_returns[name])
-            emit_indent
-            emit_vm_method(name, method, param_types: inferred)
-            emit_newline
-            emit_newline
-          end
-          emit_indent
-          generic_params = if has_complex_params
-            inferred.map { |t| t&.native? ? Type::BOTTOM : t }
-          elsif @gctx.typed_params[name]
-            nil  # fully-typed → generic uses all RubyObject
-          elsif all_native || some_raw
-            nil  # typed overload handles raw; generic uses all RubyObject
-          else
-            # Drop raw scalar types to RubyObject, keep class types for devirtualization
-            inferred&.map { |t| t&.raw? ? Type::BOTTOM : t }
-          end
-          emit_vm_method(name, method, param_types: generic_params)
-          emit_newline
-          emit_newline
+          emit_top_level_method_overloads(name, method)
         end
+        emit_top_level_method_object_copies(user_methods_on_object)
+      end
 
-        # Also emit as instance methods on RubyObject so receiver-based calls
-        # (e.g., obj.should) dispatch correctly via Crystal's virtual dispatch.
-        # This mirrors Ruby where Object methods are available both ways.
-        # Track these so we skip generating *args stubs for them.
+      # Emit every overload for a single top-level method: the
+      # raw-typed-params specialised version, the typed (some/all
+      # native or class-typed) version, and the always-emitted generic
+      # RubyObject fallback that the execute block and untyped callers
+      # use.
+      def emit_top_level_method_overloads(name, method)
+        emit_specialized_top_level_overload(name, method)
+        inferred = @gctx.inferred_params[name]
+        has_complex_params = !@gctx.typed_params[name] && inferred&.any? { |t| complex_native_type?(t) }
+        emit_typed_top_level_overload(name, method, inferred) if has_complex_params
+
+        all_native = inferred&.all? { |t| t&.native? }
+        # Mixed-raw: at least one param is raw scalar, but not all are
+        # native. Worth a typed overload so the body avoids boxing on
+        # the raw param (e.g. generate_payload(depth : Int64, tag : RubyObject)).
+        some_raw = inferred&.any? { |t| t&.raw? }
+        skip_typed = has_complex_params || (@gctx.typed_params[name] && @gctx.typed_method_returns[name])
+        emit_typed_top_level_overload(name, method, inferred) if (all_native || some_raw) && !skip_typed
+
+        generic_params = compute_generic_top_level_params(name, inferred, has_complex_params, all_native, some_raw)
+        emit_indent
+        emit_vm_method(name, method, param_types: generic_params)
+        emit_newline
+        emit_newline
+      end
+
+      # Specialised raw-typed overload (Int64/Float64 args + return),
+      # only emitted when method_specialization is on AND TI has both
+      # the typed_params and typed_method_returns slots populated.
+      def emit_specialized_top_level_overload(name, method)
+        return unless opt?(:method_specialization) &&
+                      @gctx.typed_params[name] &&
+                      @gctx.typed_method_returns[name]
+        emit_indent
+        emit_specialized_vm_method(name, method)
+        emit_newline
+        emit_newline
+      end
+
+      def emit_typed_top_level_overload(name, method, inferred)
+        emit_indent
+        emit_vm_method(name, method, param_types: inferred)
+        emit_newline
+        emit_newline
+      end
+
+      # Compute the param_types tuple for the generic (all-RubyObject /
+      # devirtualised) fallback overload. Five cases:
+      #   - complex params: drop natives to BOTTOM, keep rest
+      #   - fully typed:   nil → all RubyObject
+      #   - all/some raw:  nil → all RubyObject (typed overload covers raw)
+      #   - default:       drop raw scalars to BOTTOM, keep class types
+      def compute_generic_top_level_params(name, inferred, has_complex_params, all_native, some_raw)
+        if has_complex_params
+          inferred.map { |t| t&.native? ? Type::BOTTOM : t }
+        elsif @gctx.typed_params[name]
+          nil
+        elsif all_native || some_raw
+          nil
+        else
+          inferred&.map { |t| t&.raw? ? Type::BOTTOM : t }
+        end
+      end
+
+      # Also emit each top-level user method as an instance method on
+      # RubyObject so receiver-based calls (`obj.foo`) dispatch through
+      # Crystal's virtual dispatch. Mirrors Ruby semantics where Object
+      # methods are available both as bare functions and as instance
+      # methods.
+      def emit_top_level_method_object_copies(user_methods_on_object)
         @cc.object_instance_methods = user_methods_on_object.map(&:first).to_set
         return if user_methods_on_object.empty?
-        # Filter out methods where all params are native — no generic needed
+        # Methods where every param is native already have the typed
+        # overload; no generic instance method needed.
         generic_methods = user_methods_on_object.reject do |name, _|
           inferred = @gctx.inferred_params[name]
           inferred&.all? { |t| t&.native? }
@@ -702,9 +726,7 @@ module Frozone
         generic_methods.each do |name, method|
           emit_indent
           write "  "
-          # Always use all-RubyObject for the Object instance method copy
-          generic_params = nil
-          emit_vm_method(name, method, param_types: generic_params)
+          emit_vm_method(name, method, param_types: nil)
           emit_newline
         end
         line "end"

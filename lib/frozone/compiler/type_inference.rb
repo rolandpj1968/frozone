@@ -265,72 +265,111 @@ module Frozone
         changed = false
         walk(node) do |n|
           next unless n.is_a?(Ast::MethodCall)
-          recv = n.receiver_node
-          args = n.arg_nodes || []
-          blk  = n.block_node
+          changed |= seed_call_block_params(n, ctx)
+          next if (n.arg_nodes || []).empty?
+          changed |= propagate_kw_args(n, ctx)
+          changed |= propagate_positional_args(n, ctx)
+        end
+        changed
+      end
 
-          # Seed block params for iteration methods (times, each, etc.)
-          if blk
-            ptypes = block_param_types(n.name, recv, ctx)
-            seed_block_params(blk, ptypes, ctx) unless ptypes.empty?
-          end
+      # Side-effect: seed iteration block params (times/each/etc) so the
+      # body sees the element type. Returns false (no env update).
+      def seed_call_block_params(call, ctx)
+        blk = call.block_node
+        return false unless blk
+        ptypes = block_param_types(call.name, call.receiver_node, ctx)
+        seed_block_params(blk, ptypes, ctx) unless ptypes.empty?
+        false
+      end
 
-          next if args.empty?
+      # Propagate keyword arg literal types into the callee's
+      # `:kwparam` slot. Only fires when the call's receiver shape lets
+      # us name the callee unambiguously (free call or `Const.method`).
+      def propagate_kw_args(call, ctx)
+        kw_args = call.kw_arg_nodes || {}
+        return false if kw_args.empty?
+        recv = call.receiver_node
+        mkey = if recv.nil?
+                 call.name
+               elsif recv.is_a?(Ast::ConstantRead)
+                 [recv.name, call.name]
+               end
+        return false unless mkey
+        changed = false
+        kw_args.each do |kw_name_node, val_node|
+          kw_sym = kw_name_node.is_a?(Ast::SymbolLiteral) ? kw_name_node.value : nil
+          next unless kw_sym
+          ty = infer_expr(val_node, ctx)
+          changed |= @env.join!([:kwparam, mkey, kw_sym], ty) unless ty.bottom?
+        end
+        changed
+      end
 
-          # Propagate keyword arg types from call site
-          kw_args = n.kw_arg_nodes || {}
-          unless kw_args.empty?
-            mkey = recv.nil? ? n.name : nil
-            mkey ||= [recv.name, n.name] if recv.is_a?(Ast::ConstantRead)
-            if mkey
-              kw_args.each do |kw_name_node, val_node|
-                kw_sym = kw_name_node.is_a?(Ast::SymbolLiteral) ? kw_name_node.value : nil
-                next unless kw_sym
-                ty = infer_expr(val_node, ctx)
-                changed |= @env.join!([:kwparam, mkey, kw_sym], ty) unless ty.bottom?
-              end
-            end
-          end
+      # Propagate positional argument types into the callee's :param
+      # slots. Dispatches on receiver shape: free call, ClassName.new,
+      # Module.method, or instance method on a typed receiver.
+      def propagate_positional_args(call, ctx)
+        recv = call.receiver_node
+        if recv.nil?
+          propagate_free_call_args(call, ctx)
+        elsif recv.is_a?(Ast::ConstantRead) && call.name == :new
+          propagate_constructor_args(call, ctx, recv.name)
+        elsif recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.name)
+          propagate_class_method_args(call, ctx, [recv.name, call.name])
+        elsif recv
+          propagate_instance_method_args(call, ctx)
+        else
+          false
+        end
+      end
 
-          if recv.nil?
-            # Free call → top-level method params.
-            args.each_with_index do |arg, i|
-              ty = infer_expr(arg, ctx)
-              next if ty.bottom?
-              changed |= @env.join!([:param, n.name, i], ty)
-              # Also store under class-keyed slot if inside a class method
-              # (free calls inside class methods are actually class method calls)
-              changed |= @env.join!([:param, [ctx.class_name, n.name], i], ty) if ctx.class_name
-            end
-          elsif recv.is_a?(Ast::ConstantRead) && n.name == :new
-            # ClassName.new(...) → constructor params, keyed by calling context.
-            class_sym = recv.name
-            ctor_ctx = ctx.method_key || :__execute__
-            args.each_with_index do |arg, i|
-              ty = infer_expr(arg, ctx)
-              changed |= @env.join!([:constructor_param, class_sym, i, ctor_ctx], ty) unless ty.bottom?
-            end
-          elsif recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.name)
-            # Module.method(...) → class method params (keyed by module name).
-            class_sym = recv.name
-            mkey = [class_sym, n.name]
-            args.each_with_index do |arg, i|
-              ty = infer_expr(arg, ctx)
-              changed |= @env.join!([:param, mkey, i], ty) unless ty.bottom?
-            end
-          elsif recv
-            # Instance method call — propagate typed args to instance method params.
-            recv_ty = infer_expr(recv, ctx)
+      # Free call → top-level method params (and the class-keyed
+      # slot when inside a class method, since a "free" call there
+      # is actually a class method call).
+      def propagate_free_call_args(call, ctx)
+        changed = false
+        (call.arg_nodes || []).each_with_index do |arg, i|
+          ty = infer_expr(arg, ctx)
+          next if ty.bottom?
+          changed |= @env.join!([:param, call.name, i], ty)
+          changed |= @env.join!([:param, [ctx.class_name, call.name], i], ty) if ctx.class_name
+        end
+        changed
+      end
 
-            if recv_ty.class_type?
-              class_name = recv_ty.class_name
-              mkey = [class_name, n.name]
-              args.each_with_index do |arg, i|
-                ty = infer_expr(arg, ctx)
-                changed |= @env.join!([:param, mkey, i], ty) unless ty.bottom?
-              end
-            end
-          end
+      # ClassName.new(...) → constructor params, keyed by calling
+      # context for the 1-CFA constructor specialisation.
+      def propagate_constructor_args(call, ctx, class_sym)
+        ctor_ctx = ctx.method_key || :__execute__
+        changed = false
+        (call.arg_nodes || []).each_with_index do |arg, i|
+          ty = infer_expr(arg, ctx)
+          changed |= @env.join!([:constructor_param, class_sym, i, ctor_ctx], ty) unless ty.bottom?
+        end
+        changed
+      end
+
+      # Module.method(...) → class method params keyed by [class, name].
+      def propagate_class_method_args(call, ctx, mkey)
+        changed = false
+        (call.arg_nodes || []).each_with_index do |arg, i|
+          ty = infer_expr(arg, ctx)
+          changed |= @env.join!([:param, mkey, i], ty) unless ty.bottom?
+        end
+        changed
+      end
+
+      # Instance method call on a typed receiver → propagate args to
+      # the receiver class's instance-method param slots.
+      def propagate_instance_method_args(call, ctx)
+        recv_ty = infer_expr(call.receiver_node, ctx)
+        return false unless recv_ty.class_type?
+        mkey = [recv_ty.class_name, call.name]
+        changed = false
+        (call.arg_nodes || []).each_with_index do |arg, i|
+          ty = infer_expr(arg, ctx)
+          changed |= @env.join!([:param, mkey, i], ty) unless ty.bottom?
         end
         changed
       end
@@ -583,30 +622,47 @@ module Frozone
         param_types = req_params.empty? ? [] : best_constructor_param_types(class_name, req_params.size)
         return false unless param_types
 
-        # Seed initialize param slots from best constructor types (NilClass filtered).
+        old_seeds = @ivar_param_seeds
+        @ivar_param_seeds = req_params.zip(param_types).to_h
+        changed = false
+        changed |= seed_constructor_params(class_name, param_types)
+        changed |= propagate_ivars_from_initialize(class_name, init)
+        changed |= propagate_ivars_from_other_methods(class_name, klass)
+        changed |= propagate_ivars_from_setter_calls(class_name, klass)
+        changed |= propagate_ivar_array_elem_writes(class_name, klass)
+        changed
+      ensure
+        @ivar_param_seeds = old_seeds if defined?(old_seeds)
+      end
+
+      # Seed the initialize param slots from the best-known constructor
+      # call site types. Returns whether any slot type widened.
+      def seed_constructor_params(class_name, param_types)
         changed = false
         param_types.each_with_index do |ty, i|
           changed |= @env.join!([:param, [class_name, :initialize], i], ty) unless ty.bottom?
         end
+        changed
+      end
 
+      # Walk the initialize body and join each `@ivar = ...` RHS into
+      # the global ivar type slot for the class.
+      def propagate_ivars_from_initialize(class_name, init)
         ctx = TypeContext.new([class_name, :initialize], class_name)
-        old_seeds = @ivar_param_seeds
-        @ivar_param_seeds = req_params.zip(param_types).to_h
-
-        # Collect ivar assignments from initialize
-        all_ivar_assigns = collect_ivar_assignments(init.body)
-
-        # Infer ivar types from initialize
-        all_ivar_assigns.each do |ivar_name, rhs_nodes|
-          ty = rhs_nodes.reduce(Type::BOTTOM) do |acc, rhs|
-            join(acc, infer_expr(rhs, ctx))
-          end
+        changed = false
+        collect_ivar_assignments(init.body).each do |ivar_name, rhs_nodes|
+          ty = rhs_nodes.reduce(Type::BOTTOM) { |acc, rhs| join(acc, infer_expr(rhs, ctx)) }
           next if ty.bottom?
           changed |= @env.join!([:ivar, class_name, ivar_name], ty)
         end
+        changed
+      end
 
-        # Also collect from all other instance methods — ivars may be
-        # assigned outside initialize (e.g. @root = Node.new in insert)
+      # Ivars may be assigned outside initialize (e.g. `@root = Node.new`
+      # in an insert method). Walk every other instance method and
+      # propagate their `@ivar = ...` assignments too.
+      def propagate_ivars_from_other_methods(class_name, klass)
+        changed = false
         (klass.methods_table || {}).each do |mname, method|
           next if mname == :initialize || !method.is_a?(Vm::Method) || !method.body
           method_ctx = TypeContext.new([class_name, mname], class_name)
@@ -618,33 +674,36 @@ module Frozone
             end
           end
         end
+        changed
+      end
 
-        # Track setter calls (obj.left = val) as ivar assignments.
-        # When a method on this class calls self.attr= or obj.attr= where obj
-        # is known to be this class, treat it as @attr = val.
+      # Setter calls (`obj.left = val`) on instances of this class show
+      # up as method calls in other methods, but their effect on the
+      # ivar type lattice is the same as `@left = val`. Walk all user
+      # methods and feed any setter targets back into the ivar slot.
+      def propagate_ivars_from_setter_calls(class_name, klass)
         accessor_names = Set.new
         (klass.methods_table || {}).each_key do |mn|
           accessor_names << mn.to_s.chomp('=').to_sym if mn.to_s.end_with?('=') && mn != :initialize
         end
-        unless accessor_names.empty?
-          # Scan all user methods (top-level + instance methods on all classes)
-          all_methods = @user_methods.to_a
-          @user_classes.each do |cname, ck|
-            (ck.methods_table || {}).each do |mn, m|
-              all_methods << [[cname, mn], m] if m.is_a?(Vm::Method)
-            end
-          end
-          all_methods.each do |mkey, method|
-            next unless method.body
-            method_ctx = TypeContext.new(mkey, mkey.is_a?(Array) ? mkey[0] : nil)
-            collect_setter_calls(method.body, class_name, accessor_names, method_ctx) do |attr_name, ty|
-              changed |= @env.join!([:ivar, class_name, :"@#{attr_name}"], ty)
-            end
+        return false if accessor_names.empty?
+
+        changed = false
+        each_user_method do |mkey, method|
+          next unless method.body
+          method_ctx = TypeContext.new(mkey, mkey.is_a?(Array) ? mkey[0] : nil)
+          collect_setter_calls(method.body, class_name, accessor_names, method_ctx) do |attr_name, ty|
+            changed |= @env.join!([:ivar, class_name, :"@#{attr_name}"], ty)
           end
         end
+        changed
+      end
 
-        # Infer element types for ivar arrays from []=, <<, push writes.
-        # e.g., @list[i] = val in set() where val is :f64 → @list is Array(:f64).
+      # Ivar array element-type inference: `@list[i] = val` in any method
+      # contributes `val`'s type to `@list`'s elem type, refining
+      # untyped Array slots to Array(T).
+      def propagate_ivar_array_elem_writes(class_name, klass)
+        changed = false
         (klass.methods_table || {}).each do |mname, method|
           next unless method.is_a?(Vm::Method) && method.body
           method_ctx = TypeContext.new([class_name, mname], class_name)
@@ -655,9 +714,18 @@ module Frozone
             end
           end
         end
-
-        @ivar_param_seeds = old_seeds
         changed
+      end
+
+      # Iterate every user-defined method (top-level + instance methods
+      # on every user class). Yields [mkey, method].
+      def each_user_method(&block)
+        @user_methods.each(&block)
+        @user_classes.each do |cname, ck|
+          (ck.methods_table || {}).each do |mn, m|
+            yield [[cname, mn], m] if m.is_a?(Vm::Method)
+          end
+        end
       end
 
       # Scan body for @ivar[i] = val patterns and yield ivar_name + value type.
@@ -721,90 +789,88 @@ module Frozone
 
       def infer_expr_uncached(node, ctx)
         case node
-        when Ast::IntegerLiteral  then Type::I64
-        when Ast::FloatLiteral    then Type::F64
-        when Ast::NilLiteral      then Type::NIL_CLASS
-        when Ast::TrueLiteral     then Type::TRUE_CLASS
-        when Ast::FalseLiteral    then Type::FALSE_CLASS
-        when Ast::StringLiteral   then Type::STRING
-        when Ast::SymbolLiteral   then Type::SYMBOL
-        when Ast::ArrayLiteral
-          elems = node.element_nodes || []
-          if elems.empty?
-            Type::ARRAY
-          else
-            elem_ty = elems.reduce(Type::BOTTOM) { |acc, e| join(acc, infer_expr(e, ctx)) }
-            elem_ty.bottom? ? Type::ARRAY : Type.array(elem: elem_ty)
-          end
-
-        when Ast::HashLiteral
-          pairs = node.kv_nodes || []
-          if pairs.empty?
-            Type::HASH
-          else
-            key_ty = pairs.reduce(Type::BOTTOM) { |acc, (k, _)| join(acc, infer_expr(k, ctx)) }
-            val_ty = pairs.reduce(Type::BOTTOM) { |acc, (_, v)| join(acc, infer_expr(v, ctx)) }
-            Type.hash_type(
-              key: key_ty.bottom? ? nil : key_ty,
-              val: val_ty.bottom? ? nil : val_ty
-            )
-          end
-        when Ast::RangeLiteral    then Type::RANGE
-        when Ast::RegexpLiteral   then Type::REGEXP
-
-        when Ast::Sequence
-          infer_expr(node.nodes.last, ctx)
-
-        when Ast::LocalVariableRead
-          name = node.name
-          return @ivar_param_seeds[name] if @ivar_param_seeds&.key?(name)
-          idx = param_index(ctx, name)
-          if idx
-            pv = @env.type_of([:param, ctx.method_key, idx])
-            return pv unless pv.bottom?
-          end
-          kp = @env.type_of([:kwparam, ctx.method_key, name])
-          return kp unless kp.bottom?
-          bp = @env.type_of([:block_param, ctx.method_key, name])
-          return bp unless bp.bottom?
-          @env.type_of([:local, ctx.method_key, name])
-
-        when Ast::InstanceVariableRead
-          @env.type_of([:ivar, ctx.class_name, node.name])
-
-        when Ast::ConstantRead
-          @env.type_of([:const, node.name])
-
-        when Ast::LocalVariableWrite
-          infer_expr(node.value_node, ctx)
-
-        when Ast::If
-          t = infer_expr(node.then_node, ctx)
-          e_ty = node.else_node ? infer_expr(node.else_node, ctx) : Type::NIL_CLASS
-          return t if e_ty.bottom?
-          return e_ty if t.bottom?
-          join(t, e_ty)
-
-        when Ast::MethodCall
-          infer_call(node, ctx)
-
-        when Ast::Or
-          lt = infer_expr(node.left_node, ctx)
-          rt = infer_expr(node.right_node, ctx)
-          return rt if lt.bottom?
-          return lt if rt.bottom?
-          join(lt, rt)
-
-        when Ast::And
-          lt = infer_expr(node.left_node, ctx)
-          rt = infer_expr(node.right_node, ctx)
-          return rt if lt.bottom?
-          return lt if rt.bottom?
-          join(lt, rt)
-
-        else
-          Type::BOTTOM
+        when Ast::IntegerLiteral        then Type::I64
+        when Ast::FloatLiteral          then Type::F64
+        when Ast::NilLiteral            then Type::NIL_CLASS
+        when Ast::TrueLiteral           then Type::TRUE_CLASS
+        when Ast::FalseLiteral          then Type::FALSE_CLASS
+        when Ast::StringLiteral         then Type::STRING
+        when Ast::SymbolLiteral         then Type::SYMBOL
+        when Ast::RangeLiteral          then Type::RANGE
+        when Ast::RegexpLiteral         then Type::REGEXP
+        when Ast::ArrayLiteral          then infer_array_literal_type(node, ctx)
+        when Ast::HashLiteral           then infer_hash_literal_type(node, ctx)
+        when Ast::Sequence              then infer_expr(node.nodes.last, ctx)
+        when Ast::LocalVariableRead     then infer_local_var_type(node, ctx)
+        when Ast::InstanceVariableRead  then @env.type_of([:ivar, ctx.class_name, node.name])
+        when Ast::ConstantRead          then @env.type_of([:const, node.name])
+        when Ast::LocalVariableWrite    then infer_expr(node.value_node, ctx)
+        when Ast::If                    then infer_if_type(node, ctx)
+        when Ast::MethodCall            then infer_call(node, ctx)
+        when Ast::Or                    then infer_short_circuit_type(node, ctx)
+        when Ast::And                   then infer_short_circuit_type(node, ctx)
+        else                                 Type::BOTTOM
         end
+      end
+
+      # Element-wise join over the literal's elements; empty literal
+      # falls back to the unspecialised Type::ARRAY.
+      def infer_array_literal_type(node, ctx)
+        elems = node.element_nodes || []
+        return Type::ARRAY if elems.empty?
+        elem_ty = elems.reduce(Type::BOTTOM) { |acc, e| join(acc, infer_expr(e, ctx)) }
+        elem_ty.bottom? ? Type::ARRAY : Type.array(elem: elem_ty)
+      end
+
+      # Element-wise joins over keys and values; empty hash falls back
+      # to the unspecialised Type::HASH.
+      def infer_hash_literal_type(node, ctx)
+        pairs = node.kv_nodes || []
+        return Type::HASH if pairs.empty?
+        key_ty = pairs.reduce(Type::BOTTOM) { |acc, (k, _)| join(acc, infer_expr(k, ctx)) }
+        val_ty = pairs.reduce(Type::BOTTOM) { |acc, (_, v)| join(acc, infer_expr(v, ctx)) }
+        Type.hash_type(
+          key: key_ty.bottom? ? nil : key_ty,
+          val: val_ty.bottom? ? nil : val_ty
+        )
+      end
+
+      # Local variable type — checks ivar-derived seed (Frozone-specific
+      # init-param tracking), then positional params, kwparams, block
+      # params, and finally the per-method local map.
+      def infer_local_var_type(node, ctx)
+        name = node.name
+        return @ivar_param_seeds[name] if @ivar_param_seeds&.key?(name)
+        idx = param_index(ctx, name)
+        if idx
+          pv = @env.type_of([:param, ctx.method_key, idx])
+          return pv unless pv.bottom?
+        end
+        kp = @env.type_of([:kwparam, ctx.method_key, name])
+        return kp unless kp.bottom?
+        bp = @env.type_of([:block_param, ctx.method_key, name])
+        return bp unless bp.bottom?
+        @env.type_of([:local, ctx.method_key, name])
+      end
+
+      # If/else result type: join of both arms; one-armed if implicitly
+      # has nil as the else value.
+      def infer_if_type(node, ctx)
+        t = infer_expr(node.then_node, ctx)
+        e_ty = node.else_node ? infer_expr(node.else_node, ctx) : Type::NIL_CLASS
+        return t if e_ty.bottom?
+        return e_ty if t.bottom?
+        join(t, e_ty)
+      end
+
+      # `&&` and `||` are identical at the type level — both yield the
+      # join of the two operand types, with bottoms eliminated.
+      def infer_short_circuit_type(node, ctx)
+        lt = infer_expr(node.left_node, ctx)
+        rt = infer_expr(node.right_node, ctx)
+        return rt if lt.bottom?
+        return lt if rt.bottom?
+        join(lt, rt)
       end
 
       # ------------------------------------------------------------------
