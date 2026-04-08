@@ -1156,7 +1156,7 @@ module Frozone
         ty = @mctx.typed_locals[name] || @mctx.raw_block_params[name]
         return "RubyInteger.new(#{crystal_local(name)})" if ty&.i64?
         return "RubyFloat.new(#{crystal_local(name)})" if ty&.f64?
-        super
+        crystal_local(name)
       end
 
       # Override: for typed locals, emit RHS as bare Crystal numeric.
@@ -1330,7 +1330,7 @@ module Frozone
         ivt = @cctx.ivars[node.name]
         return "RubyFloat.new(#{node.name})" if ivt&.f64?
         return "RubyInteger.new(#{node.name})" if ivt&.i64?
-        super
+        node.name.to_s
       end
 
       # Override: for typed ivars, coerce RHS to the raw type.
@@ -1364,7 +1364,7 @@ module Frozone
             "#{iv_name} = #{cr(val)}"
           end
         else
-          super
+          "#{iv_name} = #{cr(node.value_node)}"
         end
       end
 
@@ -1439,7 +1439,7 @@ module Frozone
           cr_try_typed_free_call(node) ||
           cr_try_devirtualized_call(node) ||
           cr_try_raw_arithmetic(node) ||
-          super
+          default_method_call(node)
       end
 
       # @list.fetch(i) or @list[i] on native array ivar → box result for RubyObject context
@@ -1735,7 +1735,7 @@ module Frozone
                     end
           return "#{cr(recv)}[#{raw(args[0])}] = #{val_str}"
         end
-        super
+        default_attribute_write(node)
       end
 
       # Override: for comparisons with at least one raw-typed operand, use bare
@@ -1774,7 +1774,11 @@ module Frozone
       # Override: only simplify comparisons when the operator has not been
       # overridden by user code on Integer, Float, or String.
       def comparison_op_call?(node)
-        super && !user_overrides_comparison?(node.name)
+        node.is_a?(Ast::MethodCall) &&
+          COMPARE_OPS.include?(node.name) &&
+          node.receiver_node &&
+          node.arg_nodes&.size == 1 &&
+          !user_overrides_comparison?(node.name)
       end
 
       def user_overrides_comparison?(op_name)
@@ -1837,15 +1841,15 @@ module Frozone
               elsif (cls = @mctx.class_locals[name])
                 lines << "#{crystal_local(name)} = #{cr(elem)}.as(#{crystal_class_name(cls)})"
               else
-                # typed array local — fall back to super for this case
-                return super
+                # typed array local — fall back to default for this case
+                return default_multiple_assignment(node)
               end
             end
             return lines.join("\n#{indent_str}")
           end
         end
 
-        super
+        default_multiple_assignment(node)
       end
 
       def cr_masgn_assign(target, value_code)
@@ -1861,7 +1865,7 @@ module Frozone
           idxs = target[2].map { |idx| coerce_i64(idx) }.join(", ")
           "#{crystal_local(target[1].name)}[#{idxs}] = #{value_code}#{coerce}"
         else
-          super
+          default_masgn_assign(target, value_code)
         end
       end
 

@@ -414,7 +414,12 @@ module Frozone
       # Method call
       # -----------------------------------------------------------------------
 
-      def cr_method_call(node)
+      # Public alias used by codegen.rb's cr_method_call override as a
+      # tail fall-through. Avoiding `super` (per CLAUDE.md) means
+      # subclass overrides delegate to default_method_call explicitly.
+      def cr_method_call(node) = default_method_call(node)
+
+      def default_method_call(node)
         name = node.name
 
         # Kernel-level methods with no receiver map to top-level helpers
@@ -490,7 +495,9 @@ module Frozone
       def operator?(name) = BINARY_OPS.include?(name) || UNARY_OPS.include?(name)
 
       # AttributeWrite: obj.foo = val (setter) or obj[i] = val (index assign)
-      def cr_attribute_write(node)
+      def cr_attribute_write(node) = default_attribute_write(node)
+
+      def default_attribute_write(node)
         name = node.name
         recv = node.receiver_node
         args = node.arg_nodes
@@ -1024,7 +1031,9 @@ module Frozone
       end
 
 
-      def cr_multiple_assignment(node)
+      def cr_multiple_assignment(node) = default_multiple_assignment(node)
+
+      def default_multiple_assignment(node)
         targets = node.targets
         rhs     = node.value_node
         tmp = "_ma#{@temp_counter}"
@@ -1051,7 +1060,9 @@ module Frozone
         lines.join("\n#{indent_str}")
       end
 
-      def cr_masgn_assign(target, value_code)
+      def cr_masgn_assign(target, value_code) = default_masgn_assign(target, value_code)
+
+      def default_masgn_assign(target, value_code)
         case target[0]
         when :local, :local_splat then "#{crystal_local(target[1])} = #{value_code}"
         when :ivar, :ivar_splat   then "#{target[1]} = #{value_code}"
