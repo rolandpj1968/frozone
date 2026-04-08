@@ -100,11 +100,20 @@ class RubyString < RubyObject
   # Construct from a Crystal String (assumed to be valid UTF-8).
   # Stores the raw UTF-8 bytes without transcoding.
   # The encoding tag defaults to UTF_8 but can be overridden (force_encoding semantics).
+  #
+  # Crystal strings are guaranteed to be valid UTF-8, so when the target
+  # encoding is UTF_8 or US_ASCII (which are byte-compatible with UTF-8
+  # for the validity check) we pre-populate the cached `valid_encoding?`
+  # flag. This lets `to_crystal_string` skip the expensive scrub_utf8
+  # walk on the hot path of string-literal interpolation.
   def initialize(str : String, encoding : RubyEncoding = RubyEncoding::UTF_8)
     @bytes    = str.to_slice.dup
     @size     = @bytes.size
     @encoding = encoding
     @flags    = 0_u8
+    if encoding == RubyEncoding::UTF_8 || encoding == RubyEncoding::US_ASCII
+      @flags |= (1_u8 << VALID_ENC_VALID_BIT) | (1_u8 << VALID_ENC_BIT)
+    end
   end
 
   # Convenience overloads accepting RubyEncodingObject (the boxed wrapper
@@ -167,7 +176,7 @@ class RubyString < RubyObject
   # Flag helpers (private)
   # ------------------------------------------------------------------
 
-  private def flag?(bit : UInt8) : Bool
+  protected def flag?(bit : UInt8) : Bool
     (@flags & (1_u8 << bit)) != 0_u8
   end
 
@@ -308,11 +317,22 @@ class RubyString < RubyObject
     check_frozen!
     other_size = other.@size
     return self if other_size == 0
+    # Preserve the cached valid_encoding? flag if both self and other
+    # are known to be valid UTF-8 / US-ASCII. Concatenation of valid
+    # UTF-8 byte sequences yields a valid UTF-8 byte sequence.
+    preserve_validity = flag?(VALID_ENC_VALID_BIT) && flag?(VALID_ENC_BIT) &&
+                        other.flag?(VALID_ENC_VALID_BIT) && other.flag?(VALID_ENC_BIT) &&
+                        (@encoding == RubyEncoding::UTF_8 || @encoding == RubyEncoding::US_ASCII) &&
+                        (other.@encoding == RubyEncoding::UTF_8 || other.@encoding == RubyEncoding::US_ASCII)
     needed = @size + other_size
     ensure_capacity!(needed)
     other.@bytes.to_unsafe.copy_to(@bytes.to_unsafe + @size, other_size)
     @size = needed
     clear_caches!
+    if preserve_validity
+      set_flag!(VALID_ENC_VALID_BIT)
+      set_flag!(VALID_ENC_BIT)
+    end
     self
   end
 
@@ -605,10 +625,20 @@ class RubyString < RubyObject
 
   # Best-effort conversion to a Crystal String (UTF-8).
   # Invalid bytes are replaced with the UTF-8 replacement character U+FFFD.
+  #
+  # Fast path: when the cached `valid_encoding?` flag says the bytes are
+  # already valid UTF-8 (or compatible US-ASCII), copy them straight into
+  # a Crystal String without scrubbing. This is the common case for
+  # strings constructed from Crystal String literals or interpolation,
+  # and skips an O(n) byte-walk per to_s call.
   def to_crystal_string : String
     case @encoding
     when RubyEncoding::UTF_8, RubyEncoding::US_ASCII
-      scrub_utf8(byte_view)
+      if flag?(VALID_ENC_VALID_BIT) && flag?(VALID_ENC_BIT)
+        String.new(@bytes.to_unsafe, @size)
+      else
+        scrub_utf8(byte_view)
+      end
     when RubyEncoding::ASCII_8BIT
       # Treat each byte as latin-1 / ISO-8859-1; non-ASCII become U+0080..U+00FF
       String.build do |io|
