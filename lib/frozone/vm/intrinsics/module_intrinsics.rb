@@ -205,7 +205,7 @@ module Frozone
             collect_consts = lambda do |mod|
               next unless mod.is_a?(ModuleObject)
               mod.prepends.each { |m| collect_consts.call(m) }
-              keys = mod.constants_table.keys | mod.instance_variable_get(:@autoloads).keys
+              keys = mod.constants_table.keys | mod.autoloads.keys
               keys.each do |k|
                 next if seen[k]
                 next if mod.constant_private?(k)
@@ -221,7 +221,7 @@ module Frozone
             end
             collect_consts.call(receiver)
           else
-            keys = receiver.constants_table.keys | receiver.instance_variable_get(:@autoloads).keys
+            keys = receiver.constants_table.keys | receiver.autoloads.keys
             keys.each do |k|
               next if receiver.constant_private?(k)
               result << n2f_sym(k)
@@ -1987,9 +1987,7 @@ module Frozone
             name = sym_name(name_obj)
             val, = receiver.lookup_constant_with_owner(name)
             raise FrozoneException.make(:NameError, "constant #{receiver.full_name}::#{name} not defined") if val.nil?
-            receiver.instance_variable_get(:@deprecated_constants) ||
-              receiver.instance_variable_set(:@deprecated_constants, {})
-            receiver.instance_variable_get(:@deprecated_constants)[name] = true
+            receiver.mark_constant_deprecated!(name)
           end
           receiver
         end

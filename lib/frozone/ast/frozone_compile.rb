@@ -18,6 +18,8 @@ module Frozone
     class FrozoneCompile < Node
       CRYSTAL_DIR = File.expand_path('../../../crystal/gen', __dir__)
 
+      attr_reader :block_node
+
       def initialize(block_node, output_path: nil, aot_mode: false)
         @block_node = block_node
         @output_path = output_path

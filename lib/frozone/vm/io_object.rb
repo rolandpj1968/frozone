@@ -12,6 +12,7 @@ module Frozone
       def native_io = @native_io
       def native_io=(io); @native_io = io; end
       def explicit_encoding? = @explicit_encoding
+      def explicit_encoding=(v); @explicit_encoding = v; end
       def buffered_write? = @buffered_write || false
       def buffered_write=(v); @buffered_write = v; end
 

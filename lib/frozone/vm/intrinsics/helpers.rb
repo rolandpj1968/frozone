@@ -159,8 +159,7 @@ module Frozone
 
         def maybe_warn_deprecated_constant(context, owner, name)
           return unless owner.is_a?(ModuleObject)
-          deprecated = owner.instance_variable_get(:@deprecated_constants)
-          return unless deprecated&.key?(name)
+          return unless owner.deprecated_constant?(name)
           return unless deprecated_warnings_enabled?
           mod_name = owner.full_name || "<anonymous>"
           Frozone::Vm.emit_warning(context, "constant #{mod_name}::#{name} is deprecated")

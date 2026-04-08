@@ -140,7 +140,7 @@ module Frozone
           new_rng = Random.allocate
           new_rng.__send__(:marshal_load, raw_data)
           if v.is_a?(RandomObject)
-            v.instance_variable_set(:@rng, new_rng)
+            v.rng = new_rng
           else
             v.set_ivar(:@rng, new_rng)
           end

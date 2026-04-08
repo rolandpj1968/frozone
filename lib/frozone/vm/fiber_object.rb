@@ -32,22 +32,35 @@ module Frozone
       end
 
       def self.root
-        # Create a root fiber object representing the current thread's main fiber
-        fo = allocate
-        fo.instance_variable_set(:@class_object, Core.fiber_class || Core::OBJECT_CLASS)
-        fo.instance_variable_set(:@block_obj, nil)
-        fo.instance_variable_set(:@fiber_globals, { "$!": NilObject::NIL, "$@": NilObject::NIL })
-        fo.instance_variable_set(:@ruby_fiber, ::Fiber.current)
-        fo.instance_variable_set(:@alive, true)
-        fo.instance_variable_set(:@status, :running)
-        fo.instance_variable_set(:@is_root, true)
-        fo.instance_variable_set(:@blocking, false)
-        fo.instance_variable_set(:@raise_exception, nil)
-        fo.instance_variable_set(:@kill_pending, false)
-        fo.instance_variable_set(:@suspended_by_transfer, false)
-        fo.instance_variable_set(:@owner_thread, ::Thread.current)
-        fo
+        # Create a root fiber object representing the current thread's main fiber.
+        # Bypasses normal initialize because the root fiber wraps the pre-existing
+        # ::Fiber.current rather than a user block.
+        allocate.tap { |fo| fo.__init_as_root__! }
       end
+
+      # Internal: initialise all ivars for a root fiber wrapper.
+      def __init_as_root__!
+        @class_object = Core.fiber_class || Core::OBJECT_CLASS
+        @instance_variables_hash = {}
+        @eigenclass = nil
+        @frozen_object = false
+        @block_obj = nil
+        @fiber_globals = { "$!": NilObject::NIL, "$@": NilObject::NIL }
+        @ruby_fiber = ::Fiber.current
+        @alive = true
+        @status = :running
+        @is_root = true
+        @blocking = false
+        @raise_exception = nil
+        @kill_pending = false
+        @suspended_by_transfer = false
+        @owner_thread = ::Thread.current
+        @frozone_owner_thread_id = nil
+        @initial_storage = nil
+      end
+
+      # Internal: mark the fiber as running (called from inside the ::Fiber.new block).
+      def __mark_running__! = @status = :running
 
       def alive? = @alive
       def status = @status
@@ -154,7 +167,7 @@ module Frozone
             # Always explicitly set storage to override MRI's fiber storage inheritance.
             # init_storage is a Ruby Hash ({sym => val}), or nil for empty.
             ::Fiber[:__frozone_storage__] = init_storage
-            self_fiber.instance_variable_set(:@status, :running)
+            self_fiber.__mark_running__!
             begin
               bo.invoke(fc, args)
             rescue Ast::BreakException, Ast::ReturnException
@@ -236,7 +249,7 @@ module Frozone
             ::Fiber[:frozone_fiber_obj] = self_fiber
             ::Fiber[:context] = fc
             ::Fiber[:__frozone_storage__] = init_storage
-            self_fiber.instance_variable_set(:@status, :running)
+            self_fiber.__mark_running__!
             begin
               bo.invoke(fc, args)
             rescue Ast::BreakException, Ast::ReturnException

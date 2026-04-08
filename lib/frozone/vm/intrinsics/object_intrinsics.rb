@@ -161,7 +161,7 @@ module Frozone
           # Copy private-constants set
           v.private_constants_table&.each_key { |k| copy.mark_constant_private(k) }
           # Copy autoload registrations
-          v.instance_variable_get(:@autoloads).each do |name, path|
+          v.autoloads.each do |name, path|
             loc = v.get_autoload_location(name)
             copy.set_autoload(name, path, source_location: loc)
           end
@@ -171,7 +171,7 @@ module Frozone
           # Copy singleton class (for module/class methods like `def mod.foo`)
           if v.eigenclass
             sc_copy = ClassObject.clone_singleton(v.eigenclass, copy)
-            copy.instance_variable_set(:@eigenclass, sc_copy)
+            copy.__set_eigenclass__(sc_copy)
           end
           # Call initialize_copy for instance variables
           copy.dispatch(context, :initialize_copy, [v], {}, nil, private_ok: true)

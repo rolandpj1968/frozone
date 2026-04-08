@@ -7,6 +7,8 @@ module Frozone
     class ConstantWrite < Node
       attr_reader :value_node
       attr_reader :name
+      attr_reader :source_location
+
       def initialize(name, value_node, source_location: nil)
         @name = name
         @value_node = value_node

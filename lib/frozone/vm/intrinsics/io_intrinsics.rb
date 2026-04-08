@@ -157,7 +157,7 @@ module Frozone
 
         def io_mark_explicit_encoding(_, receiver)
           return FNIL unless fio?(receiver)
-          receiver.instance_variable_set(:@explicit_encoding, true)
+          receiver.explicit_encoding = true
           FNIL
         end
 
@@ -265,7 +265,7 @@ module Frozone
                         end
             native_io.sync = old_sync unless old_sync.nil?
             receiver.native_io = native_io
-            receiver.instance_variable_set(:@explicit_encoding, explicit_enc)
+            receiver.explicit_encoding = explicit_enc
           end
           FNIL
         end

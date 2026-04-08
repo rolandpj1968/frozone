@@ -13,7 +13,7 @@ module Frozone
         def range_allocate(_, klass)
           obj = RangeObject.new(FNIL, FNIL, false, initialized: false)
           range_class = Core::OBJECT_CLASS.get_constant(:Range)
-          obj.instance_variable_set(:@class_object, klass) if klass && !klass.equal?(range_class)
+          obj.class_object = klass if klass && !klass.equal?(range_class)
           obj
         end
 

@@ -4,7 +4,7 @@ require_relative 'core'
 module Frozone
   module Vm
     class RandomObject < ObjectObject
-      attr_reader :rng
+      attr_accessor :rng
 
       def initialize(seed = nil)
         super(Core::OBJECT_CLASS.get_constant(:Random))

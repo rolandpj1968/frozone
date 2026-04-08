@@ -15,6 +15,11 @@ module Frozone
       # poked at via instance_variable_get/_set from outside the class;
       # the accessors here remove the reflection holes.
       attr_accessor :temporary_name, :cached_name_str
+      attr_reader :autoloads
+
+      def deprecated_constants = @deprecated_constants
+      def deprecated_constant?(name) = @deprecated_constants && @deprecated_constants[name]
+      def mark_constant_deprecated!(name) = (@deprecated_constants ||= {})[name] = true
 
       # Reset the temporary name cache. Called from ConstantWrite when
       # a previously-anonymous module is given its permanent name.

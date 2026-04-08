@@ -70,7 +70,7 @@ module Frozone
 
           fo = FiberObject.new(bo, blocking: blocking, initial_storage: init_storage,
                                    frozone_thread_id: CURRENT_FROZONE_THREAD_ID[0])
-          fo.instance_variable_set(:@class_object, fiber_klass) if fiber_klass != (Core.fiber_class || Core::OBJECT_CLASS)
+          fo.class_object = fiber_klass if fiber_klass != (Core.fiber_class || Core::OBJECT_CLASS)
           fo
         end
 

@@ -34,6 +34,10 @@ module Frozone
         @frozen_object = false
       end
 
+      # Internal: overwrite the eigenclass pointer. Used by clone/dup machinery
+      # to install a pre-cloned singleton class on a freshly-built copy.
+      def __set_eigenclass__(ec) = @eigenclass = ec
+
       def freeze_object!
         @frozen_object = true
         # Also freeze the singleton class if it exists
