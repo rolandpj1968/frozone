@@ -6,14 +6,13 @@ ENV["RUBY_BENCH_RACTOR_HARNESS"] = "1"
 require_relative '../benchmarks/str_concat'
 
 # Under --aot, everything below is compiled to Crystal.
-# NOTE: concat_test is defined inside `if/else` at top level. The AOT
-# compiler doesn't currently surface methods defined in conditional
-# branches at the top level — when the body becomes reachable Crystal
-# fails with "undefined local variable or method 'concat_test'".
-# Previously the body was wrapped in a no-op run_benchmark and never
-# compiled, masking this. Restoring the wrapper to keep the benchmark
-# in the suite; tracked as a real codegen gap.
+# NOTE: with the splitter fix that puts ENV[]= into the load phase,
+# concat_test/concat_single_test are now visible to the codegen. But
+# those methods reference Encoding::UTF_8 / Encoding::BINARY constants
+# which the codegen currently emits as Ruby_Encoding::Ruby_UTF_8 — a
+# nonexistent constant. Restoring the no-op wrapper sentinel until that
+# Encoding-constant codegen gap is fixed.
 run_benchmark(100) do
   100.times { concat_test }
 end
-puts "ran (no-op — see note in stub)"
+puts "ran (no-op — Encoding::UTF_8 codegen gap)"

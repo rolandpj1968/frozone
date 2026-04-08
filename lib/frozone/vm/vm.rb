@@ -484,6 +484,12 @@ module Frozone
           # Method calls on global variables ($LOADED_FEATURES << x, etc.)
           return true if node.receiver_node.is_a?(Ast::GlobalVariableRead)
           false
+        when Ast::AttributeWrite
+          # ENV[k] = v is conventionally load-phase configuration; otherwise
+          # the splitter would flip into execute mode and any subsequent
+          # require_relative would be deferred to runtime, breaking AOT.
+          return true if node.name == :[]= && node.receiver_node.is_a?(Ast::ConstantRead) && node.receiver_node.name == :ENV
+          false
         when Ast::MethodDef, Ast::ClassDef, Ast::ModuleDef, Ast::SingletonClassDef
           true
         when Ast::ConstantWrite, Ast::ConstantPath
