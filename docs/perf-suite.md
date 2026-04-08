@@ -144,7 +144,7 @@ count. The compiled binary runs the work at native speed.
 
 ## Benchmark Results
 
-### AOT Compiled — 2026-04-08
+### AOT Compiled — 2026-04-08 (after runtime allocator pass)
 
 **Environment**: Ruby 4.0.1 (MRI host), Crystal 1.16 `--release`, Linux x86-64 (AMD 6-core)
 **Frozone**: `--aot` generates Crystal source → `crystal build --release` → native binary
@@ -152,34 +152,43 @@ count. The compiled binary runs the work at native speed.
 
 | Benchmark | Frozone | MRI | YJIT | vs MRI | vs YJIT |
 |---|---|---|---|---|---|
-| nbody ×100 | 116 ms | 7293 ms | 2684 ms | **63×** | **23×** |
-| fib(35) ×3 | 97 ms | 2347 ms | 318 ms | **24×** | **3.3×** |
-| matmul(200) ×20 | 262 ms | 7530 ms | 3071 ms | **29×** | **12×** |
-| sudoku ×20 | 445 ms | 7466 ms | 2015 ms | **17×** | **4.5×** |
-| blurhash ×10 | 241 ms | 2480 ms | 1050 ms | **10×** | **4.4×** |
-| nqueens 500×12 | 6569 ms | 199000 ms | 49500 ms | **30×** | **7.5×** |
-| str\_concat ×100 | 995 ms | 5276 ms | 2078 ms | **5.3×** | **2.1×** |
-| binarytrees ×60 | 3860 ms | 16586 ms | 7225 ms | **4.3×** | **1.9×** |
-| fannkuchredux ×10 | 1264 ms | 3171 ms | 3194 ms | **2.5×** | **2.5×** |
-| splay ×200 | 36632 ms | 19963 ms | 14400 ms | 0.5× | 0.4× |
+| nbody ×100 | 117 ms | 7293 ms | 2684 ms | **62×** | **23×** |
+| fib(35) ×3 | 95 ms | 2347 ms | 318 ms | **25×** | **3.3×** |
+| matmul(200) ×20 | 260 ms | 7530 ms | 3071 ms | **29×** | **12×** |
+| sudoku ×20 | 438 ms | 7466 ms | 2015 ms | **17×** | **4.6×** |
+| blurhash ×10 | 242 ms | 2480 ms | 1050 ms | **10×** | **4.3×** |
+| nqueens 500×12 | 6661 ms | 199000 ms | 49500 ms | **30×** | **7.4×** |
+| str\_concat ×100 | 992 ms | 5276 ms | 2078 ms | **5.3×** | **2.1×** |
+| binarytrees ×60 | 1993 ms | 16586 ms | 6456 ms | **8.3×** | **3.2×** |
+| fannkuchredux ×10 | 849 ms | 3171 ms | 3104 ms | **3.7×** | **3.7×** |
+| splay ×200 | 21446 ms | 19963 ms | 14400 ms | 0.93× | 0.67× |
 
 All benchmarks compile and run end-to-end. fib generates assembly identical to
 hand-written Crystal (overhead is Crystal's integer overflow checking, not codegen).
 
-**Status notes (2026-04-08):**
-- **splay**: 36.6s vs YJIT 14.4s. Profiling proves splay! is only 3% of runtime —
-  the gap is GC pressure from boxed payload allocation (75% in GC). Closed; the
-  fixes (skip scrub_utf8 for ASCII literals, constant-fold symbol literals, native
-  arrays in payload trees) apply to all benchmarks, not splay-specifically.
-- **str_concat**: 1.0s, **2.1× faster than YJIT**, after the RubyString
-  exponential-capacity buffer fix (commit 6abb554). Was previously hitting
-  O(n²) reallocation in concat_bytes! and never finished the full workload.
-- **binarytrees**: 3.86s — long-standing baseline (the README's earlier 2.29s
-  appears to have been from a now-lost workload variant; not a regression
-  in any committed compiler change since 008971c).
-- **fannkuchredux**: 1.26s — within striking distance of YJIT but still bottlenecked
-  by Array tuple multi-assignment overhead.
-- **blurhash**: now correct (was producing empty string before keyword arg fix).
+**Recent improvements (2026-04-08, in order):**
+- **scrub_utf8 skip on known-valid UTF-8** (commit 86d2809) — strings constructed
+  from Crystal `String` literals are pre-marked valid; `to_crystal_string` returns
+  via direct memcpy instead of byte-walking. splay 36.6s → 32.4s.
+- **Literal symbol constant-folding** (commit 25752fd) — every unique `:foo` becomes
+  a static `Ruby_Sym_<i>` constant in the file header; call sites are bare loads
+  instead of hash lookups. splay 32.4s → 30.7s.
+- **Small-integer interning** (commit 7de92de) — `RubyInteger.new(v)` for v in
+  -128..127 returns a shared singleton from a 256-entry cache instead of
+  allocating. Mirrors MRI's Fixnum optimization. splay 30.7s → 21.4s,
+  binarytrees 3.86s → 1.99s, fannkuchredux 1.31s → 0.85s.
+
+**Status notes:**
+- **splay**: still GC-bound at 21.4s vs YJIT 14.4s, but the gap shrank ~40% in
+  one session through allocator hygiene alone. Remaining hot allocations are the
+  PayloadNode/Hash/RubyString tree itself; further wins need either escape analysis
+  or pluggable region allocation.
+- **binarytrees**: 1.99s — finally below the README's historical 2.29s baseline.
+  The earlier "regression" was an artefact of unrelated overhead that this
+  session's small-integer interning reversed.
+- **fannkuchredux**: 0.85s — was 1.31s, beats YJIT by 3.7× now.
+- **str_concat**: 1.0s, 2.1× faster than YJIT, runs end-to-end after the
+  exponential-capacity buffer fix (commit 6abb554).
 
 ### Interpreter-only — 2026-03-20, commit db16601
 

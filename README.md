@@ -36,19 +36,19 @@ Apples-to-apples wall-clock time (identical workload, Ruby 4.0.1, Crystal `--rel
 | Benchmark | Frozone | MRI | YJIT | vs MRI | vs YJIT |
 |-----------|---------|-----|------|--------|---------|
 | loops\_times | 13 ms | 836 ms | 266 ms | **65×** | **21×** |
-| nbody ×100 | 116 ms | 7293 ms | 2684 ms | **63×** | **23×** |
-| matmul(200) ×20 | 262 ms | 7530 ms | 3071 ms | **29×** | **12×** |
-| nqueens 500×12 | 6569 ms | 199000 ms | 49500 ms | **30×** | **7.5×** |
-| fib(35) ×3 | 97 ms | 2347 ms | 318 ms | **24×** | **3.3×** |
-| sudoku ×20 | 445 ms | 7466 ms | 2015 ms | **17×** | **4.5×** |
+| nbody ×100 | 117 ms | 7293 ms | 2684 ms | **62×** | **23×** |
+| matmul(200) ×20 | 260 ms | 7530 ms | 3071 ms | **29×** | **12×** |
+| nqueens 500×12 | 6661 ms | 199000 ms | 49500 ms | **30×** | **7.4×** |
+| fib(35) ×3 | 95 ms | 2347 ms | 318 ms | **25×** | **3.3×** |
+| sudoku ×20 | 438 ms | 7466 ms | 2015 ms | **17×** | **4.6×** |
 | structaref ×850 | 1100 ms | 113000 ms | 10619 ms | **103×** | **10×** |
-| blurhash ×10 | 241 ms | 2480 ms | 1050 ms | **10×** | **4.4×** |
-| str\_concat ×100 | 995 ms | 5276 ms | 2078 ms | **5.3×** | **2.1×** |
-| binarytrees ×60 | 3860 ms | 16586 ms | 7225 ms | **4.3×** | **1.9×** |
-| fannkuchredux ×10 | 1264 ms | 3171 ms | 3194 ms | **2.5×** | **2.5×** |
-| splay ×200 | 36632 ms | 19963 ms | 14400 ms | 0.5× | 0.4× |
+| blurhash ×10 | 242 ms | 2480 ms | 1050 ms | **10×** | **4.3×** |
+| str\_concat ×100 | 992 ms | 5276 ms | 2078 ms | **5.3×** | **2.1×** |
+| binarytrees ×60 | 1993 ms | 16586 ms | 6456 ms | **8.3×** | **3.2×** |
+| fannkuchredux ×10 | 849 ms | 3171 ms | 3104 ms | **3.7×** | **3.7×** |
+| splay ×200 | 21446 ms | 19963 ms | 14400 ms | 0.93× | 0.67× |
 
-All benchmarks compile and run end-to-end (AOT → Crystal → native binary). 11 of 12 timed benchmarks are faster than YJIT, with the top 3 at 12–23× faster. Splay (36.6s vs YJIT 14.4s) is GC-pressure-bound — splay! itself is only 3% of runtime; 75% is in Boehm GC handling boxed payload allocations. str\_concat moved into the suite after the exponential-capacity buffer fix unblocked it; it now runs end-to-end in just over 1s and beats YJIT by 2×.
+All benchmarks compile and run end-to-end (AOT → Crystal → native binary). 11 of 12 timed benchmarks are faster than YJIT. Splay (21.4s vs YJIT 14.4s) is the only remaining laggard, GC-bound on Boehm allocator pressure from boxed payload trees — and the gap shrank by 40% in this session as the runtime allocator shed scrub_utf8, symbol-intern, and small-integer-box overhead.
 
 Key compiler features: whole-program type inference with 1-CFA constructor specialisation, `emit_raw_expr` boxing-free typed overloads, class-typed parameter devirtualisation, native `Array(Int64)`/`Array(Float64)` ivar and constant promotion, compile-time `respond_to?`/`is_a?` folding, and kwargs in typed overloads. See [docs/compilation.md](docs/compilation.md) for architecture.
 
