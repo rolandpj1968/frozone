@@ -427,10 +427,11 @@ module Frozone
         # Crystal at native speed instead of interpreted at AOT load time.
         hoisted_class_constants = []
 
+        hoist_consts = @options[:hoist_consts]
         nodes = ast.is_a?(Ast::Sequence) ? ast.nodes : [ast]
         nodes.each do |node|
-          hoist_expensive_class_constants!(node, hoisted_class_constants)
-          if !in_execute && aot_load_phase_node?(node)
+          hoist_expensive_class_constants!(node, hoisted_class_constants) if hoist_consts
+          if !in_execute && aot_load_phase_node?(node, hoist_consts: hoist_consts)
             load_nodes << node
           else
             in_execute = true
@@ -540,7 +541,7 @@ module Frozone
         Ast::ConstantPathWrite.new(parent, const_name, value_node, source_location: source_location)
       end
 
-      def aot_load_phase_node?(node)
+      def aot_load_phase_node?(node, hoist_consts: false)
         case node
         when Ast::MethodCall
           # require, require_relative, and load are load-phase
@@ -560,20 +561,22 @@ module Frozone
         when Ast::MethodDef, Ast::ClassDef, Ast::ModuleDef, Ast::SingletonClassDef
           true
         when Ast::ConstantWrite
-          # Constants with cheap RHS (literals, arithmetic on literals,
-          # nested literal collections) stay in the load phase. Constants
-          # with iteration / block-based initialisers (like optcarrot's
-          # `TILE_LUT = (0...0x10000).map { ... }`) get pushed into the
-          # execute phase so they're built by compiled Crystal code at
-          # binary startup, not interpreted at AOT load time.
-          cheap_constant_initializer?(node.value_node)
+          # When --hoist-class-consts is on, constants with cheap RHS
+          # (literals, arithmetic, nested literal collections) stay in
+          # the load phase, while expensive iteration-based initialisers
+          # (like optcarrot's `TILE_LUT = (0...0x10000).map { ... }`)
+          # get pushed into the execute phase so they're built by
+          # compiled Crystal at binary startup, not interpreted at AOT
+          # load time. Without the flag, all ConstantWrites are load
+          # (the original Frozone behaviour).
+          hoist_consts ? cheap_constant_initializer?(node.value_node) : true
         when Ast::ConstantPath
           true
         when Ast::GlobalVariableWrite
           true
         when Ast::Sequence
           # A sequence where ALL children are load-phase is load-phase
-          node.nodes.all? { |n| aot_load_phase_node?(n) }
+          node.nodes.all? { |n| aot_load_phase_node?(n, hoist_consts: hoist_consts) }
         else
           false
         end

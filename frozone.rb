@@ -3,11 +3,12 @@ require 'optparse'
 require_relative 'lib/frozone/vm/vm'
 
 options = {
-  verbose:   false,
-  scripts:   [],
-  requires:  [],
-  parser:    :prism,
-  aot:       false,
+  verbose:        false,
+  scripts:        [],
+  requires:       [],
+  parser:         :prism,
+  aot:            false,
+  hoist_consts:   false,
 }
 
 OptionParser.new do |opts|
@@ -27,6 +28,15 @@ OptionParser.new do |opts|
 
   opts.on("--aot", "AOT compile: split file into load/execute phases, compile execute to Crystal") do
     options[:aot] = true
+  end
+
+  opts.on("--hoist-class-consts",
+          "AOT only: hoist expensive class-body constant initialisers " \
+          "(those containing .map / .each / etc) out of the load phase " \
+          "into the execute phase so they're built by compiled Crystal " \
+          "instead of the interpreter. Outrageous but effective for " \
+          "lookup-table-heavy code like optcarrot's TILE_LUT.") do
+    options[:hoist_consts] = true
   end
 
   opts.on("--parser=FLAVOR", %w[prism wq],
