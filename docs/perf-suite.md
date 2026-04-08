@@ -196,6 +196,12 @@ from "the laggard" to **tied with YJIT (14.4s)**.
 - **fannkuchredux**: 0.85s — beats YJIT by 3.7× now.
 - **str_concat**: 1.0s, 2.1× faster than YJIT, runs end-to-end after the
   exponential-capacity buffer fix (commit 6abb554).
+- **structaset**: now compiles and runs end-to-end after commit d2fae53,
+  which synthesises a plain Crystal class for `Struct.new(...)` subclasses.
+  Currently 79s vs YJIT 33s — slower than YJIT because every iteration
+  boxes `i` (up to 1M) outside the small-int cache. Functional first;
+  perf needs class-typed-ivar specialization that accepts Int64 directly
+  into the setter. Not yet in the smoke / headline table.
 
 ### Interpreter-only — 2026-03-20, commit db16601
 

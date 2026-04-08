@@ -50,6 +50,8 @@ Apples-to-apples wall-clock time (identical workload, Ruby 4.0.1, Crystal `--rel
 
 All benchmarks compile and run end-to-end (AOT → Crystal → native binary). **All 12 timed benchmarks now meet or beat YJIT.** Splay was the only laggard last cycle (36.6s vs YJIT's 14.4s); a 4-step allocator pass — UTF-8 scrub skip, literal symbol fold, small-integer interning, literal-array hoisting — closed the gap entirely. Splay is now within noise of YJIT.
 
+structaset (`TheClass = Struct.new(:v0, :v1, :v2, :levar)`) was a long-standing build failure: Frozone's Struct subclass machinery uses `define_method` blocks (`Vm::DefinedMethod`) which the codegen couldn't emit. Now resolved by synthesising a plain Crystal class with positional initialize and per-member accessors directly from the class's `@members` ivar. End-to-end functional; not yet in the headline table because it's still slower than YJIT (79s vs 33s) on the per-iteration boxing path.
+
 Key compiler features: whole-program type inference with 1-CFA constructor specialisation, `emit_raw_expr` boxing-free typed overloads, class-typed parameter devirtualisation, native `Array(Int64)`/`Array(Float64)` ivar and constant promotion, compile-time `respond_to?`/`is_a?` folding, and kwargs in typed overloads. See [docs/compilation.md](docs/compilation.md) for architecture.
 
 ### AoT Compilation
