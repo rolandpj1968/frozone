@@ -51,9 +51,29 @@ module Frozone
       ].freeze
 
       # -O0: all off. -O1: safe optimizations. -O2: all on (default).
+      #
+      # The four `typed_ivars / unbox_locals / call_site_types /
+      # method_specialization` flags must travel together or not at
+      # all — they form an interlocking type-information pipeline
+      # that the codegen relies on for typed Float64 dispatch:
+      #
+      #   - call_site_types  infers param types from call sites
+      #   - method_specialization emits raw Int64/Float64 method
+      #     overloads that those typed call sites can dispatch to
+      #   - unbox_locals     keeps the raw values unboxed across the
+      #     specialized method body
+      #   - typed_ivars      types `@field` ivars so wrapper classes
+      #     (Ruby_ThreeDArray etc) compile cleanly
+      #
+      # Removing any one of them at -O1 broke blurhash: at minimum
+      # the -O1 build either failed (Crystal couldn't infer the
+      # nilable index return type) or produced wrong float output
+      # (call sites passed boxed values to a generic overload that
+      # silently coerced).
       OPT_LEVELS = {
         0 => [],
-        1 => %i[tuple_literals devirtualize condition_simplify
+        1 => %i[typed_ivars unbox_locals call_site_types method_specialization
+                native_arrays tuple_literals devirtualize condition_simplify
                 native_iteration accessor_inline],
         2 => OPT_FLAGS.dup
       }.freeze
