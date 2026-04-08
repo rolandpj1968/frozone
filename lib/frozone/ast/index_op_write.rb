@@ -31,6 +31,8 @@ module Frozone
 
     # a[*args] ||= val — evaluates receiver and index args once, returns new value
     class IndexOrWrite < Node
+      attr_reader :receiver_node, :index_arg_nodes, :value_node
+
       def initialize(receiver_node, index_arg_nodes, value_node)
         @receiver_node = receiver_node
         @index_arg_nodes = index_arg_nodes

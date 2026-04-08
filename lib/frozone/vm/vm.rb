@@ -428,6 +428,13 @@ module Frozone
         hoisted_class_constants = []
 
         hoist_consts = @options[:hoist_consts]
+        # Make the hoist list visible to evaluate() so any file that
+        # gets parsed during the load phase (via require_relative)
+        # also has its expensive class constants pulled out — without
+        # this, only the top-level entry file would be hoisted and
+        # programs like optcarrot (where TILE_LUT lives in a required
+        # ppu.rb) would still hit the interpreter slowdown.
+        Fiber[:aot_hoisted_consts] = hoist_consts ? hoisted_class_constants : nil
         nodes = ast.is_a?(Ast::Sequence) ? ast.nodes : [ast]
         nodes.each do |node|
           hoist_expensive_class_constants!(node, hoisted_class_constants) if hoist_consts
@@ -438,7 +445,6 @@ module Frozone
             execute_nodes << node
           end
         end
-        execute_nodes = hoisted_class_constants + execute_nodes unless hoisted_class_constants.empty?
 
         $stderr.puts "frozone --aot: #{load_nodes.size} load nodes, #{execute_nodes.size} execute nodes"
 
@@ -463,6 +469,14 @@ module Frozone
         context.push_scope(top_level_scope)
 
         load_ast.evaluate(context)
+
+        # After load phase: any required files have now been parsed
+        # and (where the hoist applied) had their expensive constant
+        # initialisers stashed in hoisted_class_constants. Splice them
+        # in front of the execute phase so they're built first by the
+        # compiled binary, before any user code that references them.
+        execute_nodes = hoisted_class_constants + execute_nodes unless hoisted_class_constants.empty?
+        Fiber[:aot_hoisted_consts] = nil
 
         # Compile execute phase: wrap in a Block and pass to FrozoneCompile.
         # If the execute phase is just a Frozone.compile! block, unwrap it.
@@ -608,6 +622,20 @@ module Frozone
       def evaluate(script, dump_ast = false, filepath: nil, raise_syntax_errors: false)
         parse_result = parse(script, dump_ast, filepath: filepath, raise_syntax_errors: raise_syntax_errors)
         ast = parse_result.ast
+
+        # When AOT compiling with --hoist-class-consts, walk every
+        # parsed file (not just the top-level entry) for expensive
+        # class-body constant initialisers. The mutation is in-place
+        # — the original ConstantWrite becomes a nil placeholder so
+        # the load-phase interpreter skips the heavy work — and the
+        # hoisted assignments are stashed in Fiber[:aot_hoisted_consts]
+        # for aot_compile to splice into the execute phase later.
+        hoist_list = Fiber[:aot_hoisted_consts]
+        if hoist_list && ast
+          (ast.is_a?(Ast::Sequence) ? ast.nodes : [ast]).each do |n|
+            hoist_expensive_class_constants!(n, hoist_list)
+          end
+        end
 
         if dump_ast
           puts
