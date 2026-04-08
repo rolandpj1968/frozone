@@ -280,6 +280,17 @@ module Frozone
       end
 
       def emit_user_class(name, mod, const_loc: nil)
+        # Struct subclasses (`TheClass = Struct.new(:v0, :v1, :v2, :levar)`)
+        # don't have Vm::Method accessors — they're DefinedMethod blocks
+        # generated via define_method in lib/core/4.0/struct.rb. The
+        # codegen can't emit those directly, so synthesise a normal class
+        # definition with positional-arg initialize and per-member
+        # accessors instead.
+        if mod.is_a?(Vm::ClassObject) && struct_subclass?(mod) && mod.name != :Struct
+          emit_struct_subclass(name, mod)
+          return
+        end
+
         user_methods = collect_class_user_methods(mod)
         return unless user_methods.any? { |_, m| user_source_location?(m.source_location) } ||
                       user_source_location?(const_loc)
@@ -307,6 +318,60 @@ module Frozone
         emit_indent
         write "end"
         emit_newline
+      end
+
+      # Emit a Struct subclass as a plain Crystal class with one ivar /
+      # accessor pair per declared member and an initialize accepting
+      # positional args in declaration order.
+      def emit_struct_subclass(name, cls)
+        members = struct_members_for(cls)
+        return if members.nil? || members.empty?
+
+        crystal_name = "Ruby_#{crystal_constant(name)}"
+        write "class #{crystal_name} < RubyObject"
+        emit_newline
+
+        indented do
+          # ivar declarations
+          members.each do |m|
+            line "@#{m} : RubyObject = RUBY_NIL"
+          end
+          emit_newline
+
+          # to_s / inspect (mirrors emit_default_stringifiers behaviour)
+          line "def to_s : String; \"#<#{name}>\"; end"
+          line "def inspect : String; \"#<#{name}>\"; end"
+          emit_newline
+
+          # initialize accepting positional args, one per member, all
+          # defaulting to RUBY_NIL so callers can construct with fewer
+          # args if they wish (matching Struct semantics).
+          init_params = members.map { |m| "@#{m} : RubyObject = RUBY_NIL" }.join(", ")
+          line "def initialize(#{init_params}); end"
+          emit_newline
+
+          # Per-member reader and writer accessors.
+          members.each do |m|
+            line "def #{m} : RubyObject; @#{m}; end"
+            line "def #{m}=(v : RubyObject) : RubyObject; @#{m} = v; v; end"
+          end
+          emit_newline
+
+          # respond_to? table — same shape as the normal class emission.
+          emit_respond_to(cls)
+        end
+
+        emit_indent
+        write "end"
+        emit_newline
+      end
+
+      # Read the @members array from a Struct subclass and return an
+      # Array of Ruby Symbols, or nil if the class has no members.
+      def struct_members_for(cls)
+        members_obj = cls.get_ivar(:@members)
+        return nil unless members_obj.respond_to?(:raw)
+        members_obj.raw.map { |sym_obj| sym_obj.respond_to?(:raw) ? sym_obj.raw : sym_obj.to_sym }
       end
 
       def collect_class_user_methods(mod)
@@ -866,6 +931,16 @@ module Frozone
       def returns_array_literal?(body) = last_body_expression(body).is_a?(Ast::ArrayLiteral)
 
       def run_type_inference(execute_block, top_level_scope)
+        if ENV["FROZONE_DBG_STRUCT2"]
+          cls = top_level_scope.constants_table&.[](:TheClass)
+          if cls
+            mem = cls.get_ivar(:@members)
+            STDERR.puts "DBG2 sup=#{cls.superclass.inspect[0..60]}"
+            STDERR.puts "DBG2 sup name: #{cls.superclass&.name.inspect}"
+            STDERR.puts "DBG2 ancestors: #{cls.ancestors_list.map { |c| c.name }.inspect}"
+            STDERR.puts "DBG2 mem: #{mem.respond_to?(:raw) ? mem.raw.inspect : mem.inspect}"
+          end
+        end
         user_methods_hash = {}
         top_level_scope.methods_table&.each do |name, m|
           user_methods_hash[name] = m if m.is_a?(Vm::Method) && user_source_location?(m.source_location)

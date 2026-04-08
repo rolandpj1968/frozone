@@ -1,7 +1,7 @@
 $LOADED_FEATURES << File.expand_path('../harness/loader.rb', __dir__)
 def run_benchmark(*, &); end
-require_relative '../benchmarks/structaset_compiled'
+require_relative '../benchmarks/structaset'
 
-# Under --aot, everything below is compiled to Crystal.
-obj = TheSetClass.new(1, 2, 3, 1)
-850.times { obj.set_value_loop }
+obj = TheClass.new(1, 2, 3, 1)
+850.times { set_value_loop(obj) }
+puts obj.levar
