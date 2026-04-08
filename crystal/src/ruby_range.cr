@@ -56,6 +56,16 @@ class RubyRange < RubyObject
     RubyNil::INSTANCE
   end
 
+  # Range#map → RubyArray of block results.
+  # Used by hoisted-into-execute-phase constant initialisers like
+  # `LUT = (0..N).map { |i| ... }` (see vm.rb's
+  # hoist_expensive_class_constants! and the AOT splitter).
+  def map(&block : RubyObject -> RubyObject) : RubyArray
+    result = [] of RubyObject
+    each { |v| result << block.call(v) }
+    RubyArray.new(result)
+  end
+
   def size : RubyObject
     b = @begin_val
     e = @end_val

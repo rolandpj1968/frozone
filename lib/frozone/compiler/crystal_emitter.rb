@@ -249,6 +249,7 @@ module Frozone
         when Ast::ConstantRead       then cr_constant_read(node)
         when Ast::ConstantPath       then cr_constant_path(node)
         when Ast::ConstantWrite      then cr_constant_write(node)
+        when Ast::ConstantPathWrite  then cr_constant_path_write(node)
         when Ast::InstanceVariableRead then cr_ivar_read(node)
         when Ast::ClassVariableRead  then cr_class_var_read(node)
         when Ast::ClassVariableWrite then cr_class_var_write(node)
@@ -396,6 +397,14 @@ module Frozone
       end
 
       def cr_constant_write(node) = "Ruby_#{crystal_constant(node.name)} = #{cr(node.value_node)}"
+
+      # Foo::CONST = expr → Crystal namespace-qualified constant assign.
+      # Used by the AOT splitter when it hoists expensive class constant
+      # initialisers (TILE_LUT-style) out of class bodies into the
+      # execute phase.
+      def cr_constant_path_write(node)
+        "#{cr(node.parent_node)}::Ruby_#{crystal_constant(node.name)} = #{cr(node.value_node)}"
+      end
 
       def cr_class_var_read(node) = node.name.to_s
 

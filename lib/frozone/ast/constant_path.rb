@@ -93,6 +93,8 @@ module Frozone
     end
 
     class ConstantPathWrite < Node
+      attr_reader :parent_node, :name, :value_node
+
       def initialize(parent_node, name, value_node, source_location: nil)
         @parent_node = parent_node
         @name = name

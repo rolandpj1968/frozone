@@ -75,6 +75,29 @@ class RubyTuple{{n}} < RubyObject
     RUBY_FALSE
   end
 
+  def each(&block : RubyObject -> _) : RubyObject
+    {% for i in (0...n) %}
+    block.call(@v{{i}})
+    {% end %}
+    RubyNil::INSTANCE
+  end
+
+  def map(&block : RubyObject -> RubyObject) : RubyArray
+    result = [] of RubyObject
+    {% for i in (0...n) %}
+    result << block.call(@v{{i}})
+    {% end %}
+    RubyArray.new(result)
+  end
+
+  def to_a : RubyArray
+    result = [] of RubyObject
+    {% for i in (0...n) %}
+    result << @v{{i}}
+    {% end %}
+    RubyArray.new(result)
+  end
+
   def to_s : String
     "[" + {% for i in (0...n) %}@v{{i}}.to_s{% if i < n - 1 %} + ", " + {% end %}{% end %} + "]"
   end

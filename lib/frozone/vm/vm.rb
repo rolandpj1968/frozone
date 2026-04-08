@@ -420,8 +420,16 @@ module Frozone
         execute_nodes = []
         in_execute = false
 
+        # Hoist expensive constant initialisers (ones with .map / .each /
+        # .times blocks) out of class bodies before splitting. They get
+        # added to the front of the execute phase as `Class::CONST = expr`
+        # synthetic ConstantPathWrites — so they're built by compiled
+        # Crystal at native speed instead of interpreted at AOT load time.
+        hoisted_class_constants = []
+
         nodes = ast.is_a?(Ast::Sequence) ? ast.nodes : [ast]
         nodes.each do |node|
+          hoist_expensive_class_constants!(node, hoisted_class_constants)
           if !in_execute && aot_load_phase_node?(node)
             load_nodes << node
           else
@@ -429,6 +437,7 @@ module Frozone
             execute_nodes << node
           end
         end
+        execute_nodes = hoisted_class_constants + execute_nodes unless hoisted_class_constants.empty?
 
         $stderr.puts "frozone --aot: #{load_nodes.size} load nodes, #{execute_nodes.size} execute nodes"
 
@@ -473,6 +482,64 @@ module Frozone
       end
 
       # Classify a top-level AST node as load phase (true) or execute phase (false).
+      # Heuristic: a constant initializer is "cheap" iff its expression
+      # tree contains no method calls that take a block. Block-bearing
+      # calls (.map / .times / .each / etc.) are how big lookup tables
+      # get built, and the interpreter is too slow for the inner loop.
+      # Anything else — literals, arithmetic, string interpolation,
+      # constant references, top-level method calls without blocks —
+      # is fine to evaluate at load time.
+      def cheap_constant_initializer?(node)
+        return true if node.nil?
+        return false if contains_block_call?(node)
+        true
+      end
+
+      def contains_block_call?(node)
+        return false unless node.is_a?(Ast::Node)
+        return true if node.is_a?(Ast::MethodCall) && node.block_node
+        return true if node.is_a?(Ast::Block)
+        node.children.any? { |c| contains_block_call?(c) }
+      end
+
+      # Recursively walk a (possibly-nested) class/module body, find
+      # ConstantWrite nodes whose RHS is expensive (block-bearing),
+      # and hoist them as `Outer::Inner::CONST = expr` synthetic
+      # `Ast::ConstantPathWrite` nodes appended to the `hoisted` list.
+      # The original `Ast::ConstantWrite` is replaced in-place inside
+      # the class body's Sequence with an `Ast::NilLiteral` placeholder
+      # so the body still parses and executes cleanly.
+      #
+      # Only handles cases where the constant initialiser is
+      # self-contained (doesn't reference siblings via bare name).
+      # Conservative — bails out for nodes whose body shape isn't a
+      # Sequence we can mutate.
+      def hoist_expensive_class_constants!(node, hoisted, namespace_path = [])
+        return unless node.is_a?(Ast::ClassDef) || node.is_a?(Ast::ModuleDef)
+        path = namespace_path + [node.name]
+        body = node.body
+        return unless body.is_a?(Ast::Sequence)
+        body.nodes.each_with_index do |child, idx|
+          if child.is_a?(Ast::ConstantWrite) && !cheap_constant_initializer?(child.value_node)
+            hoisted << build_path_write(path, child.name, child.value_node, child.instance_variable_get(:@source_location))
+            body.nodes[idx] = Ast::NilLiteral::NIL
+          else
+            hoist_expensive_class_constants!(child, hoisted, path)
+          end
+        end
+      end
+
+      # Build a `Outer::Inner::CONST = value` AST: chain ConstantRead /
+      # ConstantPath nodes for the namespace, then wrap in
+      # ConstantPathWrite for the leaf assignment.
+      def build_path_write(namespace_path, const_name, value_node, source_location)
+        parent = Ast::ConstantRead.new(namespace_path.first)
+        namespace_path[1..].each do |seg|
+          parent = Ast::ConstantPath.new(parent, seg)
+        end
+        Ast::ConstantPathWrite.new(parent, const_name, value_node, source_location: source_location)
+      end
+
       def aot_load_phase_node?(node)
         case node
         when Ast::MethodCall
@@ -492,7 +559,15 @@ module Frozone
           false
         when Ast::MethodDef, Ast::ClassDef, Ast::ModuleDef, Ast::SingletonClassDef
           true
-        when Ast::ConstantWrite, Ast::ConstantPath
+        when Ast::ConstantWrite
+          # Constants with cheap RHS (literals, arithmetic on literals,
+          # nested literal collections) stay in the load phase. Constants
+          # with iteration / block-based initialisers (like optcarrot's
+          # `TILE_LUT = (0...0x10000).map { ... }`) get pushed into the
+          # execute phase so they're built by compiled Crystal code at
+          # binary startup, not interpreted at AOT load time.
+          cheap_constant_initializer?(node.value_node)
+        when Ast::ConstantPath
           true
         when Ast::GlobalVariableWrite
           true

@@ -6,7 +6,7 @@ require_relative '../vm/nil_object'
 module Frozone
   module Ast
     class ModuleDef < Node
-      attr_reader :name
+      attr_reader :name, :body
       def initialize(name, locals, body, namespace_node: nil, source_location: nil)
         @name = name
 

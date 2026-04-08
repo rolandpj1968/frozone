@@ -100,6 +100,23 @@ class RubyInteger < RubyObject
   end
 
   # -------------------------------------------------------------------------
+  # Bit access — Integer#[pos] returns bit pos (0 = LSB), as 0 or 1.
+  # Used by hoisted lookup-table initialisers like optcarrot's TILE_LUT.
+  # Fully general Integer#[range] / Integer#[pos, len] forms are
+  # implemented in Ruby (lib/core/4.0/integer.rb); the Crystal runtime
+  # only supports the single-position bit-access form.
+  # -------------------------------------------------------------------------
+
+  def [](pos : Int64) : RubyObject
+    return RubyInteger.new(0_i64) if pos < 0
+    RubyInteger.new((to_i64 >> pos) & 1_i64)
+  end
+
+  def [](pos : RubyObject) : RubyObject
+    self[pos.to_i64]
+  end
+
+  # -------------------------------------------------------------------------
   # Conversion
   # -------------------------------------------------------------------------
 

@@ -309,6 +309,19 @@ class RubyArray < RubyObject
     RubyArray.new(@data.map { |el| block.call(el) })
   end
 
+  # Array#transpose: rows[i][j] → result[j][i]. All rows must be RubyArrays
+  # of the same length. Used by hoisted constant initialisers like
+  # optcarrot's TILE_LUT.
+  def transpose : RubyArray
+    return RubyArray.new if @data.empty?
+    rows = @data.map { |el| el.as(RubyArray).data }
+    cols = rows.first.size
+    result = Array(RubyObject).new(cols) do |j|
+      RubyArray.new(rows.map { |row| row[j] }).as(RubyObject)
+    end
+    RubyArray.new(result)
+  end
+
   def ruby_select(&block : RubyObject -> RubyObject) : RubyArray
     RubyArray.new(@data.select { |el| block.call(el).truthy? })
   end
