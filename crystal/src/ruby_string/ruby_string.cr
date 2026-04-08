@@ -336,6 +336,23 @@ class RubyString < RubyObject
     self
   end
 
+  # Append a Crystal String's bytes directly to the buffer in place.
+  # Used by the codegen for interpolated string literal parts (`"foo
+  # #{x} bar"`) so the literal portions can be written without
+  # allocating an intermediate String::Builder + Crystal String first.
+  # Same amortised-O(1) growth as concat_bytes!.
+  def concat_raw_bytes!(str : String) : RubyString
+    check_frozen!
+    other_size = str.bytesize
+    return self if other_size == 0
+    needed = @size + other_size
+    ensure_capacity!(needed)
+    str.to_unsafe.copy_to(@bytes.to_unsafe + @size, other_size)
+    @size = needed
+    clear_caches!
+    self
+  end
+
   # Ensure @bytes has at least `needed` bytes of capacity. Doubles the
   # existing capacity (with a small floor) when growth is required so
   # that repeated concat_bytes! calls are amortised O(1) per byte.
@@ -429,6 +446,25 @@ class RubyString < RubyObject
       clear_flag!(VALID_ENC_BIT)
     end
     result
+  end
+
+  # ------------------------------------------------------------------
+  # Cache priming (codegen-friendly)
+  # ------------------------------------------------------------------
+
+  # Pre-populate the ascii_only? and valid_encoding? caches with `true`,
+  # then freeze the string. Used by the codegen for hoisted literal
+  # constants whose ASCII-only-ness was determined statically at compile
+  # time. Eliminates the lazy first-call byte-walk in ascii_only? /
+  # valid_encoding? / length, and unlocks the to_crystal_string scrub
+  # skip path on every read.
+  def freeze_known_ascii! : RubyString
+    set_flag!(ASCII_ONLY_VALID_BIT)
+    set_flag!(ASCII_ONLY_BIT)
+    set_flag!(VALID_ENC_VALID_BIT)
+    set_flag!(VALID_ENC_BIT)
+    set_flag!(FROZEN_BIT)
+    self
   end
 
   # ------------------------------------------------------------------

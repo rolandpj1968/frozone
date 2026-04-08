@@ -127,7 +127,14 @@ module Frozone
           # almost always run with frozen_string_literal: true, so this
           # is the same shape as MRI/YJIT. The constant is frozen at
           # construction time so any in-place mutation raises loud.
-          line "Ruby_Str_#{idx} = RubyString.new(#{crystal_string_literal(str)}).tap { |_s| _s.freeze! }"
+          #
+          # ASCII-only optimisation: when the literal contains only
+          # bytes < 0x80 we can statically prove it's valid UTF-8 AND
+          # ascii_only?. Pre-populate the runtime caches via
+          # freeze_known_ascii! so length / ascii_only? / valid_encoding? /
+          # to_crystal_string all skip their byte walks at every call.
+          tap_method = str.bytes.all? { |b| b < 0x80 } ? "freeze_known_ascii!" : "freeze!"
+          line "Ruby_Str_#{idx} = RubyString.new(#{crystal_string_literal(str)}).tap { |_s| _s.#{tap_method} }"
         end
         emit_newline
       end
@@ -1060,13 +1067,22 @@ module Frozone
       end
 
       def cr_interpolated_string(node)
+        # Build directly into a fresh RubyString instead of going via
+        # String::Builder + Crystal String + RubyString.new (which is
+        # 3 buffers + 2 copies). Each literal part writes its bytes via
+        # concat_raw_bytes!; interpolation slots stringify the value
+        # and concat its bytes. The resulting RubyString starts at
+        # capacity 16 (the default first growth target) and doubles as
+        # needed — same exponential growth as concat_bytes!.
         parts = node.parts.map { |part|
           case part
-          when Ast::StringLiteral then "_s << #{crystal_string_literal(part.value.raw)}"
-          else "_s << (#{cr(part)}).to_s"
+          when Ast::StringLiteral
+            "_s.concat_raw_bytes!(#{crystal_string_literal(part.value.raw)})"
+          else
+            "_s.concat_raw_bytes!((#{cr(part)}).to_s)"
           end
         }
-        "RubyString.new(String.build { |_s| #{parts.join('; ')} })"
+        "RubyString.new(encoding: RubyEncoding::UTF_8).tap { |_s| #{parts.join('; ')} }"
       end
 
 
