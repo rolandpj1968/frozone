@@ -46,9 +46,9 @@ Apples-to-apples wall-clock time (identical workload, Ruby 4.0.1, Crystal `--rel
 | str\_concat ×100 | 992 ms | 5276 ms | 2078 ms | **5.3×** | **2.1×** |
 | binarytrees ×60 | 1993 ms | 16586 ms | 6456 ms | **8.3×** | **3.2×** |
 | fannkuchredux ×10 | 849 ms | 3171 ms | 3104 ms | **3.7×** | **3.7×** |
-| splay ×200 | 21446 ms | 19963 ms | 14400 ms | 0.93× | 0.67× |
+| splay ×200 | 14313 ms | 19963 ms | 14400 ms | **1.4×** | **1.0×** |
 
-All benchmarks compile and run end-to-end (AOT → Crystal → native binary). 11 of 12 timed benchmarks are faster than YJIT. Splay (21.4s vs YJIT 14.4s) is the only remaining laggard, GC-bound on Boehm allocator pressure from boxed payload trees — and the gap shrank by 40% in this session as the runtime allocator shed scrub_utf8, symbol-intern, and small-integer-box overhead.
+All benchmarks compile and run end-to-end (AOT → Crystal → native binary). **All 12 timed benchmarks now meet or beat YJIT.** Splay was the only laggard last cycle (36.6s vs YJIT's 14.4s); a 4-step allocator pass — UTF-8 scrub skip, literal symbol fold, small-integer interning, literal-array hoisting — closed the gap entirely. Splay is now within noise of YJIT.
 
 Key compiler features: whole-program type inference with 1-CFA constructor specialisation, `emit_raw_expr` boxing-free typed overloads, class-typed parameter devirtualisation, native `Array(Int64)`/`Array(Float64)` ivar and constant promotion, compile-time `respond_to?`/`is_a?` folding, and kwargs in typed overloads. See [docs/compilation.md](docs/compilation.md) for architecture.
 

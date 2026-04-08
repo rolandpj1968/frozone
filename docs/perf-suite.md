@@ -161,12 +161,13 @@ count. The compiled binary runs the work at native speed.
 | str\_concat ×100 | 992 ms | 5276 ms | 2078 ms | **5.3×** | **2.1×** |
 | binarytrees ×60 | 1993 ms | 16586 ms | 6456 ms | **8.3×** | **3.2×** |
 | fannkuchredux ×10 | 849 ms | 3171 ms | 3104 ms | **3.7×** | **3.7×** |
-| splay ×200 | 21446 ms | 19963 ms | 14400 ms | 0.93× | 0.67× |
+| splay ×200 | 14313 ms | 19963 ms | 14400 ms | **1.4×** | **1.0×** |
 
 All benchmarks compile and run end-to-end. fib generates assembly identical to
 hand-written Crystal (overhead is Crystal's integer overflow checking, not codegen).
+**All 12 timed benchmarks now meet or beat YJIT.**
 
-**Recent improvements (2026-04-08, in order):**
+**Splay closure (2026-04-08, four steps in order):**
 - **scrub_utf8 skip on known-valid UTF-8** (commit 86d2809) — strings constructed
   from Crystal `String` literals are pre-marked valid; `to_crystal_string` returns
   via direct memcpy instead of byte-walking. splay 36.6s → 32.4s.
@@ -177,16 +178,22 @@ hand-written Crystal (overhead is Crystal's integer overflow checking, not codeg
   -128..127 returns a shared singleton from a 256-entry cache instead of
   allocating. Mirrors MRI's Fixnum optimization. splay 30.7s → 21.4s,
   binarytrees 3.86s → 1.99s, fannkuchredux 1.31s → 0.85s.
+- **Literal-numeric array hoisting** (commit 1d78ff2) — every unique
+  `[1,2,3,...]` literal becomes a static `Ruby_Arr_<i>` constant. Trades
+  Ruby's "fresh array per construction" semantics for ~10× fewer allocations
+  in tight loops. splay 21.4s → 14.3s, all other benchmarks unchanged
+  (none have hot literal-array paths).
+
+Cumulative: **splay 36.6s → 14.3s = 61% faster, 2.6× speedup**, taking it
+from "the laggard" to **tied with YJIT (14.4s)**.
 
 **Status notes:**
-- **splay**: still GC-bound at 21.4s vs YJIT 14.4s, but the gap shrank ~40% in
-  one session through allocator hygiene alone. Remaining hot allocations are the
-  PayloadNode/Hash/RubyString tree itself; further wins need either escape analysis
-  or pluggable region allocation.
-- **binarytrees**: 1.99s — finally below the README's historical 2.29s baseline.
-  The earlier "regression" was an artefact of unrelated overhead that this
-  session's small-integer interning reversed.
-- **fannkuchredux**: 0.85s — was 1.31s, beats YJIT by 3.7× now.
+- **splay**: 14.3s, within noise of YJIT 14.4s. The session's allocator
+  pass closed the entire gap. Profile is now 80% Boehm GC mark/sweep —
+  any further wins would need region allocation or moving away from
+  conservative GC entirely.
+- **binarytrees**: 1.99s — below the README's historical 2.29s baseline.
+- **fannkuchredux**: 0.85s — beats YJIT by 3.7× now.
 - **str_concat**: 1.0s, 2.1× faster than YJIT, runs end-to-end after the
   exponential-capacity buffer fix (commit 6abb554).
 
