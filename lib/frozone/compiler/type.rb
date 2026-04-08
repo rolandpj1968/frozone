@@ -10,9 +10,9 @@
 module Frozone
   module Compiler
     class Type
-      attr_reader :kind, :class_name, :elem, :key, :val
+      attr_reader :kind, :class_name, :elem, :key, :val, :int_min, :int_max
 
-      def initialize(kind, class_name: nil, nullable: false, exact: false, elem: nil, key: nil, val: nil)
+      def initialize(kind, class_name: nil, nullable: false, exact: false, elem: nil, key: nil, val: nil, int_min: nil, int_max: nil)
         @kind = kind
         @class_name = class_name
         @nullable = nullable
@@ -20,7 +20,39 @@ module Frozone
         @elem = elem
         @key = key
         @val = val
+        # int_min / int_max are optional bounds tracked on :i64 types
+        # (and recursively on :array_scalar elem types). nil = full
+        # Int64 range. When set, both must be set together. They get
+        # populated from integer literals and propagated through a few
+        # arithmetic operations in TI; downstream consumers (codegen)
+        # can use them to pick narrower native storage types like
+        # Bytes / Array(UInt8) instead of Array(Int64).
+        @int_min = int_min
+        @int_max = int_max
         freeze
+      end
+
+      # Returns [min, max] if this is a bounded integer type, else nil.
+      def int_bounds
+        return nil unless @kind == :i64 && @int_min && @int_max
+        [@int_min, @int_max]
+      end
+
+      # The narrowest unsigned/signed Crystal integer type that fits
+      # this type's known bounds. nil if bounds aren't tracked.
+      def narrowest_int_type
+        return nil unless (b = int_bounds)
+        min, max = b
+        if min >= 0
+          return "UInt8"  if max <= 0xff
+          return "UInt16" if max <= 0xffff
+          return "UInt32" if max <= 0xffff_ffff
+          return "UInt64"
+        end
+        return "Int8"  if min >= -0x80         && max <= 0x7f
+        return "Int16" if min >= -0x8000       && max <= 0x7fff
+        return "Int32" if min >= -0x8000_0000  && max <= 0x7fff_ffff
+        "Int64"
       end
 
       # -- Predicates ----------------------------------------------------------
@@ -63,13 +95,15 @@ module Frozone
           @exact == other.exact? &&
           @elem == other.elem &&
           @key == other.key &&
-          @val == other.val
+          @val == other.val &&
+          @int_min == other.int_min &&
+          @int_max == other.int_max
       end
 
       alias eql? ==
 
       def hash
-        [@kind, @class_name, @nullable, @exact, @elem, @key, @val].hash
+        [@kind, @class_name, @nullable, @exact, @elem, @key, @val, @int_min, @int_max].hash
       end
 
       # -- Display -------------------------------------------------------------
@@ -193,6 +227,14 @@ module Frozone
 
         def array(elem:)
           new(:class_type, class_name: :Array, elem: elem)
+        end
+
+        # Bounded I64 factory: Type.i64_bounded(min, max). Used by TI
+        # for integer literals (where min == max == the literal value)
+        # and by the join operator for unioning bounded i64 types.
+        def i64_bounded(min, max)
+          return I64 if min.nil? || max.nil?
+          new(:i64, int_min: min, int_max: max)
         end
 
         def hash_type(key: nil, val: nil)

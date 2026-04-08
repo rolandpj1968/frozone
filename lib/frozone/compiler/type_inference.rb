@@ -174,6 +174,15 @@ module Frozone
         return a if b.bottom?
         return a if a == b
 
+        # Bounded I64 union: keep both as I64 with widened bounds.
+        # Types where one or both have nil bounds collapse to plain
+        # Type::I64 (the unbounded singleton).
+        if a.i64? && b.i64?
+          ab, bb = a.int_bounds, b.int_bounds
+          return Type::I64 unless ab && bb
+          return Type.i64_bounded([ab[0], bb[0]].min, [ab[1], bb[1]].max)
+        end
+
         # Normalise scalars/array_scalars to class types for comparison.
         if !a.class_type? || !b.class_type?
           return join(a.to_class_type, b.to_class_type)
@@ -789,7 +798,9 @@ module Frozone
 
       def infer_expr_uncached(node, ctx)
         case node
-        when Ast::IntegerLiteral        then Type::I64
+        when Ast::IntegerLiteral
+          v = node.value.respond_to?(:raw) ? node.value.raw : node.value
+          v.is_a?(Integer) ? Type.i64_bounded(v, v) : Type::I64
         when Ast::FloatLiteral          then Type::F64
         when Ast::NilLiteral            then Type::NIL_CLASS
         when Ast::TrueLiteral           then Type::TRUE_CLASS
