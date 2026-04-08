@@ -32,7 +32,29 @@ class RubyInteger < RubyObject
     @value = v
   end
 
+  # Cached singleton instances for small integers in -128..127.
+  # Module-load cost is one Array allocation + 256 RubyInteger boxes;
+  # at runtime, `RubyInteger.small(v)` is a single bounds-checked load
+  # instead of an allocation. Used by codegen for literal integers in
+  # this range — see crystal_emitter.cr_integer.
+  SMALL_MIN  = -128_i64
+  SMALL_MAX  =  127_i64
+  SMALL_SIZE =  256
+  SMALL_CACHE = Array(RubyInteger).new(SMALL_SIZE) do |i|
+    obj = allocate
+    obj.initialize((i.to_i64 + SMALL_MIN))
+    obj
+  end
+
+  # Fast path for known-small integers. Returns a shared interned
+  # singleton — caller MUST NOT mutate (which is fine since
+  # RubyInteger has no mutators).
+  def self.small(v : Int64) : RubyInteger
+    SMALL_CACHE.unsafe_fetch((v - SMALL_MIN).to_i32)
+  end
+
   def self.new(v : Int64) : RubyInteger
+    return small(v) if v >= SMALL_MIN && v <= SMALL_MAX
     allocate.tap { |o| o.initialize(v) }
   end
 
