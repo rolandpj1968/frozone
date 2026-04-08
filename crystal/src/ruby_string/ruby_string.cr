@@ -58,10 +58,28 @@ class RubyString < RubyObject
   # ------------------------------------------------------------------
   # Storage
   # ------------------------------------------------------------------
+  #
+  # @bytes is the *backing buffer* and may be over-allocated. The logical
+  # string contents are @bytes[0, @size]. Capacity is @size. This
+  # decoupling lets concat_bytes! amortise growth — instead of reallocating
+  # O(n) on every append, we double @bytes whenever the live region would
+  # overflow it, giving O(1) amortised cost per byte.
+  #
+  # All read paths must use `@size` for the logical length and `byte_view`
+  # for the live slice. Direct access via `@bytes[i]` is only safe when
+  # `0 <= i < @size`.
 
-  @bytes    : Bytes
-  @encoding : RubyEncoding
-  @flags    : UInt8
+  @bytes    : Bytes      = Bytes.empty
+  @size     : Int32      = 0_i32
+  @encoding : RubyEncoding = RubyEncoding::UTF_8
+  @flags    : UInt8      = 0_u8
+
+  # Return the live slice of the buffer (the logical string contents).
+  # Friend methods on other RubyStrings may call this; not exposed to
+  # Ruby code.
+  protected def byte_view : Bytes
+    @bytes[0, @size]
+  end
 
   # ------------------------------------------------------------------
   # Constructors
@@ -69,9 +87,12 @@ class RubyString < RubyObject
 
   # Primary initializer: take a Bytes slice, an encoding, and optional flags.
   # The slice is *copied* so the caller's buffer cannot alias our storage.
+  # The new buffer is sized exactly to the input — growth happens lazily
+  # in concat_bytes! when the first append would exceed capacity.
   # flags defaults to 0 (no frozen, no chilled, no cached values).
   def initialize(bytes : Bytes, encoding : RubyEncoding, flags : UInt8 = 0_u8)
     @bytes    = bytes.dup
+    @size     = bytes.size
     @encoding = encoding
     @flags    = flags & ~CACHE_MASK  # never inherit stale cache from caller
   end
@@ -81,6 +102,7 @@ class RubyString < RubyObject
   # The encoding tag defaults to UTF_8 but can be overridden (force_encoding semantics).
   def initialize(str : String, encoding : RubyEncoding = RubyEncoding::UTF_8)
     @bytes    = str.to_slice.dup
+    @size     = @bytes.size
     @encoding = encoding
     @flags    = 0_u8
   end
@@ -101,6 +123,7 @@ class RubyString < RubyObject
   # encoding is given.
   def initialize(*, encoding : RubyEncoding = RubyEncoding::UTF_8)
     @bytes    = Bytes.empty
+    @size     = 0
     @encoding = encoding
     @flags    = 0_u8
   end
@@ -169,7 +192,7 @@ class RubyString < RubyObject
   # ------------------------------------------------------------------
 
   def empty? : Bool
-    @bytes.size == 0
+    @size == 0
   end
 
   def encoding : RubyEncoding
@@ -189,7 +212,7 @@ class RubyString < RubyObject
   # For multi-byte encodings the non-ASCII path is stubbed.
   def length : RubyInteger
     if @encoding.single_byte? || ascii_only?
-      RubyInteger.new(@bytes.size.to_i64)
+      RubyInteger.new(@size.to_i64)
     else
       raise NotImplementedError.new(
         "multi-byte char count not yet implemented for #{@encoding.name}")
@@ -203,12 +226,12 @@ class RubyString < RubyObject
 
   # Byte size (RubyObject-compatible for compiled code).
   def bytesize : RubyObject
-    RubyInteger.new(@bytes.size.to_i64)
+    RubyInteger.new(@size.to_i64)
   end
 
   # Byte size (Crystal-level, returns Int32 for internal use).
   def bytesize_i32 : Int32
-    @bytes.size
+    @size
   end
 
   # ------------------------------------------------------------------
@@ -218,15 +241,15 @@ class RubyString < RubyObject
   # Returns the byte value at index i as Int32, or -1 if out of range.
   # Supports negative indices (Ruby semantics: -1 = last byte).
   def get_byte(i : Int32) : Int32
-    idx = i < 0 ? @bytes.size + i : i
-    return -1 if idx < 0 || idx >= @bytes.size
+    idx = i < 0 ? @size + i : i
+    return -1 if idx < 0 || idx >= @size
     @bytes[idx].to_i32
   end
 
   # Returns the byte at index i as UInt8?, or nil if out of range.
   def getbyte(i : Int32) : UInt8?
-    idx = i < 0 ? @bytes.size + i : i
-    return nil if idx < 0 || idx >= @bytes.size
+    idx = i < 0 ? @size + i : i
+    return nil if idx < 0 || idx >= @size
     @bytes[idx]
   end
 
@@ -235,8 +258,8 @@ class RubyString < RubyObject
   # Returns the byte value written.
   def set_byte!(i : Int32, b : UInt8) : UInt8
     check_frozen!
-    idx = i < 0 ? @bytes.size + i : i
-    raise IndexError.new("index #{i} out of string") if idx < 0 || idx >= @bytes.size
+    idx = i < 0 ? @size + i : i
+    raise IndexError.new("index #{i} out of string") if idx < 0 || idx >= @size
     @bytes[idx] = b
     clear_caches!
     b
@@ -277,14 +300,33 @@ class RubyString < RubyObject
   # Append the bytes of *other* to self in-place.
   # Raises RubyFrozenError if frozen.
   # Returns self.
+  #
+  # Amortised O(1) per byte: the buffer doubles when capacity is
+  # exhausted, so a sequence of N appends is O(N) total instead of
+  # O(N²).
   def concat_bytes!(other : RubyString) : RubyString
     check_frozen!
-    new_bytes = Bytes.new(@bytes.size + other.@bytes.size)
-    @bytes.copy_to(new_bytes)
-    other.@bytes.copy_to(new_bytes + @bytes.size)
-    @bytes = new_bytes
+    other_size = other.@size
+    return self if other_size == 0
+    needed = @size + other_size
+    ensure_capacity!(needed)
+    other.@bytes.to_unsafe.copy_to(@bytes.to_unsafe + @size, other_size)
+    @size = needed
     clear_caches!
     self
+  end
+
+  # Ensure @bytes has at least `needed` bytes of capacity. Doubles the
+  # existing capacity (with a small floor) when growth is required so
+  # that repeated concat_bytes! calls are amortised O(1) per byte.
+  private def ensure_capacity!(needed : Int32) : Nil
+    cap = @bytes.size
+    return if needed <= cap
+    new_cap = cap == 0 ? 16 : cap * 2
+    new_cap = needed if new_cap < needed
+    new_buf = Bytes.new(new_cap)
+    @bytes.to_unsafe.copy_to(new_buf.to_unsafe, @size) if @size > 0
+    @bytes = new_buf
   end
 
   # Change encoding tag without touching the bytes (in-place).
@@ -300,7 +342,7 @@ class RubyString < RubyObject
   # Return a new RubyString with the same bytes but a different encoding tag.
   # Does NOT transcode. Clears cached flags on the new object.
   def force_encoding(enc : RubyEncoding) : RubyString
-    RubyString.new(@bytes, enc)
+    RubyString.new(byte_view, enc)
   end
 
   # Transcode to a different encoding.
@@ -314,7 +356,8 @@ class RubyString < RubyObject
   # Returns self.
   def replace!(other : RubyString) : RubyString
     check_frozen!
-    @bytes    = other.@bytes.dup
+    @bytes    = other.byte_view.dup
+    @size     = other.@size
     @encoding = other.@encoding
     clear_caches!
     self
@@ -374,7 +417,7 @@ class RubyString < RubyObject
 
   # Mark this string as frozen.  Returns self.
   def b : RubyString
-    RubyString.new(@bytes.dup, RubyEncoding::ASCII_8BIT)
+    RubyString.new(byte_view, RubyEncoding::ASCII_8BIT)
   end
 
   def freeze! : RubyString
@@ -384,7 +427,7 @@ class RubyString < RubyObject
 
   # Return a new, unfrozen, unchilled copy of this string.
   def dup : RubyString
-    RubyString.new(@bytes, @encoding, 0_u8)
+    RubyString.new(byte_view, @encoding, 0_u8)
   end
 
   # ------------------------------------------------------------------
@@ -399,9 +442,9 @@ class RubyString < RubyObject
   #   - Otherwise → raise Encoding::CompatibilityError
   def +(other : RubyString) : RubyString
     enc = compatible_encoding_for_concat(other)
-    new_bytes = Bytes.new(@bytes.size + other.@bytes.size)
-    @bytes.copy_to(new_bytes)
-    other.@bytes.copy_to(new_bytes + @bytes.size)
+    new_bytes = Bytes.new(@size + other.@size)
+    @bytes.to_unsafe.copy_to(new_bytes.to_unsafe, @size)
+    other.@bytes.to_unsafe.copy_to(new_bytes.to_unsafe + @size, other.@size)
     RubyString.new(new_bytes, enc)
   end
 
@@ -417,7 +460,7 @@ class RubyString < RubyObject
   # Character access — returns single-char string or nil
   def [](idx : Int64) : RubyObject
     return RubyNil::INSTANCE if @encoding == RubyEncoding::ASCII_8BIT
-    str = String.new(@bytes)
+    str = String.new(@bytes.to_unsafe, @size)
     i = idx < 0 ? str.size + idx : idx
     return RubyNil::INSTANCE if i < 0 || i >= str.size
     ch = str[i]
@@ -430,7 +473,7 @@ class RubyString < RubyObject
 
   # String slice: str[from, len] → substring
   def [](from : RubyObject, len : RubyObject) : RubyObject
-    str = String.new(@bytes)
+    str = String.new(@bytes.to_unsafe, @size)
     f = from.to_i64.to_i32
     l = len.to_i64.to_i32
     f += str.size if f < 0
@@ -441,7 +484,7 @@ class RubyString < RubyObject
 
   # Character ordinal value
   def ord : RubyInteger
-    str = String.new(@bytes)
+    str = String.new(@bytes.to_unsafe, @size)
     return RubyInteger.new(0_i64) if str.empty?
     RubyInteger.new(str[0].ord.to_i64)
   end
@@ -449,9 +492,11 @@ class RubyString < RubyObject
   # Repeat the string n times.
   def *(n : Int32) : RubyString
     return RubyString.new(Bytes.empty, @encoding) if n <= 0
-    new_bytes = Bytes.new(@bytes.size * n)
+    new_bytes = Bytes.new(@size * n)
+    src = @bytes.to_unsafe
+    dst = new_bytes.to_unsafe
     n.times do |i|
-      @bytes.copy_to(new_bytes + (i * @bytes.size))
+      src.copy_to(dst + (i * @size), @size)
     end
     RubyString.new(new_bytes, @encoding)
   end
@@ -463,7 +508,7 @@ class RubyString < RubyObject
 
   # sprintf-style format: "fmt" % val  or  "fmt" % [a, b, c]
   def %(args : RubyObject) : RubyString
-    fmt = String.new(@bytes)
+    fmt = String.new(@bytes.to_unsafe, @size)
     parts = args.is_a?(RubyArray) ? args.data : [args] of RubyObject
     result = fmt.gsub(/%[-+0-9.*]*[sdfeoxXbg%]/) do |spec|
       if spec == "%%"
@@ -501,7 +546,7 @@ class RubyString < RubyObject
 
   # Ruby eql? semantics: same bytes AND same encoding.
   def ==(other : RubyString) : Bool
-    return false unless @bytes == other.@bytes
+    return false unless byte_view == other.byte_view
     return true if @encoding == other.@encoding
     ascii_only? && other.ascii_only?
   end
@@ -515,7 +560,7 @@ class RubyString < RubyObject
   #   - Their bytes are identical AND their encodings are the same, OR
   #   - Both are ASCII-only and their bytes are identical (encoding agnostic).
   def ruby_eql?(other : RubyString) : Bool
-    return false unless @bytes == other.@bytes
+    return false unless byte_view == other.byte_view
     return true if @encoding == other.@encoding
     # Bytes are equal; check if both are ASCII-only (encoding-compatible).
     ascii_only? && other.ascii_only?
@@ -546,12 +591,12 @@ class RubyString < RubyObject
 
   # Lexicographic compare on raw bytes (always returns Int32, ignores encoding).
   def bytesize_compare(other : RubyString) : Int32
-    min_size = Math.min(@bytes.size, other.@bytes.size)
+    min_size = Math.min(@size, other.@size)
     0.upto(min_size - 1) do |i|
       cmp = @bytes[i].to_i32 - other.@bytes[i].to_i32
       return cmp if cmp != 0
     end
-    @bytes.size - other.@bytes.size
+    @size - other.@size
   end
 
   # ------------------------------------------------------------------
@@ -563,11 +608,11 @@ class RubyString < RubyObject
   def to_crystal_string : String
     case @encoding
     when RubyEncoding::UTF_8, RubyEncoding::US_ASCII
-      scrub_utf8(@bytes)
+      scrub_utf8(byte_view)
     when RubyEncoding::ASCII_8BIT
       # Treat each byte as latin-1 / ISO-8859-1; non-ASCII become U+0080..U+00FF
       String.build do |io|
-        @bytes.each do |b|
+        byte_view.each do |b|
           if b < 0x80_u8
             io.write_byte(b)
           else
@@ -579,7 +624,7 @@ class RubyString < RubyObject
       end
     else
       # For other encodings, do a best-effort UTF-8 scrub of the raw bytes.
-      scrub_utf8(@bytes)
+      scrub_utf8(byte_view)
     end
   end
 
@@ -596,7 +641,7 @@ class RubyString < RubyObject
   def inspect : String
     String.build do |io|
       io << '"'
-      @bytes.each do |b|
+      byte_view.each do |b|
         case b
         when 0x22_u8 then io << "\\\""  # "
         when 0x5C_u8 then io << "\\\\"  # \
@@ -623,7 +668,7 @@ class RubyString < RubyObject
 
   # Return a copy of the underlying raw bytes.
   def raw_bytes : Bytes
-    @bytes.dup
+    byte_view.dup
   end
 
   # ------------------------------------------------------------------
@@ -688,7 +733,7 @@ class RubyString < RubyObject
   end
 
   private def all_bytes_ascii? : Bool
-    @bytes.each do |b|
+    byte_view.each do |b|
       return false if b > 127_u8
     end
     true
@@ -700,7 +745,7 @@ class RubyString < RubyObject
     # Derive the canonical table key used by single_byte_transcoder.
     # The transcoder uses keys like "ISO-8859-1", "WINDOWS-1252", "KOI8-R", etc.
     enc_name = @encoding.name
-    @bytes.each do |b|
+    byte_view.each do |b|
       return false if Encoding::SingleByte.byte_to_ucs(b, enc_name) == -1
     end
     true
@@ -718,19 +763,19 @@ class RubyString < RubyObject
   # codepoints above U+10FFFF, and unexpected continuation bytes.
   private def valid_utf8? : Bool
     i = 0
-    while i < @bytes.size
+    while i < @size
       b = @bytes[i]
       if b < 0x80_u8
         i += 1
       elsif b < 0xC0_u8
         return false
       elsif b < 0xE0_u8
-        return false if i + 1 >= @bytes.size
+        return false if i + 1 >= @size
         return false unless continuation?(@bytes[i + 1])
         return false if b < 0xC2_u8
         i += 2
       elsif b < 0xF0_u8
-        return false if i + 2 >= @bytes.size
+        return false if i + 2 >= @size
         return false unless continuation?(@bytes[i + 1]) && continuation?(@bytes[i + 2])
         if b == 0xE0_u8
           return false if @bytes[i + 1] < 0xA0_u8
@@ -740,7 +785,7 @@ class RubyString < RubyObject
         end
         i += 3
       elsif b < 0xF8_u8
-        return false if i + 3 >= @bytes.size
+        return false if i + 3 >= @size
         return false unless continuation?(@bytes[i + 1]) &&
                             continuation?(@bytes[i + 2]) &&
                             continuation?(@bytes[i + 3])
@@ -818,7 +863,7 @@ class RubyString < RubyObject
   # -------------------------------------------------------------------------
 
   def hash : UInt64
-    @bytes.hash
+    byte_view.hash
   end
 
   # -------------------------------------------------------------------------
@@ -845,8 +890,8 @@ class RubyString < RubyObject
 
   def reverse : RubyString
     # Byte-level reversal — correct for ASCII, approximate for multi-byte.
-    rev = Bytes.new(@bytes.size)
-    @bytes.each_with_index { |b, i| rev[@bytes.size - 1 - i] = b }
+    rev = Bytes.new(@size)
+    byte_view.each_with_index { |b, i| rev[@size - 1 - i] = b }
     RubyString.new(rev, @encoding)
   end
 
@@ -985,7 +1030,7 @@ class RubyString < RubyObject
   end
 
   def empty? : RubyBool
-    @bytes.empty? ? RubyBool::TRUE : RubyBool::FALSE
+    @size == 0 ? RubyBool::TRUE : RubyBool::FALSE
   end
 
   def to_i(base : RubyObject = RUBY_NIL_PLACEHOLDER) : RubyInteger
@@ -1010,7 +1055,7 @@ class RubyString < RubyObject
   end
 
   def bytes : RubyArray
-    RubyArray.new(@bytes.map { |b| RubyInteger.new(b.to_i64).as(RubyObject) })
+    RubyArray.new(byte_view.map { |b| RubyInteger.new(b.to_i64).as(RubyObject) })
   end
 
   def each_char(&block : RubyObject ->) : RubyObject
