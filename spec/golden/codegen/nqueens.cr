@@ -96,4 +96,6 @@ end
 end
 
 
-500_i64.times { nq_solve(12_i64) }
+last = 0_i64
+500_i64.times { last = nq_solve(12_i64) }
+STDOUT.puts(RubyInteger.new(last).to_s); RUBY_NIL

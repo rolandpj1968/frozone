@@ -277,9 +277,23 @@ task :bench_smoke do
       sh "bundle exec ruby frozone.rb --aot bench/stubs/#{name}.rb > /dev/null 2>&1"
       sh "cd crystal && crystal build gen/#{name}.cr --release -o #{name} > /dev/null 2>&1"
       t0 = Time.now
-      sh "cd crystal && ./#{name} > /dev/null 2>&1"
+      out = `cd crystal && ./#{name} 2>&1`
+      raise "binary exited #{$?.exitstatus}" unless $?.success?
       ms = ((Time.now - t0) * 1000).to_i
-      puts "✓ #{ms}ms"
+      expected_path = File.expand_path("bench/expected/#{name}.txt", __dir__)
+      if File.exist?(expected_path)
+        expected = File.read(expected_path)
+        if out != expected
+          puts "✗ output mismatch"
+          puts "    expected: #{expected.inspect[0..120]}"
+          puts "    actual:   #{out.inspect[0..120]}"
+          failures << "#{name} (output mismatch)"
+          next
+        end
+        puts "✓ #{ms}ms (output verified)"
+      else
+        puts "✓ #{ms}ms (no expected output captured)"
+      end
     rescue => e
       puts "✗ #{e.message.lines.first&.strip}"
       failures << name

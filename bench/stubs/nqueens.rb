@@ -3,4 +3,6 @@ def run_benchmark(*, &); end
 require_relative '../benchmarks/nqueens'
 
 # Under --aot, everything below is compiled to Crystal.
-500.times { nq_solve(12) }
+last = 0
+500.times { last = nq_solve(12) }
+puts last

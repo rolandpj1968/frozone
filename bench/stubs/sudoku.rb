@@ -5,8 +5,10 @@ require_relative '../benchmarks/sudoku'
 
 # Under --aot, everything below is compiled to Crystal.
 mr, mc = sd_genmat
+last = ""
 20.times do
   HARD20.each do |line|
-    sd_solve(mr, mc, line)
+    last = sd_solve(mr, mc, line)
   end
 end
+puts last

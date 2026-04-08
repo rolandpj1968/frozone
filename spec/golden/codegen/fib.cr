@@ -42,4 +42,6 @@ end
 end
 
 
-3_i64.times { fib(35_i64) }
+total = 0_i64
+3_i64.times { total = (total + fib(35_i64)) }
+STDOUT.puts(RubyInteger.new(total).to_s); RUBY_NIL

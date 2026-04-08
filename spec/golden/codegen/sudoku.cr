@@ -481,4 +481,6 @@ Ruby_HARD20 = RubyArray.new([RubyString.new("..............3.85..1.2.......5.7..
 _tup15_0, _tup15_1 = sd_genmat
 mr = _tup15_0
 mc = _tup15_1
-20_i64.times { Ruby_HARD20.each() { |line| sd_solve(mr, mc, line) } }
+last = RubyString.new("")
+20_i64.times { Ruby_HARD20.each() { |line| last = sd_solve(mr, mc, line) } }
+STDOUT.puts(last.to_s); RUBY_NIL
