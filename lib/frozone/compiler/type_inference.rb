@@ -434,12 +434,39 @@ module Frozone
               join(acc, infer_expr(rhs, ctx))
             end
             next if ty.bottom?
+            # Drop integer bounds before storing into a :local slot.
+            # Without proper loop-bound analysis (see docs/int-soundness.md)
+            # the bounds at any reach of a loop-carried local would be
+            # unsound — we'd compute "x = 0 then x += 1" as x having
+            # bounds [0,1], but downstream a `arr << x` site would
+            # incorrectly believe arr's elem fits in UInt8. Storage
+            # narrowing is not safe in that direction. Locals therefore
+            # always store as plain Type::I64 even when the joined RHS
+            # would be bounded; the per-expression bounds tracking
+            # still works for literals and pure arithmetic chains
+            # within a single statement, which is where storage
+            # narrowing of constants gets its win from.
+            ty = strip_int_bounds(ty)
             iter_changed |= @env.join!([:local, ctx.method_key, name], ty)
           end
           changed |= iter_changed
           break unless iter_changed
         end
         changed
+      end
+
+      # Recursively replace any bounded :i64 type in `ty` with the
+      # unbounded Type::I64 singleton. Used by propagate_locals to
+      # keep bounds out of local-variable slots until loop-bound
+      # analysis is in place.
+      def strip_int_bounds(ty)
+        return ty unless ty.is_a?(Type)
+        return Type::I64 if ty.i64? && ty.int_bounds
+        if ty.array? && ty.elem
+          new_elem = strip_int_bounds(ty.elem)
+          return Type.array(elem: new_elem) if new_elem != ty.elem
+        end
+        ty
       end
 
       # When a multiple assignment destructures a function return (mr, mc = foo()),
@@ -1558,7 +1585,9 @@ module Frozone
 
       def vm_object_type(value)
         case value
-        when Vm::IntegerObject then Type::I64
+        when Vm::IntegerObject
+          v = value.raw
+          v.is_a?(Integer) ? Type.i64_bounded(v, v) : Type::I64
         when Vm::FloatObject   then Type::F64
         when Vm::ArrayObject
           elems = value.raw

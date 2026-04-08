@@ -142,13 +142,36 @@ module Frozone
         Proc: 'RubyProc',
       }.freeze
 
-      # Crystal source string for this type.
+      # Crystal source string for this type. Live-value version: i64
+      # always renders as Int64 because the value may participate in
+      # arithmetic that would overflow a narrower type.
       def to_crystal
         case @kind
         when :i64 then 'Int64'
         when :f64 then 'Float64'
-        when :array_scalar then "Array(#{@elem.to_crystal})"
+        when :array_scalar then "Array(#{@elem.to_crystal_storage})"
         when :class_type then class_to_crystal
+        else 'RubyObject'
+        end
+      end
+
+      # Storage-context version of to_crystal: for i64 types with
+      # known bounds, returns the narrowest Crystal integer type
+      # that fits (UInt8 / Int16 / etc.). Used for array element
+      # types and other contexts where the value is read but never
+      # the live operand of arithmetic — the read site widens to
+      # Int64 on access.
+      def to_crystal_storage
+        case @kind
+        when :i64 then narrowest_int_type || 'Int64'
+        when :f64 then 'Float64'
+        when :array_scalar then "Array(#{@elem.to_crystal_storage})"
+        when :class_type
+          if array? && @elem&.native?
+            "Array(#{@elem.to_crystal_storage})"
+          else
+            class_to_crystal
+          end
         else 'RubyObject'
         end
       end
@@ -165,7 +188,10 @@ module Frozone
       private
 
       def class_to_crystal
-        return "Array(#{@elem.to_crystal})" if array? && @elem&.native?
+        # Array elements are inherently storage — the element type may
+        # have tighter bounds than Int64 and we want the Crystal Array
+        # type to reflect that (Array(UInt8) for byte tables etc).
+        return "Array(#{@elem.to_crystal_storage})" if array? && @elem&.native?
         CRYSTAL_CLASS_NAMES[@class_name] || "Ruby_#{@class_name}"
       end
 

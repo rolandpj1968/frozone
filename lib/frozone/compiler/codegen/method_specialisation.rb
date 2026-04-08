@@ -180,9 +180,98 @@ module Frozone
       # Emit a specialized (typed) class method overload.
       # Like emit_specialized_vm_method but with `def self.` prefix and
       # class-keyed TI lookups.
+      # If `param_type` is an Array (or nested Array of Arrays) with
+      # bounded element types, and the method body mutates `param_name`
+      # at any nesting level, drop the bounds back to plain Int64 so
+      # the typed Crystal signature uses the wider form. Otherwise the
+      # body's writes won't fit the narrowed elem type and Crystal
+      # rejects the build.
+      #
+      # Conservatively widens the *entire* nested array to
+      # Array(Array(Int64)) / Array(Int64) when any mutation is
+      # detected — partial widening of just the inner level is
+      # possible but harder to get right and not yet worth it.
+      def widen_array_param_for_mutation(param_type, param_name, body)
+        return param_type unless param_type.is_a?(Type)
+        return param_type unless param_type.array?
+        return param_type unless array_has_bounded_int_elem?(param_type)
+        return param_type unless mutates_array_param?(body, param_name)
+        widen_array_to_int64(param_type)
+      end
+
+      # True when this Array type has any bounded i64 anywhere in its
+      # element nesting chain.
+      def array_has_bounded_int_elem?(ty)
+        return false unless ty.is_a?(Type) && ty.array?
+        e = ty.elem
+        return false unless e.is_a?(Type)
+        return true if e.i64? && e.int_bounds
+        array_has_bounded_int_elem?(e)
+      end
+
+      # Recursively rewrite nested Array(...) types so every i64 elem
+      # becomes the unbounded Type::I64.
+      def widen_array_to_int64(ty)
+        return ty unless ty.is_a?(Type) && ty.array?
+        elem = ty.elem
+        new_elem = if elem.is_a?(Type) && elem.array?
+                     widen_array_to_int64(elem)
+                   elsif elem.is_a?(Type) && elem.i64?
+                     Type::I64
+                   else
+                     elem
+                   end
+        Type.array(elem: new_elem)
+      end
+
+      # True if `body` contains any operation that writes a value into
+      # `param_name` or into a sub-array reached via `param_name[i]`.
+      # Recognises:
+      #   param << val            param.push(val)
+      #   param[i] = val          param[i] << val
+      #   param[i].push(val)      param[i][j] = val   ...
+      def mutates_array_param?(node, param_name)
+        return false unless node.is_a?(Ast::Node)
+        # arr.<< / arr.push / arr.unshift on a chain rooted at param_name
+        if node.is_a?(Ast::MethodCall) && %i[<< push unshift].include?(node.name)
+          return true if receiver_chain_rooted_at?(node.receiver_node, param_name)
+        end
+        # arr[i] = val with arr chain rooted at param_name
+        if node.is_a?(Ast::AttributeWrite) && node.name == :[]=
+          return true if receiver_chain_rooted_at?(node.receiver_node, param_name)
+        end
+        node.children.any? { |c| mutates_array_param?(c, param_name) }
+      end
+
+      # True when `node` is `param_name`, `param_name[..]`,
+      # `param_name[..][..]`, etc. — i.e. a sequence of `[]` indexing
+      # operations starting from the param.
+      def receiver_chain_rooted_at?(node, param_name)
+        return false unless node.is_a?(Ast::Node)
+        return true if node.is_a?(Ast::LocalVariableRead) && node.name == param_name
+        if node.is_a?(Ast::MethodCall) && node.name == :[]
+          return receiver_chain_rooted_at?(node.receiver_node, param_name)
+        end
+        false
+      end
+
       def emit_specialized_class_method(class_name, mname, method, raw_types, return_type, crystal_param_types: nil)
         req_params = method.required_params || []
         return unless req_params.size == raw_types.size
+
+        # Widen array params whose elem bounds are tighter than what
+        # the body actually mutates them with. Storage narrowing for
+        # an array param is only safe when the body treats the param
+        # as read-only; if the body does `param << val` / `param[i] = val`
+        # / `param.push(val)`, the elem must accommodate the widest
+        # write, which conservatively means dropping the elem bounds
+        # back to unbounded Int64.
+        if crystal_param_types && method.body
+          crystal_param_types = req_params.each_with_index.map do |p, i|
+            ct = crystal_param_types[i]
+            widen_array_param_for_mutation(ct, p, method.body)
+          end
+        end
 
         parts = req_params.each_with_index.map do |p, i|
           rt = raw_types[i]

@@ -245,6 +245,152 @@ RSpec.describe Frozone::Compiler::TypeInference do
       end
     end
 
+    # =====================================================================
+    # Integer-bounds tracking and propagation through arithmetic.
+    # =====================================================================
+
+    context "integer bounds" do
+      let(:ty) { Frozone::Compiler::Type }
+
+      # Helper: infer a single expression and return the bounded Type
+      # for the return slot.
+      def return_type(code)
+        env = infer_method(code)
+        env.type_of([:return, :test_method])
+      end
+
+      describe "literal propagation" do
+        it "small literal → bounded [v, v]" do
+          expect(return_type("42").int_bounds).to eq([42, 42])
+        end
+
+        it "negative literal → bounded [v, v]" do
+          expect(return_type("-10").int_bounds).to eq([-10, -10])
+        end
+
+        it "large literal still bounded" do
+          expect(return_type("1_000_000").int_bounds).to eq([1_000_000, 1_000_000])
+        end
+      end
+
+      describe "narrowest_int_type" do
+        it "[0, 255] → UInt8" do
+          expect(ty.i64_bounded(0, 255).narrowest_int_type).to eq("UInt8")
+        end
+
+        it "[0, 256] → UInt16" do
+          expect(ty.i64_bounded(0, 256).narrowest_int_type).to eq("UInt16")
+        end
+
+        it "[-1, 1] → Int8" do
+          expect(ty.i64_bounded(-1, 1).narrowest_int_type).to eq("Int8")
+        end
+
+        it "[-100, 1000] → Int16" do
+          expect(ty.i64_bounded(-100, 1000).narrowest_int_type).to eq("Int16")
+        end
+
+        it "unbounded I64 → nil" do
+          expect(ty::I64.narrowest_int_type).to be_nil
+        end
+      end
+
+      describe "arithmetic propagation" do
+        it "10 + 20 → [30, 30]" do
+          expect(return_type("10 + 20").int_bounds).to eq([30, 30])
+        end
+
+        it "50 - 12 → [38, 38]" do
+          expect(return_type("50 - 12").int_bounds).to eq([38, 38])
+        end
+
+        it "7 * 8 → [56, 56]" do
+          expect(return_type("7 * 8").int_bounds).to eq([56, 56])
+        end
+
+        it "100 % 3 → [0, 2] (Ruby modulo, divisor positive)" do
+          expect(return_type("100 % 3").int_bounds).to eq([0, 2])
+        end
+
+        it "0xff & 0x0f → [0, 15]" do
+          expect(return_type("0xff & 0x0f").int_bounds).to eq([0, 15])
+        end
+
+        it "0x80 | 0x40 → [128, 255] (next-pow2 widening)" do
+          expect(return_type("0x80 | 0x40").int_bounds).to eq([128, 255])
+        end
+
+        it "0x05 << 3 → [40, 40]" do
+          expect(return_type("0x05 << 3").int_bounds).to eq([40, 40])
+        end
+
+        it "0x100 >> 4 → [16, 16]" do
+          expect(return_type("0x100 >> 4").int_bounds).to eq([16, 16])
+        end
+
+        it "(1 + 2) * (3 - 1) → [6, 6] (nested propagation)" do
+          expect(return_type("(1 + 2) * (3 - 1)").int_bounds).to eq([6, 6])
+        end
+
+        it "subtraction with mixed signs: 5 - 8 → [-3, -3]" do
+          expect(return_type("5 - 8").int_bounds).to eq([-3, -3])
+        end
+
+        it "multiplication of negative: -2 * 3 → [-6, -6]" do
+          expect(return_type("-2 * 3").int_bounds).to eq([-6, -6])
+        end
+      end
+
+      describe "bail-out cases (drop to unbounded)" do
+        it "loop accumulator drops to unbounded I64" do
+          # n.times { x += 1 } — TI can't bound x without loop analysis,
+          # so the local should NOT have tight bounds at exit.
+          env = infer_method("x = 0\n10.times { x += 1 }\nx")
+          x_ty = env.type_of([:local, :test_method, :x])
+          # The local should be Type::I64 (no tracked bounds), or at
+          # most loosely bounded — definitely NOT [10, 10] (which would
+          # be unsound without loop bound analysis).
+          expect(x_ty.int_bounds).to(satisfy { |b| b.nil? || (b[0] != 10 || b[1] != 10) })
+        end
+
+        it "constant array of literal numerics: bounds union via join" do
+          # The array literal should compute its elem bounds as the join
+          # of element bounds, which is the union of [v, v] singletons.
+          ti_env = infer_method("[0, 1, 2, 3, 255]")
+          arr_ty = ti_env.type_of([:return, :test_method])
+          expect(arr_ty.elem.int_bounds).to eq([0, 255])
+        end
+
+        it "array with mixed bounds: [-100, 0, 1000]" do
+          ti_env = infer_method("[-100, 0, 1000]")
+          expect(ti_env.type_of([:return, :test_method]).elem.int_bounds).to eq([-100, 1000])
+        end
+      end
+
+      describe "locals deliberately drop bounds" do
+        # Locals never carry bounds — without loop-bound analysis the
+        # tracked-bounds-on-a-local would be unsound for any code that
+        # later writes to it inside a loop. See docs/int-soundness.md.
+        # Per-expression propagation through pure arithmetic on
+        # literals still works (the previous block) — only the
+        # local-variable slot is intentionally bounds-free.
+
+        it "x = 10; x → unbounded I64 (bounds stripped at local-write)" do
+          expect(return_type("x = 10\nx").int_bounds).to be_nil
+        end
+
+        it "x = 10; x + 1 → unbounded I64 (x is now unbounded)" do
+          # Loses precision compared to the literal-only case `10 + 1`,
+          # but is sound: x could be reassigned in a loop after this.
+          expect(return_type("x = 10\nx + 1").int_bounds).to be_nil
+        end
+
+        it "literal arithmetic still tracks bounds" do
+          expect(return_type("(10 + 1) * 2").int_bounds).to eq([22, 22])
+        end
+      end
+    end
+
     context "local variable assignment" do
       it "tracks local types through assignment" do
         env = infer_method("x = 42\nx")

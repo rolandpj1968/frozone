@@ -1018,17 +1018,20 @@ module Frozone
         when Vm::FalseObject then "RUBY_FALSE"
         when Vm::SymbolObject then "RubySymbol.new(#{value.raw.inspect})"
         when Vm::ArrayObject
-          # Native Array(Int64) for constants confirmed by TI as all-integer.
-          # NOTE: storage-narrowing to Array(UInt8) etc. is correct in
-          # isolation but breaks every call site that expects
-          # Array(Int64) — the typed-overload pipeline currently
-          # generates per-method overloads against Array(Int64), and
-          # call sites would need to widen-on-pass. The bounds machinery
-          # in Type#narrowest_int_type is in place; wiring it through
-          # requires teaching the typed-overload generator to accept
-          # narrow array types too. Tracked separately.
+          # Native Array(T) for constants confirmed by TI as all-integer.
+          # We pick the narrowest Crystal int type that fits the actual
+          # element bounds — Array(UInt8) for byte tables, Array(Int16)
+          # for small-signed, etc. The typed-overload generator now
+          # consults the same bounds via to_crystal_storage so its
+          # parameter types match.
           if const_name && (@gctx.const_raw_types[const_name]) == Type::ARRAY_I64
-            return "Bytes[#{value.raw.map { |e| e.raw.to_s }.join(', ')}].to_a.map(&.to_i64)"
+            min = value.raw.map { |e| e.raw }.min
+            max = value.raw.map { |e| e.raw }.max
+            elem_ty = Type.i64_bounded(min, max)
+            narrow = elem_ty.narrowest_int_type || "Int64"
+            suffix = CRYSTAL_INT_SUFFIX[narrow]
+            elems = value.raw.map { |e| "#{e.raw}_#{suffix}" }.join(', ')
+            return "[#{elems}] of #{narrow}"
           end
           # Large byte arrays: emit compact Bytes literal + map
           if value.raw.size > 256 && value.raw.all? { |e| e.is_a?(Vm::IntegerObject) && e.raw >= 0 && e.raw <= 255 }
