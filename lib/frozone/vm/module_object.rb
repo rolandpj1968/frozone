@@ -250,6 +250,7 @@ module Frozone
         else
           @constants_locations.delete(name)
         end
+        @@constant_generation += 1
       end
 
       def get_constant(name)
@@ -260,7 +261,29 @@ module Frozone
 
       def get_constant_location(name) = @constants_locations[name]
 
+      # Total number of autoloads pending across the entire program.
+      # Constant lookup hot paths short-circuit when this is 0 — see
+      # lookup_autoload_for_const_with_scope and lookup_autoload.
+      # Profiling TILE_LUT-style integer-arithmetic loops showed ~25%
+      # of runtime in autoload walks for code that registered zero
+      # autoloads anywhere.
+      @@autoload_count = 0
+      def self.autoload_count = @@autoload_count
+      def self.any_autoloads? = @@autoload_count > 0
+
+      # Monotonic constant generation counter. Bumped on every
+      # set_constant / constant deletion. ConstantRead AST nodes
+      # cache their resolved value plus the generation at which they
+      # cached, and re-resolve only when the global generation has
+      # advanced. The cache covers the common case of repeated
+      # `is_a?(Integer)` / `is_a?(Float)` style lookups in hot loops
+      # where the resolved constant never actually changes.
+      @@constant_generation = 0
+      def self.constant_generation = @@constant_generation
+      def self.bump_constant_generation = @@constant_generation += 1
+
       def set_autoload(name, path, source_location: nil)
+        @@autoload_count += 1 unless @autoloads.key?(name)
         @autoloads[name] = path
         @autoload_locations ||= {}
         if source_location
@@ -271,6 +294,7 @@ module Frozone
       end
 
       def get_autoload(name)
+        return nil unless @@autoload_count > 0
         # Only return if constant not yet defined
         @autoloads[name] unless @constants_table.key?(name)
       end
@@ -278,11 +302,13 @@ module Frozone
       def get_autoload_location(name) = @autoload_locations&.[](name)
 
       def remove_autoload(name)
+        @@autoload_count -= 1 if @autoloads.key?(name)
         @autoloads.delete(name)
         @autoload_locations&.delete(name)
       end
 
       def lookup_autoload(name, inherit: true)
+        return nil unless @@autoload_count > 0
         path = get_autoload(name)
         return path if path
         return nil unless inherit
@@ -334,6 +360,7 @@ module Frozone
       # Returns [path, declaring_scope] for the autoload registered for +name+ in the given scopes.
       # declaring_scope is the module/class that directly has the autoload (nil if found only via inherit).
       def self.lookup_autoload_for_const_with_scope(name, scopes)
+        return [nil, nil] unless @@autoload_count > 0
         lex_scopes = (!scopes.empty? && scopes[0].equal?(Core::OBJECT_CLASS)) ? scopes[1..] : scopes
         lex_scopes.reverse_each do |class_or_module|
           path = class_or_module.get_autoload(name)

@@ -361,6 +361,7 @@ module Frozone
           end
           maybe_warn_deprecated_constant(context, receiver, name)
           receiver.constants_table.delete(name)
+          Vm::ModuleObject.bump_constant_generation
           val
         end
 

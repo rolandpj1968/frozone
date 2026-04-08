@@ -25,6 +25,24 @@ module Frozone
       end
 
       def evaluate(context)
+        # Inline cache: when no constants have been added or removed
+        # since the last successful resolution at this AST node, the
+        # cached value is still valid. The hot loops in pure-Ruby
+        # core/4.0/ (e.g. `is_a?(Integer)` checks) hit this every
+        # iteration and would otherwise pay a full scope walk per call.
+        #
+        # Thread safety: the cache is a single Array(gen, scopes,
+        # value) so a concurrent reader either sees the new tuple in
+        # full or the old one in full — never a half-updated state.
+        # Worst case under contention is a missed cache hit (we
+        # re-resolve), which is always correct.
+        gen = Vm::ModuleObject.constant_generation
+        scopes = context.frame.scopes
+        cache = @cache
+        if cache && cache[0] == gen && cache[1].equal?(scopes)
+          return cache[2]
+        end
+
         # Autoloads in inner scopes take priority over real constants in outer scopes.
         # Perform a combined scope-by-scope search integrating autoloads.
         autoload_path, autoload_scope = Vm::ModuleObject.lookup_autoload_for_const_with_scope(@name, context.frame.scopes)
@@ -51,8 +69,13 @@ module Frozone
         end
 
         # No autoload: standard constant lookup across all scopes
-        val = Vm::ModuleObject.lookup_constant(@name, context.frame.scopes)
-        return val unless val.nil?
+        val = Vm::ModuleObject.lookup_constant(@name, scopes)
+        unless val.nil?
+          # Single atomic ivar write — readers see either the new
+          # tuple in full or the old one in full.
+          @cache = [gen, scopes, val]
+          return val
+        end
 
         # Call const_missing on innermost lexical scope (or Object if none)
         scope = context.frame.scopes.last || Vm::Core::OBJECT_CLASS
