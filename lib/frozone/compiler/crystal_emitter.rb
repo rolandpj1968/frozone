@@ -279,6 +279,12 @@ module Frozone
           when :E  then "RubyFloat.new(Math::E)"
           else "RubyMath.#{crystal_method_name(name)}"
           end
+        elsif parent.is_a?(Ast::ConstantRead) && parent.name == :Encoding
+          # Encoding::UTF_8, Encoding::BINARY, etc → Ruby_Encoding_<NAME>
+          # singletons defined in crystal/src/ruby_encoding_object.cr.
+          # The runtime interns one RubyEncodingObject per canonical
+          # RubyEncoding enum member, so identity comparison still works.
+          "Ruby_Encoding_#{crystal_constant(name)}"
         else
           "#{cr(parent)}::Ruby_#{crystal_constant(name)}"
         end

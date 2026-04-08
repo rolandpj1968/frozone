@@ -1,1 +1,1 @@
-ran (no-op — Encoding::UTF_8 needs runtime bridge)
+102400

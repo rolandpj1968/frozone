@@ -85,6 +85,30 @@ class RubyString < RubyObject
     @flags    = 0_u8
   end
 
+  # Convenience overloads accepting RubyEncodingObject (the boxed wrapper
+  # exposed to Ruby code via Encoding::UTF_8 / Encoding::BINARY constants).
+  # These unwrap to the underlying RubyEncoding tag.
+  def initialize(bytes : Bytes, encoding : RubyEncodingObject, flags : UInt8 = 0_u8)
+    initialize(bytes, encoding.ruby_encoding, flags)
+  end
+
+  def initialize(str : String, encoding : RubyEncodingObject)
+    initialize(str, encoding.ruby_encoding)
+  end
+
+  # Empty-string + encoding constructor, matching Ruby's
+  # `String.new(encoding: enc)` form. Defaults to UTF-8 when no
+  # encoding is given.
+  def initialize(*, encoding : RubyEncoding = RubyEncoding::UTF_8)
+    @bytes    = Bytes.empty
+    @encoding = encoding
+    @flags    = 0_u8
+  end
+
+  def initialize(*, encoding : RubyEncodingObject)
+    initialize(encoding: encoding.ruby_encoding)
+  end
+
   # ------------------------------------------------------------------
   # Class-level factories
   # ------------------------------------------------------------------
