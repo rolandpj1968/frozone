@@ -408,6 +408,7 @@ module Frozone
         return if members.nil? || members.empty?
 
         crystal_name = "Ruby_#{crystal_constant(name)}"
+        emit_indent
         write "class #{crystal_name} < RubyObject"
         emit_newline
 
@@ -468,6 +469,7 @@ module Frozone
         is_class = mod.is_a?(Vm::ClassObject)
         kw = is_class ? "class" : "module"
         sc_name = is_class ? mod.superclass&.name : nil
+        emit_indent
         write "#{kw} Ruby_#{crystal_constant(name)}"
         if sc_name && !%i[Object BasicObject Struct Data].include?(sc_name)
           write " < Ruby_#{crystal_constant(sc_name)}"
@@ -1911,7 +1913,7 @@ module Frozone
         when Ast::FalseLiteral, Ast::NilLiteral then "false"
         else
           if boolean_valued?(node) then cr(node)
-          else "#{cr(node)}.truthy?"
+          else "(#{cr(node)}).truthy?"
           end
         end
       end

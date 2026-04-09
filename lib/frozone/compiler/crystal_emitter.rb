@@ -688,8 +688,24 @@ module Frozone
       def cr_block(node)
         params = (node.required_params || []) + (node.optional_params || []).map(&:first)
         params += [node.rest_param].compact
-        param_str = params.empty? ? "" : "|#{params.map { |p| crystal_local(p) }.join(', ')}| "
+        param_str = params.empty? ? "" : "|#{params.map { |p| cr_block_param(p) }.join(', ')}| "
         "{ #{param_str}#{cr(node.body)} }"
+      end
+
+      # Format a single block parameter — handles both simple names and
+      # destructured params ({names: [...], rest: ..., rights: [...]}).
+      def cr_block_param(p)
+        return crystal_local(p) if p.is_a?(Symbol)
+        return "*#{crystal_local(p)}" if p.is_a?(Symbol) # rest already handled above
+        return cr_block_param_destructure(p) if p.is_a?(Hash) && p.key?(:names)
+        crystal_local(p)
+      end
+
+      def cr_block_param_destructure(h)
+        parts = (h[:names] || []).map { |n| cr_block_param(n) }
+        parts << "*#{crystal_local(h[:rest])}" if h[:rest]
+        parts += (h[:rights] || []).map { |n| cr_block_param(n) }
+        "(#{parts.join(', ')})"
       end
 
       # &:method — single-arg block that calls the method
@@ -758,7 +774,14 @@ module Frozone
         "#{keyword} #{cond}\n#{body}\n#{indent_str}end"
       end
 
-      def cr_return(node) = node.value_node ? "return #{cr(node.value_node)}" : "return"
+      def cr_return(node)
+        return "return" unless node.value_node
+        val = cr(node.value_node)
+        # Parenthesize multi-line values (if/case/rescue) so Crystal
+        # doesn't parse `return if ...` as a modifier-if.
+        val = "(#{val})" if node.value_node.is_a?(Ast::If) || node.value_node.is_a?(Ast::Case) || node.value_node.is_a?(Ast::Rescue)
+        "return #{val}"
+      end
 
       def cr_next(node)
         val = node.value_node
@@ -887,7 +910,7 @@ module Frozone
           if boolean_valued?(node) then cr(node)
           elsif comparison_op_call?(node)
             "(#{cr_operator_recv(node.receiver_node)} #{node.name} #{cr(node.arg_nodes[0])})"
-          else "#{cr(node)}.truthy?"
+          else "(#{cr(node)}).truthy?"
           end
         end
       end
