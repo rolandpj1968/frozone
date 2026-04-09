@@ -962,6 +962,7 @@ module Frozone
       def emit_method_body(method, name, return_kind)
         string_return, bool_return, raw_return = return_kind
         if bool_return
+          @mctx.bool_return = true
           indented do
             write "((begin"
             emit_newline
@@ -970,6 +971,7 @@ module Frozone
             emit_indent
             write "end) || RUBY_NIL).truthy?"
           end
+          @mctx.bool_return = false
         elsif string_return
           indented do
             write "(begin"
@@ -1292,6 +1294,13 @@ module Frozone
       # Map a class name symbol to the Crystal class name.
       # Uses RUBY_TO_CRYSTAL_TYPE for built-in classes, Ruby_ prefix for user classes.
       def crystal_class_name(cls) = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
+
+      # Override: inside Bool-return methods (==, <, etc.), convert return values
+      # to Crystal Bool so early returns match the : Bool annotation.
+      def cr_return(node)
+        return super unless @mctx.bool_return && node.value_node
+        "return #{cr(node.value_node)}.truthy?"
+      end
 
       # Override: for typed locals in boxed context, wrap in RubyInteger/RubyFloat.
       def cr_local_read(node)

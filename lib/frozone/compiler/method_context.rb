@@ -23,6 +23,7 @@ module Frozone
       attr_accessor :suppress_typed_call_args # Bool — disable typed call args in generic overloads
       attr_accessor :emit_crystal_tuple # Bool — emit Crystal tuple for return array literal
       attr_accessor :suppress_tuple_literals # Bool — suppress RubyTupleN for array locals (may be mutated)
+      attr_accessor :bool_return # Bool — method returns Crystal Bool (== etc.)
 
       def initialize
         @typed_locals = {}

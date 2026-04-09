@@ -1,33 +1,16 @@
-# Self-hosting smoke test — Phase A, step 1.
+# Self-hosting smoke test — Phase A.
 #
-# Tests:
-#   1. Nested namespace modules (Foo::Bar::Baz)
-#   2. Class with constructor, ivars, methods
-#   3. Class method (self.xxx)
-#   4. Constants inside classes
-#   5. ::Hash constant path (RootNamespaceNode)
+# Tests compilation of a real compiler class (Frozone::Compiler::Type).
+# This exercises:
+#   1. Nested namespace emission (Frozone::Compiler::Type)
+#   2. Class with constructor, many methods, freeze
+#   3. Class-typed nullable ivars (@elem : Type | nil)
+#   4. Constants and class methods (Type::I64, Type.new)
 
-module Outer
-  module Inner
-    class Greeter
-      GREETING = "Hello"
+require_relative '../../lib/frozone/compiler/type'
 
-      def initialize(name)
-        @name = name
-      end
-
-      def greet
-        GREETING + ", " + @name.to_s + "!"
-      end
-
-      def self.default
-        new("world")
-      end
-    end
-  end
-end
-
-g = Outer::Inner::Greeter.default
-puts g.greet
-g2 = Outer::Inner::Greeter.new("Frozone")
-puts g2.greet
+t = Frozone::Compiler::Type.new(:i64)
+puts t.kind.to_s
+puts t.i64?.to_s
+puts t.numeric?.to_s
+puts t.bottom?.to_s

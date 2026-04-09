@@ -102,7 +102,12 @@ module Frozone
             next if accessor_method?(method)
             mkey = [class_name, mname]
             method_class_locals = @gctx.class_locals[mkey] || {}
-            method_params = Set.new((method.required_params || []) + (method.optional_params || []).map(&:first))
+            method_params = Set.new(
+              (method.required_params || []) +
+              (method.optional_params || []).map(&:first) +
+              (method.required_kw_params || []) +
+              (method.optional_kw_params || []).map(&:first)
+            )
             collect_ivar_class_types(method.body, ivar_type_sets, method_class_locals, param_names: method_params)
           end
 
