@@ -381,18 +381,18 @@ module Frozone
             elsif a.is_a?(ArrayObject)
               a.raw.map { |s| fstr?(s) ? s.raw : s.raw.to_s }
             elsif a.is_a?(HashObject)
-              h = {}
-              a.raw.each { |k, v|
-                hk = k.is_a?(SymbolObject) ? k.raw : k.to_s
-                hv = case v
-                     when FNIL   then nil
-                     when FFALSE then false
-                     when FTRUE  then true
-                     else v.respond_to?(:raw) ? v.raw : v
-                     end
-                h[hk] = hv
-              }
-              h
+              {}.tap do |h|
+                a.raw.each { |k, v|
+                  hk = k.is_a?(SymbolObject) ? k.raw : k.to_s
+                  hv = case v
+                       when FNIL then nil
+                       when FFALSE then false
+                       when FTRUE then true
+                       else v.respond_to?(:raw) ? v.raw : v
+                       end
+                  h[hk] = hv
+                }
+              end
             else
               a.raw.to_s
             end
@@ -411,18 +411,18 @@ module Frozone
             elsif a.is_a?(ArrayObject)
               a.raw.map { |s| fstr?(s) ? s.raw : s.raw.to_s }
             elsif a.is_a?(HashObject)
-              h = {}
-              a.raw.each { |k, v|
-                hk = k.is_a?(SymbolObject) ? k.raw : k.to_s
-                hv = case v
-                     when FNIL   then nil
-                     when FFALSE then false
-                     when FTRUE  then true
-                     else v.respond_to?(:raw) ? v.raw : v
-                     end
-                h[hk] = hv
-              }
-              h
+              {}.tap do |h|
+                a.raw.each { |k, v|
+                  hk = k.is_a?(SymbolObject) ? k.raw : k.to_s
+                  hv = case v
+                       when FNIL then nil
+                       when FFALSE then false
+                       when FTRUE then true
+                       else v.respond_to?(:raw) ? v.raw : v
+                       end
+                  h[hk] = hv
+                }
+              end
             else
               a.raw.to_s
             end
@@ -465,13 +465,13 @@ module Frozone
             elsif a.is_a?(ArrayObject)
               a.raw.map { |s| fstr?(s) ? s.raw : s.raw.to_s }
             elsif a.is_a?(HashObject)
-              h = {}
-              a.raw.each { |k, v|
-                hk = k.is_a?(::String) ? k : k.to_s
-                hv = v.nil? ? nil : (v.is_a?(::String) ? v : v.to_s)
-                h[hk] = hv
-              }
-              h
+              {}.tap do |h|
+                a.raw.each { |k, v|
+                  hk = k.is_a?(::String) ? k : k.to_s
+                  hv = v.nil? ? nil : (v.is_a?(::String) ? v : v.to_s)
+                  h[hk] = hv
+                }
+              end
             else
               a.raw.to_s
             end
