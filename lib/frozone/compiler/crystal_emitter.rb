@@ -285,6 +285,7 @@ module Frozone
         when Ast::Next               then cr_next(node)
         when Ast::Break              then cr_break(node)
         when Ast::GlobalVariableRead then cr_global_var_read(node)
+        when Ast::RootNamespaceNode  then ""  # ::Foo → same as Foo in compiled output
         when Ast::Retry              then "retry"
         when Ast::Block              then unsupported!(node, "bare Block outside method call")
         else                              unsupported!(node)
@@ -391,6 +392,9 @@ module Frozone
           # The runtime interns one RubyEncodingObject per canonical
           # RubyEncoding enum member, so identity comparison still works.
           "Ruby_Encoding_#{crystal_constant(name)}"
+        elsif parent.is_a?(Ast::RootNamespaceNode)
+          # ::Foo → same as top-level Foo in compiled output
+          RUBY_TO_CRYSTAL_TYPE[name] || "Ruby_#{crystal_constant(name)}"
         else
           "#{cr(parent)}::Ruby_#{crystal_constant(name)}"
         end

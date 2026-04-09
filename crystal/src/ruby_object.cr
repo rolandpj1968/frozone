@@ -173,6 +173,14 @@ abstract class RubyObject
     self
   end
 
+  def freeze : RubyObject
+    self
+  end
+
+  def frozen? : RubyObject
+    RUBY_TRUE
+  end
+
   def bytesize : RubyObject
     raise Exception.new("bytesize not supported for #{self.class}")
   end

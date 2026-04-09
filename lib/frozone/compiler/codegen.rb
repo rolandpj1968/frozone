@@ -325,12 +325,28 @@ module Frozone
         scope.constants_table&.each do |name, value|
           next unless value.is_a?(Vm::ModuleObject)
           next if SKIP_CONSTANTS.include?(name)
-          emit_user_class(name, value, const_loc: const_locs[name])
-          emit_user_classes(value, visited)
+          emit_user_class(name, value, const_loc: const_locs[name], visited: visited)
         end
       end
 
-      def emit_user_class(name, mod, const_loc: nil)
+      # Check whether a module has any nested user-defined content (classes,
+      # modules, or methods with user source locations). Used to decide
+      # whether a namespace-only module needs a Crystal wrapper.
+      def has_user_descendants?(mod, visited = Set.new)
+        return false if visited.include?(mod.object_id)
+        visited << mod.object_id
+        const_locs = mod.constants_locations || {}
+        mod.constants_table&.any? do |name, value|
+          next false unless value.is_a?(Vm::ModuleObject)
+          next false if SKIP_CONSTANTS.include?(name)
+          loc = const_locs[name]
+          user_source_location?(loc) ||
+            value.methods_table&.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) } ||
+            has_user_descendants?(value, visited)
+        end
+      end
+
+      def emit_user_class(name, mod, const_loc: nil, visited: Set.new)
         # Struct subclasses (`TheClass = Struct.new(:v0, :v1, :v2, :levar)`)
         # don't have Vm::Method accessors — they're DefinedMethod blocks
         # generated via define_method in lib/core/4.0/struct.rb. The
@@ -343,32 +359,45 @@ module Frozone
         end
 
         user_methods = collect_class_user_methods(mod)
-        return unless user_methods.any? { |_, m| user_source_location?(m.source_location) } ||
-                      user_source_location?(const_loc)
+        has_own = user_methods.any? { |_, m| user_source_location?(m.source_location) } ||
+                  user_source_location?(const_loc)
 
-        emit_class_header(name, mod)
-        old_cctx = @cctx
-        @cctx = ClassContext.new
-        @cctx.name = name
-        @cctx.ivars = @gctx.typed_ivars.fetch(name, {})
-        @cctx.typed_ivars = @gctx.class_typed_ivars.fetch(name, {})
+        if has_own
+          emit_class_header(name, mod)
+          old_cctx = @cctx
+          @cctx = ClassContext.new
+          @cctx.name = name
+          @cctx.ivars = @gctx.typed_ivars.fetch(name, {})
+          @cctx.typed_ivars = @gctx.class_typed_ivars.fetch(name, {})
 
-        indented do
-          emit_ivar_declarations(user_methods)
-          emit_default_stringifiers(name, user_methods)
-          emit_user_constants(mod)
+          indented do
+            emit_ivar_declarations(user_methods)
+            emit_default_stringifiers(name, user_methods)
+            emit_user_constants(mod)
+            emit_newline
+            eigen_names = collect_eigen_method_names(mod)
+            emit_instance_methods(name, user_methods, eigen_names)
+            emit_class_methods(name, mod, eigen_names)
+            emit_respond_to(mod) if mod.is_a?(Vm::ClassObject)
+            emit_user_classes(mod, visited)
+          end
+
+          @cctx = old_cctx
+          @cctx.eigen_methods = nil
+          emit_indent
+          write "end"
           emit_newline
-          eigen_names = collect_eigen_method_names(mod)
-          emit_instance_methods(name, user_methods, eigen_names)
-          emit_class_methods(name, mod, eigen_names)
-          emit_respond_to(mod) if mod.is_a?(Vm::ClassObject)
+        elsif has_user_descendants?(mod)
+          # Namespace-only module: no user methods, but has nested user content.
+          # Emit a Crystal module wrapper so nested classes land at the right scope.
+          emit_indent
+          write "module Ruby_#{crystal_constant(name)}"
+          emit_newline
+          indented { emit_user_classes(mod, visited) }
+          emit_indent
+          write "end"
+          emit_newline
         end
-
-        @cctx = old_cctx
-        @cctx.eigen_methods = nil
-        emit_indent
-        write "end"
-        emit_newline
       end
 
       # Emit a Struct subclass as a plain Crystal class with one ivar /
