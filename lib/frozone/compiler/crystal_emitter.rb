@@ -497,7 +497,7 @@ module Frozone
       end
 
       BINARY_OPS = %i[+ - * / % ** == != < <= > >= <=> << >> & | ^ === =~].to_set
-      UNARY_OPS  = %i[-@ +@ ~ !].to_set
+      UNARY_OPS = %i[-@ +@ ~ !].to_set
       # Comparison operators that return Crystal Bool — wrap in RubyBool for consistency
       COMPARE_OPS = %i[== != < <= > >= === =~].to_set
 
@@ -1044,14 +1044,14 @@ module Frozone
 
       def default_multiple_assignment(node)
         targets = node.targets
-        rhs     = node.value_node
+        rhs = node.value_node
         tmp = "_ma#{@temp_counter}"
         @temp_counter += 1
         indent_str = "  " * @indent
         lines = ["#{tmp} = masgn_coerce(#{cr(rhs)})"]
         splat_idx = targets.index { |t| t[0].to_s.end_with?('_splat') || t[0] == :splat_nil }
         if splat_idx
-          pre  = targets[0...splat_idx]
+          pre = targets[0...splat_idx]
           post = targets[(splat_idx + 1)..]
           pre.each_with_index { |t, i| lines << cr_masgn_assign(t, "#{tmp}[#{i}_i64]") }
           splat_t = targets[splat_idx]

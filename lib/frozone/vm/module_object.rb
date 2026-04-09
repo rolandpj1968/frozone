@@ -29,9 +29,9 @@ module Frozone
       end
       def private_constants_table = @private_constants
       def is_singleton_class = false
-      def singleton_of       = nil
+      def singleton_of = nil
       def prepends = @prepends || []
-      def modules  = @modules  || []
+      def modules = @modules || []
       def to_s = "module #{@name}"
 
       def initialize(name, namespace, class_object = Core::MODULE_CLASS)

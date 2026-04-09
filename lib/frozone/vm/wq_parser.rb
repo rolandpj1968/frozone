@@ -92,7 +92,7 @@ module Frozone
 
       def top_level_locals = @top_level_locals || []
 
-      def prism_always_warnings  = @prism_always_warnings  || []
+      def prism_always_warnings = @prism_always_warnings || []
 
       def prism_verbose_warnings = @prism_verbose_warnings || []
 

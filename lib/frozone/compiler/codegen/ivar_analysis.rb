@@ -21,7 +21,7 @@ module Frozone
       def collect_const_raw_types(scope)
         @gctx.const_raw_types = {}
         const_table = scope.constants_table || {}
-        const_locs  = scope.constants_locations || {}
+        const_locs = scope.constants_locations || {}
         const_table.each do |name, value|
           next if Codegen::SKIP_CONSTANTS.include?(name) || value.is_a?(Vm::ModuleObject)
           next unless user_source_location?(const_locs[name])
@@ -56,9 +56,9 @@ module Frozone
           req_params = init_method.required_params || []
           next unless req_params.size == param_types.size
 
-          old_typed     = @mctx.typed_locals
+          old_typed = @mctx.typed_locals
           @mctx.typed_locals = req_params.zip(param_types).to_h
-          ivar_types    = {}
+          ivar_types = {}
           collect_ivar_assignments(init_method.body, ivar_types)
           @mctx.typed_locals = old_typed
 
@@ -126,7 +126,7 @@ module Frozone
           ivar_type_sets.each do |iv, types|
             next if types.include?(:unknown)
             concrete = types - Set[:nil, :self_ivar]
-            has_nil  = types.include?(:nil) || types.include?(:self_ivar)
+            has_nil = types.include?(:nil) || types.include?(:self_ivar)
             if concrete.size == 1 && known_class?(concrete.first)
               cls = concrete.first
               result[iv] = has_nil ? [:class_or_nil, cls] : [:class, cls]
@@ -256,7 +256,7 @@ module Frozone
           update_ivar_type(ivar_types, iv, ty)
         when Ast::MultipleAssignment
           targets = node.targets
-          value   = node.value_node
+          value = node.value_node
           # Handle ArrayLiteral RHS: @a, @b = expr_a, expr_b
           if value.is_a?(Ast::ArrayLiteral)
             elems = value.element_nodes || []

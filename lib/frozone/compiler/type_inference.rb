@@ -920,13 +920,13 @@ module Frozone
                                sinh cosh tanh asinh acosh atanh hypot ldexp frexp].to_set
 
       # Built-in methods on Array/Integer/Float with known return types.
-      ARRAY_INT_METHODS  = %i[length size count].to_set
-      INT_INT_METHODS    = %i[abs ceil floor round truncate].to_set
+      ARRAY_INT_METHODS = %i[length size count].to_set
+      INT_INT_METHODS = %i[abs ceil floor round truncate].to_set
       FLOAT_FLOAT_METHODS = %i[abs].to_set
-      FLOAT_INT_METHODS   = %i[ceil floor round truncate].to_set
+      FLOAT_INT_METHODS = %i[ceil floor round truncate].to_set
       # Explicit coercion methods: always return a known numeric type.
-      COERCE_TO_FLOAT    = %i[to_f to_f64 to_r].to_set
-      COERCE_TO_INT      = %i[to_i to_i64 to_int].to_set
+      COERCE_TO_FLOAT = %i[to_f to_f64 to_r].to_set
+      COERCE_TO_INT = %i[to_i to_i64 to_int].to_set
 
       # Top-level dispatcher: walk a chain of try_infer_* helpers, each
       # of which returns either a Type or nil. The first non-nil result
@@ -959,7 +959,7 @@ module Frozone
         return nil unless node.name == :new
         recv = node.receiver_node
         return nil unless recv.is_a?(Ast::ConstantRead) && recv.name == :Array
-        blk  = node.block_node
+        blk = node.block_node
         args = node.arg_nodes || []
         if blk
           elem_ty = infer_block_return(blk, [Type::I64], ctx)
@@ -976,7 +976,7 @@ module Frozone
         return nil unless node.name == :map && node.block_node && node.receiver_node
         recv_ty = infer_expr(node.receiver_node, ctx)
         return nil unless recv_ty.array?
-        elem_in  = recv_ty.elem || Type::BOTTOM
+        elem_in = recv_ty.elem || Type::BOTTOM
         elem_out = infer_block_return(node.block_node, [elem_in], ctx)
         elem_out.bottom? ? Type::ARRAY : Type.array(elem: elem_out)
       end
@@ -1278,7 +1278,7 @@ module Frozone
           collect_assignments(node.value_node, result)
         when Ast::MultipleAssignment
           targets = node.targets || []
-          value   = node.value_node
+          value = node.value_node
           if value.is_a?(Ast::ArrayLiteral)
             elems = value.element_nodes || []
             targets.each_with_index do |t, i|
@@ -1325,7 +1325,7 @@ module Frozone
           result[name] << node.value_node
         when Ast::MultipleAssignment
           targets = node.targets || []
-          value   = node.value_node
+          value = node.value_node
           if value.is_a?(Ast::ArrayLiteral)
             elems = value.element_nodes || []
             targets.each_with_index do |t, i|
@@ -1610,7 +1610,7 @@ module Frozone
             )
           end
         else
-          class_obj  = value.respond_to?(:class_object) ? value.class_object : nil
+          class_obj = value.respond_to?(:class_object) ? value.class_object : nil
           class_name = class_obj&.name
           return nil unless class_name
           Type.of(class_name)

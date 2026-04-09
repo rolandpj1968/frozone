@@ -910,7 +910,7 @@ module Frozone
       # used by emit_method_signature and emit_method_body.
       def compute_return_kind(name, param_types, class_method)
         string_return = STRING_RETURN_METHODS.include?(name)
-        bool_return   = %i[== != < <= > >= equal?].include?(name) && !class_method
+        bool_return = %i[== != < <= > >= equal?].include?(name) && !class_method
         has_specialized = generic_with_specialized?(name, class_method)
         has_any_raw_param = param_types&.any? { |t| t&.raw? }
         raw_return = has_any_raw_param && !has_specialized && opt?(:raw_returns) && !@gctx.typed_params[name] &&
