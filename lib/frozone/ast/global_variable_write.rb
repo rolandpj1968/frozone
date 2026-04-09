@@ -142,9 +142,7 @@ module Frozone
         s
       end
 
-      def vm_type_name(value)
-        value.is_a?(Vm::ObjectObject) && value.class_object ? value.class_object.name : value.class.name
-      end
+      def vm_type_name(value) = value.is_a?(Vm::ObjectObject) && value.class_object ? value.class_object.name : value.class.name
 
       def set_dollar_dot(context, value)
         int_val =

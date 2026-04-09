@@ -644,9 +644,7 @@ module Frozone
           n2f_str("#{loc}:in '#{outer_name}'")
         end
 
-        def exception_tty_check(_context = FNIL)
-          $stderr.isatty ? FTRUE : FFALSE
-        end
+        def exception_tty_check(_context = FNIL) = $stderr.isatty ? FTRUE : FFALSE
 
         # Build a VM backtrace from the current context frames.
         # Skips the 'raise'/'fail' wrapper frame (Kernel#raise is transparent in backtraces).

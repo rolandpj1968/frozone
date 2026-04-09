@@ -66,24 +66,12 @@ module Frozone
       def nullable? = @nullable
       def exact? = @exact
 
-      def numeric?
-        raw? || (class_type? && %i[Integer Float Numeric].include?(@class_name))
-      end
-
-      def array?
-        class_type? && @class_name == :Array
-      end
-
+      def numeric? = raw? || (class_type? && %i[Integer Float Numeric].include?(@class_name))
+      def array? = class_type? && @class_name == :Array
       # Any array form: scalar-elem flat array OR class_type Array.
       def array_like? = array_scalar? || array?
-
-      def hash_type?
-        class_type? && @class_name == :Hash
-      end
-
-      def nil_type?
-        class_type? && @class_name == :NilClass
-      end
+      def hash_type? = class_type? && @class_name == :Hash
+      def nil_type? = class_type? && @class_name == :NilClass
 
       # -- Equality (value semantics) ------------------------------------------
 
@@ -102,9 +90,7 @@ module Frozone
 
       alias eql? ==
 
-      def hash
-        [@kind, @class_name, @nullable, @exact, @elem, @key, @val, @int_min, @int_max].hash
-      end
+      def hash = [@kind, @class_name, @nullable, @exact, @elem, @key, @val, @int_min, @int_max].hash
 
       # -- Display -------------------------------------------------------------
 
@@ -178,9 +164,7 @@ module Frozone
 
       # Is this a Crystal-native type (not a RubyObject subtype)?
       # Native types need raw emission, can't be passed where RubyObject expected.
-      def native?
-        raw? || array_scalar? || (array? && @elem&.native?)
-      end
+      def native? = raw? || array_scalar? || (array? && @elem&.native?)
 
       # Can this type appear in a generic (all-RubyObject) overload?
       def generic_compatible? = !native?
@@ -251,9 +235,7 @@ module Frozone
           new(:class_type, class_name: class_name, nullable: nullable, exact: exact)
         end
 
-        def array(elem:)
-          new(:class_type, class_name: :Array, elem: elem)
-        end
+        def array(elem:) = new(:class_type, class_name: :Array, elem: elem)
 
         # Bounded I64 factory: Type.i64_bounded(min, max). Used by TI
         # for integer literals (where min == max == the literal value)

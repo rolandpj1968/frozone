@@ -402,9 +402,7 @@ module Frozone
       # Used by the AOT splitter when it hoists expensive class constant
       # initialisers (TILE_LUT-style) out of class bodies into the
       # execute phase.
-      def cr_constant_path_write(node)
-        "#{cr(node.parent_node)}::Ruby_#{crystal_constant(node.name)} = #{cr(node.value_node)}"
-      end
+      def cr_constant_path_write(node) = "#{cr(node.parent_node)}::Ruby_#{crystal_constant(node.name)} = #{cr(node.value_node)}"
 
       def cr_class_var_read(node) = node.name.to_s
 

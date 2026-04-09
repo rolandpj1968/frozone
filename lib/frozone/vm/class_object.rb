@@ -42,9 +42,7 @@ module Frozone
         end
       end
 
-      def new_instance(context, args, kwargs, block = nil)
-        allocate_instance.tap { |o| o.dispatch(context, :initialize, args, kwargs, block, private_ok: true) }
-      end
+      def new_instance(context, args, kwargs, block = nil) = allocate_instance.tap { |o| o.dispatch(context, :initialize, args, kwargs, block, private_ok: true) }
 
       def allocate_instance
         if ancestors_list.any? { |a| a.equal?(Core::ARRAY_CLASS) }

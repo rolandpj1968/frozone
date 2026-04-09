@@ -105,9 +105,7 @@ module Frozone
         end
 
         # Legacy-compatible slots hash (for callers that iterate @env.slots).
-        def slots
-          @typed_slots.transform_values(&:to_legacy)
-        end
+        def slots = @typed_slots.transform_values(&:to_legacy)
 
         # Type-native accessors (return Type objects directly).
         def type_of(slot) = @typed_slots.fetch(slot, Type::BOTTOM)
@@ -129,9 +127,7 @@ module Frozone
           true
         end
 
-        def inspect
-          "#<TypeEnv #{@typed_slots.size} typed slots>"
-        end
+        def inspect = "#<TypeEnv #{@typed_slots.size} typed slots>"
       end
 
       # ------------------------------------------------------------------
@@ -1162,9 +1158,7 @@ module Frozone
       end
 
       # Free call to a top-level user method.
-      def try_infer_free_call(node, _ctx)
-        node.receiver_node.nil? ? @env.type_of([:return, node.name]) : nil
-      end
+      def try_infer_free_call(node, _ctx) = node.receiver_node.nil? ? @env.type_of([:return, node.name]) : nil
 
       # Infer the return type of a block body, seeding required params as locals
       # in the enclosing method's namespace (Ruby closure semantics).
@@ -1551,9 +1545,7 @@ module Frozone
                  elem: elem, key: key, val: val)
       end
 
-      def needs_param_resolution?(t)
-        t.elem == :needs_join || t.key == :needs_join || t.val == :needs_join
-      end
+      def needs_param_resolution?(t) = t.elem == :needs_join || t.key == :needs_join || t.val == :needs_join
 
       # Collect constructor param types across all calling contexts and pick
       # the best (most precise) type for each param. Contexts that pass only
