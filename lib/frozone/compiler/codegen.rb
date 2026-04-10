@@ -1372,9 +1372,8 @@ module Frozone
         cname = crystal_local(name)
         val = cr(node.value_node)
         @mctx.suppress_tuple_literals = old_suppress
-        # Recursive lambda: forward-declare so Crystal sees the variable
-        # before the RHS references it.
-        val.include?("#{cname}).as(RubyProc)") ? "#{cname} = RUBY_NIL; #{cname} = #{val}" : "#{cname} = #{val}"
+        # Crystal can't reference a variable inside its own first assignment.
+        val.match?(/\b#{Regexp.escape(cname)}\b/) ? "#{cname} = RUBY_NIL; #{cname} = #{val}" : "#{cname} = #{val}"
       end
 
       # (0..n).to_a where TI says the result is Array[:i64] → native Crystal range to_a.

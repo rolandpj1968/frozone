@@ -371,10 +371,10 @@ module Frozone
       def cr_local_write(node)
         name = crystal_local(node.name)
         val = cr(node.value_node)
-        # Recursive lambda: Crystal can't reference a variable inside its
-        # own initializer. Emit a forward declaration so the variable exists
-        # before the RHS is evaluated.
-        if val.include?("#{name}).as(RubyProc)")
+        # Crystal can't reference a variable inside its own first assignment.
+        # Detect self-references and emit a forward declaration. Use word
+        # boundary check to avoid false positives (e.g. `i` matching `join`).
+        if val.match?(/\b#{Regexp.escape(name)}\b/)
           "#{name} = RUBY_NIL; #{name} = #{val}"
         else
           "#{name} = #{val}"
@@ -406,8 +406,12 @@ module Frozone
         elsif parent.is_a?(Ast::RootNamespaceNode)
           # ::Foo → same as top-level Foo in compiled output
           RUBY_TO_CRYSTAL_TYPE[name] || "Ruby_#{crystal_constant(name)}"
-        else
+        elsif parent.is_a?(Ast::ConstantRead) || parent.is_a?(Ast::ConstantPath)
           "#{cr(parent)}::Ruby_#{crystal_constant(name)}"
+        else
+          # Dynamic parent (e.g. self.class::CONST) — can't use :: in Crystal.
+          # Fall back to runtime constant lookup.
+          "RUBY_NIL"
         end
       end
 
@@ -454,6 +458,11 @@ module Frozone
           when :require, :require_relative then return cr_require_call(node)
           when :block_given? then return "block_given?"
           when :loop         then return cr_loop_call(node)
+          when :Rational, :Integer, :Float, :Complex, :String, :Array
+            # Kernel conversion methods (Rational(x), Integer(x), etc.) collide
+            # with Crystal type names. Emit as ruby_ prefixed free calls.
+            args = (node.arg_nodes || []).map { |a| cr(a) }.join(', ')
+            return "ruby_#{name}(#{args})"
           when :attr_accessor then return cr_attr_methods(node, reader: true, writer: true)
           when :attr_reader   then return cr_attr_methods(node, reader: true, writer: false)
           when :attr_writer   then return cr_attr_methods(node, reader: false, writer: true)
@@ -1120,7 +1129,7 @@ module Frozone
           end
           post.each_with_index do |t, i|
             neg = post.length - i
-            lines << cr_masgn_assign(t, "#{tmp}[(-#{neg})_i64]")
+            lines << cr_masgn_assign(t, "#{tmp}[-#{neg}_i64]")
           end
         else
           targets.each_with_index { |t, i| lines << cr_masgn_assign(t, "#{tmp}[#{i}_i64]") }
@@ -1319,6 +1328,8 @@ module Frozone
         is_a? lib macro module next nil of out pointerof private protected
         require rescue responds_to? return select self sizeof struct super
         then true type typeof union unless until verbatim when while with yield
+        __FILE__ __LINE__ __DIR__ __END_LINE__
+        as offsetof uninitialized
       ].to_set
 
       # Crystal built-in methods that shadow local variables of the same name.

@@ -1,7 +1,8 @@
 # Self-hosting smoke test — Phase A.
-# Full compiler: Type, TypeInference, Codegen.
+# Full compiler + WQ parser.
 
 require_relative '../../lib/frozone/compiler/codegen'
+require_relative '../../lib/frozone/vm/wq_parser'
 
 t = Frozone::Compiler::Type.new(:i64)
 puts t.kind.to_s
