@@ -580,7 +580,7 @@ module Frozone
         indent_str = "  " * @indent
         body = nil
         indented { body = cr(node.body) }
-        parts = ["begin", body]
+        parts = ["#{indent_str}begin", body]
         node.rescue_clauses.each do |clause|
           var = clause.var_name
           excs = clause.exception_nodes
@@ -689,7 +689,15 @@ module Frozone
         params = (node.required_params || []) + (node.optional_params || []).map(&:first)
         params += [node.rest_param].compact
         param_str = params.empty? ? "" : "|#{params.map { |p| cr_block_param(p) }.join(', ')}| "
-        "{ #{param_str}#{cr(node.body)} }"
+        body = nil
+        indented { body = cr(node.body) }
+        # Single-expression bodies → inline { }; multi-line → do/end
+        if body.include?("\n")
+          indent_str = "  " * @indent
+          "do #{param_str}\n#{body}\n#{indent_str}end"
+        else
+          "{ #{param_str}#{body} }"
+        end
       end
 
       # Format a single block parameter — handles both simple names and
@@ -779,7 +787,8 @@ module Frozone
         val = cr(node.value_node)
         # Parenthesize multi-line values (if/case/rescue) so Crystal
         # doesn't parse `return if ...` as a modifier-if.
-        val = "(#{val})" if node.value_node.is_a?(Ast::If) || node.value_node.is_a?(Ast::Case) || node.value_node.is_a?(Ast::Rescue)
+        # Parenthesize if the value is multi-line to avoid modifier-if parsing.
+        val = "(#{val})" if val.include?("\n")
         "return #{val}"
       end
 
@@ -1393,7 +1402,9 @@ module Frozone
         name = node.class.name.split('::').last
         message = msg ? "#{name}: #{msg}" : name
         @errors << message
-        write "RUBY_NIL # UNSUPPORTED: #{message}"
+        # No inline comment — Crystal `#` comments swallow the rest of
+        # the line, breaking closing parens and `.truthy?` chains.
+        "RUBY_NIL"
       end
     end
   end

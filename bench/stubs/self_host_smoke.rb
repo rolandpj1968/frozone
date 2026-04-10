@@ -1,8 +1,8 @@
 # Self-hosting smoke test — Phase A.
-# Compiler::Type compiles and runs. TypeInference blocked on body
-# emission bugs (3 extra `end`s from scope mismatches inside methods).
+# Compiler::Type and TypeInference compile.
 
 require_relative '../../lib/frozone/compiler/type'
+require_relative '../../lib/frozone/compiler/type_inference'
 
 t = Frozone::Compiler::Type.new(:i64)
 puts t.kind.to_s
