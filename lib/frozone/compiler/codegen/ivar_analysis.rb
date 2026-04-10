@@ -82,20 +82,23 @@ module Frozone
       # for ivars with pattern {UserClass} or {UserClass, NilClass}.
       def collect_class_typed_ivars(scope)
         @gctx.class_typed_ivars = {}
-        collect_class_typed_ivars_from(scope)
+        # Phase 1: collect raw ivar type sets per class (own methods only)
+        raw_ivar_sets = {}
+        collect_raw_ivar_type_sets(scope, raw_ivar_sets)
+        # Phase 2: resolve with hierarchy awareness — merge ancestor
+        # type sets and only assign ivars to the defining (topmost) class
+        resolve_ivar_types_with_hierarchy(raw_ivar_sets)
       end
 
-      def collect_class_typed_ivars_from(scope)
+      # Phase 1: collect raw ivar assignment type sets for each class.
+      def collect_raw_ivar_type_sets(scope, raw_sets)
         scope.constants_table&.each do |class_name, value|
           next unless value.is_a?(Vm::ModuleObject) && !Codegen::SKIP_CONSTANTS.include?(class_name)
-          collect_class_typed_ivars_from(value)  # recurse into nested modules/classes
-          next unless value.is_a?(Vm::ClassObject)  # only collect ivars for classes
+          collect_raw_ivar_type_sets(value, raw_sets)
+          next unless value.is_a?(Vm::ClassObject)
           methods = value.methods_table || {}
           next unless methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
 
-          # Collect all ivar assignment types across ALL methods. Skip
-          # attr_accessor-generated setters: their `@x = v` body writes
-          # `:unknown` (v is a param) which poisons the analysis.
           ivar_type_sets = Hash.new { |h, k| h[k] = Set.new }
           methods.each do |mname, method|
             next unless method.is_a?(Vm::Method) && method.body
@@ -111,38 +114,66 @@ module Frozone
             collect_ivar_class_types(method.body, ivar_type_sets, method_class_locals, param_names: method_params)
           end
 
-          # Also scan setter calls (obj.left = val) from any method
           accessor_names = methods.keys.select { |n| n.to_s.end_with?('=') && n != :initialize }.map { |n| n.to_s.chomp('=').to_sym }.to_set
           unless accessor_names.empty?
-            # Scan ALL class instance methods for setter calls to this class's ivars
             @gctx.user_class_names&.each do |cn|
-              scope = lookup_vm_class(cn)
-              (scope&.methods_table || {}).each do |_, m|
+              s = lookup_vm_class(cn)
+              (s&.methods_table || {}).each do |_, m|
                 next unless m.is_a?(Vm::Method) && m.body
                 walk_setter_ivar_types(m.body, class_name, accessor_names, ivar_type_sets)
               end
             end
           end
 
-          # Resolve: {ClassName} → [:class, name], {ClassName, :nil} → [:class_or_nil, name]
-          # :self_ivar means the value comes from another ivar/accessor of the same
-          # class — compatible with whatever class type is already identified.
+          raw_sets[class_name] = [value, ivar_type_sets] unless ivar_type_sets.empty?
+        end
+      end
+
+      # Phase 2: for each class, merge ancestor ivar type sets, then resolve.
+      # Ivars defined in a parent are NOT re-emitted in the child — the child
+      # inherits the parent's resolved type.
+      def resolve_ivar_types_with_hierarchy(raw_sets)
+        # Build a set of ivars owned by each class's ancestors so children
+        # can exclude inherited ivars from their own declarations.
+        raw_sets.each do |class_name, (cls, ivar_type_sets)|
+          # Merge ancestor type info INTO this class's sets for resolution,
+          # but track which ivars are already owned by an ancestor.
+          ancestor_owned = Set.new
+          sc = cls.superclass
+          while sc && !sc.equal?(Vm::Core::OBJECT_CLASS)
+            sc_name = sc.name
+            if sc_name && raw_sets.key?(sc_name)
+              _, parent_sets = raw_sets[sc_name]
+              parent_sets.each do |iv, types|
+                ancestor_owned << iv
+                # Merge parent types into our resolution — broadens the
+                # type to cover both parent and child assignments.
+                ivar_type_sets[iv].merge(types)
+              end
+            end
+            sc = sc.is_a?(Vm::ClassObject) ? sc.superclass : nil
+          end
+
+          # Resolve merged type sets, but only keep ivars NOT owned by an ancestor.
           result = {}
           ivar_type_sets.each do |iv, types|
+            next if ancestor_owned.include?(iv)
             next if types.include?(:unknown)
-            concrete = types - Set[:nil, :self_ivar]
-            has_nil = types.include?(:nil) || types.include?(:self_ivar)
-            if concrete.size == 1 && known_class?(concrete.first)
-              cls = concrete.first
-              result[iv] = has_nil ? [:class_or_nil, cls] : [:class, cls]
-            elsif concrete.empty? && types.include?(:self_ivar)
-              # All concrete assignments are self-referential ({self_ivar} or
-              # {nil, self_ivar}) — tree/list pattern. Always nullable since
-              # default param values or nil assignments are common.
-              result[iv] = [:class_or_nil, class_name]
-            end
+            resolved = resolve_ivar_type(iv, types, class_name)
+            result[iv] = resolved if resolved
           end
           @gctx.class_typed_ivars[class_name] = result unless result.empty?
+        end
+      end
+
+      def resolve_ivar_type(iv, types, class_name)
+        concrete = types - Set[:nil, :self_ivar]
+        has_nil = types.include?(:nil) || types.include?(:self_ivar)
+        if concrete.size == 1 && known_class?(concrete.first)
+          cls = concrete.first
+          has_nil ? [:class_or_nil, cls] : [:class, cls]
+        elsif concrete.empty? && types.include?(:self_ivar)
+          [:class_or_nil, class_name]
         end
       end
 

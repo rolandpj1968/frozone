@@ -369,6 +369,7 @@ module Frozone
           @cctx.name = name
           @cctx.ivars = @gctx.typed_ivars.fetch(name, {})
           @cctx.typed_ivars = @gctx.class_typed_ivars.fetch(name, {})
+          @cctx.parent_ivars = collect_parent_ivars(mod)
 
           indented do
             emit_ivar_declarations(user_methods)
@@ -483,12 +484,34 @@ module Frozone
         all_ivars = user_methods.each_with_object([]) do |(_, m), acc|
           acc.concat(collect_ivars(m.body)) if m.body
         end.uniq
+        # Skip ivars declared by ancestor classes — Crystal forbids
+        # re-declaring inherited ivars with a different type.
+        parent_ivars = @cctx.parent_ivars
+        all_ivars.reject! { |iv| parent_ivars.include?(iv) } unless parent_ivars.empty?
         all_ivars.each do |iv|
           type_ann, default = ivar_type_annotation(iv.to_sym)
           emit_indent
           line "#{iv} : #{type_ann} = #{default}"
         end
         emit_newline unless all_ivars.empty?
+      end
+
+      # Collect ivar names declared by all ancestor user classes.
+      def collect_parent_ivars(mod)
+        return Set.new unless mod.is_a?(Vm::ClassObject)
+        result = Set.new
+        sc = mod.superclass
+        while sc && !sc.equal?(Vm::Core::OBJECT_CLASS)
+          sc_name = sc.name
+          if sc_name && !SKIP_CONSTANTS.include?(sc_name)
+            sc_methods = collect_class_user_methods(sc)
+            sc_methods.each do |_, m|
+              result.merge(collect_ivars(m.body)) if m.body
+            end
+          end
+          sc = sc.is_a?(Vm::ClassObject) ? sc.superclass : nil
+        end
+        result
       end
 
       def ivar_type_annotation(iv_sym)
