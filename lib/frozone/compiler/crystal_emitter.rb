@@ -1006,6 +1006,9 @@ module Frozone
           else_body = nil
           indented { else_body = cr(else_n) }
           parts << else_body
+        else
+          parts << "#{indent_str}else"
+          parts << "#{indent_str}  RUBY_NIL"
         end
         parts << "#{indent_str}end"
         parts.join("\n")
@@ -1029,6 +1032,10 @@ module Frozone
           else_body = nil
           indented { else_body = cr(else_n) }
           parts << else_body
+        else
+          # Ensure Crystal doesn't infer Nil for unmatched branches
+          parts << "#{indent_str}else"
+          parts << "#{indent_str}  RUBY_NIL"
         end
         parts << "#{indent_str}end"
         parts.join("\n")
