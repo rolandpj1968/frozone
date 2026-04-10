@@ -1049,7 +1049,7 @@ module Frozone
         when Vm::NilObject then "RUBY_NIL"
         when Vm::TrueObject then "RUBY_TRUE"
         when Vm::FalseObject then "RUBY_FALSE"
-        when Vm::SymbolObject then "RubySymbol.new(#{value.raw.inspect})"
+        when Vm::SymbolObject then "RubySymbol.from(#{value.raw.to_s.inspect})"
         when Vm::ArrayObject
           # Native Array(T) for constants confirmed by TI as all-integer.
           # We pick the narrowest Crystal int type that fits the actual
@@ -1075,6 +1075,19 @@ module Frozone
           elems = value.raw.map { |e| vm_value_to_crystal(e) }
           return nil if elems.any?(&:nil?)
           "RubyArray.new([#{elems.join(', ')}] of RubyObject)"
+        when Vm::HashObject
+          pairs = value.raw.map do |k, v|
+            ck = vm_value_to_crystal(k)
+            cv = vm_value_to_crystal(v)
+            (ck && cv) ? [ck, cv] : nil
+          end
+          return nil if pairs.any?(&:nil?) || pairs.size > 500
+          if pairs.empty?
+            "RubyHash.new"
+          else
+            sets = pairs.map { |ck, cv| "h[#{ck}] = #{cv}" }.join("; ")
+            "RubyHash.new.tap { |h| #{sets} }"
+          end
         when Vm::ObjectObject
           # User class instance: emit Ruby_ClassName.new(ivar_values...)
           klass = value.class_object
