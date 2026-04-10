@@ -1,5 +1,6 @@
 # Self-hosting smoke test — Phase A.
-# Just Type for now (no TypeInference — nesting/end issue).
+# Compiler::Type compiles and runs. TypeInference blocked on body
+# emission bugs (3 extra `end`s from scope mismatches inside methods).
 
 require_relative '../../lib/frozone/compiler/type'
 
