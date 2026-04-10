@@ -368,7 +368,18 @@ module Frozone
 
       def cr_local_read(node) = crystal_local(node.name)
 
-      def cr_local_write(node) = "#{crystal_local(node.name)} = #{cr(node.value_node)}"
+      def cr_local_write(node)
+        name = crystal_local(node.name)
+        val = cr(node.value_node)
+        # Recursive lambda: Crystal can't reference a variable inside its
+        # own initializer. Emit a forward declaration so the variable exists
+        # before the RHS is evaluated.
+        if val.include?("#{name}).as(RubyProc)")
+          "#{name} = RUBY_NIL; #{name} = #{val}"
+        else
+          "#{name} = #{val}"
+        end
+      end
 
       def cr_ivar_read(node) = node.name.to_s
 
@@ -649,7 +660,7 @@ module Frozone
         parts = []
         node.arg_nodes.each do |arg|
           if arg.is_a?(Ast::SplatArg)
-            parts << "# UNSUPPORTED_SPLAT(#{cr(arg.value_node)})"
+            parts << "RUBY_NIL"
           else
             parts << cr(arg)
           end
@@ -899,12 +910,18 @@ module Frozone
       # when the result is used as a Crystal condition.
       def cr_and(node)
         tmp = "_and#{@temp_counter}"; @temp_counter += 1
-        "(#{tmp} = #{cr(node.left_node)}; #{tmp}.truthy? ? (#{cr(node.right_node)}) : #{tmp})"
+        old_nested = @_inside_nested_expr; @_inside_nested_expr = true
+        result = "(#{tmp} = #{cr(node.left_node)}; #{tmp}.truthy? ? (#{cr(node.right_node)}) : #{tmp})"
+        @_inside_nested_expr = old_nested
+        result
       end
 
       def cr_or(node)
         tmp = "_or#{@temp_counter}"; @temp_counter += 1
-        "(#{tmp} = #{cr(node.left_node)}; #{tmp}.truthy? ? #{tmp} : (#{cr(node.right_node)}))"
+        old_nested = @_inside_nested_expr; @_inside_nested_expr = true
+        result = "(#{tmp} = #{cr(node.left_node)}; #{tmp}.truthy? ? #{tmp} : (#{cr(node.right_node)}))"
+        @_inside_nested_expr = old_nested
+        result
       end
 
 
@@ -965,6 +982,7 @@ module Frozone
         NilClass: 'RubyNil',
         Numeric:  'RubyObject',
         Struct:   'RubyObject',
+        Set:      'RubyObject',
         Math:     'RubyMath',
         Random:   'Ruby_Random',
       }.freeze

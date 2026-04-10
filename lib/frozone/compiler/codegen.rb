@@ -1346,9 +1346,12 @@ module Frozone
         @mctx.typed_array_locals.delete(name)
         old_suppress = @mctx.suppress_tuple_literals
         @mctx.suppress_tuple_literals = true
-        result = "#{crystal_local(name)} = #{cr(node.value_node)}"
+        cname = crystal_local(name)
+        val = cr(node.value_node)
         @mctx.suppress_tuple_literals = old_suppress
-        result
+        # Recursive lambda: forward-declare so Crystal sees the variable
+        # before the RHS references it.
+        val.include?("#{cname}).as(RubyProc)") ? "#{cname} = RUBY_NIL; #{cname} = #{val}" : "#{cname} = #{val}"
       end
 
       # (0..n).to_a where TI says the result is Array[:i64] → native Crystal range to_a.
@@ -1458,13 +1461,15 @@ module Frozone
       end
 
       def safe_for_type_annotation?(val)
+        # Never annotate inside nested expressions (||=, &&=, begin blocks).
+        # Crystal only allows type annotations at method/block body level.
+        return false if @_inside_nested_expr
         case val
         when Ast::MethodCall
           val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
         when Ast::LocalVariableRead
           @_declared_typed_locals&.include?(val.name)
         when Ast::InstanceVariableRead
-          # Cross-class nilable ivars use RubyNil, not Crystal Nil — annotation would mismatch
           ct = @cctx&.typed_ivars&.dig(val.name)
           !(ct.is_a?(Array) && ct[0] == :class_or_nil && ct[1] != @cctx&.name)
         else
@@ -1829,7 +1834,7 @@ module Frozone
 
         parts = args.map do |arg|
           if arg.is_a?(Ast::SplatArg)
-            "# UNSUPPORTED_SPLAT(#{cr(arg.value_node)})"
+            "RUBY_NIL"
           elsif raw_passable_arg?(arg)
             raw(arg)
           else

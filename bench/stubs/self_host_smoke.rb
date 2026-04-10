@@ -1,8 +1,7 @@
 # Self-hosting smoke test — Phase A.
-# Compiler::Type and TypeInference compile.
+# Full compiler: Type, TypeInference, Codegen.
 
-require_relative '../../lib/frozone/compiler/type'
-require_relative '../../lib/frozone/compiler/type_inference'
+require_relative '../../lib/frozone/compiler/codegen'
 
 t = Frozone::Compiler::Type.new(:i64)
 puts t.kind.to_s

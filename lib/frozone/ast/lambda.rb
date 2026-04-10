@@ -5,6 +5,8 @@ require_relative '../vm/proc_object'
 module Frozone
   module Ast
     class Lambda < Node
+      attr_reader :required_params, :body
+
       def initialize(required_params, optional_params, rest_param, post_params,
                      required_kw_params, optional_kw_params, kw_rest_param,
                      block_param, locals, body, it_param: false, source_location: nil)
