@@ -110,6 +110,10 @@ module Frozone
             file = @options[:argv][0]
             raise "frozone --aot requires a file argument" unless file
             aot_compile(File.expand_path(file))
+          elsif @options[:flatten]
+            file = @options[:argv][0]
+            raise "frozone --flatten requires a file argument" unless file
+            flatten_and_run(File.expand_path(file))
           elsif scripts.empty?
             # if -e is absent then ruby evaluates the FIRST file only
             file = @options[:argv][0]
@@ -406,35 +410,24 @@ module Frozone
       # after the symlink is removed (matching MRI semantics: real path stored at load time).
       FILE_REALPATH_CACHE = {}
 
-      # --aot mode: split a Ruby file into load phase (requires, defs) and
-      # execute phase (everything else), then compile the execute phase to Crystal.
-      def aot_compile(path)
+      # Split a Ruby file into load phase and execute phase, evaluate the
+      # load phase, optionally flatten modules, then return the context
+      # and execute nodes for the caller to handle.
+      #
+      # Used by both --aot (compile execute phase) and --flatten
+      # (interpret execute phase with flattened class tables).
+      def split_and_load(path, flatten: false)
         full_path = File.expand_path(path)
         source = File.read(full_path)
         parse_result = parse(source, false, filepath: full_path)
         ast = parse_result.ast
 
-        # Split AST into load and execute phases.
-        # Load: require/require_relative, class/module/method defs, constant/global writes.
-        # Execute: everything else (describe blocks, top-level calls, etc.).
         load_nodes = []
         execute_nodes = []
         in_execute = false
 
-        # Hoist expensive constant initialisers (ones with .map / .each /
-        # .times blocks) out of class bodies before splitting. They get
-        # added to the front of the execute phase as `Class::CONST = expr`
-        # synthetic ConstantPathWrites — so they're built by compiled
-        # Crystal at native speed instead of interpreted at AOT load time.
         hoisted_class_constants = []
-
         hoist_consts = @options[:hoist_consts]
-        # Make the hoist list visible to evaluate() so any file that
-        # gets parsed during the load phase (via require_relative)
-        # also has its expensive class constants pulled out — without
-        # this, only the top-level entry file would be hoisted and
-        # programs like optcarrot (where TILE_LUT lives in a required
-        # ppu.rb) would still hit the interpreter slowdown.
         Fiber[:aot_hoisted_consts] = hoist_consts ? hoisted_class_constants : nil
         nodes = ast.is_a?(Ast::Sequence) ? ast.nodes : [ast]
         nodes.each do |node|
@@ -447,9 +440,8 @@ module Frozone
           end
         end
 
-        $stderr.puts "frozone --aot: #{load_nodes.size} load nodes, #{execute_nodes.size} execute nodes"
+        $stderr.puts "frozone: #{load_nodes.size} load nodes, #{execute_nodes.size} execute nodes"
 
-        # Evaluate load phase normally (defines classes, methods, constants, requires files).
         (Fiber[:file_stack] ||= []) << full_path
         FILE_REALPATH_CACHE[full_path] = begin; File.realpath(full_path); rescue; full_path; end
         load_ast = Ast::Sequence.new(load_nodes)
@@ -472,19 +464,31 @@ module Frozone
         load_ast.evaluate(context)
 
         # Module erasure: flatten ancestor methods/constants into each
-        # concrete class before TI runs. TI then sees flat per-class tables.
-        Frozone::Compiler::ModuleErasure.flatten!(top_level_scope)
+        # concrete class. For --aot this is before TI; for --flatten
+        # this is before interpreting the execute phase.
+        Frozone::Compiler::ModuleErasure.flatten!(top_level_scope) if flatten
 
-        # After load phase: any required files have now been parsed
-        # and (where the hoist applied) had their expensive constant
-        # initialisers stashed in hoisted_class_constants. Splice them
-        # in front of the execute phase so they're built first by the
-        # compiled binary, before any user code that references them.
         execute_nodes = hoisted_class_constants + execute_nodes unless hoisted_class_constants.empty?
         Fiber[:aot_hoisted_consts] = nil
 
+        [context, execute_nodes, full_path, load_nodes.size]
+      end
+
+      # --flatten mode: split, flatten modules, then INTERPRET the execute phase.
+      # Same load/execute split as --aot but runs the execute phase under the
+      # interpreter with flattened class tables. For A/B testing erasure.
+      def flatten_and_run(path)
+        context, execute_nodes, full_path, _ = split_and_load(path, flatten: true)
+        execute_ast = Ast::Sequence.new(execute_nodes)
+        execute_ast.evaluate(context)
+        Fiber[:file_stack]&.pop
+      end
+
+      # --aot mode: split, flatten modules, then compile the execute phase to Crystal.
+      def aot_compile(path)
+        context, execute_nodes, full_path, load_count = split_and_load(path, flatten: true)
+
         # Compile execute phase: wrap in a Block and pass to FrozoneCompile.
-        # If the execute phase is just a Frozone.compile! block, unwrap it.
         execute_ast = Ast::Sequence.new(execute_nodes)
         inner = execute_nodes.size == 1 && execute_nodes[0].is_a?(Ast::FrozoneCompile) ?
           execute_nodes[0].block_node.body : execute_ast
@@ -493,7 +497,7 @@ module Frozone
           [], [], nil, nil,  # kw params, block param
           false, [],         # auto_splat, locals
           inner,             # body
-          source_location: [full_path, load_nodes.size + 1]
+          source_location: [full_path, load_count + 1]
         )
         compile_node = Ast::FrozoneCompile.new(block_node, aot_mode: true)
         compile_node.evaluate(context)

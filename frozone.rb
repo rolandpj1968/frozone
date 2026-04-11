@@ -30,6 +30,10 @@ OptionParser.new do |opts|
     options[:aot] = true
   end
 
+  opts.on("--flatten", "Interpret with module erasure: split load/execute, flatten modules, then interpret") do
+    options[:flatten] = true
+  end
+
   opts.on("--hoist-class-consts",
           "AOT only: hoist expensive class-body constant initialisers " \
           "(those containing .map / .each / etc) out of the load phase " \
