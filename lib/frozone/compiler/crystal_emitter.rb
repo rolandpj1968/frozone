@@ -195,7 +195,8 @@ module Frozone
                                itself dup succ ord bytesize b floor abs
                                getbyte setbyte fetch set get putc pos max min
                                length size each respond_to?
-                               matches? failure_message].to_set
+                               matches? failure_message
+                               message cause backtrace].to_set  # Exception interface — skip to avoid Crystal union conflicts
 
       # Emit RubyObject stub methods for all user-defined methods.
       # This allows polymorphic dispatch: `obj.some_method` where `obj : RubyObject`
@@ -1252,7 +1253,10 @@ module Frozone
       # -----------------------------------------------------------------------
 
       # Methods that must return Crystal String (override RubyObject abstract defs)
-      STRING_RETURN_METHODS = %i[to_s inspect].to_set
+      # Methods that must return Crystal String.
+      # to_s/inspect: RubyObject abstract defs.
+      # message: Crystal Exception#message : String? — user overrides must match.
+      STRING_RETURN_METHODS = %i[to_s inspect message].to_set
 
       def cr_method_def(node)
         recv = node.receiver_node
