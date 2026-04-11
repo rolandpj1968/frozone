@@ -148,19 +148,40 @@ module Frozone
       def emit_user_methods(scope)
         scope.methods_table&.each do |name, method|
           next unless method.is_a?(Vm::Method) && user_source_location?(method.source_location)
+          # Skip stub methods (body is just nil)
+          next if method.body.is_a?(Ast::NilLiteral)
+          next if method.body.is_a?(Ast::Sequence) && method.body.nodes.size == 1 && method.body.nodes[0].is_a?(Ast::NilLiteral)
           emit_method(name, method)
           emit_newline
         end
       end
 
       def emit_method(name, method)
-        # For now: emit all methods as returning int64_t (TI would tell us)
         params = (method.required_params || []).map { |p| "int64_t #{p}" }.join(", ")
         line "static int64_t #{name}(#{params}) {"
         @_declared_locals = Set.new
         (method.required_params || []).each { |p| @_declared_locals << p.to_s }
-        indented { emit(method.body) }
+        indented do
+          body = method.body
+          if body.is_a?(Ast::Sequence)
+            nodes = body.nodes
+            nodes[0...-1].each { |n| emit_stmt(n) }
+            # Last expression → return
+            emit_stmt_return(nodes.last) if nodes.last
+          else
+            emit_stmt_return(body)
+          end
+        end
         line "}"
+      end
+
+      def emit_stmt_return(node)
+        s = cr(node)
+        if s.include?("{\n") || s.start_with?("if ") || s.start_with?("while ") || s.start_with?("for ")
+          emit_indent; write s; emit_newline
+        else
+          line "return #{s};"
+        end
       end
 
       def emit_main(execute_block)
@@ -219,6 +240,8 @@ module Frozone
           end
         when Ast::If then cr_if(node)
         when Ast::Return then node.value_node ? "return #{cr(node.value_node)}" : "return"
+        when Ast::And then "(#{cr(node.left_node)} && #{cr(node.right_node)})"
+        when Ast::Or then "(#{cr(node.left_node)} || #{cr(node.right_node)})"
         when Ast::MethodCall then cr_method_call(node)
         when Ast::ConstantRead then node.name.to_s
         when Ast::IndexOperatorWrite
