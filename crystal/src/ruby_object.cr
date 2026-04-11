@@ -303,6 +303,7 @@ abstract class RubyObject
   def chars : RubyObject; raise Exception.new("chars not supported for #{self.class}"); end
   def bytes : RubyObject; raise Exception.new("bytes not supported for #{self.class}"); end
   def replace(other : RubyObject) : RubyObject; raise Exception.new("replace not supported for #{self.class}"); end
+  def chr : RubyObject; raise Exception.new("chr not supported for #{self.class}"); end
 
   def bytesize : RubyObject
     raise Exception.new("bytesize not supported for #{self.class}")

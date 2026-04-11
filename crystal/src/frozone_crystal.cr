@@ -55,6 +55,12 @@ struct Int32
   def ruby_nil? : Bool; false; end
 end
 
+struct Tuple
+  def include?(val) : RubyBool
+    includes?(val) ? RubyBool::TRUE : RubyBool::FALSE
+  end
+end
+
 # Crystal native type extensions for mixed arithmetic with RubyObject.
 # When specialised methods return raw Float64/Int64 but operate on
 # RubyObject values, Crystal needs these overloads.
@@ -134,4 +140,17 @@ end
 
 def throw(tag : RubyObject, value : RubyObject = RubyNil::INSTANCE) : NoReturn
   raise RubyThrow.new(tag, value)
+end
+
+# Kernel#format / sprintf — minimal implementation for %s substitution.
+def format(template : RubyObject, args : RubyObject) : RubyObject
+  t = template.to_s
+  if args.is_a?(RubyHash)
+    args.each do |k, v|
+      t = t.gsub("%{#{k}}", v.to_s)
+    end
+  elsif args.is_a?(RubyArray)
+    args.each { |v| t = t.sub("%s", v.to_s) }
+  end
+  RubyString.new(t)
 end
