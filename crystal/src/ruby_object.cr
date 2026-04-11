@@ -70,8 +70,9 @@ abstract class RubyObject
     RubyString.new(to_s)
   end
 
-  # ruby_inspect: Ruby's inspect — returns RubyString
-  def ruby_inspect : RubyString
+  # ruby_inspect: Ruby's inspect — returns RubyObject
+  # Accept optional args for user classes that override inspect(indent)
+  def ruby_inspect(*args) : RubyObject
     RubyString.new(inspect)
   end
 
@@ -195,6 +196,10 @@ abstract class RubyObject
 
   def equal?(other : RubyObject) : RubyBool
     same?(other) ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
+  def flat_map(&block) : RubyObject
+    raise Exception.new("flat_map not supported for #{self.class}")
   end
 
   def bytesize : RubyObject
