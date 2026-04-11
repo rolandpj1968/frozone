@@ -464,9 +464,11 @@ module Frozone
         load_ast.evaluate(context)
 
         # Module erasure: flatten ancestor methods/constants into each
-        # concrete class. For --aot this is before TI; for --flatten
-        # this is before interpreting the execute phase.
-        Frozone::Compiler::ModuleErasure.flatten!(top_level_scope) if flatten
+        # concrete class. For --aot this is before TI (codegen mode
+        # renames prepend originals for Crystal super rewriting); for
+        # --flatten this is before interpreting (no rename needed —
+        # interpreter super uses live MRO).
+        Frozone::Compiler::ModuleErasure.flatten!(top_level_scope, codegen: flatten == :codegen) if flatten
 
         execute_nodes = hoisted_class_constants + execute_nodes unless hoisted_class_constants.empty?
         Fiber[:aot_hoisted_consts] = nil
@@ -478,7 +480,7 @@ module Frozone
       # Same load/execute split as --aot but runs the execute phase under the
       # interpreter with flattened class tables. For A/B testing erasure.
       def flatten_and_run(path)
-        context, execute_nodes, full_path, _ = split_and_load(path, flatten: true)
+        context, execute_nodes, full_path, _ = split_and_load(path, flatten: :interpret)
         execute_ast = Ast::Sequence.new(execute_nodes)
         execute_ast.evaluate(context)
         Fiber[:file_stack]&.pop
@@ -486,7 +488,7 @@ module Frozone
 
       # --aot mode: split, flatten modules, then compile the execute phase to Crystal.
       def aot_compile(path)
-        context, execute_nodes, full_path, load_count = split_and_load(path, flatten: true)
+        context, execute_nodes, full_path, load_count = split_and_load(path, flatten: :codegen)
 
         # Compile execute phase: wrap in a Block and pass to FrozoneCompile.
         execute_ast = Ast::Sequence.new(execute_nodes)

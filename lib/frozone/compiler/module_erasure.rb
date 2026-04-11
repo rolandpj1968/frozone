@@ -15,9 +15,12 @@ module Frozone
 
       # Flatten all user classes reachable from the given scope.
       # Mutates the live ClassObject method/constant tables in place.
-      def self.flatten!(scope)
+      #
+      # codegen: true  → rename prepend originals + record super targets (for Crystal)
+      #          false → just flatten methods (interpreter super uses live MRO)
+      def self.flatten!(scope, codegen: false)
         visited = Set.new
-        flatten_scope!(scope, visited)
+        flatten_scope!(scope, visited, codegen: codegen)
       end
 
       private
@@ -43,23 +46,23 @@ module Frozone
         CORE_PATH_MARKERS.none? { |m| file.include?(m) }
       end
 
-      def self.flatten_scope!(scope, visited)
+      def self.flatten_scope!(scope, visited, codegen: false)
         scope.constants_table&.each do |_name, value|
           next unless value.is_a?(Vm::ClassObject)
           next if visited.include?(value.object_id)
           visited << value.object_id
-          flatten_scope!(value, visited)
-          flatten_class!(value) if user_class?(value)
+          flatten_scope!(value, visited, codegen: codegen)
+          flatten_class!(value, codegen: codegen) if user_class?(value)
         end
         scope.constants_table&.each do |_name, value|
           next unless value.is_a?(Vm::ModuleObject) && !value.is_a?(Vm::ClassObject)
           next if visited.include?(value.object_id)
           visited << value.object_id
-          flatten_scope!(value, visited)
+          flatten_scope!(value, visited, codegen: codegen)
         end
       end
 
-      def self.flatten_class!(cls)
+      def self.flatten_class!(cls, codegen: false)
         ancestors = build_mro(cls)
 
         # Flatten methods using MRO order. For each method name, the
@@ -78,25 +81,42 @@ module Frozone
           end
         end
 
-        # For each method: first definition wins. If the winner is from
-        # a prepended module and the class has its own definition, rename
-        # the class's original and record the super chain.
-        super_targets = {}  # {method.object_id => renamed_method_name}
+        # For each method name: the first definition in MRO order wins.
+        #
+        # In codegen mode, prepended methods that override the class's own
+        # method need special handling: Crystal has no MRO-based super, so
+        # we rename the original and rewrite super → call to the renamed
+        # method. The super target chain maps each method's object_id to
+        # the renamed method name that its `super` should dispatch to.
+        #
+        # In interpreter mode, we just flatten (first wins) — the
+        # interpreter's super already walks the live MRO correctly, so
+        # no rename or rewriting is needed.
+        super_targets = {}
         mro_methods.each do |mname, chain|
           winner_method, winner_source = chain.first
           if !winner_source.equal?(cls) && cls.methods_table.key?(mname)
-            # Prepend/include override — rename and chain super targets.
-            # Walk the chain: each method's super target is the next in line.
-            chain.each_cons(2) do |(m, _src), (next_m, _next_src)|
-              renamed = :"__prepend_super_#{mname}_#{super_targets.size}"
-              super_targets[m.object_id] = renamed
-              cls.methods_table[renamed] = next_m
+            if codegen
+              # Codegen: rename overridden methods so super can reach them.
+              # Crystal has no MRO-based super — each link in the prepend
+              # chain calls the renamed next method directly.
+              chain.each_cons(2) do |(m, _src), (next_m, _next_src)|
+                renamed = :"__prepend_super_#{mname}_#{super_targets.size}"
+                super_targets[m.object_id] = renamed
+                cls.methods_table[renamed] = next_m
+              end
+              cls.methods_table[mname] = winner_method
             end
+            # Interpreter: DON'T override the class's own method — the
+            # interpreter's lookup_method already walks prepends first
+            # and finds the prepended method naturally. Overwriting would
+            # break super (the original method would be lost).
+          else
+            # Non-conflicting method: safe to flatten in both modes.
+            cls.methods_table[mname] = winner_method
           end
-          cls.methods_table[mname] = winner_method
         end
 
-        # Store super targets on the class for the codegen to use.
         cls.prepend_super_targets = super_targets unless super_targets.empty?
 
         # Flatten constants: same precedence rule.
