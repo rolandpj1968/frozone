@@ -104,6 +104,9 @@ abstract class RubyObject
     def {{op.id}}(other : Float64) : RubyObject
       self.{{op.id}}(RubyFloat.new(other))
     end
+    def {{op.id}}(other : Array) : RubyObject
+      self.{{op.id}}(RubyArray.new(other.map(&.as(RubyObject))))
+    end
   {% end %}
 
   {% for op in ["<", "<=", ">", ">="] %}
@@ -132,9 +135,6 @@ abstract class RubyObject
   def [](idx : Int64)
     self[RubyInteger.new(idx)]
   end
-  def [](idx : UInt64)
-    self[RubyInteger.new(idx.to_i64)]
-  end
 
   def [](from : RubyObject, len : RubyObject) : RubyObject
     raise Exception.new("[] with 2 args not supported for #{self.class}")
@@ -145,9 +145,6 @@ abstract class RubyObject
 
   def []=(idx : RubyObject, val : RubyObject) : RubyObject
     raise Exception.new("[]= not supported for #{self.class}")
-  end
-  def []=(idx : UInt64, val : RubyObject) : RubyObject
-    self[idx.to_i64] = val
   end
   def []=(idx : Int64, val : RubyObject) : RubyObject
     raise Exception.new("[]= not supported for #{self.class}")
@@ -236,9 +233,7 @@ abstract class RubyObject
     raise Exception.new("delete not supported for #{self.class}")
   end
 
-  def delete(key : UInt64) : RubyObject
-    delete(RubyInteger.new(key.to_i64))
-  end
+
 
   def __id__ : RubyInteger
     RubyInteger.new(object_id.to_i64)
@@ -279,6 +274,35 @@ abstract class RubyObject
   def chomp(suffix : RubyObject = RubyNil::INSTANCE) : RubyObject
     raise Exception.new("chomp not supported for #{self.class}")
   end
+
+  def lines(*args, &block) : RubyObject
+    raise Exception.new("lines not supported for #{self.class}")
+  end
+
+  def lines(*args) : RubyObject
+    raise Exception.new("lines not supported for #{self.class}")
+  end
+
+  def end_with?(*args) : RubyBool
+    RubyBool::FALSE
+  end
+
+  def start_with?(*args) : RubyBool
+    RubyBool::FALSE
+  end
+
+  def chomp!(*args) : RubyObject; self; end
+  def gsub(*args) : RubyObject; raise Exception.new("gsub not supported for #{self.class}"); end
+  def gsub!(*args) : RubyObject; self; end
+  def sub(*args) : RubyObject; raise Exception.new("sub not supported for #{self.class}"); end
+  def match(*args) : RubyObject; RubyNil::INSTANCE; end
+  def split(*args) : RubyObject; raise Exception.new("split not supported for #{self.class}"); end
+  def strip : RubyObject; raise Exception.new("strip not supported for #{self.class}"); end
+  def downcase : RubyObject; raise Exception.new("downcase not supported for #{self.class}"); end
+  def upcase : RubyObject; raise Exception.new("upcase not supported for #{self.class}"); end
+  def chars : RubyObject; raise Exception.new("chars not supported for #{self.class}"); end
+  def bytes : RubyObject; raise Exception.new("bytes not supported for #{self.class}"); end
+  def replace(other : RubyObject) : RubyObject; raise Exception.new("replace not supported for #{self.class}"); end
 
   def bytesize : RubyObject
     raise Exception.new("bytesize not supported for #{self.class}")

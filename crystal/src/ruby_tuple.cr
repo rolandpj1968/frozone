@@ -10,7 +10,10 @@ class RubyTuple{{n}} < RubyObject
   @v{{i}} : RubyObject
   {% end %}
 
-  def initialize({% for i in (0...n) %}@v{{i}} : RubyObject{% if i < n - 1 %}, {% end %}{% end %})
+  def initialize({% for i in (0...n) %}v{{i}} : RubyObject | String{% if i < n - 1 %}, {% end %}{% end %})
+    {% for i in (0...n) %}
+    @v{{i}} = v{{i}}.is_a?(String) ? RubyString.new(v{{i}}) : v{{i}}
+    {% end %}
   end
 
   def [](i : Int64) : RubyObject

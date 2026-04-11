@@ -1416,10 +1416,11 @@ module Frozone
       # Ruby method names that map to different Crystal method names at CALL sites.
       # (Crystal's to_s/inspect return String; Ruby's return RubyString)
       RUBY_TO_CRYSTAL_METHOD = {
-        nil?:    :ruby_nil?,
-        to_s:    :ruby_to_s,
-        inspect: :ruby_inspect,
-        hash:    :ruby_hash,
+        nil?:      :ruby_nil?,
+        to_s:      :ruby_to_s,
+        inspect:   :ruby_inspect,
+        hash:      :ruby_hash,
+        object_id: :__id__,
       }.freeze
 
       def crystal_constant(sym_or_str) = sym_or_str.to_s
