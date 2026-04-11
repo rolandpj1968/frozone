@@ -431,6 +431,17 @@ module Frozone
           (node.receiver_node.nil? || node.receiver_node.is_a?(Ast::SelfLiteral))
       end
 
+      # Detect @ivar.class as receiver — resolve class from TI when available.
+      # Returns the class name symbol, or nil.
+      def ivar_class_receiver?(node)
+        return nil unless node.is_a?(Ast::MethodCall) && node.name == :class
+        recv = node.receiver_node
+        return nil unless recv.is_a?(Ast::InstanceVariableRead)
+        return nil unless defined?(@cctx) && @cctx&.typed_ivars
+        ct = @cctx.typed_ivars[recv.name]
+        ct.is_a?(Array) ? ct[1] : ct  # [:class, :Foo] or [:class_or_nil, :Foo]
+      end
+
       def cr_constant_write(node) = "Ruby_#{crystal_constant(node.name)} = #{cr(node.value_node)}"
 
       # Foo::CONST = expr → Crystal namespace-qualified constant assign.
@@ -566,6 +577,8 @@ module Frozone
           # self.class.foo → ClassName.foo (static dispatch in closed-world)
           if self_class_receiver?(node.receiver_node) && defined?(@cctx) && @cctx&.name
             "Ruby_#{crystal_constant(@cctx.name)}."
+          elsif (cls_name = ivar_class_receiver?(node.receiver_node))
+            "Ruby_#{crystal_constant(cls_name)}."
           else
             "#{cr(node.receiver_node)}."
           end
