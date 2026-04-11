@@ -22,6 +22,7 @@ require_relative 'regexp_object'
 require_relative 'random_object'
 require_relative 'match_data_object'
 require_relative 'process_status_object'
+require_relative '../compiler/module_erasure'
 
 module Frozone
   module Vm
@@ -469,6 +470,10 @@ module Frozone
         context.push_scope(top_level_scope)
 
         load_ast.evaluate(context)
+
+        # Module erasure: flatten ancestor methods/constants into each
+        # concrete class before TI runs. TI then sees flat per-class tables.
+        Frozone::Compiler::ModuleErasure.flatten!(top_level_scope)
 
         # After load phase: any required files have now been parsed
         # and (where the hoist applied) had their expensive constant
