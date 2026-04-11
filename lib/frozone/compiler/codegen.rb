@@ -1140,7 +1140,14 @@ module Frozone
             bytes = value.raw.map { |e| e.raw.to_s }.join(', ')
             return "RubyArray.new(Bytes[#{bytes}].to_a.map { |b| RubyInteger.new(b.to_i64).as(RubyObject) })"
           end
-          return nil if value.raw.size > 1000  # Skip very large non-byte arrays
+          # Large integer/nil arrays (e.g. Racc parser tables): emit as
+          # compact Int64 array + map, representing nil as Int64::MIN sentinel.
+          if value.raw.size > 256 && value.raw.all? { |e| e.is_a?(Vm::IntegerObject) || e.is_a?(Vm::NilObject) }
+            sentinel = "Int64::MIN"
+            elems = value.raw.map { |e| e.is_a?(Vm::NilObject) ? sentinel : "#{e.raw}_i64" }.join(', ')
+            return "RubyArray.new([#{elems}].map { |v| v == #{sentinel} ? RUBY_NIL : RubyInteger.new(v).as(RubyObject) })"
+          end
+          return nil if value.raw.size > 100_000  # Safety limit for truly huge arrays
           elems = value.raw.map { |e| vm_value_to_crystal(e) }
           return nil if elems.any?(&:nil?)
           "RubyArray.new([#{elems.join(', ')}] of RubyObject)"

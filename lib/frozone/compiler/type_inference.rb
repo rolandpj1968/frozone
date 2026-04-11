@@ -663,6 +663,7 @@ module Frozone
         changed |= propagate_ivars_from_setter_calls(class_name, klass)
         changed |= propagate_ivar_array_elem_writes(class_name, klass)
         changed |= widen_ivar_arrays_from_mutations(class_name, klass)
+        changed |= widen_scalar_ivars_from_mutations(class_name, klass)
         changed
       ensure
         @ivar_param_seeds = old_seeds if defined?(old_seeds)
@@ -778,6 +779,43 @@ module Frozone
           end
         end
         changed
+      end
+
+      # Soundness check for scalar ivars: if any non-constructor method
+      # writes a non-raw value (or no value info) to a scalar ivar, the
+      # ivar can't be safely typed as Int64/Float64. Widen to generic.
+      # Soundness check for scalar ivars: if any non-constructor method
+      # writes a non-raw value to a scalar-typed ivar, widen it. This
+      # catches cases like Racc's _racc_init_sysvars writing boxed 0
+      # to an ivar that constructor analysis typed as Int64.
+      def widen_scalar_ivars_from_mutations(class_name, klass)
+        changed = false
+        (klass.methods_table || {}).each do |mname, method|
+          next if mname == :initialize
+          next unless method.is_a?(Vm::Method) && method.body
+          method_ctx = TypeContext.new([class_name, mname], class_name)
+          collect_ivar_typed_writes(method.body, method_ctx) do |ivar_name, val_ty|
+            widened_key = [:scalar, class_name, ivar_name]
+            next if (@_widened_array_ivars ||= Set.new).include?(widened_key)
+            current = @env.type_of([:ivar, class_name, ivar_name])
+            next unless current.raw?
+            # Value is not raw and not bottom → ivar can't be scalar-typed
+            next if val_ty.raw? || val_ty.bottom?
+            @_widened_array_ivars << widened_key
+            changed |= @env.join!([:ivar, class_name, ivar_name], Type::BOTTOM)
+          end
+        end
+        changed
+      end
+
+      # Yield [ivar_name, value_type] for InstanceVariableWrite nodes.
+      def collect_ivar_typed_writes(node, ctx, &block)
+        return unless node
+        if node.is_a?(Ast::InstanceVariableWrite)
+          val_ty = infer_expr(node.value_node, ctx)
+          yield node.name, val_ty
+        end
+        node.children.each { |c| collect_ivar_typed_writes(c, ctx, &block) if c.is_a?(Ast::Node) }
       end
 
       # Scan body for @ivar.<<(val) / @ivar.push(val) etc. patterns.
