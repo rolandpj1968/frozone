@@ -82,12 +82,53 @@ module Frozone
       # for ivars with pattern {UserClass} or {UserClass, NilClass}.
       def collect_class_typed_ivars(scope)
         @gctx.class_typed_ivars = {}
+        # Phase 0: collect constructor call-site param types across all
+        # user methods, so ivar_assign_class_type can resolve param types.
+        @_constructor_param_types = collect_all_constructor_param_types(scope)
         # Phase 1: collect raw ivar type sets per class (own methods only)
         raw_ivar_sets = {}
         collect_raw_ivar_type_sets(scope, raw_ivar_sets)
         # Phase 2: resolve with hierarchy awareness — merge ancestor
         # type sets and only assign ivars to the defining (topmost) class
         resolve_ivar_types_with_hierarchy(raw_ivar_sets)
+      end
+
+      # Phase 0: scan ALL user methods for ClassName.new(...) calls.
+      # Returns {class_name => {param_index => class_type}} mapping
+      # constructor param positions to the types passed at call sites.
+      def collect_all_constructor_param_types(scope, result = {}, visited = Set.new)
+        scope.constants_table&.each do |class_name, value|
+          next unless value.is_a?(Vm::ModuleObject) && !Codegen::SKIP_CONSTANTS.include?(class_name)
+          collect_all_constructor_param_types(value, result, visited)
+          next unless value.is_a?(Vm::ClassObject)
+          methods = value.methods_table || {}
+          methods.each do |_, method|
+            next unless method.is_a?(Vm::Method) && method.body
+            walk_class_new_calls_for_types(method.body, result, class_name)
+          end
+        end
+        result
+      end
+
+      # Walk AST looking for ClassName.new(args) and record arg types.
+      def walk_class_new_calls_for_types(node, result, enclosing_class)
+        return unless node
+        if node.is_a?(Ast::MethodCall) && node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
+          cls_name = node.receiver_node.name
+          args = node.arg_nodes || []
+          args.each_with_index do |arg, i|
+            ty = if arg.is_a?(Ast::SelfLiteral)
+              enclosing_class  # self → the enclosing class
+            else
+              ivar_assign_class_type(arg)
+            end
+            next if ty == :unknown || ty == :nil || ty == :self_ivar
+            result[cls_name] ||= {}
+            existing = result[cls_name][i]
+            result[cls_name][i] = existing.nil? ? ty : (existing == ty ? ty : :unknown)
+          end
+        end
+        node.children.each { |c| walk_class_new_calls_for_types(c, result, enclosing_class) if c.is_a?(Ast::Node) }
       end
 
       # Phase 1: collect raw ivar assignment type sets for each class.
@@ -100,11 +141,21 @@ module Frozone
           next unless methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
 
           ivar_type_sets = Hash.new { |h, k| h[k] = Set.new }
+          # Build param-type map for initialize from call-site analysis
+          init = methods[:initialize]
+          param_type_map = {}
+          if init.is_a?(Vm::Method) && @_constructor_param_types&.key?(class_name)
+            call_types = @_constructor_param_types[class_name]
+            req = init.required_params || []
+            req.each_with_index { |p, i| param_type_map[p] = call_types[i] if call_types[i] }
+          end
+
           methods.each do |mname, method|
             next unless method.is_a?(Vm::Method) && method.body
             next if accessor_method?(method)
             mkey = [class_name, mname]
             method_class_locals = @gctx.class_locals[mkey] || {}
+            method_class_locals = method_class_locals.merge(param_type_map) if mname == :initialize
             method_params = Set.new(
               (method.required_params || []) +
               (method.optional_params || []).map(&:first) +
@@ -243,7 +294,7 @@ module Frozone
             cls_sym = cls.is_a?(Array) ? cls[0] : cls
             (@gctx.user_class_names&.include?(cls_sym) || KNOWN_BUILTIN_CLASSES.include?(cls_sym)) ? cls_sym : :self_ivar
           elsif param_names&.include?(name)
-            :unknown  # constructor/method params store arbitrary values
+            :unknown
           else
             :self_ivar  # untyped locals likely derived from self's ivars
           end

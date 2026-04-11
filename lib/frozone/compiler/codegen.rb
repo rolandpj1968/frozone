@@ -2275,7 +2275,11 @@ module Frozone
             if ct
               kind, cls = ct
               crystal_cls = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
-              ret_type = (kind == :class_or_nil && cls == @cctx.name) ? "#{crystal_cls} | RubyNil" : crystal_cls
+              # Match ivar_type_annotation: types without a default constructor
+              # (Symbol, Integer, etc.) are emitted as nullable in the ivar
+              # declaration, so the accessor must also be nullable.
+              default = { Array: true, Hash: true, String: true }[cls]
+              ret_type = default ? crystal_cls : "#{crystal_cls} | RubyNil"
               line "def #{crystal_method_name(mname)} : #{ret_type}; #{iv}; end"
             else
               line "def #{crystal_method_name(mname)} : RubyObject; #{iv}; end"
