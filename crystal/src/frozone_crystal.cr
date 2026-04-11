@@ -34,6 +34,7 @@ struct Nil
   def ruby_to_s : String; ""; end
   def ruby_inspect : String; "nil"; end
   def nonzero? : Nil; nil; end
+  def to_a : RubyArray; RubyArray.new; end
   # Catch-all for method calls on Crystal nil from missing else branches.
   # Ruby nil would use RubyNil's methods; Crystal nil means the codegen
   # dropped an else branch. These should never be reached at runtime.

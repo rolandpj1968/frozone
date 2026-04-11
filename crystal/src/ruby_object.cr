@@ -212,6 +212,10 @@ abstract class RubyObject
     raise Exception.new("flat_map not supported for #{self.class}")
   end
 
+  def to_a : RubyArray
+    RubyArray.new([self] of RubyObject)
+  end
+
   def encode(to : RubyObject) : RubyObject
     raise Exception.new("encode not supported for #{self.class}")
   end
