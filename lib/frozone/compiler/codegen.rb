@@ -368,9 +368,13 @@ module Frozone
           old_cctx = @cctx
           @cctx = ClassContext.new
           @cctx.name = name
-          @cctx.ivars = @gctx.typed_ivars.fetch(name, {})
-          @cctx.typed_ivars = @gctx.class_typed_ivars.fetch(name, {})
           @cctx.parent_ivars = collect_parent_ivars(mod)
+          # Strip parent ivars from scalar typing — child must use the
+          # parent's declaration type, not re-type from its own methods.
+          ivars = @gctx.typed_ivars.fetch(name, {})
+          ivars = ivars.reject { |iv, _| @cctx.parent_ivars.include?(iv.to_s) } unless @cctx.parent_ivars.empty?
+          @cctx.ivars = ivars
+          @cctx.typed_ivars = @gctx.class_typed_ivars.fetch(name, {})
 
           indented do
             emit_ivar_declarations(user_methods)
@@ -1643,10 +1647,20 @@ module Frozone
           if val.is_a?(Ast::NilLiteral)
             "#{iv_name} = RUBY_NIL"
           else
-            "#{iv_name} = #{cr(val)}"
+            # Suppress tuple literals — ivar declaration is RubyObject/RubyArray,
+            # not RubyTupleN. Tuple assignment would cause a Crystal type error.
+            old_suppress = @mctx.suppress_tuple_literals
+            @mctx.suppress_tuple_literals = true
+            result = "#{iv_name} = #{cr(val)}"
+            @mctx.suppress_tuple_literals = old_suppress
+            result
           end
         else
-          "#{iv_name} = #{cr(node.value_node)}"
+          old_suppress = @mctx.suppress_tuple_literals
+          @mctx.suppress_tuple_literals = true
+          result = "#{iv_name} = #{cr(node.value_node)}"
+          @mctx.suppress_tuple_literals = old_suppress
+          result
         end
       end
 

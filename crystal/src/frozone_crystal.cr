@@ -103,3 +103,21 @@ end
 def ruby_Complex(val : RubyObject, imag : RubyObject = RubyNil::INSTANCE) : RubyObject
   val
 end
+
+# catch/throw — Ruby's non-local exit mechanism.
+# catch(tag) { body } runs body; throw(tag, value) exits the catch.
+class RubyThrow < Exception
+  getter tag : RubyObject
+  getter value : RubyObject
+  def initialize(@tag, @value = RubyNil::INSTANCE); end
+end
+
+def catch(tag : RubyObject, &block) : RubyObject
+  block.call
+rescue ex : RubyThrow
+  ex.tag == tag ? ex.value : raise ex
+end
+
+def throw(tag : RubyObject, value : RubyObject = RubyNil::INSTANCE) : NoReturn
+  raise RubyThrow.new(tag, value)
+end
