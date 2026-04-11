@@ -1007,6 +1007,7 @@ module Frozone
       end
 
       def emit_method_body(method, name, return_kind)
+        @_declared_locals = Set.new
         string_return, bool_return, raw_return = return_kind
         if bool_return
           @mctx.bool_return = true
@@ -1395,7 +1396,10 @@ module Frozone
         val = cr(node.value_node)
         @mctx.suppress_tuple_literals = old_suppress
         # Crystal can't reference a variable inside its own first assignment.
-        val.match?(/\b#{Regexp.escape(cname)}\b/) ? "#{cname} = RUBY_NIL; #{cname} = #{val}" : "#{cname} = #{val}"
+        @_declared_locals ||= Set.new
+        needs_fwd = !@_declared_locals.include?(cname) && val.match?(/\b#{Regexp.escape(cname)}\b/)
+        @_declared_locals << cname
+        needs_fwd ? "#{cname} = RUBY_NIL; #{cname} = #{val}" : "#{cname} = #{val}"
       end
 
       # (0..n).to_a where TI says the result is Array[:i64] → native Crystal range to_a.

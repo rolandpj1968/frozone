@@ -372,11 +372,14 @@ module Frozone
         name = crystal_local(node.name)
         val = cr(node.value_node)
         # Crystal can't reference a variable inside its own first assignment.
-        # Detect self-references and emit a forward declaration. Use word
-        # boundary check to avoid false positives (e.g. `i` matching `join`).
-        if val.match?(/\b#{Regexp.escape(name)}\b/)
+        # Track which locals have been declared; only forward-declare on
+        # first assignment when the RHS references the variable.
+        @_declared_locals ||= Set.new
+        if !@_declared_locals.include?(name) && val.match?(/\b#{Regexp.escape(name)}\b/)
+          @_declared_locals << name
           "#{name} = RUBY_NIL; #{name} = #{val}"
         else
+          @_declared_locals << name
           "#{name} = #{val}"
         end
       end
@@ -535,6 +538,16 @@ module Frozone
 
         # General method call: receiver.method(args)
         recv_str = node.receiver_node ? "#{cr(node.receiver_node)}." : ""
+
+        # Narrow receiver type for iteration methods with block arity
+        # mismatch: RubyArray#each takes 1-arg block, RubyHash#each
+        # takes 2-arg block. Crystal can't dispatch on RubyObject+ union.
+        if node.receiver_node && node.block_node && %i[each each_with_index map select reject flat_map any? all? none? count collect].include?(name)
+          blk = node.block_node
+          nparams = blk.is_a?(Ast::Block) ? (blk.required_params || []).size : 1
+          recv_str = "#{cr(node.receiver_node)}.as(RubyArray)." if nparams <= 1
+        end
+
         "#{recv_str}#{crystal_method_name(name)}#{cr_call_args(node)}"
       end
 
