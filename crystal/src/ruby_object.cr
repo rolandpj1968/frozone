@@ -59,7 +59,7 @@ abstract class RubyObject
   # -------------------------------------------------------------------------
   # Type predicates
   # -------------------------------------------------------------------------
-  def ruby_nil?  : Bool; false; end
+  def ruby_nil?  : RubyBool; RubyBool::FALSE; end
   def ruby_bool? : Bool; false; end
   # ruby_nil? checks for Ruby nil (RubyNil), not Crystal nil.
   # (Crystal's nil? is a pseudo-method; we use ruby_nil? instead)
@@ -445,6 +445,6 @@ class RubyClassProxy
   end
 
   def truthy? : Bool; true; end
-  def ruby_nil? : Bool; false; end
+  def ruby_nil? : RubyBool; RubyBool::FALSE; end
   def ruby_to_s(*args) : RubyObject; RubyString.new(@ruby_class_name); end
 end

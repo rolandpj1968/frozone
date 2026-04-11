@@ -306,7 +306,7 @@ class RubyArray < RubyObject
   # -------------------------------------------------------------------------
 
   def each(&block : RubyObject ->)
-    @data.each { |el| block.call(el) }
+    @data.each { |el| yield el }
   end
 
   def each_with_index(&block : RubyObject, RubyObject ->)

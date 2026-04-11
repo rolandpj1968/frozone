@@ -603,4 +603,8 @@ class RubyInteger < RubyObject
     cp = to_i64.to_i32
     RubyString.new(cp.chr.to_s)
   end
+
+  def chr(encoding : RubyObject) : RubyString
+    chr
+  end
 end

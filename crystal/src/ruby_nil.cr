@@ -53,8 +53,8 @@ class RubyNil < RubyObject
     false
   end
 
-  def ruby_nil? : Bool
-    true
+  def ruby_nil? : RubyBool
+    RubyBool::TRUE
   end
 
 

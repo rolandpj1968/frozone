@@ -109,8 +109,8 @@ class RubyTuple{{n}} < RubyObject
     "[" + {% for i in (0...n) %}@v{{i}}.inspect{% if i < n - 1 %} + ", " + {% end %}{% end %} + "]"
   end
 
-  def ruby_nil? : Bool
-    false
+  def ruby_nil? : RubyBool
+    RubyBool::FALSE
   end
 
   def truthy? : Bool

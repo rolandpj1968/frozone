@@ -29,7 +29,7 @@ end
 # Ruby semantics: nil is falsy and responds to common methods.
 struct Nil
   def truthy? : Bool; false; end
-  def ruby_nil? : Bool; true; end
+  def ruby_nil? : RubyBool; RubyBool::TRUE; end
   def to_s : String; ""; end
   def ruby_to_s : String; ""; end
   def ruby_inspect : String; "nil"; end
@@ -45,14 +45,14 @@ end
 
 struct Bool
   def truthy? : Bool; self; end
-  def ruby_nil? : Bool; false; end
+  def ruby_nil? : RubyBool; RubyBool::FALSE; end
   def nonzero? : Bool?; self ? self : nil; end
 end
 
 struct Int32
   def nonzero? : Int32?; self == 0 ? nil : self; end
   def truthy? : Bool; true; end
-  def ruby_nil? : Bool; false; end
+  def ruby_nil? : RubyBool; RubyBool::FALSE; end
 end
 
 struct Tuple

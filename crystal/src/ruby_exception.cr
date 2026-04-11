@@ -16,8 +16,8 @@ abstract class RubyException < Exception
     true
   end
 
-  def ruby_nil? : Bool
-    false
+  def ruby_nil? : RubyBool
+    RubyBool::FALSE
   end
 
   def to_s : String

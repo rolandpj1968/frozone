@@ -1035,7 +1035,7 @@ module Frozone
 
       # Methods that return Crystal Bool directly (not RubyObject).
       # Use the Crystal name (after RUBY_TO_CRYSTAL_METHOD mapping).
-      BOOL_METHODS = %i[ruby_nil? empty? frozen? zero? positive? negative?
+      BOOL_METHODS = %i[empty? frozen? zero? positive? negative?
                         truthy? ruby_bool?
                         is_a? kind_of? instance_of? equal?].to_set
 
