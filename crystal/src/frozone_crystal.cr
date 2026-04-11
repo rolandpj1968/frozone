@@ -41,6 +41,10 @@ struct Nil
   end
 end
 
+struct Bool
+  def truthy? : Bool; self; end
+end
+
 # Crystal native type extensions for mixed arithmetic with RubyObject.
 # When specialised methods return raw Float64/Int64 but operate on
 # RubyObject values, Crystal needs these overloads.
