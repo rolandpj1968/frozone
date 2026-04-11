@@ -238,9 +238,9 @@ class RubyHash < RubyObject
   end
 
   def to_a : RubyArray
-    arr = RubyArray.new(@data.size)
+    arr = RubyArray.new(RubyInteger.new(@data.size.to_i64))
     @data.each do |k, v|
-      pair = RubyArray.new(2)
+      pair = RubyArray.new(2_i64)
       pair.push(k.obj)
       pair.push(v)
       arr.push(pair)

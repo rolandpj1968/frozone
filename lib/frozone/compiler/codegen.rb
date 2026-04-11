@@ -1058,24 +1058,38 @@ module Frozone
         raw_return = has_any_raw_param && !has_specialized && opt?(:raw_returns) && !@gctx.typed_params[name] &&
           (@gctx.typed_method_returns[name] ||
            (@cctx.name && @gctx.instance_method_raw_returns[[@cctx.name, name]]))
-        [string_return, bool_return, raw_return]
+        int32_return = name == :<=> && !class_method
+        [string_return, bool_return, raw_return, int32_return]
       end
 
       def emit_method_signature(name, method, param_types, class_method, return_kind)
-        string_return, bool_return, raw_return = return_kind
+        string_return, bool_return, raw_return, int32_return = return_kind
         crystal_name = string_return ? name.to_s : crystal_method_name(name)
         write class_method ? "def self.#{crystal_name}" : "def #{crystal_name}"
         write cr_param_list(method, param_types: param_types)
         write " : String" if string_return
-        write " : Bool" if bool_return && !string_return
-        write " : #{raw_return.to_crystal}" if raw_return && !bool_return
+        write " : Int32" if int32_return
+        write " : Bool" if bool_return && !string_return && !int32_return
+        write " : #{raw_return.to_crystal}" if raw_return && !bool_return && !int32_return
         emit_newline
       end
 
       def emit_method_body(method, name, return_kind)
         @_declared_locals = Set.new
-        string_return, bool_return, raw_return = return_kind
-        if bool_return
+        string_return, bool_return, raw_return, int32_return = return_kind
+        if int32_return
+          # <=> must return Int32 to match Crystal's Comparable convention.
+          @mctx.int32_return = true
+          indented do
+            write "((begin"
+            emit_newline
+            indented { emit(method.body) }
+            emit_newline
+            emit_indent
+            write "end) || RUBY_NIL).to_i64.to_i32"
+          end
+          @mctx.int32_return = false
+        elsif bool_return
           @mctx.bool_return = true
           indented do
             write "((begin"
@@ -1461,8 +1475,14 @@ module Frozone
       # Override: inside Bool-return methods (==, <, etc.), convert return values
       # to Crystal Bool so early returns match the : Bool annotation.
       def cr_return(node)
-        return super unless @mctx.bool_return && node.value_node
-        "return #{cr(node.value_node)}.truthy?"
+        return super unless node.value_node
+        if @mctx.bool_return
+          "return #{cr(node.value_node)}.truthy?"
+        elsif @mctx.int32_return
+          "return #{cr(node.value_node)}.to_i64.to_i32"
+        else
+          super
+        end
       end
 
       # Override: for typed locals in boxed context, wrap in RubyInteger/RubyFloat.

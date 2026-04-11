@@ -29,6 +29,10 @@ class RubyArray < RubyObject
   def initialize(@data : Array(RubyObject))
   end
 
+  def initialize(capacity : Int64)
+    @data = Array(RubyObject).new(capacity.to_i32)
+  end
+
   # Array.new(count, default) — creates array of `count` copies of `default`
   def initialize(count : RubyObject, default : RubyObject)
     n = count.is_a?(RubyInteger) ? count.to_i64.to_i32 : 0
