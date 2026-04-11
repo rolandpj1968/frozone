@@ -23,8 +23,17 @@ module Frozone
       private
 
       def self.user_class?(cls)
-        cls.methods_table&.any? { |_, m| m.is_a?(Vm::Method) && user_loc?(m.source_location) } ||
-          cls.constants_locations&.any? { |_, loc| user_loc?(loc) }
+        has_user = ->(mod) {
+          mod.methods_table&.any? { |_, m| m.is_a?(Vm::Method) && user_loc?(m.source_location) } ||
+            mod.constants_locations&.any? { |_, loc| user_loc?(loc) }
+        }
+        # A class should be flattened if it has user content, OR if any of
+        # its INCLUDED MODULES (not superclass chain) have user content.
+        # This catches `class Foo; include UserModule; end` without
+        # accidentally pulling in all core classes via the superclass chain.
+        return true if has_user.call(cls)
+        cls.modules.any? { |m| has_user.call(m) } ||
+          cls.prepends.any? { |m| has_user.call(m) }
       end
 
       def self.user_loc?(loc)
@@ -50,6 +59,7 @@ module Frozone
       end
 
       def self.flatten_class!(cls)
+        $stderr.puts "ERASURE: flatten #{cls.name} mro=#{build_mro(cls).map(&:name).inspect}" if ENV['FROZONE_DBG_ERASURE']
         # Walk the ancestor chain in MRO order and collect methods/constants
         # that the class doesn't already define itself.
         ancestors = build_mro(cls)

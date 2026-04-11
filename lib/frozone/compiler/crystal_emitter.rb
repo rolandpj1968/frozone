@@ -491,7 +491,13 @@ module Frozone
               end
             end
             indent_str = "  " * @indent
-            return mods.map { |m| "include #{m}" }.join("\n#{indent_str}") if name == :include && !mods.empty?
+            # After module erasure, user module includes are no-ops (methods
+            # already flattened). Core module includes (Comparable, Enumerable)
+            # are still needed for Crystal's type hierarchy.
+            if name == :include && !mods.empty?
+              core_mods = mods.select { |m| RUBY_TO_CRYSTAL_TYPE.values.include?(m) }
+              return core_mods.map { |m| "include #{m}" }.join("\n#{indent_str}") unless core_mods.empty?
+            end
             return "# #{name} #{node.arg_nodes.map { |a| a.is_a?(Ast::ConstantRead) ? a.name : '?' }.join(', ')}"
           end
         end
