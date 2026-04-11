@@ -601,6 +601,27 @@ module Frozone
         class_methods.each do |mname, method|
           emit_class_method_overloads(class_name, mname, method)
         end
+        # Emit eigenclass attr_accessor getters (DefinedMethod) that hold
+        # settled values from the load phase — e.g. Ragel state machine
+        # constants like lex_en_line_begin = 710.
+        emit_eigenclass_accessors(mod, eigenclass)
+      end
+
+      def emit_eigenclass_accessors(mod, eigenclass)
+        eigenclass.methods_table&.each do |mname, method|
+          next if mname.to_s.end_with?('=')  # skip setters
+          # Include Vm::Method accessors (attr_accessor from core) that
+          # have settled values — e.g. Ragel state machine constants.
+          next unless accessor_method?(method)
+          # Eigenclass attr_accessor: value stored on the class object itself
+          val = mod.get_ivar(:"@#{mname}") || eigenclass.get_ivar(:"@#{mname}")
+          $stderr.puts "DBG eigen_acc #{mname}: val=#{val&.class} #{val.respond_to?(:raw) ? val.raw : val}" if ENV['FROZONE_DBG_EIGEN']
+          next unless val
+          crystal_val = vm_value_to_crystal(val)
+          next unless crystal_val
+          emit_indent
+          line "def self.#{crystal_method_name(mname)} : RubyObject; #{crystal_val}; end"
+        end
       end
 
       def emit_class_method_overloads(class_name, mname, method)
