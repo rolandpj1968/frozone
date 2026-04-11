@@ -662,6 +662,7 @@ module Frozone
         changed |= propagate_ivars_from_other_methods(class_name, klass)
         changed |= propagate_ivars_from_setter_calls(class_name, klass)
         changed |= propagate_ivar_array_elem_writes(class_name, klass)
+        changed |= widen_ivar_arrays_from_mutations(class_name, klass)
         changed
       ensure
         @ivar_param_seeds = old_seeds if defined?(old_seeds)
@@ -740,6 +741,8 @@ module Frozone
           next unless method.is_a?(Vm::Method) && method.body
           method_ctx = TypeContext.new([class_name, mname], class_name)
           collect_ivar_array_elem_writes(method.body, class_name, method_ctx) do |ivar_name, elem_ty|
+            # Skip ivars already widened by mutation soundness check
+            next if (@_widened_array_ivars ||= Set.new).include?([class_name, ivar_name])
             current = @env.type_of([:ivar, class_name, ivar_name])
             if current.array? && !current.elem
               changed |= @env.join!([:ivar, class_name, ivar_name], Type.array(elem: elem_ty))
@@ -747,6 +750,54 @@ module Frozone
           end
         end
         changed
+      end
+
+      # Soundness check: if any method pushes/appends a non-raw value to
+      # an array ivar, widen it back to generic Array. Prevents incorrect
+      # Array(Int64) specialisation when the array also holds RubyObject.
+      # Array mutation methods that add elements (must agree on element type
+      # for specialisation to be sound).
+      ARRAY_MUTATE_METHODS = %i[<< push append unshift prepend concat insert fill].to_set
+
+      def widen_ivar_arrays_from_mutations(class_name, klass)
+        changed = false
+        (klass.methods_table || {}).each do |mname, method|
+          next unless method.is_a?(Vm::Method) && method.body
+          method_ctx = TypeContext.new([class_name, mname], class_name)
+          collect_ivar_array_mutations(method.body, method_ctx) do |ivar_name, val_ty|
+            # Once widened, don't re-narrow (survives across TI iterations)
+            widened_key = [class_name, ivar_name]
+            next if (@_widened_array_ivars ||= Set.new).include?(widened_key)
+            current = @env.type_of([:ivar, class_name, ivar_name])
+            next unless current.array?
+            # Value is not raw → the array can't be specialised
+            unless val_ty.raw? || (val_ty.class_type? && %i[Integer Float].include?(val_ty.class_name))
+              @_widened_array_ivars << widened_key
+              changed |= @env.join!([:ivar, class_name, ivar_name], Type::ARRAY)
+            end
+          end
+        end
+        changed
+      end
+
+      # Scan body for @ivar.<<(val) / @ivar.push(val) etc. patterns.
+      # Yields [ivar_name, value_type] for each mutation found.
+      def collect_ivar_array_mutations(node, ctx, &block)
+        return unless node
+        if node.is_a?(Ast::MethodCall) && ARRAY_MUTATE_METHODS.include?(node.name)
+          recv = node.receiver_node
+          args = node.arg_nodes || []
+          if recv.is_a?(Ast::InstanceVariableRead) && !args.empty?
+            ivar_name = recv.name
+            args.each do |arg|
+              val_ty = infer_expr(arg, ctx)
+              # Yield for ALL values including bottom — if we can't
+              # determine the type, the array can't be safely specialised.
+              yield ivar_name, val_ty
+            end
+          end
+        end
+        node.children.each { |c| collect_ivar_array_mutations(c, ctx, &block) }
       end
 
       # Iterate every user-defined method (top-level + instance methods
