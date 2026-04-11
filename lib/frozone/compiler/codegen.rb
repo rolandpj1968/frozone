@@ -322,9 +322,10 @@ module Frozone
         visited << scope.object_id
 
         const_locs = scope.constants_locations || {}
+        top_level = scope.equal?(Vm::Core::OBJECT_CLASS)
         scope.constants_table&.each do |name, value|
           next unless value.is_a?(Vm::ModuleObject)
-          next if SKIP_CONSTANTS.include?(name)
+          next if top_level && SKIP_CONSTANTS.include?(name)
           emit_user_class(name, value, const_loc: const_locs[name], visited: visited)
         end
       end

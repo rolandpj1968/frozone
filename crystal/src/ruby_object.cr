@@ -326,4 +326,12 @@ class RubyClassProxy
 
   def to_s : String; @ruby_class_name; end
   def inspect : String; @ruby_class_name; end
+
+  def respond_to?(name : RubyObject, _include_all : RubyObject = RubyBool::FALSE) : RubyBool
+    RubyBool::FALSE
+  end
+
+  def send(name : RubyObject, *args) : RubyObject
+    raise Exception.new("send not supported on class proxy for #{@ruby_class_name}")
+  end
 end

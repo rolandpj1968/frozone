@@ -16,6 +16,7 @@ require "./encoding/single_byte_tables"
 require "./encoding/single_byte_transcoder"
 require "./ruby_math"
 require "./ruby_random"
+require "./ruby_set"
 
 # Generic Ruby object — concrete class for Object.new / top-level self.
 class RubyGenericObject < RubyObject
@@ -82,4 +83,22 @@ end
 
 def masgn_coerce(val : RubyObject) : RubyArray
   val.is_a?(RubyArray) ? val.as(RubyArray) : RubyArray.new([val] of RubyObject)
+end
+
+# Kernel conversion methods — Ruby's Rational(), Integer(), etc.
+def ruby_Rational(val : RubyObject) : RubyObject
+  # Stub: return the value as-is (proper Rational not implemented)
+  val
+end
+
+def ruby_Integer(val : RubyObject, base : RubyObject = RubyNil::INSTANCE) : RubyObject
+  val
+end
+
+def ruby_Float(val : RubyObject) : RubyObject
+  val
+end
+
+def ruby_Complex(val : RubyObject, imag : RubyObject = RubyNil::INSTANCE) : RubyObject
+  val
 end

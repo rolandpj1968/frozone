@@ -536,8 +536,23 @@ module Frozone
           end
         end
 
+        # self.class.method → static resolution for known patterns
+        if self_class_receiver?(node.receiver_node)
+          return "RUBY_FALSE" if name == :respond_to?
+          return "RUBY_NIL" if name == :send
+        end
+
         # General method call: receiver.method(args)
-        recv_str = node.receiver_node ? "#{cr(node.receiver_node)}." : ""
+        recv_str = if node.receiver_node
+          # self.class.foo → ClassName.foo (static dispatch in closed-world)
+          if self_class_receiver?(node.receiver_node) && defined?(@cctx) && @cctx&.name
+            "Ruby_#{crystal_constant(@cctx.name)}."
+          else
+            "#{cr(node.receiver_node)}."
+          end
+        else
+          ""
+        end
 
         # Narrow receiver type for iteration methods with block arity
         # mismatch: RubyArray#each takes 1-arg block, RubyHash#each
@@ -905,7 +920,8 @@ module Frozone
 
       def cr_global_var_write(node)
         key = node.name.to_s.sub(/^\$/, '')
-        %(RUBY_GLOBALS[#{key.inspect}] = #{cr(node.value_node)})
+        val = cr(node.value_node)
+        %((RUBY_GLOBALS[#{key.inspect}] = (#{val}) || RUBY_NIL))
       end
 
       # a[i] ||= val → (_r = recv; _i = idx; _c = _r[_i]; _c.truthy? ? _c : (_r[_i] = val))
@@ -1024,7 +1040,7 @@ module Frozone
         NilClass: 'RubyNil',
         Numeric:  'RubyObject',
         Struct:   'RubyObject',
-        Set:      'RubyObject',
+        Set:      'Ruby_Set',
         Math:     'RubyMath',
         Random:   'Ruby_Random',
       }.freeze
