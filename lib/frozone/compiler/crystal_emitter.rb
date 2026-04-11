@@ -1374,6 +1374,7 @@ module Frozone
         nil?:    :ruby_nil?,
         to_s:    :ruby_to_s,
         inspect: :ruby_inspect,
+        hash:    :ruby_hash,
       }.freeze
 
       def crystal_constant(sym_or_str) = sym_or_str.to_s

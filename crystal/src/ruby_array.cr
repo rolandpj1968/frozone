@@ -173,6 +173,10 @@ class RubyArray < RubyObject
     push(v)
   end
 
+  def <<(v : Nil) : RubyArray
+    push(RubyNil::INSTANCE)
+  end
+
   def pop : RubyObject
     return RubyNil::INSTANCE if @data.empty?
     @data.pop
