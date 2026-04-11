@@ -170,6 +170,10 @@ abstract class RubyObject
     raise Exception.new("dup not supported for #{self.class}")
   end
 
+  def original_dup : RubyObject
+    dup
+  end
+
   def itself : RubyObject
     self
   end

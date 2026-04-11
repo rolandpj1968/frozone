@@ -484,6 +484,14 @@ module Frozone
             # with Crystal type names. Emit as ruby_ prefixed free calls.
             args = (node.arg_nodes || []).map { |a| cr(a) }.join(', ')
             return "ruby_#{name}(#{args})"
+          when :alias_method
+            args = node.arg_nodes || []
+            if args.size == 2 && args[0].is_a?(Ast::SymbolLiteral) && args[1].is_a?(Ast::SymbolLiteral)
+              new_name = crystal_method_name(args[0].value)
+              old_name = crystal_method_name(args[1].value)
+              return "def #{new_name}(*args); #{old_name}(*args); end"
+            end
+            return "# alias_method (unsupported args)"
           when :attr_accessor then return cr_attr_methods(node, reader: true, writer: true)
           when :attr_reader   then return cr_attr_methods(node, reader: true, writer: false)
           when :attr_writer   then return cr_attr_methods(node, reader: false, writer: true)
@@ -572,7 +580,14 @@ module Frozone
           recv_str = "#{cr(node.receiver_node)}.as(RubyArray)." if nparams <= 1
         end
 
-        "#{recv_str}#{crystal_method_name(name)}#{cr_call_args(node)}"
+        # Operator methods without explicit receiver need self. prefix
+        # in Crystal (bare `==(other)` is invalid syntax).
+        cname = crystal_method_name(name)
+        if recv_str.empty? && (BINARY_OPS.include?(name) || UNARY_OPS.include?(name))
+          recv_str = "self."
+        end
+
+        "#{recv_str}#{cname}#{cr_call_args(node)}"
       end
 
       BINARY_OPS = %i[+ - * / % ** == != < <= > >= <=> << >> & | ^ === =~].to_set

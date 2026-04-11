@@ -383,6 +383,7 @@ module Frozone
             emit_newline
             eigen_names = collect_eigen_method_names(mod)
             emit_instance_methods(name, user_methods, eigen_names)
+            emit_alias_forwarding_methods(mod, user_methods)
             emit_class_methods(name, mod, eigen_names)
             emit_respond_to(mod) if mod.is_a?(Vm::ClassObject)
             emit_user_classes(mod, visited)
@@ -580,6 +581,28 @@ module Frozone
           else
             emit_instance_method_overloads(class_name, mname, method)
           end
+        end
+      end
+
+      # Emit forwarding methods for alias_method-created methods.
+      # These are DefinedMethod objects in the method table that wrap
+      # the same body as a user Method. Emit: def alias_name(*args); original(*args); end
+      # Emit forwarding methods for alias_method-created methods.
+      # Detect aliases by body sharing: if method A shares a body AST
+      # node with method B, A is an alias of B. Emit a forwarding wrapper.
+      # Emit methods that user code calls but weren't emitted as user methods
+      # (e.g. alias_method-created methods with core source locations).
+      # Emits the full method body (same as a regular user method).
+      def emit_alias_forwarding_methods(mod, user_methods)
+        mod.methods_table&.each do |mname, method|
+          next if user_methods.key?(mname)
+          next unless method.is_a?(Vm::Method) && method.body
+          next if accessor_method?(method)
+          # Emit if user code references this method (it has a stub on RubyObject)
+          next unless @cc.user_methods.include?(mname)
+          emit_indent
+          emit_vm_method(mname, method)
+          emit_newline; emit_newline
         end
       end
 
