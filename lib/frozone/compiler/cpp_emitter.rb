@@ -31,6 +31,10 @@ module Frozone
         emit_header
         emit_newline
 
+        # Emit settled constants
+        emit_constants(top_level_scope)
+        emit_newline
+
         # Emit user-defined top-level methods
         emit_user_methods(top_level_scope)
         emit_newline
@@ -84,6 +88,33 @@ module Frozone
         end
         line "};"
         emit_newline
+        line "class RubyFloat : public RubyObject {"
+        line "public:"
+        indented do
+          line "double value;"
+          line "RubyFloat(double v) : value(v) {}"
+          line "double to_f64() override { return value; }"
+          line "int64_t to_i64() override { return (int64_t)value; }"
+        end
+        line "};"
+        emit_newline
+        line "// Native Int64 array — TI-specialised, no boxing"
+        line "class RubyArray_I64 {"
+        line "public:"
+        indented do
+          line "int64_t* data;"
+          line "int64_t len;"
+          line "RubyArray_I64(int64_t size, int64_t fill = 0) : len(size) {"
+          indented do
+            line "data = (int64_t*)calloc(size, sizeof(int64_t));"
+            line "if (fill) for (int64_t i = 0; i < size; i++) data[i] = fill;"
+          end
+          line "}"
+          line "int64_t& operator[](int64_t i) { return data[i]; }"
+          line "~RubyArray_I64() { free(data); }"
+        end
+        line "};"
+        emit_newline
         line "static RubyNil RUBY_NIL_INSTANCE;"
         line "static RubyObject* RUBY_NIL = &RUBY_NIL_INSTANCE;"
       end
@@ -95,6 +126,23 @@ module Frozone
         file = loc.is_a?(Array) ? loc.first.to_s : loc.to_s.sub(/:[\d]+\z/, '')
         return false if @stub_file && file == @stub_file
         CORE_PATH_MARKERS.none? { |m| file.include?(m) }
+      end
+
+      def emit_constants(scope)
+        const_table = scope.constants_table || {}
+        const_locs = scope.constants_locations || {}
+        const_table.each do |name, value|
+          next if value.is_a?(Vm::ModuleObject)
+          loc = const_locs[name]
+          next unless user_source_location?(loc)
+          case value
+          when Vm::IntegerObject then line "static const int64_t #{name} = #{value.raw}LL;"
+          when Vm::FloatObject then line "static const double #{name} = #{value.raw};"
+          when Vm::StringObject then line "static const char* #{name} = #{value.raw.inspect};"
+          when Vm::TrueObject then line "static const bool #{name} = true;"
+          when Vm::FalseObject then line "static const bool #{name} = false;"
+          end
+        end
       end
 
       def emit_user_methods(scope)
@@ -155,16 +203,49 @@ module Frozone
         when Ast::LocalVariableRead then node.name.to_s
         when Ast::LocalVariableWrite
           name = node.name.to_s
+          val = node.value_node
           if @_declared_locals&.include?(name)
-            "#{name} = #{cr(node.value_node)}"
+            "#{name} = #{cr(val)}"
           else
             @_declared_locals << name
-            "int64_t #{name} = #{cr(node.value_node)}"
+            # Detect Array.new → RubyArray_I64 type
+            type = if val.is_a?(Ast::MethodCall) && val.name == :new &&
+                      val.receiver_node.is_a?(Ast::ConstantRead) && val.receiver_node.name == :Array
+              "RubyArray_I64"
+            else
+              "int64_t"
+            end
+            "#{type} #{name} = #{cr(val)}"
           end
         when Ast::If then cr_if(node)
         when Ast::Return then node.value_node ? "return #{cr(node.value_node)}" : "return"
         when Ast::MethodCall then cr_method_call(node)
+        when Ast::ConstantRead then node.name.to_s
+        when Ast::IndexOperatorWrite
+          # a[i] += expr
+          recv = cr(node.receiver_node)
+          idx = cr(node.index_arg_nodes[0])
+          val = cr(node.value_node)
+          "#{recv}[#{idx}] #{node.operator}= #{val}"
+        when Ast::AttributeWrite
+          # a[i] = val (setter)
+          if node.name == :[]=
+            recv = cr(node.receiver_node)
+            args = node.arg_nodes || []
+            "#{recv}[#{cr(args[0])}] = #{cr(args[1])}"
+          else
+            "#{cr(node.receiver_node)}.#{node.name}(#{(node.arg_nodes || []).map { |a| cr(a) }.join(', ')})"
+          end
         when Ast::Sequence then node.nodes.map { |n| cr(n) }.join("; ")
+        when Ast::While
+          pred = cr_truthy(node.condition_node)
+          body = nil
+          old_indent = "  " * @indent
+          indented { body = cr(node.body_node) }
+          "while (#{pred}) {\n#{old_indent}  #{body};\n#{old_indent}}"
+        when Ast::Rescue
+          # begin/rescue/end — emit body, ignore rescue for now
+          cr(node.body)
         else "/* UNSUPPORTED: #{node.class.name.split('::').last} */"
         end
       end
@@ -172,6 +253,12 @@ module Frozone
       def cr_if(node)
         pred = cr_truthy(node.pred_node)
         indent_str = "  " * @indent
+        # Detect unless: if cond; nil; else; body; end
+        if node.then_node.is_a?(Ast::NilLiteral) && node.else_node
+          body = nil
+          indented { body = cr(node.else_node) }
+          return "if (!(#{pred})) {\n#{indent_str}  #{body};\n#{indent_str}}"
+        end
         then_body = nil
         indented { then_body = cr(node.then_node) }
         if node.else_node
@@ -204,24 +291,63 @@ module Frozone
 
         # puts → printf
         if recv.nil? && name == :puts
-          return args.empty? ? "puts(\"\")" :
+          return args.empty? ? "printf(\"\\n\")" :
             "printf(\"%lld\\n\", (long long)(#{cr(args[0])}))"
         end
 
-        # .times { block }
+        # raise → fprintf + exit
+        if recv.nil? && name == :raise
+          msg = if args.empty?
+            "\"RuntimeError\""
+          elsif args[0].is_a?(Ast::StringLiteral)
+            "\"#{args[0].value.respond_to?(:raw) ? args[0].value.raw : args[0].value}\""
+          else
+            "\"error\""
+          end
+          return "{ fprintf(stderr, \"Error: %s\\n\", #{msg}); exit(1); }"
+        end
+
+        # Array.new(size, fill)
+        if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name == :Array && args.size == 2
+          return "RubyArray_I64(#{cr(args[0])}, #{cr(args[1])})"
+        end
+
+        # .times { |i| block }
         if name == :times && recv && node.block_node
           blk = node.block_node
           var = (blk.required_params || [])[0] || :_i
-          body = nil
-          indented { body = cr(blk.body) }
-          indent_str = "  " * @indent
-          return "for (int64_t #{var} = 0; #{var} < #{cr(recv)}; #{var}++) {\n#{indent_str}  #{body};\n#{indent_str}}"
+          @_declared_locals&.add(var.to_s)
+          body_str = nil
+          old_indent = "  " * @indent
+          indented do
+            lines = []
+            if blk.body.is_a?(Ast::Sequence)
+              blk.body.nodes.each { |n| lines << ("  " * @indent + cr(n) + ";") }
+            else
+              lines << ("  " * @indent + cr(blk.body) + ";")
+            end
+            body_str = lines.join("\n")
+          end
+          return "for (int64_t #{var} = 0; #{var} < #{cr(recv)}; #{var}++) {\n#{body_str}\n#{old_indent}}"
+        end
+
+        # a[i] (subscript read)
+        if name == :[] && recv && args.size == 1
+          return "#{cr(recv)}[#{cr(args[0])}]"
         end
 
         # Arithmetic operators
-        if recv && %i[+ - * / % < <= > >= == != << >>].include?(name) && args.size == 1
+        if recv && %i[+ - * / % < <= > >= == != << >> & | ^].include?(name) && args.size == 1
           return "(#{cr(recv)} #{name} #{cr(args[0])})"
         end
+
+        # .length / .size
+        if recv && (name == :length || name == :size) && args.empty?
+          return "#{cr(recv)}.len"
+        end
+
+        # .dup
+        return "#{cr(recv)}" if name == :dup && recv  # TODO: proper dup
 
         # Free function call
         if recv.nil?
