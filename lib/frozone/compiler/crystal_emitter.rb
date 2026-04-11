@@ -667,7 +667,14 @@ module Frozone
         exc_node = args[0]
         msg_node = args[1]
         ctor = exc_node.is_a?(Ast::ConstantRead) ? "Ruby_#{crystal_constant(exc_node.name)}.new" : "#{cr(exc_node)}.new"
-        "raise #{ctor}(#{cr(msg_node)}.to_s)"
+        # User exception classes take RubyObject args; built-in take String.
+        is_user_exc = if exc_node.is_a?(Ast::ConstantRead)
+          @exception_classes&.include?(exc_node.name)
+        elsif exc_node.is_a?(Ast::ConstantPath)
+          true  # namespaced exceptions are always user-defined
+        end
+        suffix = is_user_exc ? "" : ".to_s"
+        "raise #{ctor}(#{cr(msg_node)}#{suffix})"
       end
 
       def cr_rescue(node)
