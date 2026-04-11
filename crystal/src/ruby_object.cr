@@ -248,6 +248,34 @@ abstract class RubyObject
     RubyBool::FALSE
   end
 
+  def bsearch_index(&block) : RubyObject
+    raise Exception.new("bsearch_index not supported for #{self.class}")
+  end
+
+  def bsearch(&block) : RubyObject
+    raise Exception.new("bsearch not supported for #{self.class}")
+  end
+
+  def force_encoding(enc : RubyObject) : RubyObject
+    raise Exception.new("force_encoding not supported for #{self.class}")
+  end
+
+  def valid_encoding? : RubyBool
+    RubyBool::TRUE
+  end
+
+  def encoding : RubyObject
+    raise Exception.new("encoding not supported for #{self.class}")
+  end
+
+  def scan(pattern : RubyObject) : RubyObject
+    raise Exception.new("scan not supported for #{self.class}")
+  end
+
+  def chomp(suffix : RubyObject = RubyNil::INSTANCE) : RubyObject
+    raise Exception.new("chomp not supported for #{self.class}")
+  end
+
   def bytesize : RubyObject
     raise Exception.new("bytesize not supported for #{self.class}")
   end

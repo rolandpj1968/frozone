@@ -45,6 +45,7 @@ end
 struct Bool
   def truthy? : Bool; self; end
   def ruby_nil? : Bool; false; end
+  def nonzero? : Bool?; self ? self : nil; end
 end
 
 struct Int32
