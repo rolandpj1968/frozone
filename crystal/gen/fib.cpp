@@ -71,6 +71,8 @@ static RubyNil RUBY_NIL_INSTANCE;
 static RubyObject* RUBY_NIL = &RUBY_NIL_INSTANCE;
 
 
+
+
 static int64_t fib(int64_t n) {
   if ((n < 2LL)) {
     return n;

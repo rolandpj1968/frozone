@@ -51,7 +51,10 @@ module Frozone
             globals: Vm::GLOBALS,
             stub_file: stub_file
           )
-          output = @output_path || default_output_path.sub(/\.cr$/, '.cpp')
+          cpp_dir = File.expand_path('../../../cpp/gen', __dir__)
+          src = @block_node&.source_location&.first || $PROGRAM_NAME
+          base = File.basename(src.to_s, '.rb')
+          output = @output_path || File.join(cpp_dir, "#{base}.cpp")
           File.write(output, source)
           $stderr.puts "Frozone.compile! (C++): wrote #{output}"
           return Vm::NilObject::NIL

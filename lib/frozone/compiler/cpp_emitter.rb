@@ -31,8 +31,16 @@ module Frozone
         emit_header
         emit_newline
 
-        # Emit settled constants
-        emit_constants(top_level_scope)
+        # Emit settled value constants (Int64, Float64, etc.)
+        emit_constants(top_level_scope, skip_objects: true)
+        emit_newline
+
+        # Emit user-defined classes
+        emit_user_classes(top_level_scope)
+        emit_newline
+
+        # Emit settled object constants (after class definitions)
+        emit_constants(top_level_scope, objects_only: true)
         emit_newline
 
         # Emit user-defined top-level methods
@@ -44,6 +52,17 @@ module Frozone
       end
 
       private
+
+      # Strip @ from Ruby ivar names for C++
+      def cpp_ivar(name) = name.to_s.delete_prefix('@')
+
+      def trivial_body?(body)
+        return true if body.nil?
+        return true if body.is_a?(Ast::NilLiteral)
+        return true if body.is_a?(Ast::Sequence) && body.nodes.size <= 1 &&
+          (body.nodes.empty? || body.nodes[0].is_a?(Ast::NilLiteral))
+        false
+      end
 
       def emit_header
         line "#include <cstdio>"
@@ -146,29 +165,120 @@ module Frozone
         CORE_PATH_MARKERS.none? { |m| file.include?(m) }
       end
 
-      def emit_constants(scope)
+      def emit_constants(scope, skip_objects: false, objects_only: false)
         const_table = scope.constants_table || {}
         const_locs = scope.constants_locations || {}
         const_table.each do |name, value|
           next if value.is_a?(Vm::ModuleObject)
           loc = const_locs[name]
           next unless user_source_location?(loc)
+          is_obj = value.is_a?(Vm::ObjectObject)
+          next if skip_objects && is_obj
+          next if objects_only && !is_obj
           case value
           when Vm::IntegerObject then line "static const int64_t #{name} = #{value.raw}LL;"
           when Vm::FloatObject then line "static const double #{name} = #{value.raw};"
           when Vm::StringObject then line "static const char* #{name} = #{value.raw.inspect};"
           when Vm::TrueObject then line "static const bool #{name} = true;"
           when Vm::FalseObject then line "static const bool #{name} = false;"
+          when Vm::ObjectObject
+            klass = value.class_object
+            if klass.is_a?(Vm::ClassObject) && klass.name
+              line "static Ruby_#{klass.name} #{name};"
+            end
           end
         end
+      end
+
+      def emit_user_classes(scope)
+        scope.constants_table&.each do |name, value|
+          next unless value.is_a?(Vm::ClassObject)
+          next if value.name.nil? || %i[Object BasicObject Module Class Kernel].include?(value.name)
+          methods = value.methods_table || {}
+          next unless methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
+          emit_class(name, value)
+          emit_newline
+        end
+      end
+
+      def emit_class(name, cls)
+        line "struct Ruby_#{name} {"
+        # Collect ivars from initialize
+        init = cls.methods_table&.fetch(:initialize, nil)
+        ivars = []
+        if init.is_a?(Vm::Method) && init.body
+          collect_ivars_from_body(init.body, ivars)
+        end
+        indented do
+          # Emit ivar fields (all int64_t for now — TI would tell us)
+          ivars.uniq.each { |iv| line "int64_t #{cpp_ivar(iv)} = 0;" }
+          emit_newline if ivars.any?
+          # Emit methods
+          cls.methods_table&.each do |mname, method|
+            next unless method.is_a?(Vm::Method) && method.body
+            next if mname == :initialize # handle separately
+            next unless user_source_location?(method.source_location) || accessor_method?(method)
+            next if trivial_body?(method.body)
+            emit_class_method(mname, method)
+            emit_newline
+          end
+          # Emit initialize as constructor
+          if init.is_a?(Vm::Method) && init.body
+            emit_constructor(name, init)
+          end
+        end
+        line "};"
+      end
+
+      def collect_ivars_from_body(node, result)
+        return unless node
+        if node.is_a?(Ast::InstanceVariableWrite)
+          result << node.name.to_s
+        elsif node.is_a?(Ast::InstanceVariableRead)
+          result << node.name.to_s
+        end
+        node.children.each { |c| collect_ivars_from_body(c, result) if c.is_a?(Ast::Node) }
+      end
+
+      def accessor_method?(method)
+        method.body.is_a?(Ast::InstanceVariableRead) || method.body.is_a?(Ast::InstanceVariableWrite)
+      end
+
+      def emit_class_method(mname, method)
+        params = (method.required_params || []).map { |p| "int64_t #{p}" }.join(", ")
+        line "int64_t #{mname}(#{params}) {"
+        @_declared_locals = Set.new
+        (method.required_params || []).each { |p| @_declared_locals << p.to_s }
+        indented do
+          body = method.body
+          if body.is_a?(Ast::InstanceVariableRead)
+            # Simple getter
+            line "return #{cpp_ivar(body.name)};"
+          elsif body.is_a?(Ast::Sequence)
+            nodes = body.nodes
+            nodes[0...-1].each { |n| emit_stmt(n) }
+            emit_stmt_return(nodes.last) if nodes.last
+          else
+            emit_stmt_return(body)
+          end
+        end
+        line "}"
+      end
+
+      def emit_constructor(name, init)
+        params = (init.required_params || []).map { |p| "int64_t #{p}" }.join(", ")
+        line "Ruby_#{name}(#{params}) {"
+        @_declared_locals = Set.new
+        (init.required_params || []).each { |p| @_declared_locals << p.to_s }
+        indented { emit(init.body) }
+        line "}"
       end
 
       def emit_user_methods(scope)
         scope.methods_table&.each do |name, method|
           next unless method.is_a?(Vm::Method) && user_source_location?(method.source_location)
-          # Skip stub methods (body is just nil)
-          next if method.body.is_a?(Ast::NilLiteral)
-          next if method.body.is_a?(Ast::Sequence) && method.body.nodes.size == 1 && method.body.nodes[0].is_a?(Ast::NilLiteral)
+          # Skip stub methods and methods with trivial/nil bodies
+          next if trivial_body?(method.body)
           emit_method(name, method)
           emit_newline
         end
@@ -244,6 +354,22 @@ module Frozone
           s
         when Ast::StringLiteral then "\"#{node.value.respond_to?(:raw) ? node.value.raw : node.value}\""
         when Ast::LocalVariableRead then node.name.to_s
+        when Ast::InstanceVariableRead then cpp_ivar(node.name)
+        when Ast::InstanceVariableWrite then "#{cpp_ivar(node.name)} = #{cr(node.value_node)}"
+        when Ast::MultipleAssignment
+          # Simple case: @a, @b, @c = x, y, z (from array literal RHS)
+          targets = node.targets
+          vals = node.value_node
+          if vals.is_a?(Ast::ArrayLiteral)
+            elems = vals.element_nodes || []
+            parts = targets.each_with_index.map { |t, i|
+              tgt = t[0] == :ivar ? t[1].to_s : t[1].to_s
+              "#{tgt} = #{elems[i] ? cr(elems[i]) : "0LL"}"
+            }
+            parts.join("; ")
+          else
+            "/* UNSUPPORTED masgn */"
+          end
         when Ast::LocalVariableWrite
           name = node.name.to_s
           val = node.value_node
@@ -251,10 +377,9 @@ module Frozone
             "#{name} = #{cr(val)}"
           else
             @_declared_locals << name
-            # Detect Array.new → RubyArray_I64 type
-            type = if val.is_a?(Ast::MethodCall) && val.name == :new &&
-                      val.receiver_node.is_a?(Ast::ConstantRead) && val.receiver_node.name == :Array
-              "RubyArray_I64"
+            type = if val.is_a?(Ast::MethodCall) && val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
+              cn = val.receiver_node.name
+              cn == :Array ? "RubyArray_I64" : "Ruby_#{cn}"
             else
               "int64_t"
             end
@@ -397,6 +522,12 @@ module Frozone
             "\"error\""
           end
           return "{ fprintf(stderr, \"Error: %s\\n\", #{msg}); exit(1); }"
+        end
+
+        # ClassName.new(args) → Ruby_ClassName(args) constructor call
+        if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name != :Array
+          arg_strs = args.map { |a| cr(a) }.join(", ")
+          return "Ruby_#{recv.name}(#{arg_strs})"
         end
 
         # Array.new(size, fill)
