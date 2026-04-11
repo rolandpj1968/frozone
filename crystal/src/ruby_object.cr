@@ -224,6 +224,30 @@ abstract class RubyObject
     raise Exception.new("unpack not supported for #{self.class}")
   end
 
+  def nonzero? : RubyObject
+    self
+  end
+
+  def delete(key : RubyObject) : RubyObject
+    raise Exception.new("delete not supported for #{self.class}")
+  end
+
+  def delete(key : UInt64) : RubyObject
+    delete(RubyInteger.new(key.to_i64))
+  end
+
+  def __id__ : RubyInteger
+    RubyInteger.new(object_id.to_i64)
+  end
+
+  def instance_variables_to_inspect : RubyString
+    RubyString.new("")
+  end
+
+  def instance_variable_defined?(name : RubyObject) : RubyBool
+    RubyBool::FALSE
+  end
+
   def bytesize : RubyObject
     raise Exception.new("bytesize not supported for #{self.class}")
   end
@@ -356,4 +380,8 @@ class RubyClassProxy
   def send(name : RubyObject, *args) : RubyObject
     raise Exception.new("send not supported on class proxy for #{@ruby_class_name}")
   end
+
+  def truthy? : Bool; true; end
+  def ruby_nil? : Bool; false; end
+  def ruby_to_s(*args) : RubyObject; RubyString.new(@ruby_class_name); end
 end
