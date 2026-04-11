@@ -43,6 +43,7 @@ end
 
 struct Bool
   def truthy? : Bool; self; end
+  def ruby_nil? : Bool; false; end
 end
 
 # Crystal native type extensions for mixed arithmetic with RubyObject.

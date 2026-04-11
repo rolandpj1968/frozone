@@ -157,6 +157,7 @@ module Frozone
         collect_symbol_literals_from_scope(top_level_scope)
         collect_symbol_literals(execute_block.body) if execute_block
         collect_string_constants_from_scope(top_level_scope)
+        @_pre_scan_symbol_count = @literal_symbols.size
 
         emit_header
         emit_bench_harness_require if bench_stub?
@@ -202,6 +203,11 @@ module Frozone
           @cc.in_execute_block = false
         end
 
+        # Emit any symbols discovered during method emission that weren't
+        # in the pre-scan (e.g. from aliased or flattened methods with
+        # core source locations). Insert before the execute block.
+        emit_late_symbols
+
         @out
       end
 
@@ -210,6 +216,16 @@ module Frozone
       # -----------------------------------------------------------------------
       # Source-location filtering
       # -----------------------------------------------------------------------
+
+      # Emit symbol constants discovered after the initial pre-scan
+      # (from aliased/flattened methods with core source locations).
+      def emit_late_symbols
+        return if @literal_symbols.size <= @_pre_scan_symbol_count
+        @literal_symbols.each do |sym, idx|
+          next if idx < @_pre_scan_symbol_count
+          line "Ruby_Sym_#{idx} = RubySymbol.from(#{sym.to_s.inspect})"
+        end
+      end
 
       def bench_stub? = @cc.bench_stub?
 

@@ -310,6 +310,7 @@ module Frozone
         line "RUBY_FALSE  = RubyBool::FALSE"
         line "RUBY_GLOBALS = {} of String => RubyObject"
         line "Ruby_ARGV   = RubyArray.new(ARGV.map { |s| RubyString.new(s).as(RubyObject) })"
+        line "Ruby_Fiber  = RubyHash.new  # Fiber-local storage (single-fiber compiled mode)"
         line "RUBY_STDIN  = RubyIO.new(STDIN)"
         line "RUBY_STDOUT = RubyIO.new(STDOUT)"
         line "RUBY_STDERR = RubyIO.new(STDERR)"

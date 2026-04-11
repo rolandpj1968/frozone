@@ -132,6 +132,9 @@ abstract class RubyObject
   def [](idx : Int64)
     self[RubyInteger.new(idx)]
   end
+  def [](idx : UInt64)
+    self[RubyInteger.new(idx.to_i64)]
+  end
 
   def [](from : RubyObject, len : RubyObject) : RubyObject
     raise Exception.new("[] with 2 args not supported for #{self.class}")
@@ -142,6 +145,9 @@ abstract class RubyObject
 
   def []=(idx : RubyObject, val : RubyObject) : RubyObject
     raise Exception.new("[]= not supported for #{self.class}")
+  end
+  def []=(idx : UInt64, val : RubyObject) : RubyObject
+    self[idx.to_i64] = val
   end
   def []=(idx : Int64, val : RubyObject) : RubyObject
     raise Exception.new("[]= not supported for #{self.class}")
