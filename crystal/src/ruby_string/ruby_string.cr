@@ -388,6 +388,10 @@ class RubyString < RubyObject
     raise NotImplementedError.new("encoding conversion not yet implemented")
   end
 
+  def encode(to : RubyObject) : RubyString
+    encode(to.as(RubyEncodingObject).encoding)
+  end
+
   # Replace content in-place (bytes and encoding) from *other*.
   # Raises RubyFrozenError if frozen.
   # Returns self.

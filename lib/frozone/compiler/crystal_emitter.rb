@@ -309,6 +309,9 @@ module Frozone
         line "RUBY_FALSE  = RubyBool::FALSE"
         line "RUBY_GLOBALS = {} of String => RubyObject"
         line "Ruby_ARGV   = RubyArray.new(ARGV.map { |s| RubyString.new(s).as(RubyObject) })"
+        line "RUBY_STDIN  = RubyIO.new(STDIN)"
+        line "RUBY_STDOUT = RubyIO.new(STDOUT)"
+        line "RUBY_STDERR = RubyIO.new(STDERR)"
         line "module Ruby_ENV"
         line "  def self.[](key : RubyObject) : RubyObject"
         line '    val = ENV[key.to_s]?'
@@ -913,9 +916,9 @@ module Frozone
 
       # Global variable read: $name → RUBY_GLOBALS["name"]? || RUBY_NIL
       MAPPED_GLOBALS = {
-        :"$stdout" => "RUBY_NIL",  # TODO: IO wrapper
-        :"$stderr" => "RUBY_NIL",
-        :"$stdin"  => "RUBY_NIL",
+        :"$stdout" => "RUBY_STDOUT",
+        :"$stderr" => "RUBY_STDERR",
+        :"$stdin"  => "RUBY_STDIN",
       }.freeze
 
       def cr_global_var_read(node)

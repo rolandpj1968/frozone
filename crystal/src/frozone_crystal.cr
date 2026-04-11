@@ -17,6 +17,7 @@ require "./encoding/single_byte_transcoder"
 require "./ruby_math"
 require "./ruby_random"
 require "./ruby_set"
+require "./ruby_io"
 
 # Generic Ruby object — concrete class for Object.new / top-level self.
 class RubyGenericObject < RubyObject

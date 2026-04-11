@@ -202,6 +202,18 @@ abstract class RubyObject
     raise Exception.new("flat_map not supported for #{self.class}")
   end
 
+  def encode(to : RubyObject) : RubyObject
+    raise Exception.new("encode not supported for #{self.class}")
+  end
+
+  def encode(to : RubyEncoding) : RubyObject
+    raise Exception.new("encode not supported for #{self.class}")
+  end
+
+  def unpack(fmt : RubyObject) : RubyObject
+    raise Exception.new("unpack not supported for #{self.class}")
+  end
+
   def bytesize : RubyObject
     raise Exception.new("bytesize not supported for #{self.class}")
   end
