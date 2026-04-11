@@ -28,6 +28,9 @@ module Frozone
         @cached_name_str = nil
       end
       def private_constants_table = @private_constants
+      # Module erasure: maps method.object_id → renamed super target name.
+      # Set by ModuleErasure.flatten!, read by Codegen#cr_super.
+      attr_accessor :prepend_super_targets
       def is_singleton_class = false
       def singleton_of = nil
       def prepends = @prepends || []

@@ -23,17 +23,18 @@ module Frozone
       private
 
       def self.user_class?(cls)
-        has_user = ->(mod) {
-          mod.methods_table&.any? { |_, m| m.is_a?(Vm::Method) && user_loc?(m.source_location) } ||
-            mod.constants_locations&.any? { |_, loc| user_loc?(loc) }
+        # A class should be flattened if any module in its include/prepend
+        # chain (transitively) has user content. Don't walk the SUPERCLASS
+        # chain — that would pull in all core classes.
+        check_mod_tree = ->(mod, visited = Set.new) {
+          return false if visited.include?(mod.object_id)
+          visited << mod.object_id
+          return true if mod.methods_table&.any? { |_, m| m.is_a?(Vm::Method) && user_loc?(m.source_location) }
+          return true if mod.constants_locations&.any? { |_, loc| user_loc?(loc) }
+          mod.modules.any? { |m| check_mod_tree.call(m, visited) } ||
+            mod.prepends.any? { |m| check_mod_tree.call(m, visited) }
         }
-        # A class should be flattened if it has user content, OR if any of
-        # its INCLUDED MODULES (not superclass chain) have user content.
-        # This catches `class Foo; include UserModule; end` without
-        # accidentally pulling in all core classes via the superclass chain.
-        return true if has_user.call(cls)
-        cls.modules.any? { |m| has_user.call(m) } ||
-          cls.prepends.any? { |m| has_user.call(m) }
+        check_mod_tree.call(cls)
       end
 
       def self.user_loc?(loc)
@@ -59,21 +60,44 @@ module Frozone
       end
 
       def self.flatten_class!(cls)
-        $stderr.puts "ERASURE: flatten #{cls.name} mro=#{build_mro(cls).map(&:name).inspect}" if ENV['FROZONE_DBG_ERASURE']
-        # Walk the ancestor chain in MRO order and collect methods/constants
-        # that the class doesn't already define itself.
         ancestors = build_mro(cls)
 
-        # Flatten methods: walk MRO, first definition wins (already in
-        # the class's own table takes precedence).
+        # Flatten methods using MRO order. For each method name, the
+        # FIRST definition in the MRO wins. When a prepended method
+        # overrides the class's own method, rename the original so
+        # `super` in the prepend can reach it.
+        #
+        # Walk MRO to build a flat method table. Track super targets
+        # for prepended methods that override later definitions.
+        mro_methods = {}  # {name => [method, source_module]} in MRO order
         ancestors.each do |ancestor|
-          next if ancestor.equal?(cls)  # skip self
           ancestor.methods_table&.each do |mname, method|
-            next if cls.methods_table.key?(mname)  # own method takes priority
             next if method == Vm::ModuleObject::UNDEF_SENTINEL
-            cls.methods_table[mname] = method
+            mro_methods[mname] ||= []
+            mro_methods[mname] << [method, ancestor]
           end
         end
+
+        # For each method: first definition wins. If the winner is from
+        # a prepended module and the class has its own definition, rename
+        # the class's original and record the super chain.
+        super_targets = {}  # {method.object_id => renamed_method_name}
+        mro_methods.each do |mname, chain|
+          winner_method, winner_source = chain.first
+          if !winner_source.equal?(cls) && cls.methods_table.key?(mname)
+            # Prepend/include override — rename and chain super targets.
+            # Walk the chain: each method's super target is the next in line.
+            chain.each_cons(2) do |(m, _src), (next_m, _next_src)|
+              renamed = :"__prepend_super_#{mname}_#{super_targets.size}"
+              super_targets[m.object_id] = renamed
+              cls.methods_table[renamed] = next_m
+            end
+          end
+          cls.methods_table[mname] = winner_method
+        end
+
+        # Store super targets on the class for the codegen to use.
+        cls.prepend_super_targets = super_targets unless super_targets.empty?
 
         # Flatten constants: same precedence rule.
         # Skip ModuleObject values (class/module references) — those create

@@ -873,6 +873,7 @@ module Frozone
         setup_method_context(name, method, param_types: param_types,
                              class_method: class_method, param_set: param_set, mkey: mkey)
         @mctx.class_method = class_method
+        @mctx.current_method_obj = method
         register_native_array_locals(method, param_types, param_set)
         infer_method_local_types(name, method, param_types, param_set, class_method)
 
@@ -1333,6 +1334,35 @@ module Frozone
 
       def cr_and(node) = crystal_bool_emittable?(node) ? cr_crystal_bool(node) : super
       def cr_or(node) = crystal_bool_emittable?(node) ? cr_crystal_bool(node) : super
+
+      # Override: for prepended methods, `super` calls the renamed original
+      # instead of Crystal's built-in `super`. The super target mapping is
+      # set by ModuleErasure.flatten! on the class.
+      def cr_super(node)
+        if @mctx&.current_method_obj && @cctx&.name
+          cls = lookup_vm_class(@cctx.name)
+          targets = cls&.prepend_super_targets
+          if targets
+            renamed = targets[@mctx.current_method_obj.object_id]
+            if renamed
+              args = node.arg_nodes
+              if node.forwarding || args.nil? || args.empty?
+                # Forwarding super: pass the current method's params.
+                method = @mctx.current_method_obj
+                param_names = (method.required_params || []).map { |p| crystal_local(p) }
+                return param_names.empty? ? crystal_method_name(renamed).to_s :
+                  "#{crystal_method_name(renamed)}(#{param_names.join(', ')})"
+              else
+                return "#{crystal_method_name(renamed)}(#{args.map { |a| cr(a) }.join(', ')})"
+              end
+            end
+          end
+        end
+        # Default: regular Crystal super
+        args = node.arg_nodes
+        return "super" if node.forwarding || args.nil? || args.empty?
+        "super(#{args.map { |a| cr(a) }.join(', ')})"
+      end
 
       # Override cr_param_list to apply inferred types for required params.
       def cr_param_list(node, param_types: nil)
