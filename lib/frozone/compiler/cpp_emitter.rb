@@ -50,6 +50,7 @@ module Frozone
         line "#include <cstdint>"
         line "#include <cstdlib>"
         line "#include <cstring>"
+        line "#include <cmath>"
         emit_newline
         line "// --- Frozone C++ runtime (minimal) ---"
         emit_newline
@@ -115,6 +116,23 @@ module Frozone
         end
         line "};"
         emit_newline
+        line "// Native Float64 array"
+        line "class RubyArray_F64 {"
+        line "public:"
+        indented do
+          line "double* data;"
+          line "int64_t len;"
+          line "RubyArray_F64(int64_t size = 0, double fill = 0.0) : len(size) {"
+          indented do
+            line "data = (double*)calloc(size > 0 ? size : 1, sizeof(double));"
+            line "if (fill != 0.0) for (int64_t i = 0; i < size; i++) data[i] = fill;"
+          end
+          line "}"
+          line "double& operator[](int64_t i) { return data[i]; }"
+          line "~RubyArray_F64() { free(data); }"
+        end
+        line "};"
+        emit_newline
         line "static RubyNil RUBY_NIL_INSTANCE;"
         line "static RubyObject* RUBY_NIL = &RUBY_NIL_INSTANCE;"
       end
@@ -177,8 +195,8 @@ module Frozone
 
       def emit_stmt_return(node)
         s = cr(node)
-        if s.include?("{\n") || s.start_with?("if ") || s.start_with?("while ") || s.start_with?("for ")
-          emit_indent; write s; emit_newline
+        if s.include?("{\n") || s.start_with?("if ") || s.start_with?("while ") || s.start_with?("for ") || s.start_with?("return ")
+          emit_stmt(node)
         else
           line "return #{s};"
         end
@@ -219,7 +237,11 @@ module Frozone
         when Ast::TrueLiteral then "true"
         when Ast::FalseLiteral then "false"
         when Ast::IntegerLiteral then "#{node.value.raw}LL"
-        when Ast::FloatLiteral then "#{node.value.respond_to?(:raw) ? node.value.raw : node.value}"
+        when Ast::FloatLiteral
+          val = node.value.respond_to?(:raw) ? node.value.raw : node.value
+          s = val.to_s
+          s += ".0" unless s.include?('.') || s.include?('e')
+          s
         when Ast::StringLiteral then "\"#{node.value.respond_to?(:raw) ? node.value.raw : node.value}\""
         when Ast::LocalVariableRead then node.name.to_s
         when Ast::LocalVariableWrite
@@ -261,11 +283,25 @@ module Frozone
           end
         when Ast::Sequence then node.nodes.map { |n| cr(n) }.join("; ")
         when Ast::While
-          pred = cr_truthy(node.condition_node)
-          body = nil
+          cr_while("while", node)
+        when Ast::Until
+          cr_while("while", node, negate: true)
+        when Ast::ForLoop
+          target = node.target
+          var = target[0] == :local ? target[1].to_s : "_for_var"
+          @_declared_locals&.add(var)
+          coll = cr(node.collection_node)
+          body_str = cr_block_body(node.body_node)
           old_indent = "  " * @indent
-          indented { body = cr(node.body_node) }
-          "while (#{pred}) {\n#{old_indent}  #{body};\n#{old_indent}}"
+          "for (int64_t #{var} = 0; #{var} < #{coll}; #{var}++) {\n#{body_str}\n#{old_indent}}"
+        when Ast::Next
+          "continue"
+        when Ast::Break
+          "break"
+        when Ast::RangeLiteral
+          # For ranges used in for loops, emit the end value
+          # (the for loop handles the iteration)
+          node.exclusive ? cr(node.end_node) : "(#{cr(node.end_node)} + 1LL)"
         when Ast::Rescue
           # begin/rescue/end — emit body, ignore rescue for now
           cr(node.body)
@@ -293,6 +329,25 @@ module Frozone
         end
       end
 
+      def cr_while(keyword, node, negate: false)
+        pred = cr_truthy(node.condition_node)
+        pred = "!(#{pred})" if negate
+        old_indent = "  " * @indent
+        body_str = cr_block_body(node.body_node)
+        "#{keyword} (#{pred}) {\n#{body_str}\n#{old_indent}}"
+      end
+
+      def cr_block_body(node)
+        lines = []
+        ind = "  " * (@indent + 1)
+        if node.is_a?(Ast::Sequence)
+          node.nodes.each { |n| lines << (ind + cr(n) + ";") }
+        else
+          lines << (ind + cr(node) + ";")
+        end
+        lines.join("\n")
+      end
+
       def cr_truthy(node)
         case node
         when Ast::TrueLiteral then "true"
@@ -312,10 +367,24 @@ module Frozone
         recv = node.receiver_node
         args = node.arg_nodes || []
 
-        # puts → printf
+        # puts → printf (auto-detect int vs float from literal type)
         if recv.nil? && name == :puts
-          return args.empty? ? "printf(\"\\n\")" :
-            "printf(\"%lld\\n\", (long long)(#{cr(args[0])}))"
+          if args.empty?
+            return "printf(\"\\n\")"
+          else
+            arg = cr(args[0])
+            # Heuristic: if arg contains . or is a known float var, use %f
+            return "printf(\"%.9f\\n\", (double)(#{arg}))" if arg.include?('.') || @_float_vars&.include?(args[0].respond_to?(:name) ? args[0].name.to_s : nil)
+            return "printf(\"%lld\\n\", (long long)(#{arg}))"
+          end
+        end
+
+        # Math.sqrt, Math::PI etc.
+        if recv.is_a?(Ast::ConstantRead) && recv.name == :Math
+          case name
+          when :sqrt then return "sqrt(#{cr(args[0])})"
+          when :PI then return "M_PI"
+          end
         end
 
         # raise → fprintf + exit
@@ -331,8 +400,19 @@ module Frozone
         end
 
         # Array.new(size, fill)
-        if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name == :Array && args.size == 2
-          return "RubyArray_I64(#{cr(args[0])}, #{cr(args[1])})"
+        if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name == :Array
+          if args.size == 2 && !node.block_node
+            return "RubyArray_I64(#{cr(args[0])}, #{cr(args[1])})"
+          elsif args.size == 1 && node.block_node
+            # Array.new(n) { |i| expr } — unfold into loop
+            blk = node.block_node
+            var = (blk.required_params || [])[0] || :_ai
+            @_declared_locals&.add(var.to_s)
+            size_expr = cr(args[0])
+            body_expr = cr(blk.body)
+            # Return a C++ compound expression that builds the array
+            return "({ auto _arr = RubyArray_F64(#{size_expr}); for (int64_t #{var} = 0; #{var} < #{size_expr}; #{var}++) { _arr[#{var}] = #{body_expr}; } _arr; })"
+          end
         end
 
         # .times { |i| block }

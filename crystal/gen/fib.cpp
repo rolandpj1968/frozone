@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
 
 // --- Frozone C++ runtime (minimal) ---
 
@@ -32,12 +33,43 @@ public:
   }
 };
 
+class RubyFloat : public RubyObject {
+public:
+  double value;
+  RubyFloat(double v) : value(v) {}
+  double to_f64() override { return value; }
+  int64_t to_i64() override { return (int64_t)value; }
+};
+
+// Native Int64 array — TI-specialised, no boxing
+class RubyArray_I64 {
+public:
+  int64_t* data;
+  int64_t len;
+  RubyArray_I64(int64_t size, int64_t fill = 0) : len(size) {
+    data = (int64_t*)calloc(size, sizeof(int64_t));
+    if (fill) for (int64_t i = 0; i < size; i++) data[i] = fill;
+  }
+  int64_t& operator[](int64_t i) { return data[i]; }
+  ~RubyArray_I64() { free(data); }
+};
+
+// Native Float64 array
+class RubyArray_F64 {
+public:
+  double* data;
+  int64_t len;
+  RubyArray_F64(int64_t size = 0, double fill = 0.0) : len(size) {
+    data = (double*)calloc(size > 0 ? size : 1, sizeof(double));
+    if (fill != 0.0) for (int64_t i = 0; i < size; i++) data[i] = fill;
+  }
+  double& operator[](int64_t i) { return data[i]; }
+  ~RubyArray_F64() { free(data); }
+};
+
 static RubyNil RUBY_NIL_INSTANCE;
 static RubyObject* RUBY_NIL = &RUBY_NIL_INSTANCE;
 
-static int64_t run_benchmark() {
-  RUBY_NIL;
-}
 
 static int64_t fib(int64_t n) {
   if ((n < 2LL)) {
