@@ -42,6 +42,21 @@ module Frozone
           return Vm::NilObject::NIL
         end
 
+        if ENV['FROZONE_CPP']
+          require_relative '../compiler/cpp_emitter'
+          emitter = Frozone::Compiler::CppEmitter.new
+          source = emitter.generate(
+            execute_block: @block_node,
+            top_level_scope: Vm::Core::OBJECT_CLASS,
+            globals: Vm::GLOBALS,
+            stub_file: stub_file
+          )
+          output = @output_path || default_output_path.sub(/\.cr$/, '.cpp')
+          File.write(output, source)
+          $stderr.puts "Frozone.compile! (C++): wrote #{output}"
+          return Vm::NilObject::NIL
+        end
+
         codegen = Frozone::Compiler::Codegen.new
         crystal_source = codegen.generate(
           execute_block: @block_node,
