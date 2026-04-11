@@ -4,6 +4,7 @@ require 'etc'
 RUBY_SPEC_DIR = ENV.fetch('RUBY_SPEC_DIR', File.expand_path('spec/ruby-spec', __dir__))
 MSPEC_RUNNER  = File.expand_path('spec/mspec_runner.rb', __dir__)
 PARSER_FLAVOR = ENV.fetch('PARSER', 'prism')  # prism (default) or wq
+FLATTEN_FLAG  = ENV['FLATTEN'] ? ' --flatten' : ''
 
 # Internal RSpec suite
 task default: :spec
@@ -21,7 +22,7 @@ end
 # Language spec helpers
 def run_language_specs(*spec_files)
   args = spec_files.map { |f| File.expand_path(f) }.join(' ')
-  sh "bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR} #{MSPEC_RUNNER} #{args}"
+  sh "bundle exec ruby frozone.rb --parser=#{PARSER_FLAVOR}#{FLATTEN_FLAG} #{MSPEC_RUNNER} #{args}"
 end
 
 def language_spec_path(name)
