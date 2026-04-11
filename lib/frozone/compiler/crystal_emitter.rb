@@ -750,7 +750,8 @@ module Frozone
         parts = []
         node.arg_nodes.each do |arg|
           if arg.is_a?(Ast::SplatArg)
-            parts << "RUBY_NIL"
+            # Splat forwarding: *args → expand tuple in Crystal
+            parts << "*#{cr(arg.value_node)}"
           else
             parts << cr(arg)
           end

@@ -83,6 +83,9 @@ abstract class RubyObject
   def to_i : RubyInteger
     raise Exception.new("#{self.class} can't be coerced into Integer")
   end
+  def to_i(base : RubyObject) : RubyInteger
+    to_i
+  end
 
   def to_f : RubyFloat
     raise Exception.new("#{self.class} can't be coerced into Float")
@@ -257,6 +260,9 @@ abstract class RubyObject
 
   def force_encoding(enc : RubyObject) : RubyObject
     raise Exception.new("force_encoding not supported for #{self.class}")
+  end
+  def force_encoding(enc : RubyEncoding) : RubyObject
+    force_encoding(RubyEncodingObject.new(enc))
   end
 
   def valid_encoding? : RubyBool

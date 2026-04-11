@@ -1076,6 +1076,23 @@ module Frozone
 
       def emit_method_body(method, name, return_kind)
         @_declared_locals = Set.new
+        # Pre-declare locals that might be assigned in conditional branches
+        # and used outside them. Ruby guarantees all locals are nil until
+        # assigned; Crystal requires declaration before use.
+        param_names = Set.new((method.required_params || []) + (method.optional_params || []).map(&:first))
+        param_names.merge(method.required_kw_params || [])
+        param_names.merge((method.optional_kw_params || []).map(&:first))
+        param_names << method.rest_param if method.rest_param
+        param_names << method.kw_rest_param if method.kw_rest_param
+        pre_decl = (method.locals || []).reject { |l| param_names.include?(l) }
+        unless pre_decl.empty?
+          indented do
+            pre_decl.each do |l|
+              @_declared_locals << crystal_local(l)
+              emit_indent; line "#{crystal_local(l)} = RUBY_NIL"
+            end
+          end
+        end
         string_return, bool_return, raw_return, int32_return = return_kind
         if int32_return
           # <=> must return Int32 to match Crystal's Comparable convention.
