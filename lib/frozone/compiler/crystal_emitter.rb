@@ -408,11 +408,19 @@ module Frozone
           RUBY_TO_CRYSTAL_TYPE[name] || "Ruby_#{crystal_constant(name)}"
         elsif parent.is_a?(Ast::ConstantRead) || parent.is_a?(Ast::ConstantPath)
           "#{cr(parent)}::Ruby_#{crystal_constant(name)}"
+        elsif self_class_receiver?(parent) && defined?(@cctx) && @cctx&.name
+          # self.class::CONST — resolve statically when inside a known class
+          "Ruby_#{crystal_constant(@cctx.name)}::Ruby_#{crystal_constant(name)}"
         else
-          # Dynamic parent (e.g. self.class::CONST) — can't use :: in Crystal.
-          # Fall back to runtime constant lookup.
+          # Dynamic parent — can't use :: in Crystal
           "RUBY_NIL"
         end
+      end
+
+      # Detect self.class as receiver (for self.class::CONST resolution)
+      def self_class_receiver?(node)
+        node.is_a?(Ast::MethodCall) && node.name == :class &&
+          (node.receiver_node.nil? || node.receiver_node.is_a?(Ast::SelfLiteral))
       end
 
       def cr_constant_write(node) = "Ruby_#{crystal_constant(node.name)} = #{cr(node.value_node)}"
@@ -457,6 +465,13 @@ module Frozone
           when :raise        then return cr_raise(node)
           when :require, :require_relative then return cr_require_call(node)
           when :block_given? then return "block_given?"
+          when :instance_variables then return "instance_variables"
+          when :instance_variable_get
+            args = (node.arg_nodes || []).map { |a| cr(a) }.join(', ')
+            return "instance_variable_get(#{args})"
+          when :send
+            args = (node.arg_nodes || []).map { |a| cr(a) }.join(', ')
+            return "send(#{args})"
           when :loop         then return cr_loop_call(node)
           when :Rational, :Integer, :Float, :Complex, :String, :Array
             # Kernel conversion methods (Rational(x), Integer(x), etc.) collide
@@ -506,11 +521,16 @@ module Frozone
 
         # is_a?/kind_of? with a constant → Crystal native is_a?(Type) → RubyBool
         if (name == :is_a? || name == :kind_of?) && node.receiver_node &&
-           node.arg_nodes.size == 1 && node.arg_nodes[0].is_a?(Ast::ConstantRead)
-          const_name = node.arg_nodes[0].name.to_s
-          crystal_type = RUBY_TO_CRYSTAL_TYPE[node.arg_nodes[0].name] ||
-                         (BUILTIN_SUPERCLASSES.include?(const_name) ? "Ruby#{const_name}" : "Ruby_#{const_name}")
-          return "(#{cr(node.receiver_node)}.is_a?(#{crystal_type}) ? RUBY_TRUE : RUBY_FALSE)"
+           node.arg_nodes.size == 1
+          arg = node.arg_nodes[0]
+          if arg.is_a?(Ast::ConstantRead)
+            const_name = arg.name.to_s
+            crystal_type = RUBY_TO_CRYSTAL_TYPE[arg.name] ||
+                           (BUILTIN_SUPERCLASSES.include?(const_name) ? "Ruby#{const_name}" : "Ruby_#{const_name}")
+            return "(#{cr(node.receiver_node)}.is_a?(#{crystal_type}) ? RUBY_TRUE : RUBY_FALSE)"
+          elsif arg.is_a?(Ast::ConstantPath)
+            return "(#{cr(node.receiver_node)}.is_a?(#{cr(arg)}) ? RUBY_TRUE : RUBY_FALSE)"
+          end
         end
 
         # General method call: receiver.method(args)
@@ -1402,6 +1422,8 @@ module Frozone
         when Ast::InstanceVariableWrite
           seen << node.name.to_s
           collect_ivars(node.value_node, seen)
+        when Ast::InstanceVariableRead
+          seen << node.name.to_s
         when Ast::Sequence
           node.nodes.each { |n| collect_ivars(n, seen) }
         when Ast::MethodDef

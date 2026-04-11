@@ -181,6 +181,22 @@ abstract class RubyObject
     RUBY_TRUE
   end
 
+  def instance_variables : RubyArray
+    RubyArray.new([] of RubyObject)
+  end
+
+  def instance_variable_get(name : RubyObject) : RubyObject
+    RUBY_NIL
+  end
+
+  def send(name : RubyObject, *args) : RubyObject
+    raise Exception.new("send not supported in compiled mode for #{self.class}")
+  end
+
+  def equal?(other : RubyObject) : RubyBool
+    same?(other) ? RubyBool::TRUE : RubyBool::FALSE
+  end
+
   def bytesize : RubyObject
     raise Exception.new("bytesize not supported for #{self.class}")
   end

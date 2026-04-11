@@ -469,15 +469,36 @@ module Frozone
       def emit_class_header(name, mod)
         is_class = mod.is_a?(Vm::ClassObject)
         kw = is_class ? "class" : "module"
-        sc_name = is_class ? mod.superclass&.name : nil
         emit_indent
         write "#{kw} Ruby_#{crystal_constant(name)}"
-        if sc_name && !%i[Object BasicObject Struct Data].include?(sc_name)
-          write " < Ruby_#{crystal_constant(sc_name)}"
-        elsif is_class
-          write " < RubyObject"
+        if is_class
+          sc = mod.superclass
+          sc_name = sc&.name
+          if sc_name && !%i[Object BasicObject Struct Data].include?(sc_name)
+            write " < #{crystal_superclass_path(sc)}"
+          else
+            write " < RubyObject"
+          end
         end
         emit_newline
+      end
+
+      # Build the fully-qualified Crystal path for a superclass reference.
+      # Walks the namespace chain to produce Ruby_Outer::Ruby_Inner::Ruby_Name,
+      # avoiding collisions when parent and child share a bare name (e.g.
+      # AST::Node vs Parser::AST::Node).
+      # Build the fully-qualified Crystal path for a superclass reference.
+      # Uses :: prefix to anchor at the top level, avoiding shadowing
+      # when a parent module re-opens a namespace (e.g. Parser::AST
+      # shadows top-level AST).
+      def crystal_superclass_path(cls)
+        parts = []
+        current = cls
+        while current && !current.equal?(Vm::Core::OBJECT_CLASS)
+          parts.unshift("Ruby_#{crystal_constant(current.name)}") if current.name
+          current = current.namespace
+        end
+        "::#{parts.join('::')}"
       end
 
       def emit_ivar_declarations(user_methods)
@@ -829,6 +850,7 @@ module Frozone
 
         setup_method_context(name, method, param_types: param_types,
                              class_method: class_method, param_set: param_set, mkey: mkey)
+        @mctx.class_method = class_method
         register_native_array_locals(method, param_types, param_set)
         infer_method_local_types(name, method, param_types, param_set, class_method)
 
@@ -1520,16 +1542,19 @@ module Frozone
       end
 
       # Override: for typed ivars in boxed context, wrap in RubyFloat/RubyInteger.
+      # In class methods (def self.foo), Crystal requires @@class_vars, not @ivars.
       def cr_ivar_read(node)
         ivt = @cctx.ivars[node.name]
-        return "RubyFloat.new(#{node.name})" if ivt&.f64?
-        return "RubyInteger.new(#{node.name})" if ivt&.i64?
-        node.name.to_s
+        name = @mctx&.class_method ? node.name.to_s.sub('@', '@@') : node.name.to_s
+        return "RubyFloat.new(#{name})" if ivt&.f64?
+        return "RubyInteger.new(#{name})" if ivt&.i64?
+        name
       end
 
       # Override: for typed ivars, coerce RHS to the raw type.
+      # In class methods, use @@class_vars.
       def cr_ivar_write(node)
-        iv_name = node.name
+        iv_name = @mctx&.class_method ? node.name.to_s.sub('@', '@@') : node.name
         ty = @cctx.ivars[iv_name]
         if ty
           val = node.value_node

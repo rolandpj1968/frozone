@@ -24,6 +24,7 @@ module Frozone
       attr_accessor :emit_crystal_tuple # Bool — emit Crystal tuple for return array literal
       attr_accessor :suppress_tuple_literals # Bool — suppress RubyTupleN for array locals (may be mutated)
       attr_accessor :bool_return # Bool — method returns Crystal Bool (== etc.)
+      attr_accessor :class_method # Bool — inside def self.foo (ivars → @@class_vars)
 
       def initialize
         @typed_locals = {}

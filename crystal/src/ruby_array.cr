@@ -453,6 +453,12 @@ class RubyArray < RubyObject
     @data.reduce(init) { |acc, el| block.call(acc, el) }
   end
 
+  # reduce(symbol) — Ruby's symbol-to-proc shorthand (e.g. reduce(:&))
+  def reduce(symbol : RubyObject) : RubyObject
+    return RubyNil::INSTANCE if @data.empty?
+    @data[1..].reduce(@data[0]) { |acc, el| acc.send(symbol, el) }
+  end
+
   def inject(init : RubyObject, &block : RubyObject, RubyObject -> RubyObject) : RubyObject
     reduce(init) { |acc, el| block.call(acc, el) }
   end

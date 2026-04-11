@@ -129,8 +129,8 @@ class RubySymbol < RubyObject
     RubyInteger.new(@name.size.to_i64)
   end
 
-  def empty? : Bool
-    @name.empty?
+  def empty? : RubyBool
+    @name.empty? ? RubyBool::TRUE : RubyBool::FALSE
   end
 
   # Return a new (interned) symbol with the name up-cased.
