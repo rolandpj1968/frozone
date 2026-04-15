@@ -20,9 +20,13 @@ require "./ruby_set"
 require "./ruby_io"
 
 # Generic Ruby object — concrete class for Object.new / top-level self.
+# Overrides ruby_class / ruby_class_name to say "Object" rather than
+# letting the default strip-"Ruby"-prefix logic yield "GenericObject".
 class RubyGenericObject < RubyObject
   def to_s : String; "#<Object>"; end
   def inspect : String; "#<Object>"; end
+  def ruby_class : RubyClassProxy; RubyClassProxy.new("Object"); end
+  def ruby_class_name : RubyString; RubyString.new("Object"); end
 end
 
 # Crystal Nil extensions — needed when methods return RubyObject | Nil.
@@ -86,6 +90,41 @@ end
 # Top-level self (Ruby's "main" object)
 RUBY_MAIN = RubyGenericObject.new
 def itself : RubyObject; RUBY_MAIN; end
+
+# Ruby's `puts` semantics: array arguments print one element per line
+# (recursively flattening nested arrays), nil prints as empty line, and
+# everything else prints via `to_s` + newline. This matches MRI's
+# `IO#puts` behaviour, which differs from Crystal's `STDOUT.puts` that
+# calls the object's `to_s` directly (yielding `[e1, e2]` for arrays).
+def ruby_puts(obj : RubyObject) : Nil
+  case obj
+  when RubyNil
+    STDOUT.puts
+  when RubyArray
+    if obj.data.empty?
+      STDOUT.puts
+    else
+      obj.data.each { |e| ruby_puts(e) }
+    end
+  when RubyTuple1, RubyTuple2, RubyTuple3, RubyTuple4,
+       RubyTuple5, RubyTuple6, RubyTuple7, RubyTuple8
+    # RubyTuple iterates via .each — delegate so fixed-size tuples
+    # follow the same per-element-per-line rule as RubyArray.
+    obj.each { |e| ruby_puts(e); RubyNil::INSTANCE }
+  else
+    STDOUT.puts(obj.to_s)
+  end
+end
+
+def ruby_puts(obj : Nil) : Nil
+  STDOUT.puts
+end
+
+# RubyClassProxy isn't a RubyObject subclass but has a to_s — so that
+# `puts obj.class` works when obj is a user class.
+def ruby_puts(obj : RubyClassProxy) : Nil
+  STDOUT.puts(obj.to_s)
+end
 
 # Multiple-assignment coercion: ensure value is an array for destructuring.
 def masgn_coerce(val : RubyArray) : RubyArray

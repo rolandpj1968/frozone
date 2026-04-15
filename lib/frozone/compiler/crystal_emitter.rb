@@ -653,10 +653,14 @@ module Frozone
       end
 
       def cr_puts(node)
+        # Ruby's `puts` differs from Crystal's STDOUT.puts on arrays:
+        # Ruby prints each element on its own line (recursively); Crystal
+        # prints the array's `to_s` as a single line. Route through the
+        # ruby_puts helper in frozone_crystal.cr for correct semantics.
         args = node.arg_nodes
         return "STDOUT.puts; RUBY_NIL" if args.empty?
-        return "STDOUT.puts(#{cr(args[0])}.to_s); RUBY_NIL" if args.length == 1
-        "#{args.map { |a| "STDOUT.puts(#{cr(a)}.to_s); " }.join}RUBY_NIL"
+        return "ruby_puts(#{cr(args[0])}); RUBY_NIL" if args.length == 1
+        "#{args.map { |a| "ruby_puts(#{cr(a)}); " }.join}RUBY_NIL"
       end
 
       def cr_print(node) = "STDOUT.print(#{node.arg_nodes.map { |a| "#{cr(a)}.to_s" }.join(', ')})"
