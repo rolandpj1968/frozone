@@ -269,6 +269,35 @@ end
 # and structaset (pre-existing Struct subclass codegen bug).
 BENCH_SMOKE = %w[fib blurhash sudoku nqueens]
 
+desc "Compile + run all benchmarks via C++ backend; report pass/fail vs bench/expected"
+task :bench_cpp do
+  pass = []; fail = []; mismatch = []
+  Dir['bench/stubs/*.rb'].sort.each do |stub|
+    name = File.basename(stub, '.rb')
+    expected_path = "bench/expected/#{name}.txt"
+    next unless File.exist?(expected_path)
+    expected = File.read(expected_path)
+    unless system("FROZONE_CPP=1 bundle exec ruby frozone.rb --aot #{stub} > /dev/null 2>&1")
+      puts "  #{name.ljust(25)} GEN_FAIL"; fail << name; next
+    end
+    cpp = "cpp/gen/#{name}.cpp"
+    bin = "cpp/gen/#{name}"
+    if system("g++ -O2 -std=c++20 #{cpp} -o #{bin} 2>/dev/null")
+      actual = `./#{bin} 2>&1`
+      if actual == expected
+        puts "  #{name.ljust(25)} PASS"; pass << name
+      else
+        puts "  #{name.ljust(25)} MISMATCH"; mismatch << name
+      end
+    else
+      puts "  #{name.ljust(25)} COMPILE_FAIL"; fail << name
+    end
+  end
+  total = pass.size + fail.size + mismatch.size
+  puts ''
+  puts "C++ backend: #{pass.size}/#{total} pass, #{mismatch.size} mismatch, #{fail.size} fail"
+end
+
 desc "Compile + run key benchmarks end-to-end (catches codegen regressions)"
 task :bench_smoke do
   failures = []
