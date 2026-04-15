@@ -41,6 +41,34 @@ public:
   int64_t to_i64() override { return (int64_t)value; }
 };
 
+// Mutable byte-oriented string. Encoding is tracked nominally
+// but all methods operate on bytes (matches Ruby binary semantics).
+#include <vector>
+#include <cstring>
+class RubyString {
+public:
+  std::vector<uint8_t> bytes;
+  int64_t len = 0;
+  RubyString() = default;
+  RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); len = n; } }
+  RubyString(const char* s, size_t n) { bytes.assign(s, s + n); len = n; }
+  int64_t bytesize() const { return len; }
+  int64_t size() const { return len; }
+  int64_t length() const { return len; }
+  int64_t get_byte(int64_t i) const { return (i >= 0 && i < len) ? (int64_t)bytes[i] : 0; }
+  void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < len) bytes[i] = (uint8_t)(v & 0xff); }
+  RubyString dup_() const { return *this; }
+  RubyString& operator<<(const RubyString& o) {
+    bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); len = (int64_t)bytes.size(); return *this;
+  }
+  RubyString& operator<<(const char* s) {
+    if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); len = (int64_t)bytes.size(); } return *this;
+  }
+  bool operator==(const RubyString& o) const { return bytes == o.bytes; }
+  bool operator!=(const RubyString& o) const { return bytes != o.bytes; }
+};
+using Ruby_String = RubyString;
+
 // Generic native array — TI-specialised per element type
 // Uses shared_ptr so nested arrays / temporaries copy cheaply
 #include <memory>
@@ -210,9 +238,9 @@ struct Ruby_Planet {
       auto pz = (pz + (b.vz() * m));
     }
     b = bodies[INT64_C(0)];
-    b.set_vx((px.-@() / SOLAR_MASS));
-    b.set_vy((py.-@() / SOLAR_MASS));
-    return b.set_vz((pz.-@() / SOLAR_MASS));
+    b.set_vx(((-(px)) / SOLAR_MASS));
+    b.set_vy(((-(py)) / SOLAR_MASS));
+    return b.set_vz(((-(pz)) / SOLAR_MASS));
   }
 
   Ruby_Planet(int64_t x, int64_t y, int64_t z, int64_t vx, int64_t vy, int64_t vz, int64_t mass) {
@@ -225,7 +253,6 @@ struct Ruby_Planet {
 
 static const double SOLAR_MASS = 39.47841760435743;
 static const double DAYS_PER_YEAR = 365.24;
-static Ruby_Array BODIES;
 static const int64_t N = 20000LL;
 static const int64_t NBODIES = 5LL;
 static const double DT = 0.01;
@@ -257,18 +284,18 @@ static auto offset_momentum(auto bodies) {
     auto pz = (pz + (b.vz() * m));
   }
   b = bodies[INT64_C(0)];
-  b.set_vx((px.-@() / SOLAR_MASS));
-  b.set_vy((py.-@() / SOLAR_MASS));
-  return b.set_vz((pz.-@() / SOLAR_MASS));
+  b.set_vx(((-(px)) / SOLAR_MASS));
+  b.set_vy(((-(py)) / SOLAR_MASS));
+  return b.set_vz(((-(pz)) / SOLAR_MASS));
 }
 
 
 int main() {
   double last_x = 0.0;
   for (int64_t _i = 0; _i < INT64_C(100); _i++) {
-    int64_t nbodies = NBODIES;
-    int64_t n = N;
-    int64_t dt = DT;
+    auto nbodies = NBODIES;
+    auto n = N;
+    double dt = DT;
     auto bodies = ({ auto _e0 = Ruby_Planet(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0); auto _a = RubyArray<decltype(_e0)>(5); _a[0] = _e0; _a[1] = Ruby_Planet(4.841431442464721, -1.1603200440274284, -0.10362204447112311, 0.001660076642744037, 0.007699011184197404, -6.90460016972063e-05, 0.0009547919384243266); _a[2] = Ruby_Planet(8.34336671824458, 4.124798564124305, -0.4035234171143214, -0.002767425107268624, 0.004998528012349172, 2.3041729757376393e-05, 0.0002858859806661308); _a[3] = Ruby_Planet(12.894369562139131, -15.111151401698631, -0.22330757889265573, 0.002964601375647616, 0.0023784717395948095, -2.9658956854023756e-05, 4.366244043351563e-05); _a[4] = Ruby_Planet(15.379697114850917, -25.919314609987964, 0.17925877295037118, 0.0026806777249038932, 0.001628241700382423, -9.515922545197159e-05, 5.1513890204661145e-05); _a; });
     offset_momentum(bodies);
     for (int64_t _i = 0; _i < n; _i++) {

@@ -41,6 +41,34 @@ public:
   int64_t to_i64() override { return (int64_t)value; }
 };
 
+// Mutable byte-oriented string. Encoding is tracked nominally
+// but all methods operate on bytes (matches Ruby binary semantics).
+#include <vector>
+#include <cstring>
+class RubyString {
+public:
+  std::vector<uint8_t> bytes;
+  int64_t len = 0;
+  RubyString() = default;
+  RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); len = n; } }
+  RubyString(const char* s, size_t n) { bytes.assign(s, s + n); len = n; }
+  int64_t bytesize() const { return len; }
+  int64_t size() const { return len; }
+  int64_t length() const { return len; }
+  int64_t get_byte(int64_t i) const { return (i >= 0 && i < len) ? (int64_t)bytes[i] : 0; }
+  void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < len) bytes[i] = (uint8_t)(v & 0xff); }
+  RubyString dup_() const { return *this; }
+  RubyString& operator<<(const RubyString& o) {
+    bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); len = (int64_t)bytes.size(); return *this;
+  }
+  RubyString& operator<<(const char* s) {
+    if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); len = (int64_t)bytes.size(); } return *this;
+  }
+  bool operator==(const RubyString& o) const { return bytes == o.bytes; }
+  bool operator!=(const RubyString& o) const { return bytes != o.bytes; }
+};
+using Ruby_String = RubyString;
+
 // Generic native array — TI-specialised per element type
 // Uses shared_ptr so nested arrays / temporaries copy cheaply
 #include <memory>
@@ -88,32 +116,32 @@ static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 
-static const char* A = "this is a long string with no useful contents yada yada yada yada";
-static const char* B = "this is also a long string with no useful contents yada yada daaaaaa";
+static const RubyString A = RubyString("this is a long string with no useful contents yada yada yada yada", 65);
+static const RubyString B = RubyString("this is also a long string with no useful contents yada yada daaaaaa", 68);
 
 static auto ruby_xor_b(auto a, auto b) {
-  if ((a.is_a_q(String)._b() || b.is_a_q(String)._b())) {
+  if (((!(true)) || (!(true)))) {
     { fprintf(stderr, "Error: %s\n", "expected two string arguments"); exit(1); };
   }
-  auto l = a.bytesize();
-  auto lb = b.bytesize();
+  auto l = a.len;
+  auto lb = b.len;
   if ((lb < l)) {
     l = lb;
   }
   int64_t i = INT64_C(0);
   while ((i < l)) {
-    auto ba = a.getbyte(i);
-    auto bb = b.getbyte(i);
-    a.setbyte(i, (ba ^ bb));
-    i = i.succ();
+    auto ba = a.get_byte(i);
+    auto bb = b.get_byte(i);
+    a.set_byte(i, (ba ^ bb));
+    i = (i + INT64_C(1));
   }
   return a;
 }
 
 
 int main() {
-  int64_t a = A;
-  int64_t b = B;
+  RubyString a = A;
+  RubyString b = B;
   int64_t sum = INT64_C(0);
   for (int64_t _i = 0; _i < INT64_C(2000); _i++) {
     auto result = ruby_xor_b(a, b);

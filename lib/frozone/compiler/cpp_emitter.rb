@@ -57,8 +57,19 @@ module Frozone
       # Strip @ from Ruby ivar names and prefix with iv_ to avoid clashes with method names
       def cpp_ivar(name) = "iv_#{name.to_s.delete_prefix('@')}"
 
+      # Ruby → C++ method name overrides (where Ruby name would be invalid or
+      # shadow a keyword in C++).
+      RUBY_TO_CPP_METHOD = {
+        getbyte: :get_byte,
+        setbyte: :set_byte,
+        dup: :dup_,  # 'dup' is a POSIX function — avoid collision
+      }.freeze
+
       # Translate Ruby method names with non-identifier suffixes to valid C++ identifiers.
       def cpp_method_name(name)
+        if (override = RUBY_TO_CPP_METHOD[name])
+          return override.to_s
+        end
         s = name.to_s
         return "set_#{s.chomp('=')}" if s.end_with?('=')
         return "#{s.chomp('?')}_q" if s.end_with?('?')
@@ -127,6 +138,36 @@ module Frozone
           line "int64_t to_i64() override { return (int64_t)value; }"
         end
         line "};"
+        emit_newline
+        line "// Mutable byte-oriented string. Encoding is tracked nominally"
+        line "// but all methods operate on bytes (matches Ruby binary semantics)."
+        line "#include <vector>"
+        line "#include <cstring>"
+        line "class RubyString {"
+        line "public:"
+        indented do
+          line "std::vector<uint8_t> bytes;"
+          line "int64_t len = 0;"
+          line "RubyString() = default;"
+          line "RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); len = n; } }"
+          line "RubyString(const char* s, size_t n) { bytes.assign(s, s + n); len = n; }"
+          line "int64_t bytesize() const { return len; }"
+          line "int64_t size() const { return len; }"
+          line "int64_t length() const { return len; }"
+          line "int64_t get_byte(int64_t i) const { return (i >= 0 && i < len) ? (int64_t)bytes[i] : 0; }"
+          line "void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < len) bytes[i] = (uint8_t)(v & 0xff); }"
+          line "RubyString dup_() const { return *this; }"
+          line "RubyString& operator<<(const RubyString& o) {"
+          indented { line "bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); len = (int64_t)bytes.size(); return *this;" }
+          line "}"
+          line "RubyString& operator<<(const char* s) {"
+          indented { line "if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); len = (int64_t)bytes.size(); } return *this;" }
+          line "}"
+          line "bool operator==(const RubyString& o) const { return bytes == o.bytes; }"
+          line "bool operator!=(const RubyString& o) const { return bytes != o.bytes; }"
+        end
+        line "};"
+        line "using Ruby_String = RubyString;"
         emit_newline
         line "// Generic native array — TI-specialised per element type"
         line "// Uses shared_ptr so nested arrays / temporaries copy cheaply"
@@ -204,14 +245,19 @@ module Frozone
           case value
           when Vm::IntegerObject then line "static const int64_t #{name} = #{value.raw}LL;"
           when Vm::FloatObject then line "static const double #{name} = #{value.raw};"
-          when Vm::StringObject then line "static const char* #{name} = #{value.raw.inspect};"
+          when Vm::StringObject
+            # Emit as RubyString so .dup/.bytesize/.length etc. work.
+            # Use the (ptr, len) constructor so embedded NULs are preserved.
+            raw = value.raw
+            line "static const RubyString #{name} = RubyString(#{raw.inspect}, #{raw.bytesize});"
           when Vm::TrueObject then line "static const bool #{name} = true;"
           when Vm::FalseObject then line "static const bool #{name} = false;"
           when Vm::ObjectObject
             klass = value.class_object
-            if klass.is_a?(Vm::ClassObject) && klass.name
-              line "static Ruby_#{klass.name} #{name};"
-            end
+            next unless klass.is_a?(Vm::ClassObject) && klass.name
+            # Skip built-in container types without C++ runtime equivalents yet.
+            next if %i[Hash Array Range Regexp Proc].include?(klass.name)
+            line "static Ruby_#{klass.name} #{name};"
           end
         end
       end
@@ -281,12 +327,23 @@ module Frozone
         when Ast::MethodCall
           if val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
             cn = val.receiver_node.name
+            return "RubyString" if cn == :String
             return cn == :Array ? "auto" : "Ruby_#{cn}"
           end
           # Free function or method call → return type unknown, use auto
           "auto"
         when Ast::ArrayLiteral then "auto"
         when Ast::FloatLiteral then "double"
+        when Ast::StringLiteral then "RubyString"
+        when Ast::ConstantRead
+          # Constant lookup — could be any type. Resolve at compile time if we
+          # have access to the top-level scope's constants table.
+          if @top_level_scope
+            c = @top_level_scope.constants_table&.fetch(val.name, nil)
+            return "RubyString" if c.is_a?(Vm::StringObject)
+            return "double" if c.is_a?(Vm::FloatObject)
+          end
+          "auto"
         else "int64_t"
         end
       end
@@ -429,7 +486,9 @@ module Frozone
           s = val.to_s
           s += ".0" unless s.include?('.') || s.include?('e')
           s
-        when Ast::StringLiteral then "\"#{node.value.respond_to?(:raw) ? node.value.raw : node.value}\""
+        when Ast::StringLiteral
+          raw = node.value.respond_to?(:raw) ? node.value.raw : node.value
+          "RubyString(#{raw.inspect}, #{raw.bytesize})"
         when Ast::LocalVariableRead then node.name.to_s
         when Ast::InstanceVariableRead then cpp_ivar(node.name)
         when Ast::InstanceVariableWrite then "#{cpp_ivar(node.name)} = #{cr(node.value_node)}"
@@ -463,6 +522,9 @@ module Frozone
         when Ast::Or then "(#{cr(node.left_node)} || #{cr(node.right_node)})"
         when Ast::MethodCall then cr_method_call(node)
         when Ast::ConstantRead then node.name.to_s
+        when Ast::ConstantPath
+          # Encoding::UTF_8 etc. — treat as 0 (encoding ignored for now)
+          "INT64_C(0) /* ::#{node.name} */"
         when Ast::IndexOperatorWrite
           # a[i] += expr
           recv = cr(node.receiver_node)
@@ -614,6 +676,11 @@ module Frozone
           return "{ fprintf(stderr, \"Error: %s\\n\", #{msg}); exit(1); }"
         end
 
+        # String.new or String.new(encoding: X) — ignore encoding for now
+        if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name == :String
+          return "RubyString()"
+        end
+
         # ClassName.new(args) → Ruby_ClassName(args) constructor call
         if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name != :Array
           arg_strs = args.map { |a| cr(a) }.join(", ")
@@ -660,13 +727,39 @@ module Frozone
           return "#{cr(recv)}[#{cr(args[0])}]"
         end
 
+        # Unary ! and -@ as Ruby method calls with no args
+        if recv && name == :! && args.empty?
+          return "(!(#{cr_truthy(recv)}))"
+        end
+        if recv && name == :-@ && args.empty?
+          return "(-(#{cr(recv)}))"
+        end
+        if recv && name == :+@ && args.empty?
+          return "(#{cr(recv)})"
+        end
+
+        # Integer#succ, Integer#pred — compile-time arithmetic
+        if recv && name == :succ && args.empty?
+          return "(#{cr(recv)} + INT64_C(1))"
+        end
+        if recv && name == :pred && args.empty?
+          return "(#{cr(recv)} - INT64_C(1))"
+        end
+
+        # is_a?/kind_of? with a class literal — compile-time true when type is known.
+        # Conservative stub: emit true. Full impl needs receiver type inference.
+        if recv && (name == :is_a? || name == :kind_of?) && args.size == 1
+          return "true"
+        end
+
         # Arithmetic operators
         if recv && %i[+ - * / % < <= > >= == != << >> & | ^].include?(name) && args.size == 1
           return "(#{cr(recv)} #{name} #{cr(args[0])})"
         end
 
-        # .length / .size
-        if recv && (name == :length || name == :size) && args.empty?
+        # .length / .size / .bytesize — uniform via `.len` field
+        # (both RubyArray<T> and RubyString expose `len`)
+        if recv && %i[length size bytesize].include?(name) && args.empty?
           return "#{cr(recv)}.len"
         end
 

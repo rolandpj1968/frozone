@@ -41,6 +41,34 @@ public:
   int64_t to_i64() override { return (int64_t)value; }
 };
 
+// Mutable byte-oriented string. Encoding is tracked nominally
+// but all methods operate on bytes (matches Ruby binary semantics).
+#include <vector>
+#include <cstring>
+class RubyString {
+public:
+  std::vector<uint8_t> bytes;
+  int64_t len = 0;
+  RubyString() = default;
+  RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); len = n; } }
+  RubyString(const char* s, size_t n) { bytes.assign(s, s + n); len = n; }
+  int64_t bytesize() const { return len; }
+  int64_t size() const { return len; }
+  int64_t length() const { return len; }
+  int64_t get_byte(int64_t i) const { return (i >= 0 && i < len) ? (int64_t)bytes[i] : 0; }
+  void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < len) bytes[i] = (uint8_t)(v & 0xff); }
+  RubyString dup_() const { return *this; }
+  RubyString& operator<<(const RubyString& o) {
+    bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); len = (int64_t)bytes.size(); return *this;
+  }
+  RubyString& operator<<(const char* s) {
+    if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); len = (int64_t)bytes.size(); } return *this;
+  }
+  bool operator==(const RubyString& o) const { return bytes == o.bytes; }
+  bool operator!=(const RubyString& o) const { return bytes != o.bytes; }
+};
+using Ruby_String = RubyString;
+
 // Generic native array — TI-specialised per element type
 // Uses shared_ptr so nested arrays / temporaries copy cheaply
 #include <memory>
@@ -114,7 +142,7 @@ int main() {
     auto stretch_tree = bottom_up_tree(STRETCH_DEPTH);
     stretch_tree = RUBY_NIL;
     auto long_lived_tree = bottom_up_tree(MAX_DEPTH);
-    int64_t depth = MIN_DEPTH;
+    auto depth = MIN_DEPTH;
     while ((depth <= MAX_DEPTH)) {
       auto iterations = INT64_C(2).**(((MAX_DEPTH - depth) + MIN_DEPTH));
       int64_t check = INT64_C(0);
