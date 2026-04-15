@@ -173,7 +173,7 @@ template<> inline const char* ruby_class_name<int64_t>() { return "Integer"; }
 template<> inline const char* ruby_class_name<double>() { return "Float"; }
 template<> inline const char* ruby_class_name<bool>() { return "TrueClass"; }
 template<> inline const char* ruby_class_name<RubyString>() { return "String"; }
-template<> inline const char* ruby_class_name<Ruby_Object>() { return "GenericObject"; }
+template<> inline const char* ruby_class_name<Ruby_Object>() { return "Object"; }
 template<typename T> static inline const char* ruby_class(const T&) { return ruby_class_name<T>(); }
 
 // to_s — converts primitives to RubyString. Class-specific overrides on user classes.
@@ -245,13 +245,10 @@ template<typename T> static inline void ruby_puts(T v) {
     fwrite(v.bytes.data(), 1, v.bytes.size(), stdout);
     fputc('\n', stdout);
   } else if constexpr (requires { v.len(); v[0]; }) {
-    // RubyArray: Ruby's puts emits `[e1, e2, ...]` (inspect-style)
-    printf("[");
-    for (int64_t i = 0; i < v.len(); i++) {
-      printf(i == 0 ? "" : ", ");
-      auto x = v[i]; printf("%lld", (long long)x);
-    }
-    printf("]\n");
+    // RubyArray: Ruby's puts prints each element on its own line
+    // (recursive flatten). Empty array → empty line.
+    if (v.len() == 0) { printf("\n"); }
+    else for (int64_t i = 0; i < v.len(); i++) ruby_puts(v[i]);
   } else {
     printf("#<Object>\n");
   }

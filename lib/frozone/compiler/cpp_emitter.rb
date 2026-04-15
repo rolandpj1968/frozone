@@ -331,7 +331,7 @@ module Frozone
         line "template<> inline const char* ruby_class_name<double>() { return \"Float\"; }"
         line "template<> inline const char* ruby_class_name<bool>() { return \"TrueClass\"; }"
         line "template<> inline const char* ruby_class_name<RubyString>() { return \"String\"; }"
-        line "template<> inline const char* ruby_class_name<Ruby_Object>() { return \"GenericObject\"; }"
+        line "template<> inline const char* ruby_class_name<Ruby_Object>() { return \"Object\"; }"
         line "template<typename T> static inline const char* ruby_class(const T&) { return ruby_class_name<T>(); }"
         emit_newline
         line "// to_s — converts primitives to RubyString. Class-specific overrides on user classes."
@@ -425,13 +425,10 @@ module Frozone
           end
           line "} else if constexpr (requires { v.len(); v[0]; }) {"
           indented do
-            line "// RubyArray: Ruby's puts emits `[e1, e2, ...]` (inspect-style)"
-            line "printf(\"[\");"
-            line "for (int64_t i = 0; i < v.len(); i++) {"
-            indented { line 'printf(i == 0 ? "" : ", ");' }
-            indented { line "auto x = v[i]; printf(\"%lld\", (long long)x);" }
-            line "}"
-            line 'printf("]\\n");'
+            line "// RubyArray: Ruby's puts prints each element on its own line"
+            line "// (recursive flatten). Empty array → empty line."
+            line "if (v.len() == 0) { printf(\"\\n\"); }"
+            line "else for (int64_t i = 0; i < v.len(); i++) ruby_puts(v[i]);"
           end
           line "} else {"
           indented { line 'printf("#<Object>\\n");' }
