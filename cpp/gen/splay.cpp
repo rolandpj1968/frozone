@@ -15,41 +15,39 @@
 class RubyString {
 public:
   std::vector<uint8_t> bytes;
-  int64_t len = 0;
   RubyString() = default;
-  RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); len = n; } }
-  RubyString(const char* s, size_t n) { bytes.assign(s, s + n); len = n; }
-  int64_t bytesize() const { return len; }
-  int64_t size() const { return len; }
-  int64_t length() const { return len; }
-  int64_t get_byte(int64_t i) const { return (i >= 0 && i < len) ? (int64_t)bytes[i] : 0; }
-  void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < len) bytes[i] = (uint8_t)(v & 0xff); }
+  RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); } }
+  RubyString(const char* s, size_t n) { bytes.assign(s, s + n); }
+  int64_t len() const { return (int64_t)bytes.size(); }
+  int64_t bytesize() const { return (int64_t)bytes.size(); }
+  int64_t size() const { return (int64_t)bytes.size(); }
+  int64_t length() const { return (int64_t)bytes.size(); }
+  int64_t get_byte(int64_t i) const { return (i >= 0 && i < (int64_t)bytes.size()) ? (int64_t)bytes[i] : 0; }
+  void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < (int64_t)bytes.size()) bytes[i] = (uint8_t)(v & 0xff); }
   RubyString dup_() const { return *this; }
   RubyString& operator<<(const RubyString& o) {
-    bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); len = (int64_t)bytes.size(); return *this;
+    bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); return *this;
   }
   RubyString& operator<<(const char* s) {
-    if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); len = (int64_t)bytes.size(); } return *this;
+    if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); } return *this;
   }
   bool operator==(const RubyString& o) const { return bytes == o.bytes; }
   bool operator!=(const RubyString& o) const { return bytes != o.bytes; }
 };
 using Ruby_String = RubyString;
 
-// Generic native array — TI-specialised per element type
-// Uses shared_ptr so nested arrays / temporaries copy cheaply
-#include <memory>
+// Generic native array — TI-specialised per element type.
+// shared_ptr<vector<T>> backing: copy is cheap (alias), growable via <<.
 template<typename T> class RubyArray {
 public:
-  std::shared_ptr<T[]> data;
-  int64_t len;
-  RubyArray() : data(nullptr), len(0) {}
-  RubyArray(int64_t size) : data(new T[size > 0 ? size : 1]()), len(size) {}
-  RubyArray(int64_t size, T fill) : data(new T[size > 0 ? size : 1]), len(size) {
-    for (int64_t i = 0; i < size; i++) data[i] = fill;
-  }
-  T& operator[](int64_t i) { return data[i]; }
-  const T& operator[](int64_t i) const { return data[i]; }
+  std::shared_ptr<std::vector<T>> data;
+  RubyArray() : data(std::make_shared<std::vector<T>>()) {}
+  RubyArray(int64_t size) : data(std::make_shared<std::vector<T>>(size)) {}
+  RubyArray(int64_t size, T fill) : data(std::make_shared<std::vector<T>>(size, fill)) {}
+  int64_t len() const { return data ? (int64_t)data->size() : 0; }
+  T& operator[](int64_t i) { return (*data)[i]; }
+  const T& operator[](int64_t i) const { return (*data)[i]; }
+  RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }
 };
 
 using RubyArray_I64 = RubyArray<int64_t>;
@@ -119,8 +117,58 @@ template<typename T> static inline void ruby_puts(T v) {
 static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
+struct Ruby_Node {
+  int64_t iv_key = 0;
+  int64_t iv_value = 0;
+  int64_t iv_left = 0;
+  int64_t iv_right = 0;
+
+  auto key() {
+    return iv_key;
+  }
+
+  auto set_key(auto __anon_req__) {
+    iv_key = __anon_req__;
+    return iv_key;
+  }
+
+  auto value() {
+    return iv_value;
+  }
+
+  auto set_value(auto __anon_req__) {
+    iv_value = __anon_req__;
+    return iv_value;
+  }
+
+  auto left() {
+    return iv_left;
+  }
+
+  auto set_left(auto __anon_req__) {
+    iv_left = __anon_req__;
+    return iv_left;
+  }
+
+  auto right() {
+    return iv_right;
+  }
+
+  auto set_right(auto __anon_req__) {
+    iv_right = __anon_req__;
+    return iv_right;
+  }
+
+  Ruby_Node(int64_t key, int64_t value) {
+    iv_key = key;
+    iv_value = value;
+    iv_left = RUBY_NIL;
+    iv_right = RUBY_NIL;
+  }
+};
+
 struct Ruby_SplayTree {
-  int64_t iv_root = 0;
+  Ruby_Node iv_root;
 
   auto empty_q() {
     return ruby_nil_q(iv_root);
@@ -213,43 +261,6 @@ struct Ruby_SplayTree {
     return iv_root = current;
   }
 
-  auto run_benchmark() {
-    return 0LL;
-  }
-
-  auto generate_payload(auto depth, auto tag) {
-    if ((depth == INT64_C(0))) {
-      /* UNSUPPORTED: HashLiteral */;
-    } else {
-      Ruby_PayloadNode(generate_payload((depth - INT64_C(1)), tag), generate_payload((depth - INT64_C(1)), tag));
-    }
-  }
-
-  auto insert_new_node(auto tree, auto rng) {
-    return loop();
-  }
-
-  auto splay_setup(auto rng) {
-    Ruby_SplayTree tree = Ruby_SplayTree();
-    for (int64_t _i = 0; _i < TREE_SIZE; _i++) {
-      insert_new_node(tree, rng);
-    }
-    return tree;
-  }
-
-  auto splay_run(auto tree, auto rng) {
-    for (int64_t _i = 0; _i < MODIFICATIONS; _i++) {
-      key = insert_new_node(tree, rng);
-      greatest = tree.find_greatest_less_than(key);
-      if (greatest) {
-        tree.remove(greatest.key());
-      } else {
-        tree.remove(key);
-      };
-    }
-    return INT64_C(0);
-  }
-
   Ruby_SplayTree() {
     iv_root = RUBY_NIL;
   }
@@ -275,43 +286,6 @@ struct Ruby_PayloadNode {
   auto set_right(auto __anon_req__) {
     iv_right = __anon_req__;
     return iv_right;
-  }
-
-  auto run_benchmark() {
-    return 0LL;
-  }
-
-  auto generate_payload(auto depth, auto tag) {
-    if ((depth == INT64_C(0))) {
-      /* UNSUPPORTED: HashLiteral */;
-    } else {
-      Ruby_PayloadNode(generate_payload((depth - INT64_C(1)), tag), generate_payload((depth - INT64_C(1)), tag));
-    }
-  }
-
-  auto insert_new_node(auto tree, auto rng) {
-    return loop();
-  }
-
-  auto splay_setup(auto rng) {
-    Ruby_SplayTree tree = Ruby_SplayTree();
-    for (int64_t _i = 0; _i < TREE_SIZE; _i++) {
-      insert_new_node(tree, rng);
-    }
-    return tree;
-  }
-
-  auto splay_run(auto tree, auto rng) {
-    for (int64_t _i = 0; _i < MODIFICATIONS; _i++) {
-      key = insert_new_node(tree, rng);
-      greatest = tree.find_greatest_less_than(key);
-      if (greatest) {
-        tree.remove(greatest.key());
-      } else {
-        tree.remove(key);
-      };
-    }
-    return INT64_C(0);
   }
 
   Ruby_PayloadNode(int64_t left, int64_t right) {
@@ -347,8 +321,8 @@ static auto splay_setup(auto rng) {
 
 static auto splay_run(auto tree, auto rng) {
   for (int64_t _i = 0; _i < MODIFICATIONS; _i++) {
-    key = insert_new_node(tree, rng);
-    greatest = tree.find_greatest_less_than(key);
+    auto key = insert_new_node(tree, rng);
+    auto greatest = tree.find_greatest_less_than(key);
     if (greatest) {
       tree.remove(greatest.key());
     } else {

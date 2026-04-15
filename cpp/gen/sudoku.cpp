@@ -15,41 +15,39 @@
 class RubyString {
 public:
   std::vector<uint8_t> bytes;
-  int64_t len = 0;
   RubyString() = default;
-  RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); len = n; } }
-  RubyString(const char* s, size_t n) { bytes.assign(s, s + n); len = n; }
-  int64_t bytesize() const { return len; }
-  int64_t size() const { return len; }
-  int64_t length() const { return len; }
-  int64_t get_byte(int64_t i) const { return (i >= 0 && i < len) ? (int64_t)bytes[i] : 0; }
-  void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < len) bytes[i] = (uint8_t)(v & 0xff); }
+  RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); } }
+  RubyString(const char* s, size_t n) { bytes.assign(s, s + n); }
+  int64_t len() const { return (int64_t)bytes.size(); }
+  int64_t bytesize() const { return (int64_t)bytes.size(); }
+  int64_t size() const { return (int64_t)bytes.size(); }
+  int64_t length() const { return (int64_t)bytes.size(); }
+  int64_t get_byte(int64_t i) const { return (i >= 0 && i < (int64_t)bytes.size()) ? (int64_t)bytes[i] : 0; }
+  void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < (int64_t)bytes.size()) bytes[i] = (uint8_t)(v & 0xff); }
   RubyString dup_() const { return *this; }
   RubyString& operator<<(const RubyString& o) {
-    bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); len = (int64_t)bytes.size(); return *this;
+    bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); return *this;
   }
   RubyString& operator<<(const char* s) {
-    if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); len = (int64_t)bytes.size(); } return *this;
+    if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); } return *this;
   }
   bool operator==(const RubyString& o) const { return bytes == o.bytes; }
   bool operator!=(const RubyString& o) const { return bytes != o.bytes; }
 };
 using Ruby_String = RubyString;
 
-// Generic native array — TI-specialised per element type
-// Uses shared_ptr so nested arrays / temporaries copy cheaply
-#include <memory>
+// Generic native array — TI-specialised per element type.
+// shared_ptr<vector<T>> backing: copy is cheap (alias), growable via <<.
 template<typename T> class RubyArray {
 public:
-  std::shared_ptr<T[]> data;
-  int64_t len;
-  RubyArray() : data(nullptr), len(0) {}
-  RubyArray(int64_t size) : data(new T[size > 0 ? size : 1]()), len(size) {}
-  RubyArray(int64_t size, T fill) : data(new T[size > 0 ? size : 1]), len(size) {
-    for (int64_t i = 0; i < size; i++) data[i] = fill;
-  }
-  T& operator[](int64_t i) { return data[i]; }
-  const T& operator[](int64_t i) const { return data[i]; }
+  std::shared_ptr<std::vector<T>> data;
+  RubyArray() : data(std::make_shared<std::vector<T>>()) {}
+  RubyArray(int64_t size) : data(std::make_shared<std::vector<T>>(size)) {}
+  RubyArray(int64_t size, T fill) : data(std::make_shared<std::vector<T>>(size, fill)) {}
+  int64_t len() const { return data ? (int64_t)data->size() : 0; }
+  T& operator[](int64_t i) { return (*data)[i]; }
+  const T& operator[](int64_t i) const { return (*data)[i]; }
+  RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }
 };
 
 using RubyArray_I64 = RubyArray<int64_t>;
@@ -198,12 +196,12 @@ static auto sd_update_reverse(auto mr, auto mc, auto sr, auto sc, auto r) {
   }
   c2 = INT64_C(0);
   while ((c2 < INT64_C(4))) {
-    c = mc[r][c2];
-    r2 = INT64_C(0);
+    auto c = mc[r][c2];
+    int64_t r2 = INT64_C(0);
     while ((r2 < INT64_C(9))) {
-    rr = mr[c][r2];
+    auto rr = mr[c][r2];
     if ((sr[rr] -= INT64_C(1) == INT64_C(0))) {
-    p = mc[rr]; sc[p[INT64_C(0)]] += INT64_C(1); sc[p[INT64_C(1)]] += INT64_C(1); sc[p[INT64_C(2)]] += INT64_C(1); sc[p[INT64_C(3)]] += INT64_C(1);
+    auto p = mc[rr]; sc[p[INT64_C(0)]] += INT64_C(1); sc[p[INT64_C(1)]] += INT64_C(1); sc[p[INT64_C(2)]] += INT64_C(1); sc[p[INT64_C(3)]] += INT64_C(1);
   };
     r2 = (r2 + INT64_C(1));
   };
@@ -238,7 +236,7 @@ static auto sd_solve(auto mr, auto mc, auto s) {
     while (((i >= INT64_C(0)) && (i < (INT64_C(81) - hints)))) {
     if ((dir == INT64_C(1))) {
     if ((min > INT64_C(1))) {
-      c = INT64_C(0); while ((c < INT64_C(324))) {
+      int64_t c = INT64_C(0); while ((c < INT64_C(324))) {
         if ((sc[c] < min)) {
         min = sc[c]; cc[i] = c; if ((min < INT64_C(2))) {
           break;
@@ -254,7 +252,7 @@ static auto sd_solve(auto mr, auto mc, auto s) {
     if (((dir == INT64_C(-1)) && (cr[i] >= INT64_C(0)))) {
     sd_update_reverse(mr, mc, sr, sc, mr[c][cr[i]]);
   };
-    r2 = (cr[i] + INT64_C(1));
+    auto r2 = (cr[i] + INT64_C(1));
     while (((r2 < INT64_C(9)) && (sr[mr[c][r2]] != INT64_C(0)))) {
     r2 = (r2 + INT64_C(1));
   };
@@ -267,15 +265,15 @@ static auto sd_solve(auto mr, auto mc, auto s) {
     if ((i < INT64_C(0))) {
     break;
   };
-    o = make_ra(INT64_C(81), INT64_C(0));
-    j = INT64_C(0);
+    auto o = make_ra(INT64_C(81), INT64_C(0));
+    int64_t j = INT64_C(0);
     while ((j < INT64_C(81))) {
     o[j] = (s[j].ord() - INT64_C(48));
     j = (j + INT64_C(1));
   };
     j = INT64_C(0);
     while ((j < i)) {
-    r = mr[cc[j]][cr[j]];
+    auto r = mr[cc[j]][cr[j]];
     o[(r / INT64_C(9))] = ((r % INT64_C(9)) + INT64_C(1));
     j = (j + INT64_C(1));
   };

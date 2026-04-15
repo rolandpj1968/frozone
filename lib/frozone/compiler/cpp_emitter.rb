@@ -104,21 +104,21 @@ module Frozone
         line "public:"
         indented do
           line "std::vector<uint8_t> bytes;"
-          line "int64_t len = 0;"
           line "RubyString() = default;"
-          line "RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); len = n; } }"
-          line "RubyString(const char* s, size_t n) { bytes.assign(s, s + n); len = n; }"
-          line "int64_t bytesize() const { return len; }"
-          line "int64_t size() const { return len; }"
-          line "int64_t length() const { return len; }"
-          line "int64_t get_byte(int64_t i) const { return (i >= 0 && i < len) ? (int64_t)bytes[i] : 0; }"
-          line "void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < len) bytes[i] = (uint8_t)(v & 0xff); }"
+          line "RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); } }"
+          line "RubyString(const char* s, size_t n) { bytes.assign(s, s + n); }"
+          line "int64_t len() const { return (int64_t)bytes.size(); }"
+          line "int64_t bytesize() const { return (int64_t)bytes.size(); }"
+          line "int64_t size() const { return (int64_t)bytes.size(); }"
+          line "int64_t length() const { return (int64_t)bytes.size(); }"
+          line "int64_t get_byte(int64_t i) const { return (i >= 0 && i < (int64_t)bytes.size()) ? (int64_t)bytes[i] : 0; }"
+          line "void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < (int64_t)bytes.size()) bytes[i] = (uint8_t)(v & 0xff); }"
           line "RubyString dup_() const { return *this; }"
           line "RubyString& operator<<(const RubyString& o) {"
-          indented { line "bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); len = (int64_t)bytes.size(); return *this;" }
+          indented { line "bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); return *this;" }
           line "}"
           line "RubyString& operator<<(const char* s) {"
-          indented { line "if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); len = (int64_t)bytes.size(); } return *this;" }
+          indented { line "if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); } return *this;" }
           line "}"
           line "bool operator==(const RubyString& o) const { return bytes == o.bytes; }"
           line "bool operator!=(const RubyString& o) const { return bytes != o.bytes; }"
@@ -126,21 +126,19 @@ module Frozone
         line "};"
         line "using Ruby_String = RubyString;"
         emit_newline
-        line "// Generic native array — TI-specialised per element type"
-        line "// Uses shared_ptr so nested arrays / temporaries copy cheaply"
-        line "#include <memory>"
+        line "// Generic native array — TI-specialised per element type."
+        line "// shared_ptr<vector<T>> backing: copy is cheap (alias), growable via <<."
         line "template<typename T> class RubyArray {"
         line "public:"
         indented do
-          line "std::shared_ptr<T[]> data;"
-          line "int64_t len;"
-          line "RubyArray() : data(nullptr), len(0) {}"
-          line "RubyArray(int64_t size) : data(new T[size > 0 ? size : 1]()), len(size) {}"
-          line "RubyArray(int64_t size, T fill) : data(new T[size > 0 ? size : 1]), len(size) {"
-          indented { line "for (int64_t i = 0; i < size; i++) data[i] = fill;" }
-          line "}"
-          line "T& operator[](int64_t i) { return data[i]; }"
-          line "const T& operator[](int64_t i) const { return data[i]; }"
+          line "std::shared_ptr<std::vector<T>> data;"
+          line "RubyArray() : data(std::make_shared<std::vector<T>>()) {}"
+          line "RubyArray(int64_t size) : data(std::make_shared<std::vector<T>>(size)) {}"
+          line "RubyArray(int64_t size, T fill) : data(std::make_shared<std::vector<T>>(size, fill)) {}"
+          line "int64_t len() const { return data ? (int64_t)data->size() : 0; }"
+          line "T& operator[](int64_t i) { return (*data)[i]; }"
+          line "const T& operator[](int64_t i) const { return (*data)[i]; }"
+          line "RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }"
         end
         line "};"
         emit_newline
@@ -265,17 +263,36 @@ module Frozone
       end
 
       def emit_user_classes(scope)
-        const_locs = scope.constants_locations || {}
-        scope.constants_table&.each do |name, value|
-          next unless value.is_a?(Vm::ClassObject)
-          next if value.name.nil? || %i[Object BasicObject Module Class Kernel].include?(value.name)
-          methods = value.methods_table || {}
-          has_user_method = methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
-          # Also emit if class itself was defined in user source (subclass with no own methods)
-          next unless has_user_method || user_source_location?(const_locs[name])
-          emit_class(name, value)
+        # Collect user classes recursively (including classes nested inside
+        # other classes, e.g. SplayTree::Node). Nested classes are promoted
+        # to top-level; inside each subtree, nested children are emitted
+        # before their parent (parent's methods may reference the child's
+        # type by bare name); across siblings, definition order is preserved.
+        collect_user_classes(scope).each do |name, cls|
+          emit_class(name, cls)
           emit_newline
         end
+      end
+
+      # Returns [name, class_object] pairs in emission order: for each
+      # top-level class, all its nested classes come first, then the class
+      # itself; siblings follow definition order.
+      def collect_user_classes(scope, seen = {})
+        result = []
+        const_locs = scope.constants_locations || {}
+        (scope.constants_table || {}).each do |name, value|
+          next unless value.is_a?(Vm::ClassObject)
+          next if value.name.nil? || %i[Object BasicObject Module Class Kernel].include?(value.name)
+          next if seen[value]
+          seen[value] = true
+          methods = value.methods_table || {}
+          has_user_method = methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
+          next unless has_user_method || user_source_location?(const_locs[name])
+          # Emit nested children first, then the parent itself.
+          result.concat(collect_user_classes(value, seen))
+          result << [name, value]
+        end
+        result
       end
 
       def emit_class(name, cls)
@@ -286,15 +303,27 @@ module Frozone
         if init.is_a?(Vm::Method) && init.body
           collect_ivars_from_body(init.body, ivars)
         end
+        # Infer ivar types by scanning all methods for `@foo = Klass.new(...)`
+        # patterns. Any ivar consistently assigned a known class name gets
+        # that type; otherwise default to int64_t.
+        ivar_types = infer_ivar_types(cls)
         indented do
-          # Emit ivar fields (all int64_t for now — TI would tell us)
-          ivars.uniq.each { |iv| line "int64_t #{cpp_ivar(iv)} = 0;" }
+          ivars.uniq.each do |iv|
+            key = iv.to_s.delete_prefix('@')
+            t = ivar_types[key] || "int64_t"
+            default = (t == "int64_t") ? " = 0" : ""
+            line "#{t} #{cpp_ivar(iv)}#{default};"
+          end
           emit_newline if ivars.any?
-          # Emit methods (including trivial-body ones — e.g. empty methods called from execute block)
+          # Emit methods DEFINED on this class only. Module erasure has
+          # flattened inherited methods into methods_table too; we skip
+          # those (they get emitted on their original owner / as free fns).
           cls.methods_table&.each do |mname, method|
             next unless method.is_a?(Vm::Method) && method.body
             next if mname == :initialize # handle separately
             next unless user_source_location?(method.source_location) || accessor_method?(method)
+            # Only emit if THIS class is the defining scope.
+            next unless method_defined_here?(method, cls)
             emit_class_method(mname, method)
             emit_newline
           end
@@ -306,6 +335,38 @@ module Frozone
         line "};"
       end
 
+      # Scans every method body on `cls` for `@foo = Klass.new(...)` writes.
+      # Returns a Hash `{"foo" => "Ruby_Klass"}` for ivars consistently
+      # assigned a class instance; ivars assigned mixed types stay unmapped
+      # (caller defaults to int64_t).
+      def infer_ivar_types(cls)
+        candidates = {}   # ivar_name => Set[Ruby_Klass]
+        (cls.methods_table || {}).each do |_mname, method|
+          next unless method.is_a?(Vm::Method) && method.body
+          walk_ivar_assigns(method.body) do |ivar_name, class_name|
+            (candidates[ivar_name] ||= Set.new) << class_name
+          end
+        end
+        candidates.each_with_object({}) do |(iv, types), out|
+          out[iv] = types.first if types.size == 1
+        end
+      end
+
+      # Recursively walks `node` yielding (ivar_name, inferred_cpp_type)
+      # for InstanceVariableWrite whose RHS is `ClassName.new(...)`.
+      def walk_ivar_assigns(node, &block)
+        return unless node
+        if node.is_a?(Ast::InstanceVariableWrite)
+          v = node.value_node
+          if v.is_a?(Ast::MethodCall) && v.name == :new && v.receiver_node.is_a?(Ast::ConstantRead)
+            cn = v.receiver_node.name
+            cpp_type = cn == :String ? "RubyString" : "Ruby_#{cn}"
+            yield node.name.to_s.delete_prefix('@'), cpp_type
+          end
+        end
+        node.children.each { |c| walk_ivar_assigns(c, &block) if c.is_a?(Ast::Node) }
+      end
+
       def collect_ivars_from_body(node, result)
         return unless node
         if node.is_a?(Ast::InstanceVariableWrite)
@@ -314,6 +375,15 @@ module Frozone
           result << node.name.to_s
         end
         node.children.each { |c| collect_ivars_from_body(c, result) if c.is_a?(Ast::Node) }
+      end
+
+      # Checks whether the method was originally defined on `cls` (vs
+      # inherited and flattened in via module erasure). Uses `method.scopes`,
+      # which records the class the `def` appeared in.
+      def method_defined_here?(method, cls)
+        scopes = method.scopes
+        return true if scopes.nil? || scopes.empty?
+        scopes.last.equal?(cls)
       end
 
       def accessor_method?(method)
@@ -450,11 +520,15 @@ module Frozone
 
       def emit_stmt_return(node)
         s = cr(node)
+        # Reuse the already-computed `s` — re-calling cr(node) here would
+        # double-traverse the AST and pollute @_declared_locals, causing
+        # later LocalVariableWrites to look pre-declared.
         if s.include?("{\n") || s.start_with?("if ") || s.start_with?("while ") || s.start_with?("for ") || s.start_with?("return ")
-          emit_stmt(node)
-          # Loops/non-expression statements don't yield a value.
-          # Emit a trailing `return INT64_C(0)` so `auto`-return methods
-          # have a deducible return type (avoids deducing as `void`).
+          if s.include?("{\n")
+            emit_indent; write s; emit_newline
+          else
+            line "#{s};"
+          end
           if s.start_with?("while ") || s.start_with?("for ")
             line "return INT64_C(0);"
           end
@@ -804,10 +878,10 @@ module Frozone
           return "(#{cr(recv)} #{name} #{cr(args[0])})"
         end
 
-        # .length / .size / .bytesize — uniform via `.len` field
-        # (both RubyArray<T> and RubyString expose `len`)
+        # .length / .size / .bytesize — uniform via `.len()` method
+        # (RubyArray<T>, RubyString, RubyTree all expose len())
         if recv && %i[length size bytesize].include?(name) && args.empty?
-          return "#{cr(recv)}.len"
+          return "#{cr(recv)}.len()"
         end
 
         # .dup

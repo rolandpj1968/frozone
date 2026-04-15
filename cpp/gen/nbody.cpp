@@ -15,41 +15,39 @@
 class RubyString {
 public:
   std::vector<uint8_t> bytes;
-  int64_t len = 0;
   RubyString() = default;
-  RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); len = n; } }
-  RubyString(const char* s, size_t n) { bytes.assign(s, s + n); len = n; }
-  int64_t bytesize() const { return len; }
-  int64_t size() const { return len; }
-  int64_t length() const { return len; }
-  int64_t get_byte(int64_t i) const { return (i >= 0 && i < len) ? (int64_t)bytes[i] : 0; }
-  void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < len) bytes[i] = (uint8_t)(v & 0xff); }
+  RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); } }
+  RubyString(const char* s, size_t n) { bytes.assign(s, s + n); }
+  int64_t len() const { return (int64_t)bytes.size(); }
+  int64_t bytesize() const { return (int64_t)bytes.size(); }
+  int64_t size() const { return (int64_t)bytes.size(); }
+  int64_t length() const { return (int64_t)bytes.size(); }
+  int64_t get_byte(int64_t i) const { return (i >= 0 && i < (int64_t)bytes.size()) ? (int64_t)bytes[i] : 0; }
+  void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < (int64_t)bytes.size()) bytes[i] = (uint8_t)(v & 0xff); }
   RubyString dup_() const { return *this; }
   RubyString& operator<<(const RubyString& o) {
-    bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); len = (int64_t)bytes.size(); return *this;
+    bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); return *this;
   }
   RubyString& operator<<(const char* s) {
-    if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); len = (int64_t)bytes.size(); } return *this;
+    if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); } return *this;
   }
   bool operator==(const RubyString& o) const { return bytes == o.bytes; }
   bool operator!=(const RubyString& o) const { return bytes != o.bytes; }
 };
 using Ruby_String = RubyString;
 
-// Generic native array — TI-specialised per element type
-// Uses shared_ptr so nested arrays / temporaries copy cheaply
-#include <memory>
+// Generic native array — TI-specialised per element type.
+// shared_ptr<vector<T>> backing: copy is cheap (alias), growable via <<.
 template<typename T> class RubyArray {
 public:
-  std::shared_ptr<T[]> data;
-  int64_t len;
-  RubyArray() : data(nullptr), len(0) {}
-  RubyArray(int64_t size) : data(new T[size > 0 ? size : 1]()), len(size) {}
-  RubyArray(int64_t size, T fill) : data(new T[size > 0 ? size : 1]), len(size) {
-    for (int64_t i = 0; i < size; i++) data[i] = fill;
-  }
-  T& operator[](int64_t i) { return data[i]; }
-  const T& operator[](int64_t i) const { return data[i]; }
+  std::shared_ptr<std::vector<T>> data;
+  RubyArray() : data(std::make_shared<std::vector<T>>()) {}
+  RubyArray(int64_t size) : data(std::make_shared<std::vector<T>>(size)) {}
+  RubyArray(int64_t size, T fill) : data(std::make_shared<std::vector<T>>(size, fill)) {}
+  int64_t len() const { return data ? (int64_t)data->size() : 0; }
+  T& operator[](int64_t i) { return (*data)[i]; }
+  const T& operator[](int64_t i) const { return (*data)[i]; }
+  RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }
 };
 
 using RubyArray_I64 = RubyArray<int64_t>;
@@ -211,42 +209,6 @@ struct Ruby_Planet {
     return iv_vz = (iv_vz + dz);
   }
 
-  auto run_benchmark() {
-    return 0LL;
-  }
-
-  auto energy(auto bodies) {
-    double e = 0.0;
-    auto nbodies = bodies.len;
-    for (int64_t i = INT64_C(0); i < nbodies; i++) {
-      auto b = bodies[i];
-      e = (e + ((0.5 * b.mass()) * (((b.vx() * b.vx()) + (b.vy() * b.vy())) + (b.vz() * b.vz()))));
-      for (int64_t j = (i + INT64_C(1)); j < nbodies; j++) {
-      auto b2 = bodies[j];
-      auto dx = (b.x() - b2.x());
-      auto dy = (b.y() - b2.y());
-      auto dz = (b.z() - b2.z());
-      auto distance = sqrt((((dx * dx) + (dy * dy)) + (dz * dz)));
-      e = (e - ((b.mass() * b2.mass()) / distance));
-    };
-    }
-    return e;
-  }
-
-  auto offset_momentum(auto bodies) {
-    px = 0.0; py = 0.0; pz = 0.0;
-    for (int64_t b = 0; b < bodies; b++) {
-      auto m = b.mass();
-      auto px = (px + (b.vx() * m));
-      auto py = (py + (b.vy() * m));
-      auto pz = (pz + (b.vz() * m));
-    }
-    b = bodies[INT64_C(0)];
-    b.set_vx(((-(px)) / SOLAR_MASS));
-    b.set_vy(((-(py)) / SOLAR_MASS));
-    return b.set_vz(((-(pz)) / SOLAR_MASS));
-  }
-
   Ruby_Planet(int64_t x, int64_t y, int64_t z, int64_t vx, int64_t vy, int64_t vz, int64_t mass) {
     @x = x; @y = y; @z = z;
     @vx = (vx * DAYS_PER_YEAR); @vy = (vy * DAYS_PER_YEAR); @vz = (vz * DAYS_PER_YEAR);
@@ -263,7 +225,7 @@ static const double DT = 0.01;
 
 static auto energy(auto bodies) {
   double e = 0.0;
-  auto nbodies = bodies.len;
+  auto nbodies = bodies.len();
   for (int64_t i = INT64_C(0); i < nbodies; i++) {
     auto b = bodies[i];
     e = (e + ((0.5 * b.mass()) * (((b.vx() * b.vx()) + (b.vy() * b.vy())) + (b.vz() * b.vz()))));
