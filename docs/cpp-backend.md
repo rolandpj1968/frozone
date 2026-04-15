@@ -43,7 +43,55 @@ refcount traffic). For most compute benchmarks the runtime is within noise.
 
 ## Why a second backend?
 
-The original roadmap (see [backend strategy memory](../.claude/projects/-home-rolandpj-src-frozone/memory/project_backend_strategy.md)) had Crystal as the bootstrap backend and LLVM IR as the eventual target. C++ landed as a **pragmatic intermediate**.
+The original roadmap had Crystal as the bootstrap backend and LLVM IR
+as the eventual target. C++ landed as a **pragmatic intermediate**.
+
+### The core framing — "the quiet translation war"
+
+> Crystal's type-system opinions aren't our type-system opinions, and
+> building atop them means we're running a quiet translation war.
+
+Crystal isn't a neutral IR. It's an opinionated high-level language
+with a type system designed for *Crystal-native* code: monomorphic
+dispatch, closed unions, compile-time null-safety, unboxed primitives
+(`Int32` for `<=>`). Each of those decisions is internally consistent
+for *Crystal's* goals and is the right choice for Crystal-the-language.
+
+They are the *wrong* choices for a Ruby execution target. Ruby is
+dynamically typed, uniform-object, open-dispatch, nil-everywhere. Every
+decision Crystal made for speed-and-safety shows up as a translation
+tax for us.
+
+Each friction point (table below) is "a quiet battle Crystal is winning
+on its terms that we have to work around on ours":
+
+- Crystal wants `<=>` to return `Int32` because boxed is expensive
+  → we have to unbox/rebox at call sites.
+- Crystal wants single-dispatch with closed unions
+  → we have to emit every possible overload.
+- Crystal wants `String?` to force explicit nil-handling
+  → we have to lie about nullability.
+
+Each was Crystal's deliberate evolution, not oversight. We're paying
+the integration cost of riding atop a language whose goals only
+partially overlap with ours.
+
+`str_concat` is the canary. Ruby's `.length` counts chars (81920 for
+our UTF-8 input); Crystal's counts bytes (102400). We inherited
+Crystal's semantics into our runtime because we modelled our types on
+theirs. If we'd started from scratch in C++, we'd have thought about
+UTF-8 from first principles — because C++ has no opinion about strings
+at all, just raw bytes to build on. The mismatch only surfaced when
+MRI-truth goldens made the divergence visible.
+
+The ideal end state would be clean idiomatic Ruby → Crystal translation,
+then focus on Crystal VM optimisation. But that would require Crystal to
+have a "Ruby mode" — less opinionated types, uniform boxed objects,
+nil-as-value. That's not Crystal anymore. So forward progress means
+picking a backend with fewer opinions about our domain — C++ (a few,
+mostly ctor/copy/lifetime), or LLVM IR (effectively none).
+
+Crystal is a superb language. Just not for this use case.
 
 ### Crystal friction points
 
