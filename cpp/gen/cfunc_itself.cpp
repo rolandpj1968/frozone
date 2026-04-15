@@ -41,42 +41,59 @@ public:
   int64_t to_i64() override { return (int64_t)value; }
 };
 
-// Native Int64 array — TI-specialised, no boxing
-class RubyArray_I64 {
+// Generic native array — TI-specialised per element type
+// Uses shared_ptr so nested arrays / temporaries copy cheaply
+#include <memory>
+template<typename T> class RubyArray {
 public:
-  int64_t* data;
+  std::shared_ptr<T[]> data;
   int64_t len;
-  RubyArray_I64(int64_t size, int64_t fill = 0) : len(size) {
-    data = (int64_t*)calloc(size, sizeof(int64_t));
-    if (fill) for (int64_t i = 0; i < size; i++) data[i] = fill;
+  RubyArray() : data(nullptr), len(0) {}
+  RubyArray(int64_t size) : data(new T[size > 0 ? size : 1]()), len(size) {}
+  RubyArray(int64_t size, T fill) : data(new T[size > 0 ? size : 1]), len(size) {
+    for (int64_t i = 0; i < size; i++) data[i] = fill;
   }
-  int64_t& operator[](int64_t i) { return data[i]; }
-  ~RubyArray_I64() { free(data); }
+  T& operator[](int64_t i) { return data[i]; }
+  const T& operator[](int64_t i) const { return data[i]; }
 };
 
-// Native Float64 array
-class RubyArray_F64 {
-public:
-  double* data;
-  int64_t len;
-  RubyArray_F64(int64_t size = 0, double fill = 0.0) : len(size) {
-    data = (double*)calloc(size > 0 ? size : 1, sizeof(double));
-    if (fill != 0.0) for (int64_t i = 0; i < size; i++) data[i] = fill;
-  }
-  double& operator[](int64_t i) { return data[i]; }
-  ~RubyArray_F64() { free(data); }
-};
+using RubyArray_I64 = RubyArray<int64_t>;
+using RubyArray_F64 = RubyArray<double>;
+// Helper: deduce array element type from fill value
+template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
 
 static constexpr int64_t RUBY_NIL = 0;
+
+// Ruby-flavored puts: chooses format based on type
+#include <type_traits>
+#include <charconv>
+template<typename T> static inline void ruby_puts(T v) {
+  if constexpr (std::is_same_v<T, bool>) {
+    printf(v ? "true\n" : "false\n");
+  } else if constexpr (std::is_floating_point_v<T>) {
+    // Shortest round-trippable representation (matches Ruby's Float#to_s closely)
+    char buf[64]; auto r = std::to_chars(buf, buf + sizeof(buf) - 4, (double)v);
+    *r.ptr = 0;
+    // Ensure trailing .0 for integer-valued doubles (Ruby convention)
+    bool has_dot = false; for (char* p = buf; p < r.ptr; ++p) if (*p == '.' || *p == 'e' || *p == 'n' || *p == 'i') { has_dot = true; break; }
+    if (!has_dot) { *r.ptr++ = '.'; *r.ptr++ = '0'; *r.ptr = 0; }
+    printf("%s\n", buf);
+  } else if constexpr (std::is_integral_v<T>) {
+    printf("%lld\n", (long long)v);
+  } else {
+    printf("#<Object>\n");
+  }
+}
+static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 
 
 
 int main() {
-  int64_t count = 0LL;
-  for (int64_t _i = 0; _i < 500LL; _i++) {
-    for (int64_t i = 0; i < 500000LL; i++) {
+  int64_t count = INT64_C(0);
+  for (int64_t _i = 0; _i < INT64_C(500); _i++) {
+    for (int64_t i = 0; i < INT64_C(500000); i++) {
       0LL;
       0LL;
       0LL;
@@ -87,9 +104,9 @@ int main() {
       0LL;
       0LL;
       0LL;
-      count = (count + 1LL);
+      count = (count + INT64_C(1));
     };
   }
-  printf("%lld\n", (long long)(count));
+  ruby_puts(count);
   return 0;
 }

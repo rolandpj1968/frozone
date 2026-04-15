@@ -41,33 +41,50 @@ public:
   int64_t to_i64() override { return (int64_t)value; }
 };
 
-// Native Int64 array — TI-specialised, no boxing
-class RubyArray_I64 {
+// Generic native array — TI-specialised per element type
+// Uses shared_ptr so nested arrays / temporaries copy cheaply
+#include <memory>
+template<typename T> class RubyArray {
 public:
-  int64_t* data;
+  std::shared_ptr<T[]> data;
   int64_t len;
-  RubyArray_I64(int64_t size, int64_t fill = 0) : len(size) {
-    data = (int64_t*)calloc(size, sizeof(int64_t));
-    if (fill) for (int64_t i = 0; i < size; i++) data[i] = fill;
+  RubyArray() : data(nullptr), len(0) {}
+  RubyArray(int64_t size) : data(new T[size > 0 ? size : 1]()), len(size) {}
+  RubyArray(int64_t size, T fill) : data(new T[size > 0 ? size : 1]), len(size) {
+    for (int64_t i = 0; i < size; i++) data[i] = fill;
   }
-  int64_t& operator[](int64_t i) { return data[i]; }
-  ~RubyArray_I64() { free(data); }
+  T& operator[](int64_t i) { return data[i]; }
+  const T& operator[](int64_t i) const { return data[i]; }
 };
 
-// Native Float64 array
-class RubyArray_F64 {
-public:
-  double* data;
-  int64_t len;
-  RubyArray_F64(int64_t size = 0, double fill = 0.0) : len(size) {
-    data = (double*)calloc(size > 0 ? size : 1, sizeof(double));
-    if (fill != 0.0) for (int64_t i = 0; i < size; i++) data[i] = fill;
-  }
-  double& operator[](int64_t i) { return data[i]; }
-  ~RubyArray_F64() { free(data); }
-};
+using RubyArray_I64 = RubyArray<int64_t>;
+using RubyArray_F64 = RubyArray<double>;
+// Helper: deduce array element type from fill value
+template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
 
 static constexpr int64_t RUBY_NIL = 0;
+
+// Ruby-flavored puts: chooses format based on type
+#include <type_traits>
+#include <charconv>
+template<typename T> static inline void ruby_puts(T v) {
+  if constexpr (std::is_same_v<T, bool>) {
+    printf(v ? "true\n" : "false\n");
+  } else if constexpr (std::is_floating_point_v<T>) {
+    // Shortest round-trippable representation (matches Ruby's Float#to_s closely)
+    char buf[64]; auto r = std::to_chars(buf, buf + sizeof(buf) - 4, (double)v);
+    *r.ptr = 0;
+    // Ensure trailing .0 for integer-valued doubles (Ruby convention)
+    bool has_dot = false; for (char* p = buf; p < r.ptr; ++p) if (*p == '.' || *p == 'e' || *p == 'n' || *p == 'i') { has_dot = true; break; }
+    if (!has_dot) { *r.ptr++ = '.'; *r.ptr++ = '0'; *r.ptr = 0; }
+    printf("%s\n", buf);
+  } else if constexpr (std::is_integral_v<T>) {
+    printf("%lld\n", (long long)v);
+  } else {
+    printf("#<Object>\n");
+  }
+}
+static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 
@@ -75,40 +92,40 @@ static const int64_t MAX_DEPTH = 14LL;
 static const int64_t MIN_DEPTH = 4LL;
 static const int64_t STRETCH_DEPTH = 15LL;
 
-static int64_t item_check(auto left, auto right) {
+static auto item_check(auto left, auto right) {
   if (left.nil_q()) {
-    return 1LL;
+    return INT64_C(1);
   }
-  return ((1LL + item_check(left[0LL], left[1LL])) + item_check(right[0LL], right[1LL]));
+  return ((INT64_C(1) + item_check(left[INT64_C(0)], left[INT64_C(1)])) + item_check(right[INT64_C(0)], right[INT64_C(1)]));
 }
 
 static auto bottom_up_tree(auto depth) {
-  if (!((depth > 0LL))) {
-    return ({ auto _a = RubyArray_I64(2); _a[0] = RUBY_NIL; _a[1] = RUBY_NIL; _a; });
+  if (!((depth > INT64_C(0)))) {
+    return ({ auto _e0 = RUBY_NIL; auto _a = RubyArray<decltype(_e0)>(2); _a[0] = _e0; _a[1] = RUBY_NIL; _a; });
   }
-  depth = (depth - 1LL);
-  return ({ auto _a = RubyArray_I64(2); _a[0] = bottom_up_tree(depth); _a[1] = bottom_up_tree(depth); _a; });
+  depth = (depth - INT64_C(1));
+  return ({ auto _e0 = bottom_up_tree(depth); auto _a = RubyArray<decltype(_e0)>(2); _a[0] = _e0; _a[1] = bottom_up_tree(depth); _a; });
 }
 
 
 int main() {
-  int64_t total = 0LL;
-  for (int64_t _i = 0; _i < 60LL; _i++) {
-    int64_t stretch_tree = bottom_up_tree(STRETCH_DEPTH);
+  int64_t total = INT64_C(0);
+  for (int64_t _i = 0; _i < INT64_C(60); _i++) {
+    auto stretch_tree = bottom_up_tree(STRETCH_DEPTH);
     stretch_tree = RUBY_NIL;
-    int64_t long_lived_tree = bottom_up_tree(MAX_DEPTH);
+    auto long_lived_tree = bottom_up_tree(MAX_DEPTH);
     int64_t depth = MIN_DEPTH;
     while ((depth <= MAX_DEPTH)) {
-      int64_t iterations = 2LL.**(((MAX_DEPTH - depth) + MIN_DEPTH));
-      int64_t check = 0LL;
+      auto iterations = INT64_C(2).**(((MAX_DEPTH - depth) + MIN_DEPTH));
+      int64_t check = INT64_C(0);
       for (int64_t i = 0; i < (iterations + 1LL); i++) {
-      int64_t temp_tree = bottom_up_tree(depth);
-      check = (check + item_check(temp_tree[0LL], temp_tree[1LL]));
+      auto temp_tree = bottom_up_tree(depth);
+      check = (check + item_check(temp_tree[INT64_C(0)], temp_tree[INT64_C(1)]));
     };
       total = (total + check);
-      depth = (depth + 2LL);
+      depth = (depth + INT64_C(2));
     };
   }
-  printf("%lld\n", (long long)(total));
+  ruby_puts(total);
   return 0;
 }

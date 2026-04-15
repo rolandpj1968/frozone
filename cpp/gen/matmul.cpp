@@ -41,65 +41,82 @@ public:
   int64_t to_i64() override { return (int64_t)value; }
 };
 
-// Native Int64 array — TI-specialised, no boxing
-class RubyArray_I64 {
+// Generic native array — TI-specialised per element type
+// Uses shared_ptr so nested arrays / temporaries copy cheaply
+#include <memory>
+template<typename T> class RubyArray {
 public:
-  int64_t* data;
+  std::shared_ptr<T[]> data;
   int64_t len;
-  RubyArray_I64(int64_t size, int64_t fill = 0) : len(size) {
-    data = (int64_t*)calloc(size, sizeof(int64_t));
-    if (fill) for (int64_t i = 0; i < size; i++) data[i] = fill;
+  RubyArray() : data(nullptr), len(0) {}
+  RubyArray(int64_t size) : data(new T[size > 0 ? size : 1]()), len(size) {}
+  RubyArray(int64_t size, T fill) : data(new T[size > 0 ? size : 1]), len(size) {
+    for (int64_t i = 0; i < size; i++) data[i] = fill;
   }
-  int64_t& operator[](int64_t i) { return data[i]; }
-  ~RubyArray_I64() { free(data); }
+  T& operator[](int64_t i) { return data[i]; }
+  const T& operator[](int64_t i) const { return data[i]; }
 };
 
-// Native Float64 array
-class RubyArray_F64 {
-public:
-  double* data;
-  int64_t len;
-  RubyArray_F64(int64_t size = 0, double fill = 0.0) : len(size) {
-    data = (double*)calloc(size > 0 ? size : 1, sizeof(double));
-    if (fill != 0.0) for (int64_t i = 0; i < size; i++) data[i] = fill;
-  }
-  double& operator[](int64_t i) { return data[i]; }
-  ~RubyArray_F64() { free(data); }
-};
+using RubyArray_I64 = RubyArray<int64_t>;
+using RubyArray_F64 = RubyArray<double>;
+// Helper: deduce array element type from fill value
+template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
 
 static constexpr int64_t RUBY_NIL = 0;
+
+// Ruby-flavored puts: chooses format based on type
+#include <type_traits>
+#include <charconv>
+template<typename T> static inline void ruby_puts(T v) {
+  if constexpr (std::is_same_v<T, bool>) {
+    printf(v ? "true\n" : "false\n");
+  } else if constexpr (std::is_floating_point_v<T>) {
+    // Shortest round-trippable representation (matches Ruby's Float#to_s closely)
+    char buf[64]; auto r = std::to_chars(buf, buf + sizeof(buf) - 4, (double)v);
+    *r.ptr = 0;
+    // Ensure trailing .0 for integer-valued doubles (Ruby convention)
+    bool has_dot = false; for (char* p = buf; p < r.ptr; ++p) if (*p == '.' || *p == 'e' || *p == 'n' || *p == 'i') { has_dot = true; break; }
+    if (!has_dot) { *r.ptr++ = '.'; *r.ptr++ = '0'; *r.ptr = 0; }
+    printf("%s\n", buf);
+  } else if constexpr (std::is_integral_v<T>) {
+    printf("%lld\n", (long long)v);
+  } else {
+    printf("#<Object>\n");
+  }
+}
+static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 
 static const int64_t N = 200LL;
 
-static int64_t make_shareable(auto x) {
+static auto make_shareable(auto x) {
   return x;
 }
 
 static auto matgen(auto n) {
-  int64_t tmp = ((1.0 / n) / n);
-  return ({ auto _arr = RubyArray_F64(n); for (int64_t i = 0; i < n; i++) { _arr[i] = ({ auto _arr = RubyArray_F64(n); for (int64_t j = 0; j < n; j++) { _arr[j] = ((tmp * (i - j)) * (i + j)); } _arr; }); } _arr; });
+  auto tmp = ((1.0 / n) / n);
+  return ({ auto _n = n; int64_t i = 0; auto _e0 = ({ auto _n = n; int64_t j = 0; auto _e0 = ((tmp * (i - j)) * (i + j)); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (j = 1; j < _n; j++) { _arr[j] = ((tmp * (i - j)) * (i + j)); } _arr; }); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (i = 1; i < _n; i++) { _arr[i] = ({ auto _n = n; int64_t j = 0; auto _e0 = ((tmp * (i - j)) * (i + j)); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (j = 1; j < _n; j++) { _arr[j] = ((tmp * (i - j)) * (i + j)); } _arr; }); } _arr; });
 }
 
-static int64_t matmul(auto a, auto b) {
-  int64_t m = a.len;
-  int64_t n = a[0LL].len;
-  int64_t p = b[0LL].len;
-  RubyArray_I64 c = ({ auto _arr = RubyArray_F64(m); for (int64_t _ai = 0; _ai < m; _ai++) { _arr[_ai] = RubyArray_I64(p, 0.0); } _arr; });
+static auto matmul(auto a, auto b) {
+  auto m = a.len;
+  auto n = a[INT64_C(0)].len;
+  auto p = b[INT64_C(0)].len;
+  auto c = ({ auto _n = m; int64_t _ai = 0; auto _e0 = make_ra(p, 0.0); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (_ai = 1; _ai < _n; _ai++) { _arr[_ai] = make_ra(p, 0.0); } _arr; });
   for (int64_t i = 0; i < m; i++) {
-    int64_t ci = c[i];
-    int64_t ai = a[i];
-    int64_t k = 0LL;
+    auto ci = c[i];
+    auto ai = a[i];
+    int64_t k = INT64_C(0);
     while ((k < n)) {
-    int64_t aik = ai[k];
-    int64_t bk = b[k];
-    int64_t j = 0LL;
+    auto aik = ai[k];
+    auto bk = b[k];
+    int64_t j = INT64_C(0);
     while ((j < p)) {
     ci[j] += (aik * bk[j]);
-    j = (j + 1LL);
+    j = (j + INT64_C(1));
   };
-    k = (k + 1LL);
+    k = (k + INT64_C(1));
   };
   }
   return c;
@@ -107,13 +124,13 @@ static int64_t matmul(auto a, auto b) {
 
 
 int main() {
-  int64_t last = 0.0;
-  for (int64_t _i = 0; _i < 20LL; _i++) {
-    int64_t a = matgen(N);
-    int64_t b = matgen(N);
-    int64_t c = matmul(a, b);
-    last = c[(N / 2LL)][(N / 2LL)];
+  double last = 0.0;
+  for (int64_t _i = 0; _i < INT64_C(20); _i++) {
+    auto a = matgen(N);
+    auto b = matgen(N);
+    auto c = matmul(a, b);
+    last = c[(N / INT64_C(2))][(N / INT64_C(2))];
   }
-  printf("%lld\n", (long long)(last));
+  ruby_puts(last);
   return 0;
 }

@@ -41,158 +41,175 @@ public:
   int64_t to_i64() override { return (int64_t)value; }
 };
 
-// Native Int64 array — TI-specialised, no boxing
-class RubyArray_I64 {
+// Generic native array — TI-specialised per element type
+// Uses shared_ptr so nested arrays / temporaries copy cheaply
+#include <memory>
+template<typename T> class RubyArray {
 public:
-  int64_t* data;
+  std::shared_ptr<T[]> data;
   int64_t len;
-  RubyArray_I64(int64_t size, int64_t fill = 0) : len(size) {
-    data = (int64_t*)calloc(size, sizeof(int64_t));
-    if (fill) for (int64_t i = 0; i < size; i++) data[i] = fill;
+  RubyArray() : data(nullptr), len(0) {}
+  RubyArray(int64_t size) : data(new T[size > 0 ? size : 1]()), len(size) {}
+  RubyArray(int64_t size, T fill) : data(new T[size > 0 ? size : 1]), len(size) {
+    for (int64_t i = 0; i < size; i++) data[i] = fill;
   }
-  int64_t& operator[](int64_t i) { return data[i]; }
-  ~RubyArray_I64() { free(data); }
+  T& operator[](int64_t i) { return data[i]; }
+  const T& operator[](int64_t i) const { return data[i]; }
 };
 
-// Native Float64 array
-class RubyArray_F64 {
-public:
-  double* data;
-  int64_t len;
-  RubyArray_F64(int64_t size = 0, double fill = 0.0) : len(size) {
-    data = (double*)calloc(size > 0 ? size : 1, sizeof(double));
-    if (fill != 0.0) for (int64_t i = 0; i < size; i++) data[i] = fill;
-  }
-  double& operator[](int64_t i) { return data[i]; }
-  ~RubyArray_F64() { free(data); }
-};
+using RubyArray_I64 = RubyArray<int64_t>;
+using RubyArray_F64 = RubyArray<double>;
+// Helper: deduce array element type from fill value
+template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
 
 static constexpr int64_t RUBY_NIL = 0;
+
+// Ruby-flavored puts: chooses format based on type
+#include <type_traits>
+#include <charconv>
+template<typename T> static inline void ruby_puts(T v) {
+  if constexpr (std::is_same_v<T, bool>) {
+    printf(v ? "true\n" : "false\n");
+  } else if constexpr (std::is_floating_point_v<T>) {
+    // Shortest round-trippable representation (matches Ruby's Float#to_s closely)
+    char buf[64]; auto r = std::to_chars(buf, buf + sizeof(buf) - 4, (double)v);
+    *r.ptr = 0;
+    // Ensure trailing .0 for integer-valued doubles (Ruby convention)
+    bool has_dot = false; for (char* p = buf; p < r.ptr; ++p) if (*p == '.' || *p == 'e' || *p == 'n' || *p == 'i') { has_dot = true; break; }
+    if (!has_dot) { *r.ptr++ = '.'; *r.ptr++ = '0'; *r.ptr = 0; }
+    printf("%s\n", buf);
+  } else if constexpr (std::is_integral_v<T>) {
+    printf("%lld\n", (long long)v);
+  } else {
+    printf("#<Object>\n");
+  }
+}
+static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 struct Ruby_Planet {
   int64_t iv_mass = 0;
 
-  int64_t x() {
+  auto x() {
     return iv_x;
   }
 
-  int64_t set_x(auto __anon_req__) {
+  auto set_x(auto __anon_req__) {
     iv_x = __anon_req__;
     return iv_x;
   }
 
-  int64_t y() {
+  auto y() {
     return iv_y;
   }
 
-  int64_t set_y(auto __anon_req__) {
+  auto set_y(auto __anon_req__) {
     iv_y = __anon_req__;
     return iv_y;
   }
 
-  int64_t z() {
+  auto z() {
     return iv_z;
   }
 
-  int64_t set_z(auto __anon_req__) {
+  auto set_z(auto __anon_req__) {
     iv_z = __anon_req__;
     return iv_z;
   }
 
-  int64_t vx() {
+  auto vx() {
     return iv_vx;
   }
 
-  int64_t set_vx(auto __anon_req__) {
+  auto set_vx(auto __anon_req__) {
     iv_vx = __anon_req__;
     return iv_vx;
   }
 
-  int64_t vy() {
+  auto vy() {
     return iv_vy;
   }
 
-  int64_t set_vy(auto __anon_req__) {
+  auto set_vy(auto __anon_req__) {
     iv_vy = __anon_req__;
     return iv_vy;
   }
 
-  int64_t vz() {
+  auto vz() {
     return iv_vz;
   }
 
-  int64_t set_vz(auto __anon_req__) {
+  auto set_vz(auto __anon_req__) {
     iv_vz = __anon_req__;
     return iv_vz;
   }
 
-  int64_t mass() {
+  auto mass() {
     return iv_mass;
   }
 
-  int64_t set_mass(auto __anon_req__) {
+  auto set_mass(auto __anon_req__) {
     iv_mass = __anon_req__;
     return iv_mass;
   }
 
-  int64_t move_from_i(auto bodies, auto nbodies, auto dt, auto i) {
+  auto move_from_i(auto bodies, auto nbodies, auto dt, auto i) {
     while ((i < nbodies)) {
-      int64_t b2 = bodies[i];
-      int64_t dx = (iv_x - b2.x());
-      int64_t dy = (iv_y - b2.y());
-      int64_t dz = (iv_z - b2.z());
-      int64_t dsq = (((dx * dx) + (dy * dy)) + (dz * dz));
-      int64_t mag = (dt / (dsq * sqrt(dsq)));
+      auto b2 = bodies[i];
+      auto dx = (iv_x - b2.x());
+      auto dy = (iv_y - b2.y());
+      auto dz = (iv_z - b2.z());
+      auto dsq = (((dx * dx) + (dy * dy)) + (dz * dz));
+      auto mag = (dt / (dsq * sqrt(dsq)));
       b_mass_mag = (iv_mass * mag); b2_mass_mag = (b2.mass() * mag);
       iv_vx = (iv_vx - (dx * b2_mass_mag));
       iv_vy = (iv_vy - (dy * b2_mass_mag));
       iv_vz = (iv_vz - (dz * b2_mass_mag));
       b2.add_v((dx * b_mass_mag), (dy * b_mass_mag), (dz * b_mass_mag));
-      i = (i + 1LL);
+      i = (i + INT64_C(1));
     }
     iv_x = (iv_x + (dt * iv_vx));
     iv_y = (iv_y + (dt * iv_vy));
     return iv_z = (iv_z + (dt * iv_vz));
   }
 
-  int64_t add_v(auto dx, auto dy, auto dz) {
+  auto add_v(auto dx, auto dy, auto dz) {
     iv_vx = (iv_vx + dx);
     iv_vy = (iv_vy + dy);
     return iv_vz = (iv_vz + dz);
   }
 
-  int64_t run_benchmark() {
+  auto run_benchmark() {
     return 0LL;
   }
 
-  int64_t energy(auto bodies) {
-    int64_t e = 0.0;
-    int64_t nbodies = bodies.len;
+  auto energy(auto bodies) {
+    double e = 0.0;
+    auto nbodies = bodies.len;
     for (int64_t i = 0; i < nbodies; i++) {
-      int64_t b = bodies[i];
+      auto b = bodies[i];
       e = (e + ((0.5 * b.mass()) * (((b.vx() * b.vx()) + (b.vy() * b.vy())) + (b.vz() * b.vz()))));
       for (int64_t j = 0; j < nbodies; j++) {
-      int64_t b2 = bodies[j];
-      int64_t dx = (b.x() - b2.x());
-      int64_t dy = (b.y() - b2.y());
-      int64_t dz = (b.z() - b2.z());
-      int64_t distance = sqrt((((dx * dx) + (dy * dy)) + (dz * dz)));
+      auto b2 = bodies[j];
+      auto dx = (b.x() - b2.x());
+      auto dy = (b.y() - b2.y());
+      auto dz = (b.z() - b2.z());
+      auto distance = sqrt((((dx * dx) + (dy * dy)) + (dz * dz)));
       e = (e - ((b.mass() * b2.mass()) / distance));
     };
     }
     return e;
   }
 
-  int64_t offset_momentum(auto bodies) {
+  auto offset_momentum(auto bodies) {
     px = 0.0; py = 0.0; pz = 0.0;
     for (int64_t b = 0; b < bodies; b++) {
-      int64_t m = b.mass();
-      int64_t px = (px + (b.vx() * m));
-      int64_t py = (py + (b.vy() * m));
-      int64_t pz = (pz + (b.vz() * m));
+      auto m = b.mass();
+      auto px = (px + (b.vx() * m));
+      auto py = (py + (b.vy() * m));
+      auto pz = (pz + (b.vz() * m));
     }
-    b = bodies[0LL];
+    b = bodies[INT64_C(0)];
     b.set_vx((px.-@() / SOLAR_MASS));
     b.set_vy((py.-@() / SOLAR_MASS));
     return b.set_vz((pz.-@() / SOLAR_MASS));
@@ -213,33 +230,33 @@ static const int64_t N = 20000LL;
 static const int64_t NBODIES = 5LL;
 static const double DT = 0.01;
 
-static int64_t energy(auto bodies) {
-  int64_t e = 0.0;
-  int64_t nbodies = bodies.len;
+static auto energy(auto bodies) {
+  double e = 0.0;
+  auto nbodies = bodies.len;
   for (int64_t i = 0; i < nbodies; i++) {
-    int64_t b = bodies[i];
+    auto b = bodies[i];
     e = (e + ((0.5 * b.mass()) * (((b.vx() * b.vx()) + (b.vy() * b.vy())) + (b.vz() * b.vz()))));
     for (int64_t j = 0; j < nbodies; j++) {
-    int64_t b2 = bodies[j];
-    int64_t dx = (b.x() - b2.x());
-    int64_t dy = (b.y() - b2.y());
-    int64_t dz = (b.z() - b2.z());
-    int64_t distance = sqrt((((dx * dx) + (dy * dy)) + (dz * dz)));
+    auto b2 = bodies[j];
+    auto dx = (b.x() - b2.x());
+    auto dy = (b.y() - b2.y());
+    auto dz = (b.z() - b2.z());
+    auto distance = sqrt((((dx * dx) + (dy * dy)) + (dz * dz)));
     e = (e - ((b.mass() * b2.mass()) / distance));
   };
   }
   return e;
 }
 
-static int64_t offset_momentum(auto bodies) {
+static auto offset_momentum(auto bodies) {
   px = 0.0; py = 0.0; pz = 0.0;
   for (int64_t b = 0; b < bodies; b++) {
-    int64_t m = b.mass();
-    int64_t px = (px + (b.vx() * m));
-    int64_t py = (py + (b.vy() * m));
-    int64_t pz = (pz + (b.vz() * m));
+    auto m = b.mass();
+    auto px = (px + (b.vx() * m));
+    auto py = (py + (b.vy() * m));
+    auto pz = (pz + (b.vz() * m));
   }
-  b = bodies[0LL];
+  b = bodies[INT64_C(0)];
   b.set_vx((px.-@() / SOLAR_MASS));
   b.set_vy((py.-@() / SOLAR_MASS));
   return b.set_vz((pz.-@() / SOLAR_MASS));
@@ -247,23 +264,23 @@ static int64_t offset_momentum(auto bodies) {
 
 
 int main() {
-  int64_t last_x = 0.0;
-  for (int64_t _i = 0; _i < 100LL; _i++) {
+  double last_x = 0.0;
+  for (int64_t _i = 0; _i < INT64_C(100); _i++) {
     int64_t nbodies = NBODIES;
     int64_t n = N;
     int64_t dt = DT;
-    int64_t bodies = ({ auto _a = RubyArray_I64(5); _a[0] = Ruby_Planet(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0); _a[1] = Ruby_Planet(4.841431442464721, -1.1603200440274284, -0.10362204447112311, 0.001660076642744037, 0.007699011184197404, -6.90460016972063e-05, 0.0009547919384243266); _a[2] = Ruby_Planet(8.34336671824458, 4.124798564124305, -0.4035234171143214, -0.002767425107268624, 0.004998528012349172, 2.3041729757376393e-05, 0.0002858859806661308); _a[3] = Ruby_Planet(12.894369562139131, -15.111151401698631, -0.22330757889265573, 0.002964601375647616, 0.0023784717395948095, -2.9658956854023756e-05, 4.366244043351563e-05); _a[4] = Ruby_Planet(15.379697114850917, -25.919314609987964, 0.17925877295037118, 0.0026806777249038932, 0.001628241700382423, -9.515922545197159e-05, 5.1513890204661145e-05); _a; });
+    auto bodies = ({ auto _e0 = Ruby_Planet(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0); auto _a = RubyArray<decltype(_e0)>(5); _a[0] = _e0; _a[1] = Ruby_Planet(4.841431442464721, -1.1603200440274284, -0.10362204447112311, 0.001660076642744037, 0.007699011184197404, -6.90460016972063e-05, 0.0009547919384243266); _a[2] = Ruby_Planet(8.34336671824458, 4.124798564124305, -0.4035234171143214, -0.002767425107268624, 0.004998528012349172, 2.3041729757376393e-05, 0.0002858859806661308); _a[3] = Ruby_Planet(12.894369562139131, -15.111151401698631, -0.22330757889265573, 0.002964601375647616, 0.0023784717395948095, -2.9658956854023756e-05, 4.366244043351563e-05); _a[4] = Ruby_Planet(15.379697114850917, -25.919314609987964, 0.17925877295037118, 0.0026806777249038932, 0.001628241700382423, -9.515922545197159e-05, 5.1513890204661145e-05); _a; });
     offset_momentum(bodies);
     for (int64_t _i = 0; _i < n; _i++) {
-      int64_t i = 0LL;
+      int64_t i = INT64_C(0);
       while ((i < nbodies)) {
-        int64_t b = bodies[i];
-        b.move_from_i(bodies, nbodies, dt, (i + 1LL));
-        i = (i + 1LL);
+        auto b = bodies[i];
+        b.move_from_i(bodies, nbodies, dt, (i + INT64_C(1)));
+        i = (i + INT64_C(1));
       };
     };
-    last_x = bodies[0LL].x();
+    last_x = bodies[INT64_C(0)].x();
   }
-  printf("%lld\n", (long long)(last_x));
+  ruby_puts(last_x);
   return 0;
 }

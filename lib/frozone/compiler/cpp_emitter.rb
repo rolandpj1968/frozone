@@ -128,43 +128,58 @@ module Frozone
         end
         line "};"
         emit_newline
-        line "// Native Int64 array — TI-specialised, no boxing"
-        line "class RubyArray_I64 {"
+        line "// Generic native array — TI-specialised per element type"
+        line "// Uses shared_ptr so nested arrays / temporaries copy cheaply"
+        line "#include <memory>"
+        line "template<typename T> class RubyArray {"
         line "public:"
         indented do
-          line "int64_t* data;"
+          line "std::shared_ptr<T[]> data;"
           line "int64_t len;"
-          line "RubyArray_I64(int64_t size, int64_t fill = 0) : len(size) {"
-          indented do
-            line "data = (int64_t*)calloc(size, sizeof(int64_t));"
-            line "if (fill) for (int64_t i = 0; i < size; i++) data[i] = fill;"
-          end
+          line "RubyArray() : data(nullptr), len(0) {}"
+          line "RubyArray(int64_t size) : data(new T[size > 0 ? size : 1]()), len(size) {}"
+          line "RubyArray(int64_t size, T fill) : data(new T[size > 0 ? size : 1]), len(size) {"
+          indented { line "for (int64_t i = 0; i < size; i++) data[i] = fill;" }
           line "}"
-          line "int64_t& operator[](int64_t i) { return data[i]; }"
-          line "~RubyArray_I64() { free(data); }"
+          line "T& operator[](int64_t i) { return data[i]; }"
+          line "const T& operator[](int64_t i) const { return data[i]; }"
         end
         line "};"
         emit_newline
-        line "// Native Float64 array"
-        line "class RubyArray_F64 {"
-        line "public:"
-        indented do
-          line "double* data;"
-          line "int64_t len;"
-          line "RubyArray_F64(int64_t size = 0, double fill = 0.0) : len(size) {"
-          indented do
-            line "data = (double*)calloc(size > 0 ? size : 1, sizeof(double));"
-            line "if (fill != 0.0) for (int64_t i = 0; i < size; i++) data[i] = fill;"
-          end
-          line "}"
-          line "double& operator[](int64_t i) { return data[i]; }"
-          line "~RubyArray_F64() { free(data); }"
-        end
-        line "};"
+        line "using RubyArray_I64 = RubyArray<int64_t>;"
+        line "using RubyArray_F64 = RubyArray<double>;"
+        line "// Helper: deduce array element type from fill value"
+        line "template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }"
         emit_newline
         # RUBY_NIL as int64_t sentinel (0) — loses identity but works in
         # int64_t-typed slots (RubyArray_I64 elements, locals, return values).
         line "static constexpr int64_t RUBY_NIL = 0;"
+        emit_newline
+        line "// Ruby-flavored puts: chooses format based on type"
+        line "#include <type_traits>"
+        line "#include <charconv>"
+        line "template<typename T> static inline void ruby_puts(T v) {"
+        indented do
+          line "if constexpr (std::is_same_v<T, bool>) {"
+          indented { line 'printf(v ? "true\\n" : "false\\n");' }
+          line "} else if constexpr (std::is_floating_point_v<T>) {"
+          indented do
+            line "// Shortest round-trippable representation (matches Ruby's Float#to_s closely)"
+            line "char buf[64]; auto r = std::to_chars(buf, buf + sizeof(buf) - 4, (double)v);"
+            line "*r.ptr = 0;"
+            line "// Ensure trailing .0 for integer-valued doubles (Ruby convention)"
+            line "bool has_dot = false; for (char* p = buf; p < r.ptr; ++p) if (*p == '.' || *p == 'e' || *p == 'n' || *p == 'i') { has_dot = true; break; }"
+            line "if (!has_dot) { *r.ptr++ = '.'; *r.ptr++ = '0'; *r.ptr = 0; }"
+            line 'printf("%s\\n", buf);'
+          end
+          line "} else if constexpr (std::is_integral_v<T>) {"
+          indented { line 'printf("%lld\\n", (long long)v);' }
+          line "} else {"
+          indented { line 'printf("#<Object>\\n");' }
+          line "}"
+        end
+        line "}"
+        line "static inline void ruby_puts(const char* s) { printf(\"%s\\n\", s); }"
       end
 
       CORE_PATH_MARKERS = %w[lib/core/4.0/ lib/frozone/vm/ lib/frozone/ast/].freeze
@@ -257,6 +272,25 @@ module Frozone
         method.body.is_a?(Ast::InstanceVariableRead) || method.body.is_a?(Ast::InstanceVariableWrite)
       end
 
+      # Decide a local variable's declared C++ type from its initializer.
+      # `int64_t` for plain integer-typed exprs; `auto` for class instances,
+      # arrays, method calls (which may return auto-deduced types), and
+      # anything ambiguous.
+      def local_decl_type(val)
+        case val
+        when Ast::MethodCall
+          if val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
+            cn = val.receiver_node.name
+            return cn == :Array ? "auto" : "Ruby_#{cn}"
+          end
+          # Free function or method call → return type unknown, use auto
+          "auto"
+        when Ast::ArrayLiteral then "auto"
+        when Ast::FloatLiteral then "double"
+        else "int64_t"
+        end
+      end
+
       # Detect if a method body's last expression returns a non-int64_t value
       # (class instance, array literal, Array.new). If so, use 'auto' return
       # type so C++ deducer picks up the struct type.
@@ -272,8 +306,9 @@ module Frozone
         # Use 'auto' for params so C++20 can deduce per call site
         # (covers both int64_t and class-typed args without explicit TI)
         params = all_param_names(method).map { |p| "auto #{p}" }.join(", ")
-        ret = returns_non_int?(method.body) ? "auto" : "int64_t"
-        line "#{ret} #{cpp_method_name(mname)}(#{params}) {"
+        # Always 'auto' return — C++20 deduces. Works for recursion when
+        # at least one base-case return is non-recursive.
+        line "auto #{cpp_method_name(mname)}(#{params}) {"
         @_declared_locals = Set.new
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
@@ -322,8 +357,7 @@ module Frozone
 
       def emit_method(name, method)
         params = all_param_names(method).map { |p| "auto #{p}" }.join(", ")
-        ret = returns_non_int?(method.body) ? "auto" : "int64_t"
-        line "static #{ret} #{cpp_method_name(name)}(#{params}) {"
+        line "static auto #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
@@ -344,6 +378,12 @@ module Frozone
         s = cr(node)
         if s.include?("{\n") || s.start_with?("if ") || s.start_with?("while ") || s.start_with?("for ") || s.start_with?("return ")
           emit_stmt(node)
+          # Loops/non-expression statements don't yield a value.
+          # Emit a trailing `return INT64_C(0)` so `auto`-return methods
+          # have a deducible return type (avoids deducing as `void`).
+          if s.start_with?("while ") || s.start_with?("for ")
+            line "return INT64_C(0);"
+          end
         else
           line "return #{s};"
         end
@@ -383,7 +423,7 @@ module Frozone
         when Ast::NilLiteral then "RUBY_NIL"
         when Ast::TrueLiteral then "true"
         when Ast::FalseLiteral then "false"
-        when Ast::IntegerLiteral then "#{node.value.raw}LL"
+        when Ast::IntegerLiteral then "INT64_C(#{node.value.raw})"
         when Ast::FloatLiteral
           val = node.value.respond_to?(:raw) ? node.value.raw : node.value
           s = val.to_s
@@ -414,12 +454,7 @@ module Frozone
             "#{name} = #{cr(val)}"
           else
             @_declared_locals << name
-            type = if val.is_a?(Ast::MethodCall) && val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
-              cn = val.receiver_node.name
-              cn == :Array ? "RubyArray_I64" : "Ruby_#{cn}"
-            else
-              "int64_t"
-            end
+            type = local_decl_type(val)
             "#{type} #{name} = #{cr(val)}"
           end
         when Ast::If then cr_if(node)
@@ -465,13 +500,14 @@ module Frozone
           # (the for loop handles the iteration)
           node.exclusive ? cr(node.end_node) : "(#{cr(node.end_node)} + 1LL)"
         when Ast::ArrayLiteral
-          # [a, b, c] — emit a fresh RubyArray_I64 with elements
+          # [a, b, c] — emit a fresh RubyArray<T> deduced from first element
           elems = node.element_nodes || []
           if elems.empty?
             "RubyArray_I64(0)"
           else
-            inits = elems.each_with_index.map { |e, i| "_a[#{i}] = #{cr(e)};" }.join(' ')
-            "({ auto _a = RubyArray_I64(#{elems.size}); #{inits} _a; })"
+            first = cr(elems[0])
+            rest_inits = elems[1..].each_with_index.map { |e, i| "_a[#{i+1}] = #{cr(e)};" }.join(' ')
+            "({ auto _e0 = #{first}; auto _a = RubyArray<decltype(_e0)>(#{elems.size}); _a[0] = _e0; #{rest_inits} _a; })"
           end
         when Ast::Rescue
           # begin/rescue/end — emit body, ignore rescue for now
@@ -552,16 +588,10 @@ module Frozone
         args = node.arg_nodes || []
         kw_arg_nodes = node.kw_arg_nodes || []
 
-        # puts → printf (auto-detect int vs float from literal type)
+        # puts → ruby_puts (template dispatches on arg type at compile time)
         if recv.nil? && name == :puts
-          if args.empty?
-            return "printf(\"\\n\")"
-          else
-            arg = cr(args[0])
-            # Heuristic: if arg contains . or is a known float var, use %f
-            return "printf(\"%.9f\\n\", (double)(#{arg}))" if arg.include?('.') || @_float_vars&.include?(args[0].respond_to?(:name) ? args[0].name.to_s : nil)
-            return "printf(\"%lld\\n\", (long long)(#{arg}))"
-          end
+          return "printf(\"\\n\")" if args.empty?
+          return "ruby_puts(#{cr(args[0])})"
         end
 
         # Math.sqrt, Math::PI etc.
@@ -593,16 +623,16 @@ module Frozone
         # Array.new(size, fill)
         if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name == :Array
           if args.size == 2 && !node.block_node
-            return "RubyArray_I64(#{cr(args[0])}, #{cr(args[1])})"
+            return "make_ra(#{cr(args[0])}, #{cr(args[1])})"
           elsif args.size == 1 && node.block_node
-            # Array.new(n) { |i| expr } — unfold into loop
+            # Array.new(n) { |i| expr } — unfold into loop, deduce elem type from block body
             blk = node.block_node
             var = (blk.required_params || [])[0] || :_ai
             @_declared_locals&.add(var.to_s)
             size_expr = cr(args[0])
+            # Generate body once with var=0 to deduce type, then a real loop
             body_expr = cr(blk.body)
-            # Return a C++ compound expression that builds the array
-            return "({ auto _arr = RubyArray_F64(#{size_expr}); for (int64_t #{var} = 0; #{var} < #{size_expr}; #{var}++) { _arr[#{var}] = #{body_expr}; } _arr; })"
+            return "({ auto _n = #{size_expr}; #{var.to_s == '_ai' ? 'int64_t _ai = 0;' : "int64_t #{var} = 0;"} auto _e0 = #{body_expr}; auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (#{var} = 1; #{var} < _n; #{var}++) { _arr[#{var}] = #{body_expr}; } _arr; })"
           end
         end
 

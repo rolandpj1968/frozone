@@ -41,43 +41,60 @@ public:
   int64_t to_i64() override { return (int64_t)value; }
 };
 
-// Native Int64 array — TI-specialised, no boxing
-class RubyArray_I64 {
+// Generic native array — TI-specialised per element type
+// Uses shared_ptr so nested arrays / temporaries copy cheaply
+#include <memory>
+template<typename T> class RubyArray {
 public:
-  int64_t* data;
+  std::shared_ptr<T[]> data;
   int64_t len;
-  RubyArray_I64(int64_t size, int64_t fill = 0) : len(size) {
-    data = (int64_t*)calloc(size, sizeof(int64_t));
-    if (fill) for (int64_t i = 0; i < size; i++) data[i] = fill;
+  RubyArray() : data(nullptr), len(0) {}
+  RubyArray(int64_t size) : data(new T[size > 0 ? size : 1]()), len(size) {}
+  RubyArray(int64_t size, T fill) : data(new T[size > 0 ? size : 1]), len(size) {
+    for (int64_t i = 0; i < size; i++) data[i] = fill;
   }
-  int64_t& operator[](int64_t i) { return data[i]; }
-  ~RubyArray_I64() { free(data); }
+  T& operator[](int64_t i) { return data[i]; }
+  const T& operator[](int64_t i) const { return data[i]; }
 };
 
-// Native Float64 array
-class RubyArray_F64 {
-public:
-  double* data;
-  int64_t len;
-  RubyArray_F64(int64_t size = 0, double fill = 0.0) : len(size) {
-    data = (double*)calloc(size > 0 ? size : 1, sizeof(double));
-    if (fill != 0.0) for (int64_t i = 0; i < size; i++) data[i] = fill;
-  }
-  double& operator[](int64_t i) { return data[i]; }
-  ~RubyArray_F64() { free(data); }
-};
+using RubyArray_I64 = RubyArray<int64_t>;
+using RubyArray_F64 = RubyArray<double>;
+// Helper: deduce array element type from fill value
+template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
 
 static constexpr int64_t RUBY_NIL = 0;
+
+// Ruby-flavored puts: chooses format based on type
+#include <type_traits>
+#include <charconv>
+template<typename T> static inline void ruby_puts(T v) {
+  if constexpr (std::is_same_v<T, bool>) {
+    printf(v ? "true\n" : "false\n");
+  } else if constexpr (std::is_floating_point_v<T>) {
+    // Shortest round-trippable representation (matches Ruby's Float#to_s closely)
+    char buf[64]; auto r = std::to_chars(buf, buf + sizeof(buf) - 4, (double)v);
+    *r.ptr = 0;
+    // Ensure trailing .0 for integer-valued doubles (Ruby convention)
+    bool has_dot = false; for (char* p = buf; p < r.ptr; ++p) if (*p == '.' || *p == 'e' || *p == 'n' || *p == 'i') { has_dot = true; break; }
+    if (!has_dot) { *r.ptr++ = '.'; *r.ptr++ = '0'; *r.ptr = 0; }
+    printf("%s\n", buf);
+  } else if constexpr (std::is_integral_v<T>) {
+    printf("%lld\n", (long long)v);
+  } else {
+    printf("#<Object>\n");
+  }
+}
+static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 struct Ruby_SplayTree {
   int64_t iv_root = 0;
 
-  int64_t empty_q() {
+  auto empty_q() {
     return iv_root.nil_q();
   }
 
-  int64_t insert(auto key, auto value) {
+  auto insert(auto key, auto value) {
     if (empty_q()) {
       iv_root = Ruby_Node(key, value); return;
     }
@@ -94,7 +111,7 @@ struct Ruby_SplayTree {
     return iv_root = node;
   }
 
-  int64_t remove(auto key) {
+  auto remove(auto key) {
     if (empty_q()) {
       { fprintf(stderr, "Error: %s\n", "error"); exit(1); };
     }
@@ -106,12 +123,12 @@ struct Ruby_SplayTree {
     if (iv_root.left().nil_q()) {
       iv_root = iv_root.right();
     } else {
-      int64_t right = iv_root.right(); iv_root = iv_root.left(); splay_b(key); iv_root.set_right(right);
+      auto right = iv_root.right(); iv_root = iv_root.left(); splay_b(key); iv_root.set_right(right);
     }
     return removed;
   }
 
-  int64_t find(auto key) {
+  auto find(auto key) {
     if (empty_q()) {
       return RUBY_NIL;
     }
@@ -123,7 +140,7 @@ struct Ruby_SplayTree {
     }
   }
 
-  int64_t find_max() {
+  auto find_max() {
     if (empty_q()) {
       return RUBY_NIL;
     }
@@ -134,7 +151,7 @@ struct Ruby_SplayTree {
     return current;
   }
 
-  int64_t find_greatest_less_than(auto key) {
+  auto find_greatest_less_than(auto key) {
     if (empty_q()) {
       return RUBY_NIL;
     }
@@ -148,7 +165,7 @@ struct Ruby_SplayTree {
     }
   }
 
-  int64_t splay_b(auto key) {
+  auto splay_b(auto key) {
     if (empty_q()) {
       return;
     }
@@ -164,23 +181,23 @@ struct Ruby_SplayTree {
     return iv_root = current;
   }
 
-  int64_t run_benchmark() {
+  auto run_benchmark() {
     return 0LL;
   }
 
-  int64_t generate_payload(auto depth, auto tag) {
-    if ((depth == 0LL)) {
+  auto generate_payload(auto depth, auto tag) {
+    if ((depth == INT64_C(0))) {
       /* UNSUPPORTED: HashLiteral */;
     } else {
-      Ruby_PayloadNode(generate_payload((depth - 1LL), tag), generate_payload((depth - 1LL), tag));
+      Ruby_PayloadNode(generate_payload((depth - INT64_C(1)), tag), generate_payload((depth - INT64_C(1)), tag));
     }
   }
 
-  int64_t insert_new_node(auto tree, auto rng) {
+  auto insert_new_node(auto tree, auto rng) {
     return loop();
   }
 
-  int64_t splay_setup(auto rng) {
+  auto splay_setup(auto rng) {
     Ruby_SplayTree tree = Ruby_SplayTree();
     for (int64_t _i = 0; _i < TREE_SIZE; _i++) {
       insert_new_node(tree, rng);
@@ -188,7 +205,7 @@ struct Ruby_SplayTree {
     return tree;
   }
 
-  int64_t splay_run(auto tree, auto rng) {
+  auto splay_run(auto tree, auto rng) {
     for (int64_t _i = 0; _i < MODIFICATIONS; _i++) {
       key = insert_new_node(tree, rng);
       greatest = tree.find_greatest_less_than(key);
@@ -198,6 +215,7 @@ struct Ruby_SplayTree {
         tree.remove(key);
       };
     }
+    return INT64_C(0);
   }
 
   Ruby_SplayTree() {
@@ -209,41 +227,41 @@ struct Ruby_PayloadNode {
   int64_t iv_left = 0;
   int64_t iv_right = 0;
 
-  int64_t left() {
+  auto left() {
     return iv_left;
   }
 
-  int64_t set_left(auto __anon_req__) {
+  auto set_left(auto __anon_req__) {
     iv_left = __anon_req__;
     return iv_left;
   }
 
-  int64_t right() {
+  auto right() {
     return iv_right;
   }
 
-  int64_t set_right(auto __anon_req__) {
+  auto set_right(auto __anon_req__) {
     iv_right = __anon_req__;
     return iv_right;
   }
 
-  int64_t run_benchmark() {
+  auto run_benchmark() {
     return 0LL;
   }
 
-  int64_t generate_payload(auto depth, auto tag) {
-    if ((depth == 0LL)) {
+  auto generate_payload(auto depth, auto tag) {
+    if ((depth == INT64_C(0))) {
       /* UNSUPPORTED: HashLiteral */;
     } else {
-      Ruby_PayloadNode(generate_payload((depth - 1LL), tag), generate_payload((depth - 1LL), tag));
+      Ruby_PayloadNode(generate_payload((depth - INT64_C(1)), tag), generate_payload((depth - INT64_C(1)), tag));
     }
   }
 
-  int64_t insert_new_node(auto tree, auto rng) {
+  auto insert_new_node(auto tree, auto rng) {
     return loop();
   }
 
-  int64_t splay_setup(auto rng) {
+  auto splay_setup(auto rng) {
     Ruby_SplayTree tree = Ruby_SplayTree();
     for (int64_t _i = 0; _i < TREE_SIZE; _i++) {
       insert_new_node(tree, rng);
@@ -251,7 +269,7 @@ struct Ruby_PayloadNode {
     return tree;
   }
 
-  int64_t splay_run(auto tree, auto rng) {
+  auto splay_run(auto tree, auto rng) {
     for (int64_t _i = 0; _i < MODIFICATIONS; _i++) {
       key = insert_new_node(tree, rng);
       greatest = tree.find_greatest_less_than(key);
@@ -261,6 +279,7 @@ struct Ruby_PayloadNode {
         tree.remove(key);
       };
     }
+    return INT64_C(0);
   }
 
   Ruby_PayloadNode(int64_t left, int64_t right) {
@@ -274,19 +293,19 @@ static const int64_t TREE_SIZE = 8000LL;
 static const int64_t MODIFICATIONS = 80LL;
 static const int64_t PAYLOAD_DEPTH = 5LL;
 
-static int64_t generate_payload(auto depth, auto tag) {
-  if ((depth == 0LL)) {
+static auto generate_payload(auto depth, auto tag) {
+  if ((depth == INT64_C(0))) {
     /* UNSUPPORTED: HashLiteral */;
   } else {
-    Ruby_PayloadNode(generate_payload((depth - 1LL), tag), generate_payload((depth - 1LL), tag));
+    Ruby_PayloadNode(generate_payload((depth - INT64_C(1)), tag), generate_payload((depth - INT64_C(1)), tag));
   }
 }
 
-static int64_t insert_new_node(auto tree, auto rng) {
+static auto insert_new_node(auto tree, auto rng) {
   return loop();
 }
 
-static int64_t splay_setup(auto rng) {
+static auto splay_setup(auto rng) {
   Ruby_SplayTree tree = Ruby_SplayTree();
   for (int64_t _i = 0; _i < TREE_SIZE; _i++) {
     insert_new_node(tree, rng);
@@ -294,7 +313,7 @@ static int64_t splay_setup(auto rng) {
   return tree;
 }
 
-static int64_t splay_run(auto tree, auto rng) {
+static auto splay_run(auto tree, auto rng) {
   for (int64_t _i = 0; _i < MODIFICATIONS; _i++) {
     key = insert_new_node(tree, rng);
     greatest = tree.find_greatest_less_than(key);
@@ -304,18 +323,19 @@ static int64_t splay_run(auto tree, auto rng) {
       tree.remove(key);
     };
   }
+  return INT64_C(0);
 }
 
 
 int main() {
-  Ruby_Random rng = Ruby_Random(42LL);
-  int64_t tree = splay_setup(rng);
-  for (int64_t _i = 0; _i < 200LL; _i++) {
-    for (int64_t _i = 0; _i < 50LL; _i++) {
+  Ruby_Random rng = Ruby_Random(INT64_C(42));
+  auto tree = splay_setup(rng);
+  for (int64_t _i = 0; _i < INT64_C(200); _i++) {
+    for (int64_t _i = 0; _i < INT64_C(50); _i++) {
       splay_run(tree, rng);
     };
   }
-  int64_t m = tree.find_max();
-  printf("%.9f\n", (double)(m.key()));
+  auto m = tree.find_max();
+  ruby_puts(m.key());
   return 0;
 }
