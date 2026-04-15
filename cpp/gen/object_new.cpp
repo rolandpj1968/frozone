@@ -86,6 +86,7 @@ struct RubyNil {
   operator bool() const { return false; }
   operator RubyString() const { return RubyString(); }
   template<typename T> operator std::shared_ptr<T>() const { return nullptr; }
+  template<typename T> operator T() const { return T(); }
 };
 static const RubyNil RUBY_NIL;
 
@@ -93,6 +94,18 @@ static const RubyNil RUBY_NIL;
 static inline bool ruby_nil_q(const RubyTree& t) { return t.nil_q(); }
 template<typename T> static inline bool ruby_nil_q(const std::shared_ptr<T>& p) { return !p; }
 template<typename T> static inline bool ruby_nil_q(const T&) { return false; }
+
+// Object.new — empty class with universal "GenericObject" class name.
+struct Ruby_Object {};
+
+// .class method — template dispatches on runtime type.
+template<typename T> static inline const char* ruby_class_name() { return "Object"; }
+template<> inline const char* ruby_class_name<int64_t>() { return "Integer"; }
+template<> inline const char* ruby_class_name<double>() { return "Float"; }
+template<> inline const char* ruby_class_name<bool>() { return "TrueClass"; }
+template<> inline const char* ruby_class_name<RubyString>() { return "String"; }
+template<> inline const char* ruby_class_name<Ruby_Object>() { return "GenericObject"; }
+template<typename T> static inline const char* ruby_class(const T&) { return ruby_class_name<T>(); }
 
 // Ruby-flavored puts: chooses format based on type
 #include <type_traits>
@@ -121,7 +134,7 @@ static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 int main() {
-  int64_t last = RUBY_NIL;
+  Ruby_Object last = RUBY_NIL;
   for (int64_t _i = 0; _i < INT64_C(300); _i++) {
     int64_t i = INT64_C(0);
     while ((i < INT64_C(1000))) {
@@ -129,6 +142,6 @@ int main() {
       i = (i + INT64_C(1));
     };
   }
-  ruby_puts(last.class());
+  ruby_puts(ruby_class(last));
   return 0;
 }

@@ -191,6 +191,10 @@ module Frozone
           line "operator bool() const { return false; }"
           line "operator RubyString() const { return RubyString(); }"
           line "template<typename T> operator std::shared_ptr<T>() const { return nullptr; }"
+          # Fallback: default-construct any user class type. Works because
+          # every Ruby_<Name> has a `= default;` no-arg constructor.
+          # Template conversion is last-ranked so non-template overloads win.
+          line "template<typename T> operator T() const { return T(); }"
         end
         line "};"
         line "static const RubyNil RUBY_NIL;"
@@ -199,6 +203,18 @@ module Frozone
         line "static inline bool ruby_nil_q(const RubyTree& t) { return t.nil_q(); }"
         line "template<typename T> static inline bool ruby_nil_q(const std::shared_ptr<T>& p) { return !p; }"
         line "template<typename T> static inline bool ruby_nil_q(const T&) { return false; }"
+        emit_newline
+        line "// Object.new — empty class with universal \"GenericObject\" class name."
+        line "struct Ruby_Object {};"
+        emit_newline
+        line "// .class method — template dispatches on runtime type."
+        line "template<typename T> static inline const char* ruby_class_name() { return \"Object\"; }"
+        line "template<> inline const char* ruby_class_name<int64_t>() { return \"Integer\"; }"
+        line "template<> inline const char* ruby_class_name<double>() { return \"Float\"; }"
+        line "template<> inline const char* ruby_class_name<bool>() { return \"TrueClass\"; }"
+        line "template<> inline const char* ruby_class_name<RubyString>() { return \"String\"; }"
+        line "template<> inline const char* ruby_class_name<Ruby_Object>() { return \"GenericObject\"; }"
+        line "template<typename T> static inline const char* ruby_class(const T&) { return ruby_class_name<T>(); }"
         emit_newline
         line "// Ruby-flavored puts: chooses format based on type"
         line "#include <type_traits>"
@@ -352,6 +368,8 @@ module Frozone
           end
         end
         line "};"
+        # Register class name for `.class` dispatch (global template specialisation).
+        line "template<> inline const char* ruby_class_name<Ruby_#{name}>() { return \"#{name}\"; }"
       end
 
       # Walks every AST node rooted at `root` (the execute block + every
@@ -527,6 +545,37 @@ module Frozone
         end
       end
 
+      # Scans `body` for the first non-nil LocalVariableWrite to `name` and
+      # returns its inferred type. Returns nil if none found.
+      def look_ahead_local_type(name, body)
+        found = nil
+        walker = lambda do |node|
+          return if found
+          return unless node
+          if node.is_a?(Ast::LocalVariableWrite) && node.name.to_s == name && !node.value_node.is_a?(Ast::NilLiteral)
+            found = deep_decl_type(node.value_node)
+          end
+          node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
+        end
+        walker.call(body)
+        found == "int64_t" ? nil : found
+      end
+
+      # Like local_decl_type but follows top-level method calls to their
+      # return type by inspecting the body's last expression.
+      def deep_decl_type(val)
+        t = local_decl_type(val)
+        return t unless t == "auto"
+        if val.is_a?(Ast::MethodCall) && val.receiver_node.nil?
+          m = lookup_top_level_method(val.name)
+          if m && m.body
+            last = m.body.is_a?(Ast::Sequence) ? m.body.nodes.last : m.body
+            return deep_decl_type(last) if last
+          end
+        end
+        "auto"
+      end
+
       def local_decl_type(val)
         case val
         when Ast::MethodCall
@@ -664,10 +713,12 @@ module Frozone
       def emit_main(execute_block)
         line "int main() {"
         @_declared_locals = Set.new
+        @_current_body = execute_block&.body
         indented do
           emit(execute_block.body) if execute_block&.body
           line "return 0;"
         end
+        @_current_body = nil
         line "}"
       end
 
@@ -738,6 +789,13 @@ module Frozone
           else
             @_declared_locals << name
             type = local_decl_type(val)
+            # If the initial assignment is nil, look ahead at subsequent
+            # writes to the same local in the current body for a non-nil
+            # type (matches Ruby's `last = nil; last = X.new` pattern).
+            if val.is_a?(Ast::NilLiteral) && @_current_body
+              later = look_ahead_local_type(name, @_current_body)
+              type = later if later
+            end
             "#{type} #{name} = #{cr(val)}"
           end
         when Ast::If then cr_if(node)
@@ -974,6 +1032,11 @@ module Frozone
         # nil check via a templated helper.
         if recv && name == :nil? && args.empty?
           return "ruby_nil_q(#{cr(recv)})"
+        end
+
+        # .class — return class name as const char*
+        if recv && name == :class && args.empty?
+          return "ruby_class(#{cr(recv)})"
         end
 
         # Unary ! and -@ as Ruby method calls with no args
