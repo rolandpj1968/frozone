@@ -6,40 +6,7 @@
 
 // --- Frozone C++ runtime (minimal) ---
 
-class RubyObject {
-public:
-  virtual ~RubyObject() = default;
-  virtual int64_t to_i64() { return 0; }
-  virtual double to_f64() { return 0.0; }
-  virtual const char* to_s() { return "#<Object>"; }
-  virtual bool truthy() { return true; }
-};
-
-class RubyNil : public RubyObject {
-public:
-  bool truthy() override { return false; }
-  const char* to_s() override { return ""; }
-};
-
-class RubyInteger : public RubyObject {
-public:
-  int64_t value;
-  RubyInteger(int64_t v) : value(v) {}
-  int64_t to_i64() override { return value; }
-  const char* to_s() override {
-    static thread_local char buf[32];
-    snprintf(buf, sizeof(buf), "%lld", (long long)value);
-    return buf;
-  }
-};
-
-class RubyFloat : public RubyObject {
-public:
-  double value;
-  RubyFloat(double v) : value(v) {}
-  double to_f64() override { return value; }
-  int64_t to_i64() override { return (int64_t)value; }
-};
+#include <memory>
 
 // Mutable byte-oriented string. Encoding is tracked nominally
 // but all methods operate on bytes (matches Ruby binary semantics).
@@ -90,7 +57,44 @@ using RubyArray_F64 = RubyArray<double>;
 // Helper: deduce array element type from fill value
 template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
 
-static constexpr int64_t RUBY_NIL = 0;
+struct RubyNil;
+
+// RubyTree — value-semantic shared-ownership binary tree node.
+// Node holds two child shared_ptrs; default-constructed tree is nil.
+struct RubyTreeNode;
+class RubyTree {
+public:
+  std::shared_ptr<RubyTreeNode> node;
+  RubyTree() = default;
+  RubyTree(RubyTree l, RubyTree r);
+  RubyTree(const RubyNil&) {}
+  bool nil_q() const { return !node; }
+  RubyTree operator[](int64_t i) const;
+  int64_t len() const { return node ? 2 : 0; }
+};
+struct RubyTreeNode { std::shared_ptr<RubyTreeNode> left, right; };
+inline RubyTree::RubyTree(RubyTree l, RubyTree r) {
+  node = std::make_shared<RubyTreeNode>();
+  node->left = l.node;
+  node->right = r.node;
+}
+inline RubyTree RubyTree::operator[](int64_t i) const {
+  RubyTree t; t.node = (i == 0 ? node->left : node->right); return t;
+}
+
+struct RubyNil {
+  operator int64_t() const { return 0; }
+  operator double() const { return 0.0; }
+  operator bool() const { return false; }
+  operator RubyString() const { return RubyString(); }
+  template<typename T> operator std::shared_ptr<T>() const { return nullptr; }
+};
+static const RubyNil RUBY_NIL;
+
+// Uniform nil check — dispatches on type.
+static inline bool ruby_nil_q(const RubyTree& t) { return t.nil_q(); }
+template<typename T> static inline bool ruby_nil_q(const std::shared_ptr<T>& p) { return !p; }
+template<typename T> static inline bool ruby_nil_q(const T&) { return false; }
 
 // Ruby-flavored puts: chooses format based on type
 #include <type_traits>
@@ -121,7 +125,7 @@ static const int64_t MIN_DEPTH = 4LL;
 static const int64_t STRETCH_DEPTH = 15LL;
 
 static auto item_check(auto left, auto right) {
-  if (left.nil_q()) {
+  if (ruby_nil_q(left)) {
     return INT64_C(1);
   }
   return ((INT64_C(1) + item_check(left[INT64_C(0)], left[INT64_C(1)])) + item_check(right[INT64_C(0)], right[INT64_C(1)]));
@@ -129,10 +133,10 @@ static auto item_check(auto left, auto right) {
 
 static auto bottom_up_tree(auto depth) {
   if (!((depth > INT64_C(0)))) {
-    return ({ auto _e0 = RUBY_NIL; auto _a = RubyArray<decltype(_e0)>(2); _a[0] = _e0; _a[1] = RUBY_NIL; _a; });
+    return RubyTree(RUBY_NIL, RUBY_NIL);
   }
   depth = (depth - INT64_C(1));
-  return ({ auto _e0 = bottom_up_tree(depth); auto _a = RubyArray<decltype(_e0)>(2); _a[0] = _e0; _a[1] = bottom_up_tree(depth); _a; });
+  return RubyTree(bottom_up_tree(depth), bottom_up_tree(depth));
 }
 
 
@@ -144,9 +148,9 @@ int main() {
     auto long_lived_tree = bottom_up_tree(MAX_DEPTH);
     auto depth = MIN_DEPTH;
     while ((depth <= MAX_DEPTH)) {
-      auto iterations = INT64_C(2).**(((MAX_DEPTH - depth) + MIN_DEPTH));
+      auto iterations = (INT64_C(1) << ((MAX_DEPTH - depth) + MIN_DEPTH));
       int64_t check = INT64_C(0);
-      for (int64_t i = 0; i < (iterations + 1LL); i++) {
+      for (int64_t i = INT64_C(1); i <= iterations; i++) {
       auto temp_tree = bottom_up_tree(depth);
       check = (check + item_check(temp_tree[INT64_C(0)], temp_tree[INT64_C(1)]));
     };

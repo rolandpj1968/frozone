@@ -94,50 +94,7 @@ module Frozone
         emit_newline
         line "// --- Frozone C++ runtime (minimal) ---"
         emit_newline
-        line "class RubyObject {"
-        line "public:"
-        indented do
-          line "virtual ~RubyObject() = default;"
-          line "virtual int64_t to_i64() { return 0; }"
-          line "virtual double to_f64() { return 0.0; }"
-          line "virtual const char* to_s() { return \"#<Object>\"; }"
-          line "virtual bool truthy() { return true; }"
-        end
-        line "};"
-        emit_newline
-        line "class RubyNil : public RubyObject {"
-        line "public:"
-        indented do
-          line "bool truthy() override { return false; }"
-          line "const char* to_s() override { return \"\"; }"
-        end
-        line "};"
-        emit_newline
-        line "class RubyInteger : public RubyObject {"
-        line "public:"
-        indented do
-          line "int64_t value;"
-          line "RubyInteger(int64_t v) : value(v) {}"
-          line "int64_t to_i64() override { return value; }"
-          line "const char* to_s() override {"
-          indented do
-            line "static thread_local char buf[32];"
-            line "snprintf(buf, sizeof(buf), \"%lld\", (long long)value);"
-            line "return buf;"
-          end
-          line "}"
-        end
-        line "};"
-        emit_newline
-        line "class RubyFloat : public RubyObject {"
-        line "public:"
-        indented do
-          line "double value;"
-          line "RubyFloat(double v) : value(v) {}"
-          line "double to_f64() override { return value; }"
-          line "int64_t to_i64() override { return (int64_t)value; }"
-        end
-        line "};"
+        line "#include <memory>"
         emit_newline
         line "// Mutable byte-oriented string. Encoding is tracked nominally"
         line "// but all methods operate on bytes (matches Ruby binary semantics)."
@@ -192,9 +149,54 @@ module Frozone
         line "// Helper: deduce array element type from fill value"
         line "template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }"
         emit_newline
-        # RUBY_NIL as int64_t sentinel (0) — loses identity but works in
-        # int64_t-typed slots (RubyArray_I64 elements, locals, return values).
-        line "static constexpr int64_t RUBY_NIL = 0;"
+        # RubyNil forward declaration — RubyTree references it in its ctor
+        line "struct RubyNil;"
+        emit_newline
+        line "// RubyTree — value-semantic shared-ownership binary tree node."
+        line "// Node holds two child shared_ptrs; default-constructed tree is nil."
+        line "struct RubyTreeNode;"
+        line "class RubyTree {"
+        line "public:"
+        indented do
+          line "std::shared_ptr<RubyTreeNode> node;"
+          line "RubyTree() = default;"
+          line "RubyTree(RubyTree l, RubyTree r);"
+          line "RubyTree(const RubyNil&) {}"
+          line "bool nil_q() const { return !node; }"
+          line "RubyTree operator[](int64_t i) const;"
+          line "int64_t len() const { return node ? 2 : 0; }"
+        end
+        line "};"
+        line "struct RubyTreeNode { std::shared_ptr<RubyTreeNode> left, right; };"
+        line "inline RubyTree::RubyTree(RubyTree l, RubyTree r) {"
+        indented do
+          line "node = std::make_shared<RubyTreeNode>();"
+          line "node->left = l.node;"
+          line "node->right = r.node;"
+        end
+        line "}"
+        line "inline RubyTree RubyTree::operator[](int64_t i) const {"
+        indented do
+          line "RubyTree t; t.node = (i == 0 ? node->left : node->right); return t;"
+        end
+        line "}"
+        emit_newline
+        # RUBY_NIL — universal-convertible sentinel.
+        line "struct RubyNil {"
+        indented do
+          line "operator int64_t() const { return 0; }"
+          line "operator double() const { return 0.0; }"
+          line "operator bool() const { return false; }"
+          line "operator RubyString() const { return RubyString(); }"
+          line "template<typename T> operator std::shared_ptr<T>() const { return nullptr; }"
+        end
+        line "};"
+        line "static const RubyNil RUBY_NIL;"
+        emit_newline
+        line "// Uniform nil check — dispatches on type."
+        line "static inline bool ruby_nil_q(const RubyTree& t) { return t.nil_q(); }"
+        line "template<typename T> static inline bool ruby_nil_q(const std::shared_ptr<T>& p) { return !p; }"
+        line "template<typename T> static inline bool ruby_nil_q(const T&) { return false; }"
         emit_newline
         line "// Ruby-flavored puts: chooses format based on type"
         line "#include <type_traits>"
@@ -322,6 +324,21 @@ module Frozone
       # `int64_t` for plain integer-typed exprs; `auto` for class instances,
       # arrays, method calls (which may return auto-deduced types), and
       # anything ambiguous.
+      # Heuristic: a 2-element ArrayLiteral whose elements are all nil literals
+      # or self-free method calls (e.g. recursive `bottom_up_tree(d)`) is
+      # treated as a binary-tree node. This maps `[nil, nil]` and
+      # `[bottom_up_tree(d), bottom_up_tree(d)]` onto a uniform RubyTree type,
+      # sidestepping heterogeneous-recursion return-type mismatches.
+      def tree_node_literal?(node)
+        return false unless node.is_a?(Ast::ArrayLiteral)
+        elems = node.element_nodes || []
+        return false unless elems.size == 2
+        elems.all? do |e|
+          e.is_a?(Ast::NilLiteral) ||
+            (e.is_a?(Ast::MethodCall) && e.receiver_node.nil?)
+        end
+      end
+
       def local_decl_type(val)
         case val
         when Ast::MethodCall
@@ -549,10 +566,21 @@ module Frozone
           target = node.target
           var = target[0] == :local ? target[1].to_s : "_for_var"
           @_declared_locals&.add(var)
-          coll = cr(node.collection_node)
+          # If the collection is a RangeLiteral, use its begin/end bounds
+          # directly (Ruby range semantics: inclusive unless exclusive).
+          coll_node = node.collection_node
+          if coll_node.is_a?(Ast::RangeLiteral)
+            start_expr = cr(coll_node.begin_node)
+            end_expr = cr(coll_node.end_node)
+            cmp = coll_node.exclusive ? "<" : "<="
+          else
+            start_expr = "0"
+            end_expr = cr(coll_node)
+            cmp = "<"
+          end
           body_str = cr_block_body(node.body_node)
           old_indent = "  " * @indent
-          "for (int64_t #{var} = 0; #{var} < #{coll}; #{var}++) {\n#{body_str}\n#{old_indent}}"
+          "for (int64_t #{var} = #{start_expr}; #{var} #{cmp} #{end_expr}; #{var}++) {\n#{body_str}\n#{old_indent}}"
         when Ast::Next
           "continue"
         when Ast::Break
@@ -566,6 +594,10 @@ module Frozone
           elems = node.element_nodes || []
           if elems.empty?
             "RubyArray_I64(0)"
+          elsif tree_node_literal?(node)
+            # 2-element literal with nil or recursive-looking calls
+            # → emit as RubyTree pair node (shared-ownership binary tree)
+            "RubyTree(#{cr(elems[0])}, #{cr(elems[1])})"
           else
             first = cr(elems[0])
             rest_inits = elems[1..].each_with_index.map { |e, i| "_a[#{i+1}] = #{cr(e)};" }.join(' ')
@@ -727,6 +759,13 @@ module Frozone
           return "#{cr(recv)}[#{cr(args[0])}]"
         end
 
+        # .nil? — RubyTree has nil_q(); for other types, fall through to name mangling (→ nil_q).
+        # Plain int64_t or RubyString don't have nil_q so we emit a uniform
+        # nil check via a templated helper.
+        if recv && name == :nil? && args.empty?
+          return "ruby_nil_q(#{cr(recv)})"
+        end
+
         # Unary ! and -@ as Ruby method calls with no args
         if recv && name == :! && args.empty?
           return "(!(#{cr_truthy(recv)}))"
@@ -750,6 +789,14 @@ module Frozone
         # Conservative stub: emit true. Full impl needs receiver type inference.
         if recv && (name == :is_a? || name == :kind_of?) && args.size == 1
           return "true"
+        end
+
+        # Power: 2**n → (INT64_C(1) << n) for integer base of 2
+        if recv && name == :** && args.size == 1
+          if recv.is_a?(Ast::IntegerLiteral) && recv.value.raw == 2
+            return "(INT64_C(1) << #{cr(args[0])})"
+          end
+          return "((int64_t)pow(#{cr(recv)}, #{cr(args[0])}))"
         end
 
         # Arithmetic operators

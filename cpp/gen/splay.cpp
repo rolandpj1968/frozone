@@ -6,40 +6,7 @@
 
 // --- Frozone C++ runtime (minimal) ---
 
-class RubyObject {
-public:
-  virtual ~RubyObject() = default;
-  virtual int64_t to_i64() { return 0; }
-  virtual double to_f64() { return 0.0; }
-  virtual const char* to_s() { return "#<Object>"; }
-  virtual bool truthy() { return true; }
-};
-
-class RubyNil : public RubyObject {
-public:
-  bool truthy() override { return false; }
-  const char* to_s() override { return ""; }
-};
-
-class RubyInteger : public RubyObject {
-public:
-  int64_t value;
-  RubyInteger(int64_t v) : value(v) {}
-  int64_t to_i64() override { return value; }
-  const char* to_s() override {
-    static thread_local char buf[32];
-    snprintf(buf, sizeof(buf), "%lld", (long long)value);
-    return buf;
-  }
-};
-
-class RubyFloat : public RubyObject {
-public:
-  double value;
-  RubyFloat(double v) : value(v) {}
-  double to_f64() override { return value; }
-  int64_t to_i64() override { return (int64_t)value; }
-};
+#include <memory>
 
 // Mutable byte-oriented string. Encoding is tracked nominally
 // but all methods operate on bytes (matches Ruby binary semantics).
@@ -90,7 +57,44 @@ using RubyArray_F64 = RubyArray<double>;
 // Helper: deduce array element type from fill value
 template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
 
-static constexpr int64_t RUBY_NIL = 0;
+struct RubyNil;
+
+// RubyTree — value-semantic shared-ownership binary tree node.
+// Node holds two child shared_ptrs; default-constructed tree is nil.
+struct RubyTreeNode;
+class RubyTree {
+public:
+  std::shared_ptr<RubyTreeNode> node;
+  RubyTree() = default;
+  RubyTree(RubyTree l, RubyTree r);
+  RubyTree(const RubyNil&) {}
+  bool nil_q() const { return !node; }
+  RubyTree operator[](int64_t i) const;
+  int64_t len() const { return node ? 2 : 0; }
+};
+struct RubyTreeNode { std::shared_ptr<RubyTreeNode> left, right; };
+inline RubyTree::RubyTree(RubyTree l, RubyTree r) {
+  node = std::make_shared<RubyTreeNode>();
+  node->left = l.node;
+  node->right = r.node;
+}
+inline RubyTree RubyTree::operator[](int64_t i) const {
+  RubyTree t; t.node = (i == 0 ? node->left : node->right); return t;
+}
+
+struct RubyNil {
+  operator int64_t() const { return 0; }
+  operator double() const { return 0.0; }
+  operator bool() const { return false; }
+  operator RubyString() const { return RubyString(); }
+  template<typename T> operator std::shared_ptr<T>() const { return nullptr; }
+};
+static const RubyNil RUBY_NIL;
+
+// Uniform nil check — dispatches on type.
+static inline bool ruby_nil_q(const RubyTree& t) { return t.nil_q(); }
+template<typename T> static inline bool ruby_nil_q(const std::shared_ptr<T>& p) { return !p; }
+template<typename T> static inline bool ruby_nil_q(const T&) { return false; }
 
 // Ruby-flavored puts: chooses format based on type
 #include <type_traits>
@@ -119,7 +123,7 @@ struct Ruby_SplayTree {
   int64_t iv_root = 0;
 
   auto empty_q() {
-    return iv_root.nil_q();
+    return ruby_nil_q(iv_root);
   }
 
   auto insert(auto key, auto value) {
@@ -148,7 +152,7 @@ struct Ruby_SplayTree {
       { fprintf(stderr, "Error: %s\n", "error"); exit(1); };
     }
     int64_t removed = iv_root;
-    if (iv_root.left().nil_q()) {
+    if (ruby_nil_q(iv_root.left())) {
       iv_root = iv_root.right();
     } else {
       auto right = iv_root.right(); iv_root = iv_root.left(); splay_b(key); iv_root.set_right(right);
