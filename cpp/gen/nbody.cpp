@@ -28,6 +28,11 @@ public:
   int64_t get_byte(int64_t i) const { return (i >= 0 && i < (int64_t)bytes.size()) ? (int64_t)bytes[i] : 0; }
   void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < (int64_t)bytes.size()) bytes[i] = (uint8_t)(v & 0xff); }
   RubyString dup_() const { return *this; }
+  int64_t ord() const { return bytes.empty() ? 0 : (int64_t)bytes[0]; }
+  RubyString operator[](int64_t i) const {
+    if (i < 0 || i >= (int64_t)bytes.size()) return RubyString();
+    return RubyString((const char*)&bytes[i], 1);
+  }
   RubyString& operator<<(const RubyString& o) {
     bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); return *this;
   }
@@ -36,8 +41,15 @@ public:
   }
   bool operator==(const RubyString& o) const { return bytes == o.bytes; }
   bool operator!=(const RubyString& o) const { return bytes != o.bytes; }
+  bool operator<(const RubyString& o) const { return bytes < o.bytes; }
+  bool operator<=(const RubyString& o) const { return bytes <= o.bytes; }
+  bool operator>(const RubyString& o) const { return bytes > o.bytes; }
+  bool operator>=(const RubyString& o) const { return bytes >= o.bytes; }
 };
 using Ruby_String = RubyString;
+
+// Forward declaration: ruby_to_s is used inside RubyArray::join.
+template<typename T> static inline RubyString ruby_to_s(T v);
 
 // Generic native array — TI-specialised per element type.
 // shared_ptr<vector<T>> backing: copy is cheap (alias), growable via <<.
@@ -48,9 +60,24 @@ public:
   RubyArray(int64_t size) : data(std::make_shared<std::vector<T>>(size)) {}
   RubyArray(int64_t size, T fill) : data(std::make_shared<std::vector<T>>(size, fill)) {}
   int64_t len() const { return data ? (int64_t)data->size() : 0; }
-  T& operator[](int64_t i) { return (*data)[i]; }
-  const T& operator[](int64_t i) const { return (*data)[i]; }
+  T& operator[](int64_t i) {
+    if (i < 0) i += (int64_t)data->size();  // Ruby-style negative indexing
+    return (*data)[i];
+  }
+  const T& operator[](int64_t i) const {
+    if (i < 0) i += (int64_t)data->size();
+    return (*data)[i];
+  }
   RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }
+  // .join — concatenate elements (with optional separator) into a RubyString.
+  RubyString join(const RubyString& sep = RubyString()) const {
+    RubyString out;
+    for (size_t i = 0; i < data->size(); i++) {
+      if (i > 0) out << sep;
+      out << ruby_to_s((*data)[i]);
+    }
+    return out;
+  }
 };
 
 using RubyArray_I64 = RubyArray<int64_t>;
@@ -175,6 +202,9 @@ template<typename T> static inline void ruby_puts(T v) {
     printf("%s\n", buf);
   } else if constexpr (std::is_integral_v<T>) {
     printf("%lld\n", (long long)v);
+  } else if constexpr (std::is_same_v<T, RubyString>) {
+    fwrite(v.bytes.data(), 1, v.bytes.size(), stdout);
+    fputc('\n', stdout);
   } else {
     printf("#<Object>\n");
   }
@@ -310,10 +340,10 @@ static auto energy(auto bodies) {
   e = 0.0;
   nbodies = bodies.len();
   for (int64_t i = INT64_C(0); i < nbodies; i++) {
-    auto& b = bodies[i];
+    auto b = bodies[i];
     e = (e + ((0.5 * b.mass()) * (((b.vx() * b.vx()) + (b.vy() * b.vy())) + (b.vz() * b.vz()))));
     for (int64_t j = (i + INT64_C(1)); j < nbodies; j++) {
-    auto& b2 = bodies[j];
+    auto b2 = bodies[j];
     auto dx = (b.x() - b2.x());
     auto dy = (b.y() - b2.y());
     auto dz = (b.z() - b2.z());
@@ -352,7 +382,7 @@ int main() {
     for (int64_t _i = 0; _i < n; _i++) {
       int64_t i = INT64_C(0);
       while ((i < nbodies)) {
-        auto& b = bodies[i];
+        auto b = bodies[i];
         b.move_from_i(bodies, nbodies, dt, (i + INT64_C(1)));
         i = (i + INT64_C(1));
       };

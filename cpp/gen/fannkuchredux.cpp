@@ -28,6 +28,11 @@ public:
   int64_t get_byte(int64_t i) const { return (i >= 0 && i < (int64_t)bytes.size()) ? (int64_t)bytes[i] : 0; }
   void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < (int64_t)bytes.size()) bytes[i] = (uint8_t)(v & 0xff); }
   RubyString dup_() const { return *this; }
+  int64_t ord() const { return bytes.empty() ? 0 : (int64_t)bytes[0]; }
+  RubyString operator[](int64_t i) const {
+    if (i < 0 || i >= (int64_t)bytes.size()) return RubyString();
+    return RubyString((const char*)&bytes[i], 1);
+  }
   RubyString& operator<<(const RubyString& o) {
     bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); return *this;
   }
@@ -36,8 +41,15 @@ public:
   }
   bool operator==(const RubyString& o) const { return bytes == o.bytes; }
   bool operator!=(const RubyString& o) const { return bytes != o.bytes; }
+  bool operator<(const RubyString& o) const { return bytes < o.bytes; }
+  bool operator<=(const RubyString& o) const { return bytes <= o.bytes; }
+  bool operator>(const RubyString& o) const { return bytes > o.bytes; }
+  bool operator>=(const RubyString& o) const { return bytes >= o.bytes; }
 };
 using Ruby_String = RubyString;
+
+// Forward declaration: ruby_to_s is used inside RubyArray::join.
+template<typename T> static inline RubyString ruby_to_s(T v);
 
 // Generic native array — TI-specialised per element type.
 // shared_ptr<vector<T>> backing: copy is cheap (alias), growable via <<.
@@ -48,9 +60,24 @@ public:
   RubyArray(int64_t size) : data(std::make_shared<std::vector<T>>(size)) {}
   RubyArray(int64_t size, T fill) : data(std::make_shared<std::vector<T>>(size, fill)) {}
   int64_t len() const { return data ? (int64_t)data->size() : 0; }
-  T& operator[](int64_t i) { return (*data)[i]; }
-  const T& operator[](int64_t i) const { return (*data)[i]; }
+  T& operator[](int64_t i) {
+    if (i < 0) i += (int64_t)data->size();  // Ruby-style negative indexing
+    return (*data)[i];
+  }
+  const T& operator[](int64_t i) const {
+    if (i < 0) i += (int64_t)data->size();
+    return (*data)[i];
+  }
   RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }
+  // .join — concatenate elements (with optional separator) into a RubyString.
+  RubyString join(const RubyString& sep = RubyString()) const {
+    RubyString out;
+    for (size_t i = 0; i < data->size(); i++) {
+      if (i > 0) out << sep;
+      out << ruby_to_s((*data)[i]);
+    }
+    return out;
+  }
 };
 
 using RubyArray_I64 = RubyArray<int64_t>;
@@ -175,6 +202,9 @@ template<typename T> static inline void ruby_puts(T v) {
     printf("%s\n", buf);
   } else if constexpr (std::is_integral_v<T>) {
     printf("%lld\n", (long long)v);
+  } else if constexpr (std::is_same_v<T, RubyString>) {
+    fwrite(v.bytes.data(), 1, v.bytes.size(), stdout);
+    fputc('\n', stdout);
   } else {
     printf("#<Object>\n");
   }
@@ -197,8 +227,8 @@ static auto fannkuch(auto n) {
   sign = INT64_C(1);
   sum = maxflips = INT64_C(0);
   while (true) {
-    if ((auto& q1 = p[INT64_C(1)] != INT64_C(1))) {
-    q[(INT64_C(-1) + 1LL)] = p; flips = INT64_C(1); while (!((auto& qq = q[q1] == INT64_C(1)))) {
+    if ((auto q1 = p[INT64_C(1)] != INT64_C(1))) {
+    q[(INT64_C(-1) + 1LL)] = p; flips = INT64_C(1); while (!((auto qq = q[q1] == INT64_C(1)))) {
       q[q1] = q1;
       if ((q1 >= INT64_C(4))) {
       auto i = INT64_C(2); auto j = (q1 - INT64_C(1)); while ((i < j)) {
@@ -216,7 +246,7 @@ static auto fannkuch(auto n) {
     if ((sign == INT64_C(1))) {
     local(p, 0) = p[INT64_C(2)]; local(p, 0) = p[INT64_C(1)]; sign = INT64_C(-1);
   } else {
-    local(p, 0) = p[INT64_C(3)]; local(p, 0) = p[INT64_C(2)]; sign = INT64_C(1); i = INT64_C(3); while (({ auto _l = ((i <= n)); auto _r = ((s[i] == INT64_C(1))); (_l) ? _r : decltype(_r)(_l); })) {
+    local(p, 0) = p[INT64_C(3)]; local(p, 0) = p[INT64_C(2)]; sign = INT64_C(1); i = INT64_C(3); while (({ auto _l = ((i <= n)); (_l) ? decltype(((s[i] == INT64_C(1))))((s[i] == INT64_C(1))) : decltype(((s[i] == INT64_C(1))))(_l); })) {
       if ((i == n)) {
       return ({ auto _e0 = sum; auto _a = RubyArray<decltype(_e0)>(2); _a[0] = _e0; _a[1] = maxflips; _a; });
     };
@@ -229,7 +259,7 @@ static auto fannkuch(auto n) {
     };
   };
   }
-  return INT64_C(0);
+  return RUBY_NIL;
 }
 
 

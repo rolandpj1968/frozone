@@ -151,6 +151,11 @@ module Frozone
           line "int64_t get_byte(int64_t i) const { return (i >= 0 && i < (int64_t)bytes.size()) ? (int64_t)bytes[i] : 0; }"
           line "void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < (int64_t)bytes.size()) bytes[i] = (uint8_t)(v & 0xff); }"
           line "RubyString dup_() const { return *this; }"
+          line "int64_t ord() const { return bytes.empty() ? 0 : (int64_t)bytes[0]; }"
+          line "RubyString operator[](int64_t i) const {"
+          indented { line "if (i < 0 || i >= (int64_t)bytes.size()) return RubyString();" }
+          indented { line "return RubyString((const char*)&bytes[i], 1);" }
+          line "}"
           line "RubyString& operator<<(const RubyString& o) {"
           indented { line "bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); return *this;" }
           line "}"
@@ -159,9 +164,16 @@ module Frozone
           line "}"
           line "bool operator==(const RubyString& o) const { return bytes == o.bytes; }"
           line "bool operator!=(const RubyString& o) const { return bytes != o.bytes; }"
+          line "bool operator<(const RubyString& o) const { return bytes < o.bytes; }"
+          line "bool operator<=(const RubyString& o) const { return bytes <= o.bytes; }"
+          line "bool operator>(const RubyString& o) const { return bytes > o.bytes; }"
+          line "bool operator>=(const RubyString& o) const { return bytes >= o.bytes; }"
         end
         line "};"
         line "using Ruby_String = RubyString;"
+        emit_newline
+        line "// Forward declaration: ruby_to_s is used inside RubyArray::join."
+        line "template<typename T> static inline RubyString ruby_to_s(T v);"
         emit_newline
         line "// Generic native array — TI-specialised per element type."
         line "// shared_ptr<vector<T>> backing: copy is cheap (alias), growable via <<."
@@ -173,9 +185,26 @@ module Frozone
           line "RubyArray(int64_t size) : data(std::make_shared<std::vector<T>>(size)) {}"
           line "RubyArray(int64_t size, T fill) : data(std::make_shared<std::vector<T>>(size, fill)) {}"
           line "int64_t len() const { return data ? (int64_t)data->size() : 0; }"
-          line "T& operator[](int64_t i) { return (*data)[i]; }"
-          line "const T& operator[](int64_t i) const { return (*data)[i]; }"
+          line "T& operator[](int64_t i) {"
+          indented { line "if (i < 0) i += (int64_t)data->size();  // Ruby-style negative indexing" }
+          indented { line "return (*data)[i];" }
+          line "}"
+          line "const T& operator[](int64_t i) const {"
+          indented { line "if (i < 0) i += (int64_t)data->size();" }
+          indented { line "return (*data)[i];" }
+          line "}"
           line "RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }"
+          line "// .join — concatenate elements (with optional separator) into a RubyString."
+          line "RubyString join(const RubyString& sep = RubyString()) const {"
+          indented do
+            line "RubyString out;"
+            line "for (size_t i = 0; i < data->size(); i++) {"
+            indented { line "if (i > 0) out << sep;" }
+            indented { line "out << ruby_to_s((*data)[i]);" }
+            line "}"
+            line "return out;"
+          end
+          line "}"
         end
         line "};"
         emit_newline
@@ -333,6 +362,11 @@ module Frozone
           end
           line "} else if constexpr (std::is_integral_v<T>) {"
           indented { line 'printf("%lld\\n", (long long)v);' }
+          line "} else if constexpr (std::is_same_v<T, RubyString>) {"
+          indented do
+            line "fwrite(v.bytes.data(), 1, v.bytes.size(), stdout);"
+            line 'fputc(\'\\n\', stdout);'
+          end
           line "} else {"
           indented { line 'printf("#<Object>\\n");' }
           line "}"
@@ -378,6 +412,42 @@ module Frozone
         CORE_PATH_MARKERS.none? { |m| file.include?(m) }
       end
 
+      # Emit an ArrayObject constant as a global RubyArray<T>, initialised
+      # inside a `static auto` factory call to work around the lack of
+      # static-init syntax for our runtime types.
+      def emit_array_const(cname, arr_obj)
+        elems = arr_obj.raw
+        if elems.empty?
+          line "static auto #{cname} = RubyArray_I64();"
+          return
+        end
+        # Infer element C++ type from the first element.
+        elem_type = case elems.first
+                    when Vm::IntegerObject then "int64_t"
+                    when Vm::FloatObject then "double"
+                    when Vm::StringObject then "RubyString"
+                    when Vm::TrueObject, Vm::FalseObject then "bool"
+                    else return  # nested arrays, objects — skip
+                    end
+        # Encode each element as a C++ initializer expression.
+        init_exprs = elems.map do |e|
+          case e
+          when Vm::IntegerObject then "INT64_C(#{e.raw})"
+          when Vm::FloatObject then e.raw.to_s
+          when Vm::StringObject then "RubyString(#{e.raw.inspect}, #{e.raw.bytesize})"
+          when Vm::TrueObject then "true"
+          when Vm::FalseObject then "false"
+          else return  # mixed types — skip
+          end
+        end
+        # Emit as an inline-init function so the vector gets populated once.
+        line "static auto #{cname} = []() { RubyArray<#{elem_type}> _a(#{elems.size});"
+        init_exprs.each_with_index do |expr, i|
+          line "  (*_a.data)[#{i}] = #{expr};"
+        end
+        line "  return _a; }();"
+      end
+
       # All VM "primitive" value types that lower to C++ scalars/RubyString
       # (not user-defined ObjectObject instances).
       PRIMITIVE_VALUE_TYPES = [
@@ -410,6 +480,10 @@ module Frozone
             line "static const RubyString #{cname} = RubyString(#{raw.inspect}, #{raw.bytesize});"
           when Vm::TrueObject then line "static const bool #{cname} = true;"
           when Vm::FalseObject then line "static const bool #{cname} = false;"
+          when Vm::ArrayObject
+            # Emit as RubyArray<T> with inferred element type. For mixed-
+            # type arrays (not expected in user constants), bail out.
+            emit_array_const(cname, value)
           when Vm::ObjectObject
             klass = value.class_object
             next unless klass.is_a?(Vm::ClassObject) && klass.name
@@ -859,10 +933,12 @@ module Frozone
             return "RubyString" if cn == :String
             return cn == :Array ? "auto" : "Ruby_#{cn}"
           end
-          # Indexed read like `arr[i]` — use `auto&` so mutations to the
-          # local (via setters) propagate back to the array element.
-          # This matches Ruby's reference semantics for object values.
-          return "auto&" if val.name == :[] && val.receiver_node && (val.arg_nodes || []).size == 1
+          # Indexed read like `arr[i]` — use `auto` (value). Since user
+          # class wrappers are shared_ptr-based, a value copy aliases the
+          # underlying Impl, so mutations via setters still propagate.
+          # RubyString[i] returns a 1-char rvalue — `auto` is the only
+          # safe option (can't bind a reference to a temporary).
+          return "auto" if val.name == :[] && val.receiver_node && (val.arg_nodes || []).size == 1
           # If the receiver's type resolves to a known user class, look up
           # the called method's return type (helps `tmp = node.left` etc).
           if val.receiver_node
@@ -1118,12 +1194,13 @@ module Frozone
             line "#{s};"
           end
           if s.start_with?("while ") || s.start_with?("for ")
-            # Loops don't yield a value. Emit a trailing nil-of-return-type
-            # so auto return deduction unifies with earlier explicit returns.
+            # Loops don't yield a value. Emit a trailing nil/default
+            # matching the method's return type when known; otherwise
+            # RUBY_NIL so callers that expect a nil-convertible type work.
             if @_method_return_type
               line "return #{@_method_return_type}();"
             else
-              line "return INT64_C(0);"
+              line "return RUBY_NIL;"
             end
           end
         else
@@ -1153,12 +1230,46 @@ module Frozone
       end
 
       def emit_stmt(node)
+        # MultipleAssignment at statement level: emit each decl/assign on
+        # its own line so declarations land in the enclosing scope (not
+        # inside a `({...})` statement-expression).
+        if node.is_a?(Ast::MultipleAssignment) && !node.value_node.is_a?(Ast::ArrayLiteral)
+          return emit_masgn_stmt(node)
+        end
         s = cr(node)
-        # Blocks (if/for) don't need semicolons
         if s.include?("{\n")
           emit_indent; write s; emit_newline
         else
           line "#{s};"
+        end
+      end
+
+      # Statement-level emission for `a, b = call()` — declares each target
+      # in the enclosing scope.
+      def emit_masgn_stmt(node)
+        rhs = cr(node.value_node)
+        line "auto _masgn = #{rhs};"
+        (node.targets || []).each_with_index do |t, i|
+          kind, name = t
+          val = "_masgn[INT64_C(#{i})]"
+          case kind
+          when :local
+            nm = cpp_local_name(name)
+            if @_declared_locals&.include?(name.to_s)
+              line "#{nm} = #{val};"
+            else
+              @_declared_locals << name.to_s
+              line "auto #{nm} = #{val};"
+            end
+          when :ivar
+            line "#{cpp_ivar(name)} = #{val};"
+          when :index
+            recv = cr(t[1])
+            idx = cr(t[2][0])
+            line "#{recv}[#{idx}] = #{val};"
+          else
+            line "/* UNSUPPORTED masgn target: #{kind} */;"
+          end
         end
       end
 
@@ -1191,17 +1302,17 @@ module Frozone
           # (Ruby_X has `operator std::shared_ptr<Impl>()`).
           "#{cpp_ivar(node.name)} = #{cr(node.value_node)}"
         when Ast::MultipleAssignment
-          # Simple case: a, b = x, y or @a, @b = x, y (array literal RHS).
-          # Targets are [kind, name] pairs where kind is :local or :ivar.
+          # Two forms:
+          #   `a, b = x, y`  (ArrayLiteral RHS)  →  parallel assignment
+          #   `a, b = call()` (single-value RHS) →  destructure result[i]
           targets = node.targets
           vals = node.value_node
           if vals.is_a?(Ast::ArrayLiteral)
             elems = vals.element_nodes || []
             parts = targets.each_with_index.map do |t, i|
               kind, name = t
-              tgt = kind == :ivar ? cpp_ivar(name) : name.to_s
+              tgt = kind == :ivar ? cpp_ivar(name) : cpp_local_name(name)
               val = elems[i] ? cr(elems[i]) : "INT64_C(0)"
-              # For local targets on first write, add a decl.
               if kind == :local && !@_declared_locals&.include?(name.to_s)
                 @_declared_locals << name.to_s
                 "auto #{tgt} = #{val}"
@@ -1211,7 +1322,34 @@ module Frozone
             end
             parts.join("; ")
           else
-            "/* UNSUPPORTED masgn */"
+            # Single RHS — destructure by positional index. When used as
+            # a statement, emit_masgn_stmt handles it; here we're in an
+            # expression context (rare for destructure) so use a stmt-expr.
+            rhs = cr(vals)
+            parts = ["auto _masgn = #{rhs}"]
+            targets.each_with_index do |t, i|
+              kind, name = t
+              val = "_masgn[INT64_C(#{i})]"
+              case kind
+              when :local
+                nm = cpp_local_name(name)
+                if @_declared_locals&.include?(name.to_s)
+                  parts << "#{nm} = #{val}"
+                else
+                  @_declared_locals << name.to_s
+                  parts << "auto #{nm} = #{val}"
+                end
+              when :ivar
+                parts << "#{cpp_ivar(name)} = #{val}"
+              when :index
+                recv = cr(t[1])
+                idx = cr(t[2][0])
+                parts << "#{recv}[#{idx}] = #{val}"
+              else
+                parts << "/* masgn target: #{kind} */"
+              end
+            end
+            "({ #{parts.join('; ')}; })"
           end
         when Ast::LocalVariableWrite
           name = cpp_local_name(node.name)
@@ -1243,18 +1381,19 @@ module Frozone
             @_method_return_type ? "return #{@_method_return_type}()" : "return"
           end
         when Ast::And
-          # Ruby `a && b`: `a` truthy → `b`, else `a`. Ternary with right's
-          # type as the unified result.
+          # Ruby `a && b`: short-circuit — evaluate `b` only if `a` is truthy.
+          # Result is `b` if `a` truthy, else `a` widened to `b`'s type.
+          # Use decltype (compile-time only) to pick the common type without
+          # runtime-evaluating the right operand eagerly.
           l = cr(node.left_node)
           r = cr(node.right_node)
-          "({ auto _l = (#{l}); auto _r = (#{r}); (_l) ? _r : decltype(_r)(_l); })"
+          "({ auto _l = (#{l}); (_l) ? decltype((#{r}))(#{r}) : decltype((#{r}))(_l); })"
         when Ast::Or
-          # Ruby `a || b`: `a` truthy → `a`, else `b`. Widen `a` to `b`'s
-          # type (typical pattern: `x || @default` where x may be nil and
-          # @default is the real class type).
+          # Ruby `a || b`: short-circuit — evaluate `b` only if `a` is falsy.
+          # Typical pattern: `x || @default`.
           l = cr(node.left_node)
           r = cr(node.right_node)
-          "({ auto _l = (#{l}); auto _r = (#{r}); (_l) ? decltype(_r)(_l) : _r; })"
+          "({ auto _l = (#{l}); (_l) ? decltype((#{r}))(_l) : (#{r}); })"
         when Ast::MethodCall then cr_method_call(node)
         when Ast::ConstantRead then cpp_const_name(node.name)
         when Ast::ConstantPath
@@ -1336,6 +1475,13 @@ module Frozone
       def cr_if(node)
         pred = cr_truthy(node.pred_node)
         indent_str = "  " * @indent
+        # If both branches are single expressions (not Sequences, not
+        # statement-only nodes), emit as a ternary so the result can be
+        # used as an rvalue (`a = if ... else ... end`).
+        if node.then_node && node.else_node &&
+           simple_expr?(node.then_node) && simple_expr?(node.else_node)
+          return "(#{pred} ? (#{cr(node.then_node)}) : (#{cr(node.else_node)}))"
+        end
         # Detect unless: if cond; nil; else; body; end
         if node.then_node.is_a?(Ast::NilLiteral) && node.else_node
           body = nil
@@ -1350,6 +1496,23 @@ module Frozone
           "if (#{pred}) {\n#{indent_str}  #{then_body};\n#{indent_str}} else {\n#{indent_str}  #{else_body};\n#{indent_str}}"
         else
           "if (#{pred}) {\n#{indent_str}  #{then_body};\n#{indent_str}}"
+        end
+      end
+
+      # A "simple expression" can appear as an rvalue — no statement-only
+      # constructs (nested If, Sequence of multiple stmts, While/For, raise, etc).
+      def simple_expr?(node)
+        case node
+        when Ast::If, Ast::While, Ast::Until, Ast::ForLoop, Ast::Return, Ast::Break, Ast::Next
+          false
+        when Ast::Sequence
+          node.nodes.size == 1 && simple_expr?(node.nodes[0])
+        when Ast::MethodCall
+          # `raise` emits as a void statement-expression with exit(1).
+          return false if node.name == :raise && node.receiver_node.nil?
+          true
+        else
+          true
         end
       end
 
@@ -1471,6 +1634,26 @@ module Frozone
             body_expr = cr(blk.body)
             return "({ auto _n = #{size_expr}; #{var.to_s == '_ai' ? 'int64_t _ai = 0;' : "int64_t #{var} = 0;"} auto _e0 = #{body_expr}; auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (#{var} = 1; #{var} < _n; #{var}++) { _arr[#{var}] = #{body_expr}; } _arr; })"
           end
+        end
+
+        # .each { |x| body } on an array — range-for over *data.
+        if name == :each && recv && node.block_node
+          blk = node.block_node
+          var = (blk.required_params || [])[0] || :_e
+          @_declared_locals&.add(var.to_s)
+          coll = cr(recv)
+          body_str = nil
+          old_indent = "  " * @indent
+          indented do
+            lines = []
+            if blk.body.is_a?(Ast::Sequence)
+              blk.body.nodes.each { |n| lines << ("  " * @indent + cr(n) + ";") }
+            else
+              lines << ("  " * @indent + cr(blk.body) + ";")
+            end
+            body_str = lines.join("\n")
+          end
+          return "for (auto& #{var} : *#{coll}.data) {\n#{body_str}\n#{old_indent}}"
         end
 
         # loop { body } — Ruby's Kernel#loop; infinite loop, exits via break.
