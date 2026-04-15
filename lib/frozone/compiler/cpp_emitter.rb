@@ -362,6 +362,14 @@ module Frozone
         end
         ivar_types = infer_ivar_types(cls)
         init_has_params = init.is_a?(Vm::Method) && !all_param_names(init).empty?
+        self_wrapper = "Ruby_#{name}"
+
+        # Self-referential ivars: fields whose type equals the enclosing
+        # class's wrapper. Can't store by value (incomplete type) — store
+        # as std::shared_ptr<Impl> and wrap/unwrap at access sites.
+        self_ref_ivars = ivar_types.select { |_, t| t == self_wrapper }.keys.to_set
+        @_self_ref_ivars = self_ref_ivars
+        @_current_wrapper_name = self_wrapper
 
         indented do
           # Nested Impl struct holds all the data — ivars only, no methods.
@@ -370,16 +378,27 @@ module Frozone
             ivars.uniq.each do |iv|
               key = iv.to_s.delete_prefix('@')
               t = ivar_types[key] || "int64_t"
-              default = (t == "int64_t") ? " = 0" : (t == "double" ? " = 0.0" : "")
-              line "#{t} iv_#{key}#{default};"
+              if self_ref_ivars.include?(key)
+                # Recursive field: store as shared_ptr<Impl> (same type).
+                line "std::shared_ptr<Impl> iv_#{key};"
+              else
+                default = (t == "int64_t") ? " = 0" : (t == "double" ? " = 0.0" : "")
+                line "#{t} iv_#{key}#{default};"
+              end
             end
           end
           line "};"
           line "std::shared_ptr<Impl> p;"
           emit_newline
 
-          # Convenience typedef inside the wrapper so method bodies can
-          # refer to the Impl type. Methods access ivars via `p->iv_*`.
+          # Self-ref ctor and conversion — lets `p->iv_left = other` assign
+          # the shared_ptr directly (via operator) and `Ruby_X(p->iv_left)`
+          # wrap a shared_ptr back into a wrapper.
+          unless self_ref_ivars.empty?
+            line "Ruby_#{name}(std::shared_ptr<Impl> p_) : p(p_) {}"
+            line "operator std::shared_ptr<Impl>() const { return p; }"
+          end
+
           @_inside_wrapped_class = true
 
           # Default ctor: nil unless the user's init is 0-arg (then we
@@ -425,6 +444,8 @@ module Frozone
         line "};"
         # Register class name for `.class` dispatch.
         line "template<> inline const char* ruby_class_name<Ruby_#{name}>() { return \"#{name}\"; }"
+        @_self_ref_ivars = nil
+        @_current_wrapper_name = nil
       end
 
       # Walks every AST node rooted at `root` (the execute block + every
@@ -878,8 +899,19 @@ module Frozone
           raw = node.value.respond_to?(:raw) ? node.value.raw : node.value
           "RubyString(#{raw.inspect}, #{raw.bytesize})"
         when Ast::LocalVariableRead then node.name.to_s
-        when Ast::InstanceVariableRead then cpp_ivar(node.name)
-        when Ast::InstanceVariableWrite then "#{cpp_ivar(node.name)} = #{cr(node.value_node)}"
+        when Ast::InstanceVariableRead
+          key = node.name.to_s.delete_prefix('@')
+          if @_self_ref_ivars&.include?(key) && @_inside_wrapped_class
+            # Self-ref ivar stored as shared_ptr<Impl>; wrap to the outer
+            # wrapper type so method calls / arg passing work normally.
+            "#{@_current_wrapper_name}(#{cpp_ivar(node.name)})"
+          else
+            cpp_ivar(node.name)
+          end
+        when Ast::InstanceVariableWrite
+          # Write of self-ref ivars works via implicit conversion
+          # (Ruby_X has `operator std::shared_ptr<Impl>()`).
+          "#{cpp_ivar(node.name)} = #{cr(node.value_node)}"
         when Ast::MultipleAssignment
           # Simple case: a, b = x, y or @a, @b = x, y (array literal RHS).
           # Targets are [kind, name] pairs where kind is :local or :ivar.

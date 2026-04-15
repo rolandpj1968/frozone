@@ -137,11 +137,13 @@ struct Ruby_Node {
   struct Impl {
     int64_t iv_key = 0;
     int64_t iv_value = 0;
-    Ruby_Node iv_left;
-    Ruby_Node iv_right;
+    std::shared_ptr<Impl> iv_left;
+    std::shared_ptr<Impl> iv_right;
   };
   std::shared_ptr<Impl> p;
 
+  Ruby_Node(std::shared_ptr<Impl> p_) : p(p_) {}
+  operator std::shared_ptr<Impl>() const { return p; }
   Ruby_Node() = default;
   Ruby_Node(const RubyNil&) {}
   Ruby_Node(auto key, auto value) : p(std::make_shared<Impl>()) {
