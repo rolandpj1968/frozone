@@ -28,6 +28,7 @@ module Frozone
 
       def generate(execute_block:, top_level_scope:, globals:, stub_file: nil)
         @stub_file = stub_file
+        @top_level_scope = top_level_scope
         emit_header
         emit_newline
 
@@ -53,8 +54,17 @@ module Frozone
 
       private
 
-      # Strip @ from Ruby ivar names for C++
-      def cpp_ivar(name) = name.to_s.delete_prefix('@')
+      # Strip @ from Ruby ivar names and prefix with iv_ to avoid clashes with method names
+      def cpp_ivar(name) = "iv_#{name.to_s.delete_prefix('@')}"
+
+      # Translate Ruby method names with non-identifier suffixes to valid C++ identifiers.
+      def cpp_method_name(name)
+        s = name.to_s
+        return "set_#{s.chomp('=')}" if s.end_with?('=')
+        return "#{s.chomp('?')}_q" if s.end_with?('?')
+        return "#{s.chomp('!')}_b" if s.end_with?('!')
+        s
+      end
 
       def trivial_body?(body)
         return true if body.nil?
@@ -152,8 +162,9 @@ module Frozone
         end
         line "};"
         emit_newline
-        line "static RubyNil RUBY_NIL_INSTANCE;"
-        line "static RubyObject* RUBY_NIL = &RUBY_NIL_INSTANCE;"
+        # RUBY_NIL as int64_t sentinel (0) — loses identity but works in
+        # int64_t-typed slots (RubyArray_I64 elements, locals, return values).
+        line "static constexpr int64_t RUBY_NIL = 0;"
       end
 
       CORE_PATH_MARKERS = %w[lib/core/4.0/ lib/frozone/vm/ lib/frozone/ast/].freeze
@@ -191,11 +202,14 @@ module Frozone
       end
 
       def emit_user_classes(scope)
+        const_locs = scope.constants_locations || {}
         scope.constants_table&.each do |name, value|
           next unless value.is_a?(Vm::ClassObject)
           next if value.name.nil? || %i[Object BasicObject Module Class Kernel].include?(value.name)
           methods = value.methods_table || {}
-          next unless methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
+          has_user_method = methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
+          # Also emit if class itself was defined in user source (subclass with no own methods)
+          next unless has_user_method || user_source_location?(const_locs[name])
           emit_class(name, value)
           emit_newline
         end
@@ -213,12 +227,11 @@ module Frozone
           # Emit ivar fields (all int64_t for now — TI would tell us)
           ivars.uniq.each { |iv| line "int64_t #{cpp_ivar(iv)} = 0;" }
           emit_newline if ivars.any?
-          # Emit methods
+          # Emit methods (including trivial-body ones — e.g. empty methods called from execute block)
           cls.methods_table&.each do |mname, method|
             next unless method.is_a?(Vm::Method) && method.body
             next if mname == :initialize # handle separately
             next unless user_source_location?(method.source_location) || accessor_method?(method)
-            next if trivial_body?(method.body)
             emit_class_method(mname, method)
             emit_newline
           end
@@ -244,15 +257,34 @@ module Frozone
         method.body.is_a?(Ast::InstanceVariableRead) || method.body.is_a?(Ast::InstanceVariableWrite)
       end
 
+      # Detect if a method body's last expression returns a non-int64_t value
+      # (class instance, array literal, Array.new). If so, use 'auto' return
+      # type so C++ deducer picks up the struct type.
+      def returns_non_int?(body)
+        last = body.is_a?(Ast::Sequence) ? body.nodes.last : body
+        return true if last.is_a?(Ast::ArrayLiteral)
+        return false unless last.is_a?(Ast::MethodCall)
+        return true if last.name == :new && last.receiver_node.is_a?(Ast::ConstantRead)
+        false
+      end
+
       def emit_class_method(mname, method)
-        params = (method.required_params || []).map { |p| "int64_t #{p}" }.join(", ")
-        line "int64_t #{mname}(#{params}) {"
+        # Use 'auto' for params so C++20 can deduce per call site
+        # (covers both int64_t and class-typed args without explicit TI)
+        params = all_param_names(method).map { |p| "auto #{p}" }.join(", ")
+        ret = returns_non_int?(method.body) ? "auto" : "int64_t"
+        line "#{ret} #{cpp_method_name(mname)}(#{params}) {"
         @_declared_locals = Set.new
-        (method.required_params || []).each { |p| @_declared_locals << p.to_s }
+        all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
           body = method.body
-          if body.is_a?(Ast::InstanceVariableRead)
-            # Simple getter
+          if trivial_body?(body)
+            line "return 0LL;"
+          elsif body.is_a?(Ast::InstanceVariableRead)
+            line "return #{cpp_ivar(body.name)};"
+          elsif body.is_a?(Ast::InstanceVariableWrite)
+            # attr_writer body: @foo = val (returns val)
+            line "#{cpp_ivar(body.name)} = #{cr(body.value_node)};"
             line "return #{cpp_ivar(body.name)};"
           elsif body.is_a?(Ast::Sequence)
             nodes = body.nodes
@@ -284,11 +316,16 @@ module Frozone
         end
       end
 
+      def all_param_names(method)
+        ((method.required_params || []) + (method.required_kw_params || []))
+      end
+
       def emit_method(name, method)
-        params = (method.required_params || []).map { |p| "int64_t #{p}" }.join(", ")
-        line "static int64_t #{name}(#{params}) {"
+        params = all_param_names(method).map { |p| "auto #{p}" }.join(", ")
+        ret = returns_non_int?(method.body) ? "auto" : "int64_t"
+        line "static #{ret} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new
-        (method.required_params || []).each { |p| @_declared_locals << p.to_s }
+        all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
           body = method.body
           if body.is_a?(Ast::Sequence)
@@ -404,7 +441,7 @@ module Frozone
             args = node.arg_nodes || []
             "#{recv}[#{cr(args[0])}] = #{cr(args[1])}"
           else
-            "#{cr(node.receiver_node)}.#{node.name}(#{(node.arg_nodes || []).map { |a| cr(a) }.join(', ')})"
+            "#{cr(node.receiver_node)}.#{cpp_method_name(node.name)}(#{(node.arg_nodes || []).map { |a| cr(a) }.join(', ')})"
           end
         when Ast::Sequence then node.nodes.map { |n| cr(n) }.join("; ")
         when Ast::While
@@ -427,6 +464,15 @@ module Frozone
           # For ranges used in for loops, emit the end value
           # (the for loop handles the iteration)
           node.exclusive ? cr(node.end_node) : "(#{cr(node.end_node)} + 1LL)"
+        when Ast::ArrayLiteral
+          # [a, b, c] — emit a fresh RubyArray_I64 with elements
+          elems = node.element_nodes || []
+          if elems.empty?
+            "RubyArray_I64(0)"
+          else
+            inits = elems.each_with_index.map { |e, i| "_a[#{i}] = #{cr(e)};" }.join(' ')
+            "({ auto _a = RubyArray_I64(#{elems.size}); #{inits} _a; })"
+          end
         when Ast::Rescue
           # begin/rescue/end — emit body, ignore rescue for now
           cr(node.body)
@@ -487,10 +533,24 @@ module Frozone
         end
       end
 
+      # Convert kw_arg_nodes ([[SymbolLiteral(name), value_node], ...]) into
+      # positional values in the order required_kw_params expects.
+      def kw_args_in_order(node, kw_param_names)
+        kw_map = (node.kw_arg_nodes || []).to_h { |k, v| [k.value.respond_to?(:raw) ? k.value.raw.to_sym : k.value.to_sym, v] }
+        kw_param_names.map { |p| kw_map[p.to_sym] }.compact
+      end
+
+      def lookup_top_level_method(name)
+        return nil unless @top_level_scope
+        m = @top_level_scope.methods_table&.fetch(name, nil)
+        m if m.is_a?(Vm::Method)
+      end
+
       def cr_method_call(node)
         name = node.name
         recv = node.receiver_node
         args = node.arg_nodes || []
+        kw_arg_nodes = node.kw_arg_nodes || []
 
         # puts → printf (auto-detect int vs float from literal type)
         if recv.nil? && name == :puts
@@ -585,13 +645,24 @@ module Frozone
 
         # Free function call
         if recv.nil?
-          arg_strs = args.map { |a| cr(a) }.join(", ")
-          return "#{name}(#{arg_strs})"
+          # itself at top-level: no-op identity (returns self placeholder)
+          return "0LL" if name == :itself && args.empty?
+          # Append kw args in declaration order if method is known
+          method = lookup_top_level_method(name)
+          kw_vals = method && !kw_arg_nodes.empty? ? kw_args_in_order(node, method.required_kw_params || []) : []
+          arg_strs = (args + kw_vals).map { |a| cr(a) }.join(", ")
+          return "#{cpp_method_name(name)}(#{arg_strs})"
         end
+
+        # respond_to?(:literal) — TODO: needs receiver class info; emit true placeholder
+        return "true" if name == :respond_to? && args.size == 1 && args[0].is_a?(Ast::SymbolLiteral)
+
+        # itself on receiver: identity
+        return cr(recv) if name == :itself && args.empty?
 
         # General: recv.method(args)
         arg_strs = args.map { |a| cr(a) }.join(", ")
-        "#{cr(recv)}.#{name}(#{arg_strs})"
+        "#{cr(recv)}.#{cpp_method_name(name)}(#{arg_strs})"
       end
     end
   end
