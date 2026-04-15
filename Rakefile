@@ -372,6 +372,56 @@ task :bench_update_goldens do
   end
 end
 
+# Compare each benchmark's MRI Ruby output against bench/expected/*.txt.
+# bench/expected/ was historically captured from the Crystal backend, so
+# this surfaces real Crystal-vs-MRI semantic divergences (e.g. RNG choice,
+# UTF-8 length vs bytesize, `puts array` formatting). Slow benchmarks
+# (nqueens ~3min, respond_to ~10min) need the long timeout.
+desc "Diff each benchmark's MRI output against bench/expected/*.txt"
+task :bench_check_mri_parity do
+  require 'shellwords'
+  match = []; diff = []
+  Dir['bench/stubs/*.rb'].sort.each do |stub|
+    name = File.basename(stub, '.rb')
+    expected_path = "bench/expected/#{name}.txt"
+    next unless File.exist?(expected_path)
+    expected = File.read(expected_path)
+    cmd = "ARGV.clear; load '#{File.expand_path('bench/harness.rb', __dir__)}'; load '#{File.expand_path(stub, __dir__)}'"
+    actual = `timeout 600 bundle exec ruby -e #{cmd.shellescape} 2>/dev/null`
+    if actual == expected
+      printf "  %-25s MATCH\n", name
+      match << name
+    else
+      printf "  %-25s DIFF golden=%s mri=%s\n", name,
+             expected.inspect[0..40], actual.inspect[0..40]
+      diff << [name, expected, actual]
+    end
+  end
+  puts ''
+  puts "Parity: #{match.size}/#{match.size + diff.size} match MRI; #{diff.size} differ from golden"
+end
+
+# Capture each benchmark's MRI output as the new bench/expected/. Use this
+# to re-baseline the goldens against MRI Ruby semantics. After this, any
+# Crystal-or-C++-vs-MRI divergence becomes a visible regression.
+desc "Capture MRI Ruby output as the new bench/expected/*.txt goldens"
+task :bench_update_mri_goldens do
+  require 'shellwords'
+  Dir['bench/stubs/*.rb'].sort.each do |stub|
+    name = File.basename(stub, '.rb')
+    expected_path = "bench/expected/#{name}.txt"
+    next unless File.exist?(expected_path)
+    cmd = "ARGV.clear; load '#{File.expand_path('bench/harness.rb', __dir__)}'; load '#{File.expand_path(stub, __dir__)}'"
+    actual = `timeout 600 bundle exec ruby -e #{cmd.shellescape} 2>/dev/null`
+    if actual.empty?
+      puts "  #{name.ljust(25)} SKIP (empty MRI output — likely timed out or errored)"
+      next
+    end
+    File.write(expected_path, actual)
+    puts "  #{name.ljust(25)} updated (#{actual.bytesize} bytes)"
+  end
+end
+
 # Run all core specs in parallel (one process per module)
 desc "Run all ruby/spec core specs (RUBY_SPEC_DIR=... PARSER=prism|wq JOBS=N to override)"
 task :core do
