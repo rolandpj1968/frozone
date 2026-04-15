@@ -252,7 +252,7 @@ struct Ruby_SplayTree {
     }
   }
 
-  auto find_max() {
+  auto find_max(auto start_node = RUBY_NIL) {
     if (empty_q()) {
       return RUBY_NIL;
     }

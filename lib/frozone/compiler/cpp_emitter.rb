@@ -386,7 +386,7 @@ module Frozone
 
           # Parameterised ctor — only if init has params; allocates + runs body.
           if init_has_params
-            params = all_param_names(init).map { |p| "auto #{p}" }.join(", ")
+            params = emit_param_list(init)
             line "Ruby_#{name}(#{params}) : p(std::make_shared<Impl>()) {"
             @_declared_locals = Set.new
             all_param_names(init).each { |p| @_declared_locals << p.to_s }
@@ -421,6 +421,9 @@ module Frozone
       # arg 0 is considered double.
       def collect_ctor_param_types(execute_block, scope)
         seen = {}   # class_name => [types by positional index]
+        # Also collect per-method call-site arg types for receivers of known
+        # class types (for setter propagation to ivars, etc.).
+        @_method_call_arg_types = {}   # [method_name] => [types by arg index]
         walker = lambda do |node|
           return unless node
           if node.is_a?(Ast::MethodCall) && node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
@@ -428,6 +431,15 @@ module Frozone
             (node.arg_nodes || []).each_with_index do |arg, i|
               t = infer_expr_type(arg)
               existing = (seen[cls_name] ||= [])
+              existing[i] = widen_type(existing[i], t)
+            end
+          end
+          # Any method call — accumulate arg types for later inference.
+          if node.is_a?(Ast::MethodCall) && node.receiver_node && node.name != :new
+            (node.arg_nodes || []).each_with_index do |arg, i|
+              t = infer_expr_type(arg)
+              key = node.name
+              existing = (@_method_call_arg_types[key] ||= [])
               existing[i] = widen_type(existing[i], t)
             end
           end
@@ -461,9 +473,14 @@ module Frozone
           next unless method.is_a?(Vm::Method) && method.body
           # Only consider methods defined on THIS class (post-flatten).
           next unless method_defined_here?(method, cls)
-          # Param type map for THIS method — for initialize, get types from
-          # call sites; for other methods we have no call-site info yet.
-          param_types = (mname == :initialize) ? (@_ctor_param_types[cls.name] || []) : nil
+          # Param type map for THIS method. For initialize, use ctor
+          # call-site types. For other methods, use per-method call-site
+          # arg types collected across the whole program.
+          param_types = if mname == :initialize
+            @_ctor_param_types[cls.name] || []
+          else
+            @_method_call_arg_types[mname] || []
+          end
           param_names = method.required_params || []
           walk_ivar_assigns_with_params(method.body, param_names, param_types) do |ivar_name, cpp_type|
             (candidates[ivar_name] ||= Set.new) << cpp_type
@@ -662,7 +679,7 @@ module Frozone
       def emit_class_method(mname, method)
         # Use 'auto' for params so C++20 can deduce per call site
         # (covers both int64_t and class-typed args without explicit TI)
-        params = all_param_names(method).map { |p| "auto #{p}" }.join(", ")
+        params = emit_param_list(method)
         # Always 'auto' return — C++20 deduces. Works for recursion when
         # at least one base-case return is non-recursive.
         line "auto #{cpp_method_name(mname)}(#{params}) {"
@@ -692,7 +709,7 @@ module Frozone
       def emit_constructor(name, init)
         # Use `auto` for params so int/float/class args all bind correctly
         # per call site (C++20 abbreviated function template).
-        params = all_param_names(init).map { |p| "auto #{p}" }.join(", ")
+        params = emit_param_list(init)
         line "Ruby_#{name}(#{params}) {"
         @_declared_locals = Set.new
         (init.required_params || []).each { |p| @_declared_locals << p.to_s }
@@ -711,11 +728,24 @@ module Frozone
       end
 
       def all_param_names(method)
-        ((method.required_params || []) + (method.required_kw_params || []))
+        ((method.required_params || []) + (method.optional_params || []).map { |name, _| name } + (method.required_kw_params || []))
+      end
+
+      # Renders `auto <name>` for required params and
+      # `auto <name> = <default>` for optional params (C++20 abbreviated
+      # function templates support default args).
+      def emit_param_list(method)
+        parts = []
+        (method.required_params || []).each { |p| parts << "auto #{p}" }
+        (method.optional_params || []).each do |pname, default_node|
+          parts << "auto #{pname} = #{cr(default_node)}"
+        end
+        (method.required_kw_params || []).each { |p| parts << "auto #{p}" }
+        parts.join(", ")
       end
 
       def emit_method(name, method)
-        params = all_param_names(method).map { |p| "auto #{p}" }.join(", ")
+        params = emit_param_list(method)
         line "static auto #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
