@@ -36,6 +36,7 @@ module Frozone
         #   def set_left(x); @left = x; end    # Node infers @left: Ruby_Node
         # converge in two iterations.
         @_class_ivar_types = {}
+        @_class_method_return_types = {}
         3.times do
           @_ctor_param_types = collect_ctor_param_types(execute_block, top_level_scope)
           changed = false
@@ -43,7 +44,17 @@ module Frozone
             new_types = infer_ivar_types(cls)
             changed = true if @_class_ivar_types[cls.name] != new_types
             @_class_ivar_types[cls.name] = new_types
+            # Cache method return types for local_decl_type resolution.
+            @_current_wrapper_name = "Ruby_#{cls.name}"
+            ret_types = {}
+            (cls.methods_table || {}).each do |mname, m|
+              next unless m.is_a?(Vm::Method) && method_defined_here?(m, cls)
+              rt = infer_method_return_type(m)
+              ret_types[mname] = rt if rt
+            end
+            @_class_method_return_types[cls.name] = ret_types
           end
+          @_current_wrapper_name = nil
           break unless changed
         end
         emit_header
@@ -118,6 +129,9 @@ module Frozone
         line "// --- Frozone C++ runtime (minimal) ---"
         emit_newline
         line "#include <memory>"
+        line "#include <type_traits>"
+        line "#include <charconv>"
+        line "#include <cinttypes>"
         emit_newline
         line "// Mutable byte-oriented string. Encoding is tracked nominally"
         line "// but all methods operate on bytes (matches Ruby binary semantics)."
@@ -234,6 +248,71 @@ module Frozone
         line "template<> inline const char* ruby_class_name<RubyString>() { return \"String\"; }"
         line "template<> inline const char* ruby_class_name<Ruby_Object>() { return \"GenericObject\"; }"
         line "template<typename T> static inline const char* ruby_class(const T&) { return ruby_class_name<T>(); }"
+        emit_newline
+        line "// to_s — converts primitives to RubyString. Class-specific overrides on user classes."
+        line "template<typename T> static inline RubyString ruby_to_s(T v) {"
+        indented do
+          line "if constexpr (std::is_same_v<T, RubyString>) return v;"
+          line "else if constexpr (std::is_floating_point_v<T>) {"
+          indented do
+            line "char buf[64]; auto r = std::to_chars(buf, buf + sizeof(buf) - 4, (double)v);"
+            line "*r.ptr = 0;"
+            line "bool has_dot = false; for (char* p = buf; p < r.ptr; ++p) if (*p == '.' || *p == 'e' || *p == 'n' || *p == 'i') { has_dot = true; break; }"
+            line "if (!has_dot) { *r.ptr++ = '.'; *r.ptr++ = '0'; *r.ptr = 0; }"
+            line "return RubyString(buf);"
+          end
+          line "} else if constexpr (std::is_integral_v<T>) {"
+          indented { line "char buf[32]; snprintf(buf, sizeof(buf), \"%lld\", (long long)v); return RubyString(buf);" }
+          line "} else return RubyString(\"#<Object>\");"
+        end
+        line "}"
+        emit_newline
+        line "// Ruby_Random — MT19937-based (matches Ruby's Random#rand semantics)."
+        line "class Ruby_Random {"
+        line "public:"
+        indented do
+          line "uint32_t mt[624];"
+          line "int index = 624;"
+          line "Ruby_Random() = default;"
+          line "Ruby_Random(int64_t seed) { reseed((uint32_t)seed); }"
+          line "void reseed(uint32_t seed) {"
+          indented do
+            line "mt[0] = seed;"
+            line "for (int i = 1; i < 624; i++) mt[i] = 1812433253U * (mt[i-1] ^ (mt[i-1] >> 30)) + (uint32_t)i;"
+            line "index = 624;"
+          end
+          line "}"
+          line "uint32_t next_u32() {"
+          indented do
+            line "if (index >= 624) { generate(); index = 0; }"
+            line "uint32_t y = mt[index++];"
+            line "y ^= (y >> 11); y ^= (y << 7) & 0x9D2C5680U;"
+            line "y ^= (y << 15) & 0xEFC60000U; y ^= (y >> 18);"
+            line "return y;"
+          end
+          line "}"
+          line "void generate() {"
+          indented do
+            line "for (int i = 0; i < 624; i++) {"
+            indented do
+              line "uint32_t y = (mt[i] & 0x80000000U) | (mt[(i+1) % 624] & 0x7fffffffU);"
+              line "mt[i] = mt[(i+397) % 624] ^ (y >> 1);"
+              line "if (y & 1) mt[i] ^= 0x9908B0DFU;"
+            end
+            line "}"
+          end
+          line "}"
+          line "double rand() {"
+          indented do
+            line "uint32_t a = next_u32() >> 5, b = next_u32() >> 6;"
+            line "return (a * 67108864.0 + b) * (1.0 / 9007199254740992.0);"
+          end
+          line "}"
+          line "int64_t rand(int64_t n) { return (int64_t)(rand() * n); }"
+          line "bool nil_q() const { return false; }"
+        end
+        line "};"
+        line "template<> inline const char* ruby_class_name<Ruby_Random>() { return \"Random\"; }"
         emit_newline
         line "// Ruby-flavored puts: chooses format based on type"
         line "#include <type_traits>"
@@ -453,6 +532,9 @@ module Frozone
           @_inside_wrapped_class = false
 
           line "bool nil_q() const { return !p; }"
+          # Contextual bool: non-nil wrapper is truthy. Used for `||`, `&&`,
+          # `if (x)`, and ternaries in Ruby-translated code.
+          line "explicit operator bool() const { return (bool)p; }"
         end
         line "};"
         # Register class name for `.class` dispatch.
@@ -720,7 +802,41 @@ module Frozone
       end
 
       def local_decl_type(val)
+        @_decl_depth ||= 0
+        return "auto" if @_decl_depth > 5
+        @_decl_depth += 1
+        begin
+          _local_decl_type_impl(val)
+        ensure
+          @_decl_depth -= 1
+        end
+      end
+
+      def _local_decl_type_impl(val)
         case val
+        when Ast::Or, Ast::And
+          # Type of `a || b` is the right operand's type (typical
+          # `x || @default` pattern where right is the real fallback).
+          local_decl_type(val.right_node)
+        when Ast::LocalVariableRead
+          # Try to resolve by finding the variable's first assignment in
+          # the current body.
+          if @_current_body
+            later = look_ahead_local_type(val.name.to_s, @_current_body)
+            return later if later
+          end
+          "auto"
+        when Ast::InstanceVariableRead
+          # Look up the ivar's inferred type in the enclosing class.
+          if @_current_wrapper_name
+            cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
+            t = (@_class_ivar_types[cls_name] || {})[val.name.to_s.delete_prefix('@')]
+            return t if t
+          end
+          "auto"
+        when Ast::InstanceVariableWrite
+          # `@foo = x` evaluates to x; type is the value's type.
+          local_decl_type(val.value_node)
         when Ast::MethodCall
           if val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
             cn = val.receiver_node.name
@@ -731,7 +847,16 @@ module Frozone
           # local (via setters) propagate back to the array element.
           # This matches Ruby's reference semantics for object values.
           return "auto&" if val.name == :[] && val.receiver_node && (val.arg_nodes || []).size == 1
-          # Free function or method call → return type unknown, use auto
+          # If the receiver's type resolves to a known user class, look up
+          # the called method's return type (helps `tmp = node.left` etc).
+          if val.receiver_node
+            recv_t = local_decl_type(val.receiver_node)
+            if recv_t&.start_with?("Ruby_")
+              cls_name = recv_t.sub("Ruby_", "").to_sym
+              rt = (@_class_method_return_types || {})[cls_name]&.[](val.name)
+              return rt if rt
+            end
+          end
           "auto"
         when Ast::ArrayLiteral then "auto"
         when Ast::FloatLiteral then "double"
@@ -760,6 +885,69 @@ module Frozone
         false
       end
 
+      # Collect every LocalVariableWrite's name in `body`, in source order,
+      # paired with the type inferred from its first-seen write. Used to
+      # hoist declarations to method top so inner-scope locals are visible
+      # outside their nested block (matches Ruby's method-wide local scope).
+      def collect_hoistable_locals(body, param_names)
+        prev_body = @_current_body
+        @_current_body = body
+        seen = {}  # name => {type:, first_rhs:}
+        order = []
+        walker = lambda do |node|
+          return unless node
+          if node.is_a?(Ast::LocalVariableWrite)
+            name = node.name.to_s
+            unless seen.key?(name) || param_names.include?(name.to_sym) || param_names.include?(name)
+              seen[name] = { type: local_decl_type(node.value_node), first_rhs: node.value_node }
+              order << name
+            end
+          elsif node.is_a?(Ast::MultipleAssignment)
+            (node.targets || []).each do |kind, nm|
+              next unless kind == :local
+              s = nm.to_s
+              unless seen.key?(s) || param_names.include?(nm)
+                seen[s] = { type: "auto", first_rhs: nil }
+                order << s
+              end
+            end
+          end
+          node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
+        end
+        walker.call(body)
+        @_current_body = prev_body
+        order.map { |n| [n, seen[n]] }
+      end
+
+      # Scan method body for the richest non-nil return type. Used to
+      # wrap `return nil` as `return T(RUBY_NIL)` so C++ auto-deduction
+      # doesn't choke on RubyNil-vs-T mixed returns.
+      def infer_method_return_type(method)
+        body = method.body
+        return nil unless body
+        prev_body = @_current_body
+        @_current_body = body
+        best = nil
+        walker = lambda do |node|
+          return unless node
+          if node.is_a?(Ast::Return) && node.value_node && !node.value_node.is_a?(Ast::NilLiteral)
+            t = local_decl_type(node.value_node)
+            best = widen_type(best, t) if t && t != "int64_t" && t != "auto"
+          end
+          # Last expression in a Sequence is an implicit return.
+          node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
+        end
+        walker.call(body)
+        # Also pick up the final expression if there's no explicit return.
+        last = body.is_a?(Ast::Sequence) ? body.nodes.last : body
+        if last && !last.is_a?(Ast::NilLiteral) && !last.is_a?(Ast::Return)
+          t = local_decl_type(last)
+          best = widen_type(best, t) if t && t != "int64_t" && t != "auto"
+        end
+        @_current_body = prev_body
+        best
+      end
+
       def emit_class_method(mname, method)
         # Use 'auto' for params so C++20 can deduce per call site
         # (covers both int64_t and class-typed args without explicit TI)
@@ -768,17 +956,20 @@ module Frozone
         # at least one base-case return is non-recursive.
         line "auto #{cpp_method_name(mname)}(#{params}) {"
         @_declared_locals = Set.new
+        @_method_return_type = infer_method_return_type(method)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
           body = method.body
+          emit_hoisted_locals(body, all_param_names(method))
           if trivial_body?(body)
             line "return 0LL;"
           elsif body.is_a?(Ast::InstanceVariableRead)
-            line "return #{cpp_ivar(body.name)};"
+            # Route through cr() so self-ref ivars get wrapped as Ruby_<Name>.
+            line "return #{cr(body)};"
           elsif body.is_a?(Ast::InstanceVariableWrite)
             # attr_writer body: @foo = val (returns val)
-            line "#{cpp_ivar(body.name)} = #{cr(body.value_node)};"
-            line "return #{cpp_ivar(body.name)};"
+            line "#{cr(body)};"
+            line "return #{cr(Ast::InstanceVariableRead.new(body.name))};"
           elsif body.is_a?(Ast::Sequence)
             nodes = body.nodes
             nodes[0...-1].each { |n| emit_stmt(n) }
@@ -787,7 +978,29 @@ module Frozone
             emit_stmt_return(body)
           end
         end
+        @_method_return_type = nil
         line "}"
+      end
+
+      # Hoist locals with a determinable type to the method top. Locals
+      # first-defined in an inner scope stay visible for subsequent outer
+      # uses (matches Ruby's method-wide local scope vs C++ block scope).
+      # Locals whose type we can't resolve are left to per-site decl.
+      def emit_hoisted_locals(body, param_names)
+        @_current_body = body
+        collect_hoistable_locals(body, param_names).each do |name, info|
+          t = info[:type]
+          next if t.nil? || t == "auto" || t == "auto&"
+          next if @_declared_locals&.include?(name)
+          init = case t
+                 when "int64_t" then " = 0"
+                 when "double" then " = 0.0"
+                 when "bool" then " = false"
+                 else ""
+                 end
+          line "#{t} #{name}#{init};"
+          @_declared_locals << name
+        end
       end
 
       def emit_constructor(name, init)
@@ -832,26 +1045,25 @@ module Frozone
         params = emit_param_list(method)
         line "static auto #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new
+        @_method_return_type = infer_method_return_type(method)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
           body = method.body
+          emit_hoisted_locals(body, all_param_names(method))
           if body.is_a?(Ast::Sequence)
             nodes = body.nodes
             nodes[0...-1].each { |n| emit_stmt(n) }
-            # Last expression → return
             emit_stmt_return(nodes.last) if nodes.last
           else
             emit_stmt_return(body)
           end
         end
+        @_method_return_type = nil
         line "}"
       end
 
       def emit_stmt_return(node)
         s = cr(node)
-        # Reuse the already-computed `s` — re-calling cr(node) here would
-        # double-traverse the AST and pollute @_declared_locals, causing
-        # later LocalVariableWrites to look pre-declared.
         if s.include?("{\n") || s.start_with?("if ") || s.start_with?("while ") || s.start_with?("for ") || s.start_with?("return ")
           if s.include?("{\n")
             emit_indent; write s; emit_newline
@@ -859,7 +1071,13 @@ module Frozone
             line "#{s};"
           end
           if s.start_with?("while ") || s.start_with?("for ")
-            line "return INT64_C(0);"
+            # Loops don't yield a value. Emit a trailing nil-of-return-type
+            # so auto return deduction unifies with earlier explicit returns.
+            if @_method_return_type
+              line "return #{@_method_return_type}();"
+            else
+              line "return INT64_C(0);"
+            end
           end
         else
           line "return #{s};"
@@ -966,9 +1184,30 @@ module Frozone
             "#{type} #{name} = #{cr(val)}"
           end
         when Ast::If then cr_if(node)
-        when Ast::Return then node.value_node ? "return #{cr(node.value_node)}" : "return"
-        when Ast::And then "(#{cr(node.left_node)} && #{cr(node.right_node)})"
-        when Ast::Or then "(#{cr(node.left_node)} || #{cr(node.right_node)})"
+        when Ast::Return
+          if node.value_node
+            if node.value_node.is_a?(Ast::NilLiteral) && @_method_return_type
+              "return #{@_method_return_type}(RUBY_NIL)"
+            else
+              "return #{cr(node.value_node)}"
+            end
+          else
+            # Bare `return` — Ruby returns nil. Match return type when known.
+            @_method_return_type ? "return #{@_method_return_type}()" : "return"
+          end
+        when Ast::And
+          # Ruby `a && b`: `a` truthy → `b`, else `a`. Ternary with right's
+          # type as the unified result.
+          l = cr(node.left_node)
+          r = cr(node.right_node)
+          "({ auto _l = (#{l}); auto _r = (#{r}); (_l) ? _r : decltype(_r)(_l); })"
+        when Ast::Or
+          # Ruby `a || b`: `a` truthy → `a`, else `b`. Widen `a` to `b`'s
+          # type (typical pattern: `x || @default` where x may be nil and
+          # @default is the real class type).
+          l = cr(node.left_node)
+          r = cr(node.right_node)
+          "({ auto _l = (#{l}); auto _r = (#{r}); (_l) ? decltype(_r)(_l) : _r; })"
         when Ast::MethodCall then cr_method_call(node)
         when Ast::ConstantRead then cpp_const_name(node.name)
         when Ast::ConstantPath
@@ -1170,6 +1409,23 @@ module Frozone
           end
         end
 
+        # loop { body } — Ruby's Kernel#loop; infinite loop, exits via break.
+        if recv.nil? && name == :loop && node.block_node
+          blk = node.block_node
+          old_indent = "  " * @indent
+          body_str = nil
+          indented do
+            lines = []
+            if blk.body.is_a?(Ast::Sequence)
+              blk.body.nodes.each { |n| lines << ("  " * @indent + cr(n) + ";") }
+            else
+              lines << ("  " * @indent + cr(blk.body) + ";")
+            end
+            body_str = lines.join("\n")
+          end
+          return "while (true) {\n#{body_str}\n#{old_indent}}"
+        end
+
         # .times { |i| block }
         if name == :times && recv && node.block_node
           blk = node.block_node
@@ -1204,6 +1460,13 @@ module Frozone
         # .class — return class name as const char*
         if recv && name == :class && args.empty?
           return "ruby_class(#{cr(recv)})"
+        end
+
+        # .to_s — Ruby String conversion. For user classes, their own
+        # to_s would take precedence (emitted as a method) so we only
+        # intercept when there's no class context to forward to.
+        if recv && name == :to_s && args.empty?
+          return "ruby_to_s(#{cr(recv)})"
         end
 
         # Unary ! and -@ as Ruby method calls with no args

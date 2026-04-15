@@ -7,6 +7,9 @@
 // --- Frozone C++ runtime (minimal) ---
 
 #include <memory>
+#include <type_traits>
+#include <charconv>
+#include <cinttypes>
 
 // Mutable byte-oriented string. Encoding is tracked nominally
 // but all methods operate on bytes (matches Ruby binary semantics).
@@ -107,6 +110,55 @@ template<> inline const char* ruby_class_name<RubyString>() { return "String"; }
 template<> inline const char* ruby_class_name<Ruby_Object>() { return "GenericObject"; }
 template<typename T> static inline const char* ruby_class(const T&) { return ruby_class_name<T>(); }
 
+// to_s — converts primitives to RubyString. Class-specific overrides on user classes.
+template<typename T> static inline RubyString ruby_to_s(T v) {
+  if constexpr (std::is_same_v<T, RubyString>) return v;
+  else if constexpr (std::is_floating_point_v<T>) {
+    char buf[64]; auto r = std::to_chars(buf, buf + sizeof(buf) - 4, (double)v);
+    *r.ptr = 0;
+    bool has_dot = false; for (char* p = buf; p < r.ptr; ++p) if (*p == '.' || *p == 'e' || *p == 'n' || *p == 'i') { has_dot = true; break; }
+    if (!has_dot) { *r.ptr++ = '.'; *r.ptr++ = '0'; *r.ptr = 0; }
+    return RubyString(buf);
+  } else if constexpr (std::is_integral_v<T>) {
+    char buf[32]; snprintf(buf, sizeof(buf), "%lld", (long long)v); return RubyString(buf);
+  } else return RubyString("#<Object>");
+}
+
+// Ruby_Random — MT19937-based (matches Ruby's Random#rand semantics).
+class Ruby_Random {
+public:
+  uint32_t mt[624];
+  int index = 624;
+  Ruby_Random() = default;
+  Ruby_Random(int64_t seed) { reseed((uint32_t)seed); }
+  void reseed(uint32_t seed) {
+    mt[0] = seed;
+    for (int i = 1; i < 624; i++) mt[i] = 1812433253U * (mt[i-1] ^ (mt[i-1] >> 30)) + (uint32_t)i;
+    index = 624;
+  }
+  uint32_t next_u32() {
+    if (index >= 624) { generate(); index = 0; }
+    uint32_t y = mt[index++];
+    y ^= (y >> 11); y ^= (y << 7) & 0x9D2C5680U;
+    y ^= (y << 15) & 0xEFC60000U; y ^= (y >> 18);
+    return y;
+  }
+  void generate() {
+    for (int i = 0; i < 624; i++) {
+      uint32_t y = (mt[i] & 0x80000000U) | (mt[(i+1) % 624] & 0x7fffffffU);
+      mt[i] = mt[(i+397) % 624] ^ (y >> 1);
+      if (y & 1) mt[i] ^= 0x9908B0DFU;
+    }
+  }
+  double rand() {
+    uint32_t a = next_u32() >> 5, b = next_u32() >> 6;
+    return (a * 67108864.0 + b) * (1.0 / 9007199254740992.0);
+  }
+  int64_t rand(int64_t n) { return (int64_t)(rand() * n); }
+  bool nil_q() const { return false; }
+};
+template<> inline const char* ruby_class_name<Ruby_Random>() { return "Random"; }
+
 // Ruby-flavored puts: chooses format based on type
 #include <type_traits>
 #include <charconv>
@@ -137,14 +189,20 @@ static auto make_shareable(auto x) {
 }
 
 static auto sd_genmat() {
+  int64_t r = 0;
+  int64_t i = 0;
+  int64_t j = 0;
+  int64_t k = 0;
+  int64_t r2 = 0;
+  int64_t c2 = 0;
   auto mr = ({ auto _n = INT64_C(324); int64_t _ai = 0; auto _e0 = RubyArray_I64(0); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (_ai = 1; _ai < _n; _ai++) { _arr[_ai] = RubyArray_I64(0); } _arr; });
   auto mc = ({ auto _n = INT64_C(729); int64_t _ai = 0; auto _e0 = make_ra(INT64_C(4), INT64_C(0)); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (_ai = 1; _ai < _n; _ai++) { _arr[_ai] = make_ra(INT64_C(4), INT64_C(0)); } _arr; });
-  int64_t r = INT64_C(0);
-  int64_t i = INT64_C(0);
+  r = INT64_C(0);
+  i = INT64_C(0);
   while ((i < INT64_C(9))) {
-    int64_t j = INT64_C(0);
+    j = INT64_C(0);
     while ((j < INT64_C(9))) {
-    int64_t k = INT64_C(0);
+    k = INT64_C(0);
     while ((k < INT64_C(9))) {
     auto& mcr = mc[r];
     mcr[INT64_C(0)] = ((INT64_C(9) * i) + j);
@@ -158,9 +216,9 @@ static auto sd_genmat() {
   };
     i = (i + INT64_C(1));
   }
-  int64_t r2 = INT64_C(0);
+  r2 = INT64_C(0);
   while ((r2 < INT64_C(729))) {
-    int64_t c2 = INT64_C(0);
+    c2 = INT64_C(0);
     while ((c2 < INT64_C(4))) {
     (mr[mc[r2][c2]] << r2);
     c2 = (c2 + INT64_C(1));
@@ -171,10 +229,15 @@ static auto sd_genmat() {
 }
 
 static auto sd_update_forward(auto mr, auto mc, auto sr, auto sc, auto r) {
-  int64_t min = INT64_C(10);
-  int64_t min_c = INT64_C(0);
+  int64_t min = 0;
+  int64_t min_c = 0;
+  int64_t c2 = 0;
+  int64_t r2 = 0;
+  int64_t cc2 = 0;
+  min = INT64_C(10);
+  min_c = INT64_C(0);
   auto& mcr = mc[r];
-  int64_t c2 = INT64_C(0);
+  c2 = INT64_C(0);
   while ((c2 < INT64_C(4))) {
     sc[mcr[c2]] += INT64_C(128);
     c2 = (c2 + INT64_C(1));
@@ -182,11 +245,11 @@ static auto sd_update_forward(auto mr, auto mc, auto sr, auto sc, auto r) {
   c2 = INT64_C(0);
   while ((c2 < INT64_C(4))) {
     auto& mrc = mr[mcr[c2]];
-    int64_t r2 = INT64_C(0);
+    r2 = INT64_C(0);
     while ((r2 < INT64_C(9))) {
     auto& rr = mrc[r2];
     if ((sr[rr] += INT64_C(1) == INT64_C(1))) {
-    auto& p = mc[rr]; int64_t cc2 = INT64_C(0); while ((cc2 < INT64_C(4))) {
+    auto& p = mc[rr]; cc2 = INT64_C(0); while ((cc2 < INT64_C(4))) {
       auto& cc = p[cc2];
       if ((sc[cc] -= INT64_C(1) < min)) {
       min = sc[cc]; min_c = cc;
@@ -202,7 +265,9 @@ static auto sd_update_forward(auto mr, auto mc, auto sr, auto sc, auto r) {
 }
 
 static auto sd_update_reverse(auto mr, auto mc, auto sr, auto sc, auto r) {
-  int64_t c2 = INT64_C(0);
+  int64_t c2 = 0;
+  int64_t r2 = 0;
+  c2 = INT64_C(0);
   while ((c2 < INT64_C(4))) {
     sc[mc[r][c2]] -= INT64_C(128);
     c2 = (c2 + INT64_C(1));
@@ -210,7 +275,7 @@ static auto sd_update_reverse(auto mr, auto mc, auto sr, auto sc, auto r) {
   c2 = INT64_C(0);
   while ((c2 < INT64_C(4))) {
     auto& c = mc[r][c2];
-    int64_t r2 = INT64_C(0);
+    r2 = INT64_C(0);
     while ((r2 < INT64_C(9))) {
     auto& rr = mr[c][r2];
     if ((sr[rr] -= INT64_C(1) == INT64_C(0))) {
@@ -224,13 +289,20 @@ static auto sd_update_reverse(auto mr, auto mc, auto sr, auto sc, auto r) {
 }
 
 static auto sd_solve(auto mr, auto mc, auto s) {
+  int64_t hints = 0;
+  int64_t i = 0;
+  int64_t a = 0;
+  int64_t min = 0;
+  int64_t dir = 0;
+  int64_t c = 0;
+  int64_t j = 0;
   auto sr = make_ra(INT64_C(729), INT64_C(0));
   auto sc = make_ra(INT64_C(324), INT64_C(9));
-  int64_t hints = INT64_C(0);
-  int64_t i = INT64_C(0);
+  hints = INT64_C(0);
+  i = INT64_C(0);
   while ((i < INT64_C(81))) {
     auto& char = s[i];
-    int64_t a = if (((char >= RubyString("1", 1)) && (char <= RubyString("9", 1)))) {
+    a = if (({ auto _l = ((char >= RubyString("1", 1))); auto _r = ((char <= RubyString("9", 1))); (_l) ? _r : decltype(_r)(_l); })) {
     (char.ord() - INT64_C(49));
   } else {
     INT64_C(-1);
@@ -243,13 +315,13 @@ static auto sd_solve(auto mr, auto mc, auto s) {
   auto cr = make_ra(INT64_C(81), INT64_C(-1));
   auto cc = make_ra(INT64_C(81), INT64_C(0));
   i = INT64_C(0);
-  int64_t min = INT64_C(10);
-  int64_t dir = INT64_C(1);
+  min = INT64_C(10);
+  dir = INT64_C(1);
   while (true) {
-    while (((i >= INT64_C(0)) && (i < (INT64_C(81) - hints)))) {
+    while (({ auto _l = ((i >= INT64_C(0))); auto _r = ((i < (INT64_C(81) - hints))); (_l) ? _r : decltype(_r)(_l); })) {
     if ((dir == INT64_C(1))) {
     if ((min > INT64_C(1))) {
-      int64_t c = INT64_C(0); while ((c < INT64_C(324))) {
+      c = INT64_C(0); while ((c < INT64_C(324))) {
         if ((sc[c] < min)) {
         min = sc[c]; cc[i] = c; if ((min < INT64_C(2))) {
           break;
@@ -257,16 +329,16 @@ static auto sd_solve(auto mr, auto mc, auto s) {
       };
         c = (c + INT64_C(1));
       };
-    }; if (((min == INT64_C(0)) || (min == INT64_C(10)))) {
+    }; if (({ auto _l = ((min == INT64_C(0))); auto _r = ((min == INT64_C(10))); (_l) ? decltype(_r)(_l) : _r; })) {
       cr[i] = dir = INT64_C(-1); i = (i - INT64_C(1));
     };
   };
     c = cc[i];
-    if (((dir == INT64_C(-1)) && (cr[i] >= INT64_C(0)))) {
+    if (({ auto _l = ((dir == INT64_C(-1))); auto _r = ((cr[i] >= INT64_C(0))); (_l) ? _r : decltype(_r)(_l); })) {
     sd_update_reverse(mr, mc, sr, sc, mr[c][cr[i]]);
   };
     auto r2 = (cr[i] + INT64_C(1));
-    while (((r2 < INT64_C(9)) && (sr[mr[c][r2]] != INT64_C(0)))) {
+    while (({ auto _l = ((r2 < INT64_C(9))); auto _r = ((sr[mr[c][r2]] != INT64_C(0))); (_l) ? _r : decltype(_r)(_l); })) {
     r2 = (r2 + INT64_C(1));
   };
     if ((r2 < INT64_C(9))) {
@@ -279,7 +351,7 @@ static auto sd_solve(auto mr, auto mc, auto s) {
     break;
   };
     auto o = make_ra(INT64_C(81), INT64_C(0));
-    int64_t j = INT64_C(0);
+    j = INT64_C(0);
     while ((j < INT64_C(81))) {
     o[j] = (s[j].ord() - INT64_C(48));
     j = (j + INT64_C(1));

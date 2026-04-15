@@ -7,6 +7,9 @@
 // --- Frozone C++ runtime (minimal) ---
 
 #include <memory>
+#include <type_traits>
+#include <charconv>
+#include <cinttypes>
 
 // Mutable byte-oriented string. Encoding is tracked nominally
 // but all methods operate on bytes (matches Ruby binary semantics).
@@ -107,6 +110,55 @@ template<> inline const char* ruby_class_name<RubyString>() { return "String"; }
 template<> inline const char* ruby_class_name<Ruby_Object>() { return "GenericObject"; }
 template<typename T> static inline const char* ruby_class(const T&) { return ruby_class_name<T>(); }
 
+// to_s — converts primitives to RubyString. Class-specific overrides on user classes.
+template<typename T> static inline RubyString ruby_to_s(T v) {
+  if constexpr (std::is_same_v<T, RubyString>) return v;
+  else if constexpr (std::is_floating_point_v<T>) {
+    char buf[64]; auto r = std::to_chars(buf, buf + sizeof(buf) - 4, (double)v);
+    *r.ptr = 0;
+    bool has_dot = false; for (char* p = buf; p < r.ptr; ++p) if (*p == '.' || *p == 'e' || *p == 'n' || *p == 'i') { has_dot = true; break; }
+    if (!has_dot) { *r.ptr++ = '.'; *r.ptr++ = '0'; *r.ptr = 0; }
+    return RubyString(buf);
+  } else if constexpr (std::is_integral_v<T>) {
+    char buf[32]; snprintf(buf, sizeof(buf), "%lld", (long long)v); return RubyString(buf);
+  } else return RubyString("#<Object>");
+}
+
+// Ruby_Random — MT19937-based (matches Ruby's Random#rand semantics).
+class Ruby_Random {
+public:
+  uint32_t mt[624];
+  int index = 624;
+  Ruby_Random() = default;
+  Ruby_Random(int64_t seed) { reseed((uint32_t)seed); }
+  void reseed(uint32_t seed) {
+    mt[0] = seed;
+    for (int i = 1; i < 624; i++) mt[i] = 1812433253U * (mt[i-1] ^ (mt[i-1] >> 30)) + (uint32_t)i;
+    index = 624;
+  }
+  uint32_t next_u32() {
+    if (index >= 624) { generate(); index = 0; }
+    uint32_t y = mt[index++];
+    y ^= (y >> 11); y ^= (y << 7) & 0x9D2C5680U;
+    y ^= (y << 15) & 0xEFC60000U; y ^= (y >> 18);
+    return y;
+  }
+  void generate() {
+    for (int i = 0; i < 624; i++) {
+      uint32_t y = (mt[i] & 0x80000000U) | (mt[(i+1) % 624] & 0x7fffffffU);
+      mt[i] = mt[(i+397) % 624] ^ (y >> 1);
+      if (y & 1) mt[i] ^= 0x9908B0DFU;
+    }
+  }
+  double rand() {
+    uint32_t a = next_u32() >> 5, b = next_u32() >> 6;
+    return (a * 67108864.0 + b) * (1.0 / 9007199254740992.0);
+  }
+  int64_t rand(int64_t n) { return (int64_t)(rand() * n); }
+  bool nil_q() const { return false; }
+};
+template<> inline const char* ruby_class_name<Ruby_Random>() { return "Random"; }
+
 // Ruby-flavored puts: chooses format based on type
 #include <type_traits>
 #include <charconv>
@@ -143,6 +195,8 @@ static auto matgen(auto n) {
 }
 
 static auto matmul(auto a, auto b) {
+  int64_t k = 0;
+  int64_t j = 0;
   auto m = a.len();
   auto n = a[INT64_C(0)].len();
   auto p = b[INT64_C(0)].len();
@@ -150,11 +204,11 @@ static auto matmul(auto a, auto b) {
   for (int64_t i = INT64_C(0); i < m; i++) {
     auto& ci = c[i];
     auto& ai = a[i];
-    int64_t k = INT64_C(0);
+    k = INT64_C(0);
     while ((k < n)) {
     auto& aik = ai[k];
     auto& bk = b[k];
-    int64_t j = INT64_C(0);
+    j = INT64_C(0);
     while ((j < p)) {
     ci[j] += (aik * bk[j]);
     j = (j + INT64_C(1));
