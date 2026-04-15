@@ -69,6 +69,37 @@ public:
     return (*data)[i];
   }
   RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }
+  // .delete_at(i) — remove and return element at index (Ruby-style).
+  T delete_at(int64_t i) {
+    if (i < 0) i += (int64_t)data->size();
+    if (i < 0 || i >= (int64_t)data->size()) return T{};
+    T v = (*data)[i];
+    data->erase(data->begin() + i);
+    return v;
+  }
+  // .insert(i, v) — insert v at index i, shifting right.
+  RubyArray& insert(int64_t i, const T& v) {
+    if (i < 0) i += (int64_t)data->size() + 1;
+    if (i < 0) i = 0;
+    if (i > (int64_t)data->size()) i = (int64_t)data->size();
+    data->insert(data->begin() + i, v);
+    return *this;
+  }
+  // .slice_assign(lo, hi_incl, other) — replace elements [lo..hi_incl] with other's elements.
+  void slice_assign(int64_t lo, int64_t hi_incl, const RubyArray& other) {
+    if (lo < 0) lo += (int64_t)data->size();
+    if (hi_incl < 0) hi_incl += (int64_t)data->size();
+    if (lo < 0) lo = 0;
+    if (hi_incl >= (int64_t)data->size()) hi_incl = (int64_t)data->size() - 1;
+    data->erase(data->begin() + lo, data->begin() + hi_incl + 1);
+    data->insert(data->begin() + lo, other.data->begin(), other.data->end());
+  }
+  // .dup — deep copy of the backing vector (breaks shared_ptr aliasing).
+  RubyArray dup_() const {
+    RubyArray out;
+    *out.data = *data;
+    return out;
+  }
   // .join — concatenate elements (with optional separator) into a RubyString.
   RubyString join(const RubyString& sep = RubyString()) const {
     RubyString out;
@@ -84,6 +115,14 @@ using RubyArray_I64 = RubyArray<int64_t>;
 using RubyArray_F64 = RubyArray<double>;
 // Helper: deduce array element type from fill value
 template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
+// (lo..hi).to_a / (lo...hi).to_a — int64_t range enumeration.
+static inline RubyArray<int64_t> ruby_range_to_a(int64_t lo, int64_t hi, bool exclusive) {
+  int64_t end_inclusive = exclusive ? hi - 1 : hi;
+  int64_t n = end_inclusive < lo ? 0 : (end_inclusive - lo + 1);
+  RubyArray<int64_t> a(n);
+  for (int64_t i = 0; i < n; i++) (*a.data)[i] = lo + i;
+  return a;
+}
 
 struct RubyNil;
 
@@ -205,6 +244,14 @@ template<typename T> static inline void ruby_puts(T v) {
   } else if constexpr (std::is_same_v<T, RubyString>) {
     fwrite(v.bytes.data(), 1, v.bytes.size(), stdout);
     fputc('\n', stdout);
+  } else if constexpr (requires { v.len(); v[0]; }) {
+    // RubyArray: Ruby's puts emits `[e1, e2, ...]` (inspect-style)
+    printf("[");
+    for (int64_t i = 0; i < v.len(); i++) {
+      printf(i == 0 ? "" : ", ");
+      auto x = v[i]; printf("%lld", (long long)x);
+    }
+    printf("]\n");
   } else {
     printf("#<Object>\n");
   }
@@ -232,8 +279,18 @@ struct Ruby_Planet {
   Ruby_Planet() = default;
   Ruby_Planet(const RubyNil&) {}
   Ruby_Planet(auto x, auto y, auto z, auto vx, auto vy, auto vz, auto mass) : p(std::make_shared<Impl>()) {
-    p->iv_x = x; p->iv_y = y; p->iv_z = z;
-    p->iv_vx = (vx * DAYS_PER_YEAR); p->iv_vy = (vy * DAYS_PER_YEAR); p->iv_vz = (vz * DAYS_PER_YEAR);
+    auto _t1_0 = x;
+    auto _t1_1 = y;
+    auto _t1_2 = z;
+    p->iv_x = _t1_0;
+    p->iv_y = _t1_1;
+    p->iv_z = _t1_2;
+    auto _t2_0 = (vx * DAYS_PER_YEAR);
+    auto _t2_1 = (vy * DAYS_PER_YEAR);
+    auto _t2_2 = (vz * DAYS_PER_YEAR);
+    p->iv_vx = _t2_0;
+    p->iv_vy = _t2_1;
+    p->iv_vz = _t2_2;
     p->iv_mass = (mass * SOLAR_MASS);
   }
 
@@ -302,19 +359,29 @@ struct Ruby_Planet {
 
   auto move_from_i(auto bodies, auto nbodies, auto dt, auto i) {
     std::decay_t<decltype(bodies[i])> b2{};
+    std::decay_t<decltype((p->iv_x - b2.x()))> dx{};
+    std::decay_t<decltype((p->iv_y - b2.y()))> dy{};
+    std::decay_t<decltype((p->iv_z - b2.z()))> dz{};
+    std::decay_t<decltype((((dx * dx) + (dy * dy)) + (dz * dz)))> dsq{};
+    std::decay_t<decltype((dt / (dsq * sqrt(dsq))))> mag{};
+    std::decay_t<decltype((p->iv_mass * mag))> b_mass_mag{};
+    std::decay_t<decltype((b2.mass() * mag))> b2_mass_mag{};
     while ((i < nbodies)) {
-      b2 = bodies[i];
-      auto dx = (p->iv_x - b2.x());
-      auto dy = (p->iv_y - b2.y());
-      auto dz = (p->iv_z - b2.z());
-      auto dsq = (((dx * dx) + (dy * dy)) + (dz * dz));
-      auto mag = (dt / (dsq * sqrt(dsq)));
-      auto b_mass_mag = (p->iv_mass * mag); auto b2_mass_mag = (b2.mass() * mag);
+      (b2 = bodies[i]);
+      (dx = (p->iv_x - b2.x()));
+      (dy = (p->iv_y - b2.y()));
+      (dz = (p->iv_z - b2.z()));
+      (dsq = (((dx * dx) + (dy * dy)) + (dz * dz)));
+      (mag = (dt / (dsq * sqrt(dsq))));
+      auto _t3_0 = (p->iv_mass * mag);
+      auto _t3_1 = (b2.mass() * mag);
+      b_mass_mag = _t3_0;
+      b2_mass_mag = _t3_1;
       p->iv_vx = (p->iv_vx - (dx * b2_mass_mag));
       p->iv_vy = (p->iv_vy - (dy * b2_mass_mag));
       p->iv_vz = (p->iv_vz - (dz * b2_mass_mag));
       b2.add_v((dx * b_mass_mag), (dy * b_mass_mag), (dz * b_mass_mag));
-      i = (i + INT64_C(1));
+      (i = (i + INT64_C(1)));
     }
     p->iv_x = (p->iv_x + (dt * p->iv_vx));
     p->iv_y = (p->iv_y + (dt * p->iv_vy));
@@ -337,34 +404,42 @@ template<> inline const char* ruby_class_name<Ruby_Planet>() { return "Planet"; 
 static auto energy(auto bodies) {
   double e = 0.0;
   std::decay_t<decltype(bodies.len())> nbodies{};
-  e = 0.0;
-  nbodies = bodies.len();
+  (e = 0.0);
+  (nbodies = bodies.len());
   for (int64_t i = INT64_C(0); i < nbodies; i++) {
     auto b = bodies[i];
-    e = (e + ((0.5 * b.mass()) * (((b.vx() * b.vx()) + (b.vy() * b.vy())) + (b.vz() * b.vz()))));
+    (e = (e + ((0.5 * b.mass()) * (((b.vx() * b.vx()) + (b.vy() * b.vy())) + (b.vz() * b.vz())))));
     for (int64_t j = (i + INT64_C(1)); j < nbodies; j++) {
     auto b2 = bodies[j];
     auto dx = (b.x() - b2.x());
     auto dy = (b.y() - b2.y());
     auto dz = (b.z() - b2.z());
     auto distance = sqrt((((dx * dx) + (dy * dy)) + (dz * dz)));
-    e = (e - ((b.mass() * b2.mass()) / distance));
+    (e = (e - ((b.mass() * b2.mass()) / distance)));
   };
   }
   return e;
 }
 
 static auto offset_momentum(auto bodies) {
+  double px = 0.0;
+  double py = 0.0;
+  double pz = 0.0;
   std::decay_t<decltype(bodies[INT64_C(0)])> b{};
-  auto px = 0.0; auto py = 0.0; auto pz = 0.0;
+  auto _t4_0 = 0.0;
+  auto _t4_1 = 0.0;
+  auto _t4_2 = 0.0;
+  px = _t4_0;
+  py = _t4_1;
+  pz = _t4_2;
   for (int64_t _fi = 0; _fi < (bodies).len(); _fi++) {
     b = (bodies)[_fi];
     auto m = b.mass();
-    px = (px + (b.vx() * m));
-    py = (py + (b.vy() * m));
-    pz = (pz + (b.vz() * m));
+    (px = (px + (b.vx() * m)));
+    (py = (py + (b.vy() * m)));
+    (pz = (pz + (b.vz() * m)));
   }
-  b = bodies[INT64_C(0)];
+  (b = bodies[INT64_C(0)]);
   b.set_vx(((-(px)) / SOLAR_MASS));
   b.set_vy(((-(py)) / SOLAR_MASS));
   return b.set_vz(((-(pz)) / SOLAR_MASS));
@@ -373,21 +448,28 @@ static auto offset_momentum(auto bodies) {
 
 int main() {
   double last_x = 0.0;
+  std::decay_t<decltype(NBODIES)> nbodies{};
+  std::decay_t<decltype(N)> n{};
+  double dt = 0.0;
+  RubyArray<Ruby_Planet> bodies;
+  int64_t i = 0;
+  std::decay_t<decltype(bodies[i])> b{};
+  (last_x = 0.0);
   for (int64_t _i = 0; _i < INT64_C(100); _i++) {
-    auto nbodies = NBODIES;
-    auto n = N;
-    double dt = DT;
-    auto bodies = ({ auto _e0 = Ruby_Planet(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0); auto _a = RubyArray<decltype(_e0)>(5); _a[0] = _e0; _a[1] = Ruby_Planet(4.841431442464721, -1.1603200440274284, -0.10362204447112311, 0.001660076642744037, 0.007699011184197404, -6.90460016972063e-05, 0.0009547919384243266); _a[2] = Ruby_Planet(8.34336671824458, 4.124798564124305, -0.4035234171143214, -0.002767425107268624, 0.004998528012349172, 2.3041729757376393e-05, 0.0002858859806661308); _a[3] = Ruby_Planet(12.894369562139131, -15.111151401698631, -0.22330757889265573, 0.002964601375647616, 0.0023784717395948095, -2.9658956854023756e-05, 4.366244043351563e-05); _a[4] = Ruby_Planet(15.379697114850917, -25.919314609987964, 0.17925877295037118, 0.0026806777249038932, 0.001628241700382423, -9.515922545197159e-05, 5.1513890204661145e-05); _a; });
+    (nbodies = NBODIES);
+    (n = N);
+    (dt = DT);
+    (bodies = ({ auto _e0 = Ruby_Planet(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0); auto _a = RubyArray<decltype(_e0)>(5); _a[0] = _e0; _a[1] = Ruby_Planet(4.841431442464721, -1.1603200440274284, -0.10362204447112311, 0.001660076642744037, 0.007699011184197404, -6.90460016972063e-05, 0.0009547919384243266); _a[2] = Ruby_Planet(8.34336671824458, 4.124798564124305, -0.4035234171143214, -0.002767425107268624, 0.004998528012349172, 2.3041729757376393e-05, 0.0002858859806661308); _a[3] = Ruby_Planet(12.894369562139131, -15.111151401698631, -0.22330757889265573, 0.002964601375647616, 0.0023784717395948095, -2.9658956854023756e-05, 4.366244043351563e-05); _a[4] = Ruby_Planet(15.379697114850917, -25.919314609987964, 0.17925877295037118, 0.0026806777249038932, 0.001628241700382423, -9.515922545197159e-05, 5.1513890204661145e-05); _a; }));
     offset_momentum(bodies);
     for (int64_t _i = 0; _i < n; _i++) {
-      int64_t i = INT64_C(0);
+      (i = INT64_C(0));
       while ((i < nbodies)) {
-        auto b = bodies[i];
+        (b = bodies[i]);
         b.move_from_i(bodies, nbodies, dt, (i + INT64_C(1)));
-        i = (i + INT64_C(1));
+        (i = (i + INT64_C(1)));
       };
     };
-    last_x = bodies[INT64_C(0)].x();
+    (last_x = bodies[INT64_C(0)].x());
   }
   ruby_puts(last_x);
   return 0;

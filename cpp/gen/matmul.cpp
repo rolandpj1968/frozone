@@ -69,6 +69,37 @@ public:
     return (*data)[i];
   }
   RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }
+  // .delete_at(i) — remove and return element at index (Ruby-style).
+  T delete_at(int64_t i) {
+    if (i < 0) i += (int64_t)data->size();
+    if (i < 0 || i >= (int64_t)data->size()) return T{};
+    T v = (*data)[i];
+    data->erase(data->begin() + i);
+    return v;
+  }
+  // .insert(i, v) — insert v at index i, shifting right.
+  RubyArray& insert(int64_t i, const T& v) {
+    if (i < 0) i += (int64_t)data->size() + 1;
+    if (i < 0) i = 0;
+    if (i > (int64_t)data->size()) i = (int64_t)data->size();
+    data->insert(data->begin() + i, v);
+    return *this;
+  }
+  // .slice_assign(lo, hi_incl, other) — replace elements [lo..hi_incl] with other's elements.
+  void slice_assign(int64_t lo, int64_t hi_incl, const RubyArray& other) {
+    if (lo < 0) lo += (int64_t)data->size();
+    if (hi_incl < 0) hi_incl += (int64_t)data->size();
+    if (lo < 0) lo = 0;
+    if (hi_incl >= (int64_t)data->size()) hi_incl = (int64_t)data->size() - 1;
+    data->erase(data->begin() + lo, data->begin() + hi_incl + 1);
+    data->insert(data->begin() + lo, other.data->begin(), other.data->end());
+  }
+  // .dup — deep copy of the backing vector (breaks shared_ptr aliasing).
+  RubyArray dup_() const {
+    RubyArray out;
+    *out.data = *data;
+    return out;
+  }
   // .join — concatenate elements (with optional separator) into a RubyString.
   RubyString join(const RubyString& sep = RubyString()) const {
     RubyString out;
@@ -84,6 +115,14 @@ using RubyArray_I64 = RubyArray<int64_t>;
 using RubyArray_F64 = RubyArray<double>;
 // Helper: deduce array element type from fill value
 template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
+// (lo..hi).to_a / (lo...hi).to_a — int64_t range enumeration.
+static inline RubyArray<int64_t> ruby_range_to_a(int64_t lo, int64_t hi, bool exclusive) {
+  int64_t end_inclusive = exclusive ? hi - 1 : hi;
+  int64_t n = end_inclusive < lo ? 0 : (end_inclusive - lo + 1);
+  RubyArray<int64_t> a(n);
+  for (int64_t i = 0; i < n; i++) (*a.data)[i] = lo + i;
+  return a;
+}
 
 struct RubyNil;
 
@@ -205,6 +244,14 @@ template<typename T> static inline void ruby_puts(T v) {
   } else if constexpr (std::is_same_v<T, RubyString>) {
     fwrite(v.bytes.data(), 1, v.bytes.size(), stdout);
     fputc('\n', stdout);
+  } else if constexpr (requires { v.len(); v[0]; }) {
+    // RubyArray: Ruby's puts emits `[e1, e2, ...]` (inspect-style)
+    printf("[");
+    for (int64_t i = 0; i < v.len(); i++) {
+      printf(i == 0 ? "" : ", ");
+      auto x = v[i]; printf("%lld", (long long)x);
+    }
+    printf("]\n");
   } else {
     printf("#<Object>\n");
   }
@@ -221,7 +268,7 @@ static auto make_shareable(auto x) {
 
 static auto matgen(auto n) {
   std::decay_t<decltype(((1.0 / n) / n))> tmp{};
-  tmp = ((1.0 / n) / n);
+  (tmp = ((1.0 / n) / n));
   return ({ auto _n = n; int64_t i = 0; auto _e0 = ({ auto _n = n; int64_t j = 0; auto _e0 = ((tmp * (i - j)) * (i + j)); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (j = 1; j < _n; j++) { _arr[j] = ((tmp * (i - j)) * (i + j)); } _arr; }); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (i = 1; i < _n; i++) { _arr[i] = ({ auto _n = n; int64_t j = 0; auto _e0 = ((tmp * (i - j)) * (i + j)); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (j = 1; j < _n; j++) { _arr[j] = ((tmp * (i - j)) * (i + j)); } _arr; }); } _arr; });
 }
 
@@ -230,24 +277,25 @@ static auto matmul(auto a, auto b) {
   std::decay_t<decltype(a[INT64_C(0)].len())> n{};
   std::decay_t<decltype(b[INT64_C(0)].len())> p{};
   int64_t k = 0;
+  std::decay_t<decltype(b[k])> bk{};
   int64_t j = 0;
-  m = a.len();
-  n = a[INT64_C(0)].len();
-  p = b[INT64_C(0)].len();
+  (m = a.len());
+  (n = a[INT64_C(0)].len());
+  (p = b[INT64_C(0)].len());
   auto c = ({ auto _n = m; int64_t _ai = 0; auto _e0 = make_ra(p, 0.0); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (_ai = 1; _ai < _n; _ai++) { _arr[_ai] = make_ra(p, 0.0); } _arr; });
   for (int64_t i = INT64_C(0); i < m; i++) {
     auto ci = c[i];
     auto ai = a[i];
-    k = INT64_C(0);
+    (k = INT64_C(0));
     while ((k < n)) {
     auto aik = ai[k];
-    auto bk = b[k];
-    j = INT64_C(0);
+    (bk = b[k]);
+    (j = INT64_C(0));
     while ((j < p)) {
     ci[j] += (aik * bk[j]);
-    j = (j + INT64_C(1));
+    (j = (j + INT64_C(1)));
   };
-    k = (k + INT64_C(1));
+    (k = (k + INT64_C(1)));
   };
   }
   return c;
@@ -256,11 +304,15 @@ static auto matmul(auto a, auto b) {
 
 int main() {
   double last = 0.0;
+  std::decay_t<decltype(matgen(N))> a{};
+  std::decay_t<decltype(matgen(N))> b{};
+  std::decay_t<decltype(matmul(a, b))> c{};
+  (last = 0.0);
   for (int64_t _i = 0; _i < INT64_C(20); _i++) {
-    auto a = matgen(N);
-    auto b = matgen(N);
-    auto c = matmul(a, b);
-    last = c[(N / INT64_C(2))][(N / INT64_C(2))];
+    (a = matgen(N));
+    (b = matgen(N));
+    (c = matmul(a, b));
+    (last = c[(N / INT64_C(2))][(N / INT64_C(2))]);
   }
   ruby_puts(last);
   return 0;

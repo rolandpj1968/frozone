@@ -37,6 +37,7 @@ module Frozone
         # converge in two iterations.
         @_class_ivar_types = {}
         @_class_method_return_types = {}
+        @_top_level_method_return_types = {}
         3.times do
           @_ctor_param_types = collect_ctor_param_types(execute_block, top_level_scope)
           changed = false
@@ -44,7 +45,6 @@ module Frozone
             new_types = infer_ivar_types(cls)
             changed = true if @_class_ivar_types[cls.name] != new_types
             @_class_ivar_types[cls.name] = new_types
-            # Cache method return types for local_decl_type resolution.
             @_current_wrapper_name = "Ruby_#{cls.name}"
             ret_types = {}
             (cls.methods_table || {}).each do |mname, m|
@@ -55,6 +55,13 @@ module Frozone
             @_class_method_return_types[cls.name] = ret_types
           end
           @_current_wrapper_name = nil
+          # Top-level method return types (free functions).
+          (top_level_scope.methods_table || {}).each do |mname, m|
+            next unless m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+            rt = infer_method_return_type(m)
+            @_top_level_method_return_types[mname] = rt if rt
+          end
+          $stderr.puts "DBG top_level_rt=#{@_top_level_method_return_types.inspect}" if ENV['CPP_DEBUG']
           break unless changed
         end
         emit_header
@@ -194,6 +201,45 @@ module Frozone
           indented { line "return (*data)[i];" }
           line "}"
           line "RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }"
+          line "// .delete_at(i) — remove and return element at index (Ruby-style)."
+          line "T delete_at(int64_t i) {"
+          indented do
+            line "if (i < 0) i += (int64_t)data->size();"
+            line "if (i < 0 || i >= (int64_t)data->size()) return T{};"
+            line "T v = (*data)[i];"
+            line "data->erase(data->begin() + i);"
+            line "return v;"
+          end
+          line "}"
+          line "// .insert(i, v) — insert v at index i, shifting right."
+          line "RubyArray& insert(int64_t i, const T& v) {"
+          indented do
+            line "if (i < 0) i += (int64_t)data->size() + 1;"
+            line "if (i < 0) i = 0;"
+            line "if (i > (int64_t)data->size()) i = (int64_t)data->size();"
+            line "data->insert(data->begin() + i, v);"
+            line "return *this;"
+          end
+          line "}"
+          line "// .slice_assign(lo, hi_incl, other) — replace elements [lo..hi_incl] with other's elements."
+          line "void slice_assign(int64_t lo, int64_t hi_incl, const RubyArray& other) {"
+          indented do
+            line "if (lo < 0) lo += (int64_t)data->size();"
+            line "if (hi_incl < 0) hi_incl += (int64_t)data->size();"
+            line "if (lo < 0) lo = 0;"
+            line "if (hi_incl >= (int64_t)data->size()) hi_incl = (int64_t)data->size() - 1;"
+            line "data->erase(data->begin() + lo, data->begin() + hi_incl + 1);"
+            line "data->insert(data->begin() + lo, other.data->begin(), other.data->end());"
+          end
+          line "}"
+          line "// .dup — deep copy of the backing vector (breaks shared_ptr aliasing)."
+          line "RubyArray dup_() const {"
+          indented do
+            line "RubyArray out;"
+            line "*out.data = *data;"
+            line "return out;"
+          end
+          line "}"
           line "// .join — concatenate elements (with optional separator) into a RubyString."
           line "RubyString join(const RubyString& sep = RubyString()) const {"
           indented do
@@ -212,6 +258,16 @@ module Frozone
         line "using RubyArray_F64 = RubyArray<double>;"
         line "// Helper: deduce array element type from fill value"
         line "template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }"
+        line "// (lo..hi).to_a / (lo...hi).to_a — int64_t range enumeration."
+        line "static inline RubyArray<int64_t> ruby_range_to_a(int64_t lo, int64_t hi, bool exclusive) {"
+        indented do
+          line "int64_t end_inclusive = exclusive ? hi - 1 : hi;"
+          line "int64_t n = end_inclusive < lo ? 0 : (end_inclusive - lo + 1);"
+          line "RubyArray<int64_t> a(n);"
+          line "for (int64_t i = 0; i < n; i++) (*a.data)[i] = lo + i;"
+          line "return a;"
+        end
+        line "}"
         emit_newline
         # RubyNil forward declaration — RubyTree references it in its ctor
         line "struct RubyNil;"
@@ -366,6 +422,16 @@ module Frozone
           indented do
             line "fwrite(v.bytes.data(), 1, v.bytes.size(), stdout);"
             line 'fputc(\'\\n\', stdout);'
+          end
+          line "} else if constexpr (requires { v.len(); v[0]; }) {"
+          indented do
+            line "// RubyArray: Ruby's puts emits `[e1, e2, ...]` (inspect-style)"
+            line "printf(\"[\");"
+            line "for (int64_t i = 0; i < v.len(); i++) {"
+            indented { line 'printf(i == 0 ? "" : ", ");' }
+            indented { line "auto x = v[i]; printf(\"%lld\", (long long)x);" }
+            line "}"
+            line 'printf("]\\n");'
           end
           line "} else {"
           indented { line 'printf("#<Object>\\n");' }
@@ -713,10 +779,14 @@ module Frozone
       def widen_type(existing, new_t)
         return new_t if existing.nil?
         return existing if existing == new_t
+        # "auto" = unknown; treat as least specific, never let it clobber
+        # a concrete type.
+        return existing if new_t == "auto"
+        return new_t if existing == "auto"
         return new_t if existing == "int64_t"
         return existing if new_t == "int64_t"
         return "double" if [existing, new_t].include?("double")
-        existing   # otherwise retain first-seen
+        existing
       end
 
       # Scans every method body on `cls` for ivar writes and tries to infer
@@ -863,17 +933,19 @@ module Frozone
       # Scans `body` for the first non-nil LocalVariableWrite to `name` and
       # returns its inferred type. Returns nil if none found.
       def look_ahead_local_type(name, body)
-        found = nil
+        best = nil
         walker = lambda do |node|
-          return if found
           return unless node
           if node.is_a?(Ast::LocalVariableWrite) && node.name.to_s == name && !node.value_node.is_a?(Ast::NilLiteral)
-            found = deep_decl_type(node.value_node)
+            t = deep_decl_type(node.value_node)
+            $stderr.puts "  LOOKAHEAD #{name}: saw write t=#{t.inspect} best_before=#{best.inspect}" if ENV['CPP_DEBUG']
+            best = widen_type(best, t) if t
           end
           node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
         end
         walker.call(body)
-        found == "int64_t" ? nil : found
+        $stderr.puts "  LOOKAHEAD #{name}: final best=#{best.inspect}" if ENV['CPP_DEBUG']
+        best == "int64_t" ? nil : best
       end
 
       # Like local_decl_type but follows top-level method calls to their
@@ -882,6 +954,10 @@ module Frozone
         t = local_decl_type(val)
         return t unless t == "auto"
         if val.is_a?(Ast::MethodCall) && val.receiver_node.nil?
+          # Prefer the cached return type (populated from infer_method_return_type
+          # which looks at all explicit returns).
+          rt = (@_top_level_method_return_types || {})[val.name]
+          return rt if rt
           m = lookup_top_level_method(val.name)
           if m && m.body
             last = m.body.is_a?(Ast::Sequence) ? m.body.nodes.last : m.body
@@ -927,6 +1003,9 @@ module Frozone
         when Ast::InstanceVariableWrite
           # `@foo = x` evaluates to x; type is the value's type.
           local_decl_type(val.value_node)
+        when Ast::LocalVariableWrite
+          # `x = y = expr` — chained; type flows through the RHS.
+          local_decl_type(val.value_node)
         when Ast::MethodCall
           if val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
             cn = val.receiver_node.name
@@ -950,7 +1029,18 @@ module Frozone
             end
           end
           "auto"
-        when Ast::ArrayLiteral then "auto"
+        when Ast::ArrayLiteral
+          # 2-element [nil, call()] → RubyTree; otherwise infer element
+          # type from the first element, default to RubyArray<int64_t>.
+          if tree_node_literal?(val)
+            "RubyTree"
+          elsif (elems = val.element_nodes).any?
+            et = local_decl_type(elems.first)
+            et = "int64_t" if et == "auto"
+            "RubyArray<#{et}>"
+          else
+            "RubyArray_I64"
+          end
         when Ast::FloatLiteral then "double"
         when Ast::StringLiteral then "RubyString"
         when Ast::TrueLiteral, Ast::FalseLiteral then "bool"
@@ -992,17 +1082,31 @@ module Frozone
           if node.is_a?(Ast::LocalVariableWrite)
             name = node.name.to_s
             unless seen.key?(name) || param_names.include?(name.to_sym) || param_names.include?(name)
-              seen[name] = { type: local_decl_type(node.value_node), first_rhs: node.value_node }
+              # Use the WIDEST type across all writes in this body so
+              # `last = 0; ...; last = fannkuch(N)` picks up RubyArray
+              # rather than locking in int64_t from the first write.
+              widened = look_ahead_local_type(name, body)
+              widened ||= local_decl_type(node.value_node)
+              seen[name] = { type: widened, first_rhs: node.value_node }
               order << name
             end
           elsif node.is_a?(Ast::MultipleAssignment)
-            (node.targets || []).each do |kind, nm|
+            vals = node.value_node
+            elems = vals.is_a?(Ast::ArrayLiteral) ? (vals.element_nodes || []) : []
+            (node.targets || []).each_with_index do |t, i|
+              kind, nm = t[0], t[1]
               next unless kind == :local
               s = nm.to_s
-              unless seen.key?(s) || param_names.include?(nm)
+              next if seen.key?(s) || param_names.include?(nm) || param_names.include?(s)
+              # Per-target type inference: ArrayLiteral → elem[i]'s type;
+              # else unknown ("auto").
+              per_elem = elems[i]
+              if per_elem
+                seen[s] = { type: local_decl_type(per_elem), first_rhs: per_elem }
+              else
                 seen[s] = { type: "auto", first_rhs: nil }
-                order << s
               end
+              order << s
             end
           end
           node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
@@ -1010,6 +1114,13 @@ module Frozone
         walker.call(body)
         @_current_body = prev_body
         order.map { |n| [n, seen[n]] }
+      end
+
+      # True if the body contains any explicit `return` statement.
+      def has_explicit_return?(node)
+        return false unless node
+        return true if node.is_a?(Ast::Return)
+        node.children.any? { |c| c.is_a?(Ast::Node) && has_explicit_return?(c) }
       end
 
       # Scan method body for the richest non-nil return type. Used to
@@ -1020,6 +1131,7 @@ module Frozone
         return nil unless body
         prev_body = @_current_body
         @_current_body = body
+        @_current_body_has_explicit_return = has_explicit_return?(body)
         best = nil
         walker = lambda do |node|
           return unless node
@@ -1086,15 +1198,12 @@ module Frozone
           t = info[:type]
           next if t.nil?
           next if @_declared_locals&.include?(name)
+          decl_name = cpp_local_name(name)
           if t == "auto" || t == "auto&"
-            # Use std::decay_t<decltype(RHS)> so `auto&` indexed-reads
-            # become their value type (int64_t, etc.) — we can't have
-            # a reference without an initializer. Only safe when the RHS
-            # references params or already-hoisted locals.
             rhs = info[:first_rhs]
             next unless rhs && rhs_safe_for_decltype?(rhs, param_names_set)
             rhs_str = cr(rhs)
-            line "std::decay_t<decltype(#{rhs_str})> #{name}{};"
+            line "std::decay_t<decltype(#{rhs_str})> #{decl_name}{};"
           else
             init = case t
                    when "int64_t" then " = 0"
@@ -1102,27 +1211,43 @@ module Frozone
                    when "bool" then " = false"
                    else ""
                    end
-            line "#{t} #{name}#{init};"
+            line "#{t} #{decl_name}#{init};"
           end
           @_declared_locals << name
         end
       end
 
-      # True when every LocalVariableRead in the RHS references a method
-      # parameter visible at the hoisting point, AND the expression won't
-      # lower to a statement-expression (those can't appear inside decltype).
+      # True when the expression can be placed inside `decltype(...)`.
+      # Conditions:
+      #   1. Every LocalVariableRead references a name already visible at
+      #      the hoisting point (a method parameter, or a local that was
+      #      already hoisted earlier in this pass).
+      #   2. The emitted C++ is a plain expression — no statement-expression
+      #      wrappers (`({...})`) which GCC disallows inside decltype.
       def rhs_safe_for_decltype?(node, param_names_set)
         return true unless node
         # Statement-expression-generating nodes: Array.new with a block,
-        # nested ArrayLiteral with >1 elem, etc. These emit as `({...})`
-        # which GCC forbids inside decltype/template args.
-        if node.is_a?(Ast::MethodCall) && node.name == :new && node.block_node &&
-           node.receiver_node.is_a?(Ast::ConstantRead) && node.receiver_node.name == :Array
+        # multi-element ArrayLiterals, And/Or (our ternary form), If,
+        # MultipleAssignment — all emit as `({...})`.
+        case node
+        when Ast::And, Ast::Or, Ast::If, Ast::MultipleAssignment
+          return false
+        when Ast::ArrayLiteral
+          return false if (node.element_nodes || []).size > 0 && !tree_node_literal?(node)
+        when Ast::MethodCall
+          if node.name == :new && node.block_node &&
+             node.receiver_node.is_a?(Ast::ConstantRead) && node.receiver_node.name == :Array
+            return false
+          end
+          # `.times { }`, `.each { }` with a block expand to statement-exprs too.
+          return false if node.block_node
+        end
+        if node.is_a?(Ast::LocalVariableRead)
+          name = node.name.to_s
+          return true if param_names_set.include?(name)
+          return true if @_declared_locals&.include?(name)
           return false
         end
-        return false if node.is_a?(Ast::ArrayLiteral) && (node.element_nodes || []).size > 0 &&
-                        !tree_node_literal?(node)
-        return false if node.is_a?(Ast::LocalVariableRead) && !param_names_set.include?(node.name.to_s)
         node.children.all? { |c| !c.is_a?(Ast::Node) || rhs_safe_for_decltype?(c, param_names_set) }
       end
 
@@ -1194,11 +1319,17 @@ module Frozone
             line "#{s};"
           end
           if s.start_with?("while ") || s.start_with?("for ")
-            # Loops don't yield a value. Emit a trailing nil/default
-            # matching the method's return type when known; otherwise
-            # RUBY_NIL so callers that expect a nil-convertible type work.
+            # Loops don't yield a value. Behaviour:
+            #   - Known return type → emit typed default return.
+            #   - No explicit return in body → emit `return RUBY_NIL` so
+            #     callers get a nil-convertible value.
+            #   - Has explicit returns → trailing is unreachable; avoid
+            #     return here so `auto` doesn't deduce to void (vs the
+            #     real return type inside the loop).
             if @_method_return_type
               line "return #{@_method_return_type}();"
+            elsif @_current_body_has_explicit_return
+              line "__builtin_unreachable();"
             else
               line "return RUBY_NIL;"
             end
@@ -1213,6 +1344,8 @@ module Frozone
         @_declared_locals = Set.new
         @_current_body = execute_block&.body
         indented do
+          # Hoist locals for main too — same rationale as method bodies.
+          emit_hoisted_locals(execute_block.body, []) if execute_block&.body
           emit(execute_block.body) if execute_block&.body
           line "return 0;"
         end
@@ -1233,7 +1366,7 @@ module Frozone
         # MultipleAssignment at statement level: emit each decl/assign on
         # its own line so declarations land in the enclosing scope (not
         # inside a `({...})` statement-expression).
-        if node.is_a?(Ast::MultipleAssignment) && !node.value_node.is_a?(Ast::ArrayLiteral)
+        if node.is_a?(Ast::MultipleAssignment)
           return emit_masgn_stmt(node)
         end
         s = cr(node)
@@ -1244,32 +1377,48 @@ module Frozone
         end
       end
 
-      # Statement-level emission for `a, b = call()` — declares each target
-      # in the enclosing scope.
+      # Statement-level emission — declares each target in the enclosing
+      # scope. Two RHS shapes supported:
+      #   `a, b = call()`    — destructure: val = rhs[0], rhs[1], ...
+      #   `a, b = x, y`      — parallel: evaluate all RHS into temps first
       def emit_masgn_stmt(node)
-        rhs = cr(node.value_node)
-        line "auto _masgn = #{rhs};"
-        (node.targets || []).each_with_index do |t, i|
-          kind, name = t
-          val = "_masgn[INT64_C(#{i})]"
-          case kind
-          when :local
-            nm = cpp_local_name(name)
-            if @_declared_locals&.include?(name.to_s)
-              line "#{nm} = #{val};"
-            else
-              @_declared_locals << name.to_s
-              line "auto #{nm} = #{val};"
-            end
-          when :ivar
-            line "#{cpp_ivar(name)} = #{val};"
-          when :index
-            recv = cr(t[1])
-            idx = cr(t[2][0])
-            line "#{recv}[#{idx}] = #{val};"
-          else
-            line "/* UNSUPPORTED masgn target: #{kind} */;"
+        targets = node.targets || []
+        vals = node.value_node
+        @_masgn_counter ||= 0
+        tag = (@_masgn_counter += 1)
+        if vals.is_a?(Ast::ArrayLiteral)
+          elems = vals.element_nodes || []
+          elems.each_with_index { |e, i| line "auto _t#{tag}_#{i} = #{e ? cr(e) : 'INT64_C(0)'};" }
+          targets.each_with_index do |t, i|
+            emit_masgn_target(t, "_t#{tag}_#{i}")
           end
+        else
+          line "auto _masgn#{tag} = #{cr(vals)};"
+          targets.each_with_index do |t, i|
+            emit_masgn_target(t, "_masgn#{tag}[INT64_C(#{i})]")
+          end
+        end
+      end
+
+      def emit_masgn_target(t, val_expr)
+        kind, name = t[0], t[1]
+        case kind
+        when :local
+          nm = cpp_local_name(name)
+          if @_declared_locals&.include?(name.to_s)
+            line "#{nm} = #{val_expr};"
+          else
+            @_declared_locals << name.to_s
+            line "auto #{nm} = #{val_expr};"
+          end
+        when :ivar
+          line "#{cpp_ivar(name)} = #{val_expr};"
+        when :index
+          recv = cr(t[1])
+          idx = cr(t[2][0])
+          line "#{recv}[#{idx}] = #{val_expr};"
+        else
+          line "/* UNSUPPORTED masgn target: #{kind} */;"
         end
       end
 
@@ -1309,18 +1458,29 @@ module Frozone
           vals = node.value_node
           if vals.is_a?(Ast::ArrayLiteral)
             elems = vals.element_nodes || []
-            parts = targets.each_with_index.map do |t, i|
-              kind, name = t
-              tgt = kind == :ivar ? cpp_ivar(name) : cpp_local_name(name)
-              val = elems[i] ? cr(elems[i]) : "INT64_C(0)"
-              if kind == :local && !@_declared_locals&.include?(name.to_s)
-                @_declared_locals << name.to_s
-                "auto #{tgt} = #{val}"
+            @_masgn_counter ||= 0
+            tag = (@_masgn_counter += 1)
+            tmp_decls = elems.each_with_index.map { |e, i| "auto _t#{tag}_#{i} = #{e ? cr(e) : 'INT64_C(0)'}" }
+            assigns = targets.each_with_index.map do |t, i|
+              kind, name = t[0], t[1]
+              val = "_t#{tag}_#{i}"
+              case kind
+              when :ivar then "#{cpp_ivar(name)} = #{val}"
+              when :index
+                recv = cr(t[1])
+                idx = cr(t[2][0])
+                "#{recv}[#{idx}] = #{val}"
               else
-                "#{tgt} = #{val}"
+                nm = cpp_local_name(name)
+                if @_declared_locals&.include?(name.to_s)
+                  "#{nm} = #{val}"
+                else
+                  @_declared_locals << name.to_s
+                  "auto #{nm} = #{val}"
+                end
               end
             end
-            parts.join("; ")
+            "({ #{(tmp_decls + assigns).join('; ')}; })"
           else
             # Single RHS — destructure by positional index. When used as
             # a statement, emit_masgn_stmt handles it; here we're in an
@@ -1355,13 +1515,12 @@ module Frozone
           name = cpp_local_name(node.name)
           val = node.value_node
           if @_declared_locals&.include?(name)
-            "#{name} = #{cr(val)}"
+            # Wrap in parens for expression contexts like
+            # `if ((q1 = p[1]) != 1)` — `!=` binds tighter than `=` in C++.
+            "(#{name} = #{cr(val)})"
           else
             @_declared_locals << name
             type = local_decl_type(val)
-            # If the initial assignment is nil, look ahead at subsequent
-            # writes to the same local in the current body for a non-nil
-            # type (matches Ruby's `last = nil; last = X.new` pattern).
             if val.is_a?(Ast::NilLiteral) && @_current_body
               later = look_ahead_local_type(name, @_current_body)
               type = later if later
@@ -1406,11 +1565,20 @@ module Frozone
           val = cr(node.value_node)
           "#{recv}[#{idx}] #{node.operator}= #{val}"
         when Ast::AttributeWrite
-          # a[i] = val (setter)
           if node.name == :[]=
             recv = cr(node.receiver_node)
             args = node.arg_nodes || []
-            "#{recv}[#{cr(args[0])}] = #{cr(args[1])}"
+            # Slice assignment: `arr[lo..hi] = other_arr` — replaces a
+            # contiguous range of elements with another array's elements.
+            idx_node = args[0]
+            if idx_node.is_a?(Ast::RangeLiteral)
+              lo = cr(idx_node.begin_node)
+              hi = cr(idx_node.end_node)
+              hi_incl = idx_node.exclusive ? "(#{hi} - 1)" : hi
+              "#{recv}.slice_assign(#{lo}, #{hi_incl}, #{cr(args[1])})"
+            else
+              "#{recv}[#{cr(idx_node)}] = #{cr(args[1])}"
+            end
           else
             "#{cr(node.receiver_node)}.#{cpp_method_name(node.name)}(#{(node.arg_nodes || []).map { |a| cr(a) }.join(', ')})"
           end
@@ -1475,27 +1643,25 @@ module Frozone
       def cr_if(node)
         pred = cr_truthy(node.pred_node)
         indent_str = "  " * @indent
-        # If both branches are single expressions (not Sequences, not
-        # statement-only nodes), emit as a ternary so the result can be
-        # used as an rvalue (`a = if ... else ... end`).
+        # Ternary form when both branches are simple expressions —
+        # lets `a = if cond then X else Y end` emit as an rvalue.
         if node.then_node && node.else_node &&
            simple_expr?(node.then_node) && simple_expr?(node.else_node)
           return "(#{pred} ? (#{cr(node.then_node)}) : (#{cr(node.else_node)}))"
         end
-        # Detect unless: if cond; nil; else; body; end
+        # `unless` — if cond; nil; else; body; end
         if node.then_node.is_a?(Ast::NilLiteral) && node.else_node
-          body = nil
-          indented { body = cr(node.else_node) }
-          return "if (!(#{pred})) {\n#{indent_str}  #{body};\n#{indent_str}}"
+          body_str = cr_block_body(node.else_node)
+          return "if (!(#{pred})) {\n#{body_str}\n#{indent_str}}"
         end
-        then_body = nil
-        indented { then_body = cr(node.then_node) }
+        # Statement form: bodies rendered via cr_block_body so
+        # MultipleAssignment lowers into multi-line declarations.
+        then_str = cr_block_body(node.then_node)
         if node.else_node
-          else_body = nil
-          indented { else_body = cr(node.else_node) }
-          "if (#{pred}) {\n#{indent_str}  #{then_body};\n#{indent_str}} else {\n#{indent_str}  #{else_body};\n#{indent_str}}"
+          else_str = cr_block_body(node.else_node)
+          "if (#{pred}) {\n#{then_str}\n#{indent_str}} else {\n#{else_str}\n#{indent_str}}"
         else
-          "if (#{pred}) {\n#{indent_str}  #{then_body};\n#{indent_str}}"
+          "if (#{pred}) {\n#{then_str}\n#{indent_str}}"
         end
       end
 
@@ -1527,12 +1693,62 @@ module Frozone
       def cr_block_body(node)
         lines = []
         ind = "  " * (@indent + 1)
+        each_stmt = ->(n) do
+          # MultipleAssignment emits multiple lines so declarations land
+          # in the enclosing block scope (not inside a statement-expr).
+          if n.is_a?(Ast::MultipleAssignment)
+            lines.concat(masgn_stmt_lines(n, ind))
+          else
+            lines << (ind + cr(n) + ";")
+          end
+        end
         if node.is_a?(Ast::Sequence)
-          node.nodes.each { |n| lines << (ind + cr(n) + ";") }
+          node.nodes.each(&each_stmt)
         else
-          lines << (ind + cr(node) + ";")
+          each_stmt.call(node)
         end
         lines.join("\n")
+      end
+
+      # Same as emit_masgn_stmt but returns lines instead of writing to @out.
+      # Used from cr_block_body where we're building a string.
+      def masgn_stmt_lines(node, ind)
+        targets = node.targets || []
+        vals = node.value_node
+        @_masgn_counter ||= 0
+        tag = (@_masgn_counter += 1)
+        lines = []
+        if vals.is_a?(Ast::ArrayLiteral)
+          elems = vals.element_nodes || []
+          elems.each_with_index { |e, i| lines << "#{ind}auto _t#{tag}_#{i} = #{e ? cr(e) : 'INT64_C(0)'};" }
+          targets.each_with_index do |t, i|
+            lines << ind + masgn_target_line(t, "_t#{tag}_#{i}")
+          end
+        else
+          lines << "#{ind}auto _masgn#{tag} = #{cr(vals)};"
+          targets.each_with_index do |t, i|
+            lines << ind + masgn_target_line(t, "_masgn#{tag}[INT64_C(#{i})]")
+          end
+        end
+        lines
+      end
+
+      def masgn_target_line(t, val_expr)
+        kind, name = t[0], t[1]
+        case kind
+        when :local
+          nm = cpp_local_name(name)
+          if @_declared_locals&.include?(name.to_s)
+            "#{nm} = #{val_expr};"
+          else
+            @_declared_locals << name.to_s
+            "auto #{nm} = #{val_expr};"
+          end
+        when :ivar then "#{cpp_ivar(name)} = #{val_expr};"
+        when :index
+          "#{cr(t[1])}[#{cr(t[2][0])}] = #{val_expr};"
+        else "/* UNSUPPORTED masgn target: #{kind} */;"
+        end
       end
 
       def cr_truthy(node)
@@ -1656,6 +1872,20 @@ module Frozone
           return "for (auto& #{var} : *#{coll}.data) {\n#{body_str}\n#{old_indent}}"
         end
 
+        # (lo..hi).to_a / (lo...hi).to_a — emit as ruby_range_to_a helper.
+        # Unwrap single-element Sequence (parser wraps `(...)` in Sequence).
+        unwrapped_recv = recv
+        while unwrapped_recv.is_a?(Ast::Sequence) && unwrapped_recv.nodes.size == 1
+          unwrapped_recv = unwrapped_recv.nodes[0]
+        end
+        if name == :to_a && unwrapped_recv.is_a?(Ast::RangeLiteral) && args.empty?
+          lo = cr(unwrapped_recv.begin_node)
+          hi = cr(unwrapped_recv.end_node)
+          return unwrapped_recv.exclusive ?
+            "ruby_range_to_a(#{lo}, #{hi}, true)" :
+            "ruby_range_to_a(#{lo}, #{hi}, false)"
+        end
+
         # loop { body } — Ruby's Kernel#loop; infinite loop, exits via break.
         if recv.nil? && name == :loop && node.block_node
           blk = node.block_node
@@ -1760,8 +1990,9 @@ module Frozone
           return "#{cr(recv)}.len()"
         end
 
-        # .dup
-        return "#{cr(recv)}" if name == :dup && recv  # TODO: proper dup
+        # .dup — deep copy. RubyArray/RubyString have dup_() methods
+        # (avoiding the POSIX `dup` name clash).
+        return "#{cr(recv)}.dup_()" if name == :dup && recv
 
         # Free function call
         if recv.nil?

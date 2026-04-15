@@ -69,6 +69,37 @@ public:
     return (*data)[i];
   }
   RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }
+  // .delete_at(i) — remove and return element at index (Ruby-style).
+  T delete_at(int64_t i) {
+    if (i < 0) i += (int64_t)data->size();
+    if (i < 0 || i >= (int64_t)data->size()) return T{};
+    T v = (*data)[i];
+    data->erase(data->begin() + i);
+    return v;
+  }
+  // .insert(i, v) — insert v at index i, shifting right.
+  RubyArray& insert(int64_t i, const T& v) {
+    if (i < 0) i += (int64_t)data->size() + 1;
+    if (i < 0) i = 0;
+    if (i > (int64_t)data->size()) i = (int64_t)data->size();
+    data->insert(data->begin() + i, v);
+    return *this;
+  }
+  // .slice_assign(lo, hi_incl, other) — replace elements [lo..hi_incl] with other's elements.
+  void slice_assign(int64_t lo, int64_t hi_incl, const RubyArray& other) {
+    if (lo < 0) lo += (int64_t)data->size();
+    if (hi_incl < 0) hi_incl += (int64_t)data->size();
+    if (lo < 0) lo = 0;
+    if (hi_incl >= (int64_t)data->size()) hi_incl = (int64_t)data->size() - 1;
+    data->erase(data->begin() + lo, data->begin() + hi_incl + 1);
+    data->insert(data->begin() + lo, other.data->begin(), other.data->end());
+  }
+  // .dup — deep copy of the backing vector (breaks shared_ptr aliasing).
+  RubyArray dup_() const {
+    RubyArray out;
+    *out.data = *data;
+    return out;
+  }
   // .join — concatenate elements (with optional separator) into a RubyString.
   RubyString join(const RubyString& sep = RubyString()) const {
     RubyString out;
@@ -84,6 +115,14 @@ using RubyArray_I64 = RubyArray<int64_t>;
 using RubyArray_F64 = RubyArray<double>;
 // Helper: deduce array element type from fill value
 template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
+// (lo..hi).to_a / (lo...hi).to_a — int64_t range enumeration.
+static inline RubyArray<int64_t> ruby_range_to_a(int64_t lo, int64_t hi, bool exclusive) {
+  int64_t end_inclusive = exclusive ? hi - 1 : hi;
+  int64_t n = end_inclusive < lo ? 0 : (end_inclusive - lo + 1);
+  RubyArray<int64_t> a(n);
+  for (int64_t i = 0; i < n; i++) (*a.data)[i] = lo + i;
+  return a;
+}
 
 struct RubyNil;
 
@@ -205,6 +244,14 @@ template<typename T> static inline void ruby_puts(T v) {
   } else if constexpr (std::is_same_v<T, RubyString>) {
     fwrite(v.bytes.data(), 1, v.bytes.size(), stdout);
     fputc('\n', stdout);
+  } else if constexpr (requires { v.len(); v[0]; }) {
+    // RubyArray: Ruby's puts emits `[e1, e2, ...]` (inspect-style)
+    printf("[");
+    for (int64_t i = 0; i < v.len(); i++) {
+      printf(i == 0 ? "" : ", ");
+      auto x = v[i]; printf("%lld", (long long)x);
+    }
+    printf("]\n");
   } else {
     printf("#<Object>\n");
   }
@@ -294,17 +341,22 @@ struct Ruby_SplayTree {
   auto insert(auto key, auto value) {
     Ruby_Node node;
     if (empty_q()) {
-      p->iv_root = Ruby_Node(key, value); return Ruby_Node();
+      p->iv_root = Ruby_Node(key, value);
+      return Ruby_Node();
     }
     splay_b(key);
     if ((p->iv_root.key() == key)) {
       return Ruby_Node();
     }
-    node = Ruby_Node(key, value);
+    (node = Ruby_Node(key, value));
     if ((key > p->iv_root.key())) {
-      node.set_left(p->iv_root); node.set_right(p->iv_root.right()); p->iv_root.set_right(RUBY_NIL);
+      node.set_left(p->iv_root);
+      node.set_right(p->iv_root.right());
+      p->iv_root.set_right(RUBY_NIL);
     } else {
-      node.set_right(p->iv_root); node.set_left(p->iv_root.left()); p->iv_root.set_left(RUBY_NIL);
+      node.set_right(p->iv_root);
+      node.set_left(p->iv_root.left());
+      p->iv_root.set_left(RUBY_NIL);
     }
     return p->iv_root = node;
   }
@@ -319,11 +371,14 @@ struct Ruby_SplayTree {
     if ((p->iv_root.key() != key)) {
       { fprintf(stderr, "Error: %s\n", "error"); exit(1); };
     }
-    removed = p->iv_root;
+    (removed = p->iv_root);
     if (ruby_nil_q(p->iv_root.left())) {
       p->iv_root = p->iv_root.right();
     } else {
-      right = p->iv_root.right(); p->iv_root = p->iv_root.left(); splay_b(key); p->iv_root.set_right(right);
+      (right = p->iv_root.right());
+      p->iv_root = p->iv_root.left();
+      splay_b(key);
+      p->iv_root.set_right(right);
     }
     return removed;
   }
@@ -341,9 +396,9 @@ struct Ruby_SplayTree {
     if (empty_q()) {
       return Ruby_Node(RUBY_NIL);
     }
-    current = ({ auto _l = (start_node); (_l) ? decltype((p->iv_root))(_l) : (p->iv_root); });
+    (current = ({ auto _l = (start_node); (_l) ? decltype((p->iv_root))(_l) : (p->iv_root); }));
     while (current.right()) {
-      current = current.right();
+      (current = current.right());
     }
     return current;
   }
@@ -357,8 +412,8 @@ struct Ruby_SplayTree {
       p->iv_root;
     } else {
       if (p->iv_root.left()) {
-        find_max(p->iv_root.left());
-      };
+      find_max(p->iv_root.left());
+    };
     }
   }
 
@@ -371,31 +426,47 @@ struct Ruby_SplayTree {
     if (empty_q()) {
       return Ruby_Node();
     }
-    dummy = Ruby_Node(RUBY_NIL, RUBY_NIL);
-    left = dummy;
-    right = dummy;
-    current = p->iv_root;
+    (dummy = Ruby_Node(RUBY_NIL, RUBY_NIL));
+    (left = dummy);
+    (right = dummy);
+    (current = p->iv_root);
     while (true) {
       if ((key < current.key())) {
         if (!(current.left())) {
-          break;
-        }; if ((key < current.left().key())) {
-          tmp = current.left(); current.set_left(tmp.right()); tmp.set_right(current); current = tmp; if (!(current.left())) {
-            break;
-          };
-        }; right.set_left(current); right = current; current = current.left();
+        break;
+      };
+        if ((key < current.left().key())) {
+        (tmp = current.left());
+        current.set_left(tmp.right());
+        tmp.set_right(current);
+        (current = tmp);
+        if (!(current.left())) {
+        break;
+      };
+      };
+        right.set_left(current);
+        (right = current);
+        (current = current.left());
       } else {
         if ((key > current.key())) {
-          if (!(current.right())) {
-            break;
-          }; if ((key > current.right().key())) {
-            tmp = current.right(); current.set_right(tmp.left()); tmp.set_left(current); current = tmp; if (!(current.right())) {
-              break;
-            };
-          }; left.set_right(current); left = current; current = current.right();
-        } else {
-          break;
-        };
+        if (!(current.right())) {
+        break;
+      };
+        if ((key > current.right().key())) {
+        (tmp = current.right());
+        current.set_right(tmp.left());
+        tmp.set_left(current);
+        (current = tmp);
+        if (!(current.right())) {
+        break;
+      };
+      };
+        left.set_right(current);
+        (left = current);
+        (current = current.right());
+      } else {
+        break;
+      };
       };
     }
     left.set_right(current.left());
@@ -456,19 +527,19 @@ static auto generate_payload(auto depth, auto tag) {
 static auto insert_new_node(auto tree, auto rng) {
   std::decay_t<decltype(rng.rand())> key{};
   while (true) {
-    key = rng.rand();
+    (key = rng.rand());
     if (tree.find(key)) {
       continue;
     };
     tree.insert(key, generate_payload(PAYLOAD_DEPTH, ruby_to_s(key)));
     return key;
   }
-  return RUBY_NIL;
+  __builtin_unreachable();
 }
 
 static auto splay_setup(auto rng) {
   Ruby_SplayTree tree;
-  tree = Ruby_SplayTree();
+  (tree = Ruby_SplayTree());
   for (int64_t _i = 0; _i < TREE_SIZE; _i++) {
     insert_new_node(tree, rng);
   }
@@ -477,9 +548,10 @@ static auto splay_setup(auto rng) {
 
 static auto splay_run(auto tree, auto rng) {
   std::decay_t<decltype(insert_new_node(tree, rng))> key{};
+  std::decay_t<decltype(tree.find_greatest_less_than(key))> greatest{};
   for (int64_t _i = 0; _i < MODIFICATIONS; _i++) {
-    key = insert_new_node(tree, rng);
-    auto greatest = tree.find_greatest_less_than(key);
+    (key = insert_new_node(tree, rng));
+    (greatest = tree.find_greatest_less_than(key));
     (greatest ? (tree.remove(greatest.key())) : (tree.remove(key)));
   }
   return RUBY_NIL;
@@ -487,14 +559,17 @@ static auto splay_run(auto tree, auto rng) {
 
 
 int main() {
-  Ruby_Random rng = Ruby_Random(INT64_C(42));
-  auto tree = splay_setup(rng);
+  Ruby_Random rng;
+  Ruby_SplayTree tree;
+  Ruby_Node m;
+  (rng = Ruby_Random(INT64_C(42)));
+  (tree = splay_setup(rng));
   for (int64_t _i = 0; _i < INT64_C(200); _i++) {
     for (int64_t _i = 0; _i < INT64_C(50); _i++) {
       splay_run(tree, rng);
     };
   }
-  auto m = tree.find_max();
+  (m = tree.find_max());
   ruby_puts(m.key());
   return 0;
 }

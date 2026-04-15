@@ -69,6 +69,37 @@ public:
     return (*data)[i];
   }
   RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }
+  // .delete_at(i) — remove and return element at index (Ruby-style).
+  T delete_at(int64_t i) {
+    if (i < 0) i += (int64_t)data->size();
+    if (i < 0 || i >= (int64_t)data->size()) return T{};
+    T v = (*data)[i];
+    data->erase(data->begin() + i);
+    return v;
+  }
+  // .insert(i, v) — insert v at index i, shifting right.
+  RubyArray& insert(int64_t i, const T& v) {
+    if (i < 0) i += (int64_t)data->size() + 1;
+    if (i < 0) i = 0;
+    if (i > (int64_t)data->size()) i = (int64_t)data->size();
+    data->insert(data->begin() + i, v);
+    return *this;
+  }
+  // .slice_assign(lo, hi_incl, other) — replace elements [lo..hi_incl] with other's elements.
+  void slice_assign(int64_t lo, int64_t hi_incl, const RubyArray& other) {
+    if (lo < 0) lo += (int64_t)data->size();
+    if (hi_incl < 0) hi_incl += (int64_t)data->size();
+    if (lo < 0) lo = 0;
+    if (hi_incl >= (int64_t)data->size()) hi_incl = (int64_t)data->size() - 1;
+    data->erase(data->begin() + lo, data->begin() + hi_incl + 1);
+    data->insert(data->begin() + lo, other.data->begin(), other.data->end());
+  }
+  // .dup — deep copy of the backing vector (breaks shared_ptr aliasing).
+  RubyArray dup_() const {
+    RubyArray out;
+    *out.data = *data;
+    return out;
+  }
   // .join — concatenate elements (with optional separator) into a RubyString.
   RubyString join(const RubyString& sep = RubyString()) const {
     RubyString out;
@@ -84,6 +115,14 @@ using RubyArray_I64 = RubyArray<int64_t>;
 using RubyArray_F64 = RubyArray<double>;
 // Helper: deduce array element type from fill value
 template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
+// (lo..hi).to_a / (lo...hi).to_a — int64_t range enumeration.
+static inline RubyArray<int64_t> ruby_range_to_a(int64_t lo, int64_t hi, bool exclusive) {
+  int64_t end_inclusive = exclusive ? hi - 1 : hi;
+  int64_t n = end_inclusive < lo ? 0 : (end_inclusive - lo + 1);
+  RubyArray<int64_t> a(n);
+  for (int64_t i = 0; i < n; i++) (*a.data)[i] = lo + i;
+  return a;
+}
 
 struct RubyNil;
 
@@ -205,6 +244,14 @@ template<typename T> static inline void ruby_puts(T v) {
   } else if constexpr (std::is_same_v<T, RubyString>) {
     fwrite(v.bytes.data(), 1, v.bytes.size(), stdout);
     fputc('\n', stdout);
+  } else if constexpr (requires { v.len(); v[0]; }) {
+    // RubyArray: Ruby's puts emits `[e1, e2, ...]` (inspect-style)
+    printf("[");
+    for (int64_t i = 0; i < v.len(); i++) {
+      printf(i == 0 ? "" : ", ");
+      auto x = v[i]; printf("%lld", (long long)x);
+    }
+    printf("]\n");
   } else {
     printf("#<Object>\n");
   }
@@ -216,57 +263,87 @@ static const int64_t N = 9LL;
 
 
 static auto fannkuch(auto n) {
-  std::decay_t<decltype((n + 1LL).to_a())> p{};
+  std::decay_t<decltype(ruby_range_to_a(INT64_C(0), n, false))> p{};
+  std::decay_t<decltype(p.dup_())> s{};
+  std::decay_t<decltype(p.dup_())> q{};
   int64_t sign = 0;
   int64_t sum = 0;
   int64_t maxflips = 0;
+  std::decay_t<decltype(p[INT64_C(1)])> q1{};
   int64_t flips = 0;
-  p = (n + 1LL).to_a();
-  auto s = p;
-  auto q = p;
-  sign = INT64_C(1);
-  sum = maxflips = INT64_C(0);
+  std::decay_t<decltype(q[q1])> qq{};
+  int64_t i = 0;
+  std::decay_t<decltype((q1 - INT64_C(1)))> j{};
+  std::decay_t<decltype(p.delete_at(INT64_C(1)))> t{};
+  (p = ruby_range_to_a(INT64_C(0), n, false));
+  (s = p.dup_());
+  (q = p.dup_());
+  (sign = INT64_C(1));
+  (sum = (maxflips = INT64_C(0)));
   while (true) {
-    if ((auto q1 = p[INT64_C(1)] != INT64_C(1))) {
-    q[(INT64_C(-1) + 1LL)] = p; flips = INT64_C(1); while (!((auto qq = q[q1] == INT64_C(1)))) {
-      q[q1] = q1;
-      if ((q1 >= INT64_C(4))) {
-      auto i = INT64_C(2); auto j = (q1 - INT64_C(1)); while ((i < j)) {
-        local(q, 0) = q[j]; local(q, 0) = q[i];
-        i = (i + INT64_C(1));
-        j = (j - INT64_C(1));
-      };
-    };
-      q1 = qq;
-      flips = (flips + INT64_C(1));
-    }; sum = (sum + (sign * flips)); if ((flips > maxflips)) {
-      maxflips = flips;
-    };
+    if (((q1 = p[INT64_C(1)]) != INT64_C(1))) {
+    q.slice_assign(INT64_C(0), INT64_C(-1), p);
+    (flips = INT64_C(1));
+    while (!(((qq = q[q1]) == INT64_C(1)))) {
+    q[q1] = q1;
+    if ((q1 >= INT64_C(4))) {
+    auto _t1_0 = INT64_C(2);
+    auto _t1_1 = (q1 - INT64_C(1));
+    i = _t1_0;
+    j = _t1_1;
+    while ((i < j)) {
+    auto _t2_0 = q[j];
+    auto _t2_1 = q[i];
+    q[i] = _t2_0;
+    q[j] = _t2_1;
+    (i = (i + INT64_C(1)));
+    (j = (j - INT64_C(1)));
+  };
+  };
+    (q1 = qq);
+    (flips = (flips + INT64_C(1)));
+  };
+    (sum = (sum + (sign * flips)));
+    if ((flips > maxflips)) {
+    (maxflips = flips);
+  };
   };
     if ((sign == INT64_C(1))) {
-    local(p, 0) = p[INT64_C(2)]; local(p, 0) = p[INT64_C(1)]; sign = INT64_C(-1);
+    auto _t3_0 = p[INT64_C(2)];
+    auto _t3_1 = p[INT64_C(1)];
+    p[INT64_C(1)] = _t3_0;
+    p[INT64_C(2)] = _t3_1;
+    (sign = INT64_C(-1));
   } else {
-    local(p, 0) = p[INT64_C(3)]; local(p, 0) = p[INT64_C(2)]; sign = INT64_C(1); i = INT64_C(3); while (({ auto _l = ((i <= n)); (_l) ? decltype(((s[i] == INT64_C(1))))((s[i] == INT64_C(1))) : decltype(((s[i] == INT64_C(1))))(_l); })) {
-      if ((i == n)) {
-      return ({ auto _e0 = sum; auto _a = RubyArray<decltype(_e0)>(2); _a[0] = _e0; _a[1] = maxflips; _a; });
-    };
-      s[i] = i;
-      auto t = p.delete_at(INT64_C(1));
-      i = (i + INT64_C(1));
-      p.insert(i, t);
-    }; if ((i <= n)) {
-      s[i] -= INT64_C(1);
-    };
+    auto _t4_0 = p[INT64_C(3)];
+    auto _t4_1 = p[INT64_C(2)];
+    p[INT64_C(2)] = _t4_0;
+    p[INT64_C(3)] = _t4_1;
+    (sign = INT64_C(1));
+    (i = INT64_C(3));
+    while (({ auto _l = ((i <= n)); (_l) ? decltype(((s[i] == INT64_C(1))))((s[i] == INT64_C(1))) : decltype(((s[i] == INT64_C(1))))(_l); })) {
+    if ((i == n)) {
+    return ({ auto _e0 = sum; auto _a = RubyArray<decltype(_e0)>(2); _a[0] = _e0; _a[1] = maxflips; _a; });
+  };
+    s[i] = i;
+    (t = p.delete_at(INT64_C(1)));
+    (i = (i + INT64_C(1)));
+    p.insert(i, t);
+  };
+    if ((i <= n)) {
+    s[i] -= INT64_C(1);
+  };
   };
   }
-  return RUBY_NIL;
+  return RubyArray<int64_t>();
 }
 
 
 int main() {
-  int64_t last = INT64_C(0);
+  RubyArray<int64_t> last;
+  (last = INT64_C(0));
   for (int64_t _i = 0; _i < INT64_C(10); _i++) {
-    last = fannkuch(N);
+    (last = fannkuch(N));
   }
   ruby_puts(last);
   return 0;

@@ -69,6 +69,37 @@ public:
     return (*data)[i];
   }
   RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }
+  // .delete_at(i) — remove and return element at index (Ruby-style).
+  T delete_at(int64_t i) {
+    if (i < 0) i += (int64_t)data->size();
+    if (i < 0 || i >= (int64_t)data->size()) return T{};
+    T v = (*data)[i];
+    data->erase(data->begin() + i);
+    return v;
+  }
+  // .insert(i, v) — insert v at index i, shifting right.
+  RubyArray& insert(int64_t i, const T& v) {
+    if (i < 0) i += (int64_t)data->size() + 1;
+    if (i < 0) i = 0;
+    if (i > (int64_t)data->size()) i = (int64_t)data->size();
+    data->insert(data->begin() + i, v);
+    return *this;
+  }
+  // .slice_assign(lo, hi_incl, other) — replace elements [lo..hi_incl] with other's elements.
+  void slice_assign(int64_t lo, int64_t hi_incl, const RubyArray& other) {
+    if (lo < 0) lo += (int64_t)data->size();
+    if (hi_incl < 0) hi_incl += (int64_t)data->size();
+    if (lo < 0) lo = 0;
+    if (hi_incl >= (int64_t)data->size()) hi_incl = (int64_t)data->size() - 1;
+    data->erase(data->begin() + lo, data->begin() + hi_incl + 1);
+    data->insert(data->begin() + lo, other.data->begin(), other.data->end());
+  }
+  // .dup — deep copy of the backing vector (breaks shared_ptr aliasing).
+  RubyArray dup_() const {
+    RubyArray out;
+    *out.data = *data;
+    return out;
+  }
   // .join — concatenate elements (with optional separator) into a RubyString.
   RubyString join(const RubyString& sep = RubyString()) const {
     RubyString out;
@@ -84,6 +115,14 @@ using RubyArray_I64 = RubyArray<int64_t>;
 using RubyArray_F64 = RubyArray<double>;
 // Helper: deduce array element type from fill value
 template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
+// (lo..hi).to_a / (lo...hi).to_a — int64_t range enumeration.
+static inline RubyArray<int64_t> ruby_range_to_a(int64_t lo, int64_t hi, bool exclusive) {
+  int64_t end_inclusive = exclusive ? hi - 1 : hi;
+  int64_t n = end_inclusive < lo ? 0 : (end_inclusive - lo + 1);
+  RubyArray<int64_t> a(n);
+  for (int64_t i = 0; i < n; i++) (*a.data)[i] = lo + i;
+  return a;
+}
 
 struct RubyNil;
 
@@ -205,6 +244,14 @@ template<typename T> static inline void ruby_puts(T v) {
   } else if constexpr (std::is_same_v<T, RubyString>) {
     fwrite(v.bytes.data(), 1, v.bytes.size(), stdout);
     fputc('\n', stdout);
+  } else if constexpr (requires { v.len(); v[0]; }) {
+    // RubyArray: Ruby's puts emits `[e1, e2, ...]` (inspect-style)
+    printf("[");
+    for (int64_t i = 0; i < v.len(); i++) {
+      printf(i == 0 ? "" : ", ");
+      auto x = v[i]; printf("%lld", (long long)x);
+    }
+    printf("]\n");
   } else {
     printf("#<Object>\n");
   }
@@ -249,33 +296,33 @@ static auto sd_genmat() {
   int64_t c2 = 0;
   auto mr = ({ auto _n = INT64_C(324); int64_t _ai = 0; auto _e0 = RubyArray_I64(0); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (_ai = 1; _ai < _n; _ai++) { _arr[_ai] = RubyArray_I64(0); } _arr; });
   auto mc = ({ auto _n = INT64_C(729); int64_t _ai = 0; auto _e0 = make_ra(INT64_C(4), INT64_C(0)); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (_ai = 1; _ai < _n; _ai++) { _arr[_ai] = make_ra(INT64_C(4), INT64_C(0)); } _arr; });
-  r = INT64_C(0);
-  i = INT64_C(0);
+  (r = INT64_C(0));
+  (i = INT64_C(0));
   while ((i < INT64_C(9))) {
-    j = INT64_C(0);
+    (j = INT64_C(0));
     while ((j < INT64_C(9))) {
-    k = INT64_C(0);
+    (k = INT64_C(0));
     while ((k < INT64_C(9))) {
     auto mcr = mc[r];
     mcr[INT64_C(0)] = ((INT64_C(9) * i) + j);
     mcr[INT64_C(1)] = ((((((i / INT64_C(3)) * INT64_C(3)) + (j / INT64_C(3))) * INT64_C(9)) + k) + INT64_C(81));
     mcr[INT64_C(2)] = (((INT64_C(9) * i) + k) + INT64_C(162));
     mcr[INT64_C(3)] = (((INT64_C(9) * j) + k) + INT64_C(243));
-    r = (r + INT64_C(1));
-    k = (k + INT64_C(1));
+    (r = (r + INT64_C(1)));
+    (k = (k + INT64_C(1)));
   };
-    j = (j + INT64_C(1));
+    (j = (j + INT64_C(1)));
   };
-    i = (i + INT64_C(1));
+    (i = (i + INT64_C(1)));
   }
-  r2 = INT64_C(0);
+  (r2 = INT64_C(0));
   while ((r2 < INT64_C(729))) {
-    c2 = INT64_C(0);
+    (c2 = INT64_C(0));
     while ((c2 < INT64_C(4))) {
     (mr[mc[r2][c2]] << r2);
-    c2 = (c2 + INT64_C(1));
+    (c2 = (c2 + INT64_C(1)));
   };
-    r2 = (r2 + INT64_C(1));
+    (r2 = (r2 + INT64_C(1)));
   }
   return ({ auto _e0 = mr; auto _a = RubyArray<decltype(_e0)>(2); _a[0] = _e0; _a[1] = mc; _a; });
 }
@@ -285,58 +332,72 @@ static auto sd_update_forward(auto mr, auto mc, auto sr, auto sc, auto r) {
   int64_t min_c = 0;
   std::decay_t<decltype(mc[r])> mcr{};
   int64_t c2 = 0;
+  std::decay_t<decltype(mr[mcr[c2]])> mrc{};
   int64_t r2 = 0;
+  std::decay_t<decltype(mrc[r2])> rr{};
+  std::decay_t<decltype(mc[rr])> p{};
   int64_t cc2 = 0;
-  min = INT64_C(10);
-  min_c = INT64_C(0);
-  mcr = mc[r];
-  c2 = INT64_C(0);
+  std::decay_t<decltype(p[cc2])> cc{};
+  (min = INT64_C(10));
+  (min_c = INT64_C(0));
+  (mcr = mc[r]);
+  (c2 = INT64_C(0));
   while ((c2 < INT64_C(4))) {
     sc[mcr[c2]] += INT64_C(128);
-    c2 = (c2 + INT64_C(1));
+    (c2 = (c2 + INT64_C(1)));
   }
-  c2 = INT64_C(0);
+  (c2 = INT64_C(0));
   while ((c2 < INT64_C(4))) {
-    auto mrc = mr[mcr[c2]];
-    r2 = INT64_C(0);
+    (mrc = mr[mcr[c2]]);
+    (r2 = INT64_C(0));
     while ((r2 < INT64_C(9))) {
-    auto rr = mrc[r2];
+    (rr = mrc[r2]);
     if ((sr[rr] += INT64_C(1) == INT64_C(1))) {
-    auto p = mc[rr]; cc2 = INT64_C(0); while ((cc2 < INT64_C(4))) {
-      auto cc = p[cc2];
-      if ((sc[cc] -= INT64_C(1) < min)) {
-      min = sc[cc]; min_c = cc;
-    };
-      cc2 = (cc2 + INT64_C(1));
-    };
+    (p = mc[rr]);
+    (cc2 = INT64_C(0));
+    while ((cc2 < INT64_C(4))) {
+    (cc = p[cc2]);
+    if ((sc[cc] -= INT64_C(1) < min)) {
+    (min = sc[cc]);
+    (min_c = cc);
   };
-    r2 = (r2 + INT64_C(1));
+    (cc2 = (cc2 + INT64_C(1)));
   };
-    c2 = (c2 + INT64_C(1));
+  };
+    (r2 = (r2 + INT64_C(1)));
+  };
+    (c2 = (c2 + INT64_C(1)));
   }
   return ({ auto _e0 = min; auto _a = RubyArray<decltype(_e0)>(2); _a[0] = _e0; _a[1] = min_c; _a; });
 }
 
 static auto sd_update_reverse(auto mr, auto mc, auto sr, auto sc, auto r) {
   int64_t c2 = 0;
+  std::decay_t<decltype(mc[r][c2])> c{};
   int64_t r2 = 0;
-  c2 = INT64_C(0);
+  std::decay_t<decltype(mr[c][r2])> rr{};
+  std::decay_t<decltype(mc[rr])> p{};
+  (c2 = INT64_C(0));
   while ((c2 < INT64_C(4))) {
     sc[mc[r][c2]] -= INT64_C(128);
-    c2 = (c2 + INT64_C(1));
+    (c2 = (c2 + INT64_C(1)));
   }
-  c2 = INT64_C(0);
+  (c2 = INT64_C(0));
   while ((c2 < INT64_C(4))) {
-    auto c = mc[r][c2];
-    r2 = INT64_C(0);
+    (c = mc[r][c2]);
+    (r2 = INT64_C(0));
     while ((r2 < INT64_C(9))) {
-    auto rr = mr[c][r2];
+    (rr = mr[c][r2]);
     if ((sr[rr] -= INT64_C(1) == INT64_C(0))) {
-    auto p = mc[rr]; sc[p[INT64_C(0)]] += INT64_C(1); sc[p[INT64_C(1)]] += INT64_C(1); sc[p[INT64_C(2)]] += INT64_C(1); sc[p[INT64_C(3)]] += INT64_C(1);
+    (p = mc[rr]);
+    sc[p[INT64_C(0)]] += INT64_C(1);
+    sc[p[INT64_C(1)]] += INT64_C(1);
+    sc[p[INT64_C(2)]] += INT64_C(1);
+    sc[p[INT64_C(3)]] += INT64_C(1);
   };
-    r2 = (r2 + INT64_C(1));
+    (r2 = (r2 + INT64_C(1)));
   };
-    c2 = (c2 + INT64_C(1));
+    (c2 = (c2 + INT64_C(1)));
   }
   return RUBY_NIL;
 }
@@ -346,92 +407,109 @@ static auto sd_solve(auto mr, auto mc, auto s) {
   std::decay_t<decltype(make_ra(INT64_C(324), INT64_C(9)))> sc{};
   int64_t hints = 0;
   int64_t i = 0;
+  std::decay_t<decltype(s[i])> rb_char{};
   int64_t a = 0;
   std::decay_t<decltype(make_ra(INT64_C(81), INT64_C(-1)))> cr{};
   std::decay_t<decltype(make_ra(INT64_C(81), INT64_C(0)))> cc{};
   int64_t min = 0;
   int64_t dir = 0;
   int64_t c = 0;
+  std::decay_t<decltype((cr[i] + INT64_C(1)))> r2{};
   std::decay_t<decltype(make_ra(INT64_C(81), INT64_C(0)))> o{};
   int64_t j = 0;
-  sr = make_ra(INT64_C(729), INT64_C(0));
-  sc = make_ra(INT64_C(324), INT64_C(9));
-  hints = INT64_C(0);
-  i = INT64_C(0);
+  std::decay_t<decltype(mr[cc[j]][cr[j]])> r{};
+  (sr = make_ra(INT64_C(729), INT64_C(0)));
+  (sc = make_ra(INT64_C(324), INT64_C(9)));
+  (hints = INT64_C(0));
+  (i = INT64_C(0));
   while ((i < INT64_C(81))) {
     auto rb_char = s[i];
-    a = (({ auto _l = ((rb_char >= RubyString("1", 1))); (_l) ? decltype(((rb_char <= RubyString("9", 1))))((rb_char <= RubyString("9", 1))) : decltype(((rb_char <= RubyString("9", 1))))(_l); }) ? ((rb_char.ord() - INT64_C(49))) : (INT64_C(-1)));
+    (a = (({ auto _l = ((rb_char >= RubyString("1", 1))); (_l) ? decltype(((rb_char <= RubyString("9", 1))))((rb_char <= RubyString("9", 1))) : decltype(((rb_char <= RubyString("9", 1))))(_l); }) ? ((rb_char.ord() - INT64_C(49))) : (INT64_C(-1))));
     if ((a >= INT64_C(0))) {
-    sd_update_forward(mr, mc, sr, sc, ((i * INT64_C(9)) + a)); hints = (hints + INT64_C(1));
+    sd_update_forward(mr, mc, sr, sc, ((i * INT64_C(9)) + a));
+    (hints = (hints + INT64_C(1)));
   };
-    i = (i + INT64_C(1));
+    (i = (i + INT64_C(1)));
   }
-  cr = make_ra(INT64_C(81), INT64_C(-1));
-  cc = make_ra(INT64_C(81), INT64_C(0));
-  i = INT64_C(0);
-  min = INT64_C(10);
-  dir = INT64_C(1);
+  (cr = make_ra(INT64_C(81), INT64_C(-1)));
+  (cc = make_ra(INT64_C(81), INT64_C(0)));
+  (i = INT64_C(0));
+  (min = INT64_C(10));
+  (dir = INT64_C(1));
   while (true) {
     while (({ auto _l = ((i >= INT64_C(0))); (_l) ? decltype(((i < (INT64_C(81) - hints))))((i < (INT64_C(81) - hints))) : decltype(((i < (INT64_C(81) - hints))))(_l); })) {
     if ((dir == INT64_C(1))) {
     if ((min > INT64_C(1))) {
-      c = INT64_C(0); while ((c < INT64_C(324))) {
-        if ((sc[c] < min)) {
-        min = sc[c]; cc[i] = c; if ((min < INT64_C(2))) {
-          break;
-        };
-      };
-        c = (c + INT64_C(1));
-      };
-    }; if (({ auto _l = ((min == INT64_C(0))); (_l) ? decltype(((min == INT64_C(10))))(_l) : ((min == INT64_C(10))); })) {
-      cr[i] = dir = INT64_C(-1); i = (i - INT64_C(1));
-    };
+    (c = INT64_C(0));
+    while ((c < INT64_C(324))) {
+    if ((sc[c] < min)) {
+    (min = sc[c]);
+    cc[i] = c;
+    if ((min < INT64_C(2))) {
+    break;
   };
-    c = cc[i];
+  };
+    (c = (c + INT64_C(1)));
+  };
+  };
+    if (({ auto _l = ((min == INT64_C(0))); (_l) ? decltype(((min == INT64_C(10))))(_l) : ((min == INT64_C(10))); })) {
+    cr[i] = (dir = INT64_C(-1));
+    (i = (i - INT64_C(1)));
+  };
+  };
+    (c = cc[i]);
     if (({ auto _l = ((dir == INT64_C(-1))); (_l) ? decltype(((cr[i] >= INT64_C(0))))((cr[i] >= INT64_C(0))) : decltype(((cr[i] >= INT64_C(0))))(_l); })) {
     sd_update_reverse(mr, mc, sr, sc, mr[c][cr[i]]);
   };
-    auto r2 = (cr[i] + INT64_C(1));
+    (r2 = (cr[i] + INT64_C(1)));
     while (({ auto _l = ((r2 < INT64_C(9))); (_l) ? decltype(((sr[mr[c][r2]] != INT64_C(0))))((sr[mr[c][r2]] != INT64_C(0))) : decltype(((sr[mr[c][r2]] != INT64_C(0))))(_l); })) {
-    r2 = (r2 + INT64_C(1));
+    (r2 = (r2 + INT64_C(1)));
   };
     if ((r2 < INT64_C(9))) {
-    ({ auto _masgn = sd_update_forward(mr, mc, sr, sc, mr[c][r2]); min = _masgn[INT64_C(0)]; cc[(i + INT64_C(1))] = _masgn[INT64_C(1)]; }); cr[i] = r2; dir = INT64_C(1); i = (i + INT64_C(1));
+    auto _masgn1 = sd_update_forward(mr, mc, sr, sc, mr[c][r2]);
+    min = _masgn1[INT64_C(0)];
+    cc[(i + INT64_C(1))] = _masgn1[INT64_C(1)];
+    cr[i] = r2;
+    (dir = INT64_C(1));
+    (i = (i + INT64_C(1)));
   } else {
-    cr[i] = INT64_C(-1); dir = INT64_C(-1); i = (i - INT64_C(1));
+    cr[i] = INT64_C(-1);
+    (dir = INT64_C(-1));
+    (i = (i - INT64_C(1)));
   };
   };
     if ((i < INT64_C(0))) {
     break;
   };
-    o = make_ra(INT64_C(81), INT64_C(0));
-    j = INT64_C(0);
+    (o = make_ra(INT64_C(81), INT64_C(0)));
+    (j = INT64_C(0));
     while ((j < INT64_C(81))) {
     o[j] = (s[j].ord() - INT64_C(48));
-    j = (j + INT64_C(1));
+    (j = (j + INT64_C(1)));
   };
-    j = INT64_C(0);
+    (j = INT64_C(0));
     while ((j < i)) {
-    auto r = mr[cc[j]][cr[j]];
+    (r = mr[cc[j]][cr[j]]);
     o[(r / INT64_C(9))] = ((r % INT64_C(9)) + INT64_C(1));
-    j = (j + INT64_C(1));
+    (j = (j + INT64_C(1)));
   };
     o.join();
-    i = (i - INT64_C(1));
-    dir = INT64_C(-1);
+    (i = (i - INT64_C(1)));
+    (dir = INT64_C(-1));
   }
   return RUBY_NIL;
 }
 
 
 int main() {
-  auto _masgn = sd_genmat();
-  auto mr = _masgn[INT64_C(0)];
-  auto mc = _masgn[INT64_C(1)];
-  RubyString last = RubyString("", 0);
+  RubyString last;
+  auto _masgn2 = sd_genmat();
+  auto mr = _masgn2[INT64_C(0)];
+  auto mc = _masgn2[INT64_C(1)];
+  (last = RubyString("", 0));
   for (int64_t _i = 0; _i < INT64_C(20); _i++) {
     for (auto& line : *HARD20.data) {
-      last = sd_solve(mr, mc, line);
+      (last = sd_solve(mr, mc, line));
     };
   }
   ruby_puts(last);

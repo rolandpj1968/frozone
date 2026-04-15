@@ -69,6 +69,37 @@ public:
     return (*data)[i];
   }
   RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }
+  // .delete_at(i) — remove and return element at index (Ruby-style).
+  T delete_at(int64_t i) {
+    if (i < 0) i += (int64_t)data->size();
+    if (i < 0 || i >= (int64_t)data->size()) return T{};
+    T v = (*data)[i];
+    data->erase(data->begin() + i);
+    return v;
+  }
+  // .insert(i, v) — insert v at index i, shifting right.
+  RubyArray& insert(int64_t i, const T& v) {
+    if (i < 0) i += (int64_t)data->size() + 1;
+    if (i < 0) i = 0;
+    if (i > (int64_t)data->size()) i = (int64_t)data->size();
+    data->insert(data->begin() + i, v);
+    return *this;
+  }
+  // .slice_assign(lo, hi_incl, other) — replace elements [lo..hi_incl] with other's elements.
+  void slice_assign(int64_t lo, int64_t hi_incl, const RubyArray& other) {
+    if (lo < 0) lo += (int64_t)data->size();
+    if (hi_incl < 0) hi_incl += (int64_t)data->size();
+    if (lo < 0) lo = 0;
+    if (hi_incl >= (int64_t)data->size()) hi_incl = (int64_t)data->size() - 1;
+    data->erase(data->begin() + lo, data->begin() + hi_incl + 1);
+    data->insert(data->begin() + lo, other.data->begin(), other.data->end());
+  }
+  // .dup — deep copy of the backing vector (breaks shared_ptr aliasing).
+  RubyArray dup_() const {
+    RubyArray out;
+    *out.data = *data;
+    return out;
+  }
   // .join — concatenate elements (with optional separator) into a RubyString.
   RubyString join(const RubyString& sep = RubyString()) const {
     RubyString out;
@@ -84,6 +115,14 @@ using RubyArray_I64 = RubyArray<int64_t>;
 using RubyArray_F64 = RubyArray<double>;
 // Helper: deduce array element type from fill value
 template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
+// (lo..hi).to_a / (lo...hi).to_a — int64_t range enumeration.
+static inline RubyArray<int64_t> ruby_range_to_a(int64_t lo, int64_t hi, bool exclusive) {
+  int64_t end_inclusive = exclusive ? hi - 1 : hi;
+  int64_t n = end_inclusive < lo ? 0 : (end_inclusive - lo + 1);
+  RubyArray<int64_t> a(n);
+  for (int64_t i = 0; i < n; i++) (*a.data)[i] = lo + i;
+  return a;
+}
 
 struct RubyNil;
 
@@ -205,6 +244,14 @@ template<typename T> static inline void ruby_puts(T v) {
   } else if constexpr (std::is_same_v<T, RubyString>) {
     fwrite(v.bytes.data(), 1, v.bytes.size(), stdout);
     fputc('\n', stdout);
+  } else if constexpr (requires { v.len(); v[0]; }) {
+    // RubyArray: Ruby's puts emits `[e1, e2, ...]` (inspect-style)
+    printf("[");
+    for (int64_t i = 0; i < v.len(); i++) {
+      printf(i == 0 ? "" : ", ");
+      auto x = v[i]; printf("%lld", (long long)x);
+    }
+    printf("]\n");
   } else {
     printf("#<Object>\n");
   }
@@ -220,32 +267,38 @@ static auto ruby_xor_b(auto a, auto b) {
   std::decay_t<decltype(a.len())> l{};
   std::decay_t<decltype(b.len())> lb{};
   int64_t i = 0;
+  std::decay_t<decltype(a.get_byte(i))> ba{};
+  std::decay_t<decltype(b.get_byte(i))> bb{};
   if (({ auto _l = ((!(true))); (_l) ? decltype(((!(true))))(_l) : ((!(true))); })) {
     { fprintf(stderr, "Error: %s\n", "expected two string arguments"); exit(1); };
   }
-  l = a.len();
-  lb = b.len();
+  (l = a.len());
+  (lb = b.len());
   if ((lb < l)) {
-    l = lb;
+    (l = lb);
   }
-  i = INT64_C(0);
+  (i = INT64_C(0));
   while ((i < l)) {
-    auto ba = a.get_byte(i);
-    auto bb = b.get_byte(i);
+    (ba = a.get_byte(i));
+    (bb = b.get_byte(i));
     a.set_byte(i, (ba ^ bb));
-    i = (i + INT64_C(1));
+    (i = (i + INT64_C(1)));
   }
   return a;
 }
 
 
 int main() {
-  RubyString a = A;
-  RubyString b = B;
-  int64_t sum = INT64_C(0);
+  RubyString a;
+  RubyString b;
+  int64_t sum = 0;
+  RubyString result;
+  (a = A);
+  (b = B);
+  (sum = INT64_C(0));
   for (int64_t _i = 0; _i < INT64_C(2000); _i++) {
-    auto result = ruby_xor_b(a, b);
-    sum = (sum + result.len());
+    (result = ruby_xor_b(a.dup_(), b));
+    (sum = (sum + result.len()));
   }
   ruby_puts(sum);
   return 0;
