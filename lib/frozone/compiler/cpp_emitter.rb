@@ -29,10 +29,23 @@ module Frozone
       def generate(execute_block:, top_level_scope:, globals:, stub_file: nil)
         @stub_file = stub_file
         @top_level_scope = top_level_scope
-        # Pre-pass: scan execute block and all method bodies for
-        # `Klass.new(args)` calls, recording each arg's inferred type.
-        # Used to type ivars that are pass-through params (e.g. `@x = x`).
-        @_ctor_param_types = collect_ctor_param_types(execute_block, top_level_scope)
+        # Ivar-type fixpoint: repeat ctor-arg + ivar inference until stable
+        # or budget exhausted. Lets patterns like
+        #   @root = Node.new(...)              # SplayTree infers @root: Ruby_Node
+        #   node.set_left(@root)               # next pass: set_left arg is Ruby_Node
+        #   def set_left(x); @left = x; end    # Node infers @left: Ruby_Node
+        # converge in two iterations.
+        @_class_ivar_types = {}
+        3.times do
+          @_ctor_param_types = collect_ctor_param_types(execute_block, top_level_scope)
+          changed = false
+          collect_user_classes(top_level_scope).each do |_n, cls|
+            new_types = infer_ivar_types(cls)
+            changed = true if @_class_ivar_types[cls.name] != new_types
+            @_class_ivar_types[cls.name] = new_types
+          end
+          break unless changed
+        end
         emit_header
         emit_newline
 
@@ -421,44 +434,81 @@ module Frozone
       # arg 0 is considered double.
       def collect_ctor_param_types(execute_block, scope)
         seen = {}   # class_name => [types by positional index]
-        # Also collect per-method call-site arg types for receivers of known
-        # class types (for setter propagation to ivars, etc.).
         @_method_call_arg_types = {}   # [method_name] => [types by arg index]
-        walker = lambda do |node|
+        # `cls_ctx` is the class currently being walked (nil at top level /
+        # in free functions). Passed through so InstanceVariableRead can
+        # resolve via @_class_ivar_types.
+        walker = nil
+        walker = lambda do |node, cls_ctx|
           return unless node
           if node.is_a?(Ast::MethodCall) && node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
             cls_name = node.receiver_node.name
             (node.arg_nodes || []).each_with_index do |arg, i|
-              t = infer_expr_type(arg)
+              t = infer_expr_type_ctx(arg, cls_ctx)
               existing = (seen[cls_name] ||= [])
               existing[i] = widen_type(existing[i], t)
             end
           end
-          # Any method call — accumulate arg types for later inference.
           if node.is_a?(Ast::MethodCall) && node.receiver_node && node.name != :new
             (node.arg_nodes || []).each_with_index do |arg, i|
-              t = infer_expr_type(arg)
+              t = infer_expr_type_ctx(arg, cls_ctx)
               key = node.name
               existing = (@_method_call_arg_types[key] ||= [])
               existing[i] = widen_type(existing[i], t)
             end
           end
-          node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
+          # AttributeWrite (`obj.foo = val`) — Ruby method name is `:foo=`,
+          # which our emitter maps to `set_foo`. Record arg type under the
+          # ORIGINAL Ruby name so infer_ivar_types can find it later.
+          if node.is_a?(Ast::AttributeWrite) && node.receiver_node
+            (node.arg_nodes || []).each_with_index do |arg, i|
+              t = infer_expr_type_ctx(arg, cls_ctx)
+              key = node.name
+              existing = (@_method_call_arg_types[key] ||= [])
+              existing[i] = widen_type(existing[i], t)
+            end
+          end
+          node.children.each { |c| walker.call(c, cls_ctx) if c.is_a?(Ast::Node) }
         end
-        walker.call(execute_block)
-        (scope.methods_table || {}).each_value { |m| walker.call(m.body) if m.is_a?(Vm::Method) }
+        walker.call(execute_block, nil)
+        (scope.methods_table || {}).each_value { |m| walker.call(m.body, nil) if m.is_a?(Vm::Method) }
         (scope.constants_table || {}).each_value do |v|
           next unless v.is_a?(Vm::ClassObject)
-          (v.methods_table || {}).each_value { |m| walker.call(m.body) if m.is_a?(Vm::Method) }
+          (v.methods_table || {}).each_value { |m| walker.call(m.body, v) if m.is_a?(Vm::Method) }
+          # Also descend into nested classes with their own cls_ctx.
+          (v.constants_table || {}).each_value do |nv|
+            next unless nv.is_a?(Vm::ClassObject)
+            (nv.methods_table || {}).each_value { |m| walker.call(m.body, nv) if m.is_a?(Vm::Method) }
+          end
         end
         seen
       end
 
+      # infer_expr_type with an optional current-class context, so
+      # InstanceVariableRead/Write can be resolved via @_class_ivar_types
+      # from the previous fixpoint iteration.
+      def infer_expr_type_ctx(node, cls_ctx)
+        if node.is_a?(Ast::InstanceVariableRead) && cls_ctx
+          t = (@_class_ivar_types[cls_ctx.name] || {})[node.name.to_s.delete_prefix('@')]
+          return t if t
+        end
+        if node.is_a?(Ast::MethodCall) && %i[+ - * / %].include?(node.name) && node.receiver_node && node.arg_nodes&.size == 1
+          l = infer_expr_type_ctx(node.receiver_node, cls_ctx)
+          r = infer_expr_type_ctx(node.arg_nodes[0], cls_ctx)
+          return "double" if l == "double" || r == "double"
+        end
+        infer_expr_type(node)
+      end
+
       # Picks a type that accommodates both existing and new observations.
-      # "double" wins over "int64_t"; class types stay class types.
+      # Prefer more-specific types: any class type > double > int64_t.
+      # Int64 is the default / fallback when we couldn't infer better,
+      # so a later call site observing a class/double type takes priority.
       def widen_type(existing, new_t)
         return new_t if existing.nil?
         return existing if existing == new_t
+        return new_t if existing == "int64_t"
+        return existing if new_t == "int64_t"
         return "double" if [existing, new_t].include?("double")
         existing   # otherwise retain first-seen
       end

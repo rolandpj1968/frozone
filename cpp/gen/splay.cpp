@@ -137,8 +137,8 @@ struct Ruby_Node {
   struct Impl {
     int64_t iv_key = 0;
     int64_t iv_value = 0;
-    int64_t iv_left = 0;
-    int64_t iv_right = 0;
+    Ruby_Node iv_left;
+    Ruby_Node iv_right;
   };
   std::shared_ptr<Impl> p;
 
@@ -299,8 +299,8 @@ template<> inline const char* ruby_class_name<Ruby_SplayTree>() { return "SplayT
 
 struct Ruby_PayloadNode {
   struct Impl {
-    int64_t iv_left = 0;
-    int64_t iv_right = 0;
+    Ruby_Node iv_left;
+    Ruby_Node iv_right;
   };
   std::shared_ptr<Impl> p;
 
