@@ -116,6 +116,14 @@ hierarchy (`RubyObject` and friends), ivar scanning, `respond_to?` bitsets,
 constant resolution. This work is required regardless of backend and is not
 wasted if a different backend (LLVM IR, bytecode VM) is added later.
 
+> **Second backend**: A parallel C++ emitter (invoked via `FROZONE_CPP=1`)
+> has landed as an experiment — 20/24 benchmarks pass end-to-end. Crystal's
+> type system accumulates ~8 distinct friction points vs Frozone's closed-
+> world TI (union dispatch, Int32-for-`<=>`, nullable ivar flow-narrowing,
+> etc.); the C++ backend sidesteps all of them with C++20 `auto` params and
+> a minimal header-only runtime. See [cpp-backend.md](cpp-backend.md) for
+> the pivot reasoning and architecture. Crystal remains the primary path.
+
 ---
 
 ### The split strategy: load → compile → execute
