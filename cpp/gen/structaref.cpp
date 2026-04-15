@@ -131,54 +131,60 @@ static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 struct Ruby_TheClass {
-  int64_t iv_v0 = 0;
-  int64_t iv_v1 = 0;
-  int64_t iv_v2 = 0;
-  int64_t iv_levar = 0;
+  struct Impl {
+    int64_t iv_v0 = 0;
+    int64_t iv_v1 = 0;
+    int64_t iv_v2 = 0;
+    int64_t iv_levar = 0;
+  };
+  std::shared_ptr<Impl> p;
+
+  Ruby_TheClass() = default;
+  Ruby_TheClass(const RubyNil&) {}
+  Ruby_TheClass(auto v0, auto v1, auto v2, auto levar) : p(std::make_shared<Impl>()) {
+    p->iv_v0 = v0;
+    p->iv_v1 = v1;
+    p->iv_v2 = v2;
+    p->iv_levar = levar;
+  }
 
   auto v0() {
-    return iv_v0;
+    return p->iv_v0;
   }
 
   auto set_v0(auto __anon_req__) {
-    iv_v0 = __anon_req__;
-    return iv_v0;
+    p->iv_v0 = __anon_req__;
+    return p->iv_v0;
   }
 
   auto v1() {
-    return iv_v1;
+    return p->iv_v1;
   }
 
   auto set_v1(auto __anon_req__) {
-    iv_v1 = __anon_req__;
-    return iv_v1;
+    p->iv_v1 = __anon_req__;
+    return p->iv_v1;
   }
 
   auto v2() {
-    return iv_v2;
+    return p->iv_v2;
   }
 
   auto set_v2(auto __anon_req__) {
-    iv_v2 = __anon_req__;
-    return iv_v2;
+    p->iv_v2 = __anon_req__;
+    return p->iv_v2;
   }
 
   auto levar() {
-    return iv_levar;
+    return p->iv_levar;
   }
 
   auto set_levar(auto __anon_req__) {
-    iv_levar = __anon_req__;
-    return iv_levar;
+    p->iv_levar = __anon_req__;
+    return p->iv_levar;
   }
 
-  Ruby_TheClass() = default;
-  Ruby_TheClass(auto v0, auto v1, auto v2, auto levar) {
-    iv_v0 = v0;
-    iv_v1 = v1;
-    iv_v2 = v2;
-    iv_levar = levar;
-  }
+  bool nil_q() const { return !p; }
 };
 template<> inline const char* ruby_class_name<Ruby_TheClass>() { return "TheClass"; }
 

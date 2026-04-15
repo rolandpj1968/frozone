@@ -131,13 +131,20 @@ static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 struct Ruby_C {
+  struct Impl {
+  };
+  std::shared_ptr<Impl> p;
+
+  Ruby_C() : p(std::make_shared<Impl>()) {
+    RUBY_NIL;
+  }
+  Ruby_C(const RubyNil&) {}
+
   auto ruby_func() {
     return 0LL;
   }
 
-  Ruby_C() {
-    RUBY_NIL;
-  }
+  bool nil_q() const { return !p; }
 };
 template<> inline const char* ruby_class_name<Ruby_C>() { return "C"; }
 

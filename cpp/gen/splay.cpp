@@ -134,79 +134,93 @@ static const int64_t MODIFICATIONS = 80LL;
 static const int64_t PAYLOAD_DEPTH = 5LL;
 
 struct Ruby_Node {
-  int64_t iv_key = 0;
-  int64_t iv_value = 0;
-  int64_t iv_left = 0;
-  int64_t iv_right = 0;
+  struct Impl {
+    int64_t iv_key = 0;
+    int64_t iv_value = 0;
+    int64_t iv_left = 0;
+    int64_t iv_right = 0;
+  };
+  std::shared_ptr<Impl> p;
+
+  Ruby_Node() = default;
+  Ruby_Node(const RubyNil&) {}
+  Ruby_Node(auto key, auto value) : p(std::make_shared<Impl>()) {
+    p->iv_key = key;
+    p->iv_value = value;
+    p->iv_left = RUBY_NIL;
+    p->iv_right = RUBY_NIL;
+  }
 
   auto key() {
-    return iv_key;
+    return p->iv_key;
   }
 
   auto set_key(auto __anon_req__) {
-    iv_key = __anon_req__;
-    return iv_key;
+    p->iv_key = __anon_req__;
+    return p->iv_key;
   }
 
   auto value() {
-    return iv_value;
+    return p->iv_value;
   }
 
   auto set_value(auto __anon_req__) {
-    iv_value = __anon_req__;
-    return iv_value;
+    p->iv_value = __anon_req__;
+    return p->iv_value;
   }
 
   auto left() {
-    return iv_left;
+    return p->iv_left;
   }
 
   auto set_left(auto __anon_req__) {
-    iv_left = __anon_req__;
-    return iv_left;
+    p->iv_left = __anon_req__;
+    return p->iv_left;
   }
 
   auto right() {
-    return iv_right;
+    return p->iv_right;
   }
 
   auto set_right(auto __anon_req__) {
-    iv_right = __anon_req__;
-    return iv_right;
+    p->iv_right = __anon_req__;
+    return p->iv_right;
   }
 
-  Ruby_Node() = default;
-  Ruby_Node(auto key, auto value) {
-    iv_key = key;
-    iv_value = value;
-    iv_left = RUBY_NIL;
-    iv_right = RUBY_NIL;
-  }
+  bool nil_q() const { return !p; }
 };
 template<> inline const char* ruby_class_name<Ruby_Node>() { return "Node"; }
 
 struct Ruby_SplayTree {
-  Ruby_Node iv_root;
+  struct Impl {
+    Ruby_Node iv_root;
+  };
+  std::shared_ptr<Impl> p;
+
+  Ruby_SplayTree() : p(std::make_shared<Impl>()) {
+    p->iv_root = RUBY_NIL;
+  }
+  Ruby_SplayTree(const RubyNil&) {}
 
   auto empty_q() {
-    return ruby_nil_q(iv_root);
+    return ruby_nil_q(p->iv_root);
   }
 
   auto insert(auto key, auto value) {
     if (empty_q()) {
-      iv_root = Ruby_Node(key, value); return;
+      p->iv_root = Ruby_Node(key, value); return;
     }
     splay_b(key);
-    if ((iv_root.key() == key)) {
+    if ((p->iv_root.key() == key)) {
       return;
     }
     Ruby_Node node = Ruby_Node(key, value);
-    if ((key > iv_root.key())) {
-      node.set_left(iv_root); node.set_right(iv_root.right()); iv_root.set_right(RUBY_NIL);
+    if ((key > p->iv_root.key())) {
+      node.set_left(p->iv_root); node.set_right(p->iv_root.right()); p->iv_root.set_right(RUBY_NIL);
     } else {
-      node.set_right(iv_root); node.set_left(iv_root.left()); iv_root.set_left(RUBY_NIL);
+      node.set_right(p->iv_root); node.set_left(p->iv_root.left()); p->iv_root.set_left(RUBY_NIL);
     }
-    return iv_root = node;
+    return p->iv_root = node;
   }
 
   auto remove(auto key) {
@@ -214,14 +228,14 @@ struct Ruby_SplayTree {
       { fprintf(stderr, "Error: %s\n", "error"); exit(1); };
     }
     splay_b(key);
-    if ((iv_root.key() != key)) {
+    if ((p->iv_root.key() != key)) {
       { fprintf(stderr, "Error: %s\n", "error"); exit(1); };
     }
-    int64_t removed = iv_root;
-    if (ruby_nil_q(iv_root.left())) {
-      iv_root = iv_root.right();
+    int64_t removed = p->iv_root;
+    if (ruby_nil_q(p->iv_root.left())) {
+      p->iv_root = p->iv_root.right();
     } else {
-      auto right = iv_root.right(); iv_root = iv_root.left(); splay_b(key); iv_root.set_right(right);
+      auto right = p->iv_root.right(); p->iv_root = p->iv_root.left(); splay_b(key); p->iv_root.set_right(right);
     }
     return removed;
   }
@@ -231,8 +245,8 @@ struct Ruby_SplayTree {
       return RUBY_NIL;
     }
     splay_b(key);
-    if ((iv_root.key() == key)) {
-      iv_root;
+    if ((p->iv_root.key() == key)) {
+      p->iv_root;
     } else {
       RUBY_NIL;
     }
@@ -242,7 +256,7 @@ struct Ruby_SplayTree {
     if (empty_q()) {
       return RUBY_NIL;
     }
-    int64_t current = (start_node || iv_root);
+    int64_t current = (start_node || p->iv_root);
     while (current.right()) {
       current = current.right();
     }
@@ -254,11 +268,11 @@ struct Ruby_SplayTree {
       return RUBY_NIL;
     }
     splay_b(key);
-    if ((iv_root.key() < key)) {
-      iv_root;
+    if ((p->iv_root.key() < key)) {
+      p->iv_root;
     } else {
-      if (iv_root.left()) {
-        find_max(iv_root.left());
+      if (p->iv_root.left()) {
+        find_max(p->iv_root.left());
       };
     }
   }
@@ -270,48 +284,52 @@ struct Ruby_SplayTree {
     Ruby_Node dummy = Ruby_Node(RUBY_NIL, RUBY_NIL);
     int64_t left = dummy;
     int64_t right = dummy;
-    int64_t current = iv_root;
+    int64_t current = p->iv_root;
     loop();
     left.set_right(current.left());
     right.set_left(current.right());
     current.set_left(dummy.right());
     current.set_right(dummy.left());
-    return iv_root = current;
+    return p->iv_root = current;
   }
 
-  Ruby_SplayTree() {
-    iv_root = RUBY_NIL;
-  }
+  bool nil_q() const { return !p; }
 };
 template<> inline const char* ruby_class_name<Ruby_SplayTree>() { return "SplayTree"; }
 
 struct Ruby_PayloadNode {
-  int64_t iv_left = 0;
-  int64_t iv_right = 0;
+  struct Impl {
+    int64_t iv_left = 0;
+    int64_t iv_right = 0;
+  };
+  std::shared_ptr<Impl> p;
+
+  Ruby_PayloadNode() = default;
+  Ruby_PayloadNode(const RubyNil&) {}
+  Ruby_PayloadNode(auto left, auto right) : p(std::make_shared<Impl>()) {
+    p->iv_left = left;
+    p->iv_right = right;
+  }
 
   auto left() {
-    return iv_left;
+    return p->iv_left;
   }
 
   auto set_left(auto __anon_req__) {
-    iv_left = __anon_req__;
-    return iv_left;
+    p->iv_left = __anon_req__;
+    return p->iv_left;
   }
 
   auto right() {
-    return iv_right;
+    return p->iv_right;
   }
 
   auto set_right(auto __anon_req__) {
-    iv_right = __anon_req__;
-    return iv_right;
+    p->iv_right = __anon_req__;
+    return p->iv_right;
   }
 
-  Ruby_PayloadNode() = default;
-  Ruby_PayloadNode(auto left, auto right) {
-    iv_left = left;
-    iv_right = right;
-  }
+  bool nil_q() const { return !p; }
 };
 template<> inline const char* ruby_class_name<Ruby_PayloadNode>() { return "PayloadNode"; }
 

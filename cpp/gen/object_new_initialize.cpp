@@ -131,18 +131,24 @@ static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 struct Ruby_C {
-  int64_t iv_a = 0;
-  int64_t iv_b = 0;
-  int64_t iv_c = 0;
-  int64_t iv_d = 0;
+  struct Impl {
+    int64_t iv_a = 0;
+    int64_t iv_b = 0;
+    int64_t iv_c = 0;
+    int64_t iv_d = 0;
+  };
+  std::shared_ptr<Impl> p;
 
   Ruby_C() = default;
-  Ruby_C(auto a, auto b, auto c, auto d) {
-    iv_a = a;
-    iv_b = b;
-    iv_c = c;
-    iv_d = d;
+  Ruby_C(const RubyNil&) {}
+  Ruby_C(auto a, auto b, auto c, auto d) : p(std::make_shared<Impl>()) {
+    p->iv_a = a;
+    p->iv_b = b;
+    p->iv_c = c;
+    p->iv_d = d;
   }
+
+  bool nil_q() const { return !p; }
 };
 template<> inline const char* ruby_class_name<Ruby_C>() { return "C"; }
 

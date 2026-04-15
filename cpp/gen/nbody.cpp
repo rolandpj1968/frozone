@@ -136,109 +136,115 @@ static const int64_t NBODIES = 5LL;
 static const double DT = 0.01;
 
 struct Ruby_Planet {
-  double iv_x;
-  double iv_y;
-  double iv_z;
-  double iv_vx;
-  double iv_vy;
-  double iv_vz;
-  double iv_mass;
+  struct Impl {
+    double iv_x = 0.0;
+    double iv_y = 0.0;
+    double iv_z = 0.0;
+    double iv_vx = 0.0;
+    double iv_vy = 0.0;
+    double iv_vz = 0.0;
+    double iv_mass = 0.0;
+  };
+  std::shared_ptr<Impl> p;
+
+  Ruby_Planet() = default;
+  Ruby_Planet(const RubyNil&) {}
+  Ruby_Planet(auto x, auto y, auto z, auto vx, auto vy, auto vz, auto mass) : p(std::make_shared<Impl>()) {
+    p->iv_x = x; p->iv_y = y; p->iv_z = z;
+    p->iv_vx = (vx * DAYS_PER_YEAR); p->iv_vy = (vy * DAYS_PER_YEAR); p->iv_vz = (vz * DAYS_PER_YEAR);
+    p->iv_mass = (mass * SOLAR_MASS);
+  }
 
   auto x() {
-    return iv_x;
+    return p->iv_x;
   }
 
   auto set_x(auto __anon_req__) {
-    iv_x = __anon_req__;
-    return iv_x;
+    p->iv_x = __anon_req__;
+    return p->iv_x;
   }
 
   auto y() {
-    return iv_y;
+    return p->iv_y;
   }
 
   auto set_y(auto __anon_req__) {
-    iv_y = __anon_req__;
-    return iv_y;
+    p->iv_y = __anon_req__;
+    return p->iv_y;
   }
 
   auto z() {
-    return iv_z;
+    return p->iv_z;
   }
 
   auto set_z(auto __anon_req__) {
-    iv_z = __anon_req__;
-    return iv_z;
+    p->iv_z = __anon_req__;
+    return p->iv_z;
   }
 
   auto vx() {
-    return iv_vx;
+    return p->iv_vx;
   }
 
   auto set_vx(auto __anon_req__) {
-    iv_vx = __anon_req__;
-    return iv_vx;
+    p->iv_vx = __anon_req__;
+    return p->iv_vx;
   }
 
   auto vy() {
-    return iv_vy;
+    return p->iv_vy;
   }
 
   auto set_vy(auto __anon_req__) {
-    iv_vy = __anon_req__;
-    return iv_vy;
+    p->iv_vy = __anon_req__;
+    return p->iv_vy;
   }
 
   auto vz() {
-    return iv_vz;
+    return p->iv_vz;
   }
 
   auto set_vz(auto __anon_req__) {
-    iv_vz = __anon_req__;
-    return iv_vz;
+    p->iv_vz = __anon_req__;
+    return p->iv_vz;
   }
 
   auto mass() {
-    return iv_mass;
+    return p->iv_mass;
   }
 
   auto set_mass(auto __anon_req__) {
-    iv_mass = __anon_req__;
-    return iv_mass;
+    p->iv_mass = __anon_req__;
+    return p->iv_mass;
   }
 
   auto move_from_i(auto bodies, auto nbodies, auto dt, auto i) {
     while ((i < nbodies)) {
       auto& b2 = bodies[i];
-      auto dx = (iv_x - b2.x());
-      auto dy = (iv_y - b2.y());
-      auto dz = (iv_z - b2.z());
+      auto dx = (p->iv_x - b2.x());
+      auto dy = (p->iv_y - b2.y());
+      auto dz = (p->iv_z - b2.z());
       auto dsq = (((dx * dx) + (dy * dy)) + (dz * dz));
       auto mag = (dt / (dsq * sqrt(dsq)));
-      auto b_mass_mag = (iv_mass * mag); auto b2_mass_mag = (b2.mass() * mag);
-      iv_vx = (iv_vx - (dx * b2_mass_mag));
-      iv_vy = (iv_vy - (dy * b2_mass_mag));
-      iv_vz = (iv_vz - (dz * b2_mass_mag));
+      auto b_mass_mag = (p->iv_mass * mag); auto b2_mass_mag = (b2.mass() * mag);
+      p->iv_vx = (p->iv_vx - (dx * b2_mass_mag));
+      p->iv_vy = (p->iv_vy - (dy * b2_mass_mag));
+      p->iv_vz = (p->iv_vz - (dz * b2_mass_mag));
       b2.add_v((dx * b_mass_mag), (dy * b_mass_mag), (dz * b_mass_mag));
       i = (i + INT64_C(1));
     }
-    iv_x = (iv_x + (dt * iv_vx));
-    iv_y = (iv_y + (dt * iv_vy));
-    return iv_z = (iv_z + (dt * iv_vz));
+    p->iv_x = (p->iv_x + (dt * p->iv_vx));
+    p->iv_y = (p->iv_y + (dt * p->iv_vy));
+    return p->iv_z = (p->iv_z + (dt * p->iv_vz));
   }
 
   auto add_v(auto dx, auto dy, auto dz) {
-    iv_vx = (iv_vx + dx);
-    iv_vy = (iv_vy + dy);
-    return iv_vz = (iv_vz + dz);
+    p->iv_vx = (p->iv_vx + dx);
+    p->iv_vy = (p->iv_vy + dy);
+    return p->iv_vz = (p->iv_vz + dz);
   }
 
-  Ruby_Planet() = default;
-  Ruby_Planet(auto x, auto y, auto z, auto vx, auto vy, auto vz, auto mass) {
-    iv_x = x; iv_y = y; iv_z = z;
-    iv_vx = (vx * DAYS_PER_YEAR); iv_vy = (vy * DAYS_PER_YEAR); iv_vz = (vz * DAYS_PER_YEAR);
-    iv_mass = (mass * SOLAR_MASS);
-  }
+  bool nil_q() const { return !p; }
 };
 template<> inline const char* ruby_class_name<Ruby_Planet>() { return "Planet"; }
 

@@ -131,7 +131,14 @@ static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 struct Ruby_TheClass {
+  struct Impl {
+  };
+  std::shared_ptr<Impl> p;
+
   Ruby_TheClass() = default;
+  Ruby_TheClass(const RubyNil&) {}
+
+  bool nil_q() const { return !p; }
 };
 template<> inline const char* ruby_class_name<Ruby_TheClass>() { return "TheClass"; }
 

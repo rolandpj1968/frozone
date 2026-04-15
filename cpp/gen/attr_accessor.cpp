@@ -131,18 +131,29 @@ static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 struct Ruby_TheClass {
-  int64_t iv_v0 = 0;
-  int64_t iv_v1 = 0;
-  int64_t iv_v2 = 0;
-  int64_t iv_levar = 0;
+  struct Impl {
+    int64_t iv_v0 = 0;
+    int64_t iv_v1 = 0;
+    int64_t iv_v2 = 0;
+    int64_t iv_levar = 0;
+  };
+  std::shared_ptr<Impl> p;
+
+  Ruby_TheClass() : p(std::make_shared<Impl>()) {
+    p->iv_v0 = INT64_C(1);
+    p->iv_v1 = INT64_C(2);
+    p->iv_v2 = INT64_C(3);
+    p->iv_levar = INT64_C(1);
+  }
+  Ruby_TheClass(const RubyNil&) {}
 
   auto levar() {
-    return iv_levar;
+    return p->iv_levar;
   }
 
   auto set_levar(auto __anon_req__) {
-    iv_levar = __anon_req__;
-    return iv_levar;
+    p->iv_levar = __anon_req__;
+    return p->iv_levar;
   }
 
   auto get_value_loop() {
@@ -159,12 +170,7 @@ struct Ruby_TheClass {
     return sum;
   }
 
-  Ruby_TheClass() {
-    iv_v0 = INT64_C(1);
-    iv_v1 = INT64_C(2);
-    iv_v2 = INT64_C(3);
-    iv_levar = INT64_C(1);
-  }
+  bool nil_q() const { return !p; }
 };
 template<> inline const char* ruby_class_name<Ruby_TheClass>() { return "TheClass"; }
 

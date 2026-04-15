@@ -131,6 +131,15 @@ static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 struct Ruby_A {
+  struct Impl {
+  };
+  std::shared_ptr<Impl> p;
+
+  Ruby_A() : p(std::make_shared<Impl>()) {
+    RUBY_NIL;
+  }
+  Ruby_A(const RubyNil&) {}
+
   auto foo() {
     return 0LL;
   }
@@ -139,19 +148,31 @@ struct Ruby_A {
     return 0LL;
   }
 
-  Ruby_A() {
-    RUBY_NIL;
-  }
+  bool nil_q() const { return !p; }
 };
 template<> inline const char* ruby_class_name<Ruby_A>() { return "A"; }
 
 struct Ruby_B {
+  struct Impl {
+  };
+  std::shared_ptr<Impl> p;
+
   Ruby_B() = default;
+  Ruby_B(const RubyNil&) {}
+
+  bool nil_q() const { return !p; }
 };
 template<> inline const char* ruby_class_name<Ruby_B>() { return "B"; }
 
 struct Ruby_C {
+  struct Impl {
+  };
+  std::shared_ptr<Impl> p;
+
   Ruby_C() = default;
+  Ruby_C(const RubyNil&) {}
+
+  bool nil_q() const { return !p; }
 };
 template<> inline const char* ruby_class_name<Ruby_C>() { return "C"; }
 

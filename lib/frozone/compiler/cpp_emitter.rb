@@ -58,8 +58,14 @@ module Frozone
 
       private
 
-      # Strip @ from Ruby ivar names and prefix with iv_ to avoid clashes with method names
-      def cpp_ivar(name) = "iv_#{name.to_s.delete_prefix('@')}"
+      # Ivar access:
+      #   - Inside a wrapped class method/ctor body: `p->iv_<name>`
+      #     (goes through the shared_ptr for reference semantics).
+      #   - Outside (shouldn't happen for user code): bare `iv_<name>`.
+      def cpp_ivar(name)
+        stripped = name.to_s.delete_prefix('@')
+        @_inside_wrapped_class ? "p->iv_#{stripped}" : "iv_#{stripped}"
+      end
 
       # Ruby → C++ method name overrides (where Ruby name would be invalid or
       # shadow a keyword in C++).
@@ -325,50 +331,86 @@ module Frozone
         result
       end
 
+      # Emit a user class as a shared_ptr-wrapping value type:
+      #   struct Ruby_X {
+      #     struct Impl { <ivars>; };
+      #     std::shared_ptr<Impl> p;
+      #     Ruby_X(...) : p(std::make_shared<Impl>()) { <init body using p->iv_*> }
+      #     <methods delegating through p->iv_*>
+      #   };
+      # This gives Ruby reference semantics: copying the wrapper aliases the
+      # Impl via shared_ptr, so `b = arr[i]; b.set_x(v)` mutates the original.
       def emit_class(name, cls)
         line "struct Ruby_#{name} {"
-        # Collect ivars from initialize
         init = cls.methods_table&.fetch(:initialize, nil)
         ivars = []
         if init.is_a?(Vm::Method) && init.body
           collect_ivars_from_body(init.body, ivars)
         end
-        # Infer ivar types by scanning all methods for `@foo = Klass.new(...)`
-        # patterns. Any ivar consistently assigned a known class name gets
-        # that type; otherwise default to int64_t.
         ivar_types = infer_ivar_types(cls)
+        init_has_params = init.is_a?(Vm::Method) && !all_param_names(init).empty?
+
         indented do
-          ivars.uniq.each do |iv|
-            key = iv.to_s.delete_prefix('@')
-            t = ivar_types[key] || "int64_t"
-            default = (t == "int64_t") ? " = 0" : ""
-            line "#{t} #{cpp_ivar(iv)}#{default};"
+          # Nested Impl struct holds all the data — ivars only, no methods.
+          line "struct Impl {"
+          indented do
+            ivars.uniq.each do |iv|
+              key = iv.to_s.delete_prefix('@')
+              t = ivar_types[key] || "int64_t"
+              default = (t == "int64_t") ? " = 0" : (t == "double" ? " = 0.0" : "")
+              line "#{t} iv_#{key}#{default};"
+            end
           end
-          emit_newline if ivars.any?
-          # Emit methods DEFINED on this class only. Module erasure has
-          # flattened inherited methods into methods_table too; we skip
-          # those (they get emitted on their original owner / as free fns).
+          line "};"
+          line "std::shared_ptr<Impl> p;"
+          emit_newline
+
+          # Convenience typedef inside the wrapper so method bodies can
+          # refer to the Impl type. Methods access ivars via `p->iv_*`.
+          @_inside_wrapped_class = true
+
+          # Default ctor: nil unless the user's init is 0-arg (then we
+          # must allocate and run it so `static Ruby_X OBJ;` works).
+          if init.is_a?(Vm::Method) && !init_has_params
+            # 0-arg init: default ctor allocates + runs the init body.
+            line "Ruby_#{name}() : p(std::make_shared<Impl>()) {"
+            @_declared_locals = Set.new
+            indented { emit(init.body) }
+            line "}"
+          else
+            line "Ruby_#{name}() = default;"
+          end
+
+          # Nil conversion — assigning RUBY_NIL leaves p as nullptr.
+          line "Ruby_#{name}(const RubyNil&) {}"
+
+          # Parameterised ctor — only if init has params; allocates + runs body.
+          if init_has_params
+            params = all_param_names(init).map { |p| "auto #{p}" }.join(", ")
+            line "Ruby_#{name}(#{params}) : p(std::make_shared<Impl>()) {"
+            @_declared_locals = Set.new
+            all_param_names(init).each { |p| @_declared_locals << p.to_s }
+            indented { emit(init.body) }
+            line "}"
+          end
+
+          emit_newline
+          # Methods DEFINED on this class (skip inherited via module erasure).
           cls.methods_table&.each do |mname, method|
             next unless method.is_a?(Vm::Method) && method.body
-            next if mname == :initialize # handle separately
+            next if mname == :initialize
             next unless user_source_location?(method.source_location) || accessor_method?(method)
-            # Only emit if THIS class is the defining scope.
             next unless method_defined_here?(method, cls)
             emit_class_method(mname, method)
             emit_newline
           end
-          # Default constructor — needed so RubyArray<Ruby_X>(size) can
-          # default-init elements (std::vector requires this). Skip if the
-          # explicit `initialize` is already a no-arg ctor (would clash).
-          init_has_params = init.is_a?(Vm::Method) && !all_param_names(init).empty?
-          line "Ruby_#{name}() = default;" if !init || init_has_params
-          # Emit the real initialize as a parameterised constructor.
-          if init.is_a?(Vm::Method) && init.body
-            emit_constructor(name, init)
-          end
+
+          @_inside_wrapped_class = false
+
+          line "bool nil_q() const { return !p; }"
         end
         line "};"
-        # Register class name for `.class` dispatch (global template specialisation).
+        # Register class name for `.class` dispatch.
         line "template<> inline const char* ruby_class_name<Ruby_#{name}>() { return \"#{name}\"; }"
       end
 
