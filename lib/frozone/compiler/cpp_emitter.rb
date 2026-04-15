@@ -264,6 +264,18 @@ module Frozone
 
       CORE_PATH_MARKERS = %w[lib/core/4.0/ lib/frozone/vm/ lib/frozone/ast/].freeze
 
+      # Ruby constant names that collide with C/C++ stdlib identifiers.
+      # Emission renames them to avoid the clash.
+      CPP_RESERVED_NAMES = %w[FILE stdin stdout stderr EOF NULL errno signal
+                              strcpy strlen memcpy memset free exit abort].to_set.freeze
+
+      # Rename Ruby constant/module names that would collide with C/C++
+      # stdlib identifiers. `FILE` -> `RUBY_FILE`, etc.
+      def cpp_const_name(name)
+        s = name.to_s
+        CPP_RESERVED_NAMES.include?(s) ? "RUBY_#{s}" : s
+      end
+
       def user_source_location?(loc)
         return false if loc.nil?
         file = loc.is_a?(Array) ? loc.first.to_s : loc.to_s.sub(/:[\d]+\z/, '')
@@ -294,19 +306,20 @@ module Frozone
           is_user_obj = value.is_a?(Vm::ObjectObject) && !primitive_value?(value)
           next if skip_objects && is_user_obj
           next if objects_only && !is_user_obj
+          cname = cpp_const_name(name)
           case value
-          when Vm::IntegerObject then line "static const int64_t #{name} = #{value.raw}LL;"
-          when Vm::FloatObject then line "static const double #{name} = #{value.raw};"
+          when Vm::IntegerObject then line "static const int64_t #{cname} = #{value.raw}LL;"
+          when Vm::FloatObject then line "static const double #{cname} = #{value.raw};"
           when Vm::StringObject
             raw = value.raw
-            line "static const RubyString #{name} = RubyString(#{raw.inspect}, #{raw.bytesize});"
-          when Vm::TrueObject then line "static const bool #{name} = true;"
-          when Vm::FalseObject then line "static const bool #{name} = false;"
+            line "static const RubyString #{cname} = RubyString(#{raw.inspect}, #{raw.bytesize});"
+          when Vm::TrueObject then line "static const bool #{cname} = true;"
+          when Vm::FalseObject then line "static const bool #{cname} = false;"
           when Vm::ObjectObject
             klass = value.class_object
             next unless klass.is_a?(Vm::ClassObject) && klass.name
             next if %i[Hash Array Range Regexp Proc].include?(klass.name)
-            line "static Ruby_#{klass.name} #{name};"
+            line "static Ruby_#{klass.name} #{cname};"
           end
         end
       end
@@ -957,7 +970,7 @@ module Frozone
         when Ast::And then "(#{cr(node.left_node)} && #{cr(node.right_node)})"
         when Ast::Or then "(#{cr(node.left_node)} || #{cr(node.right_node)})"
         when Ast::MethodCall then cr_method_call(node)
-        when Ast::ConstantRead then node.name.to_s
+        when Ast::ConstantRead then cpp_const_name(node.name)
         when Ast::ConstantPath
           # Encoding::UTF_8 etc. — treat as 0 (encoding ignored for now)
           "INT64_C(0) /* ::#{node.name} */"

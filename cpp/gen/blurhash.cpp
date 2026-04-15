@@ -129,7 +129,7 @@ template<typename T> static inline void ruby_puts(T v) {
 }
 static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
-static const RubyString FILE = RubyString("/home/rolandpj/src/frozone/bench/benchmarks/blurhash/test.bin", 61);
+static const RubyString RUBY_FILE = RubyString("/home/rolandpj/src/frozone/bench/benchmarks/blurhash/test.bin", 61);
 
 
 
