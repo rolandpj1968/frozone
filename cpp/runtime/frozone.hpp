@@ -15,6 +15,9 @@
 #include <charconv>
 #include <cinttypes>
 #include <vector>
+#include <list>
+#include <unordered_map>
+#include <variant>
 
 class RubyString {
 public:
@@ -81,6 +84,130 @@ public:
   bool operator>=(const RubyString& o) const { return bytes >= o.bytes; }
 };
 using Ruby_String = RubyString;
+
+// ---------------------------------------------------------------------
+// RubySymbol — interned string. Ruby symbols with the same text are the
+// same object; comparison is O(1). We intern via a process-wide map of
+// string → stable char*. RubySymbol stores the interned pointer;
+// equality is pointer-equality.
+// ---------------------------------------------------------------------
+class RubySymbol {
+public:
+  const char* name = nullptr;  // interned, null-terminated
+
+  RubySymbol() = default;
+  explicit RubySymbol(const char* n) : name(n) {}  // pre-interned
+  bool operator==(const RubySymbol& o) const { return name == o.name; }
+  bool operator!=(const RubySymbol& o) const { return name != o.name; }
+};
+
+// Interning table — static, leaks at shutdown (fine for AOT programs).
+// Uses a map from std::string (because we hash the text) to the owned
+// interned strdup'd char*. Subsequent sym() calls with the same text
+// return the same pointer.
+inline RubySymbol ruby_sym(const char* s) {
+  static std::unordered_map<std::string, const char*> interned;
+  auto it = interned.find(s);
+  if (it != interned.end()) return RubySymbol(it->second);
+  char* copy = strdup(s);
+  interned.emplace(s, copy);
+  return RubySymbol(copy);
+}
+
+// std::hash specialisation so RubySymbol works as a key.
+namespace std {
+  template<> struct hash<RubySymbol> {
+    size_t operator()(const RubySymbol& s) const noexcept {
+      // Hash the pointer (works because interning guarantees uniqueness).
+      return std::hash<const void*>{}(s.name);
+    }
+  };
+}
+
+// ---------------------------------------------------------------------
+// RubyHash<K, V> — insertion-ordered map. O(1) insert / lookup / delete.
+// Under the hood: std::list for order + std::unordered_map storing the
+// value alongside a stable iterator into the list.
+// Copy semantics: deep. Copying rebuilds list iterators in the map.
+// ---------------------------------------------------------------------
+template<typename K, typename V>
+class RubyHash {
+public:
+  using ListType = std::list<K>;
+  using MapEntry = std::pair<V, typename ListType::iterator>;
+
+  ListType order;
+  std::unordered_map<K, MapEntry> data;
+
+  RubyHash() = default;
+
+  // Copy ctor: rebuild the list, rebuild the map pointing at the new list.
+  RubyHash(const RubyHash& o) {
+    for (const auto& k : o.order) {
+      order.push_back(k);
+      auto it = std::prev(order.end());
+      auto src = o.data.find(k);
+      data.emplace(k, MapEntry{src->second.first, it});
+    }
+  }
+  RubyHash& operator=(const RubyHash& o) {
+    if (this == &o) return *this;
+    order.clear(); data.clear();
+    for (const auto& k : o.order) {
+      order.push_back(k);
+      auto it = std::prev(order.end());
+      auto src = o.data.find(k);
+      data.emplace(k, MapEntry{src->second.first, it});
+    }
+    return *this;
+  }
+  RubyHash(RubyHash&&) = default;
+  RubyHash& operator=(RubyHash&&) = default;
+
+  int64_t len() const { return (int64_t)order.size(); }
+  int64_t size() const { return len(); }
+  int64_t length() const { return len(); }
+  bool empty_q() const { return order.empty(); }
+
+  // h[k] returns V&, inserting default-V if absent (Ruby `h[:missing]` is
+  // nil; we return a default-constructed V which is nil-ish for variants).
+  V& operator[](const K& k) {
+    auto it = data.find(k);
+    if (it != data.end()) return it->second.first;
+    order.push_back(k);
+    auto list_it = std::prev(order.end());
+    auto [new_it, _] = data.emplace(k, MapEntry{V{}, list_it});
+    return new_it->second.first;
+  }
+
+  // .store(k, v) — explicit insert / overwrite. Always updates value;
+  // preserves insertion position on re-insert.
+  V& store(const K& k, const V& v) {
+    auto it = data.find(k);
+    if (it != data.end()) {
+      it->second.first = v;
+      return it->second.first;
+    }
+    order.push_back(k);
+    auto list_it = std::prev(order.end());
+    auto [new_it, _] = data.emplace(k, MapEntry{v, list_it});
+    return new_it->second.first;
+  }
+
+  bool include_q(const K& k) const { return data.count(k) > 0; }
+  bool has_key_q(const K& k) const { return include_q(k); }
+
+  void delete_(const K& k) {
+    auto it = data.find(k);
+    if (it == data.end()) return;
+    order.erase(it->second.second);  // O(1) via stored iterator
+    data.erase(it);
+  }
+
+  // Iteration walks the order list — insertion-ordered.
+  auto begin() const { return order.begin(); }
+  auto end() const { return order.end(); }
+};
 
 // Forward declaration: ruby_to_s is used inside RubyArray::join.
 template<typename T> static inline RubyString ruby_to_s(T v);
