@@ -116,10 +116,10 @@ template<typename T> static inline void ruby_puts(T v) {
 }
 static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
-
-
 static const RubyString A = RubyString("this is a long string with no useful contents yada yada yada yada", 65);
 static const RubyString B = RubyString("this is also a long string with no useful contents yada yada daaaaaa", 68);
+
+
 
 static auto ruby_xor_b(auto a, auto b) {
   if (((!(true)) || (!(true)))) {

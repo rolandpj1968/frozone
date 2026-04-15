@@ -116,9 +116,9 @@ template<typename T> static inline void ruby_puts(T v) {
 }
 static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
-
-
 static const int64_t N = 9LL;
+
+
 
 static auto fannkuch(auto n) {
   auto p = (n + 1LL).to_a();
@@ -127,14 +127,14 @@ static auto fannkuch(auto n) {
   int64_t sign = INT64_C(1);
   int64_t sum = int64_t maxflips = INT64_C(0);
   while (true) {
-    if ((auto q1 = p[INT64_C(1)] != INT64_C(1))) {
-    q[(INT64_C(-1) + 1LL)] = p; int64_t flips = INT64_C(1); while (!((auto qq = q[q1] == INT64_C(1)))) {
+    if ((auto& q1 = p[INT64_C(1)] != INT64_C(1))) {
+    q[(INT64_C(-1) + 1LL)] = p; int64_t flips = INT64_C(1); while (!((auto& qq = q[q1] == INT64_C(1)))) {
       q[q1] = q1;
       if ((q1 >= INT64_C(4))) {
-      i = INT64_C(2); j = (q1 - INT64_C(1)); while ((i < j)) {
+      auto i = INT64_C(2); auto j = (q1 - INT64_C(1)); while ((i < j)) {
         local(q, 0) = q[j]; local(q, 0) = q[i];
-        auto i = (i + INT64_C(1));
-        auto j = (j - INT64_C(1));
+        i = (i + INT64_C(1));
+        j = (j - INT64_C(1));
       };
     };
       q1 = qq;

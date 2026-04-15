@@ -159,7 +159,8 @@ struct Ruby_TheClass {
     return iv_levar;
   }
 
-  Ruby_TheClass(int64_t v0, int64_t v1, int64_t v2, int64_t levar) {
+  Ruby_TheClass() = default;
+  Ruby_TheClass(auto v0, auto v1, auto v2, auto levar) {
     iv_v0 = v0;
     iv_v1 = v1;
     iv_v2 = v2;

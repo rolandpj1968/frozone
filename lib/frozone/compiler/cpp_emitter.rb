@@ -29,6 +29,10 @@ module Frozone
       def generate(execute_block:, top_level_scope:, globals:, stub_file: nil)
         @stub_file = stub_file
         @top_level_scope = top_level_scope
+        # Pre-pass: scan execute block and all method bodies for
+        # `Klass.new(args)` calls, recording each arg's inferred type.
+        # Used to type ivars that are pass-through params (e.g. `@x = x`).
+        @_ctor_param_types = collect_ctor_param_types(execute_block, top_level_scope)
         emit_header
         emit_newline
 
@@ -232,6 +236,17 @@ module Frozone
         CORE_PATH_MARKERS.none? { |m| file.include?(m) }
       end
 
+      # All VM "primitive" value types that lower to C++ scalars/RubyString
+      # (not user-defined ObjectObject instances).
+      PRIMITIVE_VALUE_TYPES = [
+        Vm::IntegerObject, Vm::FloatObject, Vm::StringObject,
+        Vm::TrueObject, Vm::FalseObject
+      ].freeze
+
+      def primitive_value?(v)
+        PRIMITIVE_VALUE_TYPES.any? { |c| v.is_a?(c) }
+      end
+
       def emit_constants(scope, skip_objects: false, objects_only: false)
         const_table = scope.constants_table || {}
         const_locs = scope.constants_locations || {}
@@ -239,15 +254,15 @@ module Frozone
           next if value.is_a?(Vm::ModuleObject)
           loc = const_locs[name]
           next unless user_source_location?(loc)
-          is_obj = value.is_a?(Vm::ObjectObject)
-          next if skip_objects && is_obj
-          next if objects_only && !is_obj
+          # "Object" here means an instance of a user-defined class,
+          # not a primitive value (Int/Float/Str/Bool).
+          is_user_obj = value.is_a?(Vm::ObjectObject) && !primitive_value?(value)
+          next if skip_objects && is_user_obj
+          next if objects_only && !is_user_obj
           case value
           when Vm::IntegerObject then line "static const int64_t #{name} = #{value.raw}LL;"
           when Vm::FloatObject then line "static const double #{name} = #{value.raw};"
           when Vm::StringObject
-            # Emit as RubyString so .dup/.bytesize/.length etc. work.
-            # Use the (ptr, len) constructor so embedded NULs are preserved.
             raw = value.raw
             line "static const RubyString #{name} = RubyString(#{raw.inspect}, #{raw.bytesize});"
           when Vm::TrueObject then line "static const bool #{name} = true;"
@@ -255,7 +270,6 @@ module Frozone
           when Vm::ObjectObject
             klass = value.class_object
             next unless klass.is_a?(Vm::ClassObject) && klass.name
-            # Skip built-in container types without C++ runtime equivalents yet.
             next if %i[Hash Array Range Regexp Proc].include?(klass.name)
             line "static Ruby_#{klass.name} #{name};"
           end
@@ -327,7 +341,12 @@ module Frozone
             emit_class_method(mname, method)
             emit_newline
           end
-          # Emit initialize as constructor
+          # Default constructor — needed so RubyArray<Ruby_X>(size) can
+          # default-init elements (std::vector requires this). Skip if the
+          # explicit `initialize` is already a no-arg ctor (would clash).
+          init_has_params = init.is_a?(Vm::Method) && !all_param_names(init).empty?
+          line "Ruby_#{name}() = default;" if !init || init_has_params
+          # Emit the real initialize as a parameterised constructor.
           if init.is_a?(Vm::Method) && init.body
             emit_constructor(name, init)
           end
@@ -335,36 +354,130 @@ module Frozone
         line "};"
       end
 
-      # Scans every method body on `cls` for `@foo = Klass.new(...)` writes.
-      # Returns a Hash `{"foo" => "Ruby_Klass"}` for ivars consistently
-      # assigned a class instance; ivars assigned mixed types stay unmapped
-      # (caller defaults to int64_t).
+      # Walks every AST node rooted at `root` (the execute block + every
+      # user method body) and records, for each `ClassName.new(args...)`
+      # call, the type of each positional arg. Types are widened across
+      # call sites: if Planet.new is ever called with a double at arg 0,
+      # arg 0 is considered double.
+      def collect_ctor_param_types(execute_block, scope)
+        seen = {}   # class_name => [types by positional index]
+        walker = lambda do |node|
+          return unless node
+          if node.is_a?(Ast::MethodCall) && node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
+            cls_name = node.receiver_node.name
+            (node.arg_nodes || []).each_with_index do |arg, i|
+              t = infer_expr_type(arg)
+              existing = (seen[cls_name] ||= [])
+              existing[i] = widen_type(existing[i], t)
+            end
+          end
+          node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
+        end
+        walker.call(execute_block)
+        (scope.methods_table || {}).each_value { |m| walker.call(m.body) if m.is_a?(Vm::Method) }
+        (scope.constants_table || {}).each_value do |v|
+          next unless v.is_a?(Vm::ClassObject)
+          (v.methods_table || {}).each_value { |m| walker.call(m.body) if m.is_a?(Vm::Method) }
+        end
+        seen
+      end
+
+      # Picks a type that accommodates both existing and new observations.
+      # "double" wins over "int64_t"; class types stay class types.
+      def widen_type(existing, new_t)
+        return new_t if existing.nil?
+        return existing if existing == new_t
+        return "double" if [existing, new_t].include?("double")
+        existing   # otherwise retain first-seen
+      end
+
+      # Scans every method body on `cls` for ivar writes and tries to infer
+      # the C++ type from the RHS (class instance, float literal, or a RHS
+      # that touches a known-double constant). Ivars with conflicting or
+      # unrecognised RHS types default to int64_t at emission time.
       def infer_ivar_types(cls)
-        candidates = {}   # ivar_name => Set[Ruby_Klass]
-        (cls.methods_table || {}).each do |_mname, method|
+        candidates = {}   # ivar_name => Set[cpp_type]
+        (cls.methods_table || {}).each do |mname, method|
           next unless method.is_a?(Vm::Method) && method.body
-          walk_ivar_assigns(method.body) do |ivar_name, class_name|
-            (candidates[ivar_name] ||= Set.new) << class_name
+          # Only consider methods defined on THIS class (post-flatten).
+          next unless method_defined_here?(method, cls)
+          # Param type map for THIS method — for initialize, get types from
+          # call sites; for other methods we have no call-site info yet.
+          param_types = (mname == :initialize) ? (@_ctor_param_types[cls.name] || []) : nil
+          param_names = method.required_params || []
+          walk_ivar_assigns_with_params(method.body, param_names, param_types) do |ivar_name, cpp_type|
+            (candidates[ivar_name] ||= Set.new) << cpp_type
           end
         end
+        # Unify: if all observed types agree (including after ignoring a
+        # non-nil default like int64_t == 0), pick the single type. If we
+        # see "double" OR "Ruby_X" mixed with "int64_t", prefer the
+        # non-int one (the int64_t came from an `@x = 0` default init).
         candidates.each_with_object({}) do |(iv, types), out|
+          types.delete("int64_t") if types.size > 1
           out[iv] = types.first if types.size == 1
         end
       end
 
-      # Recursively walks `node` yielding (ivar_name, inferred_cpp_type)
-      # for InstanceVariableWrite whose RHS is `ClassName.new(...)`.
-      def walk_ivar_assigns(node, &block)
+      def walk_ivar_assigns_with_params(node, param_names, param_types, &block)
         return unless node
         if node.is_a?(Ast::InstanceVariableWrite)
-          v = node.value_node
-          if v.is_a?(Ast::MethodCall) && v.name == :new && v.receiver_node.is_a?(Ast::ConstantRead)
-            cn = v.receiver_node.name
-            cpp_type = cn == :String ? "RubyString" : "Ruby_#{cn}"
-            yield node.name.to_s.delete_prefix('@'), cpp_type
+          yield node.name.to_s.delete_prefix('@'), infer_expr_type_with_params(node.value_node, param_names, param_types)
+        elsif node.is_a?(Ast::MultipleAssignment)
+          targets = node.targets || []
+          vals = node.value_node
+          elems = vals.is_a?(Ast::ArrayLiteral) ? (vals.element_nodes || []) : []
+          targets.each_with_index do |(kind, name), i|
+            next unless kind == :ivar && elems[i]
+            yield name.to_s.delete_prefix('@'), infer_expr_type_with_params(elems[i], param_names, param_types)
           end
         end
-        node.children.each { |c| walk_ivar_assigns(c, &block) if c.is_a?(Ast::Node) }
+        node.children.each { |c| walk_ivar_assigns_with_params(c, param_names, param_types, &block) if c.is_a?(Ast::Node) }
+      end
+
+      # Like infer_expr_type, but also resolves LocalVariableRead of a
+      # known parameter back to its call-site-inferred type.
+      def infer_expr_type_with_params(node, param_names, param_types)
+        if node.is_a?(Ast::LocalVariableRead) && param_types
+          idx = param_names.index(node.name)
+          return param_types[idx] if idx && param_types[idx]
+        end
+        if node.is_a?(Ast::MethodCall) && %i[+ - * / %].include?(node.name) && node.receiver_node && node.arg_nodes&.size == 1
+          l = infer_expr_type_with_params(node.receiver_node, param_names, param_types)
+          r = infer_expr_type_with_params(node.arg_nodes[0], param_names, param_types)
+          return "double" if l == "double" || r == "double"
+        end
+        infer_expr_type(node)
+      end
+
+      # Best-effort expression-type inference for ivar type candidates.
+      # Returns "Ruby_Klass", "RubyString", "double", or "int64_t".
+      def infer_expr_type(node)
+        case node
+        when Ast::FloatLiteral then "double"
+        when Ast::StringLiteral then "RubyString"
+        when Ast::MethodCall
+          if node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
+            cn = node.receiver_node.name
+            return "RubyString" if cn == :String
+            return "Ruby_#{cn}"
+          end
+          # Arithmetic: if either operand is a double, propagate.
+          if %i[+ - * / %].include?(node.name) && node.receiver_node && node.arg_nodes&.size == 1
+            l = infer_expr_type(node.receiver_node)
+            r = infer_expr_type(node.arg_nodes[0])
+            return "double" if l == "double" || r == "double"
+          end
+          "int64_t"
+        when Ast::ConstantRead
+          if @top_level_scope
+            c = @top_level_scope.constants_table&.fetch(node.name, nil)
+            return "double" if c.is_a?(Vm::FloatObject)
+            return "RubyString" if c.is_a?(Vm::StringObject)
+          end
+          "int64_t"
+        else "int64_t"
+        end
       end
 
       def collect_ivars_from_body(node, result)
@@ -373,6 +486,11 @@ module Frozone
           result << node.name.to_s
         elsif node.is_a?(Ast::InstanceVariableRead)
           result << node.name.to_s
+        elsif node.is_a?(Ast::MultipleAssignment)
+          # Targets are [kind, name] tuples; harvest ivar targets directly.
+          (node.targets || []).each do |kind, name|
+            result << name.to_s if kind == :ivar
+          end
         end
         node.children.each { |c| collect_ivars_from_body(c, result) if c.is_a?(Ast::Node) }
       end
@@ -417,6 +535,10 @@ module Frozone
             return "RubyString" if cn == :String
             return cn == :Array ? "auto" : "Ruby_#{cn}"
           end
+          # Indexed read like `arr[i]` — use `auto&` so mutations to the
+          # local (via setters) propagate back to the array element.
+          # This matches Ruby's reference semantics for object values.
+          return "auto&" if val.name == :[] && val.receiver_node && (val.arg_nodes || []).size == 1
           # Free function or method call → return type unknown, use auto
           "auto"
         when Ast::ArrayLiteral then "auto"
@@ -477,7 +599,9 @@ module Frozone
       end
 
       def emit_constructor(name, init)
-        params = (init.required_params || []).map { |p| "int64_t #{p}" }.join(", ")
+        # Use `auto` for params so int/float/class args all bind correctly
+        # per call site (C++20 abbreviated function template).
+        params = all_param_names(init).map { |p| "auto #{p}" }.join(", ")
         line "Ruby_#{name}(#{params}) {"
         @_declared_locals = Set.new
         (init.required_params || []).each { |p| @_declared_locals << p.to_s }
@@ -584,15 +708,24 @@ module Frozone
         when Ast::InstanceVariableRead then cpp_ivar(node.name)
         when Ast::InstanceVariableWrite then "#{cpp_ivar(node.name)} = #{cr(node.value_node)}"
         when Ast::MultipleAssignment
-          # Simple case: @a, @b, @c = x, y, z (from array literal RHS)
+          # Simple case: a, b = x, y or @a, @b = x, y (array literal RHS).
+          # Targets are [kind, name] pairs where kind is :local or :ivar.
           targets = node.targets
           vals = node.value_node
           if vals.is_a?(Ast::ArrayLiteral)
             elems = vals.element_nodes || []
-            parts = targets.each_with_index.map { |t, i|
-              tgt = t[0] == :ivar ? t[1].to_s : t[1].to_s
-              "#{tgt} = #{elems[i] ? cr(elems[i]) : "0LL"}"
-            }
+            parts = targets.each_with_index.map do |t, i|
+              kind, name = t
+              tgt = kind == :ivar ? cpp_ivar(name) : name.to_s
+              val = elems[i] ? cr(elems[i]) : "INT64_C(0)"
+              # For local targets on first write, add a decl.
+              if kind == :local && !@_declared_locals&.include?(name.to_s)
+                @_declared_locals << name.to_s
+                "auto #{tgt} = #{val}"
+              else
+                "#{tgt} = #{val}"
+              end
+            end
             parts.join("; ")
           else
             "/* UNSUPPORTED masgn */"
@@ -639,22 +772,25 @@ module Frozone
         when Ast::ForLoop
           target = node.target
           var = target[0] == :local ? target[1].to_s : "_for_var"
+          # Track the var as declared for the duration of the body only.
           @_declared_locals&.add(var)
-          # If the collection is a RangeLiteral, use its begin/end bounds
-          # directly (Ruby range semantics: inclusive unless exclusive).
           coll_node = node.collection_node
+          old_indent = "  " * @indent
           if coll_node.is_a?(Ast::RangeLiteral)
+            # Numeric range: iterate integer counter directly.
             start_expr = cr(coll_node.begin_node)
             end_expr = cr(coll_node.end_node)
             cmp = coll_node.exclusive ? "<" : "<="
+            body_str = cr_block_body(node.body_node)
+            "for (int64_t #{var} = #{start_expr}; #{var} #{cmp} #{end_expr}; #{var}++) {\n#{body_str}\n#{old_indent}}"
           else
-            start_expr = "0"
-            end_expr = cr(coll_node)
-            cmp = "<"
+            # `for x in array` — iterate by index and bind `x` to each element.
+            # Ruby for-loop variables leak to outer scope; declare `x` before
+            # the loop so post-loop references still see it.
+            coll_expr = cr(coll_node)
+            body_str = cr_block_body(node.body_node)
+            "std::remove_reference_t<decltype((#{coll_expr})[0])> #{var}; for (int64_t _fi = 0; _fi < (#{coll_expr}).len(); _fi++) {\n#{old_indent}  #{var} = (#{coll_expr})[_fi];\n#{body_str}\n#{old_indent}}"
           end
-          body_str = cr_block_body(node.body_node)
-          old_indent = "  " * @indent
-          "for (int64_t #{var} = #{start_expr}; #{var} #{cmp} #{end_expr}; #{var}++) {\n#{body_str}\n#{old_indent}}"
         when Ast::Next
           "continue"
         when Ast::Break

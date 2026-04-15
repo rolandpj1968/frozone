@@ -133,7 +133,7 @@ static auto sd_genmat() {
     while ((j < INT64_C(9))) {
     int64_t k = INT64_C(0);
     while ((k < INT64_C(9))) {
-    auto mcr = mc[r];
+    auto& mcr = mc[r];
     mcr[INT64_C(0)] = ((INT64_C(9) * i) + j);
     mcr[INT64_C(1)] = ((((((i / INT64_C(3)) * INT64_C(3)) + (j / INT64_C(3))) * INT64_C(9)) + k) + INT64_C(81));
     mcr[INT64_C(2)] = (((INT64_C(9) * i) + k) + INT64_C(162));
@@ -160,7 +160,7 @@ static auto sd_genmat() {
 static auto sd_update_forward(auto mr, auto mc, auto sr, auto sc, auto r) {
   int64_t min = INT64_C(10);
   int64_t min_c = INT64_C(0);
-  auto mcr = mc[r];
+  auto& mcr = mc[r];
   int64_t c2 = INT64_C(0);
   while ((c2 < INT64_C(4))) {
     sc[mcr[c2]] += INT64_C(128);
@@ -168,13 +168,13 @@ static auto sd_update_forward(auto mr, auto mc, auto sr, auto sc, auto r) {
   }
   c2 = INT64_C(0);
   while ((c2 < INT64_C(4))) {
-    auto mrc = mr[mcr[c2]];
+    auto& mrc = mr[mcr[c2]];
     int64_t r2 = INT64_C(0);
     while ((r2 < INT64_C(9))) {
-    auto rr = mrc[r2];
+    auto& rr = mrc[r2];
     if ((sr[rr] += INT64_C(1) == INT64_C(1))) {
-    auto p = mc[rr]; int64_t cc2 = INT64_C(0); while ((cc2 < INT64_C(4))) {
-      auto cc = p[cc2];
+    auto& p = mc[rr]; int64_t cc2 = INT64_C(0); while ((cc2 < INT64_C(4))) {
+      auto& cc = p[cc2];
       if ((sc[cc] -= INT64_C(1) < min)) {
       min = sc[cc]; min_c = cc;
     };
@@ -196,12 +196,12 @@ static auto sd_update_reverse(auto mr, auto mc, auto sr, auto sc, auto r) {
   }
   c2 = INT64_C(0);
   while ((c2 < INT64_C(4))) {
-    auto c = mc[r][c2];
+    auto& c = mc[r][c2];
     int64_t r2 = INT64_C(0);
     while ((r2 < INT64_C(9))) {
-    auto rr = mr[c][r2];
+    auto& rr = mr[c][r2];
     if ((sr[rr] -= INT64_C(1) == INT64_C(0))) {
-    auto p = mc[rr]; sc[p[INT64_C(0)]] += INT64_C(1); sc[p[INT64_C(1)]] += INT64_C(1); sc[p[INT64_C(2)]] += INT64_C(1); sc[p[INT64_C(3)]] += INT64_C(1);
+    auto& p = mc[rr]; sc[p[INT64_C(0)]] += INT64_C(1); sc[p[INT64_C(1)]] += INT64_C(1); sc[p[INT64_C(2)]] += INT64_C(1); sc[p[INT64_C(3)]] += INT64_C(1);
   };
     r2 = (r2 + INT64_C(1));
   };
@@ -216,7 +216,7 @@ static auto sd_solve(auto mr, auto mc, auto s) {
   int64_t hints = INT64_C(0);
   int64_t i = INT64_C(0);
   while ((i < INT64_C(81))) {
-    auto char = s[i];
+    auto& char = s[i];
     int64_t a = if (((char >= RubyString("1", 1)) && (char <= RubyString("9", 1)))) {
     (char.ord() - INT64_C(49));
   } else {
@@ -273,7 +273,7 @@ static auto sd_solve(auto mr, auto mc, auto s) {
   };
     j = INT64_C(0);
     while ((j < i)) {
-    auto r = mr[cc[j]][cr[j]];
+    auto& r = mr[cc[j]][cr[j]];
     o[(r / INT64_C(9))] = ((r % INT64_C(9)) + INT64_C(1));
     j = (j + INT64_C(1));
   };

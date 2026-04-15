@@ -116,6 +116,9 @@ template<typename T> static inline void ruby_puts(T v) {
 }
 static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
+static const int64_t TREE_SIZE = 8000LL;
+static const int64_t MODIFICATIONS = 80LL;
+static const int64_t PAYLOAD_DEPTH = 5LL;
 
 struct Ruby_Node {
   int64_t iv_key = 0;
@@ -159,7 +162,8 @@ struct Ruby_Node {
     return iv_right;
   }
 
-  Ruby_Node(int64_t key, int64_t value) {
+  Ruby_Node() = default;
+  Ruby_Node(auto key, auto value) {
     iv_key = key;
     iv_value = value;
     iv_left = RUBY_NIL;
@@ -288,16 +292,14 @@ struct Ruby_PayloadNode {
     return iv_right;
   }
 
-  Ruby_PayloadNode(int64_t left, int64_t right) {
+  Ruby_PayloadNode() = default;
+  Ruby_PayloadNode(auto left, auto right) {
     iv_left = left;
     iv_right = right;
   }
 };
 
 
-static const int64_t TREE_SIZE = 8000LL;
-static const int64_t MODIFICATIONS = 80LL;
-static const int64_t PAYLOAD_DEPTH = 5LL;
 
 static auto generate_payload(auto depth, auto tag) {
   if ((depth == INT64_C(0))) {

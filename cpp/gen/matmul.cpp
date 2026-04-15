@@ -116,9 +116,9 @@ template<typename T> static inline void ruby_puts(T v) {
 }
 static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
-
-
 static const int64_t N = 200LL;
+
+
 
 static auto make_shareable(auto x) {
   return x;
@@ -135,12 +135,12 @@ static auto matmul(auto a, auto b) {
   auto p = b[INT64_C(0)].len();
   auto c = ({ auto _n = m; int64_t _ai = 0; auto _e0 = make_ra(p, 0.0); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (_ai = 1; _ai < _n; _ai++) { _arr[_ai] = make_ra(p, 0.0); } _arr; });
   for (int64_t i = INT64_C(0); i < m; i++) {
-    auto ci = c[i];
-    auto ai = a[i];
+    auto& ci = c[i];
+    auto& ai = a[i];
     int64_t k = INT64_C(0);
     while ((k < n)) {
-    auto aik = ai[k];
-    auto bk = b[k];
+    auto& aik = ai[k];
+    auto& bk = b[k];
     int64_t j = INT64_C(0);
     while ((j < p)) {
     ci[j] += (aik * bk[j]);

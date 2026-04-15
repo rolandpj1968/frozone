@@ -123,7 +123,8 @@ struct Ruby_C {
   int64_t iv_c = 0;
   int64_t iv_d = 0;
 
-  Ruby_C(int64_t a, int64_t b, int64_t c, int64_t d) {
+  Ruby_C() = default;
+  Ruby_C(auto a, auto b, auto c, auto d) {
     iv_a = a;
     iv_b = b;
     iv_c = c;

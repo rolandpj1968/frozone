@@ -132,9 +132,11 @@ struct Ruby_A {
 };
 
 struct Ruby_B {
+  Ruby_B() = default;
 };
 
 struct Ruby_C {
+  Ruby_C() = default;
 };
 
 

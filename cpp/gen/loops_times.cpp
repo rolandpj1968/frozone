@@ -116,10 +116,10 @@ template<typename T> static inline void ruby_puts(T v) {
 }
 static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
-
-
 static const int64_t U = 5LL;
 static const int64_t R = 7LL;
+
+
 
 
 int main() {

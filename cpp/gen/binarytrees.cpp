@@ -116,11 +116,11 @@ template<typename T> static inline void ruby_puts(T v) {
 }
 static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
-
-
 static const int64_t MAX_DEPTH = 14LL;
 static const int64_t MIN_DEPTH = 4LL;
 static const int64_t STRETCH_DEPTH = 15LL;
+
+
 
 static auto item_check(auto left, auto right) {
   if (ruby_nil_q(left)) {

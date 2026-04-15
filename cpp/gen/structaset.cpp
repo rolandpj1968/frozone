@@ -118,6 +118,7 @@ static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 struct Ruby_TheClass {
+  Ruby_TheClass() = default;
 };
 
 

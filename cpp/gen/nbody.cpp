@@ -116,9 +116,20 @@ template<typename T> static inline void ruby_puts(T v) {
 }
 static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
+static const double SOLAR_MASS = 39.47841760435743;
+static const double DAYS_PER_YEAR = 365.24;
+static const int64_t N = 20000LL;
+static const int64_t NBODIES = 5LL;
+static const double DT = 0.01;
 
 struct Ruby_Planet {
-  int64_t iv_mass = 0;
+  double iv_x;
+  double iv_y;
+  double iv_z;
+  double iv_vx;
+  double iv_vy;
+  double iv_vz;
+  double iv_mass;
 
   auto x() {
     return iv_x;
@@ -185,13 +196,13 @@ struct Ruby_Planet {
 
   auto move_from_i(auto bodies, auto nbodies, auto dt, auto i) {
     while ((i < nbodies)) {
-      auto b2 = bodies[i];
+      auto& b2 = bodies[i];
       auto dx = (iv_x - b2.x());
       auto dy = (iv_y - b2.y());
       auto dz = (iv_z - b2.z());
       auto dsq = (((dx * dx) + (dy * dy)) + (dz * dz));
       auto mag = (dt / (dsq * sqrt(dsq)));
-      b_mass_mag = (iv_mass * mag); b2_mass_mag = (b2.mass() * mag);
+      auto b_mass_mag = (iv_mass * mag); auto b2_mass_mag = (b2.mass() * mag);
       iv_vx = (iv_vx - (dx * b2_mass_mag));
       iv_vy = (iv_vy - (dy * b2_mass_mag));
       iv_vz = (iv_vz - (dz * b2_mass_mag));
@@ -209,28 +220,24 @@ struct Ruby_Planet {
     return iv_vz = (iv_vz + dz);
   }
 
-  Ruby_Planet(int64_t x, int64_t y, int64_t z, int64_t vx, int64_t vy, int64_t vz, int64_t mass) {
-    @x = x; @y = y; @z = z;
-    @vx = (vx * DAYS_PER_YEAR); @vy = (vy * DAYS_PER_YEAR); @vz = (vz * DAYS_PER_YEAR);
+  Ruby_Planet() = default;
+  Ruby_Planet(auto x, auto y, auto z, auto vx, auto vy, auto vz, auto mass) {
+    iv_x = x; iv_y = y; iv_z = z;
+    iv_vx = (vx * DAYS_PER_YEAR); iv_vy = (vy * DAYS_PER_YEAR); iv_vz = (vz * DAYS_PER_YEAR);
     iv_mass = (mass * SOLAR_MASS);
   }
 };
 
 
-static const double SOLAR_MASS = 39.47841760435743;
-static const double DAYS_PER_YEAR = 365.24;
-static const int64_t N = 20000LL;
-static const int64_t NBODIES = 5LL;
-static const double DT = 0.01;
 
 static auto energy(auto bodies) {
   double e = 0.0;
   auto nbodies = bodies.len();
   for (int64_t i = INT64_C(0); i < nbodies; i++) {
-    auto b = bodies[i];
+    auto& b = bodies[i];
     e = (e + ((0.5 * b.mass()) * (((b.vx() * b.vx()) + (b.vy() * b.vy())) + (b.vz() * b.vz()))));
     for (int64_t j = (i + INT64_C(1)); j < nbodies; j++) {
-    auto b2 = bodies[j];
+    auto& b2 = bodies[j];
     auto dx = (b.x() - b2.x());
     auto dy = (b.y() - b2.y());
     auto dz = (b.z() - b2.z());
@@ -242,12 +249,13 @@ static auto energy(auto bodies) {
 }
 
 static auto offset_momentum(auto bodies) {
-  px = 0.0; py = 0.0; pz = 0.0;
-  for (int64_t b = 0; b < bodies; b++) {
+  auto px = 0.0; auto py = 0.0; auto pz = 0.0;
+  std::remove_reference_t<decltype((bodies)[0])> b; for (int64_t _fi = 0; _fi < (bodies).len(); _fi++) {
+    b = (bodies)[_fi];
     auto m = b.mass();
-    auto px = (px + (b.vx() * m));
-    auto py = (py + (b.vy() * m));
-    auto pz = (pz + (b.vz() * m));
+    px = (px + (b.vx() * m));
+    py = (py + (b.vy() * m));
+    pz = (pz + (b.vz() * m));
   }
   b = bodies[INT64_C(0)];
   b.set_vx(((-(px)) / SOLAR_MASS));
@@ -267,7 +275,7 @@ int main() {
     for (int64_t _i = 0; _i < n; _i++) {
       int64_t i = INT64_C(0);
       while ((i < nbodies)) {
-        auto b = bodies[i];
+        auto& b = bodies[i];
         b.move_from_i(bodies, nbodies, dt, (i + INT64_C(1)));
         i = (i + INT64_C(1));
       };

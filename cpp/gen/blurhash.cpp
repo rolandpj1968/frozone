@@ -116,9 +116,9 @@ template<typename T> static inline void ruby_puts(T v) {
 }
 static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
-
-
 static const RubyString FILE = RubyString("/home/rolandpj/src/frozone/bench/benchmarks/blurhash/test.bin", 61);
+
+
 
 static auto make_shareable(auto x) {
   return x;
