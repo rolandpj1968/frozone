@@ -147,27 +147,68 @@ module Frozone
         line "class RubyString {"
         line "public:"
         indented do
+          line "// Ruby-semantic byte string with UTF-8 / BINARY encoding awareness."
+          line "// .length counts UTF-8 codepoints when tagged UTF-8; raw bytes"
+          line "// when tagged BINARY. Encoding promotion on << matches MRI:"
+          line "// BINARY receiver + UTF-8 non-ASCII rhs flips receiver to UTF-8."
+          line "enum Enc { UTF8 = 0, BINARY = 1 };"
           line "std::vector<uint8_t> bytes;"
+          line "Enc enc = UTF8;"
+          line "mutable int64_t length_cache = -1;  // -1 = not yet computed"
+          emit_newline
           line "RubyString() = default;"
           line "RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); } }"
           line "RubyString(const char* s, size_t n) { bytes.assign(s, s + n); }"
-          line "int64_t len() const { return (int64_t)bytes.size(); }"
+          line "RubyString(const char* s, size_t n, Enc e) : enc(e) { bytes.assign(s, s + n); }"
+          emit_newline
           line "int64_t bytesize() const { return (int64_t)bytes.size(); }"
-          line "int64_t size() const { return (int64_t)bytes.size(); }"
-          line "int64_t length() const { return (int64_t)bytes.size(); }"
+          line "// .length — O(n) first call (UTF-8 codepoint scan), O(1) cached;"
+          line "// BINARY strings: bytesize."
+          line "int64_t length() const {"
+          indented do
+            line "if (enc == BINARY) return (int64_t)bytes.size();"
+            line "if (length_cache < 0) {"
+            indented do
+              line "int64_t n = 0;"
+              line "for (auto b : bytes) if ((b & 0xC0) != 0x80) n++;"
+              line "length_cache = n;"
+            end
+            line "}"
+            line "return length_cache;"
+          end
+          line "}"
+          line "int64_t size() const { return length(); }"
+          line "int64_t len() const { return length(); }  // legacy; emitter targets this"
+          line "bool has_non_ascii() const {"
+          indented { line "for (auto b : bytes) if (b >= 0x80) return true;" }
+          indented { line "return false;" }
+          line "}"
+          emit_newline
           line "int64_t get_byte(int64_t i) const { return (i >= 0 && i < (int64_t)bytes.size()) ? (int64_t)bytes[i] : 0; }"
-          line "void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < (int64_t)bytes.size()) bytes[i] = (uint8_t)(v & 0xff); }"
+          line "void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < (int64_t)bytes.size()) { bytes[i] = (uint8_t)(v & 0xff); length_cache = -1; } }"
           line "RubyString dup_() const { return *this; }"
           line "int64_t ord() const { return bytes.empty() ? 0 : (int64_t)bytes[0]; }"
           line "RubyString operator[](int64_t i) const {"
           indented { line "if (i < 0 || i >= (int64_t)bytes.size()) return RubyString();" }
           indented { line "return RubyString((const char*)&bytes[i], 1);" }
           line "}"
+          line "// `.b` — return a copy re-tagged as BINARY."
+          line "RubyString b() const { RubyString c(*this); c.enc = BINARY; c.length_cache = -1; return c; }"
+          emit_newline
           line "RubyString& operator<<(const RubyString& o) {"
-          indented { line "bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); return *this;" }
+          indented do
+            line "// MRI encoding promotion: BINARY + UTF-8 non-ASCII → UTF-8."
+            line "if (enc == BINARY && o.enc == UTF8 && o.has_non_ascii()) enc = UTF8;"
+            line "bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end());"
+            line "length_cache = -1;"
+            line "return *this;"
+          end
           line "}"
           line "RubyString& operator<<(const char* s) {"
-          indented { line "if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); } return *this;" }
+          indented do
+            line "if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); length_cache = -1; }"
+            line "return *this;"
+          end
           line "}"
           line "bool operator==(const RubyString& o) const { return bytes == o.bytes; }"
           line "bool operator!=(const RubyString& o) const { return bytes != o.bytes; }"

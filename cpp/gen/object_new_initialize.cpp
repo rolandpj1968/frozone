@@ -17,27 +17,60 @@
 #include <cstring>
 class RubyString {
 public:
+  // Ruby-semantic byte string with UTF-8 / BINARY encoding awareness.
+  // .length counts UTF-8 codepoints when tagged UTF-8; raw bytes
+  // when tagged BINARY. Encoding promotion on << matches MRI:
+  // BINARY receiver + UTF-8 non-ASCII rhs flips receiver to UTF-8.
+  enum Enc { UTF8 = 0, BINARY = 1 };
   std::vector<uint8_t> bytes;
+  Enc enc = UTF8;
+  mutable int64_t length_cache = -1;  // -1 = not yet computed
+
   RubyString() = default;
   RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); } }
   RubyString(const char* s, size_t n) { bytes.assign(s, s + n); }
-  int64_t len() const { return (int64_t)bytes.size(); }
+  RubyString(const char* s, size_t n, Enc e) : enc(e) { bytes.assign(s, s + n); }
+
   int64_t bytesize() const { return (int64_t)bytes.size(); }
-  int64_t size() const { return (int64_t)bytes.size(); }
-  int64_t length() const { return (int64_t)bytes.size(); }
+  // .length — O(n) first call (UTF-8 codepoint scan), O(1) cached;
+  // BINARY strings: bytesize.
+  int64_t length() const {
+    if (enc == BINARY) return (int64_t)bytes.size();
+    if (length_cache < 0) {
+      int64_t n = 0;
+      for (auto b : bytes) if ((b & 0xC0) != 0x80) n++;
+      length_cache = n;
+    }
+    return length_cache;
+  }
+  int64_t size() const { return length(); }
+  int64_t len() const { return length(); }  // legacy; emitter targets this
+  bool has_non_ascii() const {
+    for (auto b : bytes) if (b >= 0x80) return true;
+    return false;
+  }
+
   int64_t get_byte(int64_t i) const { return (i >= 0 && i < (int64_t)bytes.size()) ? (int64_t)bytes[i] : 0; }
-  void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < (int64_t)bytes.size()) bytes[i] = (uint8_t)(v & 0xff); }
+  void set_byte(int64_t i, int64_t v) { if (i >= 0 && i < (int64_t)bytes.size()) { bytes[i] = (uint8_t)(v & 0xff); length_cache = -1; } }
   RubyString dup_() const { return *this; }
   int64_t ord() const { return bytes.empty() ? 0 : (int64_t)bytes[0]; }
   RubyString operator[](int64_t i) const {
     if (i < 0 || i >= (int64_t)bytes.size()) return RubyString();
     return RubyString((const char*)&bytes[i], 1);
   }
+  // `.b` — return a copy re-tagged as BINARY.
+  RubyString b() const { RubyString c(*this); c.enc = BINARY; c.length_cache = -1; return c; }
+
   RubyString& operator<<(const RubyString& o) {
-    bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end()); return *this;
+    // MRI encoding promotion: BINARY + UTF-8 non-ASCII → UTF-8.
+    if (enc == BINARY && o.enc == UTF8 && o.has_non_ascii()) enc = UTF8;
+    bytes.insert(bytes.end(), o.bytes.begin(), o.bytes.end());
+    length_cache = -1;
+    return *this;
   }
   RubyString& operator<<(const char* s) {
-    if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); } return *this;
+    if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); length_cache = -1; }
+    return *this;
   }
   bool operator==(const RubyString& o) const { return bytes == o.bytes; }
   bool operator!=(const RubyString& o) const { return bytes != o.bytes; }
