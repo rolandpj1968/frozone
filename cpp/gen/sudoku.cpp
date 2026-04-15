@@ -231,12 +231,13 @@ static auto sd_genmat() {
 static auto sd_update_forward(auto mr, auto mc, auto sr, auto sc, auto r) {
   int64_t min = 0;
   int64_t min_c = 0;
+  std::decay_t<decltype(mc[r])> mcr{};
   int64_t c2 = 0;
   int64_t r2 = 0;
   int64_t cc2 = 0;
   min = INT64_C(10);
   min_c = INT64_C(0);
-  auto& mcr = mc[r];
+  mcr = mc[r];
   c2 = INT64_C(0);
   while ((c2 < INT64_C(4))) {
     sc[mcr[c2]] += INT64_C(128);
@@ -289,21 +290,26 @@ static auto sd_update_reverse(auto mr, auto mc, auto sr, auto sc, auto r) {
 }
 
 static auto sd_solve(auto mr, auto mc, auto s) {
+  std::decay_t<decltype(make_ra(INT64_C(729), INT64_C(0)))> sr{};
+  std::decay_t<decltype(make_ra(INT64_C(324), INT64_C(9)))> sc{};
   int64_t hints = 0;
   int64_t i = 0;
   int64_t a = 0;
+  std::decay_t<decltype(make_ra(INT64_C(81), INT64_C(-1)))> cr{};
+  std::decay_t<decltype(make_ra(INT64_C(81), INT64_C(0)))> cc{};
   int64_t min = 0;
   int64_t dir = 0;
   int64_t c = 0;
+  std::decay_t<decltype(make_ra(INT64_C(81), INT64_C(0)))> o{};
   int64_t j = 0;
-  auto sr = make_ra(INT64_C(729), INT64_C(0));
-  auto sc = make_ra(INT64_C(324), INT64_C(9));
+  sr = make_ra(INT64_C(729), INT64_C(0));
+  sc = make_ra(INT64_C(324), INT64_C(9));
   hints = INT64_C(0);
   i = INT64_C(0);
   while ((i < INT64_C(81))) {
-    auto& char = s[i];
-    a = if (({ auto _l = ((char >= RubyString("1", 1))); auto _r = ((char <= RubyString("9", 1))); (_l) ? _r : decltype(_r)(_l); })) {
-    (char.ord() - INT64_C(49));
+    auto& rb_char = s[i];
+    a = if (({ auto _l = ((rb_char >= RubyString("1", 1))); auto _r = ((rb_char <= RubyString("9", 1))); (_l) ? _r : decltype(_r)(_l); })) {
+    (rb_char.ord() - INT64_C(49));
   } else {
     INT64_C(-1);
   };
@@ -312,8 +318,8 @@ static auto sd_solve(auto mr, auto mc, auto s) {
   };
     i = (i + INT64_C(1));
   }
-  auto cr = make_ra(INT64_C(81), INT64_C(-1));
-  auto cc = make_ra(INT64_C(81), INT64_C(0));
+  cr = make_ra(INT64_C(81), INT64_C(-1));
+  cc = make_ra(INT64_C(81), INT64_C(0));
   i = INT64_C(0);
   min = INT64_C(10);
   dir = INT64_C(1);
@@ -350,7 +356,7 @@ static auto sd_solve(auto mr, auto mc, auto s) {
     if ((i < INT64_C(0))) {
     break;
   };
-    auto o = make_ra(INT64_C(81), INT64_C(0));
+    o = make_ra(INT64_C(81), INT64_C(0));
     j = INT64_C(0);
     while ((j < INT64_C(81))) {
     o[j] = (s[j].ord() - INT64_C(48));

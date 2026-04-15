@@ -186,11 +186,12 @@ static const int64_t N = 9LL;
 
 
 static auto fannkuch(auto n) {
+  std::decay_t<decltype((n + 1LL).to_a())> p{};
   int64_t sign = 0;
   int64_t sum = 0;
   int64_t maxflips = 0;
   int64_t flips = 0;
-  auto p = (n + 1LL).to_a();
+  p = (n + 1LL).to_a();
   auto s = p;
   auto q = p;
   sign = INT64_C(1);

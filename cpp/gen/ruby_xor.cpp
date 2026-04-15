@@ -187,12 +187,14 @@ static const RubyString B = RubyString("this is also a long string with no usefu
 
 
 static auto ruby_xor_b(auto a, auto b) {
+  std::decay_t<decltype(a.len())> l{};
+  std::decay_t<decltype(b.len())> lb{};
   int64_t i = 0;
   if (({ auto _l = ((!(true))); auto _r = ((!(true))); (_l) ? decltype(_r)(_l) : _r; })) {
     { fprintf(stderr, "Error: %s\n", "expected two string arguments"); exit(1); };
   }
-  auto l = a.len();
-  auto lb = b.len();
+  l = a.len();
+  lb = b.len();
   if ((lb < l)) {
     l = lb;
   }

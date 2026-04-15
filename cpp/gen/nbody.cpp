@@ -271,8 +271,9 @@ struct Ruby_Planet {
   }
 
   auto move_from_i(auto bodies, auto nbodies, auto dt, auto i) {
+    std::decay_t<decltype(bodies[i])> b2{};
     while ((i < nbodies)) {
-      auto& b2 = bodies[i];
+      b2 = bodies[i];
       auto dx = (p->iv_x - b2.x());
       auto dy = (p->iv_y - b2.y());
       auto dz = (p->iv_z - b2.z());
@@ -305,8 +306,9 @@ template<> inline const char* ruby_class_name<Ruby_Planet>() { return "Planet"; 
 
 static auto energy(auto bodies) {
   double e = 0.0;
+  std::decay_t<decltype(bodies.len())> nbodies{};
   e = 0.0;
-  auto nbodies = bodies.len();
+  nbodies = bodies.len();
   for (int64_t i = INT64_C(0); i < nbodies; i++) {
     auto& b = bodies[i];
     e = (e + ((0.5 * b.mass()) * (((b.vx() * b.vx()) + (b.vy() * b.vy())) + (b.vz() * b.vz()))));
@@ -323,8 +325,9 @@ static auto energy(auto bodies) {
 }
 
 static auto offset_momentum(auto bodies) {
+  std::decay_t<decltype(bodies[INT64_C(0)])> b{};
   auto px = 0.0; auto py = 0.0; auto pz = 0.0;
-  std::remove_reference_t<decltype((bodies)[0])> b; for (int64_t _fi = 0; _fi < (bodies).len(); _fi++) {
+  for (int64_t _fi = 0; _fi < (bodies).len(); _fi++) {
     b = (bodies)[_fi];
     auto m = b.mass();
     px = (px + (b.vx() * m));

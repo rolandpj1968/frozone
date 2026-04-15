@@ -185,13 +185,18 @@ static inline void ruby_puts(const char* s) { printf("%s\n", s); }
 
 
 static auto nq_solve(auto n) {
+  std::decay_t<decltype(make_ra(n, INT64_C(-1)))> a{};
+  std::decay_t<decltype(make_ra(n, INT64_C(0)))> l{};
+  std::decay_t<decltype(make_ra(n, INT64_C(0)))> c{};
+  std::decay_t<decltype(make_ra(n, INT64_C(0)))> r{};
+  std::decay_t<decltype(((INT64_C(1) << n) - INT64_C(1)))> y0{};
   int64_t m = 0;
   int64_t k = 0;
-  auto a = make_ra(n, INT64_C(-1));
-  auto l = make_ra(n, INT64_C(0));
-  auto c = make_ra(n, INT64_C(0));
-  auto r = make_ra(n, INT64_C(0));
-  auto y0 = ((INT64_C(1) << n) - INT64_C(1));
+  a = make_ra(n, INT64_C(-1));
+  l = make_ra(n, INT64_C(0));
+  c = make_ra(n, INT64_C(0));
+  r = make_ra(n, INT64_C(0));
+  y0 = ((INT64_C(1) << n) - INT64_C(1));
   m = INT64_C(0);
   k = INT64_C(0);
   while ((k >= INT64_C(0))) {

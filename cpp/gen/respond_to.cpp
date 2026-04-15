@@ -238,21 +238,21 @@ int main() {
   Ruby_A a = Ruby_A();
   Ruby_B b = Ruby_B();
   Ruby_C c = Ruby_C();
-  int64_t last = false;
+  bool last = false;
   for (int64_t _i = 0; _i < INT64_C(1000); _i++) {
     for (int64_t i = 0; i < INT64_C(500000); i++) {
       true;
       true;
-      true;
-      true;
-      true;
-      true;
-      true;
-      true;
-      true;
-      true;
-      true;
-      last = true;
+      false;
+      false;
+      false;
+      false;
+      false;
+      false;
+      false;
+      false;
+      false;
+      last = false;
     };
   }
   ruby_puts(last);

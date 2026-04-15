@@ -432,8 +432,9 @@ static auto generate_payload(auto depth, auto tag) {
 }
 
 static auto insert_new_node(auto tree, auto rng) {
+  std::decay_t<decltype(rng.rand())> key{};
   while (true) {
-    auto key = rng.rand();
+    key = rng.rand();
     if (tree.find(key)) {
       continue;
     };
@@ -453,8 +454,9 @@ static auto splay_setup(auto rng) {
 }
 
 static auto splay_run(auto tree, auto rng) {
+  std::decay_t<decltype(insert_new_node(tree, rng))> key{};
   for (int64_t _i = 0; _i < MODIFICATIONS; _i++) {
-    auto key = insert_new_node(tree, rng);
+    key = insert_new_node(tree, rng);
     auto greatest = tree.find_greatest_less_than(key);
     if (greatest) {
       tree.remove(greatest.key());

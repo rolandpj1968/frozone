@@ -348,11 +348,27 @@ module Frozone
       CPP_RESERVED_NAMES = %w[FILE stdin stdout stderr EOF NULL errno signal
                               strcpy strlen memcpy memset free exit abort].to_set.freeze
 
+      # C++ keywords that Ruby allows as local variable names.
+      CPP_KEYWORDS = %w[char class const enum extern export friend goto inline
+                         mutable namespace operator private protected public
+                         register short signed sizeof static struct switch
+                         template this throw try typedef typename union unsigned
+                         using virtual void volatile int float auto new delete
+                         default case do if else while for break continue return
+                         true false bool default do typeid wchar_t alignas
+                         alignof asm decltype thread_local].to_set.freeze
+
       # Rename Ruby constant/module names that would collide with C/C++
       # stdlib identifiers. `FILE` -> `RUBY_FILE`, etc.
       def cpp_const_name(name)
         s = name.to_s
         CPP_RESERVED_NAMES.include?(s) ? "RUBY_#{s}" : s
+      end
+
+      # Rename Ruby local variable names that collide with C++ keywords.
+      def cpp_local_name(name)
+        s = name.to_s
+        CPP_KEYWORDS.include?(s) ? "rb_#{s}" : s
       end
 
       def user_source_location?(loc)
@@ -861,6 +877,7 @@ module Frozone
         when Ast::ArrayLiteral then "auto"
         when Ast::FloatLiteral then "double"
         when Ast::StringLiteral then "RubyString"
+        when Ast::TrueLiteral, Ast::FalseLiteral then "bool"
         when Ast::ConstantRead
           # Constant lookup — could be any type. Resolve at compile time if we
           # have access to the top-level scope's constants table.
@@ -988,19 +1005,49 @@ module Frozone
       # Locals whose type we can't resolve are left to per-site decl.
       def emit_hoisted_locals(body, param_names)
         @_current_body = body
+        param_names_set = param_names.map(&:to_s).to_set
         collect_hoistable_locals(body, param_names).each do |name, info|
           t = info[:type]
-          next if t.nil? || t == "auto" || t == "auto&"
+          next if t.nil?
           next if @_declared_locals&.include?(name)
-          init = case t
-                 when "int64_t" then " = 0"
-                 when "double" then " = 0.0"
-                 when "bool" then " = false"
-                 else ""
-                 end
-          line "#{t} #{name}#{init};"
+          if t == "auto" || t == "auto&"
+            # Use std::decay_t<decltype(RHS)> so `auto&` indexed-reads
+            # become their value type (int64_t, etc.) — we can't have
+            # a reference without an initializer. Only safe when the RHS
+            # references params or already-hoisted locals.
+            rhs = info[:first_rhs]
+            next unless rhs && rhs_safe_for_decltype?(rhs, param_names_set)
+            rhs_str = cr(rhs)
+            line "std::decay_t<decltype(#{rhs_str})> #{name}{};"
+          else
+            init = case t
+                   when "int64_t" then " = 0"
+                   when "double" then " = 0.0"
+                   when "bool" then " = false"
+                   else ""
+                   end
+            line "#{t} #{name}#{init};"
+          end
           @_declared_locals << name
         end
+      end
+
+      # True when every LocalVariableRead in the RHS references a method
+      # parameter visible at the hoisting point, AND the expression won't
+      # lower to a statement-expression (those can't appear inside decltype).
+      def rhs_safe_for_decltype?(node, param_names_set)
+        return true unless node
+        # Statement-expression-generating nodes: Array.new with a block,
+        # nested ArrayLiteral with >1 elem, etc. These emit as `({...})`
+        # which GCC forbids inside decltype/template args.
+        if node.is_a?(Ast::MethodCall) && node.name == :new && node.block_node &&
+           node.receiver_node.is_a?(Ast::ConstantRead) && node.receiver_node.name == :Array
+          return false
+        end
+        return false if node.is_a?(Ast::ArrayLiteral) && (node.element_nodes || []).size > 0 &&
+                        !tree_node_literal?(node)
+        return false if node.is_a?(Ast::LocalVariableRead) && !param_names_set.include?(node.name.to_s)
+        node.children.all? { |c| !c.is_a?(Ast::Node) || rhs_safe_for_decltype?(c, param_names_set) }
       end
 
       def emit_constructor(name, init)
@@ -1129,7 +1176,7 @@ module Frozone
         when Ast::StringLiteral
           raw = node.value.respond_to?(:raw) ? node.value.raw : node.value
           "RubyString(#{raw.inspect}, #{raw.bytesize})"
-        when Ast::LocalVariableRead then node.name.to_s
+        when Ast::LocalVariableRead then cpp_local_name(node.name)
         when Ast::InstanceVariableRead
           key = node.name.to_s.delete_prefix('@')
           if @_self_ref_ivars&.include?(key) && @_inside_wrapped_class
@@ -1167,7 +1214,7 @@ module Frozone
             "/* UNSUPPORTED masgn */"
           end
         when Ast::LocalVariableWrite
-          name = node.name.to_s
+          name = cpp_local_name(node.name)
           val = node.value_node
           if @_declared_locals&.include?(name)
             "#{name} = #{cr(val)}"
@@ -1250,10 +1297,12 @@ module Frozone
           else
             # `for x in array` — iterate by index and bind `x` to each element.
             # Ruby for-loop variables leak to outer scope; declare `x` before
-            # the loop so post-loop references still see it.
+            # the loop so post-loop references still see it. Skip decl if
+            # already hoisted at method top.
             coll_expr = cr(coll_node)
             body_str = cr_block_body(node.body_node)
-            "std::remove_reference_t<decltype((#{coll_expr})[0])> #{var}; for (int64_t _fi = 0; _fi < (#{coll_expr}).len(); _fi++) {\n#{old_indent}  #{var} = (#{coll_expr})[_fi];\n#{body_str}\n#{old_indent}}"
+            decl = @_declared_locals&.include?(var) ? "" : "std::remove_reference_t<decltype((#{coll_expr})[0])> #{var}; "
+            "#{decl}for (int64_t _fi = 0; _fi < (#{coll_expr}).len(); _fi++) {\n#{old_indent}  #{var} = (#{coll_expr})[_fi];\n#{body_str}\n#{old_indent}}"
           end
         when Ast::Next
           "continue"
@@ -1342,6 +1391,21 @@ module Frozone
       def kw_args_in_order(node, kw_param_names)
         kw_map = (node.kw_arg_nodes || []).to_h { |k, v| [k.value.respond_to?(:raw) ? k.value.raw.to_sym : k.value.to_sym, v] }
         kw_param_names.map { |p| kw_map[p.to_sym] }.compact
+      end
+
+      # Recursively search the constant graph for a ClassObject with the
+      # given bare name (handles classes nested inside other classes).
+      def find_nested_class(scope, name, seen = {})
+        return nil unless scope
+        (scope.constants_table || {}).each do |_k, v|
+          next unless v.is_a?(Vm::ClassObject)
+          next if seen[v]
+          seen[v] = true
+          return v if v.name == name
+          found = find_nested_class(v, name, seen)
+          return found if found
+        end
+        nil
       end
 
       def lookup_top_level_method(name)
@@ -1527,8 +1591,23 @@ module Frozone
           return "#{cpp_method_name(name)}(#{arg_strs})"
         end
 
-        # respond_to?(:literal) — TODO: needs receiver class info; emit true placeholder
-        return "true" if name == :respond_to? && args.size == 1 && args[0].is_a?(Ast::SymbolLiteral)
+        # respond_to?(:sym) — if we can resolve receiver's class and the
+        # symbol is a literal, the answer is statically known.
+        if name == :respond_to? && args.size == 1 && args[0].is_a?(Ast::SymbolLiteral) && recv
+          sym = args[0].value.respond_to?(:raw) ? args[0].value.raw.to_sym : args[0].value.to_sym
+          recv_t = local_decl_type(recv)
+          if recv_t&.start_with?("Ruby_")
+            cls_name = recv_t.sub("Ruby_", "").to_sym
+            cls = @top_level_scope&.constants_table&.fetch(cls_name, nil)
+            cls ||= find_nested_class(@top_level_scope, cls_name)
+            if cls.is_a?(Vm::ClassObject)
+              has = cls.methods_table&.key?(sym) || false
+              return has ? "true" : "false"
+            end
+          end
+          # Fallback when we can't resolve — assume present.
+          return "true"
+        end
 
         # itself on receiver: identity
         return cr(recv) if name == :itself && args.empty?
