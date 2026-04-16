@@ -346,7 +346,7 @@ module Frozone
           if init.is_a?(Vm::Method) && !init_has_params
             # 0-arg init: default ctor allocates + runs the init body.
             line "Ruby_#{name}() : p(std::make_shared<Impl>()) {"
-            @_declared_locals = Set.new
+            @_declared_locals = Set.new; @_optional_locals = {}
             indented { emit(init.body) }
             line "}"
           else
@@ -360,7 +360,7 @@ module Frozone
           if init_has_params
             params = emit_param_list(init)
             line "Ruby_#{name}(#{params}) : p(std::make_shared<Impl>()) {"
-            @_declared_locals = Set.new
+            @_declared_locals = Set.new; @_optional_locals = {}
             all_param_names(init).each { |p| @_declared_locals << p.to_s }
             indented { emit(init.body) }
             line "}"
@@ -626,17 +626,30 @@ module Frozone
       # returns its inferred type. Returns nil if none found.
       def look_ahead_local_type(name, body)
         best = nil
+        has_nil_write = false  # any write of NilLiteral OR a RubyNil-returning method
         walker = lambda do |node|
           return unless node
-          if node.is_a?(Ast::LocalVariableWrite) && node.name.to_s == name && !node.value_node.is_a?(Ast::NilLiteral)
-            t = deep_decl_type(node.value_node)
-            $stderr.puts "  LOOKAHEAD #{name}: saw write t=#{t.inspect} best_before=#{best.inspect}" if ENV['CPP_DEBUG']
-            best = widen_type(best, t) if t
+          if node.is_a?(Ast::LocalVariableWrite) && node.name.to_s == name
+            if node.value_node.is_a?(Ast::NilLiteral)
+              has_nil_write = true
+            else
+              t = deep_decl_type(node.value_node)
+              if t == "RubyNil"
+                has_nil_write = true
+              elsif t
+                best = widen_type(best, t)
+              end
+            end
           end
           node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
         end
         walker.call(body)
-        $stderr.puts "  LOOKAHEAD #{name}: final best=#{best.inspect}" if ENV['CPP_DEBUG']
+        # If we saw both a concrete primitive type AND a nil write,
+        # promote to std::optional<T>. Class-typed locals are already
+        # naturally nullable via shared_ptr so leave them as-is.
+        if has_nil_write && best && %w[int64_t double bool].include?(best)
+          return "std::optional<#{best}>"
+        end
         best == "int64_t" ? nil : best
       end
 
@@ -853,6 +866,13 @@ module Frozone
           t = local_decl_type(last)
           best = widen_type(best, t) if t && t != "int64_t" && t != "auto"
         end
+        # Method body with no explicit returns AND last statement is a
+        # loop/while/for → Ruby returns nil. Record "RubyNil" so callers
+        # can widen their local types to std::optional<T>.
+        if best.nil? && !@_current_body_has_explicit_return && last &&
+           (last.is_a?(Ast::While) || last.is_a?(Ast::Until) || last.is_a?(Ast::ForLoop))
+          best = "RubyNil"
+        end
         @_current_body = prev_body
         best
       end
@@ -864,7 +884,7 @@ module Frozone
         # Always 'auto' return — C++20 deduces. Works for recursion when
         # at least one base-case return is non-recursive.
         line "auto #{cpp_method_name(mname)}(#{params}) {"
-        @_declared_locals = Set.new
+        @_declared_locals = Set.new; @_optional_locals = {}
         @_method_return_type = infer_method_return_type(method)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
@@ -916,6 +936,9 @@ module Frozone
                    else ""
                    end
             line "#{t} #{decl_name}#{init};"
+            if (m = t.match(/\Astd::optional<(.+)>\z/))
+              (@_optional_locals ||= {})[name] = m[1]
+            end
           end
           @_declared_locals << name
         end
@@ -960,7 +983,7 @@ module Frozone
         # per call site (C++20 abbreviated function template).
         params = emit_param_list(init)
         line "Ruby_#{name}(#{params}) {"
-        @_declared_locals = Set.new
+        @_declared_locals = Set.new; @_optional_locals = {}
         (init.required_params || []).each { |p| @_declared_locals << p.to_s }
         indented { emit(init.body) }
         line "}"
@@ -996,7 +1019,7 @@ module Frozone
       def emit_method(name, method)
         params = emit_param_list(method)
         line "static auto #{cpp_method_name(name)}(#{params}) {"
-        @_declared_locals = Set.new
+        @_declared_locals = Set.new; @_optional_locals = {}
         @_method_return_type = infer_method_return_type(method)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
@@ -1045,7 +1068,7 @@ module Frozone
 
       def emit_main(execute_block)
         line "int main() {"
-        @_declared_locals = Set.new
+        @_declared_locals = Set.new; @_optional_locals = {}
         @_current_body = execute_block&.body
         indented do
           # Hoist locals for main too — same rationale as method bodies.
@@ -1256,15 +1279,22 @@ module Frozone
           name = cpp_local_name(node.name)
           val = node.value_node
           if @_declared_locals&.include?(name)
+            rhs = cr(val)
+            if (inner = (@_optional_locals || {})[name])
+              rhs = "ruby_to_opt<#{inner}>(#{rhs})"
+            end
             # Wrap in parens for expression contexts like
             # `if ((q1 = p[1]) != 1)` — `!=` binds tighter than `=` in C++.
-            "(#{name} = #{cr(val)})"
+            "(#{name} = #{rhs})"
           else
             @_declared_locals << name
             type = local_decl_type(val)
             if val.is_a?(Ast::NilLiteral) && @_current_body
               later = look_ahead_local_type(name, @_current_body)
               type = later if later
+            end
+            if (m = type.to_s.match(/\Astd::optional<(.+)>\z/))
+              (@_optional_locals ||= {})[name] = m[1]
             end
             "#{type} #{name} = #{cr(val)}"
           end

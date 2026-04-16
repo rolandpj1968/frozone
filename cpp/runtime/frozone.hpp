@@ -18,6 +18,7 @@
 #include <list>
 #include <unordered_map>
 #include <variant>
+#include <optional>
 
 class RubyString {
 public:
@@ -320,9 +321,25 @@ struct RubyNil {
 };
 static const RubyNil RUBY_NIL;
 
-// Uniform nil check — dispatches on type.
+// Wrap a value into std::optional<T> for assignment to optional-typed locals.
+// Direct `opt = RubyNil()` is wrong because operator=(U&&) prefers the
+// RubyNil → int64_t conversion over RubyNil → optional<int64_t>. This helper
+// dispatches on the source type so RubyNil → nullopt, optional<T> stays as-is,
+// and other values get wrapped.
+template<typename T, typename U>
+inline std::optional<T> ruby_to_opt(U&& v) {
+  if constexpr (std::is_same_v<std::decay_t<U>, RubyNil>) {
+    return std::nullopt;
+  } else if constexpr (std::is_same_v<std::decay_t<U>, std::optional<T>>) {
+    return std::forward<U>(v);
+  } else {
+    return std::optional<T>(std::forward<U>(v));
+  }
+}
+
 static inline bool ruby_nil_q(const RubyTree& t) { return t.nil_q(); }
 template<typename T> static inline bool ruby_nil_q(const std::shared_ptr<T>& p) { return !p; }
+template<typename T> static inline bool ruby_nil_q(const std::optional<T>& o) { return !o.has_value(); }
 template<typename T> static inline bool ruby_nil_q(const T&) { return false; }
 
 // Object.new — empty class with universal "GenericObject" class name.
@@ -413,5 +430,13 @@ template<typename T> static inline void ruby_puts(T v) {
   }
 }
 static inline void ruby_puts(const char* s) { printf("%s\n", s); }
+
+// Optional: print value if has_value, else empty line (Ruby's `puts nil`).
+// Lets TI-inferred `std::optional<T>` locals print correctly.
+template<typename T>
+static inline void ruby_puts(const std::optional<T>& v) {
+  if (v.has_value()) ruby_puts(*v);
+  else printf("\n");
+}
 
 #endif  // FROZONE_RUNTIME_HPP

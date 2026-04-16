@@ -29,7 +29,7 @@ struct Ruby_TheClass {
       p->iv_levar = i;
       (i = (i + INT64_C(1)));
     }
-    return RUBY_NIL;
+    return RubyNil();
   }
 
   bool nil_q() const { return !p; }
@@ -42,11 +42,11 @@ template<> inline const char* ruby_class_name<Ruby_TheClass>() { return "TheClas
 
 int main() {
   Ruby_TheClass obj;
-  int64_t last = 0;
+  std::optional<int64_t> last;
   (obj = Ruby_TheClass());
-  (last = INT64_C(0));
+  (last = ruby_to_opt<int64_t>(INT64_C(0)));
   for (int64_t _i = 0; _i < INT64_C(300); _i++) {
-    (last = obj.set_value_loop());
+    (last = ruby_to_opt<int64_t>(obj.set_value_loop()));
   }
   ruby_puts(last);
   return 0;

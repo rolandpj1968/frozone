@@ -141,7 +141,7 @@ static auto sd_update_reverse(auto mr, auto mc, auto sr, auto sc, auto r) {
   };
     (c2 = (c2 + INT64_C(1)));
   }
-  return RUBY_NIL;
+  return RubyNil();
 }
 
 static auto sd_solve(auto mr, auto mc, auto s) {
@@ -239,7 +239,7 @@ static auto sd_solve(auto mr, auto mc, auto s) {
     (i = (i - INT64_C(1)));
     (dir = INT64_C(-1));
   }
-  return RUBY_NIL;
+  return RubyNil();
 }
 
 

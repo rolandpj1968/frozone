@@ -32,7 +32,7 @@ static auto set_value_loop(auto obj) {
     obj.set_levar(i);
     (i = (i + INT64_C(1)));
   }
-  return RUBY_NIL;
+  return RubyNil();
 }
 
 
