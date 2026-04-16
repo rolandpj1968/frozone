@@ -733,6 +733,18 @@ module Frozone
           else
             "RubyArray_I64"
           end
+        when Ast::HashLiteral
+          pairs = (val.kv_nodes || []).reject { |k, _| k.nil? }
+          if pairs.empty?
+            "RubyHash<RubySymbol, int64_t>"
+          else
+            k_type = key_type_for(pairs[0][0])
+            val_types = pairs.map { |_, v| local_decl_type(v) }.uniq
+            v_type = val_types.size == 1 ? val_types[0] : "int64_t"
+            v_type = "int64_t" if v_type == "auto"
+            "RubyHash<#{k_type}, #{v_type}>"
+          end
+        when Ast::SymbolLiteral then "RubySymbol"
         when Ast::FloatLiteral then "double"
         when Ast::StringLiteral then "RubyString"
         when Ast::TrueLiteral, Ast::FalseLiteral then "bool"
@@ -1114,6 +1126,37 @@ module Frozone
         end
       end
 
+      # Emit a hash literal as `RubyHash<K, V>{...}`.
+      # Key type: inferred from the first non-splat key. Typically RubySymbol
+      # for `{a: 1}` style or RubyString for `{"a" => 1}`.
+      # Value type: inferred from the first value. Heterogeneous values
+      # require wrapping (std::variant) — flagged with a TODO comment on
+      # the emitted line when we detect type mismatch across elems.
+      def cr_hash_literal(node)
+        pairs = (node.kv_nodes || []).reject { |k, _| k.nil? }  # skip **splat for now
+        if pairs.empty?
+          return "RubyHash<RubySymbol, int64_t>{}"  # empty: innocuous default
+        end
+        k_type = key_type_for(pairs[0][0])
+        val_types = pairs.map { |_, v| local_decl_type(v) }.uniq
+        v_type = val_types.size == 1 ? val_types[0] : "/* TODO heterogeneous hash */ auto"
+        v_type = "int64_t" if v_type == "auto"
+        entries = pairs.map { |k, v| "{#{cr(k)}, #{cr(v)}}" }.join(", ")
+        # Build via default ctor + .store for each entry — since
+        # initializer-list construction of RubyHash isn't supported yet.
+        init_pairs = pairs.map { |k, v| "_h.store(#{cr(k)}, #{cr(v)});" }.join(" ")
+        "({ RubyHash<#{k_type}, #{v_type}> _h; #{init_pairs} _h; })"
+      end
+
+      def key_type_for(node)
+        case node
+        when Ast::SymbolLiteral then "RubySymbol"
+        when Ast::StringLiteral then "RubyString"
+        when Ast::IntegerLiteral then "int64_t"
+        else "RubySymbol"  # default guess
+        end
+      end
+
       def cr(node)
         case node
         when Ast::NilLiteral then "RUBY_NIL"
@@ -1128,6 +1171,12 @@ module Frozone
         when Ast::StringLiteral
           raw = node.value.respond_to?(:raw) ? node.value.raw : node.value
           "RubyString(#{raw.inspect}, #{raw.bytesize})"
+        when Ast::SymbolLiteral
+          # :foo → ruby_sym("foo") — interns at runtime; equality is
+          # pointer-equality. Usable as a hash key (has std::hash spec).
+          "ruby_sym(#{node.value.to_s.inspect})"
+        when Ast::HashLiteral
+          cr_hash_literal(node)
         when Ast::LocalVariableRead then cpp_local_name(node.name)
         when Ast::InstanceVariableRead
           key = node.name.to_s.delete_prefix('@')
