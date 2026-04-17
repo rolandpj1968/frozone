@@ -1048,6 +1048,11 @@ module Frozone
         when Ast::FloatLiteral then "double"
         when Ast::StringLiteral, Ast::InterpolatedString then "RubyString"
         when Ast::TrueLiteral, Ast::FalseLiteral then "bool"
+        when Ast::Case
+          types = val.whens.map { |w| local_decl_type(unwrap_single_sequence(w.body_node)) }.uniq
+          types.delete("int64_t") if types.size > 1
+          types.delete("auto") if types.size > 1
+          types.size == 1 ? types.first : "auto"
         when Ast::If
           if val.then_node && val.else_node
             t1 = local_decl_type(unwrap_single_sequence(val.then_node))
@@ -1365,6 +1370,10 @@ module Frozone
           emit_if_return(node)
           return
         end
+        if node.is_a?(Ast::Case)
+          emit_case_return(node)
+          return
+        end
         s = cr(node)
         if s.include?("{\n") || s.start_with?("if ") || s.start_with?("while ") || s.start_with?("for ") || s.start_with?("return ")
           if s.include?("{\n")
@@ -1412,6 +1421,22 @@ module Frozone
           s = cr(node)
           line "return #{s};"
         end
+      end
+
+      def emit_case_return(node)
+        subj = node.subject_node ? cr(node.subject_node) : nil
+        node.whens.each_with_index do |w, wi|
+          conds = w.condition_nodes.map { |c| subj ? "(#{subj} == #{cr(c)})" : cr_truthy(c) }.join(" || ")
+          keyword = wi == 0 ? "if" : "} else if"
+          line "#{keyword} (#{conds}) {"
+          indented { emit_return_branch(w.body_node) }
+        end
+        if node.else_node
+          line "} else {"
+          indented { emit_return_branch(node.else_node) }
+        end
+        line "}"
+        line "return RUBY_NIL;" unless node.else_node
       end
 
       def emit_main(execute_block)
@@ -1777,6 +1802,8 @@ module Frozone
             end
           end
           parts.size == 1 ? parts[0] : "(#{parts.join(' + ')})"
+        when Ast::Case
+          cr_case(node)
         when Ast::Yield
           yield_args = (node.respond_to?(:arg_nodes) ? node.arg_nodes : []) || []
           if yield_args.empty?
@@ -1789,6 +1816,22 @@ module Frozone
           cr(node.body)
         else "/* UNSUPPORTED: #{node.class.name.split('::').last} */"
         end
+      end
+
+      def cr_case(node)
+        subj_expr = node.subject_node ? cr(node.subject_node) : nil
+        # Emit as chained ternary: (s==1 ? body1 : s==2 ? body2 : else_body)
+        parts = []
+        subj_var = subj_expr ? "_cs" : nil
+        node.whens.each do |w|
+          cond = w.condition_nodes.map { |c|
+            subj_var ? "(#{subj_var} == #{cr(c)})" : cr_truthy(c)
+          }.join(" || ")
+          parts << [cond, cr(w.body_node)]
+        end
+        else_body = node.else_node ? cr(node.else_node) : "RUBY_NIL"
+        chain = parts.reverse.inject(else_body) { |rest, (cond, body)| "(#{cond}) ? (#{body}) : (#{rest})" }
+        subj_var ? "({ auto #{subj_var} = #{subj_expr}; #{chain}; })" : chain
       end
 
       def cr_if(node)
