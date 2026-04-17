@@ -52,6 +52,7 @@ template<> inline const char* ruby_class_name<Ruby_TheClass>() { return "TheClas
 static Ruby_TheClass OBJ;
 
 
+
 int main() {
   int64_t last = 0;
   (last = INT64_C(0));

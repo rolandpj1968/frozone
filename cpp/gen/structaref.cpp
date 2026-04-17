@@ -62,6 +62,7 @@ template<> inline const char* ruby_class_name<Ruby_TheClass>() { return "TheClas
 
 
 
+
 static auto get_value_loop(auto obj) {
   int64_t sum = 0;
   int64_t i = 0;

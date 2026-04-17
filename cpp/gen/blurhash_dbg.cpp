@@ -125017,7 +125017,7 @@ struct Ruby_Ruby {
     if ((v <= 0.04045)) {
       return (v / 12.92);
     } else {
-      return pow((double)(((v + 0.055) / 1.055)), (double)(2.4));
+      return pow(((v + 0.055) / 1.055), 2.4);
     }
   }
 
@@ -125045,9 +125045,9 @@ struct Ruby_Ruby {
   }
 
   auto encode_int(auto value, auto length, auto destination) {
-    std::decay_t<decltype(((int64_t)pow((double)(INT64_C(83)), (double)((length - INT64_C(1))))))> divisor{};
+    std::decay_t<decltype(((int64_t)pow(INT64_C(83), (length - INT64_C(1)))))> divisor{};
     std::decay_t<decltype(((value / divisor) % INT64_C(83)))> digit{};
-    (divisor = ((int64_t)pow((double)(INT64_C(83)), (double)((length - INT64_C(1))))));
+    (divisor = ((int64_t)pow(INT64_C(83), (length - INT64_C(1)))));
     for (int64_t i = 0; i < length; i++) {
       (digit = ((value / divisor) % INT64_C(83)));
       (divisor = (divisor / INT64_C(83)));
@@ -125062,7 +125062,7 @@ struct Ruby_Ruby {
     if ((v <= 0.0031308)) {
       return (int64_t)((((v * 12.92) * INT64_C(255)) + 0.5));
     } else {
-      return (int64_t)(((((1.055 * pow((double)(v), (double)((INT64_C(1) / 2.4)))) - 0.055) * INT64_C(255)) + 0.5));
+      return (int64_t)(((((1.055 * ((int64_t)pow(v, (INT64_C(1) / 2.4)))) - 0.055) * INT64_C(255)) + 0.5));
     }
   }
 
@@ -125085,8 +125085,8 @@ struct Ruby_Ruby {
   }
 
   auto signPow(auto value, auto exp) {
-    std::decay_t<decltype(pow((double)(std::abs(value)), (double)(exp)))> rb_pow{};
-    (rb_pow = pow((double)(std::abs(value)), (double)(exp)));
+    std::decay_t<decltype(((int64_t)pow(std::abs(value), exp)))> rb_pow{};
+    (rb_pow = ((int64_t)pow(std::abs(value), exp)));
     if ((value < INT64_C(0))) {
       return (-(rb_pow));
     } else {
@@ -125140,7 +125140,7 @@ struct Ruby_Ruby {
       (maximumValue = INT64_C(1));
       encode_int(INT64_C(0), INT64_C(1), ptr);
     }
-    encode_int(encodeDC(factors[INT64_C(0)], factors[INT64_C(1)], factors[INT64_C(2)]), INT64_C(4), ptr);
+    fprintf(stderr, "DC: f0=%f f1=%f f2=%f\n", (double)factors[INT64_C(0)], (double)factors[INT64_C(1)], (double)factors[INT64_C(2)]); encode_int(encodeDC(factors[INT64_C(0)], factors[INT64_C(1)], factors[INT64_C(2)]), INT64_C(4), ptr);
     for (int64_t i = 0; i < acCount; i++) {
       encode_int(encodeAC(factors[((i * INT64_C(3)) + INT64_C(3))], factors[((i * INT64_C(3)) + INT64_C(4))], factors[((i * INT64_C(3)) + INT64_C(5))], maximumValue), INT64_C(2), ptr);
     }

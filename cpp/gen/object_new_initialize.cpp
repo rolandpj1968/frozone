@@ -26,6 +26,7 @@ template<> inline const char* ruby_class_name<Ruby_C>() { return "C"; }
 
 
 
+
 static auto test() {
   return Ruby_C(INT64_C(1), INT64_C(2), INT64_C(3), INT64_C(4));
 }

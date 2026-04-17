@@ -4,6 +4,7 @@ static const int64_t N = 9LL;
 
 
 
+
 static auto fannkuch(auto n) {
   std::decay_t<decltype(ruby_range_to_a(INT64_C(0), n, false))> p{};
   std::decay_t<decltype(p.dup_())> s{};

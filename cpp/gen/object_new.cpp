@@ -4,6 +4,7 @@
 
 
 
+
 int main() {
   Ruby_Object last;
   int64_t i = 0;

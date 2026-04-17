@@ -143,6 +143,7 @@ template<> inline const char* ruby_class_name<Ruby_Planet>() { return "Planet"; 
 
 
 
+
 static auto energy(auto bodies) {
   double e = 0.0;
   std::decay_t<decltype(bodies.len())> nbodies{};

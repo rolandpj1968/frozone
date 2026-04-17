@@ -6,6 +6,7 @@ static const int64_t R = 7LL;
 
 
 
+
 int main() {
   std::decay_t<decltype(U)> u{};
   std::decay_t<decltype(R)> r{};

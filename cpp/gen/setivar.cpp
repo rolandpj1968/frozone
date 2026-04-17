@@ -40,6 +40,7 @@ template<> inline const char* ruby_class_name<Ruby_TheClass>() { return "TheClas
 
 
 
+
 int main() {
   Ruby_TheClass obj;
   std::optional<int64_t> last;

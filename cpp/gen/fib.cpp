@@ -3,6 +3,7 @@
 
 
 
+
 static auto fib(auto n) {
   if ((n < INT64_C(2))) {
     return n;

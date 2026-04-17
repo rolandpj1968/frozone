@@ -3,6 +3,7 @@
 
 
 
+
 static auto add(auto left, auto right) {
   return (left + right);
 }

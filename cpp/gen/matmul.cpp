@@ -4,6 +4,7 @@ static const int64_t N = 200LL;
 
 
 
+
 static auto make_shareable(auto x) {
   return x;
 }

@@ -6,6 +6,7 @@ static const int64_t STRETCH_DEPTH = 15LL;
 
 
 
+
 static auto item_check(auto left, auto right) {
   if (ruby_nil_q(left)) {
     return INT64_C(1);

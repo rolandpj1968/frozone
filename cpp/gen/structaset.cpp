@@ -35,6 +35,7 @@ template<> inline const char* ruby_class_name<Ruby_TheClass>() { return "TheClas
 
 
 
+
 static auto set_value_loop(auto obj) {
   int64_t i = 0;
   (i = INT64_C(0));

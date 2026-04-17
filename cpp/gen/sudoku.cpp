@@ -25,6 +25,7 @@ static auto HARD20 = []() { RubyArray<RubyString> _a(20);
   (*_a.data)[19] = RubyString(".....1.2.3...4.5.....6....7..2.....1.8..9..3.4.....8..5....2....9..3.4....67.....", 81);
   return _a; }();
 
+
 static auto make_shareable(auto x) {
   return x;
 }
@@ -164,7 +165,7 @@ static auto sd_solve(auto mr, auto mc, auto s) {
   (hints = INT64_C(0));
   (i = INT64_C(0));
   while ((i < INT64_C(81))) {
-    auto rb_char = s[i];
+    (rb_char = s[i]);
     auto a = (({ auto _l = ((rb_char >= RubyString("1", 1))); (_l) ? decltype(((rb_char <= RubyString("9", 1))))((rb_char <= RubyString("9", 1))) : decltype(((rb_char <= RubyString("9", 1))))(_l); }) ? ((rb_char.ord() - INT64_C(49))) : (INT64_C(-1)));
     if ((a >= INT64_C(0))) {
     sd_update_forward(mr, mc, sr, sc, ((i * INT64_C(9)) + a));

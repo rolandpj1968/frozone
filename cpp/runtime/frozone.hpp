@@ -79,6 +79,16 @@ public:
     return *this;
   }
   RubyString operator+(const RubyString& o) const { RubyString r(*this); r << o; return r; }
+  RubyString operator*(int64_t n) const {
+    RubyString r; r.enc = enc;
+    for (int64_t i = 0; i < n; i++) r << *this;
+    return r;
+  }
+  RubyString slice(int64_t from, int64_t len) const {
+    if (from < 0 || from >= (int64_t)bytes.size() || len <= 0) return RubyString();
+    int64_t end = std::min(from + len, (int64_t)bytes.size());
+    return RubyString((const char*)&bytes[from], end - from, enc);
+  }
 
   bool operator==(const RubyString& o) const { return bytes == o.bytes; }
   bool operator!=(const RubyString& o) const { return bytes != o.bytes; }
@@ -233,6 +243,7 @@ public:
     if (i < 0) i += (int64_t)data->size();
     return (*data)[i];
   }
+  T fetch(int64_t i) const { if (i < 0) i += (int64_t)data->size(); return (*data)[i]; }
   RubyArray& operator<<(const T& v) { data->push_back(v); return *this; }
   // .delete_at(i) — remove and return element at index (Ruby-style).
   T delete_at(int64_t i) {
@@ -277,6 +288,7 @@ public:
 };
 
 using RubyArray_I64 = RubyArray<int64_t>;
+using Ruby_Array = RubyArray<int64_t>;
 using RubyArray_F64 = RubyArray<double>;
 // Helper: deduce array element type from fill value
 template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }

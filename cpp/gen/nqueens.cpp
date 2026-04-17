@@ -3,6 +3,7 @@
 
 
 
+
 static auto nq_solve(auto n) {
   std::decay_t<decltype(make_ra(n, INT64_C(-1)))> a{};
   std::decay_t<decltype(make_ra(n, INT64_C(0)))> l{};

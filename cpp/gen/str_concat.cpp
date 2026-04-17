@@ -6,6 +6,7 @@ static const RubyString EXPECTED_OUTPUT = RubyString("ssssssééssssssééssssss
 
 
 
+
 static auto make_shareable(auto x) {
   return x;
 }

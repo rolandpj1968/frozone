@@ -53,6 +53,7 @@ template<> inline const char* ruby_class_name<Ruby_C>() { return "C"; }
 
 
 
+
 int main() {
   Ruby_A a;
   Ruby_B b;

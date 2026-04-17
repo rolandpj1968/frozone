@@ -24,6 +24,7 @@ template<> inline const char* ruby_class_name<Ruby_C>() { return "C"; }
 static Ruby_C INSTANCE;
 
 
+
 int main() {
   Ruby_C instance;
   int64_t count = 0;

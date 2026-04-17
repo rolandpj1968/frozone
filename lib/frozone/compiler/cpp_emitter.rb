@@ -79,6 +79,10 @@ module Frozone
         emit_constants(top_level_scope, objects_only: true)
         emit_newline
 
+        # Emit user-defined modules as static method containers (after classes)
+        emit_user_modules(top_level_scope)
+        emit_newline
+
         # Emit user-defined top-level methods
         emit_user_methods(top_level_scope)
         emit_newline
@@ -108,6 +112,7 @@ module Frozone
 
       # Translate Ruby method names with non-identifier suffixes to valid C++ identifiers.
       def cpp_method_name(name)
+        return @_bracket_method_name || "operator[]" if name == :[]
         if (override = RUBY_TO_CPP_METHOD[name])
           return override.to_s
         end
@@ -148,7 +153,8 @@ module Frozone
                          using virtual void volatile int float auto new delete
                          default case do if else while for break continue return
                          true false bool default do typeid wchar_t alignas
-                         alignof asm decltype thread_local].to_set.freeze
+                         alignof asm decltype thread_local
+                         pow sqrt cos sin abs].to_set.freeze
 
       # Rename Ruby constant/module names that would collide with C/C++
       # stdlib identifiers. `FILE` -> `RUBY_FILE`, etc.
@@ -251,6 +257,66 @@ module Frozone
         end
       end
 
+      def emit_user_modules(scope, seen = {})
+        (scope.constants_table || {}).each do |name, value|
+          next unless value.is_a?(Vm::ModuleObject) && !value.is_a?(Vm::ClassObject)
+          next if seen[value]
+          seen[value] = true
+          # Recurse into nested modules first
+          emit_user_modules(value, seen)
+          # Collect singleton (def self.) methods from the eigenclass
+          eigen = value.eigenclass rescue nil
+          next unless eigen
+          user_methods = (eigen.methods_table || {}).select do |_, m|
+            m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+          end
+          # Also collect module_function methods (instance methods exposed as singleton)
+          (value.methods_table || {}).each do |mname, m|
+            next unless m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+            user_methods[mname] ||= m
+          end
+          next if user_methods.empty?
+          # Emit module constants (before the struct, so methods can reference them)
+          emit_constants(value, skip_objects: true)
+          emit_constants(value, objects_only: true)
+          cpp_name = "Ruby_#{name}"
+          line "struct #{cpp_name} {"
+          indented do
+            @_inside_wrapped_class = false
+            user_methods.each do |mname, method|
+              next if trivial_body?(method.body)
+              emit_module_method(mname, method)
+              emit_newline
+            end
+          end
+          line "};"
+          line "static #{cpp_name} #{name};"
+          emit_newline
+        end
+      end
+
+      def emit_module_method(name, method)
+        params = emit_param_list(method)
+        @_method_return_type = infer_method_return_type(method)
+        ret_type = @_method_return_type == "std::any" ? "std::any" : "auto"
+        line "#{ret_type} #{cpp_method_name(name)}(#{params}) {"
+        @_declared_locals = Set.new; @_optional_locals = {}
+        all_param_names(method).each { |p| @_declared_locals << p.to_s }
+        indented do
+          body = method.body
+          emit_hoisted_locals(body, all_param_names(method))
+          if body.is_a?(Ast::Sequence)
+            nodes = body.nodes
+            nodes[0...-1].each { |n| emit_stmt(n) }
+            emit_stmt_return(nodes.last) if nodes.last
+          else
+            emit_stmt_return(body)
+          end
+        end
+        @_method_return_type = nil
+        line "}"
+      end
+
       def emit_user_classes(scope)
         # Collect user classes recursively (including classes nested inside
         # other classes, e.g. SplayTree::Node). Nested classes are promoted
@@ -270,6 +336,12 @@ module Frozone
         result = []
         const_locs = scope.constants_locations || {}
         (scope.constants_table || {}).each do |name, value|
+          # Descend into modules to find nested classes
+          if value.is_a?(Vm::ModuleObject) && !value.is_a?(Vm::ClassObject) && !seen[value]
+            seen[value] = true
+            result.concat(collect_user_classes(value, seen))
+            next
+          end
           next unless value.is_a?(Vm::ClassObject)
           next if value.name.nil? || %i[Object BasicObject Module Class Kernel].include?(value.name)
           next if seen[value]
@@ -277,7 +349,6 @@ module Frozone
           methods = value.methods_table || {}
           has_user_method = methods.any? { |_, m| m.is_a?(Vm::Method) && user_source_location?(m.source_location) }
           next unless has_user_method || user_source_location?(const_locs[name])
-          # Emit nested children first, then the parent itself.
           result.concat(collect_user_classes(value, seen))
           result << [name, value]
         end
@@ -503,14 +574,23 @@ module Frozone
         end
         walker.call(execute_block, nil)
         (scope.methods_table || {}).each_value { |m| walk_method.call(m, nil) }
-        (scope.constants_table || {}).each_value do |v|
-          next unless v.is_a?(Vm::ClassObject)
-          (v.methods_table || {}).each_value { |m| walk_method.call(m, v) }
-          (v.constants_table || {}).each_value do |nv|
-            next unless nv.is_a?(Vm::ClassObject)
-            (nv.methods_table || {}).each_value { |m| walk_method.call(m, nv) }
+        walked_scopes = Set.new
+        walk_scope_methods = lambda do |s|
+          return if walked_scopes.include?(s.object_id)
+          walked_scopes << s.object_id
+          (s.constants_table || {}).each_value do |v|
+            if v.is_a?(Vm::ClassObject)
+              (v.methods_table || {}).each_value { |m| walk_method.call(m, v) }
+              walk_scope_methods.call(v)
+            elsif v.is_a?(Vm::ModuleObject)
+              eigen = v.eigenclass rescue nil
+              (eigen&.methods_table || {}).each_value { |m| walk_method.call(m, nil) }
+              (v.methods_table || {}).each_value { |m| walk_method.call(m, nil) }
+              walk_scope_methods.call(v)
+            end
           end
         end
+        walk_scope_methods.call(scope)
         seen
       end
 
@@ -562,6 +642,14 @@ module Frozone
         return new_t if existing == "int64_t"
         return existing if new_t == "int64_t"
         return "double" if [existing, new_t].include?("double")
+        # Array type widening: int → double element type
+        e = existing == "Ruby_Array" ? "RubyArray<int64_t>" : existing
+        n = new_t == "Ruby_Array" ? "RubyArray<int64_t>" : new_t
+        if e.start_with?("RubyArray<") && n.start_with?("RubyArray<")
+          return n if n.include?("double")
+          return e if e.include?("double")
+          return e
+        end
         existing
       end
 
@@ -588,13 +676,19 @@ module Frozone
             (candidates[ivar_name] ||= Set.new) << cpp_type
           end
         end
-        # Unify: if all observed types agree (including after ignoring a
-        # non-nil default like int64_t == 0), pick the single type. If we
-        # see "double" OR "Ruby_X" mixed with "int64_t", prefer the
-        # non-int one (the int64_t came from an `@x = 0` default init).
-        # Multiple incompatible non-int types → std::any.
         candidates.each_with_object({}) do |(iv, types), out|
           types.delete("int64_t") if types.size > 1
+          # Normalize Ruby_Array → RubyArray<int64_t>
+          if types.delete?("Ruby_Array")
+            types << "RubyArray<int64_t>"
+          end
+          # Array element type widening: int → double
+          arr_types = types.select { |t| t.start_with?("RubyArray<") }
+          if arr_types.size > 1
+            best_arr = arr_types.any? { |t| t.include?("double") } ? "RubyArray<double>" : arr_types.first
+            arr_types.each { |t| types.delete(t) }
+            types << best_arr
+          end
           if types.size == 1
             out[iv] = types.first
           elsif types.size > 1
@@ -614,6 +708,12 @@ module Frozone
           targets.each_with_index do |(kind, name), i|
             next unless kind == :ivar && elems[i]
             yield name.to_s.delete_prefix('@'), infer_expr_type_with_params(elems[i], param_names, param_types)
+          end
+        elsif node.is_a?(Ast::AttributeWrite) && node.name == :[]= && node.receiver_node.is_a?(Ast::InstanceVariableRead)
+          val_node = (node.arg_nodes || []).last
+          val_t = val_node ? infer_expr_type_with_params(val_node, param_names, param_types) : "int64_t"
+          if val_t == "double"
+            yield node.receiver_node.name.to_s.delete_prefix('@'), "RubyArray<double>"
           end
         end
         node.children.each { |c| walk_ivar_assigns_with_params(c, param_names, param_types, &block) if c.is_a?(Ast::Node) }
@@ -637,6 +737,7 @@ module Frozone
       # Best-effort expression-type inference for ivar type candidates.
       # Returns "Ruby_Klass", "RubyString", "double", or "int64_t".
       def infer_expr_type(node)
+        node = node.nodes.last if node.is_a?(Ast::Sequence) && node.nodes.size == 1
         case node
         when Ast::FloatLiteral then "double"
         when Ast::StringLiteral, Ast::InterpolatedString then "RubyString"
@@ -647,11 +748,19 @@ module Frozone
             return "Ruby_#{cn}"
           end
           # Arithmetic: if either operand is a double, propagate.
+          # String * n → RubyString; String + String → RubyString.
           if %i[+ - * / %].include?(node.name) && node.receiver_node && node.arg_nodes&.size == 1
             l = infer_expr_type(node.receiver_node)
             r = infer_expr_type(node.arg_nodes[0])
+            return "RubyString" if l == "RubyString"
             return "double" if l == "double" || r == "double"
           end
+          # Methods that preserve receiver type
+          if node.name == :abs && node.receiver_node
+            return infer_expr_type(node.receiver_node)
+          end
+          # String methods that return RubyString
+          return "RubyString" if %i[b dup_ upcase downcase slice].include?(node.name) && node.receiver_node
           # Top-level function call: use cached return type if available.
           if node.receiver_node.nil?
             rt = (@_top_level_method_return_types || {})[node.name]
@@ -842,6 +951,8 @@ module Frozone
           # RubyString[i] returns a 1-char rvalue — `auto` is the only
           # safe option (can't bind a reference to a temporary).
           return "auto" if val.name == :[] && val.receiver_node && (val.arg_nodes || []).size == 1
+          return "RubyString" if val.name == :[] && val.receiver_node && (val.arg_nodes || []).size == 2
+          return "RubyString" if %i[b slice dup_ upcase downcase].include?(val.name) && val.receiver_node
           # If the receiver's type resolves to a known user class, look up
           # the called method's return type (helps `tmp = node.left` etc).
           if val.receiver_node
@@ -1015,12 +1126,11 @@ module Frozone
       end
 
       def emit_class_method(mname, method)
-        # Use 'auto' for params so C++20 can deduce per call site
-        # (covers both int64_t and class-typed args without explicit TI)
         params = emit_param_list(method)
-        # Always 'auto' return — C++20 deduces. Works for recursion when
-        # at least one base-case return is non-recursive.
+        nparams = all_param_names(method).size
+        @_bracket_method_name = (mname == :[] && nparams > 1) ? "slice" : nil
         line "auto #{cpp_method_name(mname)}(#{params}) {"
+        @_bracket_method_name = nil
         @_declared_locals = Set.new; @_optional_locals = {}
         @_method_return_type = infer_method_return_type(method)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
@@ -1078,6 +1188,7 @@ module Frozone
             end
           end
           @_declared_locals << name
+          @_declared_locals << decl_name if decl_name != name
         end
       end
 
@@ -1137,7 +1248,8 @@ module Frozone
       end
 
       def all_param_names(method)
-        ((method.required_params || []) + (method.optional_params || []).map { |name, _| name } + (method.required_kw_params || []))
+        ((method.required_params || []) + (method.optional_params || []).map { |name, _| name } +
+         (method.required_kw_params || []) + (method.optional_kw_params || []).map { |name, _| name })
       end
 
       # Renders `auto <name>` for required params and
@@ -1161,6 +1273,11 @@ module Frozone
           end
         end
         (method.required_kw_params || []).each { |p| parts << "auto #{p}" }
+        (method.optional_kw_params || []).each do |pname, default_node|
+          t = local_decl_type(default_node)
+          t = "int64_t" if t == "auto"
+          parts << "#{t} #{pname} = #{cr(default_node)}"
+        end
         parts.join(", ")
       end
 
@@ -1388,9 +1505,16 @@ module Frozone
             cpp_ivar(node.name)
           end
         when Ast::InstanceVariableWrite
-          # Write of self-ref ivars works via implicit conversion
-          # (Ruby_X has `operator std::shared_ptr<Impl>()`).
-          "#{cpp_ivar(node.name)} = #{cr(node.value_node)}"
+          if @_inside_wrapped_class && @_current_wrapper_name
+            cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
+            ivar_t = (@_class_ivar_types[cls_name] || {})[node.name.to_s.delete_prefix('@')]
+            if ivar_t&.match?(/RubyArray<double>/)
+              @_array_new_elem_type = "double"
+            end
+          end
+          result = "#{cpp_ivar(node.name)} = #{cr(node.value_node)}"
+          @_array_new_elem_type = nil
+          result
         when Ast::MultipleAssignment
           # Two forms:
           #   `a, b = x, y`  (ArrayLiteral RHS)  →  parallel assignment
@@ -1504,8 +1628,11 @@ module Frozone
         when Ast::MethodCall then cr_method_call(node)
         when Ast::ConstantRead then cpp_const_name(node.name)
         when Ast::ConstantPath
-          # Encoding::UTF_8 etc. — treat as 0 (encoding ignored for now)
-          "INT64_C(0) /* ::#{node.name} */"
+          if node.parent_node.is_a?(Ast::ConstantRead) && node.parent_node.name == :Math && node.name == :PI
+            "M_PI"
+          else
+            "INT64_C(0) /* ::#{node.name} */"
+          end
         when Ast::IndexOperatorWrite
           # a[i] += expr
           recv = cr(node.receiver_node)
@@ -1788,6 +1915,8 @@ module Frozone
         if recv.is_a?(Ast::ConstantRead) && recv.name == :Math
           case name
           when :sqrt then return "sqrt(#{cr(args[0])})"
+          when :cos then return "cos(#{cr(args[0])})"
+          when :sin then return "sin(#{cr(args[0])})"
           when :PI then return "M_PI"
           end
         end
@@ -1815,9 +1944,12 @@ module Frozone
           return "Ruby_#{recv.name}(#{arg_strs})"
         end
 
-        # Array.new(size, fill)
+        # Array.new(size, fill) / Array.new(size)
         if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name == :Array
-          if args.size == 2 && !node.block_node
+          if args.size == 1 && !node.block_node
+            return "RubyArray<double>(#{cr(args[0])})" if @_array_new_elem_type == "double"
+            return "RubyArray<int64_t>(#{cr(args[0])})"
+          elsif args.size == 2 && !node.block_node
             return "make_ra(#{cr(args[0])}, #{cr(args[1])})"
           elsif args.size == 1 && node.block_node
             # Array.new(n) { |i| expr } — unfold into loop, deduce elem type from block body
@@ -1905,6 +2037,9 @@ module Frozone
         if name == :[] && recv && args.size == 1
           return "#{cr(recv)}[#{cr(args[0])}]"
         end
+        if name == :[] && recv && args.size == 2
+          return "#{cr(recv)}.slice(#{cr(args[0])}, #{cr(args[1])})"
+        end
 
         # .nil? — RubyTree has nil_q(); for other types, fall through to name mangling (→ nil_q).
         # Plain int64_t or RubyString don't have nil_q so we emit a uniform
@@ -1923,6 +2058,30 @@ module Frozone
         # intercept when there's no class context to forward to.
         if recv && name == :to_s && args.empty?
           return "ruby_to_s(#{cr(recv)})"
+        end
+
+        # [a, b].max / [a, b].min
+        if recv.is_a?(Ast::ArrayLiteral) && (name == :max || name == :min) && args.empty?
+          elems = recv.element_nodes || []
+          if elems.size == 2
+            a, b = cr(elems[0]), cr(elems[1])
+            return "(((#{a}) > (#{b})) ? (#{a}) : (#{b}))" if name == :max
+            return "(((#{a}) < (#{b})) ? (#{a}) : (#{b}))"
+          end
+        end
+
+        # Type conversion methods
+        if recv && name == :to_f && args.empty?
+          return "(double)(#{cr(recv)})"
+        end
+        if recv && name == :to_i && args.empty?
+          return "(int64_t)(#{cr(recv)})"
+        end
+        if recv && name == :floor && args.empty?
+          return "(int64_t)floor((double)(#{cr(recv)}))"
+        end
+        if recv && name == :abs && args.empty?
+          return "std::abs(#{cr(recv)})"
         end
 
         # Unary ! and -@ as Ruby method calls with no args
@@ -1955,7 +2114,13 @@ module Frozone
           if recv.is_a?(Ast::IntegerLiteral) && recv.value.raw == 2
             return "(INT64_C(1) << #{cr(args[0])})"
           end
-          return "((int64_t)pow(#{cr(recv)}, #{cr(args[0])}))"
+          if recv.is_a?(Ast::IntegerLiteral)
+            if recv.value.raw == 2
+              return "(INT64_C(1) << #{cr(args[0])})"
+            end
+            return "((int64_t)pow((double)(#{cr(recv)}), (double)(#{cr(args[0])})))"
+          end
+          return "pow((double)(#{cr(recv)}), (double)(#{cr(args[0])}))"
         end
 
         # Arithmetic operators
