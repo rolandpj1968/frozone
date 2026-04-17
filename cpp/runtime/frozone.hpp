@@ -77,6 +77,8 @@ public:
     if (s) { size_t n = strlen(s); bytes.insert(bytes.end(), s, s + n); length_cache = -1; }
     return *this;
   }
+  RubyString operator+(const RubyString& o) const { RubyString r(*this); r << o; return r; }
+
   bool operator==(const RubyString& o) const { return bytes == o.bytes; }
   bool operator!=(const RubyString& o) const { return bytes != o.bytes; }
   bool operator<(const RubyString& o) const { return bytes < o.bytes; }

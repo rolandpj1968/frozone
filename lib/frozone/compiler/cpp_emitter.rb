@@ -601,7 +601,7 @@ module Frozone
       def infer_expr_type(node)
         case node
         when Ast::FloatLiteral then "double"
-        when Ast::StringLiteral then "RubyString"
+        when Ast::StringLiteral, Ast::InterpolatedString then "RubyString"
         when Ast::MethodCall
           if node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
             cn = node.receiver_node.name
@@ -825,7 +825,7 @@ module Frozone
           end
         when Ast::SymbolLiteral then "RubySymbol"
         when Ast::FloatLiteral then "double"
-        when Ast::StringLiteral then "RubyString"
+        when Ast::StringLiteral, Ast::InterpolatedString then "RubyString"
         when Ast::TrueLiteral, Ast::FalseLiteral then "bool"
         when Ast::ConstantRead
           # Constant lookup — could be any type. Resolve at compile time if we
@@ -1470,6 +1470,15 @@ module Frozone
             rest_inits = elems[1..].each_with_index.map { |e, i| "_a[#{i+1}] = #{cr(e)};" }.join(' ')
             "({ auto _e0 = #{first}; auto _a = RubyArray<decltype(_e0)>(#{elems.size}); _a[0] = _e0; #{rest_inits} _a; })"
           end
+        when Ast::InterpolatedString
+          parts = node.parts.map do |part|
+            if part.is_a?(Ast::StringLiteral)
+              cr(part)
+            else
+              "ruby_to_s(#{cr(part)})"
+            end
+          end
+          parts.size == 1 ? parts[0] : "(#{parts.join(' + ')})"
         when Ast::Rescue
           # begin/rescue/end — emit body, ignore rescue for now
           cr(node.body)
@@ -1484,7 +1493,18 @@ module Frozone
         # lets `a = if cond then X else Y end` emit as an rvalue.
         if node.then_node && node.else_node &&
            simple_expr?(node.then_node) && simple_expr?(node.else_node)
-          return "(#{pred} ? (#{cr(node.then_node)}) : (#{cr(node.else_node)}))"
+          then_s = cr(node.then_node)
+          else_s = cr(node.else_node)
+          # When one branch is nil and the other is a class-typed expr,
+          # wrap nil in the class type so C++ ternary deduction works.
+          if node.else_node.is_a?(Ast::NilLiteral)
+            t = infer_expr_type(node.then_node)
+            else_s = "#{t}(RUBY_NIL)" if t && t.start_with?("Ruby_")
+          elsif node.then_node.is_a?(Ast::NilLiteral)
+            t = infer_expr_type(node.else_node)
+            then_s = "#{t}(RUBY_NIL)" if t && t.start_with?("Ruby_")
+          end
+          return "(#{pred} ? (#{then_s}) : (#{else_s}))"
         end
         # `unless` — if cond; nil; else; body; end
         if node.then_node.is_a?(Ast::NilLiteral) && node.else_node

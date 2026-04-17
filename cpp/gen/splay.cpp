@@ -263,7 +263,7 @@ template<> inline const char* ruby_class_name<Ruby_PayloadNode>() { return "Payl
 
 
 static auto generate_payload(auto depth, auto tag) {
-  return ((depth == INT64_C(0)) ? (({ RubyHash<RubySymbol, /* TODO heterogeneous hash */ auto> _h; _h.store(ruby_sym("array"), ({ auto _e0 = INT64_C(0); auto _a = RubyArray<decltype(_e0)>(10); _a[0] = _e0; _a[1] = INT64_C(1); _a[2] = INT64_C(2); _a[3] = INT64_C(3); _a[4] = INT64_C(4); _a[5] = INT64_C(5); _a[6] = INT64_C(6); _a[7] = INT64_C(7); _a[8] = INT64_C(8); _a[9] = INT64_C(9); _a; })); _h.store(ruby_sym("string"), /* UNSUPPORTED: InterpolatedString */); _h; })) : (Ruby_PayloadNode(generate_payload((depth - INT64_C(1)), tag), generate_payload((depth - INT64_C(1)), tag))));
+  return ((depth == INT64_C(0)) ? (({ RubyHash<RubySymbol, /* TODO heterogeneous hash */ auto> _h; _h.store(ruby_sym("array"), ({ auto _e0 = INT64_C(0); auto _a = RubyArray<decltype(_e0)>(10); _a[0] = _e0; _a[1] = INT64_C(1); _a[2] = INT64_C(2); _a[3] = INT64_C(3); _a[4] = INT64_C(4); _a[5] = INT64_C(5); _a[6] = INT64_C(6); _a[7] = INT64_C(7); _a[8] = INT64_C(8); _a[9] = INT64_C(9); _a; })); _h.store(ruby_sym("string"), (RubyString("String for key ", 15) + ruby_to_s(tag) + RubyString(" in leaf node", 13))); _h; })) : (Ruby_PayloadNode(generate_payload((depth - INT64_C(1)), tag), generate_payload((depth - INT64_C(1)), tag))));
 }
 
 static auto insert_new_node(auto tree, auto rng) {
