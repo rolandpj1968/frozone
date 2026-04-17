@@ -376,6 +376,17 @@ module Frozone
           collect_ivars_from_body(init.body, ivars)
         end
         ivar_types = infer_ivar_types(cls)
+        read_ivars = collect_read_ivars(cls)
+        # Drop write-only std::any ivars — they're dead storage (never accessed
+        # via getter) and std::any copy overhead dominates (e.g. splay's @value).
+        @_dropped_ivars = Set.new
+        ivars.reject! do |iv|
+          key = iv.to_s.delete_prefix('@')
+          if ivar_types[key] == "std::any" && !read_ivars.include?(key)
+            @_dropped_ivars << key
+            true
+          end
+        end
         init_has_params = init.is_a?(Vm::Method) && !all_param_names(init).empty?
         self_wrapper = "Ruby_#{name}"
 
@@ -448,6 +459,16 @@ module Frozone
             next if mname == :initialize
             next unless user_source_location?(method.source_location) || accessor_method?(method)
             next unless method_defined_here?(method, cls)
+            # Skip getters/setters for dropped (write-only std::any) ivars
+            if accessor_method?(method) && @_dropped_ivars&.any?
+              body = method.body
+              ivar_key = if body.is_a?(Ast::InstanceVariableRead)
+                body.name.to_s.delete_prefix('@')
+              elsif body.is_a?(Ast::InstanceVariableWrite)
+                body.name.to_s.delete_prefix('@')
+              end
+              next if ivar_key && @_dropped_ivars.include?(ivar_key)
+            end
             emit_class_method(mname, method)
             emit_newline
           end
@@ -464,6 +485,7 @@ module Frozone
         line "template<> inline const char* ruby_class_name<Ruby_#{name}>() { return \"#{name}\"; }"
         @_self_ref_ivars = nil
         @_current_wrapper_name = nil
+        @_dropped_ivars = nil
       end
 
       def emit_struct_class(name, cls)
@@ -786,6 +808,26 @@ module Frozone
           "int64_t"
         else "int64_t"
         end
+      end
+
+      def collect_read_ivars(cls)
+        reads = Set.new
+        walker = lambda do |node|
+          return unless node
+          if node.is_a?(Ast::InstanceVariableRead)
+            reads << node.name.to_s.delete_prefix('@')
+          end
+          node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
+        end
+        (cls.methods_table || {}).each do |mname, m|
+          next if mname == :initialize
+          next unless m.is_a?(Vm::Method) && m.body
+          # Skip pure accessor methods — their ivar read doesn't count as
+          # "used" unless something actually calls the accessor.
+          next if m.body.is_a?(Ast::InstanceVariableRead)
+          walker.call(m.body)
+        end
+        reads
       end
 
       def collect_ivars_from_body(node, result)
@@ -1508,6 +1550,9 @@ module Frozone
           if @_inside_wrapped_class && @_current_wrapper_name
             cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
             ivar_t = (@_class_ivar_types[cls_name] || {})[node.name.to_s.delete_prefix('@')]
+            if @_dropped_ivars&.include?(node.name.to_s.delete_prefix('@'))
+              return "#{cr(node.value_node)}"
+            end
             if ivar_t&.match?(/RubyArray<double>/)
               @_array_new_elem_type = "double"
             end

@@ -7,7 +7,6 @@ static const int64_t PAYLOAD_DEPTH = 5LL;
 struct Ruby_Node {
   struct Impl {
     double iv_key = 0.0;
-    std::any iv_value;
     std::shared_ptr<Impl> iv_left;
     std::shared_ptr<Impl> iv_right;
   };
@@ -19,7 +18,7 @@ struct Ruby_Node {
   Ruby_Node(const RubyNil&) {}
   Ruby_Node(auto key, auto value) : p(std::make_shared<Impl>()) {
     p->iv_key = key;
-    p->iv_value = value;
+    value;
     p->iv_left = RUBY_NIL;
     p->iv_right = RUBY_NIL;
   }
@@ -31,15 +30,6 @@ struct Ruby_Node {
   auto set_key(auto __anon_req__) {
     p->iv_key = __anon_req__;
     return p->iv_key;
-  }
-
-  auto value() {
-    return p->iv_value;
-  }
-
-  auto set_value(auto __anon_req__) {
-    p->iv_value = __anon_req__;
-    return p->iv_value;
   }
 
   auto left() {
@@ -230,34 +220,14 @@ template<> inline const char* ruby_class_name<Ruby_SplayTree>() { return "SplayT
 
 struct Ruby_PayloadNode {
   struct Impl {
-    std::any iv_left;
-    std::any iv_right;
   };
   std::shared_ptr<Impl> p;
 
   Ruby_PayloadNode() = default;
   Ruby_PayloadNode(const RubyNil&) {}
   Ruby_PayloadNode(auto left, auto right) : p(std::make_shared<Impl>()) {
-    p->iv_left = left;
-    p->iv_right = right;
-  }
-
-  auto left() {
-    return p->iv_left;
-  }
-
-  auto set_left(auto __anon_req__) {
-    p->iv_left = __anon_req__;
-    return p->iv_left;
-  }
-
-  auto right() {
-    return p->iv_right;
-  }
-
-  auto set_right(auto __anon_req__) {
-    p->iv_right = __anon_req__;
-    return p->iv_right;
+    left;
+    right;
   }
 
   bool nil_q() const { return !p; }
