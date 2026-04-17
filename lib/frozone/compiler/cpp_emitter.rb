@@ -2017,6 +2017,16 @@ module Frozone
         args = node.arg_nodes || []
         kw_arg_nodes = node.kw_arg_nodes || []
 
+        # lambda { |x| body } → C++ lambda
+        if recv.nil? && name == :lambda && node.block_node
+          return cr_block_lambda(node.block_node)
+        end
+        # proc.call(args) → proc(args)
+        if name == :call && recv
+          arg_strs = args.map { |a| cr(a) }.join(", ")
+          return "#{cr(recv)}(#{arg_strs})"
+        end
+
         # $stdout.puts → ruby_puts
         if recv.is_a?(Ast::GlobalVariableRead) && recv.name == :$stdout && name == :puts
           return "printf(\"\\n\")" if args.empty?
