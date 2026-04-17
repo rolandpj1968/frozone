@@ -343,7 +343,10 @@ inline std::optional<T> ruby_to_opt(U&& v) {
 static inline bool ruby_nil_q(const RubyTree& t) { return t.nil_q(); }
 template<typename T> static inline bool ruby_nil_q(const std::shared_ptr<T>& p) { return !p; }
 template<typename T> static inline bool ruby_nil_q(const std::optional<T>& o) { return !o.has_value(); }
-template<typename T> static inline bool ruby_nil_q(const T&) { return false; }
+template<typename T> static inline bool ruby_nil_q(const T& v) {
+  if constexpr (requires { v.nil_q(); }) return v.nil_q();
+  else return false;
+}
 
 // Object.new — empty class with universal "GenericObject" class name.
 struct Ruby_Object {};
@@ -372,33 +375,37 @@ template<typename T> static inline RubyString ruby_to_s(T v) {
 }
 
 // Ruby_Random — MT19937-based (matches Ruby's Random#rand semantics).
+// Shared-ptr wrapped so copies share state (Ruby reference semantics).
 class Ruby_Random {
-public:
-  uint32_t mt[624];
-  int index = 624;
-  Ruby_Random() = default;
-  Ruby_Random(int64_t seed) { reseed((uint32_t)seed); }
-  void reseed(uint32_t seed) {
-    mt[0] = seed;
-    for (int i = 1; i < 624; i++) mt[i] = 1812433253U * (mt[i-1] ^ (mt[i-1] >> 30)) + (uint32_t)i;
-    index = 624;
-  }
-  uint32_t next_u32() {
-    if (index >= 624) { generate(); index = 0; }
-    uint32_t y = mt[index++];
-    y ^= (y >> 11); y ^= (y << 7) & 0x9D2C5680U;
-    y ^= (y << 15) & 0xEFC60000U; y ^= (y >> 18);
-    return y;
-  }
-  void generate() {
-    for (int i = 0; i < 624; i++) {
-      uint32_t y = (mt[i] & 0x80000000U) | (mt[(i+1) % 624] & 0x7fffffffU);
-      mt[i] = mt[(i+397) % 624] ^ (y >> 1);
-      if (y & 1) mt[i] ^= 0x9908B0DFU;
+  struct Impl {
+    uint32_t mt[624];
+    int index = 624;
+    void reseed(uint32_t seed) {
+      mt[0] = seed;
+      for (int i = 1; i < 624; i++) mt[i] = 1812433253U * (mt[i-1] ^ (mt[i-1] >> 30)) + (uint32_t)i;
+      index = 624;
     }
-  }
+    uint32_t next_u32() {
+      if (index >= 624) { generate(); index = 0; }
+      uint32_t y = mt[index++];
+      y ^= (y >> 11); y ^= (y << 7) & 0x9D2C5680U;
+      y ^= (y << 15) & 0xEFC60000U; y ^= (y >> 18);
+      return y;
+    }
+    void generate() {
+      for (int i = 0; i < 624; i++) {
+        uint32_t y = (mt[i] & 0x80000000U) | (mt[(i+1) % 624] & 0x7fffffffU);
+        mt[i] = mt[(i+397) % 624] ^ (y >> 1);
+        if (y & 1) mt[i] ^= 0x9908B0DFU;
+      }
+    }
+  };
+  std::shared_ptr<Impl> p;
+public:
+  Ruby_Random() : p(std::make_shared<Impl>()) {}
+  Ruby_Random(int64_t seed) : p(std::make_shared<Impl>()) { p->reseed((uint32_t)seed); }
   double rand() {
-    uint32_t a = next_u32() >> 5, b = next_u32() >> 6;
+    uint32_t a = p->next_u32() >> 5, b = p->next_u32() >> 6;
     return (a * 67108864.0 + b) * (1.0 / 9007199254740992.0);
   }
   int64_t rand(int64_t n) { return (int64_t)(rand() * n); }

@@ -130,11 +130,7 @@ struct Ruby_SplayTree {
       return Ruby_Node(RUBY_NIL);
     }
     splay_b(key);
-    if ((p->iv_root.key() == key)) {
-      return p->iv_root;
-    } else {
-      return Ruby_Node(RUBY_NIL);
-    }
+    return ((p->iv_root.key() == key) ? (p->iv_root) : (Ruby_Node(RUBY_NIL)));
   }
 
   auto find_max(Ruby_Node start_node = Ruby_Node(RUBY_NIL)) {
@@ -155,13 +151,13 @@ struct Ruby_SplayTree {
     }
     splay_b(key);
     if ((p->iv_root.key() < key)) {
-      return p->iv_root;
+      p->iv_root;
     } else {
       if (p->iv_root.left()) {
-        return find_max(p->iv_root.left());
-      }
-      return Ruby_Node(RUBY_NIL);
+      find_max(p->iv_root.left());
+    };
     }
+    return Ruby_Node(RUBY_NIL);
   }
 
   auto splay_b(auto key) {
@@ -268,11 +264,7 @@ template<> inline const char* ruby_class_name<Ruby_PayloadNode>() { return "Payl
 
 
 static std::any generate_payload(auto depth, auto tag) {
-  if ((depth == INT64_C(0))) {
-    return ({ RubyHash<RubySymbol, std::any> _h; _h.store(ruby_sym("array"), std::any(({ auto _e0 = INT64_C(0); auto _a = RubyArray<decltype(_e0)>(10); _a[0] = _e0; _a[1] = INT64_C(1); _a[2] = INT64_C(2); _a[3] = INT64_C(3); _a[4] = INT64_C(4); _a[5] = INT64_C(5); _a[6] = INT64_C(6); _a[7] = INT64_C(7); _a[8] = INT64_C(8); _a[9] = INT64_C(9); _a; }))); _h.store(ruby_sym("string"), std::any((RubyString("String for key ", 15) + ruby_to_s(tag) + RubyString(" in leaf node", 13)))); _h; });
-  } else {
-    return Ruby_PayloadNode(generate_payload((depth - INT64_C(1)), tag), generate_payload((depth - INT64_C(1)), tag));
-  }
+  return ((depth == INT64_C(0)) ? (std::any(({ RubyHash<RubySymbol, std::any> _h; _h.store(ruby_sym("array"), std::any(({ auto _e0 = INT64_C(0); auto _a = RubyArray<decltype(_e0)>(10); _a[0] = _e0; _a[1] = INT64_C(1); _a[2] = INT64_C(2); _a[3] = INT64_C(3); _a[4] = INT64_C(4); _a[5] = INT64_C(5); _a[6] = INT64_C(6); _a[7] = INT64_C(7); _a[8] = INT64_C(8); _a[9] = INT64_C(9); _a; }))); _h.store(ruby_sym("string"), std::any((RubyString("String for key ", 15) + ruby_to_s(tag) + RubyString(" in leaf node", 13)))); _h; }))) : (std::any(Ruby_PayloadNode(generate_payload((depth - INT64_C(1)), tag), generate_payload((depth - INT64_C(1)), tag)))));
 }
 
 static auto insert_new_node(auto tree, auto rng) {
@@ -291,7 +283,7 @@ static auto insert_new_node(auto tree, auto rng) {
 static auto splay_setup(auto rng) {
   Ruby_SplayTree tree;
   (tree = Ruby_SplayTree());
-  for (int64_t _i = 0; _i < TREE_SIZE; _i++) {
+  for (int64_t _i = 0; _i < TREE_SIZE; _i++) { fprintf(stderr, "insert %lld\n", (long long)_i);
     insert_new_node(tree, rng);
   }
   return tree;

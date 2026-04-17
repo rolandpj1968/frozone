@@ -456,6 +456,10 @@ module Frozone
         walker = nil
         walker = lambda do |node, cls_ctx|
           return unless node
+          if node.is_a?(Ast::LocalVariableWrite)
+            t = infer_expr_type_ctx(node.value_node, cls_ctx)
+            (@_walker_local_types ||= {})[node.name] = t if t != "int64_t"
+          end
           if node.is_a?(Ast::MethodCall) && node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
             cls_name = node.receiver_node.name
             (node.arg_nodes || []).each_with_index do |arg, i|
@@ -491,9 +495,11 @@ module Frozone
           param_types = @_method_call_arg_types[m.name] || []
           @_walker_param_names = param_names
           @_walker_param_types = param_types
+          @_walker_local_types = {}
           walker.call(m.body, cls_ctx)
           @_walker_param_names = nil
           @_walker_param_types = nil
+          @_walker_local_types = nil
         end
         walker.call(execute_block, nil)
         (scope.methods_table || {}).each_value { |m| walk_method.call(m, nil) }
@@ -516,10 +522,14 @@ module Frozone
           t = (@_class_ivar_types[cls_ctx.name] || {})[node.name.to_s.delete_prefix('@')]
           return t if t
         end
-        if node.is_a?(Ast::LocalVariableRead) && @_walker_param_names
-          idx = @_walker_param_names.index(node.name)
-          if idx && @_walker_param_types && @_walker_param_types[idx]
-            return @_walker_param_types[idx]
+        if node.is_a?(Ast::LocalVariableRead)
+          if @_walker_param_names
+            idx = @_walker_param_names.index(node.name)
+            return @_walker_param_types[idx] if idx && @_walker_param_types&.[](idx)
+          end
+          if @_walker_local_types
+            t = @_walker_local_types[node.name]
+            return t if t
           end
         end
         if node.is_a?(Ast::MethodCall) && %i[+ - * / %].include?(node.name) && node.receiver_node && node.arg_nodes&.size == 1
@@ -647,6 +657,9 @@ module Frozone
             rt = (@_top_level_method_return_types || {})[node.name]
             return rt if rt && rt != "RubyNil"
           end
+          # Built-in methods with known return types.
+          return "double" if node.name == :rand
+          return "RubyString" if node.name == :to_s
           "int64_t"
         when Ast::InstanceVariableRead
           if @_current_wrapper_name
@@ -1174,6 +1187,10 @@ module Frozone
       end
 
       def emit_stmt_return(node)
+        if node.is_a?(Ast::If)
+          emit_if_return(node)
+          return
+        end
         s = cr(node)
         if s.include?("{\n") || s.start_with?("if ") || s.start_with?("while ") || s.start_with?("for ") || s.start_with?("return ")
           if s.include?("{\n")
@@ -1193,6 +1210,32 @@ module Frozone
             line "return #{@_method_return_type}(RUBY_NIL);"
           end
         else
+          line "return #{s};"
+        end
+      end
+
+      def emit_if_return(node)
+        pred = cr_truthy(node.pred_node)
+        line "if (#{pred}) {"
+        indented { emit_return_branch(node.then_node || Ast::NilLiteral::NIL) }
+        if node.else_node
+          line "} else {"
+          indented { emit_return_branch(node.else_node) }
+        end
+        line "}"
+        if @_method_return_type && !node.else_node
+          line "return #{@_method_return_type}(RUBY_NIL);"
+        end
+      end
+
+      def emit_return_branch(node)
+        inner = unwrap_single_sequence(node)
+        if inner.is_a?(Ast::If)
+          emit_if_return(inner)
+        elsif inner.is_a?(Ast::NilLiteral) && @_method_return_type
+          line "return #{@_method_return_type}(RUBY_NIL);"
+        else
+          s = cr(node)
           line "return #{s};"
         end
       end

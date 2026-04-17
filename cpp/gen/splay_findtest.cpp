@@ -1,4 +1,5 @@
 #include "../runtime/frozone.hpp"
+#include "../runtime/frozone.hpp"
 
 static const int64_t TREE_SIZE = 8000LL;
 static const int64_t MODIFICATIONS = 80LL;
@@ -130,11 +131,7 @@ struct Ruby_SplayTree {
       return Ruby_Node(RUBY_NIL);
     }
     splay_b(key);
-    if ((p->iv_root.key() == key)) {
-      return p->iv_root;
-    } else {
-      return Ruby_Node(RUBY_NIL);
-    }
+    return ((p->iv_root.key() == key) ? (p->iv_root) : (Ruby_Node(RUBY_NIL)));
   }
 
   auto find_max(Ruby_Node start_node = Ruby_Node(RUBY_NIL)) {
@@ -155,13 +152,13 @@ struct Ruby_SplayTree {
     }
     splay_b(key);
     if ((p->iv_root.key() < key)) {
-      return p->iv_root;
+      p->iv_root;
     } else {
       if (p->iv_root.left()) {
-        return find_max(p->iv_root.left());
-      }
-      return Ruby_Node(RUBY_NIL);
+      find_max(p->iv_root.left());
+    };
     }
+    return Ruby_Node(RUBY_NIL);
   }
 
   auto splay_b(auto key) {
@@ -226,101 +223,11 @@ struct Ruby_SplayTree {
   bool nil_q() const { return !p; }
   explicit operator bool() const { return (bool)p; }
 };
-template<> inline const char* ruby_class_name<Ruby_SplayTree>() { return "SplayTree"; }
-
-struct Ruby_PayloadNode {
-  struct Impl {
-    std::any iv_left;
-    std::any iv_right;
-  };
-  std::shared_ptr<Impl> p;
-
-  Ruby_PayloadNode() = default;
-  Ruby_PayloadNode(const RubyNil&) {}
-  Ruby_PayloadNode(auto left, auto right) : p(std::make_shared<Impl>()) {
-    p->iv_left = left;
-    p->iv_right = right;
-  }
-
-  auto left() {
-    return p->iv_left;
-  }
-
-  auto set_left(auto __anon_req__) {
-    p->iv_left = __anon_req__;
-    return p->iv_left;
-  }
-
-  auto right() {
-    return p->iv_right;
-  }
-
-  auto set_right(auto __anon_req__) {
-    p->iv_right = __anon_req__;
-    return p->iv_right;
-  }
-
-  bool nil_q() const { return !p; }
-  explicit operator bool() const { return (bool)p; }
-};
-template<> inline const char* ruby_class_name<Ruby_PayloadNode>() { return "PayloadNode"; }
-
-
-
-static std::any generate_payload(auto depth, auto tag) {
-  if ((depth == INT64_C(0))) {
-    return ({ RubyHash<RubySymbol, std::any> _h; _h.store(ruby_sym("array"), std::any(({ auto _e0 = INT64_C(0); auto _a = RubyArray<decltype(_e0)>(10); _a[0] = _e0; _a[1] = INT64_C(1); _a[2] = INT64_C(2); _a[3] = INT64_C(3); _a[4] = INT64_C(4); _a[5] = INT64_C(5); _a[6] = INT64_C(6); _a[7] = INT64_C(7); _a[8] = INT64_C(8); _a[9] = INT64_C(9); _a; }))); _h.store(ruby_sym("string"), std::any((RubyString("String for key ", 15) + ruby_to_s(tag) + RubyString(" in leaf node", 13)))); _h; });
-  } else {
-    return Ruby_PayloadNode(generate_payload((depth - INT64_C(1)), tag), generate_payload((depth - INT64_C(1)), tag));
-  }
-}
-
-static auto insert_new_node(auto tree, auto rng) {
-  std::decay_t<decltype(rng.rand())> key{};
-  while (true) {
-    (key = rng.rand());
-    if (tree.find(key)) {
-      continue;
-    };
-    tree.insert(key, generate_payload(PAYLOAD_DEPTH, ruby_to_s(key)));
-    return key;
-  }
-  __builtin_unreachable();
-}
-
-static auto splay_setup(auto rng) {
-  Ruby_SplayTree tree;
-  (tree = Ruby_SplayTree());
-  for (int64_t _i = 0; _i < TREE_SIZE; _i++) {
-    insert_new_node(tree, rng);
-  }
-  return tree;
-}
-
-static auto splay_run(auto tree, auto rng) {
-  std::decay_t<decltype(insert_new_node(tree, rng))> key{};
-  std::decay_t<decltype(tree.find_greatest_less_than(key))> greatest{};
-  for (int64_t _i = 0; _i < MODIFICATIONS; _i++) {
-    (key = insert_new_node(tree, rng));
-    (greatest = tree.find_greatest_less_than(key));
-    (greatest ? (tree.remove(greatest.key())) : (tree.remove(key)));
-  }
-  return RUBY_NIL;
-}
-
-
 int main() {
-  Ruby_Random rng;
   Ruby_SplayTree tree;
-  Ruby_Node m;
-  (rng = Ruby_Random(INT64_C(42)));
-  (tree = splay_setup(rng));
-  for (int64_t _i = 0; _i < INT64_C(200); _i++) {
-    for (int64_t _i = 0; _i < INT64_C(50); _i++) {
-      splay_run(tree, rng);
-    };
-  }
-  (m = tree.find_max());
-  ruby_puts(m.key());
-  return 0;
+  tree.insert(0.374540, std::any(INT64_C(0)));
+  auto r1 = tree.find(0.950714);
+  fprintf(stderr, "find(0.95): nil=%d bool=%d\n", r1.nil_q(), (bool)r1);
+  auto r2 = tree.find(0.374540);
+  fprintf(stderr, "find(0.37): nil=%d bool=%d\n", r2.nil_q(), (bool)r2);
 }

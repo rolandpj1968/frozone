@@ -1,4 +1,5 @@
 #include "../runtime/frozone.hpp"
+#include <chrono>
 
 static const int64_t TREE_SIZE = 8000LL;
 static const int64_t MODIFICATIONS = 80LL;
@@ -130,11 +131,7 @@ struct Ruby_SplayTree {
       return Ruby_Node(RUBY_NIL);
     }
     splay_b(key);
-    if ((p->iv_root.key() == key)) {
-      return p->iv_root;
-    } else {
-      return Ruby_Node(RUBY_NIL);
-    }
+    return ((p->iv_root.key() == key) ? (p->iv_root) : (Ruby_Node(RUBY_NIL)));
   }
 
   auto find_max(Ruby_Node start_node = Ruby_Node(RUBY_NIL)) {
@@ -155,13 +152,13 @@ struct Ruby_SplayTree {
     }
     splay_b(key);
     if ((p->iv_root.key() < key)) {
-      return p->iv_root;
+      p->iv_root;
     } else {
       if (p->iv_root.left()) {
-        return find_max(p->iv_root.left());
-      }
-      return Ruby_Node(RUBY_NIL);
+      find_max(p->iv_root.left());
+    };
     }
+    return Ruby_Node(RUBY_NIL);
   }
 
   auto splay_b(auto key) {
@@ -267,13 +264,7 @@ template<> inline const char* ruby_class_name<Ruby_PayloadNode>() { return "Payl
 
 
 
-static std::any generate_payload(auto depth, auto tag) {
-  if ((depth == INT64_C(0))) {
-    return ({ RubyHash<RubySymbol, std::any> _h; _h.store(ruby_sym("array"), std::any(({ auto _e0 = INT64_C(0); auto _a = RubyArray<decltype(_e0)>(10); _a[0] = _e0; _a[1] = INT64_C(1); _a[2] = INT64_C(2); _a[3] = INT64_C(3); _a[4] = INT64_C(4); _a[5] = INT64_C(5); _a[6] = INT64_C(6); _a[7] = INT64_C(7); _a[8] = INT64_C(8); _a[9] = INT64_C(9); _a; }))); _h.store(ruby_sym("string"), std::any((RubyString("String for key ", 15) + ruby_to_s(tag) + RubyString(" in leaf node", 13)))); _h; });
-  } else {
-    return Ruby_PayloadNode(generate_payload((depth - INT64_C(1)), tag), generate_payload((depth - INT64_C(1)), tag));
-  }
-}
+static std::any generate_payload(auto depth, auto tag) { return std::any(INT64_C(0)); }
 
 static auto insert_new_node(auto tree, auto rng) {
   std::decay_t<decltype(rng.rand())> key{};
@@ -289,7 +280,7 @@ static auto insert_new_node(auto tree, auto rng) {
 }
 
 static auto splay_setup(auto rng) {
-  Ruby_SplayTree tree;
+  Ruby_SplayTree tree; auto t0 = std::chrono::high_resolution_clock::now();
   (tree = Ruby_SplayTree());
   for (int64_t _i = 0; _i < TREE_SIZE; _i++) {
     insert_new_node(tree, rng);
@@ -311,11 +302,11 @@ static auto splay_run(auto tree, auto rng) {
 
 int main() {
   Ruby_Random rng;
-  Ruby_SplayTree tree;
+  Ruby_SplayTree tree; auto t0 = std::chrono::high_resolution_clock::now();
   Ruby_Node m;
   (rng = Ruby_Random(INT64_C(42)));
   (tree = splay_setup(rng));
-  for (int64_t _i = 0; _i < INT64_C(200); _i++) {
+  auto t1 = std::chrono::high_resolution_clock::now(); fprintf(stderr, "setup: %lld ms\n", (long long)std::chrono::duration_cast<std::chrono::milliseconds>(t1-t0).count()); for (int64_t _i = 0; _i < INT64_C(200); _i++) {
     for (int64_t _i = 0; _i < INT64_C(50); _i++) {
       splay_run(tree, rng);
     };
