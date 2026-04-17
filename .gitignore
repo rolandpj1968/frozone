@@ -43,6 +43,8 @@ crystal/sudoku
 crystal/perf.data
 bench/benchmarks/lee/
 crystal/lang_debug*
-# Compiled binary outputs from cpp/gen/
+# Compiled binary outputs + temp test files from cpp/gen/
 cpp/gen/*
 !cpp/gen/*.cpp
+cpp/gen/cpp_test*.cpp
+cpp/gen/test_*.cpp
