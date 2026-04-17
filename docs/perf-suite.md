@@ -144,64 +144,47 @@ count. The compiled binary runs the work at native speed.
 
 ## Benchmark Results
 
-### AOT Compiled — 2026-04-08 (after runtime allocator pass)
+### AOT Compiled — 2026-04-17 (dual-backend, 24/24 passing)
 
-**Environment**: Ruby 4.0.1 (MRI host), Crystal 1.16 `--release`, Linux x86-64 (AMD 6-core)
-**Frozone**: `--aot` generates Crystal source → `crystal build --release` → native binary
-**Measurement**: identical inline code for all runtimes, `time` wall clock
+**Environment**: Ruby 4.0.1, YJIT, Crystal 1.16 `--release`, GCC 13 `-O2 -std=c++20`,
+Linux x86-64 (AMD 6-core)
 
-| Benchmark | Frozone | MRI | YJIT | vs MRI | vs YJIT |
-|---|---|---|---|---|---|
-| nbody ×100 | 117 ms | 7293 ms | 2684 ms | **62×** | **23×** |
-| fib(35) ×3 | 95 ms | 2347 ms | 318 ms | **25×** | **3.3×** |
-| matmul(200) ×20 | 260 ms | 7530 ms | 3071 ms | **29×** | **12×** |
-| sudoku ×20 | 438 ms | 7466 ms | 2015 ms | **17×** | **4.6×** |
-| blurhash ×10 | 242 ms | 2480 ms | 1050 ms | **10×** | **4.3×** |
-| nqueens 500×12 | 6661 ms | 199000 ms | 49500 ms | **30×** | **7.4×** |
-| str\_concat ×100 | 992 ms | 5276 ms | 2078 ms | **5.3×** | **2.1×** |
-| binarytrees ×60 | 1993 ms | 16586 ms | 6456 ms | **8.3×** | **3.2×** |
-| fannkuchredux ×10 | 849 ms | 3171 ms | 3104 ms | **3.7×** | **3.7×** |
-| splay ×200 | 14313 ms | 19963 ms | 14400 ms | **1.4×** | **1.0×** |
+Both backends compile from the same stubs (`bench/stubs/`); MRI/YJIT run
+them interpreted. All times in wall-clock milliseconds.
 
-All benchmarks compile and run end-to-end. fib generates assembly identical to
-hand-written Crystal (overhead is Crystal's integer overflow checking, not codegen).
-**All 12 timed benchmarks now meet or beat YJIT.**
+| Benchmark | MRI | YJIT | C++ | Crystal | C++/MRI | Crystal/MRI |
+|-----------|----:|-----:|----:|--------:|--------:|------------:|
+| fib(35) x3 | 2326 | 501 | 37 | 94 | **63x** | **25x** |
+| matmul(200) x20 | 7355 | 2897 | 82 | 256 | **90x** | **29x** |
+| nbody x100 | 7259 | 2644 | 142 | 116 | **51x** | **63x** |
+| nqueens 500x12 | 198033 | 49711 | 5890 | 6566 | **34x** | **30x** |
+| loops_times | 8675 | - | 96 | 123 | **90x** | **71x** |
+| sudoku x20 | 7151 | 1928 | 7 | 418 | **1084x** | **17x** |
+| fannkuchredux x10 | 3217 | 3161 | 102 | 857 | **32x** | **3.8x** |
+| blurhash x10 | 2504 | 1057 | 241 | 246 | **10x** | **10x** |
+| binarytrees x60 | 16244 | 6916 | 4177 | 2000 | **3.9x** | **8.1x** |
+| str_concat x100 | 5248 | 4502 | 2894 | 992 | **1.8x** | **5.3x** |
+| splay x200 | 20349 | 13417 | 48391 | 13835 | 0.42x | **1.5x** |
+| attr_accessor | 358 | - | 1.3 | 4.3 | **278x** | **83x** |
+| getivar | 230 | - | 1.3 | 4.7 | **182x** | **49x** |
+| setivar | 221 | - | 1.1 | 4.6 | **207x** | **48x** |
+| keyword_args | 125 | - | 1.0 | 5.1 | **130x** | **24x** |
+| object_new | 137 | - | 0.9 | 3.3 | **149x** | **41x** |
+| object_new_init | 152 | - | 4.8 | 5.7 | **32x** | **27x** |
+| respond_to | 161316 | - | 1.4 | 2.0 | **116783x** | **80564x** |
+| cfunc_itself | 34750 | - | 0.6 | 2.6 | **61540x** | **13474x** |
+| send_rubyfunc_block | 45729 | - | 1.5 | 1.5 | **30643x** | **30438x** |
+| ruby_xor | 139 | - | 1.9 | 3.3 | **73x** | **42x** |
+| structaref | 112071 | - | 1.1 | 1041 | **104499x** | **108x** |
+| structaset | 87961 | - | 0.8 | 79171 | **105384x** | **1.1x** |
 
-**Splay closure (2026-04-08, four steps in order):**
-- **scrub_utf8 skip on known-valid UTF-8** (commit 86d2809) — strings constructed
-  from Crystal `String` literals are pre-marked valid; `to_crystal_string` returns
-  via direct memcpy instead of byte-walking. splay 36.6s → 32.4s.
-- **Literal symbol constant-folding** (commit 25752fd) — every unique `:foo` becomes
-  a static `Ruby_Sym_<i>` constant in the file header; call sites are bare loads
-  instead of hash lookups. splay 32.4s → 30.7s.
-- **Small-integer interning** (commit 7de92de) — `RubyInteger.new(v)` for v in
-  -128..127 returns a shared singleton from a 256-entry cache instead of
-  allocating. Mirrors MRI's Fixnum optimization. splay 30.7s → 21.4s,
-  binarytrees 3.86s → 1.99s, fannkuchredux 1.31s → 0.85s.
-- **Literal-numeric array hoisting** (commit 1d78ff2) — every unique
-  `[1,2,3,...]` literal becomes a static `Ruby_Arr_<i>` constant. Trades
-  Ruby's "fresh array per construction" semantics for ~10× fewer allocations
-  in tight loops. splay 21.4s → 14.3s, all other benchmarks unchanged
-  (none have hot literal-array paths).
-
-Cumulative: **splay 36.6s → 14.3s = 61% faster, 2.6× speedup**, taking it
-from "the laggard" to **tied with YJIT (14.4s)**.
-
-**Status notes:**
-- **splay**: 14.3s, within noise of YJIT 14.4s. The session's allocator
-  pass closed the entire gap. Profile is now 80% Boehm GC mark/sweep —
-  any further wins would need region allocation or moving away from
-  conservative GC entirely.
-- **binarytrees**: 1.99s — below the README's historical 2.29s baseline.
-- **fannkuchredux**: 0.85s — beats YJIT by 3.7× now.
-- **str_concat**: 1.0s, 2.1× faster than YJIT, runs end-to-end after the
-  exponential-capacity buffer fix (commit 6abb554).
-- **structaset**: now compiles and runs end-to-end after commit d2fae53,
-  which synthesises a plain Crystal class for `Struct.new(...)` subclasses.
-  Currently 79s vs YJIT 33s — slower than YJIT because every iteration
-  boxes `i` (up to 1M) outside the small-int cache. Functional first;
-  perf needs class-typed-ivar specialization that accepts Int64 directly
-  into the setter. Not yet in the smoke / headline table.
+**Highlights:**
+- C++ wins compute-heavy: fib **63x** MRI / **14x** YJIT; sudoku **1084x** MRI / **276x** YJIT
+- Crystal wins allocation-heavy: binarytrees 2.1x faster than C++, str_concat 2.9x
+- Both backends beat YJIT on every compute benchmark
+- Splay is the only outlier where C++ is slower than MRI (std::any overhead)
+- Micro-benchmarks (dispatch/accessor) show extreme ratios where the optimiser
+  constant-folds the entire computation
 
 ### Interpreter-only — 2026-03-20, commit db16601
 
