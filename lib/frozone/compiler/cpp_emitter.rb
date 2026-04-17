@@ -135,6 +135,16 @@ module Frozone
         "[&](#{params}) { return #{body_s}; }"
       end
 
+      def nil_return_expr
+        if @_method_return_type&.start_with?("std::optional")
+          "std::nullopt"
+        elsif @_method_return_type
+          "#{@_method_return_type}(RUBY_NIL)"
+        else
+          "RUBY_NIL"
+        end
+      end
+
       def trivial_body?(body)
         return true if body.nil?
         return true if body.is_a?(Ast::NilLiteral)
@@ -310,7 +320,7 @@ module Frozone
       def emit_module_method(name, method)
         params = emit_param_list(method)
         @_method_return_type = infer_method_return_type(method)
-        ret_type = @_method_return_type == "std::any" ? "std::any" : "auto"
+        ret_type = %w[std::any].include?(@_method_return_type) || @_method_return_type&.start_with?("std::optional") ? @_method_return_type : "auto"
         line "#{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
@@ -1211,28 +1221,36 @@ module Frozone
         @_current_body = body
         @_current_body_has_explicit_return = has_explicit_return?(body)
         best = nil
+        has_nil_return = false
+        has_value_return = false
         walker = lambda do |node|
           return unless node
-          if node.is_a?(Ast::Return) && node.value_node && !node.value_node.is_a?(Ast::NilLiteral)
-            t = local_decl_type(node.value_node)
-            best = widen_type(best, t) if t && t != "int64_t" && t != "auto"
+          if node.is_a?(Ast::Return)
+            if node.value_node.nil? || node.value_node.is_a?(Ast::NilLiteral)
+              has_nil_return = true
+            else
+              has_value_return = true
+              t = local_decl_type(node.value_node)
+              best = widen_type(best, t) if t && t != "int64_t" && t != "auto"
+            end
           end
-          # Last expression in a Sequence is an implicit return.
           node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
         end
         walker.call(body)
-        # Also pick up the final expression if there's no explicit return.
         last = body.is_a?(Ast::Sequence) ? body.nodes.last : body
-        if last && !last.is_a?(Ast::NilLiteral) && !last.is_a?(Ast::Return)
+        if last.is_a?(Ast::NilLiteral)
+          has_nil_return = true
+        elsif last && !last.is_a?(Ast::Return)
           t = local_decl_type(last)
           best = widen_type(best, t) if t && t != "int64_t" && t != "auto"
         end
-        # Method body with no explicit returns AND last statement is a
-        # loop/while/for → Ruby returns nil. Record "RubyNil" so callers
-        # can widen their local types to std::optional<T>.
         if best.nil? && !@_current_body_has_explicit_return && last &&
            (last.is_a?(Ast::While) || last.is_a?(Ast::Until) || last.is_a?(Ast::ForLoop))
           best = "RubyNil"
+        end
+        # Primitive + nil → std::optional<T>
+        if best.nil? && has_nil_return && has_value_return
+          best = "std::optional<int64_t>"
         end
         @_current_body = prev_body
         best
@@ -1401,7 +1419,7 @@ module Frozone
         @_method_yields = method.uses_block || body_has_yield?(method.body)
         params = params.empty? ? "auto _block" : "#{params}, auto _block" if @_method_yields
         @_method_return_type = infer_method_return_type(method)
-        ret_type = @_method_return_type == "std::any" ? "std::any" : "auto"
+        ret_type = %w[std::any].include?(@_method_return_type) || @_method_return_type&.start_with?("std::optional") ? @_method_return_type : "auto"
         line "static #{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
@@ -1446,10 +1464,14 @@ module Frozone
               line "return RUBY_NIL;"
             end
           elsif s.start_with?("if ") && @_method_return_type
-            line "return #{@_method_return_type}(RUBY_NIL);"
+            line "return #{nil_return_expr};"
           end
         else
-          line "return #{s};"
+          if s == "RUBY_NIL" && @_method_return_type
+            line "return #{nil_return_expr};"
+          else
+            line "return #{s};"
+          end
         end
       end
 
@@ -1463,7 +1485,7 @@ module Frozone
         end
         line "}"
         if @_method_return_type && !node.else_node
-          line "return #{@_method_return_type}(RUBY_NIL);"
+          line "return #{nil_return_expr};"
         end
       end
 
@@ -1472,7 +1494,7 @@ module Frozone
         if inner.is_a?(Ast::If)
           emit_if_return(inner)
         elsif inner.is_a?(Ast::NilLiteral) && @_method_return_type
-          line "return #{@_method_return_type}(RUBY_NIL);"
+          line "return #{nil_return_expr};"
         else
           s = cr(node)
           line "return #{s};"
@@ -1748,13 +1770,12 @@ module Frozone
         when Ast::Return
           if node.value_node
             if node.value_node.is_a?(Ast::NilLiteral) && @_method_return_type
-              "return #{@_method_return_type}(RUBY_NIL)"
+              "return #{nil_return_expr}"
             else
               "return #{cr(node.value_node)}"
             end
           else
-            # Bare `return` — Ruby returns nil. Match return type when known.
-            @_method_return_type ? "return #{@_method_return_type}()" : "return"
+            @_method_return_type ? "return #{nil_return_expr}" : "return"
           end
         when Ast::And
           # Ruby `a && b`: short-circuit — evaluate `b` only if `a` is truthy.
