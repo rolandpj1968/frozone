@@ -19,6 +19,7 @@
 #include <unordered_map>
 #include <variant>
 #include <optional>
+#include <any>
 
 class RubyString {
 public:

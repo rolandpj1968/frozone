@@ -150,7 +150,6 @@ static auto sd_solve(auto mr, auto mc, auto s) {
   int64_t hints = 0;
   int64_t i = 0;
   std::decay_t<decltype(s[i])> rb_char{};
-  int64_t a = 0;
   std::decay_t<decltype(make_ra(INT64_C(81), INT64_C(-1)))> cr{};
   std::decay_t<decltype(make_ra(INT64_C(81), INT64_C(0)))> cc{};
   int64_t min = 0;
@@ -166,7 +165,7 @@ static auto sd_solve(auto mr, auto mc, auto s) {
   (i = INT64_C(0));
   while ((i < INT64_C(81))) {
     auto rb_char = s[i];
-    (a = (({ auto _l = ((rb_char >= RubyString("1", 1))); (_l) ? decltype(((rb_char <= RubyString("9", 1))))((rb_char <= RubyString("9", 1))) : decltype(((rb_char <= RubyString("9", 1))))(_l); }) ? ((rb_char.ord() - INT64_C(49))) : (INT64_C(-1))));
+    auto a = (({ auto _l = ((rb_char >= RubyString("1", 1))); (_l) ? decltype(((rb_char <= RubyString("9", 1))))((rb_char <= RubyString("9", 1))) : decltype(((rb_char <= RubyString("9", 1))))(_l); }) ? ((rb_char.ord() - INT64_C(49))) : (INT64_C(-1)));
     if ((a >= INT64_C(0))) {
     sd_update_forward(mr, mc, sr, sc, ((i * INT64_C(9)) + a));
     (hints = (hints + INT64_C(1)));

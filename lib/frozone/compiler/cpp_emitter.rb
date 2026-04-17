@@ -464,7 +464,7 @@ module Frozone
               existing[i] = widen_type(existing[i], t)
             end
           end
-          if node.is_a?(Ast::MethodCall) && node.receiver_node && node.name != :new
+          if node.is_a?(Ast::MethodCall) && node.name != :new
             (node.arg_nodes || []).each_with_index do |arg, i|
               t = infer_expr_type_ctx(arg, cls_ctx)
               key = node.name
@@ -485,15 +485,24 @@ module Frozone
           end
           node.children.each { |c| walker.call(c, cls_ctx) if c.is_a?(Ast::Node) }
         end
+        walk_method = lambda do |m, cls_ctx|
+          return unless m.is_a?(Vm::Method) && m.body
+          param_names = m.required_params || []
+          param_types = @_method_call_arg_types[m.name] || []
+          @_walker_param_names = param_names
+          @_walker_param_types = param_types
+          walker.call(m.body, cls_ctx)
+          @_walker_param_names = nil
+          @_walker_param_types = nil
+        end
         walker.call(execute_block, nil)
-        (scope.methods_table || {}).each_value { |m| walker.call(m.body, nil) if m.is_a?(Vm::Method) }
+        (scope.methods_table || {}).each_value { |m| walk_method.call(m, nil) }
         (scope.constants_table || {}).each_value do |v|
           next unless v.is_a?(Vm::ClassObject)
-          (v.methods_table || {}).each_value { |m| walker.call(m.body, v) if m.is_a?(Vm::Method) }
-          # Also descend into nested classes with their own cls_ctx.
+          (v.methods_table || {}).each_value { |m| walk_method.call(m, v) }
           (v.constants_table || {}).each_value do |nv|
             next unless nv.is_a?(Vm::ClassObject)
-            (nv.methods_table || {}).each_value { |m| walker.call(m.body, nv) if m.is_a?(Vm::Method) }
+            (nv.methods_table || {}).each_value { |m| walk_method.call(m, nv) }
           end
         end
         seen
@@ -507,10 +516,24 @@ module Frozone
           t = (@_class_ivar_types[cls_ctx.name] || {})[node.name.to_s.delete_prefix('@')]
           return t if t
         end
+        if node.is_a?(Ast::LocalVariableRead) && @_walker_param_names
+          idx = @_walker_param_names.index(node.name)
+          if idx && @_walker_param_types && @_walker_param_types[idx]
+            return @_walker_param_types[idx]
+          end
+        end
         if node.is_a?(Ast::MethodCall) && %i[+ - * / %].include?(node.name) && node.receiver_node && node.arg_nodes&.size == 1
           l = infer_expr_type_ctx(node.receiver_node, cls_ctx)
           r = infer_expr_type_ctx(node.arg_nodes[0], cls_ctx)
           return "double" if l == "double" || r == "double"
+        end
+        if node.is_a?(Ast::MethodCall) && node.receiver_node
+          recv_t = infer_expr_type_ctx(node.receiver_node, cls_ctx)
+          if recv_t&.start_with?("Ruby_")
+            cls_name = recv_t.sub("Ruby_", "").to_sym
+            rt = (@_class_method_return_types || {})[cls_name]&.[](node.name)
+            return rt if rt
+          end
         end
         infer_expr_type(node)
       end
@@ -559,9 +582,14 @@ module Frozone
         # non-nil default like int64_t == 0), pick the single type. If we
         # see "double" OR "Ruby_X" mixed with "int64_t", prefer the
         # non-int one (the int64_t came from an `@x = 0` default init).
+        # Multiple incompatible non-int types → std::any.
         candidates.each_with_object({}) do |(iv, types), out|
           types.delete("int64_t") if types.size > 1
-          out[iv] = types.first if types.size == 1
+          if types.size == 1
+            out[iv] = types.first
+          elsif types.size > 1
+            out[iv] = "std::any"
+          end
         end
       end
 
@@ -613,6 +641,18 @@ module Frozone
             l = infer_expr_type(node.receiver_node)
             r = infer_expr_type(node.arg_nodes[0])
             return "double" if l == "double" || r == "double"
+          end
+          # Top-level function call: use cached return type if available.
+          if node.receiver_node.nil?
+            rt = (@_top_level_method_return_types || {})[node.name]
+            return rt if rt && rt != "RubyNil"
+          end
+          "int64_t"
+        when Ast::InstanceVariableRead
+          if @_current_wrapper_name
+            cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
+            t = (@_class_ivar_types[cls_name] || {})[node.name.to_s.delete_prefix('@')]
+            return t if t
           end
           "int64_t"
         when Ast::ConstantRead
@@ -819,14 +859,32 @@ module Frozone
           else
             k_type = key_type_for(pairs[0][0])
             val_types = pairs.map { |_, v| local_decl_type(v) }.uniq
-            v_type = val_types.size == 1 ? val_types[0] : "int64_t"
-            v_type = "int64_t" if v_type == "auto"
+            v_type = if val_types.size == 1 && val_types[0] != "auto"
+              val_types[0]
+            else
+              "std::any"
+            end
             "RubyHash<#{k_type}, #{v_type}>"
           end
         when Ast::SymbolLiteral then "RubySymbol"
         when Ast::FloatLiteral then "double"
         when Ast::StringLiteral, Ast::InterpolatedString then "RubyString"
         when Ast::TrueLiteral, Ast::FalseLiteral then "bool"
+        when Ast::If
+          if val.then_node && val.else_node
+            t1 = local_decl_type(unwrap_single_sequence(val.then_node))
+            t2 = local_decl_type(unwrap_single_sequence(val.else_node))
+            return t1 if t1 == t2
+            # Absorb int64_t/auto into the concrete type
+            %w[int64_t auto].each do |weak|
+              t1 = t2 if t1 == weak
+              t2 = t1 if t2 == weak
+            end
+            return t1 if t1 == t2
+            "std::any"
+          else
+            "auto"
+          end
         when Ast::ConstantRead
           # Constant lookup — could be any type. Resolve at compile time if we
           # have access to the top-level scope's constants table.
@@ -1075,8 +1133,19 @@ module Frozone
       def emit_param_list(method)
         parts = []
         (method.required_params || []).each { |p| parts << "auto #{p}" }
-        (method.optional_params || []).each do |pname, default_node|
-          parts << "auto #{pname} = #{cr(default_node)}"
+        req_count = (method.required_params || []).size
+        (method.optional_params || []).each_with_index do |(pname, default_node), oi|
+          if default_node.is_a?(Ast::NilLiteral)
+            arg_types = @_method_call_arg_types[method.name] || []
+            t = arg_types[req_count + oi]
+            if t && t.start_with?("Ruby_")
+              parts << "#{t} #{pname} = #{t}(RUBY_NIL)"
+            else
+              parts << "auto #{pname} = #{cr(default_node)}"
+            end
+          else
+            parts << "auto #{pname} = #{cr(default_node)}"
+          end
         end
         (method.required_kw_params || []).each { |p| parts << "auto #{p}" }
         parts.join(", ")
@@ -1084,9 +1153,10 @@ module Frozone
 
       def emit_method(name, method)
         params = emit_param_list(method)
-        line "static auto #{cpp_method_name(name)}(#{params}) {"
-        @_declared_locals = Set.new; @_optional_locals = {}
         @_method_return_type = infer_method_return_type(method)
+        ret_type = @_method_return_type == "std::any" ? "std::any" : "auto"
+        line "static #{ret_type} #{cpp_method_name(name)}(#{params}) {"
+        @_declared_locals = Set.new; @_optional_locals = {}
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
           body = method.body
@@ -1112,13 +1182,6 @@ module Frozone
             line "#{s};"
           end
           if s.start_with?("while ") || s.start_with?("for ")
-            # Loops don't yield a value. Behaviour:
-            #   - Known return type → emit typed default return.
-            #   - No explicit return in body → emit `return RUBY_NIL` so
-            #     callers get a nil-convertible value.
-            #   - Has explicit returns → trailing is unreachable; avoid
-            #     return here so `auto` doesn't deduce to void (vs the
-            #     real return type inside the loop).
             if @_method_return_type
               line "return #{@_method_return_type}();"
             elsif @_current_body_has_explicit_return
@@ -1126,6 +1189,8 @@ module Frozone
             else
               line "return RUBY_NIL;"
             end
+          elsif s.start_with?("if ") && @_method_return_type
+            line "return #{@_method_return_type}(RUBY_NIL);"
           end
         else
           line "return #{s};"
@@ -1228,12 +1293,15 @@ module Frozone
         end
         k_type = key_type_for(pairs[0][0])
         val_types = pairs.map { |_, v| local_decl_type(v) }.uniq
-        v_type = val_types.size == 1 ? val_types[0] : "/* TODO heterogeneous hash */ auto"
-        v_type = "int64_t" if v_type == "auto"
-        entries = pairs.map { |k, v| "{#{cr(k)}, #{cr(v)}}" }.join(", ")
-        # Build via default ctor + .store for each entry — since
-        # initializer-list construction of RubyHash isn't supported yet.
-        init_pairs = pairs.map { |k, v| "_h.store(#{cr(k)}, #{cr(v)});" }.join(" ")
+        v_type = if val_types.size == 1 && val_types[0] != "auto"
+          val_types[0]
+        else
+          "std::any"
+        end
+        init_pairs = pairs.map { |k, v|
+          rhs = (v_type == "std::any") ? "std::any(#{cr(v)})" : cr(v)
+          "_h.store(#{cr(k)}, #{rhs});"
+        }.join(" ")
         "({ RubyHash<#{k_type}, #{v_type}> _h; #{init_pairs} _h; })"
       end
 
@@ -1495,14 +1563,21 @@ module Frozone
            simple_expr?(node.then_node) && simple_expr?(node.else_node)
           then_s = cr(node.then_node)
           else_s = cr(node.else_node)
-          # When one branch is nil and the other is a class-typed expr,
-          # wrap nil in the class type so C++ ternary deduction works.
-          if node.else_node.is_a?(Ast::NilLiteral)
-            t = infer_expr_type(node.then_node)
+          then_inner = unwrap_single_sequence(node.then_node)
+          else_inner = unwrap_single_sequence(node.else_node)
+          if else_inner.is_a?(Ast::NilLiteral)
+            t = infer_expr_type(then_inner)
             else_s = "#{t}(RUBY_NIL)" if t && t.start_with?("Ruby_")
-          elsif node.then_node.is_a?(Ast::NilLiteral)
-            t = infer_expr_type(node.else_node)
+          elsif then_inner.is_a?(Ast::NilLiteral)
+            t = infer_expr_type(else_inner)
             then_s = "#{t}(RUBY_NIL)" if t && t.start_with?("Ruby_")
+          else
+            t1 = local_decl_type(then_inner)
+            t2 = local_decl_type(else_inner)
+            if t1 != t2 && !%w[int64_t double bool auto].include?(t1) && !%w[int64_t double bool auto].include?(t2)
+              then_s = "std::any(#{then_s})"
+              else_s = "std::any(#{else_s})"
+            end
           end
           return "(#{pred} ? (#{then_s}) : (#{else_s}))"
         end
@@ -1524,6 +1599,10 @@ module Frozone
 
       # A "simple expression" can appear as an rvalue — no statement-only
       # constructs (nested If, Sequence of multiple stmts, While/For, raise, etc).
+      def unwrap_single_sequence(node)
+        node.is_a?(Ast::Sequence) && node.nodes.size == 1 ? node.nodes[0] : node
+      end
+
       def simple_expr?(node)
         case node
         when Ast::If, Ast::While, Ast::Until, Ast::ForLoop, Ast::Return, Ast::Break, Ast::Next
