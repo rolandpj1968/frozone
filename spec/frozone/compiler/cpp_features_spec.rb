@@ -332,8 +332,13 @@ RSpec.describe "C++ backend features" do
   end
 
   context "global variables" do
-    it "$stdout" do
-      assert_cpp_matches_mri('$stdout.puts "hello"')
+    it "$stdout.puts" do
+      assert_cpp_matches_mri(<<~RUBY)
+        def test_stdout
+          $stdout.puts "hello"
+        end
+        test_stdout
+      RUBY
     end
   end
 

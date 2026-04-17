@@ -33,6 +33,8 @@ public:
   mutable int64_t length_cache = -1;  // -1 = not yet computed
 
   RubyString() = default;
+  RubyString(bool) {}
+  RubyString(int64_t) {}
   RubyString(const char* s) { if (s) { size_t n = strlen(s); bytes.assign(s, s + n); } }
   RubyString(const char* s, size_t n) { bytes.assign(s, s + n); }
   RubyString(const char* s, size_t n, Enc e) : enc(e) { bytes.assign(s, s + n); }

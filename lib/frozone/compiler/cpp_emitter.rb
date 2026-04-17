@@ -123,6 +123,18 @@ module Frozone
         s
       end
 
+      def body_has_yield?(node)
+        return false unless node
+        return true if node.is_a?(Ast::Yield)
+        node.respond_to?(:children) && node.children.any? { |c| c.is_a?(Ast::Node) && body_has_yield?(c) }
+      end
+
+      def cr_block_lambda(block_node)
+        params = (block_node.required_params || []).map { |p| "auto #{p}" }.join(", ")
+        body_s = cr(block_node.body)
+        "[&](#{params}) { return #{body_s}; }"
+      end
+
       def trivial_body?(body)
         return true if body.nil?
         return true if body.is_a?(Ast::NilLiteral)
@@ -1325,6 +1337,8 @@ module Frozone
 
       def emit_method(name, method)
         params = emit_param_list(method)
+        @_method_yields = method.uses_block || body_has_yield?(method.body)
+        params = params.empty? ? "auto _block" : "#{params}, auto _block" if @_method_yields
         @_method_return_type = infer_method_return_type(method)
         ret_type = @_method_return_type == "std::any" ? "std::any" : "auto"
         line "static #{ret_type} #{cpp_method_name(name)}(#{params}) {"
@@ -1342,6 +1356,7 @@ module Frozone
           end
         end
         @_method_return_type = nil
+        @_method_yields = false
         line "}"
       end
 
@@ -1762,6 +1777,13 @@ module Frozone
             end
           end
           parts.size == 1 ? parts[0] : "(#{parts.join(' + ')})"
+        when Ast::Yield
+          yield_args = (node.respond_to?(:arg_nodes) ? node.arg_nodes : []) || []
+          if yield_args.empty?
+            "_block()"
+          else
+            "_block(#{yield_args.map { |a| cr(a) }.join(', ')})"
+          end
         when Ast::Rescue
           # begin/rescue/end — emit body, ignore rescue for now
           cr(node.body)
@@ -1950,6 +1972,12 @@ module Frozone
         args = node.arg_nodes || []
         kw_arg_nodes = node.kw_arg_nodes || []
 
+        # $stdout.puts → ruby_puts
+        if recv.is_a?(Ast::GlobalVariableRead) && recv.name == :$stdout && name == :puts
+          return "printf(\"\\n\")" if args.empty?
+          return "ruby_puts(#{cr(args[0])})"
+        end
+
         # puts → ruby_puts (template dispatches on arg type at compile time)
         if recv.nil? && name == :puts
           return "printf(\"\\n\")" if args.empty?
@@ -2025,7 +2053,7 @@ module Frozone
             end
             body_str = lines.join("\n")
           end
-          return "for (auto& #{var} : *#{coll}.data) {\n#{body_str}\n#{old_indent}}"
+          return "{ auto _coll = #{coll}; for (auto& #{var} : *_coll.data) {\n#{body_str}\n#{old_indent}} }"
         end
 
         # (lo..hi).to_a / (lo...hi).to_a — emit as ruby_range_to_a helper.
@@ -2189,9 +2217,13 @@ module Frozone
           return "0LL" if name == :itself && args.empty?
           # Append kw args in declaration order if method is known
           method = lookup_top_level_method(name)
-          kw_vals = method && !kw_arg_nodes.empty? ? kw_args_in_order(node, method.required_kw_params || []) : []
-          arg_strs = (args + kw_vals).map { |a| cr(a) }.join(", ")
-          return "#{cpp_method_name(name)}(#{arg_strs})"
+          all_kw_names = (method&.required_kw_params || []) + (method&.optional_kw_params || []).map { |n, _| n }
+          kw_vals = method && !kw_arg_nodes.empty? ? kw_args_in_order(node, all_kw_names) : []
+          all_args = (args + kw_vals).map { |a| cr(a) }
+          if node.block_node && (method.nil? || method.uses_block || body_has_yield?(method&.body))
+            all_args << cr_block_lambda(node.block_node)
+          end
+          return "#{cpp_method_name(name)}(#{all_args.join(', ')})"
         end
 
         # respond_to?(:sym) — if we can resolve receiver's class and the
