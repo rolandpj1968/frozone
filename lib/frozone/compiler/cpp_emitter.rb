@@ -117,7 +117,10 @@ module Frozone
           return override.to_s
         end
         s = name.to_s
-        return "set_#{s.chomp('=')}" if s.end_with?('=')
+        return "operator==" if name == :==
+        return "operator!=" if name == :!=
+        return "operator<=>" if name == :<=>
+        return "set_#{s.chomp('=')}" if s.end_with?('=') && !s.end_with?('==')
         return "#{s.chomp('?')}_q" if s.end_with?('?')
         return "#{s.chomp('!')}_b" if s.end_with?('!')
         CPP_KEYWORDS.include?(s) ? "rb_#{s}" : s
@@ -130,9 +133,13 @@ module Frozone
       end
 
       def cr_block_lambda(block_node)
-        params = (block_node.required_params || []).map { |p| "auto #{p}" }.join(", ")
-        body_s = cr(block_node.body)
-        "[&](#{params}) { return #{body_s}; }"
+        if block_node.respond_to?(:required_params)
+          params = (block_node.required_params || []).map { |p| "auto #{p}" }.join(", ")
+          body_s = cr(block_node.body)
+          "[&](#{params}) { return #{body_s}; }"
+        else
+          "/* UNSUPPORTED: BlockArg lambda */"
+        end
       end
 
       def nil_return_expr
@@ -797,6 +804,7 @@ module Frozone
         case node
         when Ast::FloatLiteral then "double"
         when Ast::StringLiteral, Ast::InterpolatedString then "RubyString"
+        when Ast::SymbolLiteral then "RubySymbol"
         when Ast::MethodCall
           if node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
             cn = node.receiver_node.name
@@ -2209,7 +2217,7 @@ module Frozone
         end
 
         # .each { |x| body } on an array — range-for over *data.
-        if name == :each && recv && node.block_node
+        if name == :each && recv && node.block_node && node.block_node.respond_to?(:required_params)
           blk = node.block_node
           var = (blk.required_params || [])[0] || :_e
           @_declared_locals&.add(var.to_s)
@@ -2313,6 +2321,14 @@ module Frozone
             return "(((#{a}) > (#{b})) ? (#{a}) : (#{b}))" if name == :max
             return "(((#{a}) < (#{b})) ? (#{a}) : (#{b}))"
           end
+        end
+
+        # No-op methods
+        if name == :freeze && args.empty?
+          return recv ? cr(recv) : "0LL"
+        end
+        if name == :frozen? && args.empty?
+          return "false"
         end
 
         # Type conversion methods
