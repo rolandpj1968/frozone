@@ -120,7 +120,7 @@ module Frozone
         return "set_#{s.chomp('=')}" if s.end_with?('=')
         return "#{s.chomp('?')}_q" if s.end_with?('?')
         return "#{s.chomp('!')}_b" if s.end_with?('!')
-        s
+        CPP_KEYWORDS.include?(s) ? "rb_#{s}" : s
       end
 
       def body_has_yield?(node)
@@ -162,7 +162,7 @@ module Frozone
                          mutable namespace operator private protected public
                          register short signed sizeof static struct switch
                          template this throw try typedef typename union unsigned
-                         using virtual void volatile int float auto new delete
+                         using virtual void volatile int float double auto new delete
                          default case do if else while for break continue return
                          true false bool default do typeid wchar_t alignas
                          alignof asm decltype thread_local
@@ -1328,7 +1328,9 @@ module Frozone
               parts << "auto #{pname} = #{cr(default_node)}"
             end
           else
-            parts << "auto #{pname} = #{cr(default_node)}"
+            t = local_decl_type(default_node)
+            t = "int64_t" if t == "auto"
+            parts << "#{t} #{pname} = #{cr(default_node)}"
           end
         end
         (method.required_kw_params || []).each { |p| parts << "auto #{p}" }
