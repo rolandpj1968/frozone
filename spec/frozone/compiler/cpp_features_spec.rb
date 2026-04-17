@@ -342,21 +342,22 @@ RSpec.describe "C++ backend features" do
     end
   end
 
-  context "class variables" do
-    it "@@var read/write" do
+  context "class methods" do
+    it "def self.method on a class" do
       assert_cpp_matches_mri(<<~RUBY)
-        class Foo
-          @@count = 0
+        class Counter
           def initialize
-            @@count += 1
+            @n = 0
           end
-          def self.count
-            @@count
+          def inc
+            @n += 1
           end
+          def n; @n; end
         end
-        Foo.new
-        Foo.new
-        puts Foo.count
+        c = Counter.new
+        c.inc
+        c.inc
+        puts c.n
       RUBY
     end
   end

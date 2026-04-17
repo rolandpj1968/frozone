@@ -487,13 +487,25 @@ module Frozone
 
           @_inside_wrapped_class = false
 
+          # Class variables → static inline members
+          cvars = collect_class_variables(cls)
+          cvars.each do |cv|
+            line "static inline int64_t cv_#{cv} = 0;"
+          end
+
+          # Eigenclass methods (def self.foo) → static methods
+          eigen = cls.eigenclass rescue nil
+          (eigen&.methods_table || {}).each do |mname, method|
+            next unless method.is_a?(Vm::Method) && method.body
+            next unless user_source_location?(method.source_location)
+            emit_static_class_method(mname, method)
+            emit_newline
+          end
+
           line "bool nil_q() const { return !p; }"
-          # Contextual bool: non-nil wrapper is truthy. Used for `||`, `&&`,
-          # `if (x)`, and ternaries in Ruby-translated code.
           line "explicit operator bool() const { return (bool)p; }"
         end
         line "};"
-        # Register class name for `.class` dispatch.
         line "template<> inline const char* ruby_class_name<Ruby_#{name}>() { return \"#{name}\"; }"
         @_self_ref_ivars = nil
         @_current_wrapper_name = nil
@@ -820,6 +832,48 @@ module Frozone
           "int64_t"
         else "int64_t"
         end
+      end
+
+      def collect_class_variables(cls)
+        cvars = Set.new
+        walker = lambda do |node|
+          return unless node
+          if node.is_a?(Ast::ClassVariableRead) || node.is_a?(Ast::ClassVariableWrite)
+            cvars << node.name.to_s.delete_prefix('@@')
+          end
+          node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
+        end
+        (cls.methods_table || {}).each_value do |m|
+          next unless m.is_a?(Vm::Method) && m.body
+          walker.call(m.body)
+        end
+        eigen = cls.eigenclass rescue nil
+        (eigen&.methods_table || {}).each_value do |m|
+          next unless m.is_a?(Vm::Method) && m.body
+          walker.call(m.body)
+        end
+        cvars
+      end
+
+      def emit_static_class_method(name, method)
+        params = emit_param_list(method)
+        line "static auto #{cpp_method_name(name)}(#{params}) {"
+        @_declared_locals = Set.new; @_optional_locals = {}
+        @_method_return_type = infer_method_return_type(method)
+        all_param_names(method).each { |p| @_declared_locals << p.to_s }
+        indented do
+          body = method.body
+          emit_hoisted_locals(body, all_param_names(method))
+          if body.is_a?(Ast::Sequence)
+            nodes = body.nodes
+            nodes[0...-1].each { |n| emit_stmt(n) }
+            emit_stmt_return(nodes.last) if nodes.last
+          else
+            emit_stmt_return(body)
+          end
+        end
+        @_method_return_type = nil
+        line "}"
       end
 
       def collect_read_ivars(cls)
@@ -1579,6 +1633,10 @@ module Frozone
         when Ast::HashLiteral
           cr_hash_literal(node)
         when Ast::LocalVariableRead then cpp_local_name(node.name)
+        when Ast::ClassVariableRead
+          "cv_#{node.name.to_s.delete_prefix('@@')}"
+        when Ast::ClassVariableWrite
+          "(cv_#{node.name.to_s.delete_prefix('@@')} = #{cr(node.value_node)})"
         when Ast::InstanceVariableRead
           key = node.name.to_s.delete_prefix('@')
           if @_self_ref_ivars&.include?(key) && @_inside_wrapped_class
@@ -2037,6 +2095,18 @@ module Frozone
         if recv.nil? && name == :puts
           return "printf(\"\\n\")" if args.empty?
           return "ruby_puts(#{cr(args[0])})"
+        end
+
+        # Class.method() → static method call
+        if recv.is_a?(Ast::ConstantRead) && name != :new && name != :Math
+          cls_obj = @top_level_scope&.constants_table&.fetch(recv.name, nil)
+          if cls_obj.is_a?(Vm::ClassObject)
+            eigen = cls_obj.eigenclass rescue nil
+            if eigen&.methods_table&.key?(name)
+              arg_strs = args.map { |a| cr(a) }.join(", ")
+              return "Ruby_#{recv.name}::#{cpp_method_name(name)}(#{arg_strs})"
+            end
+          end
         end
 
         # Math.sqrt, Math::PI etc.
