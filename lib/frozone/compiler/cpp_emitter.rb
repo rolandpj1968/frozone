@@ -1893,10 +1893,32 @@ module Frozone
             "_block(#{yield_args.map { |a| cr(a) }.join(', ')})"
           end
         when Ast::Rescue
-          # begin/rescue/end — emit body, ignore rescue for now
-          cr(node.body)
+          cr_rescue(node)
         else "/* UNSUPPORTED: #{node.class.name.split('::').last} */"
         end
+      end
+
+      def cr_rescue(node)
+        indent_str = "  " * @indent
+        inner_indent = "  " * (@indent + 1)
+        body = cr_block_body(node.body)
+        parts = ["try {\n#{body}\n#{indent_str}}"]
+        (node.rescue_clauses || []).each do |clause|
+          exc_types = (clause.exception_nodes || []).map do |en|
+            en.is_a?(Ast::ConstantRead) ? "Ruby_#{en.name}" : "RubyException"
+          end
+          exc_types = ["Ruby_StandardError"] if exc_types.empty?
+          exc_types.each do |et|
+            var = clause.var_name ? " #{clause.var_name}" : ""
+            rescue_body = cr_block_body(clause.body)
+            parts << " catch (#{et}&#{var}) {\n#{rescue_body}\n#{indent_str}}"
+          end
+        end
+        if node.ensure_node
+          ensure_body = cr_block_body(node.ensure_node)
+          parts << " /* ensure */ { #{ensure_body}; }"
+        end
+        parts.join
       end
 
       def cr_case(node)
@@ -2142,14 +2164,18 @@ module Frozone
 
         # raise → fprintf + exit
         if recv.nil? && name == :raise
-          msg = if args.empty?
-            "\"RuntimeError\""
+          if args.empty?
+            return "throw Ruby_RuntimeError()"
+          elsif args[0].is_a?(Ast::ConstantRead) && args.size >= 1
+            exc_cls = "Ruby_#{args[0].name}"
+            msg = args.size >= 2 ? cr(args[1]) : "\"#{args[0].name}\""
+            return "throw #{exc_cls}(#{msg})"
           elsif args[0].is_a?(Ast::StringLiteral)
-            "\"#{args[0].value.respond_to?(:raw) ? args[0].value.raw : args[0].value}\""
+            raw = args[0].value.respond_to?(:raw) ? args[0].value.raw : args[0].value.to_s
+            return "throw Ruby_RuntimeError(\"#{raw.gsub('"', '\\"')}\")"
           else
-            "\"error\""
+            return "throw Ruby_RuntimeError()"
           end
-          return "{ fprintf(stderr, \"Error: %s\\n\", #{msg}); exit(1); }"
         end
 
         # String.new or String.new(encoding: X) — ignore encoding for now
@@ -2342,8 +2368,10 @@ module Frozone
           return "pow((double)(#{cr(recv)}), (double)(#{cr(args[0])}))"
         end
 
-        # Arithmetic operators
+        # Arithmetic operators — safe division for integers
         if recv && %i[+ - * / % < <= > >= == != << >> & | ^].include?(name) && args.size == 1
+          if name == :/ then return "ruby_div(#{cr(recv)}, #{cr(args[0])})" end
+          if name == :% then return "ruby_mod(#{cr(recv)}, #{cr(args[0])})" end
           return "(#{cr(recv)} #{name} #{cr(args[0])})"
         end
 

@@ -463,4 +463,62 @@ static inline void ruby_puts(const std::optional<T>& v) {
   else printf("\n");
 }
 
+// Ruby exception hierarchy for try/catch rescue emission.
+#include <stdexcept>
+#include <string>
+
+class RubyException : public std::exception {
+  std::string msg;
+public:
+  RubyException(const char* m = "RuntimeError") : msg(m) {}
+  RubyException(const std::string& m) : msg(m) {}
+  const char* what() const noexcept override { return msg.c_str(); }
+  RubyString message() const { return RubyString(msg.c_str()); }
+};
+
+class Ruby_RuntimeError : public RubyException {
+public: using RubyException::RubyException;
+  Ruby_RuntimeError() : RubyException("RuntimeError") {}
+};
+class Ruby_ZeroDivisionError : public RubyException {
+public: Ruby_ZeroDivisionError() : RubyException("divided by 0") {}
+};
+class Ruby_TypeError : public RubyException {
+public: using RubyException::RubyException;
+};
+class Ruby_ArgumentError : public RubyException {
+public: using RubyException::RubyException;
+};
+class Ruby_NameError : public RubyException {
+public: using RubyException::RubyException;
+};
+class Ruby_IndexError : public RubyException {
+public: using RubyException::RubyException;
+};
+class Ruby_RangeError : public RubyException {
+public: using RubyException::RubyException;
+};
+class Ruby_StopIteration : public RubyException {
+public: using RubyException::RubyException;
+};
+class Ruby_StandardError : public RubyException {
+public: using RubyException::RubyException;
+};
+
+// Safe integer division — throws ZeroDivisionError like Ruby.
+static inline int64_t ruby_div(int64_t a, int64_t b) {
+  if (b == 0) throw Ruby_ZeroDivisionError();
+  return a / b;
+}
+static inline double ruby_div(double a, double b) { return a / b; }
+static inline double ruby_div(int64_t a, double b) { return (double)a / b; }
+static inline double ruby_div(double a, int64_t b) { return a / (double)b; }
+static inline int64_t ruby_mod(int64_t a, int64_t b) {
+  if (b == 0) throw Ruby_ZeroDivisionError();
+  return a % b;
+}
+static inline double ruby_mod(double a, double b) { return fmod(a, b); }
+static inline double ruby_mod(int64_t a, double b) { return fmod((double)a, b); }
+static inline double ruby_mod(double a, int64_t b) { return fmod(a, (double)b); }
+
 #endif  // FROZONE_RUNTIME_HPP

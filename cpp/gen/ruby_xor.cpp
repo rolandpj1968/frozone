@@ -13,7 +13,7 @@ static auto ruby_xor_b(auto a, auto b) {
   std::decay_t<decltype(a.get_byte(i))> ba{};
   std::decay_t<decltype(b.get_byte(i))> bb{};
   if (({ auto _l = ((!(true))); (_l) ? decltype(((!(true))))(_l) : ((!(true))); })) {
-    { fprintf(stderr, "Error: %s\n", "expected two string arguments"); exit(1); };
+    throw Ruby_RuntimeError("expected two string arguments");
   }
   (l = a.len());
   (lb = b.len());

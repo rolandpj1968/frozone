@@ -105,7 +105,7 @@ struct Ruby_Planet {
     std::decay_t<decltype((p->iv_y - b2.y()))> dy{};
     std::decay_t<decltype((p->iv_z - b2.z()))> dz{};
     std::decay_t<decltype((((dx * dx) + (dy * dy)) + (dz * dz)))> dsq{};
-    std::decay_t<decltype((dt / (dsq * sqrt(dsq))))> mag{};
+    std::decay_t<decltype(ruby_div(dt, (dsq * sqrt(dsq))))> mag{};
     std::decay_t<decltype((p->iv_mass * mag))> b_mass_mag{};
     std::decay_t<decltype((b2.mass() * mag))> b2_mass_mag{};
     while ((i < nbodies)) {
@@ -114,7 +114,7 @@ struct Ruby_Planet {
       (dy = (p->iv_y - b2.y()));
       (dz = (p->iv_z - b2.z()));
       (dsq = (((dx * dx) + (dy * dy)) + (dz * dz)));
-      (mag = (dt / (dsq * sqrt(dsq))));
+      (mag = ruby_div(dt, (dsq * sqrt(dsq))));
       auto _t3_0 = (p->iv_mass * mag);
       auto _t3_1 = (b2.mass() * mag);
       b_mass_mag = _t3_0;
@@ -158,7 +158,7 @@ static auto energy(auto bodies) {
     auto dy = (b.y() - b2.y());
     auto dz = (b.z() - b2.z());
     auto distance = sqrt((((dx * dx) + (dy * dy)) + (dz * dz)));
-    (e = (e - ((b.mass() * b2.mass()) / distance)));
+    (e = (e - ruby_div((b.mass() * b2.mass()), distance)));
   };
   }
   return e;
@@ -183,9 +183,9 @@ static auto offset_momentum(auto bodies) {
     (pz = (pz + (b.vz() * m)));
   }
   (b = bodies[INT64_C(0)]);
-  b.set_vx(((-(px)) / SOLAR_MASS));
-  b.set_vy(((-(py)) / SOLAR_MASS));
-  return b.set_vz(((-(pz)) / SOLAR_MASS));
+  b.set_vx(ruby_div((-(px)), SOLAR_MASS));
+  b.set_vy(ruby_div((-(py)), SOLAR_MASS));
+  return b.set_vz(ruby_div((-(pz)), SOLAR_MASS));
 }
 
 

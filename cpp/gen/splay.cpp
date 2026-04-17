@@ -74,11 +74,11 @@ struct Ruby_SplayTree {
     Ruby_Node node;
     if (empty_q()) {
       p->iv_root = Ruby_Node(key, value);
-      return Ruby_Node();
+      return Ruby_Node(RUBY_NIL);
     }
     splay_b(key);
     if ((p->iv_root.key() == key)) {
-      return Ruby_Node();
+      return Ruby_Node(RUBY_NIL);
     }
     (node = Ruby_Node(key, value));
     if ((key > p->iv_root.key())) {
@@ -97,11 +97,11 @@ struct Ruby_SplayTree {
     Ruby_Node removed;
     Ruby_Node right;
     if (empty_q()) {
-      { fprintf(stderr, "Error: %s\n", "error"); exit(1); };
+      throw Ruby_RuntimeError();
     }
     splay_b(key);
     if ((p->iv_root.key() != key)) {
-      { fprintf(stderr, "Error: %s\n", "error"); exit(1); };
+      throw Ruby_RuntimeError();
     }
     (removed = p->iv_root);
     if (ruby_nil_q(p->iv_root.left())) {
@@ -161,7 +161,7 @@ struct Ruby_SplayTree {
     Ruby_Node current;
     Ruby_Node tmp;
     if (empty_q()) {
-      return Ruby_Node();
+      return Ruby_Node(RUBY_NIL);
     }
     (dummy = Ruby_Node(RUBY_NIL, RUBY_NIL));
     (left = dummy);

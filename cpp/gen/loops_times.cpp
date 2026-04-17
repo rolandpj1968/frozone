@@ -17,12 +17,12 @@ int main() {
   (a = make_ra(INT64_C(10000), INT64_C(0)));
   for (int64_t i = 0; i < INT64_C(4000); i++) {
     for (int64_t j = 0; j < INT64_C(4000); j++) {
-      a[i] += (j % u);
+      a[i] += ruby_mod(j, u);
     };
     a[i] += r;
   }
   if (!((a[INT64_C(7)] == INT64_C(8007)))) {
-    { fprintf(stderr, "Error: %s\n", "error"); exit(1); };
+    throw Ruby_RuntimeError();
   }
   (last = INT64_C(0));
   for (int64_t _i = 0; _i < INT64_C(10); _i++) {
@@ -31,7 +31,7 @@ int main() {
     (a = make_ra(INT64_C(10000), INT64_C(0)));
     for (int64_t i = 0; i < INT64_C(4000); i++) {
       for (int64_t j = 0; j < INT64_C(4000); j++) {
-        a[i] += (j % u);
+        a[i] += ruby_mod(j, u);
       };
       a[i] += r;
     };

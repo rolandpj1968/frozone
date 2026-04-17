@@ -48,7 +48,7 @@ static auto sd_genmat() {
     while ((k < INT64_C(9))) {
     auto mcr = mc[r];
     mcr[INT64_C(0)] = ((INT64_C(9) * i) + j);
-    mcr[INT64_C(1)] = ((((((i / INT64_C(3)) * INT64_C(3)) + (j / INT64_C(3))) * INT64_C(9)) + k) + INT64_C(81));
+    mcr[INT64_C(1)] = (((((ruby_div(i, INT64_C(3)) * INT64_C(3)) + ruby_div(j, INT64_C(3))) * INT64_C(9)) + k) + INT64_C(81));
     mcr[INT64_C(2)] = (((INT64_C(9) * i) + k) + INT64_C(162));
     mcr[INT64_C(3)] = (((INT64_C(9) * j) + k) + INT64_C(243));
     (r = (r + INT64_C(1)));
@@ -232,7 +232,7 @@ static auto sd_solve(auto mr, auto mc, auto s) {
     (j = INT64_C(0));
     while ((j < i)) {
     (r = mr[cc[j]][cr[j]]);
-    o[(r / INT64_C(9))] = ((r % INT64_C(9)) + INT64_C(1));
+    o[ruby_div(r, INT64_C(9))] = (ruby_mod(r, INT64_C(9)) + INT64_C(1));
     (j = (j + INT64_C(1)));
   };
     o.join();
@@ -250,9 +250,9 @@ int main() {
   auto mc = _masgn2[INT64_C(1)];
   (last = RubyString("", 0));
   for (int64_t _i = 0; _i < INT64_C(20); _i++) {
-    for (auto& line : *HARD20.data) {
+    { auto _coll = HARD20; for (auto& line : *_coll.data) {
       (last = sd_solve(mr, mc, line));
-    };
+    } };
   }
   ruby_puts(last);
   return 0;

@@ -125012,12 +125012,12 @@ static auto CHARACTERS = []() { RubyArray<int64_t> _a(83);
   return _a; }();
 struct Ruby_Ruby {
   auto sRGBToLinear(auto value) {
-    std::decay_t<decltype(((double)(value) / INT64_C(255)))> v{};
-    (v = ((double)(value) / INT64_C(255)));
+    std::decay_t<decltype(ruby_div((double)(value), INT64_C(255)))> v{};
+    (v = ruby_div((double)(value), INT64_C(255)));
     if ((v <= 0.04045)) {
-      return (v / 12.92);
+      return ruby_div(v, 12.92);
     } else {
-      return pow((double)(((v + 0.055) / 1.055)), (double)(2.4));
+      return pow((double)(ruby_div((v + 0.055), 1.055)), (double)(2.4));
     }
   }
 
@@ -125026,19 +125026,19 @@ struct Ruby_Ruby {
     double g = 0.0;
     double b = 0.0;
     int64_t normalisation = 0;
-    std::decay_t<decltype(((double)(normalisation) / (width * height)))> scale{};
+    std::decay_t<decltype(ruby_div((double)(normalisation), (width * height)))> scale{};
     (r = (g = (b = 0.0)));
     (normalisation = (({ auto _l = ((xComponent == INT64_C(0))); (_l) ? decltype(((yComponent == INT64_C(0))))((yComponent == INT64_C(0))) : decltype(((yComponent == INT64_C(0))))(_l); }) ? (INT64_C(1)) : (INT64_C(2))));
     for (int64_t y = 0; y < height; y++) {
-      auto y_coef = cos((((M_PI * yComponent) * y) / height));
+      auto y_coef = cos(ruby_div(((M_PI * yComponent) * y), height));
       for (int64_t x = 0; x < width; x++) {
-        auto basis = (cos((((M_PI * xComponent) * x) / width)) * y_coef);
+        auto basis = (cos(ruby_div(((M_PI * xComponent) * x), width)) * y_coef);
         (r = (r + (basis * sRGBToLinear(rgb[(((INT64_C(3) * x) + INT64_C(0)) + (y * bytesPerRow))]))));
         (g = (g + (basis * sRGBToLinear(rgb[(((INT64_C(3) * x) + INT64_C(1)) + (y * bytesPerRow))]))));
         (b = (b + (basis * sRGBToLinear(rgb[(((INT64_C(3) * x) + INT64_C(2)) + (y * bytesPerRow))]))));
       };
     }
-    (scale = ((double)(normalisation) / (width * height)));
+    (scale = ruby_div((double)(normalisation), (width * height)));
     factors.set(yComponent, xComponent, INT64_C(0), (r * scale));
     factors.set(yComponent, xComponent, INT64_C(1), (g * scale));
     return factors.set(yComponent, xComponent, INT64_C(2), (b * scale));
@@ -125046,11 +125046,11 @@ struct Ruby_Ruby {
 
   auto encode_int(auto value, auto length, auto destination) {
     std::decay_t<decltype(((int64_t)pow((double)(INT64_C(83)), (double)((length - INT64_C(1))))))> divisor{};
-    std::decay_t<decltype(((value / divisor) % INT64_C(83)))> digit{};
+    std::decay_t<decltype(ruby_mod(ruby_div(value, divisor), INT64_C(83)))> digit{};
     (divisor = ((int64_t)pow((double)(INT64_C(83)), (double)((length - INT64_C(1))))));
     for (int64_t i = 0; i < length; i++) {
-      (digit = ((value / divisor) % INT64_C(83)));
-      (divisor = (divisor / INT64_C(83)));
+      (digit = ruby_mod(ruby_div(value, divisor), INT64_C(83)));
+      (divisor = ruby_div(divisor, INT64_C(83)));
       destination.putc(CHARACTERS[digit]);
     }
     return RUBY_NIL;
@@ -125062,7 +125062,7 @@ struct Ruby_Ruby {
     if ((v <= 0.0031308)) {
       return (int64_t)((((v * 12.92) * INT64_C(255)) + 0.5));
     } else {
-      return (int64_t)(((((1.055 * pow((double)(v), (double)((INT64_C(1) / 2.4)))) - 0.055) * INT64_C(255)) + 0.5));
+      return (int64_t)(((((1.055 * pow((double)(v), (double)(ruby_div(INT64_C(1), 2.4)))) - 0.055) * INT64_C(255)) + 0.5));
     }
   }
 
@@ -125095,12 +125095,12 @@ struct Ruby_Ruby {
   }
 
   auto encodeAC(auto r, auto g, auto b, auto maximumValue) {
-    std::decay_t<decltype(max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow((r / maximumValue), 0.5) * INT64_C(9)) + 9.5))))))> quantR{};
-    std::decay_t<decltype(max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow((g / maximumValue), 0.5) * INT64_C(9)) + 9.5))))))> quantG{};
-    std::decay_t<decltype(max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow((b / maximumValue), 0.5) * INT64_C(9)) + 9.5))))))> quantB{};
-    (quantR = max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow((r / maximumValue), 0.5) * INT64_C(9)) + 9.5))))));
-    (quantG = max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow((g / maximumValue), 0.5) * INT64_C(9)) + 9.5))))));
-    (quantB = max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow((b / maximumValue), 0.5) * INT64_C(9)) + 9.5))))));
+    std::decay_t<decltype(max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow(ruby_div(r, maximumValue), 0.5) * INT64_C(9)) + 9.5))))))> quantR{};
+    std::decay_t<decltype(max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow(ruby_div(g, maximumValue), 0.5) * INT64_C(9)) + 9.5))))))> quantG{};
+    std::decay_t<decltype(max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow(ruby_div(b, maximumValue), 0.5) * INT64_C(9)) + 9.5))))))> quantB{};
+    (quantR = max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow(ruby_div(r, maximumValue), 0.5) * INT64_C(9)) + 9.5))))));
+    (quantG = max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow(ruby_div(g, maximumValue), 0.5) * INT64_C(9)) + 9.5))))));
+    (quantB = max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow(ruby_div(b, maximumValue), 0.5) * INT64_C(9)) + 9.5))))));
     return ((((quantR * INT64_C(19)) * INT64_C(19)) + (quantG * INT64_C(19))) + quantB);
   }
 
@@ -125111,12 +125111,12 @@ struct Ruby_Ruby {
     std::decay_t<decltype(((xComponents - INT64_C(1)) + ((yComponents - INT64_C(1)) * INT64_C(9))))> sizeFlag{};
     double actualMaximumValue = 0.0;
     std::decay_t<decltype(max(INT64_C(0), min(INT64_C(82), (int64_t)floor((double)(((actualMaximumValue * INT64_C(166)) - 0.5))))))> quantisedMaximumValue{};
-    std::decay_t<decltype((((double)(quantisedMaximumValue) + INT64_C(1)) / INT64_C(166)))> maximumValue{};
+    std::decay_t<decltype(ruby_div(((double)(quantisedMaximumValue) + INT64_C(1)), INT64_C(166)))> maximumValue{};
     if (({ auto _l = ((xComponents < INT64_C(1))); (_l) ? decltype(((xComponents > INT64_C(9))))(_l) : ((xComponents > INT64_C(9))); })) {
-      return RubyString();
+      return RubyString(RUBY_NIL);
     }
     if (({ auto _l = ((yComponents < INT64_C(1))); (_l) ? decltype(((yComponents > INT64_C(9))))(_l) : ((yComponents > INT64_C(9))); })) {
-      return RubyString();
+      return RubyString(RUBY_NIL);
     }
     (factors = Ruby_ThreeDArray(yComponents, xComponents, INT64_C(3)));
     (ptr = Ruby_Buffer((((INT64_C(2) + INT64_C(4)) + (((INT64_C(9) * INT64_C(9)) - INT64_C(1)) * INT64_C(2))) + INT64_C(1))));
@@ -125134,7 +125134,7 @@ struct Ruby_Ruby {
       (actualMaximumValue = max(actualMaximumValue, std::abs(factors[(i + INT64_C(3))])));
     };
       (quantisedMaximumValue = max(INT64_C(0), min(INT64_C(82), (int64_t)floor((double)(((actualMaximumValue * INT64_C(166)) - 0.5))))));
-      (maximumValue = (((double)(quantisedMaximumValue) + INT64_C(1)) / INT64_C(166)));
+      (maximumValue = ruby_div(((double)(quantisedMaximumValue) + INT64_C(1)), INT64_C(166)));
       encode_int(quantisedMaximumValue, INT64_C(1), ptr);
     } else {
       (maximumValue = INT64_C(1));

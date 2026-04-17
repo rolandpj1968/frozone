@@ -10,8 +10,8 @@ static auto make_shareable(auto x) {
 }
 
 static auto matgen(auto n) {
-  std::decay_t<decltype(((1.0 / n) / n))> tmp{};
-  (tmp = ((1.0 / n) / n));
+  std::decay_t<decltype(ruby_div(ruby_div(1.0, n), n))> tmp{};
+  (tmp = ruby_div(ruby_div(1.0, n), n));
   return ({ auto _n = n; int64_t i = 0; auto _e0 = ({ auto _n = n; int64_t j = 0; auto _e0 = ((tmp * (i - j)) * (i + j)); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (j = 1; j < _n; j++) { _arr[j] = ((tmp * (i - j)) * (i + j)); } _arr; }); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (i = 1; i < _n; i++) { _arr[i] = ({ auto _n = n; int64_t j = 0; auto _e0 = ((tmp * (i - j)) * (i + j)); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (j = 1; j < _n; j++) { _arr[j] = ((tmp * (i - j)) * (i + j)); } _arr; }); } _arr; });
 }
 
@@ -55,7 +55,7 @@ int main() {
     (a = matgen(N));
     (b = matgen(N));
     (c = matmul(a, b));
-    (last = c[(N / INT64_C(2))][(N / INT64_C(2))]);
+    (last = c[ruby_div(N, INT64_C(2))][ruby_div(N, INT64_C(2))]);
   }
   ruby_puts(last);
   return 0;
