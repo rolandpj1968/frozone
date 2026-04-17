@@ -294,6 +294,10 @@ module Frozone
       # This gives Ruby reference semantics: copying the wrapper aliases the
       # Impl via shared_ptr, so `b = arr[i]; b.set_x(v)` mutates the original.
       def emit_class(name, cls)
+        if struct_subclass?(cls)
+          emit_struct_class(name, cls)
+          return
+        end
         line "struct Ruby_#{name} {"
         init = cls.methods_table&.fetch(:initialize, nil)
         ivars = []
@@ -386,6 +390,53 @@ module Frozone
         end
         line "};"
         # Register class name for `.class` dispatch.
+        line "template<> inline const char* ruby_class_name<Ruby_#{name}>() { return \"#{name}\"; }"
+        @_self_ref_ivars = nil
+        @_current_wrapper_name = nil
+      end
+
+      def emit_struct_class(name, cls)
+        members = struct_members_for(cls)
+        ctor_types = @_ctor_param_types[name] || []
+        line "struct Ruby_#{name} {"
+        @_current_wrapper_name = "Ruby_#{name}"
+        @_self_ref_ivars = Set.new
+        indented do
+          line "struct Impl {"
+          indented do
+            members.each_with_index do |m, i|
+              t = ctor_types[i] || "int64_t"
+              default = (t == "int64_t") ? " = 0" : (t == "double" ? " = 0.0" : "")
+              line "#{t} iv_#{m}#{default};"
+            end
+          end
+          line "};"
+          line "std::shared_ptr<Impl> p;"
+          emit_newline
+
+          line "Ruby_#{name}() = default;"
+          line "Ruby_#{name}(const RubyNil&) {}"
+
+          params = members.each_with_index.map { |m, i|
+            t = ctor_types[i] || "auto"
+            "#{t} _#{m}"
+          }.join(", ")
+          line "Ruby_#{name}(#{params}) : p(std::make_shared<Impl>()) {"
+          indented { members.each { |m| line "p->iv_#{m} = _#{m};" } }
+          line "}"
+          emit_newline
+
+          members.each do |m|
+            t = ctor_types[members.index(m)] || "auto"
+            line "#{t} #{m}() const { return p->iv_#{m}; }"
+            line "void set_#{m}(#{t} v) { p->iv_#{m} = v; }"
+          end
+          emit_newline
+
+          line "bool nil_q() const { return !p; }"
+          line "explicit operator bool() const { return (bool)p; }"
+        end
+        line "};"
         line "template<> inline const char* ruby_class_name<Ruby_#{name}>() { return \"#{name}\"; }"
         @_self_ref_ivars = nil
         @_current_wrapper_name = nil
@@ -597,6 +648,21 @@ module Frozone
         scopes = method.scopes
         return true if scopes.nil? || scopes.empty?
         scopes.last.equal?(cls)
+      end
+
+      def struct_subclass?(cls)
+        c = cls
+        while c
+          return true if c.name == :Struct
+          c = c.respond_to?(:superclass) ? c.superclass : nil
+        end
+        false
+      end
+
+      def struct_members_for(cls)
+        members_obj = cls.get_ivar(:@members)
+        return [] unless members_obj.is_a?(Vm::ArrayObject)
+        members_obj.raw.map { |m| m.respond_to?(:raw) ? m.raw.to_s : m.to_s }
       end
 
       def accessor_method?(method)
