@@ -47,36 +47,6 @@ module Frozone
           constants: (top_level_scope.constants_table || {}).dup
         )
         @ti_env = ti.run
-        @ti_env.each_typed { |s, t| $stderr.puts "TI #{s.inspect}: #{t.to_cpp} nullable=#{t.nullable?}" if s.is_a?(Array) && s[0] == :return } if ENV['CPP_DEBUG']
-
-        # ── Ad-hoc TI (legacy — being replaced by shared TI) ───────
-        @_class_ivar_types = {}
-        @_class_method_return_types = {}
-        @_top_level_method_return_types = {}
-        3.times do
-          @_ctor_param_types = collect_ctor_param_types(execute_block, top_level_scope)
-          changed = false
-          collect_user_classes(top_level_scope).each do |_n, cls|
-            new_types = infer_ivar_types(cls)
-            changed = true if @_class_ivar_types[cls.name] != new_types
-            @_class_ivar_types[cls.name] = new_types
-            @_current_wrapper_name = "Ruby_#{cls.name}"
-            ret_types = {}
-            (cls.methods_table || {}).each do |mname, m|
-              next unless m.is_a?(Vm::Method) && method_defined_here?(m, cls)
-              rt = infer_method_return_type(m)
-              ret_types[mname] = rt if rt
-            end
-            @_class_method_return_types[cls.name] = ret_types
-          end
-          @_current_wrapper_name = nil
-          (top_level_scope.methods_table || {}).each do |mname, m|
-            next unless m.is_a?(Vm::Method) && user_source_location?(m.source_location)
-            rt = infer_method_return_type(m)
-            @_top_level_method_return_types[mname] = rt if rt
-          end
-          break unless changed
-        end
         emit_header
         emit_newline
 
@@ -117,7 +87,11 @@ module Frozone
         ty = @ti_env.type_at(slot)
         return nil unless ty && !ty.bottom?
         cpp = ty.to_cpp
-        return nil if cpp == "auto" || cpp == "std::any" || cpp == "RubyObject*"
+        # Filter out types that are too complex for C++ (deeply nested arrays,
+        # RubyObject* when builtins don't inherit yet)
+        return nil if cpp == "auto"
+        return nil if cpp&.count('<') > 2  # deeply nested generics
+        return "std::any" if cpp == "RubyObject*"  # builtins don't inherit yet
         cpp
       end
 
@@ -130,13 +104,7 @@ module Frozone
       end
 
       def ti_return_type(method_key)
-        t = ti_type_cpp([:return, method_key])
-        return nil if t == "RubyNil"
-        # RubyObject* as return type only works if ALL return paths produce
-        # objects inheriting from RubyObject. Builtins (Hash, Array, String)
-        # don't inherit yet — fall back to std::any for these cases.
-        return "std::any" if t == "RubyObject*"
-        t
+        ti_type_cpp([:return, method_key])
       end
 
       def collect_module_methods_for_ti(scope, methods, seen = Set.new)
@@ -156,46 +124,47 @@ module Frozone
         end
       end
 
+      # Is this C++ type a pointer to a user class (not a builtin value type)?
+      def user_class_ptr_type?(t)
+        t&.match?(/\ARuby_[A-Z]\w*\*\z/)
+      end
+
       def mark_param_pointer_types(method)
         return unless method.is_a?(Vm::Method)
         mkey = @_current_method_key
         (method.required_params || []).each_with_index do |p, i|
           pt = mkey ? ti_local_type(mkey, p.to_s) : nil
-          pt ||= (@_method_call_arg_types[method.name] || [])[i]
-          @_pointer_locals << p.to_s if pt&.start_with?("Ruby_") || pt&.end_with?("*")
+          @_pointer_locals << p.to_s if user_class_ptr_type?(pt)
         end
       end
 
       def recv_t_is_ptr?(recv)
+        # Check @_pointer_locals (populated from TI during method setup)
         return true if recv.is_a?(Ast::LocalVariableRead) && @_pointer_locals&.include?(recv.name.to_s)
-        return true if recv.is_a?(Ast::MethodCall) && recv.name == :new && recv.receiver_node.is_a?(Ast::ConstantRead)
-        if recv.is_a?(Ast::MethodCall) && recv.receiver_node
-          # Method on a pointer receiver returns a pointer if the method
-          # is a getter for a pointer-typed ivar (left, right, etc.)
-          if recv_t_is_ptr?(recv.receiver_node)
-            # Check if the method returns a pointer (ivar getter on a user class)
-            recv_cls = infer_receiver_class(recv.receiver_node)
-            if recv_cls
-              it = (@_class_ivar_types[recv_cls] || {})[recv.name.to_s]
-              return true if it&.start_with?("Ruby_")
-            end
-          end
-          # Array index on pointer-element arrays
-          if recv.name == :[]
-            arr_t = local_decl_type(recv.receiver_node)
-            return true if arr_t&.match?(/RubyArray<Ruby_/)
+        # Constructor call always returns a pointer
+        if recv.is_a?(Ast::MethodCall) && recv.name == :new && recv.receiver_node.is_a?(Ast::ConstantRead)
+          return !%i[Array String Hash Set].include?(recv.receiver_node.name)
+        end
+        # Check TI for the local's type
+        if recv.is_a?(Ast::LocalVariableRead)
+          t = ti_local_type(@_current_method_key, recv.name.to_s)
+          return user_class_ptr_type?(t)
+        end
+        # Chained method call on pointer → check if method returns pointer
+        if recv.is_a?(Ast::MethodCall) && recv.receiver_node && recv_t_is_ptr?(recv.receiver_node)
+          recv_cls = infer_receiver_class(recv.receiver_node)
+          if recv_cls
+            rt = ti_return_type([recv_cls, recv.name])
+            return user_class_ptr_type?(rt)
           end
         end
-        t = local_decl_type(recv)
-        t&.end_with?("*")
+        false
       end
 
       def infer_receiver_class(recv)
-        if recv.is_a?(Ast::LocalVariableRead)
-          t = @_pointer_locals&.include?(recv.name.to_s) ? nil : nil
-          # Check TI or hoisted type
-          t = @_current_method_key ? ti_local_type(@_current_method_key, recv.name.to_s) : nil
-          return t&.delete_suffix("*")&.delete_prefix("Ruby_")&.to_sym if t&.start_with?("Ruby_")
+        if recv.is_a?(Ast::LocalVariableRead) && @_current_method_key
+          t = ti_local_type(@_current_method_key, recv.name.to_s)
+          return t&.delete_suffix("*")&.delete_prefix("Ruby_")&.to_sym if user_class_ptr_type?(t)
         end
         if recv.is_a?(Ast::InstanceVariableRead) && @_current_wrapper_name
           return @_current_wrapper_name.delete_prefix("Ruby_").to_sym
@@ -434,7 +403,7 @@ module Frozone
 
       def emit_module_method(name, method)
         params = emit_param_list(method)
-        @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
+        @_method_return_type = ti_return_type(@_current_method_key)
         ret_type = %w[std::any].include?(@_method_return_type) || @_method_return_type&.start_with?("std::optional") ? @_method_return_type : "auto"
         line "#{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
@@ -501,7 +470,12 @@ module Frozone
           return
         end
         init = cls.methods_table&.fetch(:initialize, nil)
-        ivar_types = infer_ivar_types(cls)
+        # Ivar types from shared TI
+        ivar_types = {}
+        @ti_env&.each_typed do |slot, ty|
+          next unless slot.is_a?(Array) && slot[0] == :ivar && slot[1] == name
+          ivar_types[slot[2].to_s.delete_prefix('@')] = ty.to_cpp
+        end
         all_ivars = Set.new
         (cls.methods_table || {}).each_value do |m|
           next unless m.is_a?(Vm::Method) && m.body
@@ -512,7 +486,8 @@ module Frozone
         @_dropped_ivars = Set.new
         ivars.reject! do |iv|
           key = iv.to_s.delete_prefix('@')
-          if ivar_types[key] == "std::any" && !read_ivars.include?(key)
+          t = ivar_types[key]
+          if (t == "std::any" || t == "RubyObject*") && !read_ivars.include?(key)
             @_dropped_ivars << key
             true
           end
@@ -536,7 +511,7 @@ module Frozone
           # Ivars as direct fields
           ivars.uniq.each do |iv|
             key = iv.to_s.delete_prefix('@')
-            t = ti_ivar_type(name, key) || ivar_types[key] || "int64_t"
+            t = ivar_types[key] || "int64_t"
             if self_ref_ivars.include?(key)
               line "#{self_wrapper}* iv_#{key} = nullptr;"
             else
@@ -618,7 +593,7 @@ module Frozone
 
       def emit_struct_class(name, cls)
         members = struct_members_for(cls)
-        ctor_types = @_ctor_param_types[name] || []
+        ctor_types = []
         line "struct Ruby_#{name} : public RubyObject {"
         @_current_wrapper_name = "Ruby_#{name}"
         @_self_ref_ivars = Set.new
@@ -764,7 +739,7 @@ module Frozone
           recv_t = infer_expr_type_ctx(node.receiver_node, cls_ctx)
           if recv_t&.start_with?("Ruby_")
             cls_name = recv_t.delete_prefix("Ruby_").delete_suffix("*").to_sym
-            rt = (@_class_method_return_types || {})[cls_name]&.[](node.name)
+            rt = ti_return_type([cls_name, node.name])
             return rt if rt
           end
         end
@@ -905,7 +880,7 @@ module Frozone
           return "RubyString" if %i[b dup_ upcase downcase slice].include?(node.name) && node.receiver_node
           # Top-level function call: use cached return type if available.
           if node.receiver_node.nil?
-            rt = (@_top_level_method_return_types || {})[node.name]
+            rt = ti_return_type(node.name)
             return rt if rt && rt != "RubyNil"
           end
           # Built-in methods with known return types.
@@ -915,7 +890,7 @@ module Frozone
         when Ast::InstanceVariableRead
           if @_current_wrapper_name
             cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
-            t = (@_class_ivar_types[cls_name] || {})[node.name.to_s.delete_prefix('@')]
+            t = ti_ivar_type(cls_name, node.name.to_s.delete_prefix("@"))
             return t if t
           end
           "int64_t"
@@ -955,7 +930,7 @@ module Frozone
         params = emit_param_list(method)
         line "static auto #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
-        @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
+        @_method_return_type = ti_return_type(@_current_method_key)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
         indented do
           body = method.body
@@ -1091,7 +1066,7 @@ module Frozone
         t = local_decl_type(val)
         return t unless t == "auto"
         if val.is_a?(Ast::MethodCall) && val.receiver_node.nil?
-          rt = (@_top_level_method_return_types || {})[val.name]
+          rt = ti_return_type(val.name)
           return rt if rt
           m = lookup_top_level_method(val.name)
           if m && m.body
@@ -1104,7 +1079,7 @@ module Frozone
           recv_t = local_decl_type(val.receiver_node)
           if recv_t&.start_with?("Ruby_")
             cls_name = recv_t.delete_prefix("Ruby_").delete_suffix("*").to_sym
-            rt = (@_class_method_return_types || {})[cls_name]&.[](val.name)
+            rt = ti_return_type([cls_name, val.name])
             return rt if rt
           end
         end
@@ -1129,18 +1104,12 @@ module Frozone
           # `x || @default` pattern where right is the real fallback).
           local_decl_type(val.right_node)
         when Ast::LocalVariableRead
-          # Try to resolve by finding the variable's first assignment in
-          # the current body.
-          if @_current_body && !@_skip_look_ahead
-            later = look_ahead_local_type(val.name.to_s, @_current_body)
-            return later if later
-          end
           "auto"
         when Ast::InstanceVariableRead
           # Look up the ivar's inferred type in the enclosing class.
           if @_current_wrapper_name
             cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
-            t = (@_class_ivar_types[cls_name] || {})[val.name.to_s.delete_prefix('@')]
+            t = ti_ivar_type(cls_name, val.name.to_s.delete_prefix("@"))
             return t if t
           end
           "auto"
@@ -1170,7 +1139,7 @@ module Frozone
             recv_t = local_decl_type(val.receiver_node)
             if recv_t&.start_with?("Ruby_")
               cls_name = recv_t.sub("Ruby_", "").to_sym
-              rt = (@_class_method_return_types || {})[cls_name]&.[](val.name)
+              rt = ti_return_type([cls_name, val.name])
               return rt if rt
             end
           end
@@ -1266,10 +1235,6 @@ module Frozone
               # Prefer shared TI (no body re-walking), fall back to
               # look-ahead scan (skipped for large methods).
               widened = @_current_method_key ? ti_local_type(@_current_method_key, name) : nil
-              unless @_skip_look_ahead
-                la = look_ahead_local_type(name, body)
-                widened = la if la&.start_with?("std::optional") || (widened.nil? && la)
-              end
               widened ||= local_decl_type(node.value_node)
               seen[name] = { type: widened, first_rhs: node.value_node }
               order << name
@@ -1360,7 +1325,7 @@ module Frozone
         line "auto #{cpp_method_name(mname)}(#{params}) {"
         @_bracket_method_name = nil
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
-        @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
+        @_method_return_type = ti_return_type(@_current_method_key)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
         indented do
           body = method.body
@@ -1397,8 +1362,6 @@ module Frozone
 
       def emit_hoisted_locals(body, param_names)
         @_current_body = body
-        @_skip_look_ahead = ast_node_count(body) > 5000
-        return if @_skip_look_ahead
         param_names_set = param_names.map(&:to_s).to_set
         collect_hoistable_locals(body, param_names).each do |name, info|
           t = info[:type]
@@ -1406,7 +1369,6 @@ module Frozone
           next if @_declared_locals&.include?(name)
           decl_name = cpp_local_name(name)
           if t == "auto" || t == "auto&"
-            ti_t = @_current_method_key ? ti_local_type(@_current_method_key, name) : nil
             if ti_t && ti_t != "auto"
               t = ti_t
             else
@@ -1414,14 +1376,6 @@ module Frozone
               next unless rhs && rhs_safe_for_decltype?(rhs, param_names_set)
               rhs_str = cr(rhs)
               line "std::decay_t<decltype(#{rhs_str})> #{decl_name}{};"
-              if rhs.is_a?(Ast::MethodCall)
-                if rhs.name == :new && rhs.receiver_node.is_a?(Ast::ConstantRead)
-                  @_pointer_locals << name
-                elsif rhs.name == :[]
-                  arr_t = local_decl_type(rhs.receiver_node)
-                  @_pointer_locals << name if arr_t&.match?(/RubyArray<Ruby_/)
-                end
-              end
               @_declared_locals << name
               @_declared_locals << decl_name if decl_name != name
               next
@@ -1547,7 +1501,7 @@ module Frozone
         params = emit_param_list(method)
         @_method_yields = method.uses_block || body_has_yield?(method.body)
         params = params.empty? ? "auto _block" : "#{params}, auto _block" if @_method_yields
-        @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
+        @_method_return_type = ti_return_type(@_current_method_key)
         ret_type = %w[std::any].include?(@_method_return_type) || @_method_return_type&.start_with?("std::optional") ? @_method_return_type : "auto"
         line "static #{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
@@ -1794,7 +1748,7 @@ module Frozone
         when Ast::InstanceVariableWrite
           if @_inside_wrapped_class && @_current_wrapper_name
             cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
-            ivar_t = (@_class_ivar_types[cls_name] || {})[node.name.to_s.delete_prefix('@')]
+            ivar_t = ti_ivar_type(cls_name, node.name.to_s.delete_prefix("@"))
             if @_dropped_ivars&.include?(node.name.to_s.delete_prefix('@'))
               return "#{cr(node.value_node)}"
             end
@@ -1879,13 +1833,9 @@ module Frozone
             "(#{name} = #{rhs})"
           else
             @_declared_locals << name
-            # Prefer shared TI for local type, fall back to ad-hoc
+            # Shared TI for local type, fall back to expression-level inference
             type = @_current_method_key ? ti_local_type(@_current_method_key, name) : nil
             type ||= local_decl_type(val)
-            if val.is_a?(Ast::NilLiteral) && @_current_body && !@_skip_look_ahead && type == "int64_t"
-              later = look_ahead_local_type(name, @_current_body)
-              type = later if later
-            end
             if (m = type.to_s.match(/\Astd::optional<(.+)>\z/))
               (@_optional_locals ||= {})[name] = m[1]
             end

@@ -156,6 +156,10 @@ module Frozone
 
       def class_to_cpp
         case @class_name
+        when :Integer, :Numeric
+          nullable? ? "std::optional<int64_t>" : "int64_t"
+        when :Float
+          nullable? ? "std::optional<double>" : "double"
         when :String then "RubyString"
         when :Symbol then "RubySymbol"
         when :Array
