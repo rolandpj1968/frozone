@@ -362,6 +362,24 @@ template<typename T> static inline bool ruby_nil_q(const T& v) {
   else return false;
 }
 
+// ── Ruby class hierarchy ────────────────────────────────────────────
+// Base class for all Ruby objects in the pointer-based object model.
+// User classes and builtins inherit from this. Pointers give Ruby's
+// reference semantics (copy = alias, nil = nullptr).
+class RubyBasicObject {
+public:
+  virtual ~RubyBasicObject() = default;
+  virtual const char* rb_class_name() const { return "BasicObject"; }
+  virtual RubyString rb_to_s() const { return RubyString("#<BasicObject>"); }
+  virtual bool rb_equal(const RubyBasicObject* other) const { return this == other; }
+};
+
+class RubyKernelObject : public RubyBasicObject {
+public:
+  const char* rb_class_name() const override { return "Object"; }
+  RubyString rb_to_s() const override { return RubyString("#<Object>"); }
+};
+
 // Object.new — empty class with universal "GenericObject" class name.
 struct Ruby_Object {};
 
