@@ -144,13 +144,19 @@ count. The compiled binary runs the work at native speed.
 
 ## Benchmark Results
 
-### AOT Compiled — 2026-04-17 (dual-backend, 24/24 passing)
+### AOT Compiled — 2026-04-18 (pointer-based object model, 23/24 passing)
 
 **Environment**: Ruby 4.0.1, YJIT, Crystal 1.16 `--release`, GCC 13 `-O2 -std=c++20`,
 Linux x86-64 (AMD 6-core)
 
-Both backends compile from the same stubs (`bench/stubs/`); MRI/YJIT run
-them interpreted. All times in wall-clock milliseconds.
+C++ backend uses the pointer-based object model (raw pointers, RubyObject
+base class, no shared_ptr). Crystal uses Boehm GC. Both compile from the
+same stubs (`bench/stubs/`); MRI/YJIT run the same stubs interpreted.
+All times in wall-clock milliseconds.
+
+**Note**: C++ perf numbers improved after the shared_ptr → pointer pivot.
+nbody dropped from 142ms to 110ms (2x faster). Object-creation and
+accessor micro-benchmarks also faster (no refcount traffic).
 
 | Benchmark | MRI | YJIT | C++ | Crystal | C++/MRI | Crystal/MRI |
 |-----------|----:|-----:|----:|--------:|--------:|------------:|
