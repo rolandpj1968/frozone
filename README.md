@@ -31,57 +31,33 @@ See [docs/spec-status.md](docs/spec-status.md) for detailed breakdowns, [docs/in
 
 ### Compiler Benchmarks
 
-Apples-to-apples wall-clock time (identical workload, Ruby 4.0.1, Crystal `--release`):
+Two AOT backends: **Crystal** (24/24 passing, Boehm GC) and **C++** (20/24 passing, pointer-based object model). Both share the same TypeInference engine.
 
-| Benchmark | Frozone | MRI | YJIT | vs MRI | vs YJIT |
-|-----------|---------|-----|------|--------|---------|
-| loops\_times | 13 ms | 836 ms | 266 ms | **65×** | **21×** |
-| nbody ×100 | 117 ms | 7293 ms | 2684 ms | **62×** | **23×** |
-| matmul(200) ×20 | 260 ms | 7530 ms | 3071 ms | **29×** | **12×** |
-| nqueens 500×12 | 6661 ms | 199000 ms | 49500 ms | **30×** | **7.4×** |
-| fib(35) ×3 | 95 ms | 2347 ms | 318 ms | **25×** | **3.3×** |
-| sudoku ×20 | 438 ms | 7466 ms | 2015 ms | **17×** | **4.6×** |
-| structaref ×850 | 1100 ms | 113000 ms | 10619 ms | **103×** | **10×** |
-| blurhash ×10 | 242 ms | 2480 ms | 1050 ms | **10×** | **4.3×** |
-| str\_concat ×100 | 992 ms | 5276 ms | 2078 ms | **5.3×** | **2.1×** |
-| binarytrees ×60 | 1993 ms | 16586 ms | 6456 ms | **8.3×** | **3.2×** |
-| fannkuchredux ×10 | 849 ms | 3171 ms | 3104 ms | **3.7×** | **3.7×** |
-| splay ×200 | 14313 ms | 19963 ms | 14400 ms | **1.4×** | **1.0×** |
+| Benchmark | Crystal | C++ | MRI | YJIT | Best/MRI | Best/YJIT |
+|-----------|--------:|----:|----:|-----:|---------:|----------:|
+| fib(35) ×3 | 94 | **37** | 2326 | 501 | **63×** | **14×** |
+| matmul(200) ×20 | 256 | **82** | 7355 | 2897 | **90×** | **35×** |
+| nbody ×100 | **116** | 110 | 7259 | 2644 | **66×** | **24×** |
+| nqueens 500×12 | 6566 | **5890** | 198033 | 49711 | **34×** | **8.4×** |
+| loops\_times | **123** | 96 | 8675 | — | **90×** | — |
+| sudoku ×20 | 418 | **7** | 7151 | 1928 | **1021×** | **276×** |
+| blurhash ×10 | **246** | 241 | 2504 | 1057 | **10×** | **4.4×** |
+| fannkuchredux ×10 | 857 | **102** | 3217 | 3161 | **32×** | **31×** |
+| binarytrees ×60 | **2000** | 4177 | 16244 | 6916 | **8.1×** | **3.5×** |
+| str\_concat ×100 | **992** | 2894 | 5248 | 4502 | **5.3×** | **4.5×** |
+| splay ×200 | **13835** | 15231 | 20349 | 13417 | **1.5×** | **1.0×** |
 
-All benchmarks compile and run end-to-end (AOT → Crystal → native binary). **All 12 timed benchmarks now meet or beat YJIT.** Splay was the only laggard last cycle (36.6s vs YJIT's 14.4s); a 4-step allocator pass — UTF-8 scrub skip, literal symbol fold, small-integer interning, literal-array hoisting — closed the gap entirely. Splay is now within noise of YJIT.
-
-structaset (`TheClass = Struct.new(:v0, :v1, :v2, :levar)`) was a long-standing build failure: Frozone's Struct subclass machinery uses `define_method` blocks (`Vm::DefinedMethod`) which the codegen couldn't emit. Now resolved by synthesising a plain Crystal class with positional initialize and per-member accessors directly from the class's `@members` ivar. End-to-end functional; not yet in the headline table because it's still slower than YJIT (79s vs 33s) on the per-iteration boxing path.
-
-Key compiler features: whole-program type inference with 1-CFA constructor specialisation, `emit_raw_expr` boxing-free typed overloads, class-typed parameter devirtualisation, native `Array(Int64)`/`Array(Float64)` ivar and constant promotion, compile-time `respond_to?`/`is_a?` folding, and kwargs in typed overloads. See [docs/compilation.md](docs/compilation.md) for architecture.
-
-### C++ Backend
-
-A parallel C++ backend shares the same **TypeInference** engine as Crystal.
-Invoked via `FROZONE_CPP=1 bundle exec ruby frozone.rb --aot <script>`.
-**20 of 24 benchmarks** pass end-to-end on the shared TI (no ad-hoc type
-inference). Output lives in `cpp/gen/`, built with `g++ -O2 -std=c++20`.
+All times in wall-clock milliseconds. **Both backends beat YJIT on every compute benchmark.** C++ wins compute-heavy (fib 63× MRI, sudoku 1021× MRI); Crystal wins allocation-heavy (Boehm GC amortises better than C++'s current allocator).
 
 The C++ backend uses a **pointer-based object model**: user classes inherit
-from `RubyObject` (matching Ruby's class hierarchy rooted at `BasicObject`),
-objects are heap-allocated raw pointers (nil = nullptr), and Ruby's reference
-semantics come for free. No `shared_ptr`, no refcount traffic. Memory
-management via Boehm GC (opt-in) or the [Dustman](https://github.com/rolandpj1968/dustman)
-precise collector (in development).
+from `RubyObject` (matching Ruby's `BasicObject` hierarchy), objects are
+heap-allocated raw pointers (nil = nullptr), no refcount traffic. Memory
+management via Boehm GC (opt-in) or [Dustman](https://github.com/rolandpj1968/dustman)
+(a standalone precise Immix GC, in development).
 
-| Bench | C++ | Crystal | Winner |
-|-------|----:|--------:|--------|
-| fib | 0.04s | 0.09s | **C++ 2.6×** |
-| matmul | 0.08s | 0.25s | **C++ 3.1×** |
-| nbody | 0.11s | 0.12s | **C++ 1.1×** |
-| nqueens | 5.89s | 6.57s | **C++ 1.1×** |
-| sudoku | 0.007s | 0.42s | **C++ 60×** |
-| binarytrees | 4.18s | 2.00s | Crystal 2.1× |
-| str_concat | 2.89s | 0.99s | Crystal 2.9× |
-
-C++ wins compute-heavy (no type-system translation tax). Crystal wins
-allocation-heavy (Boehm GC amortises better). Both backends beat YJIT on
-every compute benchmark. See [docs/cpp-backend.md](docs/cpp-backend.md)
-for architecture and the full benchmark table.
+See [docs/cpp-backend.md](docs/cpp-backend.md) for C++ architecture,
+[docs/perf-suite.md](docs/perf-suite.md) for the full benchmark table with
+all 24 benchmarks including micro-benchmarks.
 
 ### AoT Compilation
 
