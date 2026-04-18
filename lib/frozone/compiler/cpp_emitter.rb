@@ -153,16 +153,51 @@ module Frozone
         end
       end
 
+      def mark_param_pointer_types(method)
+        return unless method.is_a?(Vm::Method)
+        mkey = @_current_method_key
+        (method.required_params || []).each_with_index do |p, i|
+          pt = mkey ? ti_local_type(mkey, p.to_s) : nil
+          pt ||= (@_method_call_arg_types[method.name] || [])[i]
+          @_pointer_locals << p.to_s if pt&.start_with?("Ruby_") || pt&.end_with?("*")
+        end
+      end
+
       def recv_t_is_ptr?(recv)
         return true if recv.is_a?(Ast::LocalVariableRead) && @_pointer_locals&.include?(recv.name.to_s)
         return true if recv.is_a?(Ast::MethodCall) && recv.name == :new && recv.receiver_node.is_a?(Ast::ConstantRead)
-        # Array index on pointer-element arrays (RubyArray<Ruby_X*>)
-        if recv.is_a?(Ast::MethodCall) && recv.name == :[] && recv.receiver_node
-          arr_t = local_decl_type(recv.receiver_node)
-          return true if arr_t&.match?(/RubyArray<Ruby_/)
+        if recv.is_a?(Ast::MethodCall) && recv.receiver_node
+          # Method on a pointer receiver returns a pointer if the method
+          # is a getter for a pointer-typed ivar (left, right, etc.)
+          if recv_t_is_ptr?(recv.receiver_node)
+            # Check if the method returns a pointer (ivar getter on a user class)
+            recv_cls = infer_receiver_class(recv.receiver_node)
+            if recv_cls
+              it = (@_class_ivar_types[recv_cls] || {})[recv.name.to_s]
+              return true if it&.start_with?("Ruby_")
+            end
+          end
+          # Array index on pointer-element arrays
+          if recv.name == :[]
+            arr_t = local_decl_type(recv.receiver_node)
+            return true if arr_t&.match?(/RubyArray<Ruby_/)
+          end
         end
         t = local_decl_type(recv)
         t&.end_with?("*")
+      end
+
+      def infer_receiver_class(recv)
+        if recv.is_a?(Ast::LocalVariableRead)
+          t = @_pointer_locals&.include?(recv.name.to_s) ? nil : nil
+          # Check TI or hoisted type
+          t = @_current_method_key ? ti_local_type(@_current_method_key, recv.name.to_s) : nil
+          return t&.delete_suffix("*")&.delete_prefix("Ruby_")&.to_sym if t&.start_with?("Ruby_")
+        end
+        if recv.is_a?(Ast::InstanceVariableRead) && @_current_wrapper_name
+          return @_current_wrapper_name.delete_prefix("Ruby_").to_sym
+        end
+        nil
       end
 
       def cpp_ivar(name)
@@ -214,7 +249,7 @@ module Frozone
         if @_method_return_type&.start_with?("std::optional")
           "std::nullopt"
         elsif @_method_return_type&.end_with?("*")
-          "nullptr"
+          "(#{@_method_return_type})nullptr"
         elsif @_method_return_type
           "#{@_method_return_type}(RUBY_NIL)"
         else
@@ -400,7 +435,7 @@ module Frozone
         ret_type = %w[std::any].include?(@_method_return_type) || @_method_return_type&.start_with?("std::optional") ? @_method_return_type : "auto"
         line "#{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
-        all_param_names(method).each { |p| @_declared_locals << p.to_s }
+        all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
         indented do
           body = method.body
           emit_hoisted_locals(body, all_param_names(method))
@@ -918,7 +953,7 @@ module Frozone
         line "static auto #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
-        all_param_names(method).each { |p| @_declared_locals << p.to_s }
+        all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
         indented do
           body = method.body
           emit_hoisted_locals(body, all_param_names(method))
@@ -1221,7 +1256,10 @@ module Frozone
               # Prefer shared TI (no body re-walking), fall back to
               # look-ahead scan (skipped for large methods).
               widened = @_current_method_key ? ti_local_type(@_current_method_key, name) : nil
-              widened ||= look_ahead_local_type(name, body) unless @_skip_look_ahead
+              unless @_skip_look_ahead
+                la = look_ahead_local_type(name, body)
+                widened = la if la&.start_with?("std::optional") || (widened.nil? && la)
+              end
               widened ||= local_decl_type(node.value_node)
               seen[name] = { type: widened, first_rhs: node.value_node }
               order << name
@@ -1313,7 +1351,7 @@ module Frozone
         @_bracket_method_name = nil
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
-        all_param_names(method).each { |p| @_declared_locals << p.to_s }
+        all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
         indented do
           body = method.body
           emit_hoisted_locals(body, all_param_names(method))
@@ -1474,7 +1512,8 @@ module Frozone
             arg_types = @_method_call_arg_types[method.name] || []
             t = arg_types[req_count + oi]
             if t && t.start_with?("Ruby_")
-              parts << "#{t} #{pname} = #{t}(RUBY_NIL)"
+              ptr_t = t.end_with?("*") ? t : "#{t}*"
+              parts << "#{ptr_t} #{pname} = nullptr"
             else
               parts << "auto #{pname} = #{cr(default_node)}"
             end
@@ -1502,7 +1541,7 @@ module Frozone
         ret_type = %w[std::any].include?(@_method_return_type) || @_method_return_type&.start_with?("std::optional") ? @_method_return_type : "auto"
         line "static #{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
-        all_param_names(method).each { |p| @_declared_locals << p.to_s }
+        all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
         indented do
           body = method.body
           emit_hoisted_locals(body, all_param_names(method))

@@ -402,7 +402,13 @@ template<> inline const char* ruby_class_name<double>() { return "Float"; }
 template<> inline const char* ruby_class_name<bool>() { return "TrueClass"; }
 template<> inline const char* ruby_class_name<RubyString>() { return "String"; }
 template<> inline const char* ruby_class_name<Ruby_Object>() { return "Object"; }
-template<typename T> static inline const char* ruby_class(const T&) { return ruby_class_name<T>(); }
+template<typename T> static inline const char* ruby_class(const T& v) {
+  if constexpr (std::is_pointer_v<T>) {
+    return v ? v->rb_class_name() : "NilClass";
+  } else {
+    return ruby_class_name<T>();
+  }
+}
 
 // to_s — converts primitives to RubyString. Class-specific overrides on user classes.
 template<typename T> static inline RubyString ruby_to_s(T v) {
