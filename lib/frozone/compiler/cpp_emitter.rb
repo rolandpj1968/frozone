@@ -38,6 +38,8 @@ module Frozone
         end
         user_classes = {}
         collect_user_classes(top_level_scope).each { |name, cls| user_classes[name] = cls }
+        # Also include module methods in user_methods for TI
+        collect_module_methods_for_ti(top_level_scope, user_methods)
         ti = TypeInference.new(
           user_methods: user_methods,
           user_classes: user_classes,
@@ -113,7 +115,9 @@ module Frozone
         return nil unless @ti_env
         ty = @ti_env.type_at(slot)
         return nil unless ty && !ty.bottom?
-        ty.to_cpp
+        cpp = ty.to_cpp
+        return nil if cpp == "auto"
+        cpp
       end
 
       def ti_ivar_type(class_name, ivar_name)
@@ -126,6 +130,23 @@ module Frozone
 
       def ti_return_type(method_key)
         ti_type_cpp([:return, method_key])
+      end
+
+      def collect_module_methods_for_ti(scope, methods, seen = Set.new)
+        (scope.constants_table || {}).each_value do |v|
+          next if seen.include?(v.object_id)
+          seen << v.object_id
+          if v.is_a?(Vm::ModuleObject)
+            eigen = v.eigenclass rescue nil
+            (eigen&.methods_table || {}).each do |name, m|
+              methods[name] ||= m if m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+            end
+            (v.methods_table || {}).each do |name, m|
+              methods[name] ||= m if m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+            end
+            collect_module_methods_for_ti(v, methods, seen)
+          end
+        end
       end
 
       def cpp_ivar(name)
@@ -373,7 +394,7 @@ module Frozone
             emit_stmt_return(body)
           end
         end
-        @_method_return_type = nil
+        @_method_return_type = nil; @_current_method_key = nil
         line "}"
       end
 
@@ -923,7 +944,7 @@ module Frozone
             emit_stmt_return(body)
           end
         end
-        @_method_return_type = nil
+        @_method_return_type = nil; @_current_method_key = nil
         line "}"
       end
 
@@ -1211,10 +1232,10 @@ module Frozone
           if node.is_a?(Ast::LocalVariableWrite)
             name = node.name.to_s
             unless seen.key?(name) || param_names.include?(name.to_sym) || param_names.include?(name)
-              # Use the WIDEST type across all writes in this body so
-              # `last = 0; ...; last = fannkuch(N)` picks up RubyArray
-              # rather than locking in int64_t from the first write.
-              widened = look_ahead_local_type(name, body)
+              # Prefer shared TI (no body re-walking), fall back to
+              # look-ahead scan (skipped for large methods).
+              widened = @_current_method_key ? ti_local_type(@_current_method_key, name) : nil
+              widened ||= look_ahead_local_type(name, body) unless @_skip_look_ahead
               widened ||= local_decl_type(node.value_node)
               seen[name] = { type: widened, first_rhs: node.value_node }
               order << name
@@ -1298,6 +1319,7 @@ module Frozone
       end
 
       def emit_class_method(mname, method)
+        @_current_method_key = @_current_wrapper_name ? [@_current_wrapper_name.sub("Ruby_", "").to_sym, mname] : mname
         params = emit_param_list(method)
         nparams = all_param_names(method).size
         @_bracket_method_name = (mname == :[] && nparams > 1) ? "slice" : nil
@@ -1326,7 +1348,7 @@ module Frozone
             emit_stmt_return(body)
           end
         end
-        @_method_return_type = nil
+        @_method_return_type = nil; @_current_method_key = nil
         line "}"
       end
 
@@ -1463,6 +1485,7 @@ module Frozone
       end
 
       def emit_method(name, method)
+        @_current_method_key = name
         params = emit_param_list(method)
         @_method_yields = method.uses_block || body_has_yield?(method.body)
         params = params.empty? ? "auto _block" : "#{params}, auto _block" if @_method_yields
@@ -1482,7 +1505,7 @@ module Frozone
             emit_stmt_return(body)
           end
         end
-        @_method_return_type = nil
+        @_method_return_type = nil; @_current_method_key = nil
         @_method_yields = false
         line "}"
       end
@@ -1804,8 +1827,10 @@ module Frozone
             "(#{name} = #{rhs})"
           else
             @_declared_locals << name
-            type = local_decl_type(val)
-            if val.is_a?(Ast::NilLiteral) && @_current_body && !@_skip_look_ahead
+            # Prefer shared TI for local type, fall back to ad-hoc
+            type = @_current_method_key ? ti_local_type(@_current_method_key, name) : nil
+            type ||= local_decl_type(val)
+            if val.is_a?(Ast::NilLiteral) && @_current_body && !@_skip_look_ahead && type == "int64_t"
               later = look_ahead_local_type(name, @_current_body)
               type = later if later
             end

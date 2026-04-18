@@ -159,11 +159,9 @@ module Frozone
         when :String then "RubyString"
         when :Symbol then "RubySymbol"
         when :Array
-          if @elem&.raw?
-            "RubyArray<#{@elem.i64? ? 'int64_t' : 'double'}>"
-          else
-            "RubyArray<int64_t>"
-          end
+          elem_cpp = @elem ? @elem.to_cpp : "int64_t"
+          elem_cpp = "int64_t" if elem_cpp == "auto"
+          "RubyArray<#{elem_cpp}>"
         when :Hash then "RubyHash<RubySymbol, int64_t>"
         when :NilClass then "RubyNil"
         when :TrueClass, :FalseClass then "bool"
