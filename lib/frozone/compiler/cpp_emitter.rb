@@ -153,9 +153,21 @@ module Frozone
         end
       end
 
+      def recv_t_is_ptr?(recv)
+        return true if recv.is_a?(Ast::LocalVariableRead) && @_pointer_locals&.include?(recv.name.to_s)
+        return true if recv.is_a?(Ast::MethodCall) && recv.name == :new && recv.receiver_node.is_a?(Ast::ConstantRead)
+        # Array index on pointer-element arrays (RubyArray<Ruby_X*>)
+        if recv.is_a?(Ast::MethodCall) && recv.name == :[] && recv.receiver_node
+          arr_t = local_decl_type(recv.receiver_node)
+          return true if arr_t&.match?(/RubyArray<Ruby_/)
+        end
+        t = local_decl_type(recv)
+        t&.end_with?("*")
+      end
+
       def cpp_ivar(name)
         stripped = name.to_s.delete_prefix('@')
-        @_inside_wrapped_class ? "p->iv_#{stripped}" : "iv_#{stripped}"
+        "iv_#{stripped}"
       end
 
       # Ruby → C++ method name overrides (where Ruby name would be invalid or
@@ -201,6 +213,8 @@ module Frozone
       def nil_return_expr
         if @_method_return_type&.start_with?("std::optional")
           "std::nullopt"
+        elsif @_method_return_type&.end_with?("*")
+          "nullptr"
         elsif @_method_return_type
           "#{@_method_return_type}(RUBY_NIL)"
         else
@@ -385,7 +399,7 @@ module Frozone
         @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
         ret_type = %w[std::any].include?(@_method_return_type) || @_method_return_type&.start_with?("std::optional") ? @_method_return_type : "auto"
         line "#{ret_type} #{cpp_method_name(name)}(#{params}) {"
-        @_declared_locals = Set.new; @_optional_locals = {}
+        @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
           body = method.body
@@ -440,25 +454,16 @@ module Frozone
         result
       end
 
-      # Emit a user class as a shared_ptr-wrapping value type:
-      #   struct Ruby_X {
-      #     struct Impl { <ivars>; };
-      #     std::shared_ptr<Impl> p;
-      #     Ruby_X(...) : p(std::make_shared<Impl>()) { <init body using p->iv_*> }
-      #     <methods delegating through p->iv_*>
-      #   };
-      # This gives Ruby reference semantics: copying the wrapper aliases the
-      # Impl via shared_ptr, so `b = arr[i]; b.set_x(v)` mutates the original.
+      # Emit a user class as a heap-allocated object with direct ivars.
+      # Objects are raw pointers (Ruby reference semantics). Nil = nullptr.
+      # Inherits from RubyObject (or RubyBasicObject for `< BasicObject`).
       def emit_class(name, cls)
         if struct_subclass?(cls)
           emit_struct_class(name, cls)
           return
         end
-        line "struct Ruby_#{name} {"
         init = cls.methods_table&.fetch(:initialize, nil)
         ivar_types = infer_ivar_types(cls)
-        # Collect ivars from ALL methods (reads + writes) — any ivar
-        # referenced in any method needs a slot in Impl.
         all_ivars = Set.new
         (cls.methods_table || {}).each_value do |m|
           next unless m.is_a?(Vm::Method) && m.body
@@ -466,8 +471,6 @@ module Frozone
         end
         ivars = all_ivars.to_a
         read_ivars = collect_read_ivars(cls)
-        # Drop write-only std::any ivars — they're dead storage (never accessed
-        # via getter) and std::any copy overhead dominates (e.g. splay's @value).
         @_dropped_ivars = Set.new
         ivars.reject! do |iv|
           key = iv.to_s.delete_prefix('@')
@@ -478,77 +481,68 @@ module Frozone
         end
         init_has_params = init.is_a?(Vm::Method) && !all_param_names(init).empty?
         self_wrapper = "Ruby_#{name}"
-
-        # Self-referential ivars: fields whose type equals the enclosing
-        # class's wrapper. Can't store by value (incomplete type) — store
-        # as std::shared_ptr<Impl> and wrap/unwrap at access sites.
-        self_ref_ivars = ivar_types.select { |_, t| t == self_wrapper }.keys.to_set
+        self_ref_ivars = ivar_types.select { |_, t| t == self_wrapper || t == "#{self_wrapper}*" }.keys.to_set
         @_self_ref_ivars = self_ref_ivars
         @_current_wrapper_name = self_wrapper
 
+        # Determine parent class
+        parent = cls.superclass
+        parent_cpp = if parent && parent.name && !%i[Object BasicObject].include?(parent.name)
+          "Ruby_#{parent.name}"
+        else
+          "RubyObject"
+        end
+
+        line "struct #{self_wrapper} : public #{parent_cpp} {"
         indented do
-          # Nested Impl struct holds all the data — ivars only, no methods.
-          line "struct Impl {"
-          indented do
-            ivars.uniq.each do |iv|
-              key = iv.to_s.delete_prefix('@')
-              t = ti_ivar_type(name, key) || ivar_types[key] || "int64_t"
-              if self_ref_ivars.include?(key)
-                # Recursive field: store as shared_ptr<Impl> (same type).
-                line "std::shared_ptr<Impl> iv_#{key};"
-              else
-                default = (t == "int64_t") ? " = 0" : (t == "double" ? " = 0.0" : "")
-                line "#{t} iv_#{key}#{default};"
-              end
+          # Ivars as direct fields
+          ivars.uniq.each do |iv|
+            key = iv.to_s.delete_prefix('@')
+            t = ti_ivar_type(name, key) || ivar_types[key] || "int64_t"
+            if self_ref_ivars.include?(key)
+              line "#{self_wrapper}* iv_#{key} = nullptr;"
+            else
+              default = case t
+                when "int64_t" then " = 0"
+                when "double" then " = 0.0"
+                when "bool" then " = false"
+                else ""
+                end
+              line "#{t} iv_#{key}#{default};"
             end
           end
-          line "};"
-          line "std::shared_ptr<Impl> p;"
           emit_newline
-
-          # Self-ref ctor and conversion — lets `p->iv_left = other` assign
-          # the shared_ptr directly (via operator) and `Ruby_X(p->iv_left)`
-          # wrap a shared_ptr back into a wrapper.
-          unless self_ref_ivars.empty?
-            line "Ruby_#{name}(std::shared_ptr<Impl> p_) : p(p_) {}"
-            line "operator std::shared_ptr<Impl>() const { return p; }"
-          end
 
           @_inside_wrapped_class = true
 
-          # Default ctor: nil unless the user's init is 0-arg (then we
-          # must allocate and run it so `static Ruby_X OBJ;` works).
+          # Constructors
           if init.is_a?(Vm::Method) && !init_has_params
-            # 0-arg init: default ctor allocates + runs the init body.
-            line "Ruby_#{name}() : p(std::make_shared<Impl>()) {"
-            @_declared_locals = Set.new; @_optional_locals = {}
+            line "#{self_wrapper}() {"
+            @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
             indented { emit(init.body) }
             line "}"
           else
-            line "Ruby_#{name}() = default;"
+            line "#{self_wrapper}() = default;"
           end
 
-          # Nil conversion — assigning RUBY_NIL leaves p as nullptr.
-          line "Ruby_#{name}(const RubyNil&) {}"
-
-          # Parameterised ctor — only if init has params; allocates + runs body.
           if init_has_params
             params = emit_param_list(init)
-            line "Ruby_#{name}(#{params}) : p(std::make_shared<Impl>()) {"
-            @_declared_locals = Set.new; @_optional_locals = {}
+            line "#{self_wrapper}(#{params}) {"
+            @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
             all_param_names(init).each { |p| @_declared_locals << p.to_s }
             indented { emit(init.body) }
             line "}"
           end
 
+          line "const char* rb_class_name() const override { return \"#{name}\"; }"
           emit_newline
-          # Methods DEFINED on this class (skip inherited via module erasure).
+
+          # Instance methods
           cls.methods_table&.each do |mname, method|
             next unless method.is_a?(Vm::Method) && method.body
             next if mname == :initialize
             next unless user_source_location?(method.source_location) || accessor_method?(method)
             next unless method_defined_here?(method, cls)
-            # Skip getters/setters for dropped (write-only std::any) ivars
             if accessor_method?(method) && @_dropped_ivars&.any?
               body = method.body
               ivar_key = if body.is_a?(Ast::InstanceVariableRead)
@@ -564,13 +558,11 @@ module Frozone
 
           @_inside_wrapped_class = false
 
-          # Class variables → static inline members
+          # Class variables
           cvars = collect_class_variables(cls)
-          cvars.each do |cv|
-            line "static inline int64_t cv_#{cv} = 0;"
-          end
+          cvars.each { |cv| line "static inline int64_t cv_#{cv} = 0;" }
 
-          # Eigenclass methods (def self.foo) → static methods
+          # Eigenclass methods (def self.foo)
           eigen = cls.eigenclass rescue nil
           (eigen&.methods_table || {}).each do |mname, method|
             next unless method.is_a?(Vm::Method) && method.body
@@ -578,9 +570,6 @@ module Frozone
             emit_static_class_method(mname, method)
             emit_newline
           end
-
-          line "bool nil_q() const { return !p; }"
-          line "explicit operator bool() const { return (bool)p; }"
         end
         line "};"
         line "template<> inline const char* ruby_class_name<Ruby_#{name}>() { return \"#{name}\"; }"
@@ -592,43 +581,36 @@ module Frozone
       def emit_struct_class(name, cls)
         members = struct_members_for(cls)
         ctor_types = @_ctor_param_types[name] || []
-        line "struct Ruby_#{name} {"
+        line "struct Ruby_#{name} : public RubyObject {"
         @_current_wrapper_name = "Ruby_#{name}"
         @_self_ref_ivars = Set.new
         indented do
-          line "struct Impl {"
-          indented do
-            members.each_with_index do |m, i|
-              t = ctor_types[i] || "int64_t"
-              default = (t == "int64_t") ? " = 0" : (t == "double" ? " = 0.0" : "")
-              line "#{t} iv_#{m}#{default};"
-            end
+          members.each_with_index do |m, i|
+            t = ctor_types[i] || "int64_t"
+            default = (t == "int64_t") ? " = 0" : (t == "double" ? " = 0.0" : "")
+            line "#{t} iv_#{m}#{default};"
           end
-          line "};"
-          line "std::shared_ptr<Impl> p;"
           emit_newline
 
           line "Ruby_#{name}() = default;"
-          line "Ruby_#{name}(const RubyNil&) {}"
 
           params = members.each_with_index.map { |m, i|
             t = ctor_types[i] || "auto"
             "#{t} _#{m}"
           }.join(", ")
-          line "Ruby_#{name}(#{params}) : p(std::make_shared<Impl>()) {"
-          indented { members.each { |m| line "p->iv_#{m} = _#{m};" } }
+          line "Ruby_#{name}(#{params}) {"
+          indented { members.each { |m| line "iv_#{m} = _#{m};" } }
           line "}"
+          line "const char* rb_class_name() const override { return \"#{name}\"; }"
           emit_newline
 
           members.each do |m|
             t = ctor_types[members.index(m)] || "auto"
-            line "#{t} #{m}() const { return p->iv_#{m}; }"
-            line "void set_#{m}(#{t} v) { p->iv_#{m} = v; }"
+            line "#{t} #{m}() const { return iv_#{m}; }"
+            line "void set_#{m}(#{t} v) { iv_#{m} = v; }"
           end
           emit_newline
 
-          line "bool nil_q() const { return !p; }"
-          line "explicit operator bool() const { return (bool)p; }"
         end
         line "};"
         line "template<> inline const char* ruby_class_name<Ruby_#{name}>() { return \"#{name}\"; }"
@@ -867,7 +849,7 @@ module Frozone
           if node.name == :new && node.receiver_node.is_a?(Ast::ConstantRead)
             cn = node.receiver_node.name
             return "RubyString" if cn == :String
-            return "Ruby_#{cn}"
+            return "Ruby_#{cn}*"
           end
           # Arithmetic: if either operand is a double, propagate.
           # String * n → RubyString; String + String → RubyString.
@@ -934,7 +916,7 @@ module Frozone
       def emit_static_class_method(name, method)
         params = emit_param_list(method)
         line "static auto #{cpp_method_name(name)}(#{params}) {"
-        @_declared_locals = Set.new; @_optional_locals = {}
+        @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
@@ -1127,7 +1109,7 @@ module Frozone
           if val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
             cn = val.receiver_node.name
             return "RubyString" if cn == :String
-            return cn == :Array ? "auto" : "Ruby_#{cn}"
+            return cn == :Array ? "auto" : "Ruby_#{cn}*"
           end
           # Indexed read like `arr[i]` — use `auto` (value). Since user
           # class wrappers are shared_ptr-based, a value copy aliases the
@@ -1329,7 +1311,7 @@ module Frozone
         @_bracket_method_name = (mname == :[] && nparams > 1) ? "slice" : nil
         line "auto #{cpp_method_name(mname)}(#{params}) {"
         @_bracket_method_name = nil
-        @_declared_locals = Set.new; @_optional_locals = {}
+        @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
@@ -1376,22 +1358,45 @@ module Frozone
           next if @_declared_locals&.include?(name)
           decl_name = cpp_local_name(name)
           if t == "auto" || t == "auto&"
-            rhs = info[:first_rhs]
-            next unless rhs && rhs_safe_for_decltype?(rhs, param_names_set)
-            rhs_str = cr(rhs)
-            line "std::decay_t<decltype(#{rhs_str})> #{decl_name}{};"
+            ti_t = @_current_method_key ? ti_local_type(@_current_method_key, name) : nil
+            if ti_t && ti_t != "auto"
+              t = ti_t
+            else
+              rhs = info[:first_rhs]
+              next unless rhs && rhs_safe_for_decltype?(rhs, param_names_set)
+              rhs_str = cr(rhs)
+              line "std::decay_t<decltype(#{rhs_str})> #{decl_name}{};"
+              if rhs.is_a?(Ast::MethodCall)
+                if rhs.name == :new && rhs.receiver_node.is_a?(Ast::ConstantRead)
+                  @_pointer_locals << name
+                elsif rhs.name == :[]
+                  arr_t = local_decl_type(rhs.receiver_node)
+                  @_pointer_locals << name if arr_t&.match?(/RubyArray<Ruby_/)
+                end
+              end
+              @_declared_locals << name
+              @_declared_locals << decl_name if decl_name != name
+              next
+            end
+          end
+          if t.start_with?("Ruby_") && !t.end_with?("*")
+            line "#{t}* #{decl_name} = nullptr;"
+            @_pointer_locals << name
+          elsif t.end_with?("*")
+            line "#{t} #{decl_name} = nullptr;"
+            @_pointer_locals << name
           else
-            init = case t
-                   when "int64_t" then " = 0"
-                   when "double" then " = 0.0"
-                   when "bool" then " = false"
-                   else ""
-                   end
-            line "#{t} #{decl_name}#{init};"
+              init = case t
+                     when "int64_t" then " = 0"
+                     when "double" then " = 0.0"
+                     when "bool" then " = false"
+                     else ""
+                     end
+              line "#{t} #{decl_name}#{init};"
+            end
             if (m = t.match(/\Astd::optional<(.+)>\z/))
               (@_optional_locals ||= {})[name] = m[1]
             end
-          end
           @_declared_locals << name
           @_declared_locals << decl_name if decl_name != name
         end
@@ -1436,7 +1441,7 @@ module Frozone
         # per call site (C++20 abbreviated function template).
         params = emit_param_list(init)
         line "Ruby_#{name}(#{params}) {"
-        @_declared_locals = Set.new; @_optional_locals = {}
+        @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         (init.required_params || []).each { |p| @_declared_locals << p.to_s }
         indented { emit(init.body) }
         line "}"
@@ -1496,7 +1501,7 @@ module Frozone
         @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
         ret_type = %w[std::any].include?(@_method_return_type) || @_method_return_type&.start_with?("std::optional") ? @_method_return_type : "auto"
         line "static #{ret_type} #{cpp_method_name(name)}(#{params}) {"
-        @_declared_locals = Set.new; @_optional_locals = {}
+        @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
           body = method.body
@@ -1594,7 +1599,7 @@ module Frozone
 
       def emit_main(execute_block)
         line "int main() {"
-        @_declared_locals = Set.new; @_optional_locals = {}
+        @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         @_current_body = execute_block&.body
         indented do
           line "FROZONE_GC_INIT();"
@@ -1736,14 +1741,7 @@ module Frozone
         when Ast::ClassVariableWrite
           "(cv_#{node.name.to_s.delete_prefix('@@')} = #{cr(node.value_node)})"
         when Ast::InstanceVariableRead
-          key = node.name.to_s.delete_prefix('@')
-          if @_self_ref_ivars&.include?(key) && @_inside_wrapped_class
-            # Self-ref ivar stored as shared_ptr<Impl>; wrap to the outer
-            # wrapper type so method calls / arg passing work normally.
-            "#{@_current_wrapper_name}(#{cpp_ivar(node.name)})"
-          else
-            cpp_ivar(node.name)
-          end
+          cpp_ivar(node.name)
         when Ast::InstanceVariableWrite
           if @_inside_wrapped_class && @_current_wrapper_name
             cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
@@ -1842,6 +1840,12 @@ module Frozone
             if (m = type.to_s.match(/\Astd::optional<(.+)>\z/))
               (@_optional_locals ||= {})[name] = m[1]
             end
+            if type.start_with?("Ruby_") && !type.end_with?("*")
+              type = "#{type}*"
+            end
+            if type.end_with?("*")
+              (@_pointer_locals ||= Set.new) << name
+            end
             "#{type} #{name} = #{cr(val)}"
           end
         when Ast::If then cr_if(node)
@@ -1899,7 +1903,9 @@ module Frozone
               "#{recv}[#{cr(idx_node)}] = #{cr(args[1])}"
             end
           else
-            "#{cr(node.receiver_node)}.#{cpp_method_name(node.name)}(#{(node.arg_nodes || []).map { |a| cr(a) }.join(', ')})"
+            recv_s = cr(node.receiver_node)
+            op = recv_t_is_ptr?(node.receiver_node) ? "->" : "."
+            "#{recv_s}#{op}#{cpp_method_name(node.name)}(#{(node.arg_nodes || []).map { |a| cr(a) }.join(', ')})"
           end
         when Ast::Sequence then node.nodes.map { |n| cr(n) }.join("; ")
         when Ast::While
@@ -2038,10 +2044,14 @@ module Frozone
           else_inner = unwrap_single_sequence(node.else_node)
           if else_inner.is_a?(Ast::NilLiteral)
             t = infer_expr_type(then_inner)
-            else_s = "#{t}(RUBY_NIL)" if t && t.start_with?("Ruby_")
+            if t&.start_with?("Ruby_")
+              else_s = "(#{t})nullptr"
+            end
           elsif then_inner.is_a?(Ast::NilLiteral)
             t = infer_expr_type(else_inner)
-            then_s = "#{t}(RUBY_NIL)" if t && t.start_with?("Ruby_")
+            if t&.start_with?("Ruby_")
+              then_s = "(#{t})nullptr"
+            end
           else
             t1 = local_decl_type(then_inner)
             t2 = local_decl_type(else_inner)
@@ -2271,10 +2281,10 @@ module Frozone
           return "RubyString()"
         end
 
-        # ClassName.new(args) → Ruby_ClassName(args) constructor call
+        # ClassName.new(args) → new Ruby_ClassName(args)
         if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name != :Array
           arg_strs = args.map { |a| cr(a) }.join(", ")
-          return "Ruby_#{recv.name}(#{arg_strs})"
+          return "new Ruby_#{recv.name}(#{arg_strs})"
         end
 
         # Array.new(size, fill) / Array.new(size)
@@ -2517,9 +2527,12 @@ module Frozone
         # itself on receiver: identity
         return cr(recv) if name == :itself && args.empty?
 
-        # General: recv.method(args)
+        # General: recv.method(args) or recv->method(args) for pointer types
         arg_strs = args.map { |a| cr(a) }.join(", ")
-        "#{cr(recv)}.#{cpp_method_name(name)}(#{arg_strs})"
+        recv_s = cr(recv)
+        is_ptr = recv_t_is_ptr?(recv)
+        op = is_ptr ? "->" : "."
+        "#{recv_s}#{op}#{cpp_method_name(name)}(#{arg_strs})"
       end
     end
   end

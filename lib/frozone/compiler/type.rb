@@ -166,7 +166,8 @@ module Frozone
         when :NilClass then "RubyNil"
         when :TrueClass, :FalseClass then "bool"
         when nil then "auto"
-        else "Ruby_#{@class_name}"
+        when :Object, :BasicObject then "RubyObject*"
+        else "Ruby_#{@class_name}*"
         end
       end
 
