@@ -400,11 +400,15 @@ module Frozone
         end
         line "struct Ruby_#{name} {"
         init = cls.methods_table&.fetch(:initialize, nil)
-        ivars = []
-        if init.is_a?(Vm::Method) && init.body
-          collect_ivars_from_body(init.body, ivars)
-        end
         ivar_types = infer_ivar_types(cls)
+        # Collect ivars from ALL methods (reads + writes) — any ivar
+        # referenced in any method needs a slot in Impl.
+        all_ivars = Set.new
+        (cls.methods_table || {}).each_value do |m|
+          next unless m.is_a?(Vm::Method) && m.body
+          collect_ivars_from_body(m.body, all_ivars)
+        end
+        ivars = all_ivars.to_a
         read_ivars = collect_read_ivars(cls)
         # Drop write-only std::any ivars — they're dead storage (never accessed
         # via getter) and std::any copy overhead dominates (e.g. splay's @value).
@@ -724,8 +728,6 @@ module Frozone
         candidates = {}   # ivar_name => Set[cpp_type]
         (cls.methods_table || {}).each do |mname, method|
           next unless method.is_a?(Vm::Method) && method.body
-          # Only consider methods defined on THIS class (post-flatten).
-          next unless method_defined_here?(method, cls)
           # Param type map for THIS method. For initialize, use ctor
           # call-site types. For other methods, use per-method call-site
           # arg types collected across the whole program.
