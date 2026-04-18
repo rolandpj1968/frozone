@@ -760,7 +760,7 @@ module Frozone
         if node.is_a?(Ast::MethodCall) && node.receiver_node
           recv_t = infer_expr_type_ctx(node.receiver_node, cls_ctx)
           if recv_t&.start_with?("Ruby_")
-            cls_name = recv_t.sub("Ruby_", "").to_sym
+            cls_name = recv_t.delete_prefix("Ruby_").delete_suffix("*").to_sym
             rt = (@_class_method_return_types || {})[cls_name]&.[](node.name)
             return rt if rt
           end
@@ -1088,14 +1088,21 @@ module Frozone
         t = local_decl_type(val)
         return t unless t == "auto"
         if val.is_a?(Ast::MethodCall) && val.receiver_node.nil?
-          # Prefer the cached return type (populated from infer_method_return_type
-          # which looks at all explicit returns).
           rt = (@_top_level_method_return_types || {})[val.name]
           return rt if rt
           m = lookup_top_level_method(val.name)
           if m && m.body
             last = m.body.is_a?(Ast::Sequence) ? m.body.nodes.last : m.body
             return deep_decl_type(last) if last
+          end
+        end
+        # Instance method call: check class method return types
+        if val.is_a?(Ast::MethodCall) && val.receiver_node
+          recv_t = local_decl_type(val.receiver_node)
+          if recv_t&.start_with?("Ruby_")
+            cls_name = recv_t.delete_prefix("Ruby_").delete_suffix("*").to_sym
+            rt = (@_class_method_return_types || {})[cls_name]&.[](val.name)
+            return rt if rt
           end
         end
         "auto"
@@ -2551,7 +2558,7 @@ module Frozone
           sym = args[0].value.respond_to?(:raw) ? args[0].value.raw.to_sym : args[0].value.to_sym
           recv_t = local_decl_type(recv)
           if recv_t&.start_with?("Ruby_")
-            cls_name = recv_t.sub("Ruby_", "").to_sym
+            cls_name = recv_t.delete_prefix("Ruby_").delete_suffix("*").to_sym
             cls = @top_level_scope&.constants_table&.fetch(cls_name, nil)
             cls ||= find_nested_class(@top_level_scope, cls_name)
             if cls.is_a?(Vm::ClassObject)
