@@ -1046,7 +1046,7 @@ module Frozone
         when Ast::LocalVariableRead
           # Try to resolve by finding the variable's first assignment in
           # the current body.
-          if @_current_body
+          if @_current_body && !@_skip_look_ahead
             later = look_ahead_local_type(val.name.to_s, @_current_body)
             return later if later
           end
@@ -1301,8 +1301,15 @@ module Frozone
       # first-defined in an inner scope stay visible for subsequent outer
       # uses (matches Ruby's method-wide local scope vs C++ block scope).
       # Locals whose type we can't resolve are left to per-site decl.
+      def ast_node_count(node)
+        return 0 unless node.is_a?(Ast::Node)
+        1 + node.children.sum { |c| ast_node_count(c) }
+      end
+
       def emit_hoisted_locals(body, param_names)
         @_current_body = body
+        @_skip_look_ahead = ast_node_count(body) > 5000
+        return if @_skip_look_ahead
         param_names_set = param_names.map(&:to_s).to_set
         collect_hoistable_locals(body, param_names).each do |name, info|
           t = info[:type]
@@ -1765,7 +1772,7 @@ module Frozone
           else
             @_declared_locals << name
             type = local_decl_type(val)
-            if val.is_a?(Ast::NilLiteral) && @_current_body
+            if val.is_a?(Ast::NilLiteral) && @_current_body && !@_skip_look_ahead
               later = look_ahead_local_type(name, @_current_body)
               type = later if later
             end
@@ -1908,23 +1915,31 @@ module Frozone
 
       def cr_rescue(node)
         indent_str = "  " * @indent
-        inner_indent = "  " * (@indent + 1)
+        clauses = node.rescue_clauses || []
         body = cr_block_body(node.body)
-        parts = ["try {\n#{body}\n#{indent_str}}"]
-        (node.rescue_clauses || []).each do |clause|
-          exc_types = (clause.exception_nodes || []).map do |en|
-            en.is_a?(Ast::ConstantRead) ? "Ruby_#{en.name}" : "RubyException"
+        if clauses.empty? && !node.ensure_node
+          return body
+        end
+        parts = []
+        if clauses.any?
+          parts << "try {\n#{body}\n#{indent_str}}"
+          clauses.each do |clause|
+            exc_types = (clause.exception_nodes || []).map do |en|
+              en.is_a?(Ast::ConstantRead) ? "Ruby_#{en.name}" : "RubyException"
+            end
+            exc_types = ["Ruby_StandardError"] if exc_types.empty?
+            exc_types.each do |et|
+              var = clause.var_name ? " #{clause.var_name}" : ""
+              rescue_body = cr_block_body(clause.body)
+              parts << " catch (#{et}&#{var}) {\n#{rescue_body}\n#{indent_str}}"
+            end
           end
-          exc_types = ["Ruby_StandardError"] if exc_types.empty?
-          exc_types.each do |et|
-            var = clause.var_name ? " #{clause.var_name}" : ""
-            rescue_body = cr_block_body(clause.body)
-            parts << " catch (#{et}&#{var}) {\n#{rescue_body}\n#{indent_str}}"
-          end
+        else
+          parts << "{\n#{body}\n#{indent_str}}"
         end
         if node.ensure_node
           ensure_body = cr_block_body(node.ensure_node)
-          parts << " /* ensure */ { #{ensure_body}; }"
+          parts << "\n#{indent_str}#{ensure_body};"
         end
         parts.join
       end
