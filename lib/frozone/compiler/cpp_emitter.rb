@@ -29,12 +29,24 @@ module Frozone
       def generate(execute_block:, top_level_scope:, globals:, stub_file: nil)
         @stub_file = stub_file
         @top_level_scope = top_level_scope
-        # Ivar-type fixpoint: repeat ctor-arg + ivar inference until stable
-        # or budget exhausted. Lets patterns like
-        #   @root = Node.new(...)              # SplayTree infers @root: Ruby_Node
-        #   node.set_left(@root)               # next pass: set_left arg is Ruby_Node
-        #   def set_left(x); @left = x; end    # Node infers @left: Ruby_Node
-        # converge in two iterations.
+
+        # ── Shared TI (same engine as Crystal backend) ──────────────
+        require_relative 'type_inference'
+        user_methods = {}
+        (top_level_scope.methods_table || {}).each do |name, m|
+          user_methods[name] = m if m.is_a?(Vm::Method) && user_source_location?(m.source_location)
+        end
+        user_classes = {}
+        collect_user_classes(top_level_scope).each { |name, cls| user_classes[name] = cls }
+        ti = TypeInference.new(
+          user_methods: user_methods,
+          user_classes: user_classes,
+          execute_block: execute_block,
+          constants: (top_level_scope.constants_table || {}).dup
+        )
+        @ti_env = ti.run
+
+        # ── Ad-hoc TI (legacy — being replaced by shared TI) ───────
         @_class_ivar_types = {}
         @_class_method_return_types = {}
         @_top_level_method_return_types = {}
@@ -55,13 +67,11 @@ module Frozone
             @_class_method_return_types[cls.name] = ret_types
           end
           @_current_wrapper_name = nil
-          # Top-level method return types (free functions).
           (top_level_scope.methods_table || {}).each do |mname, m|
             next unless m.is_a?(Vm::Method) && user_source_location?(m.source_location)
             rt = infer_method_return_type(m)
             @_top_level_method_return_types[mname] = rt if rt
           end
-          $stderr.puts "DBG top_level_rt=#{@_top_level_method_return_types.inspect}" if ENV['CPP_DEBUG']
           break unless changed
         end
         emit_header
@@ -97,6 +107,27 @@ module Frozone
       #   - Inside a wrapped class method/ctor body: `p->iv_<name>`
       #     (goes through the shared_ptr for reference semantics).
       #   - Outside (shouldn't happen for user code): bare `iv_<name>`.
+      # Query the shared TI for a type, returning a C++ type string.
+      # Falls back to nil if the slot isn't typed.
+      def ti_type_cpp(slot)
+        return nil unless @ti_env
+        ty = @ti_env.type_at(slot)
+        return nil unless ty && !ty.bottom?
+        ty.to_cpp
+      end
+
+      def ti_ivar_type(class_name, ivar_name)
+        ti_type_cpp([:ivar, class_name, :"@#{ivar_name}"])
+      end
+
+      def ti_local_type(method_key, local_name)
+        ti_type_cpp([:local, method_key, local_name.to_sym])
+      end
+
+      def ti_return_type(method_key)
+        ti_type_cpp([:return, method_key])
+      end
+
       def cpp_ivar(name)
         stripped = name.to_s.delete_prefix('@')
         @_inside_wrapped_class ? "p->iv_#{stripped}" : "iv_#{stripped}"
@@ -436,7 +467,7 @@ module Frozone
           indented do
             ivars.uniq.each do |iv|
               key = iv.to_s.delete_prefix('@')
-              t = ivar_types[key] || "int64_t"
+              t = ti_ivar_type(name, key) || ivar_types[key] || "int64_t"
               if self_ref_ivars.include?(key)
                 # Recursive field: store as shared_ptr<Impl> (same type).
                 line "std::shared_ptr<Impl> iv_#{key};"
@@ -1909,6 +1940,8 @@ module Frozone
           else
             "_block(#{yield_args.map { |a| cr(a) }.join(', ')})"
           end
+        when Ast::SelfLiteral
+          @_inside_wrapped_class ? "(*this)" : "0LL"
         when Ast::Rescue
           cr_rescue(node)
         else "/* UNSUPPORTED: #{node.class.name.split('::').last} */"

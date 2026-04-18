@@ -141,6 +141,37 @@ module Frozone
         end
       end
 
+      def to_cpp
+        case @kind
+        when :bottom then "auto"
+        when :i64 then nullable? ? "std::optional<int64_t>" : "int64_t"
+        when :f64 then nullable? ? "std::optional<double>" : "double"
+        when :array_scalar
+          elem_cpp = @elem&.i64? ? "int64_t" : "double"
+          "RubyArray<#{elem_cpp}>"
+        when :class_type then class_to_cpp
+        else "auto"
+        end
+      end
+
+      def class_to_cpp
+        case @class_name
+        when :String then "RubyString"
+        when :Symbol then "RubySymbol"
+        when :Array
+          if @elem&.raw?
+            "RubyArray<#{@elem.i64? ? 'int64_t' : 'double'}>"
+          else
+            "RubyArray<int64_t>"
+          end
+        when :Hash then "RubyHash<RubySymbol, int64_t>"
+        when :NilClass then "RubyNil"
+        when :TrueClass, :FalseClass then "bool"
+        when nil then "auto"
+        else "Ruby_#{@class_name}"
+        end
+      end
+
       # Storage-context version of to_crystal: for i64 types with
       # known bounds, returns the narrowest Crystal integer type
       # that fits (UInt8 / Int16 / etc.). Used for array element
