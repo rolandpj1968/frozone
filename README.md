@@ -54,24 +54,34 @@ structaset (`TheClass = Struct.new(:v0, :v1, :v2, :levar)`) was a long-standing 
 
 Key compiler features: whole-program type inference with 1-CFA constructor specialisation, `emit_raw_expr` boxing-free typed overloads, class-typed parameter devirtualisation, native `Array(Int64)`/`Array(Float64)` ivar and constant promotion, compile-time `respond_to?`/`is_a?` folding, and kwargs in typed overloads. See [docs/compilation.md](docs/compilation.md) for architecture.
 
-### Experimental C++ Backend
+### C++ Backend
 
-A parallel C++ emitter sits alongside Crystal, invoked via `FROZONE_CPP=1 bundle exec ruby frozone.rb --aot <script>`. **20 of 24 benchmarks** currently build and run correctly; Crystal passes all but splay-until-recently. The C++ output lives in `cpp/gen/` and is built with `g++ -O2 -std=c++20`.
+A parallel C++ backend shares the same **TypeInference** engine as Crystal.
+Invoked via `FROZONE_CPP=1 bundle exec ruby frozone.rb --aot <script>`.
+**20 of 24 benchmarks** pass end-to-end on the shared TI (no ad-hoc type
+inference). Output lives in `cpp/gen/`, built with `g++ -O2 -std=c++20`.
 
-Crystal's union-typed generic dispatch and other type-system rules fight our closed-world type inference in ~8 distinct ways (`Int32` for `<=>`, union return-type conformance, nullable ivar flow-narrowing, `Bool` vs `RubyBool`, etc.). Each friction point burns codegen complexity. C++ emits our types directly with no translation layer — C++20 `auto` params and templates carry the type inference load, and a small header-only runtime (`<memory>`, `<vector>`, `<charconv>`) covers the rest.
-
-Per-benchmark wall-clock, C++ -O2 vs Crystal --release (both AOT-compiled):
+The C++ backend uses a **pointer-based object model**: user classes inherit
+from `RubyObject` (matching Ruby's class hierarchy rooted at `BasicObject`),
+objects are heap-allocated raw pointers (nil = nullptr), and Ruby's reference
+semantics come for free. No `shared_ptr`, no refcount traffic. Memory
+management via Boehm GC (opt-in) or the [Dustman](https://github.com/rolandpj1968/dustman)
+precise collector (in development).
 
 | Bench | C++ | Crystal | Winner |
 |-------|----:|--------:|--------|
-| fib | 0.03s | 0.09s | **C++ 3.0×** |
-| matmul | 0.04s | 0.25s | **C++ 6.2×** |
-| nqueens | 4.97s | 6.54s | **C++ 1.3×** |
-| loops_times | 0.10s | 0.14s | **C++ 1.4×** |
-| binarytrees | 4.09s | 2.00s | Crystal 2.0× |
-| str_concat | 2.78s | 1.00s | Crystal 2.8× |
+| fib | 0.04s | 0.09s | **C++ 2.6×** |
+| matmul | 0.08s | 0.25s | **C++ 3.1×** |
+| nbody | 0.11s | 0.12s | **C++ 1.1×** |
+| nqueens | 5.89s | 6.57s | **C++ 1.1×** |
+| sudoku | 0.007s | 0.42s | **C++ 60×** |
+| binarytrees | 4.18s | 2.00s | Crystal 2.1× |
+| str_concat | 2.89s | 0.99s | Crystal 2.9× |
 
-C++ wins compute-heavy; Crystal wins allocation-heavy (Boehm GC vs our `std::shared_ptr` atomic refcount). Neither is a decided winner yet — the C++ backend is primarily a **reduction in type-system friction** more than a perf play. See [docs/cpp-backend.md](docs/cpp-backend.md) for the pivot reasoning and architecture.
+C++ wins compute-heavy (no type-system translation tax). Crystal wins
+allocation-heavy (Boehm GC amortises better). Both backends beat YJIT on
+every compute benchmark. See [docs/cpp-backend.md](docs/cpp-backend.md)
+for architecture and the full benchmark table.
 
 ### AoT Compilation
 
@@ -113,19 +123,25 @@ bundle exec rake core                    # ruby/spec core suite
 
 **Compiler:**
 - [docs/compilation.md](docs/compilation.md) — AoT compiler architecture, type inference, benchmarks
+- [docs/cpp-backend.md](docs/cpp-backend.md) — C++ backend: pointer-based object model, shared TI, Boehm GC
+- [docs/cpp-object-model.md](docs/cpp-object-model.md) — C++ object model design (RubyBasicObject hierarchy)
 - [docs/type-lattice.md](docs/type-lattice.md) — formal type lattice specification
 - [docs/optimisations.md](docs/optimisations.md) — per-optimization flag reference
+- [docs/gc-design.md](docs/gc-design.md) — GC design: Immix, TLABs, generational, precise collection
+- [docs/perf-suite.md](docs/perf-suite.md) — benchmark suite and dual-backend performance data
 
 ## Architecture
 
 ```
 lib/frozone/vm/          VM runtime (ClassObject, Method, Frame, Context, intrinsics)
 lib/frozone/ast/         AST nodes evaluated by the tree-walker
-lib/frozone/compiler/    AoT compiler (Codegen, TypeInference, CrystalEmitter, TypeMapper)
+lib/frozone/compiler/    AoT compiler (Codegen, TypeInference, CrystalEmitter, CppEmitter)
 lib/frozone/vm/parser.rb Prism-based front-end
 lib/frozone/vm/wq_parser.rb  whitequark parser front-end (self-hostable path)
 lib/core/4.0/            Ruby stdlib in Ruby — parsed at VM startup, compilable as user code
 crystal/src/             Crystal runtime (RubyObject, RubyInteger, RubyString, etc.)
+cpp/runtime/frozone.hpp  C++ runtime (RubyBasicObject, RubyObject, RubyString, etc.)
+cpp/gen/                 Generated C++ source files
 bench/stubs/             Compilation stubs for benchmarks
 bench/specs/             Compilable spec files
 spec/                    RSpec unit tests + ruby-spec integration
