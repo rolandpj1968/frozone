@@ -133,7 +133,8 @@ module Frozone
         return unless method.is_a?(Vm::Method)
         mkey = @_current_method_key
         (method.required_params || []).each_with_index do |p, i|
-          pt = mkey ? ti_local_type(mkey, p.to_s) : nil
+          pt = ti_local_type(mkey, p.to_s)
+          pt ||= ti_type_cpp([:param, mkey, i])  # TI stores params under :param slots
           @_pointer_locals << p.to_s if user_class_ptr_type?(pt)
         end
       end
@@ -149,6 +150,11 @@ module Frozone
         if recv.is_a?(Ast::LocalVariableRead)
           t = ti_local_type(@_current_method_key, recv.name.to_s)
           return user_class_ptr_type?(t)
+        end
+        # Array index on pointer-element array: arr[i] → Ruby_X*
+        if recv.is_a?(Ast::MethodCall) && recv.name == :[] && recv.receiver_node.is_a?(Ast::LocalVariableRead)
+          arr_t = ti_local_type(@_current_method_key, recv.receiver_node.name.to_s)
+          return true if arr_t&.match?(/RubyArray<Ruby_/)
         end
         # Chained method call on pointer → check if method returns pointer
         if recv.is_a?(Ast::MethodCall) && recv.receiver_node && recv_t_is_ptr?(recv.receiver_node)
@@ -1234,7 +1240,7 @@ module Frozone
             unless seen.key?(name) || param_names.include?(name.to_sym) || param_names.include?(name)
               # Prefer shared TI (no body re-walking), fall back to
               # look-ahead scan (skipped for large methods).
-              widened = @_current_method_key ? ti_local_type(@_current_method_key, name) : nil
+              widened = ti_local_type(@_current_method_key, name)
               widened ||= local_decl_type(node.value_node)
               seen[name] = { type: widened, first_rhs: node.value_node }
               order << name
@@ -1369,6 +1375,7 @@ module Frozone
           next if @_declared_locals&.include?(name)
           decl_name = cpp_local_name(name)
           if t == "auto" || t == "auto&"
+            ti_t = ti_local_type(@_current_method_key, name)
             if ti_t && ti_t != "auto"
               t = ti_t
             else
@@ -1834,7 +1841,7 @@ module Frozone
           else
             @_declared_locals << name
             # Shared TI for local type, fall back to expression-level inference
-            type = @_current_method_key ? ti_local_type(@_current_method_key, name) : nil
+            type = ti_local_type(@_current_method_key, name)
             type ||= local_decl_type(val)
             if (m = type.to_s.match(/\Astd::optional<(.+)>\z/))
               (@_optional_locals ||= {})[name] = m[1]
