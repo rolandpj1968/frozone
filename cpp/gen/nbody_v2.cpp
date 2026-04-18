@@ -81,6 +81,7 @@ static void offset_momentum(RubyArray<Ruby_Planet*>& bodies) {
 }
 
 int main() {
+  FROZONE_GC_INIT();
   double last_x = 0.0;
   for (int64_t _i = 0; _i < 100; _i++) {
     int64_t nbodies = NBODIES;

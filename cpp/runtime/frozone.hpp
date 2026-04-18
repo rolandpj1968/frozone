@@ -7,6 +7,9 @@
 
 #ifdef FROZONE_USE_BOEHM_GC
 #include <gc/gc.h>
+#define FROZONE_GC_INIT() GC_INIT()
+#else
+#define FROZONE_GC_INIT()
 #endif
 
 #include <cstdio>

@@ -47,6 +47,7 @@ module Frozone
           constants: (top_level_scope.constants_table || {}).dup
         )
         @ti_env = ti.run
+        @ti_env.each_typed { |s, t| $stderr.puts "TI #{s.inspect}: #{t.to_cpp} nullable=#{t.nullable?}" if s.is_a?(Array) && s[0] == :return } if ENV['CPP_DEBUG']
 
         # ── Ad-hoc TI (legacy — being replaced by shared TI) ───────
         @_class_ivar_types = {}
@@ -129,7 +130,10 @@ module Frozone
       end
 
       def ti_return_type(method_key)
-        ti_type_cpp([:return, method_key])
+        t = ti_type_cpp([:return, method_key])
+        # RubyNil means TI only saw nil returns — the ad-hoc TI handles
+        # mixed return paths (value + nil) better via std::optional.
+        t == "RubyNil" ? nil : t
       end
 
       def collect_module_methods_for_ti(scope, methods, seen = Set.new)
@@ -378,7 +382,7 @@ module Frozone
 
       def emit_module_method(name, method)
         params = emit_param_list(method)
-        @_method_return_type = infer_method_return_type(method)
+        @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
         ret_type = %w[std::any].include?(@_method_return_type) || @_method_return_type&.start_with?("std::optional") ? @_method_return_type : "auto"
         line "#{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}
@@ -931,7 +935,7 @@ module Frozone
         params = emit_param_list(method)
         line "static auto #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}
-        @_method_return_type = infer_method_return_type(method)
+        @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
           body = method.body
@@ -1326,7 +1330,7 @@ module Frozone
         line "auto #{cpp_method_name(mname)}(#{params}) {"
         @_bracket_method_name = nil
         @_declared_locals = Set.new; @_optional_locals = {}
-        @_method_return_type = infer_method_return_type(method)
+        @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }
         indented do
           body = method.body
@@ -1489,7 +1493,7 @@ module Frozone
         params = emit_param_list(method)
         @_method_yields = method.uses_block || body_has_yield?(method.body)
         params = params.empty? ? "auto _block" : "#{params}, auto _block" if @_method_yields
-        @_method_return_type = infer_method_return_type(method)
+        @_method_return_type = ti_return_type(@_current_method_key) || infer_method_return_type(method)
         ret_type = %w[std::any].include?(@_method_return_type) || @_method_return_type&.start_with?("std::optional") ? @_method_return_type : "auto"
         line "static #{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}
@@ -1593,6 +1597,7 @@ module Frozone
         @_declared_locals = Set.new; @_optional_locals = {}
         @_current_body = execute_block&.body
         indented do
+          line "FROZONE_GC_INIT();"
           # Hoist locals for main too — same rationale as method bodies.
           emit_hoisted_locals(execute_block.body, []) if execute_block&.body
           emit(execute_block.body) if execute_block&.body
