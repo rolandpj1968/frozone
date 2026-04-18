@@ -5,6 +5,10 @@
 #ifndef FROZONE_RUNTIME_HPP
 #define FROZONE_RUNTIME_HPP
 
+#ifdef FROZONE_USE_BOEHM_GC
+#include <gc/gc.h>
+#endif
+
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
@@ -368,20 +372,25 @@ template<typename T> static inline bool ruby_nil_q(const T& v) {
 // reference semantics (copy = alias, nil = nullptr).
 class RubyBasicObject {
 public:
+#ifdef FROZONE_USE_BOEHM_GC
+  void* operator new(size_t size) { return GC_MALLOC(size); }
+  void operator delete(void*) {}
+#endif
   virtual ~RubyBasicObject() = default;
   virtual const char* rb_class_name() const { return "BasicObject"; }
   virtual RubyString rb_to_s() const { return RubyString("#<BasicObject>"); }
   virtual bool rb_equal(const RubyBasicObject* other) const { return this == other; }
 };
 
-class RubyKernelObject : public RubyBasicObject {
+// RubyObject: default base for user classes (BasicObject + Kernel).
+class RubyObject : public RubyBasicObject {
 public:
   const char* rb_class_name() const override { return "Object"; }
   RubyString rb_to_s() const override { return RubyString("#<Object>"); }
 };
 
-// Object.new — empty class with universal "GenericObject" class name.
-struct Ruby_Object {};
+// Legacy Ruby_Object alias (used by Object.new emission).
+using Ruby_Object = RubyObject;
 
 // .class method — template dispatches on runtime type.
 template<typename T> static inline const char* ruby_class_name() { return "Object"; }

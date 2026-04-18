@@ -10,7 +10,7 @@ static const int64_t N = 20000LL;
 static const int64_t NBODIES = 5LL;
 static const double DT = 0.01;
 
-struct Ruby_Planet : public RubyKernelObject {
+struct Ruby_Planet : public RubyObject {
   double iv_x = 0.0, iv_y = 0.0, iv_z = 0.0;
   double iv_vx = 0.0, iv_vy = 0.0, iv_vz = 0.0;
   double iv_mass = 0.0;
