@@ -47,7 +47,13 @@ Two AOT backends: **Crystal** (24/24 passing, Boehm GC) and **C++** (20/24 passi
 | str\_concat ×100 | **992** | 2894 | 5248 | 4502 | **5.3×** | **4.5×** |
 | splay ×200 | **13835** | 15231 | 20349 | 13417 | **1.5×** | **1.0×** |
 
-All times in wall-clock milliseconds. **Both backends beat YJIT on every compute benchmark.** C++ wins compute-heavy (fib 63× MRI, sudoku 1021× MRI); Crystal wins allocation-heavy (Boehm GC amortises better than C++'s current allocator).
+All times in wall-clock milliseconds. **Both backends beat YJIT on every compute benchmark.** C++ wins compute-heavy (fib 63× MRI); Crystal wins allocation-heavy (Boehm GC amortises better than C++'s current allocator).
+
+*Note: sudoku's extreme C++ ratio (1021×) is likely inflated by GCC
+aggressively optimising the benchmark loop. Micro-benchmarks (accessor,
+ivar, struct) show similar effects — the optimiser can prove the loop
+body is dead or constant. The compute-heavy benchmarks (fib, matmul,
+nbody, nqueens, fannkuchredux) are the most reliable comparisons.*
 
 The C++ backend uses a **pointer-based object model**: user classes inherit
 from `RubyObject` (matching Ruby's `BasicObject` hierarchy), objects are
