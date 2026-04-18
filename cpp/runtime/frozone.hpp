@@ -362,6 +362,7 @@ inline std::optional<T> ruby_to_opt(U&& v) {
 }
 
 static inline bool ruby_nil_q(const RubyTree& t) { return t.nil_q(); }
+template<typename T> static inline bool ruby_nil_q(T* p) { return p == nullptr; }
 template<typename T> static inline bool ruby_nil_q(const std::shared_ptr<T>& p) { return !p; }
 template<typename T> static inline bool ruby_nil_q(const std::optional<T>& o) { return !o.has_value(); }
 template<typename T> static inline bool ruby_nil_q(const T& v) {

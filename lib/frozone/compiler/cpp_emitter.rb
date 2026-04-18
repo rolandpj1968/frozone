@@ -117,7 +117,7 @@ module Frozone
         ty = @ti_env.type_at(slot)
         return nil unless ty && !ty.bottom?
         cpp = ty.to_cpp
-        return nil if cpp == "auto"
+        return nil if cpp == "auto" || cpp == "std::any" || cpp == "RubyObject*"
         cpp
       end
 
@@ -131,9 +131,12 @@ module Frozone
 
       def ti_return_type(method_key)
         t = ti_type_cpp([:return, method_key])
-        # RubyNil means TI only saw nil returns — the ad-hoc TI handles
-        # mixed return paths (value + nil) better via std::optional.
-        t == "RubyNil" ? nil : t
+        return nil if t == "RubyNil"
+        # RubyObject* as return type only works if ALL return paths produce
+        # objects inheriting from RubyObject. Builtins (Hash, Array, String)
+        # don't inherit yet — fall back to std::any for these cases.
+        return "std::any" if t == "RubyObject*"
+        t
       end
 
       def collect_module_methods_for_ti(scope, methods, seen = Set.new)
