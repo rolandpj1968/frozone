@@ -41,8 +41,52 @@
 #include <optional>
 #include <any>
 
-class RubyString {
+// ── Forward declarations ─────────────────────────────────────────────
+// Built-ins inherit from RubyObject so heterogeneous unions (e.g. in
+// attr_accessor :value holding both Hash and PayloadNode) meet at a
+// common base — one pointer type that Dustman can trace uniformly,
+// replacing the std::any escape hatch.
+class RubyString;
+
+// ── Ruby class hierarchy (declarations) ──────────────────────────────
+class RubyBasicObject {
 public:
+#ifdef FROZONE_USE_BOEHM_GC
+  void* operator new(size_t size) { return GC_MALLOC(size); }
+  void operator delete(void*) {}
+#endif
+  virtual ~RubyBasicObject() = default;
+  virtual const char* rb_class_name() const { return "BasicObject"; }
+  virtual RubyString rb_to_s() const;  // defined after RubyString
+  virtual bool rb_equal(const RubyBasicObject* other) const { return this == other; }
+};
+
+class RubyObject : public RubyBasicObject {
+public:
+  const char* rb_class_name() const override { return "Object"; }
+  RubyString rb_to_s() const override;  // defined after RubyString
+};
+
+using Ruby_Object = RubyObject;
+
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<RubyBasicObject> : dustman::FieldList<RubyBasicObject> {};
+template<> struct dustman::Tracer<RubyObject> : dustman::FieldList<RubyObject> {};
+#endif
+
+class RubyString : public RubyObject {
+public:
+  // RubyString is used heavily as a value type — in std::any, in
+  // RubyArray<RubyString>, in RubyHash<K, RubyString>, as locals. std::any
+  // internally does `new RubyString(x)` / `delete ptr`, which would route
+  // through RubyBasicObject's Boehm-aware `operator new` → GC_MALLOC, but
+  // std::any's external storage lives in unordered_map nodes that Boehm
+  // doesn't scan, causing premature reclaim. Override operator new/delete
+  // here back to the global heap. `dustman::alloc<RubyString>` bypasses
+  // operator new entirely, so Dustman management still works when requested.
+  static void* operator new(size_t n) { return ::operator new(n); }
+  static void operator delete(void* p) noexcept { ::operator delete(p); }
+
   // Ruby-semantic byte string with UTF-8 / BINARY encoding awareness.
   // .length counts UTF-8 codepoints when tagged UTF-8; raw bytes
   // when tagged BINARY. Encoding promotion on << matches MRI:
@@ -118,8 +162,18 @@ public:
   bool operator<=(const RubyString& o) const { return bytes <= o.bytes; }
   bool operator>(const RubyString& o) const { return bytes > o.bytes; }
   bool operator>=(const RubyString& o) const { return bytes >= o.bytes; }
+
+  const char* rb_class_name() const override { return "String"; }
+  RubyString rb_to_s() const override { return *this; }
 };
 using Ruby_String = RubyString;
+
+inline RubyString RubyBasicObject::rb_to_s() const { return RubyString("#<BasicObject>"); }
+inline RubyString RubyObject::rb_to_s() const { return RubyString("#<Object>"); }
+
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<RubyString> : dustman::FieldList<RubyString> {};
+#endif
 
 // ---------------------------------------------------------------------
 // RubySymbol — interned string. Ruby symbols with the same text are the
@@ -398,39 +452,10 @@ template<typename T> static inline bool ruby_nil_q(const T& v) {
   else return false;
 }
 
-// ── Ruby class hierarchy ────────────────────────────────────────────
-// Base class for all Ruby objects in the pointer-based object model.
-// User classes and builtins inherit from this. Pointers give Ruby's
-// reference semantics (copy = alias, nil = nullptr).
-class RubyBasicObject {
-public:
-#ifdef FROZONE_USE_BOEHM_GC
-  void* operator new(size_t size) { return GC_MALLOC(size); }
-  void operator delete(void*) {}
-#endif
-  virtual ~RubyBasicObject() = default;
-  virtual const char* rb_class_name() const { return "BasicObject"; }
-  virtual RubyString rb_to_s() const { return RubyString("#<BasicObject>"); }
-  virtual bool rb_equal(const RubyBasicObject* other) const { return this == other; }
-};
+// RubyBasicObject / RubyObject / RubyString declarations and Dustman
+// Tracers moved to the top of the header (before RubyString) so RubyString
+// can inherit from RubyObject. See there.
 
-// RubyObject: default base for user classes (BasicObject + Kernel).
-class RubyObject : public RubyBasicObject {
-public:
-  const char* rb_class_name() const override { return "Object"; }
-  RubyString rb_to_s() const override { return RubyString("#<Object>"); }
-};
-
-// Legacy Ruby_Object alias (used by Object.new emission).
-using Ruby_Object = RubyObject;
-
-// Dustman tracers for built-in base types. No gc_ref fields → empty FieldList.
-#ifdef FROZONE_USE_DUSTMAN_GC
-template<> struct dustman::Tracer<RubyBasicObject> : dustman::FieldList<RubyBasicObject> {};
-template<> struct dustman::Tracer<RubyObject> : dustman::FieldList<RubyObject> {};
-// Ruby_Random is forward-referenced from the gc_new site, so the Tracer
-// specialisation needs to follow the class definition — see below.
-#endif
 
 // ---------------------------------------------------------------------------
 // GC abstractions: gc_ref<T>, gc_local<T>, gc_new<T>(...).
