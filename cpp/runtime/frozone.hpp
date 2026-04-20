@@ -221,8 +221,16 @@ namespace std {
 // Copy semantics: deep. Copying rebuilds list iterators in the map.
 // ---------------------------------------------------------------------
 template<typename K, typename V>
-class RubyHash {
+class RubyHash : public RubyObject {
 public:
+  // Value-type usage (in std::any, in fields, as locals). Override operator
+  // new/delete so `new RubyHash(x)` doesn't route through Boehm's GC_MALLOC —
+  // see RubyString for rationale.
+  static void* operator new(size_t n) { return ::operator new(n); }
+  static void operator delete(void* p) noexcept { ::operator delete(p); }
+
+  const char* rb_class_name() const override { return "Hash"; }
+
   using ListType = std::list<K>;
   using MapEntry = std::pair<V, typename ListType::iterator>;
 
@@ -299,13 +307,28 @@ public:
   auto end() const { return order.end(); }
 };
 
+#ifdef FROZONE_USE_DUSTMAN_GC
+// Empty Tracer: RubyHash stores K/V via std::unordered_map whose nodes live
+// outside Dustman's heap. Contents aren't traced yet — revisit once the LCA
+// refactor is complete and gc_ref-typed values are always RubyObject*.
+template<typename K, typename V> struct dustman::Tracer<RubyHash<K, V>>
+  : dustman::FieldList<RubyHash<K, V>> {};
+#endif
+
 // Forward declaration: ruby_to_s is used inside RubyArray::join.
 template<typename T> static inline RubyString ruby_to_s(T v);
 
 // Generic native array — TI-specialised per element type.
 // shared_ptr<vector<T>> backing: copy is cheap (alias), growable via <<.
-template<typename T> class RubyArray {
+template<typename T> class RubyArray : public RubyObject {
 public:
+  // Value-type usage; keep `new`/`delete` on the regular heap so
+  // std::any<RubyArray<...>> doesn't crash under Boehm. See RubyString.
+  static void* operator new(size_t n) { return ::operator new(n); }
+  static void operator delete(void* p) noexcept { ::operator delete(p); }
+
+  const char* rb_class_name() const override { return "Array"; }
+
   std::shared_ptr<std::vector<T>> data;
   RubyArray() : data(std::make_shared<std::vector<T>>()) {}
   RubyArray(int64_t size) : data(std::make_shared<std::vector<T>>(size)) {}
@@ -366,6 +389,12 @@ public:
 using RubyArray_I64 = RubyArray<int64_t>;
 using Ruby_Array = RubyArray<int64_t>;
 using RubyArray_F64 = RubyArray<double>;
+
+#ifdef FROZONE_USE_DUSTMAN_GC
+// Empty Tracer: elements live inside shared_ptr<vector<T>> on the regular
+// heap. Revisit when containers become Dustman-allocated.
+template<typename T> struct dustman::Tracer<RubyArray<T>> : dustman::FieldList<RubyArray<T>> {};
+#endif
 // Helper: deduce array element type from fill value
 template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }
 // (lo..hi).to_a / (lo...hi).to_a — int64_t range enumeration.
@@ -382,8 +411,14 @@ struct RubyNil;
 // RubyTree — value-semantic shared-ownership binary tree node.
 // Node holds two child shared_ptrs; default-constructed tree is nil.
 struct RubyTreeNode;
-class RubyTree {
+class RubyTree : public RubyObject {
 public:
+  // Value-type usage; keep `new`/`delete` on the regular heap. See RubyString.
+  static void* operator new(size_t n) { return ::operator new(n); }
+  static void operator delete(void* p) noexcept { ::operator delete(p); }
+
+  const char* rb_class_name() const override { return "Tree"; }
+
   std::shared_ptr<RubyTreeNode> node;
   RubyTree() = default;
   RubyTree(RubyTree l, RubyTree r);
@@ -401,6 +436,10 @@ inline RubyTree::RubyTree(RubyTree l, RubyTree r) {
 inline RubyTree RubyTree::operator[](int64_t i) const {
   RubyTree t; t.node = (i == 0 ? node->left : node->right); return t;
 }
+
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<RubyTree> : dustman::FieldList<RubyTree> {};
+#endif
 
 struct RubyNil {
   operator int64_t() const { return 0; }
