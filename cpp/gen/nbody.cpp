@@ -97,7 +97,7 @@ struct Ruby_Planet : public RubyObject {
   }
 
   auto move_from_i(auto bodies, auto nbodies, auto dt, auto i) {
-    gc_ref<Ruby_Planet> b2 = nullptr;
+    gc_local<Ruby_Planet> b2 = nullptr;
     double dx = 0.0;
     double dy = 0.0;
     double dz = 0.0;
@@ -168,7 +168,7 @@ static auto offset_momentum(auto bodies) {
   double py = 0.0;
   double pz = 0.0;
   double m = 0.0;
-  gc_ref<Ruby_Planet> b = nullptr;
+  gc_local<Ruby_Planet> b = nullptr;
   auto _t4_0 = 0.0;
   auto _t4_1 = 0.0;
   auto _t4_2 = 0.0;
@@ -197,7 +197,7 @@ int main() {
   double dt = 0.0;
   RubyArray<gc_ref<Ruby_Planet>> bodies;
   int64_t i = 0;
-  gc_ref<Ruby_Planet> b = nullptr;
+  gc_local<Ruby_Planet> b = nullptr;
   (last_x = 0.0);
   for (int64_t _i = 0; _i < INT64_C(100); _i++) {
     (nbodies = NBODIES);

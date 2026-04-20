@@ -61,7 +61,7 @@ template<> struct dustman::Tracer<Ruby_TheClass> : dustman::FieldList<Ruby_TheCl
 
 
 
-static auto get_value_loop(auto obj) {
+static auto get_value_loop(gc_ref<Ruby_TheClass> obj) {
   int64_t sum = 0;
   int64_t i = 0;
   (sum = INT64_C(0));
@@ -85,7 +85,7 @@ static auto get_value_loop(auto obj) {
 
 int main() {
   FROZONE_GC_INIT();
-  gc_ref<Ruby_TheClass> obj = nullptr;
+  gc_local<Ruby_TheClass> obj = nullptr;
   int64_t last = 0;
   (obj = gc_new<Ruby_TheClass>(INT64_C(1), INT64_C(2), INT64_C(3), INT64_C(1)));
   (last = INT64_C(0));

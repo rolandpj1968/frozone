@@ -50,9 +50,9 @@ template<> struct dustman::Tracer<Ruby_C> : dustman::FieldList<Ruby_C> {};
 
 int main() {
   FROZONE_GC_INIT();
-  gc_ref<Ruby_A> a = nullptr;
-  gc_ref<Ruby_B> b = nullptr;
-  gc_ref<Ruby_C> c = nullptr;
+  gc_local<Ruby_A> a = nullptr;
+  gc_local<Ruby_B> b = nullptr;
+  gc_local<Ruby_C> c = nullptr;
   bool last = false;
   (a = gc_new<Ruby_A>());
   (b = gc_new<Ruby_B>());

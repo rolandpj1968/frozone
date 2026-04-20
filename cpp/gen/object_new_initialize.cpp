@@ -2,17 +2,13 @@
 
 
 struct Ruby_C : public RubyObject {
-  int64_t iv_a = 0;
-  int64_t iv_b = 0;
-  int64_t iv_c = 0;
-  int64_t iv_d = 0;
 
   Ruby_C() = default;
   Ruby_C(auto a, auto b, auto c, auto d) {
-    iv_a = a;
-    iv_b = b;
-    iv_c = c;
-    iv_d = d;
+    a;
+    b;
+    c;
+    d;
   }
   const char* rb_class_name() const override { return "C"; }
 
@@ -32,7 +28,7 @@ static auto test() {
 
 int main() {
   FROZONE_GC_INIT();
-  gc_ref<Ruby_C> last = nullptr;
+  gc_local<Ruby_C> last = nullptr;
   int64_t i = 0;
   (last = nullptr);
   for (int64_t _i = 0; _i < INT64_C(300); _i++) {

@@ -125101,8 +125101,8 @@ struct Ruby_Ruby {
   }
 
   auto blurHashForPixels(auto xComponents, auto yComponents, auto width, auto height, auto rgb, auto bytesPerRow) {
-    gc_ref<Ruby_ThreeDArray> factors = nullptr;
-    gc_ref<Ruby_Buffer> ptr = nullptr;
+    gc_local<Ruby_ThreeDArray> factors = nullptr;
+    gc_local<Ruby_Buffer> ptr = nullptr;
     std::decay_t<decltype(((xComponents * yComponents) - INT64_C(1)))> acCount{};
     std::decay_t<decltype(((xComponents - INT64_C(1)) + ((yComponents - INT64_C(1)) * INT64_C(9))))> sizeFlag{};
     double actualMaximumValue = 0.0;

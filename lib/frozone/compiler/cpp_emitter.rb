@@ -10,6 +10,12 @@
 module Frozone
   module Compiler
     class CppEmitter
+      # Built-in runtime types that aren't safe to allocate under Dustman's
+      # moving collector — they hold shared_ptrs or other non-trivially-
+      # relocatable state. Emit plain `new` for these; they escape Dustman's
+      # tracking entirely (fine for singletons / long-lived objects).
+      NON_GC_BUILTIN_CLASSES = Set.new(%i[Random]).freeze
+
       def initialize
         @out = +""
         @indent = 0
@@ -129,14 +135,35 @@ module Frozone
         t&.match?(/\ARuby_[A-Z]\w*\*\z/)
       end
 
+      # True if `type_str` is like `Ruby_Foo*` where Foo is in
+      # NON_GC_BUILTIN_CLASSES. Those types must be emitted as raw `T*` —
+      # they aren't Dustman-managed.
+      def non_gc_builtin_ptr?(type_str)
+        m = type_str.to_s.match(/\ARuby_([A-Z]\w*)\*\z/)
+        !!(m && NON_GC_BUILTIN_CLASSES.include?(m[1].to_sym))
+      end
+
       # Translate a C++ type string for emission. User-class pointer forms
       # (Ruby_X*, RubyObject*) are wrapped in gc_ref<...>. The wrapper is a
       # typedef in frozone.hpp: T* under Boehm/none, dustman::gc_ptr<T> under
       # Dustman. Works inside nested generics (RubyArray<Ruby_X*> → RubyArray<gc_ref<Ruby_X>>).
+      # Non-GC built-in classes (NON_GC_BUILTIN_CLASSES) pass through as raw T*.
       def emit_type(t)
         return t unless t
-        t.gsub(/Ruby_[A-Z]\w*\*/) { |m| "gc_ref<#{m[0..-2]}>" }
-         .gsub(/\bRubyObject\*/, 'gc_ref<RubyObject>')
+        t.gsub(/Ruby_[A-Z]\w*\*/) do |m|
+          non_gc_builtin_ptr?(m) ? m : "gc_ref<#{m[0..-2]}>"
+        end.gsub(/\bRubyObject\*/, 'gc_ref<RubyObject>')
+      end
+
+      # Like emit_type but for a stack-local variable declaration — wraps
+      # user-class pointers in gc_local<T> (= Root<T> under Dustman) so a
+      # collection triggered by another allocation doesn't reclaim the referent.
+      # Under Boehm/none gc_local<T> = T*, same as gc_ref.
+      def emit_local_type(t)
+        return t unless t
+        t.gsub(/Ruby_[A-Z]\w*\*/) do |m|
+          non_gc_builtin_ptr?(m) ? m : "gc_local<#{m[0..-2]}>"
+        end.gsub(/\bRubyObject\*/, 'gc_local<RubyObject>')
       end
 
       def mark_param_pointer_types(method)
@@ -160,6 +187,13 @@ module Frozone
         if recv.is_a?(Ast::LocalVariableRead)
           t = ti_local_type(@_current_method_key, recv.name.to_s)
           return user_class_ptr_type?(t)
+        end
+        # Ivar read: TI-typed pointer to user class, or self-ref ivar.
+        if recv.is_a?(Ast::InstanceVariableRead) && @_current_wrapper_name
+          key = recv.name.to_s.delete_prefix('@')
+          return true if @_self_ref_ivars&.include?(key)
+          cls_name = @_current_wrapper_name.delete_prefix('Ruby_').to_sym
+          return user_class_ptr_type?(ti_ivar_type(cls_name, key))
         end
         # Array index on pointer-element array: arr[i] → Ruby_X*
         if recv.is_a?(Ast::MethodCall) && recv.name == :[] && recv.receiver_node.is_a?(Ast::LocalVariableRead)
@@ -237,7 +271,10 @@ module Frozone
         if @_method_return_type&.start_with?("std::optional")
           "std::nullopt"
         elsif @_method_return_type&.end_with?("*")
-          "(#{@_method_return_type})nullptr"
+          # Under Dustman this becomes gc_ref<Ruby_X>(nullptr); under Boehm/none
+          # it's the familiar (Ruby_X*)nullptr. Functional-cast syntax works for
+          # both because gc_ref<T> is callable on nullptr.
+          "#{emit_type(@_method_return_type)}(nullptr)"
         elsif @_method_return_type
           "#{@_method_return_type}(RUBY_NIL)"
         else
@@ -486,11 +523,16 @@ module Frozone
           return
         end
         init = cls.methods_table&.fetch(:initialize, nil)
-        # Ivar types from shared TI
+        # Ivar types from shared TI, via ti_ivar_type (applies emitter
+        # canonicalization: RubyObject* → std::any, filters deep generics).
+        # This matches how param/local types are rendered, so ivar-to-param
+        # writes agree on their C++ types.
         ivar_types = {}
-        @ti_env&.each_typed do |slot, ty|
+        @ti_env&.each_typed do |slot, _|
           next unless slot.is_a?(Array) && slot[0] == :ivar && slot[1] == name
-          ivar_types[slot[2].to_s.delete_prefix('@')] = ty.to_cpp
+          key = slot[2].to_s.delete_prefix('@')
+          t = ti_ivar_type(name, key)
+          ivar_types[key] = t if t
         end
         all_ivars = Set.new
         (cls.methods_table || {}).each_value do |m|
@@ -500,12 +542,22 @@ module Frozone
         ivars = all_ivars.to_a
         read_ivars = collect_read_ivars(cls)
         @_dropped_ivars = Set.new
+        # Drop write-only ivars only when we're sure they can't hold a user
+        # object reference. std::any / RubyObject* can hold anything — a live
+        # user-class pointer in there is load-bearing for Dustman's reachability
+        # even if the Ruby code never reads it back. Keeping the field costs
+        # one pointer/std::any slot per instance.
         ivars.reject! do |iv|
           key = iv.to_s.delete_prefix('@')
           t = ivar_types[key]
-          if (t == "std::any" || t == "RubyObject*") && !read_ivars.include?(key)
+          next false unless t
+          next false if read_ivars.include?(key)
+          # Safe-to-drop only if the type is a non-pointer value type.
+          if t == "int64_t" || t == "double" || t == "bool" || t == "RubyString"
             @_dropped_ivars << key
             true
+          else
+            false
           end
         end
         init_has_params = init.is_a?(Vm::Method) && !all_param_names(init).empty?
@@ -1001,9 +1053,8 @@ module Frozone
         (cls.methods_table || {}).each do |mname, m|
           next if mname == :initialize
           next unless m.is_a?(Vm::Method) && m.body
-          # Skip pure accessor methods — their ivar read doesn't count as
-          # "used" unless something actually calls the accessor.
-          next if m.body.is_a?(Ast::InstanceVariableRead)
+          # Count accessor bodies too — we don't know whether external code
+          # invokes the reader, so conservatively assume it does.
           walker.call(m.body)
         end
         reads
@@ -1359,15 +1410,60 @@ module Frozone
         best
       end
 
+      def scan_body_for_return_type(body)
+        found = nil
+        infer = lambda do |n|
+          return nil unless n.is_a?(Ast::Node)
+          # Peel simple wrappers that evaluate to their RHS.
+          return infer.call(n.value_node) if n.is_a?(Ast::InstanceVariableWrite) || n.is_a?(Ast::LocalVariableWrite)
+          # LocalVariableRead: look up via TI (local_decl_type returns "auto").
+          if n.is_a?(Ast::LocalVariableRead)
+            return ti_local_type(@_current_method_key, n.name.to_s)
+          end
+          # InstanceVariableRead: TI ivar type.
+          if n.is_a?(Ast::InstanceVariableRead) && @_current_wrapper_name
+            cls_name = @_current_wrapper_name.delete_prefix('Ruby_').to_sym
+            return ti_ivar_type(cls_name, n.name.to_s.delete_prefix('@'))
+          end
+          local_decl_type(n)
+        end
+        take = lambda do |n|
+          t = infer.call(n)
+          found = t if !found && t && (user_class_ptr_type?(t) || t.end_with?('*'))
+        end
+        walk = lambda do |node|
+          return unless node.is_a?(Ast::Node)
+          if node.is_a?(Ast::Return) && node.value_node && !node.value_node.is_a?(Ast::NilLiteral)
+            take.call(node.value_node)
+          end
+          node.children.each { |c| walk.call(c) if c }
+        end
+        walk.call(body)
+        # Also look at the implicit final expression of the body.
+        last = body.is_a?(Ast::Sequence) ? body.nodes.last : body
+        take.call(last) if last && !last.is_a?(Ast::NilLiteral)
+        found
+      end
+
       def emit_class_method(mname, method)
         @_current_method_key = @_current_wrapper_name ? [@_current_wrapper_name.sub("Ruby_", "").to_sym, mname] : mname
         params = emit_param_list(method)
         nparams = all_param_names(method).size
         @_bracket_method_name = (mname == :[] && nparams > 1) ? "slice" : nil
-        line "auto #{cpp_method_name(mname)}(#{params}) {"
+        @_method_return_type = ti_return_type(@_current_method_key)
+        # TI punts (returns nil) on methods with mixed bare/value returns.
+        # Fallback: scan the body for a value Return / final expression whose
+        # type is a user-class pointer; use that as the method's return type so
+        # bare `return` emits `return nullptr;` instead of colliding.
+        @_method_return_type ||= scan_body_for_return_type(method.body)
+        # For user-class pointer return types, make the signature explicit
+        # (gc_ref<Ruby_X>) so a `return root_local` unifies via implicit
+        # conversion Root<T> → gc_ptr<T>. `auto` deduction would see two
+        # distinct types and fail.
+        ret_sig = user_class_ptr_type?(@_method_return_type) ? emit_type(@_method_return_type) : "auto"
+        line "#{ret_sig} #{cpp_method_name(mname)}(#{params}) {"
         @_bracket_method_name = nil
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
-        @_method_return_type = ti_return_type(@_current_method_key)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
         indented do
           body = method.body
@@ -1425,10 +1521,10 @@ module Frozone
             end
           end
           if t.start_with?("Ruby_") && !t.end_with?("*")
-            line "#{emit_type("#{t}*")} #{decl_name} = nullptr;"
+            line "#{emit_local_type("#{t}*")} #{decl_name} = nullptr;"
             @_pointer_locals << name
           elsif t.end_with?("*")
-            line "#{emit_type(t)} #{decl_name} = nullptr;"
+            line "#{emit_local_type(t)} #{decl_name} = nullptr;"
             @_pointer_locals << name
           else
               init = case t
@@ -1512,12 +1608,36 @@ module Frozone
       # function templates support default args).
       def emit_param_list(method)
         parts = []
-        (method.required_params || []).each { |p| parts << "auto #{p}" }
+        # attr_writer setters have a synthetic single param assigned to an ivar.
+        # Use the ivar's TI type so a Root<T> caller converts to gc_ref<T>.
+        setter_ivar_t = nil
+        if method.body.is_a?(Ast::InstanceVariableWrite) && @_current_wrapper_name
+          cls_name = @_current_wrapper_name.delete_prefix('Ruby_').to_sym
+          ivk = method.body.name.to_s.delete_prefix('@')
+          setter_ivar_t = ti_ivar_type(cls_name, ivk)
+        end
+        (method.required_params || []).each_with_index do |p, i|
+          # If TI typed this param as a user-class pointer, emit gc_ref<T>
+          # explicitly. Under Dustman, callers often pass a Root<T> (non-copyable
+          # stack root) — auto-deduction would fail, but Root→gc_ptr converts.
+          mkey = @_current_method_key
+          t = mkey ? (ti_local_type(mkey, p.to_s) || ti_type_cpp([:param, mkey, i])) : nil
+          t ||= setter_ivar_t if i == 0
+          if user_class_ptr_type?(t)
+            parts << "#{emit_type(t)} #{p}"
+          else
+            parts << "auto #{p}"
+          end
+        end
         req_count = (method.required_params || []).size
         (method.optional_params || []).each_with_index do |(pname, default_node), oi|
           if default_node.is_a?(Ast::NilLiteral)
-            arg_types = @_method_call_arg_types[method.name] || []
+            arg_types = (@_method_call_arg_types || {})[method.name] || []
             t = arg_types[req_count + oi]
+            # Fallback to TI's :param slot if the caller-scan didn't populate it.
+            t ||= ti_type_cpp([:param, @_current_method_key, req_count + oi]) if @_current_method_key
+            # Also try :local (sometimes TI stores param types there).
+            t ||= ti_local_type(@_current_method_key, pname.to_s) if @_current_method_key
             if t && t.start_with?("Ruby_")
               ptr_t = t.end_with?("*") ? t : "#{t}*"
               parts << "#{emit_type(ptr_t)} #{pname} = nullptr"
@@ -1884,6 +2004,16 @@ module Frozone
             # bare nullptr for pointer-typed locals; works for all GC modes.
             if rhs == "RUBY_NIL" && @_pointer_locals&.include?(name)
               rhs = "nullptr"
+            end
+            # LHS is a gc_local<T> = Root<T> under Dustman, RHS may also be a
+            # Root<T> (another pointer local). Root has no copy-assign; coerce
+            # RHS through its gc_ptr<T> conversion by wrapping in gc_ref<T>().
+            # Under Boehm/none this is a no-op cast.
+            if @_pointer_locals&.include?(name) && val.is_a?(Ast::LocalVariableRead) && @_pointer_locals.include?(val.name.to_s)
+              t = ti_local_type(@_current_method_key, name) || ti_local_type(@_current_method_key, val.name.to_s)
+              if user_class_ptr_type?(t)
+                rhs = "#{emit_type(t)}(#{rhs})"
+              end
             end
             # Wrap in parens for expression contexts like
             # `if ((q1 = p[1]) != 1)` — `!=` binds tighter than `=` in C++.
@@ -2337,10 +2467,19 @@ module Frozone
           return "RubyString()"
         end
 
-        # ClassName.new(args) → gc_new<Ruby_ClassName>(args)
+        # ClassName.new(args) → gc_new<Ruby_ClassName>(args).
+        # Except for built-in runtime types that can't live on a moving GC
+        # (shared_ptr internals break under evacuation). Those use plain `new`
+        # and leak out of Dustman's control — fine because they're rare and
+        # typically long-lived (Random, etc.).
         if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name != :Array
           arg_strs = args.map { |a| cr(a) }.join(", ")
-          return "gc_new<Ruby_#{recv.name}>(#{arg_strs})"
+          alloc_op = NON_GC_BUILTIN_CLASSES.include?(recv.name) ? "new" : "gc_new<Ruby_#{recv.name}>"
+          if alloc_op == "new"
+            return "new Ruby_#{recv.name}(#{arg_strs})"
+          else
+            return "#{alloc_op}(#{arg_strs})"
+          end
         end
 
         # Array.new(size, fill) / Array.new(size)

@@ -25,7 +25,7 @@ static Ruby_C INSTANCE;
 
 int main() {
   FROZONE_GC_INIT();
-  gc_ref<Ruby_C> instance = nullptr;
+  gc_local<Ruby_C> instance = nullptr;
   int64_t count = 0;
   (instance = gc_new<Ruby_C>());
   (count = INT64_C(0));

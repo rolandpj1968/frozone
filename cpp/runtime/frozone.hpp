@@ -15,7 +15,10 @@
 #define FROZONE_GC_SHUTDOWN()
 #elif defined(FROZONE_USE_DUSTMAN_GC)
 #include "dustman/dustman.hpp"
-#define FROZONE_GC_INIT()
+// Disable evacuation: gc_ptrs passed across function calls as plain params
+// aren't Dustman-tracked, so an evacuation cycle would leave stale pointers.
+// Non-moving mark-sweep is safe and good enough for now.
+#define FROZONE_GC_INIT() dustman::set_evacuation_threshold_percent(0)
 #define FROZONE_GC_SHUTDOWN() dustman::detach_thread()
 #else
 #define FROZONE_GC_INIT()
@@ -351,7 +354,14 @@ struct RubyNil {
   operator bool() const { return false; }
   operator RubyString() const { return RubyString(); }
   template<typename T> operator std::shared_ptr<T>() const { return nullptr; }
-  template<typename T> operator T() const { return T(); }
+  // SFINAE out the nullptr_t case: assigning RubyNil to dustman::gc_ptr<T>
+  // would otherwise be ambiguous (gc_ptr has both operator=(nullptr_t) and
+  // operator=(const gc_ptr&), and RubyNil can convert to either via this
+  // template). Excluding nullptr_t leaves only the gc_ptr<T>() path — one
+  // conversion chain, unambiguous.
+  template<typename T>
+    requires (!std::is_same_v<T, std::nullptr_t>)
+  operator T() const { return T(); }
 };
 static const RubyNil RUBY_NIL;
 
@@ -410,6 +420,8 @@ using Ruby_Object = RubyObject;
 #ifdef FROZONE_USE_DUSTMAN_GC
 template<> struct dustman::Tracer<RubyBasicObject> : dustman::FieldList<RubyBasicObject> {};
 template<> struct dustman::Tracer<RubyObject> : dustman::FieldList<RubyObject> {};
+// Ruby_Random is forward-referenced from the gc_new site, so the Tracer
+// specialisation needs to follow the class definition — see below.
 #endif
 
 // ---------------------------------------------------------------------------
@@ -515,6 +527,9 @@ public:
   bool nil_q() const { return false; }
 };
 template<> inline const char* ruby_class_name<Ruby_Random>() { return "Random"; }
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<Ruby_Random> : dustman::FieldList<Ruby_Random> {};
+#endif
 
 // Ruby-flavored puts: chooses format based on type
 template<typename T> static inline void ruby_puts(T v) {

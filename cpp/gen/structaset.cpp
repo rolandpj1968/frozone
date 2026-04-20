@@ -34,7 +34,7 @@ template<> struct dustman::Tracer<Ruby_TheClass> : dustman::FieldList<Ruby_TheCl
 
 
 
-static auto set_value_loop(auto obj) {
+static auto set_value_loop(gc_ref<Ruby_TheClass> obj) {
   int64_t i = 0;
   (i = INT64_C(0));
   while ((i < INT64_C(1000000))) {
@@ -56,7 +56,7 @@ static auto set_value_loop(auto obj) {
 
 int main() {
   FROZONE_GC_INIT();
-  gc_ref<Ruby_TheClass> obj = nullptr;
+  gc_local<Ruby_TheClass> obj = nullptr;
   (obj = gc_new<Ruby_TheClass>(INT64_C(1), INT64_C(2), INT64_C(3), INT64_C(1)));
   for (int64_t _i = 0; _i < INT64_C(850); _i++) {
     set_value_loop(obj);

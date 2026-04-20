@@ -2,15 +2,12 @@
 
 
 struct Ruby_TheClass : public RubyObject {
-  int64_t iv_v0 = 0;
-  int64_t iv_v1 = 0;
-  int64_t iv_v2 = 0;
   int64_t iv_levar = 0;
 
   Ruby_TheClass() {
-    iv_v0 = INT64_C(1);
-    iv_v1 = INT64_C(2);
-    iv_v2 = INT64_C(3);
+    INT64_C(1);
+    INT64_C(2);
+    INT64_C(3);
     iv_levar = INT64_C(1);
   }
   const char* rb_class_name() const override { return "TheClass"; }
