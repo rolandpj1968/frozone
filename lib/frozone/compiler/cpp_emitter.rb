@@ -97,7 +97,12 @@ module Frozone
         # RubyObject* when builtins don't inherit yet)
         return nil if cpp == "auto"
         return nil if cpp&.count('<') > 2  # deeply nested generics
-        return "std::any" if cpp == "RubyObject*"  # builtins don't inherit yet
+        # std::any is still here as a transitional escape hatch: even though
+        # RubyString/RubyArray/RubyHash/RubyTree now share RubyObject as a
+        # base, migrating emitted code from std::any to gc_ref<RubyObject>
+        # requires boxing every value-to-union assignment and return. Staged
+        # refactor — see followup.
+        return "std::any" if cpp == "RubyObject*"
         cpp
       end
 
