@@ -2,76 +2,72 @@
 
 static const RubyString RUBY_FILE = RubyString("/home/rolandpj/src/frozone/bench/benchmarks/blurhash/test.bin", 61);
 
-struct Ruby_ThreeDArray {
-  struct Impl {
-    int64_t iv_y = 0;
-    int64_t iv_x = 0;
-    int64_t iv_z = 0;
-    RubyArray<double> iv_list;
-  };
-  std::shared_ptr<Impl> p;
+struct Ruby_ThreeDArray : public RubyObject {
+  int64_t iv_y = 0;
+  int64_t iv_x = 0;
+  int64_t iv_z = 0;
+  int64_t iv_list = 0;
 
   Ruby_ThreeDArray() = default;
-  Ruby_ThreeDArray(const RubyNil&) {}
-  Ruby_ThreeDArray(auto y, auto x, auto z) : p(std::make_shared<Impl>()) {
-    p->iv_y = y;
-    p->iv_x = x;
-    p->iv_z = z;
-    p->iv_list = RubyArray<double>(((y * x) * z));
+  Ruby_ThreeDArray(auto y, auto x, auto z) {
+    iv_y = y;
+    iv_x = x;
+    iv_z = z;
+    iv_list = RubyArray<int64_t>(((y * x) * z));
   }
+  const char* rb_class_name() const override { return "ThreeDArray"; }
 
   auto set(auto y, auto x, auto z, auto val) {
-    std::decay_t<decltype(((z + (x * p->iv_z)) + ((y * p->iv_z) * p->iv_x)))> i{};
-    (i = ((z + (x * p->iv_z)) + ((y * p->iv_z) * p->iv_x)));
-    return p->iv_list[i] = val;
+    std::decay_t<decltype(((z + (x * iv_z)) + ((y * iv_z) * iv_x)))> i{};
+    (i = ((z + (x * iv_z)) + ((y * iv_z) * iv_x)));
+    return iv_list[i] = val;
   }
 
   auto get(auto y, auto x, auto z) {
-    std::decay_t<decltype(((z + (x * p->iv_z)) + ((y * p->iv_z) * p->iv_x)))> i{};
-    (i = ((z + (x * p->iv_z)) + ((y * p->iv_z) * p->iv_x)));
-    return p->iv_list[i];
+    std::decay_t<decltype(((z + (x * iv_z)) + ((y * iv_z) * iv_x)))> i{};
+    (i = ((z + (x * iv_z)) + ((y * iv_z) * iv_x)));
+    return iv_list[i];
   }
 
   auto operator[](auto i) {
-    return p->iv_list.fetch(i);
+    return iv_list.fetch(i);
   }
 
-  bool nil_q() const { return !p; }
-  explicit operator bool() const { return (bool)p; }
 };
 template<> inline const char* ruby_class_name<Ruby_ThreeDArray>() { return "ThreeDArray"; }
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<Ruby_ThreeDArray> : dustman::FieldList<Ruby_ThreeDArray> {};
+#endif
 
-struct Ruby_Buffer {
-  struct Impl {
-    int64_t iv_pos = 0;
-    RubyString iv_buf;
-  };
-  std::shared_ptr<Impl> p;
+struct Ruby_Buffer : public RubyObject {
+  int64_t iv_pos = 0;
+  int64_t iv_buf = 0;
 
   Ruby_Buffer() = default;
-  Ruby_Buffer(const RubyNil&) {}
-  Ruby_Buffer(auto size) : p(std::make_shared<Impl>()) {
-    p->iv_pos = INT64_C(0);
-    p->iv_buf = (RubyString("\u0000", 1).b() * size);
+  Ruby_Buffer(auto size) {
+    iv_pos = INT64_C(0);
+    iv_buf = (RubyString("\u0000", 1).b() * size);
   }
+  const char* rb_class_name() const override { return "Buffer"; }
 
   auto pos() {
-    return p->iv_pos;
+    return iv_pos;
   }
 
   auto putc(auto c) {
-    p->iv_buf.set_byte(p->iv_pos, c);
-    return p->iv_pos = (p->iv_pos + INT64_C(1));
+    iv_buf.set_byte(iv_pos, c);
+    return iv_pos = (iv_pos + INT64_C(1));
   }
 
   auto slice(auto from, auto len) {
-    return p->iv_buf.slice(from, len);
+    return iv_buf.slice(from, len);
   }
 
-  bool nil_q() const { return !p; }
-  explicit operator bool() const { return (bool)p; }
 };
 template<> inline const char* ruby_class_name<Ruby_Buffer>() { return "Buffer"; }
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<Ruby_Buffer> : dustman::FieldList<Ruby_Buffer> {};
+#endif
 
 
 static auto ARRAY = []() { RubyArray<int64_t> _a(124848);
@@ -125105,21 +125101,21 @@ struct Ruby_Ruby {
   }
 
   auto blurHashForPixels(auto xComponents, auto yComponents, auto width, auto height, auto rgb, auto bytesPerRow) {
-    Ruby_ThreeDArray factors;
-    Ruby_Buffer ptr;
+    gc_ref<Ruby_ThreeDArray> factors = nullptr;
+    gc_ref<Ruby_Buffer> ptr = nullptr;
     std::decay_t<decltype(((xComponents * yComponents) - INT64_C(1)))> acCount{};
     std::decay_t<decltype(((xComponents - INT64_C(1)) + ((yComponents - INT64_C(1)) * INT64_C(9))))> sizeFlag{};
     double actualMaximumValue = 0.0;
     std::decay_t<decltype(max(INT64_C(0), min(INT64_C(82), (int64_t)floor((double)(((actualMaximumValue * INT64_C(166)) - 0.5))))))> quantisedMaximumValue{};
     std::decay_t<decltype(ruby_div(((double)(quantisedMaximumValue) + INT64_C(1)), INT64_C(166)))> maximumValue{};
     if (({ auto _l = ((xComponents < INT64_C(1))); (_l) ? decltype(((xComponents > INT64_C(9))))(_l) : ((xComponents > INT64_C(9))); })) {
-      return RubyString(RUBY_NIL);
+      return;
     }
     if (({ auto _l = ((yComponents < INT64_C(1))); (_l) ? decltype(((yComponents > INT64_C(9))))(_l) : ((yComponents > INT64_C(9))); })) {
-      return RubyString(RUBY_NIL);
+      return;
     }
-    (factors = Ruby_ThreeDArray(yComponents, xComponents, INT64_C(3)));
-    (ptr = Ruby_Buffer((((INT64_C(2) + INT64_C(4)) + (((INT64_C(9) * INT64_C(9)) - INT64_C(1)) * INT64_C(2))) + INT64_C(1))));
+    (factors = gc_new<Ruby_ThreeDArray>(yComponents, xComponents, INT64_C(3)));
+    (ptr = gc_new<Ruby_Buffer>((((INT64_C(2) + INT64_C(4)) + (((INT64_C(9) * INT64_C(9)) - INT64_C(1)) * INT64_C(2))) + INT64_C(1))));
     for (int64_t y = 0; y < yComponents; y++) {
       for (int64_t x = 0; x < xComponents; x++) {
         multiplyBasisFunction(x, y, width, height, rgb, bytesPerRow, factors);
@@ -125144,7 +125140,7 @@ struct Ruby_Ruby {
     for (int64_t i = 0; i < acCount; i++) {
       encode_int(encodeAC(factors[((i * INT64_C(3)) + INT64_C(3))], factors[((i * INT64_C(3)) + INT64_C(4))], factors[((i * INT64_C(3)) + INT64_C(5))], maximumValue), INT64_C(2), ptr);
     }
-    return ptr.slice(INT64_C(0), ptr.pos());
+    return ptr.slice(INT64_C(0), ptr->pos());
   }
 
 };
@@ -125165,11 +125161,13 @@ static auto make_shareable(auto x) {
 
 
 int main() {
+  FROZONE_GC_INIT();
   RubyString last;
   (last = RubyString("", 0));
   for (int64_t _i = 0; _i < INT64_C(10); _i++) {
     (last = Blurhash.encode_rb(INT64_C(204), INT64_C(204), ARRAY));
   }
   ruby_puts(last);
+  FROZONE_GC_SHUTDOWN();
   return 0;
 }

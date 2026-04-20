@@ -6,17 +6,17 @@ static const int64_t N = 9LL;
 
 
 static auto fannkuch(auto n) {
-  std::decay_t<decltype(ruby_range_to_a(INT64_C(0), n, false))> p{};
-  std::decay_t<decltype(p.dup_())> s{};
-  std::decay_t<decltype(p.dup_())> q{};
+  RubyArray<int64_t> p;
+  RubyArray<int64_t> s;
+  RubyArray<int64_t> q;
   int64_t sign = 0;
   int64_t sum = 0;
   int64_t maxflips = 0;
-  std::decay_t<decltype(p[INT64_C(1)])> q1{};
+  int64_t q1 = 0;
   int64_t flips = 0;
-  std::decay_t<decltype(q[q1])> qq{};
+  int64_t qq = 0;
   int64_t i = 0;
-  std::decay_t<decltype((q1 - INT64_C(1)))> j{};
+  int64_t j = 0;
   std::decay_t<decltype(p.delete_at(INT64_C(1)))> t{};
   (p = ruby_range_to_a(INT64_C(0), n, false));
   (s = p.dup_());
@@ -78,16 +78,18 @@ static auto fannkuch(auto n) {
   };
   };
   }
-  return RubyArray<int64_t>();
+  return RubyNil();
 }
 
 
 int main() {
-  RubyArray<int64_t> last;
-  (last = INT64_C(0));
+  FROZONE_GC_INIT();
+  std::optional<int64_t> last;
+  (last = ruby_to_opt<int64_t>(INT64_C(0)));
   for (int64_t _i = 0; _i < INT64_C(10); _i++) {
-    (last = fannkuch(N));
+    (last = ruby_to_opt<int64_t>(fannkuch(N)));
   }
   ruby_puts(last);
+  FROZONE_GC_SHUTDOWN();
   return 0;
 }

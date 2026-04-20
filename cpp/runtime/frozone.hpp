@@ -5,11 +5,21 @@
 #ifndef FROZONE_RUNTIME_HPP
 #define FROZONE_RUNTIME_HPP
 
+#if defined(FROZONE_USE_BOEHM_GC) && defined(FROZONE_USE_DUSTMAN_GC)
+#error "define at most one of FROZONE_USE_BOEHM_GC, FROZONE_USE_DUSTMAN_GC"
+#endif
+
 #ifdef FROZONE_USE_BOEHM_GC
 #include <gc/gc.h>
 #define FROZONE_GC_INIT() GC_INIT()
+#define FROZONE_GC_SHUTDOWN()
+#elif defined(FROZONE_USE_DUSTMAN_GC)
+#include "dustman/dustman.hpp"
+#define FROZONE_GC_INIT()
+#define FROZONE_GC_SHUTDOWN() dustman::detach_thread()
 #else
 #define FROZONE_GC_INIT()
+#define FROZONE_GC_SHUTDOWN()
 #endif
 
 #include <cstdio>
@@ -396,6 +406,45 @@ public:
 // Legacy Ruby_Object alias (used by Object.new emission).
 using Ruby_Object = RubyObject;
 
+// Dustman tracers for built-in base types. No gc_ref fields → empty FieldList.
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<RubyBasicObject> : dustman::FieldList<RubyBasicObject> {};
+template<> struct dustman::Tracer<RubyObject> : dustman::FieldList<RubyObject> {};
+#endif
+
+// ---------------------------------------------------------------------------
+// GC abstractions: gc_ref<T>, gc_local<T>, gc_new<T>(...).
+//
+//   gc_ref<T>   — reference stored in an ivar, field, or passed as a param.
+//                 Dustman: dustman::gc_ptr<T>. Boehm / none: plain T*.
+//   gc_local<T> — stack-local reference that may live across allocations.
+//                 Dustman: dustman::Root<T> (registered root, survives moves).
+//                 Boehm / none: plain T*.
+//   gc_new<T>(args...) — construct a GC-managed T, return the appropriate
+//                 reference type. `new T(...)` under Boehm/none, dustman::alloc
+//                 under Dustman.
+//
+// Emitter rule: use gc_local for locals holding user-class references;
+// gc_ref for ivars/params/fields; gc_new for allocation. Arrays of references
+// are RubyArray<gc_ref<T>> (not Dustman-traced yet — revisit for alloc-heavy
+// benchmarks).
+// ---------------------------------------------------------------------------
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<typename T> using gc_ref   = dustman::gc_ptr<T>;
+template<typename T> using gc_local = dustman::Root<T>;
+template<typename T, typename... Args>
+inline dustman::gc_ptr<T> gc_new(Args&&... args) {
+  return dustman::alloc<T>(std::forward<Args>(args)...);
+}
+#else
+template<typename T> using gc_ref   = T*;
+template<typename T> using gc_local = T*;
+template<typename T, typename... Args>
+inline T* gc_new(Args&&... args) {
+  return new T(std::forward<Args>(args)...);
+}
+#endif
+
 // .class method — template dispatches on runtime type.
 template<typename T> static inline const char* ruby_class_name() { return "Object"; }
 template<> inline const char* ruby_class_name<int64_t>() { return "Integer"; }
@@ -405,6 +454,9 @@ template<> inline const char* ruby_class_name<RubyString>() { return "String"; }
 template<> inline const char* ruby_class_name<Ruby_Object>() { return "Object"; }
 template<typename T> static inline const char* ruby_class(const T& v) {
   if constexpr (std::is_pointer_v<T>) {
+    return v ? v->rb_class_name() : "NilClass";
+  } else if constexpr (requires { v.get(); v.operator->(); }) {
+    // Smart-pointer-like (gc_ptr<T>, Root<T>): delegate via ->.
     return v ? v->rb_class_name() : "NilClass";
   } else {
     return ruby_class_name<T>();

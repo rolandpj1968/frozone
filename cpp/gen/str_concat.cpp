@@ -30,6 +30,7 @@ static auto concat_test() {
 
 
 int main() {
+  FROZONE_GC_INIT();
   int64_t last_len = 0;
   (last_len = INT64_C(0));
   for (int64_t _i = 0; _i < INT64_C(100); _i++) {
@@ -38,5 +39,6 @@ int main() {
     };
   }
   ruby_puts(last_len);
+  FROZONE_GC_SHUTDOWN();
   return 0;
 }

@@ -1,30 +1,27 @@
 #include "../runtime/frozone.hpp"
 
 
-struct Ruby_TheClass {
-  struct Impl {
-    int64_t iv_v0 = 0;
-    int64_t iv_v1 = 0;
-    int64_t iv_v2 = 0;
-    int64_t iv_levar = 0;
-  };
-  std::shared_ptr<Impl> p;
+struct Ruby_TheClass : public RubyObject {
+  int64_t iv_levar = 0;
+  int64_t iv_v0 = 0;
+  int64_t iv_v1 = 0;
+  int64_t iv_v2 = 0;
 
-  Ruby_TheClass() : p(std::make_shared<Impl>()) {
-    p->iv_v0 = INT64_C(1);
-    p->iv_v1 = INT64_C(2);
-    p->iv_v2 = INT64_C(3);
-    p->iv_levar = INT64_C(1);
+  Ruby_TheClass() {
+    iv_v0 = INT64_C(1);
+    iv_v1 = INT64_C(2);
+    iv_v2 = INT64_C(3);
+    iv_levar = INT64_C(1);
   }
-  Ruby_TheClass(const RubyNil&) {}
+  const char* rb_class_name() const override { return "TheClass"; }
 
   auto levar() {
-    return p->iv_levar;
+    return iv_levar;
   }
 
   auto set_levar(auto __anon_req__) {
-    p->iv_levar = __anon_req__;
-    return p->iv_levar;
+    iv_levar = __anon_req__;
+    return iv_levar;
   }
 
   auto get_value_loop() {
@@ -43,10 +40,11 @@ struct Ruby_TheClass {
     return sum;
   }
 
-  bool nil_q() const { return !p; }
-  explicit operator bool() const { return (bool)p; }
 };
 template<> inline const char* ruby_class_name<Ruby_TheClass>() { return "TheClass"; }
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<Ruby_TheClass> : dustman::FieldList<Ruby_TheClass> {};
+#endif
 
 
 static Ruby_TheClass OBJ;
@@ -54,11 +52,13 @@ static Ruby_TheClass OBJ;
 
 
 int main() {
+  FROZONE_GC_INIT();
   int64_t last = 0;
   (last = INT64_C(0));
   for (int64_t _i = 0; _i < INT64_C(300); _i++) {
     (last = OBJ.get_value_loop());
   }
   ruby_puts(last);
+  FROZONE_GC_SHUTDOWN();
   return 0;
 }

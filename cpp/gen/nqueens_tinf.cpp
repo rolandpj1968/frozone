@@ -5,16 +5,16 @@
 
 
 static auto nq_solve(auto n) {
-  std::decay_t<decltype(make_ra(n, INT64_C(-1)))> a{};
-  std::decay_t<decltype(make_ra(n, INT64_C(0)))> l{};
-  std::decay_t<decltype(make_ra(n, INT64_C(0)))> c{};
-  std::decay_t<decltype(make_ra(n, INT64_C(0)))> r{};
-  std::decay_t<decltype(((INT64_C(1) << n) - INT64_C(1)))> y0{};
+  RubyArray<int64_t> a;
+  RubyArray<int64_t> l;
+  RubyArray<int64_t> c;
+  RubyArray<int64_t> r;
+  int64_t y0 = 0;
   int64_t m = 0;
   int64_t k = 0;
-  std::decay_t<decltype((((l[k] | c[k]) | r[k]) & y0))> y{};
-  std::decay_t<decltype((a[k] + INT64_C(1)))> i{};
-  std::decay_t<decltype((INT64_C(1) << i))> z{};
+  int64_t y = 0;
+  int64_t i = 0;
+  int64_t z = 0;
   (a = make_ra(n, INT64_C(-1)));
   (l = make_ra(n, INT64_C(0)));
   (c = make_ra(n, INT64_C(0)));
@@ -50,11 +50,13 @@ static auto nq_solve(auto n) {
 
 
 int main() {
+  FROZONE_GC_INIT();
   int64_t last = 0;
   (last = INT64_C(0));
   for (int64_t _i = 0; _i < INT64_C(3); _i++) {
     (last = nq_solve(INT64_C(8)));
   }
   ruby_puts(last);
+  FROZONE_GC_SHUTDOWN();
   return 0;
 }

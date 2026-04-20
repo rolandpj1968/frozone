@@ -1,15 +1,12 @@
 #include "../runtime/frozone.hpp"
 
 
-struct Ruby_A {
-  struct Impl {
-  };
-  std::shared_ptr<Impl> p;
+struct Ruby_A : public RubyObject {
 
-  Ruby_A() : p(std::make_shared<Impl>()) {
+  Ruby_A() {
     RUBY_NIL;
   }
-  Ruby_A(const RubyNil&) {}
+  const char* rb_class_name() const override { return "A"; }
 
   auto foo() {
     return 0LL;
@@ -19,66 +16,65 @@ struct Ruby_A {
     return 0LL;
   }
 
-  bool nil_q() const { return !p; }
-  explicit operator bool() const { return (bool)p; }
 };
 template<> inline const char* ruby_class_name<Ruby_A>() { return "A"; }
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<Ruby_A> : dustman::FieldList<Ruby_A> {};
+#endif
 
-struct Ruby_B {
-  struct Impl {
-  };
-  std::shared_ptr<Impl> p;
+struct Ruby_B : public Ruby_A {
 
   Ruby_B() = default;
-  Ruby_B(const RubyNil&) {}
+  const char* rb_class_name() const override { return "B"; }
 
-  bool nil_q() const { return !p; }
-  explicit operator bool() const { return (bool)p; }
 };
 template<> inline const char* ruby_class_name<Ruby_B>() { return "B"; }
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<Ruby_B> : dustman::FieldList<Ruby_B> {};
+#endif
 
-struct Ruby_C {
-  struct Impl {
-  };
-  std::shared_ptr<Impl> p;
+struct Ruby_C : public Ruby_A {
 
   Ruby_C() = default;
-  Ruby_C(const RubyNil&) {}
+  const char* rb_class_name() const override { return "C"; }
 
-  bool nil_q() const { return !p; }
-  explicit operator bool() const { return (bool)p; }
 };
 template<> inline const char* ruby_class_name<Ruby_C>() { return "C"; }
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<Ruby_C> : dustman::FieldList<Ruby_C> {};
+#endif
 
 
 
 
 
 int main() {
-  Ruby_A a;
-  Ruby_B b;
-  Ruby_C c;
+  FROZONE_GC_INIT();
+  gc_ref<Ruby_A> a = nullptr;
+  gc_ref<Ruby_B> b = nullptr;
+  gc_ref<Ruby_C> c = nullptr;
   bool last = false;
-  (a = Ruby_A());
-  (b = Ruby_B());
-  (c = Ruby_C());
+  (a = gc_new<Ruby_A>());
+  (b = gc_new<Ruby_B>());
+  (c = gc_new<Ruby_C>());
   (last = false);
   for (int64_t _i = 0; _i < INT64_C(1000); _i++) {
     for (int64_t i = 0; i < INT64_C(500000); i++) {
       true;
       true;
-      false;
-      false;
-      false;
-      false;
-      false;
-      false;
-      false;
-      false;
-      false;
-      (last = false);
+      true;
+      true;
+      true;
+      true;
+      true;
+      true;
+      true;
+      true;
+      true;
+      (last = true);
     };
   }
   ruby_puts(last);
+  FROZONE_GC_SHUTDOWN();
   return 0;
 }

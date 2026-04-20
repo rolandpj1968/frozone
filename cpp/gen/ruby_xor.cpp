@@ -7,11 +7,11 @@ static const RubyString B = RubyString("this is also a long string with no usefu
 
 
 static auto ruby_xor_b(auto a, auto b) {
-  std::decay_t<decltype(a.len())> l{};
-  std::decay_t<decltype(b.len())> lb{};
+  int64_t l = 0;
+  int64_t lb = 0;
   int64_t i = 0;
-  std::decay_t<decltype(a.get_byte(i))> ba{};
-  std::decay_t<decltype(b.get_byte(i))> bb{};
+  int64_t ba = 0;
+  int64_t bb = 0;
   if (({ auto _l = ((!(true))); (_l) ? decltype(((!(true))))(_l) : ((!(true))); })) {
     throw Ruby_RuntimeError("expected two string arguments");
   }
@@ -32,6 +32,7 @@ static auto ruby_xor_b(auto a, auto b) {
 
 
 int main() {
+  FROZONE_GC_INIT();
   RubyString a;
   RubyString b;
   int64_t sum = 0;
@@ -44,5 +45,6 @@ int main() {
     (sum = (sum + result.len()));
   }
   ruby_puts(sum);
+  FROZONE_GC_SHUTDOWN();
   return 0;
 }

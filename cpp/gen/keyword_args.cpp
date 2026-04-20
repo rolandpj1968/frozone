@@ -10,6 +10,7 @@ static auto add(auto left, auto right) {
 
 
 int main() {
+  FROZONE_GC_INIT();
   int64_t last = 0;
   (last = INT64_C(0));
   for (int64_t _i = 0; _i < INT64_C(3); _i++) {
@@ -22,5 +23,6 @@ int main() {
     };
   }
   ruby_puts(last);
+  FROZONE_GC_SHUTDOWN();
   return 0;
 }

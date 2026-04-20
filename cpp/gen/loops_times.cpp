@@ -8,9 +8,10 @@ static const int64_t R = 7LL;
 
 
 int main() {
-  std::decay_t<decltype(U)> u{};
-  std::decay_t<decltype(R)> r{};
-  std::decay_t<decltype(make_ra(INT64_C(10000), INT64_C(0)))> a{};
+  FROZONE_GC_INIT();
+  int64_t u = 0;
+  int64_t r = 0;
+  RubyArray<int64_t> a;
   int64_t last = 0;
   (u = U);
   (r = R);
@@ -38,5 +39,6 @@ int main() {
     (last = a[INT64_C(7)]);
   }
   ruby_puts(last);
+  FROZONE_GC_SHUTDOWN();
   return 0;
 }

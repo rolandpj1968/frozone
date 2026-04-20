@@ -129,6 +129,16 @@ module Frozone
         t&.match?(/\ARuby_[A-Z]\w*\*\z/)
       end
 
+      # Translate a C++ type string for emission. User-class pointer forms
+      # (Ruby_X*, RubyObject*) are wrapped in gc_ref<...>. The wrapper is a
+      # typedef in frozone.hpp: T* under Boehm/none, dustman::gc_ptr<T> under
+      # Dustman. Works inside nested generics (RubyArray<Ruby_X*> → RubyArray<gc_ref<Ruby_X>>).
+      def emit_type(t)
+        return t unless t
+        t.gsub(/Ruby_[A-Z]\w*\*/) { |m| "gc_ref<#{m[0..-2]}>" }
+         .gsub(/\bRubyObject\*/, 'gc_ref<RubyObject>')
+      end
+
       def mark_param_pointer_types(method)
         return unless method.is_a?(Vm::Method)
         mkey = @_current_method_key
@@ -519,7 +529,7 @@ module Frozone
             key = iv.to_s.delete_prefix('@')
             t = ivar_types[key] || "int64_t"
             if self_ref_ivars.include?(key)
-              line "#{self_wrapper}* iv_#{key} = nullptr;"
+              line "#{emit_type("#{self_wrapper}*")} iv_#{key} = nullptr;"
             else
               default = case t
                 when "int64_t" then " = 0"
@@ -527,7 +537,7 @@ module Frozone
                 when "bool" then " = false"
                 else ""
                 end
-              line "#{t} iv_#{key}#{default};"
+              line "#{emit_type(t)} iv_#{key}#{default};"
             end
           end
           emit_newline
@@ -592,9 +602,31 @@ module Frozone
         end
         line "};"
         line "template<> inline const char* ruby_class_name<Ruby_#{name}>() { return \"#{name}\"; }"
+        emit_tracer_spec(self_wrapper, ivars, ivar_types, self_ref_ivars)
         @_self_ref_ivars = nil
         @_current_wrapper_name = nil
         @_dropped_ivars = nil
+      end
+
+      # Emit a Dustman Tracer specialization for `wrapper` (Ruby_X). Lists only
+      # ivars that hold GC references — user-class pointers or RubyObject*.
+      # Value-typed ivars (int/double/bool/RubyString/etc.) are not traced.
+      def emit_tracer_spec(wrapper, ivars, ivar_types, self_ref_ivars)
+        trace = ivars.uniq.select do |iv|
+          key = iv.to_s.delete_prefix('@')
+          self_ref_ivars.include?(key) || begin
+            t = ivar_types[key]
+            user_class_ptr_type?(t) || t == "RubyObject*"
+          end
+        end
+        members = trace.map { |iv| "&#{wrapper}::iv_#{iv.to_s.delete_prefix('@')}" }
+        line "#ifdef FROZONE_USE_DUSTMAN_GC"
+        if members.empty?
+          line "template<> struct dustman::Tracer<#{wrapper}> : dustman::FieldList<#{wrapper}> {};"
+        else
+          line "template<> struct dustman::Tracer<#{wrapper}> : dustman::FieldList<#{wrapper}, #{members.join(', ')}> {};"
+        end
+        line "#endif"
       end
 
       def emit_struct_class(name, cls)
@@ -607,7 +639,7 @@ module Frozone
           members.each_with_index do |m, i|
             t = ctor_types[i] || "int64_t"
             default = (t == "int64_t") ? " = 0" : (t == "double" ? " = 0.0" : "")
-            line "#{t} iv_#{m}#{default};"
+            line "#{emit_type(t)} iv_#{m}#{default};"
           end
           emit_newline
 
@@ -625,14 +657,18 @@ module Frozone
 
           members.each do |m|
             t = ctor_types[members.index(m)] || "auto"
-            line "#{t} #{m}() const { return iv_#{m}; }"
-            line "void set_#{m}(#{t} v) { iv_#{m} = v; }"
+            line "#{emit_type(t)} #{m}() const { return iv_#{m}; }"
+            line "void set_#{m}(#{emit_type(t)} v) { iv_#{m} = v; }"
           end
           emit_newline
 
         end
         line "};"
         line "template<> inline const char* ruby_class_name<Ruby_#{name}>() { return \"#{name}\"; }"
+        # Struct members are value-typed (int/double) — empty FieldList.
+        line "#ifdef FROZONE_USE_DUSTMAN_GC"
+        line "template<> struct dustman::Tracer<Ruby_#{name}> : dustman::FieldList<Ruby_#{name}> {};"
+        line "#endif"
         @_self_ref_ivars = nil
         @_current_wrapper_name = nil
       end
@@ -1389,10 +1425,10 @@ module Frozone
             end
           end
           if t.start_with?("Ruby_") && !t.end_with?("*")
-            line "#{t}* #{decl_name} = nullptr;"
+            line "#{emit_type("#{t}*")} #{decl_name} = nullptr;"
             @_pointer_locals << name
           elsif t.end_with?("*")
-            line "#{t} #{decl_name} = nullptr;"
+            line "#{emit_type(t)} #{decl_name} = nullptr;"
             @_pointer_locals << name
           else
               init = case t
@@ -1401,7 +1437,7 @@ module Frozone
                      when "bool" then " = false"
                      else ""
                      end
-              line "#{t} #{decl_name}#{init};"
+              line "#{emit_type(t)} #{decl_name}#{init};"
             end
             if (m = t.match(/\Astd::optional<(.+)>\z/))
               (@_optional_locals ||= {})[name] = m[1]
@@ -1484,7 +1520,7 @@ module Frozone
             t = arg_types[req_count + oi]
             if t && t.start_with?("Ruby_")
               ptr_t = t.end_with?("*") ? t : "#{t}*"
-              parts << "#{ptr_t} #{pname} = nullptr"
+              parts << "#{emit_type(ptr_t)} #{pname} = nullptr"
             else
               parts << "auto #{pname} = #{cr(default_node)}"
             end
@@ -1616,6 +1652,7 @@ module Frozone
           # Hoist locals for main too — same rationale as method bodies.
           emit_hoisted_locals(execute_block.body, []) if execute_block&.body
           emit(execute_block.body) if execute_block&.body
+          line "FROZONE_GC_SHUTDOWN();"
           line "return 0;"
         end
         @_current_body = nil
@@ -1753,6 +1790,7 @@ module Frozone
         when Ast::InstanceVariableRead
           cpp_ivar(node.name)
         when Ast::InstanceVariableWrite
+          ivar_t = nil
           if @_inside_wrapped_class && @_current_wrapper_name
             cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
             ivar_t = ti_ivar_type(cls_name, node.name.to_s.delete_prefix("@"))
@@ -1763,7 +1801,13 @@ module Frozone
               @_array_new_elem_type = "double"
             end
           end
-          result = "#{cpp_ivar(node.name)} = #{cr(node.value_node)}"
+          rhs = cr(node.value_node)
+          # Bare nullptr when assigning nil into a user-class pointer ivar
+          # (avoids RubyNil/gc_ptr assignment ambiguity under Dustman).
+          if rhs == "RUBY_NIL" && (user_class_ptr_type?(ivar_t) || @_self_ref_ivars&.include?(node.name.to_s.delete_prefix('@')))
+            rhs = "nullptr"
+          end
+          result = "#{cpp_ivar(node.name)} = #{rhs}"
           @_array_new_elem_type = nil
           result
         when Ast::MultipleAssignment
@@ -1834,6 +1878,12 @@ module Frozone
             rhs = cr(val)
             if (inner = (@_optional_locals || {})[name])
               rhs = "ruby_to_opt<#{inner}>(#{rhs})"
+            end
+            # `= RUBY_NIL` is ambiguous when LHS is gc_ref<T> under Dustman
+            # (templated RubyNil → T clashes with RubyNil → nullptr_t). Emit
+            # bare nullptr for pointer-typed locals; works for all GC modes.
+            if rhs == "RUBY_NIL" && @_pointer_locals&.include?(name)
+              rhs = "nullptr"
             end
             # Wrap in parens for expression contexts like
             # `if ((q1 = p[1]) != 1)` — `!=` binds tighter than `=` in C++.
@@ -2287,10 +2337,10 @@ module Frozone
           return "RubyString()"
         end
 
-        # ClassName.new(args) → new Ruby_ClassName(args)
+        # ClassName.new(args) → gc_new<Ruby_ClassName>(args)
         if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name != :Array
           arg_strs = args.map { |a| cr(a) }.join(", ")
-          return "new Ruby_#{recv.name}(#{arg_strs})"
+          return "gc_new<Ruby_#{recv.name}>(#{arg_strs})"
         end
 
         # Array.new(size, fill) / Array.new(size)

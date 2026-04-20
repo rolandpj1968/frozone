@@ -6,6 +6,7 @@
 
 
 int main() {
+  FROZONE_GC_INIT();
   int64_t count = 0;
   (count = INT64_C(0));
   for (int64_t _i = 0; _i < INT64_C(500); _i++) {
@@ -24,5 +25,6 @@ int main() {
     };
   }
   ruby_puts(count);
+  FROZONE_GC_SHUTDOWN();
   return 0;
 }
