@@ -385,6 +385,14 @@ static inline bool ruby_nil_q(const RubyTree& t) { return t.nil_q(); }
 template<typename T> static inline bool ruby_nil_q(T* p) { return p == nullptr; }
 template<typename T> static inline bool ruby_nil_q(const std::shared_ptr<T>& p) { return !p; }
 template<typename T> static inline bool ruby_nil_q(const std::optional<T>& o) { return !o.has_value(); }
+#ifdef FROZONE_USE_DUSTMAN_GC
+// Dustman refs: gc_ptr<T> is a smart pointer, Root<T> is a rooted slot.
+// Both may be null; without these overloads the generic-T fallback below
+// returns false on a null gc_ptr because gc_ptr has no .nil_q() member,
+// silently breaking empty-check predicates.
+template<typename T> static inline bool ruby_nil_q(const dustman::gc_ptr<T>& p) { return p.get() == nullptr; }
+template<typename T> static inline bool ruby_nil_q(const dustman::Root<T>& r) { return r.get() == nullptr; }
+#endif
 template<typename T> static inline bool ruby_nil_q(const T& v) {
   if constexpr (requires { v.nil_q(); }) return v.nil_q();
   else return false;
