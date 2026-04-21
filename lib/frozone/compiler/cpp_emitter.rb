@@ -95,13 +95,9 @@ module Frozone
         cpp = ty.to_cpp
         return nil if cpp == "auto"
         return nil if cpp&.count('<') > 2  # deeply nested generics
-        # std::any is still here as a transitional escape hatch: even though
-        # RubyString/RubyArray/RubyHash/RubyTree now share RubyObject as a
-        # base, migrating emitted code from std::any to gc_ref<RubyObject>
-        # requires boxing every value-to-union assignment and return, plus
-        # real container Tracers for hashes/arrays holding gc_refs. Staged
-        # refactor in progress.
-        return "std::any" if cpp == "RubyObject*"
+        # RubyObject* is the LCA for cross-class unions. Emitted as
+        # gc_ref<RubyObject> by emit_type; writes into these slots are
+        # coerced via cr_coerce (pointer-upcast or gc_new<Concrete>(expr)).
         cpp
       end
 
@@ -1464,7 +1460,7 @@ module Frozone
         # (gc_ref<Ruby_X>) so a `return root_local` unifies via implicit
         # conversion Root<T> → gc_ptr<T>. `auto` deduction would see two
         # distinct types and fail.
-        ret_sig = user_class_ptr_type?(@_method_return_type) ? emit_type(@_method_return_type) : "auto"
+        ret_sig = explicit_return_type(@_method_return_type)
         line "#{ret_sig} #{cpp_method_name(mname)}(#{params}) {"
         @_bracket_method_name = nil
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
@@ -1669,7 +1665,7 @@ module Frozone
         @_method_yields = method.uses_block || body_has_yield?(method.body)
         params = params.empty? ? "auto _block" : "#{params}, auto _block" if @_method_yields
         @_method_return_type = ti_return_type(@_current_method_key)
-        ret_type = %w[std::any].include?(@_method_return_type) || @_method_return_type&.start_with?("std::optional") ? @_method_return_type : "auto"
+        ret_type = explicit_return_type(@_method_return_type)
         line "static #{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
@@ -1698,7 +1694,14 @@ module Frozone
           emit_case_return(node)
           return
         end
-        s = cr(node)
+        # Coerce the returned expression into the method's declared return
+        # type. Only non-control expressions — control-flow forms (if/while/for)
+        # aren't return-producing here; they go through other paths.
+        s = if node.is_a?(Ast::Node) && !node.is_a?(Ast::If) && !node.is_a?(Ast::While) && !node.is_a?(Ast::ForLoop)
+              cr_coerce(node, @_method_return_type)
+            else
+              cr(node)
+            end
         if s.include?("{\n") || s.start_with?("if ") || s.start_with?("while ") || s.start_with?("for ") || s.start_with?("return ")
           if s.include?("{\n")
             emit_indent; write s; emit_newline
@@ -1746,8 +1749,7 @@ module Frozone
         elsif inner.is_a?(Ast::NilLiteral) && @_method_return_type
           line "return #{nil_return_expr};"
         else
-          s = cr(node)
-          line "return #{s};"
+          line "return #{cr_coerce(inner, @_method_return_type)};"
         end
       end
 
@@ -1908,9 +1910,12 @@ module Frozone
         return s unless target_type == "RubyObject*"
         node_type = local_decl_type(node)
         return s unless node_type && node_type != "auto"
-        return s if node_type.end_with?("*")                     # pointer → RubyObject*
+        # Under Boehm/none, `T* → RubyObject*` is an implicit upcast. Under
+        # Dustman, `gc_ptr<T> → gc_ptr<RubyObject>` is NOT — different
+        # template instantiations. as_ref bridges both cases.
+        return "as_ref<RubyObject>(#{s})" if node_type.end_with?("*")
         if ruby_object_subclass_value_type?(node_type)
-          "gc_new<#{node_type}>(#{s})"
+          "as_ref<RubyObject>(gc_new<#{node_type}>(#{s}))"
         else
           "std::any(#{s})"                                       # primitive fallback
         end
@@ -1924,6 +1929,18 @@ module Frozone
           cpp_type == "RubyTree" ||
           cpp_type.start_with?("RubyArray<") ||
           cpp_type.start_with?("RubyHash<")
+      end
+
+      # Decide the method's emitted return type. `auto` for the common case;
+      # explicit when TI gives us a type that the `auto` deducer can't unify
+      # across branches (user-class pointers, RubyObject*, std::any,
+      # std::optional) — callers returning mixed-but-convertible-to-target
+      # types will then implicitly coerce at return sites.
+      def explicit_return_type(t)
+        return "auto" unless t
+        return t if t == "std::any" || t.start_with?("std::optional")
+        return emit_type(t) if user_class_ptr_type?(t) || t == "RubyObject*"
+        "auto"
       end
 
       def cr(node)
@@ -1965,7 +1982,10 @@ module Frozone
               @_array_new_elem_type = "double"
             end
           end
-          rhs = cr(node.value_node)
+          # Coerce RHS to the ivar's declared type — boxes value-typed
+          # RubyObject subclasses into gc_new<Type>(expr) when the ivar is
+          # RubyObject* (union slot).
+          rhs = cr_coerce(node.value_node, ivar_t)
           # Bare nullptr when assigning nil into a user-class pointer ivar
           # (avoids RubyNil/gc_ptr assignment ambiguity under Dustman).
           if rhs == "RUBY_NIL" && (user_class_ptr_type?(ivar_t) || @_self_ref_ivars&.include?(node.name.to_s.delete_prefix('@')))

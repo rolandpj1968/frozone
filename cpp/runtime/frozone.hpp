@@ -85,6 +85,7 @@ public:
   // here back to the global heap. `dustman::alloc<RubyString>` bypasses
   // operator new entirely, so Dustman management still works when requested.
   static void* operator new(size_t n) { return ::operator new(n); }
+  static void* operator new(size_t, void* p) noexcept { return p; }
   static void operator delete(void* p) noexcept { ::operator delete(p); }
 
   // Ruby-semantic byte string with UTF-8 / BINARY encoding awareness.
@@ -227,6 +228,7 @@ public:
   // new/delete so `new RubyHash(x)` doesn't route through Boehm's GC_MALLOC —
   // see RubyString for rationale.
   static void* operator new(size_t n) { return ::operator new(n); }
+  static void* operator new(size_t, void* p) noexcept { return p; }
   static void operator delete(void* p) noexcept { ::operator delete(p); }
 
   const char* rb_class_name() const override { return "Hash"; }
@@ -325,6 +327,7 @@ public:
   // Value-type usage; keep `new`/`delete` on the regular heap so
   // std::any<RubyArray<...>> doesn't crash under Boehm. See RubyString.
   static void* operator new(size_t n) { return ::operator new(n); }
+  static void* operator new(size_t, void* p) noexcept { return p; }
   static void operator delete(void* p) noexcept { ::operator delete(p); }
 
   const char* rb_class_name() const override { return "Array"; }
@@ -415,6 +418,7 @@ class RubyTree : public RubyObject {
 public:
   // Value-type usage; keep `new`/`delete` on the regular heap. See RubyString.
   static void* operator new(size_t n) { return ::operator new(n); }
+  static void* operator new(size_t, void* p) noexcept { return p; }
   static void operator delete(void* p) noexcept { ::operator delete(p); }
 
   const char* rb_class_name() const override { return "Tree"; }
@@ -520,6 +524,19 @@ template<typename T, typename... Args>
 inline dustman::gc_ptr<T> gc_new(Args&&... args) {
   return dustman::alloc<T>(std::forward<Args>(args)...);
 }
+// Upcast a gc_ref<Derived> / gc_local<Derived> / Derived* to gc_ref<Base>.
+// Dustman's gc_ptr<T> doesn't implicitly convert across T — templates are
+// unrelated types even when the pointees share inheritance. as_ref does the
+// static_cast-through-raw-pointer dance and wraps back into gc_ptr<Base>.
+// Under Boehm/none gc_ref = T*, so this collapses to a plain static_cast.
+template<typename Base, typename T>
+inline dustman::gc_ptr<Base> as_ref(dustman::gc_ptr<T> p) {
+  return dustman::gc_ptr<Base>(static_cast<Base*>(p.get()));
+}
+template<typename Base, typename T>
+inline dustman::gc_ptr<Base> as_ref(const dustman::Root<T>& r) {
+  return dustman::gc_ptr<Base>(static_cast<Base*>(r.get()));
+}
 #else
 template<typename T> using gc_ref   = T*;
 template<typename T> using gc_local = T*;
@@ -527,6 +544,8 @@ template<typename T, typename... Args>
 inline T* gc_new(Args&&... args) {
   return new T(std::forward<Args>(args)...);
 }
+template<typename Base, typename T>
+inline Base* as_ref(T* p) { return static_cast<Base*>(p); }
 #endif
 
 // .class method — template dispatches on runtime type.
