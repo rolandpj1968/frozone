@@ -2342,6 +2342,18 @@ module Frozone
         kw_param_names.map { |p| kw_map[p.to_sym] }.compact
       end
 
+      # True if `cls` or any ancestor defines method `sym`. Walks via
+      # superclass; closed-world assumption — we see every class at
+      # compile time, so this answer is authoritative.
+      def class_responds_to?(cls, sym)
+        c = cls
+        while c
+          return true if c.methods_table&.key?(sym)
+          c = c.respond_to?(:superclass) ? c.superclass : nil
+        end
+        false
+      end
+
       # Recursively search the constant graph for a ClassObject with the
       # given bare name (handles classes nested inside other classes).
       def find_nested_class(scope, name, seen = {})
@@ -2674,22 +2686,47 @@ module Frozone
           return "#{cpp_method_name(name)}(#{all_args.join(', ')})"
         end
 
-        # respond_to?(:sym) — if we can resolve receiver's class and the
-        # symbol is a literal, the answer is statically known.
+        # respond_to?(:sym) — closed-world static resolution. The answer
+        # is a boolean constant if we can resolve the receiver's class.
+        #
+        # Resolving the receiver: first consult TI's :local slot (strict-TI
+        # commits to concrete Types, so a Ruby_X* pointer local has a known
+        # class). Fall back to the (legacy) cpp-string inspection of
+        # local_decl_type for locals TI doesn't cover.
+        #
+        # Walking the hierarchy: methods_table only holds the class's own
+        # methods; inherited methods come from walking superclasses. Return
+        # true iff any class in the MRO defines the symbol.
+        #
+        # Fallback: when we genuinely can't resolve (recv type unknown or
+        # not a user class), emit `false`. Under closed-world AoT we've
+        # seen every class definition — if we can't match the receiver to
+        # one, there's no way the method could be present. `true` was a
+        # historical hedge that made unreachable-truthy respond_to? calls
+        # fire, e.g. `c.respond_to?(:bar2)` ≡ true in the current bench,
+        # breaking respond_to's MISMATCH.
         if name == :respond_to? && args.size == 1 && args[0].is_a?(Ast::SymbolLiteral) && recv
           sym = args[0].value.respond_to?(:raw) ? args[0].value.raw.to_sym : args[0].value.to_sym
-          recv_t = local_decl_type(recv)
-          if recv_t&.start_with?("Ruby_")
-            cls_name = recv_t.delete_prefix("Ruby_").delete_suffix("*").to_sym
+          cls_name = nil
+          # TI's :local slot is keyed by method_key or nil (top-level execute
+          # block). Look up either way.
+          if recv.is_a?(Ast::LocalVariableRead)
+            t_ty = ti_type([:local, @_current_method_key, recv.name.to_sym])
+            cls_name = t_ty.class_name if t_ty&.class_type?
+          end
+          cls_name ||= begin
+            recv_t = local_decl_type(recv)
+            recv_t.delete_prefix("Ruby_").delete_suffix("*").to_sym if recv_t&.start_with?("Ruby_")
+          end
+          if cls_name
             cls = @top_level_scope&.constants_table&.fetch(cls_name, nil)
             cls ||= find_nested_class(@top_level_scope, cls_name)
             if cls.is_a?(Vm::ClassObject)
-              has = cls.methods_table&.key?(sym) || false
-              return has ? "true" : "false"
+              return class_responds_to?(cls, sym) ? "true" : "false"
             end
           end
-          # Fallback when we can't resolve — assume present.
-          return "true"
+          # Closed-world: unresolved receiver class = method not reachable.
+          return "false"
         end
 
         # itself on receiver: identity
