@@ -1193,9 +1193,13 @@ module Frozone
       def _local_decl_type_impl(val)
         case val
         when Ast::Or, Ast::And
-          # Type of `a || b` is the right operand's type (typical
-          # `x || @default` pattern where right is the real fallback).
-          local_decl_type(val.right_node)
+          # `a || b` evaluates to `a` if truthy else `b` — the result type
+          # is the lattice join of left and right. Previously we just took
+          # the right operand (heuristic for `x || @default` patterns),
+          # which is wrong when the two branches have different types.
+          t_left  = local_decl_type(val.left_node)
+          t_right = local_decl_type(val.right_node)
+          meet_types(t_left, t_right)
         when Ast::LocalVariableRead
           "auto"
         when Ast::InstanceVariableRead
@@ -1886,13 +1890,18 @@ module Frozone
 
       # Can values of `cpp_type` be represented as RubyObject* via
       # coerce_to_ref? True for pointers, value-typed subclasses, primitives
-      # (boxed into Ruby_Integer / Ruby_Float / Ruby_Boolean), and RubySymbol
-      # (boxed into Ruby_Symbol). Excludes `auto` (not statically resolved)
-      # and `std::any` (can't unbox blindly) — both are genuine "we don't
-      # know enough to pick a box" cases that fall through to std::any.
+      # (boxed into Ruby_Integer / Ruby_Float / Ruby_Boolean), RubySymbol
+      # (boxed into Ruby_Symbol), and "auto" (trust runtime dispatch —
+      # coerce_to_ref's if-constexpr chain handles all supported types at
+      # the template instantiation site, and static_asserts on anything
+      # unsupported, surfacing a compile error rather than silently
+      # hiding a gc_ref inside std::any).
+      #
+      # The only "can't convert" cases left are `std::any` (already
+      # type-erased — unbox would need runtime type knowledge we don't
+      # have) and nil (handled separately via coerce_to_ref's null path).
       def ruby_object_convertible_type?(cpp_type)
-        return false unless cpp_type
-        return false if cpp_type == "auto"
+        return true if cpp_type.nil? || cpp_type == "auto"
         return false if cpp_type == "std::any"
         cpp_type.end_with?("*") ||
           ruby_object_subclass_value_type?(cpp_type) ||
@@ -1916,6 +1925,18 @@ module Frozone
           return contains_gc_refs?(m[1]) || contains_gc_refs?(m[2])
         end
         false
+      end
+
+      # Meet two cpp types at the lattice level. Used for expressions whose
+      # value type is the join of two sub-expressions (ternary, ||, &&, case).
+      # - Same type on both sides → that type
+      # - One side is bottom-ish ("auto" / nil) → the other
+      # - Otherwise → union_representation([a, b]) (RubyObject*, or std::any)
+      def meet_types(a, b)
+        return a if a == b
+        return b if a.nil? || a == "auto"
+        return a if b.nil? || b == "auto"
+        union_representation([a, b])
       end
 
       # Pick the representation for a union of participant cpp types.
