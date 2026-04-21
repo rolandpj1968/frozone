@@ -402,6 +402,7 @@ module Frozone
             emit_alias_forwarding_methods(mod, user_methods)
             emit_class_methods(name, mod, eigen_names)
             emit_respond_to(mod) if mod.is_a?(Vm::ClassObject)
+            emit_user_classes(mod, visited)
           end
 
           @cctx = old_cctx
@@ -409,17 +410,16 @@ module Frozone
           emit_indent
           write "end"
           emit_newline
-          # Nested user classes are flattened to top level: Crystal class
-          # lookup is lexical, so `SplayTree::Node` defined inside the parent
-          # class would require fully-qualified `.as(Ruby_SplayTree::Ruby_Node)`
-          # at outside references. Flattening sidesteps that — every user
-          # class is addressable as a bare `Ruby_X` from anywhere. Closed-
-          # world assumption: leaf class names are globally unique, so no
-          # collision risk between e.g. `Blurhash::Ruby::ThreeDArray` and
-          # some other ThreeDArray.
-          emit_user_classes(mod, visited)
         elsif has_user_descendants?(mod)
-          emit_user_classes(mod, visited)
+          # Namespace-only module: no user methods, but has nested user content.
+          # Emit a Crystal module wrapper so nested classes land at the right scope.
+          emit_indent
+          write "module Ruby_#{crystal_constant(name)}"
+          emit_newline
+          indented { emit_user_classes(mod, visited) }
+          emit_indent
+          write "end"
+          emit_newline
         end
       end
 
@@ -508,11 +508,8 @@ module Frozone
       # Build the fully-qualified Crystal path for a superclass reference.
       # Walks the namespace chain to produce Ruby_Outer::Ruby_Inner::Ruby_Name,
       # avoiding collisions when parent and child share a bare name (e.g.
-      # AST::Node vs Parser::AST::Node).
-      # Build the fully-qualified Crystal path for a superclass reference.
-      # Uses :: prefix to anchor at the top level, avoiding shadowing
-      # when a parent module re-opens a namespace (e.g. Parser::AST
-      # shadows top-level AST).
+      # AST::Node vs Parser::AST::Node). Uses :: prefix to anchor at the top
+      # level.
       def crystal_superclass_path(cls)
         parts = []
         current = cls
