@@ -15,10 +15,18 @@
 #define FROZONE_GC_SHUTDOWN()
 #elif defined(FROZONE_USE_DUSTMAN_GC)
 #include "dustman/dustman.hpp"
-// Disable evacuation: gc_ptrs passed across function calls as plain params
-// aren't Dustman-tracked, so an evacuation cycle would leave stale pointers.
-// Non-moving mark-sweep is safe and good enough for now.
-#define FROZONE_GC_INIT() dustman::set_evacuation_threshold_percent(0)
+// Disable *all* moving collection. `set_evacuation_threshold_percent(0)` only
+// stops major-cycle evacuation; as of Dustman v0.2.0 the minor collector
+// always copy-evacuates surviving young objects (unconditional memcpy into old
+// blocks). Our RubyHash holds libstdc++ std::list / std::unordered_map whose
+// sentinel nodes embed self-referential pointers — not trivially relocatable,
+// silently corrupted by memcpy. Turn off auto-collect entirely; the program
+// runs without collection for now. Follow-up (project_dustman_hash_relocation):
+// refactor RubyHash to hold its storage via shared_ptr (same pattern as
+// RubyArray) so the mutable container lives off-heap from Dustman's POV.
+#define FROZONE_GC_INIT() \
+  do { dustman::set_evacuation_threshold_percent(0); \
+       dustman::set_auto_collect_enabled(false); } while (0)
 #define FROZONE_GC_SHUTDOWN() dustman::detach_thread()
 #else
 #define FROZONE_GC_INIT()
