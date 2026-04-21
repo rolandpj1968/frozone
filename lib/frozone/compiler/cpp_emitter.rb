@@ -710,10 +710,14 @@ module Frozone
         @_current_wrapper_name = "Ruby_#{name}"
         @_self_ref_ivars = Set.new
         indented do
+          # ctor_types is currently always empty (struct member type
+          # inference is a TODO) — each member defaults to int64_t. emit_type
+          # would be a no-op on int64_t / auto / double, so just pass strings
+          # through directly.
           members.each_with_index do |m, i|
             t = ctor_types[i] || "int64_t"
             default = (t == "int64_t") ? " = 0" : (t == "double" ? " = 0.0" : "")
-            line "#{emit_type(t)} iv_#{m}#{default};"
+            line "#{t} iv_#{m}#{default};"
           end
           emit_newline
 
@@ -731,8 +735,8 @@ module Frozone
 
           members.each do |m|
             t = ctor_types[members.index(m)] || "auto"
-            line "#{emit_type(t)} #{m}() const { return iv_#{m}; }"
-            line "void set_#{m}(#{emit_type(t)} v) { iv_#{m} = v; }"
+            line "#{t} #{m}() const { return iv_#{m}; }"
+            line "void set_#{m}(#{t} v) { iv_#{m} = v; }"
           end
           emit_newline
 
@@ -994,6 +998,12 @@ module Frozone
             return t::BOTTOM if cn == :Array   # element type unknown here
             return t.of(cn)
           end
+          # String-returning methods on any receiver (`.b`, `.slice`,
+          # `.dup_`, `.upcase`, `.downcase`). Also `s[i, n]` two-arg slice.
+          if val.receiver_node
+            return t::STRING if %i[b slice dup_ upcase downcase].include?(val.name)
+            return t::STRING if val.name == :[] && (val.arg_nodes || []).size == 2
+          end
           # obj.foo where obj resolves to a known user class — look up the
           # method's TI-typed return.
           if val.receiver_node
@@ -1003,7 +1013,7 @@ module Frozone
               return rt if rt
             end
           end
-          t::I64  # conservative default, matches legacy "int64_t" behaviour
+          t::BOTTOM  # unresolved → "auto"; caller can fall back to decltype
         when Ast::HashLiteral
           pairs = (val.kv_nodes || []).reject { |k, _| k.nil? }
           return t.new(:class_type, class_name: :Hash, key: t::SYMBOL, val: t::I64) if pairs.empty?
@@ -1049,6 +1059,9 @@ module Frozone
             return t::STRING if c.is_a?(Vm::StringObject)
             return t::F64 if c.is_a?(Vm::FloatObject)
           end
+          t::BOTTOM
+        when Ast::Lambda
+          # No Type for a Proc/lambda — caller should use decltype path.
           t::BOTTOM
         else
           # Unknown shape — default to I64 matching legacy "int64_t" fallback.
@@ -1183,18 +1196,16 @@ module Frozone
       def collect_hoistable_locals(body, param_names)
         prev_body = @_current_body
         @_current_body = body
-        seen = {}  # name => {type:, first_rhs:}
+        seen = {}  # name => {type: Type | nil, first_rhs:}
         order = []
         walker = lambda do |node|
           return unless node
           if node.is_a?(Ast::LocalVariableWrite)
             name = node.name.to_s
             unless seen.key?(name) || param_names.include?(name.to_sym) || param_names.include?(name)
-              # Prefer shared TI (no body re-walking), fall back to
-              # look-ahead scan (skipped for large methods).
-              widened = ti_local_type(@_current_method_key, name)
-              widened ||= local_decl_type(node.value_node)
-              seen[name] = { type: widened, first_rhs: node.value_node }
+              ty = ti_local_type_t(@_current_method_key, name)
+              ty ||= local_decl_type_t(node.value_node)
+              seen[name] = { type: ty, first_rhs: node.value_node }
               order << name
             end
           elsif node.is_a?(Ast::MultipleAssignment)
@@ -1205,13 +1216,11 @@ module Frozone
               next unless kind == :local
               s = nm.to_s
               next if seen.key?(s) || param_names.include?(nm) || param_names.include?(s)
-              # Per-target type inference: ArrayLiteral → elem[i]'s type;
-              # else unknown ("auto").
               per_elem = elems[i]
               if per_elem
-                seen[s] = { type: local_decl_type(per_elem), first_rhs: per_elem }
+                seen[s] = { type: local_decl_type_t(per_elem), first_rhs: per_elem }
               else
-                seen[s] = { type: "auto", first_rhs: nil }
+                seen[s] = { type: nil, first_rhs: nil }
               end
               order << s
             end
@@ -1369,14 +1378,15 @@ module Frozone
         @_current_body = body
         param_names_set = param_names.map(&:to_s).to_set
         collect_hoistable_locals(body, param_names).each do |name, info|
-          t = info[:type]
-          next if t.nil?
+          ty = info[:type]
           next if @_declared_locals&.include?(name)
           decl_name = cpp_local_name(name)
-          if t == "auto" || t == "auto&"
-            ti_t = ti_local_type(@_current_method_key, name)
-            if ti_t && ti_t != "auto"
-              t = ti_t
+          # Unknown / bottom: try TI's :local slot once more, else fall back
+          # to a `decltype(rhs)` declaration if the rhs is simple enough.
+          if ty.nil? || ty.bottom?
+            ti_ty = ti_local_type_t(@_current_method_key, name)
+            if ti_ty && !ti_ty.bottom?
+              ty = ti_ty
             else
               rhs = info[:first_rhs]
               next unless rhs && rhs_safe_for_decltype?(rhs, param_names_set)
@@ -1387,24 +1397,30 @@ module Frozone
               next
             end
           end
-          if t.start_with?("Ruby_") && !t.end_with?("*")
-            line "#{emit_local_type("#{t}*")} #{decl_name} = nullptr;"
-            @_pointer_locals << name
-          elsif t.end_with?("*")
-            line "#{emit_local_type(t)} #{decl_name} = nullptr;"
+          if ty.emitted_as_pointer?
+            # Outer pointer is stack-rooted: gc_local<Ruby_X>.
+            line "#{ty.to_cpp_local} #{decl_name} = nullptr;"
             @_pointer_locals << name
           else
-              init = case t
-                     when "int64_t" then " = 0"
-                     when "double" then " = 0.0"
-                     when "bool" then " = false"
-                     else ""
-                     end
-              line "#{emit_type(t)} #{decl_name}#{init};"
-            end
-            if (m = t.match(/\Astd::optional<(.+)>\z/))
-              (@_optional_locals ||= {})[name] = m[1]
-            end
+            default = if ty.i64? || (ty.class_type? && %i[Integer Numeric].include?(ty.class_name) && !ty.nullable?)
+                        " = 0"
+                      elsif ty.f64? || (ty.class_type? && ty.class_name == :Float && !ty.nullable?)
+                        " = 0.0"
+                      elsif ty.class_type? && %i[TrueClass FalseClass].include?(ty.class_name)
+                        " = false"
+                      else
+                        ""
+                      end
+            # Value-typed outer (int64, RubyString, container, etc.). If the
+            # container has pointer elements, those go through gc_ref (passive
+            # reference) — to_cpp_ref renders that; to_cpp_local would wrap
+            # elements in Root<> which wouldn't compile for container storage.
+            line "#{ty.to_cpp_ref} #{decl_name}#{default};"
+          end
+          if ty.renders_as_optional?
+            inner = (ty.i64? || (ty.class_type? && %i[Integer Numeric].include?(ty.class_name))) ? "int64_t" : "double"
+            (@_optional_locals ||= {})[name] = inner
+          end
           @_declared_locals << name
           @_declared_locals << decl_name if decl_name != name
         end
