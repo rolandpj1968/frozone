@@ -150,42 +150,6 @@ module Frozone
         end
       end
 
-      # Is this C++ type a pointer to a user class (not a builtin value type)?
-      def user_class_ptr_type?(t)
-        t&.match?(/\ARuby_[A-Z]\w*\*\z/)
-      end
-
-      # True if `type_str` is like `Ruby_Foo*` where Foo is in
-      # NON_GC_BUILTIN_CLASSES. Those types must be emitted as raw `T*` —
-      # they aren't Dustman-managed.
-      def non_gc_builtin_ptr?(type_str)
-        m = type_str.to_s.match(/\ARuby_([A-Z]\w*)\*\z/)
-        !!(m && NON_GC_BUILTIN_CLASSES.include?(m[1].to_sym))
-      end
-
-      # Translate a C++ type string for emission. User-class pointer forms
-      # (Ruby_X*, RubyObject*) are wrapped in gc_ref<...>. The wrapper is a
-      # typedef in frozone.hpp: T* under Boehm/none, dustman::gc_ptr<T> under
-      # Dustman. Works inside nested generics (RubyArray<Ruby_X*> → RubyArray<gc_ref<Ruby_X>>).
-      # Non-GC built-in classes (NON_GC_BUILTIN_CLASSES) pass through as raw T*.
-      def emit_type(t)
-        return t unless t
-        t.gsub(/Ruby_[A-Z]\w*\*/) do |m|
-          non_gc_builtin_ptr?(m) ? m : "gc_ref<#{m[0..-2]}>"
-        end.gsub(/\bRubyObject\*/, 'gc_ref<RubyObject>')
-      end
-
-      # Like emit_type but for a stack-local variable declaration — wraps
-      # user-class pointers in gc_local<T> (= Root<T> under Dustman) so a
-      # collection triggered by another allocation doesn't reclaim the referent.
-      # Under Boehm/none gc_local<T> = T*, same as gc_ref.
-      def emit_local_type(t)
-        return t unless t
-        t.gsub(/Ruby_[A-Z]\w*\*/) do |m|
-          non_gc_builtin_ptr?(m) ? m : "gc_local<#{m[0..-2]}>"
-        end.gsub(/\bRubyObject\*/, 'gc_local<RubyObject>')
-      end
-
       def mark_param_pointer_types(method)
         return unless method.is_a?(Vm::Method)
         mkey = @_current_method_key
@@ -1138,8 +1102,15 @@ module Frozone
             "RubyHash<RubySymbol, int64_t>"
           else
             k_type = key_type_for(pairs[0][0])
-            v_type = hash_literal_value_type(pairs)
-            "RubyHash<#{k_type}, #{v_type}>"
+            val_ts = pairs.map { |_, v| local_decl_type_t(v) }.uniq
+            v_tpl =
+              if val_ts.size == 1
+                val_ts[0].to_cpp_ref
+              else
+                rep = Frozone::Compiler::Type.union_representation(val_ts)
+                rep == "RubyObject*" ? "gc_ref<RubyObject>" : rep
+              end
+            "RubyHash<#{k_type}, #{v_tpl}>"
           end
         when Ast::SymbolLiteral then "RubySymbol"
         when Ast::FloatLiteral then "double"
@@ -1515,15 +1486,13 @@ module Frozone
         req_count = (method.required_params || []).size
         (method.optional_params || []).each_with_index do |(pname, default_node), oi|
           if default_node.is_a?(Ast::NilLiteral)
-            arg_types = (@_method_call_arg_types || {})[method.name] || []
-            t = arg_types[req_count + oi]
-            # Fallback to TI's :param slot if the caller-scan didn't populate it.
-            t ||= ti_type_cpp([:param, @_current_method_key, req_count + oi]) if @_current_method_key
-            # Also try :local (sometimes TI stores param types there).
-            t ||= ti_local_type(@_current_method_key, pname.to_s) if @_current_method_key
-            if t && t.start_with?("Ruby_")
-              ptr_t = t.end_with?("*") ? t : "#{t}*"
-              parts << "#{emit_type(ptr_t)} #{pname} = nullptr"
+            # TI's :param / :local slots (the legacy @_method_call_arg_types
+            # hash was populated by ad-hoc TI that's since been removed).
+            ty = nil
+            ty = ti_type([:param, @_current_method_key, req_count + oi]) if @_current_method_key
+            ty ||= ti_local_type_t(@_current_method_key, pname.to_s) if @_current_method_key
+            if ty&.emitted_as_pointer?
+              parts << "#{ty.to_cpp_ref} #{pname} = nullptr"
             else
               parts << "auto #{pname} = #{cr(default_node)}"
             end
@@ -1749,27 +1718,23 @@ module Frozone
           return "RubyHash<RubySymbol, int64_t>{}"  # empty: innocuous default
         end
         k_type = key_type_for(pairs[0][0])
-        v_type = hash_literal_value_type(pairs)
+        val_ts = pairs.map { |_, v| local_decl_type_t(v) }.uniq
+        v_cpp_rhs, v_cpp_tpl =
+          if val_ts.size == 1
+            [val_ts[0].to_cpp, val_ts[0].to_cpp_ref]
+          else
+            rep = Frozone::Compiler::Type.union_representation(val_ts)
+            [rep, rep == "RubyObject*" ? "gc_ref<RubyObject>" : rep]
+          end
         init_pairs = pairs.map { |k, v|
-          rhs = case v_type
+          rhs = case v_cpp_rhs
                 when "std::any"   then "std::any(#{cr(v)})"
                 when "RubyObject*" then cr_coerce(v, "RubyObject*")
                 else cr(v)
                 end
           "_h.store(#{cr(k)}, #{rhs});"
         }.join(" ")
-        "({ RubyHash<#{k_type}, #{emit_type(v_type)}> _h; #{init_pairs} _h; })"
-      end
-
-      # Decide the V type for a RubyHash<K, V> built from `pairs`.
-      # local_decl_type_t always returns a Type; union_representation picks
-      # the emission representation (RubyObject* via boxing, or std::any if
-      # nothing else works).
-      def hash_literal_value_type(pairs)
-        val_ts = pairs.map { |_, v| local_decl_type_t(v) }
-        uniq_ts = val_ts.uniq
-        return uniq_ts[0].to_cpp if uniq_ts.size == 1
-        Frozone::Compiler::Type.union_representation(uniq_ts)
+        "({ RubyHash<#{k_type}, #{v_cpp_tpl}> _h; #{init_pairs} _h; })"
       end
 
       def key_type_for(node)
@@ -1868,20 +1833,19 @@ module Frozone
           if @_inside_wrapped_class && @_current_wrapper_name
             cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
             ivar_type = ti_ivar_type_t(cls_name, node.name.to_s.delete_prefix("@"))
-            ivar_t = ivar_type&.to_cpp
             if @_dropped_ivars&.include?(node.name.to_s.delete_prefix('@'))
               return "#{cr(node.value_node)}"
             end
-            if ivar_t&.match?(/RubyArray<double>/)
+            if ivar_type&.array_like? && ivar_type.elem&.f64?
               @_array_new_elem_type = "double"
             end
           end
           # Coerce RHS to the ivar's declared type. Pass the Type directly;
           # cr_coerce routes to coerce_to_ref when target is RubyObject*.
-          rhs = cr_coerce(node.value_node, ivar_type || ivar_t)
+          rhs = cr_coerce(node.value_node, ivar_type)
           # Bare nullptr when assigning nil into a user-class pointer ivar
           # (avoids RubyNil/gc_ptr assignment ambiguity under Dustman).
-          if rhs == "RUBY_NIL" && (user_class_ptr_type?(ivar_t) || @_self_ref_ivars&.include?(node.name.to_s.delete_prefix('@')))
+          if rhs == "RUBY_NIL" && (ivar_type&.user_class_pointer? || @_self_ref_ivars&.include?(node.name.to_s.delete_prefix('@')))
             rhs = "nullptr"
           end
           result = "#{cpp_ivar(node.name)} = #{rhs}"
@@ -1967,9 +1931,9 @@ module Frozone
             # RHS through its gc_ptr<T> conversion by wrapping in gc_ref<T>().
             # Under Boehm/none this is a no-op cast.
             if @_pointer_locals&.include?(name) && val.is_a?(Ast::LocalVariableRead) && @_pointer_locals.include?(val.name.to_s)
-              t = ti_local_type(@_current_method_key, name) || ti_local_type(@_current_method_key, val.name.to_s)
-              if user_class_ptr_type?(t)
-                rhs = "#{emit_type(t)}(#{rhs})"
+              t = ti_local_type_t(@_current_method_key, name) || ti_local_type_t(@_current_method_key, val.name.to_s)
+              if t&.user_class_pointer?
+                rhs = "#{t.to_cpp_ref}(#{rhs})"
               end
             end
             # Wrap in parens for expression contexts like
