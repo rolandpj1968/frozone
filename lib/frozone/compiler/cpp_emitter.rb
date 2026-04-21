@@ -1232,35 +1232,38 @@ module Frozone
       end
 
       def _local_decl_type_t_impl(val)
+        t = Frozone::Compiler::Type
         case val
-        when Ast::NilLiteral     then Frozone::Compiler::Type::NIL_CLASS
-        when Ast::TrueLiteral    then Frozone::Compiler::Type::TRUE_CLASS
-        when Ast::FalseLiteral   then Frozone::Compiler::Type::FALSE_CLASS
-        when Ast::IntegerLiteral then Frozone::Compiler::Type::I64
-        when Ast::FloatLiteral   then Frozone::Compiler::Type::F64
-        when Ast::SymbolLiteral  then Frozone::Compiler::Type::SYMBOL
-        when Ast::StringLiteral, Ast::InterpolatedString then Frozone::Compiler::Type::STRING
+        when Ast::NilLiteral     then t::NIL_CLASS
+        when Ast::TrueLiteral    then t::TRUE_CLASS
+        when Ast::FalseLiteral   then t::FALSE_CLASS
+        when Ast::IntegerLiteral then t::I64
+        when Ast::FloatLiteral   then t::F64
+        when Ast::SymbolLiteral  then t::SYMBOL
+        when Ast::StringLiteral, Ast::InterpolatedString then t::STRING
+        when Ast::LocalVariableRead
+          # Unknown — C++ auto (renders via Type::BOTTOM → "auto").
+          t::BOTTOM
         when Ast::InstanceVariableRead
-          return nil unless @_current_wrapper_name
+          return t::BOTTOM unless @_current_wrapper_name
           cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
-          ti_ivar_type_t(cls_name, val.name.to_s.delete_prefix("@"))
+          ti_ivar_type_t(cls_name, val.name.to_s.delete_prefix("@")) || t::BOTTOM
         when Ast::InstanceVariableWrite, Ast::LocalVariableWrite
           local_decl_type_t(val.value_node)
         when Ast::Or, Ast::And
           a = local_decl_type_t(val.left_node)
           b = local_decl_type_t(val.right_node)
           return a if a == b
-          return b if a.nil?
-          return a if b.nil?
-          # Different concrete types — defer to string meet_types via the
-          # caller's fallback for now. A future commit can extend this.
-          nil
+          return b if a.bottom?
+          return a if b.bottom?
+          rep = t.union_representation([a, b])
+          rep == "RubyObject*" ? t::OBJECT : t::BOTTOM
         when Ast::MethodCall
           if val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
             cn = val.receiver_node.name
-            return Frozone::Compiler::Type::STRING if cn == :String
-            return nil if cn == :Array   # element type unknown here
-            return Frozone::Compiler::Type.of(cn)
+            return t::STRING if cn == :String
+            return t::BOTTOM if cn == :Array   # element type unknown here
+            return t.of(cn)
           end
           # obj.foo where obj resolves to a known user class — look up the
           # method's TI-typed return.
@@ -1271,64 +1274,56 @@ module Frozone
               return rt if rt
             end
           end
-          nil
+          t::I64  # conservative default, matches legacy "int64_t" behaviour
         when Ast::HashLiteral
           pairs = (val.kv_nodes || []).reject { |k, _| k.nil? }
-          if pairs.empty?
-            return Frozone::Compiler::Type.new(:class_type, class_name: :Hash,
-                                               key: Frozone::Compiler::Type::SYMBOL,
-                                               val: Frozone::Compiler::Type::I64)
-          end
-          return nil unless pairs[0][0].is_a?(Ast::SymbolLiteral)  # non-symbol keys: punt
-          k_t = Frozone::Compiler::Type::SYMBOL
+          return t.new(:class_type, class_name: :Hash, key: t::SYMBOL, val: t::I64) if pairs.empty?
+          k_t = pairs[0][0].is_a?(Ast::SymbolLiteral) ? t::SYMBOL : t::BOTTOM
           val_ts = pairs.map { |_, v| local_decl_type_t(v) }
-          return nil if val_ts.any?(&:nil?)
           uniq_vs = val_ts.uniq
           v_t = if uniq_vs.size == 1
                   uniq_vs[0]
-                elsif uniq_vs.all?(&:ruby_object_convertible?)
-                  Frozone::Compiler::Type::OBJECT
+                else
+                  rep = t.union_representation(uniq_vs)
+                  rep == "RubyObject*" ? t::OBJECT : t::BOTTOM
                 end
-          return nil unless v_t
-          Frozone::Compiler::Type.new(:class_type, class_name: :Hash, key: k_t, val: v_t)
+          t.new(:class_type, class_name: :Hash, key: k_t, val: v_t)
         when Ast::ArrayLiteral
-          return nil if tree_node_literal?(val)
+          return t.of(:Tree) if tree_node_literal?(val)
           elems = val.element_nodes
-          return Frozone::Compiler::Type::ARRAY_I64 if elems.empty?
-          et = local_decl_type_t(elems.first)
-          return Frozone::Compiler::Type.new(:class_type, class_name: :Array,
-                                             elem: Frozone::Compiler::Type::I64) if et.nil?
-          Frozone::Compiler::Type.new(:class_type, class_name: :Array, elem: et)
+          return t::ARRAY_I64 if elems.empty?
+          et = local_decl_type_t(elems.first) || t::I64
+          et = t::I64 if et.bottom?
+          t.new(:class_type, class_name: :Array, elem: et)
         when Ast::If
-          return nil unless val.then_node && val.else_node
+          return t::BOTTOM unless val.then_node && val.else_node
           t_then = local_decl_type_t(unwrap_single_sequence(val.then_node))
           t_else = local_decl_type_t(unwrap_single_sequence(val.else_node))
           return t_then if t_then == t_else && t_then
-          return nil unless t_then && t_else
-          # Different concrete types — compute union representation via
-          # Type. Return Type::OBJECT (renders as RubyObject*) when that's
-          # the representation; nil otherwise so the caller can decide.
-          rep = Frozone::Compiler::Type.union_representation([t_then, t_else])
-          rep == "RubyObject*" ? Frozone::Compiler::Type::OBJECT : nil
+          return t_else if t_then.nil? || t_then.bottom?
+          return t_then if t_else.nil? || t_else.bottom?
+          rep = t.union_representation([t_then, t_else])
+          rep == "RubyObject*" ? t::OBJECT : t::BOTTOM
         when Ast::Case
-          return nil unless val.whens&.any?
+          return t::BOTTOM unless val.whens&.any?
           types = val.whens.map { |w|
-            local_decl_type_t(unwrap_single_sequence(w.body_node))
-          }
-          return nil if types.any?(&:nil?)
+            local_decl_type_t(unwrap_single_sequence(w.body_node)) || t::BOTTOM
+          }.reject(&:bottom?)
+          return t::BOTTOM if types.empty?
           uniq = types.uniq
           return uniq[0] if uniq.size == 1
-          rep = Frozone::Compiler::Type.union_representation(uniq)
-          rep == "RubyObject*" ? Frozone::Compiler::Type::OBJECT : nil
+          rep = t.union_representation(uniq)
+          rep == "RubyObject*" ? t::OBJECT : t::BOTTOM
         when Ast::ConstantRead
           if @top_level_scope
             c = @top_level_scope.constants_table&.fetch(val.name, nil)
-            return Frozone::Compiler::Type::STRING if c.is_a?(Vm::StringObject)
-            return Frozone::Compiler::Type::F64 if c.is_a?(Vm::FloatObject)
+            return t::STRING if c.is_a?(Vm::StringObject)
+            return t::F64 if c.is_a?(Vm::FloatObject)
           end
-          nil
+          t::BOTTOM
         else
-          nil
+          # Unknown shape — default to I64 matching legacy "int64_t" fallback.
+          t::I64
         end
       end
 
@@ -1336,16 +1331,12 @@ module Frozone
         case val
         when Ast::Or, Ast::And
           # `a || b` evaluates to `a` if truthy else `b` — the result type
-          # is the lattice join of left and right. Try Type-level first;
-          # fall back to string meet_types for shapes not modelled by
-          # local_decl_type_t.
+          # is the lattice join of left and right. local_decl_type_t always
+          # returns a Type; delegate the decision there.
           ta = local_decl_type_t(val.left_node)
           tb = local_decl_type_t(val.right_node)
-          if ta && tb
-            return ta.to_cpp if ta == tb
-            return Frozone::Compiler::Type.union_representation([ta, tb])
-          end
-          meet_types(local_decl_type(val.left_node), local_decl_type(val.right_node))
+          return ta.to_cpp if ta == tb
+          Frozone::Compiler::Type.union_representation([ta, tb])
         when Ast::LocalVariableRead
           "auto"
         when Ast::InstanceVariableRead
@@ -2024,90 +2015,14 @@ module Frozone
       end
 
       # Decide the V type for a RubyHash<K, V> built from `pairs`.
-      # Tries Type-level inference first — consistent with the Type lattice's
-      # structural view of gc_ref containment and convertibility. Falls back
-      # to string-level union_representation when Type inference returns nil
-      # for a pair (e.g. chained MethodCalls we don't structurally model yet).
+      # local_decl_type_t always returns a Type; union_representation picks
+      # the emission representation (RubyObject* via boxing, or std::any if
+      # nothing else works).
       def hash_literal_value_type(pairs)
         val_ts = pairs.map { |_, v| local_decl_type_t(v) }
-        if val_ts.none?(&:nil?)
-          uniq_ts = val_ts.uniq
-          return uniq_ts[0].to_cpp if uniq_ts.size == 1
-          return Frozone::Compiler::Type.union_representation(uniq_ts)
-        end
-        # Fallback: some participant didn't lift to a Type (unmapped AST
-        # shape). Go through the legacy string path.
-        val_types = pairs.map { |_, v| local_decl_type(v) }.uniq
-        return val_types[0] if val_types.size == 1 && val_types[0] != "auto"
-        union_representation(val_types)
-      end
-
-      # Can values of `cpp_type` be represented as RubyObject* via
-      # coerce_to_ref? True for pointers, value-typed subclasses, primitives
-      # (boxed into Ruby_Integer / Ruby_Float / Ruby_Boolean), RubySymbol
-      # (boxed into Ruby_Symbol), and "auto" (trust runtime dispatch —
-      # coerce_to_ref's if-constexpr chain handles all supported types at
-      # the template instantiation site, and static_asserts on anything
-      # unsupported, surfacing a compile error rather than silently
-      # hiding a gc_ref inside std::any).
-      #
-      # The only "can't convert" cases left are `std::any` (already
-      # type-erased — unbox would need runtime type knowledge we don't
-      # have) and nil (handled separately via coerce_to_ref's null path).
-      def ruby_object_convertible_type?(cpp_type)
-        return true if cpp_type.nil? || cpp_type == "auto"
-        return false if cpp_type == "std::any"
-        cpp_type.end_with?("*") ||
-          ruby_object_subclass_value_type?(cpp_type) ||
-          cpp_type == "RubySymbol" ||
-          %w[int64_t double bool].include?(cpp_type)
-      end
-
-      # Would storing a value of `cpp_type` inside std::any hide gc_refs from
-      # Dustman's precise tracing? True for anything that (directly or
-      # transitively via container element types) contains a gc_ref.
-      # Used at union sites: if any participant contains gc_refs, we MUST
-      # lift the union to gc_ref<RubyObject> (so the collector can see
-      # through it). Otherwise std::any is safe and SBO-efficient.
-      def contains_gc_refs?(cpp_type)
-        return false unless cpp_type
-        return true if cpp_type.end_with?("*") && (cpp_type.start_with?("Ruby_") || cpp_type == "RubyObject*")
-        if (m = cpp_type.match(/\ARubyArray<(.+)>\z/))
-          return contains_gc_refs?(m[1])
-        end
-        if (m = cpp_type.match(/\ARubyHash<([^,]+),\s*(.+)>\z/))
-          return contains_gc_refs?(m[1]) || contains_gc_refs?(m[2])
-        end
-        false
-      end
-
-      # Meet two cpp types at the lattice level. Used for expressions whose
-      # value type is the join of two sub-expressions (ternary, ||, &&, case).
-      # - Same type on both sides → that type
-      # - One side is bottom-ish ("auto" / nil) → the other
-      # - Otherwise → union_representation([a, b]) (RubyObject*, or std::any)
-      def meet_types(a, b)
-        return a if a == b
-        return b if a.nil? || a == "auto"
-        return a if b.nil? || b == "auto"
-        union_representation([a, b])
-      end
-
-      # Pick the representation for a union of participant cpp types.
-      # Goal: match TI's join (LCA) decision at the emitter level and stay
-      # Dustman-safe.
-      #   - any participant has gc_refs, OR
-      #     all participants are RubyObject-convertible (includes primitives
-      #     via boxing) → "RubyObject*"
-      #   - else (RubySymbol / unknown mixed in) → "std::any" last resort.
-      #     Flag this as a TODO — if std::any ends up holding a gc_ref via an
-      #     untracked participant, tracing breaks. Currently only hit by
-      #     RubySymbol-inclusive unions, which don't contain gc_refs, so
-      #     it's safe today.
-      def union_representation(types)
-        return "RubyObject*" if types.any? { |t| contains_gc_refs?(t) }
-        return "RubyObject*" if types.all? { |t| ruby_object_convertible_type?(t) }
-        "std::any"
+        uniq_ts = val_ts.uniq
+        return uniq_ts[0].to_cpp if uniq_ts.size == 1
+        Frozone::Compiler::Type.union_representation(uniq_ts)
       end
 
       def key_type_for(node)
@@ -2159,16 +2074,6 @@ module Frozone
                      end
         return s unless target_cpp == "RubyObject*"
         "coerce_to_ref<RubyObject>(#{s})"
-      end
-
-      # Is `cpp_type` a C++ type that's a value-semantic RubyObject subclass?
-      # These can be boxed via gc_new<Type>(value) to produce a RubyObject*.
-      def ruby_object_subclass_value_type?(cpp_type)
-        return false unless cpp_type
-        cpp_type == "RubyString" ||
-          cpp_type == "RubyTree" ||
-          cpp_type.start_with?("RubyArray<") ||
-          cpp_type.start_with?("RubyHash<")
       end
 
       # Decide the method's emitted return type. `auto` for the common case;
@@ -2544,27 +2449,17 @@ module Frozone
               then_s = "(#{t})nullptr"
             end
           else
-            # Prefer Type-level inference; fall back to string-path when
-            # either branch's shape isn't structurally modelled by
-            # local_decl_type_t (returns nil in that case).
             t1_t = local_decl_type_t(then_inner)
             t2_t = local_decl_type_t(else_inner)
-            rep = if t1_t && t2_t && t1_t != t2_t
-                    Frozone::Compiler::Type.union_representation([t1_t, t2_t])
-                  elsif t1_t.nil? || t2_t.nil?
-                    # Fallback: mirror legacy string path.
-                    t1 = local_decl_type(then_inner)
-                    t2 = local_decl_type(else_inner)
-                    if t1 != t2 && t1 != "auto" && t2 != "auto"
-                      union_representation([t1, t2])
-                    end
-                  end
-            if rep == "RubyObject*"
-              then_s = cr_coerce(then_inner, "RubyObject*")
-              else_s = cr_coerce(else_inner, "RubyObject*")
-            elsif rep == "std::any"
-              then_s = "std::any(#{then_s})"
-              else_s = "std::any(#{else_s})"
+            if t1_t != t2_t && !t1_t.bottom? && !t2_t.bottom?
+              rep = Frozone::Compiler::Type.union_representation([t1_t, t2_t])
+              if rep == "RubyObject*"
+                then_s = cr_coerce(then_inner, "RubyObject*")
+                else_s = cr_coerce(else_inner, "RubyObject*")
+              elsif rep == "std::any"
+                then_s = "std::any(#{then_s})"
+                else_s = "std::any(#{else_s})"
+              end
             end
           end
           return "(#{pred} ? (#{then_s}) : (#{else_s}))"
