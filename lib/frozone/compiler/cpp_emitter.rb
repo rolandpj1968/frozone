@@ -95,10 +95,6 @@ module Frozone
         return nil unless @ti_env
         ty = @ti_env.type_at(slot)
         return nil unless ty && !ty.bottom?
-        # Filter the same too-deep-generics case ti_type_cpp used to; keeping
-        # the guard here (rather than on to_cpp) means callers that want the
-        # raw Type for Type-level reasoning still get it.
-        return nil if ty.to_cpp&.count('<') > 2
         return nil if ty.to_cpp == "auto"
         ty
       end
@@ -1518,10 +1514,21 @@ module Frozone
 
       def emit_method(name, method)
         @_current_method_key = name
+        # Strict-TI: if TI couldn't type the return, the method is either
+        # unused (no call sites), unreachable (only called from unused code),
+        # or a real TI gap. From TI's vantage all three collapse to the same
+        # symptom (BOTTOM return). We log the skip so real gaps surface in
+        # review — a reachability graph from execute_block would let us
+        # promote "reachable + BOTTOM" back to an error; for now, log+skip.
+        @_method_return_t = ti_return_type_t(@_current_method_key)
+        if @_method_return_t.nil? || @_method_return_t.bottom?
+          warn "[cpp_emitter] skipping #{name.inspect}: TI gave no return type (unused/unreachable/TI-gap)" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          @_current_method_key = nil
+          return
+        end
         params = emit_param_list(method)
         @_method_yields = method.uses_block || body_has_yield?(method.body)
         params = params.empty? ? "auto _block" : "#{params}, auto _block" if @_method_yields
-        @_method_return_t = ti_return_type_t(@_current_method_key)
         ret_type = explicit_return_type(@_method_return_t)
         line "static #{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
@@ -1793,21 +1800,34 @@ module Frozone
         "coerce_to_ref<RubyObject>(#{s})"
       end
 
-      # Decide the method's emitted return type. `auto` stays for the easy
-      # primitive case (int64_t / double / bool) where all return sites
-      # produce the same type and C++ auto-deduction is fine. For types
-      # where auto-deduction is fragile — containers (Array/Hash/String),
-      # user-class pointers, std::optional — we commit to the concrete
-      # TI-inferred type so callers returning mixed-but-convertible
-      # branches implicitly coerce at the return site instead of tripping
-      # "inconsistent deduction" (see fannkuchredux).
+      # Decide the method's emitted return type. Must commit to the concrete
+      # TI-inferred Type; no `auto` fallback — see feedback_no_auto_in_cpp.md.
+      # Under strict-TI (default), absence of a return Type aborts loudly so
+      # the gap surfaces at codegen time rather than as wrong runtime output
+      # via a silent int64_t / auto-deduction cascade.
       def explicit_return_type(t)
-        return "auto" unless t && !t.bottom?
+        ti_insist!(t, "method return type for #{@_current_method_key.inspect}")
         return t.to_cpp if t.renders_as_optional?
         return t.to_cpp_ref if t.emitted_as_pointer?
-        return t.to_cpp_ref if t.array_like? || (t.class_type? && %i[Hash String Symbol].include?(t.class_name))
-        return t.to_cpp_ref if t.array_scalar?
-        "auto"
+        t.to_cpp_ref
+      end
+
+      # Assert TI produced a concrete Type for this emission slot. Raises
+      # TIGapError with slot info so gaps surface where they're introduced.
+      # Escape hatch: FROZONE_STRICT_TI=0 downgrades to a warning + silent
+      # `auto`/bottom fallback (for ad-hoc debugging only).
+      class TIGapError < StandardError; end
+
+      def ti_insist!(ty, slot_desc)
+        return if ty && !ty.bottom?
+        msg = "TI has no type for #{slot_desc} (got #{ty.inspect}). " \
+              "Fix the TI gap or emit an explicit boxed type; don't fall back to auto/int64_t. " \
+              "See feedback_no_auto_in_cpp.md."
+        if ENV['FROZONE_STRICT_TI'] == '0'
+          warn "[ti_insist! weakened] #{msg}"
+          return
+        end
+        raise TIGapError, msg
       end
 
       def cr(node)

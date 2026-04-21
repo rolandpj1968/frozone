@@ -280,10 +280,14 @@ module Frozone
         return false unless node
         changed = false
         walk(node) do |n|
-          next unless n.is_a?(Ast::MethodCall)
-          changed |= seed_call_block_params(n, ctx)
+          # AttributeWrite has the same receiver/name/arg_nodes shape as
+          # MethodCall — `obj.foo = v` dispatches to the :foo= setter, so
+          # propagate v's type into the setter's :param slot just like any
+          # other call.
+          next unless n.is_a?(Ast::MethodCall) || n.is_a?(Ast::AttributeWrite)
+          changed |= seed_call_block_params(n, ctx) if n.is_a?(Ast::MethodCall)
           next if (n.arg_nodes || []).empty?
-          changed |= propagate_kw_args(n, ctx)
+          changed |= propagate_kw_args(n, ctx) if n.is_a?(Ast::MethodCall)
           changed |= propagate_positional_args(n, ctx)
         end
         changed
@@ -690,9 +694,32 @@ module Frozone
         changed |= propagate_ivar_array_elem_writes(class_name, klass)
         changed |= widen_ivar_arrays_from_mutations(class_name, klass)
         changed |= widen_scalar_ivars_from_mutations(class_name, klass)
+        changed |= seed_setter_params_from_ivars(class_name, klass)
         changed
       ensure
         @ivar_param_seeds = old_seeds if defined?(old_seeds)
+      end
+
+      # For each setter method `foo=(v)`, seed the :param slot's type from
+      # the ivar `@foo`'s type. Covers attr_writer-synthesised and hand-
+      # written setters that have no external call sites (otherwise
+      # update_call_sites would populate :param via the caller). Without
+      # this, an attr_accessor-generated `levar=` that's never explicitly
+      # called via `obj.levar = v` has a BOTTOM param slot → BOTTOM return,
+      # which strict-TI emission rejects.
+      def seed_setter_params_from_ivars(class_name, klass)
+        changed = false
+        (klass.methods_table || {}).each do |mname, method|
+          next unless method.is_a?(Vm::Method)
+          next unless mname.to_s.end_with?('=')
+          req = method.required_params || []
+          next unless req.size == 1
+          ivar_sym = :"@#{mname.to_s.chomp('=')}"
+          iv_ty = @env.type_of([:ivar, class_name, ivar_sym])
+          next if iv_ty.bottom?
+          changed |= @env.join!([:param, [class_name, mname], 0], iv_ty)
+        end
+        changed
       end
 
       # Seed the initialize param slots from the best-known constructor
@@ -954,6 +981,9 @@ module Frozone
         when Ast::InstanceVariableRead  then @env.type_of([:ivar, ctx.class_name, node.name])
         when Ast::ConstantRead          then @env.type_of([:const, node.name])
         when Ast::LocalVariableWrite    then infer_expr(node.value_node, ctx)
+        when Ast::InstanceVariableWrite then infer_expr(node.value_node, ctx)
+        when Ast::ClassVariableWrite    then infer_expr(node.value_node, ctx)
+        when Ast::AttributeWrite        then infer_expr(node.value_node, ctx) # obj.foo = v returns v
         when Ast::If                    then infer_if_type(node, ctx)
         when Ast::MethodCall            then infer_call(node, ctx)
         when Ast::Or                    then infer_short_circuit_type(node, ctx)
