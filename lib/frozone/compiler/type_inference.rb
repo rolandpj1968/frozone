@@ -1056,10 +1056,25 @@ module Frozone
       # Element-wise join over the literal's elements; empty literal
       # falls back to the unspecialised Type::ARRAY.
       def infer_array_literal_type(node, ctx)
+        # Tree-node literal: `[nil, nil]` or `[f(x), f(x)]` with 2 entries,
+        # each a NilLiteral or a free MethodCall. Codegen special-cases this
+        # as `RubyTree(left, right)` — a dedicated 2-child heap node —
+        # because the recursive shape can't be expressed as a finite
+        # RubyArray type. Mirror that here so TI's return types match.
+        return Type.of(:Tree) if tree_node_literal?(node)
         elems = node.element_nodes || []
         return Type::ARRAY if elems.empty?
         elem_ty = elems.reduce(Type::BOTTOM) { |acc, e| join(acc, infer_expr(e, ctx)) }
         elem_ty.bottom? ? Type::ARRAY : Type.array(elem: elem_ty)
+      end
+
+      def tree_node_literal?(node)
+        elems = node.element_nodes || []
+        return false unless elems.size == 2
+        elems.all? do |e|
+          e.is_a?(Ast::NilLiteral) ||
+            (e.is_a?(Ast::MethodCall) && e.receiver_node.nil?)
+        end
       end
 
       # Element-wise joins over keys and values; empty hash falls back

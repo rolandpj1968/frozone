@@ -86,7 +86,7 @@ module Frozone
       # pointer into a static table; primitives are primitives.
       VALUE_TYPED_BUILTINS = %i[
         Integer Float Numeric NilClass TrueClass FalseClass
-        String Symbol Range Regexp Proc
+        String Symbol Range Regexp Proc Tree
       ].to_set.freeze
 
       # Built-in runtime types that the emitter represents as raw Ruby_X*
@@ -303,6 +303,12 @@ module Frozone
         when nil then "auto"
         when :Object, :BasicObject
           wrapper ? "#{wrapper}<RubyObject>" : "RubyObject*"
+        when :Tree
+          # Runtime-built-in tree node (RubyTree) — value-typed with
+          # shared_ptr-backed storage, so no wrapper / no pointer. Used for
+          # the `[nil_or_f, nil_or_f]` tree-literal pattern (see
+          # tree_node_literal? in TI + codegen).
+          "RubyTree"
         else
           if wrapper && !NON_GC_BUILTIN_CLASSES.include?(@class_name)
             "#{wrapper}<Ruby_#{@class_name}>"
