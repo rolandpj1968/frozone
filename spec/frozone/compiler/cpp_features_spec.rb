@@ -471,5 +471,74 @@ RSpec.describe "C++ backend features" do
         puts r.class
       RUBY
     end
+
+    # Mixed primitive+object unions — the case where std::any would hide a
+    # gc_ref from Dustman's precise tracing. Emitter now lifts these to
+    # RubyObject* with primitives boxed via Ruby_Integer / Ruby_Float /
+    # Ruby_Boolean.
+    it "ivar holding either int or user-class pointer" do
+      assert_cpp_matches_mri(<<~RUBY)
+        class Cell
+          attr_accessor :v
+          def initialize(v) = @v = v
+        end
+        class Node
+          def initialize; end
+        end
+        c1 = Cell.new(42)
+        c2 = Cell.new(Node.new)
+        puts c1.v.class
+        puts c2.v.class
+      RUBY
+    end
+
+    it "method returning Integer one branch, user-class another" do
+      assert_cpp_matches_mri(<<~RUBY)
+        class Widget
+          def initialize; end
+        end
+        def pick(k)
+          if k == :i then 7 else Widget.new end
+        end
+        puts pick(:i).class
+        puts pick(:w).class
+      RUBY
+    end
+
+    it "hash literal with Integer alongside String/Array" do
+      assert_cpp_matches_mri(<<~RUBY)
+        h = { n: 42, s: "hi", a: [1, 2] }
+        puts h[:n].class
+        puts h[:s].class
+        puts h[:a].class
+      RUBY
+    end
+
+    it "method returning Float or user-class" do
+      assert_cpp_matches_mri(<<~RUBY)
+        class Gizmo
+          def initialize; end
+        end
+        def get(k)
+          if k == :f then 2.5 else Gizmo.new end
+        end
+        puts get(:f).class
+        puts get(:g).class
+      RUBY
+    end
+
+    it "nested: user class with ivar holding bool or another user class" do
+      assert_cpp_matches_mri(<<~RUBY)
+        class Leaf
+          def initialize; end
+        end
+        class Slot
+          attr_accessor :x
+          def initialize(x) = @x = x
+        end
+        puts Slot.new(true).x.class
+        puts Slot.new(Leaf.new).x.class
+      RUBY
+    end
   end
 end

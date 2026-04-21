@@ -176,6 +176,54 @@ inline RubyString RubyObject::rb_to_s() const { return RubyString("#<Object>"); 
 template<> struct dustman::Tracer<RubyString> : dustman::FieldList<RubyString> {};
 #endif
 
+// Boxed primitive wrappers. Required when a primitive (int64_t / double /
+// bool) participates in a union alongside a gc_ref-holding type — storing the
+// primitive in `std::any` alongside an object pointer would be Dustman-unsafe
+// (precise GC can't see into std::any's type-erased storage). Boxing lifts
+// primitives into the gc_ref<RubyObject> union model, keeping the whole union
+// precisely traceable.
+//
+// For pure-primitive unions (no gc_refs involved), `std::any` with SBO is
+// still the cheaper choice — the emitter picks based on participant set.
+class Ruby_Integer : public RubyObject {
+public:
+  static void* operator new(size_t n) { return ::operator new(n); }
+  static void* operator new(size_t, void* p) noexcept { return p; }
+  static void operator delete(void* p) noexcept { ::operator delete(p); }
+  int64_t value;
+  Ruby_Integer() : value(0) {}
+  Ruby_Integer(int64_t v) : value(v) {}
+  const char* rb_class_name() const override { return "Integer"; }
+};
+
+class Ruby_Float : public RubyObject {
+public:
+  static void* operator new(size_t n) { return ::operator new(n); }
+  static void* operator new(size_t, void* p) noexcept { return p; }
+  static void operator delete(void* p) noexcept { ::operator delete(p); }
+  double value;
+  Ruby_Float() : value(0.0) {}
+  Ruby_Float(double v) : value(v) {}
+  const char* rb_class_name() const override { return "Float"; }
+};
+
+class Ruby_Boolean : public RubyObject {
+public:
+  static void* operator new(size_t n) { return ::operator new(n); }
+  static void* operator new(size_t, void* p) noexcept { return p; }
+  static void operator delete(void* p) noexcept { ::operator delete(p); }
+  bool value;
+  Ruby_Boolean() : value(false) {}
+  Ruby_Boolean(bool v) : value(v) {}
+  const char* rb_class_name() const override { return value ? "TrueClass" : "FalseClass"; }
+};
+
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<Ruby_Integer> : dustman::FieldList<Ruby_Integer> {};
+template<> struct dustman::Tracer<Ruby_Float> : dustman::FieldList<Ruby_Float> {};
+template<> struct dustman::Tracer<Ruby_Boolean> : dustman::FieldList<Ruby_Boolean> {};
+#endif
+
 // ---------------------------------------------------------------------
 // RubySymbol — interned string. Ruby symbols with the same text are the
 // same object; comparison is O(1). We intern via a process-wide map of
@@ -585,9 +633,15 @@ inline dustman::gc_ptr<Base> coerce_to_ref(T&& x) {
     return as_ref<Base>(x);
   } else if constexpr (std::is_base_of_v<Base, U>) {
     return as_ref<Base>(gc_new<U>(std::forward<T>(x)));
+  } else if constexpr (std::is_same_v<U, bool>) {
+    return as_ref<Base>(gc_new<Ruby_Boolean>(x));
+  } else if constexpr (std::is_integral_v<U>) {
+    return as_ref<Base>(gc_new<Ruby_Integer>(static_cast<int64_t>(x)));
+  } else if constexpr (std::is_floating_point_v<U>) {
+    return as_ref<Base>(gc_new<Ruby_Float>(static_cast<double>(x)));
   } else {
     static_assert(sizeof(T) == 0,
-                  "coerce_to_ref: input is neither a gc_ptr nor a Base subclass");
+                  "coerce_to_ref: no conversion to Base for this type");
   }
 }
 #else
@@ -609,9 +663,15 @@ inline Base* coerce_to_ref(T&& x) {
     return as_ref<Base>(x);
   } else if constexpr (std::is_base_of_v<Base, U>) {
     return as_ref<Base>(gc_new<U>(std::forward<T>(x)));
+  } else if constexpr (std::is_same_v<U, bool>) {
+    return as_ref<Base>(gc_new<Ruby_Boolean>(x));
+  } else if constexpr (std::is_integral_v<U>) {
+    return as_ref<Base>(gc_new<Ruby_Integer>(static_cast<int64_t>(x)));
+  } else if constexpr (std::is_floating_point_v<U>) {
+    return as_ref<Base>(gc_new<Ruby_Float>(static_cast<double>(x)));
   } else {
     static_assert(sizeof(T) == 0,
-                  "coerce_to_ref: input is neither a pointer nor a Base subclass");
+                  "coerce_to_ref: no conversion to Base for this type");
   }
 }
 #endif

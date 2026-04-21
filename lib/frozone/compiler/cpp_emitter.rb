@@ -1875,24 +1875,63 @@ module Frozone
 
       # Decide the V type for a RubyHash<K, V> built from `pairs`.
       # - Homogeneous known type → that type.
-      # - Mixed, all RubyObject-convertible → RubyObject* (use cr_coerce to
-      #   materialise pointers/boxes at each write site).
-      # - Anything else               → std::any fallback (primitive mixes).
+      # - Mixed → union_representation picks RubyObject* when any participant
+      #   contains gc_refs (Dustman-safe, primitives get boxed via
+      #   coerce_to_ref), std::any otherwise (SBO for primitive mixes).
       def hash_literal_value_type(pairs)
         val_types = pairs.map { |_, v| local_decl_type(v) }.uniq
         return val_types[0] if val_types.size == 1 && val_types[0] != "auto"
-        return "RubyObject*" if val_types.all? { |t| ruby_object_convertible_type?(t) }
-        "std::any"
+        union_representation(val_types)
       end
 
-      # Can values of `cpp_type` be stored as RubyObject* (via upcast for
-      # pointers, via gc_new-box for value-typed subclasses)? Excludes primitives
-      # and `auto` (not statically resolved).
+      # Can values of `cpp_type` be represented as RubyObject* via
+      # coerce_to_ref? True for pointers, value-typed subclasses, and
+      # primitives (boxed into Ruby_Integer / Ruby_Float / Ruby_Boolean).
+      # Excludes `auto` (not statically resolved) and std::any (can't unbox
+      # blindly) and RubySymbol (not a RubyObject subclass yet).
       def ruby_object_convertible_type?(cpp_type)
         return false unless cpp_type
         return false if cpp_type == "auto"
+        return false if cpp_type == "std::any"
+        return false if cpp_type == "RubySymbol"
         cpp_type.end_with?("*") ||
-          ruby_object_subclass_value_type?(cpp_type)
+          ruby_object_subclass_value_type?(cpp_type) ||
+          %w[int64_t double bool].include?(cpp_type)
+      end
+
+      # Would storing a value of `cpp_type` inside std::any hide gc_refs from
+      # Dustman's precise tracing? True for anything that (directly or
+      # transitively via container element types) contains a gc_ref.
+      # Used at union sites: if any participant contains gc_refs, we MUST
+      # lift the union to gc_ref<RubyObject> (so the collector can see
+      # through it). Otherwise std::any is safe and SBO-efficient.
+      def contains_gc_refs?(cpp_type)
+        return false unless cpp_type
+        return true if cpp_type.end_with?("*") && (cpp_type.start_with?("Ruby_") || cpp_type == "RubyObject*")
+        if (m = cpp_type.match(/\ARubyArray<(.+)>\z/))
+          return contains_gc_refs?(m[1])
+        end
+        if (m = cpp_type.match(/\ARubyHash<([^,]+),\s*(.+)>\z/))
+          return contains_gc_refs?(m[1]) || contains_gc_refs?(m[2])
+        end
+        false
+      end
+
+      # Pick the representation for a union of participant cpp types.
+      # Goal: match TI's join (LCA) decision at the emitter level and stay
+      # Dustman-safe.
+      #   - any participant has gc_refs, OR
+      #     all participants are RubyObject-convertible (includes primitives
+      #     via boxing) → "RubyObject*"
+      #   - else (RubySymbol / unknown mixed in) → "std::any" last resort.
+      #     Flag this as a TODO — if std::any ends up holding a gc_ref via an
+      #     untracked participant, tracing breaks. Currently only hit by
+      #     RubySymbol-inclusive unions, which don't contain gc_refs, so
+      #     it's safe today.
+      def union_representation(types)
+        return "RubyObject*" if types.any? { |t| contains_gc_refs?(t) }
+        return "RubyObject*" if types.all? { |t| ruby_object_convertible_type?(t) }
+        "std::any"
       end
 
       def key_type_for(node)
@@ -1924,21 +1963,15 @@ module Frozone
       def cr_coerce(node, target_type)
         s = cr(node)
         return s unless target_type == "RubyObject*"
-        node_type = local_decl_type(node)
-        # Known primitive types don't fit RubyObject* — fall back to std::any.
-        if node_type && %w[int64_t double bool].include?(node_type)
-          return "std::any(#{s})"
-        end
-        # For everything else (pointers, RubyObject-subclass value types,
-        # or `auto` template-instantiated types), defer to the runtime
-        # coerce_to_ref helper. It compile-time-dispatches on the actual
-        # input type:
-        #   pointer → as_ref upcast
-        #   value-typed RubyObject subclass → gc_new-box then as_ref upcast
-        # Using the runtime helper rather than emit-time dispatch lets
-        # `auto` params (template-deduced) pick the right path per
-        # instantiation, which is essential for union-slot writers like
-        # attr_writer setters (`set_slot(auto v) { iv_slot = v; }`).
+        # All cases route through the runtime coerce_to_ref helper which
+        # compile-time-dispatches on the actual input type:
+        #   nil / nullptr          → gc_ref<Base>(nullptr)
+        #   gc_ptr<T> / T*         → as_ref<Base>(x)
+        #   value-typed subclass   → as_ref<Base>(gc_new<T>(x))
+        #   int64_t / double / bool→ as_ref<Base>(gc_new<Ruby_{Integer,Float,
+        #                              Boolean}>(x))
+        # The runtime dispatch handles `auto` params (template-instantiated)
+        # which emit-time dispatch couldn't.
         "coerce_to_ref<RubyObject>(#{s})"
       end
 
@@ -2326,11 +2359,13 @@ module Frozone
           else
             t1 = local_decl_type(then_inner)
             t2 = local_decl_type(else_inner)
-            if t1 != t2 && !%w[int64_t double bool auto].include?(t1) && !%w[int64_t double bool auto].include?(t2)
-              # Both branches are RubyObject-ish but different concrete types.
-              # If both can be coerced to RubyObject*, do that — the ternary's
-              # common type becomes gc_ref<RubyObject>. Otherwise keep std::any.
-              if ruby_object_convertible_type?(t1) && ruby_object_convertible_type?(t2)
+            if t1 != t2 && t1 != "auto" && t2 != "auto"
+              # Different static types across the two branches — need a common
+              # representation. union_representation chooses RubyObject*
+              # (when any participant contains gc_refs — Dustman-safe) or
+              # std::any (SBO-efficient for pure-primitive mixes).
+              rep = union_representation([t1, t2])
+              if rep == "RubyObject*"
                 then_s = cr_coerce(then_inner, "RubyObject*")
                 else_s = cr_coerce(else_inner, "RubyObject*")
               else
