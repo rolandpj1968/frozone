@@ -14,8 +14,43 @@ g++ -O2 -std=c++20 cpp/gen/fib.cpp -o cpp/gen/fib
 # With Boehm GC (for allocation-heavy benchmarks)
 g++ -O2 -std=c++20 -DFROZONE_USE_BOEHM_GC cpp/gen/fib.cpp -lgc -o cpp/gen/fib
 
+# With Dustman GC (precise, see below for build)
+g++ -O2 -std=c++20 -DFROZONE_USE_DUSTMAN_GC \
+    -I vendor/dustman/include \
+    cpp/gen/fib.cpp vendor/dustman/build/libdustman.a -o cpp/gen/fib
+
 # Run the whole benchmark suite
-bundle exec rake bench_cpp
+bundle exec rake bench_cpp              # no GC (raw new, leaks)
+bundle exec rake bench_cpp_dustman      # via Dustman; builds the lib first
+```
+
+### Dustman GC — build HOWTO
+
+Dustman is vendored as a git submodule at `vendor/dustman`
+(https://github.com/rolandpj1968/dustman). It is a precise, moving,
+generational GC — see [docs/gc-design.md](gc-design.md).
+
+**Prerequisites:** a C++17 compiler (GCC 7+ / Clang 5+), `cmake` (≥ 3.14),
+`ninja`. On Debian/Ubuntu: `apt install cmake ninja-build`.
+
+```bash
+# One-time after clone (if you didn't pass --recursive)
+git submodule update --init vendor/dustman
+
+# Build the static library (Release mode, no tests/benchmarks)
+bundle exec rake dustman:build          # → vendor/dustman/build/libdustman.a
+
+# Clean
+bundle exec rake dustman:clean
+```
+
+The rake task pins to whatever revision is recorded in the submodule
+(currently `v0.3.1`). To experiment against a different Dustman tag:
+
+```bash
+cd vendor/dustman && git checkout v0.3.0 && cd -
+bundle exec rake dustman:clean dustman:build
+bundle exec rake bench_cpp_dustman
 ```
 
 ## Status

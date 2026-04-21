@@ -675,9 +675,7 @@ module Frozone
         @_self_ref_ivars = Set.new
         indented do
           # ctor_types is currently always empty (struct member type
-          # inference is a TODO) — each member defaults to int64_t. emit_type
-          # would be a no-op on int64_t / auto / double, so just pass strings
-          # through directly.
+          # inference is a TODO) — each member defaults to int64_t.
           members.each_with_index do |m, i|
             t = ctor_types[i] || "int64_t"
             default = (t == "int64_t") ? " = 0" : (t == "double" ? " = 0.0" : "")
@@ -1749,9 +1747,9 @@ module Frozone
       # Emit `node` as an expression producing `target_type`, inserting any
       # coercion needed so the value fits the target slot.
       #
-      # target_type is an internal cpp type string (pre-emit_type); typical
-      # callers are emission sites that assign into a union slot (ivar, return,
-      # param, hash/array element whose V/T has been widened to RubyObject*).
+      # target_type is a Type or an internal cpp type string; typical callers
+      # are emission sites that assign into a union slot (ivar, return, param,
+      # hash/array element whose V/T has been widened to RubyObject*).
       #
       # Coercion rules:
       #   - target matches node's static type      → identity

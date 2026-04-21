@@ -269,6 +269,47 @@ end
 # and structaset (pre-existing Struct subclass codegen bug).
 BENCH_SMOKE = %w[fib blurhash sudoku nqueens]
 
+DUSTMAN_DIR     = File.expand_path('vendor/dustman', __dir__)
+DUSTMAN_BUILD   = File.join(DUSTMAN_DIR, 'build')
+DUSTMAN_LIB     = File.join(DUSTMAN_BUILD, 'libdustman.a')
+DUSTMAN_INCLUDE = File.join(DUSTMAN_DIR, 'include')
+
+namespace :dustman do
+  desc "Build vendor/dustman (Release) via CMake + Ninja → vendor/dustman/build/libdustman.a"
+  task :build do
+    raise "vendor/dustman not checked out — run `git submodule update --init`" unless File.exist?(File.join(DUSTMAN_DIR, 'CMakeLists.txt'))
+    FileUtils.mkdir_p(DUSTMAN_BUILD)
+    sh "cmake -S #{DUSTMAN_DIR} -B #{DUSTMAN_BUILD} -G Ninja -DCMAKE_BUILD_TYPE=Release -DDUSTMAN_BUILD_TESTS=OFF -DDUSTMAN_BUILD_BENCHMARKS=OFF"
+    sh "cmake --build #{DUSTMAN_BUILD} --target dustman"
+  end
+
+  desc "Remove vendor/dustman/build"
+  task :clean do
+    FileUtils.rm_rf(DUSTMAN_BUILD)
+  end
+end
+
+# Compile one generated cpp/gen/<name>.cpp for a given GC mode.
+# Returns [:pass | :mismatch | :compile_fail, elapsed_seconds_or_nil].
+def cpp_compile_run(name, gc: :none, expected: nil)
+  cpp = "cpp/gen/#{name}.cpp"
+  bin = "cpp/gen/#{name}_#{gc}"
+  cflags =
+    case gc
+    when :boehm
+      "-DFROZONE_USE_BOEHM_GC -lgc"
+    when :dustman
+      "-DFROZONE_USE_DUSTMAN_GC -I #{DUSTMAN_INCLUDE} #{DUSTMAN_LIB}"
+    else
+      ""
+    end
+  return [:compile_fail, nil] unless system("g++ -O2 -std=c++20 #{cpp} -o #{bin} #{cflags} 2>/dev/null")
+  t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  actual = `./#{bin} 2>&1`
+  elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0
+  [actual == expected ? :pass : :mismatch, elapsed]
+end
+
 desc "Compile + run all benchmarks via C++ backend; report pass/fail vs bench/expected"
 task :bench_cpp do
   pass = []; fail = []; mismatch = []
@@ -280,22 +321,42 @@ task :bench_cpp do
     unless system("FROZONE_CPP=1 bundle exec ruby frozone.rb --aot #{stub} > /dev/null 2>&1")
       puts "  #{name.ljust(25)} GEN_FAIL"; fail << name; next
     end
-    cpp = "cpp/gen/#{name}.cpp"
-    bin = "cpp/gen/#{name}"
-    if system("g++ -O2 -std=c++20 #{cpp} -o #{bin} 2>/dev/null")
-      actual = `./#{bin} 2>&1`
-      if actual == expected
-        puts "  #{name.ljust(25)} PASS"; pass << name
-      else
-        puts "  #{name.ljust(25)} MISMATCH"; mismatch << name
-      end
-    else
-      puts "  #{name.ljust(25)} COMPILE_FAIL"; fail << name
+    status, _elapsed = cpp_compile_run(name, gc: :none, expected: expected)
+    case status
+    when :pass         then puts "  #{name.ljust(25)} PASS"; pass << name
+    when :mismatch     then puts "  #{name.ljust(25)} MISMATCH"; mismatch << name
+    when :compile_fail then puts "  #{name.ljust(25)} COMPILE_FAIL"; fail << name
     end
   end
   total = pass.size + fail.size + mismatch.size
   puts ''
   puts "C++ backend: #{pass.size}/#{total} pass, #{mismatch.size} mismatch, #{fail.size} fail"
+end
+
+desc "Compile + run all benchmarks against Dustman GC; report pass/fail and per-bench elapsed"
+task bench_cpp_dustman: 'dustman:build' do
+  raise "Dustman library not built — run `rake dustman:build`" unless File.exist?(DUSTMAN_LIB)
+  pass = []; fail = []; mismatch = []
+  timings = {}
+  Dir['bench/stubs/*.rb'].sort.each do |stub|
+    name = File.basename(stub, '.rb')
+    expected_path = "bench/expected/#{name}.txt"
+    next unless File.exist?(expected_path)
+    expected = File.read(expected_path)
+    unless system("FROZONE_CPP=1 bundle exec ruby frozone.rb --aot #{stub} > /dev/null 2>&1")
+      puts "  #{name.ljust(25)} GEN_FAIL"; fail << name; next
+    end
+    status, elapsed = cpp_compile_run(name, gc: :dustman, expected: expected)
+    timings[name] = elapsed if elapsed
+    case status
+    when :pass         then puts "  #{name.ljust(25)} PASS       #{format('%.3fs', elapsed)}"; pass << name
+    when :mismatch     then puts "  #{name.ljust(25)} MISMATCH   #{format('%.3fs', elapsed)}"; mismatch << name
+    when :compile_fail then puts "  #{name.ljust(25)} COMPILE_FAIL"; fail << name
+    end
+  end
+  total = pass.size + fail.size + mismatch.size
+  puts ''
+  puts "Dustman: #{pass.size}/#{total} pass, #{mismatch.size} mismatch, #{fail.size} fail"
 end
 
 desc "Compile + run key benchmarks end-to-end (catches codegen regressions)"
