@@ -1299,12 +1299,16 @@ module Frozone
         case val
         when Ast::Or, Ast::And
           # `a || b` evaluates to `a` if truthy else `b` — the result type
-          # is the lattice join of left and right. Previously we just took
-          # the right operand (heuristic for `x || @default` patterns),
-          # which is wrong when the two branches have different types.
-          t_left  = local_decl_type(val.left_node)
-          t_right = local_decl_type(val.right_node)
-          meet_types(t_left, t_right)
+          # is the lattice join of left and right. Try Type-level first;
+          # fall back to string meet_types for shapes not modelled by
+          # local_decl_type_t.
+          ta = local_decl_type_t(val.left_node)
+          tb = local_decl_type_t(val.right_node)
+          if ta && tb
+            return ta.to_cpp if ta == tb
+            return Frozone::Compiler::Type.union_representation([ta, tb])
+          end
+          meet_types(local_decl_type(val.left_node), local_decl_type(val.right_node))
         when Ast::LocalVariableRead
           "auto"
         when Ast::InstanceVariableRead
@@ -2492,21 +2496,27 @@ module Frozone
               then_s = "(#{t})nullptr"
             end
           else
-            t1 = local_decl_type(then_inner)
-            t2 = local_decl_type(else_inner)
-            if t1 != t2 && t1 != "auto" && t2 != "auto"
-              # Different static types across the two branches — need a common
-              # representation. union_representation chooses RubyObject*
-              # (when any participant contains gc_refs — Dustman-safe) or
-              # std::any (SBO-efficient for pure-primitive mixes).
-              rep = union_representation([t1, t2])
-              if rep == "RubyObject*"
-                then_s = cr_coerce(then_inner, "RubyObject*")
-                else_s = cr_coerce(else_inner, "RubyObject*")
-              else
-                then_s = "std::any(#{then_s})"
-                else_s = "std::any(#{else_s})"
-              end
+            # Prefer Type-level inference; fall back to string-path when
+            # either branch's shape isn't structurally modelled by
+            # local_decl_type_t (returns nil in that case).
+            t1_t = local_decl_type_t(then_inner)
+            t2_t = local_decl_type_t(else_inner)
+            rep = if t1_t && t2_t && t1_t != t2_t
+                    Frozone::Compiler::Type.union_representation([t1_t, t2_t])
+                  elsif t1_t.nil? || t2_t.nil?
+                    # Fallback: mirror legacy string path.
+                    t1 = local_decl_type(then_inner)
+                    t2 = local_decl_type(else_inner)
+                    if t1 != t2 && t1 != "auto" && t2 != "auto"
+                      union_representation([t1, t2])
+                    end
+                  end
+            if rep == "RubyObject*"
+              then_s = cr_coerce(then_inner, "RubyObject*")
+              else_s = cr_coerce(else_inner, "RubyObject*")
+            elsif rep == "std::any"
+              then_s = "std::any(#{then_s})"
+              else_s = "std::any(#{else_s})"
             end
           end
           return "(#{pred} ? (#{then_s}) : (#{else_s}))"
