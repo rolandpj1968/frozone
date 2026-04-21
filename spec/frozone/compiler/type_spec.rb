@@ -446,4 +446,43 @@ RSpec.describe Frozone::Compiler::Type do
       expect(T.new(:class_type, class_name: nil)).not_to be_emitted_as_pointer
     end
   end
+
+  describe "#to_cpp_ref and #to_cpp_local" do
+    it "user classes wrap in gc_ref / gc_local" do
+      expect(T.of(:Node).to_cpp_ref).to eq("gc_ref<Ruby_Node>")
+      expect(T.of(:Node).to_cpp_local).to eq("gc_local<Ruby_Node>")
+    end
+
+    it "Object / BasicObject wrap in gc_ref / gc_local" do
+      expect(T::OBJECT.to_cpp_ref).to eq("gc_ref<RubyObject>")
+      expect(T::BASIC_OBJECT.to_cpp_local).to eq("gc_local<RubyObject>")
+    end
+
+    it "NON_GC_BUILTIN (Random) stays as raw pointer in both" do
+      expect(T::RANDOM.to_cpp_ref).to eq("Ruby_Random*")
+      expect(T::RANDOM.to_cpp_local).to eq("Ruby_Random*")
+    end
+
+    it "value types don't get wrapped" do
+      expect(T::STRING.to_cpp_ref).to eq("RubyString")
+      expect(T::INTEGER.to_cpp_ref).to eq("int64_t")
+      expect(T::F64.to_cpp_ref).to eq("double")
+    end
+
+    it "nested: array of user-class recurses wrapping" do
+      t = T.new(:class_type, class_name: :Array, elem: T.of(:Node))
+      expect(t.to_cpp_ref).to eq("RubyArray<gc_ref<Ruby_Node>>")
+      expect(t.to_cpp_local).to eq("RubyArray<gc_local<Ruby_Node>>")
+    end
+
+    it "nested: hash with user-class value recurses" do
+      t = T.new(:class_type, class_name: :Hash, key: T::SYMBOL, val: T.of(:Node))
+      expect(t.to_cpp_ref).to eq("RubyHash<RubySymbol, gc_ref<Ruby_Node>>")
+    end
+
+    it "no wrapper specified → plain to_cpp unchanged" do
+      expect(T.of(:Node).to_cpp).to eq("Ruby_Node*")
+      expect(T::OBJECT.to_cpp).to eq("RubyObject*")
+    end
+  end
 end

@@ -258,7 +258,7 @@ module Frozone
         end
       end
 
-      def to_cpp
+      def to_cpp(wrapper: nil)
         case @kind
         when :bottom then "auto"
         when :i64 then nullable? ? "std::optional<int64_t>" : "int64_t"
@@ -266,12 +266,21 @@ module Frozone
         when :array_scalar
           elem_cpp = @elem&.i64? ? "int64_t" : "double"
           "RubyArray<#{elem_cpp}>"
-        when :class_type then class_to_cpp
+        when :class_type then class_to_cpp(wrapper: wrapper)
         else "auto"
         end
       end
 
-      def class_to_cpp
+      # Emission-wrapped variants. `to_cpp_ref` renders pointer-to-user-class
+      # types as `gc_ref<Ruby_X>` (ivar / param / return positions), and
+      # `to_cpp_local` as `gc_local<Ruby_X>` (stack-local declarations).
+      # NON_GC_BUILTIN classes (Random) render as bare `Ruby_X*` under both
+      # — they aren't Dustman-managed. Container element/key/val types
+      # recurse so nested pointer shapes propagate correctly.
+      def to_cpp_ref   = to_cpp(wrapper: "gc_ref")
+      def to_cpp_local = to_cpp(wrapper: "gc_local")
+
+      def class_to_cpp(wrapper: nil)
         case @class_name
         when :Integer, :Numeric
           nullable? ? "std::optional<int64_t>" : "int64_t"
@@ -280,20 +289,26 @@ module Frozone
         when :String then "RubyString"
         when :Symbol then "RubySymbol"
         when :Array
-          elem_cpp = @elem ? @elem.to_cpp : "int64_t"
+          elem_cpp = @elem ? @elem.to_cpp(wrapper: wrapper) : "int64_t"
           elem_cpp = "int64_t" if elem_cpp == "auto"
           "RubyArray<#{elem_cpp}>"
         when :Hash
-          key_cpp = @key ? @key.to_cpp : "RubySymbol"
+          key_cpp = @key ? @key.to_cpp(wrapper: wrapper) : "RubySymbol"
           key_cpp = "RubySymbol" if key_cpp == "auto"
-          val_cpp = @val ? @val.to_cpp : "int64_t"
+          val_cpp = @val ? @val.to_cpp(wrapper: wrapper) : "int64_t"
           val_cpp = "int64_t" if val_cpp == "auto"
           "RubyHash<#{key_cpp}, #{val_cpp}>"
         when :NilClass then "RubyNil"
         when :TrueClass, :FalseClass then "bool"
         when nil then "auto"
-        when :Object, :BasicObject then "RubyObject*"
-        else "Ruby_#{@class_name}*"
+        when :Object, :BasicObject
+          wrapper ? "#{wrapper}<RubyObject>" : "RubyObject*"
+        else
+          if wrapper && !NON_GC_BUILTIN_CLASSES.include?(@class_name)
+            "#{wrapper}<Ruby_#{@class_name}>"
+          else
+            "Ruby_#{@class_name}*"
+          end
         end
       end
 

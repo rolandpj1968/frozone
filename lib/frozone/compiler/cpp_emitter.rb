@@ -292,7 +292,7 @@ module Frozone
         elsif @_method_return_t.emitted_as_pointer?
           # Under Dustman becomes gc_ref<Ruby_X>(nullptr); under Boehm/none
           # it's (Ruby_X*)nullptr. Functional-cast syntax works for both.
-          "#{emit_type(@_method_return_t.to_cpp)}(nullptr)"
+          "#{@_method_return_t.to_cpp_ref}(nullptr)"
         else
           "#{@_method_return_t.to_cpp}(RUBY_NIL)"
         end
@@ -543,12 +543,12 @@ module Frozone
         # canonicalization: RubyObject* → std::any, filters deep generics).
         # This matches how param/local types are rendered, so ivar-to-param
         # writes agree on their C++ types.
-        ivar_types = {}
+        ivar_ts = {}  # name => Type
         @ti_env&.each_typed do |slot, _|
           next unless slot.is_a?(Array) && slot[0] == :ivar && slot[1] == name
           key = slot[2].to_s.delete_prefix('@')
-          t = ti_ivar_type(name, key)
-          ivar_types[key] = t if t
+          ty = ti_ivar_type_t(name, key)
+          ivar_ts[key] = ty if ty
         end
         all_ivars = Set.new
         (cls.methods_table || {}).each_value do |m|
@@ -558,18 +558,19 @@ module Frozone
         ivars = all_ivars.to_a
         read_ivars = collect_read_ivars(cls)
         @_dropped_ivars = Set.new
-        # Drop write-only ivars only when we're sure they can't hold a user
-        # object reference. std::any / RubyObject* can hold anything — a live
-        # user-class pointer in there is load-bearing for Dustman's reachability
-        # even if the Ruby code never reads it back. Keeping the field costs
-        # one pointer/std::any slot per instance.
+        # Drop write-only ivars only when their Type is a non-pointer value
+        # type — pointer-holding types might be load-bearing for Dustman
+        # reachability even if the Ruby code never reads them back.
+        drop_if_unread = %i[Integer Numeric Float TrueClass FalseClass String].to_set
         ivars.reject! do |iv|
           key = iv.to_s.delete_prefix('@')
-          t = ivar_types[key]
-          next false unless t
+          ty = ivar_ts[key]
+          next false unless ty
           next false if read_ivars.include?(key)
-          # Safe-to-drop only if the type is a non-pointer value type.
-          if t == "int64_t" || t == "double" || t == "bool" || t == "RubyString"
+          if !ty.emitted_as_pointer? && ty.class_type? && drop_if_unread.include?(ty.class_name)
+            @_dropped_ivars << key
+            true
+          elsif ty.i64? || ty.f64?
             @_dropped_ivars << key
             true
           else
@@ -578,7 +579,9 @@ module Frozone
         end
         init_has_params = init.is_a?(Vm::Method) && !all_param_names(init).empty?
         self_wrapper = "Ruby_#{name}"
-        self_ref_ivars = ivar_types.select { |_, t| t == self_wrapper || t == "#{self_wrapper}*" }.keys.to_set
+        # Self-ref ivars: Type whose class_name matches this class (i.e. the
+        # node/tree pattern where an ivar points at another instance of self).
+        self_ref_ivars = ivar_ts.select { |_, ty| ty.class_type? && ty.class_name == name }.keys.to_set
         @_self_ref_ivars = self_ref_ivars
         @_current_wrapper_name = self_wrapper
 
@@ -595,17 +598,23 @@ module Frozone
           # Ivars as direct fields
           ivars.uniq.each do |iv|
             key = iv.to_s.delete_prefix('@')
-            t = ivar_types[key] || "int64_t"
+            ty = ivar_ts[key]
             if self_ref_ivars.include?(key)
-              line "#{emit_type("#{self_wrapper}*")} iv_#{key} = nullptr;"
+              line "#{Frozone::Compiler::Type.of(name).to_cpp_ref} iv_#{key} = nullptr;"
+            elsif ty
+              default = if ty.i64? || (ty.class_type? && %i[Integer Numeric].include?(ty.class_name) && !ty.nullable?)
+                          " = 0"
+                        elsif ty.f64? || (ty.class_type? && ty.class_name == :Float && !ty.nullable?)
+                          " = 0.0"
+                        elsif ty.class_type? && %i[TrueClass FalseClass].include?(ty.class_name)
+                          " = false"
+                        else
+                          ""
+                        end
+              line "#{ty.to_cpp_ref} iv_#{key}#{default};"
             else
-              default = case t
-                when "int64_t" then " = 0"
-                when "double" then " = 0.0"
-                when "bool" then " = false"
-                else ""
-                end
-              line "#{emit_type(t)} iv_#{key}#{default};"
+              # Unknown type — fall back to int64_t default (matches legacy).
+              line "int64_t iv_#{key} = 0;"
             end
           end
           emit_newline
@@ -670,7 +679,7 @@ module Frozone
         end
         line "};"
         line "template<> inline const char* ruby_class_name<Ruby_#{name}>() { return \"#{name}\"; }"
-        emit_tracer_spec(self_wrapper, ivars, ivar_types, self_ref_ivars)
+        emit_tracer_spec(self_wrapper, ivars, ivar_ts, self_ref_ivars)
         @_self_ref_ivars = nil
         @_current_wrapper_name = nil
         @_dropped_ivars = nil
@@ -679,13 +688,10 @@ module Frozone
       # Emit a Dustman Tracer specialization for `wrapper` (Ruby_X). Lists only
       # ivars that hold GC references — user-class pointers or RubyObject*.
       # Value-typed ivars (int/double/bool/RubyString/etc.) are not traced.
-      def emit_tracer_spec(wrapper, ivars, ivar_types, self_ref_ivars)
+      def emit_tracer_spec(wrapper, ivars, ivar_ts, self_ref_ivars)
         trace = ivars.uniq.select do |iv|
           key = iv.to_s.delete_prefix('@')
-          self_ref_ivars.include?(key) || begin
-            t = ivar_types[key]
-            user_class_ptr_type?(t) || t == "RubyObject*"
-          end
+          self_ref_ivars.include?(key) || ivar_ts[key]&.emitted_as_pointer?
         end
         members = trace.map { |iv| "&#{wrapper}::iv_#{iv.to_s.delete_prefix('@')}" }
         line "#ifdef FROZONE_USE_DUSTMAN_GC"
@@ -1485,7 +1491,7 @@ module Frozone
           t_ty = mkey ? (ti_local_type_t(mkey, p.to_s) || ti_type([:param, mkey, i])) : nil
           t_ty ||= setter_ivar_t if i == 0
           if t_ty&.emitted_as_pointer?
-            parts << "#{emit_type(t_ty.to_cpp)} #{p}"
+            parts << "#{t_ty.to_cpp_ref} #{p}"
           else
             parts << "auto #{p}"
           end
@@ -1809,7 +1815,7 @@ module Frozone
       def explicit_return_type(t)
         return "auto" unless t
         return t.to_cpp if t.renders_as_optional?
-        return emit_type(t.to_cpp) if t.emitted_as_pointer?
+        return t.to_cpp_ref if t.emitted_as_pointer?
         "auto"
       end
 
