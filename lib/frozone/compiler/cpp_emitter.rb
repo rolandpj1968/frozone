@@ -150,6 +150,13 @@ module Frozone
         end
       end
 
+      # A class-referencing AST node: bare `Foo` (ConstantRead) or nested
+      # `Outer::Inner::Foo` (ConstantPath). Both expose `.name` — the leaf
+      # symbol — which is how the user_classes table is keyed.
+      def class_constant_ref?(node)
+        node.is_a?(Ast::ConstantRead) || node.is_a?(Ast::ConstantPath)
+      end
+
       def mark_param_pointer_types(method)
         return unless method.is_a?(Vm::Method)
         mkey = @_current_method_key
@@ -163,7 +170,7 @@ module Frozone
         # Check @_pointer_locals (populated from TI during method setup)
         return true if recv.is_a?(Ast::LocalVariableRead) && @_pointer_locals&.include?(recv.name.to_s)
         # Constructor call always returns a pointer
-        if recv.is_a?(Ast::MethodCall) && recv.name == :new && recv.receiver_node.is_a?(Ast::ConstantRead)
+        if recv.is_a?(Ast::MethodCall) && recv.name == :new && class_constant_ref?(recv.receiver_node)
           return !%i[Array String Hash Set].include?(recv.receiver_node.name)
         end
         # Check TI for the local's type
@@ -954,7 +961,7 @@ module Frozone
           rep = t.union_representation([a, b])
           rep == "RubyObject*" ? t::OBJECT : t::BOTTOM
         when Ast::MethodCall
-          if val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
+          if val.name == :new && class_constant_ref?(val.receiver_node)
             cn = val.receiver_node.name
             return t::STRING if cn == :String
             return t::BOTTOM if cn == :Array   # element type unknown here
@@ -2392,12 +2399,12 @@ module Frozone
           return "RubyString()"
         end
 
-        # ClassName.new(args) → gc_new<Ruby_ClassName>(args).
-        # Except for built-in runtime types that can't live on a moving GC
-        # (shared_ptr internals break under evacuation). Those use plain `new`
-        # and leak out of Dustman's control — fine because they're rare and
-        # typically long-lived (Random, etc.).
-        if name == :new && recv.is_a?(Ast::ConstantRead) && recv.name != :Array
+        # ClassName.new(args) or Outer::Inner::ClassName.new(args) →
+        # gc_new<Ruby_ClassName>(args). Except for built-in runtime types that
+        # can't live on a moving GC (shared_ptr internals break under
+        # evacuation). Those use plain `new` and leak out of Dustman's control
+        # — fine because they're rare and typically long-lived (Random, etc.).
+        if name == :new && class_constant_ref?(recv) && recv.name != :Array
           arg_strs = args.map { |a| cr(a) }.join(", ")
           alloc_op = NON_GC_BUILTIN_CLASSES.include?(recv.name) ? "new" : "gc_new<Ruby_#{recv.name}>"
           if alloc_op == "new"
@@ -2496,12 +2503,18 @@ module Frozone
           return "for (int64_t #{var} = 0; #{var} < #{cr(recv)}; #{var}++) {\n#{body_str}\n#{old_indent}}"
         end
 
-        # a[i] (subscript read)
+        # a[i] (subscript read). When recv is a pointer to a user class
+        # (Ruby_X*), `recv[i]` is C++ pointer arithmetic — not the class's
+        # operator[]. Dispatch through `->operator[]` in that case.
         if name == :[] && recv && args.size == 1
+          if recv_t_is_ptr?(recv)
+            return "#{cr(recv)}->operator[](#{cr(args[0])})"
+          end
           return "#{cr(recv)}[#{cr(args[0])}]"
         end
         if name == :[] && recv && args.size == 2
-          return "#{cr(recv)}.slice(#{cr(args[0])}, #{cr(args[1])})"
+          op = recv_t_is_ptr?(recv) ? "->" : "."
+          return "#{cr(recv)}#{op}slice(#{cr(args[0])}, #{cr(args[1])})"
         end
 
         # .nil? — RubyTree has nil_q(); for other types, fall through to name mangling (→ nil_q).

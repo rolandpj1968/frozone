@@ -318,15 +318,22 @@ module Frozone
         recv = call.receiver_node
         if recv.nil?
           propagate_free_call_args(call, ctx)
-        elsif recv.is_a?(Ast::ConstantRead) && call.name == :new
+        elsif constant_ref?(recv) && call.name == :new
           propagate_constructor_args(call, ctx, recv.name)
-        elsif recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.name)
+        elsif constant_ref?(recv) && @user_classes.key?(recv.name)
           propagate_class_method_args(call, ctx, [recv.name, call.name])
         elsif recv
           propagate_instance_method_args(call, ctx)
         else
           false
         end
+      end
+
+      # Is `node` a constant reference (bare ConstantRead or nested
+      # ConstantPath like `Outer::Inner::Holder`)? Both have `.name` (the
+      # leaf) which is how @user_classes is indexed.
+      def constant_ref?(node)
+        node.is_a?(Ast::ConstantRead) || node.is_a?(Ast::ConstantPath)
       end
 
       # Free call → top-level method params (and the class-keyed
@@ -1039,7 +1046,10 @@ module Frozone
           Type::BOTTOM
       end
 
-      # Array.new(n) { |i| expr } or Array.new(n, fill).
+      # Array.new(n) { |i| expr } or Array.new(n, fill) or Array.new(n).
+      # Size-only (no block, no fill) yields an untyped Array whose elements
+      # start as nil — the element type gets refined by subsequent writes
+      # via propagate_ivar_array_elem_writes / widen_ivar_arrays_from_mutations.
       def try_infer_array_factory(node, ctx)
         return nil unless node.name == :new
         recv = node.receiver_node
@@ -1052,8 +1062,9 @@ module Frozone
         elsif args.size == 2
           fill_ty = infer_expr(args[1], ctx)
           return fill_ty.bottom? ? Type::ARRAY : Type.array(elem: fill_ty)
+        elsif args.size == 1
+          Type::ARRAY
         end
-        nil
       end
 
       # Array#map { |x| expr } → new Array with block-inferred element type.
@@ -1125,7 +1136,17 @@ module Frozone
           return Type::I64 if cn == :Integer && INT_INT_METHODS.include?(name)
           return Type::F64 if cn == :Float   && FLOAT_FLOAT_METHODS.include?(name)
           return Type::I64 if cn == :Float   && FLOAT_INT_METHODS.include?(name)
-          return Type::I64 if cn == :String  && %i[getbyte ord bytesize].include?(name)
+          return Type::I64 if cn == :String  && %i[getbyte ord bytesize size length setbyte].include?(name)
+          return Type::STRING if cn == :String && %i[b upcase downcase capitalize reverse chomp chop strip lstrip rstrip].include?(name)
+          # "str" * n → String; "str" + "s" → String.
+          if cn == :String && (name == :* || name == :+) && (node.arg_nodes || []).size == 1
+            return Type::STRING
+          end
+          # "str"[from, len] → String (two-arg slice).
+          return Type::STRING if cn == :String && name == :[] && (node.arg_nodes || []).size == 2
+          # "str".slice / .dup are both String-returning (dup/clone already handled below,
+          # but slice needs an explicit entry).
+          return Type::STRING if cn == :String && name == :slice
           return ((node.arg_nodes || []).empty? ? Type::F64 : Type::I64) if cn == :Random && name == :rand
         end
         # Array#max/min/sum/first/last return element type when known.
@@ -1639,6 +1660,9 @@ module Frozone
       # Collect constructor param types across all calling contexts and pick
       # the best (most precise) type for each param. Contexts that pass only
       # NilClass are excluded — sentinel construction shouldn't widen ivars.
+      # Unresolved param slots are returned as Type::BOTTOM rather than
+      # aborting the whole class — ivar inference from the initialize body
+      # doesn't always depend on knowing param types (e.g. `@list = Array.new(...)`).
       def best_constructor_param_types(class_name, param_count)
         slots = @env.slots
         contexts = Set.new
@@ -1653,7 +1677,7 @@ module Frozone
             t = @env.type_of([:constructor_param, class_name, i, ctx_key])
             t.bottom? ? nil : t
           }
-          return nil if types.empty?
+          next Type::BOTTOM if types.empty?
           non_nil = types.reject(&:nil_type?)
           next Type::BOTTOM if non_nil.empty?
           non_nil.reduce { |a, b| join(a, b) }
