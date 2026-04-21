@@ -1361,9 +1361,24 @@ module Frozone
         when Ast::Return
           infer_expr(node.value_node, ctx)
         when Ast::While, Ast::Until
-          Type::NIL_CLASS
+          # A `while true` / `until false` loop can't exit normally — its
+          # only exit is via an explicit return inside the body (those are
+          # picked up via scan_returns on an earlier pass). Skip the nil
+          # contribution so the function's return type doesn't pick up a
+          # spurious nil branch. (fannkuchredux relies on this.)
+          infinite_loop?(node) ? Type::BOTTOM : Type::NIL_CLASS
         else
           infer_expr(node, ctx)
+        end
+      end
+
+      def infinite_loop?(node)
+        cond = node.condition_node
+        cond = cond.nodes.first while cond.is_a?(Ast::Sequence) && cond.nodes.size == 1
+        return false unless cond
+        case node
+        when Ast::While then cond.is_a?(Ast::TrueLiteral)
+        when Ast::Until then cond.is_a?(Ast::FalseLiteral)
         end
       end
 

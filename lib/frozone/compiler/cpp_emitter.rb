@@ -448,7 +448,7 @@ module Frozone
         @_current_method_key = name
         params = emit_param_list(method)
         @_method_return_t = ti_return_type_t(@_current_method_key)
-        ret_type = @_method_return_t&.renders_as_optional? ? @_method_return_t.to_cpp : "auto"
+        ret_type = explicit_return_type(@_method_return_t)
         line "#{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
@@ -748,9 +748,10 @@ module Frozone
 
       def emit_static_class_method(name, method)
         params = emit_param_list(method)
-        line "static auto #{cpp_method_name(name)}(#{params}) {"
-        @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         @_method_return_t = ti_return_type_t(@_current_method_key)
+        ret_type = explicit_return_type(@_method_return_t)
+        line "static #{ret_type} #{cpp_method_name(name)}(#{params}) {"
+        @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
         indented do
           body = method.body
@@ -1480,9 +1481,6 @@ module Frozone
           setter_ivar_t = ti_ivar_type_t(cls_name, ivk)
         end
         (method.required_params || []).each_with_index do |p, i|
-          # If TI typed this param as a user-class pointer, emit gc_ref<T>
-          # explicitly. Under Dustman, callers often pass a Root<T> (non-copyable
-          # stack root) — auto-deduction would fail, but Root→gc_ptr converts.
           mkey = @_current_method_key
           t_ty = mkey ? (ti_local_type_t(mkey, p.to_s) || ti_type([:param, mkey, i])) : nil
           t_ty ||= setter_ivar_t if i == 0
@@ -1495,8 +1493,6 @@ module Frozone
         req_count = (method.required_params || []).size
         (method.optional_params || []).each_with_index do |(pname, default_node), oi|
           if default_node.is_a?(Ast::NilLiteral)
-            # TI's :param / :local slots (the legacy @_method_call_arg_types
-            # hash was populated by ad-hoc TI that's since been removed).
             ty = nil
             ty = ti_type([:param, @_current_method_key, req_count + oi]) if @_current_method_key
             ty ||= ti_local_type_t(@_current_method_key, pname.to_s) if @_current_method_key
@@ -1797,15 +1793,20 @@ module Frozone
         "coerce_to_ref<RubyObject>(#{s})"
       end
 
-      # Decide the method's emitted return type. `auto` for the common case;
-      # explicit when TI gives us a Type that the `auto` deducer can't unify
-      # across branches (user-class pointers, RubyObject*, std::optional) —
-      # callers returning mixed-but-convertible-to-target types will then
-      # implicitly coerce at return sites.
+      # Decide the method's emitted return type. `auto` stays for the easy
+      # primitive case (int64_t / double / bool) where all return sites
+      # produce the same type and C++ auto-deduction is fine. For types
+      # where auto-deduction is fragile — containers (Array/Hash/String),
+      # user-class pointers, std::optional — we commit to the concrete
+      # TI-inferred type so callers returning mixed-but-convertible
+      # branches implicitly coerce at the return site instead of tripping
+      # "inconsistent deduction" (see fannkuchredux).
       def explicit_return_type(t)
-        return "auto" unless t
+        return "auto" unless t && !t.bottom?
         return t.to_cpp if t.renders_as_optional?
         return t.to_cpp_ref if t.emitted_as_pointer?
+        return t.to_cpp_ref if t.array_like? || (t.class_type? && %i[Hash String Symbol].include?(t.class_name))
+        return t.to_cpp_ref if t.array_scalar?
         "auto"
       end
 
