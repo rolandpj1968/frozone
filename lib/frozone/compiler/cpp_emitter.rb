@@ -93,15 +93,14 @@ module Frozone
         ty = @ti_env.type_at(slot)
         return nil unless ty && !ty.bottom?
         cpp = ty.to_cpp
-        # Filter out types that are too complex for C++ (deeply nested arrays,
-        # RubyObject* when builtins don't inherit yet)
         return nil if cpp == "auto"
         return nil if cpp&.count('<') > 2  # deeply nested generics
         # std::any is still here as a transitional escape hatch: even though
         # RubyString/RubyArray/RubyHash/RubyTree now share RubyObject as a
         # base, migrating emitted code from std::any to gc_ref<RubyObject>
-        # requires boxing every value-to-union assignment and return. Staged
-        # refactor — see followup.
+        # requires boxing every value-to-union assignment and return, plus
+        # real container Tracers for hashes/arrays holding gc_refs. Staged
+        # refactor in progress.
         return "std::any" if cpp == "RubyObject*"
         cpp
       end
@@ -1885,6 +1884,46 @@ module Frozone
         when Ast::IntegerLiteral then "int64_t"
         else "RubySymbol"  # default guess
         end
+      end
+
+      # Emit `node` as an expression producing `target_type`, inserting any
+      # coercion needed so the value fits the target slot.
+      #
+      # target_type is an internal cpp type string (pre-emit_type); typical
+      # callers are emission sites that assign into a union slot (ivar, return,
+      # param, hash/array element whose V/T has been widened to RubyObject*).
+      #
+      # Coercion rules:
+      #   - target matches node's static type      → identity
+      #   - target is RubyObject*, node is pointer → identity (C++ upcasts)
+      #   - target is RubyObject*, node is a value type RubyObject-subclass
+      #     (RubyString, RubyArray<T>, RubyHash<K,V>, RubyTree)
+      #                                            → box: gc_new<Type>(expr)
+      #   - target is RubyObject*, node is primitive (int64, double, bool)
+      #                                            → fallback: std::any(expr)
+      #     (proper fix is boxed primitive wrappers in a future step)
+      #   - everything else                        → identity (trust callers)
+      def cr_coerce(node, target_type)
+        s = cr(node)
+        return s unless target_type == "RubyObject*"
+        node_type = local_decl_type(node)
+        return s unless node_type && node_type != "auto"
+        return s if node_type.end_with?("*")                     # pointer → RubyObject*
+        if ruby_object_subclass_value_type?(node_type)
+          "gc_new<#{node_type}>(#{s})"
+        else
+          "std::any(#{s})"                                       # primitive fallback
+        end
+      end
+
+      # Is `cpp_type` a C++ type that's a value-semantic RubyObject subclass?
+      # These can be boxed via gc_new<Type>(value) to produce a RubyObject*.
+      def ruby_object_subclass_value_type?(cpp_type)
+        return false unless cpp_type
+        cpp_type == "RubyString" ||
+          cpp_type == "RubyTree" ||
+          cpp_type.start_with?("RubyArray<") ||
+          cpp_type.start_with?("RubyHash<")
       end
 
       def cr(node)
