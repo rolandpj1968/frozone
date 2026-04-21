@@ -1168,8 +1168,9 @@ module Frozone
           return Type::STRING if cn == :String && name == :slice
           return ((node.arg_nodes || []).empty? ? Type::F64 : Type::I64) if cn == :Random && name == :rand
         end
-        # Array#max/min/sum/first/last return element type when known.
-        if recv_ty.array? && recv_ty.elem && %i[max min sum first last].include?(name)
+        # Array accessors that return an element: max/min/sum/first/last
+        # plus fetch / at / [].
+        if recv_ty.array? && recv_ty.elem && %i[max min sum first last fetch at [] pop shift].include?(name)
           return recv_ty.elem
         end
         # dup/clone/freeze return the same type.
