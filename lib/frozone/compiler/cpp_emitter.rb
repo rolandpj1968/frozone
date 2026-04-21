@@ -1262,6 +1262,15 @@ module Frozone
             return nil if cn == :Array   # element type unknown here
             return Frozone::Compiler::Type.of(cn)
           end
+          # obj.foo where obj resolves to a known user class — look up the
+          # method's TI-typed return.
+          if val.receiver_node
+            recv_t = local_decl_type_t(val.receiver_node)
+            if recv_t && recv_t.class_type? && recv_t.class_name && !recv_t.class_name.to_s.start_with?("Ruby")
+              rt = ti_return_type_t([recv_t.class_name, val.name])
+              return rt if rt
+            end
+          end
           nil
         when Ast::HashLiteral
           pairs = (val.kv_nodes || []).reject { |k, _| k.nil? }
@@ -1290,6 +1299,34 @@ module Frozone
           return Frozone::Compiler::Type.new(:class_type, class_name: :Array,
                                              elem: Frozone::Compiler::Type::I64) if et.nil?
           Frozone::Compiler::Type.new(:class_type, class_name: :Array, elem: et)
+        when Ast::If
+          return nil unless val.then_node && val.else_node
+          t_then = local_decl_type_t(unwrap_single_sequence(val.then_node))
+          t_else = local_decl_type_t(unwrap_single_sequence(val.else_node))
+          return t_then if t_then == t_else && t_then
+          return nil unless t_then && t_else
+          # Different concrete types — compute union representation via
+          # Type. Return Type::OBJECT (renders as RubyObject*) when that's
+          # the representation; nil otherwise so the caller can decide.
+          rep = Frozone::Compiler::Type.union_representation([t_then, t_else])
+          rep == "RubyObject*" ? Frozone::Compiler::Type::OBJECT : nil
+        when Ast::Case
+          return nil unless val.whens&.any?
+          types = val.whens.map { |w|
+            local_decl_type_t(unwrap_single_sequence(w.body_node))
+          }
+          return nil if types.any?(&:nil?)
+          uniq = types.uniq
+          return uniq[0] if uniq.size == 1
+          rep = Frozone::Compiler::Type.union_representation(uniq)
+          rep == "RubyObject*" ? Frozone::Compiler::Type::OBJECT : nil
+        when Ast::ConstantRead
+          if @top_level_scope
+            c = @top_level_scope.constants_table&.fetch(val.name, nil)
+            return Frozone::Compiler::Type::STRING if c.is_a?(Vm::StringObject)
+            return Frozone::Compiler::Type::F64 if c.is_a?(Vm::FloatObject)
+          end
+          nil
         else
           nil
         end
