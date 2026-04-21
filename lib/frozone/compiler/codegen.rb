@@ -402,7 +402,6 @@ module Frozone
             emit_alias_forwarding_methods(mod, user_methods)
             emit_class_methods(name, mod, eigen_names)
             emit_respond_to(mod) if mod.is_a?(Vm::ClassObject)
-            emit_user_classes(mod, visited)
           end
 
           @cctx = old_cctx
@@ -410,16 +409,17 @@ module Frozone
           emit_indent
           write "end"
           emit_newline
+          # Nested user classes are flattened to top level: Crystal class
+          # lookup is lexical, so `SplayTree::Node` defined inside the parent
+          # class would require fully-qualified `.as(Ruby_SplayTree::Ruby_Node)`
+          # at outside references. Flattening sidesteps that — every user
+          # class is addressable as a bare `Ruby_X` from anywhere. Closed-
+          # world assumption: leaf class names are globally unique, so no
+          # collision risk between e.g. `Blurhash::Ruby::ThreeDArray` and
+          # some other ThreeDArray.
+          emit_user_classes(mod, visited)
         elsif has_user_descendants?(mod)
-          # Namespace-only module: no user methods, but has nested user content.
-          # Emit a Crystal module wrapper so nested classes land at the right scope.
-          emit_indent
-          write "module Ruby_#{crystal_constant(name)}"
-          emit_newline
-          indented { emit_user_classes(mod, visited) }
-          emit_indent
-          write "end"
-          emit_newline
+          emit_user_classes(mod, visited)
         end
       end
 
@@ -1163,9 +1163,36 @@ module Frozone
         const_table = scope.constants_table || {}
         const_locs = scope.constants_locations || {}
 
+        # Frozone's VM copies constants into every descendant class's
+        # constants_table (for fast lookup), so e.g. top-level `TREE_SIZE`
+        # shows up in `SplayTree.constants_table` AND `Node.constants_table`
+        # even though the constant was only assigned at top level. Filter:
+        # a constant is "locally defined" in `scope` if its recorded
+        # location falls inside one of `scope`'s own methods or between
+        # class begin/end markers — we don't track the latter, so fall back
+        # to the top-level test: top-level constants only emit at top-level,
+        # class-local constants emit inside their class body.
+        top = @cc&.top_level_scope
+        @_top_level_const_names ||= begin
+          set = Set.new
+          if top
+            (top.constants_table || {}).each do |n, v|
+              next if v.is_a?(Vm::ModuleObject)
+              loc = (top.constants_locations || {})[n]
+              set << n if user_source_location?(loc)
+            end
+          end
+          set
+        end
+        is_top_level_scope = scope.equal?(top)
+
         const_table.each do |name, value|
           next if SKIP_CONSTANTS.include?(name)
           next if value.is_a?(Vm::ModuleObject)
+          # If this constant was defined at the top level, only emit it
+          # from the top-level scope — skip the inherited view in nested
+          # classes.
+          next if !is_top_level_scope && @_top_level_const_names.include?(name)
 
           loc = const_locs[name]
           next unless user_source_location?(loc)
@@ -1639,7 +1666,14 @@ module Frozone
         val = node.value_node
         nullable = cls_entry.is_a?(Array) && cls_entry[1] == :nullable
         anno = ""
-        if !nullable && !@_declared_typed_locals.include?(name) && safe_for_type_annotation?(val)
+        # Only emit `name : Type = ...` on the *first* write to `name`. If
+        # the local was pre-declared via the hoist (@_declared_locals — set
+        # up at method entry as `name = RUBY_NIL` so early references type-
+        # check as RubyObject), a subsequent typed re-declaration is a
+        # Crystal compile error ("variable already declared").
+        already_declared = @_declared_typed_locals.include?(name) ||
+                           @_declared_locals&.include?(crystal_local(name))
+        if !nullable && !already_declared && safe_for_type_annotation?(val)
           @_declared_typed_locals << name
           cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
           anno = " : #{crystal_class_name(cls)}"
