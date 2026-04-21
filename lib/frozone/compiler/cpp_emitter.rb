@@ -88,29 +88,49 @@ module Frozone
       #   - Outside (shouldn't happen for user code): bare `iv_<name>`.
       # Query the shared TI for a type, returning a C++ type string.
       # Falls back to nil if the slot isn't typed.
-      def ti_type_cpp(slot)
+      # TI query — returns the Type at `slot`, or nil if unknown / bottom /
+      # too-complex-for-our-codegen. Primary query; cpp-string variants below
+      # derive from this.
+      def ti_type(slot)
         return nil unless @ti_env
         ty = @ti_env.type_at(slot)
         return nil unless ty && !ty.bottom?
-        cpp = ty.to_cpp
-        return nil if cpp == "auto"
-        return nil if cpp&.count('<') > 2  # deeply nested generics
-        # RubyObject* is the LCA for cross-class unions. Emitted as
-        # gc_ref<RubyObject> by emit_type; writes into these slots are
-        # coerced via cr_coerce (pointer-upcast or gc_new<Concrete>(expr)).
-        cpp
+        # Filter the same too-deep-generics case ti_type_cpp used to; keeping
+        # the guard here (rather than on to_cpp) means callers that want the
+        # raw Type for Type-level reasoning still get it.
+        return nil if ty.to_cpp&.count('<') > 2
+        return nil if ty.to_cpp == "auto"
+        ty
+      end
+
+      # Legacy cpp-string accessor. New code should prefer `ti_type` and call
+      # `.to_cpp` at the emission boundary.
+      def ti_type_cpp(slot)
+        ti_type(slot)&.to_cpp
+      end
+
+      def ti_ivar_type_t(class_name, ivar_name)
+        ti_type([:ivar, class_name, :"@#{ivar_name}"])
+      end
+
+      def ti_local_type_t(method_key, local_name)
+        ti_type([:local, method_key, local_name.to_sym])
+      end
+
+      def ti_return_type_t(method_key)
+        ti_type([:return, method_key])
       end
 
       def ti_ivar_type(class_name, ivar_name)
-        ti_type_cpp([:ivar, class_name, :"@#{ivar_name}"])
+        ti_ivar_type_t(class_name, ivar_name)&.to_cpp
       end
 
       def ti_local_type(method_key, local_name)
-        ti_type_cpp([:local, method_key, local_name.to_sym])
+        ti_local_type_t(method_key, local_name)&.to_cpp
       end
 
       def ti_return_type(method_key)
-        ti_type_cpp([:return, method_key])
+        ti_return_type_t(method_key)&.to_cpp
       end
 
       def collect_module_methods_for_ti(scope, methods, seen = Set.new)
@@ -1190,6 +1210,91 @@ module Frozone
         end
       end
 
+      # Type-returning counterpart to `local_decl_type`. Returns a Frozone
+      # Type for nodes we can structurally infer, or nil when the shape is
+      # beyond what we can cleanly lift to a Type (constant folding of
+      # cpp-string outputs, unmapped AST shapes, etc.) — callers then fall
+      # back to string handling.
+      #
+      # Coverage goal: the AST shapes that actually participate in
+      # union-decision sites (hash literal values, ternary branches, ||/&&
+      # operands, case/when branches). Non-covered shapes return nil and
+      # defer to the string predicates.
+      def local_decl_type_t(val)
+        @_decl_depth_t ||= 0
+        return nil if @_decl_depth_t > 5
+        @_decl_depth_t += 1
+        begin
+          _local_decl_type_t_impl(val)
+        ensure
+          @_decl_depth_t -= 1
+        end
+      end
+
+      def _local_decl_type_t_impl(val)
+        case val
+        when Ast::NilLiteral     then Frozone::Compiler::Type::NIL_CLASS
+        when Ast::TrueLiteral    then Frozone::Compiler::Type::TRUE_CLASS
+        when Ast::FalseLiteral   then Frozone::Compiler::Type::FALSE_CLASS
+        when Ast::IntegerLiteral then Frozone::Compiler::Type::I64
+        when Ast::FloatLiteral   then Frozone::Compiler::Type::F64
+        when Ast::SymbolLiteral  then Frozone::Compiler::Type::SYMBOL
+        when Ast::StringLiteral, Ast::InterpolatedString then Frozone::Compiler::Type::STRING
+        when Ast::InstanceVariableRead
+          return nil unless @_current_wrapper_name
+          cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
+          ti_ivar_type_t(cls_name, val.name.to_s.delete_prefix("@"))
+        when Ast::InstanceVariableWrite, Ast::LocalVariableWrite
+          local_decl_type_t(val.value_node)
+        when Ast::Or, Ast::And
+          a = local_decl_type_t(val.left_node)
+          b = local_decl_type_t(val.right_node)
+          return a if a == b
+          return b if a.nil?
+          return a if b.nil?
+          # Different concrete types — defer to string meet_types via the
+          # caller's fallback for now. A future commit can extend this.
+          nil
+        when Ast::MethodCall
+          if val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
+            cn = val.receiver_node.name
+            return Frozone::Compiler::Type::STRING if cn == :String
+            return nil if cn == :Array   # element type unknown here
+            return Frozone::Compiler::Type.of(cn)
+          end
+          nil
+        when Ast::HashLiteral
+          pairs = (val.kv_nodes || []).reject { |k, _| k.nil? }
+          if pairs.empty?
+            return Frozone::Compiler::Type.new(:class_type, class_name: :Hash,
+                                               key: Frozone::Compiler::Type::SYMBOL,
+                                               val: Frozone::Compiler::Type::I64)
+          end
+          return nil unless pairs[0][0].is_a?(Ast::SymbolLiteral)  # non-symbol keys: punt
+          k_t = Frozone::Compiler::Type::SYMBOL
+          val_ts = pairs.map { |_, v| local_decl_type_t(v) }
+          return nil if val_ts.any?(&:nil?)
+          uniq_vs = val_ts.uniq
+          v_t = if uniq_vs.size == 1
+                  uniq_vs[0]
+                elsif uniq_vs.all?(&:ruby_object_convertible?)
+                  Frozone::Compiler::Type::OBJECT
+                end
+          return nil unless v_t
+          Frozone::Compiler::Type.new(:class_type, class_name: :Hash, key: k_t, val: v_t)
+        when Ast::ArrayLiteral
+          return nil if tree_node_literal?(val)
+          elems = val.element_nodes
+          return Frozone::Compiler::Type::ARRAY_I64 if elems.empty?
+          et = local_decl_type_t(elems.first)
+          return Frozone::Compiler::Type.new(:class_type, class_name: :Array,
+                                             elem: Frozone::Compiler::Type::I64) if et.nil?
+          Frozone::Compiler::Type.new(:class_type, class_name: :Array, elem: et)
+        else
+          nil
+        end
+      end
+
       def _local_decl_type_impl(val)
         case val
         when Ast::Or, Ast::And
@@ -1878,11 +1983,19 @@ module Frozone
       end
 
       # Decide the V type for a RubyHash<K, V> built from `pairs`.
-      # - Homogeneous known type → that type.
-      # - Mixed → union_representation picks RubyObject* when any participant
-      #   contains gc_refs (Dustman-safe, primitives get boxed via
-      #   coerce_to_ref), std::any otherwise (SBO for primitive mixes).
+      # Tries Type-level inference first — consistent with the Type lattice's
+      # structural view of gc_ref containment and convertibility. Falls back
+      # to string-level union_representation when Type inference returns nil
+      # for a pair (e.g. chained MethodCalls we don't structurally model yet).
       def hash_literal_value_type(pairs)
+        val_ts = pairs.map { |_, v| local_decl_type_t(v) }
+        if val_ts.none?(&:nil?)
+          uniq_ts = val_ts.uniq
+          return uniq_ts[0].to_cpp if uniq_ts.size == 1
+          return Frozone::Compiler::Type.union_representation(uniq_ts)
+        end
+        # Fallback: some participant didn't lift to a Type (unmapped AST
+        # shape). Go through the legacy string path.
         val_types = pairs.map { |_, v| local_decl_type(v) }.uniq
         return val_types[0] if val_types.size == 1 && val_types[0] != "auto"
         union_representation(val_types)
