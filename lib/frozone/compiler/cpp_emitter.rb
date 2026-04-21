@@ -1885,17 +1885,18 @@ module Frozone
       end
 
       # Can values of `cpp_type` be represented as RubyObject* via
-      # coerce_to_ref? True for pointers, value-typed subclasses, and
-      # primitives (boxed into Ruby_Integer / Ruby_Float / Ruby_Boolean).
-      # Excludes `auto` (not statically resolved) and std::any (can't unbox
-      # blindly) and RubySymbol (not a RubyObject subclass yet).
+      # coerce_to_ref? True for pointers, value-typed subclasses, primitives
+      # (boxed into Ruby_Integer / Ruby_Float / Ruby_Boolean), and RubySymbol
+      # (boxed into Ruby_Symbol). Excludes `auto` (not statically resolved)
+      # and `std::any` (can't unbox blindly) — both are genuine "we don't
+      # know enough to pick a box" cases that fall through to std::any.
       def ruby_object_convertible_type?(cpp_type)
         return false unless cpp_type
         return false if cpp_type == "auto"
         return false if cpp_type == "std::any"
-        return false if cpp_type == "RubySymbol"
         cpp_type.end_with?("*") ||
           ruby_object_subclass_value_type?(cpp_type) ||
+          cpp_type == "RubySymbol" ||
           %w[int64_t double bool].include?(cpp_type)
       end
 

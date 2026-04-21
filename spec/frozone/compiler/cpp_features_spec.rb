@@ -540,5 +540,21 @@ RSpec.describe "C++ backend features" do
         puts Slot.new(Leaf.new).x.class
       RUBY
     end
+
+    it "symbol in a union with a user-class pointer" do
+      # RubySymbol normally stays 8 bytes (hash-key efficient). When it
+      # participates in a union alongside a gc_ref-holding type, coerce_to_ref
+      # boxes it into Ruby_Symbol.
+      assert_cpp_matches_mri(<<~RUBY)
+        class Thing
+          def initialize; end
+        end
+        def get(kind)
+          if kind == :sym then :hello else Thing.new end
+        end
+        puts get(:sym).class
+        puts get(:obj).class
+      RUBY
+    end
   end
 end

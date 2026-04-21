@@ -218,10 +218,17 @@ public:
   const char* rb_class_name() const override { return value ? "TrueClass" : "FalseClass"; }
 };
 
+// Forward-decl for Ruby_Symbol — full definition below once RubySymbol is
+// declared. Same lazy-box pattern as the primitives above: bare RubySymbol
+// stays 8 bytes (hash-key efficient), Ruby_Symbol wraps it for union entry.
+class RubySymbol;
+class Ruby_Symbol;
+
 #ifdef FROZONE_USE_DUSTMAN_GC
 template<> struct dustman::Tracer<Ruby_Integer> : dustman::FieldList<Ruby_Integer> {};
-template<> struct dustman::Tracer<Ruby_Float> : dustman::FieldList<Ruby_Float> {};
+template<> struct dustman::Tracer<Ruby_Float>   : dustman::FieldList<Ruby_Float>   {};
 template<> struct dustman::Tracer<Ruby_Boolean> : dustman::FieldList<Ruby_Boolean> {};
+// Ruby_Symbol tracer further down after the class body.
 #endif
 
 // ---------------------------------------------------------------------
@@ -239,6 +246,25 @@ public:
   bool operator==(const RubySymbol& o) const { return name == o.name; }
   bool operator!=(const RubySymbol& o) const { return name != o.name; }
 };
+
+// Boxed symbol — for union entry only. Bare RubySymbol stays 8 bytes so
+// unordered_map<RubySymbol, V> hash-node size is unchanged in the common
+// case (hash keys). Ruby_Symbol is allocated via gc_new only when a
+// symbol value crosses into a heterogeneous gc_ref<RubyObject> union.
+class Ruby_Symbol : public RubyObject {
+public:
+  static void* operator new(size_t n) { return ::operator new(n); }
+  static void* operator new(size_t, void* p) noexcept { return p; }
+  static void operator delete(void* p) noexcept { ::operator delete(p); }
+  RubySymbol value;
+  Ruby_Symbol() = default;
+  Ruby_Symbol(RubySymbol v) : value(v) {}
+  const char* rb_class_name() const override { return "Symbol"; }
+};
+
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<Ruby_Symbol> : dustman::FieldList<Ruby_Symbol> {};
+#endif
 
 // Interning table — static, leaks at shutdown (fine for AOT programs).
 // Uses a map from std::string (because we hash the text) to the owned
@@ -639,6 +665,8 @@ inline dustman::gc_ptr<Base> coerce_to_ref(T&& x) {
     return as_ref<Base>(gc_new<Ruby_Integer>(static_cast<int64_t>(x)));
   } else if constexpr (std::is_floating_point_v<U>) {
     return as_ref<Base>(gc_new<Ruby_Float>(static_cast<double>(x)));
+  } else if constexpr (std::is_same_v<U, RubySymbol>) {
+    return as_ref<Base>(gc_new<Ruby_Symbol>(x));
   } else {
     static_assert(sizeof(T) == 0,
                   "coerce_to_ref: no conversion to Base for this type");
@@ -669,6 +697,8 @@ inline Base* coerce_to_ref(T&& x) {
     return as_ref<Base>(gc_new<Ruby_Integer>(static_cast<int64_t>(x)));
   } else if constexpr (std::is_floating_point_v<U>) {
     return as_ref<Base>(gc_new<Ruby_Float>(static_cast<double>(x)));
+  } else if constexpr (std::is_same_v<U, RubySymbol>) {
+    return as_ref<Base>(gc_new<Ruby_Symbol>(x));
   } else {
     static_assert(sizeof(T) == 0,
                   "coerce_to_ref: no conversion to Base for this type");
