@@ -307,6 +307,14 @@ module Frozone
           break unless changed
         end
 
+        if ENV['TI_DBG_SLOTS']
+          pattern = ENV['TI_DBG_SLOTS']
+          $stderr.puts "\n=== TI slots matching #{pattern.inspect} ==="
+          @env.slots.sort_by { |k, _| k.inspect }.each do |k, v|
+            $stderr.puts "  #{k.inspect} = #{v.inspect}" if k.to_s.include?(pattern)
+          end
+        end
+
         @env
       end
 
@@ -335,9 +343,11 @@ module Frozone
           # other call.
           next unless n.is_a?(Ast::MethodCall) || n.is_a?(Ast::AttributeWrite)
           changed |= seed_call_block_params(n, ctx) if n.is_a?(Ast::MethodCall)
-          next if (n.arg_nodes || []).empty?
-          changed |= propagate_kw_args(n, ctx) if n.is_a?(Ast::MethodCall)
-          changed |= propagate_positional_args(n, ctx)
+          has_pos = !(n.arg_nodes || []).empty?
+          has_kw = n.is_a?(Ast::MethodCall) && !(n.kw_arg_nodes || {}).empty?
+          next unless has_pos || has_kw
+          changed |= propagate_kw_args(n, ctx) if n.is_a?(Ast::MethodCall) && has_kw
+          changed |= propagate_positional_args(n, ctx) if has_pos
         end
         changed
       end
@@ -1032,7 +1042,7 @@ module Frozone
         when Ast::LocalVariableWrite    then infer_expr(node.value_node, ctx)
         when Ast::InstanceVariableWrite then infer_expr(node.value_node, ctx)
         when Ast::ClassVariableWrite    then infer_expr(node.value_node, ctx)
-        when Ast::AttributeWrite        then infer_expr(node.value_node, ctx) # obj.foo = v returns v
+        when Ast::AttributeWrite        then infer_expr(node.arg_nodes.last, ctx) # obj.foo = v / obj[i] = v — the written value is always the last arg
         when Ast::If                    then infer_if_type(node, ctx)
         when Ast::MethodCall            then infer_call(node, ctx)
         when Ast::Or                    then infer_short_circuit_type(node, ctx)
@@ -1363,7 +1373,16 @@ module Frozone
       # Class method call: Module.method(...) → look up by module name.
       def try_infer_class_method_call(node, ctx)
         recv = node.receiver_node
-        return nil unless recv.is_a?(Ast::ConstantRead) && @user_classes.key?(recv.name)
+        return nil unless constant_ref?(recv)
+        # Module.method(...) for user-defined module methods: TI stores the
+        # :return slot by flat method name (collect_module_methods_for_ti
+        # flattens module methods into @user_methods by name). Mirror the
+        # fallback from propagate_positional_args.
+        if @user_methods.key?(node.name)
+          flat = @env.type_of([:return, node.name])
+          return flat unless flat.bottom?
+        end
+        return nil unless @user_classes.key?(recv.name)
         ret = @env.type_of([:return, [recv.name, node.name]])
         ret.bottom? ? nil : ret
       end

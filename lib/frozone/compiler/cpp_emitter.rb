@@ -442,8 +442,13 @@ module Frozone
         # (see collect_module_methods_for_ti), so TI slots are keyed on
         # `name` directly — not `[module_name, name]` like instance methods.
         @_current_method_key = name
-        params = emit_param_list(method)
         @_method_return_t = ti_return_type_t(@_current_method_key)
+        if @_method_return_t.nil? || @_method_return_t.bottom?
+          warn "[cpp_emitter] skipping module method #{name.inspect}: TI gave no return type" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          @_current_method_key = nil
+          return
+        end
+        params = emit_param_list(method)
         ret_type = explicit_return_type(@_method_return_t)
         line "#{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
@@ -743,8 +748,12 @@ module Frozone
       end
 
       def emit_static_class_method(name, method)
-        params = emit_param_list(method)
         @_method_return_t = ti_return_type_t(@_current_method_key)
+        if @_method_return_t.nil? || @_method_return_t.bottom?
+          warn "[cpp_emitter] skipping static class method #{name.inspect}: TI gave no return type" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          return
+        end
+        params = emit_param_list(method)
         ret_type = explicit_return_type(@_method_return_t)
         line "static #{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
