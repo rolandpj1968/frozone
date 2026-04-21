@@ -162,6 +162,15 @@ module Frozone
         true
       end
 
+      # Does this Type render as `std::optional<T>` in to_cpp? True for
+      # nullable raw numerics (:i64 / :f64) AND nullable numeric class_types
+      # (Integer / Float / Numeric). Non-numeric nullable class_types use
+      # pointer nil, not std::optional — see class_to_cpp.
+      def renders_as_optional?
+        return false unless nullable?
+        i64? || f64? || (class_type? && %i[Integer Float Numeric].include?(@class_name))
+      end
+
       # Pick the C++ representation for a union of participant Types.
       # Called at union-entry sites (hash literal V-type, ternary meet,
       # &&/|| result type, etc.) where TI's LCA joined heterogeneous classes

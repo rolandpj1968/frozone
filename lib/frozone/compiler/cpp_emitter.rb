@@ -286,17 +286,15 @@ module Frozone
       end
 
       def nil_return_expr
-        if @_method_return_type&.start_with?("std::optional")
+        return "RUBY_NIL" unless @_method_return_t
+        if @_method_return_t.renders_as_optional?
           "std::nullopt"
-        elsif @_method_return_type&.end_with?("*")
-          # Under Dustman this becomes gc_ref<Ruby_X>(nullptr); under Boehm/none
-          # it's the familiar (Ruby_X*)nullptr. Functional-cast syntax works for
-          # both because gc_ref<T> is callable on nullptr.
-          "#{emit_type(@_method_return_type)}(nullptr)"
-        elsif @_method_return_type
-          "#{@_method_return_type}(RUBY_NIL)"
+        elsif @_method_return_t.emitted_as_pointer?
+          # Under Dustman becomes gc_ref<Ruby_X>(nullptr); under Boehm/none
+          # it's (Ruby_X*)nullptr. Functional-cast syntax works for both.
+          "#{emit_type(@_method_return_t.to_cpp)}(nullptr)"
         else
-          "RUBY_NIL"
+          "#{@_method_return_t.to_cpp}(RUBY_NIL)"
         end
       end
 
@@ -474,8 +472,8 @@ module Frozone
 
       def emit_module_method(name, method)
         params = emit_param_list(method)
-        @_method_return_type = ti_return_type(@_current_method_key)
-        ret_type = %w[std::any].include?(@_method_return_type) || @_method_return_type&.start_with?("std::optional") ? @_method_return_type : "auto"
+        @_method_return_t = ti_return_type_t(@_current_method_key)
+        ret_type = @_method_return_t&.renders_as_optional? ? @_method_return_t.to_cpp : "auto"
         line "#{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
@@ -490,7 +488,7 @@ module Frozone
             emit_stmt_return(body)
           end
         end
-        @_method_return_type = nil; @_current_method_key = nil
+        @_method_return_t = nil; @_current_method_key = nil
         line "}"
       end
 
@@ -769,7 +767,7 @@ module Frozone
         params = emit_param_list(method)
         line "static auto #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
-        @_method_return_type = ti_return_type(@_current_method_key)
+        @_method_return_t = ti_return_type_t(@_current_method_key)
         all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
         indented do
           body = method.body
@@ -782,7 +780,7 @@ module Frozone
             emit_stmt_return(body)
           end
         end
-        @_method_return_type = nil; @_current_method_key = nil
+        @_method_return_t = nil; @_current_method_key = nil
         line "}"
       end
 
@@ -1290,10 +1288,10 @@ module Frozone
         end
         take = lambda do |n|
           t = infer.call(n)
-          # Accept user-class pointers and RubyObject* — both render with
-          # trailing `*` once emitted. Represents "the method has a
-          # pointer-typed return branch, force an explicit return type".
-          found = t.to_cpp if !found && t && (t.emitted_as_pointer?)
+          # Accept pointer types (user-class + RubyObject + NON_GC_BUILTIN) —
+          # "this method has a pointer-typed return branch, force explicit
+          # return type". Return the Type; callers derive the cpp rendering.
+          found = t if !found && t && t.emitted_as_pointer?
         end
         walk = lambda do |node|
           return unless node.is_a?(Ast::Node)
@@ -1314,17 +1312,16 @@ module Frozone
         params = emit_param_list(method)
         nparams = all_param_names(method).size
         @_bracket_method_name = (mname == :[] && nparams > 1) ? "slice" : nil
-        @_method_return_type = ti_return_type(@_current_method_key)
+        @_method_return_t = ti_return_type_t(@_current_method_key)
         # TI punts (returns nil) on methods with mixed bare/value returns.
         # Fallback: scan the body for a value Return / final expression whose
-        # type is a user-class pointer; use that as the method's return type so
-        # bare `return` emits `return nullptr;` instead of colliding.
-        @_method_return_type ||= scan_body_for_return_type(method.body)
-        # For user-class pointer return types, make the signature explicit
-        # (gc_ref<Ruby_X>) so a `return root_local` unifies via implicit
-        # conversion Root<T> → gc_ptr<T>. `auto` deduction would see two
-        # distinct types and fail.
-        ret_sig = explicit_return_type(@_method_return_type)
+        # type is a pointer; use that as the method's return type so bare
+        # `return` emits `return nullptr;` instead of colliding.
+        @_method_return_t ||= scan_body_for_return_type(method.body)
+        # For pointer return types, make the signature explicit (gc_ref<Ruby_X>)
+        # so a `return root_local` unifies via implicit conversion Root<T> →
+        # gc_ptr<T>. `auto` deduction would see distinct types and fail.
+        ret_sig = explicit_return_type(@_method_return_t)
         line "#{ret_sig} #{cpp_method_name(mname)}(#{params}) {"
         @_bracket_method_name = nil
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
@@ -1349,7 +1346,7 @@ module Frozone
             emit_stmt_return(body)
           end
         end
-        @_method_return_type = nil; @_current_method_key = nil
+        @_method_return_t = nil; @_current_method_key = nil
         line "}"
       end
 
@@ -1528,8 +1525,8 @@ module Frozone
         params = emit_param_list(method)
         @_method_yields = method.uses_block || body_has_yield?(method.body)
         params = params.empty? ? "auto _block" : "#{params}, auto _block" if @_method_yields
-        @_method_return_type = ti_return_type(@_current_method_key)
-        ret_type = explicit_return_type(@_method_return_type)
+        @_method_return_t = ti_return_type_t(@_current_method_key)
+        ret_type = explicit_return_type(@_method_return_t)
         line "static #{ret_type} #{cpp_method_name(name)}(#{params}) {"
         @_declared_locals = Set.new; @_optional_locals = {}; @_pointer_locals = Set.new
         all_param_names(method).each { |p| @_declared_locals << p.to_s }; mark_param_pointer_types(method)
@@ -1544,7 +1541,7 @@ module Frozone
             emit_stmt_return(body)
           end
         end
-        @_method_return_type = nil; @_current_method_key = nil
+        @_method_return_t = nil; @_current_method_key = nil
         @_method_yields = false
         line "}"
       end
@@ -1562,7 +1559,7 @@ module Frozone
         # type. Only non-control expressions — control-flow forms (if/while/for)
         # aren't return-producing here; they go through other paths.
         s = if node.is_a?(Ast::Node) && !node.is_a?(Ast::If) && !node.is_a?(Ast::While) && !node.is_a?(Ast::ForLoop)
-              cr_coerce(node, @_method_return_type)
+              cr_coerce(node, @_method_return_t)
             else
               cr(node)
             end
@@ -1573,18 +1570,18 @@ module Frozone
             line "#{s};"
           end
           if s.start_with?("while ") || s.start_with?("for ")
-            if @_method_return_type
-              line "return #{@_method_return_type}();"
+            if @_method_return_t
+              line "return #{@_method_return_t.to_cpp}();"
             elsif @_current_body_has_explicit_return
               line "__builtin_unreachable();"
             else
               line "return RUBY_NIL;"
             end
-          elsif s.start_with?("if ") && @_method_return_type
+          elsif s.start_with?("if ") && @_method_return_t
             line "return #{nil_return_expr};"
           end
         else
-          if s == "RUBY_NIL" && @_method_return_type
+          if s == "RUBY_NIL" && @_method_return_t
             line "return #{nil_return_expr};"
           else
             line "return #{s};"
@@ -1601,7 +1598,7 @@ module Frozone
           indented { emit_return_branch(node.else_node) }
         end
         line "}"
-        if @_method_return_type && !node.else_node
+        if @_method_return_t && !node.else_node
           line "return #{nil_return_expr};"
         end
       end
@@ -1610,10 +1607,10 @@ module Frozone
         inner = unwrap_single_sequence(node)
         if inner.is_a?(Ast::If)
           emit_if_return(inner)
-        elsif inner.is_a?(Ast::NilLiteral) && @_method_return_type
+        elsif inner.is_a?(Ast::NilLiteral) && @_method_return_t
           line "return #{nil_return_expr};"
         else
-          line "return #{cr_coerce(inner, @_method_return_type)};"
+          line "return #{cr_coerce(inner, @_method_return_t)};"
         end
       end
 
@@ -1805,14 +1802,14 @@ module Frozone
       end
 
       # Decide the method's emitted return type. `auto` for the common case;
-      # explicit when TI gives us a type that the `auto` deducer can't unify
-      # across branches (user-class pointers, RubyObject*, std::any,
-      # std::optional) — callers returning mixed-but-convertible-to-target
-      # types will then implicitly coerce at return sites.
+      # explicit when TI gives us a Type that the `auto` deducer can't unify
+      # across branches (user-class pointers, RubyObject*, std::optional) —
+      # callers returning mixed-but-convertible-to-target types will then
+      # implicitly coerce at return sites.
       def explicit_return_type(t)
         return "auto" unless t
-        return t if t == "std::any" || t.start_with?("std::optional")
-        return emit_type(t) if user_class_ptr_type?(t) || t == "RubyObject*"
+        return t.to_cpp if t.renders_as_optional?
+        return emit_type(t.to_cpp) if t.emitted_as_pointer?
         "auto"
       end
 
@@ -1975,13 +1972,13 @@ module Frozone
         when Ast::If then cr_if(node)
         when Ast::Return
           if node.value_node
-            if node.value_node.is_a?(Ast::NilLiteral) && @_method_return_type
+            if node.value_node.is_a?(Ast::NilLiteral) && @_method_return_t
               "return #{nil_return_expr}"
             else
               "return #{cr(node.value_node)}"
             end
           else
-            @_method_return_type ? "return #{nil_return_expr}" : "return"
+            @_method_return_t ? "return #{nil_return_expr}" : "return"
           end
         when Ast::And
           # Ruby `a && b`: short-circuit — evaluate `b` only if `a` is truthy.
