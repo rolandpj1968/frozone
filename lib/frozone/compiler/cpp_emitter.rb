@@ -442,6 +442,10 @@ module Frozone
       end
 
       def emit_module_method(name, method)
+        # Module methods are flattened into @user_methods by simple name
+        # (see collect_module_methods_for_ti), so TI slots are keyed on
+        # `name` directly — not `[module_name, name]` like instance methods.
+        @_current_method_key = name
         params = emit_param_list(method)
         @_method_return_t = ti_return_type_t(@_current_method_key)
         ret_type = @_method_return_t&.renders_as_optional? ? @_method_return_t.to_cpp : "auto"
