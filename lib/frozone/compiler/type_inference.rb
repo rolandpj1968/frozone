@@ -154,6 +154,7 @@ module Frozone
         @user_classes = user_classes
         @execute_block = execute_block
         @constants = constants
+        warn "[TI_DBG] user_methods keys: #{user_methods.keys.inspect}" if ENV['TI_DBG_USERS']
         @env = TypeEnv.new(self)
         @ancestors_cache = {}
         build_class_ancestors
@@ -500,6 +501,7 @@ module Frozone
         changed |= propagate_locals(method.body, ctx)
         changed |= propagate_masgn_from_calls(method.body, ctx)
         ret_ty = infer_body_return(method.body, ctx)
+        warn "[TI_DBG] propagate_method #{mkey.inspect}: ret=#{ret_ty.inspect}" if ENV['TI_DBG_USERS'] && mkey == :sd_solve
         changed |= @env.join!([:return, mkey], ret_ty) unless ret_ty.bottom?
         changed
       end
@@ -1282,7 +1284,15 @@ module Frozone
       def try_infer_arith_op(node, ctx)
         args = node.arg_nodes || []
         recv = node.receiver_node
-        return nil unless ARITH_OPS.include?(node.name) && args.size == 1 && recv
+        return nil unless recv
+        # Unary `-@` / `+@` (Ruby parses `-x` as `x.-@`, zero args). Return
+        # the receiver's numeric type.
+        if args.empty? && (node.name == :-@ || node.name == :+@)
+          rt = infer_expr(recv, ctx)
+          return rt if rt.f64? || rt.i64?
+          return nil
+        end
+        return nil unless ARITH_OPS.include?(node.name) && args.size == 1
         rt = infer_expr(recv, ctx)
         at = infer_expr(args[0], ctx)
         return Type::BOTTOM if rt.bottom? || at.bottom?
@@ -1456,6 +1466,7 @@ module Frozone
           node.nodes.each_with_index do |n, i|
             if i == node.nodes.size - 1
               ty = infer_body_return(n, ctx)
+              warn "[TI_DBG] sudoku Seq last=#{n.class}, ty=#{ty.inspect}" if ENV['TI_DBG_USERS'] && ctx.method_key == :sd_solve
               types << ty unless ty.bottom?
             else
               scan_returns(n, ctx, types)
@@ -1486,10 +1497,27 @@ module Frozone
         cond = node.condition_node
         cond = cond.nodes.first while cond.is_a?(Ast::Sequence) && cond.nodes.size == 1
         return false unless cond
-        case node
-        when Ast::While then cond.is_a?(Ast::TrueLiteral)
-        when Ast::Until then cond.is_a?(Ast::FalseLiteral)
-        end
+        cond_is_constant_true =
+          case node
+          when Ast::While then cond.is_a?(Ast::TrueLiteral)
+          when Ast::Until then cond.is_a?(Ast::FalseLiteral)
+          end
+        return false unless cond_is_constant_true
+        # `while true` with a reachable `break` inside can still exit normally —
+        # treat it as a regular loop (returns nil on break). Only truly
+        # non-terminating loops (only exit path is `return`) collapse to BOTTOM.
+        !contains_break?(node.body_node)
+      end
+
+      def contains_break?(node)
+        return false unless node
+        return true if node.is_a?(Ast::Break)
+        # Don't descend into nested loops — their `break` exits the inner loop,
+        # not the one we're asking about.
+        return false if node.is_a?(Ast::While) || node.is_a?(Ast::Until) ||
+                        node.is_a?(Ast::ForLoop) ||
+                        (node.is_a?(Ast::MethodCall) && %i[times each each_with_index upto downto map select reject].include?(node.name))
+        node.children.any? { |c| c.is_a?(Ast::Node) && contains_break?(c) }
       end
 
       def scan_returns(node, ctx, acc)
