@@ -310,11 +310,27 @@ public:
 };
 
 #ifdef FROZONE_USE_DUSTMAN_GC
-// Empty Tracer: RubyHash stores K/V via std::unordered_map whose nodes live
-// outside Dustman's heap. Contents aren't traced yet — revisit once the LCA
-// refactor is complete and gc_ref-typed values are always RubyObject*.
-template<typename K, typename V> struct dustman::Tracer<RubyHash<K, V>>
-  : dustman::FieldList<RubyHash<K, V>> {};
+// Walking Tracer for RubyHash: iterate storage and visit any K / V slots
+// that are gc_ptr-based (i.e. references to Dustman-managed objects).
+// Storage lives in malloc-backed std::list + std::unordered_map nodes —
+// Dustman doesn't scan those itself, so the Tracer is the only path by
+// which the collector learns about gc_refs held inside the hash.
+//
+// Map keys are `const K` (unordered_map invariant) so a const_cast is
+// needed to hand them to Visitor::visit, which takes a mutable reference
+// so moving collectors can rewrite forwarded pointers. Currently we run
+// non-moving so marks-only traverse, but we keep the signature honest.
+template<typename K, typename V> struct dustman::Tracer<RubyHash<K, V>> {
+  static void trace(RubyHash<K, V>& h, dustman::Visitor& v) {
+    if constexpr (std::is_base_of_v<dustman::gc_ptr_base, K>) {
+      for (auto& k : h.order) v.visit(k);
+      for (auto& kv : h.data) v.visit(const_cast<K&>(kv.first));
+    }
+    if constexpr (std::is_base_of_v<dustman::gc_ptr_base, V>) {
+      for (auto& kv : h.data) v.visit(kv.second.first);
+    }
+  }
+};
 #endif
 
 // Forward declaration: ruby_to_s is used inside RubyArray::join.
@@ -396,7 +412,19 @@ using RubyArray_F64 = RubyArray<double>;
 #ifdef FROZONE_USE_DUSTMAN_GC
 // Empty Tracer: elements live inside shared_ptr<vector<T>> on the regular
 // heap. Revisit when containers become Dustman-allocated.
-template<typename T> struct dustman::Tracer<RubyArray<T>> : dustman::FieldList<RubyArray<T>> {};
+// Walking Tracer for RubyArray: iterate the vector and visit each element
+// when T is a gc_ptr-based reference. Elements live in a malloc-backed
+// std::vector owned via shared_ptr — Dustman's only visibility is through
+// this trace.
+template<typename T> struct dustman::Tracer<RubyArray<T>> {
+  static void trace(RubyArray<T>& arr, dustman::Visitor& v) {
+    if constexpr (std::is_base_of_v<dustman::gc_ptr_base, T>) {
+      if (arr.data) {
+        for (auto& e : *arr.data) v.visit(e);
+      }
+    }
+  }
+};
 #endif
 // Helper: deduce array element type from fill value
 template<typename T> RubyArray<T> make_ra(int64_t n, T fill) { return RubyArray<T>(n, fill); }

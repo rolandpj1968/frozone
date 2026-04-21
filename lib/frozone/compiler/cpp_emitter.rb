@@ -1255,12 +1255,7 @@ module Frozone
             "RubyHash<RubySymbol, int64_t>"
           else
             k_type = key_type_for(pairs[0][0])
-            val_types = pairs.map { |_, v| local_decl_type(v) }.uniq
-            v_type = if val_types.size == 1 && val_types[0] != "auto"
-              val_types[0]
-            else
-              "std::any"
-            end
+            v_type = hash_literal_value_type(pairs)
             "RubyHash<#{k_type}, #{v_type}>"
           end
         when Ast::SymbolLiteral then "RubySymbol"
@@ -1866,17 +1861,38 @@ module Frozone
           return "RubyHash<RubySymbol, int64_t>{}"  # empty: innocuous default
         end
         k_type = key_type_for(pairs[0][0])
-        val_types = pairs.map { |_, v| local_decl_type(v) }.uniq
-        v_type = if val_types.size == 1 && val_types[0] != "auto"
-          val_types[0]
-        else
-          "std::any"
-        end
+        v_type = hash_literal_value_type(pairs)
         init_pairs = pairs.map { |k, v|
-          rhs = (v_type == "std::any") ? "std::any(#{cr(v)})" : cr(v)
+          rhs = case v_type
+                when "std::any"   then "std::any(#{cr(v)})"
+                when "RubyObject*" then cr_coerce(v, "RubyObject*")
+                else cr(v)
+                end
           "_h.store(#{cr(k)}, #{rhs});"
         }.join(" ")
-        "({ RubyHash<#{k_type}, #{v_type}> _h; #{init_pairs} _h; })"
+        "({ RubyHash<#{k_type}, #{emit_type(v_type)}> _h; #{init_pairs} _h; })"
+      end
+
+      # Decide the V type for a RubyHash<K, V> built from `pairs`.
+      # - Homogeneous known type → that type.
+      # - Mixed, all RubyObject-convertible → RubyObject* (use cr_coerce to
+      #   materialise pointers/boxes at each write site).
+      # - Anything else               → std::any fallback (primitive mixes).
+      def hash_literal_value_type(pairs)
+        val_types = pairs.map { |_, v| local_decl_type(v) }.uniq
+        return val_types[0] if val_types.size == 1 && val_types[0] != "auto"
+        return "RubyObject*" if val_types.all? { |t| ruby_object_convertible_type?(t) }
+        "std::any"
+      end
+
+      # Can values of `cpp_type` be stored as RubyObject* (via upcast for
+      # pointers, via gc_new-box for value-typed subclasses)? Excludes primitives
+      # and `auto` (not statically resolved).
+      def ruby_object_convertible_type?(cpp_type)
+        return false unless cpp_type
+        return false if cpp_type == "auto"
+        cpp_type.end_with?("*") ||
+          ruby_object_subclass_value_type?(cpp_type)
       end
 
       def key_type_for(node)
@@ -1915,7 +1931,11 @@ module Frozone
         # template instantiations. as_ref bridges both cases.
         return "as_ref<RubyObject>(#{s})" if node_type.end_with?("*")
         if ruby_object_subclass_value_type?(node_type)
-          "as_ref<RubyObject>(gc_new<#{node_type}>(#{s}))"
+          # Apply emit_type to node_type — the boxed container's inner types
+          # (e.g. RubyHash<K, RubyObject*>) need the same gc_ref wrapping
+          # as anywhere else, so the gc_new template arg matches the
+          # expression's actual runtime type under Dustman.
+          "as_ref<RubyObject>(gc_new<#{emit_type(node_type)}>(#{s}))"
         else
           "std::any(#{s})"                                       # primitive fallback
         end
