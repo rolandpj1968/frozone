@@ -1925,20 +1925,21 @@ module Frozone
         s = cr(node)
         return s unless target_type == "RubyObject*"
         node_type = local_decl_type(node)
-        return s unless node_type && node_type != "auto"
-        # Under Boehm/none, `T* → RubyObject*` is an implicit upcast. Under
-        # Dustman, `gc_ptr<T> → gc_ptr<RubyObject>` is NOT — different
-        # template instantiations. as_ref bridges both cases.
-        return "as_ref<RubyObject>(#{s})" if node_type.end_with?("*")
-        if ruby_object_subclass_value_type?(node_type)
-          # Apply emit_type to node_type — the boxed container's inner types
-          # (e.g. RubyHash<K, RubyObject*>) need the same gc_ref wrapping
-          # as anywhere else, so the gc_new template arg matches the
-          # expression's actual runtime type under Dustman.
-          "as_ref<RubyObject>(gc_new<#{emit_type(node_type)}>(#{s}))"
-        else
-          "std::any(#{s})"                                       # primitive fallback
+        # Known primitive types don't fit RubyObject* — fall back to std::any.
+        if node_type && %w[int64_t double bool].include?(node_type)
+          return "std::any(#{s})"
         end
+        # For everything else (pointers, RubyObject-subclass value types,
+        # or `auto` template-instantiated types), defer to the runtime
+        # coerce_to_ref helper. It compile-time-dispatches on the actual
+        # input type:
+        #   pointer → as_ref upcast
+        #   value-typed RubyObject subclass → gc_new-box then as_ref upcast
+        # Using the runtime helper rather than emit-time dispatch lets
+        # `auto` params (template-deduced) pick the right path per
+        # instantiation, which is essential for union-slot writers like
+        # attr_writer setters (`set_slot(auto v) { iv_slot = v; }`).
+        "coerce_to_ref<RubyObject>(#{s})"
       end
 
       # Is `cpp_type` a C++ type that's a value-semantic RubyObject subclass?
@@ -2326,8 +2327,16 @@ module Frozone
             t1 = local_decl_type(then_inner)
             t2 = local_decl_type(else_inner)
             if t1 != t2 && !%w[int64_t double bool auto].include?(t1) && !%w[int64_t double bool auto].include?(t2)
-              then_s = "std::any(#{then_s})"
-              else_s = "std::any(#{else_s})"
+              # Both branches are RubyObject-ish but different concrete types.
+              # If both can be coerced to RubyObject*, do that — the ternary's
+              # common type becomes gc_ref<RubyObject>. Otherwise keep std::any.
+              if ruby_object_convertible_type?(t1) && ruby_object_convertible_type?(t2)
+                then_s = cr_coerce(then_inner, "RubyObject*")
+                else_s = cr_coerce(else_inner, "RubyObject*")
+              else
+                then_s = "std::any(#{then_s})"
+                else_s = "std::any(#{else_s})"
+              end
             end
           end
           return "(#{pred} ? (#{then_s}) : (#{else_s}))"

@@ -565,6 +565,31 @@ template<typename Base, typename T>
 inline dustman::gc_ptr<Base> as_ref(const dustman::Root<T>& r) {
   return dustman::gc_ptr<Base>(static_cast<Base*>(r.get()));
 }
+
+// coerce_to_ref<Base>(x) — compile-time dispatch to produce a gc_ref<Base>
+// from any compatible input. Used at union-entry sites where the incoming
+// expression's type is only known at template-instantiation time (e.g. the
+// `auto p` of an attr_writer body, where callers may pass a pointer-to-a-
+// subclass OR a value-typed subclass instance). Works out:
+//   - gc_ptr<Derived>   → as_ref<Base>(p)                     (pointer cast)
+//   - Root<Derived>     → as_ref<Base>(r)                     (pointer cast)
+//   - Base* / Derived*  → as_ref<Base>(p)                     (NA under Dustman)
+//   - RubyObject-subclass value (RubyString, RubyHash<...>, etc.)
+//                       → as_ref<Base>(gc_new<decayed>(x))    (heap-box then cast)
+template<typename Base, typename T>
+inline dustman::gc_ptr<Base> coerce_to_ref(T&& x) {
+  using U = std::decay_t<T>;
+  if constexpr (std::is_same_v<U, RubyNil> || std::is_null_pointer_v<U>) {
+    return dustman::gc_ptr<Base>(nullptr);
+  } else if constexpr (std::is_base_of_v<dustman::gc_ptr_base, U>) {
+    return as_ref<Base>(x);
+  } else if constexpr (std::is_base_of_v<Base, U>) {
+    return as_ref<Base>(gc_new<U>(std::forward<T>(x)));
+  } else {
+    static_assert(sizeof(T) == 0,
+                  "coerce_to_ref: input is neither a gc_ptr nor a Base subclass");
+  }
+}
 #else
 template<typename T> using gc_ref   = T*;
 template<typename T> using gc_local = T*;
@@ -574,6 +599,21 @@ inline T* gc_new(Args&&... args) {
 }
 template<typename Base, typename T>
 inline Base* as_ref(T* p) { return static_cast<Base*>(p); }
+// Non-Dustman variant — same contract as the Dustman overload above.
+template<typename Base, typename T>
+inline Base* coerce_to_ref(T&& x) {
+  using U = std::decay_t<T>;
+  if constexpr (std::is_same_v<U, RubyNil> || std::is_null_pointer_v<U>) {
+    return nullptr;
+  } else if constexpr (std::is_pointer_v<U>) {
+    return as_ref<Base>(x);
+  } else if constexpr (std::is_base_of_v<Base, U>) {
+    return as_ref<Base>(gc_new<U>(std::forward<T>(x)));
+  } else {
+    static_assert(sizeof(T) == 0,
+                  "coerce_to_ref: input is neither a pointer nor a Base subclass");
+  }
+}
 #endif
 
 // .class method — template dispatches on runtime type.

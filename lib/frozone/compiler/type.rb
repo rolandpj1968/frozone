@@ -166,7 +166,12 @@ module Frozone
           elem_cpp = @elem ? @elem.to_cpp : "int64_t"
           elem_cpp = "int64_t" if elem_cpp == "auto"
           "RubyArray<#{elem_cpp}>"
-        when :Hash then "RubyHash<RubySymbol, int64_t>"
+        when :Hash
+          key_cpp = @key ? @key.to_cpp : "RubySymbol"
+          key_cpp = "RubySymbol" if key_cpp == "auto"
+          val_cpp = @val ? @val.to_cpp : "int64_t"
+          val_cpp = "int64_t" if val_cpp == "auto"
+          "RubyHash<#{key_cpp}, #{val_cpp}>"
         when :NilClass then "RubyNil"
         when :TrueClass, :FalseClass then "bool"
         when nil then "auto"

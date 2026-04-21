@@ -402,4 +402,74 @@ RSpec.describe "C++ backend features" do
       RUBY
     end
   end
+
+  # Union types where TI joins heterogeneous RubyObject subclasses at their
+  # LCA (Object). Previously these emitted std::any fallbacks; now they emit
+  # gc_ref<RubyObject> with cr_coerce boxing at union-entry sites. Tests cover
+  # WRITE-into-union (boxing, upcast) — the DOWNCAST direction (narrowing
+  # `obj.method` via virtual dispatch vs dynamic_cast) is a separate concern
+  # and deliberately only touched via `.class` which uses virtual rb_class_name.
+  context "union types" do
+    it "ivar holding either Hash or user-class pointer" do
+      assert_cpp_matches_mri(<<~RUBY)
+        class Box
+          attr_accessor :payload
+          def initialize(p) = @payload = p
+        end
+        class Node
+          def initialize; end
+        end
+        b1 = Box.new({ a: 1, b: 2 })
+        b2 = Box.new(Node.new)
+        puts b1.payload.class
+        puts b2.payload.class
+      RUBY
+    end
+
+    it "method with mixed return: Hash in one branch, user-class in another" do
+      assert_cpp_matches_mri(<<~RUBY)
+        class Leaf
+          def initialize; end
+        end
+        def choose(kind)
+          if kind == :hash
+            { k: 1 }
+          else
+            Leaf.new
+          end
+        end
+        puts choose(:hash).class
+        puts choose(:leaf).class
+      RUBY
+    end
+
+    it "hash literal with mixed RubyObject-subclass values" do
+      assert_cpp_matches_mri(<<~RUBY)
+        h = { arr: [1, 2, 3], str: "hello" }
+        puts h[:arr].class
+        puts h[:str].class
+      RUBY
+    end
+
+    it "nested hash-in-class with mixed values (splay-style payload)" do
+      # The inner `.data.class` would require downcast of RubyObject* to
+      # `Wrap` — separate story. Here we test only the leaf-level storage:
+      # the whole tree is built and the root is tagged correctly.
+      assert_cpp_matches_mri(<<~RUBY)
+        class Wrap
+          attr_accessor :data
+          def initialize(d) = @data = d
+        end
+        def make(depth)
+          if depth == 0
+            { a: [1, 2], s: "leaf" }
+          else
+            Wrap.new(make(depth - 1))
+          end
+        end
+        r = make(2)
+        puts r.class
+      RUBY
+    end
+  end
 end

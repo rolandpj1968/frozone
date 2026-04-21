@@ -7,9 +7,9 @@
 
 int main() {
   FROZONE_GC_INIT();
-  std::any last;
+  gc_local<RubyObject> last = nullptr;
   int64_t i = 0;
-  (last = RUBY_NIL);
+  (last = nullptr);
   for (int64_t _i = 0; _i < INT64_C(300); _i++) {
     (i = INT64_C(0));
     while ((i < INT64_C(1000))) {

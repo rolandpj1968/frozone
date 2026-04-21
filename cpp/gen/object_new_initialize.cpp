@@ -21,7 +21,7 @@ template<> struct dustman::Tracer<Ruby_C> : dustman::FieldList<Ruby_C> {};
 
 
 
-static auto test() {
+static gc_ref<Ruby_C> test() {
   return gc_new<Ruby_C>(INT64_C(1), INT64_C(2), INT64_C(3), INT64_C(4));
 }
 
