@@ -281,4 +281,94 @@ RSpec.describe Frozone::Compiler::Type do
       expect(T::BOTTOM).not_to be_native
     end
   end
+
+  describe "#contains_gc_refs?" do
+    it "primitives and bottom don't contain gc_refs" do
+      expect(T::BOTTOM).not_to be_contains_gc_refs
+      expect(T::I64).not_to be_contains_gc_refs
+      expect(T::F64).not_to be_contains_gc_refs
+    end
+
+    it "value-typed builtins don't contain gc_refs" do
+      expect(T::STRING).not_to be_contains_gc_refs
+      expect(T::SYMBOL).not_to be_contains_gc_refs
+      expect(T::INTEGER).not_to be_contains_gc_refs
+      expect(T::FLOAT).not_to be_contains_gc_refs
+      expect(T::NIL_CLASS).not_to be_contains_gc_refs
+    end
+
+    it "NON_GC_BUILTIN classes (Random) don't contain gc_refs" do
+      expect(T::RANDOM).not_to be_contains_gc_refs
+    end
+
+    it "Object and BasicObject contain gc_refs (polymorphic reference)" do
+      expect(T::OBJECT).to be_contains_gc_refs
+      expect(T::BASIC_OBJECT).to be_contains_gc_refs
+    end
+
+    it "user classes (non-builtin) contain gc_refs" do
+      expect(T.of(:SomeUserClass)).to be_contains_gc_refs
+    end
+
+    it "array of primitives does not contain gc_refs" do
+      expect(T::ARRAY_I64).not_to be_contains_gc_refs
+      expect(T::ARRAY_F64).not_to be_contains_gc_refs
+    end
+
+    it "array of user classes contains gc_refs (recursive)" do
+      arr_of_node = T.new(:class_type, class_name: :Array, elem: T.of(:Node))
+      expect(arr_of_node).to be_contains_gc_refs
+    end
+
+    it "hash with user-class value contains gc_refs (recursive)" do
+      hash_t = T.new(:class_type, class_name: :Hash, key: T::SYMBOL, val: T.of(:Node))
+      expect(hash_t).to be_contains_gc_refs
+    end
+
+    it "hash with primitive value does not contain gc_refs" do
+      hash_t = T.new(:class_type, class_name: :Hash, key: T::SYMBOL, val: T::I64)
+      expect(hash_t).not_to be_contains_gc_refs
+    end
+
+    it "class_type with nil class_name (auto) conservatively does not contain gc_refs" do
+      anon = T.new(:class_type, class_name: nil)
+      expect(anon).not_to be_contains_gc_refs
+    end
+  end
+
+  describe "#ruby_object_convertible?" do
+    it "bottom, primitives, array_scalar are all convertible" do
+      expect(T::BOTTOM).to be_ruby_object_convertible
+      expect(T::I64).to be_ruby_object_convertible
+      expect(T::F64).to be_ruby_object_convertible
+      expect(T::ARRAY_I64).to be_ruby_object_convertible
+    end
+
+    it "class types are convertible" do
+      expect(T::STRING).to be_ruby_object_convertible
+      expect(T::INTEGER).to be_ruby_object_convertible
+      expect(T::OBJECT).to be_ruby_object_convertible
+      expect(T.of(:UserClass)).to be_ruby_object_convertible
+    end
+
+    it "NON_GC_BUILTIN classes are NOT convertible (Ruby_Random doesn't inherit RubyObject)" do
+      expect(T::RANDOM).not_to be_ruby_object_convertible
+    end
+  end
+
+  describe ".union_representation" do
+    it "RubyObject* when any participant contains gc_refs" do
+      expect(T.union_representation([T::I64, T.of(:Node)])).to eq("RubyObject*")
+      expect(T.union_representation([T::STRING, T::OBJECT])).to eq("RubyObject*")
+    end
+
+    it "RubyObject* when all are convertible" do
+      expect(T.union_representation([T::I64, T::F64])).to eq("RubyObject*")
+      expect(T.union_representation([T::STRING, T::INTEGER])).to eq("RubyObject*")
+    end
+
+    it "std::any when a participant can't convert (NON_GC_BUILTIN mixed)" do
+      expect(T.union_representation([T::RANDOM, T::I64])).to eq("std::any")
+    end
+  end
 end

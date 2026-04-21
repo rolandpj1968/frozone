@@ -73,6 +73,82 @@ module Frozone
       def hash_type? = class_type? && @class_name == :Hash
       def nil_type? = class_type? && @class_name == :NilClass
 
+      # -- Codegen queries (C++ backend, union-representation decisions) -------
+      #
+      # These answer "what does the runtime representation look like from
+      # the collector's point of view?" — NOT lattice questions. They live
+      # on Type rather than codegen so codegen doesn't re-discover structural
+      # info by regex on rendered strings.
+
+      # Classes whose runtime representation in C++ holds no gc_refs,
+      # regardless of internal byte/pointer state. RubyString's byte vector
+      # is malloc-backed but holds no gc_refs; RubySymbol is an interned
+      # pointer into a static table; primitives are primitives.
+      VALUE_TYPED_BUILTINS = %i[
+        Integer Float Numeric NilClass TrueClass FalseClass
+        String Symbol Range Regexp Proc
+      ].to_set.freeze
+
+      # Built-in runtime types that the emitter represents as raw Ruby_X*
+      # but that don't participate in Dustman's tracing — see
+      # cpp_emitter.rb's NON_GC_BUILTIN_CLASSES.
+      NON_GC_BUILTIN_CLASSES = %i[Random].to_set.freeze
+
+      # Does this Type's runtime representation hold any gc_refs that
+      # Dustman needs to trace? Container element/key/val types recurse.
+      def contains_gc_refs?
+        case @kind
+        when :bottom, :i64, :f64 then false
+        when :array_scalar
+          @elem ? @elem.contains_gc_refs? : false
+        when :class_type
+          return false if VALUE_TYPED_BUILTINS.include?(@class_name)
+          return false if NON_GC_BUILTIN_CLASSES.include?(@class_name)
+          case @class_name
+          when :Array then @elem ? @elem.contains_gc_refs? : false
+          when :Hash  then (@key && @key.contains_gc_refs?) || (@val && @val.contains_gc_refs?) || false
+          when nil    then false                        # "auto" — conservatively untyped
+          else true                                     # Object, BasicObject, user class
+          end
+        end
+      end
+
+      # Can a value of this Type be passed through coerce_to_ref<RubyObject>()
+      # at the C++ level? True for anything the runtime helper knows how to
+      # upcast or box (pointers, value-typed RubyObject subclasses, primitives
+      # via boxed wrappers, RubySymbol via Ruby_Symbol, nil). False for types
+      # that escape the runtime's handled set (NON_GC_BUILTIN class pointers
+      # can't upcast to RubyObject because those runtime classes don't
+      # inherit from it).
+      def ruby_object_convertible?
+        case @kind
+        when :bottom, :i64, :f64 then true
+        when :array_scalar then true
+        when :class_type
+          return false if NON_GC_BUILTIN_CLASSES.include?(@class_name)
+          true
+        end
+      end
+
+      # Pick the C++ representation for a union of participant Types.
+      # Called at union-entry sites (hash literal V-type, ternary meet,
+      # &&/|| result type, etc.) where TI's LCA joined heterogeneous classes
+      # at :Object (or where the emitter combines distinct operand types).
+      #
+      #   - any participant contains gc_refs → "RubyObject*" (MUST — precise
+      #     tracing can't see through std::any's type erasure).
+      #   - else all are RubyObject-convertible → "RubyObject*"
+      #     (consistent with TI's LCA decision; primitives get boxed via
+      #     coerce_to_ref's Ruby_Integer/Float/Boolean boxes).
+      #   - else → "std::any" as last-resort. Only reachable via
+      #     NON_GC_BUILTIN classes (Random) in a mixed union — a rare,
+      #     safe-under-current-GC case.
+      def self.union_representation(types)
+        return "RubyObject*" if types.any?(&:contains_gc_refs?)
+        return "RubyObject*" if types.all?(&:ruby_object_convertible?)
+        "std::any"
+      end
+
       # -- Equality (value semantics) ------------------------------------------
 
       def ==(other)
