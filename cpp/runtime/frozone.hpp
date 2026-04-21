@@ -318,77 +318,88 @@ public:
   using ListType = std::list<K>;
   using MapEntry = std::pair<V, typename ListType::iterator>;
 
-  ListType order;
-  std::unordered_map<K, MapEntry> data;
+  // Storage held off-heap via shared_ptr: std::list and std::unordered_map
+  // embed self-referential sentinel pointers (libstdc++ impl detail) and so
+  // aren't trivially relocatable. Dustman's minor collector memcpy-evacuates
+  // young survivors, which would corrupt those internals. By hoisting the
+  // containers into a plain-heap Storage behind a shared_ptr, the RubyHash
+  // itself holds only the shared_ptr handle (two plain pointers — trivially
+  // relocatable), and the Storage memory stays put regardless of where the
+  // hash object is moved. Mirrors RubyArray's shared_ptr<vector<T>> pattern.
+  struct Storage {
+    ListType order;
+    std::unordered_map<K, MapEntry> data;
+  };
+  std::shared_ptr<Storage> storage;
 
-  RubyHash() = default;
+  RubyHash() : storage(std::make_shared<Storage>()) {}
 
-  // Copy ctor: rebuild the list, rebuild the map pointing at the new list.
-  RubyHash(const RubyHash& o) {
-    for (const auto& k : o.order) {
-      order.push_back(k);
-      auto it = std::prev(order.end());
-      auto src = o.data.find(k);
-      data.emplace(k, MapEntry{src->second.first, it});
-    }
-  }
-  RubyHash& operator=(const RubyHash& o) {
-    if (this == &o) return *this;
-    order.clear(); data.clear();
-    for (const auto& k : o.order) {
-      order.push_back(k);
-      auto it = std::prev(order.end());
-      auto src = o.data.find(k);
-      data.emplace(k, MapEntry{src->second.first, it});
-    }
-    return *this;
-  }
+  // Default copy/move = shared alias (matches Ruby's by-reference semantics
+  // for Hash, same as RubyArray). Explicit deep-copy via dup_().
+  RubyHash(const RubyHash&) = default;
+  RubyHash& operator=(const RubyHash&) = default;
   RubyHash(RubyHash&&) = default;
   RubyHash& operator=(RubyHash&&) = default;
 
-  int64_t len() const { return (int64_t)order.size(); }
+  // Deep copy — rebuild list + map iterators in fresh storage. Used by the
+  // Ruby `.dup` / `.clone` emission.
+  RubyHash dup_() const {
+    RubyHash out;
+    for (const auto& k : storage->order) {
+      out.storage->order.push_back(k);
+      auto it = std::prev(out.storage->order.end());
+      auto src = storage->data.find(k);
+      out.storage->data.emplace(k, MapEntry{src->second.first, it});
+    }
+    return out;
+  }
+
+  int64_t len() const { return (int64_t)storage->order.size(); }
   int64_t size() const { return len(); }
   int64_t length() const { return len(); }
-  bool empty_q() const { return order.empty(); }
+  bool empty_q() const { return storage->order.empty(); }
 
   // h[k] returns V&, inserting default-V if absent (Ruby `h[:missing]` is
   // nil; we return a default-constructed V which is nil-ish for variants).
   V& operator[](const K& k) {
-    auto it = data.find(k);
-    if (it != data.end()) return it->second.first;
-    order.push_back(k);
-    auto list_it = std::prev(order.end());
-    auto [new_it, _] = data.emplace(k, MapEntry{V{}, list_it});
+    auto& s = *storage;
+    auto it = s.data.find(k);
+    if (it != s.data.end()) return it->second.first;
+    s.order.push_back(k);
+    auto list_it = std::prev(s.order.end());
+    auto [new_it, _] = s.data.emplace(k, MapEntry{V{}, list_it});
     return new_it->second.first;
   }
 
   // .store(k, v) — explicit insert / overwrite. Always updates value;
   // preserves insertion position on re-insert.
   V& store(const K& k, const V& v) {
-    auto it = data.find(k);
-    if (it != data.end()) {
+    auto& s = *storage;
+    auto it = s.data.find(k);
+    if (it != s.data.end()) {
       it->second.first = v;
       return it->second.first;
     }
-    order.push_back(k);
-    auto list_it = std::prev(order.end());
-    auto [new_it, _] = data.emplace(k, MapEntry{v, list_it});
+    s.order.push_back(k);
+    auto list_it = std::prev(s.order.end());
+    auto [new_it, _] = s.data.emplace(k, MapEntry{v, list_it});
     return new_it->second.first;
   }
 
-  bool include_q(const K& k) const { return data.count(k) > 0; }
+  bool include_q(const K& k) const { return storage->data.count(k) > 0; }
   bool has_key_q(const K& k) const { return include_q(k); }
 
   void delete_(const K& k) {
-    auto it = data.find(k);
-    if (it == data.end()) return;
-    order.erase(it->second.second);  // O(1) via stored iterator
-    data.erase(it);
+    auto& s = *storage;
+    auto it = s.data.find(k);
+    if (it == s.data.end()) return;
+    s.order.erase(it->second.second);  // O(1) via stored iterator
+    s.data.erase(it);
   }
 
   // Iteration walks the order list — insertion-ordered.
-  auto begin() const { return order.begin(); }
-  auto end() const { return order.end(); }
+  auto begin() const { return storage->order.begin(); }
+  auto end() const { return storage->order.end(); }
 };
 
 #ifdef FROZONE_USE_DUSTMAN_GC
@@ -404,12 +415,14 @@ public:
 // non-moving so marks-only traverse, but we keep the signature honest.
 template<typename K, typename V> struct dustman::Tracer<RubyHash<K, V>> {
   static void trace(RubyHash<K, V>& h, dustman::Visitor& v) {
+    if (!h.storage) return;
+    auto& s = *h.storage;
     if constexpr (std::is_base_of_v<dustman::gc_ptr_base, K>) {
-      for (auto& k : h.order) v.visit(k);
-      for (auto& kv : h.data) v.visit(const_cast<K&>(kv.first));
+      for (auto& k : s.order) v.visit(k);
+      for (auto& kv : s.data) v.visit(const_cast<K&>(kv.first));
     }
     if constexpr (std::is_base_of_v<dustman::gc_ptr_base, V>) {
-      for (auto& kv : h.data) v.visit(kv.second.first);
+      for (auto& kv : s.data) v.visit(kv.second.first);
     }
   }
 };
