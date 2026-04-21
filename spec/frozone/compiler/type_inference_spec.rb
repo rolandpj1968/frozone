@@ -63,8 +63,8 @@ RSpec.describe Frozone::Compiler::TypeInference do
     end
 
     context "numeric LCA" do
-      it "i64 join f64 → Numeric" do
-        expect(t.join(ty::I64, ty::F64)).to eq(ty::NUMERIC)
+      it "i64 join f64 → f64 (Ruby numeric widening)" do
+        expect(t.join(ty::I64, ty::F64)).to eq(ty::F64)
       end
 
       it "f64 join i64 → Numeric (commutative)" do
@@ -132,8 +132,8 @@ RSpec.describe Frozone::Compiler::TypeInference do
         expect(t.join(ty::INTEGER, ty::STRING).class_name).to eq(:Object)
       end
 
-      it "Integer join Float → Numeric" do
-        expect(t.join(ty::INTEGER, ty::FLOAT).class_name).to eq(:Numeric)
+      it "Integer join Float → Float (Ruby numeric widening)" do
+        expect(t.join(ty::INTEGER, ty::FLOAT)).to eq(ty::F64)
       end
 
       it "File join String → Object" do
@@ -214,12 +214,11 @@ RSpec.describe Frozone::Compiler::TypeInference do
         expect(ret[:elem]).to eq(:f64)
       end
 
-      it "[1, 2.0] → Array with elem Numeric" do
+      it "[1, 2.0] → Array with elem :f64 (Ruby numeric widening)" do
         env = infer_method("[1, 2.0]")
         ret = env[[:return, :test_method]]
         expect(ret[:class]).to eq(:Array)
-        expect(ret[:elem]).to be_a(Hash)
-        expect(ret[:elem][:class]).to eq(:Numeric)
+        expect(ret[:elem]).to eq(:f64)
       end
     end
 
@@ -399,9 +398,9 @@ RSpec.describe Frozone::Compiler::TypeInference do
       end
 
       it "local widened by multiple assignments" do
+        # Int ∪ Float → Float (Ruby numeric widening).
         env = infer_method("x = 42\nx = 3.14\nx")
-        expect(env[[:local, :test_method, :x]]).to be_a(Hash)
-        expect(env[[:local, :test_method, :x]][:class]).to eq(:Numeric)
+        expect(env[[:local, :test_method, :x]]).to eq(:f64)
       end
 
       it "local tracks nil assignment" do
@@ -411,14 +410,14 @@ RSpec.describe Frozone::Compiler::TypeInference do
     end
 
     context "logical operators" do
-      it "Or node infers joinof both sides" do
+      it "Or node infers join of both sides (Int ∪ Float → Float)" do
         t = ti
         t.instance_variable_set(:@_expr_cache, {})
         left = parse("1").nodes.first   # IntegerLiteral
         right = parse("2.0").nodes.first # FloatLiteral
         or_node = Frozone::Ast::Or.new(left, right)
         result = t.send(:infer_expr, or_node, TI::TOP_LEVEL_CTX)
-        expect(result).to eq(Frozone::Compiler::Type::NUMERIC)
+        expect(result).to eq(Frozone::Compiler::Type::F64)
       end
     end
 
@@ -474,9 +473,8 @@ RSpec.describe Frozone::Compiler::TypeInference do
       method = make_method(scope, :echo, body: body, required_params: [:n])
 
       env = infer_execute("echo(42)\necho(3.14)", methods: { echo: method })
-      param_type = env[[:param, :echo, 0]]
-      expect(param_type).to be_a(Hash)
-      expect(param_type[:class]).to eq(:Numeric)
+      # Ruby numeric widening: Int ∪ Float → Float (see TypeEnv#join!).
+      expect(env[[:param, :echo, 0]]).to eq(:f64)
     end
 
     it "infers return type from body" do
@@ -552,8 +550,9 @@ RSpec.describe Frozone::Compiler::TypeInference do
       env.join!([:constructor_param, :Pt, 0, :make_pt], :f64)
       env.join!([:constructor_param, :Pt, 0, :make_pt2], :i64)
 
+      # Ruby numeric widening: Int ∪ Float → Float (see TypeEnv#join!).
       result = t.send(:best_constructor_param_types, :Pt, 1)
-      expect(result[0]).to eq(Frozone::Compiler::Type::NUMERIC)
+      expect(result[0]).to eq(Frozone::Compiler::Type::F64)
     end
 
     it "defers when all contexts are nil (returns bottom)" do
@@ -588,12 +587,15 @@ RSpec.describe Frozone::Compiler::TypeInference do
       expect(env.join!([:local, :foo, :x], :i64)).to be false
     end
 
-    it "join! computes LCA of i64 and f64 as Numeric" do
+    it "join! widens i64 and f64 to f64 (Ruby numeric widening)" do
+      # Ruby semantics: mixing Int and Float arithmetic yields Float. The
+      # cpp backend renders Numeric as int64_t, so the historical LCA-to-
+      # Numeric result silently truncated Float assignments. Float-on-join
+      # is the semantically correct widening.
       env.join!([:local, :foo, :x], :i64)
       env.join!([:local, :foo, :x], :f64)
       result = env[[:local, :foo, :x]]
-      expect(result).to be_a(Hash)
-      expect(result[:class]).to eq(:Numeric)
+      expect(result).to eq(:f64)
     end
 
     it "join! with NilClass adds nullable" do

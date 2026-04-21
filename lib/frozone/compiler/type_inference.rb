@@ -179,6 +179,17 @@ module Frozone
           return Type.i64_bounded([ab[0], bb[0]].min, [ab[1], bb[1]].max)
         end
 
+        # Ruby numeric widening: Int ∪ Float → Float. Without this, the
+        # pair would go to lca_type(:Integer, :Float) → :Numeric, which
+        # currently renders as int64_t in cpp — and a Float RHS gets
+        # silently truncated through the int64_t local slot.
+        return Type::F64 if (a.i64? && b.f64?) || (a.f64? && b.i64?)
+        if a.class_type? && b.class_type?
+          int_like = ->(n) { %i[Integer Numeric].include?(n) }
+          return Type::F64 if (int_like[a.class_name] && b.class_name == :Float) ||
+                              (int_like[b.class_name] && a.class_name == :Float)
+        end
+
         # Normalise scalars/array_scalars to class types for comparison.
         if !a.class_type? || !b.class_type?
           return join(a.to_class_type, b.to_class_type)
@@ -320,7 +331,10 @@ module Frozone
           propagate_free_call_args(call, ctx)
         elsif constant_ref?(recv) && call.name == :new
           propagate_constructor_args(call, ctx, recv.name)
-        elsif constant_ref?(recv) && @user_classes.key?(recv.name)
+        elsif constant_ref?(recv) && (@user_classes.key?(recv.name) || @user_methods.key?(call.name))
+          # `Module.method(...)` for a user-defined module method → flat-keyed
+          # :param slot (collect_module_methods_for_ti flattens by simple name).
+          # Fall back to [class, name] for genuine class methods.
           propagate_class_method_args(call, ctx, [recv.name, call.name])
         elsif recv
           propagate_instance_method_args(call, ctx)
@@ -362,12 +376,17 @@ module Frozone
         changed
       end
 
-      # Module.method(...) → class method params keyed by [class, name].
+      # Module.method(...) → class method params keyed by [class, name]…
+      # except for module methods that `collect_module_methods_for_ti`
+      # flattened into @user_methods under their bare name, in which case
+      # the :param slot is keyed by the bare name. Fall back to [class, name]
+      # for genuine class methods (e.g. struct class methods).
       def propagate_class_method_args(call, ctx, mkey)
         changed = false
+        effective_key = mkey.is_a?(Array) && @user_methods.key?(mkey[1]) ? mkey[1] : mkey
         (call.arg_nodes || []).each_with_index do |arg, i|
           ty = infer_expr(arg, ctx)
-          changed |= @env.join!([:param, mkey, i], ty) unless ty.bottom?
+          changed |= @env.join!([:param, effective_key, i], ty) unless ty.bottom?
         end
         changed
       end
