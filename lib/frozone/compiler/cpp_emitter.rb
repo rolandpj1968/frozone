@@ -2136,18 +2136,28 @@ module Frozone
       #                                            → fallback: std::any(expr)
       #     (proper fix is boxed primitive wrappers in a future step)
       #   - everything else                        → identity (trust callers)
-      def cr_coerce(node, target_type)
+      # Coerce `node` at emission time so its value fits the `target` slot.
+      # Accepts either a Frozone::Compiler::Type (preferred) or a cpp-string
+      # target (legacy, still used by a few call sites we'll migrate).
+      #
+      # Only the "RubyObject*" target is non-trivial: we emit
+      # coerce_to_ref<RubyObject>(...) which compile-time-dispatches at the
+      # template instantiation site on the actual input type:
+      #   nil / nullptr          → gc_ref<Base>(nullptr)
+      #   gc_ptr<T> / T*         → as_ref<Base>(x)
+      #   value-typed subclass   → as_ref<Base>(gc_new<T>(x))
+      #   int64_t / double / bool→ as_ref<Base>(gc_new<Ruby_{Integer,Float,
+      #                              Boolean}>(x))
+      #   RubySymbol             → as_ref<Base>(gc_new<Ruby_Symbol>(x))
+      # For any other target type cr_coerce is identity.
+      def cr_coerce(node, target)
         s = cr(node)
-        return s unless target_type == "RubyObject*"
-        # All cases route through the runtime coerce_to_ref helper which
-        # compile-time-dispatches on the actual input type:
-        #   nil / nullptr          → gc_ref<Base>(nullptr)
-        #   gc_ptr<T> / T*         → as_ref<Base>(x)
-        #   value-typed subclass   → as_ref<Base>(gc_new<T>(x))
-        #   int64_t / double / bool→ as_ref<Base>(gc_new<Ruby_{Integer,Float,
-        #                              Boolean}>(x))
-        # The runtime dispatch handles `auto` params (template-instantiated)
-        # which emit-time dispatch couldn't.
+        target_cpp = if target.is_a?(Frozone::Compiler::Type)
+                       target.to_cpp
+                     else
+                       target
+                     end
+        return s unless target_cpp == "RubyObject*"
         "coerce_to_ref<RubyObject>(#{s})"
       end
 
@@ -2202,9 +2212,11 @@ module Frozone
           cpp_ivar(node.name)
         when Ast::InstanceVariableWrite
           ivar_t = nil
+          ivar_type = nil
           if @_inside_wrapped_class && @_current_wrapper_name
             cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
-            ivar_t = ti_ivar_type(cls_name, node.name.to_s.delete_prefix("@"))
+            ivar_type = ti_ivar_type_t(cls_name, node.name.to_s.delete_prefix("@"))
+            ivar_t = ivar_type&.to_cpp
             if @_dropped_ivars&.include?(node.name.to_s.delete_prefix('@'))
               return "#{cr(node.value_node)}"
             end
@@ -2212,10 +2224,9 @@ module Frozone
               @_array_new_elem_type = "double"
             end
           end
-          # Coerce RHS to the ivar's declared type — boxes value-typed
-          # RubyObject subclasses into gc_new<Type>(expr) when the ivar is
-          # RubyObject* (union slot).
-          rhs = cr_coerce(node.value_node, ivar_t)
+          # Coerce RHS to the ivar's declared type. Pass the Type directly;
+          # cr_coerce routes to coerce_to_ref when target is RubyObject*.
+          rhs = cr_coerce(node.value_node, ivar_type || ivar_t)
           # Bare nullptr when assigning nil into a user-class pointer ivar
           # (avoids RubyNil/gc_ptr assignment ambiguity under Dustman).
           if rhs == "RUBY_NIL" && (user_class_ptr_type?(ivar_t) || @_self_ref_ivars&.include?(node.name.to_s.delete_prefix('@')))
