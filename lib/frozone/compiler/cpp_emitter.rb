@@ -1322,7 +1322,7 @@ module Frozone
           body = method.body
           emit_hoisted_locals(body, all_param_names(method))
           if trivial_body?(body)
-            line "return 0LL;"
+            line "return #{nil_return_expr};"
           elsif body.is_a?(Ast::InstanceVariableRead)
             # Route through cr() so self-ref ivars get wrapped as Ruby_<Name>.
             line "return #{cr(body)};"
@@ -1522,7 +1522,8 @@ module Frozone
         # promote "reachable + BOTTOM" back to an error; for now, log+skip.
         @_method_return_t = ti_return_type_t(@_current_method_key)
         if @_method_return_t.nil? || @_method_return_t.bottom?
-          warn "[cpp_emitter] skipping #{name.inspect}: TI gave no return type (unused/unreachable/TI-gap)" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          raw = @ti_env&.type_at([:return, @_current_method_key])
+          warn "[cpp_emitter] skipping #{name.inspect}: TI gave no return type (raw slot: #{raw.inspect})" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
           @_current_method_key = nil
           return
         end

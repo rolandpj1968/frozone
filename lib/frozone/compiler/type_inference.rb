@@ -170,6 +170,18 @@ module Frozone
         return a if b.bottom?
         return a if a == b
 
+        # Recursive self-reference widening: only fires when both sides are
+        # the *same* parametric container (Array ∪ Array, Hash ∪ Hash) and
+        # one is structurally contained in the other. That's the genuine
+        # fixed-point growth cycle — `Array<Nil>` ∪ `Array<Array<Nil>>` adds
+        # one wrapper layer per iteration forever without this. The cross-
+        # shape case (Array ∪ Int) is a plain LCA, handled below.
+        if a.class_type? && b.class_type? && a.class_name == b.class_name &&
+           %i[Array Hash].include?(a.class_name) &&
+           (type_contains?(a, b) || type_contains?(b, a))
+          return widen_recursive(a, b)
+        end
+
         # Bounded I64 union: keep both as I64 with widened bounds.
         # Types where one or both have nil bounds collapse to plain
         # Type::I64 (the unbounded singleton).
@@ -206,6 +218,43 @@ module Frozone
           Type.nullable(a)
         else
           lca_type(a.class_name, b.class_name)
+        end
+      end
+
+      # True if `needle` appears as a subterm of `haystack` (elem / key / val
+      # at any depth). Used by join to detect recursive self-reference in
+      # parametric class types (Array, Hash) — when one side is structurally
+      # contained in the other, joining would grow the type by one wrapper
+      # layer per fixed-point iteration. Guards against self-cycles via an
+      # identity set on the haystack walk.
+      def type_contains?(haystack, needle, seen = nil)
+        return false unless haystack.is_a?(Type) && needle.is_a?(Type)
+        return true if haystack == needle
+        seen ||= {}
+        return false if seen[haystack.object_id]
+        seen[haystack.object_id] = true
+        [haystack.elem, haystack.key, haystack.val].any? do |sub|
+          sub && type_contains?(sub, needle, seen)
+        end
+      end
+
+      # Widen a recursive self-reference to a finite fixed point. Preserves
+      # the outer container shape when both sides are the same container
+      # class (Array, Hash) — elem/key/val collapse to BasicObject — so
+      # codegen still emits e.g. `RubyArray<RubyObject>` rather than a bare
+      # boxed pointer. When the two sides have different outer classes (or
+      # aren't containers at all), fall back to plain BasicObject.
+      def widen_recursive(a, b)
+        return Type::BASIC_OBJECT unless a.class_type? && b.class_type?
+        return Type::BASIC_OBJECT unless a.class_name == b.class_name
+        case a.class_name
+        when :Array
+          Type.array(elem: Type::BASIC_OBJECT)
+        when :Hash
+          Type.new(:class_type, class_name: :Hash,
+                   key: Type::BASIC_OBJECT, val: Type::BASIC_OBJECT)
+        else
+          Type::BASIC_OBJECT
         end
       end
 
@@ -1062,7 +1111,7 @@ module Frozone
 
       # Built-in methods on Array/Integer/Float with known return types.
       ARRAY_INT_METHODS = %i[length size count].to_set
-      INT_INT_METHODS = %i[abs ceil floor round truncate].to_set
+      INT_INT_METHODS = %i[abs ceil floor round truncate times upto downto].to_set
       FLOAT_FLOAT_METHODS = %i[abs].to_set
       FLOAT_INT_METHODS = %i[ceil floor round truncate].to_set
       # Explicit coercion methods: always return a known numeric type.
@@ -1179,12 +1228,23 @@ module Frozone
         recv_ty = infer_expr(recv, ctx)
         return Type::F64 if COERCE_TO_FLOAT.include?(name) && !recv_ty.bottom?
         return Type::I64 if COERCE_TO_INT.include?(name) && !recv_ty.bottom?
+        # Integer methods (times/upto/abs/etc.) — accept either a boxed
+        # :Integer class type or the unboxed :i64 kind as the receiver.
+        if (recv_ty.i64? || (recv_ty.class_type? && recv_ty.class_name == :Integer)) &&
+           INT_INT_METHODS.include?(name)
+          return Type::I64
+        end
+        if (recv_ty.f64? || (recv_ty.class_type? && recv_ty.class_name == :Float)) &&
+           FLOAT_FLOAT_METHODS.include?(name)
+          return Type::F64
+        end
+        if (recv_ty.f64? || (recv_ty.class_type? && recv_ty.class_name == :Float)) &&
+           FLOAT_INT_METHODS.include?(name)
+          return Type::I64
+        end
         if recv_ty.class_type?
           cn = recv_ty.class_name
           return Type::I64 if cn == :Array   && ARRAY_INT_METHODS.include?(name)
-          return Type::I64 if cn == :Integer && INT_INT_METHODS.include?(name)
-          return Type::F64 if cn == :Float   && FLOAT_FLOAT_METHODS.include?(name)
-          return Type::I64 if cn == :Float   && FLOAT_INT_METHODS.include?(name)
           return Type::I64 if cn == :String  && %i[getbyte ord bytesize size length setbyte].include?(name)
           return Type::STRING if cn == :String && %i[b upcase downcase capitalize reverse chomp chop strip lstrip rstrip].include?(name)
           # "str" * n → String; "str" + "s" → String.
