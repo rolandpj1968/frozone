@@ -371,4 +371,79 @@ RSpec.describe Frozone::Compiler::Type do
       expect(T.union_representation([T::RANDOM, T::I64])).to eq("std::any")
     end
   end
+
+  describe "#user_class_pointer?" do
+    it "user classes are user class pointers" do
+      expect(T.of(:Node)).to be_user_class_pointer
+      expect(T.of(:SplayTree)).to be_user_class_pointer
+      expect(T.of(:PayloadNode)).to be_user_class_pointer
+    end
+
+    it "value-typed builtins are not user class pointers" do
+      expect(T::STRING).not_to be_user_class_pointer
+      expect(T::SYMBOL).not_to be_user_class_pointer
+      expect(T::INTEGER).not_to be_user_class_pointer
+      expect(T::FLOAT).not_to be_user_class_pointer
+      expect(T::NIL_CLASS).not_to be_user_class_pointer
+    end
+
+    it "Array / Hash are not user class pointers" do
+      expect(T::ARRAY).not_to be_user_class_pointer
+      expect(T::HASH).not_to be_user_class_pointer
+    end
+
+    it "Object / BasicObject are not user class pointers" do
+      expect(T::OBJECT).not_to be_user_class_pointer
+      expect(T::BASIC_OBJECT).not_to be_user_class_pointer
+    end
+
+    it "NON_GC_BUILTIN (Random) is not a user class pointer" do
+      expect(T::RANDOM).not_to be_user_class_pointer
+    end
+
+    it "bottom / primitives are not user class pointers" do
+      expect(T::BOTTOM).not_to be_user_class_pointer
+      expect(T::I64).not_to be_user_class_pointer
+      expect(T::F64).not_to be_user_class_pointer
+    end
+
+    it "class_type with nil class_name (auto) is not a user class pointer" do
+      anon = T.new(:class_type, class_name: nil)
+      expect(anon).not_to be_user_class_pointer
+    end
+  end
+
+  describe "#emitted_as_pointer?" do
+    it "user classes render as T*" do
+      expect(T.of(:Node)).to be_emitted_as_pointer
+    end
+
+    it "Object / BasicObject render as T*" do
+      expect(T::OBJECT).to be_emitted_as_pointer
+      expect(T::BASIC_OBJECT).to be_emitted_as_pointer
+    end
+
+    it "NON_GC_BUILTIN (Random) DOES render as T* (unlike user_class_pointer?)" do
+      expect(T::RANDOM).to be_emitted_as_pointer
+    end
+
+    it "value-typed builtins don't render as pointers" do
+      expect(T::STRING).not_to be_emitted_as_pointer
+      expect(T::SYMBOL).not_to be_emitted_as_pointer
+      expect(T::INTEGER).not_to be_emitted_as_pointer
+      expect(T::FLOAT).not_to be_emitted_as_pointer
+      expect(T::NIL_CLASS).not_to be_emitted_as_pointer
+    end
+
+    it "Array / Hash don't render as pointers" do
+      expect(T::ARRAY).not_to be_emitted_as_pointer
+      expect(T::HASH).not_to be_emitted_as_pointer
+    end
+
+    it "bottom / primitives / nil-classname don't render as pointers" do
+      expect(T::BOTTOM).not_to be_emitted_as_pointer
+      expect(T::I64).not_to be_emitted_as_pointer
+      expect(T.new(:class_type, class_name: nil)).not_to be_emitted_as_pointer
+    end
+  end
 end

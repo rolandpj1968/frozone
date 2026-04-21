@@ -190,9 +190,8 @@ module Frozone
         return unless method.is_a?(Vm::Method)
         mkey = @_current_method_key
         (method.required_params || []).each_with_index do |p, i|
-          pt = ti_local_type(mkey, p.to_s)
-          pt ||= ti_type_cpp([:param, mkey, i])  # TI stores params under :param slots
-          @_pointer_locals << p.to_s if user_class_ptr_type?(pt)
+          pt = ti_local_type_t(mkey, p.to_s) || ti_type([:param, mkey, i])
+          @_pointer_locals << p.to_s if pt&.emitted_as_pointer?
         end
       end
 
@@ -205,15 +204,15 @@ module Frozone
         end
         # Check TI for the local's type
         if recv.is_a?(Ast::LocalVariableRead)
-          t = ti_local_type(@_current_method_key, recv.name.to_s)
-          return user_class_ptr_type?(t)
+          t = ti_local_type_t(@_current_method_key, recv.name.to_s)
+          return !!t&.emitted_as_pointer?
         end
         # Ivar read: TI-typed pointer to user class, or self-ref ivar.
         if recv.is_a?(Ast::InstanceVariableRead) && @_current_wrapper_name
           key = recv.name.to_s.delete_prefix('@')
           return true if @_self_ref_ivars&.include?(key)
           cls_name = @_current_wrapper_name.delete_prefix('Ruby_').to_sym
-          return user_class_ptr_type?(ti_ivar_type(cls_name, key))
+          return !!ti_ivar_type_t(cls_name, key)&.emitted_as_pointer?
         end
         # Array index on pointer-element array: arr[i] → Ruby_X*
         if recv.is_a?(Ast::MethodCall) && recv.name == :[] && recv.receiver_node.is_a?(Ast::LocalVariableRead)
@@ -224,8 +223,7 @@ module Frozone
         if recv.is_a?(Ast::MethodCall) && recv.receiver_node && recv_t_is_ptr?(recv.receiver_node)
           recv_cls = infer_receiver_class(recv.receiver_node)
           if recv_cls
-            rt = ti_return_type([recv_cls, recv.name])
-            return user_class_ptr_type?(rt)
+            return !!ti_return_type_t([recv_cls, recv.name])&.emitted_as_pointer?
           end
         end
         false
@@ -233,8 +231,8 @@ module Frozone
 
       def infer_receiver_class(recv)
         if recv.is_a?(Ast::LocalVariableRead) && @_current_method_key
-          t = ti_local_type(@_current_method_key, recv.name.to_s)
-          return t&.delete_suffix("*")&.delete_prefix("Ruby_")&.to_sym if user_class_ptr_type?(t)
+          t = ti_local_type_t(@_current_method_key, recv.name.to_s)
+          return t.class_name if t&.emitted_as_pointer?
         end
         if recv.is_a?(Ast::InstanceVariableRead) && @_current_wrapper_name
           return @_current_wrapper_name.delete_prefix("Ruby_").to_sym
@@ -1275,24 +1273,27 @@ module Frozone
 
       def scan_body_for_return_type(body)
         found = nil
+        # Infer a Type (or nil) for a node that might appear as the return
+        # expression's leaf. Handles write-peel and TI-driven reads; everything
+        # else routes through local_decl_type_t.
         infer = lambda do |n|
           return nil unless n.is_a?(Ast::Node)
-          # Peel simple wrappers that evaluate to their RHS.
           return infer.call(n.value_node) if n.is_a?(Ast::InstanceVariableWrite) || n.is_a?(Ast::LocalVariableWrite)
-          # LocalVariableRead: look up via TI (local_decl_type returns "auto").
           if n.is_a?(Ast::LocalVariableRead)
-            return ti_local_type(@_current_method_key, n.name.to_s)
+            return ti_local_type_t(@_current_method_key, n.name.to_s)
           end
-          # InstanceVariableRead: TI ivar type.
           if n.is_a?(Ast::InstanceVariableRead) && @_current_wrapper_name
             cls_name = @_current_wrapper_name.delete_prefix('Ruby_').to_sym
-            return ti_ivar_type(cls_name, n.name.to_s.delete_prefix('@'))
+            return ti_ivar_type_t(cls_name, n.name.to_s.delete_prefix('@'))
           end
-          local_decl_type(n)
+          local_decl_type_t(n)
         end
         take = lambda do |n|
           t = infer.call(n)
-          found = t if !found && t && (user_class_ptr_type?(t) || t.end_with?('*'))
+          # Accept user-class pointers and RubyObject* — both render with
+          # trailing `*` once emitted. Represents "the method has a
+          # pointer-typed return branch, force an explicit return type".
+          found = t.to_cpp if !found && t && (t.emitted_as_pointer?)
         end
         walk = lambda do |node|
           return unless node.is_a?(Ast::Node)
@@ -1477,17 +1478,17 @@ module Frozone
         if method.body.is_a?(Ast::InstanceVariableWrite) && @_current_wrapper_name
           cls_name = @_current_wrapper_name.delete_prefix('Ruby_').to_sym
           ivk = method.body.name.to_s.delete_prefix('@')
-          setter_ivar_t = ti_ivar_type(cls_name, ivk)
+          setter_ivar_t = ti_ivar_type_t(cls_name, ivk)
         end
         (method.required_params || []).each_with_index do |p, i|
           # If TI typed this param as a user-class pointer, emit gc_ref<T>
           # explicitly. Under Dustman, callers often pass a Root<T> (non-copyable
           # stack root) — auto-deduction would fail, but Root→gc_ptr converts.
           mkey = @_current_method_key
-          t = mkey ? (ti_local_type(mkey, p.to_s) || ti_type_cpp([:param, mkey, i])) : nil
-          t ||= setter_ivar_t if i == 0
-          if user_class_ptr_type?(t)
-            parts << "#{emit_type(t)} #{p}"
+          t_ty = mkey ? (ti_local_type_t(mkey, p.to_s) || ti_type([:param, mkey, i])) : nil
+          t_ty ||= setter_ivar_t if i == 0
+          if t_ty&.emitted_as_pointer?
+            parts << "#{emit_type(t_ty.to_cpp)} #{p}"
           else
             parts << "auto #{p}"
           end

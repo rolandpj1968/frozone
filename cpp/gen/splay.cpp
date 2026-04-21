@@ -32,7 +32,7 @@ struct Ruby_Node : public RubyObject {
     return iv_value;
   }
 
-  auto set_value(auto __anon_req__) {
+  auto set_value(gc_ref<RubyObject> __anon_req__) {
     iv_value = coerce_to_ref<RubyObject>(__anon_req__);
     return iv_value;
   }
@@ -73,7 +73,7 @@ struct Ruby_SplayTree : public RubyObject {
     return ruby_nil_q(iv_root);
   }
 
-  gc_ref<Ruby_Node> insert(auto key, auto value) {
+  gc_ref<Ruby_Node> insert(auto key, gc_ref<RubyObject> value) {
     gc_local<Ruby_Node> node = nullptr;
     if (empty_q()) {
       iv_root = gc_new<Ruby_Node>(key, value);
@@ -237,7 +237,7 @@ struct Ruby_PayloadNode : public RubyObject {
     return iv_left;
   }
 
-  auto set_left(auto __anon_req__) {
+  auto set_left(gc_ref<RubyObject> __anon_req__) {
     iv_left = coerce_to_ref<RubyObject>(__anon_req__);
     return iv_left;
   }
@@ -246,7 +246,7 @@ struct Ruby_PayloadNode : public RubyObject {
     return iv_right;
   }
 
-  auto set_right(auto __anon_req__) {
+  auto set_right(gc_ref<RubyObject> __anon_req__) {
     iv_right = coerce_to_ref<RubyObject>(__anon_req__);
     return iv_right;
   }

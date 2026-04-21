@@ -130,6 +130,38 @@ module Frozone
         end
       end
 
+      # Is this a user-defined class pointer — i.e. one that renders as
+      # `Ruby_<Name>*` in the emitter and participates in Dustman tracing
+      # as a gc_ref? Excludes value-typed builtins (String, Symbol, etc.),
+      # NON_GC_BUILTIN classes (Random), Object/BasicObject, Array/Hash,
+      # and unresolved class_type (class_name == nil, renders as "auto").
+      #
+      # Used when the answer "do we wrap this in gc_ref / trace it?" matters
+      # — Tracer FieldList membership, boxing decisions.
+      def user_class_pointer?
+        return false unless class_type?
+        return false if @class_name.nil?
+        return false if VALUE_TYPED_BUILTINS.include?(@class_name)
+        return false if NON_GC_BUILTIN_CLASSES.include?(@class_name)
+        return false if %i[Object BasicObject Array Hash].include?(@class_name)
+        true
+      end
+
+      # Does this Type render as a `T*` pointer in the C++ output? Covers
+      # user classes, Object/BasicObject, AND NON_GC_BUILTIN_CLASSES (e.g.
+      # Random — emits as `Ruby_Random*` even though it isn't Dustman-
+      # managed). Used for `.` vs `->` dispatch, pointer-local registration,
+      # and explicit-return-type picks — anywhere the question is "does the
+      # emitted expression have pointer syntax?" rather than "is this a
+      # gc_ref?".
+      def emitted_as_pointer?
+        return false unless class_type?
+        return false if @class_name.nil?
+        return false if VALUE_TYPED_BUILTINS.include?(@class_name)
+        return false if %i[Array Hash].include?(@class_name)
+        true
+      end
+
       # Pick the C++ representation for a union of participant Types.
       # Called at union-entry sites (hash literal V-type, ternary meet,
       # &&/|| result type, etc.) where TI's LCA joined heterogeneous classes
