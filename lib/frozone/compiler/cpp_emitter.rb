@@ -408,9 +408,15 @@ module Frozone
         PRIMITIVE_VALUE_TYPES.any? { |c| v.is_a?(c) }
       end
 
-      def emit_constants(scope, skip_objects: false, objects_only: false)
+      def emit_constants(scope, skip_objects: false, objects_only: false, in_class: false)
         const_table = scope.constants_table || {}
         const_locs = scope.constants_locations || {}
+        # Inside a class body, C++17 requires `inline static` for
+        # non-integral in-class initialisation (RubyString, RubyArray,
+        # user ObjectObject). Primitives can use `static constexpr` too
+        # but `inline static const` works uniformly. Outside a class
+        # (namespace / top-level), plain `static const` is fine.
+        prefix = in_class ? "inline static const" : "static const"
         const_table.each do |name, value|
           next if value.is_a?(Vm::ModuleObject)
           loc = const_locs[name]
@@ -422,13 +428,13 @@ module Frozone
           next if objects_only && !is_user_obj
           cname = cpp_const_name(name)
           case value
-          when Vm::IntegerObject then line "static const int64_t #{cname} = #{value.raw}LL;"
-          when Vm::FloatObject then line "static const double #{cname} = #{value.raw};"
+          when Vm::IntegerObject then line "#{prefix} int64_t #{cname} = #{value.raw}LL;"
+          when Vm::FloatObject then line "#{prefix} double #{cname} = #{value.raw};"
           when Vm::StringObject
             raw = value.raw
-            line "static const RubyString #{cname} = RubyString(#{raw.inspect}, #{raw.bytesize});"
-          when Vm::TrueObject then line "static const bool #{cname} = true;"
-          when Vm::FalseObject then line "static const bool #{cname} = false;"
+            line "#{prefix} RubyString #{cname} = RubyString(#{raw.inspect}, #{raw.bytesize});"
+          when Vm::TrueObject then line "#{prefix} bool #{cname} = true;"
+          when Vm::FalseObject then line "#{prefix} bool #{cname} = false;"
           when Vm::ArrayObject
             # Emit as RubyArray<T> with inferred element type. For mixed-
             # type arrays (not expected in user constants), bail out.
@@ -437,7 +443,7 @@ module Frozone
             klass = value.class_object
             next unless klass.is_a?(Vm::ClassObject) && klass.name
             next if %i[Hash Array Range Regexp Proc].include?(klass.name)
-            line "static Ruby_#{klass.name} #{cname};"
+            line "#{in_class ? 'inline ' : ''}static Ruby_#{klass.name} #{cname};"
           end
         end
       end
@@ -615,6 +621,12 @@ module Frozone
 
         line "struct #{self_wrapper} : public #{parent_cpp} {"
         indented do
+          # Class-level constants (e.g. `CRYSTAL_DIR = "..."` inside a
+          # class). Emitted as `inline static const T NAME = ...;` members
+          # so instance methods can reference them bare (C++ class scope
+          # resolution), including as default values in param lists — which
+          # is where we hit the common pattern `def initialize(x: MY_CONST)`.
+          emit_constants(cls, skip_objects: true, in_class: true)
           # Ivars as direct fields
           ivars.uniq.each do |iv|
             key = iv.to_s.delete_prefix('@')
