@@ -759,6 +759,69 @@ template<typename T> static inline RubyString ruby_to_s(T v) {
   } else return RubyString("#<Object>");
 }
 
+// Minimal Ruby_Set — emitted-as-user-class stand-in for Ruby's Set. The
+// Frozone compiler (when self-compiled) uses Set<Symbol>, Set<Array>, etc.
+// for tracking visited / widened ivars / class names. Performance isn't
+// critical; just need correct semantics for `new`, `<<`, `include?`,
+// `add`, `each`, `size`, `empty?`.
+//
+// Storage: shared_ptr<std::unordered_map<RubyObject*, bool>> keyed by raw
+// pointer identity (what `.object_id` would compare against in Ruby for
+// objects). Works for interned Symbols (pointer-identity) and unique
+// allocations. Doesn't work for value-equality (two RubyStrings with same
+// contents are separate keys) — accept that limitation for the self-
+// compile use cases where Set is used over Symbols/classes/Arrays-of-
+// Symbols which are hashed by identity anyway.
+class Ruby_Set : public RubyObject {
+public:
+  static void* operator new(size_t n) { return ::operator new(n); }
+  static void* operator new(size_t, void* p) noexcept { return p; }
+  static void operator delete(void* p) noexcept { ::operator delete(p); }
+
+  const char* rb_class_name() const override { return "Set"; }
+
+  // Use RubyObject* as the identity-comparable key.
+  std::shared_ptr<std::unordered_map<const void*, bool>> data;
+
+  Ruby_Set() : data(std::make_shared<std::unordered_map<const void*, bool>>()) {}
+  Ruby_Set(const Ruby_Set&) = default;
+  Ruby_Set& operator=(const Ruby_Set&) = default;
+
+  int64_t len() const { return (int64_t)data->size(); }
+  int64_t size() const { return len(); }
+  bool empty_q() const { return data->empty(); }
+
+  template <typename T>
+  bool include_q(const T& x) const {
+    return data->count(key_of(x)) > 0;
+  }
+  template <typename T> bool has_q(const T& x) const { return include_q(x); }
+
+  template <typename T>
+  Ruby_Set* add(const T& x) {
+    (*data)[key_of(x)] = true;
+    return this;
+  }
+  template <typename T>
+  Ruby_Set* operator<<(const T& x) { return add(x); }
+
+  template <typename T>
+  void delete_(const T& x) { data->erase(key_of(x)); }
+
+  void clear() { data->clear(); }
+
+private:
+  template <typename T>
+  static const void* key_of(const T& x) {
+    if constexpr (std::is_pointer_v<T>) return static_cast<const void*>(x);
+    else return static_cast<const void*>(&x);
+  }
+};
+
+#ifdef FROZONE_USE_DUSTMAN_GC
+template<> struct dustman::Tracer<Ruby_Set> : dustman::FieldList<Ruby_Set> {};
+#endif
+
 // Ruby_Random — MT19937-based (matches Ruby's Random#rand semantics).
 // Shared-ptr wrapped so copies share state (Ruby reference semantics).
 class Ruby_Random {
