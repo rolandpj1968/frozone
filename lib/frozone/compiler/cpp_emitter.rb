@@ -162,6 +162,46 @@ module Frozone
         end
       end
 
+      # Emit a stub for a method whose return type TI couldn't resolve.
+      # Body aborts at runtime so callers link cleanly; if the call site is
+      # actually reached, the abort surfaces the TI gap at runtime rather
+      # than leaving the symbol undefined at link time.
+      #
+      # Three flavours cover free / member / static-class methods. All
+      # accept `auto` params (template) so any arg-type shape links. Return
+      # is `RubyObject*` — universal boxed type — so callers capturing the
+      # return can use it in any union slot.
+      def emit_ti_gap_stub_signature(method)
+        param_names = all_param_names(method)
+        param_names = param_names + [:_block] if method.uses_block || body_has_yield?(method.body)
+        param_names.map { |p| "auto #{p}" }.join(", ")
+      end
+
+      def emit_ti_gap_stub_body(name)
+        indented do
+          line %[std::fprintf(stderr, "frozone: called TI-gap stub #{cpp_method_name(name)}\\n"); std::abort();]
+          line "return nullptr;"
+        end
+      end
+
+      def emit_ti_gap_stub_free(name, method)
+        line "static RubyObject* #{cpp_method_name(name)}(#{emit_ti_gap_stub_signature(method)}) {"
+        emit_ti_gap_stub_body(name)
+        line "}"
+      end
+
+      def emit_ti_gap_stub_member(name, method)
+        line "RubyObject* #{cpp_method_name(name)}(#{emit_ti_gap_stub_signature(method)}) {"
+        emit_ti_gap_stub_body(name)
+        line "}"
+      end
+
+      def emit_ti_gap_stub_static(name, method)
+        line "static RubyObject* #{cpp_method_name(name)}(#{emit_ti_gap_stub_signature(method)}) {"
+        emit_ti_gap_stub_body(name)
+        line "}"
+      end
+
       def recv_t_is_ptr?(recv)
         # Check @_pointer_locals (populated from TI during method setup)
         return true if recv.is_a?(Ast::LocalVariableRead) && @_pointer_locals&.include?(recv.name.to_s)
@@ -444,7 +484,8 @@ module Frozone
         @_current_method_key = name
         @_method_return_t = ti_return_type_t(@_current_method_key)
         if @_method_return_t.nil? || @_method_return_t.bottom?
-          warn "[cpp_emitter] skipping module method #{name.inspect}: TI gave no return type" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          warn "[cpp_emitter] stub module method #{name.inspect}: TI gave no return type" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          emit_ti_gap_stub_member(name, method)
           @_current_method_key = nil
           return
         end
@@ -750,7 +791,8 @@ module Frozone
       def emit_static_class_method(name, method)
         @_method_return_t = ti_return_type_t(@_current_method_key)
         if @_method_return_t.nil? || @_method_return_t.bottom?
-          warn "[cpp_emitter] skipping static class method #{name.inspect}: TI gave no return type" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          warn "[cpp_emitter] stub static class method #{name.inspect}: TI gave no return type" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          emit_ti_gap_stub_static(name, method)
           return
         end
         params = emit_param_list(method)
@@ -1317,7 +1359,8 @@ module Frozone
         # `return` emits `return nullptr;` instead of colliding.
         @_method_return_t ||= scan_body_for_return_type(method.body)
         if @_method_return_t.nil? || @_method_return_t.bottom?
-          warn "[cpp_emitter] skipping instance method #{@_current_method_key.inspect}: TI gave no return type" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          warn "[cpp_emitter] stub instance method #{@_current_method_key.inspect}: TI gave no return type" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          emit_ti_gap_stub_member(mname, method)
           @_current_method_key = nil
           return
         end
@@ -1537,7 +1580,8 @@ module Frozone
         @_method_return_t = ti_return_type_t(@_current_method_key)
         if @_method_return_t.nil? || @_method_return_t.bottom?
           raw = @ti_env&.type_at([:return, @_current_method_key])
-          warn "[cpp_emitter] skipping #{name.inspect}: TI gave no return type (raw slot: #{raw.inspect})" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          warn "[cpp_emitter] stub #{name.inspect}: TI gave no return type (raw slot: #{raw.inspect})" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          emit_ti_gap_stub_free(name, method)
           @_current_method_key = nil
           return
         end
