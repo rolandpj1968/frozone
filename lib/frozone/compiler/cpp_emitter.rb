@@ -1310,15 +1310,20 @@ module Frozone
 
       def emit_class_method(mname, method)
         @_current_method_key = @_current_wrapper_name ? [@_current_wrapper_name.sub("Ruby_", "").to_sym, mname] : mname
-        params = emit_param_list(method)
-        nparams = all_param_names(method).size
-        @_bracket_method_name = (mname == :[] && nparams > 1) ? "slice" : nil
         @_method_return_t = ti_return_type_t(@_current_method_key)
         # TI punts (returns nil) on methods with mixed bare/value returns.
         # Fallback: scan the body for a value Return / final expression whose
         # type is a pointer; use that as the method's return type so bare
         # `return` emits `return nullptr;` instead of colliding.
         @_method_return_t ||= scan_body_for_return_type(method.body)
+        if @_method_return_t.nil? || @_method_return_t.bottom?
+          warn "[cpp_emitter] skipping instance method #{@_current_method_key.inspect}: TI gave no return type" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
+          @_current_method_key = nil
+          return
+        end
+        params = emit_param_list(method)
+        nparams = all_param_names(method).size
+        @_bracket_method_name = (mname == :[] && nparams > 1) ? "slice" : nil
         # For pointer return types, make the signature explicit (gc_ref<Ruby_X>)
         # so a `return root_local` unifies via implicit conversion Root<T> →
         # gc_ptr<T>. `auto` deduction would see distinct types and fail.
