@@ -1513,6 +1513,48 @@ module Frozone
       # Uses RUBY_TO_CRYSTAL_TYPE for built-in classes, Ruby_ prefix for user classes.
       def crystal_class_name(cls) = CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls] || "Ruby_#{crystal_constant(cls)}"
 
+      # Fully-qualified Crystal path for a user class referenced by symbol.
+      # Nested user classes are emitted inside their parent's `class` body,
+      # so a reference from outside (e.g. `.as(Ruby_Node)` inside a top-level
+      # `def splay_run`) would fail to resolve the bare name. Walk the
+      # constants tree to find the class, then use crystal_superclass_path
+      # to build `::Ruby_Outer::Ruby_Inner::Ruby_Leaf`. Falls back to the
+      # bare name when the class isn't a user class (runtime built-in, etc).
+      def crystal_class_fqn(cls_sym)
+        return CrystalEmitter::RUBY_TO_CRYSTAL_TYPE[cls_sym] if CrystalEmitter::RUBY_TO_CRYSTAL_TYPE.key?(cls_sym)
+        cls_obj = find_user_class_object(cls_sym)
+        cls_obj ? crystal_superclass_path(cls_obj) : crystal_class_name(cls_sym)
+      end
+
+      # Depth-first walk of constants tree looking for a ClassObject with
+      # the given leaf name. Result cached — repeated lookups during
+      # emission are common.
+      def find_user_class_object(sym, scope = nil, seen = nil)
+        @_user_class_cache ||= {}
+        top_call = scope.nil? && seen.nil?
+        return @_user_class_cache[sym] if top_call && @_user_class_cache.key?(sym)
+        scope ||= @cc&.top_level_scope
+        seen ||= {}
+        return nil unless scope
+        found = nil
+        (scope.constants_table || {}).each do |_n, v|
+          next unless v.is_a?(Vm::ModuleObject)
+          next if seen[v]
+          seen[v] = true
+          if v.is_a?(Vm::ClassObject) && v.name == sym
+            found = v
+            break
+          end
+          nested = find_user_class_object(sym, v, seen)
+          if nested
+            found = nested
+            break
+          end
+        end
+        @_user_class_cache[sym] = found if top_call
+        found
+      end
+
       # Override: inside Bool-return methods (==, <, etc.), convert return values
       # to Crystal Bool so early returns match the : Bool annotation.
       def cr_return(node)
@@ -2004,7 +2046,7 @@ module Frozone
         return unless node.receiver_node.is_a?(Ast::LocalVariableRead)
         cls_entry = @mctx.class_locals[node.receiver_node.name] or return
         cls = cls_entry.is_a?(Array) ? cls_entry[0] : cls_entry
-        "#{crystal_local(node.receiver_node.name)}.as(#{crystal_class_name(cls)}).#{crystal_method_name(node.name)}#{cr_call_args(node)}"
+        "#{crystal_local(node.receiver_node.name)}.as(#{crystal_class_fqn(cls)}).#{crystal_method_name(node.name)}#{cr_call_args(node)}"
       end
 
       # Both operands raw-typed → Crystal arithmetic/comparison, skip RubyObject dispatch.
@@ -2096,7 +2138,7 @@ module Frozone
           setter = node.name.to_s.chomp('=')
           if cls_entry.is_a?(Array)
             # Nullable: cast to concrete class for typed setter dispatch
-            return "#{crystal_local(recv.name)}.as(#{crystal_class_name(cls_entry[0])}).#{setter} = #{cr(args[0])}"
+            return "#{crystal_local(recv.name)}.as(#{crystal_class_fqn(cls_entry[0])}).#{setter} = #{cr(args[0])}"
           end
           # Non-nullable: local is already concrete class, no cast needed
           return "#{crystal_local(recv.name)}.#{setter} = #{cr(args[0])}"
@@ -2242,7 +2284,7 @@ module Frozone
               if (raw_ty = @mctx.typed_locals[name])
                 lines << "#{crystal_local(name)} = #{raw_as(elem, raw_ty)}"
               elsif (cls = @mctx.class_locals[name])
-                lines << "#{crystal_local(name)} = #{cr(elem)}.as(#{crystal_class_name(cls)})"
+                lines << "#{crystal_local(name)} = #{cr(elem)}.as(#{crystal_class_fqn(cls)})"
               else
                 # typed array local — fall back to default for this case
                 return default_multiple_assignment(node)

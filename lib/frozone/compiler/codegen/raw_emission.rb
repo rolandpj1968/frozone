@@ -283,7 +283,7 @@ module Frozone
         recv_class = expr_class(recv, ctx) or return
         @gctx.instance_method_raw_returns[[recv_class, name]] or return
         recv_str = recv.is_a?(Ast::LocalVariableRead) ? raw(recv, ctx) : cr(recv)
-        "#{recv_str}.as(Ruby_#{crystal_constant(recv_class)}).#{crystal_method_name(name)}_raw"
+        "#{recv_str}.as(#{crystal_class_fqn(recv_class)}).#{crystal_method_name(name)}_raw"
       end
 
       def raw_math_call(name, recv, args, ctx)
