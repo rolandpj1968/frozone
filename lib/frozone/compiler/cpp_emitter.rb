@@ -218,6 +218,9 @@ module Frozone
         if recv.is_a?(Ast::InstanceVariableRead) && @_current_wrapper_name
           key = recv.name.to_s.delete_prefix('@')
           return true if @_self_ref_ivars&.include?(key)
+          # Ivars widened to gc_ref<RubyObject> on BOTTOM (see emit_class
+          # fallback) need `->` dispatch — they're pointers.
+          return true if @_boxed_ivars&.include?(key)
           cls_name = @_current_wrapper_name.delete_prefix('Ruby_').to_sym
           return !!ti_ivar_type_t(cls_name, key)&.emitted_as_pointer?
         end
@@ -630,8 +633,14 @@ module Frozone
                         end
               line "#{ty.to_cpp_ref} iv_#{key}#{default};"
             else
-              # Unknown type — fall back to int64_t default (matches legacy).
-              line "int64_t iv_#{key} = 0;"
+              # Unknown type — widen to RubyObject* (boxed any) instead of
+              # the old int64_t fallback. Writes of arbitrary user-class
+              # values coerce via coerce_to_ref<RubyObject>; reads see a
+              # boxed pointer. int64_t as default silently truncated all
+              # non-int assignments. Track boxed ivars so recv_t_is_ptr?
+              # knows to use `->` for method calls on them.
+              (@_boxed_ivars ||= Set.new) << key
+              line "gc_ref<RubyObject> iv_#{key} = nullptr;"
             end
           end
           emit_newline
