@@ -77,7 +77,7 @@ module Frozone
           # become virtuals on this class; the execute block becomes
           # `__top_level__()`.
           def emit_main_object
-            line "struct MainObject : public Object {"
+            line "struct MainObject : Object {"
             indented do
               line %(const char* ruby_class_name() const override { return "MainObject"; })
               blank

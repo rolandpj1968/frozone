@@ -46,7 +46,7 @@ struct BasicObject {
 // Ruby's Object — direct child of BasicObject. Carries the bulk of the
 // "every Ruby value responds to this" surface (Kernel mixin in MRI).
 // For the scaffold: just inherits method_missing.
-struct Object : public BasicObject {
+struct Object : BasicObject {
   const char* ruby_class_name() const override { return "Object"; }
 };
 
@@ -55,15 +55,15 @@ struct Object : public BasicObject {
 // Nil/True/False have exactly one instance each. Inline static at file
 // scope (C++17) so the header self-contains them.
 
-struct NilClass : public Object {
+struct NilClass : Object {
   const char* ruby_class_name() const override { return "NilClass"; }
 };
 
-struct TrueClass : public Object {
+struct TrueClass : Object {
   const char* ruby_class_name() const override { return "TrueClass"; }
 };
 
-struct FalseClass : public Object {
+struct FalseClass : Object {
   const char* ruby_class_name() const override { return "FalseClass"; }
 };
 
@@ -89,7 +89,7 @@ inline BasicObject* boxed_bool(bool b) {
 // Coercion (Integer + Float etc.) deferred — for now assume the other
 // operand is also Integer.
 
-struct Integer : public Object {
+struct Integer : Object {
   int64_t raw_;
   explicit Integer(int64_t r) : raw_(r) {}
   const char* ruby_class_name() const override { return "Integer"; }
