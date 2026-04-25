@@ -92,4 +92,10 @@ RSpec.describe 'box-first end-to-end' do
       'true', 'false',
     ])
   end
+
+  it 'ternary_test — If-as-expression + if-as-implicit-return' do
+    expect(run_box_first('ternary_test').strip.split("\n")).to eq(
+      %w[small small pos 105 small big huge]
+    )
+  end
 end

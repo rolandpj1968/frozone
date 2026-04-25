@@ -66,15 +66,15 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   end
 
   describe ".expression_node?" do
-    it "is false for Return / If / Sequence (statement-only shapes)" do
+    it "is false for Return / Sequence (statement-only shapes)" do
       expect(described_class.expression_node?(A::Return.new(nil))).to eq(false)
-      expect(described_class.expression_node?(A::If.new(nil, nil, nil))).to eq(false)
       expect(described_class.expression_node?(seq([]))).to eq(false)
     end
 
-    it "is true for value-bearing nodes" do
+    it "is true for value-bearing nodes (including If — emits as ternary)" do
       expect(described_class.expression_node?(int(42))).to eq(true)
       expect(described_class.expression_node?(A::NilLiteral::NIL)).to eq(true)
+      expect(described_class.expression_node?(A::If.new(nil, nil, nil))).to eq(true)
     end
   end
 
@@ -296,6 +296,30 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       result = cpp.from_expr(node, locals)
       expect(result).to include('\\303')
       expect(result).to include('\\251')
+    end
+  end
+
+  describe "#from_expr — If (ternary in expression position)" do
+    it "ternary `cond ? a : b` emits C++ ternary" do
+      cond = lvr(:c)
+      a = int(1)
+      b = int(2)
+      node = A::If.new(cond, a, b)
+      expect(cpp.from_expr(node, locals)).to eq("(truthy(c) ? ((new Integer(1LL))) : ((new Integer(2LL))))")
+    end
+
+    it "if without else defaults else to nil_instance" do
+      cond = lvr(:c)
+      a = int(1)
+      node = A::If.new(cond, a, nil)
+      expect(cpp.from_expr(node, locals)).to eq("(truthy(c) ? ((new Integer(1LL))) : (nil_instance()))")
+    end
+
+    it "if without then defaults then to nil_instance" do
+      cond = lvr(:c)
+      b = int(2)
+      node = A::If.new(cond, nil, b)
+      expect(cpp.from_expr(node, locals)).to eq("(truthy(c) ? (nil_instance()) : ((new Integer(2LL))))")
     end
   end
 

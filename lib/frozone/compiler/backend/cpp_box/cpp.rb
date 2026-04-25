@@ -66,11 +66,14 @@ module Frozone
           end
 
           # Nodes that produce a value usable in expression position.
-          # Statement-only nodes (If, Return, etc.) don't get wrapped
+          # Statement-only nodes (Return, Sequence) don't get wrapped
           # in implicit-return; they handle their own control flow.
+          # Ast::If IS expression-valid (Ruby's if returns the taken
+          # branch's value) — emitted as a C++ ternary in expression
+          # position, multi-line in statement position.
           def self.expression_node?(node)
             case node
-            when Ast::Return, Ast::If, Ast::Sequence then false
+            when Ast::Return, Ast::Sequence then false
             else true
             end
           end
@@ -114,6 +117,7 @@ module Frozone
             when Ast::AttributeWrite then from_attribute_write(node, locals)
             when Ast::And then from_and(node, locals)
             when Ast::Or then from_or(node, locals)
+            when Ast::If then from_if(node, locals)
             when Ast::Sequence
               # `(a)` and `(a, b, c)` both work as comma-operator —
               # value is the last subexpression.
@@ -169,6 +173,18 @@ module Frozone
             l = from_expr(node.left_node, locals)
             r = from_expr(node.right_node, locals)
             "([&]() -> BasicObject* { auto* _l = #{l}; return truthy(_l) ? _l : (#{r}); }())"
+          end
+
+          # If-as-expression — `cond ? a : b` and `if cond; a; else; b; end`
+          # are the same Ast::If. Plain C++ ternary (short-circuits, no
+          # lambda needed). Multi-statement bodies become Ast::Sequence
+          # which from_expr emits as comma-operator.
+          # Missing else_node → nil (Ruby semantics).
+          def from_if(node, locals)
+            cond = from_expr(node.pred_node, locals)
+            t = node.then_node ? from_expr(node.then_node, locals) : "nil_instance()"
+            e = node.else_node ? from_expr(node.else_node, locals) : "nil_instance()"
+            "(truthy(#{cond}) ? (#{t}) : (#{e}))"
           end
 
           def from_array_literal(node, locals)
