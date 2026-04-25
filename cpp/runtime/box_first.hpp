@@ -43,6 +43,13 @@ struct BasicObject {
   }
 };
 
+// Ruby's Object — direct child of BasicObject. Carries the bulk of the
+// "every Ruby value responds to this" surface (Kernel mixin in MRI).
+// For the scaffold: just inherits method_missing.
+struct Object : public BasicObject {
+  const char* ruby_class_name() const override { return "Object"; }
+};
+
 }  // namespace Ruby
 
 #endif  // FROZONE_BOX_FIRST_HPP

@@ -11,7 +11,9 @@
 #
 # See memory/project_radical_box_first.md for the pinned plan.
 #
-# Stage 2 status: scaffold only. No emission logic yet.
+# Stage 2 status: emits empty Ruby::MainObject + main(); no method
+# bodies yet. Next step: emit user-defined methods as virtuals and
+# the execute block as MainObject#__top_level__.
 
 require_relative 'class_emitter'
 require_relative 'method_emitter'
@@ -29,6 +31,7 @@ module Frozone
 
           def write(*strs) = strs.each { |s| @out << s }
           def line(str) = @out << ("  " * @indent) << str << "\n"
+          def blank = @out << "\n"
 
           def indented
             @indent += 1
@@ -44,7 +47,10 @@ module Frozone
             @globals = globals
             @stub_file = stub_file
             emit_header
-            emit_placeholder_main
+            emit_namespace_open
+            emit_main_object
+            emit_namespace_close
+            emit_main
             @out
           end
 
@@ -52,13 +58,49 @@ module Frozone
 
           def emit_header
             line %(#include "../runtime/box_first.hpp")
-            line ""
+            blank
           end
 
-          def emit_placeholder_main
+          def emit_namespace_open
+            line "namespace Ruby {"
+            blank
+          end
+
+          def emit_namespace_close
+            blank
+            line "}  // namespace Ruby"
+            blank
+          end
+
+          # The synthesised `Ruby::MainObject` represents the top-level
+          # `self` (the `main` object in MRI). Top-level user methods
+          # become virtuals on this class; the execute block becomes
+          # `__top_level__()`.
+          def emit_main_object
+            line "struct MainObject : public Object {"
+            indented do
+              line %(const char* ruby_class_name() const override { return "MainObject"; })
+              blank
+              line "void __top_level__() {"
+              indented { emit_top_level_body }
+              line "}"
+            end
+            line "};"
+          end
+
+          def emit_top_level_body
+            # Step 0: just a marker so we can verify __top_level__ ran.
+            # Next iteration will walk @execute_block and emit real
+            # statements.
+            line %(std::fprintf(stderr, "[box-first] __top_level__ ran\\n");)
+          end
+
+          def emit_main
             line "int main() {"
             indented do
-              line %(// box-first scaffold — no emission logic yet)
+              line "FROZONE_GC_INIT();"
+              line "Ruby::MainObject mo;"
+              line "mo.__top_level__();"
               line "return 0;"
             end
             line "}"
