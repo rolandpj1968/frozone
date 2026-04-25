@@ -33,11 +33,47 @@ module Frozone
             :!=  => "m_ne_q",
             :<<  => "m_lshift",
             :>>  => "m_rshift",
+            :!   => "m_not",
+            :"-@" => "m_neg",
+            :"+@" => "m_pos",
+            :[]  => "m_aref",
+            :[]= => "m_aset",
+            :"<=>" => "m_spaceship",
           }.freeze
 
-          def self.emit_body(emit, body, locals:)
+          # Ruby method name → C++ identifier. Operators go through
+          # OP_NAMES; non-identifier suffixes (`?`, `!`, `=`) get
+          # mangled to `_q`, `_b`, `_set` respectively.
+          def self.method_cpp_name(ruby_name)
+            return OP_NAMES[ruby_name] if OP_NAMES.key?(ruby_name)
+            s = ruby_name.to_s
+            s = s.sub(/\?$/, '_q').sub(/!$/, '_b').sub(/=$/, '_set')
+            "m_#{s}"
+          end
+
+          # `last_is_return` (true for method bodies) wraps the final
+          # statement in `return ...;` if it's an expression — Ruby's
+          # implicit return semantics.
+          def self.emit_body(emit, body, locals:, last_is_return: false)
             stmts = body.is_a?(Ast::Sequence) ? body.nodes : [body]
-            stmts.each { |n| emit_stmt(emit, n, locals) }
+            stmts.each_with_index do |n, i|
+              last = i == stmts.length - 1
+              if last && last_is_return && expression_node?(n)
+                emit.line "return #{emit_expr(emit, n, locals)};"
+              else
+                emit_stmt(emit, n, locals)
+              end
+            end
+          end
+
+          # Nodes that produce a value usable in expression position.
+          # Statement-only nodes (If, Return, etc.) don't get wrapped
+          # in implicit-return; they handle their own control flow.
+          def self.expression_node?(node)
+            case node
+            when Ast::Return, Ast::If, Ast::Sequence then false
+            else true
+            end
           end
 
           def self.emit_stmt(emit, node, locals)
@@ -64,33 +100,49 @@ module Frozone
           def self.emit_expr(emit, node, locals)
             case node
             when Ast::IntegerLiteral then "new Integer(#{node.value.raw}LL)"
-            when Ast::NilLiteral     then "static_cast<BasicObject*>(&NIL_INSTANCE)"
-            when Ast::TrueLiteral    then "static_cast<BasicObject*>(&TRUE_INSTANCE)"
-            when Ast::FalseLiteral   then "static_cast<BasicObject*>(&FALSE_INSTANCE)"
+            when Ast::NilLiteral     then "nil_instance()"
+            when Ast::TrueLiteral    then "true_instance()"
+            when Ast::FalseLiteral   then "false_instance()"
             when Ast::LocalVariableRead then node.name.to_s
+            when Ast::ConstantRead then emit_constant_read(node)
+            when Ast::InstanceVariableRead then "this->iv_#{node.name.to_s.delete_prefix('@')}"
+            when Ast::InstanceVariableWrite
+              rhs = emit_expr(emit, node.value_node, locals)
+              "(this->iv_#{node.name.to_s.delete_prefix('@')} = #{rhs})"
             when Ast::LocalVariableWrite
               rhs = emit_expr(emit, node.value_node, locals)
               if locals.include?(node.name.to_s)
                 "(#{node.name} = #{rhs})"
               else
-                # Inline local decl in expression position is awkward in C++.
-                # Defer: treat as comment + nil, fix when we see a real case.
-                "/* WARN: lvar decl in expr pos: #{node.name} */ static_cast<BasicObject*>(&NIL_INSTANCE)"
+                "/* WARN: lvar decl in expr pos: #{node.name} */ nil_instance()"
               end
             when Ast::MethodCall then emit_method_call(emit, node, locals)
             else
-              "/* UNHANDLED: #{node.class.name} */ static_cast<BasicObject*>(&NIL_INSTANCE)"
+              "/* UNHANDLED: #{node.class.name} */ nil_instance()"
             end
+          end
+
+          # ConstantRead — for user class constants, resolve via the
+          # orchestrator's user_classes registry. Returns nil-marker for
+          # value constants we haven't wired yet.
+          def self.emit_constant_read(node)
+            "/* ConstantRead: #{node.name} */ nil_instance()"
           end
 
           def self.emit_method_call(emit, node, locals)
             recv = node.receiver_node
             name = node.name
             args = (node.arg_nodes || []).map { |a| emit_expr(emit, a, locals) }
+
+            # ClassName.new(args) → new Ruby::ClassName(args).
+            # Bypasses the vtable — direct instantiation.
+            if name == :new && recv.is_a?(Ast::ConstantRead) && emit.user_classes.key?(recv.name)
+              return "new #{recv.name}(#{args.join(", ")})"
+            end
+
             if recv
               recv_s = emit_expr(emit, recv, locals)
-              method_name = OP_NAMES[name] || "m_#{name}"
-              "#{recv_s}->#{method_name}(#{args.join(", ")})"
+              "#{recv_s}->#{method_cpp_name(name)}(#{args.join(", ")})"
             elsif name == :puts
               "ruby_puts(#{args.join(", ")})"
             else

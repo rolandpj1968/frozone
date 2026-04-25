@@ -35,45 +35,189 @@ module Frozone
             @indent -= 1
           end
 
-          # Mirrors Frozone::Compiler::CppEmitter#generate signature so the
-          # dispatch site in frozone_compile.rb can swap one for the other.
+          # Run `yield` with output captured to a string buffer (indent
+          # reset). Used for rendering method bodies into RubyClass.overrides
+          # body strings — ExprEmitter writes via line/indented as usual,
+          # but the result accumulates into a returned string instead of
+          # the main output.
+          def capture
+            saved_out, saved_indent = @out, @indent
+            @out, @indent = +"", 0
+            yield
+            result = @out
+            @out, @indent = saved_out, saved_indent
+            result
+          end
+
           def generate(execute_block:, top_level_scope:, globals:, stub_file: nil)
             @execute_block = execute_block
             @top_level_scope = top_level_scope
             @globals = globals
             @stub_file = stub_file
+            @user_classes = collect_emittable_classes
             @call_surface = collect_call_surface
+            classes = Runtime::ALL_CLASSES + build_user_class_defs
             emit_header
             emit_namespace_open
-            ClassEmitter.emit_runtime(self, call_surface: @call_surface)
+            ClassEmitter.emit_runtime(self, classes: classes, call_surface: @call_surface)
             emit_main_object
             emit_namespace_close
             emit_main
             @out
           end
 
+          # The user class registry — name → Vm::ClassObject. Exposed for
+          # ExprEmitter so it can recognise ConstantRead of a user class
+          # and emit the right C++ type.
+          attr_reader :user_classes
+
           private
 
-          # Collects the program's universe of called methods. Each entry
-          # is [cpp_method_name, ruby_method_name_for_diagnostics] — the
-          # ruby_method_name goes into the method_missing message.
-          # BasicObject's vtable surface is exactly this set.
+          # Walk top_level_scope.constants_table for classes the spike
+          # currently knows how to emit. The eventual model emits every
+          # class in the closed-world image (no user-vs-core distinction)
+          # with methods accumulated from all sources; for now we restrict
+          # to classes that (a) aren't already in Universe's seed, and
+          # (b) have at least one user-source method (the only body kind
+          # ExprEmitter knows how to compile right now). Reopens of
+          # Universe-seeded classes are silently dropped — TODO.
+          UNIVERSE_NAMES = Set.new(Runtime::ALL_CLASSES.map(&:name)).freeze
+
+          def collect_emittable_classes
+            classes = {}
+            (@top_level_scope.constants_table || {}).each do |name, val|
+              next unless val.is_a?(Vm::ClassObject)
+              next if UNIVERSE_NAMES.include?(name.to_s)
+              next unless emittable_class?(val)
+              classes[name] = val
+            end
+            classes
+          end
+
+          def emittable_class?(cls)
+            user_source_methods(cls).any?
+          end
+
+          def user_source_methods(cls)
+            top_level_methods = (@top_level_scope.methods_table || {})
+            (cls.methods_table || {}).select do |name, m|
+              next false unless m.is_a?(Vm::Method) && user_source?(m.source_location)
+              # Filter out methods inherited from Object (they appear in
+              # every class's methods_table; we emit them on MainObject).
+              top_level_methods[name] != m
+            end
+          end
+
+          # Collects (cpp_method_name, arity) → ruby_method_name from every
+          # MethodCall in the program. Drives BasicObject's universal
+          # vtable surface. Calls without a receiver dispatch via
+          # `this->name()` inside MainObject — they don't need a slot.
           def collect_call_surface
             calls = {}
-            walk_calls = ->(node) {
+            walk = ->(node) {
               return unless node.is_a?(Ast::Node)
-              if node.is_a?(Ast::MethodCall) && node.receiver_node
-                # Only methods with an explicit receiver go through the
-                # vtable — bare calls dispatch via this->name() inside
-                # MainObject.
-                cpp_name = ExprEmitter::OP_NAMES[node.name] || "m_#{node.name}"
-                calls[cpp_name] ||= node.name.to_s
+              if node.is_a?(Ast::MethodCall) && node.receiver_node && node.name != :new
+                cpp_name = ExprEmitter.method_cpp_name(node.name)
+                arity = (node.arg_nodes || []).length
+                calls[[cpp_name, arity]] ||= node.name.to_s
               end
-              node.children.each { |c| walk_calls.call(c) } if node.respond_to?(:children)
+              node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
             }
-            user_methods.each_value { |m| walk_calls.call(m.body) if m.body }
-            walk_calls.call(@execute_block) if @execute_block
+            user_methods.each_value { |m| walk.call(m.body) if m.body }
+            @user_classes.each_value do |cls|
+              user_source_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+            end
+            walk.call(@execute_block) if @execute_block
+            # Pull in arities from runtime overrides too — Integer's m_plus
+            # declares arity 1, so the BasicObject base must too.
+            Runtime::ALL_CLASSES.each do |k|
+              k.overrides&.each do |cpp_name, spec|
+                calls[[cpp_name, spec[:params].length]] ||= cpp_name.sub(/^m_/, '')
+              end
+            end
+            # Also include user-class method DEFINITIONS — their override
+            # slots need to exist on BasicObject even if no one calls them
+            # via the vtable yet.
+            @user_classes.each_value do |cls|
+              user_source_methods(cls).each do |mname, m|
+                next if mname == :initialize
+                cpp_name = ExprEmitter.method_cpp_name(mname)
+                arity = (m.required_params || []).length
+                calls[[cpp_name, arity]] ||= mname.to_s
+              end
+            end
             calls
+          end
+
+          # Build RubyClass instances from each user Vm::ClassObject.
+          def build_user_class_defs
+            @user_classes.map { |name, cls| build_user_class_def(name, cls) }
+          end
+
+          def build_user_class_def(name, cls)
+            ivars = collect_ivars(cls)
+            user_methods = user_source_methods(cls)
+            methods = user_methods.reject { |n, _| n == :initialize }
+            init = user_methods[:initialize]
+            Runtime::RubyClass.new(
+              name: name.to_s,
+              parent: parent_name_for(cls),
+              ivars: ivars.map { |iv| "BasicObject* iv_#{iv} = nullptr;" },
+              members: [%(const char* ruby_class_name() const override { return "#{name}"; })],
+              ctor: build_ctor(name, init),
+              overrides: methods.each_with_object({}) { |(mname, m), h|
+                h[ExprEmitter.method_cpp_name(mname)] = build_override(m)
+              },
+            )
+          end
+
+          # Walk user-source methods for InstanceVariableWrite/Read —
+          # those tell us which ivars to declare.
+          def collect_ivars(cls)
+            ivars = []
+            seen = Set.new
+            walk = ->(node) {
+              return unless node.is_a?(Ast::Node)
+              if node.is_a?(Ast::InstanceVariableWrite) || node.is_a?(Ast::InstanceVariableRead)
+                stripped = node.name.to_s.delete_prefix('@')
+                unless seen.include?(stripped)
+                  seen << stripped
+                  ivars << stripped
+                end
+              end
+              node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
+            }
+            user_source_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+            ivars
+          end
+
+          def parent_name_for(cls)
+            sc = cls.superclass
+            return "Object" unless sc
+            # Map MRI parent names. For now any non-explicit parent → Object.
+            sc.name == :Object || sc.name.nil? ? "Object" : sc.name.to_s
+          end
+
+          def build_ctor(class_name, init_method)
+            return nil unless init_method
+            params, locals = MethodEmitter.build_params(init_method)
+            body = capture do
+              ExprEmitter.emit_body(self, init_method.body, locals: locals) if init_method.body
+            end
+            { params: params.split(", ").reject(&:empty?), body: body, class_name: class_name.to_s }
+          end
+
+          def build_override(method)
+            params, locals = MethodEmitter.build_params(method)
+            body = capture do
+              ExprEmitter.emit_body(self, method.body, locals: locals, last_is_return: true) if method.body
+            end
+            {
+              params: params.split(", ").reject(&:empty?),
+              # Trailing nil-return as a safety net for paths that fall
+              # through (empty body, statement-only last expression).
+              body: body + "return nil_instance();\n",
+            }
           end
 
           def emit_header
@@ -91,10 +235,6 @@ module Frozone
             blank
           end
 
-          # The synthesised `Ruby::MainObject` represents the top-level
-          # `self` (the `main` object in MRI). Top-level user methods
-          # become virtuals on this class; the execute block becomes
-          # `__top_level__()`.
           def emit_main_object
             line "struct MainObject : Object {"
             indented do
@@ -133,8 +273,7 @@ module Frozone
             line "}"
           end
 
-          # Top-level user methods live in `top_level_scope.methods_table`.
-          # Filter to user code only — exclude core/4.0/, vm/, ast/.
+          # Top-level user methods (not on a class).
           def user_methods
             (@top_level_scope.methods_table || {}).select do |_, m|
               m.is_a?(Vm::Method) && user_source?(m.source_location)

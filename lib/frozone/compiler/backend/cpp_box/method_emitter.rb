@@ -17,11 +17,10 @@ module Frozone
             emit.line "virtual BasicObject* #{name}(#{params}) {"
             emit.indented do
               if method.body
-                ExprEmitter.emit_body(emit, method.body, locals: locals)
+                ExprEmitter.emit_body(emit, method.body, locals: locals, last_is_return: true)
               end
-              # Ensure a return path exists if body falls through.
-              # (Will revisit when TI-driven return analysis lands.)
-              emit.line "return static_cast<BasicObject*>(&NIL_INSTANCE);"
+              # Trailing nil-return safety net for fall-through paths.
+              emit.line "return nil_instance();"
             end
             emit.line "}"
           end

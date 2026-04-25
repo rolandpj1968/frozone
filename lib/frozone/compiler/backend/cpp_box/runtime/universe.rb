@@ -29,7 +29,7 @@ module Frozone
           #   singleton  — if non-nil, file-scope instance variable name
           #                ("NIL_INSTANCE" etc.)
           RubyClass = Struct.new(
-            :name, :parent, :ivars, :members, :overrides, :singleton,
+            :name, :parent, :ivars, :members, :ctor, :overrides, :singleton,
             keyword_init: true
           )
 
@@ -121,22 +121,39 @@ module Frozone
 
           # ---- Free Kernel functions -------------------------------
 
+          # nil_instance / true_instance / false_instance — forward-declared
+          # so class bodies can use them without needing the singleton's
+          # full type to be in scope (the NilClass→BasicObject conversion
+          # requires complete-type visibility, which we don't have inside
+          # class member function bodies before NilClass is defined).
+          NIL_INSTANCE_FN = KernelFn.new(
+            name: "nil_instance",
+            signature: "BasicObject* nil_instance()",
+            body: "return static_cast<BasicObject*>(&NIL_INSTANCE);",
+          )
+
+          TRUE_INSTANCE_FN = KernelFn.new(
+            name: "true_instance",
+            signature: "BasicObject* true_instance()",
+            body: "return static_cast<BasicObject*>(&TRUE_INSTANCE);",
+          )
+
+          FALSE_INSTANCE_FN = KernelFn.new(
+            name: "false_instance",
+            signature: "BasicObject* false_instance()",
+            body: "return static_cast<BasicObject*>(&FALSE_INSTANCE);",
+          )
+
           BOXED_BOOL = KernelFn.new(
             name: "boxed_bool",
             signature: "BasicObject* boxed_bool(bool b)",
-            body: <<~CPP.chomp,
-              return b ? static_cast<BasicObject*>(&TRUE_INSTANCE)
-                       : static_cast<BasicObject*>(&FALSE_INSTANCE);
-            CPP
+            body: "return b ? true_instance() : false_instance();",
           )
 
           TRUTHY = KernelFn.new(
             name: "truthy",
             signature: "bool truthy(BasicObject* o)",
-            body: <<~CPP.chomp,
-              return o != static_cast<BasicObject*>(&NIL_INSTANCE)
-                  && o != static_cast<BasicObject*>(&FALSE_INSTANCE);
-            CPP
+            body: "return o != nil_instance() && o != false_instance();",
           )
 
           RUBY_PUTS = KernelFn.new(
@@ -151,7 +168,10 @@ module Frozone
             CPP
           )
 
-          ALL_KERNEL_FNS = [BOXED_BOOL, TRUTHY, RUBY_PUTS].freeze
+          ALL_KERNEL_FNS = [
+            NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
+            BOXED_BOOL, TRUTHY, RUBY_PUTS
+          ].freeze
         end
       end
     end

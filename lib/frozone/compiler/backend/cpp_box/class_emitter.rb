@@ -1,8 +1,10 @@
 # Box-first C++ backend — class emission.
 #
-# Generic: walks the runtime Universe and the program's call_surface,
+# Generic: walks RubyClass instances + the program's call_surface,
 # produces C++ class definitions + singleton instances + Kernel free
 # functions. No per-class branching; behaviour is fully data-driven.
+# Runtime classes (BasicObject, Integer, etc.) and user-defined classes
+# go through the same path.
 #
 # Emission order (so all references resolve at C++ parse time):
 #   1. Forward declarations (all classes + all free functions)
@@ -17,17 +19,19 @@ module Frozone
     module Backend
       module CppBox
         class ClassEmitter
-          def self.emit_runtime(emit, call_surface:)
-            emit_forward_decls(emit)
+          # `classes` is the full list (Runtime::ALL_CLASSES + user
+          # classes). `call_surface` is { [cpp_name, arity] => ruby_name }.
+          def self.emit_runtime(emit, classes:, call_surface:)
+            emit_forward_decls(emit, classes)
             emit.blank
-            Runtime::ALL_CLASSES.each { |k| emit_class(emit, k, call_surface) }
-            emit_singletons(emit)
+            classes.each { |k| emit_class(emit, k, call_surface) }
+            emit_singletons(emit, classes)
             emit.blank
             emit_kernel_fn_bodies(emit)
           end
 
-          def self.emit_forward_decls(emit)
-            Runtime::ALL_CLASSES.each { |k| emit.line "struct #{k.name};" }
+          def self.emit_forward_decls(emit, classes)
+            classes.each { |k| emit.line "struct #{k.name};" }
             emit.blank
             Runtime::ALL_KERNEL_FNS.each { |fn| emit.line "inline #{fn.signature};" }
           end
@@ -38,6 +42,7 @@ module Frozone
             emit.indented do
               klass.members&.each { |m| emit.line m }
               klass.ivars&.each { |iv| emit.line iv }
+              emit_ctor(emit, klass) if klass.ctor
               if klass.name == "BasicObject"
                 emit_universal_surface(emit, call_surface)
               end
@@ -47,15 +52,25 @@ module Frozone
             emit.blank
           end
 
-          # The universal m_* surface on BasicObject. Each entry is a
-          # virtual that defaults to method_missing; subclasses override
-          # the slots they implement.
+          # The universal m_* surface on BasicObject. One slot per unique
+          # (cpp_name, arity) tuple — collisions on the same cpp_name
+          # with different arities produce distinct C++ methods, all
+          # named the same (Ruby method overloading isn't a thing, so
+          # this *should* never happen — TODO: warn if it does).
           def self.emit_universal_surface(emit, call_surface)
             return if call_surface.empty?
             emit.line "// Universal method surface — populated from the program's call universe."
-            call_surface.each do |cpp_name, ruby_name|
-              emit.line %(virtual BasicObject* #{cpp_name}(BasicObject*) { return method_missing("#{ruby_name}"); })
+            call_surface.each do |(cpp_name, arity), ruby_name|
+              params = (["BasicObject*"] * arity).join(", ")
+              emit.line %(virtual BasicObject* #{cpp_name}(#{params}) { return method_missing("#{ruby_name}"); })
             end
+          end
+
+          def self.emit_ctor(emit, klass)
+            params = klass.ctor[:params].join(", ")
+            emit.line "#{klass.name}(#{params}) {"
+            emit.indented { klass.ctor[:body].each_line { |l| emit.line l.chomp } }
+            emit.line "}"
           end
 
           def self.emit_override(emit, name, spec)
@@ -65,8 +80,8 @@ module Frozone
             emit.line "}"
           end
 
-          def self.emit_singletons(emit)
-            Runtime::ALL_CLASSES.each do |k|
+          def self.emit_singletons(emit, classes)
+            classes.each do |k|
               next unless k.singleton
               emit.line "inline #{k.name} #{k.singleton};"
             end
