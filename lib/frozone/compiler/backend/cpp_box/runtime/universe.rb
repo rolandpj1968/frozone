@@ -226,12 +226,21 @@ module Frozone
           # (intern() returns the same Symbol* for the same name) means
           # default m_eq_q (pointer eq) + default m_hash_value (pointer
           # hash) work correctly. Symbol literals emit as `intern("foo")`.
+          #
+          # The ctor is private — `intern()` is the only friend — so no
+          # one can bypass interning and produce a non-canonical Symbol*.
+          # Without this, a stray `new Symbol("x")` elsewhere would give
+          # a Symbol* that compares unequal to the interned one, silently
+          # breaking Hash lookups.
           SYMBOL = RubyClass.new(
             name: "Symbol",
             parent: "Object",
             members: [
               "const char* name_;",
-              "explicit Symbol(const char* name) : name_(name) {}",
+              "private:",
+              "  explicit Symbol(const char* name) : name_(name) {}",
+              "  friend Symbol* intern(const char* name);",
+              "public:",
               %(const char* ruby_class_name() const override { return "Symbol"; }),
             ],
           )
