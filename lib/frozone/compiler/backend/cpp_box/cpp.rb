@@ -22,6 +22,12 @@ module Frozone
     module Backend
       module CppBox
         class Cpp
+          # Raised at emission time when we encounter a Ruby pattern we
+          # don't yet handle, OR a closed-world violation (constant we
+          # can't statically resolve). Eager fail: better to halt the
+          # build with a precise message than to silently emit nil and
+          # produce a wrong binary.
+          class EmissionError < StandardError; end
           # Ruby operator → C++ vtable method name. Box-first can't use
           # operator overloading because every value is a pointer
           # (`a + b` would mean pointer arithmetic), so we route through
@@ -113,7 +119,10 @@ module Frozone
               if locals.include?(node.name.to_s)
                 "(#{node.name} = #{rhs})"
               else
-                "/* WARN: lvar decl in expr pos: #{node.name} */ nil_instance()"
+                # Local-decl in expr position needs scope hoisting
+                # (declare in outer scope, assign here). Not implemented.
+                raise EmissionError,
+                  "LocalVariableWrite in expression position requires scope-hoisting (var: #{node.name}) — not implemented"
               end
             when Ast::MethodCall then from_method_call(node, locals)
             when Ast::AttributeWrite then from_attribute_write(node, locals)
@@ -126,7 +135,7 @@ module Frozone
               # value is the last subexpression.
               "(#{node.nodes.map { |n| from_expr(n, locals) }.join(", ")})"
             else
-              "/* UNHANDLED: #{node.class.name} */ nil_instance()"
+              raise EmissionError, "from_expr: unhandled AST node #{node.class.name}"
             end
           end
 
@@ -263,24 +272,23 @@ module Frozone
           #   1. Value constant (instance of a user class) → k_NAME()
           #   2. Class constant (any emitted class) → &NAME_CLASS
           #      (a pointer to the eigenclass singleton — Class*-derived)
-          #   3. Unknown → comment + nil_instance fallback
+          #   3. Unknown → raise. Closed-world: we can't statically
+          #      resolve this constant, so emitting it is wrong.
           def from_constant_read(node)
             return "k_#{node.name}()" if @user_constants.key?(node.name)
             return "(&#{node.name}_CLASS)" if instantiable_class?(node.name)
-            "/* ConstantRead: #{node.name} (no value) */ nil_instance()"
+            raise EmissionError, "ConstantRead: unresolved constant :#{node.name}"
           end
 
           # ConstantPath — `Foo::Bar::Baz`. Flatten path components with
           # `_` and look up in the value-constant registry, then class
-          # registry. The "obvious transform" assumes ASCII PascalCase
-          # (no underscore in name components, no Unicode); collisions
-          # would need underscore-doubling escape — defer until a real
-          # case appears.
+          # registry. ASCII PascalCase assumption; collisions would
+          # need underscore-doubling escape — defer until a real case.
           def from_constant_path(node)
             flat = path_to_cpp_name(node).to_sym
             return "k_#{flat}()" if @user_constants.key?(flat)
             return "(&#{flat}_CLASS)" if instantiable_class?(flat)
-            "/* ConstantPath: #{path_to_display(node)} (no value) */ nil_instance()"
+            raise EmissionError, "ConstantPath: unresolved path #{path_to_display(node)}"
           end
 
           # Walk a ConstantRead/ConstantPath/RootNamespaceNode chain and

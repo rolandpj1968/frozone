@@ -123,9 +123,9 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       expect(cpp.from_expr(lvw(:total, int(0)), locals)).to eq("(total = (new Integer(0LL)))")
     end
 
-    it "LocalVariableWrite expr-position decl warns and returns nil" do
-      result = cpp.from_expr(lvw(:fresh, int(0)), locals)
-      expect(result).to include("WARN: lvar decl in expr pos")
+    it "LocalVariableWrite expr-position decl raises EmissionError (eager fail)" do
+      expect { cpp.from_expr(lvw(:fresh, int(0)), locals) }
+        .to raise_error(C::EmissionError, /scope-hoisting/)
     end
   end
 
@@ -167,21 +167,19 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   end
 
   describe "#from_expr — ConstantPath (Foo::Bar)" do
-    it "flattens path components with underscore" do
-      # Foo::Bar — ConstantPath(parent=ConstantRead(:Foo), name=:Bar)
+    it "raises EmissionError when unregistered (eager fail)" do
       foo = A::ConstantRead.new(:Foo)
       path = A::ConstantPath.new(foo, :Bar)
-      result = cpp.from_expr(path, locals)
-      expect(result).to include("ConstantPath: Foo::Bar")
-      expect(result).to include("nil_instance()")  # not registered
+      expect { cpp.from_expr(path, locals) }
+        .to raise_error(C::EmissionError, /Foo::Bar/)
     end
 
-    it "deeply nested Foo::Bar::Baz flattens to Foo_Bar_Baz" do
+    it "deeply nested Foo::Bar::Baz raises with full path in message" do
       foo = A::ConstantRead.new(:Foo)
       foo_bar = A::ConstantPath.new(foo, :Bar)
       foo_bar_baz = A::ConstantPath.new(foo_bar, :Baz)
-      result = cpp.from_expr(foo_bar_baz, locals)
-      expect(result).to include("ConstantPath: Foo::Bar::Baz")
+      expect { cpp.from_expr(foo_bar_baz, locals) }
+        .to raise_error(C::EmissionError, /Foo::Bar::Baz/)
     end
 
     it "registered ConstantPath resolves to flattened k_<flat>() accessor" do
@@ -195,8 +193,8 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     it "RootNamespaceNode parent (`::Foo`) drops the root and uses bare name" do
       root = A::RootNamespaceNode::INSTANCE
       path = A::ConstantPath.new(root, :Foo)
-      result = cpp.from_expr(path, locals)
-      expect(result).to include("ConstantPath: Foo")
+      expect { cpp.from_expr(path, locals) }
+        .to raise_error(C::EmissionError, /Foo/)
     end
 
     it "ConstantPath.new(args) instantiates the flattened class name" do
@@ -227,10 +225,9 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       expect(cpp.from_expr(cr(:Array), locals)).to eq("(&Array_CLASS)")
     end
 
-    it "unregistered constant emits a comment + nil_instance" do
-      result = cpp.from_expr(cr(:Unknown), locals)
-      expect(result).to include("ConstantRead: Unknown")
-      expect(result).to include("nil_instance()")
+    it "raises EmissionError on unresolved constant (eager fail)" do
+      expect { cpp.from_expr(cr(:Unknown), locals) }
+        .to raise_error(C::EmissionError, /Unknown/)
     end
   end
 
@@ -384,13 +381,13 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     end
   end
 
-  describe "#from_expr — UNHANDLED graceful fallback" do
-    it "unknown node type emits comment + nil_instance" do
+  describe "#from_expr — UNHANDLED eager fail" do
+    it "unknown node type raises EmissionError" do
       stub = Object.new
       def stub.is_a?(_); false; end
-      result = cpp.from_expr(stub, locals)
-      expect(result).to include("UNHANDLED")
-      expect(result).to include("nil_instance()")
+      def stub.class; Class.new { def name = "FakeNode" }.new; end
+      expect { cpp.from_expr(stub, locals) }
+        .to raise_error(C::EmissionError, /unhandled AST node/)
     end
   end
 end
