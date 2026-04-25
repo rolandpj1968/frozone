@@ -228,8 +228,8 @@ module Frozone
         end
         # Array index on pointer-element array: arr[i] → Ruby_X*
         if recv.is_a?(Ast::MethodCall) && recv.name == :[] && recv.receiver_node.is_a?(Ast::LocalVariableRead)
-          arr_t = ti_local_type(@_current_method_key, recv.receiver_node.name.to_s)
-          return true if arr_t&.match?(/RubyArray<Ruby_/)
+          arr_ty = ti_local_type_t(@_current_method_key, recv.receiver_node.name.to_s)
+          return true if arr_ty&.array_like? && arr_ty.elem&.emitted_as_pointer?
         end
         # Chained method call on pointer → check if method returns pointer
         if recv.is_a?(Ast::MethodCall) && recv.receiver_node && recv_t_is_ptr?(recv.receiver_node)
@@ -946,9 +946,9 @@ module Frozone
         end
         # Instance method call: check class method return types
         if val.is_a?(Ast::MethodCall) && val.receiver_node
-          recv_t = local_decl_type(val.receiver_node)
-          if recv_t&.start_with?("Ruby_")
-            cls_name = recv_t.delete_prefix("Ruby_").delete_suffix("*").to_sym
+          recv_ty = local_decl_type_t(val.receiver_node)
+          if recv_ty&.emitted_as_pointer?
+            cls_name = recv_ty.class_name
             rt = ti_return_type([cls_name, val.name])
             return rt if rt
           end
@@ -1136,10 +1136,9 @@ module Frozone
           # If the receiver's type resolves to a known user class, look up
           # the called method's return type (helps `tmp = node.left` etc).
           if val.receiver_node
-            recv_t = local_decl_type(val.receiver_node)
-            if recv_t&.start_with?("Ruby_")
-              cls_name = recv_t.sub("Ruby_", "").to_sym
-              rt = ti_return_type([cls_name, val.name])
+            recv_ty = local_decl_type_t(val.receiver_node)
+            if recv_ty&.emitted_as_pointer?
+              rt = ti_return_type([recv_ty.class_name, val.name])
               return rt if rt
             end
           end
@@ -2013,19 +2012,22 @@ module Frozone
             "(#{name} = #{rhs})"
           else
             @_declared_locals << name
-            # Shared TI for local type, fall back to expression-level inference
-            type = ti_local_type(@_current_method_key, name)
-            type ||= local_decl_type(val)
-            if (m = type.to_s.match(/\Astd::optional<(.+)>\z/))
-              (@_optional_locals ||= {})[name] = m[1]
+            # Shared TI for local type, fall back to expression-level inference.
+            # Type-level path: emitted_as_pointer? gates pointer-locals tracking
+            # and gc_local<T> wrapping; renders_as_optional? gates the
+            # optional-locals map. The cpp-string path remains for legacy
+            # cases where local_decl_type_t returns nil (rare).
+            type_t = ti_local_type_t(@_current_method_key, name) || local_decl_type_t(val)
+            if type_t && !type_t.bottom?
+              if type_t.renders_as_optional?
+                (@_optional_locals ||= {})[name] = (type_t.i64? || (type_t.class_type? && %i[Integer Numeric].include?(type_t.class_name))) ? "int64_t" : "double"
+              end
+              (@_pointer_locals ||= Set.new) << name if type_t.emitted_as_pointer?
+              type_str = CppTypeEmitter.for_local(type_t)
+            else
+              type_str = local_decl_type(val)
             end
-            if type.start_with?("Ruby_") && !type.end_with?("*")
-              type = "#{type}*"
-            end
-            if type.end_with?("*")
-              (@_pointer_locals ||= Set.new) << name
-            end
-            "#{type} #{name} = #{cr(val)}"
+            "#{type_str} #{name} = #{cr(val)}"
           end
         when Ast::If then cr_if(node)
         when Ast::Return
@@ -2222,14 +2224,14 @@ module Frozone
           then_inner = unwrap_single_sequence(node.then_node)
           else_inner = unwrap_single_sequence(node.else_node)
           if else_inner.is_a?(Ast::NilLiteral)
-            t = local_decl_type(then_inner)
-            if t&.start_with?("Ruby_")
-              else_s = "(#{t})nullptr"
+            t_ty = local_decl_type_t(then_inner)
+            if t_ty&.emitted_as_pointer?
+              else_s = "(#{t_ty.to_cpp_ref})nullptr"
             end
           elsif then_inner.is_a?(Ast::NilLiteral)
-            t = local_decl_type(else_inner)
-            if t&.start_with?("Ruby_")
-              then_s = "(#{t})nullptr"
+            t_ty = local_decl_type_t(else_inner)
+            if t_ty&.emitted_as_pointer?
+              then_s = "(#{t_ty.to_cpp_ref})nullptr"
             end
           else
             t1_t = local_decl_type_t(then_inner)
@@ -2747,8 +2749,8 @@ module Frozone
             cls_name = t_ty.class_name if t_ty&.class_type?
           end
           cls_name ||= begin
-            recv_t = local_decl_type(recv)
-            recv_t.delete_prefix("Ruby_").delete_suffix("*").to_sym if recv_t&.start_with?("Ruby_")
+            recv_ty = local_decl_type_t(recv)
+            recv_ty.class_name if recv_ty&.emitted_as_pointer?
           end
           if cls_name
             cls = @top_level_scope&.constants_table&.fetch(cls_name, nil)
