@@ -162,6 +162,15 @@ module Frozone
               "m_bit_or"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ |  static_cast<Integer*>(other)->raw_);" },
               "m_bit_xor"  => { params: ["BasicObject* other"], body: "return new Integer(raw_ ^  static_cast<Integer*>(other)->raw_);" },
               "m_neg"      => { params: [],                     body: "return new Integer(-raw_);" },
+              "m_to_s"     => {
+                params: [],
+                body: <<~CPP.chomp,
+                  char buf[32];
+                  int n = std::snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(raw_));
+                  return new String(buf, static_cast<std::size_t>(n));
+                CPP
+              },
+              "m_to_i"     => { params: [], body: "return this;" },
             },
           )
 

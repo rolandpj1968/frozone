@@ -122,4 +122,8 @@ RSpec.describe 'box-first end-to-end' do
       %w[5 10 2 99]
     )
   end
+
+  it 'concatenates interpolated strings with Integer#to_s coercion' do
+    expect(run_box_first('selfcompile_more').strip).to eq('loaded 42 ast nodes')
+  end
 end

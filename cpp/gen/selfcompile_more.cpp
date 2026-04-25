@@ -8415,24 +8415,8 @@ struct MainObject : Object {
   }
 
   void __top_level__() {
-    BasicObject* a = (new String("hello", 5));
-    BasicObject* b = (new String("world", 5));
-    BasicObject* c = a->m_plus((new Array({(new String(" ", 1))})), nullptr, nullptr)->m_plus((new Array({b})), nullptr, nullptr);
-    (ruby_puts(c), nil_instance());
-    a->m_lshift((new Array({(new String(" there", 6))})), nullptr, nullptr);
-    (ruby_puts(a), nil_instance());
-    (ruby_puts((new String("abc", 3))->m_length((new Array({})), nullptr, nullptr)), nil_instance());
-    (ruby_puts((new String("abc", 3))->m_bytesize((new Array({})), nullptr, nullptr)), nil_instance());
-    (ruby_puts((new String("abc", 3))->m_eq_q((new Array({(new String("abc", 3))})), nullptr, nullptr)), nil_instance());
-    (ruby_puts((new String("abc", 3))->m_eq_q((new Array({(new String("abd", 3))})), nullptr, nullptr)), nil_instance());
-    (ruby_puts((new String("abc", 3))->m_lt((new Array({(new String("abd", 3))})), nullptr, nullptr)), nil_instance());
-    (ruby_puts((new String("hello", 5))->m_aref((new Array({(new Integer(0LL))})), nullptr, nullptr)), nil_instance());
-    (ruby_puts((new String("hello", 5))->m_aref((new Array({(new Integer(-1LL))})), nullptr, nullptr)), nil_instance());
-    BasicObject* h = (new Hash({{(new String("foo", 3)), (new Integer(1LL))}, {(new String("bar", 3)), (new Integer(2LL))}}));
-    (ruby_puts(h->m_aref((new Array({(new String("foo", 3))})), nullptr, nullptr)), nil_instance());
-    (ruby_puts(h->m_aref((new Array({(new String("bar", 3))})), nullptr, nullptr)), nil_instance());
-    (ruby_puts((new String("", 0))->m_empty_q((new Array({})), nullptr, nullptr)), nil_instance());
-    (ruby_puts((new String("x", 1))->m_empty_q((new Array({})), nullptr, nullptr)), nil_instance());
+    BasicObject* x = (new Integer(42LL));
+    (ruby_puts(((new String("", 0))->m_plus((new Array({(new String("loaded ", 7))})), nullptr, nullptr)->m_plus((new Array({(x)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" ast nodes", 10))})), nullptr, nullptr))), nil_instance());
   }
 };
 

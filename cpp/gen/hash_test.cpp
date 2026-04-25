@@ -1192,6 +1192,8 @@ struct Integer : Object {
   virtual BasicObject* m_bit_or(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_bit_xor(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_neg(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_i(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Float : Object {
@@ -1364,11 +1366,13 @@ struct Module : Object {
   virtual BasicObject* m_singleton_method_undefined(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_extended(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_refinements(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_include_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_lt(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_gt(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_spaceship(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_le(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_ge(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_const_missing(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Numeric : Object {
@@ -1413,6 +1417,8 @@ struct Numeric : Object {
   virtual BasicObject* m_denominator(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_singleton_method_added(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_div(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_quo(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_coerce(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Refinement : Module {
@@ -1423,6 +1429,7 @@ struct Refinement : Module {
   virtual BasicObject* m_include(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_prepend(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_target(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_warn_ancestors(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Method : Object {
@@ -1436,6 +1443,8 @@ struct UnboundMethod : Object {
   using Object::Object;
   const char* ruby_class_name() const override { return "UnboundMethod"; }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> UnboundMethod(__Ts__...) {}
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Range : Object {
@@ -1458,18 +1467,23 @@ struct Range : Object {
   virtual BasicObject* m_include_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_member_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_minmax(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eq_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eql_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_reduce(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_inject(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_last(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_overlap_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_each_slice(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_each_cons(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_reverse_each(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_split(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___bsearch_size__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___cover_value___q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___step_float__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___bsearch_integer__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m___bsearch_int_min__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___bsearch_int_any__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
@@ -1523,6 +1537,7 @@ struct Exception : Object {
   virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_exception(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eq_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct ScriptError : Exception {
@@ -1777,6 +1792,7 @@ struct Encoding : Object {
   virtual BasicObject* m_eql_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_ascii_only_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_replicate(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct MatchData : Object {
@@ -1825,12 +1841,15 @@ struct Rational : Numeric {
   virtual BasicObject* m_hash(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eql_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_quo(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_plus(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_minus(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_mul(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_div(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_pow(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eq_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_coerce(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_to_f(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_floor(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_ceil(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -1880,10 +1899,14 @@ struct Complex : Object {
   virtual BasicObject* m_rationalize(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_to_f(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_to_i(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_r(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_finite_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_infinite_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_coerce(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_fdiv(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eql_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_marshal_dump(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m___ensure_real_strict__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___complex_coerce_op__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
@@ -1893,6 +1916,7 @@ struct IO : Object {
   BasicObject* iv_lineno = nullptr;
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> IO(__Ts__...) {}
   virtual BasicObject* m_puts(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m___puts_scalar__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_lshift(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eof(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_tty_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -1905,6 +1929,7 @@ struct IO : Object {
   virtual BasicObject* m_bytes(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_chars(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_codepoints(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_putc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct File : IO {
@@ -1926,6 +1951,7 @@ struct Dir : Object {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Dir(__Ts__...) {}
   virtual BasicObject* m_path(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_to_path(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_closed_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_children(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_entries(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -1966,9 +1992,11 @@ struct Time : Object {
   virtual BasicObject* m_eql_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_to_time(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_httpdate(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_deconstruct_keys(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_spaceship(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_rfc2822(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_rfc822(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m__coerce_exact_number(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Mutex : Object {
@@ -2063,6 +2091,8 @@ struct Thread : Object {
   virtual BasicObject* m_add_trace_func(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_set_trace_func(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_priority_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___init_main(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___add_owned_mutex(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___remove_owned_mutex(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -2109,6 +2139,7 @@ struct Queue : Object {
   BasicObject* iv_waiters = nullptr;
   BasicObject* iv_closed = nullptr;
   BasicObject* iv_deadlines = nullptr;
+  Queue(BasicObject* enumerable = nil_instance());
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Queue(__Ts__...) {}
   virtual BasicObject* m_empty_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_size(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -2116,6 +2147,7 @@ struct Queue : Object {
   virtual BasicObject* m_clear(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_num_waiting(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_closed_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_freeze(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_close(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_push(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_enq(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -2198,6 +2230,7 @@ struct StringIO : Object {
   virtual BasicObject* m_getc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_getbyte(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_lshift(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_putc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_bytes(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_chars(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_lines(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -2205,6 +2238,7 @@ struct StringIO : Object {
   virtual BasicObject* m_each_byte(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_each_char(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_each_codepoint(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_readpartial(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_flush(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_sync(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_sync_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -2215,6 +2249,7 @@ struct StringIO : Object {
   virtual BasicObject* m_pid(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_fcntl(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_to_io(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_readable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_writable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -2236,8 +2271,11 @@ struct Struct : Object {
   virtual BasicObject* m_size(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_length(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_deconstruct(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_aref(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_aset(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_each(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_each_pair(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_dig(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Data : Object {
@@ -2442,6 +2480,7 @@ struct Enumerator_eigenclass : Class {
   const char* ruby_class_name() const override { return "Enumerator"; }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_eigenclass(__Ts__...) {}
   virtual BasicObject* m__from_method(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_produce(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Exception_eigenclass : Class {
@@ -2663,6 +2702,7 @@ struct Encoding_eigenclass : Class {
   BasicObject* iv_find_map = nullptr;
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Encoding_eigenclass(__Ts__...) {}
   virtual BasicObject* m_default_internal(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_find(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct MatchData_eigenclass : Class {
@@ -2676,12 +2716,14 @@ struct Regexp_eigenclass : Class {
   using Class::Class;
   const char* ruby_class_name() const override { return "Regexp"; }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Regexp_eigenclass(__Ts__...) {}
+  virtual BasicObject* m_try_convert(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Rational_eigenclass : Class {
   using Class::Class;
   const char* ruby_class_name() const override { return "Rational"; }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Rational_eigenclass(__Ts__...) {}
+  virtual BasicObject* m_new(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Complex_eigenclass : Class {
@@ -2698,6 +2740,7 @@ struct IO_eigenclass : Class {
   const char* ruby_class_name() const override { return "IO"; }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> IO_eigenclass(__Ts__...) {}
   virtual BasicObject* m_binread(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m___coerce_path__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct File_eigenclass : Class {
@@ -2707,6 +2750,8 @@ struct File_eigenclass : Class {
   virtual BasicObject* m_lchown(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_lchmod(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_fnmatch_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_path(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m__coerce_path(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Dir_eigenclass : Class {
@@ -2725,6 +2770,8 @@ struct Time_eigenclass : Class {
   virtual BasicObject* m_local(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m__local_to_utc_offset(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m__utc_to_local_offset(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m__coerce_tz_arg(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m__coerce_int_arg(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m__time_force_zone_b(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
@@ -2740,6 +2787,7 @@ struct Fiber_eigenclass : Class {
   BasicObject* iv___scheduler__ = nullptr;
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Fiber_eigenclass(__Ts__...) {}
   virtual BasicObject* m_scheduler(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_set_scheduler(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct ThreadKill_eigenclass : Class {
@@ -2829,6 +2877,7 @@ struct Data_eigenclass : Class {
   BasicObject* iv_data_values = nullptr;
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Data_eigenclass(__Ts__...) {}
   virtual BasicObject* m_members(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_define(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Set_eigenclass : Class {
@@ -2850,6 +2899,7 @@ struct ENVClass_eigenclass : Class {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> ENVClass_eigenclass(__Ts__...) {}
   virtual BasicObject* m___coerce_key(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___coerce_value(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m___coerce_env_string__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___enc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___soft_coerce_string__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
@@ -3021,6 +3071,16 @@ inline BasicObject* Integer::m_bit_xor(Array* args, Hash* kwargs, Proc* block) {
 
 inline BasicObject* Integer::m_neg(Array* args, Hash* kwargs, Proc* block) {
   return new Integer(-raw_);
+}
+
+inline BasicObject* Integer::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  char buf[32];
+  int n = std::snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(raw_));
+  return new String(buf, static_cast<std::size_t>(n));
+}
+
+inline BasicObject* Integer::m_to_i(Array* args, Hash* kwargs, Proc* block) {
+  return this;
 }
 
 inline BasicObject* Float::m_plus(Array* args, Hash* kwargs, Proc* block) {
@@ -3356,6 +3416,18 @@ inline BasicObject* Module::m_refinements(Array* args, Hash* kwargs, Proc* block
   return nil_instance();
 }
 
+inline BasicObject* Module::m_include_q(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* mod = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(([&]() -> BasicObject* { auto* _l = mod->m_is_a_q((new Array({(&Module_CLASS)})), nullptr, nullptr); return truthy(_l) ? (mod->m_is_a_q((new Array({(&Class_CLASS)})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }()))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("wrong argument type ", 20))})), nullptr, nullptr)->m_plus((new Array({(mod->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" (expected Module)", 18))})), nullptr, nullptr)))); }());
+  }
+  return this->m_ancestors((new Array({})), nullptr, nullptr)->m_drop((new Array({(new Integer(1LL))})), nullptr, nullptr)->m_include_q((new Array({mod})), nullptr, nullptr);
+  return nil_instance();
+}
+
 inline BasicObject* Module::m_lt(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* other = array_at(args, 0);
   Proc* _block = block;
@@ -3434,6 +3506,20 @@ inline BasicObject* Module::m_ge(Array* args, Hash* kwargs, Proc* block) {
     return true_instance();
   }
   return (truthy(this->m_ancestors((new Array({})), nullptr, nullptr)->m_include_q((new Array({other})), nullptr, nullptr)) ? ((false_instance())) : ((nil_instance())));
+  return nil_instance();
+}
+
+inline BasicObject* Module::m_const_missing(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* name = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* n = nil_instance();
+  BasicObject* label = nil_instance();
+  BasicObject* e = nil_instance();
+  n = this->m_name((new Array({})), nullptr, nullptr);
+  label = (truthy(([&]() -> BasicObject* { auto* _l = n; return truthy(_l) ? (n->m_ne_q((new Array({(new String("Object", 6))})), nullptr, nullptr)) : _l; }())) ? ((((new String("", 0))->m_plus((new Array({(n)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("::", 2))})), nullptr, nullptr)->m_plus((new Array({(name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))) : ((truthy(n->m_nil_q((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(this->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("::", 2))})), nullptr, nullptr)->m_plus((new Array({(name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))) : ((name->m_to_s((new Array({})), nullptr, nullptr))))));
+  e = (new NameError(static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("uninitialized constant ", 23))})), nullptr, nullptr)->m_plus((new Array({(label)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr))), static_cast<BasicObject*>(name)));
+  e->m_instance_variable_set((new Array({intern("@receiver"), this})), nullptr, nullptr);
+  return ([&]() -> BasicObject* { throw static_cast<Exception*>(e); }());
   return nil_instance();
 }
 
@@ -3679,6 +3765,33 @@ inline BasicObject* Numeric::m_div(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* Numeric::m_quo(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* other = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* r = nil_instance();
+  if (truthy(other->m_is_a_q((new Array({(&Numeric_CLASS)})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(other->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" can't be coerced into Rational", 31))})), nullptr, nullptr)))); }());
+  }
+  r = this->m_to_r((new Array({})), nullptr, nullptr);
+  if (truthy(r->m_is_a_q((new Array({(&Rational_CLASS)})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(r->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" is not a Rational", 18))})), nullptr, nullptr)))); }());
+  }
+  return r->m_div((new Array({other})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Numeric::m_coerce(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* other = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* result = nil_instance();
+  return (truthy(other->m_instance_of_q((new Array({this->m_class((new Array({})), nullptr, nullptr)})), nullptr, nullptr)) ? (((new Array({other, this})))) : ((truthy(other->m_is_a_q((new Array({(&Numeric_CLASS)})), nullptr, nullptr)) ? (((new Array({other->m_to_f((new Array({})), nullptr, nullptr), this->m_to_f((new Array({})), nullptr, nullptr)})))) : ((truthy(other->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return (new Array({this->m_Float((new Array({other})), nullptr, nullptr), this->m_to_f((new Array({})), nullptr, nullptr)}));  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<ArgumentError*>(e_) != nullptr) { return [&]() -> BasicObject* { return ([&]() -> BasicObject* { throw (new ArgumentError(((new String("", 0))->m_plus((new Array({(new String("invalid value for Float(): ", 27))})), nullptr, nullptr)->m_plus((new Array({(other->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }());  return nil_instance(); }(); } throw; } }()))) : ((truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = other->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr); return truthy(_l) ? (other->m_ne_q((new Array({true_instance()})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (other->m_ne_q((new Array({false_instance()})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (other->m_is_a_q((new Array({(&Symbol_CLASS)})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (other->m_respond_to_q((new Array({intern("to_f")})), nullptr, nullptr)) : _l; }())) ? (((result = other->m_to_f((new Array({})), nullptr, nullptr)), (truthy(result->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)) ? (nil_instance()) : ((([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(other->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" can't be coerced into ", 23))})), nullptr, nullptr)->m_plus((new Array({(this->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }())))), (new Array({result, this->m_to_f((new Array({})), nullptr, nullptr)})))) : ((([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(other->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" can't be coerced into ", 23))})), nullptr, nullptr)->m_plus((new Array({(this->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }()))))))))));
+  return nil_instance();
+}
+
 inline BasicObject* Refinement::m_include(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* mods = args;  // *rest = whole args
   Proc* _block = block;
@@ -3699,10 +3812,41 @@ inline BasicObject* Refinement::m_target(Array* args, Hash* kwargs, Proc* block)
   return nil_instance();
 }
 
+inline BasicObject* Refinement::m_warn_ancestors(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* modules = array_at(args, 0);
+  Proc* _block = block;
+  return modules->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* mod = arg; return (truthy(mod->m_ancestors((new Array({})), nullptr, nullptr)->m_drop((new Array({(new Integer(1LL))})), nullptr, nullptr)->m_select((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* a = arg; return ([&]() -> BasicObject* { auto* _l = a->m_is_a_q((new Array({(&Module_CLASS)})), nullptr, nullptr); return truthy(_l) ? (a->m_is_a_q((new Array({(&Class_CLASS)})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }()); })))->m_empty_q((new Array({})), nullptr, nullptr)) ? (nil_instance()) : ((this->m_warn((new Array({((new String("", 0))->m_plus((new Array({(new String("warning: ", 9))})), nullptr, nullptr)->m_plus((new Array({(mod)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" has ancestors, but Refinement#import_methods doesn't import their methods", 74))})), nullptr, nullptr))})), nullptr, nullptr)))); })));
+  return nil_instance();
+}
+
 inline BasicObject* Method::m_curry(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* arity = (args->data.size() > 0) ? args->data[0] : (nil_instance());
   Proc* _block = block;
   return this->m_to_proc((new Array({})), nullptr, nullptr)->m_curry((new Array({arity})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* UnboundMethod::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* own = nil_instance();
+  BasicObject* own_name = nil_instance();
+  BasicObject* loc = nil_instance();
+  own = this->m_owner((new Array({})), nullptr, nullptr);
+  own_name = (truthy(own) ? (((([&]() -> BasicObject* { auto* _l = own->m_name((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (own->m_inspect((new Array({})), nullptr, nullptr)); }())))) : ((nil_instance())));
+  loc = (truthy(this->m_source_location((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(new String(" ", 1))})), nullptr, nullptr)->m_plus((new Array({(this->m_source_location((new Array({})), nullptr, nullptr)->m_aref((new Array({(new Integer(0LL))})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(":", 1))})), nullptr, nullptr)->m_plus((new Array({(this->m_source_location((new Array({})), nullptr, nullptr)->m_aref((new Array({(new Integer(1LL))})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))) : (((new String("", 0)))));
+  return ((new String("", 0))->m_plus((new Array({(new String("#<UnboundMethod: ", 17))})), nullptr, nullptr)->m_plus((new Array({(own_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("#", 1))})), nullptr, nullptr)->m_plus((new Array({(this->m_name((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(loc)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr));
+  return nil_instance();
+}
+
+inline BasicObject* UnboundMethod::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* own = nil_instance();
+  BasicObject* own_name = nil_instance();
+  BasicObject* loc = nil_instance();
+  own = this->m_owner((new Array({})), nullptr, nullptr);
+  own_name = (truthy(own) ? (((([&]() -> BasicObject* { auto* _l = own->m_name((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (own->m_inspect((new Array({})), nullptr, nullptr)); }())))) : ((nil_instance())));
+  loc = (truthy(this->m_source_location((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(new String(" ", 1))})), nullptr, nullptr)->m_plus((new Array({(this->m_source_location((new Array({})), nullptr, nullptr)->m_aref((new Array({(new Integer(0LL))})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(":", 1))})), nullptr, nullptr)->m_plus((new Array({(this->m_source_location((new Array({})), nullptr, nullptr)->m_aref((new Array({(new Integer(1LL))})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))) : (((new String("", 0)))));
+  return ((new String("", 0))->m_plus((new Array({(new String("#<UnboundMethod: ", 17))})), nullptr, nullptr)->m_plus((new Array({(own_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("#", 1))})), nullptr, nullptr)->m_plus((new Array({(this->m_name((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(loc)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr));
   return nil_instance();
 }
 
@@ -3912,6 +4056,30 @@ inline BasicObject* Range::m_minmax(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* Range::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* b = nil_instance();
+  BasicObject* e = nil_instance();
+  BasicObject* sep = nil_instance();
+  b = this->m_begin((new Array({})), nullptr, nullptr);
+  e = this->m_end((new Array({})), nullptr, nullptr);
+  sep = (truthy(this->m_exclude_end_q((new Array({})), nullptr, nullptr)) ? (((new String("...", 3)))) : (((new String("..", 2)))));
+  return (truthy(([&]() -> BasicObject* { auto* _l = b->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? (e->m_nil_q((new Array({})), nullptr, nullptr)) : _l; }())) ? ((((new String("", 0))->m_plus((new Array({(new String("nil", 3))})), nullptr, nullptr)->m_plus((new Array({(sep)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("nil", 3))})), nullptr, nullptr)))) : ((truthy(b->m_nil_q((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(sep)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(e)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))) : ((truthy(e->m_nil_q((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(b)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(sep)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))) : ((((new String("", 0))->m_plus((new Array({(b)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(sep)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(e)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))))))));
+  return nil_instance();
+}
+
+inline BasicObject* Range::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* b = nil_instance();
+  BasicObject* e = nil_instance();
+  BasicObject* sep = nil_instance();
+  b = this->m_begin((new Array({})), nullptr, nullptr);
+  e = this->m_end((new Array({})), nullptr, nullptr);
+  sep = (truthy(this->m_exclude_end_q((new Array({})), nullptr, nullptr)) ? (((new String("...", 3)))) : (((new String("..", 2)))));
+  return (truthy(([&]() -> BasicObject* { auto* _l = b->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? (e->m_nil_q((new Array({})), nullptr, nullptr)) : _l; }())) ? ((((new String("", 0))->m_plus((new Array({(new String("nil", 3))})), nullptr, nullptr)->m_plus((new Array({(sep)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("nil", 3))})), nullptr, nullptr)))) : ((truthy(b->m_nil_q((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(sep)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(e->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))) : ((truthy(e->m_nil_q((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(b->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(sep)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))) : ((((new String("", 0))->m_plus((new Array({(b->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(sep)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(e->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))))))));
+  return nil_instance();
+}
+
 inline BasicObject* Range::m_eq_q(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* other = array_at(args, 0);
   Proc* _block = block;
@@ -3980,6 +4148,55 @@ inline BasicObject* Range::m_last(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* Range::m_overlap_q(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* other = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* a_begin = nil_instance();
+  BasicObject* a_end = nil_instance();
+  BasicObject* a_excl = nil_instance();
+  BasicObject* b_begin = nil_instance();
+  BasicObject* b_end = nil_instance();
+  BasicObject* b_excl = nil_instance();
+  BasicObject* cmp = nil_instance();
+  if (truthy(other->m_is_a_q((new Array({(&Range_CLASS)})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("wrong argument type ", 20))})), nullptr, nullptr)->m_plus((new Array({(other->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" (expected Range)", 17))})), nullptr, nullptr)))); }());
+  }
+  a_begin = this->m_begin((new Array({})), nullptr, nullptr);
+  a_end = this->m_end((new Array({})), nullptr, nullptr);
+  a_excl = this->m_exclude_end_q((new Array({})), nullptr, nullptr);
+  b_begin = other->m_begin((new Array({})), nullptr, nullptr);
+  b_end = other->m_end((new Array({})), nullptr, nullptr);
+  b_excl = other->m_exclude_end_q((new Array({})), nullptr, nullptr);
+  if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = a_begin->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr); return truthy(_l) ? (a_end->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (((truthy(a_excl) ? ((a_begin->m_ge((new Array({a_end})), nullptr, nullptr))) : ((a_begin->m_gt((new Array({a_end})), nullptr, nullptr)))))) : _l; }()))) {
+    return false_instance();
+  }
+  if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = b_begin->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr); return truthy(_l) ? (b_end->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (((truthy(b_excl) ? ((b_begin->m_ge((new Array({b_end})), nullptr, nullptr))) : ((b_begin->m_gt((new Array({b_end})), nullptr, nullptr)))))) : _l; }()))) {
+    return false_instance();
+  }
+  if (truthy(([&]() -> BasicObject* { auto* _l = a_end->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr); return truthy(_l) ? (b_begin->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }()))) {
+    cmp = a_end->m_spaceship((new Array({b_begin})), nullptr, nullptr);
+    if (truthy(cmp->m_nil_q((new Array({})), nullptr, nullptr))) {
+      return false_instance();
+    }
+    if (truthy((truthy(a_excl) ? ((cmp->m_le((new Array({(new Integer(0LL))})), nullptr, nullptr))) : ((cmp->m_lt((new Array({(new Integer(0LL))})), nullptr, nullptr)))))) {
+      return false_instance();
+    }
+  }
+  if (truthy(([&]() -> BasicObject* { auto* _l = b_end->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr); return truthy(_l) ? (a_begin->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }()))) {
+    cmp = b_end->m_spaceship((new Array({a_begin})), nullptr, nullptr);
+    if (truthy(cmp->m_nil_q((new Array({})), nullptr, nullptr))) {
+      return false_instance();
+    }
+    if (truthy((truthy(b_excl) ? ((cmp->m_le((new Array({(new Integer(0LL))})), nullptr, nullptr))) : ((cmp->m_lt((new Array({(new Integer(0LL))})), nullptr, nullptr)))))) {
+      return false_instance();
+    }
+  }
+  return true_instance();
+  return nil_instance();
+}
+
 inline BasicObject* Range::m_each_slice(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* n = array_at(args, 0);
   Proc* _block = block;
@@ -4011,6 +4228,51 @@ inline BasicObject* Range::m_each_cons(Array* args, Hash* kwargs, Proc* block) {
   }
   buf = (new Array({}));
   this->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* x = arg; buf->m_lshift((new Array({x})), nullptr, nullptr); return (truthy(buf->m_length((new Array({})), nullptr, nullptr)->m_eq_q((new Array({n})), nullptr, nullptr)) ? ((_block->m_call((new Array({buf->m_dup((new Array({})), nullptr, nullptr)})), nullptr, nullptr), buf->m_shift((new Array({})), nullptr, nullptr))) : (nil_instance())); })));
+  return this;
+  return nil_instance();
+}
+
+inline BasicObject* Range::m_reverse_each(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* b = nil_instance();
+  BasicObject* e = nil_instance();
+  BasicObject* excl = nil_instance();
+  BasicObject* i = nil_instance();
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    return this->m_to_enum((new Array({intern("reverse_each")})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { return this->m___reverse_each_size__((new Array({})), nullptr, nullptr); })));
+  }
+  b = this->m_begin((new Array({})), nullptr, nullptr);
+  e = this->m_end((new Array({})), nullptr, nullptr);
+  excl = this->m_exclude_end_q((new Array({})), nullptr, nullptr);
+  if (truthy(e->m_nil_q((new Array({})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw (new TypeError((new String("can't iterate from NilClass", 27)))); }());
+  }
+  if (truthy(b->m_nil_q((new Array({})), nullptr, nullptr))) {
+    if (truthy(e->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr))) {
+      nil_instance();
+    } else {
+      ([&]() -> BasicObject* { throw (new TypeError((new String("can't iterate from NilClass", 27)))); }());
+    }
+    i = (truthy(excl) ? ((e->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr))) : ((e)));
+    this->m_loop((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { block->m_call((new Array({i})), nullptr, nullptr); return (i = i->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr)); })));
+  } else {
+    if (truthy(b->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr))) {
+      if (truthy(e->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr))) {
+        nil_instance();
+      } else {
+        ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't iterate from ", 19))})), nullptr, nullptr)->m_plus((new Array({(e->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }());
+      }
+      i = (truthy(excl) ? ((e->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr))) : ((e)));
+      while (truthy(i->m_ge((new Array({b})), nullptr, nullptr))) {
+        block->m_call((new Array({i})), nullptr, nullptr);
+        i = i->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr);
+      }
+    } else {
+      this->m_to_a((new Array({})), nullptr, nullptr)->m_reverse_each((new Array({})), nullptr, static_cast<Proc*>(block));
+    }
+  }
   return this;
   return nil_instance();
 }
@@ -4077,6 +4339,37 @@ inline BasicObject* Range::m___bsearch_integer__(Array* args, Hash* kwargs, Proc
   r0 = block->m_call((new Array({lo_val})), nullptr, nullptr);
   this->m___bsearch_validate__((new Array({r0})), nullptr, nullptr);
   return (truthy(r0->m_is_a_q((new Array({(&Numeric_CLASS)})), nullptr, nullptr)) ? ((this->m___bsearch_int_any__((new Array({lo_val, hi_val, r0})), nullptr, static_cast<Proc*>(block)))) : ((this->m___bsearch_int_min__((new Array({lo_val, hi_val, r0})), nullptr, static_cast<Proc*>(block)))));
+  return nil_instance();
+}
+
+inline BasicObject* Range::m___bsearch_int_min__(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* lo = array_at(args, 0);
+  BasicObject* hi = array_at(args, 1);
+  BasicObject* r0 = array_at(args, 2);
+  Proc* _block = block;
+  BasicObject* result = nil_instance();
+  BasicObject* left = nil_instance();
+  BasicObject* right = nil_instance();
+  BasicObject* mid = nil_instance();
+  BasicObject* r = nil_instance();
+  result = (truthy(r0) ? ((lo)) : ((nil_instance())));
+  left = (truthy(r0) ? ((lo)) : ((lo->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr))));
+  right = hi;
+  while (truthy(left->m_le((new Array({right})), nullptr, nullptr))) {
+    mid = left->m_plus((new Array({(right->m_minus((new Array({left})), nullptr, nullptr))->m_div((new Array({(new Integer(2LL))})), nullptr, nullptr)})), nullptr, nullptr);
+    r = block->m_call((new Array({mid})), nullptr, nullptr);
+    if (truthy(r->m_is_a_q((new Array({(&Numeric_CLASS)})), nullptr, nullptr))) {
+      ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("wrong argument type ", 20))})), nullptr, nullptr)->m_plus((new Array({(r->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" (must be true, false or nil)", 29))})), nullptr, nullptr)))); }());
+    }
+    this->m___bsearch_validate__((new Array({r})), nullptr, nullptr);
+    if (truthy(r)) {
+      result = mid;
+      right = mid->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr);
+    } else {
+      left = mid->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr);
+    }
+  }
+  return result;
   return nil_instance();
 }
 
@@ -4347,6 +4640,14 @@ inline BasicObject* Exception::m_eq_q(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* Exception::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* msg = nil_instance();
+  msg = this->m_to_s((new Array({})), nullptr, nullptr);
+  return (truthy(([&]() -> BasicObject* { auto* _l = msg->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (msg->m_empty_q((new Array({})), nullptr, nullptr)); }())) ? ((([&]() -> BasicObject* { auto* _l = this->m_class((new Array({})), nullptr, nullptr)->m_name((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (this->m_class((new Array({})), nullptr, nullptr)->m_to_s((new Array({})), nullptr, nullptr)); }()))) : ((((new String("", 0))->m_plus((new Array({(new String("#<", 2))})), nullptr, nullptr)->m_plus((new Array({(([&]() -> BasicObject* { auto* _l = this->m_class((new Array({})), nullptr, nullptr)->m_name((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (this->m_class((new Array({})), nullptr, nullptr)->m_to_s((new Array({})), nullptr, nullptr)); }()))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(": ", 2))})), nullptr, nullptr)->m_plus((new Array({(msg)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr)))));
+  return nil_instance();
+}
+
 inline BasicObject* LoadError::m_path(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this->iv_path;
@@ -4494,6 +4795,12 @@ inline BasicObject* Encoding::m_replicate(Array* args, Hash* kwargs, Proc* block
   BasicObject* new_name = array_at(args, 0);
   Proc* _block = block;
   return (new Encoding(static_cast<BasicObject*>(new_name)));
+  return nil_instance();
+}
+
+inline BasicObject* Encoding::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (truthy(this->iv_name->m_eq_q((new Array({(new String("ASCII-8BIT", 10))})), nullptr, nullptr)) ? (((new String("#<Encoding:BINARY (ASCII-8BIT)>", 31)))) : ((truthy(this->m_dummy_q((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(new String("#<Encoding:", 11))})), nullptr, nullptr)->m_plus((new Array({(this->iv_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" (dummy)>", 9))})), nullptr, nullptr)))) : ((((new String("", 0))->m_plus((new Array({(new String("#<Encoding:", 11))})), nullptr, nullptr)->m_plus((new Array({(this->iv_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr)))))));
   return nil_instance();
 }
 
@@ -4682,6 +4989,18 @@ inline BasicObject* Rational::m_quo(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* Rational::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ((new String("", 0))->m_plus((new Array({(new String("(", 1))})), nullptr, nullptr)->m_plus((new Array({(this->iv_numerator)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("/", 1))})), nullptr, nullptr)->m_plus((new Array({(this->iv_denominator)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(")", 1))})), nullptr, nullptr));
+  return nil_instance();
+}
+
+inline BasicObject* Rational::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ((new String("", 0))->m_plus((new Array({(this->iv_numerator)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("/", 1))})), nullptr, nullptr)->m_plus((new Array({(this->iv_denominator)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr));
+  return nil_instance();
+}
+
 inline BasicObject* Rational::m_plus(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* other = array_at(args, 0);
   Proc* _block = block;
@@ -4724,6 +5043,13 @@ inline BasicObject* Rational::m_eq_q(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* other = array_at(args, 0);
   Proc* _block = block;
   return ([&]() -> BasicObject* { auto* _subj = other; if (truthy((&Rational_CLASS)->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (([&]() -> BasicObject* { auto* _l = this->iv_numerator->m_eq_q((new Array({other->m_numerator((new Array({})), nullptr, nullptr)})), nullptr, nullptr); return truthy(_l) ? (this->iv_denominator->m_eq_q((new Array({other->m_denominator((new Array({})), nullptr, nullptr)})), nullptr, nullptr)) : _l; }())); if (truthy((&Integer_CLASS)->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (([&]() -> BasicObject* { auto* _l = this->iv_denominator->m_eq_q((new Array({(new Integer(1LL))})), nullptr, nullptr); return truthy(_l) ? (this->iv_numerator->m_eq_q((new Array({other})), nullptr, nullptr)) : _l; }())); if (truthy((&Float_CLASS)->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_to_f((new Array({})), nullptr, nullptr)->m_eq_q((new Array({other})), nullptr, nullptr)); return (([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return other->m_eq_q((new Array({this})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return false_instance();  return nil_instance(); }(); } throw; } }())); }());
+  return nil_instance();
+}
+
+inline BasicObject* Rational::m_coerce(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* other = array_at(args, 0);
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { auto* _subj = other; if (truthy((&Float_CLASS)->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new Array({other, this->m_to_f((new Array({})), nullptr, nullptr)}))); if (truthy((&Integer_CLASS)->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new Array({this->m_Rational((new Array({other})), nullptr, nullptr), this}))); if (truthy((&Rational_CLASS)->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new Array({other, this}))); return (([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't coerce ", 13))})), nullptr, nullptr)->m_plus((new Array({(other->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Rational", 14))})), nullptr, nullptr)))); }())); }());
   return nil_instance();
 }
 
@@ -5055,6 +5381,17 @@ inline BasicObject* Complex::m_to_i(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* Complex::m_to_r(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(this->iv_imaginary->m_eq_q((new Array({(new Integer(0LL))})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new RangeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(this->m_to_s((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Rational", 14))})), nullptr, nullptr)))); }());
+  }
+  return this->iv_real->m_to_r((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
 inline BasicObject* Complex::m_finite_q(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = this->iv_real->m_respond_to_q((new Array({intern("finite?")})), nullptr, nullptr); return truthy(_l) ? (this->iv_real->m_finite_q((new Array({})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (this->iv_imaginary->m_respond_to_q((new Array({intern("finite?")})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (this->iv_imaginary->m_finite_q((new Array({})), nullptr, nullptr)) : _l; }());
@@ -5068,6 +5405,26 @@ inline BasicObject* Complex::m_infinite_q(Array* args, Hash* kwargs, Proc* block
   r_inf = (truthy(this->iv_real->m_respond_to_q((new Array({intern("infinite?")})), nullptr, nullptr)) ? ((this->iv_real->m_infinite_q((new Array({})), nullptr, nullptr))) : ((nil_instance())));
   i_inf = (truthy(this->iv_imaginary->m_respond_to_q((new Array({intern("infinite?")})), nullptr, nullptr)) ? ((this->iv_imaginary->m_infinite_q((new Array({})), nullptr, nullptr))) : ((nil_instance())));
   return (truthy(([&]() -> BasicObject* { auto* _l = (([&]() -> BasicObject* { auto* _l = r_inf; return truthy(_l) ? (r_inf->m_ne_q((new Array({(new Integer(0LL))})), nullptr, nullptr)) : _l; }())); return truthy(_l) ? _l : ((([&]() -> BasicObject* { auto* _l = i_inf; return truthy(_l) ? (i_inf->m_ne_q((new Array({(new Integer(0LL))})), nullptr, nullptr)) : _l; }()))); }())) ? (((new Integer(1LL)))) : ((nil_instance())));
+  return nil_instance();
+}
+
+inline BasicObject* Complex::m_coerce(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* other = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* real_q = nil_instance();
+  return (truthy(other->m_is_a_q((new Array({(&Complex_CLASS)})), nullptr, nullptr)) ? (((new Array({other, this})))) : ((truthy(other->m_is_a_q((new Array({(&Numeric_CLASS)})), nullptr, nullptr)) ? (((real_q = (truthy(other->m_respond_to_q((new Array({intern("real?")})), nullptr, nullptr)) ? ((other->m_real_q((new Array({})), nullptr, nullptr))) : ((true_instance())))), (truthy(real_q->m_eq_q((new Array({false_instance()})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(other->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" can't be coerced into Complex", 30))})), nullptr, nullptr)))); }()))) : (nil_instance())), (new Array({this->m_Complex((new Array({other, (new Integer(0LL))})), nullptr, nullptr), this})))) : ((([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(other->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" can't be coerced into Complex", 30))})), nullptr, nullptr)))); }()))))));
+  return nil_instance();
+}
+
+inline BasicObject* Complex::m_fdiv(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* other = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(other->m_is_a_q((new Array({(&Numeric_CLASS)})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(other->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" can't be coerced into Complex", 30))})), nullptr, nullptr)))); }());
+  }
+  return this->m_Complex((new Array({this->iv_real->m_fdiv((new Array({other})), nullptr, nullptr), this->iv_imaginary->m_fdiv((new Array({other})), nullptr, nullptr)})), nullptr, nullptr);
   return nil_instance();
 }
 
@@ -5089,6 +5446,13 @@ inline BasicObject* Complex::m_marshal_dump(Array* args, Hash* kwargs, Proc* blo
   return nil_instance();
 }
 
+inline BasicObject* Complex::m___ensure_real_strict__(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* type = array_at(args, 0);
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { throw (new RangeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(this->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into ", 6))})), nullptr, nullptr)->m_plus((new Array({(type)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }());
+  return nil_instance();
+}
+
 inline BasicObject* Complex::m___complex_coerce_op__(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* other = array_at(args, 0);
   BasicObject* op = array_at(args, 1);
@@ -5106,6 +5470,21 @@ inline BasicObject* IO::m_puts(Array* args, Hash* kwargs, Proc* block) {
     args->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { return (truthy(arg->m_nil_q((new Array({})), nullptr, nullptr)) ? ((this->m_write((new Array({(new String("\n", 1))})), nullptr, nullptr))) : ((truthy(arg->m_is_a_q((new Array({(&Array_CLASS)})), nullptr, nullptr)) ? ((this->m___puts_array__((new Array({arg})), nullptr, nullptr))) : ((([&]() -> BasicObject* { try { return [&]() -> BasicObject* { BasicObject* ary = arg->m_to_ary((new Array({})), nullptr, nullptr); return (truthy(ary->m_nil_q((new Array({})), nullptr, nullptr)) ? ((this->m___puts_scalar__((new Array({arg})), nullptr, nullptr))) : ((truthy(ary->m_is_a_q((new Array({(&Array_CLASS)})), nullptr, nullptr)) ? ((this->m___puts_array__((new Array({ary})), nullptr, nullptr))) : ((this->m___puts_scalar__((new Array({arg})), nullptr, nullptr))))));  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<NoMethodError*>(e_) != nullptr) { return [&]() -> BasicObject* { return this->m___puts_scalar__((new Array({arg})), nullptr, nullptr);  return nil_instance(); }(); } throw; } }())))))); })));
   }
   return nil_instance();
+  return nil_instance();
+}
+
+inline BasicObject* IO::m___puts_scalar__(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* arg = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* str = nil_instance();
+  str = arg->m_to_s((new Array({})), nullptr, nullptr);
+  if (truthy(str->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    str = ((new String("", 0))->m_plus((new Array({(new String("#<", 2))})), nullptr, nullptr)->m_plus((new Array({(arg->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(":0x", 3))})), nullptr, nullptr)->m_plus((new Array({(arg->m___id__((new Array({})), nullptr, nullptr)->m_to_s((new Array({(new Integer(16LL))})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr));
+  }
+  this->m_write((new Array({str})), nullptr, nullptr);
+  return (truthy(str->m_end_with_q((new Array({(new String("\n", 1))})), nullptr, nullptr)) ? (nil_instance()) : ((this->m_write((new Array({(new String("\n", 1))})), nullptr, nullptr))));
   return nil_instance();
 }
 
@@ -5204,6 +5583,26 @@ inline BasicObject* IO::m_codepoints(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* IO::m_putc(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* c = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(c->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
+    this->m_write((new Array({([&]() -> BasicObject* { auto* _l = c->m_aref((new Array({(new Integer(0LL))})), nullptr, nullptr); return truthy(_l) ? _l : ((new String("", 0))); }())})), nullptr, nullptr);
+  } else {
+    if (truthy(c->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr))) {
+      this->m_write((new Array({(c->m_bit_and((new Array({(new Integer(255LL))})), nullptr, nullptr))->m_chr((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
+    } else {
+      if (truthy(c->m_respond_to_q((new Array({intern("to_int")})), nullptr, nullptr))) {
+        this->m_write((new Array({(c->m_to_int((new Array({})), nullptr, nullptr)->m_bit_and((new Array({(new Integer(255LL))})), nullptr, nullptr))->m_chr((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
+      } else {
+        ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(c->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Integer", 13))})), nullptr, nullptr)))); }());
+      }
+    }
+  }
+  return c;
+  return nil_instance();
+}
+
 inline BasicObject* File::m_chown(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* uid = array_at(args, 0);
   BasicObject* gid = array_at(args, 1);
@@ -5221,6 +5620,12 @@ inline BasicObject* Dir::m_path(Array* args, Hash* kwargs, Proc* block) {
 inline BasicObject* Dir::m_to_path(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this->iv_path;
+  return nil_instance();
+}
+
+inline BasicObject* Dir::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ((new String("", 0))->m_plus((new Array({(new String("#<Dir:", 6))})), nullptr, nullptr)->m_plus((new Array({(this->iv_path)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr));
   return nil_instance();
 }
 
@@ -5446,6 +5851,20 @@ inline BasicObject* Time::m_httpdate(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* Time::m_deconstruct_keys(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* keys = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* h = nil_instance();
+  if (truthy(([&]() -> BasicObject* { auto* _l = keys->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (keys->m_is_a_q((new Array({(&Array_CLASS)})), nullptr, nullptr)); }()))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("wrong argument type ", 20))})), nullptr, nullptr)->m_plus((new Array({(keys->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" (expected Array or nil)", 24))})), nullptr, nullptr)))); }());
+  }
+  h = (new Hash({{intern("year"), this->m_year((new Array({})), nullptr, nullptr)}, {intern("month"), this->m_month((new Array({})), nullptr, nullptr)}, {intern("day"), this->m_mday((new Array({})), nullptr, nullptr)}, {intern("yday"), this->m_yday((new Array({})), nullptr, nullptr)}, {intern("wday"), this->m_wday((new Array({})), nullptr, nullptr)}, {intern("hour"), this->m_hour((new Array({})), nullptr, nullptr)}, {intern("min"), this->m_min((new Array({})), nullptr, nullptr)}, {intern("sec"), this->m_sec((new Array({})), nullptr, nullptr)}, {intern("subsec"), this->m_subsec((new Array({})), nullptr, nullptr)}, {intern("dst"), this->m_dst_q((new Array({})), nullptr, nullptr)}, {intern("zone"), this->m_zone((new Array({})), nullptr, nullptr)}}));
+  return (truthy(keys->m_nil_q((new Array({})), nullptr, nullptr)) ? ((h)) : ((h->m_slice(static_cast<Array*>(keys), nullptr, nullptr))));
+  return nil_instance();
+}
+
 inline BasicObject* Time::m_spaceship(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* other = array_at(args, 0);
   Proc* _block = block;
@@ -5463,6 +5882,25 @@ inline BasicObject* Time::m_rfc2822(Array* args, Hash* kwargs, Proc* block) {
 inline BasicObject* Time::m_rfc822(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this->m_strftime((new Array({(new String("%a, %d %b %Y %T ", 16))})), nullptr, nullptr)->m_lshift((new Array({((truthy(this->m_utc_q((new Array({})), nullptr, nullptr)) ? (((new String("-0000", 5)))) : ((this->m_strftime((new Array({(new String("%z", 2))})), nullptr, nullptr)))))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Time::m__coerce_exact_number(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* val = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(([&]() -> BasicObject* { auto* _l = val->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (val->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)); }()))) {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(val->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into an exact number", 21))})), nullptr, nullptr)))); }());
+  }
+  if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = val->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (val->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }()); return truthy(_l) ? _l : (val->m_is_a_q((new Array({(&Rational_CLASS)})), nullptr, nullptr)); }()))) {
+    return val;
+  }
+  if (truthy(val->m_respond_to_q((new Array({intern("to_r")})), nullptr, nullptr))) {
+    return val->m_to_r((new Array({})), nullptr, nullptr);
+  }
+  if (truthy(val->m_respond_to_q((new Array({intern("to_int")})), nullptr, nullptr))) {
+    return val->m_to_int((new Array({})), nullptr, nullptr);
+  }
+  return ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(val->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into an exact number", 21))})), nullptr, nullptr)))); }());
   return nil_instance();
 }
 
@@ -5790,6 +6228,30 @@ inline BasicObject* Thread::m_priority_set(Array* args, Hash* kwargs, Proc* bloc
   return nil_instance();
 }
 
+inline BasicObject* Thread::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* id_str = nil_instance();
+  BasicObject* status_str = nil_instance();
+  BasicObject* loc = nil_instance();
+  id_str = ((new String("0x%016x", 7))->m_mod((new Array({(this->m___id__((new Array({})), nullptr, nullptr)->m_mul((new Array({(new Integer(2LL))})), nullptr, nullptr))})), nullptr, nullptr));
+  status_str = ([&]() -> BasicObject* { auto* _subj = this->m_status((new Array({})), nullptr, nullptr); if (truthy((new String("run", 3))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("run", 3))); if (truthy((new String("sleep", 5))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("sleep", 5))); if (truthy((new String("aborting", 8))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("aborting", 8))); if (truthy(false_instance()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("dead", 4))); if (truthy(nil_instance()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("dead", 4))); return ((new String("dead", 4))); }());
+  loc = (truthy(this->iv_source_location_str) ? ((((new String("", 0))->m_plus((new Array({(new String(" ", 1))})), nullptr, nullptr)->m_plus((new Array({(this->iv_source_location_str)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))) : (((new String("", 0)))));
+  return ((new String("", 0))->m_plus((new Array({(new String("#<Thread:", 9))})), nullptr, nullptr)->m_plus((new Array({(id_str)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(loc)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" ", 1))})), nullptr, nullptr)->m_plus((new Array({(status_str)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr))->m_b((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Thread::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* id_str = nil_instance();
+  BasicObject* status_str = nil_instance();
+  BasicObject* loc = nil_instance();
+  id_str = ((new String("0x%016x", 7))->m_mod((new Array({(this->m___id__((new Array({})), nullptr, nullptr)->m_mul((new Array({(new Integer(2LL))})), nullptr, nullptr))})), nullptr, nullptr));
+  status_str = ([&]() -> BasicObject* { auto* _subj = this->m_status((new Array({})), nullptr, nullptr); if (truthy((new String("run", 3))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("run", 3))); if (truthy((new String("sleep", 5))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("sleep", 5))); if (truthy((new String("aborting", 8))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("aborting", 8))); if (truthy(false_instance()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("dead", 4))); if (truthy(nil_instance()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("dead", 4))); return ((new String("dead", 4))); }());
+  loc = (truthy(this->iv_source_location_str) ? ((((new String("", 0))->m_plus((new Array({(new String(" ", 1))})), nullptr, nullptr)->m_plus((new Array({(this->iv_source_location_str)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))) : (((new String("", 0)))));
+  return ((new String("", 0))->m_plus((new Array({(new String("#<Thread:", 9))})), nullptr, nullptr)->m_plus((new Array({(id_str)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(loc)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" ", 1))})), nullptr, nullptr)->m_plus((new Array({(status_str)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr))->m_b((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
 inline BasicObject* Thread::m___init_main(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   (this->iv_block = nil_instance());
@@ -6006,6 +6468,28 @@ inline BasicObject* ConditionVariable::m_wait(Array* args, Hash* kwargs, Proc* b
   return nil_instance();
 }
 
+inline Queue::Queue(BasicObject* enumerable) {
+  BasicObject* arr = nil_instance();
+  (this->iv_data = (new Array({})));
+  (this->iv_closed = false_instance());
+  (this->iv_waiters = (new Set()));
+  (this->iv_deadlines = (new Hash({})));
+  if (truthy(enumerable->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr))) {
+    if (truthy(enumerable->m_respond_to_q((new Array({intern("to_a")})), nullptr, nullptr))) {
+      nil_instance();
+    } else {
+      ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(enumerable->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Array", 11))})), nullptr, nullptr)))); }());
+    }
+    arr = enumerable->m_to_a((new Array({})), nullptr, nullptr);
+    if (truthy(arr->m_is_a_q((new Array({(&Array_CLASS)})), nullptr, nullptr))) {
+      nil_instance();
+    } else {
+      ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(enumerable->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Array (", 13))})), nullptr, nullptr)->m_plus((new Array({(enumerable->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("#to_a gives ", 12))})), nullptr, nullptr)->m_plus((new Array({(arr->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(")", 1))})), nullptr, nullptr)))); }());
+    }
+    arr->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* item = arg; return this->iv_data->m_push((new Array({item})), nullptr, nullptr); })));
+  }
+}
+
 inline BasicObject* Queue::m_empty_q(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this->iv_data->m_empty_q((new Array({})), nullptr, nullptr);
@@ -6040,6 +6524,12 @@ inline BasicObject* Queue::m_num_waiting(Array* args, Hash* kwargs, Proc* block)
 inline BasicObject* Queue::m_closed_q(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this->iv_closed;
+  return nil_instance();
+}
+
+inline BasicObject* Queue::m_freeze(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("cannot freeze ", 14))})), nullptr, nullptr)->m_plus((new Array({(this)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }());
   return nil_instance();
 }
 
@@ -6322,6 +6812,17 @@ inline BasicObject* StringIO::m_lshift(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* StringIO::m_putc(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* ch = nil_instance();
+  this->m__check_writable((new Array({})), nullptr, nullptr);
+  ch = (truthy(obj->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr)) ? (((obj->m_mod((new Array({(new Integer(256LL))})), nullptr, nullptr))->m_chr((new Array({})), nullptr, nullptr))) : ((truthy(obj->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)) ? ((obj->m_aref((new Array({(new Integer(0LL))})), nullptr, nullptr))) : ((truthy(obj->m_respond_to_q((new Array({intern("to_int")})), nullptr, nullptr)) ? (((obj->m_to_int((new Array({})), nullptr, nullptr)->m_mod((new Array({(new Integer(256LL))})), nullptr, nullptr))->m_chr((new Array({})), nullptr, nullptr))) : ((truthy(obj->m_respond_to_q((new Array({intern("to_str")})), nullptr, nullptr)) ? ((obj->m_to_str((new Array({})), nullptr, nullptr)->m_aref((new Array({(new Integer(0LL))})), nullptr, nullptr))) : ((([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(obj->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Integer", 13))})), nullptr, nullptr)))); }()))))))))));
+  this->m__write_str((new Array({ch})), nullptr, nullptr);
+  return obj;
+  return nil_instance();
+}
+
 inline BasicObject* StringIO::m_bytes(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this->m_each_byte((new Array({})), nullptr, nullptr)->m_to_a((new Array({})), nullptr, nullptr);
@@ -6391,6 +6892,68 @@ inline BasicObject* StringIO::m_each_codepoint(Array* args, Hash* kwargs, Proc* 
   return nil_instance();
 }
 
+inline BasicObject* StringIO::m_readpartial(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* length = array_at(args, 0);
+  BasicObject* buffer = (args->data.size() > 1) ? args->data[1] : (nil_instance());
+  Proc* _block = block;
+  BasicObject* buf_enc = nil_instance();
+  BasicObject* ret = nil_instance();
+  BasicObject* data = nil_instance();
+  BasicObject* saved_enc = nil_instance();
+  this->m__check_readable((new Array({})), nullptr, nullptr);
+  if (truthy(([&]() -> BasicObject* { auto* _l = length->m_respond_to_q((new Array({intern("to_int")})), nullptr, nullptr); return truthy(_l) ? (length->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }()))) {
+    length = length->m_to_int((new Array({})), nullptr, nullptr);
+  } else {
+    if (truthy(length->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr))) {
+      ([&]() -> BasicObject* { throw (new TypeError((new String("no implicit conversion into Integer", 35)))); }());
+    }
+  }
+  if (truthy(length->m_lt((new Array({(new Integer(0LL))})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw (new ArgumentError(((new String("", 0))->m_plus((new Array({(new String("negative length ", 16))})), nullptr, nullptr)->m_plus((new Array({(length)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" given", 6))})), nullptr, nullptr)))); }());
+  }
+  buf_enc = nil_instance();
+  if (truthy(buffer)) {
+    if (truthy(buffer->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
+      buf_enc = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return buffer->m_encoding((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
+    } else {
+      if (truthy(buffer->m_respond_to_q((new Array({intern("to_str")})), nullptr, nullptr))) {
+        buffer = buffer->m_to_str((new Array({})), nullptr, nullptr);
+        buf_enc = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return buffer->m_encoding((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
+      } else {
+        ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(buffer->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into String", 12))})), nullptr, nullptr)))); }());
+      }
+    }
+  }
+  if (truthy(length->m_eq_q((new Array({(new Integer(0LL))})), nullptr, nullptr))) {
+    if (truthy(buffer)) {
+      ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return buffer->m_replace((new Array({(new String("", 0))})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
+    }
+    ret = ([&]() -> BasicObject* { auto* _l = buffer; return truthy(_l) ? _l : ((new String("", 0))); }());
+    if (truthy(([&]() -> BasicObject* { auto* _l = buf_enc; return truthy(_l) ? (ret->m_respond_to_q((new Array({intern("force_encoding")})), nullptr, nullptr)) : _l; }()))) {
+      ret->m_force_encoding((new Array({buf_enc})), nullptr, nullptr);
+    }
+    return ret;
+  }
+  if (truthy(this->iv_pos->m_ge((new Array({this->iv_string->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr))) {
+    if (truthy(buffer)) {
+      ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return buffer->m_replace((new Array({(new String("", 0))})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
+    }
+    ([&]() -> BasicObject* { throw (new EOFError((new String("end of file reached", 19)))); }());
+  }
+  data = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return (([&]() -> BasicObject* { auto* _l = this->iv_string->m_byteslice((new Array({this->iv_pos, length})), nullptr, nullptr); return truthy(_l) ? _l : ((new String("", 0))); }()))->m_b((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return ([&]() -> BasicObject* { auto* _l = this->iv_string->m_byteslice((new Array({this->iv_pos, length})), nullptr, nullptr); return truthy(_l) ? _l : ((new String("", 0))); }());  return nil_instance(); }(); } throw; } }());
+  (this->iv_pos = this->iv_pos->m_plus((new Array({data->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr));
+  if (truthy(buffer)) {
+    saved_enc = buf_enc;
+    ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return buffer->m_replace((new Array({data})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
+    if (truthy(([&]() -> BasicObject* { auto* _l = saved_enc; return truthy(_l) ? (buffer->m_respond_to_q((new Array({intern("force_encoding")})), nullptr, nullptr)) : _l; }()))) {
+      buffer->m_force_encoding((new Array({saved_enc})), nullptr, nullptr);
+    }
+    return buffer;
+  }
+  return data;
+  return nil_instance();
+}
+
 inline BasicObject* StringIO::m_flush(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this;
@@ -6450,6 +7013,12 @@ inline BasicObject* StringIO::m_fcntl(Array* args, Hash* kwargs, Proc* block) {
 inline BasicObject* StringIO::m_to_io(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this;
+  return nil_instance();
+}
+
+inline BasicObject* StringIO::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ((new String("", 0))->m_plus((new Array({(new String("#<StringIO:0x", 13))})), nullptr, nullptr)->m_plus((new Array({(this->m_object_id((new Array({})), nullptr, nullptr)->m_to_s((new Array({(new Integer(16LL))})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr));
   return nil_instance();
 }
 
@@ -6546,6 +7115,52 @@ inline BasicObject* Struct::m_deconstruct(Array* args, Hash* kwargs, Proc* block
   return nil_instance();
 }
 
+inline BasicObject* Struct::m_aref(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* name_or_idx = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* mems = nil_instance();
+  BasicObject* idx = nil_instance();
+  BasicObject* name = nil_instance();
+  mems = this->m_members((new Array({})), nullptr, nullptr);
+  return (truthy(name_or_idx->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr)) ? (((idx = (truthy(name_or_idx->m_lt((new Array({(new Integer(0LL))})), nullptr, nullptr)) ? ((mems->m_size((new Array({})), nullptr, nullptr)->m_plus((new Array({name_or_idx})), nullptr, nullptr))) : ((name_or_idx)))), (truthy(idx->m_lt((new Array({(new Integer(0LL))})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { throw (new IndexError(((new String("", 0))->m_plus((new Array({(new String("offset ", 7))})), nullptr, nullptr)->m_plus((new Array({(name_or_idx)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" too small for struct(size:", 27))})), nullptr, nullptr)->m_plus((new Array({(mems->m_size((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(")", 1))})), nullptr, nullptr)))); }()))) : (nil_instance())), (truthy(idx->m_ge((new Array({mems->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { throw (new IndexError(((new String("", 0))->m_plus((new Array({(new String("offset ", 7))})), nullptr, nullptr)->m_plus((new Array({(name_or_idx)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" too large for struct(size:", 27))})), nullptr, nullptr)->m_plus((new Array({(mems->m_size((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(")", 1))})), nullptr, nullptr)))); }()))) : (nil_instance())), this->iv_struct_values->m_fetch((new Array({mems->m_aref((new Array({idx})), nullptr, nullptr), nil_instance()})), nullptr, nullptr))) : ((truthy(([&]() -> BasicObject* { auto* _l = name_or_idx->m_is_a_q((new Array({(&Symbol_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (name_or_idx->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)); }())) ? (((name = name_or_idx->m_to_sym((new Array({})), nullptr, nullptr)), (truthy(mems->m_include_q((new Array({name})), nullptr, nullptr)) ? (nil_instance()) : ((([&]() -> BasicObject* { throw (new NameError(((new String("", 0))->m_plus((new Array({(new String("no member '", 11))})), nullptr, nullptr)->m_plus((new Array({(name_or_idx)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("' in struct", 11))})), nullptr, nullptr)))); }())))), this->iv_struct_values->m_fetch((new Array({name, nil_instance()})), nullptr, nullptr))) : ((([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(name_or_idx->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Integer", 13))})), nullptr, nullptr)))); }()))))));
+  return nil_instance();
+}
+
+inline BasicObject* Struct::m_aset(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* name_or_idx = array_at(args, 0);
+  BasicObject* val = array_at(args, 1);
+  Proc* _block = block;
+  BasicObject* mems = nil_instance();
+  BasicObject* idx = nil_instance();
+  BasicObject* name = nil_instance();
+  this->m___check_frozen__((new Array({})), nullptr, nullptr);
+  mems = this->m_members((new Array({})), nullptr, nullptr);
+  if (truthy(name_or_idx->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr))) {
+    idx = (truthy(name_or_idx->m_lt((new Array({(new Integer(0LL))})), nullptr, nullptr)) ? ((mems->m_size((new Array({})), nullptr, nullptr)->m_plus((new Array({name_or_idx})), nullptr, nullptr))) : ((name_or_idx)));
+    if (truthy(idx->m_lt((new Array({(new Integer(0LL))})), nullptr, nullptr))) {
+      ([&]() -> BasicObject* { throw (new IndexError(((new String("", 0))->m_plus((new Array({(new String("offset ", 7))})), nullptr, nullptr)->m_plus((new Array({(name_or_idx)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" too small for struct(size:", 27))})), nullptr, nullptr)->m_plus((new Array({(mems->m_size((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(")", 1))})), nullptr, nullptr)))); }());
+    }
+    if (truthy(idx->m_ge((new Array({mems->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr))) {
+      ([&]() -> BasicObject* { throw (new IndexError(((new String("", 0))->m_plus((new Array({(new String("offset ", 7))})), nullptr, nullptr)->m_plus((new Array({(name_or_idx)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" too large for struct(size:", 27))})), nullptr, nullptr)->m_plus((new Array({(mems->m_size((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(")", 1))})), nullptr, nullptr)))); }());
+    }
+    (([&]() -> BasicObject* { auto* _l = this->iv_struct_values; return truthy(_l) ? _l : ((this->iv_struct_values = (new Hash({})))); }()))->m_aset((new Array({mems->m_aref((new Array({idx})), nullptr, nullptr), val})), nullptr, nullptr);
+  } else {
+    if (truthy(([&]() -> BasicObject* { auto* _l = name_or_idx->m_is_a_q((new Array({(&Symbol_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (name_or_idx->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)); }()))) {
+      name = name_or_idx->m_to_sym((new Array({})), nullptr, nullptr);
+      if (truthy(mems->m_include_q((new Array({name})), nullptr, nullptr))) {
+        nil_instance();
+      } else {
+        ([&]() -> BasicObject* { throw (new NameError(((new String("", 0))->m_plus((new Array({(new String("no member '", 11))})), nullptr, nullptr)->m_plus((new Array({(name_or_idx)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("' in struct", 11))})), nullptr, nullptr)))); }());
+      }
+      (([&]() -> BasicObject* { auto* _l = this->iv_struct_values; return truthy(_l) ? _l : ((this->iv_struct_values = (new Hash({})))); }()))->m_aset((new Array({name, val})), nullptr, nullptr);
+    } else {
+      ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(name_or_idx->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Integer", 13))})), nullptr, nullptr)))); }());
+    }
+  }
+  return val;
+  return nil_instance();
+}
+
 inline BasicObject* Struct::m_each(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   if (truthy(block)) {
@@ -6567,6 +7182,27 @@ inline BasicObject* Struct::m_each_pair(Array* args, Hash* kwargs, Proc* block) 
   }
   this->m_members((new Array({})), nullptr, nullptr)->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return block->m_call((new Array({(new Array({m, this->iv_struct_values->m_fetch((new Array({m, nil_instance()})), nullptr, nullptr)}))})), nullptr, nullptr); })));
   return this;
+  return nil_instance();
+}
+
+inline BasicObject* Struct::m_dig(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* key = array_at(args, 0);
+  Array* rest = new Array();
+  for (std::size_t _i = 1; _i < args->data.size(); _i++) {
+    rest->data.push_back(args->data[_i]);
+  }
+  Proc* _block = block;
+  BasicObject* val = nil_instance();
+  val = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return this->m_aref((new Array({key})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<NameError*>(e_) != nullptr || dynamic_cast<TypeError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
+  if (truthy(([&]() -> BasicObject* { auto* _l = rest->m_empty_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (val->m_nil_q((new Array({})), nullptr, nullptr)); }()))) {
+    return val;
+  }
+  if (truthy(val->m_respond_to_q((new Array({intern("dig")})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(val->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" does not have #dig method", 26))})), nullptr, nullptr)))); }());
+  }
+  return val->m_dig(static_cast<Array*>(rest), nullptr, nullptr);
   return nil_instance();
 }
 
@@ -7190,6 +7826,18 @@ inline BasicObject* Enumerator_eigenclass::m__from_method(Array* args, Hash* kwa
   return nil_instance();
 }
 
+inline BasicObject* Enumerator_eigenclass::m_produce(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* initial_args = args;  // *rest = whole args
+  Proc* _block = block;
+  BasicObject* has_initial = nil_instance();
+  if (truthy(initial_args->m_size((new Array({})), nullptr, nullptr)->m_gt((new Array({(new Integer(1LL))})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw (new ArgumentError(((new String("", 0))->m_plus((new Array({(new String("wrong number of arguments (given ", 33))})), nullptr, nullptr)->m_plus((new Array({(initial_args->m_size((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", expected 0..1)", 16))})), nullptr, nullptr)))); }());
+  }
+  has_initial = initial_args->m_empty_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr);
+  return (new Enumerator());
+  return nil_instance();
+}
+
 inline BasicObject* Exception_eigenclass::m_exception(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* message = (args->data.size() > 0) ? args->data[0] : (nil_instance());
   Proc* _block = block;
@@ -7203,9 +7851,62 @@ inline BasicObject* Encoding_eigenclass::m_default_internal(Array* args, Hash* k
   return nil_instance();
 }
 
+inline BasicObject* Encoding_eigenclass::m_find(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* name = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* name_s = nil_instance();
+  BasicObject* name_lower = nil_instance();
+  if (truthy(name->m_is_a_q((new Array({(&Symbol_CLASS)})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(name->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into String", 12))})), nullptr, nullptr)))); }());
+  }
+  if (truthy(name->m_is_a_q((new Array({(&Encoding_CLASS)})), nullptr, nullptr))) {
+    return name;
+  }
+  name_s = (truthy(name->m_respond_to_q((new Array({intern("to_str")})), nullptr, nullptr)) ? ((name->m_to_str((new Array({})), nullptr, nullptr))) : ((name->m_to_s((new Array({})), nullptr, nullptr))));
+  name_lower = name_s->m_downcase((new Array({})), nullptr, nullptr);
+  if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = name_lower->m_eq_q((new Array({(new String("locale", 6))})), nullptr, nullptr); return truthy(_l) ? _l : (name_lower->m_eq_q((new Array({(new String("external", 8))})), nullptr, nullptr)); }()); return truthy(_l) ? _l : (name_lower->m_eq_q((new Array({(new String("filesystem", 10))})), nullptr, nullptr)); }()))) {
+    return this->m_default_external((new Array({})), nullptr, nullptr);
+  }
+  if (truthy(name_lower->m_eq_q((new Array({(new String("internal", 8))})), nullptr, nullptr))) {
+    return this->m_default_internal((new Array({})), nullptr, nullptr);
+  }
+  ([&]() -> BasicObject* { auto* _l = this->iv_find_map; return truthy(_l) ? _l : ((this->iv_find_map = this->m___build_find_map__((new Array({})), nullptr, nullptr))); }());
+  return ([&]() -> BasicObject* { auto* _l = this->iv_find_map->m_aref((new Array({name_lower})), nullptr, nullptr); return truthy(_l) ? _l : (([&]() -> BasicObject* { throw (new ArgumentError(((new String("", 0))->m_plus((new Array({(new String("unknown encoding name - ", 24))})), nullptr, nullptr)->m_plus((new Array({(name_s)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }())); }());
+  return nil_instance();
+}
+
 inline BasicObject* MatchData_eigenclass::m_allocate(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return ([&]() -> BasicObject* { throw (new NoMethodError((new String("undefined method 'allocate' for class 'MatchData'", 49)))); }());
+  return nil_instance();
+}
+
+inline BasicObject* Regexp_eigenclass::m_try_convert(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* result = nil_instance();
+  if (truthy(obj->m_is_a_q((new Array({(&Regexp_CLASS)})), nullptr, nullptr))) {
+    return obj;
+  }
+  if (truthy(obj->m_respond_to_q((new Array({intern("to_regexp")})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    return nil_instance();
+  }
+  result = obj->m_to_regexp((new Array({})), nullptr, nullptr);
+  if (truthy(result->m_is_a_q((new Array({(&Regexp_CLASS)})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(obj->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Regexp (", 14))})), nullptr, nullptr)->m_plus((new Array({(obj->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("#to_regexp gives ", 17))})), nullptr, nullptr)->m_plus((new Array({(result->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(")", 1))})), nullptr, nullptr)))); }());
+  }
+  return result;
+  return nil_instance();
+}
+
+inline BasicObject* Rational_eigenclass::m_new(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* __anon_rest__ = args;  // *rest = whole args
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { throw (new NoMethodError(((new String("", 0))->m_plus((new Array({(new String("undefined method 'new' for class ", 33))})), nullptr, nullptr)->m_plus((new Array({(this)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }());
   return nil_instance();
 }
 
@@ -7261,6 +7962,13 @@ inline BasicObject* IO_eigenclass::m_binread(Array* args, Hash* kwargs, Proc* bl
   return nil_instance();
 }
 
+inline BasicObject* IO_eigenclass::m___coerce_path__(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* path = array_at(args, 0);
+  Proc* _block = block;
+  return (truthy(path->m_nil_q((new Array({})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { throw (new TypeError((new String("no implicit conversion of nil into String", 41)))); }()))) : ((truthy(path->m_respond_to_q((new Array({intern("to_path")})), nullptr, nullptr)) ? ((path->m_to_path((new Array({})), nullptr, nullptr))) : ((truthy(path->m_respond_to_q((new Array({intern("to_str")})), nullptr, nullptr)) ? ((path->m_to_str((new Array({})), nullptr, nullptr))) : ((([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(path->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into String", 12))})), nullptr, nullptr)))); }()))))))));
+  return nil_instance();
+}
+
 inline BasicObject* File_eigenclass::m_lchown(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* uid = array_at(args, 0);
   BasicObject* gid = array_at(args, 1);
@@ -7290,6 +7998,42 @@ inline BasicObject* File_eigenclass::m_fnmatch_q(Array* args, Hash* kwargs, Proc
   BasicObject* flags = (args->data.size() > 2) ? args->data[2] : ((new Integer(0LL)));
   Proc* _block = block;
   return this->m_fnmatch((new Array({pattern, path, flags})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_eigenclass::m_path(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* path = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* result = nil_instance();
+  return (truthy(path->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)) ? (((truthy(path->m_include_q((new Array({(new String("\0", 1))})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { throw (new ArgumentError((new String("path name contains null byte", 28)))); }()))) : (nil_instance())), path)) : ((truthy(path->m_respond_to_q((new Array({intern("to_path")})), nullptr, nullptr)) ? (((result = path->m_to_path((new Array({})), nullptr, nullptr)), (truthy(result->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)) ? (nil_instance()) : ((([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(path->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into String", 12))})), nullptr, nullptr)))); }())))), (truthy(result->m_include_q((new Array({(new String("\0", 1))})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { throw (new ArgumentError((new String("path name contains null byte", 28)))); }()))) : (nil_instance())), result)) : ((truthy(path->m_is_a_q((new Array({(&IO_CLASS)})), nullptr, nullptr)) ? ((path->m_path((new Array({})), nullptr, nullptr))) : ((([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(path->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into String", 12))})), nullptr, nullptr)))); }()))))))));
+  return nil_instance();
+}
+
+inline BasicObject* File_eigenclass::m__coerce_path(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* arg = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* r = nil_instance();
+  if (truthy(arg->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
+    return arg;
+  }
+  if (truthy(([&]() -> BasicObject* { auto* _l = arg->m_respond_to_q((new Array({intern("to_path")})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr); return truthy(_l) ? (arg->m_respond_to_q((new Array({intern("to_io")})), nullptr, nullptr)) : _l; }()))) {
+    arg = arg->m_to_io((new Array({})), nullptr, nullptr);
+  }
+  if (truthy(arg->m_respond_to_q((new Array({intern("to_path")})), nullptr, nullptr))) {
+    r = arg->m_to_path((new Array({})), nullptr, nullptr);
+    if (truthy(r->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
+      return r;
+    }
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(arg->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into String", 12))})), nullptr, nullptr)))); }());
+  }
+  if (truthy(arg->m_respond_to_q((new Array({intern("to_str")})), nullptr, nullptr))) {
+    r = arg->m_to_str((new Array({})), nullptr, nullptr);
+    if (truthy(r->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
+      return r;
+    }
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(arg->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into String", 12))})), nullptr, nullptr)))); }());
+  }
+  return ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(arg->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into String", 12))})), nullptr, nullptr)))); }());
   return nil_instance();
 }
 
@@ -7333,6 +8077,47 @@ inline BasicObject* Time_eigenclass::m__utc_to_local_offset(Array* args, Hash* k
   return nil_instance();
 }
 
+inline BasicObject* Time_eigenclass::m__coerce_tz_arg(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* tz = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(tz->m_nil_q((new Array({})), nullptr, nullptr))) {
+    return nil_instance();
+  }
+  if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = tz->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (tz->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }()); return truthy(_l) ? _l : (tz->m_is_a_q((new Array({(&Rational_CLASS)})), nullptr, nullptr)); }()); return truthy(_l) ? _l : (tz->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)); }()))) {
+    return tz;
+  }
+  if (truthy(([&]() -> BasicObject* { auto* _l = tz->m_respond_to_q((new Array({intern("utc_to_local")})), nullptr, nullptr); return truthy(_l) ? _l : (tz->m_respond_to_q((new Array({intern("local_to_utc")})), nullptr, nullptr)); }()))) {
+    return tz;
+  }
+  if (truthy(tz->m_respond_to_q((new Array({intern("to_str")})), nullptr, nullptr))) {
+    return tz->m_to_str((new Array({})), nullptr, nullptr);
+  }
+  if (truthy(tz->m_respond_to_q((new Array({intern("to_r")})), nullptr, nullptr))) {
+    return tz->m_to_r((new Array({})), nullptr, nullptr);
+  }
+  if (truthy(tz->m_respond_to_q((new Array({intern("to_int")})), nullptr, nullptr))) {
+    return tz->m_to_int((new Array({})), nullptr, nullptr);
+  }
+  return ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(tz->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into an exact number", 21))})), nullptr, nullptr)))); }());
+  return nil_instance();
+}
+
+inline BasicObject* Time_eigenclass::m__coerce_int_arg(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* a = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(a->m_nil_q((new Array({})), nullptr, nullptr))) {
+    return nil_instance();
+  }
+  if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = a->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (a->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }()); return truthy(_l) ? _l : (a->m_is_a_q((new Array({(&Rational_CLASS)})), nullptr, nullptr)); }()))) {
+    return a->m_to_i((new Array({})), nullptr, nullptr);
+  }
+  if (truthy(a->m_respond_to_q((new Array({intern("to_int")})), nullptr, nullptr))) {
+    return a->m_to_int((new Array({})), nullptr, nullptr);
+  }
+  return ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(a->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Integer", 13))})), nullptr, nullptr)))); }());
+  return nil_instance();
+}
+
 inline BasicObject* Time_eigenclass::m__time_force_zone_b(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* t = array_at(args, 0);
   BasicObject* zone = array_at(args, 1);
@@ -7345,6 +8130,18 @@ inline BasicObject* Time_eigenclass::m__time_force_zone_b(Array* args, Hash* kwa
 inline BasicObject* Fiber_eigenclass::m_scheduler(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this->iv___scheduler__;
+  return nil_instance();
+}
+
+inline BasicObject* Fiber_eigenclass::m_set_scheduler(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* scheduler = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(scheduler->m_nil_q((new Array({})), nullptr, nullptr))) {
+    (this->iv___scheduler__ = nil_instance());
+    return nil_instance();
+  }
+  (new Array({intern("block"), intern("unblock"), intern("kernel_sleep"), intern("io_wait")}))->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return (truthy(scheduler->m_respond_to_q((new Array({m})), nullptr, nullptr)) ? (nil_instance()) : ((([&]() -> BasicObject* { throw (new ArgumentError(((new String("", 0))->m_plus((new Array({(new String("Scheduler must implement #", 26))})), nullptr, nullptr)->m_plus((new Array({(m)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }())))); })));
+  return (this->iv___scheduler__ = scheduler);
   return nil_instance();
 }
 
@@ -7444,6 +8241,23 @@ inline BasicObject* Data_eigenclass::m_members(Array* args, Hash* kwargs, Proc* 
   return nil_instance();
 }
 
+inline BasicObject* Data_eigenclass::m_define(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* members = args;  // *rest = whole args
+  Proc* _block = block;
+  BasicObject* syms = nil_instance();
+  BasicObject* seen = nil_instance();
+  BasicObject* klass = nil_instance();
+  syms = members->m_map((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return ([&]() -> BasicObject* { auto* _subj = m; if (truthy((&Symbol_CLASS)->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (m); if (truthy((&String_CLASS)->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (m->m_to_sym((new Array({})), nullptr, nullptr)); return (([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(m->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" is not a Symbol", 16))})), nullptr, nullptr)))); }())); }()); })));
+  seen = (new Hash({}));
+  syms->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* s = arg; (truthy(seen->m_aref((new Array({s})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { throw (new ArgumentError(((new String("", 0))->m_plus((new Array({(new String("duplicate member: ", 18))})), nullptr, nullptr)->m_plus((new Array({(s)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }()))) : (nil_instance())); return seen->m_aset((new Array({s, true_instance()})), nullptr, nullptr); })));
+  klass = (new Class(static_cast<BasicObject*>(this)));
+  if (truthy(block)) {
+    klass->m_class_eval((new Array({})), nullptr, static_cast<Proc*>(block));
+  }
+  return klass;
+  return nil_instance();
+}
+
 inline BasicObject* Set_eigenclass::m_aref(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this->m_new((new Array({args})), nullptr, nullptr);
@@ -7461,6 +8275,29 @@ inline BasicObject* ENVClass_eigenclass::m___coerce_value(Array* args, Hash* kwa
   BasicObject* val = array_at(args, 0);
   Proc* _block = block;
   return this->m___coerce_env_string__((new Array({val, intern("value")})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* ENVClass_eigenclass::m___coerce_env_string__(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* val = array_at(args, 0);
+  BasicObject* role = array_at(args, 1);
+  Proc* _block = block;
+  BasicObject* result = nil_instance();
+  if (truthy(val->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
+    return val;
+  }
+  if (truthy(val->m_respond_to_q((new Array({intern("to_str")})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(val->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into String", 12))})), nullptr, nullptr)))); }());
+  }
+  result = val->m_to_str((new Array({})), nullptr, nullptr);
+  if (truthy(result->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(result->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into String", 12))})), nullptr, nullptr)))); }());
+  }
+  return result;
   return nil_instance();
 }
 

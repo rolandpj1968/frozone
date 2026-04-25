@@ -110,6 +110,7 @@ module Frozone
             when Ast::SelfLiteral    then "this"
             when Ast::SymbolLiteral  then from_symbol_literal(node)
             when Ast::StringLiteral  then from_string_literal(node)
+            when Ast::InterpolatedString then from_interpolated_string(node, locals)
             when Ast::ArrayLiteral   then from_array_literal(node, locals)
             when Ast::HashLiteral    then from_hash_literal(node, locals)
             when Ast::LocalVariableRead then node.name.to_s
@@ -489,6 +490,25 @@ module Frozone
           # backslash, quote, newline, tab, null, and any non-printable
           # via octal — covers all byte values without depending on the
           # C++ source encoding.
+          # `"foo #{x} bar"` → chain of String#+ calls. StringLiteral
+          # parts emit directly; other parts coerce via m_to_s. The
+          # whole chain starts from an empty String so an interpolated
+          # string with no leading literal still yields a String*.
+          def from_interpolated_string(node, locals)
+            parts = node.parts || []
+            return %((new String("", 0))) if parts.empty?
+            chain = +%((new String("", 0)))
+            parts.each do |part|
+              part_str = if part.is_a?(Ast::StringLiteral)
+                           from_string_literal(part)
+                         else
+                           "#{from_expr(part, locals)}->m_to_s((new Array({})), nullptr, nullptr)"
+                         end
+              chain << "->m_plus((new Array({#{part_str}})), nullptr, nullptr)"
+            end
+            "(#{chain})"
+          end
+
           def from_string_literal(node)
             raw = node.value.raw  # Vm::StringObject -> raw bytes (Ruby String)
             "(new String(#{cpp_string_literal(raw)}, #{raw.bytesize}))"
