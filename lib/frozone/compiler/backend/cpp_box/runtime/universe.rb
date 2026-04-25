@@ -147,6 +147,35 @@ module Frozone
             },
           )
 
+          # Float — wraps `double raw_`. Same shape as Integer; Float
+          # methods don't know about Integer (mixed Integer/Float
+          # arithmetic would static_cast wrong and crash). Coercion
+          # protocol is a separate concern — defer until a benchmark
+          # actually needs mixed numeric types.
+          FLOAT = RubyClass.new(
+            name: "Float",
+            parent: "Object",
+            ivars: ["double raw_;"],
+            members: [
+              "explicit Float(double r) : raw_(r) {}",
+              %(const char* ruby_class_name() const override { return "Float"; }),
+              "std::size_t m_hash_value() const override { return std::hash<double>()(raw_); }",
+            ],
+            overrides: {
+              "m_plus"     => { params: ["BasicObject* other"], body: "return new Float(raw_ + static_cast<Float*>(other)->raw_);" },
+              "m_minus"    => { params: ["BasicObject* other"], body: "return new Float(raw_ - static_cast<Float*>(other)->raw_);" },
+              "m_mul"      => { params: ["BasicObject* other"], body: "return new Float(raw_ * static_cast<Float*>(other)->raw_);" },
+              "m_div"      => { params: ["BasicObject* other"], body: "return new Float(raw_ / static_cast<Float*>(other)->raw_);" },
+              "m_lt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <  static_cast<Float*>(other)->raw_);" },
+              "m_gt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >  static_cast<Float*>(other)->raw_);" },
+              "m_le"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <= static_cast<Float*>(other)->raw_);" },
+              "m_ge"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >= static_cast<Float*>(other)->raw_);" },
+              "m_eq_q"     => { params: ["BasicObject* other"], body: "auto* o = dynamic_cast<Float*>(other); return boxed_bool(o && raw_ == o->raw_);" },
+              "m_ne_q"     => { params: ["BasicObject* other"], body: "auto* o = dynamic_cast<Float*>(other); return boxed_bool(!o || raw_ != o->raw_);" },
+              "m_neg"      => { params: [],                     body: "return new Float(-raw_);" },
+            },
+          )
+
           # ---- Container types ------------------------------------
           #
           # "Truly core" — bound to native C++ data structure templates.
@@ -304,7 +333,7 @@ module Frozone
           # the parent's vtable layout).
           ALL_CLASSES = [
             BASIC_OBJECT, OBJECT, NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
-            INTEGER, ARRAY, SYMBOL, HASH
+            INTEGER, FLOAT, ARRAY, SYMBOL, HASH
           ].freeze
 
           # ---- Free Kernel functions -------------------------------
@@ -349,6 +378,7 @@ module Frozone
             signature: "void ruby_puts(BasicObject* o)",
             body: <<~CPP.chomp,
               if (auto* i = dynamic_cast<Integer*>(o))      { std::printf("%lld\\n", static_cast<long long>(i->raw_)); return; }
+              if (auto* f = dynamic_cast<Float*>(o))        { std::printf("%g\\n", f->raw_); return; }
               if (auto* s = dynamic_cast<Symbol*>(o))       { std::printf("%s\\n", s->name_); return; }
               if (o == true_instance())                      { std::printf("true\\n"); return; }
               if (o == false_instance())                     { std::printf("false\\n"); return; }

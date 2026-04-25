@@ -72,4 +72,12 @@ RSpec.describe 'box-first end-to-end' do
       %w[10 20 30 3 100 200 300 3 99 4 true false]
     )
   end
+
+  it 'float_test — Float arithmetic + comparison + hash key' do
+    # Note: %g output differs from Ruby's puts (drops trailing .0,
+    # uses 6-digit default precision). Cosmetic — semantics correct.
+    expect(run_box_first('float_test').strip.split("\n")).to eq(
+      %w[4 3.75 1 1.66667 true true -1.5 half one_tenth]
+    )
+  end
 end

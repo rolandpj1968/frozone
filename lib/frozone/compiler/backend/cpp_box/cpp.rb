@@ -87,6 +87,7 @@ module Frozone
           def from_expr(node, locals)
             case node
             when Ast::IntegerLiteral then "(new Integer(#{node.value.raw}LL))"
+            when Ast::FloatLiteral   then "(new Float(#{node.value}))"
             when Ast::NilLiteral     then "nil_instance()"
             when Ast::TrueLiteral    then "true_instance()"
             when Ast::FalseLiteral   then "false_instance()"

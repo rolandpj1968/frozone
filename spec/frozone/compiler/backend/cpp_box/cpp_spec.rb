@@ -87,6 +87,15 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       expect(cpp.from_expr(int(-1), locals)).to eq("(new Integer(-1LL))")
     end
 
+    it "FloatLiteral → boxed Float" do
+      node = A::FloatLiteral.new(3.14)
+      expect(cpp.from_expr(node, locals)).to eq("(new Float(3.14))")
+    end
+
+    it "FloatLiteral preserves negative + scientific notation" do
+      expect(cpp.from_expr(A::FloatLiteral.new(-0.5), locals)).to eq("(new Float(-0.5))")
+    end
+
     it "NilLiteral → nil_instance() helper" do
       expect(cpp.from_expr(A::NilLiteral::NIL, locals)).to eq("nil_instance()")
     end
