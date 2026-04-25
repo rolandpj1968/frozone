@@ -157,6 +157,49 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     end
   end
 
+  describe "#from_expr — ConstantPath (Foo::Bar)" do
+    it "flattens path components with underscore" do
+      # Foo::Bar — ConstantPath(parent=ConstantRead(:Foo), name=:Bar)
+      foo = A::ConstantRead.new(:Foo)
+      path = A::ConstantPath.new(foo, :Bar)
+      result = cpp.from_expr(path, locals)
+      expect(result).to include("ConstantPath: Foo::Bar")
+      expect(result).to include("nil_instance()")  # not registered
+    end
+
+    it "deeply nested Foo::Bar::Baz flattens to Foo_Bar_Baz" do
+      foo = A::ConstantRead.new(:Foo)
+      foo_bar = A::ConstantPath.new(foo, :Bar)
+      foo_bar_baz = A::ConstantPath.new(foo_bar, :Baz)
+      result = cpp.from_expr(foo_bar_baz, locals)
+      expect(result).to include("ConstantPath: Foo::Bar::Baz")
+    end
+
+    it "registered ConstantPath resolves to flattened k_<flat>() accessor" do
+      obj = instance_double(V::ObjectObject)
+      cpp = described_class.new(user_classes: {}, user_constants: { Foo_Bar: obj })
+      foo = A::ConstantRead.new(:Foo)
+      path = A::ConstantPath.new(foo, :Bar)
+      expect(cpp.from_expr(path, locals)).to eq("k_Foo_Bar()")
+    end
+
+    it "RootNamespaceNode parent (`::Foo`) drops the root and uses bare name" do
+      root = A::RootNamespaceNode::INSTANCE
+      path = A::ConstantPath.new(root, :Foo)
+      result = cpp.from_expr(path, locals)
+      expect(result).to include("ConstantPath: Foo")
+    end
+
+    it "ConstantPath.new(args) instantiates the flattened class name" do
+      user_class = instance_double(V::ClassObject, name: :Foo_Bar)
+      cpp = described_class.new(user_classes: { Foo_Bar: user_class }, user_constants: {})
+      foo = A::ConstantRead.new(:Foo)
+      path = A::ConstantPath.new(foo, :Bar)
+      call = A::MethodCall.new(:new, path, [int(7)], [], nil)
+      expect(cpp.from_expr(call, locals)).to eq("(new Foo_Bar((new Integer(7LL))))")
+    end
+  end
+
   describe "#from_expr — ConstantRead value position" do
     it "registered user-constant resolves to k_<NAME>() accessor" do
       obj = instance_double(V::ObjectObject)

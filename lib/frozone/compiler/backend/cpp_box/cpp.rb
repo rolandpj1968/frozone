@@ -96,6 +96,7 @@ module Frozone
             when Ast::HashLiteral    then from_hash_literal(node, locals)
             when Ast::LocalVariableRead then node.name.to_s
             when Ast::ConstantRead then from_constant_read(node)
+            when Ast::ConstantPath then from_constant_path(node)
             when Ast::InstanceVariableRead then "this->iv_#{node.name.to_s.delete_prefix('@')}"
             when Ast::InstanceVariableWrite
               rhs = from_expr(node.value_node, locals)
@@ -125,11 +126,14 @@ module Frozone
             name = node.name
             args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
 
-            # ClassName.new(args) → (new Ruby::ClassName(args)).
-            # Bypasses the vtable — direct instantiation. Wrap in parens
-            # so trailing -> on the result binds tighter than `new`.
-            if name == :new && recv.is_a?(Ast::ConstantRead) && instantiable_class?(recv.name)
-              return "(new #{recv.name}(#{args.join(", ")}))"
+            # ClassName.new(args) or Foo::Bar.new(args) → direct
+            # instantiation. Bypasses the vtable. Wrap in parens so
+            # trailing -> on the result binds tighter than `new`.
+            if name == :new && (recv.is_a?(Ast::ConstantRead) || recv.is_a?(Ast::ConstantPath))
+              cls_name = recv.is_a?(Ast::ConstantRead) ? recv.name.to_s : path_to_cpp_name(recv)
+              if instantiable_class?(cls_name.to_sym)
+                return "(new #{cls_name}(#{args.join(", ")}))"
+              end
             end
 
             if recv
@@ -196,6 +200,40 @@ module Frozone
           def from_constant_read(node)
             return "k_#{node.name}()" if @user_constants.key?(node.name)
             "/* ConstantRead: #{node.name} (no value) */ nil_instance()"
+          end
+
+          # ConstantPath — `Foo::Bar::Baz`. Flatten path components with
+          # `_` and look up in the value-constant registry. The "obvious
+          # transform" assumes ASCII PascalCase (no underscore in name
+          # components, no Unicode); collisions like `Foo_Bar` (single
+          # name) vs `Foo::Bar` (path) would need underscore-doubling
+          # escape — defer until we hit a real case.
+          def from_constant_path(node)
+            flat = path_to_cpp_name(node).to_sym
+            return "k_#{flat}()" if @user_constants.key?(flat)
+            "/* ConstantPath: #{path_to_display(node)} (no value) */ nil_instance()"
+          end
+
+          # Walk a ConstantRead/ConstantPath/RootNamespaceNode chain and
+          # return the flattened C++ identifier ("Foo_Bar_Baz" for
+          # Foo::Bar::Baz). RootNamespaceNode (the `::Foo` form) is
+          # treated as no-op — we don't have a separate root namespace
+          # in box-first; everything's in `namespace Ruby`.
+          def path_to_cpp_name(node)
+            collect_path(node).join('_')
+          end
+
+          def path_to_display(node)
+            collect_path(node).join('::')
+          end
+
+          def collect_path(node)
+            case node
+            when Ast::ConstantPath then collect_path(node.parent_node) + [node.name.to_s]
+            when Ast::ConstantRead then [node.name.to_s]
+            when Ast::RootNamespaceNode then []
+            else [node.to_s]  # last-resort fallback
+            end
           end
 
           # A class is instantiable as `new Ruby::X(...)` if it's emitted
