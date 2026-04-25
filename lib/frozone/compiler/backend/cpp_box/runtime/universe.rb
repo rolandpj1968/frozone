@@ -286,6 +286,120 @@ module Frozone
             ],
           )
 
+          # String — byte buffer + encoding tag (UTF-8 or BINARY).
+          # Logic duped from mainline's RubyString (cpp/runtime/frozone.hpp)
+          # — encoding promotion on concat, codepoint-aware length for
+          # UTF-8, byte comparison for ordering. Buffer uses GcAllocator
+          # so Boehm sees it (otherwise the bytes would leak when Boehm
+          # reclaims the String — Boehm doesn't run destructors).
+          STRING = RubyClass.new(
+            name: "String",
+            parent: "Object",
+            members: [
+              "enum Enc { UTF8 = 0, BINARY = 1 };",
+              "std::vector<std::uint8_t, GcAllocator<std::uint8_t>> bytes;",
+              "Enc enc = UTF8;",
+              "mutable std::int64_t length_cache_ = -1;",
+              "",
+              "String() = default;",
+              "String(const char* s) { if (s) { auto n = std::strlen(s); bytes.assign(s, s + n); } }",
+              "String(const char* s, std::size_t n) { bytes.assign(s, s + n); }",
+              "String(const char* s, std::size_t n, Enc e) : enc(e) { bytes.assign(s, s + n); }",
+              "",
+              %(const char* ruby_class_name() const override { return "String"; }),
+              "",
+              "// Codepoint-aware length for UTF-8 (cached); byte count for BINARY.",
+              "std::int64_t length() const {",
+              "  if (enc == BINARY) return static_cast<std::int64_t>(bytes.size());",
+              "  if (length_cache_ < 0) {",
+              "    std::int64_t n = 0;",
+              "    for (auto b : bytes) if ((b & 0xC0) != 0x80) n++;",
+              "    length_cache_ = n;",
+              "  }",
+              "  return length_cache_;",
+              "}",
+              "bool has_non_ascii() const { for (auto b : bytes) if (b >= 0x80) return true; return false; }",
+              "",
+              "// Hash on byte sequence — equal byte sequences hash equal.",
+              "std::size_t m_hash_value() const override {",
+              "  std::size_t h = 0xcbf29ce484222325ULL;  // FNV-1a offset",
+              "  for (auto b : bytes) { h ^= b; h *= 0x100000001b3ULL; }",
+              "  return h;",
+              "}",
+            ],
+            overrides: {
+              "m_size"     => { params: [], body: "return new Integer(length());" },
+              "m_length"   => { params: [], body: "return new Integer(length());" },
+              "m_bytesize" => { params: [], body: "return new Integer(static_cast<std::int64_t>(bytes.size()));" },
+              "m_empty_q"  => { params: [], body: "return boxed_bool(bytes.empty());" },
+              "m_to_s"     => { params: [], body: "return this;" },
+              "m_eq_q"     => {
+                params: ["BasicObject* other"],
+                body: "auto* o = dynamic_cast<String*>(other); return boxed_bool(o && bytes == o->bytes);",
+              },
+              "m_ne_q"     => {
+                params: ["BasicObject* other"],
+                body: "auto* o = dynamic_cast<String*>(other); return boxed_bool(!o || bytes != o->bytes);",
+              },
+              "m_lt"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes <  static_cast<String*>(other)->bytes);" },
+              "m_gt"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes >  static_cast<String*>(other)->bytes);" },
+              "m_le"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes <= static_cast<String*>(other)->bytes);" },
+              "m_ge"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes >= static_cast<String*>(other)->bytes);" },
+              "m_plus"     => {
+                params: ["BasicObject* other"],
+                body: <<~CPP.chomp,
+                  auto* o = static_cast<String*>(other);
+                  String* r = new String();
+                  r->enc = (enc == BINARY && o->enc == UTF8 && o->has_non_ascii()) ? UTF8 : enc;
+                  r->bytes.reserve(bytes.size() + o->bytes.size());
+                  r->bytes.insert(r->bytes.end(), bytes.begin(), bytes.end());
+                  r->bytes.insert(r->bytes.end(), o->bytes.begin(), o->bytes.end());
+                  return r;
+                CPP
+              },
+              "m_lshift"   => {
+                params: ["BasicObject* other"],
+                body: <<~CPP.chomp,
+                  auto* o = static_cast<String*>(other);
+                  // MRI encoding promotion: BINARY + UTF-8 non-ASCII → UTF-8.
+                  if (enc == BINARY && o->enc == UTF8 && o->has_non_ascii()) enc = UTF8;
+                  bytes.insert(bytes.end(), o->bytes.begin(), o->bytes.end());
+                  length_cache_ = -1;
+                  return this;
+                CPP
+              },
+              "m_aref"     => {
+                params: ["BasicObject* idx"],
+                body: <<~CPP.chomp,
+                  std::int64_t i = static_cast<Integer*>(idx)->raw_;
+                  if (i < 0) i += static_cast<std::int64_t>(bytes.size());
+                  if (i < 0 || i >= static_cast<std::int64_t>(bytes.size())) return nil_instance();
+                  return new String(reinterpret_cast<const char*>(&bytes[i]), 1, enc);
+                CPP
+              },
+              "m_ord"      => { params: [], body: "return new Integer(bytes.empty() ? 0 : static_cast<std::int64_t>(bytes[0]));" },
+              "m_dup"      => {
+                params: [],
+                body: <<~CPP.chomp,
+                  String* r = new String();
+                  r->bytes = bytes;
+                  r->enc = enc;
+                  return r;
+                CPP
+              },
+              "m_b"        => {
+                params: [],
+                body: <<~CPP.chomp,
+                  String* r = new String();
+                  r->bytes = bytes;
+                  r->enc = BINARY;
+                  return r;
+                CPP
+              },
+            },
+            hand_coded_method_names: %w[m_hash_value].freeze,
+          )
+
           # Hash — std::unordered_map keyed by BasicObject* with a
           # custom Hasher (calls m_hash_value via vtable) and KeyEq
           # (calls m_eq_q via vtable). Bucket storage uses GcAllocator
@@ -346,7 +460,7 @@ module Frozone
           ALL_CLASSES = [
             BASIC_OBJECT, OBJECT, CLASS_TYPE,
             NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
-            INTEGER, FLOAT, ARRAY, SYMBOL, HASH
+            INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH
           ].freeze
 
           # Per-class eigenclass — generated programmatically from each
@@ -414,6 +528,7 @@ module Frozone
               if (auto* i = dynamic_cast<Integer*>(o))      { std::printf("%lld\\n", static_cast<long long>(i->raw_)); return; }
               if (auto* f = dynamic_cast<Float*>(o))        { std::printf("%g\\n", f->raw_); return; }
               if (auto* s = dynamic_cast<Symbol*>(o))       { std::printf("%s\\n", s->name_); return; }
+              if (auto* str = dynamic_cast<String*>(o))     { std::fwrite(str->bytes.data(), 1, str->bytes.size(), stdout); std::putchar('\\n'); return; }
               if (o == true_instance())                      { std::printf("true\\n"); return; }
               if (o == false_instance())                     { std::printf("false\\n"); return; }
               if (o == nil_instance())                       { std::printf("\\n"); return; }

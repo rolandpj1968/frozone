@@ -93,6 +93,7 @@ module Frozone
             when Ast::FalseLiteral   then "false_instance()"
             when Ast::SelfLiteral    then "this"
             when Ast::SymbolLiteral  then from_symbol_literal(node)
+            when Ast::StringLiteral  then from_string_literal(node)
             when Ast::ArrayLiteral   then from_array_literal(node, locals)
             when Ast::HashLiteral    then from_hash_literal(node, locals)
             when Ast::LocalVariableRead then node.name.to_s
@@ -173,6 +174,33 @@ module Frozone
           def from_array_literal(node, locals)
             elems = (node.element_nodes || []).map { |e| from_expr(e, locals) }
             "(new Array({#{elems.join(", ")}}))"
+          end
+
+          # StringLiteral → (new String("...", N)). Bytes-and-length
+          # ctor so embedded null bytes survive (`"a\0b"`). Escape
+          # backslash, quote, newline, tab, null, and any non-printable
+          # via octal — covers all byte values without depending on the
+          # C++ source encoding.
+          def from_string_literal(node)
+            raw = node.value.raw  # Vm::StringObject -> raw bytes (Ruby String)
+            "(new String(#{cpp_string_literal(raw)}, #{raw.bytesize}))"
+          end
+
+          def cpp_string_literal(s)
+            buf = +'"'
+            s.each_byte do |b|
+              case b
+              when 0x22 then buf << '\\"'
+              when 0x5C then buf << '\\\\'
+              when 0x0A then buf << '\\n'
+              when 0x0D then buf << '\\r'
+              when 0x09 then buf << '\\t'
+              when 0x00 then buf << '\\0'
+              when 0x20..0x7E then buf << b.chr
+              else buf << '\\' << format('%03o', b)
+              end
+            end
+            buf << '"'
           end
 
           # SymbolLiteral → intern("name"). intern() is a forward-declared

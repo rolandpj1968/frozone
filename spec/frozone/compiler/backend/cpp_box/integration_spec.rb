@@ -80,4 +80,16 @@ RSpec.describe 'box-first end-to-end' do
       %w[4 3.75 1 1.66667 true true -1.5 half one_tenth]
     )
   end
+
+  it 'string_test — concat + mutating << + length + comparison + indexing + hash key' do
+    expect(run_box_first('string_test').split("\n")).to eq([
+      'hello world',
+      'hello there',
+      '3', '3',
+      'true', 'false', 'true',
+      'h', 'o',
+      '1', '2',
+      'true', 'false',
+    ])
+  end
 end

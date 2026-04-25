@@ -275,6 +275,30 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     end
   end
 
+  describe "#from_expr — String" do
+    it "StringLiteral emits (new String(\"...\", n)) with bytesize" do
+      node = A::StringLiteral.from("hello")
+      expect(cpp.from_expr(node, locals)).to eq('(new String("hello", 5))')
+    end
+
+    it "StringLiteral escapes embedded quotes" do
+      node = A::StringLiteral.from('he said "hi"')
+      expect(cpp.from_expr(node, locals)).to include('he said \\"hi\\"')
+    end
+
+    it "StringLiteral escapes newline + tab" do
+      node = A::StringLiteral.from("a\nb\tc")
+      expect(cpp.from_expr(node, locals)).to eq('(new String("a\\nb\\tc", 5))')
+    end
+
+    it "StringLiteral encodes high bytes as octal escapes" do
+      node = A::StringLiteral.from((+"\xC3\xA9").force_encoding("ASCII-8BIT"))
+      result = cpp.from_expr(node, locals)
+      expect(result).to include('\\303')
+      expect(result).to include('\\251')
+    end
+  end
+
   describe "#from_expr — short-circuit operators" do
     it "And lambda-wraps to evaluate left once + short-circuit right" do
       result = cpp.from_expr(and_(lvr(:n), lvr(:m)), locals)

@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <vector>
 #include <unordered_map>
