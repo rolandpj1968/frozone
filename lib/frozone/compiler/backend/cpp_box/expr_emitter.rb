@@ -113,6 +113,7 @@ module Frozone
             when Ast::NilLiteral     then "nil_instance()"
             when Ast::TrueLiteral    then "true_instance()"
             when Ast::FalseLiteral   then "false_instance()"
+            when Ast::ArrayLiteral   then emit_array_literal(emit, node, locals)
             when Ast::LocalVariableRead then node.name.to_s
             when Ast::ConstantRead then emit_constant_read(emit, node)
             when Ast::InstanceVariableRead then "this->iv_#{node.name.to_s.delete_prefix('@')}"
@@ -130,6 +131,11 @@ module Frozone
             else
               "/* UNHANDLED: #{node.class.name} */ nil_instance()"
             end
+          end
+
+          def self.emit_array_literal(emit, node, locals)
+            elems = (node.element_nodes || []).map { |e| emit_expr(emit, e, locals) }
+            "new Array({#{elems.join(", ")}})"
           end
 
           # ConstantRead — for value constants registered with the

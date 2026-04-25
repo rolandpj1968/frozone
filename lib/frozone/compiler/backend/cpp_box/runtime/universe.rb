@@ -43,6 +43,18 @@ module Frozone
           #   body      — cpp body, the bit between the braces
           KernelFn = Struct.new(:name, :signature, :body, keyword_init: true)
 
+          # Intrinsic — a C++ free function the compiled-from-Ruby method
+          # bodies dispatch into for low-level primitive ops. Same shape
+          # as KernelFn but logically distinct: KernelFns are runtime
+          # helpers (truthy, ruby_puts, instance accessors); Intrinsics
+          # are the unboxed-operation primitives that Ruby `def +(v) =
+          # Intrinsics.integer__plus_(self, v)` style methods bottom
+          # out into.
+          #
+          # Currently empty (Integer/etc. method bodies are still
+          # hand-coded inline). Populated when we source from core/4.0/.
+          IntrinsicFn = Struct.new(:name, :signature, :body, keyword_init: true)
+
           # ---- Class definitions -----------------------------------
 
           BASIC_OBJECT = RubyClass.new(
@@ -111,12 +123,81 @@ module Frozone
             },
           )
 
+          # ---- Container types ------------------------------------
+          #
+          # "Truly core" — bound to native C++ data structure templates.
+          # Implementing in pure Ruby would require first implementing
+          # the data-structure machinery in pure Ruby, which is where
+          # the bootstrap chain ends. So container methods stay as
+          # hand-coded shims around C++ data structures (here:
+          # std::vector / std::unordered_map keyed on identity for now).
+
+          ARRAY = RubyClass.new(
+            name: "Array",
+            parent: "Object",
+            members: [
+              "std::vector<BasicObject*> data;",
+              "Array() = default;",
+              "Array(std::initializer_list<BasicObject*> init) : data(init) {}",
+              %(const char* ruby_class_name() const override { return "Array"; }),
+            ],
+            overrides: {
+              "m_size" => {
+                params: [],
+                body: "return new Integer(static_cast<int64_t>(data.size()));",
+              },
+              "m_length" => {
+                params: [],
+                body: "return new Integer(static_cast<int64_t>(data.size()));",
+              },
+              "m_empty_q" => {
+                params: [],
+                body: "return boxed_bool(data.empty());",
+              },
+              "m_first" => {
+                params: [],
+                body: "return data.empty() ? nil_instance() : data.front();",
+              },
+              "m_last" => {
+                params: [],
+                body: "return data.empty() ? nil_instance() : data.back();",
+              },
+              "m_aref" => {
+                params: ["BasicObject* idx"],
+                body: <<~CPP.chomp,
+                  int64_t i = static_cast<Integer*>(idx)->raw_;
+                  if (i < 0) i += static_cast<int64_t>(data.size());
+                  if (i < 0 || i >= static_cast<int64_t>(data.size())) return nil_instance();
+                  return data[i];
+                CPP
+              },
+              "m_aset" => {
+                params: ["BasicObject* idx", "BasicObject* val"],
+                body: <<~CPP.chomp,
+                  int64_t i = static_cast<Integer*>(idx)->raw_;
+                  if (i < 0) i += static_cast<int64_t>(data.size());
+                  if (i >= static_cast<int64_t>(data.size())) data.resize(i + 1, nil_instance());
+                  data[i] = val;
+                  return val;
+                CPP
+              },
+              "m_push" => {
+                params: ["BasicObject* val"],
+                body: "data.push_back(val); return this;",
+              },
+              "m_lshift" => {
+                params: ["BasicObject* val"],
+                body: "data.push_back(val); return this;",
+              },
+            },
+          )
+
           # Inheritance order. The emitter walks this list to produce
           # forward decls + class bodies + singletons in the right
           # sequence (parent before child, so children's overrides see
           # the parent's vtable layout).
           ALL_CLASSES = [
-            BASIC_OBJECT, OBJECT, NIL_CLASS, TRUE_CLASS, FALSE_CLASS, INTEGER
+            BASIC_OBJECT, OBJECT, NIL_CLASS, TRUE_CLASS, FALSE_CLASS, INTEGER, ARRAY
           ].freeze
 
           # ---- Free Kernel functions -------------------------------
@@ -172,6 +253,13 @@ module Frozone
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
             BOXED_BOOL, TRUTHY, RUBY_PUTS
           ].freeze
+
+          # ---- Intrinsics -----------------------------------------
+          #
+          # Empty for now. Populated when methods are sourced from
+          # core/4.0/ — `def +(v) = Intrinsics.integer__plus_(self, v)`
+          # in Ruby compiles to a call into one of these.
+          ALL_INTRINSICS = [].freeze
         end
       end
     end

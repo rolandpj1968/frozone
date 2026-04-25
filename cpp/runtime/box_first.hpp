@@ -20,6 +20,8 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <vector>
+#include <initializer_list>
 #include <gc.h>
 
 #define FROZONE_GC_INIT() GC_INIT()

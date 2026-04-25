@@ -9,7 +9,6 @@ struct TrueClass;
 struct FalseClass;
 struct Integer;
 struct Array;
-struct Box;
 
 inline BasicObject* nil_instance();
 inline BasicObject* true_instance();
@@ -27,19 +26,17 @@ struct BasicObject {
     std::abort();
   }
   // Universal method surface — populated from the program's call universe.
-  virtual BasicObject* m_plus(BasicObject*) { return method_missing("+"); }
-  virtual BasicObject* m_value() { return method_missing("value"); }
-  virtual BasicObject* m_doubled() { return method_missing("doubled"); }
-  virtual BasicObject* m_minus(BasicObject*) { return method_missing("minus"); }
-  virtual BasicObject* m_lt(BasicObject*) { return method_missing("lt"); }
   virtual BasicObject* m_size() { return method_missing("size"); }
-  virtual BasicObject* m_length() { return method_missing("length"); }
-  virtual BasicObject* m_empty_q() { return method_missing("empty_q"); }
+  virtual BasicObject* m_aref(BasicObject*) { return method_missing("[]"); }
+  virtual BasicObject* m_push(BasicObject*) { return method_missing("push"); }
   virtual BasicObject* m_first() { return method_missing("first"); }
   virtual BasicObject* m_last() { return method_missing("last"); }
-  virtual BasicObject* m_aref(BasicObject*) { return method_missing("aref"); }
+  virtual BasicObject* m_plus(BasicObject*) { return method_missing("plus"); }
+  virtual BasicObject* m_minus(BasicObject*) { return method_missing("minus"); }
+  virtual BasicObject* m_lt(BasicObject*) { return method_missing("lt"); }
+  virtual BasicObject* m_length() { return method_missing("length"); }
+  virtual BasicObject* m_empty_q() { return method_missing("empty_q"); }
   virtual BasicObject* m_aset(BasicObject*, BasicObject*) { return method_missing("aset"); }
-  virtual BasicObject* m_push(BasicObject*) { return method_missing("push"); }
   virtual BasicObject* m_lshift(BasicObject*) { return method_missing("lshift"); }
 };
 
@@ -115,22 +112,6 @@ struct Array : Object {
   }
 };
 
-struct Box : Object {
-  const char* ruby_class_name() const override { return "Box"; }
-  BasicObject* iv_v = nullptr;
-  Box(BasicObject* v) {
-    (this->iv_v = v);
-  }
-  BasicObject* m_value() override {
-    return this->iv_v;
-    return nil_instance();
-  }
-  BasicObject* m_doubled() override {
-    return this->iv_v->m_plus(this->iv_v);
-    return nil_instance();
-  }
-};
-
 inline NilClass NIL_INSTANCE;
 inline TrueClass TRUE_INSTANCE;
 inline FalseClass FALSE_INSTANCE;
@@ -172,9 +153,16 @@ struct MainObject : Object {
   }
 
   void __top_level__() {
-    BasicObject* b = new Box(new Integer(42LL));
-    ruby_puts(b->m_value());
-    ruby_puts(b->m_doubled());
+    BasicObject* a = new Array({new Integer(10LL), new Integer(20LL), new Integer(30LL), new Integer(40LL), new Integer(50LL)});
+    ruby_puts(a->m_size());
+    ruby_puts(a->m_aref(new Integer(0LL)));
+    ruby_puts(a->m_aref(new Integer(2LL)));
+    ruby_puts(a->m_aref(new Integer(-1LL)));
+    a->m_push(new Integer(99LL));
+    ruby_puts(a->m_size());
+    ruby_puts(a->m_aref(new Integer(5LL)));
+    ruby_puts(a->m_first());
+    ruby_puts(a->m_last());
   }
 };
 
