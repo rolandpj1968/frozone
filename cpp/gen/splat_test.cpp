@@ -291,6 +291,10 @@ struct BasicObject {
   virtual BasicObject* m_case_eq(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {
     return m_eq_q(args, kwargs, block);
   }
+  // nil? defaults to false; NilClass overrides to true.
+  virtual BasicObject* m_nil_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {
+    return false_instance();
+  }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> BasicObject(__Ts__...) {}
   // Universal method surface — one slot per name. All Ruby methods take
   // (Array* args, Hash* kwargs, Proc* block) — bodies unpack from args.
@@ -312,7 +316,6 @@ struct BasicObject {
   virtual BasicObject* m_raise(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("raise"); }
   virtual BasicObject* m_gt(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing(">"); }
   virtual BasicObject* m___coerce_to_str__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__coerce_to_str__"); }
-  virtual BasicObject* m_nil_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("nil?"); }
   virtual BasicObject* m_equal_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("equal?"); }
   virtual BasicObject* m_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("name"); }
   virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("inspect"); }
@@ -1153,18 +1156,22 @@ struct NilClass : Object {
   using Object::Object;
   const char* ruby_class_name() const override { return "NilClass"; }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> NilClass(__Ts__...) {}
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_nil_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct TrueClass : Object {
   using Object::Object;
   const char* ruby_class_name() const override { return "TrueClass"; }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> TrueClass(__Ts__...) {}
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct FalseClass : Object {
   using Object::Object;
   const char* ruby_class_name() const override { return "FalseClass"; }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> FalseClass(__Ts__...) {}
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Integer : Object {
@@ -1215,6 +1222,8 @@ struct Float : Object {
   virtual BasicObject* m_eq_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_ne_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_neg(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_f(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Array : Object {
@@ -1250,6 +1259,8 @@ struct Symbol : Object {
   public:
   const char* ruby_class_name() const override { return "Symbol"; }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Symbol(__Ts__...) {}
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_sym(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct String : Object {
@@ -2990,6 +3001,22 @@ inline Set_eigenclass Set_CLASS;
 inline Random_eigenclass Random_CLASS;
 inline ENVClass_eigenclass ENVClass_CLASS;
 
+inline BasicObject* NilClass::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  return new String("", 0);
+}
+
+inline BasicObject* NilClass::m_nil_q(Array* args, Hash* kwargs, Proc* block) {
+  return true_instance();
+}
+
+inline BasicObject* TrueClass::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  return new String("true", 4);
+}
+
+inline BasicObject* FalseClass::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  return new String("false", 5);
+}
+
 inline BasicObject* Integer::m_plus(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* other = array_at(args, 0);
   return new Integer(raw_ + static_cast<Integer*>(other)->raw_);
@@ -3138,6 +3165,16 @@ inline BasicObject* Float::m_neg(Array* args, Hash* kwargs, Proc* block) {
   return new Float(-raw_);
 }
 
+inline BasicObject* Float::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  char buf[32];
+  int n = std::snprintf(buf, sizeof(buf), "%g", raw_);
+  return new String(buf, static_cast<std::size_t>(n));
+}
+
+inline BasicObject* Float::m_to_f(Array* args, Hash* kwargs, Proc* block) {
+  return this;
+}
+
 inline BasicObject* Array::m_size(Array* args, Hash* kwargs, Proc* block) {
   return new Integer(static_cast<int64_t>(data.size()));
 }
@@ -3184,6 +3221,14 @@ inline BasicObject* Array::m_push(Array* args, Hash* kwargs, Proc* block) {
 inline BasicObject* Array::m_lshift(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* val = array_at(args, 0);
   data.push_back(val); return this;
+}
+
+inline BasicObject* Symbol::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  return new String(name_);
+}
+
+inline BasicObject* Symbol::m_to_sym(Array* args, Hash* kwargs, Proc* block) {
+  return this;
 }
 
 inline BasicObject* String::m_size(Array* args, Hash* kwargs, Proc* block) {

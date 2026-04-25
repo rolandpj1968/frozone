@@ -88,10 +88,14 @@ module Frozone
               "virtual BasicObject* m_case_eq(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
               "  return m_eq_q(args, kwargs, block);",
               "}",
+              "// nil? defaults to false; NilClass overrides to true.",
+              "virtual BasicObject* m_nil_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "  return false_instance();",
+              "}",
             ],
             # Methods listed here are skipped by the universal-surface
             # emitter (already hand-declared in members above).
-            hand_coded_method_names: %w[m_eq_q m_hash_value m_case_eq].freeze,
+            hand_coded_method_names: %w[m_eq_q m_hash_value m_case_eq m_nil_q].freeze,
           )
 
           OBJECT = RubyClass.new(
@@ -117,6 +121,10 @@ module Frozone
             parent: "Object",
             members: [%(const char* ruby_class_name() const override { return "NilClass"; })],
             singleton: "NIL_INSTANCE",
+            overrides: {
+              "m_to_s"  => { params: [], body: %(return new String("", 0);) },
+              "m_nil_q" => { params: [], body: "return true_instance();" },
+            },
           )
 
           TRUE_CLASS = RubyClass.new(
@@ -124,6 +132,9 @@ module Frozone
             parent: "Object",
             members: [%(const char* ruby_class_name() const override { return "TrueClass"; })],
             singleton: "TRUE_INSTANCE",
+            overrides: {
+              "m_to_s" => { params: [], body: %(return new String("true", 4);) },
+            },
           )
 
           FALSE_CLASS = RubyClass.new(
@@ -131,6 +142,9 @@ module Frozone
             parent: "Object",
             members: [%(const char* ruby_class_name() const override { return "FalseClass"; })],
             singleton: "FALSE_INSTANCE",
+            overrides: {
+              "m_to_s" => { params: [], body: %(return new String("false", 5);) },
+            },
           )
 
           INTEGER = RubyClass.new(
@@ -200,6 +214,15 @@ module Frozone
               "m_eq_q"     => { params: ["BasicObject* other"], body: "auto* o = dynamic_cast<Float*>(other); return boxed_bool(o && raw_ == o->raw_);" },
               "m_ne_q"     => { params: ["BasicObject* other"], body: "auto* o = dynamic_cast<Float*>(other); return boxed_bool(!o || raw_ != o->raw_);" },
               "m_neg"      => { params: [],                     body: "return new Float(-raw_);" },
+              "m_to_s"     => {
+                params: [],
+                body: <<~CPP.chomp,
+                  char buf[32];
+                  int n = std::snprintf(buf, sizeof(buf), "%g", raw_);
+                  return new String(buf, static_cast<std::size_t>(n));
+                CPP
+              },
+              "m_to_f"     => { params: [], body: "return this;" },
             },
           )
 
@@ -299,6 +322,10 @@ module Frozone
               "public:",
               %(const char* ruby_class_name() const override { return "Symbol"; }),
             ],
+            overrides: {
+              "m_to_s"  => { params: [], body: "return new String(name_);" },
+              "m_to_sym" => { params: [], body: "return this;" },
+            },
           )
 
           # String — byte buffer + encoding tag (UTF-8 or BINARY).
