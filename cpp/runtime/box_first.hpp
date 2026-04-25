@@ -50,6 +50,61 @@ struct Object : public BasicObject {
   const char* ruby_class_name() const override { return "Object"; }
 };
 
+// ---- Singleton classes ---------------------------------------------
+//
+// Nil/True/False have exactly one instance each. Inline static at file
+// scope (C++17) so the header self-contains them.
+
+struct NilClass : public Object {
+  const char* ruby_class_name() const override { return "NilClass"; }
+};
+
+struct TrueClass : public Object {
+  const char* ruby_class_name() const override { return "TrueClass"; }
+};
+
+struct FalseClass : public Object {
+  const char* ruby_class_name() const override { return "FalseClass"; }
+};
+
+inline NilClass NIL_INSTANCE;
+inline TrueClass TRUE_INSTANCE;
+inline FalseClass FALSE_INSTANCE;
+
+inline BasicObject* boxed_bool(bool b) {
+  return b ? static_cast<BasicObject*>(&TRUE_INSTANCE)
+           : static_cast<BasicObject*>(&FALSE_INSTANCE);
+}
+
+// ---- Integer --------------------------------------------------------
+//
+// Wraps `int64_t raw_`. Methods declared here are hand-written
+// placeholders for the spike — the long-term plan is to source these
+// from `lib/core/4.0/integer.rb` (compiled to vtable bodies). The
+// shape of these signatures is what the compiled output will need to
+// match.
+//
+// Naming convention: `m_<op>` where <op> is the C++-safe alias for the
+// Ruby operator name. Initial set: m_plus (+), m_minus (-), m_lt (<).
+// Coercion (Integer + Float etc.) deferred — for now assume the other
+// operand is also Integer.
+
+struct Integer : public Object {
+  int64_t raw_;
+  explicit Integer(int64_t r) : raw_(r) {}
+  const char* ruby_class_name() const override { return "Integer"; }
+
+  virtual BasicObject* m_plus(BasicObject* other) {
+    return new Integer(raw_ + static_cast<Integer*>(other)->raw_);
+  }
+  virtual BasicObject* m_minus(BasicObject* other) {
+    return new Integer(raw_ - static_cast<Integer*>(other)->raw_);
+  }
+  virtual BasicObject* m_lt(BasicObject* other) {
+    return boxed_bool(raw_ < static_cast<Integer*>(other)->raw_);
+  }
+};
+
 }  // namespace Ruby
 
 #endif  // FROZONE_BOX_FIRST_HPP
