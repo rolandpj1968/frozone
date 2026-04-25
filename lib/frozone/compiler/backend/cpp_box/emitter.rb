@@ -10,10 +10,6 @@
 # Selected via `FROZONE_BOX_FIRST=1` (see ast/frozone_compile.rb).
 #
 # See memory/project_radical_box_first.md for the pinned plan.
-#
-# Stage 2 status: emits empty Ruby::MainObject + main(); no method
-# bodies yet. Next step: emit user-defined methods as virtuals and
-# the execute block as MainObject#__top_level__.
 
 require_relative 'class_emitter'
 require_relative 'method_emitter'
@@ -46,8 +42,10 @@ module Frozone
             @top_level_scope = top_level_scope
             @globals = globals
             @stub_file = stub_file
+            @call_surface = collect_call_surface
             emit_header
             emit_namespace_open
+            ClassEmitter.emit_runtime(self, call_surface: @call_surface)
             emit_main_object
             emit_namespace_close
             emit_main
@@ -55,6 +53,28 @@ module Frozone
           end
 
           private
+
+          # Collects the program's universe of called methods. Each entry
+          # is [cpp_method_name, ruby_method_name_for_diagnostics] — the
+          # ruby_method_name goes into the method_missing message.
+          # BasicObject's vtable surface is exactly this set.
+          def collect_call_surface
+            calls = {}
+            walk_calls = ->(node) {
+              return unless node.is_a?(Ast::Node)
+              if node.is_a?(Ast::MethodCall) && node.receiver_node
+                # Only methods with an explicit receiver go through the
+                # vtable — bare calls dispatch via this->name() inside
+                # MainObject.
+                cpp_name = ExprEmitter::OP_NAMES[node.name] || "m_#{node.name}"
+                calls[cpp_name] ||= node.name.to_s
+              end
+              node.children.each { |c| walk_calls.call(c) } if node.respond_to?(:children)
+            }
+            user_methods.each_value { |m| walk_calls.call(m.body) if m.body }
+            walk_calls.call(@execute_block) if @execute_block
+            calls
+          end
 
           def emit_header
             line %(#include "../runtime/box_first.hpp")
@@ -67,7 +87,6 @@ module Frozone
           end
 
           def emit_namespace_close
-            blank
             line "}  // namespace Ruby"
             blank
           end
@@ -87,6 +106,7 @@ module Frozone
               line "}"
             end
             line "};"
+            blank
           end
 
           def emit_user_methods
@@ -94,6 +114,23 @@ module Frozone
               blank
               MethodEmitter.emit_user_method(self, name, method)
             end
+          end
+
+          def emit_top_level_body
+            return unless @execute_block
+            body = @execute_block.respond_to?(:body) ? @execute_block.body : @execute_block
+            ExprEmitter.emit_body(self, body, locals: Set.new)
+          end
+
+          def emit_main
+            line "int main() {"
+            indented do
+              line "FROZONE_GC_INIT();"
+              line "Ruby::MainObject mo;"
+              line "mo.__top_level__();"
+              line "return 0;"
+            end
+            line "}"
           end
 
           # Top-level user methods live in `top_level_scope.methods_table`.
@@ -111,25 +148,6 @@ module Frozone
             file = loc.is_a?(Array) ? loc.first.to_s : loc.to_s.sub(/:[\d]+\z/, '')
             return false if @stub_file && file == @stub_file
             CORE_PATH_MARKERS.none? { |m| file.include?(m) }
-          end
-
-          def emit_top_level_body
-            return unless @execute_block
-            # The execute block arrives as an Ast::Block wrapping a body
-            # Sequence. Unwrap to the body for emission.
-            body = @execute_block.respond_to?(:body) ? @execute_block.body : @execute_block
-            ExprEmitter.emit_body(self, body, locals: Set.new)
-          end
-
-          def emit_main
-            line "int main() {"
-            indented do
-              line "FROZONE_GC_INIT();"
-              line "Ruby::MainObject mo;"
-              line "mo.__top_level__();"
-              line "return 0;"
-            end
-            line "}"
           end
         end
       end
