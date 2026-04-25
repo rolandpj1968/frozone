@@ -96,8 +96,7 @@ module Frozone
       def ti_type(slot)
         return nil unless @ti_env
         ty = @ti_env.type_at(slot)
-        return nil unless ty && !ty.bottom?
-        return nil if ty.to_cpp == "auto"
+        return nil unless ty && ty.concrete?
         ty
       end
 
@@ -623,7 +622,11 @@ module Frozone
             key = iv.to_s.delete_prefix('@')
             ty = ivar_ts[key]
             if self_ref_ivars.include?(key)
-              line "#{Frozone::Compiler::Type.of(name).to_cpp_ref} iv_#{key} = nullptr;"
+              # Self-referential ivar: holds an instance of the enclosing class.
+              # Type::of(name) gives a class_type for the wrapper; for_ivar
+              # renders it as gc_ref<Ruby_X>.
+              self_ty = Frozone::Compiler::Type.of(name)
+              line "#{CppTypeEmitter.for_ivar(self_ty)} iv_#{key} = nullptr;"
             elsif ty
               line "#{CppTypeEmitter.for_ivar(ty)} iv_#{key}#{CppTypeEmitter.init_suffix(ty)};"
             else
@@ -1614,7 +1617,11 @@ module Frozone
           end
           if s.start_with?("while ") || s.start_with?("for ")
             if @_method_return_t
-              line "return #{@_method_return_t.to_cpp}();"
+              # Unreachable filler return after a non-terminating loop —
+              # value doesn't matter at runtime, just satisfies C++'s
+              # "must return on all paths" rule. nil_return_expr already
+              # handles every shape (pointer / optional / value).
+              line "return #{nil_return_expr};"
             elsif @_current_body_has_explicit_return
               line "__builtin_unreachable();"
             else
@@ -1831,12 +1838,12 @@ module Frozone
       # For any other target type cr_coerce is identity.
       def cr_coerce(node, target)
         s = cr(node)
-        target_cpp = if target.is_a?(Frozone::Compiler::Type)
-                       target.to_cpp
-                     else
-                       target
-                     end
-        return s unless target_cpp == "RubyObject*"
+        # Only the "universal boxed" target needs a non-identity coercion.
+        # Accept either a Type (asks the predicate directly) or a cpp string
+        # (legacy callers — `"RubyObject*"` is the only string value that
+        # routes here today, kept for compatibility during the migration).
+        is_object_root = target.is_a?(Frozone::Compiler::Type) ? target.object_root? : target == "RubyObject*"
+        return s unless is_object_root
         "coerce_to_ref<RubyObject>(#{s})"
       end
 

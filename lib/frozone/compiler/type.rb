@@ -147,6 +147,24 @@ module Frozone
         true
       end
 
+      # The "universal boxed any" type — renders as `RubyObject*` (or
+      # `gc_ref<RubyObject>` under wrapper). Used as the union representation
+      # for mixed reference types and the target slot for coerce_to_ref.
+      def object_root?
+        class_type? && %i[Object BasicObject].include?(@class_name)
+      end
+
+      # Does this Type carry enough information to render as something other
+      # than `auto`? :bottom kind always renders auto; an unresolved
+      # class_type (class_name nil) does too. Everything else renders to
+      # something concrete. Used by ti_type to filter out "TI knew there was
+      # a slot but couldn't say what" results.
+      def concrete?
+        return false if bottom?
+        return false if class_type? && @class_name.nil?
+        true
+      end
+
       # Does this Type render as a `T*` pointer in the C++ output? Covers
       # user classes, Object/BasicObject, AND NON_GC_BUILTIN_CLASSES (e.g.
       # Random — emits as `Ruby_Random*` even though it isn't Dustman-
