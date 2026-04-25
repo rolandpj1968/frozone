@@ -161,7 +161,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     let(:cpp) { described_class.new(user_classes: { Box: user_class }, user_constants: {}) }
 
     it "user-class .new emits direct C++ instantiation" do
-      expect(cpp.from_expr(call(:new, cr(:Box), [int(42)]), locals)).to eq("(new Box((new Integer(42LL))))")
+      expect(cpp.from_expr(call(:new, cr(:Box), [int(42)]), locals)).to eq("(new Box(static_cast<BasicObject*>((new Integer(42LL)))))")
     end
 
     it "Universe-seeded class .new (Array) also routes through new" do
@@ -206,7 +206,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       foo = A::ConstantRead.new(:Foo)
       path = A::ConstantPath.new(foo, :Bar)
       call = A::MethodCall.new(:new, path, [int(7)], [], nil)
-      expect(cpp.from_expr(call, locals)).to eq("(new Foo_Bar((new Integer(7LL))))")
+      expect(cpp.from_expr(call, locals)).to eq("(new Foo_Bar(static_cast<BasicObject*>((new Integer(7LL)))))")
     end
   end
 

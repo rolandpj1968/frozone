@@ -28,6 +28,7 @@
 #include <string>
 #include <functional>
 #include <initializer_list>
+#include <type_traits>
 #include <gc.h>
 
 #define FROZONE_GC_INIT() GC_INIT()
@@ -50,5 +51,21 @@ template<typename A, typename B>
 bool operator==(const GcAllocator<A>&, const GcAllocator<B>&) noexcept { return true; }
 template<typename A, typename B>
 bool operator!=(const GcAllocator<A>&, const GcAllocator<B>&) noexcept { return false; }
+
+// RAII for `ensure` blocks. Constructed at the top of the lambda that
+// frames a begin/rescue/ensure expression; the lambda f_ runs on any
+// scope exit (normal return, exception propagation through the catch,
+// re-throw from a rescue arm). Mirrors Ruby's ensure semantics where
+// the block ALWAYS runs after the begin.
+template<typename F>
+struct EnsureGuard {
+  F f_;
+  explicit EnsureGuard(F f) : f_(std::move(f)) {}
+  ~EnsureGuard() { f_(); }
+  EnsureGuard(const EnsureGuard&) = delete;
+  EnsureGuard& operator=(const EnsureGuard&) = delete;
+};
+// CTAD deduction guide so callers can write `EnsureGuard g([&]() {...});`.
+template<typename F> EnsureGuard(F) -> EnsureGuard<F>;
 
 #endif  // FROZONE_BOX_FIRST_HPP

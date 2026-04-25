@@ -45,14 +45,16 @@ module Frozone
           # reset). Used for rendering method bodies into RubyClass.overrides
           # body strings — writers commit via line/indented as usual,
           # but the result accumulates into a returned string instead of
-          # the main output.
+          # the main output. ensure-restore so a yield that raises
+          # (e.g. graceful-degradation EmissionError) doesn't leak the
+          # inner buffer into subsequent writes.
           def capture
             saved_out, saved_indent = @out, @indent
             @out, @indent = +"", 0
             yield
-            result = @out
+            @out
+          ensure
             @out, @indent = saved_out, saved_indent
-            result
           end
 
           def generate(execute_block:, top_level_scope:, globals:, stub_file: nil)
@@ -63,6 +65,7 @@ module Frozone
             @user_classes = collect_all_classes
             @user_constants = collect_user_constants
             @cpp = Cpp.new(user_classes: @user_classes, user_constants: @user_constants)
+            @cpp.emit = self
             @call_surface = collect_call_surface
             all_classes = Runtime::ALL_CLASSES + build_user_class_defs
             all_eigenclasses = all_classes.map { |k| Runtime.eigenclass_for(k) }.compact
@@ -123,18 +126,17 @@ module Frozone
             end
           end
 
-          # All compilable Vm::Method instances on the class. We currently
-          # only emit bodies for user-source methods (since the writers
-          # only handle a subset of AST shapes); core/4.0/ + vm/ + ast/
-          # methods aren't body-emitted but their vtable slots still get
-          # declared on BasicObject (for callsite signature matching) and
-          # they fall through to method_missing at runtime.
-          # Filters out methods inherited from Object (those appear in
-          # every class's methods_table; we emit them on MainObject).
+          # All Vm::Method instances on the class. Closed-world: we emit
+          # bodies for ALL methods regardless of source — when a body
+          # contains an AST shape we can't yet handle, build_override
+          # rescues the EmissionError and skips just that method (it
+          # falls through to method_missing at runtime). The filter that
+          # excludes methods aliased into the class via Object inheritance
+          # remains — those get emitted on MainObject.
           def class_methods(cls)
             top_level_methods = (@top_level_scope.methods_table || {})
             (cls.methods_table || {}).select do |name, m|
-              next false unless m.is_a?(Vm::Method) && user_source?(m.source_location)
+              next false unless m.is_a?(Vm::Method)
               top_level_methods[name] != m
             end
           end
@@ -150,7 +152,12 @@ module Frozone
             calls = {}
             walk = ->(node) {
               return unless node.is_a?(Ast::Node)
-              if node.is_a?(Ast::MethodCall) && node.receiver_node && node.name != :new
+              # Receiverless calls (`Complex(x)`, `foo(x)`) emit as
+              # `this->m_X(...)` and need a slot too — same universal
+              # surface, since `this` is some BasicObject*-derived.
+              # Skip `:new` (handled by ConstantRead-receiver branch
+              # in from_method_call).
+              if node.is_a?(Ast::MethodCall) && node.name != :new
                 cpp_name = Cpp.method_name(node.name)
                 calls[cpp_name] ||= node.name.to_s
               end
@@ -159,6 +166,7 @@ module Frozone
             user_methods.each_value { |m| walk.call(m.body) if m.body }
             @user_classes.each_value do |cls|
               class_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+              eigenclass_methods(cls).each_value { |m| walk.call(m.body) if m.body }
             end
             walk.call(@execute_block) if @execute_block
             # Runtime override slots also exist on BasicObject.
@@ -167,9 +175,13 @@ module Frozone
                 calls[cpp_name] ||= cpp_name.sub(/^m_/, '')
               end
             end
-            # User-class method DEFINITIONS need slots too.
+            # User-class method DEFINITIONS need slots too — both
+            # instance methods AND eigenclass (def self.X) methods.
+            # Eigenclass slots especially: Class only has BasicObject's
+            # universal surface, so without seeding from def-sites the
+            # eigenclass overrides have no parent virtual to override.
             @user_classes.each_value do |cls|
-              class_methods(cls).each do |mname, _|
+              (class_methods(cls).keys + eigenclass_methods(cls).keys).uniq.each do |mname|
                 next if mname == :initialize
                 cpp_name = Cpp.method_name(mname)
                 calls[cpp_name] ||= mname.to_s
@@ -188,6 +200,7 @@ module Frozone
 
           def build_user_class_def(name, cls)
             ivars = collect_ivars(cls)
+            eigen_ivars = collect_eigenclass_ivars(cls)
             user_methods = class_methods(cls)
             methods = user_methods.reject { |n, _| n == :initialize }
             init = user_methods[:initialize]
@@ -198,22 +211,48 @@ module Frozone
               members: [%(const char* ruby_class_name() const override { return "#{name}"; })],
               ctor: build_ctor(name, init),
               overrides: methods.each_with_object({}) { |(mname, m), h|
-                h[Cpp.method_name(mname)] = build_override(m)
+                spec = build_override(m)
+                h[Cpp.method_name(mname)] = spec if spec
               },
               eigenclass_overrides: eigenclass_methods(cls).each_with_object({}) { |(mname, m), h|
-                h[Cpp.method_name(mname)] = build_override(m)
+                spec = build_override(m)
+                h[Cpp.method_name(mname)] = spec if spec
               },
+              eigenclass_ivars: eigen_ivars,
             )
           end
 
+          # `def self.X` bodies referencing `@y` need iv_y declared on
+          # the eigenclass struct (singleton ivars on the metaclass).
+          def collect_eigenclass_ivars(cls)
+            eigen = cls.eigenclass rescue nil
+            return [] unless eigen
+            ivars = []
+            seen = Set.new
+            walk = ->(node) {
+              return unless node.is_a?(Ast::Node)
+              if node.is_a?(Ast::InstanceVariableWrite) || node.is_a?(Ast::InstanceVariableRead)
+                stripped = node.name.to_s.delete_prefix('@')
+                unless seen.include?(stripped)
+                  seen << stripped
+                  ivars << stripped
+                end
+              end
+              node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
+            }
+            eigenclass_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+            ivars
+          end
+
           # Walk class.eigenclass.methods_table for `def self.X` entries.
-          # Same source-location filtering as instance methods.
+          # Same closed-world policy as class_methods — emit all, let
+          # graceful degradation drop the ones we can't compile.
           def eigenclass_methods(cls)
             eigen = cls.eigenclass rescue nil
             return {} unless eigen
             top_level_methods = (@top_level_scope.methods_table || {})
             (eigen.methods_table || {}).select do |name, m|
-              next false unless m.is_a?(Vm::Method) && user_source?(m.source_location)
+              next false unless m.is_a?(Vm::Method)
               top_level_methods[name] != m
             end
           end
@@ -244,26 +283,73 @@ module Frozone
             sc.name == :Object || sc.name.nil? ? "Object" : sc.name.to_s
           end
 
+          # Build a ctor spec for a user class. Required params land as
+          # `BasicObject* x`; optional params get C++ default-arg syntax
+          # (`BasicObject* x = <default_expr>`). Rest/post/kw params are
+          # not yet supported in ctors — raise EmissionError so the
+          # whole class falls through to a default ctor (callsites that
+          # try to instantiate it with args will then fail to compile,
+          # which is the right loud signal).
           def build_ctor(class_name, init_method)
             return nil unless init_method
-            params, locals = MethodEmitter.build_params(init_method)
+            parts = []
+            locals = Set.new
+            (init_method.required_params || []).each do |p|
+              parts << "BasicObject* #{p}"
+              locals << p.to_s
+            end
+            (init_method.optional_params || []).each do |(p, default_node)|
+              default_str = default_node ? @cpp.from_expr(default_node, locals) : "nil_instance()"
+              parts << "BasicObject* #{p} = #{default_str}"
+              locals << p.to_s
+            end
+            if init_method.rest_param || (init_method.post_params && !init_method.post_params.empty?) ||
+               (init_method.required_kw_params && !init_method.required_kw_params.empty?) ||
+               (init_method.optional_kw_params && !init_method.optional_kw_params.empty?) ||
+               init_method.kw_rest_param
+              raise Cpp::EmissionError, "ctor with rest/post/kw params not yet supported"
+            end
+            # Block param: add as optional Proc* default-nullptr arg.
+            block_name = MethodEmitter.user_block_name(init_method) || "_block"
+            if init_method.block_param
+              parts << "Proc* #{block_name} = nullptr"
+              locals << block_name
+            end
+            # Pre-declare every other method local up front (mirror
+            # unpack_params) so locals first-written inside an `if`
+            # branch are visible to sibling branches and to the
+            # implicit `return ...` at the bottom.
             body = capture do
+              reserved = %w[args kwargs block]
+              (init_method.locals || []).each do |name|
+                s = name.to_s
+                next if s.empty? || locals.include?(s) || reserved.include?(s)
+                line "BasicObject* #{s} = nil_instance();"
+                locals << s
+              end
               ExprEmitter.write_body(self, init_method.body, locals: locals) if init_method.body
             end
-            { params: params.split(", ").reject(&:empty?), body: body, class_name: class_name.to_s }
+            { params: parts, body: body, class_name: class_name.to_s }
+          rescue Cpp::EmissionError
+            nil
           end
 
+          # Build an override spec for a user method using unpack_params
+          # (so rest/block handling matches MethodEmitter). Empty params
+          # field means class_emitter doesn't double-emit unpack lines.
+          # EmissionError → nil so caller can drop the entry; the slot
+          # falls through to BasicObject's method_missing stub at runtime.
           def build_override(method)
-            params, locals = MethodEmitter.build_params(method)
             body = capture do
+              locals = MethodEmitter.unpack_params(self, method)
               ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
             end
             {
-              params: params.split(", ").reject(&:empty?),
-              # Trailing nil-return as a safety net for paths that fall
-              # through (empty body, statement-only last expression).
+              params: [],
               body: body + "return nil_instance();\n",
             }
+          rescue Cpp::EmissionError
+            nil
           end
 
           def write_header

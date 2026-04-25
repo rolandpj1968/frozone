@@ -30,7 +30,7 @@ module Frozone
           #                ("NIL_INSTANCE" etc.)
           RubyClass = Struct.new(
             :name, :parent, :ivars, :members, :ctor, :overrides, :singleton,
-            :hand_coded_method_names, :eigenclass_overrides,
+            :hand_coded_method_names, :eigenclass_overrides, :eigenclass_ivars,
             keyword_init: true
           )
 
@@ -500,13 +500,15 @@ module Frozone
           # Ruby code refers to when it writes the bare class name as a
           # value (`Integer`, `Foo`, etc.).
           #
-          # Class itself has no separate eigenclass (it IS the metaclass
-          # type — the parent of all eigenclasses). All others get one.
+          # Class itself gets an eigenclass too (its eigenclass IS Class
+          # itself in a strict Ruby sense, but we mirror the universal
+          # pattern — `Class_eigenclass : Class` — so user code that
+          # writes `Class` as a value resolves to `&Class_CLASS`).
           def self.eigenclass_for(klass)
-            return nil if klass.name == "Class"
             RubyClass.new(
               name: "#{klass.name}_eigenclass",
               parent: "Class",
+              ivars: (klass.eigenclass_ivars || []).map { |iv| "BasicObject* iv_#{iv} = nullptr;" },
               members: [%(const char* ruby_class_name() const override { return "#{klass.name}"; })],
               overrides: klass.eigenclass_overrides || {},
               singleton: "#{klass.name}_CLASS",

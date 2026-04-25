@@ -16,6 +16,7 @@
 # constantly as we walk into nested scopes.
 
 require_relative 'runtime/universe'
+require_relative 'method_emitter'
 
 module Frozone
   module Compiler
@@ -72,21 +73,25 @@ module Frozone
           end
 
           # Nodes that produce a value usable in expression position.
-          # Statement-only nodes (Return, Sequence, While) don't get
-          # wrapped in implicit-return; they handle their own control
-          # flow or have void value.
+          # Statement-only nodes don't get wrapped in implicit-return;
+          # they handle their own control flow or have void value.
           # Ast::If and Ast::Case ARE expression-valid (Ruby's if/case
           # return the taken branch's value) — emitted as ternary or
           # lambda+early-return in expression position, multi-line in
           # statement position.
           def self.expression_node?(node)
             case node
-            when Ast::Return, Ast::Sequence, Ast::While then false
+            when Ast::Return, Ast::Sequence, Ast::While, Ast::Until,
+                 Ast::Break, Ast::Next then false
             else true
             end
           end
 
           attr_reader :user_classes, :user_constants
+          # Set by Emitter after construction. Needed by from_rescue to
+          # render nested-lambda bodies via emit.capture + write_body.
+          # Pure-functional otherwise — only the rescue path reaches back.
+          attr_accessor :emit
 
           def initialize(user_classes:, user_constants:)
             @user_classes = user_classes
@@ -131,6 +136,7 @@ module Frozone
             when Ast::If then from_if(node, locals)
             when Ast::Case then from_case(node, locals)
             when Ast::Yield then from_yield(node, locals)
+            when Ast::Rescue then from_rescue(node, locals)
             when Ast::Sequence
               # `(a)` and `(a, b, c)` both work as comma-operator —
               # value is the last subexpression.
@@ -152,13 +158,24 @@ module Frozone
             name = node.name
             arg_nodes = node.arg_nodes || []
 
+            # `raise` is a statement-like keyword in Ruby that we lower
+            # to a C++ `throw` wrapped in a lambda (so it composes in
+            # expression position too).
+            return from_raise(arg_nodes, locals) if !recv && name == :raise
+
             # ClassName.new(args) or Foo::Bar.new(args) → direct
             # instantiation. Bypasses the vtable. Wrap in parens so
             # trailing -> on the result binds tighter than `new`.
             if name == :new && (recv.is_a?(Ast::ConstantRead) || recv.is_a?(Ast::ConstantPath))
               cls_name = recv.is_a?(Ast::ConstantRead) ? recv.name.to_s : path_to_cpp_name(recv)
               if instantiable_class?(cls_name.to_sym)
-                args = arg_nodes.map { |a| from_arg(a, locals) }
+                # Cast each arg to BasicObject* so callers uniformly hit
+                # the user's `X(BasicObject*, ...)` ctor — without the
+                # cast, `new Box(Integer*)` would deduce the inherited
+                # variadic template (Ts=Integer*) as a better match
+                # (identity beats derived-to-base) and skip the
+                # ivar-setting ctor.
+                args = arg_nodes.map { |a| "static_cast<BasicObject*>(#{from_arg(a, locals)})" }
                 return "(new #{cls_name}(#{args.join(", ")}))"
               end
             end
@@ -220,6 +237,127 @@ module Frozone
             from_expr(node, locals)
           end
 
+          # `raise` lowering. Forms supported:
+          #   raise                — re-raise current exception (`throw;`)
+          #   raise X.new("msg")   — throw the constructed exception
+          #   raise X              — throw `new X()` (sugar for X.new)
+          #   raise X, "msg"       — throw `new X("msg")` (sugar for X.new("msg"))
+          #   raise <expr>         — throw <expr> (assumed Exception-typed)
+          # All forms wrap in a lambda returning BasicObject* so they
+          # compose in expression position. C++ `throw` is void-typed,
+          # so it can't appear directly in `return throw ...;`.
+          def from_raise(arg_nodes, locals)
+            if arg_nodes.empty?
+              return "([&]() -> BasicObject* { throw; }())"
+            end
+            first = arg_nodes[0]
+            if arg_nodes.length >= 2 &&
+               (first.is_a?(Ast::ConstantRead) || first.is_a?(Ast::ConstantPath))
+              cls_name = first.is_a?(Ast::ConstantRead) ? first.name.to_s : path_to_cpp_name(first)
+              raise EmissionError, "raise: unknown exception class :#{cls_name}" unless instantiable_class?(cls_name.to_sym)
+              ctor_args = arg_nodes.drop(1).map { |a| from_arg(a, locals) }.join(", ")
+              return "([&]() -> BasicObject* { throw (new #{cls_name}(#{ctor_args})); }())"
+            end
+            if arg_nodes.length == 1 &&
+               (first.is_a?(Ast::ConstantRead) || first.is_a?(Ast::ConstantPath))
+              cls_name = first.is_a?(Ast::ConstantRead) ? first.name.to_s : path_to_cpp_name(first)
+              raise EmissionError, "raise: unknown exception class :#{cls_name}" unless instantiable_class?(cls_name.to_sym)
+              return "([&]() -> BasicObject* { throw (new #{cls_name}()); }())"
+            end
+            if arg_nodes.length == 1
+              expr_str = from_expr(first, locals)
+              return "([&]() -> BasicObject* { throw static_cast<Exception*>(#{expr_str}); }())"
+            end
+            raise EmissionError, "raise: unsupported arg shape (#{arg_nodes.length} args)"
+          end
+
+          # begin/rescue/else/ensure → self-invoking lambda. Body, each
+          # rescue arm, and else_node each render as a NESTED lambda
+          # using emit.capture + write_body(last_is_return: true), so
+          # multi-statement non-expression blocks are supported. The
+          # ensure_node becomes an EnsureGuard (RAII) at the top of the
+          # outer lambda — runs on any exit (return, exception, rethrow).
+          # No clause matched → re-throw, which propagates through the
+          # ensure guard.
+          def from_rescue(node, locals)
+            buf = +"([&]() -> BasicObject* { "
+            if node.ensure_node
+              buf << "EnsureGuard _eg([&]() #{body_as_block(node.ensure_node, locals, last_is_return: false)}); "
+            end
+            buf << "try { "
+            if node.else_node
+              # Body's value discarded; else_node provides the value.
+              buf << "#{body_as_lambda_call(node.body, locals)}; "
+              buf << "return #{body_as_lambda_call(node.else_node, locals)}; "
+            else
+              buf << "return #{body_as_lambda_call(node.body, locals)}; "
+            end
+            buf << "} catch (Exception* e_) { "
+            (node.rescue_clauses || []).each do |clause|
+              cond = rescue_clause_condition(clause)
+              bind_locals = locals.dup
+              bind_str = ""
+              if clause.var_name
+                bind_locals << clause.var_name.to_s
+                bind_str = "BasicObject* #{clause.var_name} = e_; "
+              end
+              arm_call = body_as_lambda_call(clause.body, bind_locals)
+              buf << "if (#{cond}) { #{bind_str}return #{arm_call}; } "
+            end
+            buf << "throw; } }())"
+            buf
+          end
+
+          # Build the dynamic_cast-based condition for one rescue clause.
+          # Bare rescue (no exception_nodes) catches StandardError per
+          # Ruby semantics. Exception class names come from ConstantRead
+          # / ConstantPath; non-constant exception lists raise EmissionError.
+          def rescue_clause_condition(clause)
+            return "dynamic_cast<StandardError*>(e_) != nullptr" if clause.exception_nodes.empty?
+            clause.exception_nodes.map { |n|
+              cls = exception_class_name(n)
+              "dynamic_cast<#{cls}*>(e_) != nullptr"
+            }.join(" || ")
+          end
+
+          def exception_class_name(node)
+            name = case node
+                   when Ast::ConstantRead then node.name.to_s
+                   when Ast::ConstantPath then path_to_cpp_name(node)
+                   else
+                     raise EmissionError, "rescue: non-constant exception spec (#{node.class.name})"
+                   end
+            unless instantiable_class?(name.to_sym)
+              raise EmissionError, "rescue: unknown exception class :#{name}"
+            end
+            name
+          end
+
+          # Render a body as `[&]() -> BasicObject* { ... return last; }()`
+          # — the nested lambda captures all enclosing locals by reference
+          # and returns the value of the last expression. Used by
+          # from_rescue for body / else / arm bodies.
+          def body_as_lambda_call(body, locals)
+            "#{body_as_lambda(body, locals, last_is_return: true)}()"
+          end
+
+          def body_as_lambda(body, locals, last_is_return:)
+            "[&]() -> BasicObject* #{body_as_block(body, locals, last_is_return: last_is_return)}"
+          end
+
+          # Render `{ ... }` for a body — used both as the lambda body
+          # and as the EnsureGuard lambda body. captured via emit so any
+          # statement type (if/while/case) is supported. Trailing
+          # `return nil_instance();` is a safety net for empty bodies
+          # and last_is_return=false paths.
+          def body_as_block(body, locals, last_is_return:)
+            return "{ return nil_instance(); }" unless body
+            inner = @emit.capture do
+              ExprEmitter.write_body(@emit, body, locals: locals, last_is_return: last_is_return)
+            end
+            "{ #{inner.gsub("\n", " ")} return nil_instance(); }"
+          end
+
           # `Ast::Yield` → call into the implicit `_block` Proc* that
           # MethodEmitter inserts when a body contains yield.
           # Universal call protocol: m_call(args, kwargs, block).
@@ -236,8 +374,31 @@ module Frozone
           # statement except the last which becomes the lambda's return.
           # Statement-only nodes (If-as-stmt, Return, etc.) inside a
           # block body are not yet supported — defer if hit.
+          # `&expr` (Ast::BlockArg) is forwarded as a Proc* — the value
+          # must already be a Proc-typed local; SymbolProc / to_proc
+          # coercions are deferred (raise EmissionError).
           def from_block_as_proc(block_node, locals)
-            param = (block_node.required_params || []).first
+            if block_node.is_a?(Ast::BlockArg)
+              # &:sym would need SymbolProc-style coercion (synthesise a
+              # block that calls the named method on the arg). Defer.
+              if block_node.value_node.is_a?(Ast::SymbolLiteral)
+                raise EmissionError, "&:sym block-arg coercion not yet supported"
+              end
+              return "static_cast<Proc*>(#{from_expr(block_node.value_node, locals)})"
+            end
+            params = block_node.required_params || []
+            if params.length > 1
+              raise EmissionError, "block with multiple required params (#{params.length}) not yet supported"
+            end
+            if (block_node.respond_to?(:optional_params) && (block_node.optional_params || []).any?) ||
+               (block_node.respond_to?(:rest_param) && block_node.rest_param) ||
+               (block_node.respond_to?(:post_params) && (block_node.post_params || []).any?)
+              raise EmissionError, "block with optional/rest/post params not yet supported"
+            end
+            param = params.first
+            if param && MethodEmitter::CPP_KEYWORDS.include?(param.to_s)
+              raise EmissionError, "block param :#{param} is a C++ reserved word"
+            end
             block_locals = locals.dup
             block_locals << param.to_s if param
 
@@ -245,7 +406,10 @@ module Frozone
             stmts = body.is_a?(Ast::Sequence) ? body.nodes : (body ? [body] : [])
 
             parts = []
-            parts << "BasicObject* #{param} = arg;" if param
+            # The lambda param is named `arg`; if the user-named block
+            # param is also `arg`, skip the redundant rebinding (would
+            # shadow the parameter).
+            parts << "BasicObject* #{param} = arg;" if param && param.to_s != "arg"
             stmts.each_with_index do |n, i|
               s = from_expr(n, block_locals)
               if i == stmts.length - 1

@@ -39,10 +39,23 @@ module Frozone
               write_if_stmt(emit, node, locals)
             when Ast::While
               write_while_stmt(emit, node, locals)
+            when Ast::Until
+              write_until_stmt(emit, node, locals)
             when Ast::Case
               write_case_stmt(emit, node, locals)
             when Ast::LocalVariableWrite
               write_local_write_stmt(emit, node, locals)
+            when Ast::Break
+              # Bare `break` and `break value` — value is dropped (the
+              # surrounding loop's value isn't observable in
+              # statement-position emission). C++ has no value-bearing
+              # break.
+              emit.line "break;"
+            when Ast::Next
+              emit.line "continue;"
+            when Ast::ClassDef, Ast::ModuleDef, Ast::MethodDef, Ast::SingletonClassDef
+              raise Cpp::EmissionError,
+                "closed-world violation: runtime #{node.class.name.split('::').last} not supported in compiled body"
             when Ast::MethodCall
               if node.name == :times && node.receiver_node && node.block_node
                 write_times_block(emit, node, locals)
@@ -111,11 +124,26 @@ module Frozone
             emit.line "}"
           end
 
+          # `until cond; body; end` is `while (!truthy(cond)) { body }`.
+          # `begin; body; end until cond` (post-test form) isn't yet
+          # special-cased — the begin_modifier flag is ignored; we always
+          # emit the pre-test form.
+          def self.write_until_stmt(emit, node, locals)
+            emit.line "while (!truthy(#{emit.cpp.from_expr(node.condition_node, locals)})) {"
+            emit.indented do
+              write_body(emit, node.body_node, locals: locals) if node.body_node
+            end
+            emit.line "}"
+          end
+
           def self.write_local_write_stmt(emit, node, locals)
             rhs = emit.cpp.from_expr(node.value_node, locals)
             if locals.include?(node.name.to_s)
               emit.line "#{node.name} = #{rhs};"
             else
+              if MethodEmitter::CPP_KEYWORDS.include?(node.name.to_s)
+                raise Cpp::EmissionError, "local :#{node.name} is a C++ reserved word"
+              end
               locals << node.name.to_s
               emit.line "BasicObject* #{node.name} = #{rhs};"
             end

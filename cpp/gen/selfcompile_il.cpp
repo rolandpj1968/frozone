@@ -262,7 +262,6 @@ inline BasicObject* k_STDOUT();
 inline BasicObject* k_STDERR();
 inline BasicObject* k_STDIN();
 inline BasicObject* k_ENV();
-inline BasicObject* k_TOPLEVEL_BINDING();
 inline BasicObject* k_ARGF();
 
 struct BasicObject {
@@ -295,17 +294,6 @@ struct BasicObject {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> BasicObject(__Ts__...) {}
   // Universal method surface — one slot per name. All Ruby methods take
   // (Array* args, Hash* kwargs, Proc* block) — bodies unpack from args.
-  virtual BasicObject* m_minus(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("-"); }
-  virtual BasicObject* m_lshift(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("<<"); }
-  virtual BasicObject* m_ge(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing(">="); }
-  virtual BasicObject* m_bit_and(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("&"); }
-  virtual BasicObject* m_bit_or(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("|"); }
-  virtual BasicObject* m_aref(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("[]"); }
-  virtual BasicObject* m_ne_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("!="); }
-  virtual BasicObject* m_rshift(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing(">>"); }
-  virtual BasicObject* m_bit_xor(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("^"); }
-  virtual BasicObject* m_plus(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("+"); }
-  virtual BasicObject* m_lt(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("<"); }
   virtual BasicObject* m_is_a_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("is_a?"); }
   virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("to_s"); }
   virtual BasicObject* m_select(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("select"); }
@@ -313,11 +301,13 @@ struct BasicObject {
   virtual BasicObject* m_ancestors(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("ancestors"); }
   virtual BasicObject* m_not(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("!"); }
   virtual BasicObject* m_values(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("values"); }
+  virtual BasicObject* m_ge(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing(">="); }
   virtual BasicObject* m_size(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("size"); }
   virtual BasicObject* m_last(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("last"); }
   virtual BasicObject* m_warn(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("warn"); }
   virtual BasicObject* m_first(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("first"); }
   virtual BasicObject* m_caller(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("caller"); }
+  virtual BasicObject* m_aref(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("[]"); }
   virtual BasicObject* m_empty_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("empty?"); }
   virtual BasicObject* m_raise(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("raise"); }
   virtual BasicObject* m_gt(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing(">"); }
@@ -330,10 +320,13 @@ struct BasicObject {
   virtual BasicObject* m_class(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("class"); }
   virtual BasicObject* m___id__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__id__"); }
   virtual BasicObject* m_include_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("include?"); }
+  virtual BasicObject* m_ne_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("!="); }
   virtual BasicObject* m_instance_variable_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("instance_variable_set"); }
   virtual BasicObject* m_object_id(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("object_id"); }
   virtual BasicObject* m_constants(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("constants"); }
+  virtual BasicObject* m_lt(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("<"); }
   virtual BasicObject* m_mul(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("*"); }
+  virtual BasicObject* m_minus(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("-"); }
   virtual BasicObject* m_abs(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("abs"); }
   virtual BasicObject* m_arg(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("arg"); }
   virtual BasicObject* m_to_i(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("to_i"); }
@@ -359,11 +352,13 @@ struct BasicObject {
   virtual BasicObject* m_compact(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("compact"); }
   virtual BasicObject* m_proc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("proc"); }
   virtual BasicObject* m___step_size__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__step_size__"); }
+  virtual BasicObject* m_lshift(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("<<"); }
   virtual BasicObject* m__from_method(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("_from_method"); }
   virtual BasicObject* m_call(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("call"); }
   virtual BasicObject* m___step_each__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__step_each__"); }
   virtual BasicObject* m_infinite_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("infinite?"); }
   virtual BasicObject* m_nan_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("nan?"); }
+  virtual BasicObject* m_plus(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("+"); }
   virtual BasicObject* m_le(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("<="); }
   virtual BasicObject* m_loop(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("loop"); }
   virtual BasicObject* m_times(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("times"); }
@@ -431,7 +426,10 @@ struct BasicObject {
   virtual BasicObject* m_then(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("then"); }
   virtual BasicObject* m_unpack1(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("unpack1"); }
   virtual BasicObject* m_pack(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("pack"); }
+  virtual BasicObject* m_bit_and(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("&"); }
   virtual BasicObject* m_bit_not(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("~"); }
+  virtual BasicObject* m_bit_or(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("|"); }
+  virtual BasicObject* m_bit_xor(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("^"); }
   virtual BasicObject* m___step_float_unbounded__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__step_float_unbounded__"); }
   virtual BasicObject* m___step_float_positive__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__step_float_positive__"); }
   virtual BasicObject* m___step_float_negative__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__step_float_negative__"); }
@@ -500,6 +498,7 @@ struct BasicObject {
   virtual BasicObject* m___coerce_op__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__coerce_op__"); }
   virtual BasicObject* m_negative_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("negative?"); }
   virtual BasicObject* m_bit_length(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("bit_length"); }
+  virtual BasicObject* m_rshift(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing(">>"); }
   virtual BasicObject* m_divmod(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("divmod"); }
   virtual BasicObject* m_even_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("even?"); }
   virtual BasicObject* m___simplest_rational__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__simplest_rational__"); }
@@ -742,7 +741,6 @@ struct BasicObject {
   virtual BasicObject* m___coerce_value(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__coerce_value"); }
   virtual BasicObject* m___soft_coerce_string__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__soft_coerce_string__"); }
   virtual BasicObject* m___coerce_env_string__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__coerce_env_string__"); }
-  virtual BasicObject* m_nq_solve(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("nq_solve"); }
   virtual BasicObject* m_aset(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("aset"); }
   virtual BasicObject* m_has_key_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("has_key_q"); }
   virtual BasicObject* m_public(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("public"); }
@@ -7564,10 +7562,6 @@ inline BasicObject* k_ENV() {
   static BasicObject* val = new ENVClass(); return val;
 }
 
-inline BasicObject* k_TOPLEVEL_BINDING() {
-  static BasicObject* val = new Binding(); return val;
-}
-
 inline BasicObject* k_ARGF() {
   static BasicObject* val = new IO(); return val;
 }
@@ -7583,55 +7577,8 @@ struct MainObject : Object {
     return nil_instance();
   }
 
-  virtual BasicObject* m_nq_solve(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {
-    BasicObject* n = array_at(args, 0);
-    Proc* _block = block;
-    BasicObject* a = nil_instance();
-    BasicObject* l = nil_instance();
-    BasicObject* c = nil_instance();
-    BasicObject* r = nil_instance();
-    BasicObject* y0 = nil_instance();
-    BasicObject* m = nil_instance();
-    BasicObject* k = nil_instance();
-    BasicObject* y = nil_instance();
-    BasicObject* i = nil_instance();
-    BasicObject* z = nil_instance();
-    a = (new Array(static_cast<BasicObject*>(n), static_cast<BasicObject*>((new Integer(-1LL)))));
-    l = (new Array(static_cast<BasicObject*>(n), static_cast<BasicObject*>((new Integer(0LL)))));
-    c = (new Array(static_cast<BasicObject*>(n), static_cast<BasicObject*>((new Integer(0LL)))));
-    r = (new Array(static_cast<BasicObject*>(n), static_cast<BasicObject*>((new Integer(0LL)))));
-    y0 = ((new Integer(1LL))->m_lshift((new Array({n})), nullptr, nullptr))->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr);
-    m = (new Integer(0LL));
-    k = (new Integer(0LL));
-    while (truthy(k->m_ge((new Array({(new Integer(0LL))})), nullptr, nullptr))) {
-      y = (l->m_aref((new Array({k})), nullptr, nullptr)->m_bit_or((new Array({c->m_aref((new Array({k})), nullptr, nullptr)})), nullptr, nullptr)->m_bit_or((new Array({r->m_aref((new Array({k})), nullptr, nullptr)})), nullptr, nullptr))->m_bit_and((new Array({y0})), nullptr, nullptr);
-      if (truthy((y->m_bit_xor((new Array({y0})), nullptr, nullptr))->m_rshift((new Array({(a->m_aref((new Array({k})), nullptr, nullptr)->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr))})), nullptr, nullptr)->m_ne_q((new Array({(new Integer(0LL))})), nullptr, nullptr))) {
-        i = a->m_aref((new Array({k})), nullptr, nullptr)->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr);
-        while (truthy(([&]() -> BasicObject* { auto* _l = i->m_lt((new Array({n})), nullptr, nullptr); return truthy(_l) ? ((y->m_bit_and((new Array({(new Integer(1LL))->m_lshift((new Array({i})), nullptr, nullptr)})), nullptr, nullptr))->m_ne_q((new Array({(new Integer(0LL))})), nullptr, nullptr)) : _l; }()))) {
-          i = i->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr);
-        }
-        if (truthy(k->m_lt((new Array({n->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr)})), nullptr, nullptr))) {
-          z = (new Integer(1LL))->m_lshift((new Array({i})), nullptr, nullptr);
-          a->m_aset((new Array({k, i})), nullptr, nullptr);
-          k = k->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr);
-          l->m_aset((new Array({k, (l->m_aref((new Array({k->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr)})), nullptr, nullptr)->m_bit_or((new Array({z})), nullptr, nullptr))->m_lshift((new Array({(new Integer(1LL))})), nullptr, nullptr)})), nullptr, nullptr);
-          c->m_aset((new Array({k, c->m_aref((new Array({k->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr)})), nullptr, nullptr)->m_bit_or((new Array({z})), nullptr, nullptr)})), nullptr, nullptr);
-          r->m_aset((new Array({k, (r->m_aref((new Array({k->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr)})), nullptr, nullptr)->m_bit_or((new Array({z})), nullptr, nullptr))->m_rshift((new Array({(new Integer(1LL))})), nullptr, nullptr)})), nullptr, nullptr);
-        } else {
-          m = m->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr);
-          k = k->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr);
-        }
-      } else {
-        a->m_aset((new Array({k, (new Integer(-1LL))})), nullptr, nullptr);
-        k = k->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr);
-      }
-    }
-    return m;
-    return nil_instance();
-  }
-
   void __top_level__() {
-    (ruby_puts(this->m_nq_solve((new Array({(new Integer(8LL))})), nullptr, nullptr)), nil_instance());
+    (ruby_puts((new String("loaded", 6))), nil_instance());
   }
 };
 
