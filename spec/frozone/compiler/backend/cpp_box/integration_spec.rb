@@ -66,4 +66,10 @@ RSpec.describe 'box-first end-to-end' do
   it 'nqueens_small — Array.new + bitwise ops + And + AttributeWrite' do
     expect(run_box_first('nqueens_small').strip).to eq('92')
   end
+
+  it 'hash_test — Symbol/Integer keys + lookup + mutation + has_key?' do
+    expect(run_box_first('hash_test').strip.split("\n")).to eq(
+      %w[10 20 30 3 100 200 300 3 99 4 true false]
+    )
+  end
 end

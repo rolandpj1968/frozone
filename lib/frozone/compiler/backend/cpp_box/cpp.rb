@@ -91,7 +91,9 @@ module Frozone
             when Ast::TrueLiteral    then "true_instance()"
             when Ast::FalseLiteral   then "false_instance()"
             when Ast::SelfLiteral    then "this"
+            when Ast::SymbolLiteral  then from_symbol_literal(node)
             when Ast::ArrayLiteral   then from_array_literal(node, locals)
+            when Ast::HashLiteral    then from_hash_literal(node, locals)
             when Ast::LocalVariableRead then node.name.to_s
             when Ast::ConstantRead then from_constant_read(node)
             when Ast::InstanceVariableRead then "this->iv_#{node.name.to_s.delete_prefix('@')}"
@@ -166,6 +168,24 @@ module Frozone
           def from_array_literal(node, locals)
             elems = (node.element_nodes || []).map { |e| from_expr(e, locals) }
             "(new Array({#{elems.join(", ")}}))"
+          end
+
+          # SymbolLiteral → intern("name"). intern() is a forward-declared
+          # free function on the runtime that returns the canonical
+          # Symbol* for a given name (interning).
+          def from_symbol_literal(node)
+            # node.value returns the raw Ruby Symbol (.value calls .raw).
+            name = node.value.to_s
+            escaped = name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
+            %(intern("#{escaped}"))
+          end
+
+          # HashLiteral → (new Hash({{k,v}, {k,v}, ...})). **splat
+          # entries (k=nil) are skipped — TODO when we hit a real case.
+          def from_hash_literal(node, locals)
+            pairs = (node.kv_nodes || []).reject { |k, _| k.nil? }
+            elems = pairs.map { |k, v| "{#{from_expr(k, locals)}, #{from_expr(v, locals)}}" }
+            "(new Hash({#{elems.join(", ")}}))"
           end
 
           # ConstantRead — for value constants registered with the

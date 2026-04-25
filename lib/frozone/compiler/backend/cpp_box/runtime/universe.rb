@@ -30,6 +30,7 @@ module Frozone
           #                ("NIL_INSTANCE" etc.)
           RubyClass = Struct.new(
             :name, :parent, :ivars, :members, :ctor, :overrides, :singleton,
+            :hand_coded_method_names,
             keyword_init: true
           )
 
@@ -74,8 +75,17 @@ module Frozone
               %(  std::fprintf(stderr, "[box-first] method_missing: %s#%s\\n", ruby_class_name(), method_name);),
               "  std::abort();",
               "}",
+              "// Hand-coded m_eq_q / m_hash_value — these are special:",
+              "// they need sensible *defaults* (pointer identity), not",
+              "// method_missing, otherwise Hash key lookup would crash on",
+              "// any class without an explicit override. Subclasses with",
+              "// value semantics (Integer, Float, String) override.",
+              "virtual BasicObject* m_eq_q(BasicObject* other) { return boxed_bool(this == other); }",
+              "virtual std::size_t m_hash_value() const { return reinterpret_cast<std::size_t>(this); }",
             ],
-            # m_* virtuals get appended from call_surface at emit time.
+            # Methods listed here are skipped by the universal-surface
+            # emitter (already hand-declared in members above).
+            hand_coded_method_names: %w[m_eq_q m_hash_value].freeze,
           )
 
           OBJECT = RubyClass.new(
@@ -112,6 +122,9 @@ module Frozone
             members: [
               "explicit Integer(int64_t r) : raw_(r) {}",
               %(const char* ruby_class_name() const override { return "Integer"; }),
+              "// m_hash_value override — value-based so Integer keys hash",
+              "// equal regardless of box identity.",
+              "std::size_t m_hash_value() const override { return std::hash<int64_t>()(raw_); }",
             ],
             overrides: {
               "m_plus"     => { params: ["BasicObject* other"], body: "return new Integer(raw_ + static_cast<Integer*>(other)->raw_);" },
@@ -209,12 +222,80 @@ module Frozone
             },
           )
 
+          # Symbol — wraps an interned string. Identity-based equality
+          # (intern() returns the same Symbol* for the same name) means
+          # default m_eq_q (pointer eq) + default m_hash_value (pointer
+          # hash) work correctly. Symbol literals emit as `intern("foo")`.
+          SYMBOL = RubyClass.new(
+            name: "Symbol",
+            parent: "Object",
+            members: [
+              "const char* name_;",
+              "explicit Symbol(const char* name) : name_(name) {}",
+              %(const char* ruby_class_name() const override { return "Symbol"; }),
+            ],
+          )
+
+          # Hash — std::unordered_map keyed by BasicObject* with a
+          # custom Hasher (calls m_hash_value via vtable) and KeyEq
+          # (calls m_eq_q via vtable). Bucket storage uses GcAllocator
+          # so Boehm traces the value pointers.
+          HASH = RubyClass.new(
+            name: "Hash",
+            parent: "Object",
+            members: [
+              "// Vtable-aware hash + key-equality.",
+              "struct Hasher {",
+              "  std::size_t operator()(BasicObject* v) const { return v->m_hash_value(); }",
+              "};",
+              "struct KeyEq {",
+              "  bool operator()(BasicObject* a, BasicObject* b) const {",
+              "    return a->m_eq_q(b) == true_instance();",
+              "  }",
+              "};",
+              "using map_t = std::unordered_map<",
+              "  BasicObject*, BasicObject*, Hasher, KeyEq,",
+              "  GcAllocator<std::pair<BasicObject* const, BasicObject*>>>;",
+              "map_t data;",
+              "Hash() = default;",
+              "Hash(std::initializer_list<std::pair<BasicObject*, BasicObject*>> init) {",
+              "  for (auto& p : init) data.insert(p);",
+              "}",
+              %(const char* ruby_class_name() const override { return "Hash"; }),
+            ],
+            overrides: {
+              "m_size"   => { params: [], body: "return new Integer(static_cast<int64_t>(data.size()));" },
+              "m_length" => { params: [], body: "return new Integer(static_cast<int64_t>(data.size()));" },
+              "m_empty_q"=> { params: [], body: "return boxed_bool(data.empty());" },
+              "m_aref"   => {
+                params: ["BasicObject* k"],
+                body: <<~CPP.chomp,
+                  auto it = data.find(k);
+                  return (it == data.end()) ? nil_instance() : it->second;
+                CPP
+              },
+              "m_aset"   => {
+                params: ["BasicObject* k", "BasicObject* v"],
+                body: "data[k] = v; return v;",
+              },
+              "m_include_q" => {
+                params: ["BasicObject* k"],
+                body: "return boxed_bool(data.find(k) != data.end());",
+              },
+              "m_has_key_q" => {
+                params: ["BasicObject* k"],
+                body: "return boxed_bool(data.find(k) != data.end());",
+              },
+            },
+          )
+
           # Inheritance order. The emitter walks this list to produce
           # forward decls + class bodies + singletons in the right
           # sequence (parent before child, so children's overrides see
           # the parent's vtable layout).
           ALL_CLASSES = [
-            BASIC_OBJECT, OBJECT, NIL_CLASS, TRUE_CLASS, FALSE_CLASS, INTEGER, ARRAY
+            BASIC_OBJECT, OBJECT, NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
+            INTEGER, ARRAY, SYMBOL, HASH
           ].freeze
 
           # ---- Free Kernel functions -------------------------------
@@ -258,17 +339,37 @@ module Frozone
             name: "ruby_puts",
             signature: "void ruby_puts(BasicObject* o)",
             body: <<~CPP.chomp,
-              if (auto* i = dynamic_cast<Integer*>(o)) {
-                std::printf("%lld\\n", static_cast<long long>(i->raw_));
-              } else {
-                std::printf("(unprintable: %s)\\n", o->ruby_class_name());
-              }
+              if (auto* i = dynamic_cast<Integer*>(o))      { std::printf("%lld\\n", static_cast<long long>(i->raw_)); return; }
+              if (auto* s = dynamic_cast<Symbol*>(o))       { std::printf("%s\\n", s->name_); return; }
+              if (o == true_instance())                      { std::printf("true\\n"); return; }
+              if (o == false_instance())                     { std::printf("false\\n"); return; }
+              if (o == nil_instance())                       { std::printf("\\n"); return; }
+              std::printf("(unprintable: %s)\\n", o->ruby_class_name());
+            CPP
+          )
+
+          # Symbol interning. Same name → same Symbol* (identity = equality,
+          # so default m_eq_q + m_hash_value work). Intern table uses
+          # GcAllocator so the symbols stay rooted under Boehm.
+          INTERN_FN = KernelFn.new(
+            name: "intern",
+            signature: "Symbol* intern(const char* name)",
+            body: <<~CPP.chomp,
+              using Tab = std::unordered_map<std::string, Symbol*,
+                std::hash<std::string>, std::equal_to<std::string>,
+                GcAllocator<std::pair<const std::string, Symbol*>>>;
+              static Tab table;
+              auto it = table.find(name);
+              if (it != table.end()) return it->second;
+              Symbol* s = new Symbol(name);
+              table[std::string(name)] = s;
+              return s;
             CPP
           )
 
           ALL_KERNEL_FNS = [
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
-            BOXED_BOOL, TRUTHY, RUBY_PUTS
+            BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN
           ].freeze
 
           # ---- Intrinsics -----------------------------------------

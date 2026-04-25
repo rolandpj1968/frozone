@@ -179,6 +179,37 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     it "empty ArrayLiteral" do
       expect(cpp.from_expr(arr([]), locals)).to eq("(new Array({}))")
     end
+
+    it "HashLiteral emits initializer-list ctor of pairs" do
+      sym_a = A::SymbolLiteral.from(:a)
+      sym_b = A::SymbolLiteral.from(:b)
+      node = A::HashLiteral.new([[sym_a, int(1)], [sym_b, int(2)]])
+      expect(cpp.from_expr(node, locals)).to eq(
+        '(new Hash({{intern("a"), (new Integer(1LL))}, {intern("b"), (new Integer(2LL))}}))'
+      )
+    end
+
+    it "empty HashLiteral" do
+      expect(cpp.from_expr(A::HashLiteral.new([]), locals)).to eq("(new Hash({}))")
+    end
+
+    it "HashLiteral skips **splat entries (key=nil)" do
+      node = A::HashLiteral.new([[A::SymbolLiteral.from(:a), int(1)], [nil, lvr(:other)]])
+      expect(cpp.from_expr(node, locals)).to eq(
+        '(new Hash({{intern("a"), (new Integer(1LL))}}))'
+      )
+    end
+  end
+
+  describe "#from_expr — Symbol" do
+    it "SymbolLiteral emits intern() call" do
+      expect(cpp.from_expr(A::SymbolLiteral.from(:foo), locals)).to eq('intern("foo")')
+    end
+
+    it "SymbolLiteral escapes embedded quotes/backslashes" do
+      # Pathological case — Ruby does allow these via :"..." syntax.
+      expect(cpp.from_expr(A::SymbolLiteral.from(:"a\"b"), locals)).to include('intern(')
+    end
   end
 
   describe "#from_expr — short-circuit operators" do

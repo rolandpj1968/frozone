@@ -77,8 +77,10 @@ module Frozone
           # this *should* never happen — TODO: warn if it does).
           def self.write_universal_surface(emit, call_surface)
             return if call_surface.empty?
+            skip = Runtime::BASIC_OBJECT.hand_coded_method_names || []
             emit.line "// Universal method surface — populated from the program's call universe."
             call_surface.each do |(cpp_name, arity), ruby_name|
+              next if skip.include?(cpp_name)
               params = (["BasicObject*"] * arity).join(", ")
               emit.line %(virtual BasicObject* #{cpp_name}(#{params}) { return method_missing("#{ruby_name}"); })
             end

@@ -21,7 +21,11 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstddef>
+#include <cstring>
 #include <vector>
+#include <unordered_map>
+#include <string>
+#include <functional>
 #include <initializer_list>
 #include <gc.h>
 
