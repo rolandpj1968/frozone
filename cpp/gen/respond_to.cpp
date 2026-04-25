@@ -9,11 +9,11 @@ struct Ruby_A : public RubyObject {
   const char* rb_class_name() const override { return "A"; }
 
   auto foo() {
-    return 0LL;
+    return RubyNil(RUBY_NIL);
   }
 
   auto foo2() {
-    return 0LL;
+    return RubyNil(RUBY_NIL);
   }
 
 };
@@ -62,16 +62,16 @@ int main() {
     for (int64_t i = 0; i < INT64_C(500000); i++) {
       true;
       true;
+      false;
+      false;
       true;
       true;
+      false;
+      false;
       true;
       true;
-      true;
-      true;
-      true;
-      true;
-      true;
-      (last = true);
+      false;
+      (last = false);
     };
   }
   ruby_puts(last);

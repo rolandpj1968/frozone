@@ -5,8 +5,11 @@ static const int64_t MODIFICATIONS = 80LL;
 static const int64_t PAYLOAD_DEPTH = 5LL;
 
 struct Ruby_Node : public RubyObject {
+  inline static const int64_t TREE_SIZE = 8000LL;
+  inline static const int64_t MODIFICATIONS = 80LL;
+  inline static const int64_t PAYLOAD_DEPTH = 5LL;
   double iv_key = 0.0;
-  gc_ref<RubyObject> iv_value;
+  gc_ref<RubyObject> iv_value = nullptr;
   gc_ref<Ruby_Node> iv_left = nullptr;
   gc_ref<Ruby_Node> iv_right = nullptr;
 
@@ -32,7 +35,7 @@ struct Ruby_Node : public RubyObject {
     return iv_value;
   }
 
-  auto set_value(gc_ref<RubyObject> __anon_req__) {
+  gc_ref<RubyObject> set_value(gc_ref<RubyObject> __anon_req__) {
     iv_value = coerce_to_ref<RubyObject>(__anon_req__);
     return iv_value;
   }
@@ -41,7 +44,7 @@ struct Ruby_Node : public RubyObject {
     return iv_left;
   }
 
-  auto set_left(gc_ref<Ruby_Node> __anon_req__) {
+  gc_ref<Ruby_Node> set_left(gc_ref<Ruby_Node> __anon_req__) {
     iv_left = __anon_req__;
     return iv_left;
   }
@@ -50,7 +53,7 @@ struct Ruby_Node : public RubyObject {
     return iv_right;
   }
 
-  auto set_right(gc_ref<Ruby_Node> __anon_req__) {
+  gc_ref<Ruby_Node> set_right(gc_ref<Ruby_Node> __anon_req__) {
     iv_right = __anon_req__;
     return iv_right;
   }
@@ -62,7 +65,10 @@ template<> struct dustman::Tracer<Ruby_Node> : dustman::FieldList<Ruby_Node, &Ru
 #endif
 
 struct Ruby_SplayTree : public RubyObject {
-  gc_ref<Ruby_Node> iv_root;
+  inline static const int64_t TREE_SIZE = 8000LL;
+  inline static const int64_t MODIFICATIONS = 80LL;
+  inline static const int64_t PAYLOAD_DEPTH = 5LL;
+  gc_ref<Ruby_Node> iv_root = nullptr;
 
   Ruby_SplayTree() {
     iv_root = nullptr;
@@ -223,8 +229,11 @@ template<> struct dustman::Tracer<Ruby_SplayTree> : dustman::FieldList<Ruby_Spla
 #endif
 
 struct Ruby_PayloadNode : public RubyObject {
-  gc_ref<RubyObject> iv_left;
-  gc_ref<RubyObject> iv_right;
+  inline static const int64_t TREE_SIZE = 8000LL;
+  inline static const int64_t MODIFICATIONS = 80LL;
+  inline static const int64_t PAYLOAD_DEPTH = 5LL;
+  gc_ref<RubyObject> iv_left = nullptr;
+  gc_ref<RubyObject> iv_right = nullptr;
 
   Ruby_PayloadNode() = default;
   Ruby_PayloadNode(auto left, auto right) {
@@ -237,7 +246,7 @@ struct Ruby_PayloadNode : public RubyObject {
     return iv_left;
   }
 
-  auto set_left(gc_ref<RubyObject> __anon_req__) {
+  gc_ref<RubyObject> set_left(gc_ref<RubyObject> __anon_req__) {
     iv_left = coerce_to_ref<RubyObject>(__anon_req__);
     return iv_left;
   }
@@ -246,7 +255,7 @@ struct Ruby_PayloadNode : public RubyObject {
     return iv_right;
   }
 
-  auto set_right(gc_ref<RubyObject> __anon_req__) {
+  gc_ref<RubyObject> set_right(gc_ref<RubyObject> __anon_req__) {
     iv_right = coerce_to_ref<RubyObject>(__anon_req__);
     return iv_right;
   }
@@ -278,7 +287,7 @@ static auto insert_new_node(gc_ref<Ruby_SplayTree> tree, Ruby_Random* rng) {
     tree->insert(key, generate_payload(PAYLOAD_DEPTH, ruby_to_s(key)));
     return key;
   }
-  return double();
+  return double(RUBY_NIL);
 }
 
 static gc_ref<Ruby_SplayTree> splay_setup(Ruby_Random* rng) {
@@ -298,7 +307,7 @@ static auto splay_run(gc_ref<Ruby_SplayTree> tree, Ruby_Random* rng) {
     (greatest = tree->find_greatest_less_than(key));
     (greatest ? (tree->remove(greatest->key())) : (tree->remove(key)));
   }
-  return RUBY_NIL;
+  return int64_t(RUBY_NIL);
 }
 
 

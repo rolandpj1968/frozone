@@ -22,7 +22,7 @@ struct Ruby_TheClass : public RubyObject {
       i;
       (i = (i + INT64_C(1)));
     }
-    return RubyNil();
+    return RubyNil(RUBY_NIL);
   }
 
 };

@@ -26,11 +26,12 @@ static auto HARD20 = []() { RubyArray<RubyString> _a(20);
   return _a; }();
 
 
-static auto make_shareable(auto x) {
-  return x;
+static RubyObject* make_shareable(auto x) {
+  std::fprintf(stderr, "frozone: called TI-gap stub make_shareable\n"); std::abort();
+  return nullptr;
 }
 
-static auto sd_genmat() {
+static RubyArray<RubyArray<RubyArray<int64_t>>> sd_genmat() {
   RubyArray<RubyArray<int64_t>> mr;
   RubyArray<RubyArray<int64_t>> mc;
   int64_t r = 0;
@@ -73,7 +74,7 @@ static auto sd_genmat() {
   return ({ auto _e0 = mr; auto _a = RubyArray<decltype(_e0)>(2); _a[0] = _e0; _a[1] = mc; _a; });
 }
 
-static auto sd_update_forward(auto mr, auto mc, auto sr, auto sc, auto r) {
+static RubyArray<int64_t> sd_update_forward(auto mr, auto mc, auto sr, auto sc, auto r) {
   int64_t min = 0;
   int64_t min_c = 0;
   RubyArray<int64_t> mcr;
@@ -145,7 +146,7 @@ static auto sd_update_reverse(auto mr, auto mc, auto sr, auto sc, auto r) {
   };
     (c2 = (c2 + INT64_C(1)));
   }
-  return RubyNil();
+  return RubyNil(RUBY_NIL);
 }
 
 static auto sd_solve(auto mr, auto mc, auto s) {
@@ -243,7 +244,7 @@ static auto sd_solve(auto mr, auto mc, auto s) {
     (i = (i - INT64_C(1)));
     (dir = INT64_C(-1));
   }
-  return RubyNil();
+  return RubyNil(RUBY_NIL);
 }
 
 

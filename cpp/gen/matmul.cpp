@@ -5,17 +5,18 @@ static const int64_t N = 200LL;
 
 
 
-static auto make_shareable(auto x) {
-  return x;
+static RubyObject* make_shareable(auto x) {
+  std::fprintf(stderr, "frozone: called TI-gap stub make_shareable\n"); std::abort();
+  return nullptr;
 }
 
-static auto matgen(auto n) {
+static RubyArray<RubyArray<double>> matgen(auto n) {
   double tmp = 0.0;
   (tmp = ruby_div(ruby_div(1.0, n), n));
   return ({ auto _n = n; int64_t i = 0; auto _e0 = ({ auto _n = n; int64_t j = 0; auto _e0 = ((tmp * (i - j)) * (i + j)); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (j = 1; j < _n; j++) { _arr[j] = ((tmp * (i - j)) * (i + j)); } _arr; }); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (i = 1; i < _n; i++) { _arr[i] = ({ auto _n = n; int64_t j = 0; auto _e0 = ((tmp * (i - j)) * (i + j)); auto _arr = RubyArray<decltype(_e0)>(_n); _arr[0] = _e0; for (j = 1; j < _n; j++) { _arr[j] = ((tmp * (i - j)) * (i + j)); } _arr; }); } _arr; });
 }
 
-static auto matmul(auto a, auto b) {
+static RubyArray<RubyArray<double>> matmul(auto a, auto b) {
   int64_t m = 0;
   int64_t n = 0;
   int64_t p = 0;

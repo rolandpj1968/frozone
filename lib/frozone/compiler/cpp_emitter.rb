@@ -100,34 +100,19 @@ module Frozone
         ty
       end
 
-      # Legacy cpp-string accessor. New code should prefer `ti_type` and call
-      # `.to_cpp` at the emission boundary.
-      def ti_type_cpp(slot)
-        ti_type(slot)&.to_cpp
-      end
-
-      def ti_ivar_type_t(class_name, ivar_name)
+      # Convenience wrappers around ti_type for the three slot kinds
+      # we look up most often. Type-returning; cpp-string siblings used
+      # to live alongside but were deleted once all callers migrated.
+      def ti_ivar_type(class_name, ivar_name)
         ti_type([:ivar, class_name, :"@#{ivar_name}"])
       end
 
-      def ti_local_type_t(method_key, local_name)
+      def ti_local_type(method_key, local_name)
         ti_type([:local, method_key, local_name.to_sym])
       end
 
-      def ti_return_type_t(method_key)
-        ti_type([:return, method_key])
-      end
-
-      def ti_ivar_type(class_name, ivar_name)
-        ti_ivar_type_t(class_name, ivar_name)&.to_cpp
-      end
-
-      def ti_local_type(method_key, local_name)
-        ti_local_type_t(method_key, local_name)&.to_cpp
-      end
-
       def ti_return_type(method_key)
-        ti_return_type_t(method_key)&.to_cpp
+        ti_type([:return, method_key])
       end
 
       def collect_module_methods_for_ti(scope, methods, seen = Set.new)
@@ -158,7 +143,7 @@ module Frozone
         return unless method.is_a?(Vm::Method)
         mkey = @_current_method_key
         (method.required_params || []).each_with_index do |p, i|
-          pt = ti_local_type_t(mkey, p.to_s) || ti_type([:param, mkey, i])
+          pt = ti_local_type(mkey, p.to_s) || ti_type([:param, mkey, i])
           @_pointer_locals << p.to_s if pt&.emitted_as_pointer?
         end
       end
@@ -212,7 +197,7 @@ module Frozone
         end
         # Check TI for the local's type
         if recv.is_a?(Ast::LocalVariableRead)
-          t = ti_local_type_t(@_current_method_key, recv.name.to_s)
+          t = ti_local_type(@_current_method_key, recv.name.to_s)
           return !!t&.emitted_as_pointer?
         end
         # Ivar read: TI-typed pointer to user class, or self-ref ivar.
@@ -223,18 +208,18 @@ module Frozone
           # fallback) need `->` dispatch — they're pointers.
           return true if @_boxed_ivars&.include?(key)
           cls_name = @_current_wrapper_name.delete_prefix('Ruby_').to_sym
-          return !!ti_ivar_type_t(cls_name, key)&.emitted_as_pointer?
+          return !!ti_ivar_type(cls_name, key)&.emitted_as_pointer?
         end
         # Array index on pointer-element array: arr[i] → Ruby_X*
         if recv.is_a?(Ast::MethodCall) && recv.name == :[] && recv.receiver_node.is_a?(Ast::LocalVariableRead)
-          arr_ty = ti_local_type_t(@_current_method_key, recv.receiver_node.name.to_s)
+          arr_ty = ti_local_type(@_current_method_key, recv.receiver_node.name.to_s)
           return true if arr_ty&.array_like? && arr_ty.elem&.emitted_as_pointer?
         end
         # Chained method call on pointer → check if method returns pointer
         if recv.is_a?(Ast::MethodCall) && recv.receiver_node && recv_t_is_ptr?(recv.receiver_node)
           recv_cls = infer_receiver_class(recv.receiver_node)
           if recv_cls
-            return !!ti_return_type_t([recv_cls, recv.name])&.emitted_as_pointer?
+            return !!ti_return_type([recv_cls, recv.name])&.emitted_as_pointer?
           end
         end
         false
@@ -242,7 +227,7 @@ module Frozone
 
       def infer_receiver_class(recv)
         if recv.is_a?(Ast::LocalVariableRead) && @_current_method_key
-          t = ti_local_type_t(@_current_method_key, recv.name.to_s)
+          t = ti_local_type(@_current_method_key, recv.name.to_s)
           return t.class_name if t&.emitted_as_pointer?
         end
         if recv.is_a?(Ast::InstanceVariableRead) && @_current_wrapper_name
@@ -481,7 +466,7 @@ module Frozone
         # (see collect_module_methods_for_ti), so TI slots are keyed on
         # `name` directly — not `[module_name, name]` like instance methods.
         @_current_method_key = name
-        @_method_return_t = ti_return_type_t(@_current_method_key)
+        @_method_return_t = ti_return_type(@_current_method_key)
         if @_method_return_t.nil? || @_method_return_t.bottom?
           warn "[cpp_emitter] stub module method #{name.inspect}: TI gave no return type" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
           emit_ti_gap_stub_member(name, method)
@@ -563,7 +548,7 @@ module Frozone
         @ti_env&.each_typed do |slot, _|
           next unless slot.is_a?(Array) && slot[0] == :ivar && slot[1] == name
           key = slot[2].to_s.delete_prefix('@')
-          ty = ti_ivar_type_t(name, key)
+          ty = ti_ivar_type(name, key)
           ivar_ts[key] = ty if ty
         end
         all_ivars = Set.new
@@ -795,7 +780,7 @@ module Frozone
       end
 
       def emit_static_class_method(name, method)
-        @_method_return_t = ti_return_type_t(@_current_method_key)
+        @_method_return_t = ti_return_type(@_current_method_key)
         if @_method_return_t.nil? || @_method_return_t.bottom?
           warn "[cpp_emitter] stub static class method #{name.inspect}: TI gave no return type" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
           emit_ti_gap_stub_static(name, method)
@@ -902,20 +887,8 @@ module Frozone
         end
       end
 
-      # Scans `body` for the first non-nil LocalVariableWrite to `name` and
-      # returns its inferred type. Returns nil if none found.
-      def local_decl_type(val)
-        @_decl_depth ||= 0
-        return "auto" if @_decl_depth > 5
-        @_decl_depth += 1
-        begin
-          _local_decl_type_impl(val)
-        ensure
-          @_decl_depth -= 1
-        end
-      end
-
-      # Type-returning counterpart to `local_decl_type`. Returns a Frozone
+      # Type-returning counterpart to the (now-deleted) cpp-string
+      # `local_decl_type`. Returns a Frozone
       # Type for nodes we can structurally infer, or nil when the shape is
       # beyond what we can cleanly lift to a Type (constant folding of
       # cpp-string outputs, unmapped AST shapes, etc.) — callers then fall
@@ -925,18 +898,18 @@ module Frozone
       # union-decision sites (hash literal values, ternary branches, ||/&&
       # operands, case/when branches). Non-covered shapes return nil and
       # defer to the string predicates.
-      def local_decl_type_t(val)
-        @_decl_depth_t ||= 0
-        return nil if @_decl_depth_t > 5
-        @_decl_depth_t += 1
+      def local_decl_type(val)
+        @_decl_depth ||= 0
+        return nil if @_decl_depth > 5
+        @_decl_depth += 1
         begin
-          _local_decl_type_t_impl(val)
+          _local_decl_type_impl(val)
         ensure
-          @_decl_depth_t -= 1
+          @_decl_depth -= 1
         end
       end
 
-      def _local_decl_type_t_impl(val)
+      def _local_decl_type_impl(val)
         t = Frozone::Compiler::Type
         case val
         when Ast::NilLiteral     then t::NIL_CLASS
@@ -952,12 +925,12 @@ module Frozone
         when Ast::InstanceVariableRead
           return t::BOTTOM unless @_current_wrapper_name
           cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
-          ti_ivar_type_t(cls_name, val.name.to_s.delete_prefix("@")) || t::BOTTOM
+          ti_ivar_type(cls_name, val.name.to_s.delete_prefix("@")) || t::BOTTOM
         when Ast::InstanceVariableWrite, Ast::LocalVariableWrite
-          local_decl_type_t(val.value_node)
+          local_decl_type(val.value_node)
         when Ast::Or, Ast::And
-          a = local_decl_type_t(val.left_node)
-          b = local_decl_type_t(val.right_node)
+          a = local_decl_type(val.left_node)
+          b = local_decl_type(val.right_node)
           return a if a == b
           return b if a.bottom?
           return a if b.bottom?
@@ -979,9 +952,9 @@ module Frozone
           # obj.foo where obj resolves to a known user class — look up the
           # method's TI-typed return.
           if val.receiver_node
-            recv_t = local_decl_type_t(val.receiver_node)
+            recv_t = local_decl_type(val.receiver_node)
             if recv_t && recv_t.class_type? && recv_t.class_name && !recv_t.class_name.to_s.start_with?("Ruby")
-              rt = ti_return_type_t([recv_t.class_name, val.name])
+              rt = ti_return_type([recv_t.class_name, val.name])
               return rt if rt
             end
           end
@@ -990,7 +963,7 @@ module Frozone
           pairs = (val.kv_nodes || []).reject { |k, _| k.nil? }
           return t.new(:class_type, class_name: :Hash, key: t::SYMBOL, val: t::I64) if pairs.empty?
           k_t = pairs[0][0].is_a?(Ast::SymbolLiteral) ? t::SYMBOL : t::BOTTOM
-          val_ts = pairs.map { |_, v| local_decl_type_t(v) }
+          val_ts = pairs.map { |_, v| local_decl_type(v) }
           uniq_vs = val_ts.uniq
           v_t = if uniq_vs.size == 1
                   uniq_vs[0]
@@ -1003,13 +976,13 @@ module Frozone
           return t.of(:Tree) if tree_node_literal?(val)
           elems = val.element_nodes
           return t::ARRAY_I64 if elems.empty?
-          et = local_decl_type_t(elems.first) || t::I64
+          et = local_decl_type(elems.first) || t::I64
           et = t::I64 if et.bottom?
           t.new(:class_type, class_name: :Array, elem: et)
         when Ast::If
           return t::BOTTOM unless val.then_node && val.else_node
-          t_then = local_decl_type_t(unwrap_single_sequence(val.then_node))
-          t_else = local_decl_type_t(unwrap_single_sequence(val.else_node))
+          t_then = local_decl_type(unwrap_single_sequence(val.then_node))
+          t_else = local_decl_type(unwrap_single_sequence(val.else_node))
           return t_then if t_then == t_else && t_then
           return t_else if t_then.nil? || t_then.bottom?
           return t_then if t_else.nil? || t_else.bottom?
@@ -1018,7 +991,7 @@ module Frozone
         when Ast::Case
           return t::BOTTOM unless val.whens&.any?
           types = val.whens.map { |w|
-            local_decl_type_t(unwrap_single_sequence(w.body_node)) || t::BOTTOM
+            local_decl_type(unwrap_single_sequence(w.body_node)) || t::BOTTOM
           }.reject(&:bottom?)
           return t::BOTTOM if types.empty?
           uniq = types.uniq
@@ -1041,120 +1014,6 @@ module Frozone
         end
       end
 
-      def _local_decl_type_impl(val)
-        case val
-        when Ast::Or, Ast::And
-          # `a || b` evaluates to `a` if truthy else `b` — the result type
-          # is the lattice join of left and right. local_decl_type_t always
-          # returns a Type; delegate the decision there.
-          ta = local_decl_type_t(val.left_node)
-          tb = local_decl_type_t(val.right_node)
-          return ta.to_cpp if ta == tb
-          Frozone::Compiler::Type.union_representation([ta, tb])
-        when Ast::LocalVariableRead
-          "auto"
-        when Ast::InstanceVariableRead
-          # Look up the ivar's inferred type in the enclosing class.
-          if @_current_wrapper_name
-            cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
-            t = ti_ivar_type(cls_name, val.name.to_s.delete_prefix("@"))
-            return t if t
-          end
-          "auto"
-        when Ast::InstanceVariableWrite
-          # `@foo = x` evaluates to x; type is the value's type.
-          local_decl_type(val.value_node)
-        when Ast::LocalVariableWrite
-          # `x = y = expr` — chained; type flows through the RHS.
-          local_decl_type(val.value_node)
-        when Ast::MethodCall
-          if val.name == :new && val.receiver_node.is_a?(Ast::ConstantRead)
-            cn = val.receiver_node.name
-            return "RubyString" if cn == :String
-            return cn == :Array ? "auto" : "Ruby_#{cn}*"
-          end
-          # Indexed read like `arr[i]` — use `auto` (value). Since user
-          # class wrappers are shared_ptr-based, a value copy aliases the
-          # underlying Impl, so mutations via setters still propagate.
-          # RubyString[i] returns a 1-char rvalue — `auto` is the only
-          # safe option (can't bind a reference to a temporary).
-          return "auto" if val.name == :[] && val.receiver_node && (val.arg_nodes || []).size == 1
-          return "RubyString" if val.name == :[] && val.receiver_node && (val.arg_nodes || []).size == 2
-          return "RubyString" if %i[b slice dup_ upcase downcase].include?(val.name) && val.receiver_node
-          # If the receiver's type resolves to a known user class, look up
-          # the called method's return type (helps `tmp = node.left` etc).
-          if val.receiver_node
-            recv_ty = local_decl_type_t(val.receiver_node)
-            if recv_ty&.emitted_as_pointer?
-              rt = ti_return_type([recv_ty.class_name, val.name])
-              return rt if rt
-            end
-          end
-          "auto"
-        when Ast::ArrayLiteral
-          # 2-element [nil, call()] → RubyTree; otherwise infer element
-          # type from the first element, default to RubyArray<int64_t>.
-          if tree_node_literal?(val)
-            "RubyTree"
-          elsif (elems = val.element_nodes).any?
-            et = local_decl_type(elems.first)
-            et = "int64_t" if et == "auto"
-            "RubyArray<#{et}>"
-          else
-            "RubyArray_I64"
-          end
-        when Ast::HashLiteral
-          pairs = (val.kv_nodes || []).reject { |k, _| k.nil? }
-          if pairs.empty?
-            "RubyHash<RubySymbol, int64_t>"
-          else
-            k_type = key_type_for(pairs[0][0])
-            val_ts = pairs.map { |_, v| local_decl_type_t(v) }.uniq
-            v_tpl =
-              if val_ts.size == 1
-                CppTypeEmitter.for_hash_val_template(val_ts[0])
-              else
-                rep = Frozone::Compiler::Type.union_representation(val_ts)
-                rep == "RubyObject*" ? CppTypeEmitter::BOXED_FALLBACK : rep
-              end
-            "RubyHash<#{k_type}, #{v_tpl}>"
-          end
-        when Ast::SymbolLiteral then "RubySymbol"
-        when Ast::FloatLiteral then "double"
-        when Ast::StringLiteral, Ast::InterpolatedString then "RubyString"
-        when Ast::TrueLiteral, Ast::FalseLiteral then "bool"
-        when Ast::Case
-          types = val.whens.map { |w| local_decl_type(unwrap_single_sequence(w.body_node)) }.uniq
-          types.delete("int64_t") if types.size > 1
-          types.delete("auto") if types.size > 1
-          types.size == 1 ? types.first : "auto"
-        when Ast::If
-          if val.then_node && val.else_node
-            t1 = local_decl_type(unwrap_single_sequence(val.then_node))
-            t2 = local_decl_type(unwrap_single_sequence(val.else_node))
-            return t1 if t1 == t2
-            # Absorb int64_t/auto into the concrete type
-            %w[int64_t auto].each do |weak|
-              t1 = t2 if t1 == weak
-              t2 = t1 if t2 == weak
-            end
-            return t1 if t1 == t2
-            "std::any"
-          else
-            "auto"
-          end
-        when Ast::ConstantRead
-          # Constant lookup — could be any type. Resolve at compile time if we
-          # have access to the top-level scope's constants table.
-          if @top_level_scope
-            c = @top_level_scope.constants_table&.fetch(val.name, nil)
-            return "RubyString" if c.is_a?(Vm::StringObject)
-            return "double" if c.is_a?(Vm::FloatObject)
-          end
-          "auto"
-        else "int64_t"
-        end
-      end
 
       # Detect if a method body's last expression returns a non-int64_t value
       # (class instance, array literal, Array.new). If so, use 'auto' return
@@ -1181,8 +1040,8 @@ module Frozone
           if node.is_a?(Ast::LocalVariableWrite)
             name = node.name.to_s
             unless seen.key?(name) || param_names.include?(name.to_sym) || param_names.include?(name)
-              ty = ti_local_type_t(@_current_method_key, name)
-              ty ||= local_decl_type_t(node.value_node)
+              ty = ti_local_type(@_current_method_key, name)
+              ty ||= local_decl_type(node.value_node)
               seen[name] = { type: ty, first_rhs: node.value_node }
               order << name
             end
@@ -1196,7 +1055,7 @@ module Frozone
               next if seen.key?(s) || param_names.include?(nm) || param_names.include?(s)
               per_elem = elems[i]
               if per_elem
-                seen[s] = { type: local_decl_type_t(per_elem), first_rhs: per_elem }
+                seen[s] = { type: local_decl_type(per_elem), first_rhs: per_elem }
               else
                 seen[s] = { type: nil, first_rhs: nil }
               end
@@ -1221,18 +1080,18 @@ module Frozone
         found = nil
         # Infer a Type (or nil) for a node that might appear as the return
         # expression's leaf. Handles write-peel and TI-driven reads; everything
-        # else routes through local_decl_type_t.
+        # else routes through local_decl_type.
         infer = lambda do |n|
           return nil unless n.is_a?(Ast::Node)
           return infer.call(n.value_node) if n.is_a?(Ast::InstanceVariableWrite) || n.is_a?(Ast::LocalVariableWrite)
           if n.is_a?(Ast::LocalVariableRead)
-            return ti_local_type_t(@_current_method_key, n.name.to_s)
+            return ti_local_type(@_current_method_key, n.name.to_s)
           end
           if n.is_a?(Ast::InstanceVariableRead) && @_current_wrapper_name
             cls_name = @_current_wrapper_name.delete_prefix('Ruby_').to_sym
-            return ti_ivar_type_t(cls_name, n.name.to_s.delete_prefix('@'))
+            return ti_ivar_type(cls_name, n.name.to_s.delete_prefix('@'))
           end
-          local_decl_type_t(n)
+          local_decl_type(n)
         end
         take = lambda do |n|
           t = infer.call(n)
@@ -1257,7 +1116,7 @@ module Frozone
 
       def emit_class_method(mname, method)
         @_current_method_key = @_current_wrapper_name ? [@_current_wrapper_name.sub("Ruby_", "").to_sym, mname] : mname
-        @_method_return_t = ti_return_type_t(@_current_method_key)
+        @_method_return_t = ti_return_type(@_current_method_key)
         # TI punts (returns nil) on methods with mixed bare/value returns.
         # Fallback: scan the body for a value Return / final expression whose
         # type is a pointer; use that as the method's return type so bare
@@ -1323,7 +1182,7 @@ module Frozone
           # Unknown / bottom: try TI's :local slot once more, else fall back
           # to a `decltype(rhs)` declaration if the rhs is simple enough.
           if ty.nil? || ty.bottom?
-            ti_ty = ti_local_type_t(@_current_method_key, name)
+            ti_ty = ti_local_type(@_current_method_key, name)
             if ti_ty && !ti_ty.bottom?
               ty = ti_ty
             else
@@ -1411,6 +1270,16 @@ module Frozone
          (method.required_kw_params || []) + (method.optional_kw_params || []).map { |name, _| name })
       end
 
+      # Cpp type for an optional positional or kw param, given its default
+      # value AST node. Inferred via local_decl_type; falls back to
+      # int64_t when TI can't commit to a concrete Type. Routes through
+      # the centralised concrete? predicate so the "auto means unknown"
+      # detection isn't a string compare.
+      def decl_type_for_default(default_node)
+        ty = local_decl_type(default_node)
+        ty && ty.concrete? ? ty.to_cpp : "int64_t"
+      end
+
       # Renders `auto <name>` for required params and
       # `auto <name> = <default>` for optional params (C++20 abbreviated
       # function templates support default args).
@@ -1422,11 +1291,11 @@ module Frozone
         if method.body.is_a?(Ast::InstanceVariableWrite) && @_current_wrapper_name
           cls_name = @_current_wrapper_name.delete_prefix('Ruby_').to_sym
           ivk = method.body.name.to_s.delete_prefix('@')
-          setter_ivar_t = ti_ivar_type_t(cls_name, ivk)
+          setter_ivar_t = ti_ivar_type(cls_name, ivk)
         end
         (method.required_params || []).each_with_index do |p, i|
           mkey = @_current_method_key
-          t_ty = mkey ? (ti_local_type_t(mkey, p.to_s) || ti_type([:param, mkey, i])) : nil
+          t_ty = mkey ? (ti_local_type(mkey, p.to_s) || ti_type([:param, mkey, i])) : nil
           t_ty ||= setter_ivar_t if i == 0
           parts << "#{CppTypeEmitter.for_param(t_ty)} #{p}"
         end
@@ -1435,20 +1304,16 @@ module Frozone
           if default_node.is_a?(Ast::NilLiteral)
             ty = nil
             ty = ti_type([:param, @_current_method_key, req_count + oi]) if @_current_method_key
-            ty ||= ti_local_type_t(@_current_method_key, pname.to_s) if @_current_method_key
+            ty ||= ti_local_type(@_current_method_key, pname.to_s) if @_current_method_key
             init = ty&.emitted_as_pointer? ? "nullptr" : cr(default_node)
             parts << "#{CppTypeEmitter.for_optional_nil_param(ty)} #{pname} = #{init}"
           else
-            t = local_decl_type(default_node)
-            t = "int64_t" if t == "auto"
-            parts << "#{t} #{pname} = #{cr(default_node)}"
+            parts << "#{decl_type_for_default(default_node)} #{pname} = #{cr(default_node)}"
           end
         end
         (method.required_kw_params || []).each { |p| parts << "auto #{p}" }
         (method.optional_kw_params || []).each do |pname, default_node|
-          t = local_decl_type(default_node)
-          t = "int64_t" if t == "auto"
-          parts << "#{t} #{pname} = #{cr(default_node)}"
+          parts << "#{decl_type_for_default(default_node)} #{pname} = #{cr(default_node)}"
         end
         parts.join(", ")
       end
@@ -1461,7 +1326,7 @@ module Frozone
         # symptom (BOTTOM return). We log the skip so real gaps surface in
         # review — a reachability graph from execute_block would let us
         # promote "reachable + BOTTOM" back to an error; for now, log+skip.
-        @_method_return_t = ti_return_type_t(@_current_method_key)
+        @_method_return_t = ti_return_type(@_current_method_key)
         if @_method_return_t.nil? || @_method_return_t.bottom?
           raw = @ti_env&.type_at([:return, @_current_method_key])
           warn "[cpp_emitter] stub #{name.inspect}: TI gave no return type (raw slot: #{raw.inspect})" unless ENV['FROZONE_QUIET_SKIPS'] == '1'
@@ -1677,7 +1542,7 @@ module Frozone
           return "RubyHash<RubySymbol, int64_t>{}"  # empty: innocuous default
         end
         k_type = key_type_for(pairs[0][0])
-        val_ts = pairs.map { |_, v| local_decl_type_t(v) }.uniq
+        val_ts = pairs.map { |_, v| local_decl_type(v) }.uniq
         v_cpp_rhs, v_cpp_tpl =
           if val_ts.size == 1
             [CppTypeEmitter.for_hash_val_rhs(val_ts[0]), CppTypeEmitter.for_hash_val_template(val_ts[0])]
@@ -1810,7 +1675,7 @@ module Frozone
           ivar_type = nil
           if @_inside_wrapped_class && @_current_wrapper_name
             cls_name = @_current_wrapper_name.sub(/^Ruby_/, '').to_sym
-            ivar_type = ti_ivar_type_t(cls_name, node.name.to_s.delete_prefix("@"))
+            ivar_type = ti_ivar_type(cls_name, node.name.to_s.delete_prefix("@"))
             if @_dropped_ivars&.include?(node.name.to_s.delete_prefix('@'))
               return "#{cr(node.value_node)}"
             end
@@ -1909,7 +1774,7 @@ module Frozone
             # RHS through its gc_ptr<T> conversion by wrapping in gc_ref<T>().
             # Under Boehm/none this is a no-op cast.
             if @_pointer_locals&.include?(name) && val.is_a?(Ast::LocalVariableRead) && @_pointer_locals.include?(val.name.to_s)
-              t = ti_local_type_t(@_current_method_key, name) || ti_local_type_t(@_current_method_key, val.name.to_s)
+              t = ti_local_type(@_current_method_key, name) || ti_local_type(@_current_method_key, val.name.to_s)
               if t&.user_class_pointer?
                 rhs = "#{t.to_cpp_ref}(#{rhs})"
               end
@@ -1923,8 +1788,8 @@ module Frozone
             # Type-level path: emitted_as_pointer? gates pointer-locals tracking
             # and gc_local<T> wrapping; renders_as_optional? gates the
             # optional-locals map. The cpp-string path remains for legacy
-            # cases where local_decl_type_t returns nil (rare).
-            type_t = ti_local_type_t(@_current_method_key, name) || local_decl_type_t(val)
+            # cases where local_decl_type returns nil (rare).
+            type_t = ti_local_type(@_current_method_key, name) || local_decl_type(val)
             if type_t && !type_t.bottom?
               if type_t.renders_as_optional?
                 (@_optional_locals ||= {})[name] = (type_t.i64? || (type_t.class_type? && %i[Integer Numeric].include?(type_t.class_name))) ? "int64_t" : "double"
@@ -1932,7 +1797,9 @@ module Frozone
               (@_pointer_locals ||= Set.new) << name if type_t.emitted_as_pointer?
               type_str = CppTypeEmitter.for_local(type_t)
             else
-              type_str = local_decl_type(val)
+              # Both TI and our own local_decl_type came back empty —
+              # let C++ deduce from the RHS.
+              type_str = "auto"
             end
             "#{type_str} #{name} = #{cr(val)}"
           end
@@ -2131,18 +1998,18 @@ module Frozone
           then_inner = unwrap_single_sequence(node.then_node)
           else_inner = unwrap_single_sequence(node.else_node)
           if else_inner.is_a?(Ast::NilLiteral)
-            t_ty = local_decl_type_t(then_inner)
+            t_ty = local_decl_type(then_inner)
             if t_ty&.emitted_as_pointer?
               else_s = "(#{t_ty.to_cpp_ref})nullptr"
             end
           elsif then_inner.is_a?(Ast::NilLiteral)
-            t_ty = local_decl_type_t(else_inner)
+            t_ty = local_decl_type(else_inner)
             if t_ty&.emitted_as_pointer?
               then_s = "(#{t_ty.to_cpp_ref})nullptr"
             end
           else
-            t1_t = local_decl_type_t(then_inner)
-            t2_t = local_decl_type_t(else_inner)
+            t1_t = local_decl_type(then_inner)
+            t2_t = local_decl_type(else_inner)
             if t1_t != t2_t && !t1_t.bottom? && !t2_t.bottom?
               rep = Frozone::Compiler::Type.union_representation([t1_t, t2_t])
               if rep == "RubyObject*"
@@ -2656,7 +2523,7 @@ module Frozone
             cls_name = t_ty.class_name if t_ty&.class_type?
           end
           cls_name ||= begin
-            recv_ty = local_decl_type_t(recv)
+            recv_ty = local_decl_type(recv)
             recv_ty.class_name if recv_ty&.emitted_as_pointer?
           end
           if cls_name

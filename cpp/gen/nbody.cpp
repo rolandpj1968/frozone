@@ -7,6 +7,11 @@ static const int64_t NBODIES = 5LL;
 static const double DT = 0.01;
 
 struct Ruby_Planet : public RubyObject {
+  inline static const double SOLAR_MASS = 39.47841760435743;
+  inline static const double DAYS_PER_YEAR = 365.24;
+  inline static const int64_t N = 20000LL;
+  inline static const int64_t NBODIES = 5LL;
+  inline static const double DT = 0.01;
   double iv_x = 0.0;
   double iv_y = 0.0;
   double iv_z = 0.0;

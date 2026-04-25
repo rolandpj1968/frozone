@@ -9,7 +9,7 @@ struct Ruby_C : public RubyObject {
   const char* rb_class_name() const override { return "C"; }
 
   auto ruby_func() {
-    return 0LL;
+    return RubyNil(RUBY_NIL);
   }
 
 };

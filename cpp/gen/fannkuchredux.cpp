@@ -5,7 +5,7 @@ static const int64_t N = 9LL;
 
 
 
-static auto fannkuch(auto n) {
+static RubyArray<int64_t> fannkuch(auto n) {
   RubyArray<int64_t> p;
   RubyArray<int64_t> s;
   RubyArray<int64_t> q;
@@ -78,18 +78,21 @@ static auto fannkuch(auto n) {
   };
   };
   }
-  return RubyNil();
+  return RubyArray<int64_t>(RUBY_NIL);
 }
 
 
 int main() {
   FROZONE_GC_INIT();
-  std::optional<int64_t> last;
-  (last = ruby_to_opt<int64_t>(INT64_C(0)));
+  int64_t sum = 0;
+  int64_t flips = 0;
+  (sum = INT64_C(0));
+  (flips = INT64_C(0));
   for (int64_t _i = 0; _i < INT64_C(10); _i++) {
-    (last = ruby_to_opt<int64_t>(fannkuch(N)));
+    ({ auto _masgn = fannkuch(N); sum = _masgn[INT64_C(0)]; flips = _masgn[INT64_C(1)]; });
   }
-  ruby_puts(last);
+  ruby_puts(sum);
+  ruby_puts(flips);
   FROZONE_GC_SHUTDOWN();
   return 0;
 }

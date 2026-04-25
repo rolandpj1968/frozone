@@ -26,12 +26,12 @@ static auto bottom_up_tree(auto depth) {
 int main() {
   FROZONE_GC_INIT();
   int64_t total = 0;
-  std::decay_t<decltype(bottom_up_tree(STRETCH_DEPTH))> stretch_tree{};
-  std::decay_t<decltype(bottom_up_tree(MAX_DEPTH))> long_lived_tree{};
+  RubyTree stretch_tree;
+  RubyTree long_lived_tree;
   int64_t depth = 0;
   int64_t iterations = 0;
   int64_t check = 0;
-  std::decay_t<decltype(bottom_up_tree(depth))> temp_tree{};
+  RubyTree temp_tree;
   (total = INT64_C(0));
   for (int64_t _i = 0; _i < INT64_C(60); _i++) {
     (stretch_tree = bottom_up_tree(STRETCH_DEPTH));

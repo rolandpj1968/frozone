@@ -6,7 +6,7 @@ static const RubyString B = RubyString("this is also a long string with no usefu
 
 
 
-static auto ruby_xor_b(auto a, auto b) {
+static RubyString ruby_xor_b(auto a, auto b) {
   int64_t l = 0;
   int64_t lb = 0;
   int64_t i = 0;

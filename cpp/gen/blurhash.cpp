@@ -3,22 +3,22 @@
 static const RubyString RUBY_FILE = RubyString("/home/rolandpj/src/frozone/bench/benchmarks/blurhash/test.bin", 61);
 
 struct Ruby_ThreeDArray : public RubyObject {
-  int64_t iv_y = 0;
+  inline static const RubyString RUBY_FILE = RubyString("/home/rolandpj/src/frozone/bench/benchmarks/blurhash/test.bin", 61);
   int64_t iv_x = 0;
   int64_t iv_z = 0;
-  int64_t iv_list = 0;
+  RubyArray<double> iv_list;
 
   Ruby_ThreeDArray() = default;
   Ruby_ThreeDArray(auto y, auto x, auto z) {
-    iv_y = y;
+    y;
     iv_x = x;
     iv_z = z;
-    iv_list = RubyArray<int64_t>(((y * x) * z));
+    iv_list = RubyArray<double>(((y * x) * z));
   }
   const char* rb_class_name() const override { return "ThreeDArray"; }
 
   auto set(auto y, auto x, auto z, auto val) {
-    std::decay_t<decltype(((z + (x * iv_z)) + ((y * iv_z) * iv_x)))> i{};
+    int64_t i = 0;
     (i = ((z + (x * iv_z)) + ((y * iv_z) * iv_x)));
     return iv_list[i] = val;
   }
@@ -40,8 +40,9 @@ template<> struct dustman::Tracer<Ruby_ThreeDArray> : dustman::FieldList<Ruby_Th
 #endif
 
 struct Ruby_Buffer : public RubyObject {
+  inline static const RubyString RUBY_FILE = RubyString("/home/rolandpj/src/frozone/bench/benchmarks/blurhash/test.bin", 61);
   int64_t iv_pos = 0;
-  int64_t iv_buf = 0;
+  RubyString iv_buf;
 
   Ruby_Buffer() = default;
   Ruby_Buffer(auto size) {
@@ -59,7 +60,7 @@ struct Ruby_Buffer : public RubyObject {
     return iv_pos = (iv_pos + INT64_C(1));
   }
 
-  auto slice(auto from, auto len) {
+  RubyString slice(auto from, auto len) {
     return iv_buf.slice(from, len);
   }
 
@@ -125008,7 +125009,7 @@ static auto CHARACTERS = []() { RubyArray<int64_t> _a(83);
   return _a; }();
 struct Ruby_Ruby {
   auto sRGBToLinear(auto value) {
-    std::decay_t<decltype(ruby_div((double)(value), INT64_C(255)))> v{};
+    double v = 0.0;
     (v = ruby_div((double)(value), INT64_C(255)));
     if ((v <= 0.04045)) {
       return ruby_div(v, 12.92);
@@ -125017,43 +125018,45 @@ struct Ruby_Ruby {
     }
   }
 
-  auto multiplyBasisFunction(auto xComponent, auto yComponent, auto width, auto height, auto rgb, auto bytesPerRow, auto factors) {
+  auto multiplyBasisFunction(auto xComponent, auto yComponent, auto width, auto height, auto rgb, auto bytesPerRow, gc_ref<Ruby_ThreeDArray> factors) {
     double r = 0.0;
     double g = 0.0;
     double b = 0.0;
     int64_t normalisation = 0;
-    std::decay_t<decltype(ruby_div((double)(normalisation), (width * height)))> scale{};
+    double y_coef = 0.0;
+    double basis = 0.0;
+    double scale = 0.0;
     (r = (g = (b = 0.0)));
     (normalisation = (({ auto _l = ((xComponent == INT64_C(0))); (_l) ? decltype(((yComponent == INT64_C(0))))((yComponent == INT64_C(0))) : decltype(((yComponent == INT64_C(0))))(_l); }) ? (INT64_C(1)) : (INT64_C(2))));
     for (int64_t y = 0; y < height; y++) {
-      auto y_coef = cos(ruby_div(((M_PI * yComponent) * y), height));
+      (y_coef = cos(ruby_div(((M_PI * yComponent) * y), height)));
       for (int64_t x = 0; x < width; x++) {
-        auto basis = (cos(ruby_div(((M_PI * xComponent) * x), width)) * y_coef);
+        (basis = (cos(ruby_div(((M_PI * xComponent) * x), width)) * y_coef));
         (r = (r + (basis * sRGBToLinear(rgb[(((INT64_C(3) * x) + INT64_C(0)) + (y * bytesPerRow))]))));
         (g = (g + (basis * sRGBToLinear(rgb[(((INT64_C(3) * x) + INT64_C(1)) + (y * bytesPerRow))]))));
         (b = (b + (basis * sRGBToLinear(rgb[(((INT64_C(3) * x) + INT64_C(2)) + (y * bytesPerRow))]))));
       };
     }
     (scale = ruby_div((double)(normalisation), (width * height)));
-    factors.set(yComponent, xComponent, INT64_C(0), (r * scale));
-    factors.set(yComponent, xComponent, INT64_C(1), (g * scale));
-    return factors.set(yComponent, xComponent, INT64_C(2), (b * scale));
+    factors->set(yComponent, xComponent, INT64_C(0), (r * scale));
+    factors->set(yComponent, xComponent, INT64_C(1), (g * scale));
+    return factors->set(yComponent, xComponent, INT64_C(2), (b * scale));
   }
 
-  auto encode_int(auto value, auto length, auto destination) {
-    std::decay_t<decltype(((int64_t)pow((double)(INT64_C(83)), (double)((length - INT64_C(1))))))> divisor{};
-    std::decay_t<decltype(ruby_mod(ruby_div(value, divisor), INT64_C(83)))> digit{};
+  auto encode_int(auto value, auto length, gc_ref<Ruby_Buffer> destination) {
+    int64_t divisor = 0;
+    int64_t digit = 0;
     (divisor = ((int64_t)pow((double)(INT64_C(83)), (double)((length - INT64_C(1))))));
     for (int64_t i = 0; i < length; i++) {
       (digit = ruby_mod(ruby_div(value, divisor), INT64_C(83)));
       (divisor = ruby_div(divisor, INT64_C(83)));
-      destination.putc(CHARACTERS[digit]);
+      destination->putc(CHARACTERS[digit]);
     }
-    return RUBY_NIL;
+    return int64_t(RUBY_NIL);
   }
 
   auto linearTosRGB(auto value) {
-    std::decay_t<decltype(max(INT64_C(0), min(INT64_C(1), value)))> v{};
+    double v = 0.0;
     (v = max(INT64_C(0), min(INT64_C(1), value)));
     if ((v <= 0.0031308)) {
       return (int64_t)((((v * 12.92) * INT64_C(255)) + 0.5));
@@ -125063,9 +125066,9 @@ struct Ruby_Ruby {
   }
 
   auto encodeDC(auto r, auto g, auto b) {
-    std::decay_t<decltype(linearTosRGB(r))> roundedR{};
-    std::decay_t<decltype(linearTosRGB(g))> roundedG{};
-    std::decay_t<decltype(linearTosRGB(b))> roundedB{};
+    int64_t roundedR = 0;
+    int64_t roundedG = 0;
+    int64_t roundedB = 0;
     (roundedR = linearTosRGB(r));
     (roundedG = linearTosRGB(g));
     (roundedB = linearTosRGB(b));
@@ -125081,7 +125084,7 @@ struct Ruby_Ruby {
   }
 
   auto signPow(auto value, auto exp) {
-    std::decay_t<decltype(pow((double)(std::abs(value)), (double)(exp)))> rb_pow{};
+    double rb_pow = 0.0;
     (rb_pow = pow((double)(std::abs(value)), (double)(exp)));
     if ((value < INT64_C(0))) {
       return (-(rb_pow));
@@ -125091,28 +125094,28 @@ struct Ruby_Ruby {
   }
 
   auto encodeAC(auto r, auto g, auto b, auto maximumValue) {
-    std::decay_t<decltype(max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow(ruby_div(r, maximumValue), 0.5) * INT64_C(9)) + 9.5))))))> quantR{};
-    std::decay_t<decltype(max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow(ruby_div(g, maximumValue), 0.5) * INT64_C(9)) + 9.5))))))> quantG{};
-    std::decay_t<decltype(max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow(ruby_div(b, maximumValue), 0.5) * INT64_C(9)) + 9.5))))))> quantB{};
+    int64_t quantR = 0;
+    int64_t quantG = 0;
+    int64_t quantB = 0;
     (quantR = max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow(ruby_div(r, maximumValue), 0.5) * INT64_C(9)) + 9.5))))));
     (quantG = max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow(ruby_div(g, maximumValue), 0.5) * INT64_C(9)) + 9.5))))));
     (quantB = max(INT64_C(0), min(INT64_C(18), (int64_t)floor((double)(((signPow(ruby_div(b, maximumValue), 0.5) * INT64_C(9)) + 9.5))))));
     return ((((quantR * INT64_C(19)) * INT64_C(19)) + (quantG * INT64_C(19))) + quantB);
   }
 
-  auto blurHashForPixels(auto xComponents, auto yComponents, auto width, auto height, auto rgb, auto bytesPerRow) {
+  RubyString blurHashForPixels(auto xComponents, auto yComponents, auto width, auto height, auto rgb, auto bytesPerRow) {
     gc_local<Ruby_ThreeDArray> factors = nullptr;
     gc_local<Ruby_Buffer> ptr = nullptr;
-    std::decay_t<decltype(((xComponents * yComponents) - INT64_C(1)))> acCount{};
-    std::decay_t<decltype(((xComponents - INT64_C(1)) + ((yComponents - INT64_C(1)) * INT64_C(9))))> sizeFlag{};
+    int64_t acCount = 0;
+    int64_t sizeFlag = 0;
     double actualMaximumValue = 0.0;
-    std::decay_t<decltype(max(INT64_C(0), min(INT64_C(82), (int64_t)floor((double)(((actualMaximumValue * INT64_C(166)) - 0.5))))))> quantisedMaximumValue{};
-    std::decay_t<decltype(ruby_div(((double)(quantisedMaximumValue) + INT64_C(1)), INT64_C(166)))> maximumValue{};
+    int64_t quantisedMaximumValue = 0;
+    double maximumValue = 0.0;
     if (({ auto _l = ((xComponents < INT64_C(1))); (_l) ? decltype(((xComponents > INT64_C(9))))(_l) : ((xComponents > INT64_C(9))); })) {
-      return;
+      return RubyString(RUBY_NIL);
     }
     if (({ auto _l = ((yComponents < INT64_C(1))); (_l) ? decltype(((yComponents > INT64_C(9))))(_l) : ((yComponents > INT64_C(9))); })) {
-      return;
+      return RubyString(RUBY_NIL);
     }
     (factors = gc_new<Ruby_ThreeDArray>(yComponents, xComponents, INT64_C(3)));
     (ptr = gc_new<Ruby_Buffer>((((INT64_C(2) + INT64_C(4)) + (((INT64_C(9) * INT64_C(9)) - INT64_C(1)) * INT64_C(2))) + INT64_C(1))));
@@ -125127,7 +125130,7 @@ struct Ruby_Ruby {
     if ((acCount > INT64_C(0))) {
       (actualMaximumValue = 0.0);
       for (int64_t i = 0; i < (acCount * INT64_C(3)); i++) {
-      (actualMaximumValue = max(actualMaximumValue, std::abs(factors[(i + INT64_C(3))])));
+      (actualMaximumValue = max(actualMaximumValue, std::abs(factors->operator[]((i + INT64_C(3))))));
     };
       (quantisedMaximumValue = max(INT64_C(0), min(INT64_C(82), (int64_t)floor((double)(((actualMaximumValue * INT64_C(166)) - 0.5))))));
       (maximumValue = ruby_div(((double)(quantisedMaximumValue) + INT64_C(1)), INT64_C(166)));
@@ -125136,18 +125139,18 @@ struct Ruby_Ruby {
       (maximumValue = INT64_C(1));
       encode_int(INT64_C(0), INT64_C(1), ptr);
     }
-    encode_int(encodeDC(factors[INT64_C(0)], factors[INT64_C(1)], factors[INT64_C(2)]), INT64_C(4), ptr);
+    encode_int(encodeDC(factors->operator[](INT64_C(0)), factors->operator[](INT64_C(1)), factors->operator[](INT64_C(2))), INT64_C(4), ptr);
     for (int64_t i = 0; i < acCount; i++) {
-      encode_int(encodeAC(factors[((i * INT64_C(3)) + INT64_C(3))], factors[((i * INT64_C(3)) + INT64_C(4))], factors[((i * INT64_C(3)) + INT64_C(5))], maximumValue), INT64_C(2), ptr);
+      encode_int(encodeAC(factors->operator[](((i * INT64_C(3)) + INT64_C(3))), factors->operator[](((i * INT64_C(3)) + INT64_C(4))), factors->operator[](((i * INT64_C(3)) + INT64_C(5))), maximumValue), INT64_C(2), ptr);
     }
-    return ptr.slice(INT64_C(0), ptr->pos());
+    return ptr->slice(INT64_C(0), ptr->pos());
   }
 
 };
 static Ruby_Ruby Ruby;
 
 struct Ruby_Blurhash {
-  auto encode_rb(auto width, auto height, auto pixels, int64_t x_comp = INT64_C(4), int64_t y_comp = INT64_C(3)) {
+  RubyString encode_rb(auto width, auto height, auto pixels, int64_t x_comp = INT64_C(4), int64_t y_comp = INT64_C(3)) {
     return Ruby.blurHashForPixels(x_comp, y_comp, width, height, pixels, (width * INT64_C(3)));
   }
 
@@ -125155,8 +125158,9 @@ struct Ruby_Blurhash {
 static Ruby_Blurhash Blurhash;
 
 
-static auto make_shareable(auto x) {
-  return x;
+static RubyObject* make_shareable(auto x) {
+  std::fprintf(stderr, "frozone: called TI-gap stub make_shareable\n"); std::abort();
+  return nullptr;
 }
 
 

@@ -7,11 +7,12 @@ static const RubyString EXPECTED_OUTPUT = RubyString("ssssssééssssssééssssss
 
 
 
-static auto make_shareable(auto x) {
-  return x;
+static RubyObject* make_shareable(auto x) {
+  std::fprintf(stderr, "frozone: called TI-gap stub make_shareable\n"); std::abort();
+  return nullptr;
 }
 
-static auto concat_single_test(auto n, auto encoding, auto str_to_add) {
+static RubyString concat_single_test(auto n, auto encoding, auto str_to_add) {
   RubyString s;
   int64_t i = 0;
   (s = RubyString());
@@ -23,7 +24,7 @@ static auto concat_single_test(auto n, auto encoding, auto str_to_add) {
   return s;
 }
 
-static auto concat_test() {
+static RubyString concat_test() {
   concat_single_test(NUM_ITERS, INT64_C(0) /* ::UTF_8 */, TEST_STR);
   return concat_single_test(NUM_ITERS, INT64_C(0) /* ::BINARY */, TEST_STR);
 }

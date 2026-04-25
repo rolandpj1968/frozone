@@ -50,7 +50,7 @@ static auto set_value_loop(gc_ref<Ruby_TheClass> obj) {
     obj->set_levar(i);
     (i = (i + INT64_C(1)));
   }
-  return RubyNil();
+  return RubyNil(RUBY_NIL);
 }
 
 
