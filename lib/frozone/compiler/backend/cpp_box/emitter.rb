@@ -80,12 +80,37 @@ module Frozone
             line "struct MainObject : Object {"
             indented do
               line %(const char* ruby_class_name() const override { return "MainObject"; })
+              emit_user_methods
               blank
               line "void __top_level__() {"
               indented { emit_top_level_body }
               line "}"
             end
             line "};"
+          end
+
+          def emit_user_methods
+            user_methods.each do |name, method|
+              blank
+              MethodEmitter.emit_user_method(self, name, method)
+            end
+          end
+
+          # Top-level user methods live in `top_level_scope.methods_table`.
+          # Filter to user code only — exclude core/4.0/, vm/, ast/.
+          def user_methods
+            (@top_level_scope.methods_table || {}).select do |_, m|
+              m.is_a?(Vm::Method) && user_source?(m.source_location)
+            end
+          end
+
+          CORE_PATH_MARKERS = %w[lib/core/4.0/ lib/frozone/vm/ lib/frozone/ast/].freeze
+
+          def user_source?(loc)
+            return false if loc.nil?
+            file = loc.is_a?(Array) ? loc.first.to_s : loc.to_s.sub(/:[\d]+\z/, '')
+            return false if @stub_file && file == @stub_file
+            CORE_PATH_MARKERS.none? { |m| file.include?(m) }
           end
 
           def emit_top_level_body
