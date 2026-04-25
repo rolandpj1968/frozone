@@ -99,7 +99,7 @@ module Frozone
           def self.case_when_cond(emit, condition_nodes, subj, locals)
             condition_nodes.map { |c|
               c_str = emit.cpp.from_expr(c, locals)
-              subj ? "truthy(#{c_str}->m_case_eq(#{subj}))" : "truthy(#{c_str})"
+              subj ? "truthy(#{c_str}->m_case_eq((new Array({#{subj}})), nullptr, nullptr))" : "truthy(#{c_str})"
             }.join(" || ")
           end
 

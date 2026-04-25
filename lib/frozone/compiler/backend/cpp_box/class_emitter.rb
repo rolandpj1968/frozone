@@ -78,11 +78,11 @@ module Frozone
           def self.write_universal_surface(emit, call_surface)
             return if call_surface.empty?
             skip = Runtime::BASIC_OBJECT.hand_coded_method_names || []
-            emit.line "// Universal method surface — populated from the program's call universe."
-            call_surface.each do |(cpp_name, arity), ruby_name|
+            emit.line "// Universal method surface — one slot per name. All Ruby methods take"
+            emit.line "// (Array* args, Hash* kwargs, Proc* block) — bodies unpack from args."
+            call_surface.each do |cpp_name, ruby_name|
               next if skip.include?(cpp_name)
-              params = (["BasicObject*"] * arity).join(", ")
-              emit.line %(virtual BasicObject* #{cpp_name}(#{params}) { return method_missing("#{ruby_name}"); })
+              emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("#{ruby_name}"); })
             end
           end
 
@@ -93,10 +93,21 @@ module Frozone
             emit.line "}"
           end
 
+          # Universal override signature: m_X(Array*, Hash*, Proc*).
+          # spec[:params] is a list of "BasicObject* <name>" strings
+          # describing what the body wants extracted from args. The
+          # emitter prepends unpack lines (`BasicObject* <name> =
+          # array_at(args, i);`) before the user-supplied body.
           def self.write_override(emit, name, spec)
-            params = spec[:params].join(", ")
-            emit.line "BasicObject* #{name}(#{params}) override {"
-            emit.indented { spec[:body].each_line { |l| emit.line l.chomp } }
+            emit.line "BasicObject* #{name}(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override {"
+            emit.indented do
+              (spec[:params] || []).each_with_index do |param_decl, i|
+                # param_decl looks like "BasicObject* foo" — extract name.
+                param_name = param_decl.split(/\s+/).last.delete_prefix('*')
+                emit.line "BasicObject* #{param_name} = array_at(args, #{i});"
+              end
+              spec[:body].each_line { |l| emit.line l.chomp }
+            end
             emit.line "}"
           end
 

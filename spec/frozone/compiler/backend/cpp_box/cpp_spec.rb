@@ -140,8 +140,9 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   end
 
   describe "#from_expr — method calls" do
-    it "binary operator dispatches via m_<op>" do
-      expect(cpp.from_expr(call(:<, lvr(:n), [int(2)]), locals)).to eq("n->m_lt((new Integer(2LL)))")
+    it "binary operator dispatches via m_<op> with universal protocol" do
+      expect(cpp.from_expr(call(:<, lvr(:n), [int(2)]), locals))
+        .to eq("n->m_lt((new Array({(new Integer(2LL))})), nullptr, nullptr)")
     end
 
     it "puts (no receiver) emits ruby_puts wrapped to return nil_instance" do
@@ -149,8 +150,9 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
         .to eq("(ruby_puts((new Integer(42LL))), nil_instance())")
     end
 
-    it "bare call (no receiver) dispatches through this->m_<name>" do
-      expect(cpp.from_expr(call(:fib, nil, [int(20)]), locals)).to eq("this->m_fib((new Integer(20LL)))")
+    it "bare call (no receiver) dispatches through this->m_<name> with universal protocol" do
+      expect(cpp.from_expr(call(:fib, nil, [int(20)]), locals))
+        .to eq("this->m_fib((new Array({(new Integer(20LL))})), nullptr, nullptr)")
     end
   end
 
@@ -263,31 +265,33 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   end
 
   describe "#from_expr — Yield" do
-    it "yield with no args calls _block->m_call(nil_instance())" do
+    it "yield with no args wraps in empty Array via universal call protocol" do
       node = A::Yield.new([])
-      expect(cpp.from_expr(node, locals)).to eq("_block->m_call(nil_instance())")
+      expect(cpp.from_expr(node, locals))
+        .to eq("_block->m_call((new Array({})), nullptr, nullptr)")
     end
 
-    it "yield with one arg calls _block->m_call(arg_expr)" do
+    it "yield with one arg wraps the arg in Array" do
       node = A::Yield.new([int(42)])
-      expect(cpp.from_expr(node, locals)).to eq("_block->m_call((new Integer(42LL)))")
+      expect(cpp.from_expr(node, locals))
+        .to eq("_block->m_call((new Array({(new Integer(42LL))})), nullptr, nullptr)")
     end
   end
 
   describe "#from_expr — splat in call args" do
-    it "SplatArg in arg_nodes emits the splat's value directly" do
+    it "single SplatArg passes the value as args (cast to Array*)" do
       arr = lvr(:arr)
       splat = A::SplatArg.new(arr)
       node = A::MethodCall.new(:collect, nil, [splat], [], nil)
-      # Passes arr through as the rest param — no Array wrapping
-      expect(cpp.from_expr(node, locals)).to eq("this->m_collect(arr)")
+      expect(cpp.from_expr(node, locals))
+        .to eq("this->m_collect(static_cast<Array*>(arr), nullptr, nullptr)")
     end
 
-    it "mixed positional + splat passes them in sequence (no flattening)" do
+    it "mixed positional + splat raises EmissionError (deferred)" do
       arr = lvr(:arr)
       node = A::MethodCall.new(:foo, nil, [int(1), A::SplatArg.new(arr), int(5)], [], nil)
-      # Defer: real Ruby flattens; we pass positionally for now.
-      expect(cpp.from_expr(node, locals)).to eq("this->m_foo((new Integer(1LL)), arr, (new Integer(5LL)))")
+      expect { cpp.from_expr(node, locals) }
+        .to raise_error(C::EmissionError, /mixed positional \+ splat/)
     end
   end
 
@@ -374,7 +378,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       node = A::Case.new(subj, whens, int(0))
       result = cpp.from_expr(node, locals)
       expect(result).to include("auto* _subj = x")
-      expect(result).to include("(new Integer(1LL))->m_case_eq(_subj)")
+      expect(result).to include("(new Integer(1LL))->m_case_eq((new Array({_subj})), nullptr, nullptr)")
       expect(result).to include("return (new Integer(10LL))")
       expect(result).to include("return (new Integer(0LL))")
     end
@@ -423,8 +427,9 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   end
 
   describe "#from_expr — AttributeWrite (arr[k] = v)" do
-    it "emits m_aset vtable call" do
-      expect(cpp.from_expr(aw(:[]=, lvr(:a), [int(0), int(99)]), locals)).to eq("a->m_aset((new Integer(0LL)), (new Integer(99LL)))")
+    it "emits m_aset vtable call with universal protocol" do
+      expect(cpp.from_expr(aw(:[]=, lvr(:a), [int(0), int(99)]), locals))
+        .to eq("a->m_aset((new Array({(new Integer(0LL)), (new Integer(99LL))})), nullptr, nullptr)")
     end
   end
 

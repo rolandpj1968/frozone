@@ -1,39 +1,73 @@
 # Box-first C++ backend — method signatures, params, body framing,
 # returns.
 #
-# Method signatures: `Ruby::BasicObject* method_name(Ruby::BasicObject*
-# arg, ...)`. All slots are `Ruby::BasicObject*`; unboxing happens
-# later (if at all) via the TI-driven optimisation pass.
+# Universal call protocol: every Ruby method takes
+#   m_X(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr).
+# Bodies unpack required positional params from `args` via
+# array_at(args, i). Block is always available as `_block` (or
+# user-named &blk). Specialisation slots like `m_X_<arity>(arg)`
+# are a future optimisation layer; not generated here.
 
 module Frozone
   module Compiler
     module Backend
       module CppBox
         class MethodEmitter
-          # Writes a virtual signature + body for a user-defined method
-          # (becomes a virtual on Ruby::MainObject).
+          # Writes a virtual method on a user class (or MainObject).
           def self.write_user_method(emit, name, method)
-            params, locals = build_params(method)
             cpp_name = Cpp.method_name(name)
-            emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
+            block_name = block_param_name(method)
+            emit.line "virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs = nullptr, Proc* #{block_name} = nullptr) {"
             emit.indented do
+              locals = unpack_params(emit, method)
               if method.body
                 ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true)
               end
-              # Trailing nil-return safety net for fall-through paths.
               emit.line "return nil_instance();"
             end
             emit.line "}"
           end
 
-          # Returns [params_string, locals_set]. Params include required
-          # positional + rest + block (rest/block as nullable optionals
-          # so callers without a splat/block can omit them). Optional
-          # positional + kw params are deferred.
-          #
-          # Methods whose body contains `yield` (without an explicit
-          # block_param) get an implicit `Proc* _block = nullptr`
-          # trailing param. Cpp.from_yield emits `_block->m_call(...)`.
+          # Emit unpack-from-args lines for each required positional
+          # param. Returns the locals set known to be in scope inside
+          # the body (param names + block name).
+          def self.unpack_params(emit, method)
+            locals = Set.new
+            required = method.required_params || []
+            required.each_with_index do |p, i|
+              emit.line "BasicObject* #{p} = array_at(args, #{i});"
+              locals << p.to_s
+            end
+            if method.rest_param
+              # Rest collection: gather args[required.length..end] into
+              # a new Array. The whole args Array is passed when there
+              # are no required params (common case for `def foo(*xs)`).
+              name = method.rest_param.to_s
+              name = "_rest" if name.empty? || name == "*"
+              if required.empty?
+                emit.line "BasicObject* #{name} = args;  // *rest = whole args"
+              else
+                emit.line "Array* #{name} = new Array();"
+                emit.line "for (std::size_t _i = #{required.length}; _i < args->data.size(); _i++) {"
+                emit.line "  #{name}->data.push_back(args->data[_i]);"
+                emit.line "}"
+              end
+              locals << name
+            end
+            locals << block_param_name(method)
+            locals
+          end
+
+          def self.block_param_name(method)
+            return "_block" unless method.block_param
+            n = method.block_param.to_s
+            (n.empty? || n == "&") ? "_block" : n
+          end
+
+          # Legacy direct-positional sig — used by build_ctor in
+          # emitter.rb. Constructors don't go through the universal
+          # call protocol; they're invoked via `new ClassName(args...)`
+          # from ExprEmitter's special `.new` handling.
           def self.build_params(method)
             parts = []
             locals = Set.new
@@ -41,32 +75,7 @@ module Frozone
               parts << "BasicObject* #{p}"
               locals << p.to_s
             end
-            if method.rest_param
-              # `*` (anonymous splat) gives a Symbol with no readable name.
-              # Synthesise `_rest` for that case.
-              name = method.rest_param.to_s
-              name = "_rest" if name.empty? || name == "*"
-              parts << "BasicObject* #{name} = nullptr"
-              locals << name
-            end
-            block_name = nil
-            if method.block_param
-              block_name = method.block_param.to_s
-              block_name = "_block" if block_name.empty? || block_name == "&"
-              parts << "Proc* #{block_name} = nullptr"
-              locals << block_name
-            elsif method.body && contains_yield?(method.body)
-              # Implicit _block — no block_param declared but yield used.
-              parts << "Proc* _block = nullptr"
-              locals << "_block"
-            end
             [parts.join(", "), locals]
-          end
-
-          def self.contains_yield?(node)
-            return false unless node.is_a?(Ast::Node)
-            return true if node.is_a?(Ast::Yield)
-            node.respond_to?(:children) && node.children.any? { |c| contains_yield?(c) }
           end
         end
       end

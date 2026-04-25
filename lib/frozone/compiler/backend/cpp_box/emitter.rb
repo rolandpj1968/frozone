@@ -139,18 +139,20 @@ module Frozone
             end
           end
 
-          # Collects (cpp_method_name, arity) → ruby_method_name from every
-          # MethodCall in the program. Drives BasicObject's universal
-          # vtable surface. Calls without a receiver dispatch via
-          # `this->name()` inside MainObject — they don't need a slot.
+          # Collects cpp_method_name → ruby_method_name from every
+          # MethodCall in the program + every method definition.
+          # Drives BasicObject's universal vtable surface. Universal
+          # call protocol means one slot per name (signature is
+          # always Array*, Hash*, Proc*) — no arity in the key.
+          # Calls without a receiver dispatch via `this->name()`
+          # inside MainObject — still need a slot.
           def collect_call_surface
             calls = {}
             walk = ->(node) {
               return unless node.is_a?(Ast::Node)
               if node.is_a?(Ast::MethodCall) && node.receiver_node && node.name != :new
                 cpp_name = Cpp.method_name(node.name)
-                arity = (node.arg_nodes || []).length
-                calls[[cpp_name, arity]] ||= node.name.to_s
+                calls[cpp_name] ||= node.name.to_s
               end
               node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
             }
@@ -159,25 +161,18 @@ module Frozone
               class_methods(cls).each_value { |m| walk.call(m.body) if m.body }
             end
             walk.call(@execute_block) if @execute_block
-            # Pull in arities from runtime overrides too — Integer's m_plus
-            # declares arity 1, so the BasicObject base must too.
+            # Runtime override slots also exist on BasicObject.
             Runtime::ALL_CLASSES.each do |k|
-              k.overrides&.each do |cpp_name, spec|
-                calls[[cpp_name, spec[:params].length]] ||= cpp_name.sub(/^m_/, '')
+              k.overrides&.each do |cpp_name, _|
+                calls[cpp_name] ||= cpp_name.sub(/^m_/, '')
               end
             end
-            # Also include user-class method DEFINITIONS — their override
-            # slots need to exist on BasicObject even if no one calls them
-            # via the vtable yet. Arity must match what build_params
-            # emits (required + rest + block).
+            # User-class method DEFINITIONS need slots too.
             @user_classes.each_value do |cls|
-              class_methods(cls).each do |mname, m|
+              class_methods(cls).each do |mname, _|
                 next if mname == :initialize
                 cpp_name = Cpp.method_name(mname)
-                arity = (m.required_params || []).length +
-                        (m.rest_param ? 1 : 0) +
-                        (m.block_param ? 1 : 0)
-                calls[[cpp_name, arity]] ||= mname.to_s
+                calls[cpp_name] ||= mname.to_s
               end
             end
             calls

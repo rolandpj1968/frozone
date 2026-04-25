@@ -75,16 +75,19 @@ module Frozone
               %(  std::fprintf(stderr, "[box-first] method_missing: %s#%s\\n", ruby_class_name(), method_name);),
               "  std::abort();",
               "}",
-              "// Hand-coded m_eq_q / m_hash_value — these are special:",
-              "// they need sensible *defaults* (pointer identity), not",
-              "// method_missing, otherwise Hash key lookup would crash on",
-              "// any class without an explicit override. Subclasses with",
-              "// value semantics (Integer, Float, String) override.",
-              "virtual BasicObject* m_eq_q(BasicObject* other) { return boxed_bool(this == other); }",
+              "// Hand-coded m_eq_q / m_hash_value / m_case_eq — these need",
+              "// sensible defaults rather than method_missing. m_hash_value",
+              "// is C++-internal (returns size_t for std::unordered_map),",
+              "// not a Ruby vtable method. m_eq_q and m_case_eq use the",
+              "// universal Ruby method signature (Array*, Hash*, Proc*).",
+              "virtual BasicObject* m_eq_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "  return boxed_bool(this == array_at(args, 0));",
+              "}",
               "virtual std::size_t m_hash_value() const { return reinterpret_cast<std::size_t>(this); }",
               "// m_case_eq (===) defaults to m_eq_q per Ruby semantics.",
-              "// Class objects override on the eigenclass to do is_a? check.",
-              "virtual BasicObject* m_case_eq(BasicObject* other) { return m_eq_q(other); }",
+              "virtual BasicObject* m_case_eq(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "  return m_eq_q(args, kwargs, block);",
+              "}",
             ],
             # Methods listed here are skipped by the universal-surface
             # emitter (already hand-declared in members above).
@@ -440,7 +443,9 @@ module Frozone
               "};",
               "struct KeyEq {",
               "  bool operator()(BasicObject* a, BasicObject* b) const {",
-              "    return a->m_eq_q(b) == true_instance();",
+              "    Array tmp;",
+              "    tmp.data.push_back(b);",
+              "    return a->m_eq_q(&tmp, nullptr, nullptr) == true_instance();",
               "  }",
               "};",
               "using map_t = std::unordered_map<",
@@ -562,6 +567,19 @@ module Frozone
             CPP
           )
 
+          # array_at — bridges the forward-decl gap. Method bodies in
+          # classes defined BEFORE Array (BasicObject, Object, Integer,
+          # Float) need to unpack args via `args->data[i]`, but Array is
+          # forward-declared at that point (member access requires
+          # complete type). This helper is forward-declared early and
+          # defined after Array, so callers see only the signature
+          # during class-body parsing.
+          ARRAY_AT_FN = KernelFn.new(
+            name: "array_at",
+            signature: "BasicObject* array_at(Array* a, std::size_t i)",
+            body: "return a->data[i];",
+          )
+
           # Symbol interning. Same name → same Symbol* (identity = equality,
           # so default m_eq_q + m_hash_value work). Intern table uses
           # GcAllocator so the symbols stay rooted under Boehm.
@@ -583,7 +601,7 @@ module Frozone
 
           ALL_KERNEL_FNS = [
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
-            BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN
+            BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN
           ].freeze
 
           # ---- Intrinsics -----------------------------------------

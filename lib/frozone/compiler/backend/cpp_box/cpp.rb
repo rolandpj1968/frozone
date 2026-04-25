@@ -140,10 +140,17 @@ module Frozone
             end
           end
 
+          # Universal call protocol: every Ruby method call is
+          #   recv->m_X(args_array, kwargs_hash_or_nullptr, block_or_nullptr)
+          # where args_array is `(new Array({a, b, ...}))`. The called
+          # method's body unpacks args to its declared params.
+          # Specializations like `m_X_1(arg)` are an optimisation layer
+          # we may add later (per call-site mangling); for now everything
+          # is generic.
           def from_method_call(node, locals)
             recv = node.receiver_node
             name = node.name
-            args = (node.arg_nodes || []).map { |a| from_arg(a, locals) }
+            arg_nodes = node.arg_nodes || []
 
             # ClassName.new(args) or Foo::Bar.new(args) → direct
             # instantiation. Bypasses the vtable. Wrap in parens so
@@ -151,25 +158,54 @@ module Frozone
             if name == :new && (recv.is_a?(Ast::ConstantRead) || recv.is_a?(Ast::ConstantPath))
               cls_name = recv.is_a?(Ast::ConstantRead) ? recv.name.to_s : path_to_cpp_name(recv)
               if instantiable_class?(cls_name.to_sym)
+                args = arg_nodes.map { |a| from_arg(a, locals) }
                 return "(new #{cls_name}(#{args.join(", ")}))"
               end
             end
 
             # Block-bearing call site (other than the .times for-loop
             # special-case which write_stmt handles): wrap the block as
-            # a Proc and pass as the trailing arg.
-            if node.block_node && !(name == :times && recv)
-              args << from_block_as_proc(node.block_node, locals)
-            end
+            # a Proc and pass as the third call-protocol arg.
+            block_arg = if node.block_node && !(name == :times && recv)
+                          from_block_as_proc(node.block_node, locals)
+                        else
+                          "nullptr"
+                        end
+            args_array = build_args_array(arg_nodes, locals)
+            kwargs_arg = "nullptr"  # kwargs deferred
 
             if recv
-              "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{args.join(", ")})"
+              "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
             elsif name == :puts
               # ruby_puts returns void; Ruby's puts returns nil — comma
               # operator gives the right type for expression contexts.
+              # ruby_puts is a runtime free function (NOT a vtable
+              # method) so it bypasses the universal call protocol.
+              args = arg_nodes.map { |a| from_arg(a, locals) }
               "(ruby_puts(#{args.join(", ")}), nil_instance())"
             else
-              "this->#{Cpp.method_name(name)}(#{args.join(", ")})"
+              "this->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
+            end
+          end
+
+          # Build the args Array for a call. Cases:
+          # - Empty: (new Array({}))
+          # - All literal args: (new Array({a, b, ...}))
+          # - Single splat: pass the splat's value directly (it's
+          #   already an Array — no wrapping)
+          # - Mixed splat+literal: defer (would need flattening logic).
+          def build_args_array(arg_nodes, locals)
+            if arg_nodes.length == 1 && arg_nodes[0].is_a?(Ast::SplatArg)
+              # The splat's value is statically a BasicObject* (locals
+              # are all BasicObject*); cast to Array* for the call.
+              # Real Ruby would call to_a on it; static_cast assumes
+              # the value IS an Array, which is the common case.
+              "static_cast<Array*>(#{from_expr(arg_nodes[0].value_node, locals)})"
+            elsif arg_nodes.any? { |a| a.is_a?(Ast::SplatArg) }
+              raise EmissionError, "mixed positional + splat args not yet supported"
+            else
+              args = arg_nodes.map { |a| from_expr(a, locals) }
+              "(new Array({#{args.join(", ")}}))"
             end
           end
 
@@ -186,12 +222,11 @@ module Frozone
 
           # `Ast::Yield` → call into the implicit `_block` Proc* that
           # MethodEmitter inserts when a body contains yield.
-          # 0 args → m_call(nil_instance()); 1 arg → m_call(arg_expr).
-          # Multi-arg yield deferred (would need variadic m_call).
+          # Universal call protocol: m_call(args, kwargs, block).
+          # Multi-arg yield works since args is an Array.
           def from_yield(node, locals)
             args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
-            arg = args.first || "nil_instance()"
-            "_block->m_call(#{arg})"
+            "_block->m_call((new Array({#{args.join(", ")}})), nullptr, nullptr)"
           end
 
           # Wrap a block AST node as `(new Proc([&](BasicObject* arg) ->
@@ -225,12 +260,13 @@ module Frozone
           end
 
           # `arr[k] = v` parses as AttributeWrite(name=:[]=, receiver,
-          # arg_nodes=[k, v]). Emit as a vtable call to m_aset.
-          # Returns the assigned value (Ruby semantics).
+          # arg_nodes=[k, v]). Emit as a vtable call to m_aset via
+          # the universal protocol.
           def from_attribute_write(node, locals)
             recv_s = from_expr(node.receiver_node, locals)
             args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
-            "#{recv_s}->#{Cpp.method_name(node.name)}(#{args.join(", ")})"
+            args_array = "(new Array({#{args.join(", ")}}))"
+            "#{recv_s}->#{Cpp.method_name(node.name)}(#{args_array}, nullptr, nullptr)"
           end
 
           # Ruby's `&&` returns the last truthy value or the first falsy.
@@ -271,7 +307,7 @@ module Frozone
             node.whens.each do |w|
               cond_strs = w.condition_nodes.map { |c|
                 c_s = from_expr(c, locals)
-                node.subject_node ? "truthy(#{c_s}->m_case_eq(_subj))" : "truthy(#{c_s})"
+                node.subject_node ? "truthy(#{c_s}->m_case_eq((new Array({_subj})), nullptr, nullptr))" : "truthy(#{c_s})"
               }
               buf << "if (#{cond_strs.join(" || ")}) return #{from_expr(w.body_node, locals)}; "
             end
