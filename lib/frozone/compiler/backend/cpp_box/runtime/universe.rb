@@ -403,6 +403,29 @@ module Frozone
             hand_coded_method_names: %w[m_hash_value].freeze,
           )
 
+          # Proc — wraps a C++ std::function for block/lambda
+          # closures. `m_call(arg)` invokes it. Simple blocks only:
+          # arity 0 or 1 (the arg is nil_instance() when yield has no
+          # args). Multi-arity / kw_args / block-from-method-object —
+          # all deferred. Created at call sites where a block is
+          # passed: `foo { |x| ... }` becomes
+          #   `(new Proc([&](BasicObject* arg) -> BasicObject* { ... }))`
+          # passed as last arg to foo. Methods containing `yield` get
+          # an implicit `Proc* _block = nullptr` last param (added by
+          # MethodEmitter.build_params).
+          PROC = RubyClass.new(
+            name: "Proc",
+            parent: "Object",
+            members: [
+              "std::function<BasicObject*(BasicObject*)> fn_;",
+              "explicit Proc(std::function<BasicObject*(BasicObject*)> f) : fn_(std::move(f)) {}",
+              %(const char* ruby_class_name() const override { return "Proc"; }),
+            ],
+            overrides: {
+              "m_call" => { params: ["BasicObject* arg"], body: "return fn_(arg);" },
+            },
+          )
+
           # Hash — std::unordered_map keyed by BasicObject* with a
           # custom Hasher (calls m_hash_value via vtable) and KeyEq
           # (calls m_eq_q via vtable). Bucket storage uses GcAllocator
@@ -463,7 +486,7 @@ module Frozone
           ALL_CLASSES = [
             BASIC_OBJECT, OBJECT, CLASS_TYPE,
             NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
-            INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH
+            INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH, PROC
           ].freeze
 
           # Per-class eigenclass — generated programmatically from each

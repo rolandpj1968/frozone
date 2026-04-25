@@ -144,8 +144,9 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       expect(cpp.from_expr(call(:<, lvr(:n), [int(2)]), locals)).to eq("n->m_lt((new Integer(2LL)))")
     end
 
-    it "puts (no receiver) emits ruby_puts shim" do
-      expect(cpp.from_expr(call(:puts, nil, [int(42)]), locals)).to eq("ruby_puts((new Integer(42LL)))")
+    it "puts (no receiver) emits ruby_puts wrapped to return nil_instance" do
+      expect(cpp.from_expr(call(:puts, nil, [int(42)]), locals))
+        .to eq("(ruby_puts((new Integer(42LL))), nil_instance())")
     end
 
     it "bare call (no receiver) dispatches through this->m_<name>" do
@@ -258,6 +259,35 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       expect(cpp.from_expr(node, locals)).to eq(
         '(new Hash({{intern("a"), (new Integer(1LL))}}))'
       )
+    end
+  end
+
+  describe "#from_expr — Yield" do
+    it "yield with no args calls _block->m_call(nil_instance())" do
+      node = A::Yield.new([])
+      expect(cpp.from_expr(node, locals)).to eq("_block->m_call(nil_instance())")
+    end
+
+    it "yield with one arg calls _block->m_call(arg_expr)" do
+      node = A::Yield.new([int(42)])
+      expect(cpp.from_expr(node, locals)).to eq("_block->m_call((new Integer(42LL)))")
+    end
+  end
+
+  describe "#from_expr — block-bearing call" do
+    it "wraps block as Proc lambda and passes as trailing arg" do
+      blk = A::Block.new(
+        [:n], [], nil, [],     # required, optional, rest, post
+        [], [], nil, nil,      # kw, opt-kw, kw-rest, block
+        false, [],             # auto_splat, locals
+        call(:puts, nil, [lvr(:n)])  # body
+      )
+      thrice = A::MethodCall.new(:thrice, nil, [], [], blk)
+      result = cpp.from_expr(thrice, locals)
+      expect(result).to include("this->m_thrice(")
+      expect(result).to include("(new Proc([&](BasicObject* arg) -> BasicObject*")
+      expect(result).to include("BasicObject* n = arg;")
+      expect(result).to include("return")
     end
   end
 

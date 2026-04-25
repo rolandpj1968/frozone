@@ -30,6 +30,10 @@ module Frozone
           # positional + rest + block (rest/block as nullable optionals
           # so callers without a splat/block can omit them). Optional
           # positional + kw params are deferred.
+          #
+          # Methods whose body contains `yield` (without an explicit
+          # block_param) get an implicit `Proc* _block = nullptr`
+          # trailing param. Cpp.from_yield emits `_block->m_call(...)`.
           def self.build_params(method)
             parts = []
             locals = Set.new
@@ -45,13 +49,24 @@ module Frozone
               parts << "BasicObject* #{name} = nullptr"
               locals << name
             end
+            block_name = nil
             if method.block_param
-              name = method.block_param.to_s
-              name = "_block" if name.empty? || name == "&"
-              parts << "BasicObject* #{name} = nullptr"
-              locals << name
+              block_name = method.block_param.to_s
+              block_name = "_block" if block_name.empty? || block_name == "&"
+              parts << "Proc* #{block_name} = nullptr"
+              locals << block_name
+            elsif method.body && contains_yield?(method.body)
+              # Implicit _block — no block_param declared but yield used.
+              parts << "Proc* _block = nullptr"
+              locals << "_block"
             end
             [parts.join(", "), locals]
+          end
+
+          def self.contains_yield?(node)
+            return false unless node.is_a?(Ast::Node)
+            return true if node.is_a?(Ast::Yield)
+            node.respond_to?(:children) && node.children.any? { |c| contains_yield?(c) }
           end
         end
       end

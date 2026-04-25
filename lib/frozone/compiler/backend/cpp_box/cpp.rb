@@ -130,6 +130,7 @@ module Frozone
             when Ast::Or then from_or(node, locals)
             when Ast::If then from_if(node, locals)
             when Ast::Case then from_case(node, locals)
+            when Ast::Yield then from_yield(node, locals)
             when Ast::Sequence
               # `(a)` and `(a, b, c)` both work as comma-operator —
               # value is the last subexpression.
@@ -154,13 +155,62 @@ module Frozone
               end
             end
 
+            # Block-bearing call site (other than the .times for-loop
+            # special-case which write_stmt handles): wrap the block as
+            # a Proc and pass as the trailing arg.
+            if node.block_node && !(name == :times && recv)
+              args << from_block_as_proc(node.block_node, locals)
+            end
+
             if recv
               "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{args.join(", ")})"
             elsif name == :puts
-              "ruby_puts(#{args.join(", ")})"
+              # ruby_puts returns void; Ruby's puts returns nil — comma
+              # operator gives the right type for expression contexts.
+              "(ruby_puts(#{args.join(", ")}), nil_instance())"
             else
               "this->#{Cpp.method_name(name)}(#{args.join(", ")})"
             end
+          end
+
+          # `Ast::Yield` → call into the implicit `_block` Proc* that
+          # MethodEmitter inserts when a body contains yield.
+          # 0 args → m_call(nil_instance()); 1 arg → m_call(arg_expr).
+          # Multi-arg yield deferred (would need variadic m_call).
+          def from_yield(node, locals)
+            args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
+            arg = args.first || "nil_instance()"
+            "_block->m_call(#{arg})"
+          end
+
+          # Wrap a block AST node as `(new Proc([&](BasicObject* arg) ->
+          # BasicObject* { ... }))`. Captures by reference so the closure
+          # sees enclosing locals. Block param `|x|` becomes a local
+          # binding from `arg`. Multi-statement bodies emit each as a
+          # statement except the last which becomes the lambda's return.
+          # Statement-only nodes (If-as-stmt, Return, etc.) inside a
+          # block body are not yet supported — defer if hit.
+          def from_block_as_proc(block_node, locals)
+            param = (block_node.required_params || []).first
+            block_locals = locals.dup
+            block_locals << param.to_s if param
+
+            body = block_node.body
+            stmts = body.is_a?(Ast::Sequence) ? body.nodes : (body ? [body] : [])
+
+            parts = []
+            parts << "BasicObject* #{param} = arg;" if param
+            stmts.each_with_index do |n, i|
+              s = from_expr(n, block_locals)
+              if i == stmts.length - 1
+                parts << "return #{s};"
+              else
+                parts << "#{s};"
+              end
+            end
+            parts << "return nil_instance();" if stmts.empty?
+
+            "(new Proc([&](BasicObject* arg) -> BasicObject* { #{parts.join(' ')} }))"
           end
 
           # `arr[k] = v` parses as AttributeWrite(name=:[]=, receiver,

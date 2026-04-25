@@ -110,4 +110,10 @@ RSpec.describe 'box-first end-to-end' do
       %w[42 0 99]
     )
   end
+
+  it 'yields to a block and closes over enclosing locals' do
+    expect(run_box_first('block_test').strip.split("\n")).to eq(
+      %w[1 2 3 42 6]
+    )
+  end
 end
