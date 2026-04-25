@@ -64,7 +64,9 @@ module Frozone
             @user_constants = collect_user_constants
             @cpp = Cpp.new(user_classes: @user_classes, user_constants: @user_constants)
             @call_surface = collect_call_surface
-            classes = Runtime::ALL_CLASSES + build_user_class_defs
+            all_classes = Runtime::ALL_CLASSES + build_user_class_defs
+            all_eigenclasses = all_classes.map { |k| Runtime.eigenclass_for(k) }.compact
+            classes = all_classes + all_eigenclasses
             kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
             write_header
             write_namespace_open
@@ -182,6 +184,9 @@ module Frozone
           end
 
           # Build RubyClass instances from each user Vm::ClassObject.
+          # Class methods (def self.X, from cls.eigenclass.methods_table)
+          # land in `eigenclass_overrides` — Runtime.eigenclass_for picks
+          # them up when generating the paired eigenclass.
           def build_user_class_defs
             @user_classes.map { |name, cls| build_user_class_def(name, cls) }
           end
@@ -200,7 +205,22 @@ module Frozone
               overrides: methods.each_with_object({}) { |(mname, m), h|
                 h[Cpp.method_name(mname)] = build_override(m)
               },
+              eigenclass_overrides: eigenclass_methods(cls).each_with_object({}) { |(mname, m), h|
+                h[Cpp.method_name(mname)] = build_override(m)
+              },
             )
+          end
+
+          # Walk class.eigenclass.methods_table for `def self.X` entries.
+          # Same source-location filtering as instance methods.
+          def eigenclass_methods(cls)
+            eigen = cls.eigenclass rescue nil
+            return {} unless eigen
+            top_level_methods = (@top_level_scope.methods_table || {})
+            (eigen.methods_table || {}).select do |name, m|
+              next false unless m.is_a?(Vm::Method) && user_source?(m.source_location)
+              top_level_methods[name] != m
+            end
           end
 
           # Walk user-source methods for InstanceVariableWrite/Read —

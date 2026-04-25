@@ -193,25 +193,27 @@ module Frozone
             "(new Hash({#{elems.join(", ")}}))"
           end
 
-          # ConstantRead — for value constants registered with the
-          # orchestrator (instances of user classes), emit an accessor
-          # call (lazy-initialised function-local static). Class
-          # constants used as receiver of `.new` are handled in
-          # from_method_call — they don't reach this path.
+          # ConstantRead — resolution priority:
+          #   1. Value constant (instance of a user class) → k_NAME()
+          #   2. Class constant (any emitted class) → &NAME_CLASS
+          #      (a pointer to the eigenclass singleton — Class*-derived)
+          #   3. Unknown → comment + nil_instance fallback
           def from_constant_read(node)
             return "k_#{node.name}()" if @user_constants.key?(node.name)
+            return "(&#{node.name}_CLASS)" if instantiable_class?(node.name)
             "/* ConstantRead: #{node.name} (no value) */ nil_instance()"
           end
 
           # ConstantPath — `Foo::Bar::Baz`. Flatten path components with
-          # `_` and look up in the value-constant registry. The "obvious
-          # transform" assumes ASCII PascalCase (no underscore in name
-          # components, no Unicode); collisions like `Foo_Bar` (single
-          # name) vs `Foo::Bar` (path) would need underscore-doubling
-          # escape — defer until we hit a real case.
+          # `_` and look up in the value-constant registry, then class
+          # registry. The "obvious transform" assumes ASCII PascalCase
+          # (no underscore in name components, no Unicode); collisions
+          # would need underscore-doubling escape — defer until a real
+          # case appears.
           def from_constant_path(node)
             flat = path_to_cpp_name(node).to_sym
             return "k_#{flat}()" if @user_constants.key?(flat)
+            return "(&#{flat}_CLASS)" if instantiable_class?(flat)
             "/* ConstantPath: #{path_to_display(node)} (no value) */ nil_instance()"
           end
 

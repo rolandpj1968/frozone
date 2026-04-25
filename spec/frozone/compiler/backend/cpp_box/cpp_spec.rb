@@ -216,6 +216,17 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       expect(cpp.from_expr(cr(:OBJ), locals)).to eq("k_OBJ()")
     end
 
+    it "user-class constant resolves to (&Foo_CLASS) eigenclass singleton" do
+      user_class = instance_double(V::ClassObject, name: :Box)
+      cpp = described_class.new(user_classes: { Box: user_class }, user_constants: {})
+      expect(cpp.from_expr(cr(:Box), locals)).to eq("(&Box_CLASS)")
+    end
+
+    it "Universe-seeded class constant resolves to (&Foo_CLASS)" do
+      expect(cpp.from_expr(cr(:Integer), locals)).to eq("(&Integer_CLASS)")
+      expect(cpp.from_expr(cr(:Array), locals)).to eq("(&Array_CLASS)")
+    end
+
     it "unregistered constant emits a comment + nil_instance" do
       result = cpp.from_expr(cr(:Unknown), locals)
       expect(result).to include("ConstantRead: Unknown")

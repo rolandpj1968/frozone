@@ -30,7 +30,7 @@ module Frozone
           #                ("NIL_INSTANCE" etc.)
           RubyClass = Struct.new(
             :name, :parent, :ivars, :members, :ctor, :overrides, :singleton,
-            :hand_coded_method_names,
+            :hand_coded_method_names, :eigenclass_overrides,
             keyword_init: true
           )
 
@@ -92,6 +92,18 @@ module Frozone
             name: "Object",
             parent: "BasicObject",
             members: [%(const char* ruby_class_name() const override { return "Object"; })],
+          )
+
+          # Class — the metaclass type. Every emitted class Foo has a
+          # paired eigenclass `Foo_eigenclass : Class` that holds Foo's
+          # class methods (def self.X) as virtuals. The Foo *constant*
+          # in user code is a singleton instance of Foo_eigenclass.
+          # Class itself is currently empty — class-method defaults
+          # (allocate, new, name) will land here when needed.
+          CLASS_TYPE = RubyClass.new(
+            name: "Class",
+            parent: "Object",
+            members: [%(const char* ruby_class_name() const override { return "Class"; })],
           )
 
           NIL_CLASS = RubyClass.new(
@@ -332,9 +344,31 @@ module Frozone
           # sequence (parent before child, so children's overrides see
           # the parent's vtable layout).
           ALL_CLASSES = [
-            BASIC_OBJECT, OBJECT, NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
+            BASIC_OBJECT, OBJECT, CLASS_TYPE,
+            NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
             INTEGER, FLOAT, ARRAY, SYMBOL, HASH
           ].freeze
+
+          # Per-class eigenclass — generated programmatically from each
+          # RubyClass entry. Class methods (def self.X) live as virtuals
+          # on these. The singleton instance `<Name>_CLASS` is what
+          # Ruby code refers to when it writes the bare class name as a
+          # value (`Integer`, `Foo`, etc.).
+          #
+          # Class itself has no separate eigenclass (it IS the metaclass
+          # type — the parent of all eigenclasses). All others get one.
+          def self.eigenclass_for(klass)
+            return nil if klass.name == "Class"
+            RubyClass.new(
+              name: "#{klass.name}_eigenclass",
+              parent: "Class",
+              members: [%(const char* ruby_class_name() const override { return "#{klass.name}"; })],
+              overrides: klass.eigenclass_overrides || {},
+              singleton: "#{klass.name}_CLASS",
+            )
+          end
+
+          ALL_EIGENCLASSES = ALL_CLASSES.map { |k| eigenclass_for(k) }.compact.freeze
 
           # ---- Free Kernel functions -------------------------------
 
