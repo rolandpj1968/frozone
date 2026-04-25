@@ -7,6 +7,8 @@
 # Initial scope: unboxed Int64/Float64 arithmetic, user classes with
 # typed ivars, method dispatch via virtual functions.
 
+require_relative 'cpp_type_emitter'
+
 module Frozone
   module Compiler
     class CppEmitter
@@ -295,18 +297,7 @@ module Frozone
         end
       end
 
-      def nil_return_expr
-        return "RUBY_NIL" unless @_method_return_t
-        if @_method_return_t.renders_as_optional?
-          "std::nullopt"
-        elsif @_method_return_t.emitted_as_pointer?
-          # Under Dustman becomes gc_ref<Ruby_X>(nullptr); under Boehm/none
-          # it's (Ruby_X*)nullptr. Functional-cast syntax works for both.
-          "#{@_method_return_t.to_cpp_ref}(nullptr)"
-        else
-          "#{@_method_return_t.to_cpp}(RUBY_NIL)"
-        end
-      end
+      def nil_return_expr = CppTypeEmitter.nil_return_expr(@_method_return_t)
 
       def trivial_body?(body)
         return true if body.nil?
@@ -634,25 +625,16 @@ module Frozone
             if self_ref_ivars.include?(key)
               line "#{Frozone::Compiler::Type.of(name).to_cpp_ref} iv_#{key} = nullptr;"
             elsif ty
-              default = if ty.i64? || (ty.class_type? && %i[Integer Numeric].include?(ty.class_name) && !ty.nullable?)
-                          " = 0"
-                        elsif ty.f64? || (ty.class_type? && ty.class_name == :Float && !ty.nullable?)
-                          " = 0.0"
-                        elsif ty.class_type? && %i[TrueClass FalseClass].include?(ty.class_name)
-                          " = false"
-                        else
-                          ""
-                        end
-              line "#{ty.to_cpp_ref} iv_#{key}#{default};"
+              line "#{CppTypeEmitter.for_ivar(ty)} iv_#{key}#{CppTypeEmitter.init_suffix(ty)};"
             else
-              # Unknown type — widen to RubyObject* (boxed any) instead of
-              # the old int64_t fallback. Writes of arbitrary user-class
-              # values coerce via coerce_to_ref<RubyObject>; reads see a
-              # boxed pointer. int64_t as default silently truncated all
-              # non-int assignments. Track boxed ivars so recv_t_is_ptr?
-              # knows to use `->` for method calls on them.
+              # TI didn't resolve a type for this ivar — widen to boxed
+              # RubyObject* rather than silently picking int64_t. Writes of
+              # arbitrary user-class values coerce via coerce_to_ref;
+              # reads see a boxed pointer. Track @_boxed_ivars so the
+              # `.` vs `->` dispatch decision (recv_t_is_ptr?) knows to
+              # use `->` on these slots.
               (@_boxed_ivars ||= Set.new) << key
-              line "gc_ref<RubyObject> iv_#{key} = nullptr;"
+              line "#{CppTypeEmitter::BOXED_FALLBACK} iv_#{key}#{CppTypeEmitter::BOXED_FALLBACK_INIT};"
             end
           end
           emit_newline
@@ -1183,10 +1165,10 @@ module Frozone
             val_ts = pairs.map { |_, v| local_decl_type_t(v) }.uniq
             v_tpl =
               if val_ts.size == 1
-                val_ts[0].to_cpp_ref
+                CppTypeEmitter.for_hash_val_template(val_ts[0])
               else
                 rep = Frozone::Compiler::Type.union_representation(val_ts)
-                rep == "RubyObject*" ? "gc_ref<RubyObject>" : rep
+                rep == "RubyObject*" ? CppTypeEmitter::BOXED_FALLBACK : rep
               end
             "RubyHash<#{k_type}, #{v_tpl}>"
           end
@@ -1452,26 +1434,12 @@ module Frozone
               next
             end
           end
-          if ty.emitted_as_pointer?
-            # Outer pointer is stack-rooted: gc_local<Ruby_X>.
-            line "#{ty.to_cpp_local} #{decl_name} = nullptr;"
-            @_pointer_locals << name
-          else
-            default = if ty.i64? || (ty.class_type? && %i[Integer Numeric].include?(ty.class_name) && !ty.nullable?)
-                        " = 0"
-                      elsif ty.f64? || (ty.class_type? && ty.class_name == :Float && !ty.nullable?)
-                        " = 0.0"
-                      elsif ty.class_type? && %i[TrueClass FalseClass].include?(ty.class_name)
-                        " = false"
-                      else
-                        ""
-                      end
-            # Value-typed outer (int64, RubyString, container, etc.). If the
-            # container has pointer elements, those go through gc_ref (passive
-            # reference) — to_cpp_ref renders that; to_cpp_local would wrap
-            # elements in Root<> which wouldn't compile for container storage.
-            line "#{ty.to_cpp_ref} #{decl_name}#{default};"
-          end
+          # Pointer locals get gc_local<T> (Root<T> under Dustman) so the
+          # stack slot acts as a GC root; non-pointer locals get the
+          # value rendering with appropriate default. CppTypeEmitter
+          # encapsulates the choice.
+          line "#{CppTypeEmitter.for_local(ty)} #{decl_name}#{CppTypeEmitter.init_suffix(ty)};"
+          @_pointer_locals << name if ty.emitted_as_pointer?
           if ty.renders_as_optional?
             inner = (ty.i64? || (ty.class_type? && %i[Integer Numeric].include?(ty.class_name))) ? "int64_t" : "double"
             (@_optional_locals ||= {})[name] = inner
@@ -1558,11 +1526,7 @@ module Frozone
           mkey = @_current_method_key
           t_ty = mkey ? (ti_local_type_t(mkey, p.to_s) || ti_type([:param, mkey, i])) : nil
           t_ty ||= setter_ivar_t if i == 0
-          if t_ty&.emitted_as_pointer?
-            parts << "#{t_ty.to_cpp_ref} #{p}"
-          else
-            parts << "auto #{p}"
-          end
+          parts << "#{CppTypeEmitter.for_param(t_ty)} #{p}"
         end
         req_count = (method.required_params || []).size
         (method.optional_params || []).each_with_index do |(pname, default_node), oi|
@@ -1570,11 +1534,8 @@ module Frozone
             ty = nil
             ty = ti_type([:param, @_current_method_key, req_count + oi]) if @_current_method_key
             ty ||= ti_local_type_t(@_current_method_key, pname.to_s) if @_current_method_key
-            if ty&.emitted_as_pointer?
-              parts << "#{ty.to_cpp_ref} #{pname} = nullptr"
-            else
-              parts << "auto #{pname} = #{cr(default_node)}"
-            end
+            init = ty&.emitted_as_pointer? ? "nullptr" : cr(default_node)
+            parts << "#{CppTypeEmitter.for_optional_nil_param(ty)} #{pname} = #{init}"
           else
             t = local_decl_type(default_node)
             t = "int64_t" if t == "auto"
@@ -1813,10 +1774,10 @@ module Frozone
         val_ts = pairs.map { |_, v| local_decl_type_t(v) }.uniq
         v_cpp_rhs, v_cpp_tpl =
           if val_ts.size == 1
-            [val_ts[0].to_cpp, val_ts[0].to_cpp_ref]
+            [CppTypeEmitter.for_hash_val_rhs(val_ts[0]), CppTypeEmitter.for_hash_val_template(val_ts[0])]
           else
             rep = Frozone::Compiler::Type.union_representation(val_ts)
-            [rep, rep == "RubyObject*" ? "gc_ref<RubyObject>" : rep]
+            [rep, rep == "RubyObject*" ? CppTypeEmitter::BOXED_FALLBACK : rep]
           end
         init_pairs = pairs.map { |k, v|
           rhs = case v_cpp_rhs
@@ -1887,9 +1848,10 @@ module Frozone
       # via a silent int64_t / auto-deduction cascade.
       def explicit_return_type(t)
         ti_insist!(t, "method return type for #{@_current_method_key.inspect}")
-        return t.to_cpp if t.renders_as_optional?
-        return t.to_cpp_ref if t.emitted_as_pointer?
-        t.to_cpp_ref
+        # Delegate the rendering decision to the centralised formatter.
+        # `for_return` would return "auto" on nil/bottom, but ti_insist!
+        # has already filtered that case.
+        CppTypeEmitter.for_return(t)
       end
 
       # Assert TI produced a concrete Type for this emission slot. Raises
