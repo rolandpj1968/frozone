@@ -20,25 +20,32 @@ module Frozone
           # (`a + b` would mean pointer arithmetic), so we route through
           # named virtuals on BasicObject's derived classes.
           OP_NAMES = {
-            :+   => "m_plus",
-            :-   => "m_minus",
-            :*   => "m_mul",
-            :/   => "m_div",
-            :%   => "m_mod",
-            :<   => "m_lt",
-            :>   => "m_gt",
-            :<=  => "m_le",
-            :>=  => "m_ge",
-            :==  => "m_eq_q",
-            :!=  => "m_ne_q",
+            # Arithmetic
+            :+   => "m_plus",  :-   => "m_minus",
+            :*   => "m_mul",   :**  => "m_pow",
+            :/   => "m_div",   :%   => "m_mod",
+            # Comparison
+            :<   => "m_lt",    :>   => "m_gt",
+            :<=  => "m_le",    :>=  => "m_ge",
+            :==  => "m_eq_q",  :!=  => "m_ne_q",
+            :"<=>" => "m_spaceship",
+            :=== => "m_case_eq",
+            :=~  => "m_match",
+            :!~  => "m_no_match",
+            # Bitwise / shift
+            :&   => "m_bit_and",
+            :|   => "m_bit_or",
+            :^   => "m_bit_xor",
+            :~   => "m_bit_not",
             :<<  => "m_lshift",
             :>>  => "m_rshift",
+            # Unary
             :!   => "m_not",
             :"-@" => "m_neg",
             :"+@" => "m_pos",
+            # Indexing
             :[]  => "m_aref",
             :[]= => "m_aset",
-            :"<=>" => "m_spaceship",
           }.freeze
 
           # Ruby method name → C++ identifier. Operators go through
@@ -113,6 +120,7 @@ module Frozone
             when Ast::NilLiteral     then "nil_instance()"
             when Ast::TrueLiteral    then "true_instance()"
             when Ast::FalseLiteral   then "false_instance()"
+            when Ast::SelfLiteral    then "this"
             when Ast::ArrayLiteral   then emit_array_literal(emit, node, locals)
             when Ast::LocalVariableRead then node.name.to_s
             when Ast::ConstantRead then emit_constant_read(emit, node)
@@ -165,7 +173,7 @@ module Frozone
             elsif name == :puts
               "ruby_puts(#{args.join(", ")})"
             else
-              "this->#{name}(#{args.join(", ")})"
+              "this->#{method_cpp_name(name)}(#{args.join(", ")})"
             end
           end
 

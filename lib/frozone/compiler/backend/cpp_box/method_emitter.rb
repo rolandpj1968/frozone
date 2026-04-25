@@ -14,7 +14,8 @@ module Frozone
           # (becomes a virtual on Ruby::MainObject).
           def self.emit_user_method(emit, name, method)
             params, locals = build_params(method)
-            emit.line "virtual BasicObject* #{name}(#{params}) {"
+            cpp_name = ExprEmitter.method_cpp_name(name)
+            emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
             emit.indented do
               if method.body
                 ExprEmitter.emit_body(emit, method.body, locals: locals, last_is_return: true)

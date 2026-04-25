@@ -54,7 +54,7 @@ module Frozone
             @top_level_scope = top_level_scope
             @globals = globals
             @stub_file = stub_file
-            @user_classes = collect_emittable_classes
+            @user_classes = collect_all_classes
             @user_constants = collect_user_constants
             @call_surface = collect_call_surface
             classes = Runtime::ALL_CLASSES + build_user_class_defs
@@ -87,19 +87,14 @@ module Frozone
           # Universe-seeded classes are silently dropped — TODO.
           UNIVERSE_NAMES = Set.new(Runtime::ALL_CLASSES.map(&:name)).freeze
 
-          def collect_emittable_classes
+          def collect_all_classes
             classes = {}
             (@top_level_scope.constants_table || {}).each do |name, val|
               next unless val.is_a?(Vm::ClassObject)
               next if UNIVERSE_NAMES.include?(name.to_s)
-              next unless emittable_class?(val)
               classes[name] = val
             end
             classes
-          end
-
-          def emittable_class?(cls)
-            user_source_methods(cls).any?
           end
 
           # Walk constants_table for non-class instance constants whose
@@ -133,12 +128,18 @@ module Frozone
             end
           end
 
-          def user_source_methods(cls)
+          # All compilable Vm::Method instances on the class. We currently
+          # only emit bodies for user-source methods (since ExprEmitter
+          # only handles a subset of AST shapes); core/4.0/ + vm/ + ast/
+          # methods aren't body-emitted but their vtable slots still get
+          # declared on BasicObject (for callsite signature matching) and
+          # they fall through to method_missing at runtime.
+          # Filters out methods inherited from Object (those appear in
+          # every class's methods_table; we emit them on MainObject).
+          def class_methods(cls)
             top_level_methods = (@top_level_scope.methods_table || {})
             (cls.methods_table || {}).select do |name, m|
               next false unless m.is_a?(Vm::Method) && user_source?(m.source_location)
-              # Filter out methods inherited from Object (they appear in
-              # every class's methods_table; we emit them on MainObject).
               top_level_methods[name] != m
             end
           end
@@ -160,7 +161,7 @@ module Frozone
             }
             user_methods.each_value { |m| walk.call(m.body) if m.body }
             @user_classes.each_value do |cls|
-              user_source_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+              class_methods(cls).each_value { |m| walk.call(m.body) if m.body }
             end
             walk.call(@execute_block) if @execute_block
             # Pull in arities from runtime overrides too — Integer's m_plus
@@ -172,12 +173,15 @@ module Frozone
             end
             # Also include user-class method DEFINITIONS — their override
             # slots need to exist on BasicObject even if no one calls them
-            # via the vtable yet.
+            # via the vtable yet. Arity must match what build_params
+            # emits (required + rest + block).
             @user_classes.each_value do |cls|
-              user_source_methods(cls).each do |mname, m|
+              class_methods(cls).each do |mname, m|
                 next if mname == :initialize
                 cpp_name = ExprEmitter.method_cpp_name(mname)
-                arity = (m.required_params || []).length
+                arity = (m.required_params || []).length +
+                        (m.rest_param ? 1 : 0) +
+                        (m.block_param ? 1 : 0)
                 calls[[cpp_name, arity]] ||= mname.to_s
               end
             end
@@ -191,7 +195,7 @@ module Frozone
 
           def build_user_class_def(name, cls)
             ivars = collect_ivars(cls)
-            user_methods = user_source_methods(cls)
+            user_methods = class_methods(cls)
             methods = user_methods.reject { |n, _| n == :initialize }
             init = user_methods[:initialize]
             Runtime::RubyClass.new(
@@ -222,7 +226,7 @@ module Frozone
               end
               node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
             }
-            user_source_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+            class_methods(cls).each_value { |m| walk.call(m.body) if m.body }
             ivars
           end
 
