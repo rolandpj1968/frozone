@@ -1,9 +1,9 @@
 # Box-first C++ backend — expressions: literals, calls, ivar/local r/w,
 # control flow.
 #
-# Every expression evaluates to a `RubyObject*`. Method calls go through
-# the C++ virtual vtable on the receiver. Literals box on construction
-# (`new Ruby_Integer(1)` etc.).
+# Every expression evaluates to a `Ruby::BasicObject*`. Method calls go
+# through the C++ virtual vtable on the receiver. Literals box on
+# construction (`new Ruby::Integer(1)` etc.).
 #
 # Stage 2 status: scaffold only.
 

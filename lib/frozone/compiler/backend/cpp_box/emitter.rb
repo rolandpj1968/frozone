@@ -2,10 +2,10 @@
 #
 # Parallel to the mainline `Frozone::Compiler::CppEmitter`. Where mainline
 # specialises eagerly and falls back to box on TI failure, this emitter
-# inverts the polarity: every value is `Ruby_X*` deriving from
-# `RubyObject`, dispatched via C++ virtual methods. TI-driven unboxing
-# is the optimisation pass — added later, on top of an always-correct
-# baseline.
+# inverts the polarity: every value is `Ruby::X*` deriving from
+# `Ruby::BasicObject`, dispatched via C++ virtual methods. TI-driven
+# unboxing is the optimisation pass — added later, on top of an
+# always-correct baseline.
 #
 # Selected via `FROZONE_BOX_FIRST=1` (see ast/frozone_compile.rb).
 #

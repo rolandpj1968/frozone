@@ -1,9 +1,9 @@
 # Box-first C++ backend — method signatures, params, body framing,
 # returns.
 #
-# Method signatures: `RubyObject* method_name(RubyObject* arg, ...)`.
-# All slots are RubyObject*; unboxing happens later (if at all) via the
-# TI-driven optimisation pass.
+# Method signatures: `Ruby::BasicObject* method_name(Ruby::BasicObject*
+# arg, ...)`. All slots are `Ruby::BasicObject*`; unboxing happens
+# later (if at all) via the TI-driven optimisation pass.
 #
 # Stage 2 status: scaffold only.
 
