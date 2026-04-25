@@ -82,6 +82,8 @@ module Frozone
               emit.line "return #{emit_expr(emit, node.value_node, locals)};"
             when Ast::If
               emit_if_stmt(emit, node, locals)
+            when Ast::While
+              emit_while_stmt(emit, node, locals)
             when Ast::LocalVariableWrite
               emit_local_write_stmt(emit, node, locals)
             when Ast::MethodCall
@@ -97,6 +99,14 @@ module Frozone
             end
           end
 
+          def self.emit_while_stmt(emit, node, locals)
+            emit.line "while (truthy(#{emit_expr(emit, node.condition_node, locals)})) {"
+            emit.indented do
+              emit_body(emit, node.body_node, locals: locals) if node.body_node
+            end
+            emit.line "}"
+          end
+
           def self.emit_expr(emit, node, locals)
             case node
             when Ast::IntegerLiteral then "new Integer(#{node.value.raw}LL)"
@@ -104,7 +114,7 @@ module Frozone
             when Ast::TrueLiteral    then "true_instance()"
             when Ast::FalseLiteral   then "false_instance()"
             when Ast::LocalVariableRead then node.name.to_s
-            when Ast::ConstantRead then emit_constant_read(node)
+            when Ast::ConstantRead then emit_constant_read(emit, node)
             when Ast::InstanceVariableRead then "this->iv_#{node.name.to_s.delete_prefix('@')}"
             when Ast::InstanceVariableWrite
               rhs = emit_expr(emit, node.value_node, locals)
@@ -122,11 +132,14 @@ module Frozone
             end
           end
 
-          # ConstantRead — for user class constants, resolve via the
-          # orchestrator's user_classes registry. Returns nil-marker for
-          # value constants we haven't wired yet.
-          def self.emit_constant_read(node)
-            "/* ConstantRead: #{node.name} */ nil_instance()"
+          # ConstantRead — for value constants registered with the
+          # orchestrator (instances of user classes), emit an accessor
+          # call (lazy-initialised function-local static). Class
+          # constants used as receiver of `.new` are handled in
+          # emit_method_call — they don't reach this path.
+          def self.emit_constant_read(emit, node)
+            return "k_#{node.name}()" if emit.user_constants.key?(node.name)
+            "/* ConstantRead: #{node.name} (no value) */ nil_instance()"
           end
 
           def self.emit_method_call(emit, node, locals)

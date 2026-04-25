@@ -21,19 +21,21 @@ module Frozone
         class ClassEmitter
           # `classes` is the full list (Runtime::ALL_CLASSES + user
           # classes). `call_surface` is { [cpp_name, arity] => ruby_name }.
-          def self.emit_runtime(emit, classes:, call_surface:)
-            emit_forward_decls(emit, classes)
+          # `kernel_fns` is the full list of free functions to emit
+          # (Runtime::ALL_KERNEL_FNS + per-program user-constant accessors).
+          def self.emit_runtime(emit, classes:, call_surface:, kernel_fns: Runtime::ALL_KERNEL_FNS)
+            emit_forward_decls(emit, classes, kernel_fns)
             emit.blank
             classes.each { |k| emit_class(emit, k, call_surface) }
             emit_singletons(emit, classes)
             emit.blank
-            emit_kernel_fn_bodies(emit)
+            emit_kernel_fn_bodies(emit, kernel_fns)
           end
 
-          def self.emit_forward_decls(emit, classes)
+          def self.emit_forward_decls(emit, classes, kernel_fns)
             classes.each { |k| emit.line "struct #{k.name};" }
             emit.blank
-            Runtime::ALL_KERNEL_FNS.each { |fn| emit.line "inline #{fn.signature};" }
+            kernel_fns.each { |fn| emit.line "inline #{fn.signature};" }
           end
 
           def self.emit_class(emit, klass, call_surface)
@@ -87,8 +89,8 @@ module Frozone
             end
           end
 
-          def self.emit_kernel_fn_bodies(emit)
-            Runtime::ALL_KERNEL_FNS.each do |fn|
+          def self.emit_kernel_fn_bodies(emit, kernel_fns)
+            kernel_fns.each do |fn|
               emit.line "inline #{fn.signature} {"
               emit.indented { fn.body.each_line { |l| emit.line l.chomp } }
               emit.line "}"

@@ -55,21 +55,25 @@ module Frozone
             @globals = globals
             @stub_file = stub_file
             @user_classes = collect_emittable_classes
+            @user_constants = collect_user_constants
             @call_surface = collect_call_surface
             classes = Runtime::ALL_CLASSES + build_user_class_defs
+            kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
             emit_header
             emit_namespace_open
-            ClassEmitter.emit_runtime(self, classes: classes, call_surface: @call_surface)
+            ClassEmitter.emit_runtime(self, classes: classes, call_surface: @call_surface, kernel_fns: kernel_fns)
             emit_main_object
             emit_namespace_close
             emit_main
             @out
           end
 
-          # The user class registry — name → Vm::ClassObject. Exposed for
-          # ExprEmitter so it can recognise ConstantRead of a user class
-          # and emit the right C++ type.
-          attr_reader :user_classes
+          # Registries exposed to ExprEmitter:
+          #   user_classes   — name → Vm::ClassObject (recognise ConstantRead
+          #                    of a class for `.new` special-case)
+          #   user_constants — name → Vm::ObjectObject (resolve ConstantRead
+          #                    in value position to a `k_NAME()` accessor)
+          attr_reader :user_classes, :user_constants
 
           private
 
@@ -96,6 +100,37 @@ module Frozone
 
           def emittable_class?(cls)
             user_source_methods(cls).any?
+          end
+
+          # Walk constants_table for non-class instance constants whose
+          # class is one we're emitting. For each, build a lazy-init
+          # accessor (`k_NAME()`). Class constants used as `.new`
+          # receivers are handled in emit_method_call — they don't
+          # need accessors here.
+          def collect_user_constants
+            consts = {}
+            (@top_level_scope.constants_table || {}).each do |name, val|
+              next if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
+              next unless val.is_a?(Vm::ObjectObject)
+              klass = val.class_object
+              next unless klass.is_a?(Vm::ClassObject) && @user_classes.key?(klass.name)
+              consts[name] = val
+            end
+            consts
+          end
+
+          def build_user_constant_accessors
+            @user_constants.map do |name, val|
+              klass_name = val.class_object.name.to_s
+              # Re-construct via no-arg ctor — initialize sets ivars from
+              # the body. (Constructors that took args originally aren't
+              # recoverable from the snapshot — defer.)
+              Runtime::KernelFn.new(
+                name: "k_#{name}",
+                signature: "BasicObject* k_#{name}()",
+                body: "static BasicObject* val = new #{klass_name}(); return val;",
+              )
+            end
           end
 
           def user_source_methods(cls)
