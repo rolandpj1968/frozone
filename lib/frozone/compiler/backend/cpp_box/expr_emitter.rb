@@ -116,7 +116,7 @@ module Frozone
 
           def self.emit_expr(emit, node, locals)
             case node
-            when Ast::IntegerLiteral then "new Integer(#{node.value.raw}LL)"
+            when Ast::IntegerLiteral then "(new Integer(#{node.value.raw}LL))"
             when Ast::NilLiteral     then "nil_instance()"
             when Ast::TrueLiteral    then "true_instance()"
             when Ast::FalseLiteral   then "false_instance()"
@@ -136,14 +136,54 @@ module Frozone
                 "/* WARN: lvar decl in expr pos: #{node.name} */ nil_instance()"
               end
             when Ast::MethodCall then emit_method_call(emit, node, locals)
+            when Ast::AttributeWrite then emit_attribute_write(emit, node, locals)
+            when Ast::And then emit_and(emit, node, locals)
+            when Ast::Or then emit_or(emit, node, locals)
+            when Ast::Sequence
+              # `(a)` and `(a, b, c)` both work as comma-operator —
+              # value is the last subexpression. Parens around single
+              # expr (the common case from explicit Ruby parens) just
+              # gives `(a)` which is value-equivalent to `a`.
+              "(#{node.nodes.map { |n| emit_expr(emit, n, locals) }.join(", ")})"
             else
               "/* UNHANDLED: #{node.class.name} */ nil_instance()"
             end
           end
 
+          # `arr[k] = v` parses as AttributeWrite(name=:[]=, receiver,
+          # arg_nodes=[k, v]). Emit as a vtable call to m_aset.
+          # Returns the assigned value (Ruby semantics).
+          def self.emit_attribute_write(emit, node, locals)
+            recv_s = emit_expr(emit, node.receiver_node, locals)
+            args = (node.arg_nodes || []).map { |a| emit_expr(emit, a, locals) }
+            "#{recv_s}->#{method_cpp_name(node.name)}(#{args.join(", ")})"
+          end
+
+          # Ruby's `&&` returns the last truthy value or the first falsy.
+          # Lambda-wrap to evaluate left at most once.
+          def self.emit_and(emit, node, locals)
+            l = emit_expr(emit, node.left_node, locals)
+            r = emit_expr(emit, node.right_node, locals)
+            "([&]() -> BasicObject* { auto* _l = #{l}; return truthy(_l) ? (#{r}) : _l; }())"
+          end
+
+          # Ruby's `||` returns the first truthy value, else the last.
+          def self.emit_or(emit, node, locals)
+            l = emit_expr(emit, node.left_node, locals)
+            r = emit_expr(emit, node.right_node, locals)
+            "([&]() -> BasicObject* { auto* _l = #{l}; return truthy(_l) ? _l : (#{r}); }())"
+          end
+
           def self.emit_array_literal(emit, node, locals)
             elems = (node.element_nodes || []).map { |e| emit_expr(emit, e, locals) }
-            "new Array({#{elems.join(", ")}})"
+            "(new Array({#{elems.join(", ")}}))"
+          end
+
+          # A class is instantiable as `new Ruby::X(...)` if it's emitted
+          # — either from the orchestrator's user_classes registry or as
+          # a Universe-seeded class.
+          def self.instantiable_class?(emit, name)
+            emit.user_classes.key?(name) || Frozone::Compiler::Backend::CppBox::Runtime::ALL_CLASSES.any? { |k| k.name == name.to_s }
           end
 
           # ConstantRead — for value constants registered with the
@@ -161,10 +201,13 @@ module Frozone
             name = node.name
             args = (node.arg_nodes || []).map { |a| emit_expr(emit, a, locals) }
 
-            # ClassName.new(args) → new Ruby::ClassName(args).
-            # Bypasses the vtable — direct instantiation.
-            if name == :new && recv.is_a?(Ast::ConstantRead) && emit.user_classes.key?(recv.name)
-              return "new #{recv.name}(#{args.join(", ")})"
+            # ClassName.new(args) → (new Ruby::ClassName(args)).
+            # Bypasses the vtable — direct instantiation. Wrap in parens
+            # so trailing -> on the result binds tighter than `new`.
+            # Both user classes AND Universe-seeded classes (Array,
+            # Integer, etc.) are valid receivers.
+            if name == :new && recv.is_a?(Ast::ConstantRead) && instantiable_class?(emit, recv.name)
+              return "(new #{recv.name}(#{args.join(", ")}))"
             end
 
             if recv

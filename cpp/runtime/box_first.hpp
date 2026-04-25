@@ -20,10 +20,30 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstddef>
 #include <vector>
 #include <initializer_list>
 #include <gc.h>
 
 #define FROZONE_GC_INIT() GC_INIT()
+
+// Boehm-aware allocator for STL containers. Boehm's conservative
+// scanner doesn't trace libc-malloc'd memory by default, so pointers
+// stored inside a default-allocated std::vector<BasicObject*> become
+// invisible — Boehm collects the boxes prematurely and we segfault.
+// Routing the vector's internal buffer through GC_MALLOC keeps those
+// pointers traceable.
+template<typename T>
+struct GcAllocator {
+  using value_type = T;
+  GcAllocator() = default;
+  template<typename U> GcAllocator(const GcAllocator<U>&) noexcept {}
+  T* allocate(std::size_t n) { return static_cast<T*>(GC_MALLOC(n * sizeof(T))); }
+  void deallocate(T*, std::size_t) noexcept {}  // Boehm collects
+};
+template<typename A, typename B>
+bool operator==(const GcAllocator<A>&, const GcAllocator<B>&) noexcept { return true; }
+template<typename A, typename B>
+bool operator!=(const GcAllocator<A>&, const GcAllocator<B>&) noexcept { return false; }
 
 #endif  // FROZONE_BOX_FIRST_HPP
