@@ -43,8 +43,13 @@ module Frozone
         end
 
         if ENV['FROZONE_CPP']
-          require_relative '../compiler/cpp_emitter'
-          emitter = Frozone::Compiler::CppEmitter.new
+          if ENV['FROZONE_BOX_FIRST']
+            require_relative '../compiler/backend/cpp_box/emitter'
+            emitter = Frozone::Compiler::Backend::CppBox::Emitter.new
+          else
+            require_relative '../compiler/cpp_emitter'
+            emitter = Frozone::Compiler::CppEmitter.new
+          end
           source = emitter.generate(
             execute_block: @block_node,
             top_level_scope: Vm::Core::OBJECT_CLASS,
