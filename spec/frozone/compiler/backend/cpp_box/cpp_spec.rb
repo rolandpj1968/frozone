@@ -274,6 +274,23 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     end
   end
 
+  describe "#from_expr — splat in call args" do
+    it "SplatArg in arg_nodes emits the splat's value directly" do
+      arr = lvr(:arr)
+      splat = A::SplatArg.new(arr)
+      node = A::MethodCall.new(:collect, nil, [splat], [], nil)
+      # Passes arr through as the rest param — no Array wrapping
+      expect(cpp.from_expr(node, locals)).to eq("this->m_collect(arr)")
+    end
+
+    it "mixed positional + splat passes them in sequence (no flattening)" do
+      arr = lvr(:arr)
+      node = A::MethodCall.new(:foo, nil, [int(1), A::SplatArg.new(arr), int(5)], [], nil)
+      # Defer: real Ruby flattens; we pass positionally for now.
+      expect(cpp.from_expr(node, locals)).to eq("this->m_foo((new Integer(1LL)), arr, (new Integer(5LL)))")
+    end
+  end
+
   describe "#from_expr — block-bearing call" do
     it "wraps block as Proc lambda and passes as trailing arg" do
       blk = A::Block.new(

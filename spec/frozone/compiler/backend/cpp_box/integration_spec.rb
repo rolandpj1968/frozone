@@ -116,4 +116,10 @@ RSpec.describe 'box-first end-to-end' do
       %w[1 2 3 42 6]
     )
   end
+
+  it 'passes a splat-arg through to a method with *rest param' do
+    expect(run_box_first('splat_test').strip.split("\n")).to eq(
+      %w[5 10 2 99]
+    )
+  end
 end

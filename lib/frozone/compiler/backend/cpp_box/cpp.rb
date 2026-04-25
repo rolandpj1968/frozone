@@ -143,7 +143,7 @@ module Frozone
           def from_method_call(node, locals)
             recv = node.receiver_node
             name = node.name
-            args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
+            args = (node.arg_nodes || []).map { |a| from_arg(a, locals) }
 
             # ClassName.new(args) or Foo::Bar.new(args) → direct
             # instantiation. Bypasses the vtable. Wrap in parens so
@@ -171,6 +171,17 @@ module Frozone
             else
               "this->#{Cpp.method_name(name)}(#{args.join(", ")})"
             end
+          end
+
+          # Single arg in a MethodCall.arg_nodes list. Splat-args
+          # (`foo(*arr)`) emit the splat's value directly — the called
+          # method's rest_param receives the Array as-is. No flattening
+          # in our model: `foo(1, *arr, 5)` would pass them as 3
+          # positional args, NOT as the Ruby-semantic flattened list
+          # — defer the flattening case until needed.
+          def from_arg(node, locals)
+            return from_expr(node.value_node, locals) if node.is_a?(Ast::SplatArg)
+            from_expr(node, locals)
           end
 
           # `Ast::Yield` → call into the implicit `_block` Proc* that
