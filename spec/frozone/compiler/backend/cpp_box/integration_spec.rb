@@ -45,35 +45,35 @@ def run_box_first(stub_name)
 end
 
 RSpec.describe 'box-first end-to-end' do
-  it 'fib — recursive arithmetic + while loop + puts' do
+  it 'recursively computes 3 × fib(35)' do
     expect(run_box_first('fib').strip).to eq('27682395')
   end
 
-  it 'box_test — user class with ivar + method dispatch' do
+  it 'instantiates a user class and dispatches its instance methods' do
     expect(run_box_first('box_test').strip).to eq("42\n84")
   end
 
-  it 'getivar — class instance constant + while loop + ivar reads' do
+  it 'reads ivars in a tight while loop via a class-instance constant' do
     expect(run_box_first('getivar').strip).to eq('50000')
   end
 
-  it 'array_test — Array literal + indexing + .push + .first/.last' do
+  it 'manipulates Arrays — literals, indexing (incl negative), push, first/last' do
     expect(run_box_first('array_test').strip.split("\n")).to eq(
       %w[5 10 30 50 6 99 10 99]
     )
   end
 
-  it 'nqueens_small — Array.new + bitwise ops + And + AttributeWrite' do
+  it 'solves nq_solve(8) using bitwise ops, Array.new, And, and arr[k]= writes' do
     expect(run_box_first('nqueens_small').strip).to eq('92')
   end
 
-  it 'hash_test — Symbol/Integer keys + lookup + mutation + has_key?' do
+  it 'dispatches Hash via Symbol AND Integer keys with mutation and has_key?' do
     expect(run_box_first('hash_test').strip.split("\n")).to eq(
       %w[10 20 30 3 100 200 300 3 99 4 true false]
     )
   end
 
-  it 'float_test — Float arithmetic + comparison + hash key' do
+  it 'arithmetics on Float and uses Float as a hash key by value' do
     # Note: %g output differs from Ruby's puts (drops trailing .0,
     # uses 6-digit default precision). Cosmetic — semantics correct.
     expect(run_box_first('float_test').strip.split("\n")).to eq(
@@ -81,7 +81,7 @@ RSpec.describe 'box-first end-to-end' do
     )
   end
 
-  it 'string_test — concat + mutating << + length + comparison + indexing + hash key' do
+  it 'concatenates Strings, indexes, hashes by content, queries empty?' do
     expect(run_box_first('string_test').split("\n")).to eq([
       'hello world',
       'hello there',
@@ -93,19 +93,19 @@ RSpec.describe 'box-first end-to-end' do
     ])
   end
 
-  it 'ternary_test — If-as-expression + if-as-implicit-return' do
+  it 'evaluates if-as-expression (ternary) and if-as-implicit-return' do
     expect(run_box_first('ternary_test').strip.split("\n")).to eq(
       %w[small small pos 105 small big huge]
     )
   end
 
-  it 'case_test — case/when with subject, multi-condition, and case-without-subject' do
+  it 'dispatches case/when with subject, multi-condition, and subject-less form' do
     expect(run_box_first('case_test').strip.split("\n")).to eq(
       %w[A C F low mid high neg zero pos]
     )
   end
 
-  it 'class_method_test — def self.X via eigenclass + polymorphism on class object' do
+  it 'dispatches def self.X through the eigenclass, including polymorphism on a Class variable' do
     expect(run_box_first('class_method_test').strip.split("\n")).to eq(
       %w[42 0 99]
     )
