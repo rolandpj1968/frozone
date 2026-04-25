@@ -10,7 +10,11 @@
 # Selected via `FROZONE_BOX_FIRST=1` (see ast/frozone_compile.rb).
 #
 # See memory/project_radical_box_first.md for the pinned plan.
+#
+# Vocab note: methods that mutate the buffer are `write_*`. Pure
+# functions producing cpp strings live on `Cpp` (held as `emit.cpp`).
 
+require_relative 'cpp'
 require_relative 'class_emitter'
 require_relative 'method_emitter'
 require_relative 'expr_emitter'
@@ -20,6 +24,8 @@ module Frozone
     module Backend
       module CppBox
         class Emitter
+          attr_reader :cpp
+
           def initialize
             @out = +""
             @indent = 0
@@ -37,7 +43,7 @@ module Frozone
 
           # Run `yield` with output captured to a string buffer (indent
           # reset). Used for rendering method bodies into RubyClass.overrides
-          # body strings — ExprEmitter writes via line/indented as usual,
+          # body strings — writers commit via line/indented as usual,
           # but the result accumulates into a returned string instead of
           # the main output.
           def capture
@@ -56,35 +62,24 @@ module Frozone
             @stub_file = stub_file
             @user_classes = collect_all_classes
             @user_constants = collect_user_constants
+            @cpp = Cpp.new(user_classes: @user_classes, user_constants: @user_constants)
             @call_surface = collect_call_surface
             classes = Runtime::ALL_CLASSES + build_user_class_defs
             kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
-            emit_header
-            emit_namespace_open
-            ClassEmitter.emit_runtime(self, classes: classes, call_surface: @call_surface, kernel_fns: kernel_fns)
-            emit_main_object
-            emit_namespace_close
-            emit_main
+            write_header
+            write_namespace_open
+            ClassEmitter.write_runtime(self, classes: classes, call_surface: @call_surface, kernel_fns: kernel_fns)
+            write_main_object
+            write_namespace_close
+            write_main
             @out
           end
 
-          # Registries exposed to ExprEmitter:
-          #   user_classes   — name → Vm::ClassObject (recognise ConstantRead
-          #                    of a class for `.new` special-case)
-          #   user_constants — name → Vm::ObjectObject (resolve ConstantRead
-          #                    in value position to a `k_NAME()` accessor)
-          attr_reader :user_classes, :user_constants
-
           private
 
-          # Walk top_level_scope.constants_table for classes the spike
-          # currently knows how to emit. The eventual model emits every
-          # class in the closed-world image (no user-vs-core distinction)
-          # with methods accumulated from all sources; for now we restrict
-          # to classes that (a) aren't already in Universe's seed, and
-          # (b) have at least one user-source method (the only body kind
-          # ExprEmitter knows how to compile right now). Reopens of
-          # Universe-seeded classes are silently dropped — TODO.
+          # Walk top_level_scope.constants_table for every Vm::ClassObject.
+          # Skip Universe-seeded names (BasicObject, Object, Integer, Array,
+          # etc.) — they have hand-coded backing already.
           UNIVERSE_NAMES = Set.new(Runtime::ALL_CLASSES.map(&:name)).freeze
 
           def collect_all_classes
@@ -99,9 +94,7 @@ module Frozone
 
           # Walk constants_table for non-class instance constants whose
           # class is one we're emitting. For each, build a lazy-init
-          # accessor (`k_NAME()`). Class constants used as `.new`
-          # receivers are handled in emit_method_call — they don't
-          # need accessors here.
+          # accessor (`k_NAME()`).
           def collect_user_constants
             consts = {}
             (@top_level_scope.constants_table || {}).each do |name, val|
@@ -129,8 +122,8 @@ module Frozone
           end
 
           # All compilable Vm::Method instances on the class. We currently
-          # only emit bodies for user-source methods (since ExprEmitter
-          # only handles a subset of AST shapes); core/4.0/ + vm/ + ast/
+          # only emit bodies for user-source methods (since the writers
+          # only handle a subset of AST shapes); core/4.0/ + vm/ + ast/
           # methods aren't body-emitted but their vtable slots still get
           # declared on BasicObject (for callsite signature matching) and
           # they fall through to method_missing at runtime.
@@ -153,7 +146,7 @@ module Frozone
             walk = ->(node) {
               return unless node.is_a?(Ast::Node)
               if node.is_a?(Ast::MethodCall) && node.receiver_node && node.name != :new
-                cpp_name = ExprEmitter.method_cpp_name(node.name)
+                cpp_name = Cpp.method_name(node.name)
                 arity = (node.arg_nodes || []).length
                 calls[[cpp_name, arity]] ||= node.name.to_s
               end
@@ -178,7 +171,7 @@ module Frozone
             @user_classes.each_value do |cls|
               class_methods(cls).each do |mname, m|
                 next if mname == :initialize
-                cpp_name = ExprEmitter.method_cpp_name(mname)
+                cpp_name = Cpp.method_name(mname)
                 arity = (m.required_params || []).length +
                         (m.rest_param ? 1 : 0) +
                         (m.block_param ? 1 : 0)
@@ -205,7 +198,7 @@ module Frozone
               members: [%(const char* ruby_class_name() const override { return "#{name}"; })],
               ctor: build_ctor(name, init),
               overrides: methods.each_with_object({}) { |(mname, m), h|
-                h[ExprEmitter.method_cpp_name(mname)] = build_override(m)
+                h[Cpp.method_name(mname)] = build_override(m)
               },
             )
           end
@@ -233,7 +226,6 @@ module Frozone
           def parent_name_for(cls)
             sc = cls.superclass
             return "Object" unless sc
-            # Map MRI parent names. For now any non-explicit parent → Object.
             sc.name == :Object || sc.name.nil? ? "Object" : sc.name.to_s
           end
 
@@ -241,7 +233,7 @@ module Frozone
             return nil unless init_method
             params, locals = MethodEmitter.build_params(init_method)
             body = capture do
-              ExprEmitter.emit_body(self, init_method.body, locals: locals) if init_method.body
+              ExprEmitter.write_body(self, init_method.body, locals: locals) if init_method.body
             end
             { params: params.split(", ").reject(&:empty?), body: body, class_name: class_name.to_s }
           end
@@ -249,7 +241,7 @@ module Frozone
           def build_override(method)
             params, locals = MethodEmitter.build_params(method)
             body = capture do
-              ExprEmitter.emit_body(self, method.body, locals: locals, last_is_return: true) if method.body
+              ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
             end
             {
               params: params.split(", ").reject(&:empty?),
@@ -259,49 +251,49 @@ module Frozone
             }
           end
 
-          def emit_header
+          def write_header
             line %(#include "../runtime/box_first.hpp")
             blank
           end
 
-          def emit_namespace_open
+          def write_namespace_open
             line "namespace Ruby {"
             blank
           end
 
-          def emit_namespace_close
+          def write_namespace_close
             line "}  // namespace Ruby"
             blank
           end
 
-          def emit_main_object
+          def write_main_object
             line "struct MainObject : Object {"
             indented do
               line %(const char* ruby_class_name() const override { return "MainObject"; })
-              emit_user_methods
+              write_user_methods
               blank
               line "void __top_level__() {"
-              indented { emit_top_level_body }
+              indented { write_top_level_body }
               line "}"
             end
             line "};"
             blank
           end
 
-          def emit_user_methods
+          def write_user_methods
             user_methods.each do |name, method|
               blank
-              MethodEmitter.emit_user_method(self, name, method)
+              MethodEmitter.write_user_method(self, name, method)
             end
           end
 
-          def emit_top_level_body
+          def write_top_level_body
             return unless @execute_block
             body = @execute_block.respond_to?(:body) ? @execute_block.body : @execute_block
-            ExprEmitter.emit_body(self, body, locals: Set.new)
+            ExprEmitter.write_body(self, body, locals: Set.new)
           end
 
-          def emit_main
+          def write_main
             line "int main() {"
             indented do
               line "FROZONE_GC_INIT();"

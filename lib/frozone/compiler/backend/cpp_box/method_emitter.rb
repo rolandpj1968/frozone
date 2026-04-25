@@ -10,15 +10,15 @@ module Frozone
     module Backend
       module CppBox
         class MethodEmitter
-          # Emits a virtual signature + body for a user-defined method
+          # Writes a virtual signature + body for a user-defined method
           # (becomes a virtual on Ruby::MainObject).
-          def self.emit_user_method(emit, name, method)
+          def self.write_user_method(emit, name, method)
             params, locals = build_params(method)
-            cpp_name = ExprEmitter.method_cpp_name(name)
+            cpp_name = Cpp.method_name(name)
             emit.line "virtual BasicObject* #{cpp_name}(#{params}) {"
             emit.indented do
               if method.body
-                ExprEmitter.emit_body(emit, method.body, locals: locals, last_is_return: true)
+                ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true)
               end
               # Trailing nil-return safety net for fall-through paths.
               emit.line "return nil_instance();"

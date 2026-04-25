@@ -26,26 +26,26 @@ module Frozone
           # `intrinsics` is the list of low-level primitive ops compiled
           # Ruby methods dispatch into (currently empty; populated when
           # we source from core/4.0/).
-          def self.emit_runtime(emit, classes:, call_surface:,
+          def self.write_runtime(emit, classes:, call_surface:,
                                 kernel_fns: Runtime::ALL_KERNEL_FNS,
                                 intrinsics: Runtime::ALL_INTRINSICS)
-            emit_forward_decls(emit, classes, kernel_fns, intrinsics)
+            write_forward_decls(emit, classes, kernel_fns, intrinsics)
             emit.blank
-            classes.each { |k| emit_class(emit, k, call_surface) }
-            emit_singletons(emit, classes)
+            classes.each { |k| write_class(emit, k, call_surface) }
+            write_singletons(emit, classes)
             emit.blank
-            emit_kernel_fn_bodies(emit, kernel_fns)
-            emit_intrinsic_bodies(emit, intrinsics)
+            write_kernel_fn_bodies(emit, kernel_fns)
+            write_intrinsic_bodies(emit, intrinsics)
           end
 
-          def self.emit_forward_decls(emit, classes, kernel_fns, intrinsics)
+          def self.write_forward_decls(emit, classes, kernel_fns, intrinsics)
             classes.each { |k| emit.line "struct #{k.name};" }
             emit.blank
             kernel_fns.each { |fn| emit.line "inline #{fn.signature};" }
             intrinsics.each { |fn| emit.line "inline #{fn.signature};" }
           end
 
-          def self.emit_intrinsic_bodies(emit, intrinsics)
+          def self.write_intrinsic_bodies(emit, intrinsics)
             intrinsics.each do |fn|
               emit.line "inline #{fn.signature} {"
               emit.indented { fn.body.each_line { |l| emit.line l.chomp } }
@@ -54,17 +54,17 @@ module Frozone
             end
           end
 
-          def self.emit_class(emit, klass, call_surface)
+          def self.write_class(emit, klass, call_surface)
             inherits = klass.parent ? " : #{klass.parent}" : ""
             emit.line "struct #{klass.name}#{inherits} {"
             emit.indented do
               klass.members&.each { |m| emit.line m }
               klass.ivars&.each { |iv| emit.line iv }
-              emit_ctor(emit, klass) if klass.ctor
+              write_ctor(emit, klass) if klass.ctor
               if klass.name == "BasicObject"
-                emit_universal_surface(emit, call_surface)
+                write_universal_surface(emit, call_surface)
               end
-              klass.overrides&.each { |name, spec| emit_override(emit, name, spec) }
+              klass.overrides&.each { |name, spec| write_override(emit, name, spec) }
             end
             emit.line "};"
             emit.blank
@@ -75,7 +75,7 @@ module Frozone
           # with different arities produce distinct C++ methods, all
           # named the same (Ruby method overloading isn't a thing, so
           # this *should* never happen — TODO: warn if it does).
-          def self.emit_universal_surface(emit, call_surface)
+          def self.write_universal_surface(emit, call_surface)
             return if call_surface.empty?
             emit.line "// Universal method surface — populated from the program's call universe."
             call_surface.each do |(cpp_name, arity), ruby_name|
@@ -84,28 +84,28 @@ module Frozone
             end
           end
 
-          def self.emit_ctor(emit, klass)
+          def self.write_ctor(emit, klass)
             params = klass.ctor[:params].join(", ")
             emit.line "#{klass.name}(#{params}) {"
             emit.indented { klass.ctor[:body].each_line { |l| emit.line l.chomp } }
             emit.line "}"
           end
 
-          def self.emit_override(emit, name, spec)
+          def self.write_override(emit, name, spec)
             params = spec[:params].join(", ")
             emit.line "BasicObject* #{name}(#{params}) override {"
             emit.indented { spec[:body].each_line { |l| emit.line l.chomp } }
             emit.line "}"
           end
 
-          def self.emit_singletons(emit, classes)
+          def self.write_singletons(emit, classes)
             classes.each do |k|
               next unless k.singleton
               emit.line "inline #{k.name} #{k.singleton};"
             end
           end
 
-          def self.emit_kernel_fn_bodies(emit, kernel_fns)
+          def self.write_kernel_fn_bodies(emit, kernel_fns)
             kernel_fns.each do |fn|
               emit.line "inline #{fn.signature} {"
               emit.indented { fn.body.each_line { |l| emit.line l.chomp } }
