@@ -904,61 +904,6 @@ module Frozone
 
       # Scans `body` for the first non-nil LocalVariableWrite to `name` and
       # returns its inferred type. Returns nil if none found.
-      def look_ahead_local_type(name, body)
-        best = nil
-        has_nil_write = false  # any write of NilLiteral OR a RubyNil-returning method
-        walker = lambda do |node|
-          return unless node
-          if node.is_a?(Ast::LocalVariableWrite) && node.name.to_s == name
-            if node.value_node.is_a?(Ast::NilLiteral)
-              has_nil_write = true
-            else
-              t = deep_decl_type(node.value_node)
-              if t == "RubyNil"
-                has_nil_write = true
-              elsif t
-                best = widen_type(best, t)
-              end
-            end
-          end
-          node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
-        end
-        walker.call(body)
-        # If we saw both a concrete primitive type AND a nil write,
-        # promote to std::optional<T>. Class-typed locals are already
-        # naturally nullable via shared_ptr so leave them as-is.
-        if has_nil_write && best && %w[int64_t double bool].include?(best)
-          return "std::optional<#{best}>"
-        end
-        best == "int64_t" ? nil : best
-      end
-
-      # Like local_decl_type but follows top-level method calls to their
-      # return type by inspecting the body's last expression.
-      def deep_decl_type(val)
-        t = local_decl_type(val)
-        return t unless t == "auto"
-        if val.is_a?(Ast::MethodCall) && val.receiver_node.nil?
-          rt = ti_return_type(val.name)
-          return rt if rt
-          m = lookup_top_level_method(val.name)
-          if m && m.body
-            last = m.body.is_a?(Ast::Sequence) ? m.body.nodes.last : m.body
-            return deep_decl_type(last) if last
-          end
-        end
-        # Instance method call: check class method return types
-        if val.is_a?(Ast::MethodCall) && val.receiver_node
-          recv_ty = local_decl_type_t(val.receiver_node)
-          if recv_ty&.emitted_as_pointer?
-            cls_name = recv_ty.class_name
-            rt = ti_return_type([cls_name, val.name])
-            return rt if rt
-          end
-        end
-        "auto"
-      end
-
       def local_decl_type(val)
         @_decl_depth ||= 0
         return "auto" if @_decl_depth > 5
@@ -1270,51 +1215,6 @@ module Frozone
         return false unless node
         return true if node.is_a?(Ast::Return)
         node.children.any? { |c| c.is_a?(Ast::Node) && has_explicit_return?(c) }
-      end
-
-      # Scan method body for the richest non-nil return type. Used to
-      # wrap `return nil` as `return T(RUBY_NIL)` so C++ auto-deduction
-      # doesn't choke on RubyNil-vs-T mixed returns.
-      def infer_method_return_type(method)
-        body = method.body
-        return nil unless body
-        prev_body = @_current_body
-        @_current_body = body
-        @_current_body_has_explicit_return = has_explicit_return?(body)
-        best = nil
-        has_nil_return = false
-        has_value_return = false
-        walker = lambda do |node|
-          return unless node
-          if node.is_a?(Ast::Return)
-            if node.value_node.nil? || node.value_node.is_a?(Ast::NilLiteral)
-              has_nil_return = true
-            else
-              has_value_return = true
-              t = local_decl_type(node.value_node)
-              best = widen_type(best, t) if t && t != "int64_t" && t != "auto"
-            end
-          end
-          node.children.each { |c| walker.call(c) if c.is_a?(Ast::Node) }
-        end
-        walker.call(body)
-        last = body.is_a?(Ast::Sequence) ? body.nodes.last : body
-        if last.is_a?(Ast::NilLiteral)
-          has_nil_return = true
-        elsif last && !last.is_a?(Ast::Return)
-          t = local_decl_type(last)
-          best = widen_type(best, t) if t && t != "int64_t" && t != "auto"
-        end
-        if best.nil? && !@_current_body_has_explicit_return && last &&
-           (last.is_a?(Ast::While) || last.is_a?(Ast::Until) || last.is_a?(Ast::ForLoop))
-          best = "RubyNil"
-        end
-        # Primitive + nil → std::optional<T>
-        if best.nil? && has_nil_return && has_value_return
-          best = "std::optional<int64_t>"
-        end
-        @_current_body = prev_body
-        best
       end
 
       def scan_body_for_return_type(body)
