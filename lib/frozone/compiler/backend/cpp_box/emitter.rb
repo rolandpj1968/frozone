@@ -114,10 +114,11 @@ module Frozone
           end
 
           def emit_top_level_body
-            # Step 0: just a marker so we can verify __top_level__ ran.
-            # Next iteration will walk @execute_block and emit real
-            # statements.
-            line %(std::fprintf(stderr, "[box-first] __top_level__ ran\\n");)
+            return unless @execute_block
+            # The execute block arrives as an Ast::Block wrapping a body
+            # Sequence. Unwrap to the body for emission.
+            body = @execute_block.respond_to?(:body) ? @execute_block.body : @execute_block
+            ExprEmitter.emit_body(self, body, locals: Set.new)
           end
 
           def emit_main

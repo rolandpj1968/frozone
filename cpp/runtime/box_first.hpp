@@ -35,12 +35,30 @@ struct BasicObject {
   // Default method_missing: print receiver class + method name + abort.
   // Eventually needs to match MRI semantics (raise NoMethodError on
   // BasicObject). For now: print + abort. #thiswillnothappen.
-  [[noreturn]] virtual void method_missing(const char* method_name) {
+  // (No [[noreturn]] — keeps base m_* methods overridable by subclasses
+  // that DO return; std::abort below is itself [[noreturn]] so the
+  // compiler still knows control doesn't pass.)
+  virtual BasicObject* method_missing(const char* method_name) {
     std::fprintf(stderr,
       "[box-first] method_missing: %s#%s\n",
       ruby_class_name(), method_name);
     std::abort();
   }
+
+  // ---- Universal method surface --------------------------------------
+  //
+  // C++ virtual dispatch requires the slot to be declared on the static
+  // type. Receivers are `BasicObject*`, so every method called anywhere
+  // in the program needs a virtual entry here. Default routes to
+  // method_missing.
+  //
+  // Hand-populated for the spike. Closed-world analysis will eventually
+  // emit this set programmatically from the program's method-call
+  // universe. (Single Ruby inheritance + module flattening means we
+  // never need C++ multiple inheritance — one BasicObject is enough.)
+  virtual BasicObject* m_plus(BasicObject*)  { return method_missing("+"); }
+  virtual BasicObject* m_minus(BasicObject*) { return method_missing("-"); }
+  virtual BasicObject* m_lt(BasicObject*)    { return method_missing("<"); }
 };
 
 // Ruby's Object — direct child of BasicObject. Carries the bulk of the
@@ -76,6 +94,12 @@ inline BasicObject* boxed_bool(bool b) {
            : static_cast<BasicObject*>(&FALSE_INSTANCE);
 }
 
+// Ruby truthiness: only nil and false are falsy.
+inline bool truthy(BasicObject* o) {
+  return o != static_cast<BasicObject*>(&NIL_INSTANCE)
+      && o != static_cast<BasicObject*>(&FALSE_INSTANCE);
+}
+
 // ---- Integer --------------------------------------------------------
 //
 // Wraps `int64_t raw_`. Methods declared here are hand-written
@@ -94,16 +118,26 @@ struct Integer : Object {
   explicit Integer(int64_t r) : raw_(r) {}
   const char* ruby_class_name() const override { return "Integer"; }
 
-  virtual BasicObject* m_plus(BasicObject* other) {
+  BasicObject* m_plus(BasicObject* other) override {
     return new Integer(raw_ + static_cast<Integer*>(other)->raw_);
   }
-  virtual BasicObject* m_minus(BasicObject* other) {
+  BasicObject* m_minus(BasicObject* other) override {
     return new Integer(raw_ - static_cast<Integer*>(other)->raw_);
   }
-  virtual BasicObject* m_lt(BasicObject* other) {
+  BasicObject* m_lt(BasicObject* other) override {
     return boxed_bool(raw_ < static_cast<Integer*>(other)->raw_);
   }
 };
+
+// Kernel#puts shim — placeholder until IO is sourced from core/4.0/.
+// Knows about Integer for now; everything else prints class name.
+inline void ruby_puts(BasicObject* o) {
+  if (auto* i = dynamic_cast<Integer*>(o)) {
+    std::printf("%lld\n", static_cast<long long>(i->raw_));
+  } else {
+    std::printf("(unprintable: %s)\n", o->ruby_class_name());
+  }
+}
 
 }  // namespace Ruby
 
