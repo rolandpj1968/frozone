@@ -15,6 +15,8 @@
 # Per-call context (locals scope) stays as method args — it changes
 # constantly as we walk into nested scopes.
 
+require_relative 'runtime/universe'
+
 module Frozone
   module Compiler
     module Backend
