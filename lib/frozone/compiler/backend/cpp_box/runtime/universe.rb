@@ -82,10 +82,13 @@ module Frozone
               "// value semantics (Integer, Float, String) override.",
               "virtual BasicObject* m_eq_q(BasicObject* other) { return boxed_bool(this == other); }",
               "virtual std::size_t m_hash_value() const { return reinterpret_cast<std::size_t>(this); }",
+              "// m_case_eq (===) defaults to m_eq_q per Ruby semantics.",
+              "// Class objects override on the eigenclass to do is_a? check.",
+              "virtual BasicObject* m_case_eq(BasicObject* other) { return m_eq_q(other); }",
             ],
             # Methods listed here are skipped by the universal-surface
             # emitter (already hand-declared in members above).
-            hand_coded_method_names: %w[m_eq_q m_hash_value].freeze,
+            hand_coded_method_names: %w[m_eq_q m_hash_value m_case_eq].freeze,
           )
 
           OBJECT = RubyClass.new(

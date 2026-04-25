@@ -323,6 +323,38 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     end
   end
 
+  describe "#from_expr — Case (lambda + early-return)" do
+    it "case-with-subject emits subject-binding lambda + m_case_eq dispatch" do
+      subj = lvr(:x)
+      whens = [A::Case::When.new([int(1)], int(10)), A::Case::When.new([int(2)], int(20))]
+      node = A::Case.new(subj, whens, int(0))
+      result = cpp.from_expr(node, locals)
+      expect(result).to include("auto* _subj = x")
+      expect(result).to include("(new Integer(1LL))->m_case_eq(_subj)")
+      expect(result).to include("return (new Integer(10LL))")
+      expect(result).to include("return (new Integer(0LL))")
+    end
+
+    it "case-without-subject treats conditions as truthy tests directly" do
+      whens = [A::Case::When.new([lvr(:c1)], int(1)), A::Case::When.new([lvr(:c2)], int(2))]
+      node = A::Case.new(nil, whens, nil)
+      result = cpp.from_expr(node, locals)
+      expect(result).not_to include("_subj")
+      expect(result).to include("truthy(c1)")
+      expect(result).to include("truthy(c2)")
+      expect(result).to include("return nil_instance()")  # default else
+    end
+
+    it "multi-condition when (when A, B, C) joins with ||" do
+      subj = lvr(:x)
+      whens = [A::Case::When.new([int(1), int(2), int(3)], int(99))]
+      node = A::Case.new(subj, whens, nil)
+      result = cpp.from_expr(node, locals)
+      expect(result.scan(/m_case_eq/).size).to eq(3)
+      expect(result).to include(" || ")
+    end
+  end
+
   describe "#from_expr — short-circuit operators" do
     it "And lambda-wraps to evaluate left once + short-circuit right" do
       result = cpp.from_expr(and_(lvr(:n), lvr(:m)), locals)

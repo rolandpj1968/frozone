@@ -66,14 +66,16 @@ module Frozone
           end
 
           # Nodes that produce a value usable in expression position.
-          # Statement-only nodes (Return, Sequence) don't get wrapped
-          # in implicit-return; they handle their own control flow.
-          # Ast::If IS expression-valid (Ruby's if returns the taken
-          # branch's value) — emitted as a C++ ternary in expression
-          # position, multi-line in statement position.
+          # Statement-only nodes (Return, Sequence, While) don't get
+          # wrapped in implicit-return; they handle their own control
+          # flow or have void value.
+          # Ast::If and Ast::Case ARE expression-valid (Ruby's if/case
+          # return the taken branch's value) — emitted as ternary or
+          # lambda+early-return in expression position, multi-line in
+          # statement position.
           def self.expression_node?(node)
             case node
-            when Ast::Return, Ast::Sequence then false
+            when Ast::Return, Ast::Sequence, Ast::While then false
             else true
             end
           end
@@ -118,6 +120,7 @@ module Frozone
             when Ast::And then from_and(node, locals)
             when Ast::Or then from_or(node, locals)
             when Ast::If then from_if(node, locals)
+            when Ast::Case then from_case(node, locals)
             when Ast::Sequence
               # `(a)` and `(a, b, c)` both work as comma-operator —
               # value is the last subexpression.
@@ -185,6 +188,25 @@ module Frozone
             t = node.then_node ? from_expr(node.then_node, locals) : "nil_instance()"
             e = node.else_node ? from_expr(node.else_node, locals) : "nil_instance()"
             "(truthy(#{cond}) ? (#{t}) : (#{e}))"
+          end
+
+          # Case-as-expression — lambda + early-return form. Multi-statement
+          # bodies become Sequence (comma operator). Without subject_node,
+          # conditions are truthy-tested directly.
+          def from_case(node, locals)
+            buf = +"([&]() -> BasicObject* { "
+            if node.subject_node
+              buf << "auto* _subj = #{from_expr(node.subject_node, locals)}; "
+            end
+            node.whens.each do |w|
+              cond_strs = w.condition_nodes.map { |c|
+                c_s = from_expr(c, locals)
+                node.subject_node ? "truthy(#{c_s}->m_case_eq(_subj))" : "truthy(#{c_s})"
+              }
+              buf << "if (#{cond_strs.join(" || ")}) return #{from_expr(w.body_node, locals)}; "
+            end
+            buf << "return #{node.else_node ? from_expr(node.else_node, locals) : "nil_instance()"}; }())"
+            buf
           end
 
           def from_array_literal(node, locals)

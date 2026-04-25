@@ -98,4 +98,10 @@ RSpec.describe 'box-first end-to-end' do
       %w[small small pos 105 small big huge]
     )
   end
+
+  it 'case_test — case/when with subject, multi-condition, and case-without-subject' do
+    expect(run_box_first('case_test').strip.split("\n")).to eq(
+      %w[A C F low mid high neg zero pos]
+    )
+  end
 end

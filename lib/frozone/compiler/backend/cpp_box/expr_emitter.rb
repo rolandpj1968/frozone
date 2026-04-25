@@ -39,6 +39,8 @@ module Frozone
               write_if_stmt(emit, node, locals)
             when Ast::While
               write_while_stmt(emit, node, locals)
+            when Ast::Case
+              write_case_stmt(emit, node, locals)
             when Ast::LocalVariableWrite
               write_local_write_stmt(emit, node, locals)
             when Ast::MethodCall
@@ -65,6 +67,40 @@ module Frozone
               emit.indented { write_body(emit, node.else_node, locals: locals) }
             end
             emit.line "}"
+          end
+
+          # Case/when emission. Two forms:
+          #   case x; when A; ... when B, C; ... else; ... end
+          #   case;   when cond1; ... when cond2; ... else; ... end
+          # When subject_node is present each condition is `cond === subject`
+          # via m_case_eq. Without a subject conditions are truthy-tested
+          # directly (the truthy/falsy if-elsif form).
+          # SplatArg in conditions (when *arr) — deferred.
+          def self.write_case_stmt(emit, node, locals)
+            subj = node.subject_node ? "_subj" : nil
+            if subj
+              emit.line "BasicObject* #{subj} = #{emit.cpp.from_expr(node.subject_node, locals)};"
+            end
+            node.whens.each_with_index do |w, i|
+              cond = case_when_cond(emit, w.condition_nodes, subj, locals)
+              keyword = i == 0 ? "if" : "} else if"
+              emit.line "#{keyword} (#{cond}) {"
+              emit.indented { write_body(emit, w.body_node, locals: locals) if w.body_node }
+            end
+            if node.else_node
+              emit.line "} else {"
+              emit.indented { write_body(emit, node.else_node, locals: locals) }
+            end
+            emit.line "}"
+          end
+
+          # Build the C++ condition for one when's condition list. Multiple
+          # conditions (when A, B, C) join with `||`.
+          def self.case_when_cond(emit, condition_nodes, subj, locals)
+            condition_nodes.map { |c|
+              c_str = emit.cpp.from_expr(c, locals)
+              subj ? "truthy(#{c_str}->m_case_eq(#{subj}))" : "truthy(#{c_str})"
+            }.join(" || ")
           end
 
           def self.write_while_stmt(emit, node, locals)
