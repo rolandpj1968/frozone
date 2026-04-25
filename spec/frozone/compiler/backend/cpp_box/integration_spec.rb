@@ -104,4 +104,10 @@ RSpec.describe 'box-first end-to-end' do
       %w[A C F low mid high neg zero pos]
     )
   end
+
+  it 'class_method_test — def self.X via eigenclass + polymorphism on class object' do
+    expect(run_box_first('class_method_test').strip.split("\n")).to eq(
+      %w[42 0 99]
+    )
+  end
 end
