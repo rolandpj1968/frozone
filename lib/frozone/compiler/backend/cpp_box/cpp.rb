@@ -266,6 +266,13 @@ module Frozone
               return "([&]() -> BasicObject* { throw (new #{cls_name}()); }())"
             end
             if arg_nodes.length == 1
+              # `raise "msg"` is sugar for `raise RuntimeError.new("msg")`.
+              # Detect a String-typed arg (StringLiteral / InterpolatedString)
+              # and synthesise the wrap.
+              if first.is_a?(Ast::StringLiteral) || first.is_a?(Ast::InterpolatedString)
+                msg_str = from_expr(first, locals)
+                return "([&]() -> BasicObject* { throw (new RuntimeError(static_cast<BasicObject*>(#{msg_str}))); }())"
+              end
               expr_str = from_expr(first, locals)
               return "([&]() -> BasicObject* { throw static_cast<Exception*>(#{expr_str}); }())"
             end

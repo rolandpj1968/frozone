@@ -15,6 +15,7 @@ struct Symbol;
 struct String;
 struct Hash;
 struct Proc;
+struct BasicObject_BasicObject;
 struct Module;
 struct Numeric;
 struct Refinement;
@@ -22,6 +23,12 @@ struct Method;
 struct UnboundMethod;
 struct Range;
 struct Enumerator;
+struct Enumerator_Yielder;
+struct Enumerator_Generator;
+struct Enumerator_Lazy;
+struct Enumerator_Chain;
+struct Enumerator_ArithmeticSequence;
+struct Enumerator_Product;
 struct Exception;
 struct ScriptError;
 struct LoadError;
@@ -57,24 +64,100 @@ struct IOError;
 struct EOFError;
 struct EncodingError;
 struct RegexpError;
+struct Errno_E2BIG;
+struct Errno_EACCES;
+struct Errno_EADDRINUSE;
+struct Errno_EADDRNOTAVAIL;
+struct Errno_EAFNOSUPPORT;
+struct Errno_EAGAIN;
+struct Errno_EALREADY;
+struct Errno_EBADF;
+struct Errno_EBUSY;
+struct Errno_ECHILD;
+struct Errno_EILSEQ;
+struct Errno_ECONNABORTED;
+struct Errno_ECONNREFUSED;
+struct Errno_ECONNRESET;
+struct Errno_EDEADLK;
+struct Errno_EDOM;
+struct Errno_EEXIST;
+struct Errno_EFAULT;
+struct Errno_EFBIG;
+struct Errno_EHOSTUNREACH;
+struct Errno_EINPROGRESS;
+struct Errno_EINTR;
+struct Errno_EINVAL;
+struct Errno_EIO;
+struct Errno_EISCONN;
+struct Errno_EISDIR;
+struct Errno_ELOOP;
+struct Errno_EMFILE;
+struct Errno_EMSGSIZE;
+struct Errno_ENAMETOOLONG;
+struct Errno_ENETDOWN;
+struct Errno_ENETUNREACH;
+struct Errno_ENFILE;
+struct Errno_ENODEV;
+struct Errno_ENOENT;
+struct Errno_ENOEXEC;
+struct Errno_ENOMEM;
+struct Errno_ENOSPC;
+struct Errno_ENOSYS;
+struct Errno_ENOTCONN;
+struct Errno_ENOTDIR;
+struct Errno_ENOTEMPTY;
+struct Errno_ENOTSUP;
+struct Errno_ENOTTY;
+struct Errno_ENXIO;
+struct Errno_EOPNOTSUPP;
+struct Errno_EOVERFLOW;
+struct Errno_EPERM;
+struct Errno_EPIPE;
+struct Errno_EPROTONOSUPPORT;
+struct Errno_ERANGE;
+struct Errno_EROFS;
+struct Errno_ESPIPE;
+struct Errno_ESRCH;
+struct Errno_ETIMEDOUT;
+struct Errno_ETXTBSY;
+struct Errno_EWOULDBLOCK;
+struct Errno_EXDEV;
+struct Math_DomainError;
 struct Encoding;
+struct Encoding_CompatibilityError;
+struct Encoding_ConverterNotFoundError;
+struct Encoding_InvalidByteSequenceError;
+struct Encoding_UndefinedConversionError;
+struct Encoding_Converter;
 struct MatchData;
 struct Regexp;
+struct Regexp_TimeoutError;
 struct Rational;
 struct Complex;
 struct IO;
+struct IO_CapturedOutput;
+struct IO_EAGAINWaitReadable;
+struct IO_EAGAINWaitWritable;
+struct IO_EWOULDBLOCKWaitReadable;
+struct IO_EWOULDBLOCKWaitWritable;
 struct File;
+struct File_Stat;
 struct Dir;
 struct Time;
 struct Mutex;
 struct Fiber;
 struct ThreadKill;
 struct Thread;
+struct Thread_Blocked;
+struct Thread_Mutex;
+struct Thread_Backtrace;
+struct Thread_Backtrace_Location;
 struct ThreadGroup;
 struct ConditionVariable;
 struct Queue;
 struct SizedQueue;
 struct Process;
+struct Process_Status;
 struct Binding;
 struct PP;
 struct StringIO;
@@ -82,7 +165,15 @@ struct Struct;
 struct Data;
 struct Set;
 struct Random;
+struct ObjectSpace_WeakMap;
+struct ObjectSpace_WeakKeyMap;
 struct ENVClass;
+struct Gem_Specification;
+struct Marshal_Dumper;
+struct Marshal_Loader;
+struct Frozone_Vm_Vm;
+struct Frozone_Vm_Parser;
+struct Frozone_Vm_WqParser;
 struct Box;
 struct BasicObject_eigenclass;
 struct Object_eigenclass;
@@ -97,6 +188,7 @@ struct Symbol_eigenclass;
 struct String_eigenclass;
 struct Hash_eigenclass;
 struct Proc_eigenclass;
+struct BasicObject_BasicObject_eigenclass;
 struct Module_eigenclass;
 struct Numeric_eigenclass;
 struct Refinement_eigenclass;
@@ -104,6 +196,12 @@ struct Method_eigenclass;
 struct UnboundMethod_eigenclass;
 struct Range_eigenclass;
 struct Enumerator_eigenclass;
+struct Enumerator_Yielder_eigenclass;
+struct Enumerator_Generator_eigenclass;
+struct Enumerator_Lazy_eigenclass;
+struct Enumerator_Chain_eigenclass;
+struct Enumerator_ArithmeticSequence_eigenclass;
+struct Enumerator_Product_eigenclass;
 struct Exception_eigenclass;
 struct ScriptError_eigenclass;
 struct LoadError_eigenclass;
@@ -139,24 +237,100 @@ struct IOError_eigenclass;
 struct EOFError_eigenclass;
 struct EncodingError_eigenclass;
 struct RegexpError_eigenclass;
+struct Errno_E2BIG_eigenclass;
+struct Errno_EACCES_eigenclass;
+struct Errno_EADDRINUSE_eigenclass;
+struct Errno_EADDRNOTAVAIL_eigenclass;
+struct Errno_EAFNOSUPPORT_eigenclass;
+struct Errno_EAGAIN_eigenclass;
+struct Errno_EALREADY_eigenclass;
+struct Errno_EBADF_eigenclass;
+struct Errno_EBUSY_eigenclass;
+struct Errno_ECHILD_eigenclass;
+struct Errno_EILSEQ_eigenclass;
+struct Errno_ECONNABORTED_eigenclass;
+struct Errno_ECONNREFUSED_eigenclass;
+struct Errno_ECONNRESET_eigenclass;
+struct Errno_EDEADLK_eigenclass;
+struct Errno_EDOM_eigenclass;
+struct Errno_EEXIST_eigenclass;
+struct Errno_EFAULT_eigenclass;
+struct Errno_EFBIG_eigenclass;
+struct Errno_EHOSTUNREACH_eigenclass;
+struct Errno_EINPROGRESS_eigenclass;
+struct Errno_EINTR_eigenclass;
+struct Errno_EINVAL_eigenclass;
+struct Errno_EIO_eigenclass;
+struct Errno_EISCONN_eigenclass;
+struct Errno_EISDIR_eigenclass;
+struct Errno_ELOOP_eigenclass;
+struct Errno_EMFILE_eigenclass;
+struct Errno_EMSGSIZE_eigenclass;
+struct Errno_ENAMETOOLONG_eigenclass;
+struct Errno_ENETDOWN_eigenclass;
+struct Errno_ENETUNREACH_eigenclass;
+struct Errno_ENFILE_eigenclass;
+struct Errno_ENODEV_eigenclass;
+struct Errno_ENOENT_eigenclass;
+struct Errno_ENOEXEC_eigenclass;
+struct Errno_ENOMEM_eigenclass;
+struct Errno_ENOSPC_eigenclass;
+struct Errno_ENOSYS_eigenclass;
+struct Errno_ENOTCONN_eigenclass;
+struct Errno_ENOTDIR_eigenclass;
+struct Errno_ENOTEMPTY_eigenclass;
+struct Errno_ENOTSUP_eigenclass;
+struct Errno_ENOTTY_eigenclass;
+struct Errno_ENXIO_eigenclass;
+struct Errno_EOPNOTSUPP_eigenclass;
+struct Errno_EOVERFLOW_eigenclass;
+struct Errno_EPERM_eigenclass;
+struct Errno_EPIPE_eigenclass;
+struct Errno_EPROTONOSUPPORT_eigenclass;
+struct Errno_ERANGE_eigenclass;
+struct Errno_EROFS_eigenclass;
+struct Errno_ESPIPE_eigenclass;
+struct Errno_ESRCH_eigenclass;
+struct Errno_ETIMEDOUT_eigenclass;
+struct Errno_ETXTBSY_eigenclass;
+struct Errno_EWOULDBLOCK_eigenclass;
+struct Errno_EXDEV_eigenclass;
+struct Math_DomainError_eigenclass;
 struct Encoding_eigenclass;
+struct Encoding_CompatibilityError_eigenclass;
+struct Encoding_ConverterNotFoundError_eigenclass;
+struct Encoding_InvalidByteSequenceError_eigenclass;
+struct Encoding_UndefinedConversionError_eigenclass;
+struct Encoding_Converter_eigenclass;
 struct MatchData_eigenclass;
 struct Regexp_eigenclass;
+struct Regexp_TimeoutError_eigenclass;
 struct Rational_eigenclass;
 struct Complex_eigenclass;
 struct IO_eigenclass;
+struct IO_CapturedOutput_eigenclass;
+struct IO_EAGAINWaitReadable_eigenclass;
+struct IO_EAGAINWaitWritable_eigenclass;
+struct IO_EWOULDBLOCKWaitReadable_eigenclass;
+struct IO_EWOULDBLOCKWaitWritable_eigenclass;
 struct File_eigenclass;
+struct File_Stat_eigenclass;
 struct Dir_eigenclass;
 struct Time_eigenclass;
 struct Mutex_eigenclass;
 struct Fiber_eigenclass;
 struct ThreadKill_eigenclass;
 struct Thread_eigenclass;
+struct Thread_Blocked_eigenclass;
+struct Thread_Mutex_eigenclass;
+struct Thread_Backtrace_eigenclass;
+struct Thread_Backtrace_Location_eigenclass;
 struct ThreadGroup_eigenclass;
 struct ConditionVariable_eigenclass;
 struct Queue_eigenclass;
 struct SizedQueue_eigenclass;
 struct Process_eigenclass;
+struct Process_Status_eigenclass;
 struct Binding_eigenclass;
 struct PP_eigenclass;
 struct StringIO_eigenclass;
@@ -164,7 +338,15 @@ struct Struct_eigenclass;
 struct Data_eigenclass;
 struct Set_eigenclass;
 struct Random_eigenclass;
+struct ObjectSpace_WeakMap_eigenclass;
+struct ObjectSpace_WeakKeyMap_eigenclass;
 struct ENVClass_eigenclass;
+struct Gem_Specification_eigenclass;
+struct Marshal_Dumper_eigenclass;
+struct Marshal_Loader_eigenclass;
+struct Frozone_Vm_Vm_eigenclass;
+struct Frozone_Vm_Parser_eigenclass;
+struct Frozone_Vm_WqParser_eigenclass;
 struct Box_eigenclass;
 
 extern NilClass NIL_INSTANCE;
@@ -183,6 +365,7 @@ extern Symbol_eigenclass Symbol_CLASS;
 extern String_eigenclass String_CLASS;
 extern Hash_eigenclass Hash_CLASS;
 extern Proc_eigenclass Proc_CLASS;
+extern BasicObject_BasicObject_eigenclass BasicObject_BasicObject_CLASS;
 extern Module_eigenclass Module_CLASS;
 extern Numeric_eigenclass Numeric_CLASS;
 extern Refinement_eigenclass Refinement_CLASS;
@@ -190,6 +373,12 @@ extern Method_eigenclass Method_CLASS;
 extern UnboundMethod_eigenclass UnboundMethod_CLASS;
 extern Range_eigenclass Range_CLASS;
 extern Enumerator_eigenclass Enumerator_CLASS;
+extern Enumerator_Yielder_eigenclass Enumerator_Yielder_CLASS;
+extern Enumerator_Generator_eigenclass Enumerator_Generator_CLASS;
+extern Enumerator_Lazy_eigenclass Enumerator_Lazy_CLASS;
+extern Enumerator_Chain_eigenclass Enumerator_Chain_CLASS;
+extern Enumerator_ArithmeticSequence_eigenclass Enumerator_ArithmeticSequence_CLASS;
+extern Enumerator_Product_eigenclass Enumerator_Product_CLASS;
 extern Exception_eigenclass Exception_CLASS;
 extern ScriptError_eigenclass ScriptError_CLASS;
 extern LoadError_eigenclass LoadError_CLASS;
@@ -225,24 +414,100 @@ extern IOError_eigenclass IOError_CLASS;
 extern EOFError_eigenclass EOFError_CLASS;
 extern EncodingError_eigenclass EncodingError_CLASS;
 extern RegexpError_eigenclass RegexpError_CLASS;
+extern Errno_E2BIG_eigenclass Errno_E2BIG_CLASS;
+extern Errno_EACCES_eigenclass Errno_EACCES_CLASS;
+extern Errno_EADDRINUSE_eigenclass Errno_EADDRINUSE_CLASS;
+extern Errno_EADDRNOTAVAIL_eigenclass Errno_EADDRNOTAVAIL_CLASS;
+extern Errno_EAFNOSUPPORT_eigenclass Errno_EAFNOSUPPORT_CLASS;
+extern Errno_EAGAIN_eigenclass Errno_EAGAIN_CLASS;
+extern Errno_EALREADY_eigenclass Errno_EALREADY_CLASS;
+extern Errno_EBADF_eigenclass Errno_EBADF_CLASS;
+extern Errno_EBUSY_eigenclass Errno_EBUSY_CLASS;
+extern Errno_ECHILD_eigenclass Errno_ECHILD_CLASS;
+extern Errno_EILSEQ_eigenclass Errno_EILSEQ_CLASS;
+extern Errno_ECONNABORTED_eigenclass Errno_ECONNABORTED_CLASS;
+extern Errno_ECONNREFUSED_eigenclass Errno_ECONNREFUSED_CLASS;
+extern Errno_ECONNRESET_eigenclass Errno_ECONNRESET_CLASS;
+extern Errno_EDEADLK_eigenclass Errno_EDEADLK_CLASS;
+extern Errno_EDOM_eigenclass Errno_EDOM_CLASS;
+extern Errno_EEXIST_eigenclass Errno_EEXIST_CLASS;
+extern Errno_EFAULT_eigenclass Errno_EFAULT_CLASS;
+extern Errno_EFBIG_eigenclass Errno_EFBIG_CLASS;
+extern Errno_EHOSTUNREACH_eigenclass Errno_EHOSTUNREACH_CLASS;
+extern Errno_EINPROGRESS_eigenclass Errno_EINPROGRESS_CLASS;
+extern Errno_EINTR_eigenclass Errno_EINTR_CLASS;
+extern Errno_EINVAL_eigenclass Errno_EINVAL_CLASS;
+extern Errno_EIO_eigenclass Errno_EIO_CLASS;
+extern Errno_EISCONN_eigenclass Errno_EISCONN_CLASS;
+extern Errno_EISDIR_eigenclass Errno_EISDIR_CLASS;
+extern Errno_ELOOP_eigenclass Errno_ELOOP_CLASS;
+extern Errno_EMFILE_eigenclass Errno_EMFILE_CLASS;
+extern Errno_EMSGSIZE_eigenclass Errno_EMSGSIZE_CLASS;
+extern Errno_ENAMETOOLONG_eigenclass Errno_ENAMETOOLONG_CLASS;
+extern Errno_ENETDOWN_eigenclass Errno_ENETDOWN_CLASS;
+extern Errno_ENETUNREACH_eigenclass Errno_ENETUNREACH_CLASS;
+extern Errno_ENFILE_eigenclass Errno_ENFILE_CLASS;
+extern Errno_ENODEV_eigenclass Errno_ENODEV_CLASS;
+extern Errno_ENOENT_eigenclass Errno_ENOENT_CLASS;
+extern Errno_ENOEXEC_eigenclass Errno_ENOEXEC_CLASS;
+extern Errno_ENOMEM_eigenclass Errno_ENOMEM_CLASS;
+extern Errno_ENOSPC_eigenclass Errno_ENOSPC_CLASS;
+extern Errno_ENOSYS_eigenclass Errno_ENOSYS_CLASS;
+extern Errno_ENOTCONN_eigenclass Errno_ENOTCONN_CLASS;
+extern Errno_ENOTDIR_eigenclass Errno_ENOTDIR_CLASS;
+extern Errno_ENOTEMPTY_eigenclass Errno_ENOTEMPTY_CLASS;
+extern Errno_ENOTSUP_eigenclass Errno_ENOTSUP_CLASS;
+extern Errno_ENOTTY_eigenclass Errno_ENOTTY_CLASS;
+extern Errno_ENXIO_eigenclass Errno_ENXIO_CLASS;
+extern Errno_EOPNOTSUPP_eigenclass Errno_EOPNOTSUPP_CLASS;
+extern Errno_EOVERFLOW_eigenclass Errno_EOVERFLOW_CLASS;
+extern Errno_EPERM_eigenclass Errno_EPERM_CLASS;
+extern Errno_EPIPE_eigenclass Errno_EPIPE_CLASS;
+extern Errno_EPROTONOSUPPORT_eigenclass Errno_EPROTONOSUPPORT_CLASS;
+extern Errno_ERANGE_eigenclass Errno_ERANGE_CLASS;
+extern Errno_EROFS_eigenclass Errno_EROFS_CLASS;
+extern Errno_ESPIPE_eigenclass Errno_ESPIPE_CLASS;
+extern Errno_ESRCH_eigenclass Errno_ESRCH_CLASS;
+extern Errno_ETIMEDOUT_eigenclass Errno_ETIMEDOUT_CLASS;
+extern Errno_ETXTBSY_eigenclass Errno_ETXTBSY_CLASS;
+extern Errno_EWOULDBLOCK_eigenclass Errno_EWOULDBLOCK_CLASS;
+extern Errno_EXDEV_eigenclass Errno_EXDEV_CLASS;
+extern Math_DomainError_eigenclass Math_DomainError_CLASS;
 extern Encoding_eigenclass Encoding_CLASS;
+extern Encoding_CompatibilityError_eigenclass Encoding_CompatibilityError_CLASS;
+extern Encoding_ConverterNotFoundError_eigenclass Encoding_ConverterNotFoundError_CLASS;
+extern Encoding_InvalidByteSequenceError_eigenclass Encoding_InvalidByteSequenceError_CLASS;
+extern Encoding_UndefinedConversionError_eigenclass Encoding_UndefinedConversionError_CLASS;
+extern Encoding_Converter_eigenclass Encoding_Converter_CLASS;
 extern MatchData_eigenclass MatchData_CLASS;
 extern Regexp_eigenclass Regexp_CLASS;
+extern Regexp_TimeoutError_eigenclass Regexp_TimeoutError_CLASS;
 extern Rational_eigenclass Rational_CLASS;
 extern Complex_eigenclass Complex_CLASS;
 extern IO_eigenclass IO_CLASS;
+extern IO_CapturedOutput_eigenclass IO_CapturedOutput_CLASS;
+extern IO_EAGAINWaitReadable_eigenclass IO_EAGAINWaitReadable_CLASS;
+extern IO_EAGAINWaitWritable_eigenclass IO_EAGAINWaitWritable_CLASS;
+extern IO_EWOULDBLOCKWaitReadable_eigenclass IO_EWOULDBLOCKWaitReadable_CLASS;
+extern IO_EWOULDBLOCKWaitWritable_eigenclass IO_EWOULDBLOCKWaitWritable_CLASS;
 extern File_eigenclass File_CLASS;
+extern File_Stat_eigenclass File_Stat_CLASS;
 extern Dir_eigenclass Dir_CLASS;
 extern Time_eigenclass Time_CLASS;
 extern Mutex_eigenclass Mutex_CLASS;
 extern Fiber_eigenclass Fiber_CLASS;
 extern ThreadKill_eigenclass ThreadKill_CLASS;
 extern Thread_eigenclass Thread_CLASS;
+extern Thread_Blocked_eigenclass Thread_Blocked_CLASS;
+extern Thread_Mutex_eigenclass Thread_Mutex_CLASS;
+extern Thread_Backtrace_eigenclass Thread_Backtrace_CLASS;
+extern Thread_Backtrace_Location_eigenclass Thread_Backtrace_Location_CLASS;
 extern ThreadGroup_eigenclass ThreadGroup_CLASS;
 extern ConditionVariable_eigenclass ConditionVariable_CLASS;
 extern Queue_eigenclass Queue_CLASS;
 extern SizedQueue_eigenclass SizedQueue_CLASS;
 extern Process_eigenclass Process_CLASS;
+extern Process_Status_eigenclass Process_Status_CLASS;
 extern Binding_eigenclass Binding_CLASS;
 extern PP_eigenclass PP_CLASS;
 extern StringIO_eigenclass StringIO_CLASS;
@@ -250,7 +515,15 @@ extern Struct_eigenclass Struct_CLASS;
 extern Data_eigenclass Data_CLASS;
 extern Set_eigenclass Set_CLASS;
 extern Random_eigenclass Random_CLASS;
+extern ObjectSpace_WeakMap_eigenclass ObjectSpace_WeakMap_CLASS;
+extern ObjectSpace_WeakKeyMap_eigenclass ObjectSpace_WeakKeyMap_CLASS;
 extern ENVClass_eigenclass ENVClass_CLASS;
+extern Gem_Specification_eigenclass Gem_Specification_CLASS;
+extern Marshal_Dumper_eigenclass Marshal_Dumper_CLASS;
+extern Marshal_Loader_eigenclass Marshal_Loader_CLASS;
+extern Frozone_Vm_Vm_eigenclass Frozone_Vm_Vm_CLASS;
+extern Frozone_Vm_Parser_eigenclass Frozone_Vm_Parser_CLASS;
+extern Frozone_Vm_WqParser_eigenclass Frozone_Vm_WqParser_CLASS;
 extern Box_eigenclass Box_CLASS;
 
 inline BasicObject* nil_instance();
@@ -301,25 +574,25 @@ struct BasicObject {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> BasicObject(__Ts__...) {}
   // Universal method surface — one slot per name. All Ruby methods take
   // (Array* args, Hash* kwargs, Proc* block) — bodies unpack from args.
+  virtual BasicObject* m_equal_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("equal?"); }
+  virtual BasicObject* m_not(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("!"); }
+  virtual BasicObject* m_empty_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("empty?"); }
+  virtual BasicObject* m_raise(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("raise"); }
+  virtual BasicObject* m_size(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("size"); }
+  virtual BasicObject* m_gt(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing(">"); }
+  virtual BasicObject* m_aref(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("[]"); }
   virtual BasicObject* m_is_a_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("is_a?"); }
   virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("to_s"); }
   virtual BasicObject* m_select(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("select"); }
   virtual BasicObject* m_drop(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("drop"); }
   virtual BasicObject* m_ancestors(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("ancestors"); }
-  virtual BasicObject* m_not(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("!"); }
   virtual BasicObject* m_values(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("values"); }
   virtual BasicObject* m_ge(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing(">="); }
-  virtual BasicObject* m_size(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("size"); }
   virtual BasicObject* m_last(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("last"); }
   virtual BasicObject* m_warn(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("warn"); }
   virtual BasicObject* m_first(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("first"); }
   virtual BasicObject* m_caller(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("caller"); }
-  virtual BasicObject* m_aref(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("[]"); }
-  virtual BasicObject* m_empty_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("empty?"); }
-  virtual BasicObject* m_raise(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("raise"); }
-  virtual BasicObject* m_gt(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing(">"); }
   virtual BasicObject* m___coerce_to_str__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__coerce_to_str__"); }
-  virtual BasicObject* m_equal_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("equal?"); }
   virtual BasicObject* m_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("name"); }
   virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("inspect"); }
   virtual BasicObject* m_singleton_class_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("singleton_class?"); }
@@ -329,6 +602,7 @@ struct BasicObject {
   virtual BasicObject* m_ne_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("!="); }
   virtual BasicObject* m_instance_variable_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("instance_variable_set"); }
   virtual BasicObject* m_object_id(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("object_id"); }
+  virtual BasicObject* m_aset(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("[]="); }
   virtual BasicObject* m_constants(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("constants"); }
   virtual BasicObject* m_lt(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("<"); }
   virtual BasicObject* m_mul(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("*"); }
@@ -462,6 +736,19 @@ struct BasicObject {
   virtual BasicObject* m_alive_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("alive?"); }
   virtual BasicObject* m_resume(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("resume"); }
   virtual BasicObject* m_keys(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("keys"); }
+  virtual BasicObject* m__lazy_eval(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("_lazy_eval"); }
+  virtual BasicObject* m_take(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("take"); }
+  virtual BasicObject* m_key_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("key?"); }
+  virtual BasicObject* m_force(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("force"); }
+  virtual BasicObject* m_define_singleton_method(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("define_singleton_method"); }
+  virtual BasicObject* m_chunk(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("chunk"); }
+  virtual BasicObject* m___product_each__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__product_each__"); }
+  virtual BasicObject* m_delete(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("delete"); }
+  virtual BasicObject* m_reduce(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("reduce"); }
+  virtual BasicObject* m_instance_variable_get(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("instance_variable_get"); }
+  virtual BasicObject* m_each_entry(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("each_entry"); }
+  virtual BasicObject* m_push(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("push"); }
+  virtual BasicObject* m_pop(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("pop"); }
   virtual BasicObject* m__from_string(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("_from_string"); }
   virtual BasicObject* m_message(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("message"); }
   virtual BasicObject* m_backtrace(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("backtrace"); }
@@ -485,7 +772,6 @@ struct BasicObject {
   virtual BasicObject* m_default_internal(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("default_internal"); }
   virtual BasicObject* m___build_find_map__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__build_find_map__"); }
   virtual BasicObject* m_locale_charmap(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("locale_charmap"); }
-  virtual BasicObject* m_key_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("key?"); }
   virtual BasicObject* m_bytebegin(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("bytebegin"); }
   virtual BasicObject* m_byteend(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("byteend"); }
   virtual BasicObject* m_string(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("string"); }
@@ -564,9 +850,7 @@ struct BasicObject {
   virtual BasicObject* m_close(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("close"); }
   virtual BasicObject* m_sysopen(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("sysopen"); }
   virtual BasicObject* m___coerce_path__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__coerce_path__"); }
-  virtual BasicObject* m_delete(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("delete"); }
   virtual BasicObject* m_open(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("open"); }
-  virtual BasicObject* m_pop(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("pop"); }
   virtual BasicObject* m_readlines(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("readlines"); }
   virtual BasicObject* m_chmod(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("chmod"); }
   virtual BasicObject* m_bytesize(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("bytesize"); }
@@ -581,10 +865,31 @@ struct BasicObject {
   virtual BasicObject* m_all_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("all?"); }
   virtual BasicObject* m_chars(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("chars"); }
   virtual BasicObject* m_any_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("any?"); }
-  virtual BasicObject* m_push(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("push"); }
   virtual BasicObject* m_index(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("index"); }
+  virtual BasicObject* m_mode(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("mode"); }
+  virtual BasicObject* m_readable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("readable?"); }
+  virtual BasicObject* m_readable_real_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("readable_real?"); }
+  virtual BasicObject* m_writable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("writable?"); }
+  virtual BasicObject* m_writable_real_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("writable_real?"); }
+  virtual BasicObject* m_executable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("executable?"); }
+  virtual BasicObject* m_executable_real_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("executable_real?"); }
+  virtual BasicObject* m_owned_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("owned?"); }
+  virtual BasicObject* m_grpowned_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("grpowned?"); }
+  virtual BasicObject* m_ctime(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("ctime"); }
+  virtual BasicObject* m_birthtime(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("birthtime"); }
+  virtual BasicObject* m_dev(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("dev"); }
+  virtual BasicObject* m_ino(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("ino"); }
+  virtual BasicObject* m_nlink(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("nlink"); }
+  virtual BasicObject* m_uid(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("uid"); }
+  virtual BasicObject* m_gid(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("gid"); }
+  virtual BasicObject* m_rdev(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("rdev"); }
+  virtual BasicObject* m_blksize(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("blksize"); }
+  virtual BasicObject* m_blocks(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("blocks"); }
+  virtual BasicObject* m_atime(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("atime"); }
+  virtual BasicObject* m_mtime(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("mtime"); }
   virtual BasicObject* m_reject(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("reject"); }
   virtual BasicObject* m___load_entries__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__load_entries__"); }
+  virtual BasicObject* m_pos_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("pos="); }
   virtual BasicObject* m_force_encoding(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("force_encoding"); }
   virtual BasicObject* m_children(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("children"); }
   virtual BasicObject* m_entries(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("entries"); }
@@ -618,8 +923,6 @@ struct BasicObject {
   virtual BasicObject* m_subsec(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("subsec"); }
   virtual BasicObject* m_slice(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("slice"); }
   virtual BasicObject* m_instance_variables(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("instance_variables"); }
-  virtual BasicObject* m_instance_variable_get(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("instance_variable_get"); }
-  virtual BasicObject* m_define_singleton_method(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("define_singleton_method"); }
   virtual BasicObject* m__mktime_args(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("_mktime_args"); }
   virtual BasicObject* m_mon(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("mon"); }
   virtual BasicObject* m_local_variable_get(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("local_variable_get"); }
@@ -639,9 +942,10 @@ struct BasicObject {
   virtual BasicObject* m_current(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("current"); }
   virtual BasicObject* m___mutex_seen_count(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__mutex_seen_count"); }
   virtual BasicObject* m___mutex_skip_count(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__mutex_skip_count"); }
+  virtual BasicObject* m___mutex_seen_count_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__mutex_seen_count="); }
+  virtual BasicObject* m___mutex_done_count_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__mutex_done_count="); }
   virtual BasicObject* m___mutex_done_count(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__mutex_done_count"); }
   virtual BasicObject* m___add_owned_mutex(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__add_owned_mutex"); }
-  virtual BasicObject* m_owned_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("owned?"); }
   virtual BasicObject* m___remove_owned_mutex(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__remove_owned_mutex"); }
   virtual BasicObject* m_lock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("lock"); }
   virtual BasicObject* m_unlock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("unlock"); }
@@ -673,8 +977,14 @@ struct BasicObject {
   virtual BasicObject* m___raise_exception(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__raise_exception"); }
   virtual BasicObject* m___raise_cause(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__raise_cause"); }
   virtual BasicObject* m___raise_backtrace(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__raise_backtrace"); }
+  virtual BasicObject* m___raise_exception_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__raise_exception="); }
+  virtual BasicObject* m___raise_cause_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__raise_cause="); }
+  virtual BasicObject* m___raise_backtrace_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__raise_backtrace="); }
   virtual BasicObject* m___stop_seen(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__stop_seen"); }
   virtual BasicObject* m___wakeup_count(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__wakeup_count"); }
+  virtual BasicObject* m___stop_seen_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__stop_seen="); }
+  virtual BasicObject* m_expand_path(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("expand_path"); }
+  virtual BasicObject* m_realpath(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("realpath"); }
   virtual BasicObject* m_enclosed_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("enclosed?"); }
   virtual BasicObject* m_group(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("group"); }
   virtual BasicObject* m___remove_thread(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__remove_thread"); }
@@ -689,6 +999,9 @@ struct BasicObject {
   virtual BasicObject* m_exit_b(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("exit!"); }
   virtual BasicObject* m_pid(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("pid"); }
   virtual BasicObject* m_wait2(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("wait2"); }
+  virtual BasicObject* m_exitstatus(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("exitstatus"); }
+  virtual BasicObject* m_termsig(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("termsig"); }
+  virtual BasicObject* m_signaled_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("signaled?"); }
   virtual BasicObject* m_pretty_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("pretty_inspect"); }
   virtual BasicObject* m_print(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("print"); }
   virtual BasicObject* m__int_mode_to_str(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("_int_mode_to_str"); }
@@ -709,8 +1022,6 @@ struct BasicObject {
   virtual BasicObject* m_sysread(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("sysread"); }
   virtual BasicObject* m_initialize(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("initialize"); }
   virtual BasicObject* m_to_strio(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("to_strio"); }
-  virtual BasicObject* m_readable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("readable?"); }
-  virtual BasicObject* m_writable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("writable?"); }
   virtual BasicObject* m_members(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("members"); }
   virtual BasicObject* m_keyword_init_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("keyword_init?"); }
   virtual BasicObject* m_to_h(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("to_h"); }
@@ -727,7 +1038,6 @@ struct BasicObject {
   virtual BasicObject* m_intersect_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("intersect?"); }
   virtual BasicObject* m_compare_by_identity_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("compare_by_identity?"); }
   virtual BasicObject* m_text(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("text"); }
-  virtual BasicObject* m_each_entry(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("each_entry"); }
   virtual BasicObject* m_compare_by_identity(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("compare_by_identity"); }
   virtual BasicObject* m_keep_if(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("keep_if"); }
   virtual BasicObject* m_delete_if(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("delete_if"); }
@@ -740,6 +1050,12 @@ struct BasicObject {
   virtual BasicObject* m_seed(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("seed"); }
   virtual BasicObject* m_state(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("state"); }
   virtual BasicObject* m_srand(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("srand"); }
+  virtual BasicObject* m_delete_at(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("delete_at"); }
+  virtual BasicObject* m__weakmap_inspect_obj(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("_weakmap_inspect_obj"); }
+  virtual BasicObject* m___check_key___b(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__check_key__!"); }
+  virtual BasicObject* m___find_index__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__find_index__"); }
+  virtual BasicObject* m___ungcable___q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__ungcable__?"); }
+  virtual BasicObject* m___find_pair__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__find_pair__"); }
   virtual BasicObject* m___enc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__enc"); }
   virtual BasicObject* m___coerce_key(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__coerce_key"); }
   virtual BasicObject* m_to_hash(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("to_hash"); }
@@ -747,10 +1063,102 @@ struct BasicObject {
   virtual BasicObject* m___coerce_value(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__coerce_value"); }
   virtual BasicObject* m___soft_coerce_string__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__soft_coerce_string__"); }
   virtual BasicObject* m___coerce_env_string__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__coerce_env_string__"); }
+  virtual BasicObject* m_write_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_object"); }
+  virtual BasicObject* m_write_object_inner(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_object_inner"); }
+  virtual BasicObject* m_write_integer(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_integer"); }
+  virtual BasicObject* m_write_symbol(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_symbol"); }
+  virtual BasicObject* m_write_link(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_link"); }
+  virtual BasicObject* m_dispatch_obj(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("dispatch_obj"); }
+  virtual BasicObject* m_isa_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("isa?"); }
+  virtual BasicObject* m_track(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("track"); }
+  virtual BasicObject* m_write_float(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_float"); }
+  virtual BasicObject* m_write_bignum(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_bignum"); }
+  virtual BasicObject* m_write_string_with_ivar(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_string_with_ivar"); }
+  virtual BasicObject* m_write_array_with_wraps(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_array_with_wraps"); }
+  virtual BasicObject* m_write_hash_with_wraps(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_hash_with_wraps"); }
+  virtual BasicObject* m_write_regexp_with_ivar(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_regexp_with_ivar"); }
+  virtual BasicObject* m_write_class(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_class"); }
+  virtual BasicObject* m_write_module(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_module"); }
+  virtual BasicObject* m_write_exception(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_exception"); }
+  virtual BasicObject* m_write_struct_with_wraps(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_struct_with_wraps"); }
+  virtual BasicObject* m_write_data_as_struct(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_data_as_struct"); }
+  virtual BasicObject* m_respond_to_marshal_dump_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("respond_to_marshal_dump?"); }
+  virtual BasicObject* m_write_user_marshal(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_user_marshal"); }
+  virtual BasicObject* m_respond_to__dump_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("respond_to__dump?"); }
+  virtual BasicObject* m_write_user_defined(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_user_defined"); }
+  virtual BasicObject* m_write_range(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_range"); }
+  virtual BasicObject* m_write_generic_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_generic_object"); }
+  virtual BasicObject* m_write_long(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_long"); }
+  virtual BasicObject* m_bignum_to_bytes(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("bignum_to_bytes"); }
+  virtual BasicObject* m_odd_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("odd?"); }
+  virtual BasicObject* m_float_to_string(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("float_to_string"); }
+  virtual BasicObject* m_write_enc_ivar(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_enc_ivar"); }
+  virtual BasicObject* m_extended_modules(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("extended_modules"); }
+  virtual BasicObject* m_collect_ivars(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("collect_ivars"); }
+  virtual BasicObject* m_encoding_ivar(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("encoding_ivar"); }
+  virtual BasicObject* m_write_extension_prefix(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_extension_prefix"); }
+  virtual BasicObject* m_write_uclass(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_uclass"); }
+  virtual BasicObject* m_write_raw_string(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_raw_string"); }
+  virtual BasicObject* m_included_modules(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("included_modules"); }
+  virtual BasicObject* m_write_symbol_str(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_symbol_str"); }
+  virtual BasicObject* m_real_module_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("real_module_name"); }
+  virtual BasicObject* m_real_class_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("real_class_name"); }
+  virtual BasicObject* m_write_raw_array(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_raw_array"); }
+  virtual BasicObject* m_default_proc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("default_proc"); }
+  virtual BasicObject* m_write_raw_hash(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_raw_hash"); }
+  virtual BasicObject* m_default(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("default"); }
+  virtual BasicObject* m_each_pair(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("each_pair"); }
+  virtual BasicObject* m_write_raw_regexp(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_raw_regexp"); }
+  virtual BasicObject* m_check_anonymous(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("check_anonymous"); }
+  virtual BasicObject* m_write_raw_struct(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_raw_struct"); }
+  virtual BasicObject* m___marshal_time_ivars__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__marshal_time_ivars__"); }
+  virtual BasicObject* m_const_from_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("const_from_name"); }
+  virtual BasicObject* m_check_no_singleton(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("check_no_singleton"); }
+  virtual BasicObject* m_binmode(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("binmode"); }
+  virtual BasicObject* m_read_byte(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_byte"); }
+  virtual BasicObject* m_read_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_object"); }
+  virtual BasicObject* m_read_object_for_ivar(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_object_for_ivar"); }
+  virtual BasicObject* m_call_proc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("call_proc"); }
+  virtual BasicObject* m_read_long(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_long"); }
+  virtual BasicObject* m_read_bignum(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_bignum"); }
+  virtual BasicObject* m_read_float(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_float"); }
+  virtual BasicObject* m_read_symbol(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_symbol"); }
+  virtual BasicObject* m_read_string(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_string"); }
+  virtual BasicObject* m_read_array(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_array"); }
+  virtual BasicObject* m_read_hash(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_hash"); }
+  virtual BasicObject* m_read_object_generic(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_object_generic"); }
+  virtual BasicObject* m_read_struct(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_struct"); }
+  virtual BasicObject* m_read_class_ref(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_class_ref"); }
+  virtual BasicObject* m_read_module_ref(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_module_ref"); }
+  virtual BasicObject* m_read_ivar(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_ivar"); }
+  virtual BasicObject* m_read_link(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_link"); }
+  virtual BasicObject* m_read_uclass(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_uclass"); }
+  virtual BasicObject* m_read_user_defined(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_user_defined"); }
+  virtual BasicObject* m_read_user_marshal(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_user_marshal"); }
+  virtual BasicObject* m_read_extended(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_extended"); }
+  virtual BasicObject* m_read_regexp(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_regexp"); }
+  virtual BasicObject* m_read_data_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_data_object"); }
+  virtual BasicObject* m_read_old_module_ref(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_old_module_ref"); }
+  virtual BasicObject* m_freeze_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("freeze_object"); }
+  virtual BasicObject* m_read_bytes(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_bytes"); }
+  virtual BasicObject* m_default_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("default="); }
+  virtual BasicObject* m_read_class_by_symbol(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_class_by_symbol"); }
+  virtual BasicObject* m_read_ivar_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_ivar_name"); }
+  virtual BasicObject* m_delete_prefix(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("delete_prefix"); }
+  virtual BasicObject* m_set_backtrace(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("set_backtrace"); }
+  virtual BasicObject* m_const_get(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("const_get"); }
+  virtual BasicObject* m_read_struct_body(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_struct_body"); }
+  virtual BasicObject* m_read_generic_object_body(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_generic_object_body"); }
+  virtual BasicObject* m_read_object_with_class(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_object_with_class"); }
+  virtual BasicObject* m_read_object_with_class_ivar(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_object_with_class_ivar"); }
+  virtual BasicObject* m_extend(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("extend"); }
+  virtual BasicObject* m_private_instance_methods(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("private_instance_methods"); }
   virtual BasicObject* m_value(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("value"); }
   virtual BasicObject* m_doubled(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("doubled"); }
-  virtual BasicObject* m_aset(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("aset"); }
   virtual BasicObject* m_has_key_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("has_key_q"); }
+  virtual BasicObject* m_instance_exec(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("instance_exec"); }
+  virtual BasicObject* m_instance_eval(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("instance_eval"); }
+  virtual BasicObject* m_respond_to_missing_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("respond_to_missing?"); }
   virtual BasicObject* m_public(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("public"); }
   virtual BasicObject* m_private(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("private"); }
   virtual BasicObject* m_protected(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("protected"); }
@@ -772,11 +1180,8 @@ struct BasicObject {
   virtual BasicObject* m_undef_method(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("undef_method"); }
   virtual BasicObject* m_alias_method(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("alias_method"); }
   virtual BasicObject* m_const_defined_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("const_defined?"); }
-  virtual BasicObject* m_const_get(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("const_get"); }
-  virtual BasicObject* m_included_modules(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("included_modules"); }
   virtual BasicObject* m_undefined_instance_methods(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("undefined_instance_methods"); }
   virtual BasicObject* m_public_instance_methods(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("public_instance_methods"); }
-  virtual BasicObject* m_private_instance_methods(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("private_instance_methods"); }
   virtual BasicObject* m_protected_instance_methods(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("protected_instance_methods"); }
   virtual BasicObject* m_public_instance_method(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("public_instance_method"); }
   virtual BasicObject* m_method_defined_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("method_defined?"); }
@@ -841,7 +1246,6 @@ struct BasicObject {
   virtual BasicObject* m_member_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("member?"); }
   virtual BasicObject* m_minmax(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("minmax"); }
   virtual BasicObject* m_to_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("to_set"); }
-  virtual BasicObject* m_reduce(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("reduce"); }
   virtual BasicObject* m_overlap_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("overlap?"); }
   virtual BasicObject* m_bsearch(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("bsearch"); }
   virtual BasicObject* m_each_slice(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("each_slice"); }
@@ -851,14 +1255,26 @@ struct BasicObject {
   virtual BasicObject* m_peek_values(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("peek_values"); }
   virtual BasicObject* m_with_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("with_object"); }
   virtual BasicObject* m_feed(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("feed"); }
-  virtual BasicObject* m_take(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("take"); }
   virtual BasicObject* m_collect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("collect"); }
   virtual BasicObject* m_with_index(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("with_index"); }
   virtual BasicObject* m_produce(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("produce"); }
   virtual BasicObject* m_product(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("product"); }
+  virtual BasicObject* m_lazy(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("lazy"); }
+  virtual BasicObject* m_eager(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("eager"); }
+  virtual BasicObject* m_filter(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("filter"); }
+  virtual BasicObject* m_find_all(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("find_all"); }
+  virtual BasicObject* m_take_while(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("take_while"); }
+  virtual BasicObject* m_drop_while(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("drop_while"); }
+  virtual BasicObject* m_filter_map(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("filter_map"); }
+  virtual BasicObject* m_uniq(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("uniq"); }
+  virtual BasicObject* m_grep(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("grep"); }
+  virtual BasicObject* m_grep_v(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("grep_v"); }
+  virtual BasicObject* m_chunk_while(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("chunk_while"); }
+  virtual BasicObject* m_slice_before(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("slice_before"); }
+  virtual BasicObject* m_slice_after(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("slice_after"); }
+  virtual BasicObject* m_slice_when(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("slice_when"); }
   virtual BasicObject* m_initialize_copy(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("initialize_copy"); }
   virtual BasicObject* m_backtrace_locations(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("backtrace_locations"); }
-  virtual BasicObject* m_set_backtrace(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("set_backtrace"); }
   virtual BasicObject* m_full_message(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("full_message"); }
   virtual BasicObject* m_signo(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("signo"); }
   virtual BasicObject* m_signm(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("signm"); }
@@ -877,6 +1293,26 @@ struct BasicObject {
   virtual BasicObject* m_default_external_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("default_external="); }
   virtual BasicObject* m_default_internal_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("default_internal="); }
   virtual BasicObject* m_name_list(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("name_list"); }
+  virtual BasicObject* m_source_encoding_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("source_encoding_name"); }
+  virtual BasicObject* m_destination_encoding_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("destination_encoding_name"); }
+  virtual BasicObject* m_source_encoding(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("source_encoding"); }
+  virtual BasicObject* m_destination_encoding(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("destination_encoding"); }
+  virtual BasicObject* m_error_bytes(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("error_bytes"); }
+  virtual BasicObject* m_readagain_bytes(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("readagain_bytes"); }
+  virtual BasicObject* m_incomplete_input_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("incomplete_input?"); }
+  virtual BasicObject* m_error_char(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("error_char"); }
+  virtual BasicObject* m_convpath(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("convpath"); }
+  virtual BasicObject* m_replacement(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("replacement"); }
+  virtual BasicObject* m_convert(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("convert"); }
+  virtual BasicObject* m_finish(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("finish"); }
+  virtual BasicObject* m_primitive_errinfo(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("primitive_errinfo"); }
+  virtual BasicObject* m_last_error(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("last_error"); }
+  virtual BasicObject* m_insert_output(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("insert_output"); }
+  virtual BasicObject* m_replacement_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("replacement="); }
+  virtual BasicObject* m_primitive_convert(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("primitive_convert"); }
+  virtual BasicObject* m_putback(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("putback"); }
+  virtual BasicObject* m_asciicompat_encoding(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("asciicompat_encoding"); }
+  virtual BasicObject* m_search_convpath(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("search_convpath"); }
   virtual BasicObject* m_pre_match(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("pre_match"); }
   virtual BasicObject* m_post_match(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("post_match"); }
   virtual BasicObject* m_offset(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("offset"); }
@@ -911,8 +1347,6 @@ struct BasicObject {
   virtual BasicObject* m_tty_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("tty?"); }
   virtual BasicObject* m_fsync(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("fsync"); }
   virtual BasicObject* m_ioctl(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("ioctl"); }
-  virtual BasicObject* m_binmode(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("binmode"); }
-  virtual BasicObject* m_pos_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("pos="); }
   virtual BasicObject* m_tell(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("tell"); }
   virtual BasicObject* m_lineno(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("lineno"); }
   virtual BasicObject* m_lineno_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("lineno="); }
@@ -925,10 +1359,6 @@ struct BasicObject {
   virtual BasicObject* m_pread(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("pread"); }
   virtual BasicObject* m_read_nonblock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_nonblock"); }
   virtual BasicObject* m_readpartial(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("readpartial"); }
-  virtual BasicObject* m_atime(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("atime"); }
-  virtual BasicObject* m_mtime(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("mtime"); }
-  virtual BasicObject* m_ctime(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("ctime"); }
-  virtual BasicObject* m_birthtime(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("birthtime"); }
   virtual BasicObject* m_printf(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("printf"); }
   virtual BasicObject* m_flock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("flock"); }
   virtual BasicObject* m_sysseek(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("sysseek"); }
@@ -948,17 +1378,11 @@ struct BasicObject {
   virtual BasicObject* m_copy_stream(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("copy_stream"); }
   virtual BasicObject* m_chown(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("chown"); }
   virtual BasicObject* m_lstat(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("lstat"); }
-  virtual BasicObject* m_expand_path(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("expand_path"); }
   virtual BasicObject* m_absolute_path(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("absolute_path"); }
   virtual BasicObject* m_absolute_path_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("absolute_path?"); }
   virtual BasicObject* m_exists_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("exists?"); }
   virtual BasicObject* m_directory_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("directory?"); }
   virtual BasicObject* m_file_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("file?"); }
-  virtual BasicObject* m_readable_real_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("readable_real?"); }
-  virtual BasicObject* m_executable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("executable?"); }
-  virtual BasicObject* m_executable_real_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("executable_real?"); }
-  virtual BasicObject* m_writable_real_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("writable_real?"); }
-  virtual BasicObject* m_grpowned_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("grpowned?"); }
   virtual BasicObject* m_size_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("size?"); }
   virtual BasicObject* m_symlink_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("symlink?"); }
   virtual BasicObject* m_blockdev_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("blockdev?"); }
@@ -970,7 +1394,6 @@ struct BasicObject {
   virtual BasicObject* m_sticky_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("sticky?"); }
   virtual BasicObject* m_identical_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("identical?"); }
   virtual BasicObject* m_ftype(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("ftype"); }
-  virtual BasicObject* m_realpath(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("realpath"); }
   virtual BasicObject* m_realdirpath(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("realdirpath"); }
   virtual BasicObject* m_unlink(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("unlink"); }
   virtual BasicObject* m_rename(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("rename"); }
@@ -988,6 +1411,10 @@ struct BasicObject {
   virtual BasicObject* m_extname(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("extname"); }
   virtual BasicObject* m_world_readable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("world_readable?"); }
   virtual BasicObject* m_world_writable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("world_writable?"); }
+  virtual BasicObject* m_dev_major(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("dev_major"); }
+  virtual BasicObject* m_dev_minor(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("dev_minor"); }
+  virtual BasicObject* m_rdev_major(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("rdev_major"); }
+  virtual BasicObject* m_rdev_minor(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("rdev_minor"); }
   virtual BasicObject* m_chdir(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("chdir"); }
   virtual BasicObject* m_each_child(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("each_child"); }
   virtual BasicObject* m_pwd(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("pwd"); }
@@ -1035,14 +1462,8 @@ struct BasicObject {
   virtual BasicObject* m_scheduler(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("scheduler"); }
   virtual BasicObject* m_blocking(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("blocking"); }
   virtual BasicObject* m_set_scheduler(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("set_scheduler"); }
-  virtual BasicObject* m___stop_seen_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__stop_seen="); }
   virtual BasicObject* m___wakeup_count_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__wakeup_count="); }
   virtual BasicObject* m___mutex_skip_count_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__mutex_skip_count="); }
-  virtual BasicObject* m___mutex_seen_count_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__mutex_seen_count="); }
-  virtual BasicObject* m___mutex_done_count_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__mutex_done_count="); }
-  virtual BasicObject* m___raise_exception_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__raise_exception="); }
-  virtual BasicObject* m___raise_cause_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__raise_cause="); }
-  virtual BasicObject* m___raise_backtrace_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__raise_backtrace="); }
   virtual BasicObject* m_stop_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("stop?"); }
   virtual BasicObject* m_report_on_exception_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("report_on_exception="); }
   virtual BasicObject* m_abort_on_exception_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("abort_on_exception="); }
@@ -1068,6 +1489,8 @@ struct BasicObject {
   virtual BasicObject* m_fork(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("fork"); }
   virtual BasicObject* m___kill_all_non_main_b(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("__kill_all_non_main!"); }
   virtual BasicObject* m_pass(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("pass"); }
+  virtual BasicObject* m_label(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("label"); }
+  virtual BasicObject* m_base_label(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("base_label"); }
   virtual BasicObject* m_enclose(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("enclose"); }
   virtual BasicObject* m_signal(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("signal"); }
   virtual BasicObject* m_broadcast(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("broadcast"); }
@@ -1079,8 +1502,6 @@ struct BasicObject {
   virtual BasicObject* m_waitpid(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("waitpid"); }
   virtual BasicObject* m_waitpid2(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("waitpid2"); }
   virtual BasicObject* m_waitall(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("waitall"); }
-  virtual BasicObject* m_uid(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("uid"); }
-  virtual BasicObject* m_gid(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("gid"); }
   virtual BasicObject* m_euid(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("euid"); }
   virtual BasicObject* m_egid(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("egid"); }
   virtual BasicObject* m_groups(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("groups"); }
@@ -1094,6 +1515,10 @@ struct BasicObject {
   virtual BasicObject* m_euid_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("euid="); }
   virtual BasicObject* m_egid_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("egid="); }
   virtual BasicObject* m_detach(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("detach"); }
+  virtual BasicObject* m_stopped_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("stopped?"); }
+  virtual BasicObject* m_stopsig(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("stopsig"); }
+  virtual BasicObject* m_coredump_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("coredump?"); }
+  virtual BasicObject* m_exited_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("exited?"); }
   virtual BasicObject* m_local_variables(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("local_variables"); }
   virtual BasicObject* m_local_variable_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("local_variable_set"); }
   virtual BasicObject* m_local_variable_defined_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("local_variable_defined?"); }
@@ -1105,8 +1530,6 @@ struct BasicObject {
   virtual BasicObject* m_closed_write_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("closed_write?"); }
   virtual BasicObject* m_lines(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("lines"); }
   virtual BasicObject* m_fcntl(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("fcntl"); }
-  virtual BasicObject* m_respond_to_missing_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("respond_to_missing?"); }
-  virtual BasicObject* m_each_pair(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("each_pair"); }
   virtual BasicObject* m_with(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("with"); }
   virtual BasicObject* m_define(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("define"); }
   virtual BasicObject* m_disjoint_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("disjoint?"); }
@@ -1130,6 +1553,7 @@ struct BasicObject {
   virtual BasicObject* m_random_number(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("random_number"); }
   virtual BasicObject* m_urandom(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("urandom"); }
   virtual BasicObject* m_new_seed(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("new_seed"); }
+  virtual BasicObject* m_getkey(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("getkey"); }
   virtual BasicObject* m_rehash(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("rehash"); }
   virtual BasicObject* m_store(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("store"); }
   virtual BasicObject* m_value_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("value?"); }
@@ -1139,8 +1563,14 @@ struct BasicObject {
   virtual BasicObject* m_update(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("update"); }
   virtual BasicObject* m_merge_b(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("merge!"); }
   virtual BasicObject* m_except(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("except"); }
-  virtual BasicObject* m_filter(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("filter"); }
   virtual BasicObject* m_invert(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("invert"); }
+  virtual BasicObject* m_dump(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("dump"); }
+  virtual BasicObject* m_write_class_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_class_name"); }
+  virtual BasicObject* m_write_module_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("write_module_name"); }
+  virtual BasicObject* m_load(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("load"); }
+  virtual BasicObject* m_peek_byte(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("peek_byte"); }
+  virtual BasicObject* m_read_class_by_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_class_by_name"); }
+  virtual BasicObject* m_read_user_defined_body(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("read_user_defined_body"); }
 };
 
 struct Object : BasicObject {
@@ -1359,6 +1789,15 @@ struct Proc : Object {
   virtual BasicObject* m_call(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
+struct BasicObject_BasicObject : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "BasicObject_BasicObject"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> BasicObject_BasicObject(__Ts__...) {}
+  virtual BasicObject* m_not(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_ne_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_respond_to_missing_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
 struct Module : Object {
   using Object::Object;
   const char* ruby_class_name() const override { return "Module"; }
@@ -1486,9 +1925,11 @@ struct Range : Object {
   virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eq_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eql_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_step(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_reduce(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_inject(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_last(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_mod(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_overlap_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_each_slice(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_each_cons(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -1526,6 +1967,7 @@ struct Enumerator : Object {
   virtual BasicObject* m_next(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_peek(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_with_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_plus(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_count(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_feed(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_rewind(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -1534,6 +1976,120 @@ struct Enumerator : Object {
   virtual BasicObject* m___advance__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___next_values_raw__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___peek_values_raw__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Enumerator_Yielder : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Enumerator_Yielder"; }
+  BasicObject* iv_block = nullptr;
+  Enumerator_Yielder(Proc* block = nullptr);
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_Yielder(__Ts__...) {}
+  virtual BasicObject* m_lshift(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_yield(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Enumerator_Generator : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Enumerator_Generator"; }
+  BasicObject* iv_block = nullptr;
+  Enumerator_Generator(Proc* block = nullptr);
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_Generator(__Ts__...) {}
+};
+
+struct Enumerator_Lazy : Enumerator {
+  using Enumerator::Enumerator;
+  const char* ruby_class_name() const override { return "Enumerator_Lazy"; }
+  BasicObject* iv__grouped_eval = nullptr;
+  BasicObject* iv__xform_factory = nullptr;
+  BasicObject* iv__lazy_xform = nullptr;
+  BasicObject* iv_receiver = nullptr;
+  BasicObject* iv__lazy_size = nullptr;
+  BasicObject* iv_method_name = nullptr;
+  BasicObject* iv_method_args = nullptr;
+  BasicObject* iv_method_kwargs = nullptr;
+  BasicObject* iv_size_block = nullptr;
+  BasicObject* iv_size = nullptr;
+  BasicObject* iv_block = nullptr;
+  BasicObject* iv_fiber = nullptr;
+  BasicObject* iv_peeked = nullptr;
+  BasicObject* iv_peeked_vals = nullptr;
+  BasicObject* iv_feed = nullptr;
+  BasicObject* iv__feed_pending = nullptr;
+  BasicObject* iv__fiber_started = nullptr;
+  Enumerator_Lazy(BasicObject* obj, BasicObject* size = nil_instance(), Proc* block = nullptr);
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_Lazy(__Ts__...) {}
+  virtual BasicObject* m_lazy(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_with_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_eager(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_first(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_size(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_map(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_collect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_select(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_filter(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_find_all(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_reject(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_flat_map(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_collect_concat(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_take_while(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_filter_map(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_compact(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_grep(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_grep_v(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_each_with_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_each_with_index(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Enumerator_Chain : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Enumerator_Chain"; }
+  BasicObject* iv_enums = nullptr;
+  BasicObject* iv__iterated_count = nullptr;
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_Chain(__Ts__...) {}
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_each(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_rewind(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Enumerator_ArithmeticSequence : Enumerator {
+  using Enumerator::Enumerator;
+  const char* ruby_class_name() const override { return "Enumerator_ArithmeticSequence"; }
+  BasicObject* iv_receiver = nullptr;
+  BasicObject* iv_method_kwargs = nullptr;
+  BasicObject* iv_method_args = nullptr;
+  BasicObject* iv_size_block = nullptr;
+  BasicObject* iv_method_name = nullptr;
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_ArithmeticSequence(__Ts__...) {}
+  virtual BasicObject* m_exclude_end_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_begin(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_hash(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_end(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_step(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_last(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Enumerator_Product : Enumerator {
+  using Enumerator::Enumerator;
+  const char* ruby_class_name() const override { return "Enumerator_Product"; }
+  BasicObject* iv_enumerables = nullptr;
+  BasicObject* iv_block = nullptr;
+  BasicObject* iv_receiver = nullptr;
+  BasicObject* iv_method_name = nullptr;
+  BasicObject* iv_method_args = nullptr;
+  BasicObject* iv_method_kwargs = nullptr;
+  BasicObject* iv_size_block = nullptr;
+  BasicObject* iv_size = nullptr;
+  BasicObject* iv_fiber = nullptr;
+  BasicObject* iv_peeked = nullptr;
+  BasicObject* iv_peeked_vals = nullptr;
+  BasicObject* iv_feed = nullptr;
+  BasicObject* iv__feed_pending = nullptr;
+  BasicObject* iv__fiber_started = nullptr;
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_Product(__Ts__...) {}
+  virtual BasicObject* m_rewind(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_each(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_initialize_copy(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Exception : Object {
@@ -1550,6 +2106,7 @@ struct Exception : Object {
   virtual BasicObject* m_backtrace(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_cause(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_backtrace_locations(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_exception(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eq_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -1795,6 +2352,360 @@ struct RegexpError : StandardError {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> RegexpError(__Ts__...) {}
 };
 
+struct Errno_E2BIG : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_E2BIG"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_E2BIG(__Ts__...) {}
+};
+
+struct Errno_EACCES : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EACCES"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EACCES(__Ts__...) {}
+};
+
+struct Errno_EADDRINUSE : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EADDRINUSE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EADDRINUSE(__Ts__...) {}
+};
+
+struct Errno_EADDRNOTAVAIL : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EADDRNOTAVAIL"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EADDRNOTAVAIL(__Ts__...) {}
+};
+
+struct Errno_EAFNOSUPPORT : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EAFNOSUPPORT"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EAFNOSUPPORT(__Ts__...) {}
+};
+
+struct Errno_EAGAIN : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EAGAIN"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EAGAIN(__Ts__...) {}
+};
+
+struct Errno_EALREADY : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EALREADY"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EALREADY(__Ts__...) {}
+};
+
+struct Errno_EBADF : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EBADF"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EBADF(__Ts__...) {}
+};
+
+struct Errno_EBUSY : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EBUSY"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EBUSY(__Ts__...) {}
+};
+
+struct Errno_ECHILD : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ECHILD"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ECHILD(__Ts__...) {}
+};
+
+struct Errno_EILSEQ : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EILSEQ"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EILSEQ(__Ts__...) {}
+};
+
+struct Errno_ECONNABORTED : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ECONNABORTED"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ECONNABORTED(__Ts__...) {}
+};
+
+struct Errno_ECONNREFUSED : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ECONNREFUSED"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ECONNREFUSED(__Ts__...) {}
+};
+
+struct Errno_ECONNRESET : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ECONNRESET"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ECONNRESET(__Ts__...) {}
+};
+
+struct Errno_EDEADLK : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EDEADLK"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EDEADLK(__Ts__...) {}
+};
+
+struct Errno_EDOM : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EDOM"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EDOM(__Ts__...) {}
+};
+
+struct Errno_EEXIST : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EEXIST"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EEXIST(__Ts__...) {}
+};
+
+struct Errno_EFAULT : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EFAULT"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EFAULT(__Ts__...) {}
+};
+
+struct Errno_EFBIG : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EFBIG"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EFBIG(__Ts__...) {}
+};
+
+struct Errno_EHOSTUNREACH : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EHOSTUNREACH"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EHOSTUNREACH(__Ts__...) {}
+};
+
+struct Errno_EINPROGRESS : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EINPROGRESS"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EINPROGRESS(__Ts__...) {}
+};
+
+struct Errno_EINTR : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EINTR"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EINTR(__Ts__...) {}
+};
+
+struct Errno_EINVAL : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EINVAL"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EINVAL(__Ts__...) {}
+};
+
+struct Errno_EIO : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EIO"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EIO(__Ts__...) {}
+};
+
+struct Errno_EISCONN : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EISCONN"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EISCONN(__Ts__...) {}
+};
+
+struct Errno_EISDIR : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EISDIR"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EISDIR(__Ts__...) {}
+};
+
+struct Errno_ELOOP : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ELOOP"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ELOOP(__Ts__...) {}
+};
+
+struct Errno_EMFILE : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EMFILE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EMFILE(__Ts__...) {}
+};
+
+struct Errno_EMSGSIZE : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EMSGSIZE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EMSGSIZE(__Ts__...) {}
+};
+
+struct Errno_ENAMETOOLONG : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENAMETOOLONG"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENAMETOOLONG(__Ts__...) {}
+};
+
+struct Errno_ENETDOWN : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENETDOWN"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENETDOWN(__Ts__...) {}
+};
+
+struct Errno_ENETUNREACH : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENETUNREACH"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENETUNREACH(__Ts__...) {}
+};
+
+struct Errno_ENFILE : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENFILE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENFILE(__Ts__...) {}
+};
+
+struct Errno_ENODEV : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENODEV"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENODEV(__Ts__...) {}
+};
+
+struct Errno_ENOENT : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENOENT"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOENT(__Ts__...) {}
+};
+
+struct Errno_ENOEXEC : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENOEXEC"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOEXEC(__Ts__...) {}
+};
+
+struct Errno_ENOMEM : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENOMEM"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOMEM(__Ts__...) {}
+};
+
+struct Errno_ENOSPC : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENOSPC"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOSPC(__Ts__...) {}
+};
+
+struct Errno_ENOSYS : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENOSYS"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOSYS(__Ts__...) {}
+};
+
+struct Errno_ENOTCONN : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENOTCONN"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOTCONN(__Ts__...) {}
+};
+
+struct Errno_ENOTDIR : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENOTDIR"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOTDIR(__Ts__...) {}
+};
+
+struct Errno_ENOTEMPTY : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENOTEMPTY"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOTEMPTY(__Ts__...) {}
+};
+
+struct Errno_ENOTSUP : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENOTSUP"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOTSUP(__Ts__...) {}
+};
+
+struct Errno_ENOTTY : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENOTTY"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOTTY(__Ts__...) {}
+};
+
+struct Errno_ENXIO : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ENXIO"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENXIO(__Ts__...) {}
+};
+
+struct Errno_EOPNOTSUPP : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EOPNOTSUPP"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EOPNOTSUPP(__Ts__...) {}
+};
+
+struct Errno_EOVERFLOW : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EOVERFLOW"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EOVERFLOW(__Ts__...) {}
+};
+
+struct Errno_EPERM : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EPERM"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EPERM(__Ts__...) {}
+};
+
+struct Errno_EPIPE : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EPIPE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EPIPE(__Ts__...) {}
+};
+
+struct Errno_EPROTONOSUPPORT : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EPROTONOSUPPORT"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EPROTONOSUPPORT(__Ts__...) {}
+};
+
+struct Errno_ERANGE : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ERANGE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ERANGE(__Ts__...) {}
+};
+
+struct Errno_EROFS : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EROFS"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EROFS(__Ts__...) {}
+};
+
+struct Errno_ESPIPE : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ESPIPE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ESPIPE(__Ts__...) {}
+};
+
+struct Errno_ESRCH : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ESRCH"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ESRCH(__Ts__...) {}
+};
+
+struct Errno_ETIMEDOUT : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ETIMEDOUT"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ETIMEDOUT(__Ts__...) {}
+};
+
+struct Errno_ETXTBSY : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_ETXTBSY"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ETXTBSY(__Ts__...) {}
+};
+
+struct Errno_EWOULDBLOCK : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EWOULDBLOCK"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EWOULDBLOCK(__Ts__...) {}
+};
+
+struct Errno_EXDEV : SystemCallError {
+  using SystemCallError::SystemCallError;
+  const char* ruby_class_name() const override { return "Errno_EXDEV"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EXDEV(__Ts__...) {}
+};
+
+struct Math_DomainError : ArgumentError {
+  using ArgumentError::ArgumentError;
+  const char* ruby_class_name() const override { return "Math_DomainError"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Math_DomainError(__Ts__...) {}
+};
+
 struct Encoding : Object {
   using Object::Object;
   const char* ruby_class_name() const override { return "Encoding"; }
@@ -1808,6 +2719,60 @@ struct Encoding : Object {
   virtual BasicObject* m_ascii_only_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_replicate(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Encoding_CompatibilityError : EncodingError {
+  using EncodingError::EncodingError;
+  const char* ruby_class_name() const override { return "Encoding_CompatibilityError"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Encoding_CompatibilityError(__Ts__...) {}
+};
+
+struct Encoding_ConverterNotFoundError : EncodingError {
+  using EncodingError::EncodingError;
+  const char* ruby_class_name() const override { return "Encoding_ConverterNotFoundError"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Encoding_ConverterNotFoundError(__Ts__...) {}
+};
+
+struct Encoding_InvalidByteSequenceError : EncodingError {
+  using EncodingError::EncodingError;
+  const char* ruby_class_name() const override { return "Encoding_InvalidByteSequenceError"; }
+  BasicObject* iv_source_encoding_name = nullptr;
+  BasicObject* iv_destination_encoding_name = nullptr;
+  BasicObject* iv_source_encoding = nullptr;
+  BasicObject* iv_destination_encoding = nullptr;
+  BasicObject* iv_error_bytes = nullptr;
+  BasicObject* iv_readagain_bytes = nullptr;
+  BasicObject* iv_incomplete_input = nullptr;
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Encoding_InvalidByteSequenceError(__Ts__...) {}
+  virtual BasicObject* m_source_encoding_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_destination_encoding_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_source_encoding(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_destination_encoding(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_error_bytes(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_readagain_bytes(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_incomplete_input_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Encoding_UndefinedConversionError : EncodingError {
+  using EncodingError::EncodingError;
+  const char* ruby_class_name() const override { return "Encoding_UndefinedConversionError"; }
+  BasicObject* iv_source_encoding_name = nullptr;
+  BasicObject* iv_destination_encoding_name = nullptr;
+  BasicObject* iv_source_encoding = nullptr;
+  BasicObject* iv_destination_encoding = nullptr;
+  BasicObject* iv_error_char = nullptr;
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Encoding_UndefinedConversionError(__Ts__...) {}
+  virtual BasicObject* m_source_encoding_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_destination_encoding_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_source_encoding(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_destination_encoding(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_error_char(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Encoding_Converter : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Encoding_Converter"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Encoding_Converter(__Ts__...) {}
 };
 
 struct MatchData : Object {
@@ -1832,6 +2797,12 @@ struct Regexp : Object {
   const char* ruby_class_name() const override { return "Regexp"; }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Regexp(__Ts__...) {}
   virtual BasicObject* m_dup(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Regexp_TimeoutError : RegexpError {
+  using RegexpError::RegexpError;
+  const char* ruby_class_name() const override { return "Regexp_TimeoutError"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Regexp_TimeoutError(__Ts__...) {}
 };
 
 struct Rational : Numeric {
@@ -1947,11 +2918,82 @@ struct IO : Object {
   virtual BasicObject* m_putc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
+struct IO_CapturedOutput : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "IO_CapturedOutput"; }
+  BasicObject* iv_str = nullptr;
+  IO_CapturedOutput(BasicObject* str);
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> IO_CapturedOutput(__Ts__...) {}
+  virtual BasicObject* m_read(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_gets(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_close(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct IO_EAGAINWaitReadable : Errno_EAGAIN {
+  using Errno_EAGAIN::Errno_EAGAIN;
+  const char* ruby_class_name() const override { return "IO_EAGAINWaitReadable"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> IO_EAGAINWaitReadable(__Ts__...) {}
+};
+
+struct IO_EAGAINWaitWritable : Errno_EAGAIN {
+  using Errno_EAGAIN::Errno_EAGAIN;
+  const char* ruby_class_name() const override { return "IO_EAGAINWaitWritable"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> IO_EAGAINWaitWritable(__Ts__...) {}
+};
+
+struct IO_EWOULDBLOCKWaitReadable : Errno_EAGAIN {
+  using Errno_EAGAIN::Errno_EAGAIN;
+  const char* ruby_class_name() const override { return "IO_EWOULDBLOCKWaitReadable"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> IO_EWOULDBLOCKWaitReadable(__Ts__...) {}
+};
+
+struct IO_EWOULDBLOCKWaitWritable : Errno_EAGAIN {
+  using Errno_EAGAIN::Errno_EAGAIN;
+  const char* ruby_class_name() const override { return "IO_EWOULDBLOCKWaitWritable"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> IO_EWOULDBLOCKWaitWritable(__Ts__...) {}
+};
+
 struct File : IO {
   using IO::IO;
   const char* ruby_class_name() const override { return "File"; }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> File(__Ts__...) {}
   virtual BasicObject* m_chown(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_lstat(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct File_Stat : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "File_Stat"; }
+  BasicObject* iv_path = nullptr;
+  BasicObject* iv_native_stat = nullptr;
+  BasicObject* iv_lstat = nullptr;
+  BasicObject* iv_stat = nullptr;
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> File_Stat(__Ts__...) {}
+  virtual BasicObject* m_file_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_directory_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_symlink_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_pipe_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_socket_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_blockdev_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_chardev_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_setuid_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_setgid_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_sticky_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_zero_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_empty_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_size_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_readable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_readable_real_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_writable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_writable_real_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_executable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_executable_real_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_owned_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_grpowned_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_ftype(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_world_readable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_world_writable_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Dir : Object {
@@ -2024,9 +3066,11 @@ struct Mutex : Object {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Mutex(__Ts__...) {}
   virtual BasicObject* m_locked_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_owned_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_lock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_unlock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___force_unlock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_try_lock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_synchronize(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
 struct Fiber : Object {
@@ -2121,6 +3165,49 @@ struct Thread : Object {
   virtual BasicObject* m_keys(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
+struct Thread_Blocked : Exception {
+  using Exception::Exception;
+  const char* ruby_class_name() const override { return "Thread_Blocked"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Thread_Blocked(__Ts__...) {}
+};
+
+struct Thread_Mutex : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Thread_Mutex"; }
+  BasicObject* iv_locked = nullptr;
+  BasicObject* iv_owner = nullptr;
+  BasicObject* iv_owner_fiber = nullptr;
+  Thread_Mutex();
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Thread_Mutex(__Ts__...) {}
+  virtual BasicObject* m_locked_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_owned_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_lock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_unlock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m___force_unlock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_try_lock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_synchronize(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Thread_Backtrace : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Thread_Backtrace"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Thread_Backtrace(__Ts__...) {}
+};
+
+struct Thread_Backtrace_Location : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Thread_Backtrace_Location"; }
+  BasicObject* iv_path = nullptr;
+  BasicObject* iv_lineno = nullptr;
+  BasicObject* iv_label = nullptr;
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Thread_Backtrace_Location(__Ts__...) {}
+  virtual BasicObject* m_path(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_lineno(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_label(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
 struct ThreadGroup : Object {
   using Object::Object;
   const char* ruby_class_name() const override { return "ThreadGroup"; }
@@ -2190,6 +3277,21 @@ struct Process : Object {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Process(__Ts__...) {}
 };
 
+struct Process_Status : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Process_Status"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Process_Status(__Ts__...) {}
+  virtual BasicObject* m_success_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_signaled_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_stopped_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_stopsig(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_coredump_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_exited_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_i(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
 struct Binding : Object {
   using Object::Object;
   const char* ruby_class_name() const override { return "Binding"; }
@@ -2227,6 +3329,7 @@ struct StringIO : Object {
   virtual BasicObject* m_size(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_length(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_pos(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_pos_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_tell(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_rewind(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eof_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -2246,6 +3349,7 @@ struct StringIO : Object {
   virtual BasicObject* m_getbyte(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_lshift(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_putc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_truncate(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_bytes(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_chars(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_lines(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -2263,6 +3367,8 @@ struct StringIO : Object {
   virtual BasicObject* m_tty_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_pid(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_fcntl(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_ioctl(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_stat(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_to_io(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -2272,6 +3378,7 @@ struct StringIO : Object {
   virtual BasicObject* m_writable_real_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m__check_open(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m__check_readable(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m__check_writable(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m__chomp(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
@@ -2365,6 +3472,33 @@ struct Random : Object {
   virtual BasicObject* m_eq_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
+struct ObjectSpace_WeakMap : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "ObjectSpace_WeakMap"; }
+  BasicObject* iv_pairs = nullptr;
+  ObjectSpace_WeakMap();
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> ObjectSpace_WeakMap(__Ts__...) {}
+  virtual BasicObject* m_size(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_length(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m__weakmap_inspect_obj(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct ObjectSpace_WeakKeyMap : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "ObjectSpace_WeakKeyMap"; }
+  BasicObject* iv_pairs = nullptr;
+  ObjectSpace_WeakKeyMap();
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> ObjectSpace_WeakKeyMap(__Ts__...) {}
+  virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_aset(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_aref(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_key_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_delete(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_getkey(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_clear(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m___ungcable___q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
 struct ENVClass : Object {
   using Object::Object;
   const char* ruby_class_name() const override { return "ENVClass"; }
@@ -2373,6 +3507,97 @@ struct ENVClass : Object {
   virtual BasicObject* m_rehash(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eq_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_dup(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Gem_Specification : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Gem_Specification"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Gem_Specification(__Ts__...) {}
+};
+
+struct Marshal_Dumper : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Marshal_Dumper"; }
+  BasicObject* iv_limit = nullptr;
+  BasicObject* iv_depth = nullptr;
+  BasicObject* iv_symbols = nullptr;
+  BasicObject* iv_objects = nullptr;
+  BasicObject* iv_out = nullptr;
+  Marshal_Dumper(BasicObject* limit);
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Marshal_Dumper(__Ts__...) {}
+  virtual BasicObject* m_dump(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_respond_to_marshal_dump_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_respond_to__dump_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_real_class_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_real_module_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_write_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_isa_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_track(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_bignum_to_bytes(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_encoding_ivar(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_collect_ivars(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_extended_modules(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_write_class_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_write_module_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_check_anonymous(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Marshal_Loader : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Marshal_Loader"; }
+  BasicObject* iv_data = nullptr;
+  BasicObject* iv_pos = nullptr;
+  BasicObject* iv_symbols = nullptr;
+  BasicObject* iv_objects = nullptr;
+  BasicObject* iv_proc = nullptr;
+  BasicObject* iv_freeze = nullptr;
+  BasicObject* iv_no_link_proc = nullptr;
+  BasicObject* iv_completed = nullptr;
+  BasicObject* iv_string_dedup = nullptr;
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Marshal_Loader(__Ts__...) {}
+  virtual BasicObject* m_read_ivar(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_byte(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_bytes(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_peek_byte(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_long(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_track(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_call_proc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_freeze_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_symbol(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_array(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_hash(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_class_ref(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_module_ref(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_old_module_ref(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_class_by_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_class_by_symbol(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_user_defined_body(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_struct_body(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_generic_object_body(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_link(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_uclass(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_user_defined(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_user_marshal(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_extended(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_data_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Frozone_Vm_Vm : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Frozone_Vm_Vm"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Frozone_Vm_Vm(__Ts__...) {}
+};
+
+struct Frozone_Vm_Parser : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Frozone_Vm_Parser"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Frozone_Vm_Parser(__Ts__...) {}
+};
+
+struct Frozone_Vm_WqParser : Object {
+  using Object::Object;
+  const char* ruby_class_name() const override { return "Frozone_Vm_WqParser"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Frozone_Vm_WqParser(__Ts__...) {}
 };
 
 struct Box : Object {
@@ -2463,6 +3688,12 @@ struct Proc_eigenclass : Class {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Proc_eigenclass(__Ts__...) {}
 };
 
+struct BasicObject_BasicObject_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "BasicObject_BasicObject"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> BasicObject_BasicObject_eigenclass(__Ts__...) {}
+};
+
 struct Module_eigenclass : Class {
   using Class::Class;
   const char* ruby_class_name() const override { return "Module"; }
@@ -2506,6 +3737,43 @@ struct Enumerator_eigenclass : Class {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_eigenclass(__Ts__...) {}
   virtual BasicObject* m__from_method(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_produce(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Enumerator_Yielder_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Enumerator_Yielder"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_Yielder_eigenclass(__Ts__...) {}
+};
+
+struct Enumerator_Generator_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Enumerator_Generator"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_Generator_eigenclass(__Ts__...) {}
+};
+
+struct Enumerator_Lazy_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Enumerator_Lazy"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_Lazy_eigenclass(__Ts__...) {}
+};
+
+struct Enumerator_Chain_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Enumerator_Chain"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_Chain_eigenclass(__Ts__...) {}
+};
+
+struct Enumerator_ArithmeticSequence_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Enumerator_ArithmeticSequence"; }
+  BasicObject* iv__internal_allocate = nullptr;
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_ArithmeticSequence_eigenclass(__Ts__...) {}
+};
+
+struct Enumerator_Product_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Enumerator_Product"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Enumerator_Product_eigenclass(__Ts__...) {}
 };
 
 struct Exception_eigenclass : Class {
@@ -2719,6 +3987,360 @@ struct RegexpError_eigenclass : Class {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> RegexpError_eigenclass(__Ts__...) {}
 };
 
+struct Errno_E2BIG_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_E2BIG"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_E2BIG_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EACCES_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EACCES"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EACCES_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EADDRINUSE_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EADDRINUSE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EADDRINUSE_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EADDRNOTAVAIL_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EADDRNOTAVAIL"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EADDRNOTAVAIL_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EAFNOSUPPORT_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EAFNOSUPPORT"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EAFNOSUPPORT_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EAGAIN_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EAGAIN"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EAGAIN_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EALREADY_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EALREADY"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EALREADY_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EBADF_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EBADF"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EBADF_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EBUSY_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EBUSY"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EBUSY_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ECHILD_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ECHILD"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ECHILD_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EILSEQ_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EILSEQ"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EILSEQ_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ECONNABORTED_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ECONNABORTED"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ECONNABORTED_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ECONNREFUSED_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ECONNREFUSED"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ECONNREFUSED_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ECONNRESET_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ECONNRESET"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ECONNRESET_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EDEADLK_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EDEADLK"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EDEADLK_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EDOM_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EDOM"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EDOM_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EEXIST_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EEXIST"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EEXIST_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EFAULT_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EFAULT"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EFAULT_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EFBIG_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EFBIG"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EFBIG_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EHOSTUNREACH_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EHOSTUNREACH"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EHOSTUNREACH_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EINPROGRESS_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EINPROGRESS"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EINPROGRESS_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EINTR_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EINTR"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EINTR_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EINVAL_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EINVAL"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EINVAL_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EIO_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EIO"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EIO_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EISCONN_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EISCONN"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EISCONN_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EISDIR_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EISDIR"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EISDIR_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ELOOP_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ELOOP"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ELOOP_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EMFILE_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EMFILE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EMFILE_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EMSGSIZE_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EMSGSIZE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EMSGSIZE_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENAMETOOLONG_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENAMETOOLONG"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENAMETOOLONG_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENETDOWN_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENETDOWN"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENETDOWN_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENETUNREACH_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENETUNREACH"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENETUNREACH_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENFILE_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENFILE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENFILE_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENODEV_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENODEV"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENODEV_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENOENT_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENOENT"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOENT_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENOEXEC_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENOEXEC"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOEXEC_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENOMEM_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENOMEM"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOMEM_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENOSPC_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENOSPC"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOSPC_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENOSYS_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENOSYS"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOSYS_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENOTCONN_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENOTCONN"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOTCONN_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENOTDIR_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENOTDIR"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOTDIR_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENOTEMPTY_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENOTEMPTY"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOTEMPTY_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENOTSUP_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENOTSUP"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOTSUP_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENOTTY_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENOTTY"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENOTTY_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ENXIO_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ENXIO"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ENXIO_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EOPNOTSUPP_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EOPNOTSUPP"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EOPNOTSUPP_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EOVERFLOW_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EOVERFLOW"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EOVERFLOW_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EPERM_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EPERM"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EPERM_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EPIPE_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EPIPE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EPIPE_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EPROTONOSUPPORT_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EPROTONOSUPPORT"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EPROTONOSUPPORT_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ERANGE_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ERANGE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ERANGE_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EROFS_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EROFS"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EROFS_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ESPIPE_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ESPIPE"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ESPIPE_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ESRCH_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ESRCH"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ESRCH_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ETIMEDOUT_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ETIMEDOUT"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ETIMEDOUT_eigenclass(__Ts__...) {}
+};
+
+struct Errno_ETXTBSY_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_ETXTBSY"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_ETXTBSY_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EWOULDBLOCK_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EWOULDBLOCK"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EWOULDBLOCK_eigenclass(__Ts__...) {}
+};
+
+struct Errno_EXDEV_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Errno_EXDEV"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Errno_EXDEV_eigenclass(__Ts__...) {}
+};
+
+struct Math_DomainError_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Math_DomainError"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Math_DomainError_eigenclass(__Ts__...) {}
+};
+
 struct Encoding_eigenclass : Class {
   using Class::Class;
   const char* ruby_class_name() const override { return "Encoding"; }
@@ -2728,6 +4350,36 @@ struct Encoding_eigenclass : Class {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Encoding_eigenclass(__Ts__...) {}
   virtual BasicObject* m_default_internal(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_find(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Encoding_CompatibilityError_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Encoding_CompatibilityError"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Encoding_CompatibilityError_eigenclass(__Ts__...) {}
+};
+
+struct Encoding_ConverterNotFoundError_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Encoding_ConverterNotFoundError"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Encoding_ConverterNotFoundError_eigenclass(__Ts__...) {}
+};
+
+struct Encoding_InvalidByteSequenceError_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Encoding_InvalidByteSequenceError"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Encoding_InvalidByteSequenceError_eigenclass(__Ts__...) {}
+};
+
+struct Encoding_UndefinedConversionError_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Encoding_UndefinedConversionError"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Encoding_UndefinedConversionError_eigenclass(__Ts__...) {}
+};
+
+struct Encoding_Converter_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Encoding_Converter"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Encoding_Converter_eigenclass(__Ts__...) {}
 };
 
 struct MatchData_eigenclass : Class {
@@ -2742,6 +4394,12 @@ struct Regexp_eigenclass : Class {
   const char* ruby_class_name() const override { return "Regexp"; }
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Regexp_eigenclass(__Ts__...) {}
   virtual BasicObject* m_try_convert(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Regexp_TimeoutError_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Regexp_TimeoutError"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Regexp_TimeoutError_eigenclass(__Ts__...) {}
 };
 
 struct Rational_eigenclass : Class {
@@ -2768,6 +4426,36 @@ struct IO_eigenclass : Class {
   virtual BasicObject* m___coerce_path__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
+struct IO_CapturedOutput_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "IO_CapturedOutput"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> IO_CapturedOutput_eigenclass(__Ts__...) {}
+};
+
+struct IO_EAGAINWaitReadable_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "IO_EAGAINWaitReadable"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> IO_EAGAINWaitReadable_eigenclass(__Ts__...) {}
+};
+
+struct IO_EAGAINWaitWritable_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "IO_EAGAINWaitWritable"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> IO_EAGAINWaitWritable_eigenclass(__Ts__...) {}
+};
+
+struct IO_EWOULDBLOCKWaitReadable_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "IO_EWOULDBLOCKWaitReadable"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> IO_EWOULDBLOCKWaitReadable_eigenclass(__Ts__...) {}
+};
+
+struct IO_EWOULDBLOCKWaitWritable_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "IO_EWOULDBLOCKWaitWritable"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> IO_EWOULDBLOCKWaitWritable_eigenclass(__Ts__...) {}
+};
+
 struct File_eigenclass : Class {
   using Class::Class;
   const char* ruby_class_name() const override { return "File"; }
@@ -2775,8 +4463,15 @@ struct File_eigenclass : Class {
   virtual BasicObject* m_lchown(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_lchmod(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_fnmatch_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_chown(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_path(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m__coerce_path(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct File_Stat_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "File_Stat"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> File_Stat_eigenclass(__Ts__...) {}
 };
 
 struct Dir_eigenclass : Class {
@@ -2833,6 +4528,30 @@ struct Thread_eigenclass : Class {
   virtual BasicObject* m_new_main_thread(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
 
+struct Thread_Blocked_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Thread_Blocked"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Thread_Blocked_eigenclass(__Ts__...) {}
+};
+
+struct Thread_Mutex_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Thread_Mutex"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Thread_Mutex_eigenclass(__Ts__...) {}
+};
+
+struct Thread_Backtrace_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Thread_Backtrace"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Thread_Backtrace_eigenclass(__Ts__...) {}
+};
+
+struct Thread_Backtrace_Location_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Thread_Backtrace_Location"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Thread_Backtrace_Location_eigenclass(__Ts__...) {}
+};
+
 struct ThreadGroup_eigenclass : Class {
   using Class::Class;
   const char* ruby_class_name() const override { return "ThreadGroup"; }
@@ -2863,7 +4582,17 @@ struct Process_eigenclass : Class {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Process_eigenclass(__Ts__...) {}
   virtual BasicObject* m__fork(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_fork(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_uid_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_gid_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_euid_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_egid_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_detach(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Process_Status_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Process_Status"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Process_Status_eigenclass(__Ts__...) {}
 };
 
 struct Binding_eigenclass : Class {
@@ -2918,6 +4647,18 @@ struct Random_eigenclass : Class {
   template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Random_eigenclass(__Ts__...) {}
 };
 
+struct ObjectSpace_WeakMap_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "ObjectSpace_WeakMap"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> ObjectSpace_WeakMap_eigenclass(__Ts__...) {}
+};
+
+struct ObjectSpace_WeakKeyMap_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "ObjectSpace_WeakKeyMap"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> ObjectSpace_WeakKeyMap_eigenclass(__Ts__...) {}
+};
+
 struct ENVClass_eigenclass : Class {
   using Class::Class;
   const char* ruby_class_name() const override { return "ENVClass"; }
@@ -2925,8 +4666,47 @@ struct ENVClass_eigenclass : Class {
   virtual BasicObject* m___coerce_key(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___coerce_value(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___coerce_env_string__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m___validate_key(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___enc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___soft_coerce_string__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Gem_Specification_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Gem_Specification"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Gem_Specification_eigenclass(__Ts__...) {}
+  virtual BasicObject* m_flat_map(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_each(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+};
+
+struct Marshal_Dumper_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Marshal_Dumper"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Marshal_Dumper_eigenclass(__Ts__...) {}
+};
+
+struct Marshal_Loader_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Marshal_Loader"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Marshal_Loader_eigenclass(__Ts__...) {}
+};
+
+struct Frozone_Vm_Vm_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Frozone_Vm_Vm"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Frozone_Vm_Vm_eigenclass(__Ts__...) {}
+};
+
+struct Frozone_Vm_Parser_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Frozone_Vm_Parser"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Frozone_Vm_Parser_eigenclass(__Ts__...) {}
+};
+
+struct Frozone_Vm_WqParser_eigenclass : Class {
+  using Class::Class;
+  const char* ruby_class_name() const override { return "Frozone_Vm_WqParser"; }
+  template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> Frozone_Vm_WqParser_eigenclass(__Ts__...) {}
 };
 
 struct Box_eigenclass : Class {
@@ -2951,6 +4731,7 @@ inline Symbol_eigenclass Symbol_CLASS;
 inline String_eigenclass String_CLASS;
 inline Hash_eigenclass Hash_CLASS;
 inline Proc_eigenclass Proc_CLASS;
+inline BasicObject_BasicObject_eigenclass BasicObject_BasicObject_CLASS;
 inline Module_eigenclass Module_CLASS;
 inline Numeric_eigenclass Numeric_CLASS;
 inline Refinement_eigenclass Refinement_CLASS;
@@ -2958,6 +4739,12 @@ inline Method_eigenclass Method_CLASS;
 inline UnboundMethod_eigenclass UnboundMethod_CLASS;
 inline Range_eigenclass Range_CLASS;
 inline Enumerator_eigenclass Enumerator_CLASS;
+inline Enumerator_Yielder_eigenclass Enumerator_Yielder_CLASS;
+inline Enumerator_Generator_eigenclass Enumerator_Generator_CLASS;
+inline Enumerator_Lazy_eigenclass Enumerator_Lazy_CLASS;
+inline Enumerator_Chain_eigenclass Enumerator_Chain_CLASS;
+inline Enumerator_ArithmeticSequence_eigenclass Enumerator_ArithmeticSequence_CLASS;
+inline Enumerator_Product_eigenclass Enumerator_Product_CLASS;
 inline Exception_eigenclass Exception_CLASS;
 inline ScriptError_eigenclass ScriptError_CLASS;
 inline LoadError_eigenclass LoadError_CLASS;
@@ -2993,24 +4780,100 @@ inline IOError_eigenclass IOError_CLASS;
 inline EOFError_eigenclass EOFError_CLASS;
 inline EncodingError_eigenclass EncodingError_CLASS;
 inline RegexpError_eigenclass RegexpError_CLASS;
+inline Errno_E2BIG_eigenclass Errno_E2BIG_CLASS;
+inline Errno_EACCES_eigenclass Errno_EACCES_CLASS;
+inline Errno_EADDRINUSE_eigenclass Errno_EADDRINUSE_CLASS;
+inline Errno_EADDRNOTAVAIL_eigenclass Errno_EADDRNOTAVAIL_CLASS;
+inline Errno_EAFNOSUPPORT_eigenclass Errno_EAFNOSUPPORT_CLASS;
+inline Errno_EAGAIN_eigenclass Errno_EAGAIN_CLASS;
+inline Errno_EALREADY_eigenclass Errno_EALREADY_CLASS;
+inline Errno_EBADF_eigenclass Errno_EBADF_CLASS;
+inline Errno_EBUSY_eigenclass Errno_EBUSY_CLASS;
+inline Errno_ECHILD_eigenclass Errno_ECHILD_CLASS;
+inline Errno_EILSEQ_eigenclass Errno_EILSEQ_CLASS;
+inline Errno_ECONNABORTED_eigenclass Errno_ECONNABORTED_CLASS;
+inline Errno_ECONNREFUSED_eigenclass Errno_ECONNREFUSED_CLASS;
+inline Errno_ECONNRESET_eigenclass Errno_ECONNRESET_CLASS;
+inline Errno_EDEADLK_eigenclass Errno_EDEADLK_CLASS;
+inline Errno_EDOM_eigenclass Errno_EDOM_CLASS;
+inline Errno_EEXIST_eigenclass Errno_EEXIST_CLASS;
+inline Errno_EFAULT_eigenclass Errno_EFAULT_CLASS;
+inline Errno_EFBIG_eigenclass Errno_EFBIG_CLASS;
+inline Errno_EHOSTUNREACH_eigenclass Errno_EHOSTUNREACH_CLASS;
+inline Errno_EINPROGRESS_eigenclass Errno_EINPROGRESS_CLASS;
+inline Errno_EINTR_eigenclass Errno_EINTR_CLASS;
+inline Errno_EINVAL_eigenclass Errno_EINVAL_CLASS;
+inline Errno_EIO_eigenclass Errno_EIO_CLASS;
+inline Errno_EISCONN_eigenclass Errno_EISCONN_CLASS;
+inline Errno_EISDIR_eigenclass Errno_EISDIR_CLASS;
+inline Errno_ELOOP_eigenclass Errno_ELOOP_CLASS;
+inline Errno_EMFILE_eigenclass Errno_EMFILE_CLASS;
+inline Errno_EMSGSIZE_eigenclass Errno_EMSGSIZE_CLASS;
+inline Errno_ENAMETOOLONG_eigenclass Errno_ENAMETOOLONG_CLASS;
+inline Errno_ENETDOWN_eigenclass Errno_ENETDOWN_CLASS;
+inline Errno_ENETUNREACH_eigenclass Errno_ENETUNREACH_CLASS;
+inline Errno_ENFILE_eigenclass Errno_ENFILE_CLASS;
+inline Errno_ENODEV_eigenclass Errno_ENODEV_CLASS;
+inline Errno_ENOENT_eigenclass Errno_ENOENT_CLASS;
+inline Errno_ENOEXEC_eigenclass Errno_ENOEXEC_CLASS;
+inline Errno_ENOMEM_eigenclass Errno_ENOMEM_CLASS;
+inline Errno_ENOSPC_eigenclass Errno_ENOSPC_CLASS;
+inline Errno_ENOSYS_eigenclass Errno_ENOSYS_CLASS;
+inline Errno_ENOTCONN_eigenclass Errno_ENOTCONN_CLASS;
+inline Errno_ENOTDIR_eigenclass Errno_ENOTDIR_CLASS;
+inline Errno_ENOTEMPTY_eigenclass Errno_ENOTEMPTY_CLASS;
+inline Errno_ENOTSUP_eigenclass Errno_ENOTSUP_CLASS;
+inline Errno_ENOTTY_eigenclass Errno_ENOTTY_CLASS;
+inline Errno_ENXIO_eigenclass Errno_ENXIO_CLASS;
+inline Errno_EOPNOTSUPP_eigenclass Errno_EOPNOTSUPP_CLASS;
+inline Errno_EOVERFLOW_eigenclass Errno_EOVERFLOW_CLASS;
+inline Errno_EPERM_eigenclass Errno_EPERM_CLASS;
+inline Errno_EPIPE_eigenclass Errno_EPIPE_CLASS;
+inline Errno_EPROTONOSUPPORT_eigenclass Errno_EPROTONOSUPPORT_CLASS;
+inline Errno_ERANGE_eigenclass Errno_ERANGE_CLASS;
+inline Errno_EROFS_eigenclass Errno_EROFS_CLASS;
+inline Errno_ESPIPE_eigenclass Errno_ESPIPE_CLASS;
+inline Errno_ESRCH_eigenclass Errno_ESRCH_CLASS;
+inline Errno_ETIMEDOUT_eigenclass Errno_ETIMEDOUT_CLASS;
+inline Errno_ETXTBSY_eigenclass Errno_ETXTBSY_CLASS;
+inline Errno_EWOULDBLOCK_eigenclass Errno_EWOULDBLOCK_CLASS;
+inline Errno_EXDEV_eigenclass Errno_EXDEV_CLASS;
+inline Math_DomainError_eigenclass Math_DomainError_CLASS;
 inline Encoding_eigenclass Encoding_CLASS;
+inline Encoding_CompatibilityError_eigenclass Encoding_CompatibilityError_CLASS;
+inline Encoding_ConverterNotFoundError_eigenclass Encoding_ConverterNotFoundError_CLASS;
+inline Encoding_InvalidByteSequenceError_eigenclass Encoding_InvalidByteSequenceError_CLASS;
+inline Encoding_UndefinedConversionError_eigenclass Encoding_UndefinedConversionError_CLASS;
+inline Encoding_Converter_eigenclass Encoding_Converter_CLASS;
 inline MatchData_eigenclass MatchData_CLASS;
 inline Regexp_eigenclass Regexp_CLASS;
+inline Regexp_TimeoutError_eigenclass Regexp_TimeoutError_CLASS;
 inline Rational_eigenclass Rational_CLASS;
 inline Complex_eigenclass Complex_CLASS;
 inline IO_eigenclass IO_CLASS;
+inline IO_CapturedOutput_eigenclass IO_CapturedOutput_CLASS;
+inline IO_EAGAINWaitReadable_eigenclass IO_EAGAINWaitReadable_CLASS;
+inline IO_EAGAINWaitWritable_eigenclass IO_EAGAINWaitWritable_CLASS;
+inline IO_EWOULDBLOCKWaitReadable_eigenclass IO_EWOULDBLOCKWaitReadable_CLASS;
+inline IO_EWOULDBLOCKWaitWritable_eigenclass IO_EWOULDBLOCKWaitWritable_CLASS;
 inline File_eigenclass File_CLASS;
+inline File_Stat_eigenclass File_Stat_CLASS;
 inline Dir_eigenclass Dir_CLASS;
 inline Time_eigenclass Time_CLASS;
 inline Mutex_eigenclass Mutex_CLASS;
 inline Fiber_eigenclass Fiber_CLASS;
 inline ThreadKill_eigenclass ThreadKill_CLASS;
 inline Thread_eigenclass Thread_CLASS;
+inline Thread_Blocked_eigenclass Thread_Blocked_CLASS;
+inline Thread_Mutex_eigenclass Thread_Mutex_CLASS;
+inline Thread_Backtrace_eigenclass Thread_Backtrace_CLASS;
+inline Thread_Backtrace_Location_eigenclass Thread_Backtrace_Location_CLASS;
 inline ThreadGroup_eigenclass ThreadGroup_CLASS;
 inline ConditionVariable_eigenclass ConditionVariable_CLASS;
 inline Queue_eigenclass Queue_CLASS;
 inline SizedQueue_eigenclass SizedQueue_CLASS;
 inline Process_eigenclass Process_CLASS;
+inline Process_Status_eigenclass Process_Status_CLASS;
 inline Binding_eigenclass Binding_CLASS;
 inline PP_eigenclass PP_CLASS;
 inline StringIO_eigenclass StringIO_CLASS;
@@ -3018,7 +4881,15 @@ inline Struct_eigenclass Struct_CLASS;
 inline Data_eigenclass Data_CLASS;
 inline Set_eigenclass Set_CLASS;
 inline Random_eigenclass Random_CLASS;
+inline ObjectSpace_WeakMap_eigenclass ObjectSpace_WeakMap_CLASS;
+inline ObjectSpace_WeakKeyMap_eigenclass ObjectSpace_WeakKeyMap_CLASS;
 inline ENVClass_eigenclass ENVClass_CLASS;
+inline Gem_Specification_eigenclass Gem_Specification_CLASS;
+inline Marshal_Dumper_eigenclass Marshal_Dumper_CLASS;
+inline Marshal_Loader_eigenclass Marshal_Loader_CLASS;
+inline Frozone_Vm_Vm_eigenclass Frozone_Vm_Vm_CLASS;
+inline Frozone_Vm_Parser_eigenclass Frozone_Vm_Parser_CLASS;
+inline Frozone_Vm_WqParser_eigenclass Frozone_Vm_WqParser_CLASS;
 inline Box_eigenclass Box_CLASS;
 
 inline BasicObject* NilClass::m_to_s(Array* args, Hash* kwargs, Proc* block) {
@@ -3385,6 +5256,27 @@ inline BasicObject* Hash::m_has_key_q(Array* args, Hash* kwargs, Proc* block) {
 inline BasicObject* Proc::m_call(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* arg = array_at(args, 0);
   return fn_(arg);
+}
+
+inline BasicObject* BasicObject_BasicObject::m_not(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { auto* _l = false_instance()->m_equal_q((new Array({this})), nullptr, nullptr); return truthy(_l) ? _l : (nil_instance()->m_equal_q((new Array({this})), nullptr, nullptr)); }());
+  return nil_instance();
+}
+
+inline BasicObject* BasicObject_BasicObject::m_ne_q(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* v = array_at(args, 0);
+  Proc* _block = block;
+  return (this->m_eq_q((new Array({v})), nullptr, nullptr))->m_not((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* BasicObject_BasicObject::m_respond_to_missing_q(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* name = array_at(args, 0);
+  BasicObject* include_private = (args->data.size() > 1) ? args->data[1] : (false_instance());
+  Proc* _block = block;
+  return false_instance();
+  return nil_instance();
 }
 
 inline BasicObject* Module::m_included(Array* args, Hash* kwargs, Proc* block) {
@@ -4160,6 +6052,92 @@ inline BasicObject* Range::m_eql_q(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* Range::m_step(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* n = (args->data.size() > 0) ? args->data[0] : (intern("__unset__"));
+  Proc* _block = block;
+  BasicObject* n_given = nil_instance();
+  BasicObject* b = nil_instance();
+  BasicObject* e = nil_instance();
+  BasicObject* excl = nil_instance();
+  BasicObject* b_numeric = nil_instance();
+  BasicObject* e_numeric_val = nil_instance();
+  BasicObject* e_numeric = nil_instance();
+  BasicObject* numeric = nil_instance();
+  BasicObject* arithmetic = nil_instance();
+  BasicObject* rng = nil_instance();
+  BasicObject* as_args = nil_instance();
+  BasicObject* coerced = nil_instance();
+  BasicObject* use_float = nil_instance();
+  n_given = n->m_equal_q((new Array({intern("__unset__")})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr);
+  if (truthy(n_given)) {
+    nil_instance();
+  } else {
+    n = (new Integer(1LL));
+  }
+  b = this->m_begin((new Array({})), nullptr, nullptr);
+  e = this->m_end((new Array({})), nullptr, nullptr);
+  excl = this->m_exclude_end_q((new Array({})), nullptr, nullptr);
+  if (truthy(([&]() -> BasicObject* { auto* _l = b->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? (e->m_nil_q((new Array({})), nullptr, nullptr)) : _l; }()))) {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("cannot step endless beginless range", 35)))); }());
+  }
+  b_numeric = ([&]() -> BasicObject* { auto* _l = b->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (b->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }());
+  e_numeric_val = ([&]() -> BasicObject* { auto* _l = e->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (e->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }());
+  e_numeric = ([&]() -> BasicObject* { auto* _l = e->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (e_numeric_val); }());
+  numeric = ([&]() -> BasicObject* { auto* _l = b_numeric; return truthy(_l) ? (e_numeric) : _l; }());
+  arithmetic = ([&]() -> BasicObject* { auto* _l = numeric; return truthy(_l) ? _l : ((([&]() -> BasicObject* { auto* _l = b->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? (e_numeric_val) : _l; }()))); }());
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    if (truthy(([&]() -> BasicObject* { auto* _l = numeric; return truthy(_l) ? ((([&]() -> BasicObject* { auto* _l = n->m_eq_q((new Array({(new Integer(0LL))})), nullptr, nullptr); return truthy(_l) ? _l : (n->m_eq_q((new Array({(new Float(0.0))})), nullptr, nullptr)); }()))) : _l; }()))) {
+      ([&]() -> BasicObject* { throw (new ArgumentError((new String("step can't be 0", 15)))); }());
+    }
+    rng = this;
+    if (truthy(arithmetic)) {
+      as_args = (truthy(n_given) ? (((new Array({n})))) : (((new Array({})))));
+      return (&Enumerator_ArithmeticSequence_CLASS)->m__from_method((new Array({this, intern("step"), as_args, this->m_proc((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { return rng->m_send((new Array({intern("__step_size__"), n})), nullptr, nullptr); })))})), nullptr, nullptr);
+    }
+    return this->m_to_enum((new Array({intern("step"), n})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { return this->m___step_size__((new Array({n})), nullptr, nullptr); })));
+  }
+  if (truthy(numeric)) {
+    if (truthy(([&]() -> BasicObject* { auto* _l = n->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (n->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }()))) {
+      nil_instance();
+    } else {
+      if (truthy(n->m_respond_to_q((new Array({intern("coerce")})), nullptr, nullptr))) {
+        coerced = n->m_coerce((new Array({b->m_to_f((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
+        n = coerced->m_aref((new Array({(new Integer(1LL))})), nullptr, nullptr);
+      } else {
+        ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(n->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Float", 11))})), nullptr, nullptr)))); }());
+      }
+    }
+    if (truthy(([&]() -> BasicObject* { auto* _l = n->m_eq_q((new Array({(new Integer(0LL))})), nullptr, nullptr); return truthy(_l) ? _l : (n->m_eq_q((new Array({(new Float(0.0))})), nullptr, nullptr)); }()))) {
+      ([&]() -> BasicObject* { throw (new ArgumentError((new String("step can't be 0", 15)))); }());
+    }
+  }
+  if (truthy(numeric)) {
+    use_float = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = n->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (b->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }()); return truthy(_l) ? _l : ((([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = e->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr); return truthy(_l) ? (e_numeric_val) : _l; }()); return truthy(_l) ? (e->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)) : _l; }()))); }());
+    if (truthy(use_float)) {
+      this->m___step_float__((new Array({b->m_to_f((new Array({})), nullptr, nullptr), (truthy(e->m_nil_q((new Array({})), nullptr, nullptr)) ? ((nil_instance())) : ((e->m_to_f((new Array({})), nullptr, nullptr)))), n->m_to_f((new Array({})), nullptr, nullptr), excl})), nullptr, static_cast<Proc*>(block));
+    } else {
+      this->m___step_integer__((new Array({b, e, n, excl})), nullptr, static_cast<Proc*>(block));
+    }
+  } else {
+    if (truthy(n->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr))) {
+      if (truthy(b->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
+        ([&]() -> BasicObject* { throw (new TypeError((new String("no implicit conversion of Float into String", 43)))); }());
+      }
+      ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of Float into ", 37))})), nullptr, nullptr)->m_plus((new Array({(b->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }());
+    } else {
+      if (truthy(n->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr))) {
+        this->m___step_succ__((new Array({b, e, n, excl})), nullptr, static_cast<Proc*>(block));
+      } else {
+        this->m___step_plus__((new Array({b, e, n, excl})), nullptr, static_cast<Proc*>(block));
+      }
+    }
+  }
+  return this;
+  return nil_instance();
+}
+
 inline BasicObject* Range::m_reduce(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* init = (args->data.size() > 0) ? args->data[0] : (nil_instance());
   Proc* _block = block;
@@ -4211,6 +6189,36 @@ inline BasicObject* Range::m_last(Array* args, Hash* kwargs, Proc* block) {
     ([&]() -> BasicObject* { throw (new ArgumentError((new String("negative array size (or exceeds maximum)", 40)))); }());
   }
   return this->m_to_a((new Array({})), nullptr, nullptr)->m_last((new Array({n})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Range::m_mod(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* n = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* b = nil_instance();
+  BasicObject* e = nil_instance();
+  BasicObject* b_numeric = nil_instance();
+  BasicObject* e_numeric = nil_instance();
+  BasicObject* numeric = nil_instance();
+  BasicObject* arithmetic = nil_instance();
+  BasicObject* rng = nil_instance();
+  if (truthy(block)) {
+    return this->m_step((new Array({n})), nullptr, static_cast<Proc*>(block));
+  }
+  b = this->m_begin((new Array({})), nullptr, nullptr);
+  e = this->m_end((new Array({})), nullptr, nullptr);
+  b_numeric = ([&]() -> BasicObject* { auto* _l = b->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (b->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }());
+  e_numeric = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = e->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (e->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr)); }()); return truthy(_l) ? _l : (e->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }());
+  numeric = ([&]() -> BasicObject* { auto* _l = b_numeric; return truthy(_l) ? (e_numeric) : _l; }());
+  arithmetic = ([&]() -> BasicObject* { auto* _l = numeric; return truthy(_l) ? _l : ((([&]() -> BasicObject* { auto* _l = b->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? ((([&]() -> BasicObject* { auto* _l = e->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (e->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }()))) : _l; }()))); }());
+  if (truthy(([&]() -> BasicObject* { auto* _l = numeric; return truthy(_l) ? ((([&]() -> BasicObject* { auto* _l = n->m_eq_q((new Array({(new Integer(0LL))})), nullptr, nullptr); return truthy(_l) ? _l : (n->m_eq_q((new Array({(new Float(0.0))})), nullptr, nullptr)); }()))) : _l; }()))) {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("step can't be 0", 15)))); }());
+  }
+  rng = this;
+  if (truthy(arithmetic)) {
+    return (&Enumerator_ArithmeticSequence_CLASS)->m__from_method((new Array({this, intern("%"), (new Array({n})), this->m_proc((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { return rng->m_send((new Array({intern("__step_size__"), n})), nullptr, nullptr); })))})), nullptr, nullptr);
+  }
+  return this->m_to_enum((new Array({intern("%"), n})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { return this->m___step_size__((new Array({n})), nullptr, nullptr); })));
   return nil_instance();
 }
 
@@ -4529,6 +6537,13 @@ inline BasicObject* Enumerator::m_with_object(Array* args, Hash* kwargs, Proc* b
   return nil_instance();
 }
 
+inline BasicObject* Enumerator::m_plus(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* other = array_at(args, 0);
+  Proc* _block = block;
+  return (new Enumerator_Chain(static_cast<BasicObject*>(this), static_cast<BasicObject*>(other)));
+  return nil_instance();
+}
+
 inline BasicObject* Enumerator::m_count(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   BasicObject* s = nil_instance();
@@ -4634,6 +6649,394 @@ inline BasicObject* Enumerator::m___peek_values_raw__(Array* args, Hash* kwargs,
   return nil_instance();
 }
 
+inline Enumerator_Yielder::Enumerator_Yielder(Proc* block) {
+  (this->iv_block = block);
+  this;
+}
+
+inline BasicObject* Enumerator_Yielder::m_lshift(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* arg = array_at(args, 0);
+  Proc* _block = block;
+  this->m_yield((new Array({arg})), nullptr, nullptr);
+  return this;
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Yielder::m_yield(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (truthy(this->iv_block) ? ((this->iv_block->m_call(static_cast<Array*>(args), nullptr, nullptr))) : (((&Fiber_CLASS)->m_yield((new Array({args})), nullptr, nullptr))));
+  return nil_instance();
+}
+
+inline Enumerator_Generator::Enumerator_Generator(Proc* block) {
+  this->m___check_frozen__((new Array({})), nullptr, nullptr);
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new LocalJumpError((new String("no block given", 14)))); }());
+  }
+  (this->iv_block = block);
+  this;
+}
+
+inline Enumerator_Lazy::Enumerator_Lazy(BasicObject* obj, BasicObject* size, Proc* block) {
+  this->m___check_frozen__((new Array({})), nullptr, nullptr);
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("tried to create Proc object without a block", 43)))); }());
+  }
+  (this->iv_receiver = obj);
+  (this->iv__lazy_xform = block);
+  (this->iv__xform_factory = nil_instance());
+  (this->iv__grouped_eval = nil_instance());
+  (this->iv__lazy_size = size);
+  (this->iv_method_name = nil_instance());
+  (this->iv_method_args = (new Array({})));
+  (this->iv_method_kwargs = (new Hash({})));
+  (this->iv_size_block = nil_instance());
+  (this->iv_size = size);
+  (this->iv_block = nil_instance());
+  (this->iv_fiber = nil_instance());
+  (this->iv_peeked = false_instance());
+  (this->iv_peeked_vals = nil_instance());
+  (this->iv_feed = nil_instance());
+  (this->iv__feed_pending = false_instance());
+  (this->iv__fiber_started = false_instance());
+  this;
+}
+
+inline BasicObject* Enumerator_Lazy::m_lazy(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this;
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_with_object(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  return this->m_each_with_object((new Array({obj})), nullptr, static_cast<Proc*>(block));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_eager(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (new Enumerator());
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_first(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* n = (args->data.size() > 0) ? args->data[0] : (nil_instance());
+  Proc* _block = block;
+  return (truthy(n->m_nil_q((new Array({})), nullptr, nullptr)) ? ((this->m_take((new Array({(new Integer(1LL))})), nullptr, nullptr)->m_to_a((new Array({})), nullptr, nullptr)->m_aref((new Array({(new Integer(0LL))})), nullptr, nullptr))) : ((this->m_take((new Array({n})), nullptr, nullptr)->m_to_a((new Array({})), nullptr, nullptr))));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_size(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(this->iv__lazy_size->m_respond_to_q((new Array({intern("call")})), nullptr, nullptr))) {
+    return this->iv__lazy_size->m_call((new Array({})), nullptr, nullptr);
+  }
+  return this->iv__lazy_size;
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_map(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    return this->m_to_enum((new Array({intern("map")})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { return this->m_size((new Array({})), nullptr, nullptr); })));
+  }
+  return (new Enumerator_Lazy(static_cast<BasicObject*>(this), static_cast<BasicObject*>(this->m_size((new Array({})), nullptr, nullptr))));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_collect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    return this->m_to_enum((new Array({intern("map")})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { return this->m_size((new Array({})), nullptr, nullptr); })));
+  }
+  return (new Enumerator_Lazy(static_cast<BasicObject*>(this), static_cast<BasicObject*>(this->m_size((new Array({})), nullptr, nullptr))));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_select(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("tried to create Proc object without a block", 43)))); }());
+  }
+  return (new Enumerator_Lazy(static_cast<BasicObject*>(this)));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_filter(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("tried to create Proc object without a block", 43)))); }());
+  }
+  return (new Enumerator_Lazy(static_cast<BasicObject*>(this)));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_find_all(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("tried to create Proc object without a block", 43)))); }());
+  }
+  return (new Enumerator_Lazy(static_cast<BasicObject*>(this)));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_reject(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("tried to create Proc object without a block", 43)))); }());
+  }
+  return (new Enumerator_Lazy(static_cast<BasicObject*>(this)));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_flat_map(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("tried to create Proc object without a block", 43)))); }());
+  }
+  return (new Enumerator_Lazy(static_cast<BasicObject*>(this)));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_collect_concat(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("tried to create Proc object without a block", 43)))); }());
+  }
+  return (new Enumerator_Lazy(static_cast<BasicObject*>(this)));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_take_while(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("tried to create Proc object without a block", 43)))); }());
+  }
+  return (new Enumerator_Lazy(static_cast<BasicObject*>(this)));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_filter_map(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("tried to create Proc object without a block", 43)))); }());
+  }
+  return (new Enumerator_Lazy(static_cast<BasicObject*>(this)));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_compact(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (new Enumerator_Lazy(static_cast<BasicObject*>(this)));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_grep(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* pattern = array_at(args, 0);
+  Proc* _block = block;
+  return (truthy(block) ? (((new Enumerator_Lazy(static_cast<BasicObject*>(this))))) : (((new Enumerator_Lazy(static_cast<BasicObject*>(this))))));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_grep_v(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* pattern = array_at(args, 0);
+  Proc* _block = block;
+  return (truthy(block) ? (((new Enumerator_Lazy(static_cast<BasicObject*>(this))))) : (((new Enumerator_Lazy(static_cast<BasicObject*>(this))))));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_each_with_object(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    return this->m_to_enum((new Array({intern("each_with_object"), obj})), nullptr, nullptr);
+  }
+  this->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* v = arg; return block->m_call((new Array({v, obj})), nullptr, nullptr); })));
+  return obj;
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_each_with_index(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* i = nil_instance();
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    return this->m_to_enum((new Array({intern("each_with_index")})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { return this->m_size((new Array({})), nullptr, nullptr); })));
+  }
+  i = (new Integer(0LL));
+  return this->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* v = arg; block->m_call((new Array({v, i})), nullptr, nullptr); return (i = i->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr)); })));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Lazy::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (truthy(([&]() -> BasicObject* { auto* _l = this->iv_receiver->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? (this->iv__lazy_xform->m_nil_q((new Array({})), nullptr, nullptr)) : _l; }())) ? (((new String("#<Enumerator::Lazy: uninitialized>", 34)))) : ((truthy(this->iv_receiver) ? ((((new String("", 0))->m_plus((new Array({(new String("#<Enumerator::Lazy: ", 20))})), nullptr, nullptr)->m_plus((new Array({(this->iv_receiver->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr)))) : (((new String("#<Enumerator::Lazy: generator>", 30)))))));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Chain::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(this->iv_enums->m_nil_q((new Array({})), nullptr, nullptr))) {
+    return (new String("#<Enumerator::Chain: uninitialized>", 35));
+  }
+  return ((new String("", 0))->m_plus((new Array({(new String("#<Enumerator::Chain: ", 21))})), nullptr, nullptr)->m_plus((new Array({(this->iv_enums->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Chain::m_each(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    return this->m_to_enum((new Array({intern("each")})), nullptr, nullptr);
+  }
+  (this->iv__iterated_count = (new Integer(0LL)));
+  this->iv_enums->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* e = arg; (this->iv__iterated_count = this->iv__iterated_count->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr)); return e->m_each((new Array({})), nullptr, static_cast<Proc*>(block)); })));
+  return this;
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Chain::m_rewind(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* count = nil_instance();
+  count = ([&]() -> BasicObject* { auto* _l = this->iv__iterated_count; return truthy(_l) ? _l : ((new Integer(0LL))); }());
+  this->iv_enums->m_first((new Array({count})), nullptr, nullptr)->m_reverse_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* e = arg; return (truthy(e->m_respond_to_q((new Array({intern("rewind")})), nullptr, nullptr)) ? ((e->m_rewind((new Array({})), nullptr, nullptr))) : (nil_instance())); })));
+  (this->iv__iterated_count = (new Integer(0LL)));
+  return this;
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_ArithmeticSequence::m_exclude_end_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(this->iv_receiver->m_is_a_q((new Array({(&Range_CLASS)})), nullptr, nullptr))) {
+    this->iv_receiver->m_exclude_end_q((new Array({})), nullptr, nullptr);
+  } else {
+    false_instance();
+  }
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_ArithmeticSequence::m_begin(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (truthy(this->iv_receiver->m_is_a_q((new Array({(&Range_CLASS)})), nullptr, nullptr)) ? ((this->iv_receiver->m_begin((new Array({})), nullptr, nullptr))) : ((this->iv_receiver)));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_ArithmeticSequence::m_hash(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (new Array({this->m_begin((new Array({})), nullptr, nullptr), this->m_end((new Array({})), nullptr, nullptr), this->m_step((new Array({})), nullptr, nullptr), this->m_exclude_end_q((new Array({})), nullptr, nullptr)}))->m_hash((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_ArithmeticSequence::m_end(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* kw = nil_instance();
+  return (truthy(this->iv_receiver->m_is_a_q((new Array({(&Range_CLASS)})), nullptr, nullptr)) ? ((this->iv_receiver->m_end((new Array({})), nullptr, nullptr))) : (((kw = ([&]() -> BasicObject* { auto* _l = this->iv_method_kwargs; return truthy(_l) ? _l : ((new Hash({}))); }())), (truthy(kw->m_key_q((new Array({intern("to")})), nullptr, nullptr)) ? ((kw->m_aref((new Array({intern("to")})), nullptr, nullptr))) : ((this->iv_method_args->m_aref((new Array({(new Integer(0LL))})), nullptr, nullptr)))))));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_ArithmeticSequence::m_step(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* kw = nil_instance();
+  return (truthy(this->iv_receiver->m_is_a_q((new Array({(&Range_CLASS)})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { auto* _l = this->iv_method_args->m_first((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : ((new Integer(1LL))); }()))) : (((kw = ([&]() -> BasicObject* { auto* _l = this->iv_method_kwargs; return truthy(_l) ? _l : ((new Hash({}))); }())), (truthy(kw->m_key_q((new Array({intern("by")})), nullptr, nullptr)) ? ((kw->m_aref((new Array({intern("by")})), nullptr, nullptr))) : ((truthy(this->iv_method_args->m_length((new Array({})), nullptr, nullptr)->m_ge((new Array({(new Integer(2LL))})), nullptr, nullptr)) ? ((this->iv_method_args->m_aref((new Array({(new Integer(1LL))})), nullptr, nullptr))) : (((new Integer(1LL))))))))));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_ArithmeticSequence::m_last(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* b = nil_instance();
+  BasicObject* e = nil_instance();
+  BasicObject* s = nil_instance();
+  BasicObject* n = nil_instance();
+  b = this->m_begin((new Array({})), nullptr, nullptr);
+  e = this->m_end((new Array({})), nullptr, nullptr);
+  s = this->m_step((new Array({})), nullptr, nullptr);
+  if (truthy(e->m_nil_q((new Array({})), nullptr, nullptr))) {
+    return nil_instance();
+  }
+  n = (truthy(this->m_exclude_end_q((new Array({})), nullptr, nullptr)) ? ((((e->m_minus((new Array({b})), nullptr, nullptr))->m_div((new Array({s->m_to_f((new Array({})), nullptr, nullptr)})), nullptr, nullptr))->m_ceil((new Array({})), nullptr, nullptr)->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr))) : ((((e->m_minus((new Array({b})), nullptr, nullptr))->m_div((new Array({s->m_to_f((new Array({})), nullptr, nullptr)})), nullptr, nullptr))->m_floor((new Array({})), nullptr, nullptr))));
+  return (truthy(n->m_lt((new Array({(new Integer(0LL))})), nullptr, nullptr)) ? ((nil_instance())) : ((b->m_plus((new Array({n->m_mul((new Array({s})), nullptr, nullptr)})), nullptr, nullptr))));
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Product::m_rewind(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  this->iv_enumerables->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* e = arg; return (truthy(e->m_respond_to_q((new Array({intern("rewind")})), nullptr, nullptr)) ? ((e->m_rewind((new Array({})), nullptr, nullptr))) : (nil_instance())); })));
+  return this;
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Product::m_each(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    return this->m_to_enum((new Array({intern("each")})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { return this->m_size((new Array({})), nullptr, nullptr); })));
+  }
+  if (truthy(this->iv_enumerables->m_empty_q((new Array({})), nullptr, nullptr))) {
+    block->m_call((new Array({(new Array({}))})), nullptr, nullptr);
+  } else {
+    this->m___product_each__((new Array({(new Integer(0LL)), (new Array({})), block})), nullptr, nullptr);
+  }
+  return this;
+  return nil_instance();
+}
+
+inline BasicObject* Enumerator_Product::m_initialize_copy(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* source = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(source->m_equal_q((new Array({this})), nullptr, nullptr))) {
+    return this;
+  }
+  this->m___check_frozen__((new Array({})), nullptr, nullptr);
+  if (truthy(source->m_class((new Array({})), nullptr, nullptr)->m_eq_q((new Array({this->m_class((new Array({})), nullptr, nullptr)})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError((new String("initialize_copy should take same class object", 45)))); }());
+  }
+  if (truthy(source->m_instance_variable_get((new Array({intern("@enumerables")})), nullptr, nullptr)->m_nil_q((new Array({})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("uninitialized product", 21)))); }());
+  }
+  (this->iv_enumerables = source->m_instance_variable_get((new Array({intern("@enumerables")})), nullptr, nullptr)->m_dup((new Array({})), nullptr, nullptr));
+  (this->iv_fiber = nil_instance());
+  (this->iv_peeked = false_instance());
+  (this->iv_peeked_vals = nil_instance());
+  (this->iv_feed = nil_instance());
+  (this->iv__feed_pending = false_instance());
+  (this->iv__fiber_started = false_instance());
+  return this;
+  return nil_instance();
+}
+
 inline Exception::Exception(BasicObject* message) {
   (this->iv_message = message);
 }
@@ -4659,6 +7062,20 @@ inline BasicObject* Exception::m_cause(Array* args, Hash* kwargs, Proc* block) {
 inline BasicObject* Exception::m_to_s(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return (truthy(this->iv_message) ? ((this->iv_message->m_to_s((new Array({})), nullptr, nullptr))) : ((this->m_class((new Array({})), nullptr, nullptr)->m_to_s((new Array({})), nullptr, nullptr))));
+  return nil_instance();
+}
+
+inline BasicObject* Exception::m_backtrace_locations(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(this->iv__has_locations)) {
+    nil_instance();
+  } else {
+    return nil_instance();
+  }
+  if (truthy(this->iv_backtrace->m_nil_q((new Array({})), nullptr, nullptr))) {
+    return nil_instance();
+  }
+  return ([&]() -> BasicObject* { auto* _l = this->iv_backtrace_locations; return truthy(_l) ? _l : ((this->iv_backtrace_locations = this->iv_backtrace->m_map((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* s = arg; return (&Thread_Backtrace_Location_CLASS)->m__from_string((new Array({s->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr); }))))); }());
   return nil_instance();
 }
 
@@ -4867,6 +7284,78 @@ inline BasicObject* Encoding::m_replicate(Array* args, Hash* kwargs, Proc* block
 inline BasicObject* Encoding::m_inspect(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return (truthy(this->iv_name->m_eq_q((new Array({(new String("ASCII-8BIT", 10))})), nullptr, nullptr)) ? (((new String("#<Encoding:BINARY (ASCII-8BIT)>", 31)))) : ((truthy(this->m_dummy_q((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(new String("#<Encoding:", 11))})), nullptr, nullptr)->m_plus((new Array({(this->iv_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" (dummy)>", 9))})), nullptr, nullptr)))) : ((((new String("", 0))->m_plus((new Array({(new String("#<Encoding:", 11))})), nullptr, nullptr)->m_plus((new Array({(this->iv_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr)))))));
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_InvalidByteSequenceError::m_source_encoding_name(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_source_encoding_name->m_to_s((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_InvalidByteSequenceError::m_destination_encoding_name(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_destination_encoding_name->m_to_s((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_InvalidByteSequenceError::m_source_encoding(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_source_encoding;
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_InvalidByteSequenceError::m_destination_encoding(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_destination_encoding;
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_InvalidByteSequenceError::m_error_bytes(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_error_bytes;
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_InvalidByteSequenceError::m_readagain_bytes(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_readagain_bytes;
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_InvalidByteSequenceError::m_incomplete_input_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_incomplete_input;
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_UndefinedConversionError::m_source_encoding_name(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_source_encoding_name->m_to_s((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_UndefinedConversionError::m_destination_encoding_name(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_destination_encoding_name->m_to_s((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_UndefinedConversionError::m_source_encoding(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_source_encoding;
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_UndefinedConversionError::m_destination_encoding(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_destination_encoding;
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_UndefinedConversionError::m_error_char(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_error_char;
   return nil_instance();
 }
 
@@ -5669,11 +8158,194 @@ inline BasicObject* IO::m_putc(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline IO_CapturedOutput::IO_CapturedOutput(BasicObject* str) {
+  (this->iv_str = str);
+}
+
+inline BasicObject* IO_CapturedOutput::m_read(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* len = (args->data.size() > 0) ? args->data[0] : (nil_instance());
+  Proc* _block = block;
+  return (truthy(len) ? ((this->iv_str->m_aref((new Array({(new Integer(0LL)), len})), nullptr, nullptr))) : ((this->iv_str)));
+  return nil_instance();
+}
+
+inline BasicObject* IO_CapturedOutput::m_gets(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_str;
+  return nil_instance();
+}
+
+inline BasicObject* IO_CapturedOutput::m_close(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this;
+  return nil_instance();
+}
+
 inline BasicObject* File::m_chown(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* uid = array_at(args, 0);
   BasicObject* gid = array_at(args, 1);
   Proc* _block = block;
   return (new Integer(0LL));
+  return nil_instance();
+}
+
+inline BasicObject* File::m_lstat(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (new File_Stat(static_cast<BasicObject*>(this->m_path((new Array({})), nullptr, nullptr))));
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_file_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (this->m_mode((new Array({})), nullptr, nullptr)->m_bit_and((new Array({(new Integer(61440LL))})), nullptr, nullptr))->m_eq_q((new Array({(new Integer(32768LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_directory_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (this->m_mode((new Array({})), nullptr, nullptr)->m_bit_and((new Array({(new Integer(61440LL))})), nullptr, nullptr))->m_eq_q((new Array({(new Integer(16384LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_symlink_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (this->m_mode((new Array({})), nullptr, nullptr)->m_bit_and((new Array({(new Integer(61440LL))})), nullptr, nullptr))->m_eq_q((new Array({(new Integer(40960LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_pipe_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (this->m_mode((new Array({})), nullptr, nullptr)->m_bit_and((new Array({(new Integer(61440LL))})), nullptr, nullptr))->m_eq_q((new Array({(new Integer(4096LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_socket_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (this->m_mode((new Array({})), nullptr, nullptr)->m_bit_and((new Array({(new Integer(61440LL))})), nullptr, nullptr))->m_eq_q((new Array({(new Integer(49152LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_blockdev_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (this->m_mode((new Array({})), nullptr, nullptr)->m_bit_and((new Array({(new Integer(61440LL))})), nullptr, nullptr))->m_eq_q((new Array({(new Integer(24576LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_chardev_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (this->m_mode((new Array({})), nullptr, nullptr)->m_bit_and((new Array({(new Integer(61440LL))})), nullptr, nullptr))->m_eq_q((new Array({(new Integer(8192LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_setuid_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (this->m_mode((new Array({})), nullptr, nullptr)->m_bit_and((new Array({(new Integer(2048LL))})), nullptr, nullptr))->m_ne_q((new Array({(new Integer(0LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_setgid_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (this->m_mode((new Array({})), nullptr, nullptr)->m_bit_and((new Array({(new Integer(1024LL))})), nullptr, nullptr))->m_ne_q((new Array({(new Integer(0LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_sticky_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (this->m_mode((new Array({})), nullptr, nullptr)->m_bit_and((new Array({(new Integer(512LL))})), nullptr, nullptr))->m_ne_q((new Array({(new Integer(0LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_zero_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->m_size((new Array({})), nullptr, nullptr)->m_eq_q((new Array({(new Integer(0LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_empty_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->m_size((new Array({})), nullptr, nullptr)->m_eq_q((new Array({(new Integer(0LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_size_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (truthy(this->m_size((new Array({})), nullptr, nullptr)->m_eq_q((new Array({(new Integer(0LL))})), nullptr, nullptr)) ? ((nil_instance())) : ((this->m_size((new Array({})), nullptr, nullptr))));
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_readable_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (&File_CLASS)->m_readable_q((new Array({this->iv_path})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_readable_real_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (&File_CLASS)->m_readable_real_q((new Array({this->iv_path})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_writable_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (&File_CLASS)->m_writable_q((new Array({this->iv_path})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_writable_real_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (&File_CLASS)->m_writable_real_q((new Array({this->iv_path})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_executable_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (&File_CLASS)->m_executable_q((new Array({this->iv_path})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_executable_real_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (&File_CLASS)->m_executable_real_q((new Array({this->iv_path})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_owned_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (&File_CLASS)->m_owned_q((new Array({this->iv_path})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_grpowned_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (&File_CLASS)->m_grpowned_q((new Array({this->iv_path})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ((new String("", 0))->m_plus((new Array({(new String("#<File::Stat dev=0x", 19))})), nullptr, nullptr)->m_plus((new Array({(this->m_dev((new Array({})), nullptr, nullptr)->m_to_s((new Array({(new Integer(16LL))})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", ino=", 6))})), nullptr, nullptr)->m_plus((new Array({(this->m_ino((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", mode=0", 8))})), nullptr, nullptr)->m_plus((new Array({(this->m_mode((new Array({})), nullptr, nullptr)->m_to_s((new Array({(new Integer(8LL))})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", nlink=", 8))})), nullptr, nullptr)->m_plus((new Array({(this->m_nlink((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", uid=", 6))})), nullptr, nullptr)->m_plus((new Array({(this->m_uid((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", gid=", 6))})), nullptr, nullptr)->m_plus((new Array({(this->m_gid((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", rdev=0x", 9))})), nullptr, nullptr)->m_plus((new Array({(this->m_rdev((new Array({})), nullptr, nullptr)->m_to_s((new Array({(new Integer(16LL))})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", size=", 7))})), nullptr, nullptr)->m_plus((new Array({(this->m_size((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", blksize=", 10))})), nullptr, nullptr)->m_plus((new Array({(this->m_blksize((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", blocks=", 9))})), nullptr, nullptr)->m_plus((new Array({(this->m_blocks((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", atime=", 8))})), nullptr, nullptr)->m_plus((new Array({(this->m_atime((new Array({})), nullptr, nullptr)->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", mtime=", 8))})), nullptr, nullptr)->m_plus((new Array({(this->m_mtime((new Array({})), nullptr, nullptr)->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(", ctime=", 8))})), nullptr, nullptr)->m_plus((new Array({(this->m_ctime((new Array({})), nullptr, nullptr)->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr));
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_ftype(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { auto* _subj = this->m_mode((new Array({})), nullptr, nullptr)->m_bit_and((new Array({(new Integer(61440LL))})), nullptr, nullptr); if (truthy((new Integer(32768LL))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("file", 4))); if (truthy((new Integer(16384LL))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("directory", 9))); if (truthy((new Integer(40960LL))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("link", 4))); if (truthy((new Integer(4096LL))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("fifo", 4))); if (truthy((new Integer(49152LL))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("socket", 6))); if (truthy((new Integer(24576LL))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("blockSpecial", 12))); if (truthy((new Integer(8192LL))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((new String("characterSpecial", 16))); return ((new String("unknown", 7))); }());
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_world_readable_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* m = nil_instance();
+  m = this->m_mode((new Array({})), nullptr, nullptr);
+  return (truthy((m->m_bit_and((new Array({(new Integer(4LL))})), nullptr, nullptr))->m_ne_q((new Array({(new Integer(0LL))})), nullptr, nullptr)) ? ((m->m_bit_and((new Array({(new Integer(511LL))})), nullptr, nullptr))) : ((nil_instance())));
+  return nil_instance();
+}
+
+inline BasicObject* File_Stat::m_world_writable_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* m = nil_instance();
+  m = this->m_mode((new Array({})), nullptr, nullptr);
+  return (truthy((m->m_bit_and((new Array({(new Integer(2LL))})), nullptr, nullptr))->m_ne_q((new Array({(new Integer(0LL))})), nullptr, nullptr)) ? ((m->m_bit_and((new Array({(new Integer(511LL))})), nullptr, nullptr))) : ((nil_instance())));
   return nil_instance();
 }
 
@@ -5993,6 +8665,38 @@ inline BasicObject* Mutex::m_owned_q(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* Mutex::m_lock(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* current = nil_instance();
+  BasicObject* seen = nil_instance();
+  BasicObject* skip_n = nil_instance();
+  current = (&Thread_CLASS)->m_current((new Array({})), nullptr, nullptr);
+  seen = current->m___mutex_seen_count((new Array({})), nullptr, nullptr);
+  skip_n = current->m___mutex_skip_count((new Array({})), nullptr, nullptr);
+  if (truthy(seen->m_lt((new Array({skip_n})), nullptr, nullptr))) {
+    current->m___mutex_seen_count_set((new Array({seen->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr)})), nullptr, nullptr);
+    current->m___mutex_done_count_set((new Array({current->m___mutex_done_count((new Array({})), nullptr, nullptr)->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr)})), nullptr, nullptr);
+    (this->iv_locked = true_instance());
+    (this->iv_owner = current);
+    (this->iv_owner_fiber = (&Fiber_CLASS)->m_current((new Array({})), nullptr, nullptr));
+    current->m___add_owned_mutex((new Array({this})), nullptr, nullptr);
+    return this;
+  }
+  if (truthy(this->iv_locked)) {
+    if (truthy(this->m_owned_q((new Array({})), nullptr, nullptr))) {
+      ([&]() -> BasicObject* { throw (new ThreadError((new String("deadlock; recursive locking", 27)))); }());
+    }
+    ([&]() -> BasicObject* { throw (new Thread_Blocked()); }());
+  }
+  (this->iv_locked = true_instance());
+  (this->iv_owner = current);
+  (this->iv_owner_fiber = (&Fiber_CLASS)->m_current((new Array({})), nullptr, nullptr));
+  current->m___add_owned_mutex((new Array({this})), nullptr, nullptr);
+  current->m___mutex_done_count_set((new Array({current->m___mutex_done_count((new Array({})), nullptr, nullptr)->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr)})), nullptr, nullptr);
+  return this;
+  return nil_instance();
+}
+
 inline BasicObject* Mutex::m_unlock(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   BasicObject* owner = nil_instance();
@@ -6034,6 +8738,15 @@ inline BasicObject* Mutex::m_try_lock(Array* args, Hash* kwargs, Proc* block) {
   (this->iv_owner_fiber = (&Fiber_CLASS)->m_current((new Array({})), nullptr, nullptr));
   (&Thread_CLASS)->m_current((new Array({})), nullptr, nullptr)->m___add_owned_mutex((new Array({this})), nullptr, nullptr);
   return true_instance();
+  return nil_instance();
+}
+
+inline BasicObject* Mutex::m_synchronize(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* blocked = nil_instance();
+  this->m_lock((new Array({})), nullptr, nullptr);
+  blocked = false_instance();
+  return ([&]() -> BasicObject* { EnsureGuard _eg([&]() { if (truthy(blocked)) {   nil_instance(); } else {   this->m_unlock((new Array({})), nullptr, nullptr); }  return nil_instance(); }); try { return [&]() -> BasicObject* { return block->m_call((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<Thread_Blocked*>(e_) != nullptr) { return [&]() -> BasicObject* { blocked = true_instance(); return ([&]() -> BasicObject* { throw; }());  return nil_instance(); }(); } throw; } }());
   return nil_instance();
 }
 
@@ -6443,6 +9156,144 @@ inline BasicObject* Thread::m_keys(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline Thread_Mutex::Thread_Mutex() {
+  (this->iv_locked = false_instance());
+  (this->iv_owner = nil_instance());
+  (this->iv_owner_fiber = nil_instance());
+}
+
+inline BasicObject* Thread_Mutex::m_locked_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_locked;
+  return nil_instance();
+}
+
+inline BasicObject* Thread_Mutex::m_owned_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(this->iv_locked)) {
+    nil_instance();
+  } else {
+    return false_instance();
+  }
+  return ([&]() -> BasicObject* { auto* _l = this->iv_owner->m_equal_q((new Array({(&Thread_CLASS)->m_current((new Array({})), nullptr, nullptr)})), nullptr, nullptr); return truthy(_l) ? (this->iv_owner_fiber->m_equal_q((new Array({(&Fiber_CLASS)->m_current((new Array({})), nullptr, nullptr)})), nullptr, nullptr)) : _l; }());
+  return nil_instance();
+}
+
+inline BasicObject* Thread_Mutex::m_lock(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* current = nil_instance();
+  BasicObject* seen = nil_instance();
+  BasicObject* skip_n = nil_instance();
+  current = (&Thread_CLASS)->m_current((new Array({})), nullptr, nullptr);
+  seen = current->m___mutex_seen_count((new Array({})), nullptr, nullptr);
+  skip_n = current->m___mutex_skip_count((new Array({})), nullptr, nullptr);
+  if (truthy(seen->m_lt((new Array({skip_n})), nullptr, nullptr))) {
+    current->m___mutex_seen_count_set((new Array({seen->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr)})), nullptr, nullptr);
+    current->m___mutex_done_count_set((new Array({current->m___mutex_done_count((new Array({})), nullptr, nullptr)->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr)})), nullptr, nullptr);
+    (this->iv_locked = true_instance());
+    (this->iv_owner = current);
+    (this->iv_owner_fiber = (&Fiber_CLASS)->m_current((new Array({})), nullptr, nullptr));
+    current->m___add_owned_mutex((new Array({this})), nullptr, nullptr);
+    return this;
+  }
+  if (truthy(this->iv_locked)) {
+    if (truthy(this->m_owned_q((new Array({})), nullptr, nullptr))) {
+      ([&]() -> BasicObject* { throw (new ThreadError((new String("deadlock; recursive locking", 27)))); }());
+    }
+    ([&]() -> BasicObject* { throw (new Thread_Blocked()); }());
+  }
+  (this->iv_locked = true_instance());
+  (this->iv_owner = current);
+  (this->iv_owner_fiber = (&Fiber_CLASS)->m_current((new Array({})), nullptr, nullptr));
+  current->m___add_owned_mutex((new Array({this})), nullptr, nullptr);
+  current->m___mutex_done_count_set((new Array({current->m___mutex_done_count((new Array({})), nullptr, nullptr)->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr)})), nullptr, nullptr);
+  return this;
+  return nil_instance();
+}
+
+inline BasicObject* Thread_Mutex::m_unlock(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* owner = nil_instance();
+  if (truthy(this->iv_locked)) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ThreadError((new String("Attempt to unlock a mutex which is not locked", 45)))); }());
+  }
+  if (truthy(this->m_owned_q((new Array({})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ThreadError((new String("Attempt to unlock a mutex which is locked by another thread/fiber", 65)))); }());
+  }
+  owner = this->iv_owner;
+  (this->iv_locked = false_instance());
+  (this->iv_owner = nil_instance());
+  (this->iv_owner_fiber = nil_instance());
+  owner->m___remove_owned_mutex((new Array({this})), nullptr, nullptr);
+  return this;
+  return nil_instance();
+}
+
+inline BasicObject* Thread_Mutex::m___force_unlock(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  (this->iv_locked = false_instance());
+  (this->iv_owner = nil_instance());
+  (this->iv_owner_fiber = nil_instance());
+  return this;
+  return nil_instance();
+}
+
+inline BasicObject* Thread_Mutex::m_try_lock(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(this->iv_locked)) {
+    return false_instance();
+  }
+  (this->iv_locked = true_instance());
+  (this->iv_owner = (&Thread_CLASS)->m_current((new Array({})), nullptr, nullptr));
+  (this->iv_owner_fiber = (&Fiber_CLASS)->m_current((new Array({})), nullptr, nullptr));
+  (&Thread_CLASS)->m_current((new Array({})), nullptr, nullptr)->m___add_owned_mutex((new Array({this})), nullptr, nullptr);
+  return true_instance();
+  return nil_instance();
+}
+
+inline BasicObject* Thread_Mutex::m_synchronize(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* blocked = nil_instance();
+  this->m_lock((new Array({})), nullptr, nullptr);
+  blocked = false_instance();
+  return ([&]() -> BasicObject* { EnsureGuard _eg([&]() { if (truthy(blocked)) {   nil_instance(); } else {   this->m_unlock((new Array({})), nullptr, nullptr); }  return nil_instance(); }); try { return [&]() -> BasicObject* { return block->m_call((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<Thread_Blocked*>(e_) != nullptr) { return [&]() -> BasicObject* { blocked = true_instance(); return ([&]() -> BasicObject* { throw; }());  return nil_instance(); }(); } throw; } }());
+  return nil_instance();
+}
+
+inline BasicObject* Thread_Backtrace_Location::m_path(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_path;
+  return nil_instance();
+}
+
+inline BasicObject* Thread_Backtrace_Location::m_lineno(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_lineno;
+  return nil_instance();
+}
+
+inline BasicObject* Thread_Backtrace_Location::m_label(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { auto* _l = this->iv_label; return truthy(_l) ? _l : ((new String("<main>", 6))); }());
+  return nil_instance();
+}
+
+inline BasicObject* Thread_Backtrace_Location::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->m_to_s((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Thread_Backtrace_Location::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (truthy(this->iv_label) ? ((((new String("", 0))->m_plus((new Array({(this->iv_path)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(":", 1))})), nullptr, nullptr)->m_plus((new Array({(this->iv_lineno)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(":in '", 5))})), nullptr, nullptr)->m_plus((new Array({(this->iv_label)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("'", 1))})), nullptr, nullptr)))) : ((((new String("", 0))->m_plus((new Array({(this->iv_path)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(":", 1))})), nullptr, nullptr)->m_plus((new Array({(this->iv_lineno)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))));
+  return nil_instance();
+}
+
 inline ThreadGroup::ThreadGroup() {
   (this->iv_threads = (new Array({})));
   (this->iv_enclosed = false_instance());
@@ -6662,6 +9513,60 @@ inline BasicObject* SizedQueue::m_max_set(Array* args, Hash* kwargs, Proc* block
   return nil_instance();
 }
 
+inline BasicObject* Process_Status::m_success_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->m_exitstatus((new Array({})), nullptr, nullptr)->m_eq_q((new Array({(new Integer(0LL))})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Process_Status::m_signaled_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->m_termsig((new Array({})), nullptr, nullptr)->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Process_Status::m_stopped_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return false_instance();
+  return nil_instance();
+}
+
+inline BasicObject* Process_Status::m_stopsig(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return nil_instance();
+  return nil_instance();
+}
+
+inline BasicObject* Process_Status::m_coredump_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return false_instance();
+  return nil_instance();
+}
+
+inline BasicObject* Process_Status::m_exited_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->m_signaled_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Process_Status::m_to_i(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->m_exitstatus((new Array({})), nullptr, nullptr)->m_to_i((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Process_Status::m_to_s(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ((new String("", 0))->m_plus((new Array({(new String("#<Process::Status: pid ", 23))})), nullptr, nullptr)->m_plus((new Array({(this->m_pid((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" exit ", 6))})), nullptr, nullptr)->m_plus((new Array({(this->m_exitstatus((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr));
+  return nil_instance();
+}
+
+inline BasicObject* Process_Status::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->m_to_s((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
 inline BasicObject* StringIO::m_lineno(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this->iv_lineno;
@@ -6709,6 +9614,17 @@ inline BasicObject* StringIO::m_length(Array* args, Hash* kwargs, Proc* block) {
 inline BasicObject* StringIO::m_pos(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this->iv_pos;
+  return nil_instance();
+}
+
+inline BasicObject* StringIO::m_pos_set(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* n = array_at(args, 0);
+  Proc* _block = block;
+  n = this->m___coerce_to_int__((new Array({n})), nullptr, nullptr);
+  if (truthy(n->m_lt((new Array({(new Integer(0LL))})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw (new Errno_EINVAL((new String("Invalid argument", 16)))); }());
+  }
+  return (this->iv_pos = n);
   return nil_instance();
 }
 
@@ -6886,6 +9802,27 @@ inline BasicObject* StringIO::m_putc(Array* args, Hash* kwargs, Proc* block) {
   ch = (truthy(obj->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr)) ? (((obj->m_mod((new Array({(new Integer(256LL))})), nullptr, nullptr))->m_chr((new Array({})), nullptr, nullptr))) : ((truthy(obj->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)) ? ((obj->m_aref((new Array({(new Integer(0LL))})), nullptr, nullptr))) : ((truthy(obj->m_respond_to_q((new Array({intern("to_int")})), nullptr, nullptr)) ? (((obj->m_to_int((new Array({})), nullptr, nullptr)->m_mod((new Array({(new Integer(256LL))})), nullptr, nullptr))->m_chr((new Array({})), nullptr, nullptr))) : ((truthy(obj->m_respond_to_q((new Array({intern("to_str")})), nullptr, nullptr)) ? ((obj->m_to_str((new Array({})), nullptr, nullptr)->m_aref((new Array({(new Integer(0LL))})), nullptr, nullptr))) : ((([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(obj->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Integer", 13))})), nullptr, nullptr)))); }()))))))))));
   this->m__write_str((new Array({ch})), nullptr, nullptr);
   return obj;
+  return nil_instance();
+}
+
+inline BasicObject* StringIO::m_truncate(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* len = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* cur = nil_instance();
+  this->m__check_writable((new Array({})), nullptr, nullptr);
+  len = this->m___coerce_to_int__((new Array({len})), nullptr, nullptr);
+  if (truthy(len->m_lt((new Array({(new Integer(0LL))})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw (new Errno_EINVAL((new String("Invalid argument - negative length", 34)))); }());
+  }
+  cur = this->iv_string->m_bytesize((new Array({})), nullptr, nullptr);
+  if (truthy(len->m_lt((new Array({cur})), nullptr, nullptr))) {
+    this->iv_string->m_replace((new Array({([&]() -> BasicObject* { auto* _l = this->iv_string->m_byteslice((new Array({(new Integer(0LL)), len})), nullptr, nullptr); return truthy(_l) ? _l : ((new String("", 0))); }())})), nullptr, nullptr);
+  } else {
+    if (truthy(len->m_gt((new Array({cur})), nullptr, nullptr))) {
+      this->iv_string->m_lshift((new Array({((new String("\0", 1))->m_mul((new Array({(len->m_minus((new Array({cur})), nullptr, nullptr))})), nullptr, nullptr))})), nullptr, nullptr);
+    }
+  }
+  return len;
   return nil_instance();
 }
 
@@ -7076,6 +10013,19 @@ inline BasicObject* StringIO::m_fcntl(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* StringIO::m_ioctl(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* _ = args;  // *rest = whole args
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { throw (new Errno_EBADF((new String("Bad file descriptor", 19)))); }());
+  return nil_instance();
+}
+
+inline BasicObject* StringIO::m_stat(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { throw (new Errno_EBADF((new String("Bad file descriptor", 19)))); }());
+  return nil_instance();
+}
+
 inline BasicObject* StringIO::m_to_io(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this;
@@ -7131,6 +10081,15 @@ inline BasicObject* StringIO::m__check_readable(Array* args, Hash* kwargs, Proc*
   if (truthy(([&]() -> BasicObject* { auto* _l = this->iv_closed_r; return truthy(_l) ? _l : (this->iv_readable->m_not((new Array({})), nullptr, nullptr)); }()))) {
     ([&]() -> BasicObject* { throw (new IOError((new String("not opened for reading", 22)))); }());
   }
+  return nil_instance();
+}
+
+inline BasicObject* StringIO::m__check_writable(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(([&]() -> BasicObject* { auto* _l = this->iv_closed_w; return truthy(_l) ? _l : (this->iv_writable->m_not((new Array({})), nullptr, nullptr)); }()))) {
+    ([&]() -> BasicObject* { throw (new IOError((new String("not opened for writing", 22)))); }());
+  }
+  return (truthy(this->iv_string->m_frozen_q((new Array({})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { throw (new Errno_EACCES((new String("Permission denied", 17)))); }()))) : (nil_instance()));
   return nil_instance();
 }
 
@@ -7823,6 +10782,118 @@ inline BasicObject* Random::m_eq_q(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline ObjectSpace_WeakMap::ObjectSpace_WeakMap() {
+  (this->iv_pairs = (new Array({})));
+}
+
+inline BasicObject* ObjectSpace_WeakMap::m_size(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_pairs->m_size((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* ObjectSpace_WeakMap::m_length(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->iv_pairs->m_size((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* ObjectSpace_WeakMap::m__weakmap_inspect_obj(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_inspect((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<NoMethodError*>(e_) != nullptr) { return [&]() -> BasicObject* { return ((new String("", 0))->m_plus((new Array({(new String("#<BasicObject:0x", 16))})), nullptr, nullptr)->m_plus((new Array({(obj->m___id__((new Array({})), nullptr, nullptr)->m_to_s((new Array({(new Integer(16LL))})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr));  return nil_instance(); }(); } throw; } }());
+  return nil_instance();
+}
+
+inline ObjectSpace_WeakKeyMap::ObjectSpace_WeakKeyMap() {
+  (this->iv_pairs = (new Array({})));
+}
+
+inline BasicObject* ObjectSpace_WeakKeyMap::m_inspect(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ((new String("", 0))->m_plus((new Array({(new String("#<ObjectSpace::WeakKeyMap:0x", 28))})), nullptr, nullptr)->m_plus((new Array({(this->m_object_id((new Array({})), nullptr, nullptr)->m_to_s((new Array({(new Integer(16LL))})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" size=", 6))})), nullptr, nullptr)->m_plus((new Array({(this->iv_pairs->m_size((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr));
+  return nil_instance();
+}
+
+inline BasicObject* ObjectSpace_WeakKeyMap::m_aset(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* key = array_at(args, 0);
+  BasicObject* value = array_at(args, 1);
+  Proc* _block = block;
+  BasicObject* idx = nil_instance();
+  this->m___check_key___b((new Array({key})), nullptr, nullptr);
+  idx = this->m___find_index__((new Array({key})), nullptr, nullptr);
+  if (truthy(idx)) {
+    this->iv_pairs->m_aref((new Array({idx})), nullptr, nullptr)->m_aset((new Array({(new Integer(1LL)), value})), nullptr, nullptr);
+  } else {
+    this->iv_pairs->m_lshift((new Array({(new Array({key, value}))})), nullptr, nullptr);
+  }
+  return value;
+  return nil_instance();
+}
+
+inline BasicObject* ObjectSpace_WeakKeyMap::m_aref(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* key = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* pair = nil_instance();
+  if (truthy(this->m___ungcable___q((new Array({key})), nullptr, nullptr))) {
+    return nil_instance();
+  }
+  pair = this->m___find_pair__((new Array({key})), nullptr, nullptr);
+  return (truthy(pair) ? ((pair->m_aref((new Array({(new Integer(1LL))})), nullptr, nullptr))) : ((nil_instance())));
+  return nil_instance();
+}
+
+inline BasicObject* ObjectSpace_WeakKeyMap::m_key_q(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* key = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(this->m___ungcable___q((new Array({key})), nullptr, nullptr))) {
+    return false_instance();
+  }
+  return this->m___find_pair__((new Array({key})), nullptr, nullptr)->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* ObjectSpace_WeakKeyMap::m_delete(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* key = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* idx = nil_instance();
+  if (truthy(this->m___ungcable___q((new Array({key})), nullptr, nullptr))) {
+    return nil_instance();
+  }
+  idx = this->m___find_index__((new Array({key})), nullptr, nullptr);
+  return (truthy(idx) ? ((this->iv_pairs->m_delete_at((new Array({idx})), nullptr, nullptr)->m_aref((new Array({(new Integer(1LL))})), nullptr, nullptr))) : ((truthy(this->m_block_given_q((new Array({})), nullptr, nullptr)) ? ((_block->m_call((new Array({key})), nullptr, nullptr))) : ((nil_instance())))));
+  return nil_instance();
+}
+
+inline BasicObject* ObjectSpace_WeakKeyMap::m_getkey(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* key = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* pair = nil_instance();
+  if (truthy(this->m___ungcable___q((new Array({key})), nullptr, nullptr))) {
+    return nil_instance();
+  }
+  pair = this->m___find_pair__((new Array({key})), nullptr, nullptr);
+  return (truthy(pair) ? ((pair->m_aref((new Array({(new Integer(0LL))})), nullptr, nullptr))) : ((nil_instance())));
+  return nil_instance();
+}
+
+inline BasicObject* ObjectSpace_WeakKeyMap::m_clear(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  this->iv_pairs->m_clear((new Array({})), nullptr, nullptr);
+  return this;
+  return nil_instance();
+}
+
+inline BasicObject* ObjectSpace_WeakKeyMap::m___ungcable___q(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* key = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = key->m_equal_q((new Array({nil_instance()})), nullptr, nullptr); return truthy(_l) ? _l : (key->m_equal_q((new Array({true_instance()})), nullptr, nullptr)); }()); return truthy(_l) ? _l : (key->m_equal_q((new Array({false_instance()})), nullptr, nullptr)); }()))) {
+    return true_instance();
+  }
+  return ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = key->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (key->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }()); return truthy(_l) ? _l : (key->m_is_a_q((new Array({(&Symbol_CLASS)})), nullptr, nullptr)); }());  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<NoMethodError*>(e_) != nullptr) { return [&]() -> BasicObject* { return false_instance();  return nil_instance(); }(); } throw; } }());
+  return nil_instance();
+}
+
 inline BasicObject* ENVClass::m_to_s(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return (new String("ENV", 3));
@@ -7851,6 +10922,550 @@ inline BasicObject* ENVClass::m_eq_q(Array* args, Hash* kwargs, Proc* block) {
 inline BasicObject* ENVClass::m_dup(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return ([&]() -> BasicObject* { throw (new TypeError((new String("Cannot dup ENV, use ENV.to_h to get a copy of ENV as a hash", 59)))); }());
+  return nil_instance();
+}
+
+inline Marshal_Dumper::Marshal_Dumper(BasicObject* limit) {
+  (this->iv_limit = limit);
+  (this->iv_depth = (new Integer(0LL)));
+  (this->iv_symbols = (new Hash({})));
+  (this->iv_objects = (new Hash({})));
+  (this->iv_out = (new String("", 0))->m_b((new Array({})), nullptr, nullptr));
+}
+
+inline BasicObject* Marshal_Dumper::m_dump(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  this->iv_out->m_lshift((new Array({(new String("\004\010", 2))})), nullptr, nullptr);
+  this->m_write_object((new Array({obj})), nullptr, nullptr);
+  return this->iv_out;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_respond_to_marshal_dump_q(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  return obj->m_respond_to_q((new Array({intern("marshal_dump"), true_instance()})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_respond_to__dump_q(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  return obj->m_respond_to_q((new Array({intern("_dump"), true_instance()})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_real_class_name(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* klass = array_at(args, 0);
+  Proc* _block = block;
+  return (&Module_CLASS)->m_instance_method((new Array({intern("name")})), nullptr, nullptr)->m_bind((new Array({klass})), nullptr, nullptr)->m_call((new Array({})), nullptr, nullptr)->m_to_s((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_real_module_name(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* mod = array_at(args, 0);
+  Proc* _block = block;
+  return (&Module_CLASS)->m_instance_method((new Array({intern("name")})), nullptr, nullptr)->m_bind((new Array({mod})), nullptr, nullptr)->m_call((new Array({})), nullptr, nullptr)->m_to_s((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_write_object(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* result = nil_instance();
+  return (truthy(this->iv_limit->m_ge((new Array({(new Integer(0LL))})), nullptr, nullptr)) ? (((truthy(this->iv_depth->m_ge((new Array({this->iv_limit})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { throw (new ArgumentError((new String("exceed depth limit", 18)))); }()))) : (nil_instance())), (this->iv_depth = this->iv_depth->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr)), (result = this->m_write_object_inner((new Array({obj})), nullptr, nullptr)), (this->iv_depth = this->iv_depth->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr)), result)) : ((this->m_write_object_inner((new Array({obj})), nullptr, nullptr))));
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_isa_q(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  BasicObject* klass = array_at(args, 1);
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_is_a_q((new Array({klass})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<NoMethodError*>(e_) != nullptr) { return [&]() -> BasicObject* { return false_instance();  return nil_instance(); }(); } throw; } }());
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_track(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* oid = nil_instance();
+  oid = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_object_id((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<NoMethodError*>(e_) != nullptr) { return [&]() -> BasicObject* { return obj->m___id__((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } throw; } }());
+  return this->iv_objects->m_aset((new Array({oid, this->iv_objects->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_bignum_to_bytes(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* n = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* bytes = nil_instance();
+  bytes = (new String("", 0))->m_b((new Array({})), nullptr, nullptr);
+  while (truthy(n->m_gt((new Array({(new Integer(0LL))})), nullptr, nullptr))) {
+    bytes->m_lshift((new Array({(n->m_bit_and((new Array({(new Integer(255LL))})), nullptr, nullptr))->m_chr((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
+    n = n->m_rshift((new Array({(new Integer(8LL))})), nullptr, nullptr);
+  }
+  return bytes;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_encoding_ivar(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* enc = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* name = nil_instance();
+  name = enc->m_name((new Array({})), nullptr, nullptr);
+  return (truthy(name->m_eq_q((new Array({(new String("UTF-8", 5))})), nullptr, nullptr)) ? (((new Array({intern("E"), true_instance()})))) : ((truthy(([&]() -> BasicObject* { auto* _l = name->m_eq_q((new Array({(new String("US-ASCII", 8))})), nullptr, nullptr); return truthy(_l) ? _l : (name->m_eq_q((new Array({(new String("ASCII", 5))})), nullptr, nullptr)); }())) ? (((new Array({intern("E"), false_instance()})))) : ((truthy(([&]() -> BasicObject* { auto* _l = name->m_eq_q((new Array({(new String("ASCII-8BIT", 10))})), nullptr, nullptr); return truthy(_l) ? _l : (name->m_eq_q((new Array({(new String("BINARY", 6))})), nullptr, nullptr)); }())) ? ((nil_instance())) : (((new Array({intern("encoding"), name})))))))));
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_collect_ivars(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* ivs = nil_instance();
+  BasicObject* result = nil_instance();
+  ivs = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_instance_variables((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<NoMethodError*>(e_) != nullptr) { return [&]() -> BasicObject* { return (new Array({}));  return nil_instance(); }(); } throw; } }());
+  result = (new Array({}));
+  ivs->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* iv = arg; result->m_lshift((new Array({iv})), nullptr, nullptr); return result->m_lshift((new Array({obj->m_instance_variable_get((new Array({iv})), nullptr, nullptr)})), nullptr, nullptr); })));
+  return result;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_extended_modules(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* can_singleton = nil_instance();
+  BasicObject* sc = nil_instance();
+  BasicObject* mods = nil_instance();
+  BasicObject* klass_mods = nil_instance();
+  can_singleton = (([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_respond_to_q((new Array({intern("singleton_class"), true_instance()})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return false_instance();  return nil_instance(); }(); } throw; } }()));
+  if (truthy(can_singleton)) {
+    nil_instance();
+  } else {
+    return (new Array({}));
+  }
+  return ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { sc = obj->m_singleton_class((new Array({})), nullptr, nullptr); mods = sc->m_included_modules((new Array({})), nullptr, nullptr); klass_mods = obj->m_class((new Array({})), nullptr, nullptr)->m_ancestors((new Array({})), nullptr, nullptr)->m_select((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* a = arg; return ([&]() -> BasicObject* { auto* _l = a->m_is_a_q((new Array({(&Module_CLASS)})), nullptr, nullptr); return truthy(_l) ? (a->m_is_a_q((new Array({(&Class_CLASS)})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }()); }))); return mods->m_minus((new Array({klass_mods})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return (new Array({}));  return nil_instance(); }(); } throw; } }());
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_write_class_name(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* klass = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* name = nil_instance();
+  this->m_check_anonymous((new Array({klass})), nullptr, nullptr);
+  name = this->m_real_class_name((new Array({klass})), nullptr, nullptr);
+  this->m_write_long((new Array({name->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
+  return this->iv_out->m_lshift((new Array({name->m_b((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_write_module_name(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* mod = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* name = nil_instance();
+  this->m_check_anonymous((new Array({mod})), nullptr, nullptr);
+  name = this->m_real_module_name((new Array({mod})), nullptr, nullptr);
+  this->m_write_long((new Array({name->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
+  return this->iv_out->m_lshift((new Array({name->m_b((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_check_anonymous(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* mod = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* name = nil_instance();
+  BasicObject* kind = nil_instance();
+  name = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return this->m_real_class_name((new Array({mod})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return this->m_real_module_name((new Array({mod})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());  return nil_instance(); }(); } throw; } }());
+  return (truthy(([&]() -> BasicObject* { auto* _l = name->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (name->m_empty_q((new Array({})), nullptr, nullptr)); }())) ? (((kind = (truthy(mod->m_is_a_q((new Array({(&Class_CLASS)})), nullptr, nullptr)) ? (((new String("class", 5)))) : (((new String("module", 6)))))), ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't dump anonymous ", 21))})), nullptr, nullptr)->m_plus((new Array({(kind)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" ", 1))})), nullptr, nullptr)->m_plus((new Array({(mod->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }()))) : (nil_instance()));
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_ivar(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return this->m_read_object_for_ivar((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_byte(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* b = nil_instance();
+  if (truthy(this->iv_pos->m_ge((new Array({this->iv_data->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("marshal data too short", 22)))); }());
+  }
+  b = this->iv_data->m_getbyte((new Array({this->iv_pos})), nullptr, nullptr);
+  (this->iv_pos = this->iv_pos->m_plus((new Array({(new Integer(1LL))})), nullptr, nullptr));
+  return b;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_bytes(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* n = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* s = nil_instance();
+  if (truthy(this->iv_pos->m_plus((new Array({n})), nullptr, nullptr)->m_gt((new Array({this->iv_data->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("marshal data too short", 22)))); }());
+  }
+  s = this->iv_data->m_byteslice((new Array({this->iv_pos, n})), nullptr, nullptr);
+  (this->iv_pos = this->iv_pos->m_plus((new Array({n})), nullptr, nullptr));
+  return s;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_peek_byte(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  if (truthy(this->iv_pos->m_ge((new Array({this->iv_data->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("marshal data too short", 22)))); }());
+  }
+  return this->iv_data->m_getbyte((new Array({this->iv_pos})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_long(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* b = nil_instance();
+  BasicObject* a = nil_instance();
+  BasicObject* bb = nil_instance();
+  BasicObject* c = nil_instance();
+  BasicObject* d = nil_instance();
+  b = this->m_read_byte((new Array({})), nullptr, nullptr);
+  return (truthy(b->m_eq_q((new Array({(new Integer(0LL))})), nullptr, nullptr)) ? (((new Integer(0LL)))) : ((truthy(b->m_eq_q((new Array({(new Integer(1LL))})), nullptr, nullptr)) ? ((this->m_read_byte((new Array({})), nullptr, nullptr))) : ((truthy(b->m_eq_q((new Array({(new Integer(2LL))})), nullptr, nullptr)) ? (((a = this->m_read_byte((new Array({})), nullptr, nullptr)), (bb = this->m_read_byte((new Array({})), nullptr, nullptr)), a->m_bit_or((new Array({(bb->m_lshift((new Array({(new Integer(8LL))})), nullptr, nullptr))})), nullptr, nullptr))) : ((truthy(b->m_eq_q((new Array({(new Integer(3LL))})), nullptr, nullptr)) ? (((a = this->m_read_byte((new Array({})), nullptr, nullptr)), (bb = this->m_read_byte((new Array({})), nullptr, nullptr)), (c = this->m_read_byte((new Array({})), nullptr, nullptr)), a->m_bit_or((new Array({(bb->m_lshift((new Array({(new Integer(8LL))})), nullptr, nullptr))})), nullptr, nullptr)->m_bit_or((new Array({(c->m_lshift((new Array({(new Integer(16LL))})), nullptr, nullptr))})), nullptr, nullptr))) : ((truthy(b->m_eq_q((new Array({(new Integer(4LL))})), nullptr, nullptr)) ? (((a = this->m_read_byte((new Array({})), nullptr, nullptr)), (bb = this->m_read_byte((new Array({})), nullptr, nullptr)), (c = this->m_read_byte((new Array({})), nullptr, nullptr)), (d = this->m_read_byte((new Array({})), nullptr, nullptr)), a->m_bit_or((new Array({(bb->m_lshift((new Array({(new Integer(8LL))})), nullptr, nullptr))})), nullptr, nullptr)->m_bit_or((new Array({(c->m_lshift((new Array({(new Integer(16LL))})), nullptr, nullptr))})), nullptr, nullptr)->m_bit_or((new Array({(d->m_lshift((new Array({(new Integer(24LL))})), nullptr, nullptr))})), nullptr, nullptr))) : ((truthy(b->m_lt((new Array({(new Integer(128LL))})), nullptr, nullptr)) ? ((b->m_minus((new Array({(new Integer(5LL))})), nullptr, nullptr))) : ((truthy(b->m_lt((new Array({(new Integer(252LL))})), nullptr, nullptr)) ? ((b->m_minus((new Array({(new Integer(251LL))})), nullptr, nullptr))) : ((truthy(b->m_eq_q((new Array({(new Integer(252LL))})), nullptr, nullptr)) ? (((a = this->m_read_byte((new Array({})), nullptr, nullptr)), (bb = this->m_read_byte((new Array({})), nullptr, nullptr)), (c = this->m_read_byte((new Array({})), nullptr, nullptr)), (d = this->m_read_byte((new Array({})), nullptr, nullptr)), (a->m_bit_or((new Array({(bb->m_lshift((new Array({(new Integer(8LL))})), nullptr, nullptr))})), nullptr, nullptr)->m_bit_or((new Array({(c->m_lshift((new Array({(new Integer(16LL))})), nullptr, nullptr))})), nullptr, nullptr)->m_bit_or((new Array({(d->m_lshift((new Array({(new Integer(24LL))})), nullptr, nullptr))})), nullptr, nullptr))->m_minus((new Array({(new Integer(4294967296LL))})), nullptr, nullptr))) : ((truthy(b->m_eq_q((new Array({(new Integer(253LL))})), nullptr, nullptr)) ? (((a = this->m_read_byte((new Array({})), nullptr, nullptr)), (bb = this->m_read_byte((new Array({})), nullptr, nullptr)), (c = this->m_read_byte((new Array({})), nullptr, nullptr)), (a->m_bit_or((new Array({(bb->m_lshift((new Array({(new Integer(8LL))})), nullptr, nullptr))})), nullptr, nullptr)->m_bit_or((new Array({(c->m_lshift((new Array({(new Integer(16LL))})), nullptr, nullptr))})), nullptr, nullptr))->m_minus((new Array({(new Integer(16777216LL))})), nullptr, nullptr))) : ((truthy(b->m_eq_q((new Array({(new Integer(254LL))})), nullptr, nullptr)) ? (((a = this->m_read_byte((new Array({})), nullptr, nullptr)), (bb = this->m_read_byte((new Array({})), nullptr, nullptr)), (a->m_bit_or((new Array({(bb->m_lshift((new Array({(new Integer(8LL))})), nullptr, nullptr))})), nullptr, nullptr))->m_minus((new Array({(new Integer(65536LL))})), nullptr, nullptr))) : ((truthy(b->m_eq_q((new Array({(new Integer(255LL))})), nullptr, nullptr)) ? (((a = this->m_read_byte((new Array({})), nullptr, nullptr)), a->m_minus((new Array({(new Integer(256LL))})), nullptr, nullptr))) : ((([&]() -> BasicObject* { throw (new ArgumentError((new String("marshal data too short", 22)))); }()))))))))))))))))))))))));
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_track(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* idx = nil_instance();
+  idx = this->iv_objects->m_size((new Array({})), nullptr, nullptr);
+  this->iv_objects->m_lshift((new Array({obj})), nullptr, nullptr);
+  return idx;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_call_proc(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  BasicObject* tracked_idx = (args->data.size() > 1) ? args->data[1] : (nil_instance());
+  Proc* _block = block;
+  BasicObject* result = nil_instance();
+  if (truthy(this->iv_freeze)) {
+    this->m_freeze_object((new Array({obj})), nullptr, nullptr);
+  }
+  return (truthy(this->iv_proc) ? (((result = this->iv_proc->m_call((new Array({obj})), nullptr, nullptr)), (truthy(tracked_idx) ? ((this->iv_completed->m_aset((new Array({tracked_idx, true_instance()})), nullptr, nullptr))) : (nil_instance())), result)) : ((obj)));
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_freeze_object(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* obj = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = obj->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (obj->m_equal_q((new Array({true_instance()})), nullptr, nullptr)); }()); return truthy(_l) ? _l : (obj->m_equal_q((new Array({false_instance()})), nullptr, nullptr)); }()))) {
+    return obj;
+  }
+  if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = obj->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (obj->m_is_a_q((new Array({(&Symbol_CLASS)})), nullptr, nullptr)); }()); return truthy(_l) ? _l : (obj->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }()))) {
+    return obj;
+  }
+  if (truthy(obj->m_is_a_q((new Array({(&Module_CLASS)})), nullptr, nullptr))) {
+    return obj;
+  }
+  ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_freeze((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
+  return obj;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_symbol(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* len = nil_instance();
+  BasicObject* str = nil_instance();
+  BasicObject* sym = nil_instance();
+  len = this->m_read_long((new Array({})), nullptr, nullptr);
+  str = this->m_read_bytes((new Array({len})), nullptr, nullptr);
+  sym = str->m_to_sym((new Array({})), nullptr, nullptr);
+  this->iv_symbols->m_lshift((new Array({sym})), nullptr, nullptr);
+  return this->m_call_proc((new Array({sym})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_array(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* len = nil_instance();
+  BasicObject* arr = nil_instance();
+  BasicObject* idx = nil_instance();
+  len = this->m_read_long((new Array({})), nullptr, nullptr);
+  arr = (new Array(static_cast<BasicObject*>(len)));
+  idx = this->m_track((new Array({arr})), nullptr, nullptr);
+  for (int64_t __i_raw__ = 0; __i_raw__ < static_cast<Integer*>(len)->raw_; __i_raw__++) {
+    BasicObject* i = new Integer(__i_raw__);
+    arr->m_aset((new Array({i, this->m_read_object((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
+  }
+  return this->m_call_proc((new Array({arr, idx})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_hash(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* has_default = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* len = nil_instance();
+  BasicObject* h = nil_instance();
+  BasicObject* idx = nil_instance();
+  len = this->m_read_long((new Array({})), nullptr, nullptr);
+  h = (new Hash({}));
+  idx = this->m_track((new Array({h})), nullptr, nullptr);
+  for (int64_t ___i_raw__ = 0; ___i_raw__ < static_cast<Integer*>(len)->raw_; ___i_raw__++) {
+    BasicObject* _i = new Integer(___i_raw__);
+    BasicObject* k = this->m_read_object((new Array({})), nullptr, nullptr);
+    BasicObject* v = this->m_read_object((new Array({})), nullptr, nullptr);
+    h->m_aset((new Array({k, v})), nullptr, nullptr);
+  }
+  if (truthy(has_default)) {
+    h->m_default_set((new Array({this->m_read_object((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
+  }
+  return this->m_call_proc((new Array({h, idx})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_class_ref(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* len = nil_instance();
+  BasicObject* name = nil_instance();
+  BasicObject* klass = nil_instance();
+  BasicObject* obj_idx = nil_instance();
+  BasicObject* obj = nil_instance();
+  len = this->m_read_long((new Array({})), nullptr, nullptr);
+  name = this->m_read_bytes((new Array({len})), nullptr, nullptr);
+  klass = this->m_const_from_name((new Array({name})), nullptr, nullptr);
+  if (truthy(klass->m_is_a_q((new Array({(&Class_CLASS)})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ArgumentError(((new String("", 0))->m_plus((new Array({(name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" does not refer to a Class", 26))})), nullptr, nullptr)))); }());
+  }
+  obj_idx = this->iv_objects->m_size((new Array({})), nullptr, nullptr);
+  this->iv_objects->m_lshift((new Array({klass})), nullptr, nullptr);
+  obj = this->m_call_proc((new Array({klass, obj_idx})), nullptr, nullptr);
+  this->iv_objects->m_aset((new Array({obj_idx, obj})), nullptr, nullptr);
+  return obj;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_module_ref(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* len = nil_instance();
+  BasicObject* name = nil_instance();
+  BasicObject* mod = nil_instance();
+  BasicObject* obj_idx = nil_instance();
+  BasicObject* obj = nil_instance();
+  len = this->m_read_long((new Array({})), nullptr, nullptr);
+  name = this->m_read_bytes((new Array({len})), nullptr, nullptr);
+  mod = this->m_const_from_name((new Array({name})), nullptr, nullptr);
+  if (truthy(([&]() -> BasicObject* { auto* _l = mod->m_is_a_q((new Array({(&Module_CLASS)})), nullptr, nullptr); return truthy(_l) ? (mod->m_is_a_q((new Array({(&Class_CLASS)})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }()))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new ArgumentError(((new String("", 0))->m_plus((new Array({(name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" does not refer to a Module", 27))})), nullptr, nullptr)))); }());
+  }
+  obj_idx = this->iv_objects->m_size((new Array({})), nullptr, nullptr);
+  this->iv_objects->m_lshift((new Array({mod})), nullptr, nullptr);
+  obj = this->m_call_proc((new Array({mod, obj_idx})), nullptr, nullptr);
+  this->iv_objects->m_aset((new Array({obj_idx, obj})), nullptr, nullptr);
+  return obj;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_old_module_ref(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* len = nil_instance();
+  BasicObject* name = nil_instance();
+  BasicObject* mod = nil_instance();
+  BasicObject* obj_idx = nil_instance();
+  BasicObject* obj = nil_instance();
+  len = this->m_read_long((new Array({})), nullptr, nullptr);
+  name = this->m_read_bytes((new Array({len})), nullptr, nullptr);
+  mod = this->m_const_from_name((new Array({name})), nullptr, nullptr);
+  obj_idx = this->iv_objects->m_size((new Array({})), nullptr, nullptr);
+  this->iv_objects->m_lshift((new Array({mod})), nullptr, nullptr);
+  obj = this->m_call_proc((new Array({mod, obj_idx})), nullptr, nullptr);
+  this->iv_objects->m_aset((new Array({obj_idx, obj})), nullptr, nullptr);
+  return obj;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_class_by_name(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* sym = nil_instance();
+  BasicObject* name = nil_instance();
+  sym = this->m_read_object((new Array({})), nullptr, nullptr);
+  name = (truthy(sym->m_is_a_q((new Array({(&Symbol_CLASS)})), nullptr, nullptr)) ? ((sym->m_to_s((new Array({})), nullptr, nullptr))) : ((sym->m_to_s((new Array({})), nullptr, nullptr))));
+  return this->m_const_from_name((new Array({name})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_class_by_symbol(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* sym = nil_instance();
+  sym = this->m_read_ivar_name((new Array({})), nullptr, nullptr);
+  return this->m_const_from_name((new Array({sym->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_user_defined_body(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* klass = nil_instance();
+  BasicObject* len = nil_instance();
+  BasicObject* data = nil_instance();
+  BasicObject* obj = nil_instance();
+  klass = this->m_read_class_by_symbol((new Array({})), nullptr, nullptr);
+  len = this->m_read_long((new Array({})), nullptr, nullptr);
+  data = this->m_read_bytes((new Array({len})), nullptr, nullptr);
+  obj = klass->m_send((new Array({intern("_load"), data})), nullptr, nullptr);
+  return obj;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_struct_body(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* klass = nil_instance();
+  BasicObject* num_members = nil_instance();
+  BasicObject* obj = nil_instance();
+  klass = this->m_read_class_by_symbol((new Array({})), nullptr, nullptr);
+  num_members = this->m_read_long((new Array({})), nullptr, nullptr);
+  obj = klass->m_allocate((new Array({})), nullptr, nullptr);
+  for (int64_t ___i_raw__ = 0; ___i_raw__ < static_cast<Integer*>(num_members)->raw_; ___i_raw__++) {
+    BasicObject* _i = new Integer(___i_raw__);
+    BasicObject* name = this->m_read_ivar_name((new Array({})), nullptr, nullptr);
+    BasicObject* val = this->m_read_object((new Array({})), nullptr, nullptr);
+    obj->m_aset((new Array({name, ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return val;  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_send((new Array({((new String("", 0))->m_plus((new Array({(name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("=", 1))})), nullptr, nullptr))->m_to_sym((new Array({})), nullptr, nullptr), val})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());  return nil_instance(); }(); } throw; } }())})), nullptr, nullptr);
+  }
+  return obj;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_generic_object_body(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* klass = nil_instance();
+  BasicObject* num_ivars = nil_instance();
+  BasicObject* obj = nil_instance();
+  klass = this->m_read_class_by_symbol((new Array({})), nullptr, nullptr);
+  num_ivars = this->m_read_long((new Array({})), nullptr, nullptr);
+  obj = klass->m_allocate((new Array({})), nullptr, nullptr);
+  for (int64_t ___i_raw__ = 0; ___i_raw__ < static_cast<Integer*>(num_ivars)->raw_; ___i_raw__++) {
+    BasicObject* _i = new Integer(___i_raw__);
+    BasicObject* name = this->m_read_ivar_name((new Array({})), nullptr, nullptr);
+    BasicObject* val = this->m_read_object((new Array({})), nullptr, nullptr);
+    obj->m_instance_variable_set((new Array({name, val})), nullptr, nullptr);
+  }
+  return obj;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_link(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* idx = nil_instance();
+  BasicObject* obj = nil_instance();
+  idx = this->m_read_long((new Array({})), nullptr, nullptr);
+  if (truthy(([&]() -> BasicObject* { auto* _l = idx->m_lt((new Array({(new Integer(0LL))})), nullptr, nullptr); return truthy(_l) ? _l : (idx->m_ge((new Array({this->iv_objects->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr)); }()))) {
+    ([&]() -> BasicObject* { throw (new ArgumentError((new String("bad link", 8)))); }());
+  }
+  obj = this->iv_objects->m_aref((new Array({idx})), nullptr, nullptr);
+  return (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = this->iv_proc; return truthy(_l) ? (this->iv_completed->m_aref((new Array({idx})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (this->iv_no_link_proc->m_aref((new Array({idx})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }())) ? ((this->iv_proc->m_call((new Array({obj})), nullptr, nullptr))) : ((obj)));
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_uclass(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* klass = nil_instance();
+  BasicObject* compare_by_id = nil_instance();
+  BasicObject* obj = nil_instance();
+  BasicObject* obj_idx = nil_instance();
+  klass = this->m_read_class_by_symbol((new Array({})), nullptr, nullptr);
+  compare_by_id = (klass->m_eq_q((new Array({(&Hash_CLASS)})), nullptr, nullptr));
+  obj = this->m_read_object_with_class((new Array({klass})), nullptr, nullptr);
+  return (truthy(([&]() -> BasicObject* { auto* _l = compare_by_id; return truthy(_l) ? (obj->m_is_a_q((new Array({(&Hash_CLASS)})), nullptr, nullptr)) : _l; }())) ? ((obj->m_compare_by_identity((new Array({})), nullptr, nullptr), (obj_idx = this->iv_objects->m_size((new Array({})), nullptr, nullptr)->m_minus((new Array({(new Integer(1LL))})), nullptr, nullptr)), this->m_call_proc((new Array({obj, obj_idx})), nullptr, nullptr))) : ((obj)));
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_user_defined(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* klass = nil_instance();
+  BasicObject* len = nil_instance();
+  BasicObject* data = nil_instance();
+  BasicObject* obj = nil_instance();
+  BasicObject* idx = nil_instance();
+  klass = this->m_read_class_by_symbol((new Array({})), nullptr, nullptr);
+  len = this->m_read_long((new Array({})), nullptr, nullptr);
+  data = this->m_read_bytes((new Array({len})), nullptr, nullptr);
+  obj = klass->m_send((new Array({intern("_load"), data})), nullptr, nullptr);
+  idx = this->iv_objects->m_size((new Array({})), nullptr, nullptr);
+  this->iv_objects->m_lshift((new Array({obj})), nullptr, nullptr);
+  this->iv_no_link_proc->m_aset((new Array({idx, true_instance()})), nullptr, nullptr);
+  return this->m_call_proc((new Array({obj})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_user_marshal(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* klass = nil_instance();
+  BasicObject* data = nil_instance();
+  BasicObject* placeholder_idx = nil_instance();
+  BasicObject* obj = nil_instance();
+  BasicObject* idx = nil_instance();
+  klass = this->m_read_class_by_symbol((new Array({})), nullptr, nullptr);
+  data = nil_instance();
+  if (truthy(klass->m_eq_q((new Array({(&Rational_CLASS)})), nullptr, nullptr))) {
+    placeholder_idx = this->iv_objects->m_size((new Array({})), nullptr, nullptr);
+    this->iv_objects->m_lshift((new Array({nil_instance()})), nullptr, nullptr);
+    this->iv_no_link_proc->m_aset((new Array({placeholder_idx, true_instance()})), nullptr, nullptr);
+    data = this->m_read_object((new Array({})), nullptr, nullptr);
+    obj = this->m_Rational(static_cast<Array*>(data), nullptr, nullptr);
+    this->iv_objects->m_aset((new Array({placeholder_idx, obj})), nullptr, nullptr);
+    return this->m_call_proc((new Array({obj})), nullptr, nullptr);
+  }
+  if (truthy(klass->m_eq_q((new Array({(&Complex_CLASS)})), nullptr, nullptr))) {
+    placeholder_idx = this->iv_objects->m_size((new Array({})), nullptr, nullptr);
+    this->iv_objects->m_lshift((new Array({nil_instance()})), nullptr, nullptr);
+    this->iv_no_link_proc->m_aset((new Array({placeholder_idx, true_instance()})), nullptr, nullptr);
+    data = this->m_read_object((new Array({})), nullptr, nullptr);
+    obj = this->m_Complex(static_cast<Array*>(data), nullptr, nullptr);
+    this->iv_objects->m_aset((new Array({placeholder_idx, obj})), nullptr, nullptr);
+    return this->m_call_proc((new Array({obj})), nullptr, nullptr);
+  }
+  obj = klass->m_allocate((new Array({})), nullptr, nullptr);
+  idx = this->iv_objects->m_size((new Array({})), nullptr, nullptr);
+  this->m_track((new Array({obj})), nullptr, nullptr);
+  this->iv_no_link_proc->m_aset((new Array({idx, true_instance()})), nullptr, nullptr);
+  data = this->m_read_object((new Array({})), nullptr, nullptr);
+  obj->m___send__((new Array({intern("marshal_load"), data})), nullptr, nullptr);
+  return this->m_call_proc((new Array({obj})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_extended(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* mod = nil_instance();
+  BasicObject* obj = nil_instance();
+  mod = this->m_read_class_by_symbol((new Array({})), nullptr, nullptr);
+  obj = this->m_read_object((new Array({})), nullptr, nullptr);
+  ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_extend((new Array({mod})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
+  return obj;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_data_object(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* klass = nil_instance();
+  BasicObject* obj = nil_instance();
+  BasicObject* idx = nil_instance();
+  BasicObject* data = nil_instance();
+  klass = this->m_read_class_by_symbol((new Array({})), nullptr, nullptr);
+  obj = klass->m_allocate((new Array({})), nullptr, nullptr);
+  idx = this->m_track((new Array({obj})), nullptr, nullptr);
+  data = this->m_read_object((new Array({})), nullptr, nullptr);
+  if (truthy(obj->m_respond_to_q((new Array({intern("_load_data"), true_instance()})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("class ", 6))})), nullptr, nullptr)->m_plus((new Array({(klass)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" needs to have method '_load_data'", 34))})), nullptr, nullptr)))); }());
+  }
+  if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = obj->m_is_a_q((new Array({klass})), nullptr, nullptr); return truthy(_l) ? (klass->m_instance_methods((new Array({false_instance()})), nullptr, nullptr)->m_include_q((new Array({intern("_load_data")})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? _l : (klass->m_private_instance_methods((new Array({false_instance()})), nullptr, nullptr)->m_include_q((new Array({intern("_load_data")})), nullptr, nullptr)); }()))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("class ", 6))})), nullptr, nullptr)->m_plus((new Array({(klass)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" needs to have method '_load_data'", 34))})), nullptr, nullptr)))); }());
+  }
+  obj->m___send__((new Array({intern("_load_data"), data})), nullptr, nullptr);
+  return this->m_call_proc((new Array({obj, idx})), nullptr, nullptr);
   return nil_instance();
 }
 
@@ -8083,6 +11698,19 @@ inline BasicObject* File_eigenclass::m_fnmatch_q(Array* args, Hash* kwargs, Proc
   return nil_instance();
 }
 
+inline BasicObject* File_eigenclass::m_chown(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* uid = array_at(args, 0);
+  BasicObject* gid = array_at(args, 1);
+  Array* paths = new Array();
+  for (std::size_t _i = 2; _i < args->data.size(); _i++) {
+    paths->data.push_back(args->data[_i]);
+  }
+  Proc* _block = block;
+  paths->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* p = arg; return (truthy(this->m_exist_q((new Array({this->m__coerce_path((new Array({p})), nullptr, nullptr)})), nullptr, nullptr)) ? (nil_instance()) : ((([&]() -> BasicObject* { throw (new Errno_ENOENT(this->m__coerce_path((new Array({p})), nullptr, nullptr))); }())))); })));
+  return paths->m_length((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
 inline BasicObject* File_eigenclass::m_path(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* path = array_at(args, 0);
   Proc* _block = block;
@@ -8296,6 +11924,54 @@ inline BasicObject* Process_eigenclass::m_fork(Array* args, Hash* kwargs, Proc* 
   return nil_instance();
 }
 
+inline BasicObject* Process_eigenclass::m_uid_set(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* id = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(([&]() -> BasicObject* { auto* _l = id->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (id->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)); }()))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(id->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Integer", 13))})), nullptr, nullptr)))); }());
+  }
+  return ([&]() -> BasicObject* { throw (new Errno_EPERM((new String("Operation not permitted", 23)))); }());
+  return nil_instance();
+}
+
+inline BasicObject* Process_eigenclass::m_gid_set(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* id = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(([&]() -> BasicObject* { auto* _l = id->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (id->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)); }()))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(id->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Integer", 13))})), nullptr, nullptr)))); }());
+  }
+  return ([&]() -> BasicObject* { throw (new Errno_EPERM((new String("Operation not permitted", 23)))); }());
+  return nil_instance();
+}
+
+inline BasicObject* Process_eigenclass::m_euid_set(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* id = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(([&]() -> BasicObject* { auto* _l = id->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (id->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)); }()))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(id->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Integer", 13))})), nullptr, nullptr)))); }());
+  }
+  return ([&]() -> BasicObject* { throw (new Errno_EPERM((new String("Operation not permitted", 23)))); }());
+  return nil_instance();
+}
+
+inline BasicObject* Process_eigenclass::m_egid_set(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* id = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(([&]() -> BasicObject* { auto* _l = id->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : (id->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)); }()))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw (new TypeError(((new String("", 0))->m_plus((new Array({(new String("can't convert ", 14))})), nullptr, nullptr)->m_plus((new Array({(id->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Integer", 13))})), nullptr, nullptr)))); }());
+  }
+  return ([&]() -> BasicObject* { throw (new Errno_EPERM((new String("Operation not permitted", 23)))); }());
+  return nil_instance();
+}
+
 inline BasicObject* Process_eigenclass::m_detach(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* pid = array_at(args, 0);
   Proc* _block = block;
@@ -8383,6 +12059,16 @@ inline BasicObject* ENVClass_eigenclass::m___coerce_env_string__(Array* args, Ha
   return nil_instance();
 }
 
+inline BasicObject* ENVClass_eigenclass::m___validate_key(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* key = array_at(args, 0);
+  Proc* _block = block;
+  if (truthy(key->m_empty_q((new Array({})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw (new Errno_EINVAL(((new String("", 0))->m_plus((new Array({(new String("Invalid argument - ", 19))})), nullptr, nullptr)->m_plus((new Array({(key)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }());
+  }
+  return (truthy(key->m_include_q((new Array({(new String("=", 1))})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { throw (new Errno_EINVAL(((new String("", 0))->m_plus((new Array({(new String("Invalid argument - ", 19))})), nullptr, nullptr)->m_plus((new Array({(key)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))); }()))) : (nil_instance()));
+  return nil_instance();
+}
+
 inline BasicObject* ENVClass_eigenclass::m___enc(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* str = array_at(args, 0);
   Proc* _block = block;
@@ -8415,6 +12101,20 @@ inline BasicObject* ENVClass_eigenclass::m___soft_coerce_string__(Array* args, H
   }
   result = val->m_to_str((new Array({})), nullptr, nullptr);
   return (truthy(result->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)) ? ((result)) : ((nil_instance())));
+  return nil_instance();
+}
+
+inline BasicObject* Gem_Specification_eigenclass::m_flat_map(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* __anon_rest__ = args;  // *rest = whole args
+  Proc* _block = block;
+  return (new Array({}));
+  return nil_instance();
+}
+
+inline BasicObject* Gem_Specification_eigenclass::m_each(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* __anon_rest__ = args;  // *rest = whole args
+  Proc* _block = block;
+  return nil_instance();
   return nil_instance();
 }
 

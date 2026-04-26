@@ -144,6 +144,9 @@ module Frozone
               if MethodEmitter::CPP_KEYWORDS.include?(node.name.to_s)
                 raise Cpp::EmissionError, "local :#{node.name} is a C++ reserved word"
               end
+              if MethodEmitter::UNIVERSAL_PARAM_NAMES.include?(node.name.to_s)
+                raise Cpp::EmissionError, "local :#{node.name} collides with universal protocol param"
+              end
               locals << node.name.to_s
               emit.line "BasicObject* #{node.name} = #{rhs};"
             end
@@ -152,7 +155,11 @@ module Frozone
           # `recv.times { |i| body }` → C++ for-loop. Mirrors mainline's
           # special-case desugaring. recv is a BasicObject*; we extract
           # raw_ via static_cast<Integer*>, except when recv is a literal
-          # (then use the int directly).
+          # (then use the int directly). Inner loop body reads the
+          # block-var as a boxed Integer (`BasicObject* i = new
+          # Integer(__i_raw__)`) so it can be passed to methods, stored
+          # in arrays, etc. Costs an allocation per iteration but is
+          # correct; specialisation-pass replacement is future work.
           def self.write_times_block(emit, node, locals)
             blk = node.block_node
             var = (blk.required_params || [])[0] || :_i
@@ -163,8 +170,12 @@ module Frozone
                     else
                       "static_cast<Integer*>(#{emit.cpp.from_expr(recv_node, locals)})->raw_"
                     end
-            emit.line "for (int64_t #{var} = 0; #{var} < #{count}; #{var}++) {"
-            emit.indented { write_body(emit, blk.body, locals: locals) }
+            raw_var = "__#{var}_raw__"
+            emit.line "for (int64_t #{raw_var} = 0; #{raw_var} < #{count}; #{raw_var}++) {"
+            emit.indented do
+              emit.line "BasicObject* #{var} = new Integer(#{raw_var});"
+              write_body(emit, blk.body, locals: locals)
+            end
             emit.line "}"
           end
         end

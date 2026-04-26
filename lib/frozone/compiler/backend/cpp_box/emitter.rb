@@ -87,13 +87,28 @@ module Frozone
           # etc.) — they have hand-coded backing already.
           UNIVERSE_NAMES = Set.new(Runtime::ALL_CLASSES.map(&:name)).freeze
 
+          # Recursively walk constants_table from top-level. Nested
+          # classes (`Parser::Ruby40`) get added with their flattened
+          # name (`:Parser_Ruby40`) — matches what path_to_cpp_name
+          # produces at call sites. Modules don't emit as structs but
+          # we walk through them to find nested classes.
           def collect_all_classes
             classes = {}
-            (@top_level_scope.constants_table || {}).each do |name, val|
-              next unless val.is_a?(Vm::ClassObject)
-              next if UNIVERSE_NAMES.include?(name.to_s)
-              classes[name] = val
-            end
+            seen = Set.new
+            walk = ->(scope, prefix) {
+              return if seen.include?(scope.object_id)
+              seen << scope.object_id
+              (scope.constants_table || {}).each do |name, val|
+                flat = prefix ? :"#{prefix}_#{name}" : name
+                if val.is_a?(Vm::ClassObject)
+                  classes[flat] = val unless UNIVERSE_NAMES.include?(flat.to_s)
+                  walk.call(val, flat)
+                elsif val.is_a?(Vm::ModuleObject)
+                  walk.call(val, flat)
+                end
+              end
+            }
+            walk.call(@top_level_scope, nil)
             classes
           end
 
@@ -158,6 +173,13 @@ module Frozone
               # Skip `:new` (handled by ConstantRead-receiver branch
               # in from_method_call).
               if node.is_a?(Ast::MethodCall) && node.name != :new
+                cpp_name = Cpp.method_name(node.name)
+                calls[cpp_name] ||= node.name.to_s
+              end
+              # AttributeWrite is `obj.foo = x` (or `arr[i] = x`) —
+              # routes through m_foo_set / m_aset on the receiver. Slot
+              # required just like a regular method call.
+              if node.is_a?(Ast::AttributeWrite)
                 cpp_name = Cpp.method_name(node.name)
                 calls[cpp_name] ||= node.name.to_s
               end
@@ -280,7 +302,11 @@ module Frozone
           def parent_name_for(cls)
             sc = cls.superclass
             return "Object" unless sc
-            sc.name == :Object || sc.name.nil? ? "Object" : sc.name.to_s
+            return "Object" if sc.name == :Object || sc.name.nil?
+            # Nested classes (Parser::Lexer) need the flattened parent
+            # name (`Parser_Lexer`) so the emitted struct inherits from
+            # the right type — leaf-name alone collides across nesting.
+            sc.full_name.to_s.gsub("::", "_")
           end
 
           # Build a ctor spec for a user class. Required params land as

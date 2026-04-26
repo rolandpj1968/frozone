@@ -54,17 +54,26 @@ module Frozone
           # If the user named the block (`&blk`), emit a second alias.
           # Post/kw/kw_rest params raise EmissionError so the method
           # gets gracefully dropped.
+          # Universal-protocol parameter names — collisions with these
+          # in user param/local names break the body. `args` is the
+          # most common collision (any method with `def foo(args, ...)`
+          # would emit `BasicObject* args = array_at(args, 0);` —
+          # initialiser refers to itself).
+          UNIVERSAL_PARAM_NAMES = %w[args kwargs block].to_set.freeze
+
           def self.unpack_params(emit, method)
             locals = Set.new
             required = method.required_params || []
             required.each_with_index do |p, i|
               raise Cpp::EmissionError, "param name :#{p} is a C++ reserved word" if CPP_KEYWORDS.include?(p.to_s)
+              raise Cpp::EmissionError, "param name :#{p} collides with universal protocol param" if UNIVERSAL_PARAM_NAMES.include?(p.to_s)
               emit.line "BasicObject* #{p} = array_at(args, #{i});"
               locals << p.to_s
             end
             optional = method.optional_params || []
             optional.each_with_index do |(p, default_node), i|
               raise Cpp::EmissionError, "param name :#{p} is a C++ reserved word" if CPP_KEYWORDS.include?(p.to_s)
+              raise Cpp::EmissionError, "param name :#{p} collides with universal protocol param" if UNIVERSAL_PARAM_NAMES.include?(p.to_s)
               idx = required.length + i
               default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
               emit.line "BasicObject* #{p} = (args->data.size() > #{idx}) ? args->data[#{idx}] : (#{default_str});"
