@@ -108,13 +108,6 @@ module Frozone
               "virtual BasicObject* m_frozen_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
               "  return false_instance();",
               "}",
-              "// respond_to? — optimistic default returns true. Real",
-              "// answer requires a method-name table per class; without",
-              "// this default, every respond_to? in core libs aborts via",
-              "// method_missing.",
-              "virtual BasicObject* m_respond_to_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
-              "  return true_instance();",
-              "}",
             ],
             # Methods listed here are skipped by the universal-surface
             # emitter — either hand-declared in members above OR
@@ -361,6 +354,13 @@ module Frozone
             parent: "Object",
             members: [
               "const char* name_;",
+              "// AOT-assigned method id (-1 if name doesn't correspond",
+              "// to any known method). Populated by intern() against a",
+              "// static name→id table built from the call surface.",
+              "// Drives m_send (indexes a member-function-pointer",
+              "// vtable) and m_respond_to_q (indexes a per-class bool",
+              "// array) — both O(1), no string compare.",
+              "int method_id_ = -1;",
               "private:",
               "  explicit Symbol(const char* name) : name_(name) {}",
               "  friend Symbol* intern(const char* name);",
@@ -690,6 +690,12 @@ module Frozone
           # Symbol interning. Same name → same Symbol* (identity = equality,
           # so default m_eq_q + m_hash_value work). Intern table uses
           # GcAllocator so the symbols stay rooted under Boehm.
+          # Also assigns the method_id_ at intern time by looking up
+          # against METHOD_NAMES (a compile-time array of method
+          # names → call-surface index). The id_map is built lazily on
+          # first call to keep cc1plus from drowning in template
+          # instantiation. Sets method_id_ = -1 for names that aren't
+          # known methods.
           INTERN_FN = KernelFn.new(
             name: "intern",
             signature: "Symbol* intern(const char* name)",
@@ -698,9 +704,17 @@ module Frozone
                 std::hash<std::string>, std::equal_to<std::string>,
                 GcAllocator<std::pair<const std::string, Symbol*>>>;
               static Tab table;
+              static const std::unordered_map<std::string, int> id_map = []() {
+                std::unordered_map<std::string, int> m;
+                m.reserve(METHOD_NAMES_COUNT);
+                for (int i = 0; i < METHOD_NAMES_COUNT; ++i) m[METHOD_NAMES[i].name] = METHOD_NAMES[i].id;
+                return m;
+              }();
               auto it = table.find(name);
               if (it != table.end()) return it->second;
               Symbol* s = new Symbol(name);
+              auto mit = id_map.find(name);
+              s->method_id_ = (mit != id_map.end()) ? mit->second : -1;
               table[std::string(name)] = s;
               return s;
             CPP

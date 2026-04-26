@@ -73,8 +73,10 @@ module Frozone
             kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
             write_header
             write_namespace_open
-            ClassEmitter.write_runtime(self, classes: classes, call_surface: @call_surface, kernel_fns: kernel_fns)
-            write_main_object
+            ClassEmitter.write_runtime(self, classes: classes, call_surface: @call_surface, kernel_fns: kernel_fns) do
+              write_static_state_init
+              write_main_object
+            end
             write_namespace_close
             write_main
             @out
@@ -255,23 +257,33 @@ module Frozone
 
           # `def self.X` bodies referencing `@y` need iv_y declared on
           # the eigenclass struct (singleton ivars on the metaclass).
+          # Also scans the ClassObject's actual ivar table — `self.X =`
+          # at class-body level sets ivars on the class object itself
+          # (which we render as the eigenclass singleton); without
+          # this, runtime-set ivars like `@_lex_actions` (via
+          # `attr_accessor` setter at class-body level) wouldn't
+          # appear in the emitted struct.
           def collect_eigenclass_ivars(cls)
             eigen = cls.eigenclass rescue nil
             return [] unless eigen
             ivars = []
             seen = Set.new
+            add = ->(name) {
+              s = name.to_s.delete_prefix('@')
+              unless seen.include?(s)
+                seen << s
+                ivars << s
+              end
+            }
             walk = ->(node) {
               return unless node.is_a?(Ast::Node)
               if node.is_a?(Ast::InstanceVariableWrite) || node.is_a?(Ast::InstanceVariableRead)
-                stripped = node.name.to_s.delete_prefix('@')
-                unless seen.include?(stripped)
-                  seen << stripped
-                  ivars << stripped
-                end
+                add.call(node.name)
               end
               node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
             }
             eigenclass_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+            (cls.instance_variables_hash || {}).each_key { |k| add.call(k) }
             ivars
           end
 
@@ -412,11 +424,41 @@ module Frozone
             line "int main() {"
             indented do
               line "FROZONE_GC_INIT();"
+              line "Ruby::__init_static_state__();"
               line "Ruby::MainObject mo;"
               line "mo.__top_level__();"
               line "return 0;"
             end
             line "}"
+          end
+
+          # Materialise every reachable Vm value that exists at AOT
+          # time but isn't a literal in the program. Initial scope:
+          # ClassObject ivars (set via `self.X = ...` at class-body
+          # level — the ragel-generated lexer tables are the canonical
+          # case). Each becomes
+          #   <Class>_CLASS.iv_<name> = <emit_vm_value(val)>;
+          # Failures (unsupported value type, unresolved class) skip
+          # that one ivar with a comment — no method-level scope to
+          # gracefully fall back to here.
+          def write_static_state_init
+            line "void __init_static_state__() {"
+            indented do
+              @user_classes.each do |flat, cls|
+                (cls.instance_variables_hash || {}).each do |name, val|
+                  iv = name.to_s.delete_prefix('@')
+                  begin
+                    expr = @cpp.emit_vm_value(val)
+                    line "#{flat}_CLASS.iv_#{iv} = #{expr};"
+                  rescue Cpp::EmissionError => e
+                    line "// skipped #{flat}.iv_#{iv}: #{e.message.gsub('*/', '* /')}"
+                    $stderr.puts "[box-first] skip static-init #{flat}.iv_#{iv}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
+                  end
+                end
+              end
+            end
+            line "}"
+            blank
           end
 
           # Top-level user methods (not on a class).

@@ -99,18 +99,53 @@ module Frozone
           # `Parser::Diagnostic::Engine`, then `Diagnostic::Engine`.
           # Empty list for the top-level body.
           attr_accessor :method_scope
+          # Interned integer literals — every unique IntegerLiteral
+          # value seen during emission becomes one shared static
+          # Integer instance, referenced by address. Without interning,
+          # the wq parser stub emits `(new Integer(805LL))` 6K+ times
+          # (lexer state machine constants), drowning cc1plus.
+          attr_reader :int_literals
 
           def initialize(user_classes:, user_constants:)
             @user_classes = user_classes
             @user_constants = user_constants
             @method_scope = []
+            @int_literals = {}
+          end
+
+          # Return a reference to the interned Integer for `value`.
+          # Each unique value becomes one named static `_f_i_<N>` (with
+          # negatives prefixed `_f_i_n<abs>`). The decls are emitted by
+          # write_int_literals after class defs are complete.
+          def intern_int(value)
+            @int_literals[value] = true unless @int_literals.key?(value)
+            "(&#{int_literal_name(value)})"
+          end
+
+          def int_literal_name(value) = value >= 0 ? "_f_i_#{value}" : "_f_i_n#{-value}"
+
+          # Emit the named static decls. Positioned after all class
+          # definitions (Integer must be complete to call its ctor).
+          # Each is its own variable — cc1plus parses each
+          # independently, much cheaper than one big array initializer
+          # for the wq parser scale (~thousands of unique literals).
+          def write_int_literals(emit)
+            return if @int_literals.empty?
+            emit.line "// Interned Integer literals — every unique IntegerLiteral and"
+            emit.line "// IntegerObject in the program graph maps to one shared static"
+            emit.line "// instance. Direct named statics (rather than an array) so"
+            emit.line "// cc1plus parses each as an independent declaration."
+            @int_literals.each_key do |value|
+              emit.line "Integer #{int_literal_name(value)}(#{value}LL);"
+            end
+            emit.blank
           end
 
           # Top-level dispatch — turns an AST node into a cpp expression
           # string. Pure: no side effects. Recursive into sub-expressions.
           def from_expr(node, locals)
             case node
-            when Ast::IntegerLiteral then "(new Integer(#{node.value.raw}LL))"
+            when Ast::IntegerLiteral then intern_int(node.value.raw)
             when Ast::FloatLiteral   then "(new Float(#{node.value}))"
             when Ast::NilLiteral     then "nil_instance()"
             when Ast::TrueLiteral    then "true_instance()"
@@ -661,6 +696,51 @@ module Frozone
           # class.
           def instantiable_class?(name)
             @user_classes.key?(name) || Runtime::ALL_CLASSES.any? { |k| k.name == name.to_s }
+          end
+
+          # Resolve a Vm::ClassObject to its emitted flat name (the
+          # eigenclass singleton's basename). Walks `full_name` and
+          # tries each successive prefix against user_classes /
+          # Universe. Returns nil if not found (caller raises).
+          def class_object_to_flat(cls)
+            fname = cls.full_name.to_s
+            flat = fname.gsub("::", "_").to_sym
+            return flat if instantiable_class?(flat)
+            nil
+          end
+
+          # Render a Vm value as a C++ expression that produces the
+          # equivalent box at runtime. Used by static-state capture
+          # (ClassObject ivar materialization). Recursive across
+          # arrays / hashes; returns plain literals for scalars.
+          # Unsupported types raise EmissionError so the caller can
+          # skip the offending init.
+          def emit_vm_value(val)
+            case val
+            when Vm::IntegerObject then intern_int(val.raw)
+            when Vm::FloatObject   then "(new Float(#{val.raw}))"
+            when Vm::SymbolObject  then "intern(#{cpp_string_literal(val.raw.to_s)})"
+            when Vm::StringObject  then "(new String(#{cpp_string_literal(val.raw)}, #{val.raw.bytesize}))"
+            when Vm::NilObject     then "nil_instance()"
+            when Vm::TrueObject    then "true_instance()"
+            when Vm::FalseObject   then "false_instance()"
+            when Vm::ArrayObject
+              elems = val.raw.map { |e| emit_vm_value(e) }
+              "(new Array({#{elems.join(", ")}}))"
+            when Vm::HashObject
+              pairs = val.raw.map { |k, v| "{#{emit_vm_value(k)}, #{emit_vm_value(v)}}" }
+              "(new Hash({#{pairs.join(", ")}}))"
+            when Vm::ClassObject
+              flat = class_object_to_flat(val)
+              raise EmissionError, "emit_vm_value: ClassObject #{val.full_name} not in emitted set" unless flat
+              "(&#{flat}_CLASS)"
+            when Vm::ObjectObject
+              # Plain object — would need a unique materialised instance
+              # with its ivars set. Defer (handles cycles needs two-pass).
+              raise EmissionError, "emit_vm_value: nested ObjectObject (#{val.class_object&.full_name}) materialisation not yet supported"
+            else
+              raise EmissionError, "emit_vm_value: unsupported VM value class #{val.class.name}"
+            end
           end
 
         end
