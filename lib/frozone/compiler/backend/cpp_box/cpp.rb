@@ -29,6 +29,12 @@ module Frozone
           # build with a precise message than to silently emit nil and
           # produce a wrong binary.
           class EmissionError < StandardError; end
+
+          # Above this size (number of elements), an Integer-only Array
+          # gets specialised to a raw int64_t[] table + runtime build.
+          # Small arrays stay as `(new Array({...}))` brace-init —
+          # the per-element overhead doesn't matter at small N.
+          INT_ARRAY_THRESHOLD = 8
           # Ruby operator → C++ vtable method name. Box-first can't use
           # operator overloading because every value is a pointer
           # (`a + b` would mean pointer arithmetic), so we route through
@@ -105,12 +111,19 @@ module Frozone
           # the wq parser stub emits `(new Integer(805LL))` 6K+ times
           # (lexer state machine constants), drowning cc1plus.
           attr_reader :int_literals
+          # Big Integer-only Arrays seen during static-state capture
+          # (lexer tables in particular — single 700KB+ lines of
+          # `(&_f_i_X), ...` brace-init were the C++ compile-time
+          # bottleneck). Emitted as raw `int64_t[]` arrays + a runtime
+          # build call; cc1plus parses them as cheap static data.
+          attr_reader :raw_int_arrays
 
           def initialize(user_classes:, user_constants:)
             @user_classes = user_classes
             @user_constants = user_constants
             @method_scope = []
             @int_literals = {}
+            @raw_int_arrays = []
           end
 
           # Return a reference to the interned Integer for `value`.
@@ -123,6 +136,21 @@ module Frozone
           end
 
           def int_literal_name(value) = value >= 0 ? "_f_i_#{value}" : "_f_i_n#{-value}"
+
+          # Emit the raw int64_t[] tables collected during static-state
+          # capture. Each goes after Integer is complete (so the runtime
+          # `build_int_array` helper can construct Integer instances).
+          def write_raw_int_arrays(emit)
+            return if @raw_int_arrays.empty?
+            emit.line "// Raw int64_t tables for large Integer-only Arrays —"
+            emit.line "// build_int_array() boxes them into Array+Integer at static-init"
+            emit.line "// time. Cuts source size and cc1plus parse time vs emitting"
+            emit.line "// each element as `(&_f_i_X), `."
+            @raw_int_arrays.each_with_index do |values, idx|
+              emit.line "static const int64_t __TBL_INT_#{idx}__[#{values.size}] = {#{values.join(",")}};"
+            end
+            emit.blank
+          end
 
           # Emit the named static decls. Positioned after all class
           # definitions (Integer must be complete to call its ctor).
@@ -144,6 +172,7 @@ module Frozone
           # Top-level dispatch — turns an AST node into a cpp expression
           # string. Pure: no side effects. Recursive into sub-expressions.
           def from_expr(node, locals)
+            raise EmissionError, "from_expr: nil node — caller passed missing AST" if node.nil?
             case node
             when Ast::IntegerLiteral then intern_int(node.value.raw)
             when Ast::FloatLiteral   then "(new Float(#{node.value}))"
@@ -180,6 +209,7 @@ module Frozone
             when Ast::If then from_if(node, locals)
             when Ast::Case then from_case(node, locals)
             when Ast::Yield then from_yield(node, locals)
+            when Ast::IntrinsicCall then from_intrinsic_call(node, locals)
             when Ast::Rescue then from_rescue(node, locals)
             when Ast::Sequence
               # `(a)` and `(a, b, c)` both work as comma-operator —
@@ -222,7 +252,7 @@ module Frozone
                           "nullptr"
                         end
             args_array = build_args_array(arg_nodes, locals)
-            kwargs_arg = "nullptr"  # kwargs deferred
+            kwargs_arg = build_kwargs_hash(node.kw_arg_nodes || [], locals)
 
             if recv
               "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
@@ -236,6 +266,20 @@ module Frozone
             else
               "this->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
             end
+          end
+
+          # Build the kwargs Hash for a call. Empty kw list → nullptr
+          # (no allocation cost when there are no kw args). Each entry
+          # is `{intern("key"), <value_expr>}` — Symbol keys.
+          # **splat handling deferred — kw_splat_nodes raise EmissionError.
+          def build_kwargs_hash(kw_arg_nodes, locals)
+            return "nullptr" if kw_arg_nodes.empty?
+            entries = kw_arg_nodes.map do |key_node, value_node|
+              key_name = key_node.is_a?(Ast::SymbolLiteral) ? key_node.value.to_s : nil
+              raise EmissionError, "non-symbol kw key not supported" unless key_name
+              "{intern(#{cpp_string_literal(key_name)}), static_cast<BasicObject*>(#{from_expr(value_node, locals)})}"
+            end
+            "(new Hash({#{entries.join(", ")}}))"
           end
 
           # Build the args Array for a call. Cases:
@@ -396,6 +440,64 @@ module Frozone
             "{ #{inner.gsub("\n", " ")} return nil_instance(); }"
           end
 
+          # IntrinsicCall lowering. `Intrinsics.foo(self, args...)`
+          # bypasses the universal protocol and emits direct C++
+          # specialised to the receiver type encoded in the intrinsic
+          # name (`array_*` → cast to Array*, `integer__plus_` → cast to
+          # Integer*, etc.). For closed-world AOT this is exactly the
+          # specialisation we want — no vtable, no Array allocation
+          # for args, no static_cast at runtime, just the underlying op.
+          # Templates are explicit per-intrinsic (no name-based
+          # heuristic — too many edge cases). Unknown intrinsic →
+          # EmissionError → method skipped (graceful degradation).
+          def from_intrinsic_call(node, locals)
+            name = node.method.name
+            template = INTRINSIC_TEMPLATES[name]
+            raise EmissionError, "intrinsic :#{name} not yet supported" unless template
+            args = node.param_nodes.map { |p| from_expr(p, locals) }
+            template.call(*args)
+          rescue ArgumentError => e
+            raise EmissionError, "intrinsic :#{name}: #{e.message}"
+          end
+
+          # Minimal starter set — covers Array+Integer ops needed for
+          # selfcompile_wq2 to get past Array#clear. Each lambda takes
+          # the cpp expression strings for the receiver and any extra
+          # args and returns the C++ expression. Add more as the
+          # compile/run cycle reveals them.
+          INTRINSIC_TEMPLATES = {
+            # Array
+            array_length: ->(self_) { "(new Integer(static_cast<int64_t>(static_cast<Array*>(#{self_})->data.size())))" },
+            array_at: ->(self_, i) {
+              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{self_}); int64_t _i = static_cast<Integer*>(#{i})->raw_; return (_i < 0 || _i >= (int64_t)_a->data.size()) ? nil_instance() : _a->data[_i]; }())"
+            },
+            array_push: ->(self_, v) { "(static_cast<Array*>(#{self_})->data.push_back(#{v}), #{self_})" },
+            array_replace: ->(self_, other) {
+              "(static_cast<Array*>(#{self_})->data = static_cast<Array*>(#{other})->data, #{self_})"
+            },
+            array_dup: ->(self_) {
+              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{self_}); Array* _r = new Array(); _r->data = _a->data; return _r; }())"
+            },
+            array_concat: ->(self_, other) {
+              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{self_}); auto* _b = static_cast<Array*>(#{other}); _a->data.insert(_a->data.end(), _b->data.begin(), _b->data.end()); return _a; }())"
+            },
+
+            # Integer arithmetic — direct unboxed ops on raw_ + box.
+            integer__plus_:  ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ + static_cast<Integer*>(#{o})->raw_))" },
+            integer__minus_: ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ - static_cast<Integer*>(#{o})->raw_))" },
+            integer__star_:  ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ * static_cast<Integer*>(#{o})->raw_))" },
+            integer__lt_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ <  static_cast<Integer*>(#{o})->raw_)" },
+            integer__gt_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ >  static_cast<Integer*>(#{o})->raw_)" },
+            integer__le_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ <= static_cast<Integer*>(#{o})->raw_)" },
+            integer__ge_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ >= static_cast<Integer*>(#{o})->raw_)" },
+
+            # Object identity / class — needed by core/4.0 dispatch helpers.
+            object_is_a: ->(self_, klass) { "boxed_bool(dynamic_cast<Class*>(#{klass}) != nullptr && #{self_}->m_is_a_q((new Array({#{klass}})), nullptr, nullptr) == true_instance())" },
+            object_class: ->(self_) { "#{self_}->m_class((new Array({})), nullptr, nullptr)" },
+            basic_object__equal_equal_: ->(s, o) { "boxed_bool(#{s} == #{o})" },
+            basic_object___id__: ->(s) { "(new Integer(reinterpret_cast<int64_t>(#{s})))" },
+          }.freeze
+
           # `Ast::Yield` → call into the implicit `_block` Proc* that
           # MethodEmitter inserts when a body contains yield.
           # Universal call protocol: m_call(args, kwargs, block).
@@ -469,7 +571,10 @@ module Frozone
           # arg_nodes=[k, v]). Emit as a vtable call to m_aset via
           # the universal protocol.
           def from_attribute_write(node, locals)
-            recv_s = from_expr(node.receiver_node, locals)
+            # Implicit-receiver AttributeWrite (`self.foo = x` lowered
+            # without an explicit self_node, or just `foo = x` when foo
+            # is detected as a writer call) → dispatch on `this`.
+            recv_s = node.receiver_node ? from_expr(node.receiver_node, locals) : "this"
             args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
             args_array = "(new Array({#{args.join(", ")}}))"
             "#{recv_s}->#{Cpp.method_name(node.name)}(#{args_array}, nullptr, nullptr)"
@@ -725,8 +830,18 @@ module Frozone
             when Vm::TrueObject    then "true_instance()"
             when Vm::FalseObject   then "false_instance()"
             when Vm::ArrayObject
-              elems = val.raw.map { |e| emit_vm_value(e) }
-              "(new Array({#{elems.join(", ")}}))"
+              # Specialise large Integer-only arrays: emit the values
+              # as a static `int64_t[]` and build the Array at runtime.
+              # Saves ~3x source size vs `(&_f_i_X), ...` per element
+              # and lets cc1plus parse the table as cheap static data.
+              if val.raw.size > INT_ARRAY_THRESHOLD && val.raw.all? { |e| e.is_a?(Vm::IntegerObject) }
+                idx = @raw_int_arrays.size
+                @raw_int_arrays << val.raw.map(&:raw)
+                "build_int_array(__TBL_INT_#{idx}__, #{val.raw.size})"
+              else
+                elems = val.raw.map { |e| emit_vm_value(e) }
+                "(new Array({#{elems.join(", ")}}))"
+              end
             when Vm::HashObject
               pairs = val.raw.map { |k, v| "{#{emit_vm_value(k)}, #{emit_vm_value(v)}}" }
               "(new Hash({#{pairs.join(", ")}}))"

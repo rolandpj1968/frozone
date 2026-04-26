@@ -5,6 +5,8 @@ require_relative '../vm/intrinsics'
 module Frozone
   module Ast
     class IntrinsicCall < Node
+      attr_reader :method, :param_nodes
+
       def initialize(name, param_nodes)
         @method = self.class.method_for(name)
         @param_nodes = param_nodes

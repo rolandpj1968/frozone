@@ -321,6 +321,22 @@ module Frozone
                 params: ["BasicObject* val"],
                 body: "data.push_back(val); return this;",
               },
+              "m_clear" => { params: [], body: "data.clear(); return this;" },
+              "m_pop" => { params: [], body: "if (data.empty()) return nil_instance(); BasicObject* v = data.back(); data.pop_back(); return v;" },
+              "m_shift" => { params: [], body: "if (data.empty()) return nil_instance(); BasicObject* v = data.front(); data.erase(data.begin()); return v;" },
+              "m_unshift" => { params: ["BasicObject* v"], body: "data.insert(data.begin(), v); return this;" },
+              "m_replace" => {
+                params: ["BasicObject* other"],
+                body: "auto* o = static_cast<Array*>(other); data = o->data; return this;",
+              },
+              "m_dup" => {
+                params: [],
+                body: "Array* r = new Array(); r->data = data; return r;",
+              },
+              "m_concat" => {
+                params: ["BasicObject* other"],
+                body: "auto* o = static_cast<Array*>(other); data.insert(data.end(), o->data.begin(), o->data.end()); return this;",
+              },
               # Array.new(size) / Array.new(size, fill) — m_new on the
               # eigenclass dispatches m_initialize after default-
               # constructing. Without this, .new(size, fill) wouldn't
@@ -613,7 +629,7 @@ module Frozone
             RubyClass.new(
               name: "#{klass.name}_eigenclass",
               parent: "Class",
-              ivars: (klass.eigenclass_ivars || []).map { |iv| "BasicObject* iv_#{iv} = nullptr;" },
+              ivars: (klass.eigenclass_ivars || []).map { |iv| "BasicObject* iv_#{iv} = nil_instance();" },
               members: [%(const char* ruby_class_name() const override { return "#{klass.name}"; })],
               overrides: overrides,
               singleton: "#{klass.name}_CLASS",
@@ -674,6 +690,22 @@ module Frozone
             CPP
           )
 
+          # build_int_array — runtime helper that turns a static
+          # int64_t[] table into an Array of boxed Integers. Used by
+          # static-state capture to materialise large Integer-only
+          # Arrays (lexer tables) without per-element source-level
+          # boilerplate. One-time cost at __init_static_state__.
+          BUILD_INT_ARRAY_FN = KernelFn.new(
+            name: "build_int_array",
+            signature: "Array* build_int_array(const std::int64_t* data, std::size_t n)",
+            body: <<~CPP.chomp,
+              Array* a = new Array();
+              a->data.reserve(n);
+              for (std::size_t i = 0; i < n; i++) a->data.push_back(new Integer(data[i]));
+              return a;
+            CPP
+          )
+
           # array_at — bridges the forward-decl gap. Method bodies in
           # classes defined BEFORE Array (BasicObject, Object, Integer,
           # Float) need to unpack args via `args->data[i]`, but Array is
@@ -722,7 +754,8 @@ module Frozone
 
           ALL_KERNEL_FNS = [
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
-            BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN
+            BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
+            BUILD_INT_ARRAY_FN
           ].freeze
 
           # ---- Intrinsics -----------------------------------------

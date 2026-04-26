@@ -82,10 +82,23 @@ module Frozone
             if method.post_params && !method.post_params.empty?
               raise Cpp::EmissionError, "method with post-required params not yet supported"
             end
-            if (method.required_kw_params && !method.required_kw_params.empty?) ||
-               (method.optional_kw_params && !method.optional_kw_params.empty?) ||
-               method.kw_rest_param
-              raise Cpp::EmissionError, "method with kw params not yet supported"
+            (method.optional_kw_params || []).each do |(p, default_node)|
+              raise Cpp::EmissionError, "kw param :#{p} is a C++ reserved word" if CPP_KEYWORDS.include?(p.to_s)
+              raise Cpp::EmissionError, "kw param :#{p} collides with universal protocol param" if UNIVERSAL_PARAM_NAMES.include?(p.to_s)
+              default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
+              key_lit = emit.cpp.cpp_string_literal(p.to_s)
+              emit.line "BasicObject* #{p} = (kwargs ? [&]() -> BasicObject* { auto _it = kwargs->data.find(intern(#{key_lit})); return _it == kwargs->data.end() ? (#{default_str}) : _it->second; }() : (#{default_str}));"
+              locals << p.to_s
+            end
+            (method.required_kw_params || []).each do |p|
+              raise Cpp::EmissionError, "kw param :#{p} is a C++ reserved word" if CPP_KEYWORDS.include?(p.to_s)
+              raise Cpp::EmissionError, "kw param :#{p} collides with universal protocol param" if UNIVERSAL_PARAM_NAMES.include?(p.to_s)
+              key_lit = emit.cpp.cpp_string_literal(p.to_s)
+              emit.line %(BasicObject* #{p} = (kwargs && kwargs->data.find(intern(#{key_lit})) != kwargs->data.end()) ? kwargs->data[intern(#{key_lit})] : ([&]() -> BasicObject* { std::fprintf(stderr, "[box-first] missing required kw arg :#{p}\\n"); std::abort(); }());)
+              locals << p.to_s
+            end
+            if method.kw_rest_param
+              raise Cpp::EmissionError, "method with **kw_rest not yet supported"
             end
             if method.rest_param
               name = method.rest_param.to_s

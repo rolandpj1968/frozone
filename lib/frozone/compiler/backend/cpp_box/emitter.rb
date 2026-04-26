@@ -238,7 +238,7 @@ module Frozone
             Runtime::RubyClass.new(
               name: name.to_s,
               parent: parent_name_for(cls),
-              ivars: ivars.map { |iv| "BasicObject* iv_#{iv} = nullptr;" },
+              ivars: ivars.map { |iv| "BasicObject* iv_#{iv} = nil_instance();" },
               members: [%(const char* ruby_class_name() const override { return "#{name}"; })],
               # No special ctor — `initialize` becomes a regular
               # `m_initialize` override; eigenclass auto-emits `m_new`
