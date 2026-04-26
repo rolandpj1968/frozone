@@ -29,6 +29,7 @@ module Frozone
           def self.write_runtime(emit, classes:, call_surface:,
                                 kernel_fns: Runtime::ALL_KERNEL_FNS,
                                 intrinsics: Runtime::ALL_INTRINSICS)
+            classes = classes.map { |k| with_auto_overrides(k) }
             write_forward_decls(emit, classes, kernel_fns, intrinsics)
             emit.blank
             # Class structs first — declarations only, no method bodies.
@@ -42,6 +43,17 @@ module Frozone
             classes.each { |k| write_class_definitions(emit, k) }
             write_kernel_fn_bodies(emit, kernel_fns)
             write_intrinsic_bodies(emit, intrinsics)
+          end
+
+          # Add m_class to every class's overrides (including
+          # BasicObject — its body references &BasicObject_CLASS, an
+          # eigenclass singleton that's only complete after all classes
+          # are defined). Out-of-line emission handles the ordering.
+          def self.with_auto_overrides(klass)
+            target = klass.name.end_with?("_eigenclass") ? "Class_CLASS" : "#{klass.name}_CLASS"
+            overrides = (klass.overrides || {}).dup
+            overrides["m_class"] ||= { params: [], body: "return (&#{target});" }
+            klass.dup.tap { |k| k.overrides = overrides }
           end
 
           def self.write_forward_decls(emit, classes, kernel_fns, intrinsics)
@@ -76,39 +88,22 @@ module Frozone
             inherits = klass.parent ? " : #{klass.parent}" : ""
             emit.line "struct #{klass.name}#{inherits} {"
             emit.indented do
-              # Inherit ctors from the parent so subclasses without their
-              # own initializer (e.g. `class TypeError < StandardError; end`)
-              # can be instantiated with the parent's signature
-              # (`new TypeError("msg")` etc.). C++17 using-declaration.
-              if klass.parent
-                emit.line "using #{klass.parent}::#{klass.parent};"
-              end
               klass.members&.each { |m| emit.line m }
               klass.ivars&.each { |iv| emit.line iv }
-              write_ctor_decl(emit, klass) if klass.ctor
-              # Catch-all variadic ctor for graceful degradation: lets
-              # `new X(a, b)` compile for sparsely modeled classes
-              # (Regexp/Thread) without specific ctors. Safe alongside
-              # user-defined ctors because `.new` call sites cast every
-              # arg to BasicObject* — the non-template user ctor and
-              # this variadic are then equally good matches and overload
-              # resolution prefers the non-template.
-              emit.line "template<class... __Ts__, std::enable_if_t<(... && std::is_pointer_v<__Ts__>), int> = 0> #{klass.name}(__Ts__...) {}"
               if klass.name == "BasicObject"
                 write_universal_surface(emit, call_surface)
               end
-              klass.overrides&.each { |name, _| write_override_decl(emit, name) }
+              klass.overrides&.each { |name, _| write_override_decl(emit, name, klass) }
             end
             emit.line "};"
             emit.blank
           end
 
-          # Out-of-line definitions for one class — its ctor body and
-          # every override body. Emitted AFTER all classes and
-          # singletons are defined; cross-references to other classes
-          # and `&Foo_CLASS` resolve cleanly.
+          # Out-of-line definitions for one class — every override body.
+          # Emitted AFTER all classes and singletons are defined;
+          # cross-references to other classes and `&Foo_CLASS` resolve
+          # cleanly.
           def self.write_class_definitions(emit, klass)
-            write_ctor_def(emit, klass) if klass.ctor
             klass.overrides&.each { |name, spec| write_override_def(emit, klass.name, name, spec) }
           end
 
@@ -128,27 +123,13 @@ module Frozone
             end
           end
 
-          # Ctor declaration — defaults appear here (the C++ rule is
-          # default args go in the declaration, not the definition).
-          def self.write_ctor_decl(emit, klass)
-            params = klass.ctor[:params].join(", ")
-            emit.line "#{klass.name}(#{params});"
-          end
-
-          def self.write_ctor_def(emit, klass)
-            # Strip default values from each param for the out-of-line
-            # definition (default-arg syntax is illegal in re-declarations).
-            params = klass.ctor[:params].map { |p| p.split('=', 2).first.strip }.join(", ")
-            emit.line "inline #{klass.name}::#{klass.name}(#{params}) {"
-            emit.indented { klass.ctor[:body].each_line { |l| emit.line l.chomp } }
-            emit.line "}"
-            emit.blank
-          end
-
           # Universal override declaration: just the signature, terminated
-          # with `;`. Default args (`= nullptr`) live here.
-          def self.write_override_decl(emit, name)
-            emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;"
+          # with `;`. Default args (`= nullptr`) live here. BasicObject
+          # has no parent virtual so its own auto-emitted m_class can't
+          # carry `override`.
+          def self.write_override_decl(emit, name, klass)
+            override_kw = klass.name == "BasicObject" ? "" : " override"
+            emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr)#{override_kw};"
           end
 
           # Out-of-line override definition. spec[:params] is a list of

@@ -130,13 +130,17 @@ module Frozone
           def build_user_constant_accessors
             @user_constants.map do |name, val|
               klass_name = val.class_object.name.to_s
-              # Re-construct via no-arg ctor — initialize sets ivars from
-              # the body. (Constructors that took args originally aren't
-              # recoverable from the snapshot — defer.)
+              # Use the universal m_new dispatch so the auto-emitted
+              # m_new on the eigenclass runs the user's m_initialize
+              # (which sets the ivars). Direct `new ClassName()`
+              # default-constructs and skips initialize → ivars stay
+              # nullptr. Calling with empty args means classes whose
+              # initialize takes args fall back to nil — acceptable for
+              # this snapshot-based path.
               Runtime::KernelFn.new(
                 name: "k_#{name}",
                 signature: "BasicObject* k_#{name}()",
-                body: "static BasicObject* val = new #{klass_name}(); return val;",
+                body: "static BasicObject* val = (&#{klass_name}_CLASS)->m_new((new Array({})), nullptr, nullptr); return val;",
               )
             end
           end
@@ -170,9 +174,9 @@ module Frozone
               # Receiverless calls (`Complex(x)`, `foo(x)`) emit as
               # `this->m_X(...)` and need a slot too — same universal
               # surface, since `this` is some BasicObject*-derived.
-              # Skip `:new` (handled by ConstantRead-receiver branch
-              # in from_method_call).
-              if node.is_a?(Ast::MethodCall) && node.name != :new
+              # `:new` lands here too — it's just a method call on the
+              # eigenclass singleton (`(&Foo_CLASS)->m_new(...)`).
+              if node.is_a?(Ast::MethodCall)
                 cpp_name = Cpp.method_name(node.name)
                 calls[cpp_name] ||= node.name.to_s
               end
@@ -202,13 +206,19 @@ module Frozone
             # Eigenclass slots especially: Class only has BasicObject's
             # universal surface, so without seeding from def-sites the
             # eigenclass overrides have no parent virtual to override.
+            # `initialize` is included — it becomes the `m_initialize`
+            # override that the auto-generated `m_new` dispatches into.
             @user_classes.each_value do |cls|
               (class_methods(cls).keys + eigenclass_methods(cls).keys).uniq.each do |mname|
-                next if mname == :initialize
                 cpp_name = Cpp.method_name(mname)
                 calls[cpp_name] ||= mname.to_s
               end
             end
+            # Always need m_new (called by every `.new`) and
+            # m_initialize (called by every m_new) on the universal
+            # surface, even if user code doesn't directly invoke them.
+            calls["m_new"] ||= "new"
+            calls["m_initialize"] ||= "initialize"
             calls
           end
 
@@ -223,16 +233,15 @@ module Frozone
           def build_user_class_def(name, cls)
             ivars = collect_ivars(cls)
             eigen_ivars = collect_eigenclass_ivars(cls)
-            user_methods = class_methods(cls)
-            methods = user_methods.reject { |n, _| n == :initialize }
-            init = user_methods[:initialize]
             Runtime::RubyClass.new(
               name: name.to_s,
               parent: parent_name_for(cls),
               ivars: ivars.map { |iv| "BasicObject* iv_#{iv} = nullptr;" },
               members: [%(const char* ruby_class_name() const override { return "#{name}"; })],
-              ctor: build_ctor(name, init),
-              overrides: methods.each_with_object({}) { |(mname, m), h|
+              # No special ctor — `initialize` becomes a regular
+              # `m_initialize` override; eigenclass auto-emits `m_new`
+              # that does `new X(); m_initialize(...); return obj;`.
+              overrides: class_methods(cls).each_with_object({}) { |(mname, m), h|
                 spec = build_override(m)
                 h[Cpp.method_name(mname)] = spec if spec
               },
@@ -316,66 +325,45 @@ module Frozone
           # whole class falls through to a default ctor (callsites that
           # try to instantiate it with args will then fail to compile,
           # which is the right loud signal).
-          def build_ctor(class_name, init_method)
-            return nil unless init_method
-            parts = []
-            locals = Set.new
-            (init_method.required_params || []).each do |p|
-              parts << "BasicObject* #{p}"
-              locals << p.to_s
-            end
-            (init_method.optional_params || []).each do |(p, default_node)|
-              default_str = default_node ? @cpp.from_expr(default_node, locals) : "nil_instance()"
-              parts << "BasicObject* #{p} = #{default_str}"
-              locals << p.to_s
-            end
-            if init_method.rest_param || (init_method.post_params && !init_method.post_params.empty?) ||
-               (init_method.required_kw_params && !init_method.required_kw_params.empty?) ||
-               (init_method.optional_kw_params && !init_method.optional_kw_params.empty?) ||
-               init_method.kw_rest_param
-              raise Cpp::EmissionError, "ctor with rest/post/kw params not yet supported"
-            end
-            # Block param: add as optional Proc* default-nullptr arg.
-            block_name = MethodEmitter.user_block_name(init_method) || "_block"
-            if init_method.block_param
-              parts << "Proc* #{block_name} = nullptr"
-              locals << block_name
-            end
-            # Pre-declare every other method local up front (mirror
-            # unpack_params) so locals first-written inside an `if`
-            # branch are visible to sibling branches and to the
-            # implicit `return ...` at the bottom.
-            body = capture do
-              reserved = %w[args kwargs block]
-              (init_method.locals || []).each do |name|
-                s = name.to_s
-                next if s.empty? || locals.include?(s) || reserved.include?(s)
-                line "BasicObject* #{s} = nil_instance();"
-                locals << s
-              end
-              ExprEmitter.write_body(self, init_method.body, locals: locals) if init_method.body
-            end
-            { params: parts, body: body, class_name: class_name.to_s }
-          rescue Cpp::EmissionError
-            nil
-          end
-
           # Build an override spec for a user method using unpack_params
           # (so rest/block handling matches MethodEmitter). Empty params
           # field means class_emitter doesn't double-emit unpack lines.
           # EmissionError → nil so caller can drop the entry; the slot
           # falls through to BasicObject's method_missing stub at runtime.
           def build_override(method)
-            body = capture do
-              locals = MethodEmitter.unpack_params(self, method)
-              ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+            with_method_scope(method) do
+              body = capture do
+                locals = MethodEmitter.unpack_params(self, method)
+                ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+              end
+              {
+                params: [],
+                body: body + "return nil_instance();\n",
+              }
             end
-            {
-              params: [],
-              body: body + "return nil_instance();\n",
-            }
-          rescue Cpp::EmissionError
+          rescue Cpp::EmissionError => e
+            log_skip("method", method, e)
             nil
+          end
+
+          # Run `yield` with @cpp.method_scope set to the method's
+          # lexical scopes; restore after. Constant resolution inside
+          # the body uses Ruby-style outward lookup against this scope.
+          def with_method_scope(method)
+            prev = @cpp.method_scope
+            @cpp.method_scope = method.scopes || []
+            yield
+          ensure
+            @cpp.method_scope = prev
+          end
+
+          # Emit a one-line debug log when FROZONE_BOX_DEBUG=1 — surfaces
+          # which method/ctor/class was dropped and why. Off by default
+          # (would otherwise spam ~hundreds of lines per program).
+          def log_skip(kind, method, err)
+            return unless ENV['FROZONE_BOX_DEBUG'] == '1'
+            loc = method.respond_to?(:source_location) ? method.source_location : nil
+            $stderr.puts "[box-first] skip #{kind} #{method&.name} @ #{loc}: #{err.message}"
           end
 
           def write_header

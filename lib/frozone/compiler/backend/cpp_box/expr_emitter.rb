@@ -19,16 +19,31 @@ module Frozone
           # `last_is_return` (true for method bodies) wraps the final
           # statement in `return ...;` if it's an expression — Ruby's
           # implicit return semantics.
+          # Statement-level graceful degradation: an EmissionError on a
+          # non-final statement emits `// skipped: <reason>` and moves on
+          # so a single unsupported shape doesn't drop the whole method.
+          # The final statement of a `last_is_return: true` body cannot
+          # gracefully degrade (we'd lose the return value); raises out.
           def self.write_body(emit, body, locals:, last_is_return: false)
             stmts = body.is_a?(Ast::Sequence) ? body.nodes : [body]
             stmts.each_with_index do |n, i|
               last = i == stmts.length - 1
               if last && last_is_return && Cpp.expression_node?(n)
                 emit.line "return #{emit.cpp.from_expr(n, locals)};"
-              else
+              elsif last && last_is_return
                 write_stmt(emit, n, locals)
+              else
+                write_stmt_with_rescue(emit, n, locals)
               end
             end
+          end
+
+          def self.write_stmt_with_rescue(emit, node, locals)
+            buf = emit.capture { write_stmt(emit, node, locals) }
+            buf.each_line { |l| emit.line l.chomp }
+          rescue Cpp::EmissionError => e
+            emit.line "/* skipped: #{e.message.gsub('*/', '* /')} */"
+            $stderr.puts "[box-first] skip stmt: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
           end
 
           def self.write_stmt(emit, node, locals)
@@ -163,7 +178,6 @@ module Frozone
           def self.write_times_block(emit, node, locals)
             blk = node.block_node
             var = (blk.required_params || [])[0] || :_i
-            locals << var.to_s
             recv_node = node.receiver_node
             count = if recv_node.is_a?(Ast::IntegerLiteral)
                       "#{recv_node.value.raw}LL"
@@ -174,7 +188,13 @@ module Frozone
             emit.line "for (int64_t #{raw_var} = 0; #{raw_var} < #{count}; #{raw_var}++) {"
             emit.indented do
               emit.line "BasicObject* #{var} = new Integer(#{raw_var});"
-              write_body(emit, blk.body, locals: locals)
+              # Snapshot+restore: locals declared inside the block body
+              # are scoped to the block (mirrors Ruby's block-local
+              # semantics); without this, subsequent blocks' first
+              # writes would see stale "already declared" state and
+              # emit `name = ...` instead of `BasicObject* name = ...`.
+              block_locals = locals.dup << var.to_s
+              write_body(emit, blk.body, locals: block_locals)
             end
             emit.line "}"
           end

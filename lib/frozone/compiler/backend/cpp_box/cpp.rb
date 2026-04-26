@@ -92,10 +92,18 @@ module Frozone
           # render nested-lambda bodies via emit.capture + write_body.
           # Pure-functional otherwise — only the rescue path reaches back.
           attr_accessor :emit
+          # Lexical scope chain (outermost-first) of the method currently
+          # being emitted. Drives Ruby-style constant lookup: when a
+          # method in `Parser::Base` references `Diagnostic::Engine`,
+          # we try `Parser::Base::Diagnostic::Engine`, then
+          # `Parser::Diagnostic::Engine`, then `Diagnostic::Engine`.
+          # Empty list for the top-level body.
+          attr_accessor :method_scope
 
           def initialize(user_classes:, user_constants:)
             @user_classes = user_classes
             @user_constants = user_constants
+            @method_scope = []
           end
 
           # Top-level dispatch — turns an AST node into a cpp expression
@@ -164,22 +172,11 @@ module Frozone
             # expression position too).
             return from_raise(arg_nodes, locals) if !recv && name == :raise
 
-            # ClassName.new(args) or Foo::Bar.new(args) → direct
-            # instantiation. Bypasses the vtable. Wrap in parens so
-            # trailing -> on the result binds tighter than `new`.
-            if name == :new && (recv.is_a?(Ast::ConstantRead) || recv.is_a?(Ast::ConstantPath))
-              cls_name = recv.is_a?(Ast::ConstantRead) ? recv.name.to_s : path_to_cpp_name(recv)
-              if instantiable_class?(cls_name.to_sym)
-                # Cast each arg to BasicObject* so callers uniformly hit
-                # the user's `X(BasicObject*, ...)` ctor — without the
-                # cast, `new Box(Integer*)` would deduce the inherited
-                # variadic template (Ts=Integer*) as a better match
-                # (identity beats derived-to-base) and skip the
-                # ivar-setting ctor.
-                args = arg_nodes.map { |a| "static_cast<BasicObject*>(#{from_arg(a, locals)})" }
-                return "(new #{cls_name}(#{args.join(", ")}))"
-              end
-            end
+            # `.new` has no special case: `Foo.new(args)` dispatches via
+            # the universal protocol on the eigenclass singleton — i.e.
+            # `(&Foo_CLASS)->m_new(args, kwargs, block)`. The eigenclass
+            # auto-emits an m_new override that does
+            # `Foo* obj = new Foo(); obj->m_initialize(args, ...); return obj;`.
 
             # Block-bearing call site (other than the .times for-loop
             # special-case which write_stmt handles): wrap the block as
@@ -240,38 +237,35 @@ module Frozone
 
           # `raise` lowering. Forms supported:
           #   raise                — re-raise current exception (`throw;`)
-          #   raise X.new("msg")   — throw the constructed exception
-          #   raise X              — throw `new X()` (sugar for X.new)
-          #   raise X, "msg"       — throw `new X("msg")` (sugar for X.new("msg"))
+          #   raise X              — sugar for `X.new` (universal m_new)
+          #   raise X, "msg"       — sugar for `X.new("msg")`
+          #   raise X.new("msg")   — already a Foo.new dispatch; just throw
+          #   raise "msg"          — sugar for `RuntimeError.new("msg")`
           #   raise <expr>         — throw <expr> (assumed Exception-typed)
           # All forms wrap in a lambda returning BasicObject* so they
           # compose in expression position. C++ `throw` is void-typed,
           # so it can't appear directly in `return throw ...;`.
+          # Construction routes through the universal m_new protocol so
+          # exception subclasses without their own initialize still get
+          # the parent's m_initialize via the eigenclass auto-dispatch.
           def from_raise(arg_nodes, locals)
-            if arg_nodes.empty?
-              return "([&]() -> BasicObject* { throw; }())"
-            end
+            return "([&]() -> BasicObject* { throw; }())" if arg_nodes.empty?
+
             first = arg_nodes[0]
-            if arg_nodes.length >= 2 &&
-               (first.is_a?(Ast::ConstantRead) || first.is_a?(Ast::ConstantPath))
-              cls_name = first.is_a?(Ast::ConstantRead) ? first.name.to_s : path_to_cpp_name(first)
-              raise EmissionError, "raise: unknown exception class :#{cls_name}" unless instantiable_class?(cls_name.to_sym)
-              ctor_args = arg_nodes.drop(1).map { |a| from_arg(a, locals) }.join(", ")
-              return "([&]() -> BasicObject* { throw (new #{cls_name}(#{ctor_args})); }())"
+            if first.is_a?(Ast::ConstantRead) || first.is_a?(Ast::ConstantPath)
+              parts = first.is_a?(Ast::ConstantRead) ? [first.name.to_s] : collect_path(first)
+              flat = resolve_constant(parts)
+              raise EmissionError, "raise: unknown exception class #{parts.join('::')}" unless flat && instantiable_class?(flat)
+              ctor_args = arg_nodes.drop(1).map { |a| "static_cast<BasicObject*>(#{from_arg(a, locals)})" }
+              args_array = "(new Array({#{ctor_args.join(", ")}}))"
+              return "([&]() -> BasicObject* { throw static_cast<Exception*>((&#{flat}_CLASS)->m_new(#{args_array}, nullptr, nullptr)); }())"
             end
-            if arg_nodes.length == 1 &&
-               (first.is_a?(Ast::ConstantRead) || first.is_a?(Ast::ConstantPath))
-              cls_name = first.is_a?(Ast::ConstantRead) ? first.name.to_s : path_to_cpp_name(first)
-              raise EmissionError, "raise: unknown exception class :#{cls_name}" unless instantiable_class?(cls_name.to_sym)
-              return "([&]() -> BasicObject* { throw (new #{cls_name}()); }())"
-            end
+
             if arg_nodes.length == 1
               # `raise "msg"` is sugar for `raise RuntimeError.new("msg")`.
-              # Detect a String-typed arg (StringLiteral / InterpolatedString)
-              # and synthesise the wrap.
               if first.is_a?(Ast::StringLiteral) || first.is_a?(Ast::InterpolatedString)
                 msg_str = from_expr(first, locals)
-                return "([&]() -> BasicObject* { throw (new RuntimeError(static_cast<BasicObject*>(#{msg_str}))); }())"
+                return %(([&]() -> BasicObject* { throw static_cast<Exception*>((&RuntimeError_CLASS)->m_new((new Array({static_cast<BasicObject*>(#{msg_str})})), nullptr, nullptr)); }()))
               end
               expr_str = from_expr(first, locals)
               return "([&]() -> BasicObject* { throw static_cast<Exception*>(#{expr_str}); }())"
@@ -288,6 +282,7 @@ module Frozone
           # No clause matched → re-throw, which propagates through the
           # ensure guard.
           def from_rescue(node, locals)
+            check_no_break_next!(node, "rescue")
             buf = +"([&]() -> BasicObject* { "
             if node.ensure_node
               buf << "EnsureGuard _eg([&]() #{body_as_block(node.ensure_node, locals, last_is_return: false)}); "
@@ -404,9 +399,13 @@ module Frozone
               raise EmissionError, "block with optional/rest/post params not yet supported"
             end
             param = params.first
+            if param && !(param.is_a?(Symbol) || param.is_a?(String))
+              raise EmissionError, "block param destructuring (#{param.class.name}) not yet supported"
+            end
             if param && MethodEmitter::CPP_KEYWORDS.include?(param.to_s)
               raise EmissionError, "block param :#{param} is a C++ reserved word"
             end
+            check_no_break_next!(block_node.body, "block")
             block_locals = locals.dup
             block_locals << param.to_s if param
 
@@ -471,7 +470,10 @@ module Frozone
           # Case-as-expression — lambda + early-return form. Multi-statement
           # bodies become Sequence (comma operator). Without subject_node,
           # conditions are truthy-tested directly.
+          # break/next inside the case-arms would emit C++ break/continue
+          # inside a lambda, which is invalid (lambda blocks loop scope).
           def from_case(node, locals)
+            check_no_break_next!(node, "case-as-expression")
             buf = +"([&]() -> BasicObject* { "
             if node.subject_node
               buf << "auto* _subj = #{from_expr(node.subject_node, locals)}; "
@@ -485,6 +487,27 @@ module Frozone
             end
             buf << "return #{node.else_node ? from_expr(node.else_node, locals) : "nil_instance()"}; }())"
             buf
+          end
+
+          # Raise EmissionError if any break/next is reachable from this
+          # node without an intervening nested-loop boundary. Used by
+          # lambda-wrapped emission (rescue, case-as-expr, blocks) where
+          # C++ break/continue would land in the lambda scope, not the
+          # enclosing loop.
+          def check_no_break_next!(node, ctx)
+            if contains_loop_escape?(node)
+              raise EmissionError, "break/next inside #{ctx} — lambda boundary blocks loop scope, not yet supported"
+            end
+          end
+
+          def contains_loop_escape?(node)
+            return false unless node.is_a?(Ast::Node)
+            return true if node.is_a?(Ast::Break) || node.is_a?(Ast::Next)
+            # Stop at things that introduce their own loop scope (their
+            # break/next bind there, not to our enclosing).
+            return false if node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda) ||
+                            node.is_a?(Ast::While) || node.is_a?(Ast::Until)
+            (node.respond_to?(:children) ? node.children : []).any? { |c| contains_loop_escape?(c) }
           end
 
           def from_array_literal(node, locals)
@@ -556,27 +579,59 @@ module Frozone
             "(new Hash({#{elems.join(", ")}}))"
           end
 
-          # ConstantRead — resolution priority:
-          #   1. Value constant (instance of a user class) → k_NAME()
-          #   2. Class constant (any emitted class) → &NAME_CLASS
-          #      (a pointer to the eigenclass singleton — Class*-derived)
-          #   3. Unknown → raise. Closed-world: we can't statically
-          #      resolve this constant, so emitting it is wrong.
-          def from_constant_read(node)
-            return "k_#{node.name}()" if @user_constants.key?(node.name)
-            return "(&#{node.name}_CLASS)" if instantiable_class?(node.name)
-            raise EmissionError, "ConstantRead: unresolved constant :#{node.name}"
+          # ConstantRead / ConstantPath — Ruby-style lookup walks the
+          # lexical scope chain. For `Diagnostic::Engine` written inside
+          # `Parser::Base`, try `Parser::Base::...`, then `Parser::...`,
+          # then top-level `...`. First match in user_classes /
+          # user_constants wins. Callers format the result.
+          def from_constant_read(node) = format_constant(resolve_constant([node.name.to_s]) ||
+            (raise EmissionError, "ConstantRead: unresolved constant :#{node.name}"))
+
+          def from_constant_path(node)
+            parts = collect_path(node)
+            absolute = parts.first == "" ||
+                       (node.respond_to?(:parent_node) && node.parent_node.is_a?(Ast::RootNamespaceNode))
+            resolved = absolute ? resolve_top_level(parts.reject(&:empty?)) : resolve_constant(parts)
+            return format_constant(resolved) if resolved
+            raise EmissionError, "ConstantPath: unresolved path #{parts.join('::')}"
           end
 
-          # ConstantPath — `Foo::Bar::Baz`. Flatten path components with
-          # `_` and look up in the value-constant registry, then class
-          # registry. ASCII PascalCase assumption; collisions would
-          # need underscore-doubling escape — defer until a real case.
-          def from_constant_path(node)
-            flat = path_to_cpp_name(node).to_sym
-            return "k_#{flat}()" if @user_constants.key?(flat)
-            return "(&#{flat}_CLASS)" if instantiable_class?(flat)
-            raise EmissionError, "ConstantPath: unresolved path #{path_to_display(node)}"
+          # Walk the method's lexical scope chain (innermost-first),
+          # trying each prefix joined with `parts`. Falls back to the
+          # top-level (bare path) lookup last. Returns the resolved
+          # flat name as a Symbol (e.g. `:Parser_Diagnostic_Engine`),
+          # or nil if no scope yields a match.
+          def resolve_constant(parts)
+            (scope_prefixes + [[]]).each do |prefix|
+              flat = (prefix + parts).join("_").to_sym
+              return flat if @user_constants.key?(flat) || instantiable_class?(flat)
+            end
+            nil
+          end
+
+          def resolve_top_level(parts)
+            flat = parts.join("_").to_sym
+            (@user_constants.key?(flat) || instantiable_class?(flat)) ? flat : nil
+          end
+
+          # Format a resolved Symbol as the right C++ expression:
+          # accessor call for value constants, address-of-singleton for
+          # classes.
+          def format_constant(name)
+            return "k_#{name}()" if @user_constants.key?(name)
+            "(&#{name}_CLASS)"
+          end
+
+          # The lexical scope chain rendered as part-arrays, innermost
+          # first. `Parser::Base` (innermost) → `["Parser", "Base"]`.
+          # Skips Object (the top-level scope).
+          def scope_prefixes
+            (@method_scope || []).reverse.filter_map { |s|
+              next nil unless s.respond_to?(:full_name) && s.full_name
+              fname = s.full_name.to_s
+              next nil if fname == "Object"
+              fname.split("::")
+            }
           end
 
           # Walk a ConstantRead/ConstantPath/RootNamespaceNode chain and
@@ -607,6 +662,7 @@ module Frozone
           def instantiable_class?(name)
             @user_classes.key?(name) || Runtime::ALL_CLASSES.any? { |k| k.name == name.to_s }
           end
+
         end
       end
     end

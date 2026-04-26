@@ -122,11 +122,15 @@ module Frozone
             # that reads/writes them produces "not declared" errors.
             # Pre-declaring at method scope mirrors Ruby's behavior
             # (locals are method-scoped, not block-scoped).
-            # Skip names that collide with universal protocol params
+            # Also scans the body for LocalVariableWrites so locals
+            # whose first write is inside a graceful-degradation-skipped
+            # statement still get a declaration (subsequent reads work).
+            # Skips names that collide with universal protocol params
             # (`args`, `kwargs`, `block`) — those would shadow the
             # parameter binding.
             reserved = %w[args kwargs block]
-            (method.locals || []).each do |name|
+            seen_writes = collect_local_writes(method.body)
+            ((method.locals || []) + seen_writes.to_a).uniq.each do |name|
               s = name.to_s
               next if s.empty? || locals.include?(s) || reserved.include?(s)
               raise Cpp::EmissionError, "local :#{s} is a C++ reserved word" if CPP_KEYWORDS.include?(s)
@@ -134,6 +138,21 @@ module Frozone
               locals << s
             end
             locals
+          end
+
+          # Walk the method body collecting every LocalVariableWrite
+          # name (including ones inside blocks — Ruby leaks block-locals
+          # to the enclosing scope when first-written, our model treats
+          # them all as method-scope to keep them visible across blocks).
+          def self.collect_local_writes(body)
+            names = Set.new
+            walk = ->(node) {
+              return unless node.is_a?(Ast::Node)
+              names << node.name.to_s if node.is_a?(Ast::LocalVariableWrite)
+              node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
+            }
+            walk.call(body) if body
+            names
           end
 
           def self.user_block_name(method)

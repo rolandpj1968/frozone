@@ -92,10 +92,37 @@ module Frozone
               "virtual BasicObject* m_nil_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
               "  return false_instance();",
               "}",
+              "// initialize default — no-op returning self. User classes",
+              "// override; eigenclass m_new always invokes this after",
+              "// allocating the new instance.",
+              "virtual BasicObject* m_initialize(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "  return this;",
+              "}",
+              "// freeze / frozen? — we don't enforce frozen state, so",
+              "// these are no-ops returning self / false. Lots of core",
+              "// code calls .freeze on initialization; without these,",
+              "// every freeze call hits method_missing.",
+              "virtual BasicObject* m_freeze(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "  return this;",
+              "}",
+              "virtual BasicObject* m_frozen_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "  return false_instance();",
+              "}",
+              "// respond_to? — optimistic default returns true. Real",
+              "// answer requires a method-name table per class; without",
+              "// this default, every respond_to? in core libs aborts via",
+              "// method_missing.",
+              "virtual BasicObject* m_respond_to_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "  return true_instance();",
+              "}",
             ],
             # Methods listed here are skipped by the universal-surface
-            # emitter (already hand-declared in members above).
-            hand_coded_method_names: %w[m_eq_q m_hash_value m_case_eq m_nil_q].freeze,
+            # emitter — either hand-declared in members above OR
+            # auto-emitted by class_emitter as an override (m_class).
+            hand_coded_method_names: %w[
+              m_eq_q m_hash_value m_case_eq m_nil_q m_initialize
+              m_freeze m_frozen_q m_class m_respond_to_q
+            ].freeze,
           )
 
           OBJECT = RubyClass.new(
@@ -152,6 +179,7 @@ module Frozone
             parent: "Object",
             ivars: ["int64_t raw_;"],
             members: [
+              "Integer() = default;  // for eigenclass m_new (raw_ stays 0-ish)",
               "explicit Integer(int64_t r) : raw_(r) {}",
               %(const char* ruby_class_name() const override { return "Integer"; }),
               "// m_hash_value override — value-based so Integer keys hash",
@@ -198,6 +226,7 @@ module Frozone
             parent: "Object",
             ivars: ["double raw_;"],
             members: [
+              "Float() = default;",
               "explicit Float(double r) : raw_(r) {}",
               %(const char* ruby_class_name() const override { return "Float"; }),
               "std::size_t m_hash_value() const override { return std::hash<double>()(raw_); }",
@@ -298,6 +327,21 @@ module Frozone
                 params: ["BasicObject* val"],
                 body: "data.push_back(val); return this;",
               },
+              # Array.new(size) / Array.new(size, fill) — m_new on the
+              # eigenclass dispatches m_initialize after default-
+              # constructing. Without this, .new(size, fill) wouldn't
+              # populate the storage; only literal `(new Array({...}))`
+              # paths work via the internal initializer_list ctor.
+              "m_initialize" => {
+                params: [],
+                body: <<~CPP.chomp,
+                  if (args->data.empty()) return this;
+                  int64_t n = static_cast<Integer*>(args->data[0])->raw_;
+                  BasicObject* fill = args->data.size() >= 2 ? args->data[1] : nil_instance();
+                  data.assign(n, fill);
+                  return this;
+                CPP
+              },
             },
           )
 
@@ -325,6 +369,15 @@ module Frozone
             overrides: {
               "m_to_s"  => { params: [], body: "return new String(name_);" },
               "m_to_sym" => { params: [], body: "return this;" },
+            },
+            # Symbol's ctor is private — `Symbol.new` is meaningless in
+            # Ruby anyway. Override the eigenclass auto-m_new with an
+            # explicit abort.
+            eigenclass_overrides: {
+              "m_new" => {
+                params: [],
+                body: %(std::fprintf(stderr, "[box-first] Symbol.new not supported — use literals\\n"); std::abort();),
+              },
             },
           )
 
@@ -457,6 +510,7 @@ module Frozone
             parent: "Object",
             members: [
               "std::function<BasicObject*(BasicObject*)> fn_;",
+              "Proc() = default;",
               "explicit Proc(std::function<BasicObject*(BasicObject*)> f) : fn_(std::move(f)) {}",
               %(const char* ruby_class_name() const override { return "Proc"; }),
             ],
@@ -541,12 +595,26 @@ module Frozone
           # pattern — `Class_eigenclass : Class` — so user code that
           # writes `Class` as a value resolves to `&Class_CLASS`).
           def self.eigenclass_for(klass)
+            user_overrides = klass.eigenclass_overrides || {}
+            # Auto-generate m_new: allocate the instance + dispatch
+            # m_initialize via the universal protocol. User-overridable
+            # — if a user class defines its own `def self.new`, that
+            # takes precedence (same key).
+            overrides = user_overrides.dup
+            overrides["m_new"] ||= {
+              params: [],
+              body: <<~CPP.chomp,
+                #{klass.name}* obj = new #{klass.name}();
+                obj->m_initialize(args, kwargs, block);
+                return obj;
+              CPP
+            }
             RubyClass.new(
               name: "#{klass.name}_eigenclass",
               parent: "Class",
               ivars: (klass.eigenclass_ivars || []).map { |iv| "BasicObject* iv_#{iv} = nullptr;" },
               members: [%(const char* ruby_class_name() const override { return "#{klass.name}"; })],
-              overrides: klass.eigenclass_overrides || {},
+              overrides: overrides,
               singleton: "#{klass.name}_CLASS",
             )
           end
