@@ -122,6 +122,7 @@ module Frozone
             hand_coded_method_names: %w[
               m_eq_q m_hash_value m_case_eq m_nil_q m_initialize
               m_freeze m_frozen_q m_class m_respond_to_q
+              m_send m___send__
             ].freeze,
           )
 

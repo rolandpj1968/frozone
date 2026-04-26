@@ -41,6 +41,7 @@ module Frozone
             write_singletons(emit, classes)
             emit.blank
             classes.each { |k| write_class_definitions(emit, k) }
+            write_send_body(emit, call_surface)
             write_kernel_fn_bodies(emit, kernel_fns)
             write_intrinsic_bodies(emit, intrinsics)
           end
@@ -120,6 +121,43 @@ module Frozone
             call_surface.each do |cpp_name, ruby_name|
               next if skip.include?(cpp_name)
               emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("#{ruby_name}"); })
+            end
+            emit.blank
+            write_send_dispatch(emit, call_surface)
+          end
+
+          # send(:name, *rest, **kw, &blk) — out-of-line definition (it
+          # calls Array methods that need Array complete). Declared
+          # here, defined after Array is complete.
+          def self.write_send_dispatch(emit, call_surface)
+            emit.line "// send(:name, *rest, **kw, &blk) — switch over every method"
+            emit.line "// name in the call surface; virtual dispatch picks the right"
+            emit.line "// override on the actual receiver. Unknown name → method_missing."
+            emit.line "virtual BasicObject* m_send(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr);"
+            emit.line "virtual BasicObject* m___send__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr);"
+          end
+
+          # Out-of-line m_send body, emitted after class definitions
+          # (it dereferences Array fields).
+          def self.write_send_body(emit, call_surface)
+            skip = Runtime::BASIC_OBJECT.hand_coded_method_names || []
+            arms = call_surface.reject { |cpp_name, _| skip.include?(cpp_name) || cpp_name == "m_send" || cpp_name == "m___send__" }
+            ["m_send", "m___send__"].each do |fn|
+              emit.line "inline BasicObject* BasicObject::#{fn}(Array* args, Hash* kwargs, Proc* block) {"
+              emit.indented do
+                emit.line %|if (args->data.empty()) { std::fprintf(stderr, "[box-first] send: no method name\\n"); std::abort(); }|
+                emit.line "Symbol* _name = static_cast<Symbol*>(args->data[0]);"
+                emit.line "Array* _rest = new Array();"
+                emit.line "for (std::size_t _i = 1; _i < args->data.size(); _i++) _rest->data.push_back(args->data[_i]);"
+                emit.line "const char* _n = _name->name_;"
+                arms.each do |cpp_name, ruby_name|
+                  c_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
+                  emit.line %(if (std::strcmp(_n, "#{c_lit}") == 0) return this->#{cpp_name}(_rest, kwargs, block);)
+                end
+                emit.line "return method_missing(_n);"
+              end
+              emit.line "}"
+              emit.blank
             end
           end
 
