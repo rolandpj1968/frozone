@@ -31,6 +31,7 @@
 #include <type_traits>
 #include <limits>
 #include <cmath>
+#include <random>
 #include <gc.h>
 
 #define FROZONE_GC_INIT() GC_INIT()

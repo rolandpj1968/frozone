@@ -765,6 +765,59 @@ module Frozone
             ],
           )
 
+          # Random — wraps a std::mt19937 PRNG. Random.new(seed) creates
+          # an instance; rng.rand returns Float in [0, 1) when called
+          # without args, or Integer < n when called with an Integer.
+          # Real Ruby supports Float ranges and so on; we'll deal with
+          # that when something needs it.
+          RANDOM = RubyClass.new(
+            name: "Random",
+            parent: "Object",
+            members: [
+              "std::mt19937_64 rng_;",
+              "uint64_t seed_ = 0;",
+              "Random() : rng_(0), seed_(0) {}",
+              %(const char* ruby_class_name() const override { return "Random"; }),
+            ],
+            overrides: {
+              "m_initialize" => {
+                params: [],
+                body: <<~CPP.chomp,
+                  if (!args->data.empty()) {
+                    seed_ = static_cast<uint64_t>(static_cast<Integer*>(args->data[0])->raw_);
+                  } else {
+                    seed_ = static_cast<uint64_t>(std::random_device{}());
+                  }
+                  rng_.seed(seed_);
+                  return this;
+                CPP
+              },
+              "m_rand" => {
+                params: [],
+                body: <<~CPP.chomp,
+                  if (args->data.empty()) {
+                    // Float in [0, 1) — uniform 53-bit precision.
+                    uint64_t v = rng_();
+                    return new Float(static_cast<double>(v >> 11) * (1.0 / (1ULL << 53)));
+                  }
+                  BasicObject* n = args->data[0];
+                  if (auto* i = dynamic_cast<Integer*>(n)) {
+                    if (i->raw_ <= 0) return new Float(static_cast<double>(rng_() >> 11) * (1.0 / (1ULL << 53)));
+                    return new Integer(static_cast<int64_t>(rng_() % static_cast<uint64_t>(i->raw_)));
+                  }
+                  if (auto* f = dynamic_cast<Float*>(n)) {
+                    return new Float((static_cast<double>(rng_() >> 11) * (1.0 / (1ULL << 53))) * f->raw_);
+                  }
+                  return nil_instance();
+                CPP
+              },
+              "m_seed" => {
+                params: [],
+                body: "return new Integer(static_cast<int64_t>(seed_));",
+              },
+            },
+          )
+
           # Math — module-like class with singleton methods on its
           # eigenclass. No instances ever allocated (Math.new is invalid
           # in MRI too). PI/E live as static const accessors emitted
@@ -802,7 +855,7 @@ module Frozone
             BASIC_OBJECT, OBJECT, CLASS_TYPE,
             NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
             INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH, RANGE, PROC,
-            MATH
+            MATH, RANDOM
           ].freeze
 
           # Per-class eigenclass — generated programmatically from each
