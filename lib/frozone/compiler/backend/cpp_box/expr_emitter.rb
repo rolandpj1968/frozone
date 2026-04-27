@@ -24,7 +24,12 @@ module Frozone
           # so a single unsupported shape doesn't drop the whole method.
           # The final statement of a `last_is_return: true` body cannot
           # gracefully degrade (we'd lose the return value); raises out.
-          def self.write_body(emit, body, locals:, last_is_return: false)
+          # `next_returns:` flips the meaning of Ast::Next from "continue
+          # the enclosing C++ loop" to "return from the enclosing lambda"
+          # — used when emitting a Proc body, where each block invocation
+          # is one lambda call and `next [v]` semantically returns v from
+          # that invocation.
+          def self.write_body(emit, body, locals:, last_is_return: false, next_returns: false)
             stmts = body.is_a?(Ast::Sequence) ? body.nodes : [body]
             stmts.each_with_index do |n, i|
               last = i == stmts.length - 1
@@ -32,14 +37,14 @@ module Frozone
                 # times/loop blocks at last-expression position need
                 # the statement form (lambda-wrap doesn't allow
                 # break/next). Emit as statement + return nil.
-                write_stmt(emit, n, locals)
+                write_stmt(emit, n, locals, next_returns: next_returns)
                 emit.line "return nil_instance();"
               elsif last && last_is_return && Cpp.expression_node?(n)
                 emit.line "return #{emit.cpp.from_expr(n, locals)};"
               elsif last && last_is_return
-                write_stmt(emit, n, locals)
+                write_stmt(emit, n, locals, next_returns: next_returns)
               else
-                write_stmt_with_rescue(emit, n, locals)
+                write_stmt_with_rescue(emit, n, locals, next_returns: next_returns)
               end
             end
           end
@@ -54,20 +59,20 @@ module Frozone
             false
           end
 
-          def self.write_stmt_with_rescue(emit, node, locals)
-            buf = emit.capture { write_stmt(emit, node, locals) }
+          def self.write_stmt_with_rescue(emit, node, locals, next_returns: false)
+            buf = emit.capture { write_stmt(emit, node, locals, next_returns: next_returns) }
             buf.each_line { |l| emit.line l.chomp }
           rescue Cpp::EmissionError => e
             emit.line "/* skipped: #{e.message.gsub('*/', '* /')} */"
             $stderr.puts "[box-first] skip stmt: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
           end
 
-          def self.write_stmt(emit, node, locals)
+          def self.write_stmt(emit, node, locals, next_returns: false)
             case node
             when Ast::Return
               emit.line "return #{emit.cpp.from_expr(node.value_node, locals)};"
             when Ast::If
-              write_if_stmt(emit, node, locals)
+              write_if_stmt(emit, node, locals, next_returns: next_returns)
             when Ast::While
               write_while_stmt(emit, node, locals)
             when Ast::Until
@@ -87,7 +92,16 @@ module Frozone
               # break.
               emit.line "break;"
             when Ast::Next
-              emit.line "continue;"
+              # In a Proc lambda (block body), `next [v]` returns v from
+              # the lambda — semantically equivalent to "skip to the
+              # next block invocation". Outside a block, it's a C++
+              # `continue;`.
+              if next_returns
+                v = node.value_node ? emit.cpp.from_expr(node.value_node, locals) : "nil_instance()"
+                emit.line "return #{v};"
+              else
+                emit.line "continue;"
+              end
             when Ast::ClassDef, Ast::ModuleDef, Ast::MethodDef, Ast::SingletonClassDef
               raise Cpp::EmissionError,
                 "closed-world violation: runtime #{node.class.name.split('::').last} not supported in compiled body"
@@ -106,15 +120,15 @@ module Frozone
             end
           end
 
-          def self.write_if_stmt(emit, node, locals)
+          def self.write_if_stmt(emit, node, locals, next_returns: false)
             cond = emit.cpp.from_expr(node.pred_node, locals)
             emit.line "if (truthy(#{cond})) {"
             emit.indented do
-              write_body(emit, node.then_node, locals: locals) if node.then_node
+              write_body(emit, node.then_node, locals: locals, next_returns: next_returns) if node.then_node
             end
             if node.else_node
               emit.line "} else {"
-              emit.indented { write_body(emit, node.else_node, locals: locals) }
+              emit.indented { write_body(emit, node.else_node, locals: locals, next_returns: next_returns) }
             end
             emit.line "}"
           end
@@ -200,14 +214,18 @@ module Frozone
           end
 
           def self.write_local_write_stmt(emit, node, locals)
+            # Reassigning a universal-protocol param (`block = ...`,
+            # `args = ...`) trips C++ type checking — `block` is `Proc*`,
+            # rhs is `BasicObject*`. Mark the whole method skipped
+            # rather than emit a body that fails to compile.
+            if MethodEmitter::UNIVERSAL_PARAM_NAMES.include?(node.name.to_s)
+              raise Cpp::EmissionError, "local :#{node.name} collides with universal protocol param"
+            end
             rhs = emit.cpp.from_expr(node.value_node, locals)
             cpp_name = MethodEmitter.local_cpp_name(node.name)
             if locals.include?(node.name.to_s)
               emit.line "#{cpp_name} = #{rhs};"
             else
-              if MethodEmitter::UNIVERSAL_PARAM_NAMES.include?(node.name.to_s)
-                raise Cpp::EmissionError, "local :#{node.name} collides with universal protocol param"
-              end
               locals << node.name.to_s
               emit.line "BasicObject* #{cpp_name} = #{rhs};"
             end

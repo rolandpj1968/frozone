@@ -203,6 +203,9 @@ module Frozone
               rhs = from_expr(node.value_node, locals)
               "(this->iv_#{node.name.to_s.delete_prefix('@')} = #{rhs})"
             when Ast::LocalVariableWrite
+              if MethodEmitter::UNIVERSAL_PARAM_NAMES.include?(node.name.to_s)
+                raise EmissionError, "local :#{node.name} collides with universal protocol param"
+              end
               rhs = from_expr(node.value_node, locals)
               if locals.include?(node.name.to_s)
                 "(#{MethodEmitter.local_cpp_name(node.name)} = #{rhs})"
@@ -604,31 +607,34 @@ module Frozone
                 raise EmissionError, "block param destructuring (#{p.class.name}) not yet supported"
               end
             end
-            check_no_break_next!(block_node.body, "block")
+            # `break` can't survive lambda boundary; `next` *can* — it
+            # returns from the lambda, semantically equivalent to "skip
+            # to the next block invocation". write_body with
+            # next_returns: true handles that.
+            if contains_loop_escape?(block_node.body, allow_next: true)
+              raise EmissionError, "break inside block — lambda boundary blocks loop scope, not yet supported"
+            end
             block_locals = locals.dup
             params.each { |p| block_locals << p.to_s }
 
             body = block_node.body
-            stmts = body.is_a?(Ast::Sequence) ? body.nodes : (body ? [body] : [])
 
-            parts = []
-            # Bind each block param to args->data[i]. The Proc lambda
-            # always takes the full args array — supports blocks with
-            # 0, 1, or many params. Out-of-range reads return nil.
-            params.each_with_index do |p, i|
-              parts << "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance();"
-            end
-            stmts.each_with_index do |n, i|
-              s = from_expr(n, block_locals)
-              if i == stmts.length - 1
-                parts << "return #{s};"
+            # Body emission via write_body so statement-only forms
+            # (if-as-stmt, case-as-stmt, MultipleAssignment, ...) work.
+            # next_returns: true rewrites `next [v]` as `return v;` —
+            # the lambda contract for one block invocation.
+            body_buf = emit.capture do
+              params.each_with_index do |p, i|
+                emit.line "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance();"
+              end
+              if body
+                ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true)
               else
-                parts << "#{s};"
+                emit.line "return nil_instance();"
               end
             end
-            parts << "return nil_instance();" if stmts.empty?
 
-            "(new Proc([&](Array* __blkargs__) -> BasicObject* { #{parts.join(' ')} }))"
+            "(new Proc([&](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
           end
 
           # `arr[k] = v` parses as AttributeWrite(name=:[]=, receiver,
@@ -724,14 +730,19 @@ module Frozone
             end
           end
 
-          def contains_loop_escape?(node)
+          # `allow_next:` lets next escape — used when emitting a Proc
+          # body where Next is rewritten to a lambda return. Break
+          # would still need real iterator-exit machinery (throw + catch
+          # at the call site) and is genuinely unsupported.
+          def contains_loop_escape?(node, allow_next: false)
             return false unless node.is_a?(Ast::Node)
-            return true if node.is_a?(Ast::Break) || node.is_a?(Ast::Next)
+            return true if node.is_a?(Ast::Break)
+            return true if node.is_a?(Ast::Next) && !allow_next
             # Stop at things that introduce their own loop scope (their
             # break/next bind there, not to our enclosing).
             return false if node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda) ||
                             node.is_a?(Ast::While) || node.is_a?(Ast::Until)
-            (node.respond_to?(:children) ? node.children : []).any? { |c| contains_loop_escape?(c) }
+            (node.respond_to?(:children) ? node.children : []).any? { |c| contains_loop_escape?(c, allow_next: allow_next) }
           end
 
           def from_array_literal(node, locals)
