@@ -365,18 +365,23 @@ module Frozone
                 params: ["BasicObject* other"],
                 body: "auto* o = static_cast<Array*>(other); data.insert(data.end(), o->data.begin(), o->data.end()); return this;",
               },
-              # Array.new(size) / Array.new(size, fill) — m_new on the
-              # eigenclass dispatches m_initialize after default-
-              # constructing. Without this, .new(size, fill) wouldn't
-              # populate the storage; only literal `(new Array({...}))`
-              # paths work via the internal initializer_list ctor.
+              # Array.new(size) / Array.new(size, fill) / Array.new(size) { |i| ... }
+              # The block form calls the block n times with each index
+              # to populate elements; common in matrix construction.
               "m_initialize" => {
                 params: [],
                 body: <<~CPP.chomp,
                   if (args->data.empty()) return this;
                   int64_t n = static_cast<Integer*>(args->data[0])->raw_;
-                  BasicObject* fill = args->data.size() >= 2 ? args->data[1] : nil_instance();
-                  data.assign(n, fill);
+                  if (block) {
+                    data.reserve(n);
+                    for (int64_t i = 0; i < n; i++) {
+                      data.push_back(block->m_call((new Array({(new Integer(i))})), nullptr, nullptr));
+                    }
+                  } else {
+                    BasicObject* fill = args->data.size() >= 2 ? args->data[1] : nil_instance();
+                    data.assign(n, fill);
+                  }
                   return this;
                 CPP
               },
