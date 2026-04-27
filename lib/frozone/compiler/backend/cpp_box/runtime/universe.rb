@@ -269,6 +269,26 @@ module Frozone
               "m_bit_or"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ |  static_cast<Integer*>(other)->raw_);" },
               "m_bit_xor"  => { params: ["BasicObject* other"], body: "return new Integer(raw_ ^  static_cast<Integer*>(other)->raw_);" },
               "m_neg"      => { params: [],                     body: "return new Integer(-raw_);" },
+              # Integer ** Integer with non-negative exponent stays Integer
+              # (small) — anything bigger or Float exponent → Float via std::pow.
+              "m_pow"      => {
+                params: ["BasicObject* other"],
+                body: <<~CPP.chomp,
+                  if (auto* i = dynamic_cast<Integer*>(other)) {
+                    int64_t e = i->raw_;
+                    if (e >= 0 && e < 32) {
+                      int64_t r = 1, b = raw_;
+                      while (e > 0) { if (e & 1) r *= b; b *= b; e >>= 1; }
+                      return new Integer(r);
+                    }
+                    return new Float(std::pow(static_cast<double>(raw_), static_cast<double>(i->raw_)));
+                  }
+                  if (auto* f = dynamic_cast<Float*>(other)) {
+                    return new Float(std::pow(static_cast<double>(raw_), f->raw_));
+                  }
+                  return nil_instance();
+                CPP
+              },
               "m_to_s"     => {
                 params: [],
                 body: <<~CPP.chomp,
@@ -317,6 +337,7 @@ module Frozone
               "m_eq_q"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(raw_ == f->raw_); if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ == static_cast<double>(i->raw_)); return false_instance();" },
               "m_ne_q"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(raw_ != f->raw_); if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ != static_cast<double>(i->raw_)); return true_instance();" },
               "m_neg"      => { params: [],                     body: "return new Float(-raw_);" },
+              "m_pow"       => { params: ["BasicObject* other"], body: "return new Float(std::pow(raw_, as_double(other)));" },
               "m_to_s"     => {
                 params: [],
                 body: <<~CPP.chomp,
@@ -740,6 +761,35 @@ module Frozone
             ],
           )
 
+          # Math — module-like class with singleton methods on its
+          # eigenclass. No instances ever allocated (Math.new is invalid
+          # in MRI too). PI/E live as static const accessors emitted
+          # via the eigenclass-constants path.
+          MATH = RubyClass.new(
+            name: "Math",
+            parent: "Object",
+            members: [
+              %(const char* ruby_class_name() const override { return "Math"; }),
+            ],
+            eigenclass_overrides: {
+              "m_sqrt" => { params: ["BasicObject* x"], body: "return new Float(std::sqrt(Float::as_double(x)));" },
+              "m_log"  => { params: ["BasicObject* x"], body: "return new Float(std::log(Float::as_double(x)));" },
+              "m_log2" => { params: ["BasicObject* x"], body: "return new Float(std::log2(Float::as_double(x)));" },
+              "m_log10"=> { params: ["BasicObject* x"], body: "return new Float(std::log10(Float::as_double(x)));" },
+              "m_exp"  => { params: ["BasicObject* x"], body: "return new Float(std::exp(Float::as_double(x)));" },
+              "m_sin"  => { params: ["BasicObject* x"], body: "return new Float(std::sin(Float::as_double(x)));" },
+              "m_cos"  => { params: ["BasicObject* x"], body: "return new Float(std::cos(Float::as_double(x)));" },
+              "m_tan"  => { params: ["BasicObject* x"], body: "return new Float(std::tan(Float::as_double(x)));" },
+              "m_asin" => { params: ["BasicObject* x"], body: "return new Float(std::asin(Float::as_double(x)));" },
+              "m_acos" => { params: ["BasicObject* x"], body: "return new Float(std::acos(Float::as_double(x)));" },
+              "m_atan" => { params: ["BasicObject* x"], body: "return new Float(std::atan(Float::as_double(x)));" },
+              "m_atan2"=> { params: ["BasicObject* y", "BasicObject* x"], body: "return new Float(std::atan2(Float::as_double(y), Float::as_double(x)));" },
+              "m_pow"  => { params: ["BasicObject* x", "BasicObject* y"], body: "return new Float(std::pow(Float::as_double(x), Float::as_double(y)));" },
+              "m_hypot"=> { params: ["BasicObject* x", "BasicObject* y"], body: "return new Float(std::hypot(Float::as_double(x), Float::as_double(y)));" },
+              "m_cbrt" => { params: ["BasicObject* x"], body: "return new Float(std::cbrt(Float::as_double(x)));" },
+            },
+          )
+
           # Inheritance order. The emitter walks this list to produce
           # forward decls + class bodies + singletons in the right
           # sequence (parent before child, so children's overrides see
@@ -747,7 +797,8 @@ module Frozone
           ALL_CLASSES = [
             BASIC_OBJECT, OBJECT, CLASS_TYPE,
             NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
-            INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH, RANGE, PROC
+            INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH, RANGE, PROC,
+            MATH
           ].freeze
 
           # Per-class eigenclass — generated programmatically from each

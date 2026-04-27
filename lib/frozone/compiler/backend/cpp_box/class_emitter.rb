@@ -34,6 +34,13 @@ module Frozone
             # and respond_to? (no string compare). Order = call_surface
             # iteration order = insertion order from collect_call_surface.
             method_ids = call_surface.keys.each_with_index.to_h
+            # Set of cpp_names BasicObject's universal surface emits a
+            # stub for — write_override_decl uses this to decide whether
+            # an override on a derived class can carry the `override`
+            # keyword. Methods unique to one class (e.g. Math.log2 when
+            # no user code calls log2) have no parent stub and must drop
+            # `override`.
+            @call_surface_set = call_surface.keys.to_set
             # Class id assignment + IS_A LUT — drives is_a?/kind_of?.
             # Each class gets a unique id; LUT[i][j] = true iff class
             # i has class/module j in its ancestry chain (including
@@ -384,11 +391,13 @@ module Frozone
           end
 
           # Universal override declaration: just the signature, terminated
-          # with `;`. Default args (`= nullptr`) live here. BasicObject
-          # has no parent virtual so its own auto-emitted m_class can't
-          # carry `override`.
+          # with `;`. Default args (`= nullptr`) live here. `override` is
+          # emitted only when the method exists on a parent — BasicObject
+          # itself has no parent, and methods unique to a runtime
+          # eigenclass (e.g. Math.log2 when no user code calls log2) lack
+          # a parent stub so can't carry `override` either.
           def self.write_override_decl(emit, name, klass)
-            override_kw = klass.name == "BasicObject" ? "" : " override"
+            override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
             emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr)#{override_kw};"
           end
 
