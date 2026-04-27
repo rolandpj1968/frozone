@@ -178,9 +178,9 @@ module Frozone
               locals << var
             end
             coll = emit.cpp.from_expr(node.collection_node, locals)
-            emit.line "(#{coll})->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* {"
+            emit.line "(#{coll})->m_each((new Array({})), nullptr, (new Proc([&](Array* __blkargs__) -> BasicObject* {"
             emit.indented do
-              emit.line "#{cpp_var} = arg;"
+              emit.line "#{cpp_var} = __blkargs__->data.empty() ? nil_instance() : __blkargs__->data[0];"
               write_body(emit, node.body_node, locals: locals) if node.body_node
               emit.line "return nil_instance();"
             end

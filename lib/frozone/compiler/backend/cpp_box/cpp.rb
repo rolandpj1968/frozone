@@ -504,6 +504,13 @@ module Frozone
             integer__plus_:  ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ + static_cast<Integer*>(#{o})->raw_))" },
             integer__minus_: ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ - static_cast<Integer*>(#{o})->raw_))" },
             integer__star_:  ->(s, o) { "(new Integer(static_cast<Integer*>(#{s})->raw_ * static_cast<Integer*>(#{o})->raw_))" },
+            integer_spaceship: ->(s, o) {
+              "(new Integer(static_cast<int64_t>((static_cast<Integer*>(#{s})->raw_ > static_cast<Integer*>(#{o})->raw_) - (static_cast<Integer*>(#{s})->raw_ < static_cast<Integer*>(#{o})->raw_))))"
+            },
+            float_spaceship: ->(s, o) {
+              "(new Integer(static_cast<int64_t>((static_cast<Float*>(#{s})->raw_ > static_cast<Float*>(#{o})->raw_) - (static_cast<Float*>(#{s})->raw_ < static_cast<Float*>(#{o})->raw_))))"
+            },
+
             integer__lt_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ <  static_cast<Integer*>(#{o})->raw_)" },
             integer__gt_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ >  static_cast<Integer*>(#{o})->raw_)" },
             integer__le_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ <= static_cast<Integer*>(#{o})->raw_)" },
@@ -573,30 +580,30 @@ module Frozone
               return "static_cast<Proc*>(#{from_expr(block_node.value_node, locals)})"
             end
             params = block_node.required_params || []
-            if params.length > 1
-              raise EmissionError, "block with multiple required params (#{params.length}) not yet supported"
-            end
             if (block_node.respond_to?(:optional_params) && (block_node.optional_params || []).any?) ||
                (block_node.respond_to?(:rest_param) && block_node.rest_param) ||
                (block_node.respond_to?(:post_params) && (block_node.post_params || []).any?)
               raise EmissionError, "block with optional/rest/post params not yet supported"
             end
-            param = params.first
-            if param && !(param.is_a?(Symbol) || param.is_a?(String))
-              raise EmissionError, "block param destructuring (#{param.class.name}) not yet supported"
+            params.each do |p|
+              unless p.is_a?(Symbol) || p.is_a?(String)
+                raise EmissionError, "block param destructuring (#{p.class.name}) not yet supported"
+              end
             end
             check_no_break_next!(block_node.body, "block")
             block_locals = locals.dup
-            block_locals << param.to_s if param
+            params.each { |p| block_locals << p.to_s }
 
             body = block_node.body
             stmts = body.is_a?(Ast::Sequence) ? body.nodes : (body ? [body] : [])
 
             parts = []
-            # The lambda param is named `arg`; if the user-named block
-            # param is also `arg`, skip the redundant rebinding (would
-            # shadow the parameter).
-            parts << "BasicObject* #{MethodEmitter.local_cpp_name(param)} = arg;" if param && param.to_s != "arg"
+            # Bind each block param to args->data[i]. The Proc lambda
+            # always takes the full args array — supports blocks with
+            # 0, 1, or many params. Out-of-range reads return nil.
+            params.each_with_index do |p, i|
+              parts << "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance();"
+            end
             stmts.each_with_index do |n, i|
               s = from_expr(n, block_locals)
               if i == stmts.length - 1
@@ -607,7 +614,7 @@ module Frozone
             end
             parts << "return nil_instance();" if stmts.empty?
 
-            "(new Proc([&](BasicObject* arg) -> BasicObject* { #{parts.join(' ')} }))"
+            "(new Proc([&](Array* __blkargs__) -> BasicObject* { #{parts.join(' ')} }))"
           end
 
           # `arr[k] = v` parses as AttributeWrite(name=:[]=, receiver,

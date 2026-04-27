@@ -677,13 +677,17 @@ module Frozone
             name: "Proc",
             parent: "Object",
             members: [
-              "std::function<BasicObject*(BasicObject*)> fn_;",
+              # Lambdas now take the whole args array — supports blocks
+              # with 0, 1, or many params. The lambda body unpacks
+              # `args->data[i]` as needed; expr_emitter generates the
+              # binding code at the top of each lambda body.
+              "std::function<BasicObject*(Array*)> fn_;",
               "Proc() = default;",
-              "explicit Proc(std::function<BasicObject*(BasicObject*)> f) : fn_(std::move(f)) {}",
+              "explicit Proc(std::function<BasicObject*(Array*)> f) : fn_(std::move(f)) {}",
               %(const char* ruby_class_name() const override { return "Proc"; }),
             ],
             overrides: {
-              "m_call" => { params: ["BasicObject* arg"], body: "return fn_(arg);" },
+              "m_call" => { params: [], body: "return fn_(args);" },
             },
           )
 
