@@ -1,4 +1,4 @@
-#include "../runtime/frozone.hpp"
+#include "../../runtime/frozone.hpp"
 
 static const RubyString RUBY_FILE = RubyString("/home/rolandpj/src/frozone/bench/benchmarks/blurhash/test.bin", 61);
 

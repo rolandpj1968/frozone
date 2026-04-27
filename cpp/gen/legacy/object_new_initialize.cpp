@@ -1,4 +1,4 @@
-#include "../runtime/frozone.hpp"
+#include "../../runtime/frozone.hpp"
 
 
 struct Ruby_C : public RubyObject {

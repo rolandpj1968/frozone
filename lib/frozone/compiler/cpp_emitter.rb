@@ -295,7 +295,7 @@ module Frozone
       # it at the top of every generated file. Edit the header directly
       # for runtime changes — no more ruby-string-quoted C++.
       def emit_header
-        line "#include \"../runtime/frozone.hpp\""
+        line "#include \"../../runtime/frozone.hpp\""
       end
 
       CORE_PATH_MARKERS = %w[lib/core/4.0/ lib/frozone/vm/ lib/frozone/ast/].freeze

@@ -1,57 +1,83 @@
 #!/usr/bin/env ruby
-# Benchmark timing: MRI vs C++ vs Crystal for all AOT benchmarks.
-# Usage: bundle exec ruby bench/perf.rb [benchmark_name]
+# Benchmark timing: MRI vs legacy C++ vs box-first C++ vs Crystal for all AOT benchmarks.
+# Usage: bundle exec ruby bench/perf.rb [--timeout SECS] [benchmark_name ...]
 
 require 'open3'
+require 'shellwords'
+
+DEFAULT_TIMEOUT_SECS = 600
+
+argv = ARGV.dup
+timeout_secs = DEFAULT_TIMEOUT_SECS
+if (i = argv.index('--timeout'))
+  timeout_secs = Integer(argv.delete_at(i + 1))
+  argv.delete_at(i)
+end
 
 BENCHMARKS = Dir['bench/expected/*.txt'].map { |f| File.basename(f, '.txt') }.sort
-selected = ARGV.empty? ? BENCHMARKS : ARGV
+selected = argv.empty? ? BENCHMARKS : argv
 
-def time_cmd(cmd, timeout: 120)
+# Returns [elapsed_seconds, stdout] on success, :timeout on timeout, nil on error.
+def time_cmd(cmd, timeout:)
   t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-  out, status = Open3.capture2(cmd, stdin_data: '', binmode: true)
+  out, status = Open3.capture2("timeout #{timeout} #{cmd}", stdin_data: '', binmode: true)
   elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0
+  return :timeout if status.exitstatus == 124
   return nil unless status.success?
   [elapsed, out]
 rescue Errno::ENOENT
   nil
 end
 
-def time_average(cmd, runs: 3, timeout: 120)
+# Returns median elapsed seconds, :timeout, or nil.
+def time_average(cmd, runs:, timeout:)
   times = []
   runs.times do
     r = time_cmd(cmd, timeout: timeout)
+    return r if r == :timeout
     return nil unless r
     times << r[0]
   end
-  times.sort[times.size / 2] # median
+  times.sort[times.size / 2]
+end
+
+def fmt(ms_or_sentinel)
+  case ms_or_sentinel
+  when :timeout then "  TIMEOUT"
+  when nil      then "     N/A"
+  else format("%8.1f", ms_or_sentinel * 1000)
+  end
+end
+
+def fmt_ratio(mri, other)
+  return "  N/A" if mri.nil? || other == :timeout || other.nil?
+  format("%5.2fx", mri / other)
 end
 
 results = []
-puts format("%-25s %10s %10s %10s   %s   %s", "Benchmark", "MRI (ms)", "C++ (ms)", "Crystal", "C++/MRI", "Cr/MRI")
-puts "-" * 95
+puts "(timeout: #{timeout_secs}s per run)"
+puts format("%-25s %10s %10s %10s %10s   %s   %s   %s",
+            "Benchmark", "MRI (ms)", "Legacy", "Box-first", "Crystal",
+            "Lcy/MRI", "Box/MRI", "Cr/MRI")
+puts "-" * 110
 
 selected.each do |name|
   stub = "bench/stubs/#{name}.rb"
   next unless File.exist?(stub)
 
-  # MRI
-  mri = time_average("ruby #{stub}", runs: 1)
+  mri = time_average("ruby #{stub}", runs: 1, timeout: timeout_secs)
 
-  # C++ (already compiled by bench_cpp)
-  cpp_bin = "cpp/gen/#{name}"
-  cpp = File.exist?(cpp_bin) ? time_average("./#{cpp_bin}", runs: 3) : nil
+  legacy_bin = "cpp/gen/legacy/#{name}"
+  legacy = File.exist?(legacy_bin) ? time_average("./#{legacy_bin}", runs: 3, timeout: timeout_secs) : nil
 
-  # Crystal
+  box_bin = "cpp/gen/box/#{name}"
+  box = File.exist?(box_bin) ? time_average("./#{box_bin}", runs: 3, timeout: timeout_secs) : nil
+
   cr_bin = "crystal/#{name}"
-  cr = File.exist?(cr_bin) ? time_average("./#{cr_bin}", runs: 3) : nil
+  cr = File.exist?(cr_bin) ? time_average("./#{cr_bin}", runs: 3, timeout: timeout_secs) : nil
 
-  mri_ms = mri ? format("%8.1f", mri * 1000) : "N/A"
-  cpp_ms = cpp ? format("%8.1f", cpp * 1000) : "N/A"
-  cr_ms = cr ? format("%8.1f", cr * 1000) : "N/A"
-  cpp_ratio = (mri && cpp) ? format("%5.2fx", mri / cpp) : "N/A"
-  cr_ratio = (mri && cr) ? format("%5.2fx", mri / cr) : "N/A"
-
-  puts format("%-25s %10s %10s %10s   %s   %s", name, mri_ms, cpp_ms, cr_ms, cpp_ratio, cr_ratio)
-  results << { name: name, mri: mri, cpp: cpp, cr: cr }
+  puts format("%-25s %10s %10s %10s %10s   %s   %s   %s",
+              name, fmt(mri), fmt(legacy), fmt(box), fmt(cr),
+              fmt_ratio(mri, legacy), fmt_ratio(mri, box), fmt_ratio(mri, cr))
+  results << { name: name, mri: mri, legacy: legacy, box: box, cr: cr }
 end

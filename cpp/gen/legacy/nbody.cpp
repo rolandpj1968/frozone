@@ -1,4 +1,4 @@
-#include "../runtime/frozone.hpp"
+#include "../../runtime/frozone.hpp"
 
 static const double SOLAR_MASS = 39.47841760435743;
 static const double DAYS_PER_YEAR = 365.24;

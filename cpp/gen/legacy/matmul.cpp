@@ -1,4 +1,4 @@
-#include "../runtime/frozone.hpp"
+#include "../../runtime/frozone.hpp"
 
 static const int64_t N = 200LL;
 

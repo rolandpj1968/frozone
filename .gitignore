@@ -44,7 +44,11 @@ crystal/perf.data
 bench/benchmarks/lee/
 crystal/lang_debug*
 # Compiled binary outputs + temp test files from cpp/gen/
-cpp/gen/*
-!cpp/gen/*.cpp
-cpp/gen/cpp_test*.cpp
-cpp/gen/test_*.cpp
+# Tracked sources live under cpp/gen/legacy/ and (eventually) cpp/gen/box/.
+# Everything else under those subdirs (binaries, tempfile generations) is ignored.
+cpp/gen/legacy/*
+!cpp/gen/legacy/*.cpp
+cpp/gen/legacy/cpp_test*.cpp
+cpp/gen/legacy/test_*.cpp
+cpp/gen/box/*
+!cpp/gen/box/.gitkeep

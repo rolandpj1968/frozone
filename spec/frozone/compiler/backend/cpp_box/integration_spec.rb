@@ -15,7 +15,7 @@ require 'open3'
 # Run via: bundle exec rspec spec/frozone/compiler/backend/cpp_box/integration_spec.rb
 
 PROJECT_ROOT = File.expand_path('../../../../..', __dir__)
-GEN_DIR      = File.join(PROJECT_ROOT, 'cpp', 'gen')
+GEN_DIR      = File.join(PROJECT_ROOT, 'cpp', 'gen', 'box')
 
 def run_box_first(stub_name)
   stub_path = "bench/stubs/#{stub_name}.rb"

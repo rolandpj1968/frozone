@@ -289,11 +289,11 @@ namespace :dustman do
   end
 end
 
-# Compile one generated cpp/gen/<name>.cpp for a given GC mode.
+# Compile one generated cpp/gen/<backend>/<name>.cpp for a given GC mode.
 # Returns [:pass | :mismatch | :compile_fail, elapsed_seconds_or_nil].
-def cpp_compile_run(name, gc: :none, expected: nil)
-  cpp = "cpp/gen/#{name}.cpp"
-  bin = "cpp/gen/#{name}_#{gc}"
+def cpp_compile_run(name, gc: :none, expected: nil, backend: 'legacy')
+  cpp = "cpp/gen/#{backend}/#{name}.cpp"
+  bin = "cpp/gen/#{backend}/#{name}_#{gc}"
   cflags =
     case gc
     when :boehm

@@ -512,7 +512,7 @@ module Frozone
           end
 
           def write_header
-            line %(#include "../runtime/box_first.hpp")
+            line %(#include "../../runtime/box_first.hpp")
             blank
           end
 

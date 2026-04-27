@@ -1,4 +1,4 @@
-#include "../runtime/frozone.hpp"
+#include "../../runtime/frozone.hpp"
 
 static const RubyString A = RubyString("this is a long string with no useful contents yada yada yada yada", 65);
 static const RubyString B = RubyString("this is also a long string with no useful contents yada yada daaaaaa", 68);

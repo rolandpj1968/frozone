@@ -1,3 +1,4 @@
+require 'fileutils'
 require_relative 'node'
 
 module Frozone
@@ -56,7 +57,9 @@ module Frozone
             globals: Vm::GLOBALS,
             stub_file: stub_file
           )
-          cpp_dir = File.expand_path('../../../cpp/gen', __dir__)
+          backend_subdir = ENV['FROZONE_BOX_FIRST'] ? 'box' : 'legacy'
+          cpp_dir = File.expand_path("../../../cpp/gen/#{backend_subdir}", __dir__)
+          FileUtils.mkdir_p(cpp_dir)
           src = @block_node&.source_location&.first || $PROGRAM_NAME
           base = File.basename(src.to_s, '.rb')
           output = @output_path || File.join(cpp_dir, "#{base}.cpp")

@@ -23,8 +23,8 @@ RSpec.describe "C++ backend features" do
     return [:gen_fail, gen_out] unless gen_status.success?
 
     base = File.basename(stub.path, '.rb')
-    cpp_path = "cpp/gen/#{base}.cpp"
-    bin_path = "cpp/gen/#{base}"
+    cpp_path = "cpp/gen/legacy/#{base}.cpp"
+    bin_path = "cpp/gen/legacy/#{base}"
     return [:gen_fail, "no cpp file"] unless File.exist?(cpp_path)
 
     # Compile C++

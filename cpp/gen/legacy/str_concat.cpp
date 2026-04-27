@@ -1,4 +1,4 @@
-#include "../runtime/frozone.hpp"
+#include "../../runtime/frozone.hpp"
 
 static const int64_t NUM_ITERS = 10240LL;
 static const RubyString TEST_STR = RubyString("sssssséé", 10);
