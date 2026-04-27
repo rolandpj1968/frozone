@@ -111,6 +111,10 @@ module Frozone
           # the wq parser stub emits `(new Integer(805LL))` 6K+ times
           # (lexer state machine constants), drowning cc1plus.
           attr_reader :int_literals
+          # Monotonic counter for unique helper-variable names —
+          # MultipleAssignment uses this to avoid name collisions
+          # between multiple MASS statements in the same scope.
+          attr_accessor :tmp_counter
           # Big Integer-only Arrays seen during static-state capture
           # (lexer tables in particular — single 700KB+ lines of
           # `(&_f_i_X), ...` brace-init were the C++ compile-time
@@ -124,7 +128,10 @@ module Frozone
             @method_scope = []
             @int_literals = {}
             @raw_int_arrays = []
+            @tmp_counter = 0
           end
+
+          def next_tmp_id = (@tmp_counter += 1)
 
           # Return a reference to the interned Integer for `value`.
           # Each unique value becomes one named static `_f_i_<N>` (with
@@ -185,7 +192,7 @@ module Frozone
             when Ast::InterpolatedString then from_interpolated_string(node, locals)
             when Ast::ArrayLiteral   then from_array_literal(node, locals)
             when Ast::HashLiteral    then from_hash_literal(node, locals)
-            when Ast::LocalVariableRead then node.name.to_s
+            when Ast::LocalVariableRead then MethodEmitter.local_cpp_name(node.name)
             when Ast::ConstantRead then from_constant_read(node)
             when Ast::ConstantPath then from_constant_path(node)
             when Ast::InstanceVariableRead then "this->iv_#{node.name.to_s.delete_prefix('@')}"
@@ -195,7 +202,7 @@ module Frozone
             when Ast::LocalVariableWrite
               rhs = from_expr(node.value_node, locals)
               if locals.include?(node.name.to_s)
-                "(#{node.name} = #{rhs})"
+                "(#{MethodEmitter.local_cpp_name(node.name)} = #{rhs})"
               else
                 # Local-decl in expr position needs scope hoisting
                 # (declare in outer scope, assign here). Not implemented.
@@ -236,6 +243,13 @@ module Frozone
             # to a C++ `throw` wrapped in a lambda (so it composes in
             # expression position too).
             return from_raise(arg_nodes, locals) if !recv && name == :raise
+
+            # `block_given?` checks the ENCLOSING method's block — the
+            # `_block` local that unpack_params binds. Going through the
+            # universal vtable would receive the block passed to the
+            # block_given? call itself, not the enclosing method's,
+            # which is wrong. Special-case to a direct check.
+            return "boxed_bool(_block != nullptr)" if !recv && name == :block_given?
 
             # `.new` has no special case: `Foo.new(args)` dispatches via
             # the universal protocol on the eigenclass singleton — i.e.
@@ -539,9 +553,6 @@ module Frozone
             if param && !(param.is_a?(Symbol) || param.is_a?(String))
               raise EmissionError, "block param destructuring (#{param.class.name}) not yet supported"
             end
-            if param && MethodEmitter::CPP_KEYWORDS.include?(param.to_s)
-              raise EmissionError, "block param :#{param} is a C++ reserved word"
-            end
             check_no_break_next!(block_node.body, "block")
             block_locals = locals.dup
             block_locals << param.to_s if param
@@ -553,7 +564,7 @@ module Frozone
             # The lambda param is named `arg`; if the user-named block
             # param is also `arg`, skip the redundant rebinding (would
             # shadow the parameter).
-            parts << "BasicObject* #{param} = arg;" if param && param.to_s != "arg"
+            parts << "BasicObject* #{MethodEmitter.local_cpp_name(param)} = arg;" if param && param.to_s != "arg"
             stmts.each_with_index do |n, i|
               s = from_expr(n, block_locals)
               if i == stmts.length - 1

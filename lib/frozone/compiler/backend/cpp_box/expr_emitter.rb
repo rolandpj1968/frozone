@@ -173,17 +173,15 @@ module Frozone
 
           def self.write_local_write_stmt(emit, node, locals)
             rhs = emit.cpp.from_expr(node.value_node, locals)
+            cpp_name = MethodEmitter.local_cpp_name(node.name)
             if locals.include?(node.name.to_s)
-              emit.line "#{node.name} = #{rhs};"
+              emit.line "#{cpp_name} = #{rhs};"
             else
-              if MethodEmitter::CPP_KEYWORDS.include?(node.name.to_s)
-                raise Cpp::EmissionError, "local :#{node.name} is a C++ reserved word"
-              end
               if MethodEmitter::UNIVERSAL_PARAM_NAMES.include?(node.name.to_s)
                 raise Cpp::EmissionError, "local :#{node.name} collides with universal protocol param"
               end
               locals << node.name.to_s
-              emit.line "BasicObject* #{node.name} = #{rhs};"
+              emit.line "BasicObject* #{cpp_name} = #{rhs};"
             end
           end
 
@@ -202,25 +200,30 @@ module Frozone
             pre_count = splat_idx || targets.length
             post_count = splat_idx ? targets.length - splat_idx - 1 : 0
             rhs_str = emit.cpp.from_expr(node.value_node, locals)
-            emit.line "{"
-            emit.indented do
-              emit.line "Array* __mass_rhs__ = static_cast<Array*>(#{rhs_str});"
-              emit.line "std::size_t __mass_n__ = __mass_rhs__->data.size();"
-              targets[0...pre_count].each_with_index do |t, i|
-                emit_mass_target_assign(emit, t, "(__mass_n__ > #{i} ? __mass_rhs__->data[#{i}] : nil_instance())", locals)
-              end
-              if splat_idx
-                splat_t = targets[splat_idx]
-                emit.line "Array* __mass_splat__ = new Array();"
-                emit.line "for (std::size_t _i = #{pre_count}; _i + #{post_count} < __mass_n__; _i++) __mass_splat__->data.push_back(__mass_rhs__->data[_i]);"
-                emit_mass_target_assign(emit, splat_t, "static_cast<BasicObject*>(__mass_splat__)", locals)
-                targets[(splat_idx + 1)..].each_with_index do |t, i|
-                  # Post-splat targets read from end of the array.
-                  emit_mass_target_assign(emit, t, "(__mass_n__ > #{post_count - i - 1} ? __mass_rhs__->data[__mass_n__ - #{post_count - i}] : nil_instance())", locals)
-                end
+            # Unique-named temps at the current scope (no `{}` wrap),
+            # so target locals are declared at the same scope as
+            # everything else and remain visible to subsequent code.
+            # Monotonic id from emit.cpp avoids collisions between
+            # multiple MASS statements in the same method.
+            tag = emit.cpp.next_tmp_id
+            rhs = "__mass_rhs_#{tag}__"
+            n = "__mass_n_#{tag}__"
+            emit.line "Array* #{rhs} = static_cast<Array*>(#{rhs_str});"
+            emit.line "std::size_t #{n} = #{rhs}->data.size();"
+            targets[0...pre_count].each_with_index do |t, i|
+              emit_mass_target_assign(emit, t, "(#{n} > #{i} ? #{rhs}->data[#{i}] : nil_instance())", locals)
+            end
+            if splat_idx
+              splat_t = targets[splat_idx]
+              splat = "__mass_splat_#{tag}__"
+              emit.line "Array* #{splat} = new Array();"
+              emit.line "for (std::size_t _i = #{pre_count}; _i + #{post_count} < #{n}; _i++) #{splat}->data.push_back(#{rhs}->data[_i]);"
+              emit_mass_target_assign(emit, splat_t, "static_cast<BasicObject*>(#{splat})", locals)
+              targets[(splat_idx + 1)..].each_with_index do |t, i|
+                # Post-splat targets read from end of the array.
+                emit_mass_target_assign(emit, t, "(#{n} > #{post_count - i - 1} ? #{rhs}->data[#{n} - #{post_count - i}] : nil_instance())", locals)
               end
             end
-            emit.line "}"
           end
 
           # Emit one element-assignment based on target descriptor.
@@ -229,25 +232,24 @@ module Frozone
             case kind
             when :local
               name = target[1].to_s
+              cpp_name = MethodEmitter.local_cpp_name(name)
               if locals.include?(name)
-                emit.line "#{name} = #{value_expr};"
+                emit.line "#{cpp_name} = #{value_expr};"
               else
-                if MethodEmitter::CPP_KEYWORDS.include?(name)
-                  raise Cpp::EmissionError, "local :#{name} is a C++ reserved word"
-                end
                 if MethodEmitter::UNIVERSAL_PARAM_NAMES.include?(name)
                   raise Cpp::EmissionError, "local :#{name} collides with universal protocol param"
                 end
                 locals << name
-                emit.line "BasicObject* #{name} = #{value_expr};"
+                emit.line "BasicObject* #{cpp_name} = #{value_expr};"
               end
             when :local_splat
               name = target[1].to_s
+              cpp_name = MethodEmitter.local_cpp_name(name)
               if locals.include?(name)
-                emit.line "#{name} = #{value_expr};"
+                emit.line "#{cpp_name} = #{value_expr};"
               else
                 locals << name
-                emit.line "BasicObject* #{name} = #{value_expr};"
+                emit.line "BasicObject* #{cpp_name} = #{value_expr};"
               end
             when :ivar, :ivar_splat
               iv = target[1].to_s.delete_prefix('@')
@@ -293,9 +295,10 @@ module Frozone
                       "static_cast<Integer*>(#{emit.cpp.from_expr(recv_node, locals)})->raw_"
                     end
             raw_var = "__#{var}_raw__"
+            cpp_var = MethodEmitter.local_cpp_name(var)
             emit.line "for (int64_t #{raw_var} = 0; #{raw_var} < #{count}; #{raw_var}++) {"
             emit.indented do
-              emit.line "BasicObject* #{var} = new Integer(#{raw_var});"
+              emit.line "BasicObject* #{cpp_var} = new Integer(#{raw_var});"
               # Snapshot+restore: locals declared inside the block body
               # are scoped to the block (mirrors Ruby's block-local
               # semantics); without this, subsequent blocks' first

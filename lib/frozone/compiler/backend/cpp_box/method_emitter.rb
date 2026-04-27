@@ -37,8 +37,9 @@ module Frozone
 
           # C++ reserved words / contextual keywords that surface as
           # Ruby identifier names from time to time (the most common
-          # ones in core/4.0/). Any method whose params or locals
-          # collide raises EmissionError → graceful skip.
+          # ones in core/4.0/). When a Ruby local/param has one of
+          # these names, mangle to `rb__<name>__` consistently across
+          # all emission sites — `local_cpp_name(:char)` → `rb__char__`.
           CPP_KEYWORDS = %w[
             enum class struct union template operator this namespace
             new delete default public private protected friend virtual
@@ -47,6 +48,11 @@ module Frozone
             auto typedef typename try catch throw decltype constexpr
             return goto switch case break continue if else while do for
           ].to_set.freeze
+
+          def self.local_cpp_name(name)
+            s = name.to_s
+            CPP_KEYWORDS.include?(s) ? "rb__#{s}__" : s
+          end
 
           # Emit unpack-from-args lines for required positional params,
           # optional positional params (with C++ ternary against
@@ -66,36 +72,32 @@ module Frozone
             locals = Set.new
             required = method.required_params || []
             required.each_with_index do |p, i|
-              raise Cpp::EmissionError, "param name :#{p} is a C++ reserved word" if CPP_KEYWORDS.include?(p.to_s)
               raise Cpp::EmissionError, "param name :#{p} collides with universal protocol param" if UNIVERSAL_PARAM_NAMES.include?(p.to_s)
-              emit.line "BasicObject* #{p} = array_at(args, #{i});"
+              emit.line "BasicObject* #{local_cpp_name(p)} = array_at(args, #{i});"
               locals << p.to_s
             end
             optional = method.optional_params || []
             optional.each_with_index do |(p, default_node), i|
-              raise Cpp::EmissionError, "param name :#{p} is a C++ reserved word" if CPP_KEYWORDS.include?(p.to_s)
               raise Cpp::EmissionError, "param name :#{p} collides with universal protocol param" if UNIVERSAL_PARAM_NAMES.include?(p.to_s)
               idx = required.length + i
               default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
-              emit.line "BasicObject* #{p} = (args->data.size() > #{idx}) ? args->data[#{idx}] : (#{default_str});"
+              emit.line "BasicObject* #{local_cpp_name(p)} = (args->data.size() > #{idx}) ? args->data[#{idx}] : (#{default_str});"
               locals << p.to_s
             end
             if method.post_params && !method.post_params.empty?
               raise Cpp::EmissionError, "method with post-required params not yet supported"
             end
             (method.optional_kw_params || []).each do |(p, default_node)|
-              raise Cpp::EmissionError, "kw param :#{p} is a C++ reserved word" if CPP_KEYWORDS.include?(p.to_s)
               raise Cpp::EmissionError, "kw param :#{p} collides with universal protocol param" if UNIVERSAL_PARAM_NAMES.include?(p.to_s)
               default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
               key_lit = emit.cpp.cpp_string_literal(p.to_s)
-              emit.line "BasicObject* #{p} = (kwargs ? [&]() -> BasicObject* { auto _it = kwargs->data.find(intern(#{key_lit})); return _it == kwargs->data.end() ? (#{default_str}) : _it->second; }() : (#{default_str}));"
+              emit.line "BasicObject* #{local_cpp_name(p)} = (kwargs ? [&]() -> BasicObject* { auto _it = kwargs->data.find(intern(#{key_lit})); return _it == kwargs->data.end() ? (#{default_str}) : _it->second; }() : (#{default_str}));"
               locals << p.to_s
             end
             (method.required_kw_params || []).each do |p|
-              raise Cpp::EmissionError, "kw param :#{p} is a C++ reserved word" if CPP_KEYWORDS.include?(p.to_s)
               raise Cpp::EmissionError, "kw param :#{p} collides with universal protocol param" if UNIVERSAL_PARAM_NAMES.include?(p.to_s)
               key_lit = emit.cpp.cpp_string_literal(p.to_s)
-              emit.line %(BasicObject* #{p} = (kwargs && kwargs->data.find(intern(#{key_lit})) != kwargs->data.end()) ? kwargs->data[intern(#{key_lit})] : ([&]() -> BasicObject* { std::fprintf(stderr, "[box-first] missing required kw arg :#{p}\\n"); std::abort(); }());)
+              emit.line %(BasicObject* #{local_cpp_name(p)} = (kwargs && kwargs->data.find(intern(#{key_lit})) != kwargs->data.end()) ? kwargs->data[intern(#{key_lit})] : ([&]() -> BasicObject* { std::fprintf(stderr, "[box-first] missing required kw arg :#{p}\\n"); std::abort(); }());)
               locals << p.to_s
             end
             if method.kw_rest_param
@@ -104,7 +106,7 @@ module Frozone
             if method.rest_param
               name = method.rest_param.to_s
               name = "_rest" if name.empty? || name == "*"
-              raise Cpp::EmissionError, "rest_param :#{name} is a C++ reserved word" if CPP_KEYWORDS.include?(name)
+              cpp_name = local_cpp_name(name)
               start_idx = required.length + optional.length
               if name == "args"
                 # Collides with the universal `Array* args` parameter.
@@ -114,11 +116,11 @@ module Frozone
                 # but can't bind it to `args` without shadowing.
                 raise Cpp::EmissionError, "*args after positional params collides with universal args param" if start_idx > 0
               elsif start_idx == 0
-                emit.line "BasicObject* #{name} = args;  // *rest = whole args"
+                emit.line "BasicObject* #{cpp_name} = args;  // *rest = whole args"
               else
-                emit.line "Array* #{name} = new Array();"
+                emit.line "Array* #{cpp_name} = new Array();"
                 emit.line "for (std::size_t _i = #{start_idx}; _i < args->data.size(); _i++) {"
-                emit.line "  #{name}->data.push_back(args->data[_i]);"
+                emit.line "  #{cpp_name}->data.push_back(args->data[_i]);"
                 emit.line "}"
               end
               locals << name
@@ -147,8 +149,7 @@ module Frozone
             ((method.locals || []) + seen_writes.to_a).uniq.each do |name|
               s = name.to_s
               next if s.empty? || locals.include?(s) || reserved.include?(s)
-              raise Cpp::EmissionError, "local :#{s} is a C++ reserved word" if CPP_KEYWORDS.include?(s)
-              emit.line "BasicObject* #{s} = nil_instance();"
+              emit.line "BasicObject* #{local_cpp_name(s)} = nil_instance();"
               locals << s
             end
             locals

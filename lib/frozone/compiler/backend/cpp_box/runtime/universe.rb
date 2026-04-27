@@ -98,6 +98,14 @@ module Frozone
               "virtual BasicObject* m_equal_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
               "  return boxed_bool(this == array_at(args, 0));",
               "}",
+              "// __id__ / object_id — pointer cast as integer. Closed-",
+              "// world: each object has a unique address; that's the id.",
+              "virtual BasicObject* m___id__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "  return int_box(reinterpret_cast<std::int64_t>(this));",
+              "}",
+              "virtual BasicObject* m_object_id(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "  return m___id__(args, kwargs, block);",
+              "}",
               "// initialize default — no-op returning self. User classes",
               "// override; eigenclass m_new always invokes this after",
               "// allocating the new instance.",
@@ -137,7 +145,7 @@ module Frozone
               m_freeze m_frozen_q m_class m_respond_to_q
               m_send m___send__
               m_is_a_q m_kind_of_q m_instance_of_q
-              m_equal_q
+              m_equal_q m___id__ m_object_id
             ].freeze,
           )
 
@@ -742,6 +750,18 @@ module Frozone
             CPP
           )
 
+          # int_box — forward-declared helper that constructs an
+          # Integer and returns it AS BasicObject*. The BasicObject*
+          # return type sidesteps the "incomplete type" issue when
+          # called from inline members of BasicObject (Integer is
+          # forward-declared at that point; the implicit Integer* →
+          # BasicObject* conversion requires complete Integer).
+          INT_BOX_FN = KernelFn.new(
+            name: "int_box",
+            signature: "BasicObject* int_box(std::int64_t v)",
+            body: "return new Integer(v);",
+          )
+
           # array_at — bridges the forward-decl gap. Method bodies in
           # classes defined BEFORE Array (BasicObject, Object, Integer,
           # Float) need to unpack args via `args->data[i]`, but Array is
@@ -791,7 +811,7 @@ module Frozone
           ALL_KERNEL_FNS = [
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
             BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
-            BUILD_INT_ARRAY_FN
+            BUILD_INT_ARRAY_FN, INT_BOX_FN
           ].freeze
 
           # ---- Intrinsics -----------------------------------------
