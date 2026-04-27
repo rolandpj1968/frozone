@@ -1544,11 +1544,442 @@ inline void ruby_puts(BasicObject* o);
 inline Symbol* intern(const char* name);
 inline BasicObject* array_at(Array* a, std::size_t i);
 inline Array* build_int_array(const std::int64_t* data, std::size_t n);
+inline BasicObject* k_NilClass_NIL_STR();
+inline BasicObject* k_TrueClass_TRUE_STR();
+inline BasicObject* k_FalseClass_FALSE_STR();
+inline BasicObject* k_Integer_ROUND_NDIGITS_MAX();
+inline BasicObject* k_Float_INFINITY();
+inline BasicObject* k_Float_NAN();
+inline BasicObject* k_Float_MAX();
+inline BasicObject* k_Float_MIN();
+inline BasicObject* k_Float_EPSILON();
+inline BasicObject* k_Float_DIG();
+inline BasicObject* k_Float_MANT_DIG();
+inline BasicObject* k_Float_MAX_EXP();
+inline BasicObject* k_Float_MIN_EXP();
+inline BasicObject* k_Float_MAX_10_EXP();
+inline BasicObject* k_Float_MIN_10_EXP();
+inline BasicObject* k_Float_RADIX();
+inline BasicObject* k_String_LONG_MAX();
+inline BasicObject* k_String_MRI_MAX_SIZE();
+inline BasicObject* k_String_UPPER_A();
+inline BasicObject* k_String_UPPER_Z();
+inline BasicObject* k_String_LOWER_A();
+inline BasicObject* k_String_LOWER_Z();
+inline BasicObject* k_Array_ARRAY_MAX_INDEX();
+inline BasicObject* k_Warning_KNOWN_CATEGORIES();
+inline BasicObject* k_Range_FLOAT_SIGN_BIT();
+inline BasicObject* k_Range_FLOAT_UINT64_MASK();
+inline BasicObject* k_Signal_LIST();
+inline BasicObject* k_Signal_CANONICAL_BY_NUM();
+inline BasicObject* k_Signal_UNCATCHABLE();
+inline BasicObject* k_Signal_RESERVED();
+inline BasicObject* k_Signal_SYSTEM_DEFAULT_INITIAL();
+inline BasicObject* k_Signal_UNSET();
+inline BasicObject* k_Exception_ORDER_UNSET();
+inline BasicObject* k_Errno_E2BIG_Errno();
+inline BasicObject* k_Errno_E2BIG_Strerror();
+inline BasicObject* k_Errno_EACCES_Errno();
+inline BasicObject* k_Errno_EACCES_Strerror();
+inline BasicObject* k_Errno_EADDRINUSE_Errno();
+inline BasicObject* k_Errno_EADDRINUSE_Strerror();
+inline BasicObject* k_Errno_EADDRNOTAVAIL_Errno();
+inline BasicObject* k_Errno_EADDRNOTAVAIL_Strerror();
+inline BasicObject* k_Errno_EAFNOSUPPORT_Errno();
+inline BasicObject* k_Errno_EAFNOSUPPORT_Strerror();
+inline BasicObject* k_Errno_EAGAIN_Errno();
+inline BasicObject* k_Errno_EAGAIN_Strerror();
+inline BasicObject* k_Errno_EALREADY_Errno();
+inline BasicObject* k_Errno_EALREADY_Strerror();
+inline BasicObject* k_Errno_EBADF_Errno();
+inline BasicObject* k_Errno_EBADF_Strerror();
+inline BasicObject* k_Errno_EBUSY_Errno();
+inline BasicObject* k_Errno_EBUSY_Strerror();
+inline BasicObject* k_Errno_ECHILD_Errno();
+inline BasicObject* k_Errno_ECHILD_Strerror();
+inline BasicObject* k_Errno_EILSEQ_Errno();
+inline BasicObject* k_Errno_EILSEQ_Strerror();
+inline BasicObject* k_Errno_ECONNABORTED_Errno();
+inline BasicObject* k_Errno_ECONNABORTED_Strerror();
+inline BasicObject* k_Errno_ECONNREFUSED_Errno();
+inline BasicObject* k_Errno_ECONNREFUSED_Strerror();
+inline BasicObject* k_Errno_ECONNRESET_Errno();
+inline BasicObject* k_Errno_ECONNRESET_Strerror();
+inline BasicObject* k_Errno_EDEADLK_Errno();
+inline BasicObject* k_Errno_EDEADLK_Strerror();
+inline BasicObject* k_Errno_EDOM_Errno();
+inline BasicObject* k_Errno_EDOM_Strerror();
+inline BasicObject* k_Errno_EEXIST_Errno();
+inline BasicObject* k_Errno_EEXIST_Strerror();
+inline BasicObject* k_Errno_EFAULT_Errno();
+inline BasicObject* k_Errno_EFAULT_Strerror();
+inline BasicObject* k_Errno_EFBIG_Errno();
+inline BasicObject* k_Errno_EFBIG_Strerror();
+inline BasicObject* k_Errno_EHOSTUNREACH_Errno();
+inline BasicObject* k_Errno_EHOSTUNREACH_Strerror();
+inline BasicObject* k_Errno_EINPROGRESS_Errno();
+inline BasicObject* k_Errno_EINPROGRESS_Strerror();
+inline BasicObject* k_Errno_EINTR_Errno();
+inline BasicObject* k_Errno_EINTR_Strerror();
+inline BasicObject* k_Errno_EINVAL_Errno();
+inline BasicObject* k_Errno_EINVAL_Strerror();
+inline BasicObject* k_Errno_EIO_Errno();
+inline BasicObject* k_Errno_EIO_Strerror();
+inline BasicObject* k_Errno_EISCONN_Errno();
+inline BasicObject* k_Errno_EISCONN_Strerror();
+inline BasicObject* k_Errno_EISDIR_Errno();
+inline BasicObject* k_Errno_EISDIR_Strerror();
+inline BasicObject* k_Errno_ELOOP_Errno();
+inline BasicObject* k_Errno_ELOOP_Strerror();
+inline BasicObject* k_Errno_EMFILE_Errno();
+inline BasicObject* k_Errno_EMFILE_Strerror();
+inline BasicObject* k_Errno_EMSGSIZE_Errno();
+inline BasicObject* k_Errno_EMSGSIZE_Strerror();
+inline BasicObject* k_Errno_ENAMETOOLONG_Errno();
+inline BasicObject* k_Errno_ENAMETOOLONG_Strerror();
+inline BasicObject* k_Errno_ENETDOWN_Errno();
+inline BasicObject* k_Errno_ENETDOWN_Strerror();
+inline BasicObject* k_Errno_ENETUNREACH_Errno();
+inline BasicObject* k_Errno_ENETUNREACH_Strerror();
+inline BasicObject* k_Errno_ENFILE_Errno();
+inline BasicObject* k_Errno_ENFILE_Strerror();
+inline BasicObject* k_Errno_ENODEV_Errno();
+inline BasicObject* k_Errno_ENODEV_Strerror();
+inline BasicObject* k_Errno_ENOENT_Errno();
+inline BasicObject* k_Errno_ENOENT_Strerror();
+inline BasicObject* k_Errno_ENOEXEC_Errno();
+inline BasicObject* k_Errno_ENOEXEC_Strerror();
+inline BasicObject* k_Errno_ENOMEM_Errno();
+inline BasicObject* k_Errno_ENOMEM_Strerror();
+inline BasicObject* k_Errno_ENOSPC_Errno();
+inline BasicObject* k_Errno_ENOSPC_Strerror();
+inline BasicObject* k_Errno_ENOSYS_Errno();
+inline BasicObject* k_Errno_ENOSYS_Strerror();
+inline BasicObject* k_Errno_ENOTCONN_Errno();
+inline BasicObject* k_Errno_ENOTCONN_Strerror();
+inline BasicObject* k_Errno_ENOTDIR_Errno();
+inline BasicObject* k_Errno_ENOTDIR_Strerror();
+inline BasicObject* k_Errno_ENOTEMPTY_Errno();
+inline BasicObject* k_Errno_ENOTEMPTY_Strerror();
+inline BasicObject* k_Errno_ENOTSUP_Errno();
+inline BasicObject* k_Errno_ENOTSUP_Strerror();
+inline BasicObject* k_Errno_ENOTTY_Errno();
+inline BasicObject* k_Errno_ENOTTY_Strerror();
+inline BasicObject* k_Errno_ENXIO_Errno();
+inline BasicObject* k_Errno_ENXIO_Strerror();
+inline BasicObject* k_Errno_EOVERFLOW_Errno();
+inline BasicObject* k_Errno_EOVERFLOW_Strerror();
+inline BasicObject* k_Errno_EPERM_Errno();
+inline BasicObject* k_Errno_EPERM_Strerror();
+inline BasicObject* k_Errno_EPIPE_Errno();
+inline BasicObject* k_Errno_EPIPE_Strerror();
+inline BasicObject* k_Errno_EPROTONOSUPPORT_Errno();
+inline BasicObject* k_Errno_EPROTONOSUPPORT_Strerror();
+inline BasicObject* k_Errno_ERANGE_Errno();
+inline BasicObject* k_Errno_ERANGE_Strerror();
+inline BasicObject* k_Errno_EROFS_Errno();
+inline BasicObject* k_Errno_EROFS_Strerror();
+inline BasicObject* k_Errno_ESPIPE_Errno();
+inline BasicObject* k_Errno_ESPIPE_Strerror();
+inline BasicObject* k_Errno_ESRCH_Errno();
+inline BasicObject* k_Errno_ESRCH_Strerror();
+inline BasicObject* k_Errno_ETIMEDOUT_Errno();
+inline BasicObject* k_Errno_ETIMEDOUT_Strerror();
+inline BasicObject* k_Errno_ETXTBSY_Errno();
+inline BasicObject* k_Errno_ETXTBSY_Strerror();
+inline BasicObject* k_Errno_EXDEV_Errno();
+inline BasicObject* k_Errno_EXDEV_Strerror();
+inline BasicObject* k_Math_PI();
+inline BasicObject* k_Math_E();
+inline BasicObject* k_Encoding_NON_ASCII_COMPATIBLE();
+inline BasicObject* k_Encoding_DUMMY_ENCODINGS();
+inline BasicObject* k_Encoding_UTF_8();
+inline BasicObject* k_Encoding_US_ASCII();
+inline BasicObject* k_Encoding_ASCII();
+inline BasicObject* k_Encoding_BINARY();
+inline BasicObject* k_Encoding_ASCII_8BIT();
+inline BasicObject* k_Encoding_EUC_JP();
+inline BasicObject* k_Encoding_EUC_KR();
+inline BasicObject* k_Encoding_EUC_TW();
+inline BasicObject* k_Encoding_EUC_CN();
+inline BasicObject* k_Encoding_ISO_8859_1();
+inline BasicObject* k_Encoding_ISO8859_1();
+inline BasicObject* k_Encoding_ISO_8859_2();
+inline BasicObject* k_Encoding_ISO8859_2();
+inline BasicObject* k_Encoding_ISO_8859_3();
+inline BasicObject* k_Encoding_ISO8859_3();
+inline BasicObject* k_Encoding_ISO_8859_4();
+inline BasicObject* k_Encoding_ISO8859_4();
+inline BasicObject* k_Encoding_ISO_8859_5();
+inline BasicObject* k_Encoding_ISO8859_5();
+inline BasicObject* k_Encoding_ISO_8859_6();
+inline BasicObject* k_Encoding_ISO8859_6();
+inline BasicObject* k_Encoding_ISO_8859_7();
+inline BasicObject* k_Encoding_ISO8859_7();
+inline BasicObject* k_Encoding_ISO_8859_8();
+inline BasicObject* k_Encoding_ISO8859_8();
+inline BasicObject* k_Encoding_ISO_8859_9();
+inline BasicObject* k_Encoding_ISO8859_9();
+inline BasicObject* k_Encoding_ISO_8859_10();
+inline BasicObject* k_Encoding_ISO8859_10();
+inline BasicObject* k_Encoding_ISO_8859_11();
+inline BasicObject* k_Encoding_ISO8859_11();
+inline BasicObject* k_Encoding_ISO_8859_13();
+inline BasicObject* k_Encoding_ISO8859_13();
+inline BasicObject* k_Encoding_ISO_8859_14();
+inline BasicObject* k_Encoding_ISO8859_14();
+inline BasicObject* k_Encoding_ISO_8859_15();
+inline BasicObject* k_Encoding_ISO8859_15();
+inline BasicObject* k_Encoding_ISO_8859_16();
+inline BasicObject* k_Encoding_ISO8859_16();
+inline BasicObject* k_Encoding_UTF_16();
+inline BasicObject* k_Encoding_UTF_16BE();
+inline BasicObject* k_Encoding_UTF_16LE();
+inline BasicObject* k_Encoding_UTF_32();
+inline BasicObject* k_Encoding_UTF_32BE();
+inline BasicObject* k_Encoding_UTF_32LE();
+inline BasicObject* k_Encoding_SHIFT_JIS();
+inline BasicObject* k_Encoding_Shift_JIS();
+inline BasicObject* k_Encoding_Windows_31J();
+inline BasicObject* k_Encoding_SJIS();
+inline BasicObject* k_Encoding_CP932();
+inline BasicObject* k_Encoding_Windows_1250();
+inline BasicObject* k_Encoding_Windows_1251();
+inline BasicObject* k_Encoding_Windows_1252();
+inline BasicObject* k_Encoding_Windows_1253();
+inline BasicObject* k_Encoding_Windows_1254();
+inline BasicObject* k_Encoding_Windows_1255();
+inline BasicObject* k_Encoding_Windows_1256();
+inline BasicObject* k_Encoding_Windows_1257();
+inline BasicObject* k_Encoding_Windows_1258();
+inline BasicObject* k_Encoding_CP1250();
+inline BasicObject* k_Encoding_CP1251();
+inline BasicObject* k_Encoding_CP1252();
+inline BasicObject* k_Encoding_CP1253();
+inline BasicObject* k_Encoding_CP1254();
+inline BasicObject* k_Encoding_CP1255();
+inline BasicObject* k_Encoding_CP1256();
+inline BasicObject* k_Encoding_CP1257();
+inline BasicObject* k_Encoding_CP1258();
+inline BasicObject* k_Encoding_Big5();
+inline BasicObject* k_Encoding_BIG5();
+inline BasicObject* k_Encoding_Big5_HKSCS();
+inline BasicObject* k_Encoding_Big5_UAO();
+inline BasicObject* k_Encoding_IBM437();
+inline BasicObject* k_Encoding_IBM775();
+inline BasicObject* k_Encoding_IBM852();
+inline BasicObject* k_Encoding_IBM855();
+inline BasicObject* k_Encoding_IBM857();
+inline BasicObject* k_Encoding_IBM860();
+inline BasicObject* k_Encoding_IBM861();
+inline BasicObject* k_Encoding_IBM862();
+inline BasicObject* k_Encoding_IBM863();
+inline BasicObject* k_Encoding_IBM864();
+inline BasicObject* k_Encoding_IBM865();
+inline BasicObject* k_Encoding_IBM866();
+inline BasicObject* k_Encoding_IBM869();
+inline BasicObject* k_Encoding_KOI8_R();
+inline BasicObject* k_Encoding_KOI8_U();
+inline BasicObject* k_Encoding_CP65001();
+inline BasicObject* k_Encoding_Emacs_Mule();
+inline BasicObject* k_Encoding_ISO_2022_JP();
+inline BasicObject* k_Encoding_ISO2022_JP();
+inline BasicObject* k_Encoding_ISO_2022_JP_2();
+inline BasicObject* k_Encoding_ISO_2022_JP_KDDI();
+inline BasicObject* k_Encoding_CP50220();
+inline BasicObject* k_Encoding_CP50221();
+inline BasicObject* k_Encoding_IBM037();
+inline BasicObject* k_Encoding_UTF8_MAC();
+inline BasicObject* k_Encoding_UTF_8_MAC();
+inline BasicObject* k_Encoding_EUCJP_MS();
+inline BasicObject* k_Encoding_CP51932();
+inline BasicObject* k_Encoding_GB18030();
+inline BasicObject* k_Encoding_GBK();
+inline BasicObject* k_Encoding_GB2312();
+inline BasicObject* k_Encoding_TIS_620();
+inline BasicObject* k_Encoding_UTF_7();
+inline BasicObject* k_Encoding_CESU_8();
+inline BasicObject* k_Encoding_Stateless_ISO_2022_JP();
+inline BasicObject* k_Encoding_MacCyrillic();
+inline BasicObject* k_Encoding_MacJapanese();
+inline BasicObject* k_Encoding_MacThai();
+inline BasicObject* k_Encoding_ALL();
+inline BasicObject* k_Encoding_ALIASES();
+inline BasicObject* k_Encoding_ALL_ALIASES();
+inline BasicObject* k_Encoding_Converter_INVALID_MASK();
+inline BasicObject* k_Encoding_Converter_INVALID_REPLACE();
+inline BasicObject* k_Encoding_Converter_UNDEF_MASK();
+inline BasicObject* k_Encoding_Converter_UNDEF_REPLACE();
+inline BasicObject* k_Encoding_Converter_UNDEF_HEX_CHARREF();
+inline BasicObject* k_Encoding_Converter_PARTIAL_INPUT();
+inline BasicObject* k_Encoding_Converter_AFTER_OUTPUT();
+inline BasicObject* k_Encoding_Converter_UNIVERSAL_NEWLINE_DECORATOR();
+inline BasicObject* k_Encoding_Converter_CRLF_NEWLINE_DECORATOR();
+inline BasicObject* k_Encoding_Converter_CR_NEWLINE_DECORATOR();
+inline BasicObject* k_Encoding_Converter_XML_TEXT_DECORATOR();
+inline BasicObject* k_Encoding_Converter_XML_ATTR_CONTENT_DECORATOR();
+inline BasicObject* k_Encoding_Converter_XML_ATTR_QUOTE_DECORATOR();
+inline BasicObject* k_Regexp_IGNORECASE();
+inline BasicObject* k_Regexp_EXTENDED();
+inline BasicObject* k_Regexp_MULTILINE();
+inline BasicObject* k_Regexp_FIXEDENCODING();
+inline BasicObject* k_Regexp_NOENCODING();
+inline BasicObject* k_Regexp_OPTIONS_NO_NOENC();
+inline BasicObject* k_Complex_I();
+inline BasicObject* k_IO_SEEK_SET();
+inline BasicObject* k_IO_SEEK_CUR();
+inline BasicObject* k_IO_SEEK_END();
+inline BasicObject* k_IO_LONG_MAX();
+inline BasicObject* k_IO_UINT32_UPPER();
+inline BasicObject* k_IO_INT32_LOWER();
+inline BasicObject* k_IO_SEEK_WHENCE_SYMS();
 inline BasicObject* k_STDOUT();
 inline BasicObject* k_STDERR();
 inline BasicObject* k_STDIN();
+inline BasicObject* k_File_SEPARATOR();
+inline BasicObject* k_File_Separator();
+inline BasicObject* k_File_ALT_SEPARATOR();
+inline BasicObject* k_File_PATH_SEPARATOR();
+inline BasicObject* k_File_RDONLY();
+inline BasicObject* k_File_WRONLY();
+inline BasicObject* k_File_RDWR();
+inline BasicObject* k_File_APPEND();
+inline BasicObject* k_File_CREAT();
+inline BasicObject* k_File_EXCL();
+inline BasicObject* k_File_TRUNC();
+inline BasicObject* k_File_NONBLOCK();
+inline BasicObject* k_File_NOCTTY();
+inline BasicObject* k_File_SYNC();
+inline BasicObject* k_File_SHARE_DELETE();
+inline BasicObject* k_File_BINARY();
+inline BasicObject* k_File_LOCK_SH();
+inline BasicObject* k_File_LOCK_EX();
+inline BasicObject* k_File_LOCK_NB();
+inline BasicObject* k_File_LOCK_UN();
+inline BasicObject* k_File_FNM_NOESCAPE();
+inline BasicObject* k_File_FNM_PATHNAME();
+inline BasicObject* k_File_FNM_DOTMATCH();
+inline BasicObject* k_File_FNM_CASEFOLD();
+inline BasicObject* k_File_FNM_SYSCASE();
+inline BasicObject* k_File_FNM_EXTGLOB();
+inline BasicObject* k_File_Constants_RDONLY();
+inline BasicObject* k_File_Constants_WRONLY();
+inline BasicObject* k_File_Constants_RDWR();
+inline BasicObject* k_File_Constants_APPEND();
+inline BasicObject* k_File_Constants_CREAT();
+inline BasicObject* k_File_Constants_EXCL();
+inline BasicObject* k_File_Constants_TRUNC();
+inline BasicObject* k_File_Constants_NONBLOCK();
+inline BasicObject* k_File_Constants_NOCTTY();
+inline BasicObject* k_File_Constants_SYNC();
+inline BasicObject* k_File_Constants_SHARE_DELETE();
+inline BasicObject* k_File_Constants_LOCK_SH();
+inline BasicObject* k_File_Constants_LOCK_EX();
+inline BasicObject* k_File_Constants_LOCK_NB();
+inline BasicObject* k_File_Constants_LOCK_UN();
+inline BasicObject* k_File_Constants_FNM_NOESCAPE();
+inline BasicObject* k_File_Constants_FNM_PATHNAME();
+inline BasicObject* k_File_Constants_FNM_DOTMATCH();
+inline BasicObject* k_File_Constants_FNM_CASEFOLD();
+inline BasicObject* k_File_Constants_FNM_SYSCASE();
+inline BasicObject* k_File_Constants_FNM_EXTGLOB();
+inline BasicObject* k_File_NULL();
+inline BasicObject* k_FileTest_DELEGATED();
+inline BasicObject* k_Time_MONTH_NAMES();
+inline BasicObject* k_Time_AT_NO_SUBSEC();
+inline BasicObject* k_Time_AT_NO_FORMAT();
+inline BasicObject* k_Time_NEW_NO_YEAR();
+inline BasicObject* k_Time_NEW_NO_PRECISION();
+inline BasicObject* k_Time_ZoneOffset();
+inline BasicObject* k_Time_MonthValue();
+inline BasicObject* k_Time_LeapYearMonthDays();
+inline BasicObject* k_Time_CommonYearMonthDays();
+inline BasicObject* k_ThreadGroup_Default();
+inline BasicObject* k_Process_CLOCK_REALTIME();
+inline BasicObject* k_Process_CLOCK_MONOTONIC();
+inline BasicObject* k_Process_CLOCK_PROCESS_CPUTIME_ID();
+inline BasicObject* k_Process_CLOCK_THREAD_CPUTIME_ID();
+inline BasicObject* k_Process_CLOCK_MONOTONIC_RAW();
+inline BasicObject* k_Process_CLOCK_REALTIME_COARSE();
+inline BasicObject* k_Process_CLOCK_MONOTONIC_COARSE();
+inline BasicObject* k_Process_CLOCK_BOOTTIME();
+inline BasicObject* k_Process_CLOCK_REALTIME_ALARM();
+inline BasicObject* k_Process_CLOCK_BOOTTIME_ALARM();
+inline BasicObject* k_Process_CLOCK_TAI();
+inline BasicObject* k_Process_WNOHANG();
+inline BasicObject* k_Process_WUNTRACED();
+inline BasicObject* k_Process_PRIO_PROCESS();
+inline BasicObject* k_Process_PRIO_PGRP();
+inline BasicObject* k_Process_PRIO_USER();
+inline BasicObject* k_Process_RLIMIT_CPU();
+inline BasicObject* k_Process_RLIMIT_FSIZE();
+inline BasicObject* k_Process_RLIMIT_DATA();
+inline BasicObject* k_Process_RLIMIT_STACK();
+inline BasicObject* k_Process_RLIMIT_CORE();
+inline BasicObject* k_Process_RLIMIT_RSS();
+inline BasicObject* k_Process_RLIMIT_NPROC();
+inline BasicObject* k_Process_RLIMIT_NOFILE();
+inline BasicObject* k_Process_RLIMIT_MEMLOCK();
+inline BasicObject* k_Process_RLIMIT_AS();
+inline BasicObject* k_Process_RLIM_INFINITY();
+inline BasicObject* k_Process_RLIM_SAVED_MAX();
+inline BasicObject* k_Process_RLIM_SAVED_CUR();
+inline BasicObject* k_StringIO_VERSION();
+inline BasicObject* k_Data_EQ_GUARD();
+inline BasicObject* k_Data_INSPECT_GUARD();
+inline BasicObject* k_GC_STAT_KEYS();
 inline BasicObject* k_ENV();
+inline BasicObject* k_RbConfig_CONFIG();
+inline BasicObject* k_Marshal_MAJOR_VERSION();
+inline BasicObject* k_Marshal_MINOR_VERSION();
+inline BasicObject* k_Marshal_TYPE_NIL();
+inline BasicObject* k_Marshal_TYPE_TRUE();
+inline BasicObject* k_Marshal_TYPE_FALSE();
+inline BasicObject* k_Marshal_TYPE_INTEGER();
+inline BasicObject* k_Marshal_TYPE_BIGNUM();
+inline BasicObject* k_Marshal_TYPE_FLOAT();
+inline BasicObject* k_Marshal_TYPE_STRING();
+inline BasicObject* k_Marshal_TYPE_SYMBOL();
+inline BasicObject* k_Marshal_TYPE_SYMLINK();
+inline BasicObject* k_Marshal_TYPE_ARRAY();
+inline BasicObject* k_Marshal_TYPE_HASH();
+inline BasicObject* k_Marshal_TYPE_HASH_DEF();
+inline BasicObject* k_Marshal_TYPE_OBJECT();
+inline BasicObject* k_Marshal_TYPE_STRUCT();
+inline BasicObject* k_Marshal_TYPE_CLASS();
+inline BasicObject* k_Marshal_TYPE_MODULE();
+inline BasicObject* k_Marshal_TYPE_IVAR();
+inline BasicObject* k_Marshal_TYPE_LINK();
+inline BasicObject* k_Marshal_TYPE_UCLASS();
+inline BasicObject* k_Marshal_TYPE_USERDEFINED();
+inline BasicObject* k_Marshal_TYPE_USERMARSH();
+inline BasicObject* k_Marshal_TYPE_EXTENDED();
+inline BasicObject* k_Marshal_TYPE_REGEXP();
+inline BasicObject* k_Marshal_TYPE_DATA();
+inline BasicObject* k_Marshal_Dumper_EXCEPTION_SKIP_IVARS();
+inline BasicObject* k_RUBY_VERSION();
+inline BasicObject* k_RUBY_PLATFORM();
+inline BasicObject* k_RUBY_ENGINE();
+inline BasicObject* k_RUBY_ENGINE_VERSION();
+inline BasicObject* k_RUBY_PATCHLEVEL();
+inline BasicObject* k_RUBY_REVISION();
+inline BasicObject* k_RUBY_RELEASE_DATE();
+inline BasicObject* k_RUBY_DESCRIPTION();
+inline BasicObject* k_RUBY_NAME();
+inline BasicObject* k_RUBY_COPYRIGHT();
+inline BasicObject* k_RUBY_EXE();
+inline BasicObject* k_Ruby_VERSION();
+inline BasicObject* k_Ruby_PLATFORM();
+inline BasicObject* k_Ruby_ENGINE();
+inline BasicObject* k_Ruby_ENGINE_VERSION();
+inline BasicObject* k_Ruby_PATCHLEVEL();
+inline BasicObject* k_Ruby_REVISION();
+inline BasicObject* k_Ruby_RELEASE_DATE();
+inline BasicObject* k_Ruby_DESCRIPTION();
+inline BasicObject* k_Ruby_COPYRIGHT();
+inline BasicObject* k_TOPLEVEL_BINDING();
 inline BasicObject* k_ARGF();
+inline BasicObject* k_ARGV();
 
 struct BasicObject {
   // All box-first allocations route through Boehm. Without
@@ -2908,6 +3339,9 @@ struct Numeric : Object {
   virtual BasicObject* m_nonzero_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_abs(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_magnitude(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_angle(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_arg(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_phase(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eql_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_spaceship(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_ceil(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -2998,12 +3432,15 @@ struct Range : Object {
   virtual BasicObject* m_last(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_mod(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_overlap_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_bsearch(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_each_slice(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_each_cons(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_zip(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_reverse_each(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_split(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___bsearch_size__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m___float_to_ord__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m___ord_to_float__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___cover_value___q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___reverse_each_size__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m___step_float__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -3807,6 +4244,8 @@ struct Encoding : Object {
   virtual BasicObject* m_to_s(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eq_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eql_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_ascii_compatible_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_dummy_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_ascii_only_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_replicate(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_inspect(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -3889,6 +4328,11 @@ struct MatchData : Object {
 
 struct Regexp : Object {
   const char* ruby_class_name() const override { return "Regexp"; }
+  virtual BasicObject* m_eq_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_eql_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_casefold_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_fixed_encoding_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_hash(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_dup(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_match(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_clone(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -4194,6 +4638,7 @@ struct Mutex : Object {
   virtual BasicObject* m___force_unlock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_try_lock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_synchronize(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_sleep(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_class(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_respond_to_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
@@ -4316,6 +4761,7 @@ struct Thread_Mutex : Object {
   virtual BasicObject* m___force_unlock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_try_lock(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_synchronize(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_sleep(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_class(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_respond_to_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
 };
@@ -4471,6 +4917,7 @@ struct StringIO : Object {
   virtual BasicObject* m_pos_set(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_tell(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_rewind(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_seek(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eof_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_eof(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_binmode_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -4746,8 +5193,11 @@ struct Marshal_Dumper : Object {
   virtual BasicObject* m_write_bignum(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_bignum_to_bytes(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_write_float(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_write_symbol(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_write_symbol_str(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_write_raw_string(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_encoding_ivar(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_write_enc_ivar(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_collect_ivars(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_extended_modules(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_write_extension_prefix(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -4791,11 +5241,13 @@ struct Marshal_Loader : Object {
   virtual BasicObject* m_peek_byte(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_read_long(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_track(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_call_proc(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_freeze_object(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_read_bignum(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_read_float(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_read_symbol(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_ivar_name(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_read_string(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_read_array(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_read_hash(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -4813,6 +5265,7 @@ struct Marshal_Loader : Object {
   virtual BasicObject* m_read_generic_object_body(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_read_link(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_read_uclass(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_read_object_with_class(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_read_object_with_class_ivar(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_read_user_defined(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_read_user_marshal(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -5696,6 +6149,8 @@ struct Encoding_eigenclass : Class {
   BasicObject* iv_default_external = nil_instance();
   BasicObject* iv_default_internal = nil_instance();
   BasicObject* iv_find_map = nil_instance();
+  virtual BasicObject* m_list(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m_default_external(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_default_internal(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_find(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_aliases(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -5881,6 +6336,7 @@ struct Time_eigenclass : Class {
   virtual BasicObject* m__coerce_time_arg(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m__coerce_int_arg(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m__time_force_zone_b(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
+  virtual BasicObject* m__time_month_days(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m__time_apply_offset(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_new(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
   virtual BasicObject* m_class(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;
@@ -6356,6 +6812,9 @@ Integer _f_i_5(5LL);
 Integer _f_i_6(6LL);
 Integer _f_i_1000(1000LL);
 Integer _f_i_100(100LL);
+Integer _f_i_1000000(1000000LL);
+Integer _f_i_1000000000(1000000000LL);
+Integer _f_i_9(9LL);
 Integer _f_i_400(400LL);
 Integer _f_i_12(12LL);
 Integer _f_i_n3(-3LL);
@@ -6374,12 +6833,88 @@ Integer _f_i_251(251LL);
 Integer _f_i_4294967296(4294967296LL);
 Integer _f_i_253(253LL);
 Integer _f_i_16777216(16777216LL);
+Integer _f_i_1073741824(1073741824LL);
+Integer _f_i_15(15LL);
+Integer _f_i_53(53LL);
+Integer _f_i_n1021(-1021LL);
+Integer _f_i_308(308LL);
+Integer _f_i_n307(-307LL);
+Integer _f_i_9223372036854775807(9223372036854775807LL);
+Integer _f_i_65(65LL);
 Integer _f_i_90(90LL);
+Integer _f_i_97(97LL);
+Integer _f_i_122(122LL);
+Integer _f_i_9223372036854775808(9223372036854775808LL);
+Integer _f_i_18446744073709551615(18446744073709551615LL);
+Integer _f_i_7(7LL);
+Integer _f_i_11(11LL);
+Integer _f_i_13(13LL);
+Integer _f_i_14(14LL);
+Integer _f_i_17(17LL);
+Integer _f_i_18(18LL);
+Integer _f_i_19(19LL);
+Integer _f_i_20(20LL);
+Integer _f_i_21(21LL);
+Integer _f_i_22(22LL);
+Integer _f_i_23(23LL);
+Integer _f_i_25(25LL);
+Integer _f_i_26(26LL);
+Integer _f_i_27(27LL);
+Integer _f_i_28(28LL);
+Integer _f_i_29(29LL);
+Integer _f_i_30(30LL);
+Integer _f_i_31(31LL);
+Integer _f_i_98(98LL);
+Integer _f_i_99(99LL);
+Integer _f_i_114(114LL);
+Integer _f_i_84(84LL);
+Integer _f_i_103(103LL);
+Integer _f_i_111(111LL);
+Integer _f_i_104(104LL);
+Integer _f_i_35(35LL);
+Integer _f_i_33(33LL);
+Integer _f_i_113(113LL);
+Integer _f_i_115(115LL);
+Integer _f_i_106(106LL);
+Integer _f_i_40(40LL);
+Integer _f_i_36(36LL);
+Integer _f_i_101(101LL);
+Integer _f_i_38(38LL);
+Integer _f_i_107(107LL);
+Integer _f_i_39(39LL);
+Integer _f_i_95(95LL);
+Integer _f_i_75(75LL);
+Integer _f_i_32(32LL);
+Integer _f_i_93(93LL);
+Integer _f_i_34(34LL);
+Integer _f_i_110(110LL);
+Integer _f_i_48(48LL);
+Integer _f_i_131072(131072LL);
+Integer _f_i_262144(262144LL);
+Integer _f_i_1048576(1048576LL);
+Integer _f_i_n33(-33LL);
+Integer _f_i_64(64LL);
+Integer _f_i_1052672(1052672LL);
+Integer _f_i_n5(-5LL);
+Integer _f_i_n4(-4LL);
+Integer _f_i_n6(-6LL);
+Integer _f_i_n7(-7LL);
+Integer _f_i_n8(-8LL);
+Integer _f_i_n2(-2LL);
+Integer _f_i_n9(-9LL);
+Integer _f_i_n10(-10LL);
+Integer _f_i_n11(-11LL);
+Integer _f_i_n12(-12LL);
 Integer _f_i_70(70LL);
 Integer _f_i_60(60LL);
 Integer _f_i_50(50LL);
-Integer _f_i_99(99LL);
-Integer _f_i_7(7LL);
+
+// Raw int64_t tables for large Integer-only Arrays —
+// build_int_array() boxes them into Array+Integer at static-init
+// time. Cuts source size and cc1plus parse time vs emitting
+// each element as `(&_f_i_X), `.
+static const int64_t __TBL_INT_0__[12] = {31,29,31,30,31,30,31,31,30,31,30,31};
+static const int64_t __TBL_INT_1__[12] = {31,28,31,30,31,30,31,31,30,31,30,31};
 
 inline BasicObject* BasicObject::m_class(Array* args, Hash* kwargs, Proc* block) {
   return (&BasicObject_CLASS);
@@ -7405,6 +7940,24 @@ inline BasicObject* Numeric::m_magnitude(Array* args, Hash* kwargs, Proc* block)
   return nil_instance();
 }
 
+inline BasicObject* Numeric::m_angle(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (truthy(this->m_lt((new Array({(&_f_i_0)})), nullptr, nullptr)) ? ((k_Math_PI())) : (((new Float(0.0)))));
+  return nil_instance();
+}
+
+inline BasicObject* Numeric::m_arg(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (truthy(this->m_lt((new Array({(&_f_i_0)})), nullptr, nullptr)) ? ((k_Math_PI())) : (((new Float(0.0)))));
+  return nil_instance();
+}
+
+inline BasicObject* Numeric::m_phase(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (truthy(this->m_lt((new Array({(&_f_i_0)})), nullptr, nullptr)) ? ((k_Math_PI())) : (((new Float(0.0)))));
+  return nil_instance();
+}
+
 inline BasicObject* Numeric::m_eql_q(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* other = array_at(args, 0);
   Proc* _block = block;
@@ -7671,7 +8224,7 @@ inline BasicObject* Numeric::m___step_size__(Array* args, Hash* kwargs, Proc* bl
   BasicObject* origin = nil_instance();
   BasicObject* diff = nil_instance();
   if (truthy(limit->m_nil_q((new Array({})), nullptr, nullptr))) {
-    /* skipped: ConstantPath: unresolved path Float::INFINITY */
+    return k_Float_INFINITY();
   }
   sv = (truthy(float_any) ? ((step_v->m_to_f((new Array({})), nullptr, nullptr))) : ((step_v)));
   lim = (truthy(float_any) ? ((limit->m_to_f((new Array({})), nullptr, nullptr))) : ((limit)));
@@ -7700,7 +8253,7 @@ inline BasicObject* Numeric::m___step_size__(Array* args, Hash* kwargs, Proc* bl
   }
   if (truthy(([&]() -> BasicObject* { auto* _l = diff->m_respond_to_q((new Array({intern("infinite?")})), nullptr, nullptr); return truthy(_l) ? (diff->m_infinite_q((new Array({})), nullptr, nullptr)) : _l; }()))) {
     if (truthy(([&]() -> BasicObject* { auto* _l = (([&]() -> BasicObject* { auto* _l = sv->m_gt((new Array({(&_f_i_0)})), nullptr, nullptr); return truthy(_l) ? (diff->m_gt((new Array({(&_f_i_0)})), nullptr, nullptr)) : _l; }())); return truthy(_l) ? _l : ((([&]() -> BasicObject* { auto* _l = sv->m_lt((new Array({(&_f_i_0)})), nullptr, nullptr); return truthy(_l) ? (diff->m_lt((new Array({(&_f_i_0)})), nullptr, nullptr)) : _l; }()))); }()))) {
-      /* skipped: ConstantPath: unresolved path Float::INFINITY */
+      return k_Float_INFINITY();
     }
     return (&_f_i_0);
   }
@@ -7713,7 +8266,7 @@ inline BasicObject* Numeric::m_class(Array* args, Hash* kwargs, Proc* block) {
 }
 
 inline BasicObject* Numeric::m_respond_to_q(Array* args, Hash* kwargs, Proc* block) {
-  static const bool __Numeric_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,1,0,1,0,1,1,1,1,1,0,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,1,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+  static const bool __Numeric_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,1,1,0,1,0,1,1,1,1,1,0,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,1,0,0,1,0,0,0,1,0,1,0,1,1,1,1,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   if (args->data.empty()) return false_instance();
   int _id = static_cast<Symbol*>(args->data[0])->method_id_;
   return boxed_bool(_id >= 0 && _id < 1004 && __Numeric_responds__[_id]);
@@ -8181,7 +8734,9 @@ inline BasicObject* Range::m_size(Array* args, Hash* kwargs, Proc* block) {
   } else {
     return nil_instance();
   }
-  /* skipped: ConstantPath: unresolved path Float::INFINITY */
+  if (truthy(([&]() -> BasicObject* { auto* _l = e->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (e->m_eq_q((new Array({k_Float_INFINITY()})), nullptr, nullptr)); }()))) {
+    return k_Float_INFINITY();
+  }
   if (truthy(e->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr))) {
     nil_instance();
   } else {
@@ -8207,7 +8762,9 @@ inline BasicObject* Range::m_length(Array* args, Hash* kwargs, Proc* block) {
   } else {
     return nil_instance();
   }
-  /* skipped: ConstantPath: unresolved path Float::INFINITY */
+  if (truthy(([&]() -> BasicObject* { auto* _l = e->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (e->m_eq_q((new Array({k_Float_INFINITY()})), nullptr, nullptr)); }()))) {
+    return k_Float_INFINITY();
+  }
   if (truthy(e->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr))) {
     nil_instance();
   } else {
@@ -8388,7 +8945,7 @@ inline BasicObject* Range::m_inject(Array* args, Hash* kwargs, Proc* block) {
 inline BasicObject* Range::m_count(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   if (truthy(([&]() -> BasicObject* { auto* _l = block->m_not((new Array({})), nullptr, nullptr); return truthy(_l) ? ((([&]() -> BasicObject* { auto* _l = this->m_begin((new Array({})), nullptr, nullptr)->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (this->m_end((new Array({})), nullptr, nullptr)->m_nil_q((new Array({})), nullptr, nullptr)); }()))) : _l; }()))) {
-    /* skipped: ConstantPath: unresolved path Float::INFINITY */
+    return k_Float_INFINITY();
   }
   return (truthy(block) ? ((this->m_to_a((new Array({})), nullptr, nullptr)->m_count((new Array({})), nullptr, static_cast<Proc*>(block)))) : (((([&]() -> BasicObject* { auto* _l = this->m_size((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (this->m_to_a((new Array({})), nullptr, nullptr)->m_size((new Array({})), nullptr, nullptr)); }())))));
   return nil_instance();
@@ -8516,6 +9073,32 @@ inline BasicObject* Range::m_overlap_q(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* Range::m_bsearch(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* b = nil_instance();
+  BasicObject* e = nil_instance();
+  BasicObject* b_ok = nil_instance();
+  BasicObject* e_ok = nil_instance();
+  BasicObject* bf = nil_instance();
+  BasicObject* ef = nil_instance();
+  b = this->m_begin((new Array({})), nullptr, nullptr);
+  e = this->m_end((new Array({})), nullptr, nullptr);
+  b_ok = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = b->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (b->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr)); }()); return truthy(_l) ? _l : (b->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }());
+  e_ok = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = e->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (e->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr)); }()); return truthy(_l) ? _l : (e->m_is_a_q((new Array({(&Float_CLASS)})), nullptr, nullptr)); }());
+  if (truthy(([&]() -> BasicObject* { auto* _l = b_ok; return truthy(_l) ? (e_ok) : _l; }()))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw static_cast<Exception*>((&TypeError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("can't do binary search for ", 27))})), nullptr, nullptr)->m_plus((new Array({((truthy(b_ok) ? ((e->m_class((new Array({})), nullptr, nullptr))) : ((b->m_class((new Array({})), nullptr, nullptr)))))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))})), nullptr, nullptr)); }());
+  }
+  if (truthy(block)) {
+    nil_instance();
+  } else {
+    return this->m_to_enum((new Array({intern("bsearch")})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { return this->m___bsearch_size__((new Array({})), nullptr, nullptr); })));
+  }
+  return (truthy(([&]() -> BasicObject* { auto* _l = (([&]() -> BasicObject* { auto* _l = b->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (b->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr)); }())); return truthy(_l) ? ((([&]() -> BasicObject* { auto* _l = e->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (e->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr)); }()))) : _l; }())) ? ((this->m___bsearch_integer__((new Array({b, e, this->m_exclude_end_q((new Array({})), nullptr, nullptr)})), nullptr, static_cast<Proc*>(block)))) : (((bf = (truthy(b->m_nil_q((new Array({})), nullptr, nullptr)) ? ((k_Float_INFINITY()->m_neg((new Array({})), nullptr, nullptr))) : ((b->m_to_f((new Array({})), nullptr, nullptr))))), (ef = (truthy(e->m_nil_q((new Array({})), nullptr, nullptr)) ? ((k_Float_INFINITY())) : ((e->m_to_f((new Array({})), nullptr, nullptr))))), this->m___bsearch_float__((new Array({bf, ef, this->m_exclude_end_q((new Array({})), nullptr, nullptr)})), nullptr, static_cast<Proc*>(block)))));
+  return nil_instance();
+}
+
 inline BasicObject* Range::m_each_slice(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* n = array_at(args, 0);
   Proc* _block = block;
@@ -8623,6 +9206,20 @@ inline BasicObject* Range::m___bsearch_size__(Array* args, Hash* kwargs, Proc* b
   return nil_instance();
 }
 
+inline BasicObject* Range::m___float_to_ord__(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* f = array_at(args, 0);
+  Proc* _block = block;
+  return (new Array({f}))->m_pack((new Array({(new String("G", 1))})), nullptr, nullptr)->m_unpack1((new Array({(new String("Q>", 2))})), nullptr, nullptr)->m_then((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* bits = arg; return (truthy((bits->m_bit_and((new Array({k_Range_FLOAT_SIGN_BIT()})), nullptr, nullptr))->m_ne_q((new Array({(&_f_i_0)})), nullptr, nullptr)) ? (((bits->m_bit_not((new Array({})), nullptr, nullptr)->m_bit_and((new Array({k_Range_FLOAT_UINT64_MASK()})), nullptr, nullptr)))) : (((bits->m_bit_or((new Array({k_Range_FLOAT_SIGN_BIT()})), nullptr, nullptr))))); })));
+  return nil_instance();
+}
+
+inline BasicObject* Range::m___ord_to_float__(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* ord = array_at(args, 0);
+  Proc* _block = block;
+  return ((truthy((ord->m_bit_and((new Array({k_Range_FLOAT_SIGN_BIT()})), nullptr, nullptr))->m_ne_q((new Array({(&_f_i_0)})), nullptr, nullptr)) ? (((ord->m_bit_xor((new Array({k_Range_FLOAT_SIGN_BIT()})), nullptr, nullptr)))) : (((ord->m_bit_not((new Array({})), nullptr, nullptr)->m_bit_and((new Array({k_Range_FLOAT_UINT64_MASK()})), nullptr, nullptr))))))->m_then((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* bits = arg; return (new Array({bits}))->m_pack((new Array({(new String("Q>", 2))})), nullptr, nullptr)->m_unpack1((new Array({(new String("G", 1))})), nullptr, nullptr); })));
+  return nil_instance();
+}
+
 inline BasicObject* Range::m___cover_value___q(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* val = array_at(args, 0);
   Proc* _block = block;
@@ -8652,7 +9249,7 @@ inline BasicObject* Range::m___reverse_each_size__(Array* args, Hash* kwargs, Pr
   e = this->m_end((new Array({})), nullptr, nullptr);
   if (truthy(b->m_nil_q((new Array({})), nullptr, nullptr))) {
     if (truthy(e->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr))) {
-      /* skipped: ConstantPath: unresolved path Float::INFINITY */
+      return k_Float_INFINITY();
     }
     ([&]() -> BasicObject* { throw static_cast<Exception*>((&TypeError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("can't iterate from ", 19))})), nullptr, nullptr)->m_plus((new Array({((truthy(e->m_nil_q((new Array({})), nullptr, nullptr)) ? (((new String("NilClass", 8)))) : ((e->m_class((new Array({})), nullptr, nullptr)))))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))})), nullptr, nullptr)); }());
   }
@@ -8665,7 +9262,7 @@ inline BasicObject* Range::m___reverse_each_size__(Array* args, Hash* kwargs, Pr
     return nil_instance();
   }
   if (truthy(e->m_nil_q((new Array({})), nullptr, nullptr))) {
-    /* skipped: ConstantPath: unresolved path Float::INFINITY */
+    return k_Float_INFINITY();
   }
   if (truthy(e->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr))) {
     n = (truthy(this->m_exclude_end_q((new Array({})), nullptr, nullptr)) ? ((e->m_minus((new Array({b})), nullptr, nullptr))) : ((e->m_minus((new Array({b})), nullptr, nullptr)->m_plus((new Array({(&_f_i_1)})), nullptr, nullptr))));
@@ -8795,7 +9392,7 @@ inline BasicObject* Range::m_class(Array* args, Hash* kwargs, Proc* block) {
 }
 
 inline BasicObject* Range::m_respond_to_q(Array* args, Hash* kwargs, Proc* block) {
-  static const bool __Range_responds__[] = {0,1,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,1,0,0,1,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,1,1,1,0,0,0,1,0,1,1,1,1,1,0,0,0,0,0,1,0,0,0,0,1,1,1,0,0,0,1,0,1,1,1,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,1,1,0,1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+  static const bool __Range_responds__[] = {0,1,0,0,0,0,1,0,0,0,1,1,1,0,0,0,1,0,1,0,0,1,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,1,1,1,0,0,0,1,0,1,1,1,1,1,0,0,0,0,0,1,0,0,0,0,1,1,1,0,0,0,1,0,1,1,1,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,1,1,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   if (args->data.empty()) return false_instance();
   int _id = static_cast<Symbol*>(args->data[0])->method_id_;
   return boxed_bool(_id >= 0 && _id < 1004 && __Range_responds__[_id]);
@@ -9622,7 +10219,7 @@ inline BasicObject* Enumerator_ArithmeticSequence::m_size(Array* args, Hash* kwa
   e = this->m_end((new Array({})), nullptr, nullptr);
   s = this->m_step((new Array({})), nullptr, nullptr);
   if (truthy(([&]() -> BasicObject* { auto* _l = e->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : ((([&]() -> BasicObject* { auto* _l = e->m_respond_to_q((new Array({intern("infinite?")})), nullptr, nullptr); return truthy(_l) ? (e->m_infinite_q((new Array({})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_1)})), nullptr, nullptr)) : _l; }()))); }()))) {
-    /* skipped: ConstantPath: unresolved path Float::INFINITY */
+    return k_Float_INFINITY();
   }
   n = (truthy(this->m_exclude_end_q((new Array({})), nullptr, nullptr)) ? ((((e->m_minus((new Array({b})), nullptr, nullptr))->m_div((new Array({s->m_to_f((new Array({})), nullptr, nullptr)})), nullptr, nullptr))->m_ceil((new Array({})), nullptr, nullptr))) : ((((e->m_minus((new Array({b})), nullptr, nullptr))->m_div((new Array({s->m_to_f((new Array({})), nullptr, nullptr)})), nullptr, nullptr))->m_floor((new Array({})), nullptr, nullptr)->m_plus((new Array({(&_f_i_1)})), nullptr, nullptr))));
   return (new Array({n, (&_f_i_0)}))->m_max((new Array({})), nullptr, nullptr);
@@ -11099,6 +11696,18 @@ inline BasicObject* Encoding::m_eql_q(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* Encoding::m_ascii_compatible_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return k_Encoding_NON_ASCII_COMPATIBLE()->m_include_q((new Array({this->iv_name})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Encoding::m_dummy_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return k_Encoding_DUMMY_ENCODINGS()->m_include_q((new Array({this->iv_name})), nullptr, nullptr);
+  return nil_instance();
+}
+
 inline BasicObject* Encoding::m_ascii_only_q(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this->iv_name->m_eq_q((new Array({(new String("US-ASCII", 8))})), nullptr, nullptr);
@@ -11135,7 +11744,7 @@ inline BasicObject* Encoding::m_class(Array* args, Hash* kwargs, Proc* block) {
 }
 
 inline BasicObject* Encoding::m_respond_to_q(Array* args, Hash* kwargs, Proc* block) {
-  static const bool __Encoding_responds__[] = {0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+  static const bool __Encoding_responds__[] = {0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   if (args->data.empty()) return false_instance();
   int _id = static_cast<Symbol*>(args->data[0])->method_id_;
   return boxed_bool(_id >= 0 && _id < 1004 && __Encoding_responds__[_id]);
@@ -11373,6 +11982,38 @@ inline BasicObject* MatchData::m_respond_to_q(Array* args, Hash* kwargs, Proc* b
   return boxed_bool(_id >= 0 && _id < 1004 && __MatchData_responds__[_id]);
 }
 
+inline BasicObject* Regexp::m_eq_q(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* v = array_at(args, 0);
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = v->m_is_a_q((new Array({(&Regexp_CLASS)})), nullptr, nullptr); return truthy(_l) ? (this->m_source((new Array({})), nullptr, nullptr)->m_eq_q((new Array({v->m_source((new Array({})), nullptr, nullptr)})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? ((this->m_options((new Array({})), nullptr, nullptr)->m_bit_and((new Array({k_Regexp_OPTIONS_NO_NOENC()})), nullptr, nullptr))->m_eq_q((new Array({(v->m_options((new Array({})), nullptr, nullptr)->m_bit_and((new Array({k_Regexp_OPTIONS_NO_NOENC()})), nullptr, nullptr))})), nullptr, nullptr)) : _l; }());
+  return nil_instance();
+}
+
+inline BasicObject* Regexp::m_eql_q(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* v = array_at(args, 0);
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = v->m_is_a_q((new Array({(&Regexp_CLASS)})), nullptr, nullptr); return truthy(_l) ? (this->m_source((new Array({})), nullptr, nullptr)->m_eq_q((new Array({v->m_source((new Array({})), nullptr, nullptr)})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? ((this->m_options((new Array({})), nullptr, nullptr)->m_bit_and((new Array({k_Regexp_OPTIONS_NO_NOENC()})), nullptr, nullptr))->m_eq_q((new Array({(v->m_options((new Array({})), nullptr, nullptr)->m_bit_and((new Array({k_Regexp_OPTIONS_NO_NOENC()})), nullptr, nullptr))})), nullptr, nullptr)) : _l; }());
+  return nil_instance();
+}
+
+inline BasicObject* Regexp::m_casefold_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (this->m_options((new Array({})), nullptr, nullptr)->m_bit_and((new Array({k_Regexp_IGNORECASE()})), nullptr, nullptr))->m_ne_q((new Array({(&_f_i_0)})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Regexp::m_fixed_encoding_q(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (this->m_options((new Array({})), nullptr, nullptr)->m_bit_and((new Array({k_Regexp_FIXEDENCODING()})), nullptr, nullptr))->m_ne_q((new Array({(&_f_i_0)})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Regexp::m_hash(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return (new Array({this->m_source((new Array({})), nullptr, nullptr), this->m_options((new Array({})), nullptr, nullptr)->m_bit_and((new Array({k_Regexp_OPTIONS_NO_NOENC()})), nullptr, nullptr)}))->m_hash((new Array({})), nullptr, nullptr);
+  return nil_instance();
+}
+
 inline BasicObject* Regexp::m_dup(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return (&Regexp_CLASS)->m_new((new Array({this->m_source((new Array({})), nullptr, nullptr), this->m_options((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
@@ -11411,7 +12052,7 @@ inline BasicObject* Regexp::m_class(Array* args, Hash* kwargs, Proc* block) {
 }
 
 inline BasicObject* Regexp::m_respond_to_q(Array* args, Hash* kwargs, Proc* block) {
-  static const bool __Regexp_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+  static const bool __Regexp_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   if (args->data.empty()) return false_instance();
   int _id = static_cast<Symbol*>(args->data[0])->method_id_;
   return boxed_bool(_id >= 0 && _id < 1004 && __Regexp_responds__[_id]);
@@ -11775,7 +12416,7 @@ inline BasicObject* Rational::m_class(Array* args, Hash* kwargs, Proc* block) {
 }
 
 inline BasicObject* Rational::m_respond_to_q(Array* args, Hash* kwargs, Proc* block) {
-  static const bool __Rational_responds__[] = {0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0,0,0,1,1,1,0,1,0,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,1,0,0,1,0,1,0,1,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+  static const bool __Rational_responds__[] = {0,1,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0,0,0,1,1,1,1,1,0,1,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,1,0,0,0,0,1,0,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,1,0,0,1,0,1,0,1,0,1,0,1,1,1,1,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   if (args->data.empty()) return false_instance();
   int _id = static_cast<Symbol*>(args->data[0])->method_id_;
   return boxed_bool(_id >= 0 && _id < 1004 && __Rational_responds__[_id]);
@@ -12420,8 +13061,12 @@ inline BasicObject* IO::m_advise(Array* args, Hash* kwargs, Proc* block) {
   }
   ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return (offset = this->m_Integer((new Array({offset})), nullptr, nullptr));  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<TypeError*>(e_) != nullptr || dynamic_cast<ArgumentError*>(e_) != nullptr) { return [&]() -> BasicObject* { return ([&]() -> BasicObject* { throw static_cast<Exception*>((&TypeError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(offset->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Integer", 13))})), nullptr, nullptr)))})), nullptr, nullptr)); }());  return nil_instance(); }(); } throw; } }());
   ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return (len = this->m_Integer((new Array({len})), nullptr, nullptr));  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<TypeError*>(e_) != nullptr || dynamic_cast<ArgumentError*>(e_) != nullptr) { return [&]() -> BasicObject* { return ([&]() -> BasicObject* { throw static_cast<Exception*>((&TypeError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("no implicit conversion of ", 26))})), nullptr, nullptr)->m_plus((new Array({(len->m_class((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" into Integer", 13))})), nullptr, nullptr)))})), nullptr, nullptr)); }());  return nil_instance(); }(); } throw; } }());
-  /* skipped: ConstantRead: unresolved constant :LONG_MAX */
-  /* skipped: ConstantRead: unresolved constant :LONG_MAX */
+  if (truthy(offset->m_abs((new Array({})), nullptr, nullptr)->m_gt((new Array({k_IO_LONG_MAX()})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw static_cast<Exception*>((&RangeError_CLASS)->m_new((new Array({static_cast<BasicObject*>((new String("bignum too big to convert into `long long'", 42)))})), nullptr, nullptr)); }());
+  }
+  if (truthy(len->m_abs((new Array({})), nullptr, nullptr)->m_gt((new Array({k_IO_LONG_MAX()})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw static_cast<Exception*>((&RangeError_CLASS)->m_new((new Array({static_cast<BasicObject*>((new String("bignum too big to convert into `long long'", 42)))})), nullptr, nullptr)); }());
+  }
   valid = (new Array({intern("normal"), intern("sequential"), intern("random"), intern("willneed"), intern("dontneed"), intern("noreuse")}));
   if (truthy(valid->m_include_q((new Array({advice})), nullptr, nullptr))) {
     nil_instance();
@@ -12457,7 +13102,9 @@ inline BasicObject* IO::m_set_encoding_by_bom(Array* args, Hash* kwargs, Proc* b
     ([&]() -> BasicObject* { throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new((new Array({static_cast<BasicObject*>((new String("encoding conversion is set", 26)))})), nullptr, nullptr)); }());
   }
   ext = this->m_external_encoding((new Array({})), nullptr, nullptr);
-  /* skipped: ConstantPath: unresolved path Encoding::ASCII_8BIT */
+  if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = ext; return truthy(_l) ? (ext->m_ne_q((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (ext->m_ne_q((new Array({k_Encoding_BINARY()})), nullptr, nullptr)) : _l; }()))) {
+    ([&]() -> BasicObject* { throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("encoding is set to ", 19))})), nullptr, nullptr)->m_plus((new Array({(ext->m_name((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" already", 8))})), nullptr, nullptr)))})), nullptr, nullptr)); }());
+  }
   saved_pos = this->m_pos((new Array({})), nullptr, nullptr);
   header = this->m_read((new Array({(&_f_i_4)})), nullptr, nullptr);
   if (truthy(([&]() -> BasicObject* { auto* _l = header->m_nil_q((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (header->m_empty_q((new Array({})), nullptr, nullptr)); }()))) {
@@ -12467,23 +13114,23 @@ inline BasicObject* IO::m_set_encoding_by_bom(Array* args, Hash* kwargs, Proc* b
   enc = nil_instance();
   consumed = (&_f_i_0);
   if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = bs->m_length((new Array({})), nullptr, nullptr)->m_ge((new Array({(&_f_i_4)})), nullptr, nullptr); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_0)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_255)})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_1)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_254)})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_2)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_0)})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_3)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_0)})), nullptr, nullptr)) : _l; }()))) {
-    /* skipped: ConstantPath: unresolved path Encoding::UTF_32LE */
+    enc = k_Encoding_UTF_32LE();
     consumed = (&_f_i_4);
   } else {
     if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = bs->m_length((new Array({})), nullptr, nullptr)->m_ge((new Array({(&_f_i_4)})), nullptr, nullptr); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_0)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_0)})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_1)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_0)})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_2)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_254)})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_3)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_255)})), nullptr, nullptr)) : _l; }()))) {
-      /* skipped: ConstantPath: unresolved path Encoding::UTF_32BE */
+      enc = k_Encoding_UTF_32BE();
       consumed = (&_f_i_4);
     } else {
       if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = bs->m_length((new Array({})), nullptr, nullptr)->m_ge((new Array({(&_f_i_2)})), nullptr, nullptr); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_0)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_255)})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_1)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_254)})), nullptr, nullptr)) : _l; }()))) {
-        /* skipped: ConstantPath: unresolved path Encoding::UTF_16LE */
+        enc = k_Encoding_UTF_16LE();
         consumed = (&_f_i_2);
       } else {
         if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = bs->m_length((new Array({})), nullptr, nullptr)->m_ge((new Array({(&_f_i_2)})), nullptr, nullptr); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_0)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_254)})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_1)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_255)})), nullptr, nullptr)) : _l; }()))) {
-          /* skipped: ConstantPath: unresolved path Encoding::UTF_16BE */
+          enc = k_Encoding_UTF_16BE();
           consumed = (&_f_i_2);
         } else {
           if (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = bs->m_length((new Array({})), nullptr, nullptr)->m_ge((new Array({(&_f_i_3)})), nullptr, nullptr); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_0)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_239)})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_1)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_187)})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (bs->m_aref((new Array({(&_f_i_2)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_191)})), nullptr, nullptr)) : _l; }()))) {
-            /* skipped: ConstantPath: unresolved path Encoding::UTF_8 */
+            enc = k_Encoding_UTF_8();
             consumed = (&_f_i_3);
           }
         }
@@ -13227,7 +13874,7 @@ inline BasicObject* Time::m__dump(Array* args, Hash* kwargs, Proc* block) {
     d2 = nano_ns->m_mod((new Array({(&_f_i_10)})), nullptr, nullptr);
     b0 = (d0->m_lshift((new Array({(&_f_i_4)})), nullptr, nullptr))->m_bit_or((new Array({d1})), nullptr, nullptr);
     b1 = d2->m_lshift((new Array({(&_f_i_4)})), nullptr, nullptr);
-    /* skipped: ConstantPath: unresolved path Encoding::ASCII_8BIT */
+    submicro = (truthy(b1->m_eq_q((new Array({(&_f_i_0)})), nullptr, nullptr)) ? ((b0->m_chr((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr))) : (((b0->m_chr((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr)->m_plus((new Array({b1->m_chr((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr)})), nullptr, nullptr)))));
     pairs->m_lshift((new Array({intern("nano_num")})), nullptr, nullptr)->m_lshift((new Array({nano_ns})), nullptr, nullptr)->m_lshift((new Array({intern("nano_den")})), nullptr, nullptr)->m_lshift((new Array({(&_f_i_1)})), nullptr, nullptr)->m_lshift((new Array({intern("submicro")})), nullptr, nullptr)->m_lshift((new Array({submicro})), nullptr, nullptr);
   }
   if (truthy(pairs->m_empty_q((new Array({})), nullptr, nullptr))) {
@@ -13360,12 +14007,29 @@ inline BasicObject* Mutex::m_synchronize(Array* args, Hash* kwargs, Proc* block)
   return nil_instance();
 }
 
+inline BasicObject* Mutex::m_sleep(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* timeout = (args->data.size() > 0) ? args->data[0] : (nil_instance());
+  Proc* _block = block;
+  BasicObject* start = nil_instance();
+  BasicObject* blocked = nil_instance();
+  if (truthy(([&]() -> BasicObject* { auto* _l = timeout; return truthy(_l) ? (timeout->m_lt((new Array({(&_f_i_0)})), nullptr, nullptr)) : _l; }()))) {
+    ([&]() -> BasicObject* { throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new((new Array({static_cast<BasicObject*>((new String("time interval must be positive", 30)))})), nullptr, nullptr)); }());
+  }
+  if (truthy(this->m_owned_q((new Array({})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw static_cast<Exception*>((&ThreadError_CLASS)->m_new((new Array({static_cast<BasicObject*>((new String("can't sleep with unlocked mutex", 31)))})), nullptr, nullptr)); }());
+  }
+  return (truthy(timeout) ? ((this->m_unlock((new Array({})), nullptr, nullptr), ([&]() -> BasicObject* { EnsureGuard _eg([&]() { this->m_lock((new Array({})), nullptr, nullptr);  return nil_instance(); }); try { return [&]() -> BasicObject* { start = (&Process_CLASS)->m_clock_gettime((new Array({k_Process_CLOCK_MONOTONIC()})), nullptr, nullptr); /* skipped: ConstantRead: unresolved constant :Kernel */ return ((&Process_CLASS)->m_clock_gettime((new Array({k_Process_CLOCK_MONOTONIC()})), nullptr, nullptr)->m_minus((new Array({start})), nullptr, nullptr))->m_round((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { throw; } }()))) : ((this->m_unlock((new Array({})), nullptr, nullptr), (blocked = false_instance()), ([&]() -> BasicObject* { EnsureGuard _eg([&]() { if (truthy(blocked)) {   nil_instance(); } else {   this->m_lock((new Array({})), nullptr, nullptr); }  return nil_instance(); }); try { return [&]() -> BasicObject* { (&Thread_CLASS)->m_stop((new Array({})), nullptr, nullptr); return (&_f_i_0);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<Thread_Blocked*>(e_) != nullptr) { return [&]() -> BasicObject* { blocked = true_instance(); return ([&]() -> BasicObject* { throw; }());  return nil_instance(); }(); } throw; } }()))));
+  return nil_instance();
+}
+
 inline BasicObject* Mutex::m_class(Array* args, Hash* kwargs, Proc* block) {
   return (&Mutex_CLASS);
 }
 
 inline BasicObject* Mutex::m_respond_to_q(Array* args, Hash* kwargs, Proc* block) {
-  static const bool __Mutex_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+  static const bool __Mutex_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   if (args->data.empty()) return false_instance();
   int _id = static_cast<Symbol*>(args->data[0])->method_id_;
   return boxed_bool(_id >= 0 && _id < 1004 && __Mutex_responds__[_id]);
@@ -14029,12 +14693,29 @@ inline BasicObject* Thread_Mutex::m_synchronize(Array* args, Hash* kwargs, Proc*
   return nil_instance();
 }
 
+inline BasicObject* Thread_Mutex::m_sleep(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* timeout = (args->data.size() > 0) ? args->data[0] : (nil_instance());
+  Proc* _block = block;
+  BasicObject* start = nil_instance();
+  BasicObject* blocked = nil_instance();
+  if (truthy(([&]() -> BasicObject* { auto* _l = timeout; return truthy(_l) ? (timeout->m_lt((new Array({(&_f_i_0)})), nullptr, nullptr)) : _l; }()))) {
+    ([&]() -> BasicObject* { throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new((new Array({static_cast<BasicObject*>((new String("time interval must be positive", 30)))})), nullptr, nullptr)); }());
+  }
+  if (truthy(this->m_owned_q((new Array({})), nullptr, nullptr))) {
+    nil_instance();
+  } else {
+    ([&]() -> BasicObject* { throw static_cast<Exception*>((&ThreadError_CLASS)->m_new((new Array({static_cast<BasicObject*>((new String("can't sleep with unlocked mutex", 31)))})), nullptr, nullptr)); }());
+  }
+  return (truthy(timeout) ? ((this->m_unlock((new Array({})), nullptr, nullptr), ([&]() -> BasicObject* { EnsureGuard _eg([&]() { this->m_lock((new Array({})), nullptr, nullptr);  return nil_instance(); }); try { return [&]() -> BasicObject* { start = (&Process_CLASS)->m_clock_gettime((new Array({k_Process_CLOCK_MONOTONIC()})), nullptr, nullptr); /* skipped: ConstantRead: unresolved constant :Kernel */ return ((&Process_CLASS)->m_clock_gettime((new Array({k_Process_CLOCK_MONOTONIC()})), nullptr, nullptr)->m_minus((new Array({start})), nullptr, nullptr))->m_round((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { throw; } }()))) : ((this->m_unlock((new Array({})), nullptr, nullptr), (blocked = false_instance()), ([&]() -> BasicObject* { EnsureGuard _eg([&]() { if (truthy(blocked)) {   nil_instance(); } else {   this->m_lock((new Array({})), nullptr, nullptr); }  return nil_instance(); }); try { return [&]() -> BasicObject* { (&Thread_CLASS)->m_stop((new Array({})), nullptr, nullptr); return (&_f_i_0);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<Thread_Blocked*>(e_) != nullptr) { return [&]() -> BasicObject* { blocked = true_instance(); return ([&]() -> BasicObject* { throw; }());  return nil_instance(); }(); } throw; } }()))));
+  return nil_instance();
+}
+
 inline BasicObject* Thread_Mutex::m_class(Array* args, Hash* kwargs, Proc* block) {
   return (&Thread_Mutex_CLASS);
 }
 
 inline BasicObject* Thread_Mutex::m_respond_to_q(Array* args, Hash* kwargs, Proc* block) {
-  static const bool __Thread_Mutex_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+  static const bool __Thread_Mutex_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   if (args->data.empty()) return false_instance();
   int _id = static_cast<Symbol*>(args->data[0])->method_id_;
   return boxed_bool(_id >= 0 && _id < 1004 && __Thread_Mutex_responds__[_id]);
@@ -14869,6 +15550,24 @@ inline BasicObject* StringIO::m_rewind(Array* args, Hash* kwargs, Proc* block) {
   return nil_instance();
 }
 
+inline BasicObject* StringIO::m_seek(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* offset = array_at(args, 0);
+  BasicObject* whence = (args->data.size() > 1) ? args->data[1] : (k_IO_SEEK_SET());
+  Proc* _block = block;
+  BasicObject* base = nil_instance();
+  BasicObject* new_pos = nil_instance();
+  this->m__check_open((new Array({})), nullptr, nullptr);
+  offset = this->m___coerce_to_int__((new Array({offset})), nullptr, nullptr);
+  base = ([&]() -> BasicObject* { auto* _subj = whence; if (truthy(k_IO_SEEK_SET()->m_case_eq((new Array({_subj})), nullptr, nullptr)) || truthy((&_f_i_0)->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((&_f_i_0)); if (truthy(k_IO_SEEK_CUR()->m_case_eq((new Array({_subj})), nullptr, nullptr)) || truthy((&_f_i_1)->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->iv_pos); if (truthy(k_IO_SEEK_END()->m_case_eq((new Array({_subj})), nullptr, nullptr)) || truthy((&_f_i_2)->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->iv_string->m_bytesize((new Array({})), nullptr, nullptr)); return (([&]() -> BasicObject* { throw static_cast<Exception*>((&Errno_EINVAL_CLASS)->m_new((new Array({static_cast<BasicObject*>((new String("Invalid argument", 16)))})), nullptr, nullptr)); }())); }());
+  new_pos = base->m_plus((new Array({offset})), nullptr, nullptr);
+  if (truthy(new_pos->m_lt((new Array({(&_f_i_0)})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw static_cast<Exception*>((&Errno_EINVAL_CLASS)->m_new((new Array({static_cast<BasicObject*>((new String("Invalid argument", 16)))})), nullptr, nullptr)); }());
+  }
+  (this->iv_pos = new_pos);
+  return (&_f_i_0);
+  return nil_instance();
+}
+
 inline BasicObject* StringIO::m_eof_q(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   this->m__check_readable((new Array({})), nullptr, nullptr);
@@ -14904,7 +15603,7 @@ inline BasicObject* StringIO::m_internal_encoding(Array* args, Hash* kwargs, Pro
 inline BasicObject* StringIO::m_binmode(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   (this->iv_binary = true_instance());
-  /* skipped: ConstantPath: unresolved path Encoding::ASCII_8BIT */
+  (this->iv_external_encoding = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return k_Encoding_ASCII_8BIT();  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }()));
   return this;
   return nil_instance();
 }
@@ -14971,7 +15670,7 @@ inline BasicObject* StringIO::m_read(Array* args, Hash* kwargs, Proc* block) {
     /* skipped: from_expr: unhandled AST node Frozone::Ast::RangeLiteral */
     (this->iv_pos = this->iv_string->m_bytesize((new Array({})), nullptr, nullptr));
     if (truthy(false_instance())) {
-      /* skipped: ConstantPath: unresolved path Encoding::ASCII_8BIT */
+      data = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return data->m_encode((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return data;  return nil_instance(); }(); } throw; } }());
     }
     if (truthy(this->iv_binary)) {
       data = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return data->m_b((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return data;  return nil_instance(); }(); } throw; } }());
@@ -15090,7 +15789,7 @@ inline BasicObject* StringIO::m_ungetbyte(Array* args, Hash* kwargs, Proc* block
   Proc* _block = block;
   this->m__check_readable((new Array({})), nullptr, nullptr);
   if (truthy(byte->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr))) {
-    /* skipped: ConstantPath: unresolved path Encoding::BINARY */
+    byte = (byte->m_bit_and((new Array({(&_f_i_255)})), nullptr, nullptr))->m_chr((new Array({k_Encoding_BINARY()})), nullptr, nullptr);
   } else {
     if (truthy(byte->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
       byte = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return byte->m_b((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return byte;  return nil_instance(); }(); } throw; } }());
@@ -15641,11 +16340,11 @@ inline BasicObject* StringIO::m__unget_str(Array* args, Hash* kwargs, Proc* bloc
   BasicObject* result = nil_instance();
   BasicObject* padding = nil_instance();
   new_pos = (truthy(this->iv_pos->m_gt((new Array({(&_f_i_0)})), nullptr, nullptr)) ? ((this->iv_pos->m_minus((new Array({(&_f_i_1)})), nullptr, nullptr))) : (((&_f_i_0))));
-  /* skipped: ConstantPath: unresolved path Encoding::BINARY */
+  orig_enc = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return this->iv_string->m_encoding((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return k_Encoding_BINARY();  return nil_instance(); }(); } throw; } }());
   str_b = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return str->m_b((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return str;  return nil_instance(); }(); } throw; } }());
   cur_b = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return this->iv_string->m_b((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return this->iv_string;  return nil_instance(); }(); } throw; } }());
   /* skipped: from_expr: unhandled AST node Frozone::Ast::RangeLiteral */
-  /* skipped: ConstantPath: unresolved path Encoding::BINARY */
+  ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return result->m_force_encoding((new Array({orig_enc})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return result->m_force_encoding((new Array({k_Encoding_BINARY()})), nullptr, nullptr);  return nil_instance(); }(); } throw; } }());
   ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return this->iv_string->m_replace((new Array({result})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return (this->iv_string = result);  return nil_instance(); }(); } throw; } }());
   return (this->iv_pos = new_pos);
   return nil_instance();
@@ -15693,7 +16392,7 @@ inline BasicObject* StringIO::m__write_str(Array* args, Hash* kwargs, Proc* bloc
   BasicObject* write_pos = nil_instance();
   BasicObject* cur_size = nil_instance();
   if (truthy(this->iv_external_encoding)) {
-    /* skipped: ConstantPath: unresolved path Encoding::ASCII_8BIT */
+    ascii8bit = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return k_Encoding_ASCII_8BIT();  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
     if (truthy(this->iv_external_encoding->m_eq_q((new Array({ascii8bit})), nullptr, nullptr))) {
       str = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return str->m_b((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return str;  return nil_instance(); }(); } throw; } }());
     } else {
@@ -15728,10 +16427,10 @@ inline BasicObject* StringIO::m__int_mode_to_str(Array* args, Hash* kwargs, Proc
   BasicObject* has_trunc = nil_instance();
   BasicObject* has_append = nil_instance();
   BasicObject* base = nil_instance();
-  /* skipped: ConstantPath: unresolved path File::RDWR */
-  /* skipped: ConstantPath: unresolved path File::WRONLY */
-  /* skipped: ConstantPath: unresolved path File::TRUNC */
-  /* skipped: ConstantPath: unresolved path File::APPEND */
+  has_rdwr = (m->m_bit_and((new Array({k_File_RDWR()})), nullptr, nullptr))->m_ne_q((new Array({(&_f_i_0)})), nullptr, nullptr);
+  has_wronly = (m->m_bit_and((new Array({k_File_WRONLY()})), nullptr, nullptr))->m_ne_q((new Array({(&_f_i_0)})), nullptr, nullptr);
+  has_trunc = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return (m->m_bit_and((new Array({k_File_TRUNC()})), nullptr, nullptr))->m_ne_q((new Array({(&_f_i_0)})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return false_instance();  return nil_instance(); }(); } throw; } }());
+  has_append = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return (m->m_bit_and((new Array({k_File_APPEND()})), nullptr, nullptr))->m_ne_q((new Array({(&_f_i_0)})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return false_instance();  return nil_instance(); }(); } throw; } }());
   if (truthy(has_rdwr)) {
     base = (truthy(has_trunc) ? (((new String("w+", 2)))) : (((new String("r+", 2)))));
   } else {
@@ -15744,7 +16443,7 @@ inline BasicObject* StringIO::m__int_mode_to_str(Array* args, Hash* kwargs, Proc
   if (truthy(has_append)) {
     /* skipped: from_expr: unhandled AST node Frozone::Ast::RangeLiteral */
   }
-  /* skipped: ConstantPath: unresolved path File::BINARY */
+  ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return (truthy((m->m_bit_and((new Array({k_File_BINARY()})), nullptr, nullptr))->m_ne_q((new Array({(&_f_i_0)})), nullptr, nullptr)) ? (((base = base->m_plus((new Array({(new String("b", 1))})), nullptr, nullptr)))) : (nil_instance()));  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
   return base;
   return nil_instance();
 }
@@ -15765,7 +16464,7 @@ inline BasicObject* StringIO::m_class(Array* args, Hash* kwargs, Proc* block) {
 }
 
 inline BasicObject* StringIO::m_respond_to_q(Array* args, Hash* kwargs, Proc* block) {
-  static const bool __StringIO_responds__[] = {0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,1,1,1,0,0,0,1,0,0,1,0,0,1,1,1,1,0,1,1,1,1,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,1,1,1,0,0,0,1,1,1,1,1,1,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,1,1,1,0,0,1,1,1,1,1,1,0,1,1,1,0,1,0,1,1,0,0,0,0,1,1,1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+  static const bool __StringIO_responds__[] = {0,1,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,1,1,1,0,0,0,1,0,0,1,0,0,1,1,1,1,0,1,1,1,1,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,1,1,1,1,0,0,0,1,1,1,1,1,1,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,1,1,1,0,0,1,1,1,1,1,1,0,1,1,1,0,1,0,1,1,0,0,0,0,1,1,1,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   if (args->data.empty()) return false_instance();
   int _id = static_cast<Symbol*>(args->data[0])->method_id_;
   return boxed_bool(_id >= 0 && _id < 1004 && __StringIO_responds__[_id]);
@@ -16090,9 +16789,11 @@ inline BasicObject* Data::m_eq_q(Array* args, Hash* kwargs, Proc* block) {
     return false_instance();
   }
   pair = (truthy(this->m_object_id((new Array({})), nullptr, nullptr)->m_le((new Array({other->m_object_id((new Array({})), nullptr, nullptr)})), nullptr, nullptr)) ? (((new Array({this->m_object_id((new Array({})), nullptr, nullptr), other->m_object_id((new Array({})), nullptr, nullptr)})))) : (((new Array({other->m_object_id((new Array({})), nullptr, nullptr), this->m_object_id((new Array({})), nullptr, nullptr)})))));
-  /* skipped: ConstantRead: unresolved constant :EQ_GUARD */
-  /* skipped: ConstantRead: unresolved constant :EQ_GUARD */
-  return ([&]() -> BasicObject* { EnsureGuard _eg([&]() { /* skipped: ConstantRead: unresolved constant :EQ_GUARD */  return nil_instance(); }); try { return [&]() -> BasicObject* { return this->m_class((new Array({})), nullptr, nullptr)->m_members((new Array({})), nullptr, nullptr)->m_all_q((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return this->iv_data_values->m_aref((new Array({m})), nullptr, nullptr)->m_eq_q((new Array({other->m___send__((new Array({m})), nullptr, nullptr)})), nullptr, nullptr); })));  return nil_instance(); }(); } catch (Exception* e_) { throw; } }());
+  if (truthy(k_Data_EQ_GUARD()->m_include_q((new Array({pair})), nullptr, nullptr))) {
+    return true_instance();
+  }
+  k_Data_EQ_GUARD()->m_lshift((new Array({pair})), nullptr, nullptr);
+  return ([&]() -> BasicObject* { EnsureGuard _eg([&]() { k_Data_EQ_GUARD()->m_delete((new Array({pair})), nullptr, nullptr);  return nil_instance(); }); try { return [&]() -> BasicObject* { return this->m_class((new Array({})), nullptr, nullptr)->m_members((new Array({})), nullptr, nullptr)->m_all_q((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return this->iv_data_values->m_aref((new Array({m})), nullptr, nullptr)->m_eq_q((new Array({other->m___send__((new Array({m})), nullptr, nullptr)})), nullptr, nullptr); })));  return nil_instance(); }(); } catch (Exception* e_) { throw; } }());
   return nil_instance();
 }
 
@@ -16117,9 +16818,11 @@ inline BasicObject* Data::m_inspect(Array* args, Hash* kwargs, Proc* block) {
   /* skipped: intrinsic :module_name not yet supported */
   klass_name = (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = raw_name; return truthy(_l) ? (raw_name->m_include_q((new Array({(new String("#<", 2))})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (raw_name->m_ne_q((new Array({(new String("Data", 4))})), nullptr, nullptr)) : _l; }())) ? ((raw_name)) : ((nil_instance())));
   oid = this->m_object_id((new Array({})), nullptr, nullptr);
-  /* skipped: ConstantRead: unresolved constant :INSPECT_GUARD */
-  /* skipped: ConstantRead: unresolved constant :INSPECT_GUARD */
-  return ([&]() -> BasicObject* { EnsureGuard _eg([&]() { /* skipped: ConstantRead: unresolved constant :INSPECT_GUARD */  return nil_instance(); }); try { return [&]() -> BasicObject* { attrs = this->m_class((new Array({})), nullptr, nullptr)->m_members((new Array({})), nullptr, nullptr)->m_map((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return ((new String("", 0))->m_plus((new Array({(m)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("=", 1))})), nullptr, nullptr)->m_plus((new Array({(this->iv_data_values->m_aref((new Array({m})), nullptr, nullptr)->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)); })))->m_join((new Array({(new String(", ", 2))})), nullptr, nullptr); return (truthy(klass_name) ? (((truthy(attrs->m_empty_q((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(klass_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr)))) : ((((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(klass_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" ", 1))})), nullptr, nullptr)->m_plus((new Array({(attrs)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr))))))) : (((truthy(attrs->m_empty_q((new Array({})), nullptr, nullptr)) ? (((new String("#<data>", 7)))) : ((((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(attrs)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr))))))));  return nil_instance(); }(); } catch (Exception* e_) { throw; } }());
+  if (truthy(k_Data_INSPECT_GUARD()->m_include_q((new Array({oid})), nullptr, nullptr))) {
+    return ((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(this->m_class((new Array({})), nullptr, nullptr)->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(":...>", 5))})), nullptr, nullptr));
+  }
+  k_Data_INSPECT_GUARD()->m_lshift((new Array({oid})), nullptr, nullptr);
+  return ([&]() -> BasicObject* { EnsureGuard _eg([&]() { k_Data_INSPECT_GUARD()->m_delete((new Array({oid})), nullptr, nullptr);  return nil_instance(); }); try { return [&]() -> BasicObject* { attrs = this->m_class((new Array({})), nullptr, nullptr)->m_members((new Array({})), nullptr, nullptr)->m_map((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return ((new String("", 0))->m_plus((new Array({(m)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("=", 1))})), nullptr, nullptr)->m_plus((new Array({(this->iv_data_values->m_aref((new Array({m})), nullptr, nullptr)->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)); })))->m_join((new Array({(new String(", ", 2))})), nullptr, nullptr); return (truthy(klass_name) ? (((truthy(attrs->m_empty_q((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(klass_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr)))) : ((((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(klass_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" ", 1))})), nullptr, nullptr)->m_plus((new Array({(attrs)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr))))))) : (((truthy(attrs->m_empty_q((new Array({})), nullptr, nullptr)) ? (((new String("#<data>", 7)))) : ((((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(attrs)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr))))))));  return nil_instance(); }(); } catch (Exception* e_) { throw; } }());
   return nil_instance();
 }
 
@@ -16132,9 +16835,11 @@ inline BasicObject* Data::m_to_s(Array* args, Hash* kwargs, Proc* block) {
   /* skipped: intrinsic :module_name not yet supported */
   klass_name = (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = raw_name; return truthy(_l) ? (raw_name->m_include_q((new Array({(new String("#<", 2))})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (raw_name->m_ne_q((new Array({(new String("Data", 4))})), nullptr, nullptr)) : _l; }())) ? ((raw_name)) : ((nil_instance())));
   oid = this->m_object_id((new Array({})), nullptr, nullptr);
-  /* skipped: ConstantRead: unresolved constant :INSPECT_GUARD */
-  /* skipped: ConstantRead: unresolved constant :INSPECT_GUARD */
-  return ([&]() -> BasicObject* { EnsureGuard _eg([&]() { /* skipped: ConstantRead: unresolved constant :INSPECT_GUARD */  return nil_instance(); }); try { return [&]() -> BasicObject* { attrs = this->m_class((new Array({})), nullptr, nullptr)->m_members((new Array({})), nullptr, nullptr)->m_map((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return ((new String("", 0))->m_plus((new Array({(m)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("=", 1))})), nullptr, nullptr)->m_plus((new Array({(this->iv_data_values->m_aref((new Array({m})), nullptr, nullptr)->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)); })))->m_join((new Array({(new String(", ", 2))})), nullptr, nullptr); return (truthy(klass_name) ? (((truthy(attrs->m_empty_q((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(klass_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr)))) : ((((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(klass_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" ", 1))})), nullptr, nullptr)->m_plus((new Array({(attrs)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr))))))) : (((truthy(attrs->m_empty_q((new Array({})), nullptr, nullptr)) ? (((new String("#<data>", 7)))) : ((((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(attrs)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr))))))));  return nil_instance(); }(); } catch (Exception* e_) { throw; } }());
+  if (truthy(k_Data_INSPECT_GUARD()->m_include_q((new Array({oid})), nullptr, nullptr))) {
+    return ((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(this->m_class((new Array({})), nullptr, nullptr)->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(":...>", 5))})), nullptr, nullptr));
+  }
+  k_Data_INSPECT_GUARD()->m_lshift((new Array({oid})), nullptr, nullptr);
+  return ([&]() -> BasicObject* { EnsureGuard _eg([&]() { k_Data_INSPECT_GUARD()->m_delete((new Array({oid})), nullptr, nullptr);  return nil_instance(); }); try { return [&]() -> BasicObject* { attrs = this->m_class((new Array({})), nullptr, nullptr)->m_members((new Array({})), nullptr, nullptr)->m_map((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return ((new String("", 0))->m_plus((new Array({(m)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String("=", 1))})), nullptr, nullptr)->m_plus((new Array({(this->iv_data_values->m_aref((new Array({m})), nullptr, nullptr)->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)); })))->m_join((new Array({(new String(", ", 2))})), nullptr, nullptr); return (truthy(klass_name) ? (((truthy(attrs->m_empty_q((new Array({})), nullptr, nullptr)) ? ((((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(klass_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr)))) : ((((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(klass_name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" ", 1))})), nullptr, nullptr)->m_plus((new Array({(attrs)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr))))))) : (((truthy(attrs->m_empty_q((new Array({})), nullptr, nullptr)) ? (((new String("#<data>", 7)))) : ((((new String("", 0))->m_plus((new Array({(new String("#<data ", 7))})), nullptr, nullptr)->m_plus((new Array({(attrs)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(">", 1))})), nullptr, nullptr))))))));  return nil_instance(); }(); } catch (Exception* e_) { throw; } }());
   return nil_instance();
 }
 
@@ -17468,15 +18173,15 @@ inline BasicObject* Marshal_Dumper::m_write_object_inner(Array* args, Hash* kwar
   BasicObject* is_sym = nil_instance();
   BasicObject* oid = nil_instance();
   if (truthy(obj->m_equal_q((new Array({nil_instance()})), nullptr, nullptr))) {
-    /* skipped: ConstantRead: unresolved constant :TYPE_NIL */
+    this->iv_out->m_lshift((new Array({k_Marshal_TYPE_NIL()})), nullptr, nullptr);
     /* skipped: from_expr: nil node — caller passed missing AST */
   }
   if (truthy(obj->m_equal_q((new Array({true_instance()})), nullptr, nullptr))) {
-    /* skipped: ConstantRead: unresolved constant :TYPE_TRUE */
+    this->iv_out->m_lshift((new Array({k_Marshal_TYPE_TRUE()})), nullptr, nullptr);
     /* skipped: from_expr: nil node — caller passed missing AST */
   }
   if (truthy(obj->m_equal_q((new Array({false_instance()})), nullptr, nullptr))) {
-    /* skipped: ConstantRead: unresolved constant :TYPE_FALSE */
+    this->iv_out->m_lshift((new Array({k_Marshal_TYPE_FALSE()})), nullptr, nullptr);
     /* skipped: from_expr: nil node — caller passed missing AST */
   }
   is_int = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_is_a_q((new Array({(&Integer_CLASS)})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<NoMethodError*>(e_) != nullptr) { return [&]() -> BasicObject* { return false_instance();  return nil_instance(); }(); } throw; } }());
@@ -17518,7 +18223,7 @@ inline BasicObject* Marshal_Dumper::m_track(Array* args, Hash* kwargs, Proc* blo
 inline BasicObject* Marshal_Dumper::m_write_link(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* index = array_at(args, 0);
   Proc* _block = block;
-  /* skipped: ConstantRead: unresolved constant :TYPE_LINK */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_LINK()})), nullptr, nullptr);
   return this->m_write_long((new Array({index})), nullptr, nullptr);
   return nil_instance();
 }
@@ -17526,7 +18231,7 @@ inline BasicObject* Marshal_Dumper::m_write_link(Array* args, Hash* kwargs, Proc
 inline BasicObject* Marshal_Dumper::m_write_integer(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* n = array_at(args, 0);
   Proc* _block = block;
-  /* skipped: ConstantRead: unresolved constant :TYPE_INTEGER */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_INTEGER()})), nullptr, nullptr);
   return this->m_write_long((new Array({n})), nullptr, nullptr);
   return nil_instance();
 }
@@ -17536,7 +18241,7 @@ inline BasicObject* Marshal_Dumper::m_write_bignum(Array* args, Hash* kwargs, Pr
   Proc* _block = block;
   BasicObject* bytes = nil_instance();
   BasicObject* num_shorts = nil_instance();
-  /* skipped: ConstantRead: unresolved constant :TYPE_BIGNUM */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_BIGNUM()})), nullptr, nullptr);
   if (truthy(n->m_ge((new Array({(&_f_i_0)})), nullptr, nullptr))) {
     this->iv_out->m_lshift((new Array({(new String("+", 1))})), nullptr, nullptr);
     bytes = this->m_bignum_to_bytes((new Array({n})), nullptr, nullptr);
@@ -17568,10 +18273,30 @@ inline BasicObject* Marshal_Dumper::m_write_float(Array* args, Hash* kwargs, Pro
   BasicObject* f = array_at(args, 0);
   Proc* _block = block;
   BasicObject* s = nil_instance();
-  /* skipped: ConstantRead: unresolved constant :TYPE_FLOAT */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_FLOAT()})), nullptr, nullptr);
   s = this->m_float_to_string((new Array({f})), nullptr, nullptr);
   this->m_write_long((new Array({s->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
   return this->iv_out->m_lshift((new Array({s})), nullptr, nullptr);
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_write_symbol(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* sym = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* str = nil_instance();
+  BasicObject* bytes = nil_instance();
+  BasicObject* needs_enc = nil_instance();
+  BasicObject* enc_name = nil_instance();
+  BasicObject* enc_ivar = nil_instance();
+  str = sym->m_to_s((new Array({})), nullptr, nullptr);
+  return (truthy(this->iv_symbols->m_key_q((new Array({str})), nullptr, nullptr)) ? ((this->iv_out->m_lshift((new Array({k_Marshal_TYPE_SYMLINK()})), nullptr, nullptr), this->m_write_long((new Array({this->iv_symbols->m_aref((new Array({str})), nullptr, nullptr)})), nullptr, nullptr))) : ((this->iv_symbols->m_aset((new Array({str, this->iv_symbols->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr), (bytes = str->m_b((new Array({})), nullptr, nullptr)), (needs_enc = bytes->m_bytes((new Array({})), nullptr, nullptr)->m_any_q((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* b = arg; return b->m_gt((new Array({(&_f_i_127)})), nullptr, nullptr); })))), (enc_name = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return str->m_encoding((new Array({})), nullptr, nullptr)->m_name((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return (new String("ASCII-8BIT", 10));  return nil_instance(); }(); } throw; } }())), (enc_ivar = (truthy(([&]() -> BasicObject* { auto* _l = ([&]() -> BasicObject* { auto* _l = needs_enc; return truthy(_l) ? (enc_name->m_ne_q((new Array({(new String("ASCII-8BIT", 10))})), nullptr, nullptr)) : _l; }()); return truthy(_l) ? (enc_name->m_ne_q((new Array({(new String("BINARY", 6))})), nullptr, nullptr)) : _l; }())) ? (((truthy(enc_name->m_eq_q((new Array({(new String("UTF-8", 5))})), nullptr, nullptr)) ? (((new Array({intern("E"), true_instance()})))) : (((new Array({intern("encoding"), enc_name}))))))) : (nil_instance()))), (truthy(enc_ivar) ? ((this->iv_out->m_lshift((new Array({k_Marshal_TYPE_IVAR()})), nullptr, nullptr))) : (nil_instance())), this->iv_out->m_lshift((new Array({k_Marshal_TYPE_SYMBOL()})), nullptr, nullptr), this->m_write_long((new Array({bytes->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr), this->iv_out->m_lshift((new Array({bytes})), nullptr, nullptr), (truthy(enc_ivar) ? ((this->m_write_long((new Array({(&_f_i_1)})), nullptr, nullptr), this->m_write_enc_ivar((new Array({enc_ivar})), nullptr, nullptr))) : (nil_instance())))));
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_write_symbol_str(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* str = array_at(args, 0);
+  Proc* _block = block;
+  return (truthy(this->iv_symbols->m_key_q((new Array({str})), nullptr, nullptr)) ? ((this->iv_out->m_lshift((new Array({k_Marshal_TYPE_SYMLINK()})), nullptr, nullptr), this->m_write_long((new Array({this->iv_symbols->m_aref((new Array({str})), nullptr, nullptr)})), nullptr, nullptr))) : ((this->iv_symbols->m_aset((new Array({str, this->iv_symbols->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr), this->iv_out->m_lshift((new Array({k_Marshal_TYPE_SYMBOL()})), nullptr, nullptr), this->m_write_long((new Array({str->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr), this->iv_out->m_lshift((new Array({str->m_b((new Array({})), nullptr, nullptr)})), nullptr, nullptr))));
   return nil_instance();
 }
 
@@ -17582,7 +18307,7 @@ inline BasicObject* Marshal_Dumper::m_write_raw_string(Array* args, Hash* kwargs
   BasicObject* bytes = nil_instance();
   raw = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_b((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return obj;  return nil_instance(); }(); } throw; } }());
   bytes = (truthy(raw->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)) ? ((raw)) : ((obj->m_to_s((new Array({})), nullptr, nullptr)->m_b((new Array({})), nullptr, nullptr))));
-  /* skipped: ConstantRead: unresolved constant :TYPE_STRING */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_STRING()})), nullptr, nullptr);
   this->m_write_long((new Array({bytes->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
   return this->iv_out->m_lshift((new Array({bytes})), nullptr, nullptr);
   return nil_instance();
@@ -17594,6 +18319,18 @@ inline BasicObject* Marshal_Dumper::m_encoding_ivar(Array* args, Hash* kwargs, P
   BasicObject* name = nil_instance();
   name = enc->m_name((new Array({})), nullptr, nullptr);
   return (truthy(name->m_eq_q((new Array({(new String("UTF-8", 5))})), nullptr, nullptr)) ? (((new Array({intern("E"), true_instance()})))) : ((truthy(([&]() -> BasicObject* { auto* _l = name->m_eq_q((new Array({(new String("US-ASCII", 8))})), nullptr, nullptr); return truthy(_l) ? _l : (name->m_eq_q((new Array({(new String("ASCII", 5))})), nullptr, nullptr)); }())) ? (((new Array({intern("E"), false_instance()})))) : ((truthy(([&]() -> BasicObject* { auto* _l = name->m_eq_q((new Array({(new String("ASCII-8BIT", 10))})), nullptr, nullptr); return truthy(_l) ? _l : (name->m_eq_q((new Array({(new String("BINARY", 6))})), nullptr, nullptr)); }())) ? ((nil_instance())) : (((new Array({intern("encoding"), name})))))))));
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Dumper::m_write_enc_ivar(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* enc_ivar = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* key = nil_instance();
+  BasicObject* val = nil_instance();
+  BasicObject* bytes = nil_instance();
+  /* skipped: from_expr: unhandled AST node Frozone::Ast::MultipleAssignment */
+  this->m_write_symbol((new Array({key})), nullptr, nullptr);
+  return (truthy(([&]() -> BasicObject* { auto* _l = val->m_equal_q((new Array({true_instance()})), nullptr, nullptr); return truthy(_l) ? _l : (val->m_equal_q((new Array({false_instance()})), nullptr, nullptr)); }())) ? ((this->iv_out->m_lshift((new Array({((truthy(val) ? ((k_Marshal_TYPE_TRUE())) : ((k_Marshal_TYPE_FALSE()))))})), nullptr, nullptr))) : (((bytes = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return val->m_b((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return val->m_to_s((new Array({})), nullptr, nullptr)->m_b((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } throw; } }())), this->iv_out->m_lshift((new Array({k_Marshal_TYPE_STRING()})), nullptr, nullptr), this->m_write_long((new Array({bytes->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr), this->iv_out->m_lshift((new Array({bytes})), nullptr, nullptr))));
   return nil_instance();
 }
 
@@ -17629,7 +18366,7 @@ inline BasicObject* Marshal_Dumper::m_extended_modules(Array* args, Hash* kwargs
 inline BasicObject* Marshal_Dumper::m_write_extension_prefix(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* mod = array_at(args, 0);
   Proc* _block = block;
-  /* skipped: ConstantRead: unresolved constant :TYPE_EXTENDED */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_EXTENDED()})), nullptr, nullptr);
   return this->m_write_symbol_str((new Array({this->m_real_module_name((new Array({mod})), nullptr, nullptr)})), nullptr, nullptr);
   return nil_instance();
 }
@@ -17637,7 +18374,7 @@ inline BasicObject* Marshal_Dumper::m_write_extension_prefix(Array* args, Hash* 
 inline BasicObject* Marshal_Dumper::m_write_uclass(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* klass = array_at(args, 0);
   Proc* _block = block;
-  /* skipped: ConstantRead: unresolved constant :TYPE_UCLASS */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_UCLASS()})), nullptr, nullptr);
   return this->m_write_symbol_str((new Array({this->m_real_class_name((new Array({klass})), nullptr, nullptr)})), nullptr, nullptr);
   return nil_instance();
 }
@@ -17645,7 +18382,7 @@ inline BasicObject* Marshal_Dumper::m_write_uclass(Array* args, Hash* kwargs, Pr
 inline BasicObject* Marshal_Dumper::m_write_raw_array(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* obj = array_at(args, 0);
   Proc* _block = block;
-  /* skipped: ConstantRead: unresolved constant :TYPE_ARRAY */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_ARRAY()})), nullptr, nullptr);
   this->m_write_long((new Array({obj->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
   return obj->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* e = arg; return this->m_write_object((new Array({e})), nullptr, nullptr); })));
   return nil_instance();
@@ -17656,7 +18393,7 @@ inline BasicObject* Marshal_Dumper::m_write_raw_hash(Array* args, Hash* kwargs, 
   Proc* _block = block;
   BasicObject* has_default = nil_instance();
   has_default = ([&]() -> BasicObject* { auto* _l = obj->m_default((new Array({})), nullptr, nullptr)->m_nil_q((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr); return truthy(_l) ? (obj->m_default_proc((new Array({})), nullptr, nullptr)->m_not((new Array({})), nullptr, nullptr)) : _l; }());
-  /* skipped: ConstantRead: unresolved constant :TYPE_HASH_DEF */
+  this->iv_out->m_lshift((new Array({((truthy(has_default) ? ((k_Marshal_TYPE_HASH_DEF())) : ((k_Marshal_TYPE_HASH()))))})), nullptr, nullptr);
   this->m_write_long((new Array({obj->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
   /* skipped: block with multiple required params (2) not yet supported */
   return (truthy(has_default) ? ((this->m_write_object((new Array({obj->m_default((new Array({})), nullptr, nullptr)})), nullptr, nullptr))) : (nil_instance()));
@@ -17667,7 +18404,7 @@ inline BasicObject* Marshal_Dumper::m_write_raw_regexp(Array* args, Hash* kwargs
   BasicObject* obj = array_at(args, 0);
   Proc* _block = block;
   BasicObject* src = nil_instance();
-  /* skipped: ConstantRead: unresolved constant :TYPE_REGEXP */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_REGEXP()})), nullptr, nullptr);
   src = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_source((new Array({})), nullptr, nullptr)->m_b((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return obj->m_source((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } throw; } }());
   this->m_write_long((new Array({src->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
   this->iv_out->m_lshift((new Array({src})), nullptr, nullptr);
@@ -17684,9 +18421,9 @@ inline BasicObject* Marshal_Dumper::m_write_class(Array* args, Hash* kwargs, Pro
   name = this->m_real_class_name((new Array({klass})), nullptr, nullptr);
   needs_ivar = name->m_bytes((new Array({})), nullptr, nullptr)->m_any_q((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* b = arg; return b->m_gt((new Array({(&_f_i_127)})), nullptr, nullptr); })));
   if (truthy(needs_ivar)) {
-    /* skipped: ConstantRead: unresolved constant :TYPE_IVAR */
+    this->iv_out->m_lshift((new Array({k_Marshal_TYPE_IVAR()})), nullptr, nullptr);
   }
-  /* skipped: ConstantRead: unresolved constant :TYPE_CLASS */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_CLASS()})), nullptr, nullptr);
   this->m_write_long((new Array({name->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
   this->iv_out->m_lshift((new Array({name->m_b((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
   return (truthy(needs_ivar) ? ((this->m_write_long((new Array({(&_f_i_1)})), nullptr, nullptr), this->m_write_enc_ivar((new Array({(new Array({intern("E"), true_instance()}))})), nullptr, nullptr))) : (nil_instance()));
@@ -17702,9 +18439,9 @@ inline BasicObject* Marshal_Dumper::m_write_module(Array* args, Hash* kwargs, Pr
   name = this->m_real_module_name((new Array({mod})), nullptr, nullptr);
   needs_ivar = name->m_bytes((new Array({})), nullptr, nullptr)->m_any_q((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* b = arg; return b->m_gt((new Array({(&_f_i_127)})), nullptr, nullptr); })));
   if (truthy(needs_ivar)) {
-    /* skipped: ConstantRead: unresolved constant :TYPE_IVAR */
+    this->iv_out->m_lshift((new Array({k_Marshal_TYPE_IVAR()})), nullptr, nullptr);
   }
-  /* skipped: ConstantRead: unresolved constant :TYPE_MODULE */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_MODULE()})), nullptr, nullptr);
   this->m_write_long((new Array({name->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
   this->iv_out->m_lshift((new Array({name->m_b((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
   return (truthy(needs_ivar) ? ((this->m_write_long((new Array({(&_f_i_1)})), nullptr, nullptr), this->m_write_enc_ivar((new Array({(new Array({intern("E"), true_instance()}))})), nullptr, nullptr))) : (nil_instance()));
@@ -17750,7 +18487,7 @@ inline BasicObject* Marshal_Dumper::m_write_raw_struct(Array* args, Hash* kwargs
   BasicObject* members = nil_instance();
   klass = obj->m_class((new Array({})), nullptr, nullptr);
   this->m_check_anonymous((new Array({klass})), nullptr, nullptr);
-  /* skipped: ConstantRead: unresolved constant :TYPE_STRUCT */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_STRUCT()})), nullptr, nullptr);
   this->m_write_symbol_str((new Array({this->m_real_class_name((new Array({klass})), nullptr, nullptr)})), nullptr, nullptr);
   members = obj->m_members((new Array({})), nullptr, nullptr);
   this->m_write_long((new Array({members->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
@@ -17769,7 +18506,7 @@ inline BasicObject* Marshal_Dumper::m_write_data_as_struct(Array* args, Hash* kw
   mods = this->m_extended_modules((new Array({obj})), nullptr, nullptr);
   mods->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return this->m_write_extension_prefix((new Array({m})), nullptr, nullptr); })));
   this->m_track((new Array({obj})), nullptr, nullptr);
-  /* skipped: ConstantRead: unresolved constant :TYPE_STRUCT */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_STRUCT()})), nullptr, nullptr);
   this->m_write_symbol_str((new Array({this->m_real_class_name((new Array({klass})), nullptr, nullptr)})), nullptr, nullptr);
   members = obj->m_members((new Array({})), nullptr, nullptr);
   this->m_write_long((new Array({members->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
@@ -17804,10 +18541,10 @@ inline BasicObject* Marshal_Dumper::m_write_user_defined(Array* args, Hash* kwar
   n_ivars = str_ivars->m_size((new Array({})), nullptr, nullptr)->m_div((new Array({(&_f_i_2)})), nullptr, nullptr)->m_plus((new Array({extra_bare_ivars->m_size((new Array({})), nullptr, nullptr)->m_div((new Array({(&_f_i_2)})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({((truthy(enc_ivar) ? (((&_f_i_1))) : (((&_f_i_0)))))})), nullptr, nullptr);
   needs_ivar = n_ivars->m_gt((new Array({(&_f_i_0)})), nullptr, nullptr);
   if (truthy(needs_ivar)) {
-    /* skipped: ConstantRead: unresolved constant :TYPE_IVAR */
+    this->iv_out->m_lshift((new Array({k_Marshal_TYPE_IVAR()})), nullptr, nullptr);
   }
   mods->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return this->m_write_extension_prefix((new Array({m})), nullptr, nullptr); })));
-  /* skipped: ConstantRead: unresolved constant :TYPE_USERDEFINED */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_USERDEFINED()})), nullptr, nullptr);
   this->m_write_symbol_str((new Array({this->m_real_class_name((new Array({klass})), nullptr, nullptr)})), nullptr, nullptr);
   this->m_write_long((new Array({data->m_b((new Array({})), nullptr, nullptr)->m_bytesize((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
   this->iv_out->m_lshift((new Array({data->m_b((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
@@ -17844,7 +18581,7 @@ inline BasicObject* Marshal_Dumper::m_write_user_marshal(Array* args, Hash* kwar
   this->m_check_anonymous((new Array({klass})), nullptr, nullptr);
   mods->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return this->m_write_extension_prefix((new Array({m})), nullptr, nullptr); })));
   this->m_track((new Array({obj})), nullptr, nullptr);
-  /* skipped: ConstantRead: unresolved constant :TYPE_USERMARSH */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_USERMARSH()})), nullptr, nullptr);
   this->m_write_symbol_str((new Array({this->m_real_class_name((new Array({klass})), nullptr, nullptr)})), nullptr, nullptr);
   data = obj->m___send__((new Array({intern("marshal_dump")})), nullptr, nullptr);
   return this->m_write_object((new Array({data})), nullptr, nullptr);
@@ -17873,7 +18610,7 @@ inline BasicObject* Marshal_Dumper::m_write_exception(Array* args, Hash* kwargs,
   bt = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_backtrace((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
   all_ivars = (new Array({intern("mesg"), mesg, intern("bt"), bt}));
   all_ivars = all_ivars->m_plus((new Array({extra_pairs})), nullptr, nullptr);
-  /* skipped: ConstantRead: unresolved constant :TYPE_OBJECT */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_OBJECT()})), nullptr, nullptr);
   this->m_write_symbol_str((new Array({this->m_real_class_name((new Array({klass})), nullptr, nullptr)})), nullptr, nullptr);
   this->m_write_long((new Array({all_ivars->m_size((new Array({})), nullptr, nullptr)->m_div((new Array({(&_f_i_2)})), nullptr, nullptr)})), nullptr, nullptr);
   i = (&_f_i_0);
@@ -17913,7 +18650,7 @@ inline BasicObject* Marshal_Dumper::m_write_range(Array* args, Hash* kwargs, Pro
   }
   this->m_track((new Array({obj})), nullptr, nullptr);
   all_ivars = (new Array({intern("excl"), obj->m_exclude_end_q((new Array({})), nullptr, nullptr), intern("begin"), obj->m_first((new Array({})), nullptr, nullptr), intern("end"), obj->m_last((new Array({})), nullptr, nullptr)}))->m_plus((new Array({ivars})), nullptr, nullptr);
-  /* skipped: ConstantRead: unresolved constant :TYPE_OBJECT */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_OBJECT()})), nullptr, nullptr);
   this->m_write_symbol_str((new Array({(new String("Range", 5))})), nullptr, nullptr);
   this->m_write_long((new Array({all_ivars->m_size((new Array({})), nullptr, nullptr)->m_div((new Array({(&_f_i_2)})), nullptr, nullptr)})), nullptr, nullptr);
   i = (&_f_i_0);
@@ -17941,7 +18678,7 @@ inline BasicObject* Marshal_Dumper::m_write_generic_object(Array* args, Hash* kw
   ivars = this->m_collect_ivars((new Array({obj})), nullptr, nullptr);
   mods->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* m = arg; return this->m_write_extension_prefix((new Array({m})), nullptr, nullptr); })));
   this->m_track((new Array({obj})), nullptr, nullptr);
-  /* skipped: ConstantRead: unresolved constant :TYPE_OBJECT */
+  this->iv_out->m_lshift((new Array({k_Marshal_TYPE_OBJECT()})), nullptr, nullptr);
   this->m_write_symbol_str((new Array({this->m_real_class_name((new Array({klass})), nullptr, nullptr)})), nullptr, nullptr);
   this->m_write_long((new Array({ivars->m_size((new Array({})), nullptr, nullptr)->m_div((new Array({(&_f_i_2)})), nullptr, nullptr)})), nullptr, nullptr);
   i = (&_f_i_0);
@@ -17973,7 +18710,7 @@ inline BasicObject* Marshal_Dumper::m_class(Array* args, Hash* kwargs, Proc* blo
 }
 
 inline BasicObject* Marshal_Dumper::m_respond_to_q(Array* args, Hash* kwargs, Proc* block) {
-  static const bool __Marshal_Dumper_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,1,0,1,1,1,1,0,0,0,0,1,1,1,0,1,1,1,1,1,1,1,0,1,0,0,0,1,1,1,1,1,1,0,0,1,1,1,0,1,0,0,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0};
+  static const bool __Marshal_Dumper_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1,1,0,1,1,1,1,0,0,0,0,1,1,1,0,1,1,1,1,1,1,1,0,1,0,0,1,1,1,1,1,1,1,0,1,1,1,1,0,1,0,0,1,1,1,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,0,0,0,0};
   if (args->data.empty()) return false_instance();
   int _id = static_cast<Symbol*>(args->data[0])->method_id_;
   return boxed_bool(_id >= 0 && _id < 1004 && __Marshal_Dumper_responds__[_id]);
@@ -18012,8 +18749,12 @@ inline BasicObject* Marshal_Loader::m_load(Array* args, Hash* kwargs, Proc* bloc
   BasicObject* minor = nil_instance();
   major = this->m_read_byte((new Array({})), nullptr, nullptr);
   minor = this->m_read_byte((new Array({})), nullptr, nullptr);
-  /* skipped: ConstantRead: unresolved constant :MAJOR_VERSION */
-  /* skipped: ConstantRead: unresolved constant :MINOR_VERSION */
+  if (truthy(major->m_ne_q((new Array({k_Marshal_MAJOR_VERSION()})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw static_cast<Exception*>((&TypeError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("incompatible marshal file format (can't be read)\n\tformat version ", 65))})), nullptr, nullptr)->m_plus((new Array({(k_Marshal_MAJOR_VERSION())->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(".", 1))})), nullptr, nullptr)->m_plus((new Array({(k_Marshal_MINOR_VERSION())->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" required; ", 11))})), nullptr, nullptr)->m_plus((new Array({(major)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(".", 1))})), nullptr, nullptr)->m_plus((new Array({(minor)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" given", 6))})), nullptr, nullptr)))})), nullptr, nullptr)); }());
+  }
+  if (truthy(minor->m_gt((new Array({k_Marshal_MINOR_VERSION()})), nullptr, nullptr))) {
+    ([&]() -> BasicObject* { throw static_cast<Exception*>((&TypeError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("incompatible marshal file format (can't be read)\n\tformat version ", 65))})), nullptr, nullptr)->m_plus((new Array({(k_Marshal_MAJOR_VERSION())->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(".", 1))})), nullptr, nullptr)->m_plus((new Array({(k_Marshal_MINOR_VERSION())->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" required; ", 11))})), nullptr, nullptr)->m_plus((new Array({(major)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(".", 1))})), nullptr, nullptr)->m_plus((new Array({(minor)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" given", 6))})), nullptr, nullptr)))})), nullptr, nullptr)); }());
+  }
   return this->m_read_object((new Array({})), nullptr, nullptr);
   return nil_instance();
 }
@@ -18077,6 +18818,16 @@ inline BasicObject* Marshal_Loader::m_track(Array* args, Hash* kwargs, Proc* blo
   idx = this->iv_objects->m_size((new Array({})), nullptr, nullptr);
   this->iv_objects->m_lshift((new Array({obj})), nullptr, nullptr);
   return idx;
+  return nil_instance();
+}
+
+inline BasicObject* Marshal_Loader::m_read_object(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* type = nil_instance();
+  BasicObject* n = nil_instance();
+  BasicObject* idx = nil_instance();
+  type = this->m_read_byte((new Array({})), nullptr, nullptr)->m_chr((new Array({})), nullptr, nullptr);
+  return ([&]() -> BasicObject* { auto* _subj = type; if (truthy(k_Marshal_TYPE_NIL()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_call_proc((new Array({nil_instance()})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_TRUE()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_call_proc((new Array({true_instance()})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_FALSE()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_call_proc((new Array({false_instance()})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_INTEGER()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((n = this->m_read_long((new Array({})), nullptr, nullptr)), this->m_call_proc((new Array({n})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_BIGNUM()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_bignum((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_FLOAT()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_float((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_SYMBOL()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_symbol((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_SYMLINK()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((idx = this->m_read_long((new Array({})), nullptr, nullptr)), (truthy(idx->m_ge((new Array({this->iv_symbols->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new((new Array({static_cast<BasicObject*>((new String("bad symbol link", 15)))})), nullptr, nullptr)); }()))) : (nil_instance())), this->iv_symbols->m_aref((new Array({idx})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_STRING()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_string((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_ARRAY()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_array((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_HASH()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_hash((new Array({false_instance()})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_HASH_DEF()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_hash((new Array({true_instance()})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_OBJECT()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_object_generic((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_STRUCT()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_struct((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_CLASS()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_class_ref((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_MODULE()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_module_ref((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_IVAR()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_ivar((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_LINK()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_link((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_UCLASS()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_uclass((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_USERDEFINED()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_user_defined((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_USERMARSH()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_user_marshal((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_EXTENDED()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_extended((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_REGEXP()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_regexp((new Array({})), nullptr, nullptr)); if (truthy((new String("d", 1))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_data_object((new Array({})), nullptr, nullptr)); if (truthy((new String("M", 1))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_old_module_ref((new Array({})), nullptr, nullptr)); return (([&]() -> BasicObject* { throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("dump format error for type ", 27))})), nullptr, nullptr)->m_plus((new Array({(type->m_inspect((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" (", 2))})), nullptr, nullptr)->m_plus((new Array({(type->m_ord((new Array({})), nullptr, nullptr))->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(")", 1))})), nullptr, nullptr)))})), nullptr, nullptr)); }())); }());
   return nil_instance();
 }
 
@@ -18144,7 +18895,7 @@ inline BasicObject* Marshal_Loader::m_read_float(Array* args, Hash* kwargs, Proc
   BasicObject* idx = nil_instance();
   len = this->m_read_long((new Array({})), nullptr, nullptr);
   str = this->m_read_bytes((new Array({len})), nullptr, nullptr);
-  /* skipped: ConstantPath: unresolved path Float::NAN */
+  f = ([&]() -> BasicObject* { auto* _subj = str; if (truthy((new String("nan", 3))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (k_Float_NAN()); if (truthy((new String("inf", 3))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (k_Float_INFINITY()); if (truthy((new String("-inf", 4))->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (k_Float_INFINITY()->m_neg((new Array({})), nullptr, nullptr)); return (str->m_to_f((new Array({})), nullptr, nullptr)); }());
   idx = this->m_track((new Array({f})), nullptr, nullptr);
   return this->m_call_proc((new Array({f, idx})), nullptr, nullptr);
   return nil_instance();
@@ -18163,6 +18914,18 @@ inline BasicObject* Marshal_Loader::m_read_symbol(Array* args, Hash* kwargs, Pro
   return nil_instance();
 }
 
+inline BasicObject* Marshal_Loader::m_read_ivar_name(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  BasicObject* type = nil_instance();
+  BasicObject* len = nil_instance();
+  BasicObject* str = nil_instance();
+  BasicObject* sym = nil_instance();
+  BasicObject* idx = nil_instance();
+  type = this->m_read_byte((new Array({})), nullptr, nullptr)->m_chr((new Array({})), nullptr, nullptr);
+  return ([&]() -> BasicObject* { auto* _subj = type; if (truthy(k_Marshal_TYPE_SYMBOL()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (str = this->m_read_bytes((new Array({len})), nullptr, nullptr)), (sym = str->m_to_sym((new Array({})), nullptr, nullptr)), this->iv_symbols->m_lshift((new Array({sym})), nullptr, nullptr), sym); if (truthy(k_Marshal_TYPE_SYMLINK()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((idx = this->m_read_long((new Array({})), nullptr, nullptr)), (truthy(idx->m_ge((new Array({this->iv_symbols->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr)) ? ((([&]() -> BasicObject* { throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new((new Array({static_cast<BasicObject*>((new String("bad symbol link", 15)))})), nullptr, nullptr)); }()))) : (nil_instance())), this->iv_symbols->m_aref((new Array({idx})), nullptr, nullptr)); return ((this->iv_pos = this->iv_pos->m_minus((new Array({(&_f_i_1)})), nullptr, nullptr)), this->m_read_object((new Array({})), nullptr, nullptr)); }());
+  return nil_instance();
+}
+
 inline BasicObject* Marshal_Loader::m_read_string(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   BasicObject* len = nil_instance();
@@ -18172,7 +18935,7 @@ inline BasicObject* Marshal_Loader::m_read_string(Array* args, Hash* kwargs, Pro
   BasicObject* idx = nil_instance();
   len = this->m_read_long((new Array({})), nullptr, nullptr);
   str = this->m_read_bytes((new Array({len})), nullptr, nullptr);
-  /* skipped: ConstantPath: unresolved path Encoding::ASCII_8BIT */
+  s = str->m_dup((new Array({})), nullptr, nullptr)->m_force_encoding((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr);
   if (truthy(this->iv_string_dedup)) {
     canonical = this->iv_string_dedup->m_aref((new Array({s})), nullptr, nullptr);
     if (truthy(canonical)) {
@@ -18402,7 +19165,9 @@ inline BasicObject* Marshal_Loader::m_const_from_name(Array* args, Hash* kwargs,
   BasicObject* mod = nil_instance();
   BasicObject* inherit = nil_instance();
   names_to_try = (new Array({name}));
-  /* skipped: ConstantPath: unresolved path Encoding::ASCII_8BIT */
+  if (truthy(([&]() -> BasicObject* { auto* _l = name->m_encoding((new Array({})), nullptr, nullptr)->m_eq_q((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr); return truthy(_l) ? _l : (name->m_encoding((new Array({})), nullptr, nullptr)->m_eq_q((new Array({k_Encoding_BINARY()})), nullptr, nullptr)); }()))) {
+    ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return names_to_try->m_lshift((new Array({name->m_dup((new Array({})), nullptr, nullptr)->m_force_encoding((new Array({k_Encoding_UTF_8()})), nullptr, nullptr)})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
+  }
   names_to_try->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* n = arg; return ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { parts = n->m_split((new Array({(new String("::", 2))})), nullptr, nullptr); mod = (&Object_CLASS); /* skipped: block with multiple required params (2) not yet supported */ return mod;  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<NameError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }()); })));
   return ([&]() -> BasicObject* { throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("undefined class/module ", 23))})), nullptr, nullptr)->m_plus((new Array({(name)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)))})), nullptr, nullptr)); }());
   return nil_instance();
@@ -18462,7 +19227,7 @@ inline BasicObject* Marshal_Loader::m_read_object_for_ivar(Array* args, Hash* kw
   obj_track_idx = nil_instance();
   userdefined_klass = nil_instance();
   userdefined_raw = nil_instance();
-  /* skipped: ConstantRead: unresolved constant :TYPE_STRING */
+  obj = ([&]() -> BasicObject* { auto* _subj = type; if (truthy(k_Marshal_TYPE_STRING()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (str = this->m_read_bytes((new Array({len})), nullptr, nullptr)), (s = str->m_dup((new Array({})), nullptr, nullptr)->m_force_encoding((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr)), (obj_track_idx = this->m_track((new Array({s})), nullptr, nullptr)), s); if (truthy(k_Marshal_TYPE_SYMBOL()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (str = this->m_read_bytes((new Array({len})), nullptr, nullptr)), (sym_idx = this->iv_symbols->m_size((new Array({})), nullptr, nullptr)), (raw_sym = str->m_dup((new Array({})), nullptr, nullptr)->m_force_encoding((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr)->m_to_sym((new Array({})), nullptr, nullptr)), this->iv_symbols->m_lshift((new Array({raw_sym})), nullptr, nullptr), raw_sym); if (truthy(k_Marshal_TYPE_ARRAY()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (arr = (&Array_CLASS)->m_new((new Array({len})), nullptr, nullptr)), (obj_track_idx = this->m_track((new Array({arr})), nullptr, nullptr)), len->m_times((new Array({})), nullptr, nullptr), arr); if (truthy(k_Marshal_TYPE_HASH()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (h = (new Hash({}))), (obj_track_idx = this->m_track((new Array({h})), nullptr, nullptr)), len->m_times((new Array({})), nullptr, nullptr), h); if (truthy(k_Marshal_TYPE_REGEXP()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (src = this->m_read_bytes((new Array({len})), nullptr, nullptr)), (opts = this->m_read_byte((new Array({})), nullptr, nullptr)), (r = (&Regexp_CLASS)->m_new((new Array({src, opts})), nullptr, nullptr)), (obj_track_idx = this->m_track((new Array({r})), nullptr, nullptr)), r); if (truthy(k_Marshal_TYPE_USERDEFINED()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((defer_track = true_instance()), (userdefined_klass = this->m_read_class_by_symbol((new Array({})), nullptr, nullptr)), (len = this->m_read_long((new Array({})), nullptr, nullptr)), (userdefined_raw = this->m_read_bytes((new Array({len})), nullptr, nullptr)), nil_instance()); if (truthy(k_Marshal_TYPE_STRUCT()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((defer_track = true_instance()), this->m_read_struct_body((new Array({})), nullptr, nullptr)); if (truthy(k_Marshal_TYPE_OBJECT()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((defer_track = true_instance()), this->m_read_generic_object_body((new Array({})), nullptr, nullptr)); return ((this->iv_pos = this->iv_pos->m_minus((new Array({(&_f_i_1)})), nullptr, nullptr)), this->m_read_object((new Array({})), nullptr, nullptr)); }());
   num_ivars = this->m_read_long((new Array({})), nullptr, nullptr);
   enc_applied = false_instance();
   regexp_enc = nil_instance();
@@ -18474,7 +19239,7 @@ inline BasicObject* Marshal_Loader::m_read_object_for_ivar(Array* args, Hash* kw
     val = this->m_read_object((new Array({})), nullptr, nullptr);
     if (truthy(name->m_eq_q((new Array({intern("E")})), nullptr, nullptr))) {
       enc_applied = true_instance();
-      /* skipped: ConstantPath: unresolved path Encoding::UTF_8 */
+      enc = (truthy(val) ? ((k_Encoding_UTF_8())) : ((k_Encoding_US_ASCII())));
       if (truthy(userdefined_klass)) {
         userdefined_enc = enc;
       } else {
@@ -18497,7 +19262,7 @@ inline BasicObject* Marshal_Loader::m_read_object_for_ivar(Array* args, Hash* kw
       if (truthy(name->m_eq_q((new Array({intern("encoding")})), nullptr, nullptr))) {
         enc_applied = true_instance();
         enc_name = (truthy(val->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)) ? ((val)) : ((val->m_to_s((new Array({})), nullptr, nullptr))));
-        /* skipped: ConstantPath: unresolved path Encoding::ASCII_8BIT */
+        enc = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return (&Encoding_CLASS)->m_find((new Array({enc_name})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return k_Encoding_ASCII_8BIT();  return nil_instance(); }(); } throw; } }());
         if (truthy(userdefined_klass)) {
           userdefined_enc = enc;
         } else {
@@ -18539,7 +19304,7 @@ inline BasicObject* Marshal_Loader::m_read_object_for_ivar(Array* args, Hash* kw
     }
   }
   if (truthy(userdefined_klass)) {
-    /* skipped: ConstantPath: unresolved path Encoding::ASCII_8BIT */
+    data = userdefined_raw->m_dup((new Array({})), nullptr, nullptr)->m_force_encoding((new Array({([&]() -> BasicObject* { auto* _l = userdefined_enc; return truthy(_l) ? _l : (k_Encoding_ASCII_8BIT()); }())})), nullptr, nullptr);
     if (truthy(userdefined_extra_ivars)) {
       i = (&_f_i_0);
       while (truthy(i->m_lt((new Array({userdefined_extra_ivars->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr))) {
@@ -18576,7 +19341,9 @@ inline BasicObject* Marshal_Loader::m_read_object_for_ivar(Array* args, Hash* kw
   if (truthy(defer_track)) {
     obj_track_idx = this->iv_objects->m_size((new Array({})), nullptr, nullptr);
     this->m_track((new Array({obj})), nullptr, nullptr);
-    /* skipped: ConstantRead: unresolved constant :TYPE_USERDEFINED */
+    if (truthy(type->m_eq_q((new Array({k_Marshal_TYPE_USERDEFINED()})), nullptr, nullptr))) {
+      this->iv_no_link_proc->m_aset((new Array({obj_track_idx, true_instance()})), nullptr, nullptr);
+    }
   }
   if (truthy(([&]() -> BasicObject* { auto* _l = regexp_enc; return truthy(_l) ? (obj->m_is_a_q((new Array({(&Regexp_CLASS)})), nullptr, nullptr)) : _l; }()))) {
     ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { new_src = obj->m_source((new Array({})), nullptr, nullptr)->m_dup((new Array({})), nullptr, nullptr)->m_force_encoding((new Array({regexp_enc})), nullptr, nullptr); new_regexp = (&Regexp_CLASS)->m_new((new Array({new_src, obj->m_options((new Array({})), nullptr, nullptr)})), nullptr, nullptr); ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_instance_variables((new Array({})), nullptr, nullptr)->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* { BasicObject* iv = arg; return new_regexp->m_instance_variable_set((new Array({iv, obj->m_instance_variable_get((new Array({iv})), nullptr, nullptr)})), nullptr, nullptr); })));  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }()); if (truthy(obj_track_idx)) {   this->iv_objects->m_aset((new Array({obj_track_idx, new_regexp})), nullptr, nullptr); } return (obj = new_regexp);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }());
@@ -18665,6 +19432,29 @@ inline BasicObject* Marshal_Loader::m_read_uclass(Array* args, Hash* kwargs, Pro
   return nil_instance();
 }
 
+inline BasicObject* Marshal_Loader::m_read_object_with_class(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* klass = array_at(args, 0);
+  Proc* _block = block;
+  BasicObject* type = nil_instance();
+  BasicObject* len = nil_instance();
+  BasicObject* str = nil_instance();
+  BasicObject* klass_is_string = nil_instance();
+  BasicObject* obj = nil_instance();
+  BasicObject* klass_is_array = nil_instance();
+  BasicObject* arr = nil_instance();
+  BasicObject* array_push = nil_instance();
+  BasicObject* klass_is_hash = nil_instance();
+  BasicObject* h = nil_instance();
+  BasicObject* src = nil_instance();
+  BasicObject* opts = nil_instance();
+  BasicObject* inner_klass = nil_instance();
+  BasicObject* k = nil_instance();
+  BasicObject* v = nil_instance();
+  type = this->m_read_byte((new Array({})), nullptr, nullptr)->m_chr((new Array({})), nullptr, nullptr);
+  return ([&]() -> BasicObject* { auto* _subj = type; if (truthy(k_Marshal_TYPE_STRING()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (str = this->m_read_bytes((new Array({len})), nullptr, nullptr)), (klass_is_string = (([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return klass->m_le((new Array({(&String_CLASS)})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return false_instance();  return nil_instance(); }(); } throw; } }()))), (truthy(([&]() -> BasicObject* { auto* _l = klass_is_string; return truthy(_l) ? _l : (klass->m_eq_q((new Array({(&String_CLASS)})), nullptr, nullptr)); }())) ? (nil_instance()) : ((([&]() -> BasicObject* { throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("class ", 6))})), nullptr, nullptr)->m_plus((new Array({(klass)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" needs to have method `_load'", 29))})), nullptr, nullptr)))})), nullptr, nullptr)); }())))), (truthy(klass_is_string) ? (((obj = klass->m_allocate((new Array({})), nullptr, nullptr)), ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return obj->m_replace((new Array({str->m_force_encoding((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr)})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }()), this->m_track((new Array({obj})), nullptr, nullptr), obj)) : (((obj = str->m_dup((new Array({})), nullptr, nullptr)->m_force_encoding((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr)), this->m_track((new Array({obj})), nullptr, nullptr), obj)))); if (truthy(k_Marshal_TYPE_ARRAY()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (klass_is_array = (([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return klass->m_le((new Array({(&Array_CLASS)})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return false_instance();  return nil_instance(); }(); } throw; } }()))), (truthy(klass_is_array) ? (nil_instance()) : ((([&]() -> BasicObject* { throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("class ", 6))})), nullptr, nullptr)->m_plus((new Array({(klass)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" needs to have method `_load'", 29))})), nullptr, nullptr)))})), nullptr, nullptr)); }())))), (arr = klass->m_allocate((new Array({})), nullptr, nullptr)), this->m_track((new Array({arr})), nullptr, nullptr), (array_push = (&Array_CLASS)->m_instance_method((new Array({intern("<<")})), nullptr, nullptr)), len->m_times((new Array({})), nullptr, nullptr), arr); if (truthy(k_Marshal_TYPE_HASH()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (klass_is_hash = (([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return klass->m_le((new Array({(&Hash_CLASS)})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return false_instance();  return nil_instance(); }(); } throw; } }()))), (truthy(klass_is_hash) ? (nil_instance()) : ((([&]() -> BasicObject* { throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("class ", 6))})), nullptr, nullptr)->m_plus((new Array({(klass)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" needs to have method `_load'", 29))})), nullptr, nullptr)))})), nullptr, nullptr)); }())))), (h = klass->m_allocate((new Array({})), nullptr, nullptr)), this->m_track((new Array({h})), nullptr, nullptr), len->m_times((new Array({})), nullptr, nullptr), h); if (truthy(k_Marshal_TYPE_HASH_DEF()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (klass_is_hash = (([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return klass->m_le((new Array({(&Hash_CLASS)})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return false_instance();  return nil_instance(); }(); } throw; } }()))), (truthy(klass_is_hash) ? (nil_instance()) : ((([&]() -> BasicObject* { throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new((new Array({static_cast<BasicObject*>(((new String("", 0))->m_plus((new Array({(new String("class ", 6))})), nullptr, nullptr)->m_plus((new Array({(klass)->m_to_s((new Array({})), nullptr, nullptr)})), nullptr, nullptr)->m_plus((new Array({(new String(" needs to have method `_load'", 29))})), nullptr, nullptr)))})), nullptr, nullptr)); }())))), (h = klass->m_allocate((new Array({})), nullptr, nullptr)), this->m_track((new Array({h})), nullptr, nullptr), len->m_times((new Array({})), nullptr, nullptr), h->m_default_set((new Array({this->m_read_object((new Array({})), nullptr, nullptr)})), nullptr, nullptr), h); if (truthy(k_Marshal_TYPE_REGEXP()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (src = this->m_read_bytes((new Array({len})), nullptr, nullptr)), (opts = this->m_read_byte((new Array({})), nullptr, nullptr)), (obj = (truthy(([&]() -> BasicObject* { auto* _l = klass->m_eq_q((new Array({(&Regexp_CLASS)})), nullptr, nullptr); return truthy(_l) ? _l : ((([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return klass->m_ancestors((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return (new Array({}));  return nil_instance(); }(); } throw; } }()))->m_include_q((new Array({(&Regexp_CLASS)})), nullptr, nullptr)); }())) ? ((klass->m_new((new Array({src, opts})), nullptr, nullptr))) : (((&Regexp_CLASS)->m_new((new Array({src, opts})), nullptr, nullptr))))), this->m_track((new Array({obj})), nullptr, nullptr), obj); if (truthy(k_Marshal_TYPE_UCLASS()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((inner_klass = this->m_read_class_by_symbol((new Array({})), nullptr, nullptr)), (truthy(([&]() -> BasicObject* { auto* _l = inner_klass->m_eq_q((new Array({(&Hash_CLASS)})), nullptr, nullptr); return truthy(_l) ? ((([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return klass->m_ancestors((new Array({})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return (new Array({}));  return nil_instance(); }(); } throw; } }()))->m_include_q((new Array({(&Hash_CLASS)})), nullptr, nullptr)) : _l; }())) ? (((obj = this->m_read_object_with_class((new Array({klass})), nullptr, nullptr)), (truthy(obj->m_is_a_q((new Array({(&Hash_CLASS)})), nullptr, nullptr)) ? ((obj->m_compare_by_identity((new Array({})), nullptr, nullptr))) : (nil_instance())), obj)) : ((this->m_read_object_with_class((new Array({inner_klass})), nullptr, nullptr))))); if (truthy(k_Marshal_TYPE_IVAR()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return (this->m_read_object_with_class_ivar((new Array({klass})), nullptr, nullptr)); return ((this->iv_pos = this->iv_pos->m_minus((new Array({(&_f_i_1)})), nullptr, nullptr)), this->m_read_object((new Array({})), nullptr, nullptr)); }());
+  return nil_instance();
+}
+
 inline BasicObject* Marshal_Loader::m_read_object_with_class_ivar(Array* args, Hash* kwargs, Proc* block) {
   BasicObject* klass = array_at(args, 0);
   Proc* _block = block;
@@ -18685,21 +19475,21 @@ inline BasicObject* Marshal_Loader::m_read_object_with_class_ivar(Array* args, H
   BasicObject* enc_name = nil_instance();
   type = this->m_read_byte((new Array({})), nullptr, nullptr)->m_chr((new Array({})), nullptr, nullptr);
   obj_track_idx = nil_instance();
-  /* skipped: ConstantRead: unresolved constant :TYPE_STRING */
+  obj = ([&]() -> BasicObject* { auto* _subj = type; if (truthy(k_Marshal_TYPE_STRING()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (str = this->m_read_bytes((new Array({len})), nullptr, nullptr)), (klass_is_string = (([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return klass->m_le((new Array({(&String_CLASS)})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return false_instance();  return nil_instance(); }(); } throw; } }()))), (truthy(klass_is_string) ? (((o = klass->m_allocate((new Array({})), nullptr, nullptr)), ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return o->m_replace((new Array({str->m_force_encoding((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr)})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return nil_instance();  return nil_instance(); }(); } throw; } }()), (obj_track_idx = this->m_track((new Array({o})), nullptr, nullptr)), o)) : (((o = str->m_dup((new Array({})), nullptr, nullptr)->m_force_encoding((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr)), (obj_track_idx = this->m_track((new Array({o})), nullptr, nullptr)), o)))); if (truthy(k_Marshal_TYPE_HASH()->m_case_eq((new Array({_subj})), nullptr, nullptr))) return ((len = this->m_read_long((new Array({})), nullptr, nullptr)), (h = (truthy(klass->m_le((new Array({(&Hash_CLASS)})), nullptr, nullptr)) ? ((klass->m_allocate((new Array({})), nullptr, nullptr))) : (((new Hash({})))))), (obj_track_idx = this->m_track((new Array({h})), nullptr, nullptr)), len->m_times((new Array({})), nullptr, nullptr), h); return ((this->iv_pos = this->iv_pos->m_minus((new Array({(&_f_i_1)})), nullptr, nullptr)), this->m_read_object((new Array({})), nullptr, nullptr)); }());
   num_ivars = this->m_read_long((new Array({})), nullptr, nullptr);
   for (int64_t ___i_raw__ = 0; ___i_raw__ < static_cast<Integer*>(num_ivars)->raw_; ___i_raw__++) {
     BasicObject* _i = new Integer(___i_raw__);
     name = this->m_read_ivar_name((new Array({})), nullptr, nullptr);
     val = this->m_read_object((new Array({})), nullptr, nullptr);
     if (truthy(name->m_eq_q((new Array({intern("E")})), nullptr, nullptr))) {
-      /* skipped: ConstantPath: unresolved path Encoding::UTF_8 */
+      enc = (truthy(val) ? ((k_Encoding_UTF_8())) : ((k_Encoding_US_ASCII())));
       if (truthy(obj->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
         obj->m_force_encoding((new Array({enc})), nullptr, nullptr);
       }
     } else {
       if (truthy(name->m_eq_q((new Array({intern("encoding")})), nullptr, nullptr))) {
         enc_name = (truthy(val->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr)) ? ((val)) : ((val->m_to_s((new Array({})), nullptr, nullptr))));
-        /* skipped: ConstantPath: unresolved path Encoding::ASCII_8BIT */
+        enc = ([&]() -> BasicObject* { try { return [&]() -> BasicObject* { return (&Encoding_CLASS)->m_find((new Array({enc_name})), nullptr, nullptr);  return nil_instance(); }(); } catch (Exception* e_) { if (dynamic_cast<StandardError*>(e_) != nullptr) { return [&]() -> BasicObject* { return k_Encoding_ASCII_8BIT();  return nil_instance(); }(); } throw; } }());
         if (truthy(obj->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
           obj->m_force_encoding((new Array({enc})), nullptr, nullptr);
         }
@@ -18788,7 +19578,7 @@ inline BasicObject* Marshal_Loader::m_read_regexp(Array* args, Hash* kwargs, Pro
   len = this->m_read_long((new Array({})), nullptr, nullptr);
   src = this->m_read_bytes((new Array({len})), nullptr, nullptr);
   opts = this->m_read_byte((new Array({})), nullptr, nullptr);
-  /* skipped: ConstantPath: unresolved path Encoding::ASCII_8BIT */
+  r = (&Regexp_CLASS)->m_new((new Array({src->m_force_encoding((new Array({k_Encoding_ASCII_8BIT()})), nullptr, nullptr), opts})), nullptr, nullptr);
   idx = this->m_track((new Array({r})), nullptr, nullptr);
   return this->m_call_proc((new Array({r, idx})), nullptr, nullptr);
   return nil_instance();
@@ -18824,7 +19614,7 @@ inline BasicObject* Marshal_Loader::m_class(Array* args, Hash* kwargs, Proc* blo
 }
 
 inline BasicObject* Marshal_Loader::m_respond_to_q(Array* args, Hash* kwargs, Proc* block) {
-  static const bool __Marshal_Loader_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,0,0,0,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1};
+  static const bool __Marshal_Loader_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,0,1,1,0,0,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,1,1};
   if (args->data.empty()) return false_instance();
   int _id = static_cast<Symbol*>(args->data[0])->method_id_;
   return boxed_bool(_id >= 0 && _id < 1004 && __Marshal_Loader_responds__[_id]);
@@ -21023,6 +21813,18 @@ inline BasicObject* Math_DomainError_eigenclass::m_respond_to_q(Array* args, Has
   return boxed_bool(_id >= 0 && _id < 1004 && __Math_DomainError_eigenclass_responds__[_id]);
 }
 
+inline BasicObject* Encoding_eigenclass::m_list(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return k_Encoding_ALL();
+  return nil_instance();
+}
+
+inline BasicObject* Encoding_eigenclass::m_default_external(Array* args, Hash* kwargs, Proc* block) {
+  Proc* _block = block;
+  return ([&]() -> BasicObject* { auto* _l = this->iv_default_external; return truthy(_l) ? _l : (k_Encoding_UTF_8()); }());
+  return nil_instance();
+}
+
 inline BasicObject* Encoding_eigenclass::m_default_internal(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   return this->iv_default_internal;
@@ -21056,7 +21858,7 @@ inline BasicObject* Encoding_eigenclass::m_find(Array* args, Hash* kwargs, Proc*
 inline BasicObject* Encoding_eigenclass::m_aliases(Array* args, Hash* kwargs, Proc* block) {
   Proc* _block = block;
   BasicObject* base = nil_instance();
-  /* skipped: ConstantRead: unresolved constant :ALIASES */
+  base = k_Encoding_ALIASES()->m_dup((new Array({})), nullptr, nullptr);
   base->m_aset((new Array({(new String("external", 8)), this->m_default_external((new Array({})), nullptr, nullptr)->m_name((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
   base->m_aset((new Array({(new String("locale", 6)), ([&]() -> BasicObject* { auto* _l = this->m_locale_charmap((new Array({})), nullptr, nullptr); return truthy(_l) ? _l : (this->m_default_external((new Array({})), nullptr, nullptr)->m_name((new Array({})), nullptr, nullptr)); }())})), nullptr, nullptr);
   base->m_aset((new Array({(new String("filesystem", 10)), this->m_default_external((new Array({})), nullptr, nullptr)->m_name((new Array({})), nullptr, nullptr)})), nullptr, nullptr);
@@ -21072,7 +21874,7 @@ inline BasicObject* Encoding_eigenclass::m_name_list(Array* args, Hash* kwargs, 
   BasicObject* names = nil_instance();
   BasicObject* all_aliases = nil_instance();
   /* skipped: &:sym block-arg coercion not yet supported */
-  /* skipped: ConstantRead: unresolved constant :ALIASES */
+  all_aliases = k_Encoding_ALIASES()->m_keys((new Array({})), nullptr, nullptr)->m_plus((new Array({(new Array({(new String("external", 8)), (new String("locale", 6)), (new String("filesystem", 10))}))})), nullptr, nullptr);
   if (truthy(this->m_default_internal((new Array({})), nullptr, nullptr))) {
     all_aliases->m_lshift((new Array({(new String("internal", 8))})), nullptr, nullptr);
   }
@@ -21089,7 +21891,11 @@ inline BasicObject* Encoding_eigenclass::m___build_find_map__(Array* args, Hash*
   BasicObject* key = nil_instance();
   m = (new Hash({}));
   i = (&_f_i_0);
-  /* skipped: ConstantRead: unresolved constant :ALL */
+  while (truthy(i->m_lt((new Array({k_Encoding_ALL()->m_size((new Array({})), nullptr, nullptr)})), nullptr, nullptr))) {
+    e = k_Encoding_ALL()->m_aref((new Array({i})), nullptr, nullptr);
+    m->m_aset((new Array({e->m_name((new Array({})), nullptr, nullptr)->m_downcase((new Array({})), nullptr, nullptr), e})), nullptr, nullptr);
+    i = i->m_plus((new Array({(&_f_i_1)})), nullptr, nullptr);
+  }
   /* skipped: block with multiple required params (2) not yet supported */
   return m->m_freeze((new Array({})), nullptr, nullptr);
   return nil_instance();
@@ -21106,7 +21912,7 @@ inline BasicObject* Encoding_eigenclass::m_class(Array* args, Hash* kwargs, Proc
 }
 
 inline BasicObject* Encoding_eigenclass::m_respond_to_q(Array* args, Hash* kwargs, Proc* block) {
-  static const bool __Encoding_eigenclass_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,1,0,0,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+  static const bool __Encoding_eigenclass_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,0,0,0,0,0,1,0,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   if (args->data.empty()) return false_instance();
   int _id = static_cast<Symbol*>(args->data[0])->method_id_;
   return boxed_bool(_id >= 0 && _id < 1004 && __Encoding_eigenclass_responds__[_id]);
@@ -21909,7 +22715,7 @@ inline BasicObject* Time_eigenclass::m__coerce_time_arg(Array* args, Hash* kwarg
     return a;
   }
   if (truthy(a->m_is_a_q((new Array({(&String_CLASS)})), nullptr, nullptr))) {
-    /* skipped: ConstantRead: unresolved constant :MONTH_NAMES */
+    m = k_Time_MONTH_NAMES()->m_aref((new Array({a->m_downcase((new Array({})), nullptr, nullptr)->m_aref((new Array({(&_f_i_0), (&_f_i_3)})), nullptr, nullptr)})), nullptr, nullptr);
     if (truthy(m)) {
       return m;
     }
@@ -21917,7 +22723,7 @@ inline BasicObject* Time_eigenclass::m__coerce_time_arg(Array* args, Hash* kwarg
   }
   if (truthy(a->m_respond_to_q((new Array({intern("to_str")})), nullptr, nullptr))) {
     s = a->m_to_str((new Array({})), nullptr, nullptr);
-    /* skipped: ConstantRead: unresolved constant :MONTH_NAMES */
+    m = k_Time_MONTH_NAMES()->m_aref((new Array({s->m_downcase((new Array({})), nullptr, nullptr)->m_aref((new Array({(&_f_i_0), (&_f_i_3)})), nullptr, nullptr)})), nullptr, nullptr);
     if (truthy(m)) {
       return m;
     }
@@ -21952,6 +22758,14 @@ inline BasicObject* Time_eigenclass::m__time_force_zone_b(Array* args, Hash* kwa
   BasicObject* offset = (args->data.size() > 2) ? args->data[2] : (nil_instance());
   Proc* _block = block;
   return (truthy(this->m__time_zone_utc_q((new Array({zone})), nullptr, nullptr)) ? ((t->m_utc((new Array({})), nullptr, nullptr))) : ((truthy(([&]() -> BasicObject* { auto* _l = offset; return truthy(_l) ? _l : ((offset = this->m_zone_offset((new Array({zone})), nullptr, nullptr))); }())) ? ((t->m_localtime((new Array({})), nullptr, nullptr), (truthy(t->m_utc_offset((new Array({})), nullptr, nullptr)->m_ne_q((new Array({offset})), nullptr, nullptr)) ? ((t->m_localtime((new Array({offset})), nullptr, nullptr))) : (nil_instance())))) : ((t->m_localtime((new Array({})), nullptr, nullptr))))));
+  return nil_instance();
+}
+
+inline BasicObject* Time_eigenclass::m__time_month_days(Array* args, Hash* kwargs, Proc* block) {
+  BasicObject* y = array_at(args, 0);
+  BasicObject* m = array_at(args, 1);
+  Proc* _block = block;
+  return ((truthy(([&]() -> BasicObject* { auto* _l = (([&]() -> BasicObject* { auto* _l = (y->m_mod((new Array({(&_f_i_4)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_0)})), nullptr, nullptr)); return truthy(_l) ? ((y->m_mod((new Array({(&_f_i_100)})), nullptr, nullptr)->m_ne_q((new Array({(&_f_i_0)})), nullptr, nullptr))) : _l; }())); return truthy(_l) ? _l : ((y->m_mod((new Array({(&_f_i_400)})), nullptr, nullptr)->m_eq_q((new Array({(&_f_i_0)})), nullptr, nullptr))); }())) ? ((k_Time_LeapYearMonthDays())) : ((k_Time_CommonYearMonthDays()))))->m_aref((new Array({m->m_minus((new Array({(&_f_i_1)})), nullptr, nullptr)})), nullptr, nullptr);
   return nil_instance();
 }
 
@@ -22046,7 +22860,7 @@ inline BasicObject* Time_eigenclass::m_class(Array* args, Hash* kwargs, Proc* bl
 }
 
 inline BasicObject* Time_eigenclass::m_respond_to_q(Array* args, Hash* kwargs, Proc* block) {
-  static const bool __Time_eigenclass_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,1,0,1,0,1,1,1,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+  static const bool __Time_eigenclass_responds__[] = {0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,1,0,0,0,0,0,0,0,1,0,1,0,1,1,1,1,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,1,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
   if (args->data.empty()) return false_instance();
   int _id = static_cast<Symbol*>(args->data[0])->method_id_;
   return boxed_bool(_id >= 0 && _id < 1004 && __Time_eigenclass_responds__[_id]);
@@ -22494,7 +23308,7 @@ inline BasicObject* Process_eigenclass::m_kill(Array* args, Hash* kwargs, Proc* 
   }
   our_pid = (&Process_CLASS)->m_pid((new Array({})), nullptr, nullptr);
   /* skipped: ConstantRead: unresolved constant :Signal */
-  /* skipped: ConstantPath: unresolved path Signal::CANONICAL_BY_NUM */
+  /* skipped: ConstantRead: unresolved constant :Signal */
   return pids->m_length((new Array({})), nullptr, nullptr);
   return nil_instance();
 }
@@ -24132,30 +24946,1868 @@ inline Array* build_int_array(const std::int64_t* data, std::size_t n) {
   return a;
 }
 
+inline BasicObject* k_NilClass_NIL_STR() {
+  static BasicObject* val = (new String("", 0)); return val;
+}
+
+inline BasicObject* k_TrueClass_TRUE_STR() {
+  static BasicObject* val = (new String("true", 4)); return val;
+}
+
+inline BasicObject* k_FalseClass_FALSE_STR() {
+  static BasicObject* val = (new String("false", 5)); return val;
+}
+
+inline BasicObject* k_Integer_ROUND_NDIGITS_MAX() {
+  static BasicObject* val = (&_f_i_1073741824); return val;
+}
+
+inline BasicObject* k_Float_INFINITY() {
+  static BasicObject* val = (new Float(std::numeric_limits<double>::infinity())); return val;
+}
+
+inline BasicObject* k_Float_NAN() {
+  static BasicObject* val = (new Float(std::numeric_limits<double>::quiet_NaN())); return val;
+}
+
+inline BasicObject* k_Float_MAX() {
+  static BasicObject* val = (new Float(1.7976931348623157e+308)); return val;
+}
+
+inline BasicObject* k_Float_MIN() {
+  static BasicObject* val = (new Float(2.2250738585072014e-308)); return val;
+}
+
+inline BasicObject* k_Float_EPSILON() {
+  static BasicObject* val = (new Float(2.220446049250313e-16)); return val;
+}
+
+inline BasicObject* k_Float_DIG() {
+  static BasicObject* val = (&_f_i_15); return val;
+}
+
+inline BasicObject* k_Float_MANT_DIG() {
+  static BasicObject* val = (&_f_i_53); return val;
+}
+
+inline BasicObject* k_Float_MAX_EXP() {
+  static BasicObject* val = (&_f_i_1024); return val;
+}
+
+inline BasicObject* k_Float_MIN_EXP() {
+  static BasicObject* val = (&_f_i_n1021); return val;
+}
+
+inline BasicObject* k_Float_MAX_10_EXP() {
+  static BasicObject* val = (&_f_i_308); return val;
+}
+
+inline BasicObject* k_Float_MIN_10_EXP() {
+  static BasicObject* val = (&_f_i_n307); return val;
+}
+
+inline BasicObject* k_Float_RADIX() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_String_LONG_MAX() {
+  static BasicObject* val = (&_f_i_9223372036854775807); return val;
+}
+
+inline BasicObject* k_String_MRI_MAX_SIZE() {
+  static BasicObject* val = (&_f_i_1073741823); return val;
+}
+
+inline BasicObject* k_String_UPPER_A() {
+  static BasicObject* val = (&_f_i_65); return val;
+}
+
+inline BasicObject* k_String_UPPER_Z() {
+  static BasicObject* val = (&_f_i_90); return val;
+}
+
+inline BasicObject* k_String_LOWER_A() {
+  static BasicObject* val = (&_f_i_97); return val;
+}
+
+inline BasicObject* k_String_LOWER_Z() {
+  static BasicObject* val = (&_f_i_122); return val;
+}
+
+inline BasicObject* k_Array_ARRAY_MAX_INDEX() {
+  static BasicObject* val = (&_f_i_9223372036854775808); return val;
+}
+
+inline BasicObject* k_Warning_KNOWN_CATEGORIES() {
+  static BasicObject* val = (new Array({intern("deprecated"), intern("experimental"), intern("performance"), intern("strict_unused_block"), intern("unused_block")})); return val;
+}
+
+inline BasicObject* k_Range_FLOAT_SIGN_BIT() {
+  static BasicObject* val = (&_f_i_9223372036854775808); return val;
+}
+
+inline BasicObject* k_Range_FLOAT_UINT64_MASK() {
+  static BasicObject* val = (&_f_i_18446744073709551615); return val;
+}
+
+inline BasicObject* k_Signal_LIST() {
+  static BasicObject* val = (new Hash({{(new String("EXIT", 4)), (&_f_i_0)}, {(new String("HUP", 3)), (&_f_i_1)}, {(new String("INT", 3)), (&_f_i_2)}, {(new String("QUIT", 4)), (&_f_i_3)}, {(new String("ILL", 3)), (&_f_i_4)}, {(new String("TRAP", 4)), (&_f_i_5)}, {(new String("ABRT", 4)), (&_f_i_6)}, {(new String("BUS", 3)), (&_f_i_7)}, {(new String("FPE", 3)), (&_f_i_8)}, {(new String("KILL", 4)), (&_f_i_9)}, {(new String("USR1", 4)), (&_f_i_10)}, {(new String("SEGV", 4)), (&_f_i_11)}, {(new String("USR2", 4)), (&_f_i_12)}, {(new String("PIPE", 4)), (&_f_i_13)}, {(new String("ALRM", 4)), (&_f_i_14)}, {(new String("TERM", 4)), (&_f_i_15)}, {(new String("CHLD", 4)), (&_f_i_17)}, {(new String("CLD", 3)), (&_f_i_17)}, {(new String("CONT", 4)), (&_f_i_18)}, {(new String("STOP", 4)), (&_f_i_19)}, {(new String("TSTP", 4)), (&_f_i_20)}, {(new String("TTIN", 4)), (&_f_i_21)}, {(new String("TTOU", 4)), (&_f_i_22)}, {(new String("URG", 3)), (&_f_i_23)}, {(new String("XCPU", 4)), (&_f_i_24)}, {(new String("XFSZ", 4)), (&_f_i_25)}, {(new String("VTALRM", 6)), (&_f_i_26)}, {(new String("PROF", 4)), (&_f_i_27)}, {(new String("WINCH", 5)), (&_f_i_28)}, {(new String("IO", 2)), (&_f_i_29)}, {(new String("PWR", 3)), (&_f_i_30)}, {(new String("SYS", 3)), (&_f_i_31)}})); return val;
+}
+
+inline BasicObject* k_Signal_CANONICAL_BY_NUM() {
+  static BasicObject* val = (new Hash({{(&_f_i_0), (new String("EXIT", 4))}, {(&_f_i_1), (new String("HUP", 3))}, {(&_f_i_2), (new String("INT", 3))}, {(&_f_i_3), (new String("QUIT", 4))}, {(&_f_i_4), (new String("ILL", 3))}, {(&_f_i_5), (new String("TRAP", 4))}, {(&_f_i_6), (new String("ABRT", 4))}, {(&_f_i_7), (new String("BUS", 3))}, {(&_f_i_8), (new String("FPE", 3))}, {(&_f_i_9), (new String("KILL", 4))}, {(&_f_i_10), (new String("USR1", 4))}, {(&_f_i_11), (new String("SEGV", 4))}, {(&_f_i_12), (new String("USR2", 4))}, {(&_f_i_13), (new String("PIPE", 4))}, {(&_f_i_14), (new String("ALRM", 4))}, {(&_f_i_15), (new String("TERM", 4))}, {(&_f_i_17), (new String("CHLD", 4))}, {(&_f_i_18), (new String("CONT", 4))}, {(&_f_i_19), (new String("STOP", 4))}, {(&_f_i_20), (new String("TSTP", 4))}, {(&_f_i_21), (new String("TTIN", 4))}, {(&_f_i_22), (new String("TTOU", 4))}, {(&_f_i_23), (new String("URG", 3))}, {(&_f_i_24), (new String("XCPU", 4))}, {(&_f_i_25), (new String("XFSZ", 4))}, {(&_f_i_26), (new String("VTALRM", 6))}, {(&_f_i_27), (new String("PROF", 4))}, {(&_f_i_28), (new String("WINCH", 5))}, {(&_f_i_29), (new String("IO", 2))}, {(&_f_i_30), (new String("PWR", 3))}, {(&_f_i_31), (new String("SYS", 3))}})); return val;
+}
+
+inline BasicObject* k_Signal_UNCATCHABLE() {
+  static BasicObject* val = (new Array({(new String("KILL", 4)), (new String("STOP", 4))})); return val;
+}
+
+inline BasicObject* k_Signal_RESERVED() {
+  static BasicObject* val = (new Array({(new String("SEGV", 4)), (new String("BUS", 3)), (new String("ILL", 3)), (new String("FPE", 3)), (new String("VTALRM", 6))})); return val;
+}
+
+inline BasicObject* k_Signal_SYSTEM_DEFAULT_INITIAL() {
+  static BasicObject* val = (new Array({(new String("CHLD", 4)), (new String("CLD", 3)), (new String("CONT", 4)), (new String("PROF", 4)), (new String("URG", 3)), (new String("XCPU", 4)), (new String("XFSZ", 4)), (new String("TTIN", 4)), (new String("TTOU", 4)), (new String("TSTP", 4)), (new String("IO", 2)), (new String("PWR", 3)), (new String("WINCH", 5)), (new String("SYS", 3))})); return val;
+}
+
+inline BasicObject* k_Signal_UNSET() {
+  static BasicObject* val = new Object(); return val;
+}
+
+inline BasicObject* k_Exception_ORDER_UNSET() {
+  static BasicObject* val = intern("__order_unset__"); return val;
+}
+
+inline BasicObject* k_Errno_E2BIG_Errno() {
+  static BasicObject* val = (&_f_i_7); return val;
+}
+
+inline BasicObject* k_Errno_E2BIG_Strerror() {
+  static BasicObject* val = (new String("Argument list too long", 22)); return val;
+}
+
+inline BasicObject* k_Errno_EACCES_Errno() {
+  static BasicObject* val = (&_f_i_13); return val;
+}
+
+inline BasicObject* k_Errno_EACCES_Strerror() {
+  static BasicObject* val = (new String("Permission denied", 17)); return val;
+}
+
+inline BasicObject* k_Errno_EADDRINUSE_Errno() {
+  static BasicObject* val = (&_f_i_98); return val;
+}
+
+inline BasicObject* k_Errno_EADDRINUSE_Strerror() {
+  static BasicObject* val = (new String("Address already in use", 22)); return val;
+}
+
+inline BasicObject* k_Errno_EADDRNOTAVAIL_Errno() {
+  static BasicObject* val = (&_f_i_99); return val;
+}
+
+inline BasicObject* k_Errno_EADDRNOTAVAIL_Strerror() {
+  static BasicObject* val = (new String("Cannot assign requested address", 31)); return val;
+}
+
+inline BasicObject* k_Errno_EAFNOSUPPORT_Errno() {
+  static BasicObject* val = (&_f_i_97); return val;
+}
+
+inline BasicObject* k_Errno_EAFNOSUPPORT_Strerror() {
+  static BasicObject* val = (new String("Address family not supported by protocol", 40)); return val;
+}
+
+inline BasicObject* k_Errno_EAGAIN_Errno() {
+  static BasicObject* val = (&_f_i_11); return val;
+}
+
+inline BasicObject* k_Errno_EAGAIN_Strerror() {
+  static BasicObject* val = (new String("Resource temporarily unavailable", 32)); return val;
+}
+
+inline BasicObject* k_Errno_EALREADY_Errno() {
+  static BasicObject* val = (&_f_i_114); return val;
+}
+
+inline BasicObject* k_Errno_EALREADY_Strerror() {
+  static BasicObject* val = (new String("Operation already in progress", 29)); return val;
+}
+
+inline BasicObject* k_Errno_EBADF_Errno() {
+  static BasicObject* val = (&_f_i_9); return val;
+}
+
+inline BasicObject* k_Errno_EBADF_Strerror() {
+  static BasicObject* val = (new String("Bad file descriptor", 19)); return val;
+}
+
+inline BasicObject* k_Errno_EBUSY_Errno() {
+  static BasicObject* val = (&_f_i_16); return val;
+}
+
+inline BasicObject* k_Errno_EBUSY_Strerror() {
+  static BasicObject* val = (new String("Device or resource busy", 23)); return val;
+}
+
+inline BasicObject* k_Errno_ECHILD_Errno() {
+  static BasicObject* val = (&_f_i_10); return val;
+}
+
+inline BasicObject* k_Errno_ECHILD_Strerror() {
+  static BasicObject* val = (new String("No child processes", 18)); return val;
+}
+
+inline BasicObject* k_Errno_EILSEQ_Errno() {
+  static BasicObject* val = (&_f_i_84); return val;
+}
+
+inline BasicObject* k_Errno_EILSEQ_Strerror() {
+  static BasicObject* val = (new String("Invalid or incomplete multibyte or wide character", 49)); return val;
+}
+
+inline BasicObject* k_Errno_ECONNABORTED_Errno() {
+  static BasicObject* val = (&_f_i_103); return val;
+}
+
+inline BasicObject* k_Errno_ECONNABORTED_Strerror() {
+  static BasicObject* val = (new String("Software caused connection abort", 32)); return val;
+}
+
+inline BasicObject* k_Errno_ECONNREFUSED_Errno() {
+  static BasicObject* val = (&_f_i_111); return val;
+}
+
+inline BasicObject* k_Errno_ECONNREFUSED_Strerror() {
+  static BasicObject* val = (new String("Connection refused", 18)); return val;
+}
+
+inline BasicObject* k_Errno_ECONNRESET_Errno() {
+  static BasicObject* val = (&_f_i_104); return val;
+}
+
+inline BasicObject* k_Errno_ECONNRESET_Strerror() {
+  static BasicObject* val = (new String("Connection reset by peer", 24)); return val;
+}
+
+inline BasicObject* k_Errno_EDEADLK_Errno() {
+  static BasicObject* val = (&_f_i_35); return val;
+}
+
+inline BasicObject* k_Errno_EDEADLK_Strerror() {
+  static BasicObject* val = (new String("Resource deadlock avoided", 25)); return val;
+}
+
+inline BasicObject* k_Errno_EDOM_Errno() {
+  static BasicObject* val = (&_f_i_33); return val;
+}
+
+inline BasicObject* k_Errno_EDOM_Strerror() {
+  static BasicObject* val = (new String("Numerical argument out of domain", 32)); return val;
+}
+
+inline BasicObject* k_Errno_EEXIST_Errno() {
+  static BasicObject* val = (&_f_i_17); return val;
+}
+
+inline BasicObject* k_Errno_EEXIST_Strerror() {
+  static BasicObject* val = (new String("File exists", 11)); return val;
+}
+
+inline BasicObject* k_Errno_EFAULT_Errno() {
+  static BasicObject* val = (&_f_i_14); return val;
+}
+
+inline BasicObject* k_Errno_EFAULT_Strerror() {
+  static BasicObject* val = (new String("Bad address", 11)); return val;
+}
+
+inline BasicObject* k_Errno_EFBIG_Errno() {
+  static BasicObject* val = (&_f_i_27); return val;
+}
+
+inline BasicObject* k_Errno_EFBIG_Strerror() {
+  static BasicObject* val = (new String("File too large", 14)); return val;
+}
+
+inline BasicObject* k_Errno_EHOSTUNREACH_Errno() {
+  static BasicObject* val = (&_f_i_113); return val;
+}
+
+inline BasicObject* k_Errno_EHOSTUNREACH_Strerror() {
+  static BasicObject* val = (new String("No route to host", 16)); return val;
+}
+
+inline BasicObject* k_Errno_EINPROGRESS_Errno() {
+  static BasicObject* val = (&_f_i_115); return val;
+}
+
+inline BasicObject* k_Errno_EINPROGRESS_Strerror() {
+  static BasicObject* val = (new String("Operation now in progress", 25)); return val;
+}
+
+inline BasicObject* k_Errno_EINTR_Errno() {
+  static BasicObject* val = (&_f_i_4); return val;
+}
+
+inline BasicObject* k_Errno_EINTR_Strerror() {
+  static BasicObject* val = (new String("Interrupted system call", 23)); return val;
+}
+
+inline BasicObject* k_Errno_EINVAL_Errno() {
+  static BasicObject* val = (&_f_i_22); return val;
+}
+
+inline BasicObject* k_Errno_EINVAL_Strerror() {
+  static BasicObject* val = (new String("Invalid argument", 16)); return val;
+}
+
+inline BasicObject* k_Errno_EIO_Errno() {
+  static BasicObject* val = (&_f_i_5); return val;
+}
+
+inline BasicObject* k_Errno_EIO_Strerror() {
+  static BasicObject* val = (new String("Input/output error", 18)); return val;
+}
+
+inline BasicObject* k_Errno_EISCONN_Errno() {
+  static BasicObject* val = (&_f_i_106); return val;
+}
+
+inline BasicObject* k_Errno_EISCONN_Strerror() {
+  static BasicObject* val = (new String("Transport endpoint is already connected", 39)); return val;
+}
+
+inline BasicObject* k_Errno_EISDIR_Errno() {
+  static BasicObject* val = (&_f_i_21); return val;
+}
+
+inline BasicObject* k_Errno_EISDIR_Strerror() {
+  static BasicObject* val = (new String("Is a directory", 14)); return val;
+}
+
+inline BasicObject* k_Errno_ELOOP_Errno() {
+  static BasicObject* val = (&_f_i_40); return val;
+}
+
+inline BasicObject* k_Errno_ELOOP_Strerror() {
+  static BasicObject* val = (new String("Too many levels of symbolic links", 33)); return val;
+}
+
+inline BasicObject* k_Errno_EMFILE_Errno() {
+  static BasicObject* val = (&_f_i_24); return val;
+}
+
+inline BasicObject* k_Errno_EMFILE_Strerror() {
+  static BasicObject* val = (new String("Too many open files", 19)); return val;
+}
+
+inline BasicObject* k_Errno_EMSGSIZE_Errno() {
+  static BasicObject* val = (&_f_i_90); return val;
+}
+
+inline BasicObject* k_Errno_EMSGSIZE_Strerror() {
+  static BasicObject* val = (new String("Message too long", 16)); return val;
+}
+
+inline BasicObject* k_Errno_ENAMETOOLONG_Errno() {
+  static BasicObject* val = (&_f_i_36); return val;
+}
+
+inline BasicObject* k_Errno_ENAMETOOLONG_Strerror() {
+  static BasicObject* val = (new String("File name too long", 18)); return val;
+}
+
+inline BasicObject* k_Errno_ENETDOWN_Errno() {
+  static BasicObject* val = (&_f_i_100); return val;
+}
+
+inline BasicObject* k_Errno_ENETDOWN_Strerror() {
+  static BasicObject* val = (new String("Network is down", 15)); return val;
+}
+
+inline BasicObject* k_Errno_ENETUNREACH_Errno() {
+  static BasicObject* val = (&_f_i_101); return val;
+}
+
+inline BasicObject* k_Errno_ENETUNREACH_Strerror() {
+  static BasicObject* val = (new String("Network is unreachable", 22)); return val;
+}
+
+inline BasicObject* k_Errno_ENFILE_Errno() {
+  static BasicObject* val = (&_f_i_23); return val;
+}
+
+inline BasicObject* k_Errno_ENFILE_Strerror() {
+  static BasicObject* val = (new String("Too many open files in system", 29)); return val;
+}
+
+inline BasicObject* k_Errno_ENODEV_Errno() {
+  static BasicObject* val = (&_f_i_19); return val;
+}
+
+inline BasicObject* k_Errno_ENODEV_Strerror() {
+  static BasicObject* val = (new String("No such device", 14)); return val;
+}
+
+inline BasicObject* k_Errno_ENOENT_Errno() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_Errno_ENOENT_Strerror() {
+  static BasicObject* val = (new String("No such file or directory", 25)); return val;
+}
+
+inline BasicObject* k_Errno_ENOEXEC_Errno() {
+  static BasicObject* val = (&_f_i_8); return val;
+}
+
+inline BasicObject* k_Errno_ENOEXEC_Strerror() {
+  static BasicObject* val = (new String("Exec format error", 17)); return val;
+}
+
+inline BasicObject* k_Errno_ENOMEM_Errno() {
+  static BasicObject* val = (&_f_i_12); return val;
+}
+
+inline BasicObject* k_Errno_ENOMEM_Strerror() {
+  static BasicObject* val = (new String("Cannot allocate memory", 22)); return val;
+}
+
+inline BasicObject* k_Errno_ENOSPC_Errno() {
+  static BasicObject* val = (&_f_i_28); return val;
+}
+
+inline BasicObject* k_Errno_ENOSPC_Strerror() {
+  static BasicObject* val = (new String("No space left on device", 23)); return val;
+}
+
+inline BasicObject* k_Errno_ENOSYS_Errno() {
+  static BasicObject* val = (&_f_i_38); return val;
+}
+
+inline BasicObject* k_Errno_ENOSYS_Strerror() {
+  static BasicObject* val = (new String("Function not implemented", 24)); return val;
+}
+
+inline BasicObject* k_Errno_ENOTCONN_Errno() {
+  static BasicObject* val = (&_f_i_107); return val;
+}
+
+inline BasicObject* k_Errno_ENOTCONN_Strerror() {
+  static BasicObject* val = (new String("Transport endpoint is not connected", 35)); return val;
+}
+
+inline BasicObject* k_Errno_ENOTDIR_Errno() {
+  static BasicObject* val = (&_f_i_20); return val;
+}
+
+inline BasicObject* k_Errno_ENOTDIR_Strerror() {
+  static BasicObject* val = (new String("Not a directory", 15)); return val;
+}
+
+inline BasicObject* k_Errno_ENOTEMPTY_Errno() {
+  static BasicObject* val = (&_f_i_39); return val;
+}
+
+inline BasicObject* k_Errno_ENOTEMPTY_Strerror() {
+  static BasicObject* val = (new String("Directory not empty", 19)); return val;
+}
+
+inline BasicObject* k_Errno_ENOTSUP_Errno() {
+  static BasicObject* val = (&_f_i_95); return val;
+}
+
+inline BasicObject* k_Errno_ENOTSUP_Strerror() {
+  static BasicObject* val = (new String("Operation not supported", 23)); return val;
+}
+
+inline BasicObject* k_Errno_ENOTTY_Errno() {
+  static BasicObject* val = (&_f_i_25); return val;
+}
+
+inline BasicObject* k_Errno_ENOTTY_Strerror() {
+  static BasicObject* val = (new String("Inappropriate ioctl for device", 30)); return val;
+}
+
+inline BasicObject* k_Errno_ENXIO_Errno() {
+  static BasicObject* val = (&_f_i_6); return val;
+}
+
+inline BasicObject* k_Errno_ENXIO_Strerror() {
+  static BasicObject* val = (new String("No such device or address", 25)); return val;
+}
+
+inline BasicObject* k_Errno_EOVERFLOW_Errno() {
+  static BasicObject* val = (&_f_i_75); return val;
+}
+
+inline BasicObject* k_Errno_EOVERFLOW_Strerror() {
+  static BasicObject* val = (new String("Value too large for defined data type", 37)); return val;
+}
+
+inline BasicObject* k_Errno_EPERM_Errno() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_Errno_EPERM_Strerror() {
+  static BasicObject* val = (new String("Operation not permitted", 23)); return val;
+}
+
+inline BasicObject* k_Errno_EPIPE_Errno() {
+  static BasicObject* val = (&_f_i_32); return val;
+}
+
+inline BasicObject* k_Errno_EPIPE_Strerror() {
+  static BasicObject* val = (new String("Broken pipe", 11)); return val;
+}
+
+inline BasicObject* k_Errno_EPROTONOSUPPORT_Errno() {
+  static BasicObject* val = (&_f_i_93); return val;
+}
+
+inline BasicObject* k_Errno_EPROTONOSUPPORT_Strerror() {
+  static BasicObject* val = (new String("Protocol not supported", 22)); return val;
+}
+
+inline BasicObject* k_Errno_ERANGE_Errno() {
+  static BasicObject* val = (&_f_i_34); return val;
+}
+
+inline BasicObject* k_Errno_ERANGE_Strerror() {
+  static BasicObject* val = (new String("Numerical result out of range", 29)); return val;
+}
+
+inline BasicObject* k_Errno_EROFS_Errno() {
+  static BasicObject* val = (&_f_i_30); return val;
+}
+
+inline BasicObject* k_Errno_EROFS_Strerror() {
+  static BasicObject* val = (new String("Read-only file system", 21)); return val;
+}
+
+inline BasicObject* k_Errno_ESPIPE_Errno() {
+  static BasicObject* val = (&_f_i_29); return val;
+}
+
+inline BasicObject* k_Errno_ESPIPE_Strerror() {
+  static BasicObject* val = (new String("Illegal seek", 12)); return val;
+}
+
+inline BasicObject* k_Errno_ESRCH_Errno() {
+  static BasicObject* val = (&_f_i_3); return val;
+}
+
+inline BasicObject* k_Errno_ESRCH_Strerror() {
+  static BasicObject* val = (new String("No such process", 15)); return val;
+}
+
+inline BasicObject* k_Errno_ETIMEDOUT_Errno() {
+  static BasicObject* val = (&_f_i_110); return val;
+}
+
+inline BasicObject* k_Errno_ETIMEDOUT_Strerror() {
+  static BasicObject* val = (new String("Connection timed out", 20)); return val;
+}
+
+inline BasicObject* k_Errno_ETXTBSY_Errno() {
+  static BasicObject* val = (&_f_i_26); return val;
+}
+
+inline BasicObject* k_Errno_ETXTBSY_Strerror() {
+  static BasicObject* val = (new String("Text file busy", 14)); return val;
+}
+
+inline BasicObject* k_Errno_EXDEV_Errno() {
+  static BasicObject* val = (&_f_i_18); return val;
+}
+
+inline BasicObject* k_Errno_EXDEV_Strerror() {
+  static BasicObject* val = (new String("Invalid cross-device link", 25)); return val;
+}
+
+inline BasicObject* k_Math_PI() {
+  static BasicObject* val = (new Float(3.141592653589793)); return val;
+}
+
+inline BasicObject* k_Math_E() {
+  static BasicObject* val = (new Float(2.718281828459045)); return val;
+}
+
+inline BasicObject* k_Encoding_NON_ASCII_COMPATIBLE() {
+  static BasicObject* val = (new Array({(new String("UTF-16", 6)), (new String("UTF-16BE", 8)), (new String("UTF-16LE", 8)), (new String("UTF-32", 6)), (new String("UTF-32BE", 8)), (new String("UTF-32LE", 8)), (new String("UTF-7", 5)), (new String("ISO-2022-JP", 11)), (new String("ISO-2022-JP-2", 13)), (new String("ISO-2022-JP-KDDI", 16)), (new String("CP50220", 7)), (new String("CP50221", 7)), (new String("IBM037", 6))})); return val;
+}
+
+inline BasicObject* k_Encoding_DUMMY_ENCODINGS() {
+  static BasicObject* val = (new Array({(new String("UTF-16", 6)), (new String("UTF-32", 6)), (new String("ISO-2022-JP", 11)), (new String("ISO-2022-JP-2", 13)), (new String("ISO-2022-JP-KDDI", 16)), (new String("UTF-7", 5)), (new String("CP50220", 7)), (new String("CP50221", 7)), (new String("IBM037", 6))})); return val;
+}
+
+inline BasicObject* k_Encoding_UTF_8() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_US_ASCII() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ASCII() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_BINARY() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ASCII_8BIT() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_EUC_JP() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_EUC_KR() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_EUC_TW() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_EUC_CN() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_1() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_1() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_2() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_2() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_3() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_3() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_4() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_4() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_5() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_5() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_6() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_6() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_7() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_7() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_8() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_8() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_9() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_9() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_10() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_10() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_11() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_11() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_13() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_13() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_14() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_14() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_15() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_15() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_8859_16() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO8859_16() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_UTF_16() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_UTF_16BE() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_UTF_16LE() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_UTF_32() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_UTF_32BE() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_UTF_32LE() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_SHIFT_JIS() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Shift_JIS() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Windows_31J() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_SJIS() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP932() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Windows_1250() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Windows_1251() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Windows_1252() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Windows_1253() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Windows_1254() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Windows_1255() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Windows_1256() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Windows_1257() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Windows_1258() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP1250() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP1251() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP1252() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP1253() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP1254() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP1255() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP1256() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP1257() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP1258() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Big5() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_BIG5() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Big5_HKSCS() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Big5_UAO() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM437() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM775() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM852() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM855() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM857() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM860() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM861() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM862() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM863() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM864() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM865() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM866() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM869() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_KOI8_R() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_KOI8_U() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP65001() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Emacs_Mule() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_2022_JP() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO2022_JP() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_2022_JP_2() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ISO_2022_JP_KDDI() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP50220() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP50221() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_IBM037() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_UTF8_MAC() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_UTF_8_MAC() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_EUCJP_MS() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CP51932() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_GB18030() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_GBK() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_GB2312() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_TIS_620() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_UTF_7() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_CESU_8() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_Stateless_ISO_2022_JP() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_MacCyrillic() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_MacJapanese() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_MacThai() {
+  static BasicObject* val = new Encoding(); return val;
+}
+
+inline BasicObject* k_Encoding_ALL() {
+  static BasicObject* val = (new Array({k_Encoding_UTF_8(), k_Encoding_US_ASCII(), k_Encoding_BINARY(), k_Encoding_EUC_JP(), k_Encoding_ISO_8859_1(), k_Encoding_ISO_8859_2(), k_Encoding_ISO_8859_3(), k_Encoding_ISO_8859_4(), k_Encoding_ISO_8859_5(), k_Encoding_ISO_8859_6(), k_Encoding_ISO_8859_7(), k_Encoding_ISO_8859_8(), k_Encoding_ISO_8859_9(), k_Encoding_ISO_8859_10(), k_Encoding_ISO_8859_11(), k_Encoding_ISO_8859_13(), k_Encoding_ISO_8859_14(), k_Encoding_ISO_8859_15(), k_Encoding_ISO_8859_16(), k_Encoding_UTF_16(), k_Encoding_UTF_16BE(), k_Encoding_UTF_16LE(), k_Encoding_UTF_32(), k_Encoding_UTF_32BE(), k_Encoding_UTF_32LE(), k_Encoding_SHIFT_JIS(), k_Encoding_Windows_31J(), k_Encoding_Windows_1250(), k_Encoding_Windows_1251(), k_Encoding_Windows_1252(), k_Encoding_Windows_1253(), k_Encoding_Windows_1254(), k_Encoding_Windows_1255(), k_Encoding_Windows_1256(), k_Encoding_Windows_1257(), k_Encoding_Windows_1258(), k_Encoding_Big5(), k_Encoding_Big5_HKSCS(), k_Encoding_Big5_UAO(), k_Encoding_IBM437(), k_Encoding_IBM775(), k_Encoding_IBM852(), k_Encoding_IBM855(), k_Encoding_IBM857(), k_Encoding_IBM860(), k_Encoding_IBM861(), k_Encoding_IBM862(), k_Encoding_IBM863(), k_Encoding_IBM864(), k_Encoding_IBM865(), k_Encoding_IBM866(), k_Encoding_IBM869(), k_Encoding_KOI8_R(), k_Encoding_KOI8_U(), k_Encoding_Emacs_Mule(), k_Encoding_ISO_2022_JP(), k_Encoding_ISO_2022_JP_2(), k_Encoding_ISO_2022_JP_KDDI(), k_Encoding_CP50220(), k_Encoding_CP50221(), k_Encoding_IBM037(), k_Encoding_UTF8_MAC(), k_Encoding_EUCJP_MS(), k_Encoding_CP51932(), k_Encoding_GB18030(), k_Encoding_GBK(), k_Encoding_TIS_620(), k_Encoding_UTF_7(), k_Encoding_CESU_8(), k_Encoding_Stateless_ISO_2022_JP(), k_Encoding_MacCyrillic(), k_Encoding_MacJapanese(), k_Encoding_MacThai()})); return val;
+}
+
+inline BasicObject* k_Encoding_ALIASES() {
+  static BasicObject* val = (new Hash({{(new String("ASCII", 5)), (new String("US-ASCII", 8))}, {(new String("ANSI_X3.4-1968", 14)), (new String("US-ASCII", 8))}, {(new String("646", 3)), (new String("US-ASCII", 8))}, {(new String("BINARY", 6)), (new String("ASCII-8BIT", 10))}, {(new String("CP65001", 7)), (new String("UTF-8", 5))}, {(new String("UTF8", 4)), (new String("UTF-8", 5))}, {(new String("SJIS", 4)), (new String("Shift_JIS", 9))}, {(new String("Shift-JIS", 9)), (new String("Shift_JIS", 9))}, {(new String("CP932", 5)), (new String("Windows-31J", 11))}, {(new String("PCK", 3)), (new String("Windows-31J", 11))}, {(new String("EUC_JP", 6)), (new String("EUC-JP", 6))}, {(new String("eucJP", 5)), (new String("EUC-JP", 6))}, {(new String("eucJP-ms", 8)), (new String("eucJP-ms", 8))}, {(new String("UTF-16", 6)), (new String("UTF-16", 6))}, {(new String("UCS-2BE", 7)), (new String("UTF-16BE", 8))}, {(new String("UCS-4BE", 7)), (new String("UTF-32BE", 8))}, {(new String("UCS-4LE", 7)), (new String("UTF-32LE", 8))}, {(new String("ISO8859-1", 9)), (new String("ISO-8859-1", 10))}, {(new String("ISO8859-2", 9)), (new String("ISO-8859-2", 10))}, {(new String("ISO8859-3", 9)), (new String("ISO-8859-3", 10))}, {(new String("ISO8859-4", 9)), (new String("ISO-8859-4", 10))}, {(new String("ISO8859-5", 9)), (new String("ISO-8859-5", 10))}, {(new String("ISO8859-6", 9)), (new String("ISO-8859-6", 10))}, {(new String("ISO8859-7", 9)), (new String("ISO-8859-7", 10))}, {(new String("ISO8859-8", 9)), (new String("ISO-8859-8", 10))}, {(new String("ISO8859-9", 9)), (new String("ISO-8859-9", 10))}, {(new String("ISO8859-10", 10)), (new String("ISO-8859-10", 11))}, {(new String("ISO8859-11", 10)), (new String("ISO-8859-11", 11))}, {(new String("ISO8859-13", 10)), (new String("ISO-8859-13", 11))}, {(new String("ISO8859-14", 10)), (new String("ISO-8859-14", 11))}, {(new String("ISO8859-15", 10)), (new String("ISO-8859-15", 11))}, {(new String("ISO8859-16", 10)), (new String("ISO-8859-16", 11))}, {(new String("ISO-8859-14", 11)), (new String("ISO-8859-14", 11))}, {(new String("KOI8-R", 6)), (new String("KOI8-R", 6))}, {(new String("KOI8-U", 6)), (new String("KOI8-U", 6))}, {(new String("Big5-HKSCS", 10)), (new String("Big5-HKSCS", 10))}, {(new String("GB2312", 6)), (new String("GBK", 3))}, {(new String("macCyrillic", 11)), (new String("macCyrillic", 11))}, {(new String("stateless-ISO-2022-JP", 21)), (new String("stateless-ISO-2022-JP", 21))}})); return val;
+}
+
+inline BasicObject* k_Encoding_ALL_ALIASES() {
+  static BasicObject* val = (new Hash({{(new String("ASCII", 5)), (new String("US-ASCII", 8))}, {(new String("ANSI_X3.4-1968", 14)), (new String("US-ASCII", 8))}, {(new String("646", 3)), (new String("US-ASCII", 8))}, {(new String("BINARY", 6)), (new String("ASCII-8BIT", 10))}, {(new String("CP65001", 7)), (new String("UTF-8", 5))}, {(new String("UTF8", 4)), (new String("UTF-8", 5))}, {(new String("SJIS", 4)), (new String("Shift_JIS", 9))}, {(new String("Shift-JIS", 9)), (new String("Shift_JIS", 9))}, {(new String("CP932", 5)), (new String("Windows-31J", 11))}, {(new String("PCK", 3)), (new String("Windows-31J", 11))}, {(new String("EUC_JP", 6)), (new String("EUC-JP", 6))}, {(new String("eucJP", 5)), (new String("EUC-JP", 6))}, {(new String("eucJP-ms", 8)), (new String("eucJP-ms", 8))}, {(new String("UTF-16", 6)), (new String("UTF-16", 6))}, {(new String("UCS-2BE", 7)), (new String("UTF-16BE", 8))}, {(new String("UCS-4BE", 7)), (new String("UTF-32BE", 8))}, {(new String("UCS-4LE", 7)), (new String("UTF-32LE", 8))}, {(new String("ISO8859-1", 9)), (new String("ISO-8859-1", 10))}, {(new String("ISO8859-2", 9)), (new String("ISO-8859-2", 10))}, {(new String("ISO8859-3", 9)), (new String("ISO-8859-3", 10))}, {(new String("ISO8859-4", 9)), (new String("ISO-8859-4", 10))}, {(new String("ISO8859-5", 9)), (new String("ISO-8859-5", 10))}, {(new String("ISO8859-6", 9)), (new String("ISO-8859-6", 10))}, {(new String("ISO8859-7", 9)), (new String("ISO-8859-7", 10))}, {(new String("ISO8859-8", 9)), (new String("ISO-8859-8", 10))}, {(new String("ISO8859-9", 9)), (new String("ISO-8859-9", 10))}, {(new String("ISO8859-10", 10)), (new String("ISO-8859-10", 11))}, {(new String("ISO8859-11", 10)), (new String("ISO-8859-11", 11))}, {(new String("ISO8859-13", 10)), (new String("ISO-8859-13", 11))}, {(new String("ISO8859-14", 10)), (new String("ISO-8859-14", 11))}, {(new String("ISO8859-15", 10)), (new String("ISO-8859-15", 11))}, {(new String("ISO8859-16", 10)), (new String("ISO-8859-16", 11))}, {(new String("ISO-8859-14", 11)), (new String("ISO-8859-14", 11))}, {(new String("KOI8-R", 6)), (new String("KOI8-R", 6))}, {(new String("KOI8-U", 6)), (new String("KOI8-U", 6))}, {(new String("Big5-HKSCS", 10)), (new String("Big5-HKSCS", 10))}, {(new String("GB2312", 6)), (new String("GBK", 3))}, {(new String("macCyrillic", 11)), (new String("macCyrillic", 11))}, {(new String("stateless-ISO-2022-JP", 21)), (new String("stateless-ISO-2022-JP", 21))}})); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_INVALID_MASK() {
+  static BasicObject* val = (&_f_i_15); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_INVALID_REPLACE() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_UNDEF_MASK() {
+  static BasicObject* val = (&_f_i_240); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_UNDEF_REPLACE() {
+  static BasicObject* val = (&_f_i_32); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_UNDEF_HEX_CHARREF() {
+  static BasicObject* val = (&_f_i_48); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_PARTIAL_INPUT() {
+  static BasicObject* val = (&_f_i_131072); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_AFTER_OUTPUT() {
+  static BasicObject* val = (&_f_i_262144); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_UNIVERSAL_NEWLINE_DECORATOR() {
+  static BasicObject* val = (&_f_i_256); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_CRLF_NEWLINE_DECORATOR() {
+  static BasicObject* val = (&_f_i_4096); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_CR_NEWLINE_DECORATOR() {
+  static BasicObject* val = (&_f_i_8192); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_XML_TEXT_DECORATOR() {
+  static BasicObject* val = (&_f_i_32768); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_XML_ATTR_CONTENT_DECORATOR() {
+  static BasicObject* val = (&_f_i_65536); return val;
+}
+
+inline BasicObject* k_Encoding_Converter_XML_ATTR_QUOTE_DECORATOR() {
+  static BasicObject* val = (&_f_i_1048576); return val;
+}
+
+inline BasicObject* k_Regexp_IGNORECASE() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_Regexp_EXTENDED() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_Regexp_MULTILINE() {
+  static BasicObject* val = (&_f_i_4); return val;
+}
+
+inline BasicObject* k_Regexp_FIXEDENCODING() {
+  static BasicObject* val = (&_f_i_16); return val;
+}
+
+inline BasicObject* k_Regexp_NOENCODING() {
+  static BasicObject* val = (&_f_i_32); return val;
+}
+
+inline BasicObject* k_Regexp_OPTIONS_NO_NOENC() {
+  static BasicObject* val = (&_f_i_n33); return val;
+}
+
+inline BasicObject* k_Complex_I() {
+  static BasicObject* val = new Complex(); return val;
+}
+
+inline BasicObject* k_IO_SEEK_SET() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_IO_SEEK_CUR() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_IO_SEEK_END() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_IO_LONG_MAX() {
+  static BasicObject* val = (&_f_i_9223372036854775807); return val;
+}
+
+inline BasicObject* k_IO_UINT32_UPPER() {
+  static BasicObject* val = (&_f_i_4294967296); return val;
+}
+
+inline BasicObject* k_IO_INT32_LOWER() {
+  static BasicObject* val = (&_f_i_n2147483648); return val;
+}
+
+inline BasicObject* k_IO_SEEK_WHENCE_SYMS() {
+  static BasicObject* val = (new Hash({{intern("SET"), (&_f_i_0)}, {intern("CUR"), (&_f_i_1)}, {intern("END"), (&_f_i_2)}})); return val;
+}
+
 inline BasicObject* k_STDOUT() {
-  static BasicObject* val = (&IO_CLASS)->m_new((new Array({})), nullptr, nullptr); return val;
+  static BasicObject* val = new IO(); return val;
 }
 
 inline BasicObject* k_STDERR() {
-  static BasicObject* val = (&IO_CLASS)->m_new((new Array({})), nullptr, nullptr); return val;
+  static BasicObject* val = new IO(); return val;
 }
 
 inline BasicObject* k_STDIN() {
-  static BasicObject* val = (&IO_CLASS)->m_new((new Array({})), nullptr, nullptr); return val;
+  static BasicObject* val = new IO(); return val;
+}
+
+inline BasicObject* k_File_SEPARATOR() {
+  static BasicObject* val = (new String("/", 1)); return val;
+}
+
+inline BasicObject* k_File_Separator() {
+  static BasicObject* val = (new String("/", 1)); return val;
+}
+
+inline BasicObject* k_File_ALT_SEPARATOR() {
+  static BasicObject* val = nil_instance(); return val;
+}
+
+inline BasicObject* k_File_PATH_SEPARATOR() {
+  static BasicObject* val = (new String(":", 1)); return val;
+}
+
+inline BasicObject* k_File_RDONLY() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_File_WRONLY() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_File_RDWR() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_File_APPEND() {
+  static BasicObject* val = (&_f_i_1024); return val;
+}
+
+inline BasicObject* k_File_CREAT() {
+  static BasicObject* val = (&_f_i_64); return val;
+}
+
+inline BasicObject* k_File_EXCL() {
+  static BasicObject* val = (&_f_i_128); return val;
+}
+
+inline BasicObject* k_File_TRUNC() {
+  static BasicObject* val = (&_f_i_512); return val;
+}
+
+inline BasicObject* k_File_NONBLOCK() {
+  static BasicObject* val = (&_f_i_2048); return val;
+}
+
+inline BasicObject* k_File_NOCTTY() {
+  static BasicObject* val = (&_f_i_256); return val;
+}
+
+inline BasicObject* k_File_SYNC() {
+  static BasicObject* val = (&_f_i_1052672); return val;
+}
+
+inline BasicObject* k_File_SHARE_DELETE() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_File_BINARY() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_File_LOCK_SH() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_File_LOCK_EX() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_File_LOCK_NB() {
+  static BasicObject* val = (&_f_i_4); return val;
+}
+
+inline BasicObject* k_File_LOCK_UN() {
+  static BasicObject* val = (&_f_i_8); return val;
+}
+
+inline BasicObject* k_File_FNM_NOESCAPE() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_File_FNM_PATHNAME() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_File_FNM_DOTMATCH() {
+  static BasicObject* val = (&_f_i_4); return val;
+}
+
+inline BasicObject* k_File_FNM_CASEFOLD() {
+  static BasicObject* val = (&_f_i_8); return val;
+}
+
+inline BasicObject* k_File_FNM_SYSCASE() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_File_FNM_EXTGLOB() {
+  static BasicObject* val = (&_f_i_16); return val;
+}
+
+inline BasicObject* k_File_Constants_RDONLY() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_File_Constants_WRONLY() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_File_Constants_RDWR() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_File_Constants_APPEND() {
+  static BasicObject* val = (&_f_i_1024); return val;
+}
+
+inline BasicObject* k_File_Constants_CREAT() {
+  static BasicObject* val = (&_f_i_64); return val;
+}
+
+inline BasicObject* k_File_Constants_EXCL() {
+  static BasicObject* val = (&_f_i_128); return val;
+}
+
+inline BasicObject* k_File_Constants_TRUNC() {
+  static BasicObject* val = (&_f_i_512); return val;
+}
+
+inline BasicObject* k_File_Constants_NONBLOCK() {
+  static BasicObject* val = (&_f_i_2048); return val;
+}
+
+inline BasicObject* k_File_Constants_NOCTTY() {
+  static BasicObject* val = (&_f_i_256); return val;
+}
+
+inline BasicObject* k_File_Constants_SYNC() {
+  static BasicObject* val = (&_f_i_1052672); return val;
+}
+
+inline BasicObject* k_File_Constants_SHARE_DELETE() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_File_Constants_LOCK_SH() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_File_Constants_LOCK_EX() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_File_Constants_LOCK_NB() {
+  static BasicObject* val = (&_f_i_4); return val;
+}
+
+inline BasicObject* k_File_Constants_LOCK_UN() {
+  static BasicObject* val = (&_f_i_8); return val;
+}
+
+inline BasicObject* k_File_Constants_FNM_NOESCAPE() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_File_Constants_FNM_PATHNAME() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_File_Constants_FNM_DOTMATCH() {
+  static BasicObject* val = (&_f_i_4); return val;
+}
+
+inline BasicObject* k_File_Constants_FNM_CASEFOLD() {
+  static BasicObject* val = (&_f_i_8); return val;
+}
+
+inline BasicObject* k_File_Constants_FNM_SYSCASE() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_File_Constants_FNM_EXTGLOB() {
+  static BasicObject* val = (&_f_i_16); return val;
+}
+
+inline BasicObject* k_File_NULL() {
+  static BasicObject* val = (new String("/dev/null", 9)); return val;
+}
+
+inline BasicObject* k_FileTest_DELEGATED() {
+  static BasicObject* val = (new Array({intern("blockdev?"), intern("chardev?"), intern("directory?"), intern("executable?"), intern("executable_real?"), intern("exist?"), intern("file?"), intern("grpowned?"), intern("identical?"), intern("owned?"), intern("pipe?"), intern("readable?"), intern("readable_real?"), intern("setgid?"), intern("setuid?"), intern("size"), intern("size?"), intern("socket?"), intern("sticky?"), intern("symlink?"), intern("world_readable?"), intern("world_writable?"), intern("writable?"), intern("writable_real?"), intern("zero?")})); return val;
+}
+
+inline BasicObject* k_Time_MONTH_NAMES() {
+  static BasicObject* val = (new Hash({{(new String("jan", 3)), (&_f_i_1)}, {(new String("feb", 3)), (&_f_i_2)}, {(new String("mar", 3)), (&_f_i_3)}, {(new String("apr", 3)), (&_f_i_4)}, {(new String("may", 3)), (&_f_i_5)}, {(new String("jun", 3)), (&_f_i_6)}, {(new String("jul", 3)), (&_f_i_7)}, {(new String("aug", 3)), (&_f_i_8)}, {(new String("sep", 3)), (&_f_i_9)}, {(new String("oct", 3)), (&_f_i_10)}, {(new String("nov", 3)), (&_f_i_11)}, {(new String("dec", 3)), (&_f_i_12)}})); return val;
+}
+
+inline BasicObject* k_Time_AT_NO_SUBSEC() {
+  static BasicObject* val = new Object(); return val;
+}
+
+inline BasicObject* k_Time_AT_NO_FORMAT() {
+  static BasicObject* val = new Object(); return val;
+}
+
+inline BasicObject* k_Time_NEW_NO_YEAR() {
+  static BasicObject* val = new Object(); return val;
+}
+
+inline BasicObject* k_Time_NEW_NO_PRECISION() {
+  static BasicObject* val = new Object(); return val;
+}
+
+inline BasicObject* k_Time_ZoneOffset() {
+  static BasicObject* val = (new Hash({{(new String("UTC", 3)), (&_f_i_0)}, {(new String("Z", 1)), (&_f_i_0)}, {(new String("UT", 2)), (&_f_i_0)}, {(new String("GMT", 3)), (&_f_i_0)}, {(new String("EST", 3)), (&_f_i_n5)}, {(new String("EDT", 3)), (&_f_i_n4)}, {(new String("CST", 3)), (&_f_i_n6)}, {(new String("CDT", 3)), (&_f_i_n5)}, {(new String("MST", 3)), (&_f_i_n7)}, {(new String("MDT", 3)), (&_f_i_n6)}, {(new String("PST", 3)), (&_f_i_n8)}, {(new String("PDT", 3)), (&_f_i_n7)}, {(new String("A", 1)), (&_f_i_1)}, {(new String("B", 1)), (&_f_i_2)}, {(new String("C", 1)), (&_f_i_3)}, {(new String("D", 1)), (&_f_i_4)}, {(new String("E", 1)), (&_f_i_5)}, {(new String("F", 1)), (&_f_i_6)}, {(new String("G", 1)), (&_f_i_7)}, {(new String("H", 1)), (&_f_i_8)}, {(new String("I", 1)), (&_f_i_9)}, {(new String("K", 1)), (&_f_i_10)}, {(new String("L", 1)), (&_f_i_11)}, {(new String("M", 1)), (&_f_i_12)}, {(new String("N", 1)), (&_f_i_n1)}, {(new String("O", 1)), (&_f_i_n2)}, {(new String("P", 1)), (&_f_i_n3)}, {(new String("Q", 1)), (&_f_i_n4)}, {(new String("R", 1)), (&_f_i_n5)}, {(new String("S", 1)), (&_f_i_n6)}, {(new String("T", 1)), (&_f_i_n7)}, {(new String("U", 1)), (&_f_i_n8)}, {(new String("V", 1)), (&_f_i_n9)}, {(new String("W", 1)), (&_f_i_n10)}, {(new String("X", 1)), (&_f_i_n11)}, {(new String("Y", 1)), (&_f_i_n12)}})); return val;
+}
+
+inline BasicObject* k_Time_MonthValue() {
+  static BasicObject* val = (new Hash({{(new String("JAN", 3)), (&_f_i_1)}, {(new String("FEB", 3)), (&_f_i_2)}, {(new String("MAR", 3)), (&_f_i_3)}, {(new String("APR", 3)), (&_f_i_4)}, {(new String("MAY", 3)), (&_f_i_5)}, {(new String("JUN", 3)), (&_f_i_6)}, {(new String("JUL", 3)), (&_f_i_7)}, {(new String("AUG", 3)), (&_f_i_8)}, {(new String("SEP", 3)), (&_f_i_9)}, {(new String("OCT", 3)), (&_f_i_10)}, {(new String("NOV", 3)), (&_f_i_11)}, {(new String("DEC", 3)), (&_f_i_12)}})); return val;
+}
+
+inline BasicObject* k_Time_LeapYearMonthDays() {
+  static BasicObject* val = build_int_array(__TBL_INT_0__, 12); return val;
+}
+
+inline BasicObject* k_Time_CommonYearMonthDays() {
+  static BasicObject* val = build_int_array(__TBL_INT_1__, 12); return val;
+}
+
+inline BasicObject* k_ThreadGroup_Default() {
+  static BasicObject* val = new ThreadGroup(); return val;
+}
+
+inline BasicObject* k_Process_CLOCK_REALTIME() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_Process_CLOCK_MONOTONIC() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_Process_CLOCK_PROCESS_CPUTIME_ID() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_Process_CLOCK_THREAD_CPUTIME_ID() {
+  static BasicObject* val = (&_f_i_3); return val;
+}
+
+inline BasicObject* k_Process_CLOCK_MONOTONIC_RAW() {
+  static BasicObject* val = (&_f_i_4); return val;
+}
+
+inline BasicObject* k_Process_CLOCK_REALTIME_COARSE() {
+  static BasicObject* val = (&_f_i_5); return val;
+}
+
+inline BasicObject* k_Process_CLOCK_MONOTONIC_COARSE() {
+  static BasicObject* val = (&_f_i_6); return val;
+}
+
+inline BasicObject* k_Process_CLOCK_BOOTTIME() {
+  static BasicObject* val = (&_f_i_7); return val;
+}
+
+inline BasicObject* k_Process_CLOCK_REALTIME_ALARM() {
+  static BasicObject* val = (&_f_i_8); return val;
+}
+
+inline BasicObject* k_Process_CLOCK_BOOTTIME_ALARM() {
+  static BasicObject* val = (&_f_i_9); return val;
+}
+
+inline BasicObject* k_Process_CLOCK_TAI() {
+  static BasicObject* val = (&_f_i_11); return val;
+}
+
+inline BasicObject* k_Process_WNOHANG() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_Process_WUNTRACED() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_Process_PRIO_PROCESS() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_Process_PRIO_PGRP() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_Process_PRIO_USER() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_Process_RLIMIT_CPU() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_Process_RLIMIT_FSIZE() {
+  static BasicObject* val = (&_f_i_1); return val;
+}
+
+inline BasicObject* k_Process_RLIMIT_DATA() {
+  static BasicObject* val = (&_f_i_2); return val;
+}
+
+inline BasicObject* k_Process_RLIMIT_STACK() {
+  static BasicObject* val = (&_f_i_3); return val;
+}
+
+inline BasicObject* k_Process_RLIMIT_CORE() {
+  static BasicObject* val = (&_f_i_4); return val;
+}
+
+inline BasicObject* k_Process_RLIMIT_RSS() {
+  static BasicObject* val = (&_f_i_5); return val;
+}
+
+inline BasicObject* k_Process_RLIMIT_NPROC() {
+  static BasicObject* val = (&_f_i_6); return val;
+}
+
+inline BasicObject* k_Process_RLIMIT_NOFILE() {
+  static BasicObject* val = (&_f_i_7); return val;
+}
+
+inline BasicObject* k_Process_RLIMIT_MEMLOCK() {
+  static BasicObject* val = (&_f_i_8); return val;
+}
+
+inline BasicObject* k_Process_RLIMIT_AS() {
+  static BasicObject* val = (&_f_i_9); return val;
+}
+
+inline BasicObject* k_Process_RLIM_INFINITY() {
+  static BasicObject* val = (&_f_i_18446744073709551615); return val;
+}
+
+inline BasicObject* k_Process_RLIM_SAVED_MAX() {
+  static BasicObject* val = (&_f_i_18446744073709551615); return val;
+}
+
+inline BasicObject* k_Process_RLIM_SAVED_CUR() {
+  static BasicObject* val = (&_f_i_18446744073709551615); return val;
+}
+
+inline BasicObject* k_StringIO_VERSION() {
+  static BasicObject* val = (new String("3.1.2", 5)); return val;
+}
+
+inline BasicObject* k_Data_EQ_GUARD() {
+  static BasicObject* val = (new Array({})); return val;
+}
+
+inline BasicObject* k_Data_INSPECT_GUARD() {
+  static BasicObject* val = (new Array({})); return val;
+}
+
+inline BasicObject* k_GC_STAT_KEYS() {
+  static BasicObject* val = (new Array({intern("count"), intern("heap_allocated_pages"), intern("heap_sorted_length"), intern("heap_allocatable_pages"), intern("heap_available_slots"), intern("heap_live_slots"), intern("heap_free_slots"), intern("heap_final_slots"), intern("heap_marked_slots"), intern("heap_eden_pages"), intern("heap_tomb_pages"), intern("total_allocated_pages"), intern("total_freed_pages"), intern("total_allocated_objects"), intern("total_freed_objects"), intern("malloc_increase_bytes"), intern("malloc_increase_bytes_limit"), intern("minor_gc_count"), intern("major_gc_count"), intern("remembered_wb_unprotected_objects"), intern("remembered_wb_unprotected_objects_limit"), intern("old_objects"), intern("old_objects_limit"), intern("oldmalloc_increase_bytes"), intern("oldmalloc_increase_bytes_limit")})); return val;
 }
 
 inline BasicObject* k_ENV() {
-  static BasicObject* val = (&ENVClass_CLASS)->m_new((new Array({})), nullptr, nullptr); return val;
+  static BasicObject* val = new ENVClass(); return val;
+}
+
+inline BasicObject* k_RbConfig_CONFIG() {
+  static BasicObject* val = (new Hash({})); return val;
+}
+
+inline BasicObject* k_Marshal_MAJOR_VERSION() {
+  static BasicObject* val = (&_f_i_4); return val;
+}
+
+inline BasicObject* k_Marshal_MINOR_VERSION() {
+  static BasicObject* val = (&_f_i_8); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_NIL() {
+  static BasicObject* val = (new String("0", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_TRUE() {
+  static BasicObject* val = (new String("T", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_FALSE() {
+  static BasicObject* val = (new String("F", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_INTEGER() {
+  static BasicObject* val = (new String("i", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_BIGNUM() {
+  static BasicObject* val = (new String("l", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_FLOAT() {
+  static BasicObject* val = (new String("f", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_STRING() {
+  static BasicObject* val = (new String("\"", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_SYMBOL() {
+  static BasicObject* val = (new String(":", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_SYMLINK() {
+  static BasicObject* val = (new String(";", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_ARRAY() {
+  static BasicObject* val = (new String("[", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_HASH() {
+  static BasicObject* val = (new String("{", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_HASH_DEF() {
+  static BasicObject* val = (new String("}", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_OBJECT() {
+  static BasicObject* val = (new String("o", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_STRUCT() {
+  static BasicObject* val = (new String("S", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_CLASS() {
+  static BasicObject* val = (new String("c", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_MODULE() {
+  static BasicObject* val = (new String("m", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_IVAR() {
+  static BasicObject* val = (new String("I", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_LINK() {
+  static BasicObject* val = (new String("@", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_UCLASS() {
+  static BasicObject* val = (new String("C", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_USERDEFINED() {
+  static BasicObject* val = (new String("u", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_USERMARSH() {
+  static BasicObject* val = (new String("U", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_EXTENDED() {
+  static BasicObject* val = (new String("e", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_REGEXP() {
+  static BasicObject* val = (new String("/", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_TYPE_DATA() {
+  static BasicObject* val = (new String("d", 1)); return val;
+}
+
+inline BasicObject* k_Marshal_Dumper_EXCEPTION_SKIP_IVARS() {
+  static BasicObject* val = (new Array({intern("@mesg"), intern("@message"), intern("@bt"), intern("@backtrace"), intern("@_has_locations"), intern("@backtrace_locations")})); return val;
+}
+
+inline BasicObject* k_RUBY_VERSION() {
+  static BasicObject* val = (new String("4.0.1", 5)); return val;
+}
+
+inline BasicObject* k_RUBY_PLATFORM() {
+  static BasicObject* val = (new String("x86_64-linux", 12)); return val;
+}
+
+inline BasicObject* k_RUBY_ENGINE() {
+  static BasicObject* val = (new String("ruby", 4)); return val;
+}
+
+inline BasicObject* k_RUBY_ENGINE_VERSION() {
+  static BasicObject* val = (new String("4.0.1", 5)); return val;
+}
+
+inline BasicObject* k_RUBY_PATCHLEVEL() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_RUBY_REVISION() {
+  static BasicObject* val = (new String("0", 1)); return val;
+}
+
+inline BasicObject* k_RUBY_RELEASE_DATE() {
+  static BasicObject* val = (new String("2025-01-01", 10)); return val;
+}
+
+inline BasicObject* k_RUBY_DESCRIPTION() {
+  static BasicObject* val = (new String("frozone 4.0.1 (x86_64-linux)", 28)); return val;
+}
+
+inline BasicObject* k_RUBY_NAME() {
+  static BasicObject* val = (new String("ruby", 4)); return val;
+}
+
+inline BasicObject* k_RUBY_COPYRIGHT() {
+  static BasicObject* val = (new String("frozone - Copyright (C) 2024 frozone", 36)); return val;
+}
+
+inline BasicObject* k_RUBY_EXE() {
+  static BasicObject* val = (new String("/home/rolandpj/.rbenv/versions/4.0.1/bin/ruby", 45)); return val;
+}
+
+inline BasicObject* k_Ruby_VERSION() {
+  static BasicObject* val = (new String("4.0.1", 5)); return val;
+}
+
+inline BasicObject* k_Ruby_PLATFORM() {
+  static BasicObject* val = (new String("x86_64-linux", 12)); return val;
+}
+
+inline BasicObject* k_Ruby_ENGINE() {
+  static BasicObject* val = (new String("ruby", 4)); return val;
+}
+
+inline BasicObject* k_Ruby_ENGINE_VERSION() {
+  static BasicObject* val = (new String("4.0.1", 5)); return val;
+}
+
+inline BasicObject* k_Ruby_PATCHLEVEL() {
+  static BasicObject* val = (&_f_i_0); return val;
+}
+
+inline BasicObject* k_Ruby_REVISION() {
+  static BasicObject* val = (new String("0", 1)); return val;
+}
+
+inline BasicObject* k_Ruby_RELEASE_DATE() {
+  static BasicObject* val = (new String("2025-01-01", 10)); return val;
+}
+
+inline BasicObject* k_Ruby_DESCRIPTION() {
+  static BasicObject* val = (new String("frozone 4.0.1 (x86_64-linux)", 28)); return val;
+}
+
+inline BasicObject* k_Ruby_COPYRIGHT() {
+  static BasicObject* val = (new String("frozone - Copyright (C) 2024 frozone", 36)); return val;
+}
+
+inline BasicObject* k_TOPLEVEL_BINDING() {
+  static BasicObject* val = nil_instance(); return val;
 }
 
 inline BasicObject* k_ARGF() {
-  static BasicObject* val = (&IO_CLASS)->m_new((new Array({})), nullptr, nullptr); return val;
+  static BasicObject* val = new IO(); return val;
+}
+
+inline BasicObject* k_ARGV() {
+  static BasicObject* val = (new Array({})); return val;
 }
 
 void __init_static_state__() {
   Enumerator_ArithmeticSequence_CLASS.iv__internal_allocate = false_instance();
-  // skipped Encoding.iv_default_external: emit_vm_value: nested ObjectObject (Encoding) materialisation not yet supported
+  Encoding_CLASS.iv_default_external = k_Encoding_UTF_8();
   Encoding_CLASS.iv_default_internal = nil_instance();
+  (*static_cast<Encoding*>(k_Encoding_UTF_8())).iv_name = (new String("UTF-8", 5));
+  (*static_cast<Encoding*>(k_Encoding_US_ASCII())).iv_name = (new String("US-ASCII", 8));
+  (*static_cast<Encoding*>(k_Encoding_ASCII())).iv_name = (new String("US-ASCII", 8));
+  (*static_cast<Encoding*>(k_Encoding_BINARY())).iv_name = (new String("ASCII-8BIT", 10));
+  (*static_cast<Encoding*>(k_Encoding_ASCII_8BIT())).iv_name = (new String("ASCII-8BIT", 10));
+  (*static_cast<Encoding*>(k_Encoding_EUC_JP())).iv_name = (new String("EUC-JP", 6));
+  (*static_cast<Encoding*>(k_Encoding_EUC_KR())).iv_name = (new String("EUC-KR", 6));
+  (*static_cast<Encoding*>(k_Encoding_EUC_TW())).iv_name = (new String("EUC-TW", 6));
+  (*static_cast<Encoding*>(k_Encoding_EUC_CN())).iv_name = (new String("EUC-CN", 6));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_1())).iv_name = (new String("ISO-8859-1", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_1())).iv_name = (new String("ISO-8859-1", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_2())).iv_name = (new String("ISO-8859-2", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_2())).iv_name = (new String("ISO-8859-2", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_3())).iv_name = (new String("ISO-8859-3", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_3())).iv_name = (new String("ISO-8859-3", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_4())).iv_name = (new String("ISO-8859-4", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_4())).iv_name = (new String("ISO-8859-4", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_5())).iv_name = (new String("ISO-8859-5", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_5())).iv_name = (new String("ISO-8859-5", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_6())).iv_name = (new String("ISO-8859-6", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_6())).iv_name = (new String("ISO-8859-6", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_7())).iv_name = (new String("ISO-8859-7", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_7())).iv_name = (new String("ISO-8859-7", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_8())).iv_name = (new String("ISO-8859-8", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_8())).iv_name = (new String("ISO-8859-8", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_9())).iv_name = (new String("ISO-8859-9", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_9())).iv_name = (new String("ISO-8859-9", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_10())).iv_name = (new String("ISO-8859-10", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_10())).iv_name = (new String("ISO-8859-10", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_11())).iv_name = (new String("ISO-8859-11", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_11())).iv_name = (new String("ISO-8859-11", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_13())).iv_name = (new String("ISO-8859-13", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_13())).iv_name = (new String("ISO-8859-13", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_14())).iv_name = (new String("ISO-8859-14", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_14())).iv_name = (new String("ISO-8859-14", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_15())).iv_name = (new String("ISO-8859-15", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_15())).iv_name = (new String("ISO-8859-15", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO_8859_16())).iv_name = (new String("ISO-8859-16", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO8859_16())).iv_name = (new String("ISO-8859-16", 11));
+  (*static_cast<Encoding*>(k_Encoding_UTF_16())).iv_name = (new String("UTF-16", 6));
+  (*static_cast<Encoding*>(k_Encoding_UTF_16BE())).iv_name = (new String("UTF-16BE", 8));
+  (*static_cast<Encoding*>(k_Encoding_UTF_16LE())).iv_name = (new String("UTF-16LE", 8));
+  (*static_cast<Encoding*>(k_Encoding_UTF_32())).iv_name = (new String("UTF-32", 6));
+  (*static_cast<Encoding*>(k_Encoding_UTF_32BE())).iv_name = (new String("UTF-32BE", 8));
+  (*static_cast<Encoding*>(k_Encoding_UTF_32LE())).iv_name = (new String("UTF-32LE", 8));
+  (*static_cast<Encoding*>(k_Encoding_SHIFT_JIS())).iv_name = (new String("Shift_JIS", 9));
+  (*static_cast<Encoding*>(k_Encoding_Shift_JIS())).iv_name = (new String("Shift_JIS", 9));
+  (*static_cast<Encoding*>(k_Encoding_Windows_31J())).iv_name = (new String("Windows-31J", 11));
+  (*static_cast<Encoding*>(k_Encoding_SJIS())).iv_name = (new String("Windows-31J", 11));
+  (*static_cast<Encoding*>(k_Encoding_CP932())).iv_name = (new String("Windows-31J", 11));
+  (*static_cast<Encoding*>(k_Encoding_Windows_1250())).iv_name = (new String("Windows-1250", 12));
+  (*static_cast<Encoding*>(k_Encoding_Windows_1251())).iv_name = (new String("Windows-1251", 12));
+  (*static_cast<Encoding*>(k_Encoding_Windows_1252())).iv_name = (new String("Windows-1252", 12));
+  (*static_cast<Encoding*>(k_Encoding_Windows_1253())).iv_name = (new String("Windows-1253", 12));
+  (*static_cast<Encoding*>(k_Encoding_Windows_1254())).iv_name = (new String("Windows-1254", 12));
+  (*static_cast<Encoding*>(k_Encoding_Windows_1255())).iv_name = (new String("Windows-1255", 12));
+  (*static_cast<Encoding*>(k_Encoding_Windows_1256())).iv_name = (new String("Windows-1256", 12));
+  (*static_cast<Encoding*>(k_Encoding_Windows_1257())).iv_name = (new String("Windows-1257", 12));
+  (*static_cast<Encoding*>(k_Encoding_Windows_1258())).iv_name = (new String("Windows-1258", 12));
+  (*static_cast<Encoding*>(k_Encoding_CP1250())).iv_name = (new String("Windows-1250", 12));
+  (*static_cast<Encoding*>(k_Encoding_CP1251())).iv_name = (new String("Windows-1251", 12));
+  (*static_cast<Encoding*>(k_Encoding_CP1252())).iv_name = (new String("Windows-1252", 12));
+  (*static_cast<Encoding*>(k_Encoding_CP1253())).iv_name = (new String("Windows-1253", 12));
+  (*static_cast<Encoding*>(k_Encoding_CP1254())).iv_name = (new String("Windows-1254", 12));
+  (*static_cast<Encoding*>(k_Encoding_CP1255())).iv_name = (new String("Windows-1255", 12));
+  (*static_cast<Encoding*>(k_Encoding_CP1256())).iv_name = (new String("Windows-1256", 12));
+  (*static_cast<Encoding*>(k_Encoding_CP1257())).iv_name = (new String("Windows-1257", 12));
+  (*static_cast<Encoding*>(k_Encoding_CP1258())).iv_name = (new String("Windows-1258", 12));
+  (*static_cast<Encoding*>(k_Encoding_Big5())).iv_name = (new String("Big5", 4));
+  (*static_cast<Encoding*>(k_Encoding_BIG5())).iv_name = (new String("Big5", 4));
+  (*static_cast<Encoding*>(k_Encoding_Big5_HKSCS())).iv_name = (new String("Big5-HKSCS", 10));
+  (*static_cast<Encoding*>(k_Encoding_Big5_UAO())).iv_name = (new String("Big5-UAO", 8));
+  (*static_cast<Encoding*>(k_Encoding_IBM437())).iv_name = (new String("IBM437", 6));
+  (*static_cast<Encoding*>(k_Encoding_IBM775())).iv_name = (new String("IBM775", 6));
+  (*static_cast<Encoding*>(k_Encoding_IBM852())).iv_name = (new String("IBM852", 6));
+  (*static_cast<Encoding*>(k_Encoding_IBM855())).iv_name = (new String("IBM855", 6));
+  (*static_cast<Encoding*>(k_Encoding_IBM857())).iv_name = (new String("IBM857", 6));
+  (*static_cast<Encoding*>(k_Encoding_IBM860())).iv_name = (new String("IBM860", 6));
+  (*static_cast<Encoding*>(k_Encoding_IBM861())).iv_name = (new String("IBM861", 6));
+  (*static_cast<Encoding*>(k_Encoding_IBM862())).iv_name = (new String("IBM862", 6));
+  (*static_cast<Encoding*>(k_Encoding_IBM863())).iv_name = (new String("IBM863", 6));
+  (*static_cast<Encoding*>(k_Encoding_IBM864())).iv_name = (new String("IBM864", 6));
+  (*static_cast<Encoding*>(k_Encoding_IBM865())).iv_name = (new String("IBM865", 6));
+  (*static_cast<Encoding*>(k_Encoding_IBM866())).iv_name = (new String("IBM866", 6));
+  (*static_cast<Encoding*>(k_Encoding_IBM869())).iv_name = (new String("IBM869", 6));
+  (*static_cast<Encoding*>(k_Encoding_KOI8_R())).iv_name = (new String("KOI8-R", 6));
+  (*static_cast<Encoding*>(k_Encoding_KOI8_U())).iv_name = (new String("KOI8-U", 6));
+  (*static_cast<Encoding*>(k_Encoding_CP65001())).iv_name = (new String("UTF-8", 5));
+  (*static_cast<Encoding*>(k_Encoding_Emacs_Mule())).iv_name = (new String("Emacs-Mule", 10));
+  (*static_cast<Encoding*>(k_Encoding_ISO_2022_JP())).iv_name = (new String("ISO-2022-JP", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO2022_JP())).iv_name = (new String("ISO-2022-JP", 11));
+  (*static_cast<Encoding*>(k_Encoding_ISO_2022_JP_2())).iv_name = (new String("ISO-2022-JP-2", 13));
+  (*static_cast<Encoding*>(k_Encoding_ISO_2022_JP_KDDI())).iv_name = (new String("ISO-2022-JP-KDDI", 16));
+  (*static_cast<Encoding*>(k_Encoding_CP50220())).iv_name = (new String("CP50220", 7));
+  (*static_cast<Encoding*>(k_Encoding_CP50221())).iv_name = (new String("CP50221", 7));
+  (*static_cast<Encoding*>(k_Encoding_IBM037())).iv_name = (new String("IBM037", 6));
+  (*static_cast<Encoding*>(k_Encoding_UTF8_MAC())).iv_name = (new String("UTF8-MAC", 8));
+  (*static_cast<Encoding*>(k_Encoding_UTF_8_MAC())).iv_name = (new String("UTF8-MAC", 8));
+  (*static_cast<Encoding*>(k_Encoding_EUCJP_MS())).iv_name = (new String("eucJP-ms", 8));
+  (*static_cast<Encoding*>(k_Encoding_CP51932())).iv_name = (new String("CP51932", 7));
+  (*static_cast<Encoding*>(k_Encoding_GB18030())).iv_name = (new String("GB18030", 7));
+  (*static_cast<Encoding*>(k_Encoding_GBK())).iv_name = (new String("GBK", 3));
+  (*static_cast<Encoding*>(k_Encoding_GB2312())).iv_name = (new String("GBK", 3));
+  (*static_cast<Encoding*>(k_Encoding_TIS_620())).iv_name = (new String("TIS-620", 7));
+  (*static_cast<Encoding*>(k_Encoding_UTF_7())).iv_name = (new String("UTF-7", 5));
+  (*static_cast<Encoding*>(k_Encoding_CESU_8())).iv_name = (new String("CESU-8", 6));
+  (*static_cast<Encoding*>(k_Encoding_Stateless_ISO_2022_JP())).iv_name = (new String("stateless-ISO-2022-JP", 21));
+  (*static_cast<Encoding*>(k_Encoding_MacCyrillic())).iv_name = (new String("macCyrillic", 11));
+  (*static_cast<Encoding*>(k_Encoding_MacJapanese())).iv_name = (new String("MacJapanese", 11));
+  (*static_cast<Encoding*>(k_Encoding_MacThai())).iv_name = (new String("MacThai", 7));
+  (*static_cast<Complex*>(k_Complex_I())).iv_real = (&_f_i_0);
+  (*static_cast<Complex*>(k_Complex_I())).iv_imaginary = (&_f_i_1);
+  // skipped ThreadGroup_Default.iv_threads: emit_vm_value: ObjectObject (Thread) not in user_constants
+  (*static_cast<ThreadGroup*>(k_ThreadGroup_Default())).iv_enclosed = false_instance();
 }
 
 struct MainObject : Object {

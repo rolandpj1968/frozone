@@ -66,6 +66,7 @@ module Frozone
             write_singletons(emit, classes)
             emit.blank
             emit.cpp.write_int_literals(emit)
+            emit.cpp.write_raw_int_arrays(emit)
             body_buf.each_line { |l| emit.line l.chomp }
           end
 

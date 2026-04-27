@@ -29,6 +29,7 @@
 #include <functional>
 #include <initializer_list>
 #include <type_traits>
+#include <limits>
 #include <gc.h>
 
 #define FROZONE_GC_INIT() GC_INIT()

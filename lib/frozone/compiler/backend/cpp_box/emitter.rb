@@ -115,36 +115,74 @@ module Frozone
             classes
           end
 
-          # Walk constants_table for non-class instance constants whose
-          # class is one we're emitting. For each, build a lazy-init
-          # accessor (`k_NAME()`).
+          # Recursively walk constants_tables for instance constants
+          # (not classes/modules — those are user_classes). Both
+          # top-level (`STDOUT`) and nested (`Encoding::BINARY`) get
+          # collected with flattened names. Each gets a lazy-init
+          # accessor `k_<flat>()` later. Skip primitive Vm types
+          # (Symbol/Integer/String/etc.) — those emit as literals via
+          # emit_vm_value, not as accessors.
+          # Vm primitives that emit as literal expressions (intern,
+          # new String, etc.) rather than default-constructed objects.
+          PRIMITIVE_VM_VALUE_CLASSES = [
+            Vm::IntegerObject, Vm::FloatObject, Vm::SymbolObject,
+            Vm::StringObject, Vm::NilObject, Vm::TrueObject, Vm::FalseObject,
+            Vm::ArrayObject, Vm::HashObject
+          ].freeze
+
+          def primitive_vm_value?(val)
+            PRIMITIVE_VM_VALUE_CLASSES.any? { |c| val.is_a?(c) }
+          end
+
+          # Recursively walk constants_tables for instance constants
+          # (not classes/modules — those are user_classes). Both
+          # top-level (`STDOUT`) and nested (`Encoding::BINARY`) get
+          # collected with flattened names. Each gets an accessor
+          # `k_<flat>()` later — primitives emit as literal
+          # expressions, ObjectObjects as default-construct + ivar
+          # populate from the snapshot.
           def collect_user_constants
             consts = {}
-            (@top_level_scope.constants_table || {}).each do |name, val|
-              next if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
-              next unless val.is_a?(Vm::ObjectObject)
-              klass = val.class_object
-              next unless klass.is_a?(Vm::ClassObject) && @user_classes.key?(klass.name)
-              consts[name] = val
-            end
+            seen = Set.new
+            walk = ->(scope, prefix) {
+              return if seen.include?(scope.object_id)
+              seen << scope.object_id
+              (scope.constants_table || {}).each do |name, val|
+                flat = prefix ? :"#{prefix}_#{name}" : name
+                if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
+                  walk.call(val, flat)
+                elsif val.is_a?(Vm::ObjectObject)
+                  consts[flat] = val
+                end
+              end
+            }
+            walk.call(@top_level_scope, nil)
             consts
           end
 
           def build_user_constant_accessors
             @user_constants.map do |name, val|
-              klass_name = val.class_object.name.to_s
-              # Use the universal m_new dispatch so the auto-emitted
-              # m_new on the eigenclass runs the user's m_initialize
-              # (which sets the ivars). Direct `new ClassName()`
-              # default-constructs and skips initialize → ivars stay
-              # nullptr. Calling with empty args means classes whose
-              # initialize takes args fall back to nil — acceptable for
-              # this snapshot-based path.
-              Runtime::KernelFn.new(
-                name: "k_#{name}",
-                signature: "BasicObject* k_#{name}()",
-                body: "static BasicObject* val = (&#{klass_name}_CLASS)->m_new((new Array({})), nullptr, nullptr); return val;",
-              )
+              if primitive_vm_value?(val)
+                # Primitive — emit_vm_value gives the literal expr.
+                # Cached in a static for identity stability + skip
+                # re-evaluation cost on subsequent calls.
+                expr = (@cpp.emit_vm_value(val) rescue "nil_instance() /* failed: #{$!&.message} */")
+                Runtime::KernelFn.new(
+                  name: "k_#{name}",
+                  signature: "BasicObject* k_#{name}()",
+                  body: "static BasicObject* val = #{expr}; return val;",
+                )
+              else
+                # Snapshot ObjectObject — default-construct (no
+                # m_initialize call), let __init_static_state__
+                # populate ivars from the Vm instance.
+                klass_name = val.class_object.full_name.to_s.gsub("::", "_")
+                Runtime::KernelFn.new(
+                  name: "k_#{name}",
+                  signature: "BasicObject* k_#{name}()",
+                  body: "static BasicObject* val = new #{klass_name}(); return val;",
+                )
+              end
             end
           end
 
@@ -476,32 +514,42 @@ module Frozone
           end
 
           # Materialise every reachable Vm value that exists at AOT
-          # time but isn't a literal in the program. Initial scope:
-          # ClassObject ivars (set via `self.X = ...` at class-body
-          # level — the ragel-generated lexer tables are the canonical
-          # case). Each becomes
-          #   <Class>_CLASS.iv_<name> = <emit_vm_value(val)>;
+          # time but isn't a literal in the program:
+          #   - ClassObject ivars (set via `self.X = ...` at class-body
+          #     level — the ragel-generated lexer tables are the
+          #     canonical case)
+          #   - Nested user-constants' ivars (e.g. `Encoding::BINARY`
+          #     has @name = "ASCII-8BIT" etc.)
           # Failures (unsupported value type, unresolved class) skip
-          # that one ivar with a comment — no method-level scope to
-          # gracefully fall back to here.
+          # that one ivar with a comment.
           def write_static_state_init
             line "void __init_static_state__() {"
             indented do
               @user_classes.each do |flat, cls|
                 (cls.instance_variables_hash || {}).each do |name, val|
-                  iv = name.to_s.delete_prefix('@')
-                  begin
-                    expr = @cpp.emit_vm_value(val)
-                    line "#{flat}_CLASS.iv_#{iv} = #{expr};"
-                  rescue Cpp::EmissionError => e
-                    line "// skipped #{flat}.iv_#{iv}: #{e.message.gsub('*/', '* /')}"
-                    $stderr.puts "[box-first] skip static-init #{flat}.iv_#{iv}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
-                  end
+                  emit_static_iv_assign("#{flat}_CLASS", flat, name, val)
+                end
+              end
+              @user_constants.each do |flat, obj|
+                next if primitive_vm_value?(obj)  # literals have no ivars
+                klass = obj.class_object.full_name.to_s.gsub("::", "_")
+                target = "(*static_cast<#{klass}*>(k_#{flat}()))"
+                (obj.instance_variables_hash || {}).each do |name, val|
+                  emit_static_iv_assign(target, flat, name, val)
                 end
               end
             end
             line "}"
             blank
+          end
+
+          def emit_static_iv_assign(target_expr, label, ivar_name, val)
+            iv = ivar_name.to_s.delete_prefix('@')
+            expr = @cpp.emit_vm_value(val)
+            line "#{target_expr}.iv_#{iv} = #{expr};"
+          rescue Cpp::EmissionError => e
+            line "// skipped #{label}.iv_#{iv}: #{e.message.gsub('*/', '* /')}"
+            $stderr.puts "[box-first] skip static-init #{label}.iv_#{iv}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
           end
 
           # Top-level user methods (not on a class).

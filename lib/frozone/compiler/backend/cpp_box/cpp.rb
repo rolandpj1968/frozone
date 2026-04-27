@@ -814,6 +814,16 @@ module Frozone
             nil
           end
 
+          # Float literal — Ruby's Float::INFINITY / Float::NAN
+          # interpolate to "Infinity" / "NaN" which aren't C++ literals.
+          # Use the standard C++ macros for those, plain digits for finite.
+          def float_literal(v)
+            return "(new Float(std::numeric_limits<double>::infinity()))" if v == Float::INFINITY
+            return "(new Float(-std::numeric_limits<double>::infinity()))" if v == -Float::INFINITY
+            return "(new Float(std::numeric_limits<double>::quiet_NaN()))" if v.is_a?(Float) && v.nan?
+            "(new Float(#{v}))"
+          end
+
           # Render a Vm value as a C++ expression that produces the
           # equivalent box at runtime. Used by static-state capture
           # (ClassObject ivar materialization). Recursive across
@@ -823,7 +833,7 @@ module Frozone
           def emit_vm_value(val)
             case val
             when Vm::IntegerObject then intern_int(val.raw)
-            when Vm::FloatObject   then "(new Float(#{val.raw}))"
+            when Vm::FloatObject   then float_literal(val.raw)
             when Vm::SymbolObject  then "intern(#{cpp_string_literal(val.raw.to_s)})"
             when Vm::StringObject  then "(new String(#{cpp_string_literal(val.raw)}, #{val.raw.bytesize}))"
             when Vm::NilObject     then "nil_instance()"
@@ -850,9 +860,12 @@ module Frozone
               raise EmissionError, "emit_vm_value: ClassObject #{val.full_name} not in emitted set" unless flat
               "(&#{flat}_CLASS)"
             when Vm::ObjectObject
-              # Plain object — would need a unique materialised instance
-              # with its ivars set. Defer (handles cycles needs two-pass).
-              raise EmissionError, "emit_vm_value: nested ObjectObject (#{val.class_object&.full_name}) materialisation not yet supported"
+              # If this object is itself one of our registered user
+              # constants, emit a reference to its accessor (its ivars
+              # are populated by static_state_init).
+              flat = @user_constants.find { |_, v| v.equal?(val) }&.first
+              raise EmissionError, "emit_vm_value: ObjectObject (#{val.class_object&.full_name}) not in user_constants" unless flat
+              "k_#{flat}()"
             else
               raise EmissionError, "emit_vm_value: unsupported VM value class #{val.class.name}"
             end
