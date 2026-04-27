@@ -30,6 +30,7 @@
 #include <initializer_list>
 #include <type_traits>
 #include <limits>
+#include <cmath>
 #include <gc.h>
 
 #define FROZONE_GC_INIT() GC_INIT()

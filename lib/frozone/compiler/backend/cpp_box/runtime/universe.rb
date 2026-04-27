@@ -248,17 +248,21 @@ module Frozone
               "std::size_t m_hash_value() const override { return std::hash<int64_t>()(raw_); }",
             ],
             overrides: {
-              "m_plus"     => { params: ["BasicObject* other"], body: "return new Integer(raw_ + static_cast<Integer*>(other)->raw_);" },
-              "m_minus"    => { params: ["BasicObject* other"], body: "return new Integer(raw_ - static_cast<Integer*>(other)->raw_);" },
-              "m_mul"      => { params: ["BasicObject* other"], body: "return new Integer(raw_ * static_cast<Integer*>(other)->raw_);" },
-              "m_div"      => { params: ["BasicObject* other"], body: "return new Integer(raw_ / static_cast<Integer*>(other)->raw_);" },
+              # Integer arithmetic — Float operands promote to Float (Ruby
+              # numeric coercion). Without the dynamic_cast, `1 + 1.5`
+              # would reinterpret Float's bits as int64 and silently
+              # corrupt. Same for ==, <, etc.
+              "m_plus"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) + f->raw_); return new Integer(raw_ + static_cast<Integer*>(other)->raw_);" },
+              "m_minus"    => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) - f->raw_); return new Integer(raw_ - static_cast<Integer*>(other)->raw_);" },
+              "m_mul"      => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) * f->raw_); return new Integer(raw_ * static_cast<Integer*>(other)->raw_);" },
+              "m_div"      => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) / f->raw_); return new Integer(raw_ / static_cast<Integer*>(other)->raw_);" },
               "m_mod"      => { params: ["BasicObject* other"], body: "return new Integer(raw_ % static_cast<Integer*>(other)->raw_);" },
-              "m_lt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <  static_cast<Integer*>(other)->raw_);" },
-              "m_gt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >  static_cast<Integer*>(other)->raw_);" },
-              "m_le"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <= static_cast<Integer*>(other)->raw_);" },
-              "m_ge"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >= static_cast<Integer*>(other)->raw_);" },
-              "m_eq_q"     => { params: ["BasicObject* other"], body: "auto* o = dynamic_cast<Integer*>(other); return boxed_bool(o && raw_ == o->raw_);" },
-              "m_ne_q"     => { params: ["BasicObject* other"], body: "auto* o = dynamic_cast<Integer*>(other); return boxed_bool(!o || raw_ != o->raw_);" },
+              "m_lt"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) <  f->raw_); return boxed_bool(raw_ <  static_cast<Integer*>(other)->raw_);" },
+              "m_gt"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) >  f->raw_); return boxed_bool(raw_ >  static_cast<Integer*>(other)->raw_);" },
+              "m_le"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) <= f->raw_); return boxed_bool(raw_ <= static_cast<Integer*>(other)->raw_);" },
+              "m_ge"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) >= f->raw_); return boxed_bool(raw_ >= static_cast<Integer*>(other)->raw_);" },
+              "m_eq_q"     => { params: ["BasicObject* other"], body: "if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ == i->raw_); if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) == f->raw_); return false_instance();" },
+              "m_ne_q"     => { params: ["BasicObject* other"], body: "if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ != i->raw_); if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) != f->raw_); return true_instance();" },
               "m_lshift"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ << static_cast<Integer*>(other)->raw_);" },
               "m_rshift"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ >> static_cast<Integer*>(other)->raw_);" },
               "m_bit_and"  => { params: ["BasicObject* other"], body: "return new Integer(raw_ &  static_cast<Integer*>(other)->raw_);" },
@@ -274,6 +278,7 @@ module Frozone
                 CPP
               },
               "m_to_i"     => { params: [], body: "return this;" },
+              "m_to_f"     => { params: [], body: "return new Float(static_cast<double>(raw_));" },
             },
           )
 
@@ -291,24 +296,46 @@ module Frozone
               "explicit Float(double r) : raw_(r) {}",
               %(const char* ruby_class_name() const override { return "Float"; }),
               "std::size_t m_hash_value() const override { return std::hash<double>()(raw_); }",
+              "// Coerce a numeric BasicObject* to double — handles the",
+              "// Float * Integer / Integer * Float mixed-arithmetic case",
+              "// without falling back to Ruby-level coercion.",
+              "static double as_double(BasicObject* o) {",
+              "  if (auto* f = dynamic_cast<Float*>(o))   return f->raw_;",
+              "  if (auto* i = dynamic_cast<Integer*>(o)) return static_cast<double>(i->raw_);",
+              "  return 0.0;",
+              "}",
             ],
             overrides: {
-              "m_plus"     => { params: ["BasicObject* other"], body: "return new Float(raw_ + static_cast<Float*>(other)->raw_);" },
-              "m_minus"    => { params: ["BasicObject* other"], body: "return new Float(raw_ - static_cast<Float*>(other)->raw_);" },
-              "m_mul"      => { params: ["BasicObject* other"], body: "return new Float(raw_ * static_cast<Float*>(other)->raw_);" },
-              "m_div"      => { params: ["BasicObject* other"], body: "return new Float(raw_ / static_cast<Float*>(other)->raw_);" },
-              "m_lt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <  static_cast<Float*>(other)->raw_);" },
-              "m_gt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >  static_cast<Float*>(other)->raw_);" },
-              "m_le"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <= static_cast<Float*>(other)->raw_);" },
-              "m_ge"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >= static_cast<Float*>(other)->raw_);" },
-              "m_eq_q"     => { params: ["BasicObject* other"], body: "auto* o = dynamic_cast<Float*>(other); return boxed_bool(o && raw_ == o->raw_);" },
-              "m_ne_q"     => { params: ["BasicObject* other"], body: "auto* o = dynamic_cast<Float*>(other); return boxed_bool(!o || raw_ != o->raw_);" },
+              "m_plus"     => { params: ["BasicObject* other"], body: "return new Float(raw_ + as_double(other));" },
+              "m_minus"    => { params: ["BasicObject* other"], body: "return new Float(raw_ - as_double(other));" },
+              "m_mul"      => { params: ["BasicObject* other"], body: "return new Float(raw_ * as_double(other));" },
+              "m_div"      => { params: ["BasicObject* other"], body: "return new Float(raw_ / as_double(other));" },
+              "m_lt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <  as_double(other));" },
+              "m_gt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >  as_double(other));" },
+              "m_le"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <= as_double(other));" },
+              "m_ge"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >= as_double(other));" },
+              "m_eq_q"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(raw_ == f->raw_); if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ == static_cast<double>(i->raw_)); return false_instance();" },
+              "m_ne_q"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(raw_ != f->raw_); if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ != static_cast<double>(i->raw_)); return true_instance();" },
               "m_neg"      => { params: [],                     body: "return new Float(-raw_);" },
               "m_to_s"     => {
                 params: [],
                 body: <<~CPP.chomp,
-                  char buf[32];
-                  int n = std::snprintf(buf, sizeof(buf), "%g", raw_);
+                  // Ruby Float#to_s uses shortest round-trippable repr —
+                  // try precisions 1..17 and pick the smallest that
+                  // sscanfs back to the same double. Then ensure a
+                  // decimal point so 4.0.to_s == "4.0".
+                  if (std::isnan(raw_)) return new String("NaN", 3);
+                  if (std::isinf(raw_)) return new String(raw_ < 0 ? "-Infinity" : "Infinity", raw_ < 0 ? 9 : 8);
+                  char buf[64];
+                  int n = 0;
+                  for (int prec = 1; prec <= 17; prec++) {
+                    n = std::snprintf(buf, sizeof(buf), "%.*g", prec, raw_);
+                    double r = 0; std::sscanf(buf, "%lf", &r);
+                    if (r == raw_) break;
+                  }
+                  bool has_dot = false;
+                  for (int i = 0; i < n; i++) if (buf[i] == '.' || buf[i] == 'e' || buf[i] == 'E') { has_dot = true; break; }
+                  if (!has_dot && n + 2 < (int)sizeof(buf)) { buf[n++] = '.'; buf[n++] = '0'; buf[n] = 0; }
                   return new String(buf, static_cast<std::size_t>(n));
                 CPP
               },
@@ -802,7 +829,22 @@ module Frozone
             signature: "void ruby_puts(BasicObject* o)",
             body: <<~CPP.chomp,
               if (auto* i = dynamic_cast<Integer*>(o))      { std::printf("%lld\\n", static_cast<long long>(i->raw_)); return; }
-              if (auto* f = dynamic_cast<Float*>(o))        { std::printf("%g\\n", f->raw_); return; }
+              if (auto* f = dynamic_cast<Float*>(o))        {
+                if (std::isnan(f->raw_))      { std::printf("NaN\\n");      return; }
+                if (std::isinf(f->raw_))      { std::printf("%sInfinity\\n", f->raw_ < 0 ? "-" : ""); return; }
+                // Shortest round-trippable representation (matches Ruby).
+                char buf[64];
+                int n = 0;
+                for (int prec = 1; prec <= 17; prec++) {
+                  n = std::snprintf(buf, sizeof(buf), "%.*g", prec, f->raw_);
+                  double r = 0; std::sscanf(buf, "%lf", &r);
+                  if (r == f->raw_) break;
+                }
+                bool has_dot = false;
+                for (int i = 0; i < n; i++) if (buf[i] == '.' || buf[i] == 'e' || buf[i] == 'E') { has_dot = true; break; }
+                if (!has_dot && n + 2 < (int)sizeof(buf)) { buf[n++] = '.'; buf[n++] = '0'; }
+                std::fwrite(buf, 1, n, stdout); std::putchar('\\n'); return;
+              }
               if (auto* s = dynamic_cast<Symbol*>(o))       { std::printf("%s\\n", s->name_); return; }
               if (auto* str = dynamic_cast<String*>(o))     { std::fwrite(str->bytes.data(), 1, str->bytes.size(), stdout); std::putchar('\\n'); return; }
               if (o == true_instance())                      { std::printf("true\\n"); return; }

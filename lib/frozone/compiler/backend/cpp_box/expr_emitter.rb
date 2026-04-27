@@ -78,6 +78,8 @@ module Frozone
               write_local_write_stmt(emit, node, locals)
             when Ast::MultipleAssignment
               write_multiple_assignment_stmt(emit, node, locals)
+            when Ast::ForLoop
+              write_for_loop_stmt(emit, node, locals)
             when Ast::Break
               # Bare `break` and `break value` — value is dropped (the
               # surrounding loop's value isn't observable in
@@ -157,6 +159,32 @@ module Frozone
               write_body(emit, node.body_node, locals: locals) if node.body_node
             end
             emit.line "}"
+          end
+
+          # `for var in coll; body; end` desugars to coll.each { |var| body }.
+          # Unlike block-locals, for-loop targets persist in the enclosing
+          # scope — so we declare/update var as a regular method-scope local.
+          # Only :local targets supported here; others (:index, :ivar, …)
+          # would need the same MASS plumbing and aren't seen yet.
+          def self.write_for_loop_stmt(emit, node, locals)
+            target = node.target
+            unless target.is_a?(Array) && target[0] == :local
+              raise Cpp::EmissionError, "ForLoop target #{target.inspect} not yet supported"
+            end
+            var = target[1].to_s
+            cpp_var = MethodEmitter.local_cpp_name(var)
+            unless locals.include?(var)
+              emit.line "BasicObject* #{cpp_var} = nil_instance();"
+              locals << var
+            end
+            coll = emit.cpp.from_expr(node.collection_node, locals)
+            emit.line "(#{coll})->m_each((new Array({})), nullptr, (new Proc([&](BasicObject* arg) -> BasicObject* {"
+            emit.indented do
+              emit.line "#{cpp_var} = arg;"
+              write_body(emit, node.body_node, locals: locals) if node.body_node
+              emit.line "return nil_instance();"
+            end
+            emit.line "})));"
           end
 
           # `until cond; body; end` is `while (!truthy(cond)) { body }`.
