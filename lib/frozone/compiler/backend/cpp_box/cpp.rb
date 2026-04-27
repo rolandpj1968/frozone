@@ -519,7 +519,14 @@ module Frozone
             range_exclude_end:  ->(self_) { "boxed_bool(static_cast<Range*>(#{self_})->exclude_end_)" },
             range_initialized_q:->(self_) { "boxed_bool(static_cast<Range*>(#{self_})->initialized_)" },
 
-            # String — direct byte-vector access.
+            # String — direct byte-vector access. encoding/force_encoding
+            # are stubs: we return a literal string for `encoding` so
+            # core/4.0/ code that passes it through (e.g. reverse +
+            # force_encoding(encoding)) doesn't blow up. Real encoding
+            # tracking can come back when something needs it.
+            string_encoding: ->(_self_) { %((new String("UTF-8", 5))) },
+            string_force_encoding: ->(self_, _enc) { "(#{self_})" },
+
             string_get_byte: ->(self_, i) {
               "(new Integer(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes[static_cast<Integer*>(#{i})->raw_])))"
             },

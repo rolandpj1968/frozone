@@ -141,8 +141,10 @@ module Frozone
           # Recursively walk constants_table from top-level. Nested
           # classes (`Parser::Ruby40`) get added with their flattened
           # name (`:Parser_Ruby40`) — matches what path_to_cpp_name
-          # produces at call sites. Modules don't emit as structs but
-          # we walk through them to find nested classes.
+          # produces at call sites. Modules emit as struct + eigenclass
+          # too — Math.sqrt / Blurhash.encode_rb dispatches through the
+          # eigenclass exactly like a Class's class methods. Module
+          # instances are never allocated; the struct is just a marker.
           def collect_all_classes
             classes = {}
             seen = Set.new
@@ -151,10 +153,8 @@ module Frozone
               seen << scope.object_id
               (scope.constants_table || {}).each do |name, val|
                 flat = prefix ? :"#{prefix}_#{name}" : name
-                if val.is_a?(Vm::ClassObject)
+                if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
                   classes[flat] = val unless UNIVERSE_NAMES.include?(flat.to_s)
-                  walk.call(val, flat)
-                elsif val.is_a?(Vm::ModuleObject)
                   walk.call(val, flat)
                 end
               end
@@ -434,6 +434,10 @@ module Frozone
           end
 
           def parent_name_for(cls)
+            # Modules have no superclass — emit them as Object subclasses.
+            # Their struct is a marker (no instances ever allocated); the
+            # eigenclass holds the singleton methods (def self.X).
+            return "Object" unless cls.is_a?(Vm::ClassObject)
             sc = cls.superclass
             return "Object" unless sc
             return "Object" if sc.name == :Object || sc.name.nil?
