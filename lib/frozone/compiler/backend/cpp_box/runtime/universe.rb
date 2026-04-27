@@ -929,7 +929,13 @@ module Frozone
           TRUTHY = KernelFn.new(
             name: "truthy",
             signature: "bool truthy(BasicObject* o)",
-            body: "return o != nil_instance() && o != false_instance();",
+            # nullptr is the C++ representation of "no value here" for
+            # the kwargs / block parameters of the universal protocol.
+            # Without the nullptr check, `if block` evaluates true when
+            # no block was passed (block == nullptr) — every method body
+            # that does `if block; block.call ... end` then enters the
+            # block-using path and segfaults dereferencing nullptr.
+            body: "return o != nullptr && o != nil_instance() && o != false_instance();",
           )
 
           RUBY_PUTS = KernelFn.new(

@@ -691,10 +691,51 @@ module Frozone
           # which from_expr emits as comma-operator.
           # Missing else_node → nil (Ruby semantics).
           def from_if(node, locals)
+            # Branches that contain a Return statement can't be expressed
+            # as a ternary. Fall back to a lambda + early-return form so
+            # the Return propagates correctly. Same trick from_case uses.
+            if contains_return?(node.then_node) || contains_return?(node.else_node)
+              return from_if_as_lambda(node, locals)
+            end
             cond = from_expr(node.pred_node, locals)
             t = node.then_node ? from_expr(node.then_node, locals) : "nil_instance()"
             e = node.else_node ? from_expr(node.else_node, locals) : "nil_instance()"
             "(truthy(#{cond}) ? (#{t}) : (#{e}))"
+          end
+
+          # If-as-expression where one or both branches contain Return
+          # — wrap in a lambda and emit each branch via write_body.
+          def from_if_as_lambda(node, locals)
+            buf = emit.capture do
+              emit.line "if (truthy(#{from_expr(node.pred_node, locals)})) {"
+              emit.indented do
+                if node.then_node
+                  ExprEmitter.write_body(emit, node.then_node, locals: locals, last_is_return: true)
+                else
+                  emit.line "return nil_instance();"
+                end
+              end
+              emit.line "} else {"
+              emit.indented do
+                if node.else_node
+                  ExprEmitter.write_body(emit, node.else_node, locals: locals, last_is_return: true)
+                else
+                  emit.line "return nil_instance();"
+                end
+              end
+              emit.line "}"
+            end
+            "([&]() -> BasicObject* { #{buf.gsub(/\s+/, ' ').strip} }())"
+          end
+
+          def contains_return?(node)
+            return false unless node.is_a?(Ast::Node)
+            return true if node.is_a?(Ast::Return)
+            # Stop at things that introduce their own return scope.
+            return false if node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda) ||
+                            node.is_a?(Ast::MethodDef) || node.is_a?(Ast::ClassDef) ||
+                            node.is_a?(Ast::ModuleDef) || node.is_a?(Ast::SingletonClassDef)
+            (node.respond_to?(:children) ? node.children : []).any? { |c| contains_return?(c) }
           end
 
           # Case-as-expression — lambda + early-return form. Multi-statement
