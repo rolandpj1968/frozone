@@ -149,7 +149,7 @@ module Frozone
           def self.case_when_cond(emit, condition_nodes, subj, locals)
             condition_nodes.map { |c|
               c_str = emit.cpp.from_expr(c, locals)
-              subj ? "truthy(#{c_str}->m_case_eq((new Array({#{subj}})), nullptr, nullptr))" : "truthy(#{c_str})"
+              subj ? "truthy(#{c_str}->m_case_eq(new Array({#{subj}})))" : "truthy(#{c_str})"
             }.join(" || ")
           end
 
@@ -178,7 +178,7 @@ module Frozone
               locals << var
             end
             coll = emit.cpp.from_expr(node.collection_node, locals)
-            emit.line "(#{coll})->m_each((new Array({})), nullptr, (new Proc([&](Array* __blkargs__) -> BasicObject* {"
+            emit.line "(#{coll})->m_each(&EMPTY_ARGS, nullptr, (new Proc([&](Array* __blkargs__) -> BasicObject* {"
             emit.indented do
               emit.line "#{cpp_var} = __blkargs__->data.empty() ? nil_instance() : __blkargs__->data[0];"
               write_body(emit, node.body_node, locals: locals) if node.body_node
@@ -290,7 +290,7 @@ module Frozone
               # caching, but no benchmark hits that yet.
               recv_str  = emit.cpp.from_expr(target[1], locals)
               idx_strs  = (target[2] || []).map { |a| emit.cpp.from_arg(a, locals) }
-              emit.line "(void)(#{recv_str})->m_aset((new Array({#{idx_strs.join(", ")}, #{value_expr}})), nullptr, nullptr);"
+              emit.line "(void)(#{recv_str})->m_aset(new Array({#{idx_strs.join(", ")}, #{value_expr}}));"
             when :splat_nil
               # Discard — evaluate the value_expr (it might have side effects via array_at) but throw it away.
               emit.line "(void)(#{value_expr});"

@@ -216,7 +216,7 @@ module Frozone
               # all return &Class_CLASS (with_auto_overrides targets
               # Class_CLASS for any *_eigenclass class). One virtual call +
               # pointer compare beats walking RTTI via dynamic_cast<Class*>.
-              emit.line "if (target->m_class((new Array({})), nullptr, nullptr) != (&Class_CLASS)) return false_instance();"
+              emit.line "if (target->m_class() != (&Class_CLASS)) return false_instance();"
               emit.line "auto* tc = static_cast<Class*>(target);"
               emit.line "int target_id = tc->instance_class_id_;"
               emit.line "if (target_id < 0 || target_id >= N_CLASSES) return false_instance();"
@@ -307,6 +307,13 @@ module Frozone
               next unless k.singleton
               emit.line "extern #{k.name} #{k.singleton};"
             end
+            # Stable empty-args sentinel — every virtual decl uses
+            # `Array* args = &EMPTY_ARGS` as its default, so 0-arity
+            # calls (common via the universal protocol) elide to
+            # `o->m_foo()` instead of allocating a fresh empty Array
+            # at every call site. extern here, definition lands in
+            # write_singletons after Array's struct body is complete.
+            emit.line "extern Array EMPTY_ARGS;"
             emit.blank
             kernel_fns.each { |fn| emit.line "inline #{fn.signature};" }
             intrinsics.each { |fn| emit.line "inline #{fn.signature};" }
@@ -368,7 +375,7 @@ module Frozone
             emit.line "// (Array* args, Hash* kwargs, Proc* block) — bodies unpack from args."
             call_surface.each do |cpp_name, ruby_name|
               next if skip.include?(cpp_name)
-              emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("#{ruby_name}"); })
+              emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("#{ruby_name}"); })
             end
             emit.blank
           end
@@ -402,7 +409,7 @@ module Frozone
           # a parent stub so can't carry `override` either.
           def self.write_override_decl(emit, name, klass)
             override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
-            emit.line "virtual BasicObject* #{name}(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr)#{override_kw};"
+            emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr)#{override_kw};"
           end
 
           # Out-of-line override definition. spec[:params] is a list of
@@ -429,6 +436,10 @@ module Frozone
               next unless k.singleton
               emit.line "inline #{k.name} #{k.singleton};"
             end
+            # Definition for the EMPTY_ARGS extern declared above.
+            # Array struct is complete by this point; the singleton
+            # backs every default `Array* args = &EMPTY_ARGS` parameter.
+            emit.line "inline Array EMPTY_ARGS;"
           end
 
           def self.write_kernel_fn_bodies(emit, kernel_fns)

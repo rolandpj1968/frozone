@@ -273,7 +273,7 @@ module Frozone
             kwargs_arg = build_kwargs_hash(node.kw_arg_nodes || [], locals)
 
             if recv
-              "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
+              "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
             elsif name == :puts
               # ruby_puts returns void; Ruby's puts returns nil — comma
               # operator gives the right type for expression contexts.
@@ -282,7 +282,7 @@ module Frozone
               args = arg_nodes.map { |a| from_arg(a, locals) }
               "(ruby_puts(#{args.join(", ")}), nil_instance())"
             else
-              "this->#{Cpp.method_name(name)}(#{args_array}, #{kwargs_arg}, #{block_arg})"
+              "this->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
             end
           end
 
@@ -300,13 +300,26 @@ module Frozone
             "(new Hash({#{entries.join(", ")}}))"
           end
 
+          # Compose the trailing `(args, kwargs, block)` of a method
+          # call. Drops trailing defaults: kwargs=nullptr and block=nullptr
+          # default at the declaration, args defaults to &EMPTY_ARGS. So
+          # `(EMPTY, nullptr, nullptr)` collapses to `()`, `(args, nullptr,
+          # nullptr)` to `(args)`, etc. Saves source size and avoids the
+          # per-call empty-Array allocation when the args list is empty.
+          def call_tail(args_str, kwargs_str, block_str)
+            parts = [args_str, kwargs_str, block_str]
+            parts.pop while parts.size > 0 && (parts.last == "nullptr" || parts.last == "(&EMPTY_ARGS)")
+            "(#{parts.join(", ")})"
+          end
+
           # Build the args Array for a call. Cases:
-          # - Empty: (new Array({}))
+          # - Empty: (&EMPTY_ARGS) — stable read-only singleton, no alloc
           # - All literal args: (new Array({a, b, ...}))
           # - Single splat: pass the splat's value directly (it's
           #   already an Array — no wrapping)
           # - Mixed splat+literal: defer (would need flattening logic).
           def build_args_array(arg_nodes, locals)
+            return "(&EMPTY_ARGS)" if arg_nodes.empty?
             if arg_nodes.length == 1 && arg_nodes[0].is_a?(Ast::SplatArg)
               # The splat's value is statically a BasicObject* (locals
               # are all BasicObject*); cast to Array* for the call.
@@ -355,14 +368,14 @@ module Frozone
               raise EmissionError, "raise: unknown exception class #{parts.join('::')}" unless flat && instantiable_class?(flat)
               ctor_args = arg_nodes.drop(1).map { |a| "static_cast<BasicObject*>(#{from_arg(a, locals)})" }
               args_array = "(new Array({#{ctor_args.join(", ")}}))"
-              return "([&]() -> BasicObject* { throw static_cast<Exception*>((&#{flat}_CLASS)->m_new(#{args_array}, nullptr, nullptr)); }())"
+              return "([&]() -> BasicObject* { throw static_cast<Exception*>((&#{flat}_CLASS)->m_new(#{args_array})); }())"
             end
 
             if arg_nodes.length == 1
               # `raise "msg"` is sugar for `raise RuntimeError.new("msg")`.
               if first.is_a?(Ast::StringLiteral) || first.is_a?(Ast::InterpolatedString)
                 msg_str = from_expr(first, locals)
-                return %(([&]() -> BasicObject* { throw static_cast<Exception*>((&RuntimeError_CLASS)->m_new((new Array({static_cast<BasicObject*>(#{msg_str})})), nullptr, nullptr)); }()))
+                return %(([&]() -> BasicObject* { throw static_cast<Exception*>((&RuntimeError_CLASS)->m_new(new Array({static_cast<BasicObject*>(#{msg_str})}))); }()))
               end
               expr_str = from_expr(first, locals)
               return "([&]() -> BasicObject* { throw static_cast<Exception*>(#{expr_str}); }())"
@@ -545,8 +558,8 @@ module Frozone
             },
 
             # Object identity / class — needed by core/4.0 dispatch helpers.
-            object_is_a: ->(self_, klass) { "boxed_bool(dynamic_cast<Class*>(#{klass}) != nullptr && #{self_}->m_is_a_q((new Array({#{klass}})), nullptr, nullptr) == true_instance())" },
-            object_class: ->(self_) { "#{self_}->m_class((new Array({})), nullptr, nullptr)" },
+            object_is_a: ->(self_, klass) { "boxed_bool(dynamic_cast<Class*>(#{klass}) != nullptr && #{self_}->m_is_a_q(new Array({#{klass}})) == true_instance())" },
+            object_class: ->(self_) { "#{self_}->m_class()" },
             basic_object__equal_equal_: ->(s, o) { "boxed_bool(#{s} == #{o})" },
             basic_object___id__: ->(s) { "(new Integer(reinterpret_cast<int64_t>(#{s})))" },
           }.freeze
@@ -557,7 +570,8 @@ module Frozone
           # Multi-arg yield works since args is an Array.
           def from_yield(node, locals)
             args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
-            "_block->m_call((new Array({#{args.join(", ")}})), nullptr, nullptr)"
+            return "_block->m_call()" if args.empty?
+            "_block->m_call(new Array({#{args.join(", ")}}))"
           end
 
           # Wrap a block AST node as `(new Proc([&](BasicObject* arg) ->
@@ -627,7 +641,7 @@ module Frozone
             recv_s = node.receiver_node ? from_expr(node.receiver_node, locals) : "this"
             args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
             args_array = "(new Array({#{args.join(", ")}}))"
-            "#{recv_s}->#{Cpp.method_name(node.name)}(#{args_array}, nullptr, nullptr)"
+            "#{recv_s}->#{Cpp.method_name(node.name)}(#{args_array})"
           end
 
           # `arr[i] op= val` → `arr[i] = arr[i] op val`. Receiver and
@@ -647,7 +661,7 @@ module Frozone
             cpp_op = Cpp.method_name(op)
             # `recv->aref(idx) op val` → `recv->aset(idx, that)`. Using a
             # comma operator to bind recv once, then form the aset call.
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* _idx = #{idx_array}; return #{recv_t}->m_aset((new Array({#{idx_strs.join(", ")}, #{recv_t}->m_aref(_idx, nullptr, nullptr)->#{cpp_op}((new Array({#{val_str}})), nullptr, nullptr)})), nullptr, nullptr); }())"
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* _idx = #{idx_array}; return #{recv_t}->m_aset(new Array({#{idx_strs.join(", ")}, #{recv_t}->m_aref(_idx)->#{cpp_op}(new Array({#{val_str}}))})); }())"
           end
 
           # Ruby's `&&` returns the last truthy value or the first falsy.
@@ -691,7 +705,7 @@ module Frozone
             node.whens.each do |w|
               cond_strs = w.condition_nodes.map { |c|
                 c_s = from_expr(c, locals)
-                node.subject_node ? "truthy(#{c_s}->m_case_eq((new Array({_subj})), nullptr, nullptr))" : "truthy(#{c_s})"
+                node.subject_node ? "truthy(#{c_s}->m_case_eq(new Array({_subj})))" : "truthy(#{c_s})"
               }
               buf << "if (#{cond_strs.join(" || ")}) return #{from_expr(w.body_node, locals)}; "
             end
@@ -742,9 +756,9 @@ module Frozone
               part_str = if part.is_a?(Ast::StringLiteral)
                            from_string_literal(part)
                          else
-                           "#{from_expr(part, locals)}->m_to_s((new Array({})), nullptr, nullptr)"
+                           "#{from_expr(part, locals)}->m_to_s()"
                          end
-              chain << "->m_plus((new Array({#{part_str}})), nullptr, nullptr)"
+              chain << "->m_plus(new Array({#{part_str}}))"
             end
             "(#{chain})"
           end
