@@ -99,21 +99,39 @@ module Frozone
           # fills in the gaps. Same for eigenclass methods.
           def overlay_universe_methods(universe_classes)
             top = @top_level_scope.constants_table || {}
+            by_name = universe_classes.each_with_object({}) { |k, h| h[k.name] = k }
             universe_classes.map do |klass|
               cls = top[klass.name.to_sym]
               next klass unless cls.is_a?(Vm::ClassObject)
+              hand_coded = ancestor_hand_coded_names(klass, by_name)
               klass.dup.tap do |k|
-                k.overrides = overlay_overrides(klass.overrides || {}, class_methods(cls))
-                k.eigenclass_overrides = overlay_overrides(klass.eigenclass_overrides || {}, eigenclass_methods(cls))
+                k.overrides = overlay_overrides(klass.overrides || {}, class_methods(cls), hand_coded)
+                k.eigenclass_overrides = overlay_overrides(klass.eigenclass_overrides || {}, eigenclass_methods(cls), hand_coded)
               end
             end
           end
 
-          def overlay_overrides(existing_overrides, vm_methods)
+          # Union of hand_coded_method_names across the runtime ancestor
+          # chain. The hand-coded methods on BasicObject (m_is_a_q with
+          # the IS_A LUT, m_freeze, m_class, …) are the load-bearing
+          # implementations — overlaying their core/4.0/ Ruby twins via
+          # virtual dispatch would shadow them and recurse.
+          def ancestor_hand_coded_names(klass, by_name)
+            names = Set.new
+            current = klass
+            while current
+              (current.hand_coded_method_names || []).each { |n| names << n }
+              current = current.parent && by_name[current.parent]
+            end
+            names
+          end
+
+          def overlay_overrides(existing_overrides, vm_methods, hand_coded)
             merged = existing_overrides.dup
             vm_methods.each do |mname, m|
               cpp_name = Cpp.method_name(mname)
-              next if merged.key?(cpp_name)  # Universe wins
+              next if merged.key?(cpp_name)
+              next if hand_coded.include?(cpp_name)
               spec = build_override(m)
               merged[cpp_name] = spec if spec
             end
@@ -224,7 +242,11 @@ module Frozone
           # excludes methods aliased into the class via Object inheritance
           # remains — those get emitted on MainObject.
           def class_methods(cls)
-            top_level_methods = (@top_level_scope.methods_table || {})
+            # When cls IS @top_level_scope (i.e. we're overlaying Object
+            # itself), every entry would match the top-level filter and
+            # the overlay would come back empty — wiping Object#itself,
+            # #dup, #to_s, etc. The filter only matters for descendants.
+            top_level_methods = cls.equal?(@top_level_scope) ? {} : (@top_level_scope.methods_table || {})
             (cls.methods_table || {}).select do |name, m|
               next false unless m.is_a?(Vm::Method)
               top_level_methods[name] != m

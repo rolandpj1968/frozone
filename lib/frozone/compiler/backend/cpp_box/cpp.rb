@@ -66,6 +66,8 @@ module Frozone
             # Indexing
             :[]  => "m_aref",
             :[]= => "m_aset",
+            # Other Kernel-level methods with non-identifier names
+            :"`" => "m_backtick",
           }.freeze
 
           # Ruby method name → C++ identifier. Operators go through
@@ -505,6 +507,17 @@ module Frozone
             integer__gt_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ >  static_cast<Integer*>(#{o})->raw_)" },
             integer__le_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ <= static_cast<Integer*>(#{o})->raw_)" },
             integer__ge_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ >= static_cast<Integer*>(#{o})->raw_)" },
+
+            # String — direct byte-vector access.
+            string_get_byte: ->(self_, i) {
+              "(new Integer(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes[static_cast<Integer*>(#{i})->raw_])))"
+            },
+            string_setbyte: ->(self_, i, b) {
+              "(static_cast<String*>(#{self_})->bytes[static_cast<Integer*>(#{i})->raw_] = static_cast<std::uint8_t>(static_cast<Integer*>(#{b})->raw_), #{b})"
+            },
+            string_bytesize: ->(self_) {
+              "(new Integer(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes.size())))"
+            },
 
             # Object identity / class — needed by core/4.0 dispatch helpers.
             object_is_a: ->(self_, klass) { "boxed_bool(dynamic_cast<Class*>(#{klass}) != nullptr && #{self_}->m_is_a_q((new Array({#{klass}})), nullptr, nullptr) == true_instance())" },
