@@ -243,8 +243,13 @@ class via the existing `m_class()` virtual:
 
 ```cpp
 inline BasicObject* Object::m_is_a_q(Array* args, Hash*, Proc*) {
-  auto* tc = dynamic_cast<Class*>(args->data[0]);
-  if (!tc) return false_instance();
+  // m_class is auto-emitted on every class; eigenclass instances all
+  // return &Class_CLASS (with_auto_overrides targets Class_CLASS, not
+  // each eigenclass's own singleton). One pointer compare beats a
+  // dynamic_cast RTTI tree walk.
+  if (args->data[0]->m_class((new Array({})), nullptr, nullptr) != &Class_CLASS)
+    return false_instance();
+  auto* tc = static_cast<Class*>(args->data[0]);
   auto* my = static_cast<Class*>(m_class((new Array({})), nullptr, nullptr));
   if (tc->is_leaf_) return boxed_bool(my == tc);
   return boxed_bool(my->is_a_lut_[tc->lut_col_]);
@@ -302,8 +307,13 @@ inline BasicObject* Object::m_is_a_q(Array* args, ...) {
 **Proposed:**
 ```cpp
 inline BasicObject* Object::m_is_a_q(Array* args, ...) {
-  auto* tc = dynamic_cast<Class*>(args->data[0]);
-  if (!tc) return false_instance();
+  // m_class is auto-emitted on every class; eigenclass instances all
+  // return &Class_CLASS (with_auto_overrides targets Class_CLASS, not
+  // each eigenclass's own singleton). One pointer compare beats a
+  // dynamic_cast RTTI tree walk.
+  if (args->data[0]->m_class((new Array({})), nullptr, nullptr) != &Class_CLASS)
+    return false_instance();
+  auto* tc = static_cast<Class*>(args->data[0]);
   auto* my = static_cast<Class*>(m_class(empty_args, nullptr, nullptr));
   if (tc->is_leaf_) return boxed_bool(my == tc);  // ~80% of targets
   return boxed_bool(my->is_a_lut_[tc->lut_col_]); // hot path: 200 bytes
