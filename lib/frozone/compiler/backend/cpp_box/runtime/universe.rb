@@ -98,6 +98,20 @@ module Frozone
               "virtual BasicObject* m_initialize(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
               "  return this;",
               "}",
+              "// is_a? / kind_of? — closed-world LUT: precomputed",
+              "// IS_A[N][N] bool table indexed by (receiver class id,",
+              "// target class/module id). Captures inheritance AND",
+              "// module includes/prepends. Per-instance class id comes",
+              "// from __class_id__() virtual; target is read from the",
+              "// Class*/Module* singleton.",
+              "virtual int __class_id__() const { return -1; }  // not a class",
+              "virtual BasicObject* m_is_a_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr);",
+              "virtual BasicObject* m_kind_of_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "  return m_is_a_q(args, kwargs, block);",
+              "}",
+              "virtual BasicObject* m_instance_of_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "  return boxed_bool(m_class(args, kwargs, block) == array_at(args, 0));",
+              "}",
               "// freeze / frozen? — we don't enforce frozen state, so",
               "// these are no-ops returning self / false. Lots of core",
               "// code calls .freeze on initialization; without these,",
@@ -116,6 +130,7 @@ module Frozone
               m_eq_q m_hash_value m_case_eq m_nil_q m_initialize
               m_freeze m_frozen_q m_class m_respond_to_q
               m_send m___send__
+              m_is_a_q m_kind_of_q m_instance_of_q
             ].freeze,
           )
 
@@ -134,7 +149,13 @@ module Frozone
           CLASS_TYPE = RubyClass.new(
             name: "Class",
             parent: "Object",
-            members: [%(const char* ruby_class_name() const override { return "Class"; })],
+            members: [
+              %(const char* ruby_class_name() const override { return "Class"; }),
+              "// Each eigenclass holds the class_id of its instance",
+              "// class. `Foo_CLASS->instance_class_id_` = cid(Foo).",
+              "// Used by m_is_a_q to read the target's id.",
+              "int instance_class_id_ = -1;",
+            ],
           )
 
           NIL_CLASS = RubyClass.new(

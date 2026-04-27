@@ -34,8 +34,15 @@ module Frozone
             # and respond_to? (no string compare). Order = call_surface
             # iteration order = insertion order from collect_call_surface.
             method_ids = call_surface.keys.each_with_index.to_h
+            # Class id assignment + IS_A LUT — drives is_a?/kind_of?.
+            # Each class gets a unique id; LUT[i][j] = true iff class
+            # i has class/module j in its ancestry chain (including
+            # included/prepended modules).
+            class_ids = classes.each_with_index.to_h { |k, i| [k.name, i] }
+            is_a_lut = compute_is_a_lut(classes, class_ids, emit)
             responder_sets = compute_responder_sets(classes)
-            classes = classes.map { |k| with_auto_overrides(k, responder_sets[k.name] || [], method_ids) }
+            classes = classes.map { |k| with_auto_overrides(k, responder_sets[k.name] || [], method_ids, class_ids[k.name]) }
+            @class_ids = class_ids  # for write_class to access
 
             # Two-pass: pre-render method bodies + send + kernel into a
             # buffer to populate emit.cpp.int_literals (Integer literal
@@ -49,6 +56,7 @@ module Frozone
               classes.each { |k| write_class_definitions(emit, k) }
               write_method_vt(emit, method_ids)
               write_send_body(emit, method_ids)
+              write_is_a_lut(emit, class_ids, is_a_lut)
               write_kernel_fn_bodies(emit, kernel_fns)
               write_intrinsic_bodies(emit, intrinsics)
               yield if block_given?
@@ -126,14 +134,93 @@ module Frozone
             emit.blank
           end
 
-          # Add m_class + m_respond_to_q to every class's overrides.
-          # m_class returns the eigenclass singleton (`&Foo_CLASS`).
-          # m_respond_to_q indexes a per-class static bool array by
-          # Symbol::method_id_. Closed-world means we know exactly
-          # which methods each class actually implements; optimistic-
-          # true would mislead `if x.respond_to?(:foo); x.foo; end`
-          # patterns into dispatching :foo through method_missing.
-          def self.with_auto_overrides(klass, responder_ruby_names, method_ids)
+          # Compute IS_A LUT: bool[N][N] where IS_A[i][j] = true iff
+          # class/module i has class/module j in its ancestry. Captures
+          # superclass chain + included/prepended modules.
+          # Modules don't get emitted as structs but DO need ids in the
+          # space — `is_a?(SomeMod)` checks against the module's id.
+          # We materialise modules as lightweight singletons so the
+          # `&Module_CLASS` reference at use sites resolves.
+          def self.compute_is_a_lut(classes, class_ids, emit)
+            top = emit.respond_to?(:top_level_scope) ? emit.send(:top_level_scope) : nil
+            n = class_ids.size
+            lut = Array.new(n) { Array.new(n, false) }
+            # Each class is is_a itself.
+            class_ids.each_value { |i| lut[i][i] = true }
+            # Build a name → Vm::ClassObject/ModuleObject lookup for
+            # ancestry walking. Cycle-detect via object_id (Frozone's
+            # constants_table can be self-referential — Class is in
+            # Object's table, Object is in Class's, etc.).
+            vm_class = {}
+            walked = Set.new
+            walk_top = ->(scope, prefix) {
+              return unless scope
+              return if walked.include?(scope.object_id)
+              walked << scope.object_id
+              (scope.constants_table || {}).each do |name, val|
+                flat = prefix ? :"#{prefix}_#{name}" : name
+                if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
+                  vm_class[flat] = val
+                  walk_top.call(val, flat)
+                end
+              end
+            }
+            walk_top.call(top, nil)
+            # Walk each class's ancestry (Vm side) and set bits.
+            classes.each do |klass|
+              i = class_ids[klass.name]
+              vm = vm_class[klass.name.to_sym]
+              # Universe classes need lookup by their name string too.
+              vm ||= vm_class[klass.name.gsub("_eigenclass", "").to_sym]
+              next unless vm
+              # Vm has a precomputed ancestors_list — superclass chain
+              # + included/prepended modules. No recursion needed.
+              (vm.ancestors_list rescue []).each do |a|
+                aid = class_ids[a.full_name.to_s.gsub("::", "_").to_sym]
+                lut[i][aid] = true if aid
+              end
+            end
+            lut
+          end
+
+          def self.write_is_a_lut(emit, class_ids, lut)
+            n = class_ids.size
+            emit.line "// Closed-world is_a? LUT — IS_A[receiver_class_id][target_class_id]"
+            emit.line "// captures inheritance + module includes/prepends. Indexed by"
+            emit.line "// the class_id assigned at AOT (see __class_id__()/instance_class_id_)."
+            emit.line "static constexpr int N_CLASSES = #{n};"
+            emit.line "static const bool IS_A[N_CLASSES][N_CLASSES] = {"
+            emit.indented do
+              # Inverse: id → name for comments
+              id_to_name = class_ids.invert
+              lut.each_with_index do |row, i|
+                bits = row.map { |b| b ? "1" : "0" }.join(",")
+                emit.line "{#{bits}},  // #{i}: #{id_to_name[i]}"
+              end
+            end
+            emit.line "};"
+            emit.blank
+            emit.line "inline BasicObject* BasicObject::m_is_a_q(Array* args, Hash* kwargs, Proc* block) {"
+            emit.indented do
+              emit.line "int my_id = this->__class_id__();"
+              emit.line "if (my_id < 0) return false_instance();"
+              emit.line "BasicObject* target = args->data[0];"
+              emit.line "auto* tc = dynamic_cast<Class*>(target);"
+              emit.line "if (!tc) return false_instance();"
+              emit.line "int target_id = tc->instance_class_id_;"
+              emit.line "if (target_id < 0 || target_id >= N_CLASSES) return false_instance();"
+              emit.line "return boxed_bool(IS_A[my_id][target_id]);"
+            end
+            emit.line "}"
+            emit.blank
+          end
+
+          # Add m_class + m_respond_to_q + __class_id__ to every
+          # class's overrides. m_class returns the eigenclass singleton
+          # (`&Foo_CLASS`). m_respond_to_q indexes a per-class static
+          # bool array by Symbol::method_id_. __class_id__ returns the
+          # AOT-assigned class_id used by the IS_A LUT.
+          def self.with_auto_overrides(klass, responder_ruby_names, method_ids, class_id)
             target = klass.name.end_with?("_eigenclass") ? "Class_CLASS" : "#{klass.name}_CLASS"
             overrides = (klass.overrides || {}).dup
             overrides["m_class"] ||= { params: [], body: "return (&#{target});" }
@@ -220,8 +307,14 @@ module Frozone
             emit.indented do
               klass.members&.each { |m| emit.line m }
               klass.ivars&.each { |iv| emit.line iv }
+              # Auto-emit __class_id__ override per class — simple int
+              # return, no cross-class refs, safe inline.
+              cid = @class_ids && @class_ids[klass.name]
+              if cid && klass.name != "BasicObject"
+                emit.line "int __class_id__() const override { return #{cid}; }"
+              end
               if klass.name == "BasicObject"
-                write_universal_surface(emit, call_surface)
+                write_universal_surface(emit, call_surface, klass)
               end
               klass.overrides&.each { |name, _| write_override_decl(emit, name, klass) }
             end
@@ -242,9 +335,15 @@ module Frozone
           # with different arities produce distinct C++ methods, all
           # named the same (Ruby method overloading isn't a thing, so
           # this *should* never happen — TODO: warn if it does).
-          def self.write_universal_surface(emit, call_surface)
+          def self.write_universal_surface(emit, call_surface, basic_object_klass)
             return if call_surface.empty?
-            skip = Runtime::BASIC_OBJECT.hand_coded_method_names || []
+            # Skip:
+            #  - hand-coded methods on BasicObject (declared in members:)
+            #  - any cpp_name that BasicObject has via overlay/auto-overrides
+            #    (would produce duplicate declarations, since overlays go
+            #    through write_override_decl too)
+            skip = (Runtime::BASIC_OBJECT.hand_coded_method_names || []).to_set
+            (basic_object_klass.overrides || {}).each_key { |cpp| skip << cpp }
             emit.line "// Universal method surface — one slot per name. All Ruby methods take"
             emit.line "// (Array* args, Hash* kwargs, Proc* block) — bodies unpack from args."
             call_surface.each do |cpp_name, ruby_name|

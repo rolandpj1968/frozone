@@ -24,7 +24,7 @@ module Frozone
     module Backend
       module CppBox
         class Emitter
-          attr_reader :cpp
+          attr_reader :cpp, :top_level_scope, :user_classes, :user_constants
 
           def initialize
             @out = +""
@@ -68,9 +68,10 @@ module Frozone
             @cpp.emit = self
             @call_surface = collect_call_surface
             print_method_def_analysis if ENV['FROZONE_BOX_ANALYSIS'] == '1'
-            all_classes = Runtime::ALL_CLASSES + build_user_class_defs
+            all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
             all_eigenclasses = all_classes.map { |k| Runtime.eigenclass_for(k) }.compact
             classes = all_classes + all_eigenclasses
+            @class_ids_for_init = classes.each_with_index.to_h { |k, i| [k.name, i] }
             kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
             write_header
             write_namespace_open
@@ -89,6 +90,35 @@ module Frozone
           # Skip Universe-seeded names (BasicObject, Object, Integer, Array,
           # etc.) — they have hand-coded backing already.
           UNIVERSE_NAMES = Set.new(Runtime::ALL_CLASSES.map(&:name)).freeze
+
+          # For each Universe class, find its corresponding
+          # Vm::ClassObject in constants_table and compile any methods
+          # whose cpp_name isn't already in Universe's hand-coded
+          # overrides. The hand-coded ones win on conflict (they're
+          # specialised to the C++ data structure); core/4.0/'s body
+          # fills in the gaps. Same for eigenclass methods.
+          def overlay_universe_methods(universe_classes)
+            top = @top_level_scope.constants_table || {}
+            universe_classes.map do |klass|
+              cls = top[klass.name.to_sym]
+              next klass unless cls.is_a?(Vm::ClassObject)
+              klass.dup.tap do |k|
+                k.overrides = overlay_overrides(klass.overrides || {}, class_methods(cls))
+                k.eigenclass_overrides = overlay_overrides(klass.eigenclass_overrides || {}, eigenclass_methods(cls))
+              end
+            end
+          end
+
+          def overlay_overrides(existing_overrides, vm_methods)
+            merged = existing_overrides.dup
+            vm_methods.each do |mname, m|
+              cpp_name = Cpp.method_name(mname)
+              next if merged.key?(cpp_name)  # Universe wins
+              spec = build_override(m)
+              merged[cpp_name] = spec if spec
+            end
+            merged
+          end
 
           # Recursively walk constants_table from top-level. Nested
           # classes (`Parser::Ruby40`) get added with their flattened
@@ -235,6 +265,16 @@ module Frozone
               class_methods(cls).each_value { |m| walk.call(m.body) if m.body }
               eigenclass_methods(cls).each_value { |m| walk.call(m.body) if m.body }
             end
+            # Universe-class overlay method bodies (core/4.0/X.rb)
+            # also contain calls — walk them so transitive method
+            # references seed the universal surface.
+            top = @top_level_scope.constants_table || {}
+            Runtime::ALL_CLASSES.each do |universe_klass|
+              cls = top[universe_klass.name.to_sym]
+              next unless cls.is_a?(Vm::ClassObject)
+              class_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+              eigenclass_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+            end
             walk.call(@execute_block) if @execute_block
             # Runtime override slots also exist on BasicObject.
             Runtime::ALL_CLASSES.each do |k|
@@ -250,6 +290,18 @@ module Frozone
             # `initialize` is included — it becomes the `m_initialize`
             # override that the auto-generated `m_new` dispatches into.
             @user_classes.each_value do |cls|
+              (class_methods(cls).keys + eigenclass_methods(cls).keys).uniq.each do |mname|
+                cpp_name = Cpp.method_name(mname)
+                calls[cpp_name] ||= mname.to_s
+              end
+            end
+            # Universe classes get a core/4.0/ method overlay too —
+            # add those names to the surface so subclass `override`
+            # declarations have a base virtual to point at.
+            top = @top_level_scope.constants_table || {}
+            Runtime::ALL_CLASSES.each do |universe_klass|
+              cls = top[universe_klass.name.to_sym]
+              next unless cls.is_a?(Vm::ClassObject)
               (class_methods(cls).keys + eigenclass_methods(cls).keys).uniq.each do |mname|
                 cpp_name = Cpp.method_name(mname)
                 calls[cpp_name] ||= mname.to_s
@@ -525,6 +577,18 @@ module Frozone
           def write_static_state_init
             line "void __init_static_state__() {"
             indented do
+              # Eigenclass singleton class-id population — drives
+              # is_a?'s LUT lookup. Also goes via static state init
+              # (singletons are constructed before main; we're just
+              # filling the field after that).
+              (@class_ids_for_init || {}).each do |flat_name, cid|
+                # All emitted classes have a paired _CLASS singleton
+                # (eigenclass_for is called for every entry). Skip
+                # plain instance classes — their ids end up on the
+                # eigenclass via instance_class_id_.
+                next if flat_name.end_with?("_eigenclass")
+                line "#{flat_name}_CLASS.instance_class_id_ = #{cid};"
+              end
               @user_classes.each do |flat, cls|
                 (cls.instance_variables_hash || {}).each do |name, val|
                   emit_static_iv_assign("#{flat}_CLASS", flat, name, val)
