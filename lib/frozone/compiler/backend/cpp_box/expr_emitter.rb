@@ -28,7 +28,13 @@ module Frozone
             stmts = body.is_a?(Ast::Sequence) ? body.nodes : [body]
             stmts.each_with_index do |n, i|
               last = i == stmts.length - 1
-              if last && last_is_return && Cpp.expression_node?(n)
+              if last && last_is_return && stmt_only_method_call?(n)
+                # times/loop blocks at last-expression position need
+                # the statement form (lambda-wrap doesn't allow
+                # break/next). Emit as statement + return nil.
+                write_stmt(emit, n, locals)
+                emit.line "return nil_instance();"
+              elsif last && last_is_return && Cpp.expression_node?(n)
                 emit.line "return #{emit.cpp.from_expr(n, locals)};"
               elsif last && last_is_return
                 write_stmt(emit, n, locals)
@@ -36,6 +42,16 @@ module Frozone
                 write_stmt_with_rescue(emit, n, locals)
               end
             end
+          end
+
+          # Method calls that have a write_stmt special case and are
+          # NOT safely expressible as expressions (because their block
+          # bodies use break/next which don't survive lambda wrapping).
+          def self.stmt_only_method_call?(node)
+            return false unless node.is_a?(Ast::MethodCall)
+            return true if node.name == :loop && !node.receiver_node && node.block_node
+            return true if node.name == :times && node.receiver_node && node.block_node
+            false
           end
 
           def self.write_stmt_with_rescue(emit, node, locals)
@@ -76,6 +92,8 @@ module Frozone
             when Ast::MethodCall
               if node.name == :times && node.receiver_node && node.block_node
                 write_times_block(emit, node, locals)
+              elsif node.name == :loop && !node.receiver_node && node.block_node
+                write_loop_block(emit, node, locals)
               else
                 emit.line "#{emit.cpp.from_expr(node, locals)};"
               end
@@ -240,6 +258,21 @@ module Frozone
             else
               raise Cpp::EmissionError, "MultipleAssignment target kind :#{kind} not supported"
             end
+          end
+
+          # `loop do ... end` → `while (true) { body }`. Block-body
+          # break/next/return work as expected (break/continue/return).
+          # Mirrors Kernel#loop semantics; bypasses the universal-
+          # protocol block dispatch that would otherwise wrap the body
+          # in a lambda (which can't break/continue out).
+          def self.write_loop_block(emit, node, locals)
+            blk = node.block_node
+            emit.line "while (true) {"
+            emit.indented do
+              block_locals = locals.dup
+              write_body(emit, blk.body, locals: block_locals)
+            end
+            emit.line "}"
           end
 
           # `recv.times { |i| body }` → C++ for-loop. Mirrors mainline's

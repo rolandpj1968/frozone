@@ -30,8 +30,9 @@ module Frozone
             emit.line "virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {"
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
             emit.line "}"
-          rescue Cpp::EmissionError
+          rescue Cpp::EmissionError => e
             # Skip — falls through to method_missing at runtime.
+            $stderr.puts "[box-first] skip user_method :#{name} @ #{method&.source_location.inspect}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
           end
 
           # C++ reserved words / contextual keywords that surface as
