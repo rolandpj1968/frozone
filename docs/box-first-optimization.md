@@ -423,3 +423,35 @@ Whenever the cheap-accessor question gets answered. The is_a? case
 got handled today because m_class is already auto-emitted on every
 class and the cost was a single warm allocation off the hot path —
 arithmetic ops can't accept that, so they wait.
+
+### Aside: how cheap can per-class identity be?
+
+The "cheap accessor" question is really "how do we get a Class*
+from a BasicObject* without per-instance storage and without a real
+function call?" Standard C++ doesn't give you that for free. Three
+levels:
+
+1. **Virtual `klass()`** — adds one vtable slot per class (free, vtables
+   already exist), but each call is `vptr load → vtable slot load →
+   indirect call to a 1-instruction function`. Same cost class as
+   `dynamic_cast<X*>` for shallow hierarchies — just cleaner code,
+   no RTTI tree walk. The compiler does **not** inline the return
+   value into the vtable; the call is real.
+
+2. **vptr compare** — under the Itanium ABI (gcc/clang on Linux), the
+   vptr lives at offset 0. `*(void**)a == *(void**)&Foo_PROTO` is a
+   single load + compare — no call, no vtable indirection. Compiler-
+   specific but reliable in practice. Useful for hot-path exact-type
+   checks (Integer/Float arithmetic), where the price of a virtual
+   call relative to the actual work is meaningful.
+
+3. **Per-instance Class\*** — 8 bytes per object. Single load, no
+   indirection. Cleanest semantics. Catastrophic for Integer (16-byte
+   instance becomes 24-byte). Don't.
+
+The §2 design (per-class is_a? bitset) uses (1) — `m_class()` is
+already paid for elsewhere (Kernel#class). The hot-path arithmetic
+dynamic_casts in §3 want (2) eventually; we'd write a small
+`klass_is(BasicObject* o, Class* k)` helper that does the vptr
+compare and use it in numeric op bodies. That removes the last RTTI
+dependency in the hot path and unlocks `-fno-rtti` globally.
