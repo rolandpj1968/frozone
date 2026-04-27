@@ -187,6 +187,21 @@ module Frozone
               "// Used by m_is_a_q to read the target's id.",
               "int instance_class_id_ = -1;",
             ],
+            overrides: {
+              # Module#to_s / Class#to_s in MRI return the class name
+              # ("Foo"), not the inspect-style #<Class:0x…>. Without this
+              # override Object#to_s walks self.class.to_s which calls
+              # Class#to_s on the Class_eigenclass — infinite recursion.
+              "m_to_s" => {
+                params: [],
+                body: "const char* _n = ruby_class_name(); return new String(_n, std::strlen(_n));",
+              },
+              "m_inspect" => {
+                params: [],
+                body: "const char* _n = ruby_class_name(); return new String(_n, std::strlen(_n));",
+              },
+            },
+            hand_coded_method_names: %w[m_to_s m_inspect].freeze,
           )
 
           NIL_CLASS = RubyClass.new(
@@ -356,11 +371,42 @@ module Frozone
                 CPP
               },
               "m_aset" => {
-                params: ["BasicObject* idx", "BasicObject* val"],
+                params: [],
                 body: <<~CPP.chomp,
+                  int64_t sz = static_cast<int64_t>(data.size());
+                  // 3-arg form: a[start, len] = val → slice replace.
+                  // delete_at and friends in core/4.0/ use this pattern.
+                  if (args->data.size() == 3) {
+                    int64_t start = static_cast<Integer*>(args->data[0])->raw_;
+                    int64_t len   = static_cast<Integer*>(args->data[1])->raw_;
+                    if (start < 0) start += sz;
+                    auto* src = static_cast<Array*>(args->data[2]);
+                    int64_t end = std::min(start + len, sz);
+                    if (start >= 0) {
+                      data.erase(data.begin() + start, data.begin() + end);
+                      data.insert(data.begin() + start, src->data.begin(), src->data.end());
+                    }
+                    return args->data[2];
+                  }
+                  BasicObject* idx = args->data[0];
+                  BasicObject* val = args->data[1];
+                  // 2-arg with Range idx: a[begin..end] = ary → slice replace.
+                  if (auto* r = dynamic_cast<Range*>(idx)) {
+                    int64_t b = r->begin_ ? static_cast<Integer*>(r->begin_)->raw_ : 0;
+                    int64_t e = r->end_   ? static_cast<Integer*>(r->end_)->raw_   : sz - 1;
+                    if (b < 0) b += sz;
+                    if (e < 0) e += sz;
+                    int64_t last = r->exclude_end_ ? e - 1 : e;
+                    auto* src = static_cast<Array*>(val);
+                    if (b >= 0 && last >= b - 1) {
+                      data.erase(data.begin() + b, data.begin() + std::min(last + 1, sz));
+                      data.insert(data.begin() + b, src->data.begin(), src->data.end());
+                    }
+                    return val;
+                  }
                   int64_t i = static_cast<Integer*>(idx)->raw_;
-                  if (i < 0) i += static_cast<int64_t>(data.size());
-                  if (i >= static_cast<int64_t>(data.size())) data.resize(i + 1, nil_instance());
+                  if (i < 0) i += sz;
+                  if (i >= sz) data.resize(i + 1, nil_instance());
                   data[i] = val;
                   return val;
                 CPP
@@ -648,6 +694,25 @@ module Frozone
             },
           )
 
+          # Range — begin/end/exclude_end stored directly. Range
+          # literals (`a..b`, `a...b`) lower to a direct `new Range()`
+          # in expr_emitter — no m_new dispatch needed for the literal.
+          # Range.new / .allocate fall through to the eigenclass auto-
+          # emitted m_new which allocates + invokes m_initialize from
+          # core/4.0/range.rb (which uses the range_* intrinsics below).
+          RANGE = RubyClass.new(
+            name: "Range",
+            parent: "Object",
+            members: [
+              "BasicObject* begin_ = nullptr;",
+              "BasicObject* end_   = nullptr;",
+              "bool exclude_end_   = false;",
+              "bool initialized_   = false;",
+              "Range() = default;",
+              %(const char* ruby_class_name() const override { return "Range"; }),
+            ],
+          )
+
           # Inheritance order. The emitter walks this list to produce
           # forward decls + class bodies + singletons in the right
           # sequence (parent before child, so children's overrides see
@@ -655,7 +720,7 @@ module Frozone
           ALL_CLASSES = [
             BASIC_OBJECT, OBJECT, CLASS_TYPE,
             NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
-            INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH, PROC
+            INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH, RANGE, PROC
           ].freeze
 
           # Per-class eigenclass — generated programmatically from each

@@ -193,8 +193,8 @@ module Frozone
           # Statement-position only — value is dropped (the rhs).
           def self.write_multiple_assignment_stmt(emit, node, locals)
             targets = node.targets
-            unless targets.all? { |t| %i[local ivar local_splat ivar_splat splat_nil].include?(t[0]) }
-              raise Cpp::EmissionError, "MultipleAssignment with non-local/ivar target (#{(targets.map(&:first) - %i[local ivar local_splat ivar_splat splat_nil]).first}) not yet supported"
+            unless targets.all? { |t| %i[local ivar local_splat ivar_splat splat_nil index].include?(t[0]) }
+              raise Cpp::EmissionError, "MultipleAssignment with non-local/ivar target (#{(targets.map(&:first) - %i[local ivar local_splat ivar_splat splat_nil index]).first}) not yet supported"
             end
             splat_idx = targets.index { |t| %i[local_splat ivar_splat splat_nil].include?(t[0]) }
             pre_count = splat_idx || targets.length
@@ -254,6 +254,15 @@ module Frozone
             when :ivar, :ivar_splat
               iv = target[1].to_s.delete_prefix('@')
               emit.line "this->iv_#{iv} = #{value_expr};"
+            when :index
+              # `q[i] = v` → q->m_aset(new Array({i, v}), nullptr, nullptr).
+              # Index args are kept as exprs (re-evaluated per target); for
+              # the typical `arr[lit_or_local]` case this is free. Targets
+              # with side-effecting receivers/indices would need pre-eval
+              # caching, but no benchmark hits that yet.
+              recv_str  = emit.cpp.from_expr(target[1], locals)
+              idx_strs  = (target[2] || []).map { |a| emit.cpp.from_arg(a, locals) }
+              emit.line "(void)(#{recv_str})->m_aset((new Array({#{idx_strs.join(", ")}, #{value_expr}})), nullptr, nullptr);"
             when :splat_nil
               # Discard — evaluate the value_expr (it might have side effects via array_at) but throw it away.
               emit.line "(void)(#{value_expr});"

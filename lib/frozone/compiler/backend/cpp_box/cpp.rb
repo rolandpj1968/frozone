@@ -194,6 +194,7 @@ module Frozone
             when Ast::InterpolatedString then from_interpolated_string(node, locals)
             when Ast::ArrayLiteral   then from_array_literal(node, locals)
             when Ast::HashLiteral    then from_hash_literal(node, locals)
+            when Ast::RangeLiteral   then from_range_literal(node, locals)
             when Ast::LocalVariableRead then MethodEmitter.local_cpp_name(node.name)
             when Ast::ConstantRead then from_constant_read(node)
             when Ast::ConstantPath then from_constant_path(node)
@@ -508,6 +509,16 @@ module Frozone
             integer__le_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ <= static_cast<Integer*>(#{o})->raw_)" },
             integer__ge_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ >= static_cast<Integer*>(#{o})->raw_)" },
 
+            # Range — direct field access on the C++ struct (begin_,
+            # end_, exclude_end_, initialized_).
+            range_set: ->(self_, b, e, excl) {
+              "([&]() -> BasicObject* { auto* _r = static_cast<Range*>(#{self_}); _r->begin_ = #{b}; _r->end_ = #{e}; _r->exclude_end_ = (#{excl} == true_instance()); _r->initialized_ = true; return nil_instance(); }())"
+            },
+            range_begin:        ->(self_) { "(static_cast<Range*>(#{self_})->begin_)" },
+            range_end:          ->(self_) { "(static_cast<Range*>(#{self_})->end_)" },
+            range_exclude_end:  ->(self_) { "boxed_bool(static_cast<Range*>(#{self_})->exclude_end_)" },
+            range_initialized_q:->(self_) { "boxed_bool(static_cast<Range*>(#{self_})->initialized_)" },
+
             # String — direct byte-vector access.
             string_get_byte: ->(self_, i) {
               "(new Integer(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes[static_cast<Integer*>(#{i})->raw_])))"
@@ -762,6 +773,17 @@ module Frozone
             pairs = (node.kv_nodes || []).reject { |k, _| k.nil? }
             elems = pairs.map { |k, v| "{#{from_expr(k, locals)}, #{from_expr(v, locals)}}" }
             "(new Hash({#{elems.join(", ")}}))"
+          end
+
+          # `(a..b)` / `(a...b)` literals — direct construction of a
+          # Range with begin_/end_/exclude_end_ set. No m_new dispatch
+          # since the literal already knows the values; matches how
+          # ArrayLiteral and HashLiteral lower.
+          def from_range_literal(node, locals)
+            b = node.begin_node ? from_expr(node.begin_node, locals) : "nil_instance()"
+            e = node.end_node   ? from_expr(node.end_node,   locals) : "nil_instance()"
+            excl = node.exclusive ? "true" : "false"
+            "([&]() -> BasicObject* { Range* _r = new Range(); _r->begin_ = #{b}; _r->end_ = #{e}; _r->exclude_end_ = #{excl}; _r->initialized_ = true; return _r; }())"
           end
 
           # ConstantRead / ConstantPath — Ruby-style lookup walks the
