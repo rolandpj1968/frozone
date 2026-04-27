@@ -1,0 +1,346 @@
+# Box-first optimization design notes
+
+Status: design — none implemented. Pure optimizations, no correctness
+component. Tackle as profiling motivates; the box-first model works
+correctly without any of these.
+
+This doc collects deferred optimizations to the box-first emitter and
+runtime. Each section is independent; they compose where noted.
+
+---
+
+## 1. Universal-surface VT cleavage
+
+Box-first emits a universal vtable on `BasicObject`: one virtual slot
+per method name in the program's call surface. Every subclass inherits
+these slots, possibly overriding some. Calls are uniform:
+`recv->m_X(args, kwargs, block)`.
+
+Correct but profligate. For a non-trivial program (full WQ parser +
+Frozone-Ruby core, ~450 classes), `BasicObject` ends up with thousands
+of virtual decls, each subclass's struct body inherits them all, and
+the C++ compiler spends a substantial fraction of its time tracking
+the inheritance chain.
+
+### The cleavage
+
+Methods split into three buckets by how precisely the compiler can
+determine call targets:
+
+1. **No-def**: the symbol isn't defined as a method on any class.
+   `respond_to?` is always false; `send` is always `method_missing`.
+   Cheap.
+2. **Single-def in entire program**: defined on exactly one class.
+   Any call that's not to an instance of that class hits
+   `method_missing`. No virtual dispatch needed — direct cast + call
+   (after a class check).
+3. **Multi-def**: defined on multiple classes. True polymorphism.
+   Requires per-class dispatch.
+
+### Measurement
+
+Real numbers from the WQ parser stub (`bench/stubs/selfcompile_wq2.rb`)
+at AOT time, via `FROZONE_BOX_ANALYSIS=1`:
+
+| Category   | Method names | % of total |
+|------------|-------------:|-----------:|
+| Total      |         2640 |       100% |
+| Single-def |         1822 |     **69%** |
+| Multi-def  |          818 |        31% |
+
+Multi-def distribution (count of names by # of defining classes):
+
+| Defining classes | # of names |
+|-----------------:|-----------:|
+| 2                |        270 |
+| 3                |        220 |
+| 4                |         79 |
+| 5–7              |         73 |
+| 8–24             |         23 |
+| 48–54            |        137 |
+| 57–99            |         16 |
+
+The cluster around 49–54 classes is dominated by the auto-emitted
+`m_class` and `m_respond_to_q` (one per class, ~450 total) plus things
+like `name`, `hash`, `eql?`. The deep-polymorphism methods at 99 / 90
+/ 81 / 73 classes are `:initialize`, `:inspect`, `:to_s`, `:==`. Those
+genuinely need universal slots.
+
+### Why this is the right cleavage
+
+If 69% of method names are single-def, those slots can leave
+`BasicObject`. The struct shrinks from ~2400 virtuals to ~800. Every
+subclass's vtable layout gets correspondingly smaller. cc1plus's
+"parser struct body" phase (currently 22% of compile time) drops
+proportionally.
+
+`respond_to?` per-class bool arrays similarly shrink — only multi-def
+methods need a bit per class. Roughly 3× density improvement, and the
+data still admits bit-packing for another 8× if needed.
+
+### Single-def is a proxy, not the criterion
+
+The real question is "**can we determine the precise call target at
+this call site?**" Single-def-vs-multi-def is the AOT-only approximation
+of that. Two asymmetries:
+
+1. **Single-def, but called on the wrong class.** `Foo#weird_method`
+   is single-def; some user code calls `obj.weird_method` where `obj`
+   could be anything. The single-def fast path needs a class check;
+   on a miss we fall through to `method_missing`.
+
+2. **Multi-def, but precise at this call site.** `to_s` is defined on
+   81 classes, but with TI proving `recv` is exactly `Integer` here,
+   the call is unambiguous. Direct-dispatch wins are available even
+   for multi-def names — they just need TI's per-call-site receiver
+   typing.
+
+The right model is per-call-site target precision. Single-def is a
+useful AOT-only first cut.
+
+### Hierarchy-rooted VT (compounding win)
+
+For a multi-def method whose definers form an **independent
+sub-hierarchy** — say `Parser::Lexer` and `Parser::LexerStrings`, no
+overriders elsewhere — the slot doesn't need to live on `BasicObject`.
+It can root at the lowest common ancestor of the definers. Subclasses
+outside the sub-hierarchy don't carry the slot at all.
+
+Combined with single-def removal, this further trims `BasicObject`'s
+universal surface.
+
+### Proposed data structure
+
+Per `Symbol`, a `MethodInfo`:
+
+```cpp
+struct MethodInfo {
+  enum Kind { NONE, SINGLE_DEF, MULTI_DEF } kind;
+  int class_id;          // SINGLE_DEF: defining class id
+  MethodFn fn;           // SINGLE_DEF: direct dispatch target
+  const bool* responds;  // MULTI_DEF: per-class bit array (sized to
+                         //            multi-def-count, not full surface)
+};
+```
+
+`Symbol::method_info_` populated by `intern()` against a compile-time
+table.
+
+#### `respond_to?` becomes 3 cases
+
+```cpp
+BasicObject* respond_to_q(Symbol* name) {
+  MethodInfo* mi = name->method_info_;
+  if (!mi)                       return false_instance();
+  if (mi->kind == SINGLE_DEF)    return boxed_bool(this->__class_id__() == mi->class_id);
+  return boxed_bool(mi->responds[this->__class_id__()]);
+}
+```
+
+#### `send` becomes 2 cases
+
+```cpp
+BasicObject* send(Array* args, ...) {
+  Symbol* name = static_cast<Symbol*>(args->data[0]);
+  MethodInfo* mi = name->method_info_;
+  Array* rest = strip_first(args);
+  if (!mi)                                   return method_missing(name->name_);
+  if (mi->kind == SINGLE_DEF) {
+    if (this->__class_id__() != mi->class_id) return method_missing(name->name_);
+    return mi->fn(this, rest, kw, blk);
+  }
+  return (this->*MULTI_VT[mi->multi_id])(rest, kw, blk);  // smaller VT
+}
+```
+
+#### Direct call sites
+
+`recv.foo(args)` where `:foo` is single-def: emit class-id check +
+direct call. With TI proving the type, drop the check too.
+
+### When to do this
+
+Tackle alongside TI integration. The data structure (MethodInfo per
+symbol) and the AOT analysis (single-def detection, sub-hierarchy
+identification) come first. TI integration adds per-call-site
+narrowing on top.
+
+The current 27s/1.4GB compile for full WQ parser stub is acceptable.
+This is a meaningful optional optimization; defer until self-compile
+runs end-to-end and TI work begins.
+
+### Tooling
+
+`FROZONE_CPP=1 FROZONE_BOX_FIRST=1 FROZONE_BOX_ANALYSIS=1 frozone --aot foo.rb`
+prints the histogram of method-name → defining-class counts. Use this
+to compare codebases.
+
+---
+
+## 2. is_a? — per-class 1D bitset, leaf columns pruned
+
+Box-first answers `o.is_a?(target)` via a closed-world LUT computed at
+AOT time. Currently a single global `IS_A[N_CLASSES][N_CLASSES]` bool
+table; every receiver indirects through `__class_id__()` to find its
+row, every target through `instance_class_id_` (a Class field) to find
+its column.
+
+Correct, but the table is large and the data is structurally global —
+not co-located with the classes that use it. Two compounding cleanups
+shrink the table by ~5× and turn the hot path into a single static-
+array index in the same cache line as the receiver class's other
+metadata.
+
+### The cleavage
+
+Targets split by what their is_a? semantics need:
+
+1. **Leaf class targets** — no subclasses, no module includes.
+   `o.is_a?(Leaf)` is true iff `o.class == Leaf`. A bit table is
+   overkill; identity check suffices.
+2. **Non-leaf targets** — modules and classes with subclasses. Real
+   ancestry walk needed; the LUT must record receiver-class →
+   target-class bits.
+
+A receiver can be a leaf (most are) and still need a LUT lookup when
+the target is non-leaf, so receivers stay full-surface. Only the
+target dimension prunes.
+
+### Measurement
+
+For our box-first universe at WQ self-compile (`bench/stubs/selfcompile_wq2.rb`):
+
+| Category               | Class count | % of total |
+|------------------------|------------:|-----------:|
+| Total classes/modules  |      ~1000  |       100% |
+| Leaf classes           |       ~800  |     **80%** |
+| Non-leaf (modules + classes-with-descendants) | ~200 |       20% |
+
+(Approximate — exact numbers come from a `FROZONE_BOX_ANALYSIS=1`-style
+print once the analysis is implemented.)
+
+The current `IS_A[N][N]` table is ~1MB of bools. Pruning columns to
+non-leaves drops it to ~200KB. Splitting it per-class drops the
+working-set hit per call to a single ~200-byte row.
+
+### Why per-class 1D over global 2D
+
+Same total bytes, but every is_a? call only touches its receiver
+class's row. The current global `IS_A[N][N]` lookup pages through the
+cold half of a 1MB table; a per-class row stays in the same cache
+line as the class's other metadata.
+
+Beyond cache locality: data co-locates with the class. The eigenclass
+struct already exists (it carries `instance_class_id_` for the IS_A
+LUT); adding `is_a_lut_` to it keeps related metadata together rather
+than spread across a global block.
+
+### No per-class virtual override
+
+The data lives on the Class struct (eigenclass singleton); m_is_a_q
+is implemented once on `Object` and reaches through to the receiver's
+class via the existing `m_class()` virtual:
+
+```cpp
+inline BasicObject* Object::m_is_a_q(Array* args, Hash*, Proc*) {
+  auto* tc = dynamic_cast<Class*>(args->data[0]);
+  if (!tc) return false_instance();
+  auto* my = static_cast<Class*>(m_class((new Array({})), nullptr, nullptr));
+  if (tc->is_leaf_) return boxed_bool(my == tc);
+  return boxed_bool(my->is_a_lut_[tc->lut_col_]);
+}
+```
+
+Receivers don't gain a virtual; `m_class` is auto-emitted on every
+class anyway (Kernel#class), so we're using a dispatch that already
+exists.
+
+### Proposed data structure
+
+The Class C++ struct grows three fields, populated in
+`__init_static_state__` alongside `instance_class_id_`:
+
+```cpp
+struct Class : Object {
+  int  instance_class_id_ = -1;  // existing: id of the class this Class
+                                 // singleton represents
+  bool is_leaf_         = false; // new: no subclasses + no module includes
+  int  lut_col_         = -1;    // new: column index in pruned LUT,
+                                 //      -1 if leaf (never indexed)
+  const bool* is_a_lut_ = nullptr; // new: receiver's row, sized to
+                                   //      number-of-non-leaves
+};
+```
+
+Per-class data emitted as a static const near the class definition:
+
+```cpp
+static const bool IS_A_Foo[M_NON_LEAF] = {/* row */};
+// in __init_static_state__:
+Foo_CLASS.is_a_lut_ = IS_A_Foo;
+Foo_CLASS.is_leaf_  = <true if Foo has no descendants>;
+Foo_CLASS.lut_col_  = <column index or -1>;
+```
+
+Modules: same struct (treated as a class for emission), `is_leaf_ =
+false` by construction (modules exist to be included), `lut_col_ =
+<index>`.
+
+### Codepath comparison
+
+**Today:**
+```cpp
+inline BasicObject* Object::m_is_a_q(Array* args, ...) {
+  int my_id     = this->__class_id__();    // virtual call
+  auto* tc      = dynamic_cast<Class*>(args->data[0]);
+  if (!tc) return false_instance();
+  int target_id = tc->instance_class_id_;
+  return boxed_bool(IS_A[my_id][target_id]);  // hits 1MB global table
+}
+```
+
+**Proposed:**
+```cpp
+inline BasicObject* Object::m_is_a_q(Array* args, ...) {
+  auto* tc = dynamic_cast<Class*>(args->data[0]);
+  if (!tc) return false_instance();
+  auto* my = static_cast<Class*>(m_class(empty_args, nullptr, nullptr));
+  if (tc->is_leaf_) return boxed_bool(my == tc);  // ~80% of targets
+  return boxed_bool(my->is_a_lut_[tc->lut_col_]); // hot path: 200 bytes
+}
+```
+
+The `is_leaf_` branch is highly predictable per call-site (target
+class is usually constant at any one site). For leaf targets it's a
+single pointer compare; for non-leaf, a bool lookup at a small offset
+into the already-warm Class struct.
+
+### When to do this
+
+Pure optimization, no correctness component. Tackle when:
+
+- Profiling shows is_a? on the hot path (hash lookups via
+  `Class === instance`, case/when dispatch, type-guarded fast paths).
+- Or: cc1plus parse time becomes a problem from the global IS_A table
+  size.
+
+The current global LUT is fine for a few-class universe; pays off
+most once the universe scales (Frozone²+core4 ~1000 classes).
+
+### Interactions
+
+- **Leaf detection** is a closed-world AOT analysis. Same input as
+  the IS_A LUT walker (ancestor chains incl. module includes); just
+  record whether each class has any descendants.
+- **Composes with §1.** Both shrink BasicObject's surface but in
+  different dimensions: §1 removes single-def *method slots*; §2
+  reorganizes *is_a? data* away from a global table. Independent wins.
+- **Doesn't change m_kind_of_q / m_instance_of_q** — they still
+  bottom out into m_is_a_q (kind_of?) or pointer compare on m_class
+  (instance_of?).
+
+### Tooling
+
+Add a counter to the existing `FROZONE_BOX_ANALYSIS=1` output: leaf
+class count vs. total. The per-class LUT row size = non-leaf count =
+the real win factor.
