@@ -211,6 +211,7 @@ module Frozone
               end
             when Ast::MethodCall then from_method_call(node, locals)
             when Ast::AttributeWrite then from_attribute_write(node, locals)
+            when Ast::IndexOperatorWrite then from_index_op_write(node, locals)
             when Ast::And then from_and(node, locals)
             when Ast::Or then from_or(node, locals)
             when Ast::If then from_if(node, locals)
@@ -589,6 +590,26 @@ module Frozone
             args = (node.arg_nodes || []).map { |a| from_expr(a, locals) }
             args_array = "(new Array({#{args.join(", ")}}))"
             "#{recv_s}->#{Cpp.method_name(node.name)}(#{args_array}, nullptr, nullptr)"
+          end
+
+          # `arr[i] op= val` → `arr[i] = arr[i] op val`. Receiver and
+          # indices evaluated once each; for `+=`, `-=`, etc.
+          # `||=` / `&&=` not yet supported (need short-circuit).
+          # Multi-index (`arr[i,j] += val`) emits as expected — m_aref/
+          # m_aset with the full index list.
+          def from_index_op_write(node, locals)
+            op = node.operator
+            raise EmissionError, "IndexOperatorWrite op :#{op} not yet supported" if %i[|| &&].include?(op)
+            recv_str = node.receiver_node ? from_expr(node.receiver_node, locals) : "this"
+            idx_strs = (node.index_arg_nodes || []).map { |a| from_arg(a, locals) }
+            val_str = from_expr(node.value_node, locals)
+            tag = next_tmp_id
+            recv_t = "__iow_recv_#{tag}__"
+            idx_array = "(new Array({#{idx_strs.join(", ")}}))"
+            cpp_op = Cpp.method_name(op)
+            # `recv->aref(idx) op val` → `recv->aset(idx, that)`. Using a
+            # comma operator to bind recv once, then form the aset call.
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* _idx = #{idx_array}; return #{recv_t}->m_aset((new Array({#{idx_strs.join(", ")}, #{recv_t}->m_aref(_idx, nullptr, nullptr)->#{cpp_op}((new Array({#{val_str}})), nullptr, nullptr)})), nullptr, nullptr); }())"
           end
 
           # Ruby's `&&` returns the last truthy value or the first falsy.
