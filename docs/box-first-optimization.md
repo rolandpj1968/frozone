@@ -354,3 +354,72 @@ most once the universe scales (Frozone²+core4 ~1000 classes).
 Add a counter to the existing `FROZONE_BOX_ANALYSIS=1` output: leaf
 class count vs. total. The per-class LUT row size = non-leaf count =
 the real win factor.
+
+---
+
+## 3. dynamic_cast removal
+
+Status: partial — `m_is_a_q` body now compares `m_class()` against
+`&Class_CLASS` instead of `dynamic_cast<Class*>`. The remaining call
+sites stayed for now and want a follow-up.
+
+### The pattern
+
+`dynamic_cast` walks the class's RTTI tree at runtime. For our box-
+first hierarchy (1 to 4 levels deep typically) it's fast — ~10ns
+typical — but it's also opaque to the optimizer, defeats LTO devirt,
+and forces RTTI on every class. Where we only need an exact-type
+check (no subclass tolerance), a single `m_class() == &X_CLASS`
+compare is cheaper *and* more debuggable.
+
+### Audit (~25 sites)
+
+**Replaced (m_is_a_q only, today):**
+
+- `class_emitter.rb` — `m_is_a_q` body checks args[0] is a Class.
+
+**Easy wins, exact-type checks (do when convenient):**
+
+- `String#==` / `String#!=` — `dynamic_cast<String*>(other)`.
+- `Array#m_aset` Range branch — `dynamic_cast<Range*>(idx)`.
+- `ruby_puts` Integer/Float/Symbol/String arms — exact-type dispatch.
+
+**Hot path, blocked on a cheap class accessor:**
+
+- Integer/Float arithmetic ops (m_plus/minus/mul/div/lt/gt/le/ge/eq_q
+  /ne_q) — currently `if (auto* f = dynamic_cast<Float*>(other))`.
+- Float `as_double` static — same, called from every Float-side
+  arith op.
+
+These are inside tight numerical loops. `m_class()` per-call would
+require allocating an empty `Array*` each invocation (universal
+protocol arg) — a regression vs RTTI. Plan: introduce a non-virtual
+`klass()` accessor (or a no-arg virtual returning `Class*` directly)
+so hand-coded bodies can write `o->klass() == &Float_CLASS` without
+allocation. Tackle alongside any wider arithmetic fast-path work.
+
+**Should stay (genuinely needs subclass matching):**
+
+- Rescue clause emission (`cpp.rb` from_rescue) — `rescue StandardError`
+  must catch every descendant. Could swap to `m_is_a_q` (LUT lookup)
+  but that adds an Array allocation per throw and isn't faster than
+  the RTTI walk for exception hierarchies that are typically 2-3
+  levels.
+
+### Why bother
+
+- C++ code stays cleaner without RTTI gymnastics; readers see a
+  pointer compare and immediately understand the semantics.
+- Once §1 (single-def slot removal) and §2 (per-class is_a? LUT)
+  land, the runtime layer has fewer dynamic_cast call sites overall;
+  removing the rest from the hot path completes the picture.
+- Frees us to disable RTTI globally (`-fno-rtti`) — modest code-size
+  win, more importantly a clearer "these classes don't need runtime
+  type info" boundary.
+
+### When to do this
+
+Whenever the cheap-accessor question gets answered. The is_a? case
+got handled today because m_class is already auto-emitted on every
+class and the cost was a single warm allocation off the hot path —
+arithmetic ops can't accept that, so they wait.

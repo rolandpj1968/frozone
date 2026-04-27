@@ -212,8 +212,12 @@ module Frozone
               emit.line "int my_id = this->__class_id__();"
               emit.line "if (my_id < 0) return false_instance();"
               emit.line "BasicObject* target = args->data[0];"
-              emit.line "auto* tc = dynamic_cast<Class*>(target);"
-              emit.line "if (!tc) return false_instance();"
+              # m_class is auto-emitted on every class; eigenclass instances
+              # all return &Class_CLASS (with_auto_overrides targets
+              # Class_CLASS for any *_eigenclass class). One virtual call +
+              # pointer compare beats walking RTTI via dynamic_cast<Class*>.
+              emit.line "if (target->m_class((new Array({})), nullptr, nullptr) != (&Class_CLASS)) return false_instance();"
+              emit.line "auto* tc = static_cast<Class*>(target);"
               emit.line "int target_id = tc->instance_class_id_;"
               emit.line "if (target_id < 0 || target_id >= N_CLASSES) return false_instance();"
               emit.line "return boxed_bool(IS_A[my_id][target_id]);"
