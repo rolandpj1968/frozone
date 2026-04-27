@@ -92,6 +92,12 @@ module Frozone
               "virtual BasicObject* m_nil_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
               "  return false_instance();",
               "}",
+              "// equal? — identity check (`a.equal?(b)` ↔ `a is b` in",
+              "// other languages). Distinct from `==` which classes",
+              "// often override for value equality. Always pointer cmp.",
+              "virtual BasicObject* m_equal_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "  return boxed_bool(this == array_at(args, 0));",
+              "}",
               "// initialize default — no-op returning self. User classes",
               "// override; eigenclass m_new always invokes this after",
               "// allocating the new instance.",
@@ -131,6 +137,7 @@ module Frozone
               m_freeze m_frozen_q m_class m_respond_to_q
               m_send m___send__
               m_is_a_q m_kind_of_q m_instance_of_q
+              m_equal_q
             ].freeze,
           )
 
@@ -707,6 +714,9 @@ module Frozone
               if (o == true_instance())                      { std::printf("true\\n"); return; }
               if (o == false_instance())                     { std::printf("false\\n"); return; }
               if (o == nil_instance())                       { std::printf("\\n"); return; }
+              // Class instance — eigenclass's ruby_class_name returns
+              // the represented class's name, so this prints e.g. "Object".
+              if (dynamic_cast<Class*>(o))                   { std::printf("%s\\n", o->ruby_class_name()); return; }
               std::printf("(unprintable: %s)\\n", o->ruby_class_name());
             CPP
           )
