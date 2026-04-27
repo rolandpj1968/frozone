@@ -67,6 +67,7 @@ module Frozone
             @cpp = Cpp.new(user_classes: @user_classes, user_constants: @user_constants)
             @cpp.emit = self
             @call_surface = collect_call_surface
+            print_method_def_analysis if ENV['FROZONE_BOX_ANALYSIS'] == '1'
             all_classes = Runtime::ALL_CLASSES + build_user_class_defs
             all_eigenclasses = all_classes.map { |k| Runtime.eigenclass_for(k) }.compact
             classes = all_classes + all_eigenclasses
@@ -376,6 +377,48 @@ module Frozone
             return unless ENV['FROZONE_BOX_DEBUG'] == '1'
             loc = method.respond_to?(:source_location) ? method.source_location : nil
             $stderr.puts "[box-first] skip #{kind} #{method&.name} @ #{loc}: #{err.message}"
+          end
+
+          # Diagnostic pass — count how many classes define each method
+          # name. Single-def names are candidates for direct dispatch
+          # (no virtual table slot needed); multi-def names need
+          # genuine virtual dispatch. Run with FROZONE_BOX_ANALYSIS=1.
+          def print_method_def_analysis
+            defs_by_name = Hash.new { |h, k| h[k] = [] }
+            user_classes_with_universe = Runtime::ALL_CLASSES.map(&:name) + @user_classes.keys.map(&:to_s)
+            walked = Set.new
+            walk = ->(scope, prefix) {
+              return if walked.include?(scope.object_id)
+              walked << scope.object_id
+              (scope.constants_table || {}).each do |name, val|
+                fname = prefix ? "#{prefix}::#{name}" : name.to_s
+                if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
+                  (val.methods_table || {}).each_key { |m| defs_by_name[m] << "#{fname}#" }
+                  if val.respond_to?(:eigenclass) && val.eigenclass
+                    (val.eigenclass.methods_table || {}).each_key { |m| defs_by_name[m] << "#{fname}." }
+                  end
+                  walk.call(val, fname)
+                end
+              end
+            }
+            walk.call(@top_level_scope, nil)
+            single = defs_by_name.select { |_, ds| ds.size == 1 }
+            multi  = defs_by_name.select { |_, ds| ds.size > 1 }
+            total  = defs_by_name.size
+            $stderr.puts "[box-first analysis]"
+            $stderr.puts "  total method names:  #{total}"
+            $stderr.puts "  single-def:          #{single.size} (#{(single.size * 100.0 / total).round(1)}%)"
+            $stderr.puts "  multi-def:           #{multi.size} (#{(multi.size * 100.0 / total).round(1)}%)"
+            $stderr.puts ""
+            $stderr.puts "  multi-def histogram (count of names by # of defining classes):"
+            buckets = Hash.new(0)
+            multi.each_value { |ds| buckets[ds.size] += 1 }
+            buckets.sort.each { |n, count| $stderr.puts "    #{n.to_s.rjust(4)} classes: #{count} method names" }
+            $stderr.puts ""
+            $stderr.puts "  top multi-def methods:"
+            multi.sort_by { |_, ds| -ds.size }.first(15).each do |name, ds|
+              $stderr.puts "    #{ds.size.to_s.rjust(4)}  :#{name}"
+            end
           end
 
           def write_header
