@@ -58,6 +58,17 @@ module Frozone
 
           # ---- Class definitions -----------------------------------
 
+          # In MRI, BasicObject is intentionally minimal — instance
+          # methods are just ==, !=, !, equal?, __id__, __send__,
+          # method_missing, instance_eval, instance_exec, plus the
+          # singleton_method_* hooks. Everything else (is_a?, class,
+          # send, freeze, nil?, respond_to?, dup, to_s, …) lives on
+          # Kernel and is mixed into Object. We mirror that — the
+          # bodies that need C++ layout awareness (LUT-based is_a?,
+          # METHOD_VT-based send, eigenclass-returning class) live on
+          # Object, not BasicObject. A user `class Foo < BasicObject`
+          # genuinely lacks is_a?, freeze, etc. — `bo.is_a?(...)`
+          # falls through to BasicObject's method_missing stub.
           BASIC_OBJECT = RubyClass.new(
             name: "BasicObject",
             parent: nil,
@@ -75,36 +86,23 @@ module Frozone
               %(  std::fprintf(stderr, "[box-first] method_missing: %s#%s\\n", ruby_class_name(), method_name);),
               "  std::abort();",
               "}",
-              "// Hand-coded m_eq_q / m_hash_value / m_case_eq — these need",
-              "// sensible defaults rather than method_missing. m_hash_value",
-              "// is C++-internal (returns size_t for std::unordered_map),",
-              "// not a Ruby vtable method. m_eq_q and m_case_eq use the",
-              "// universal Ruby method signature (Array*, Hash*, Proc*).",
+              "// == default — pointer identity (BasicObject#==).",
               "virtual BasicObject* m_eq_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
               "  return boxed_bool(this == array_at(args, 0));",
               "}",
+              "// m_hash_value — C++-internal hook for std::unordered_map<BasicObject*,…>.",
+              "// Not a Ruby method (Ruby's #hash returns Integer; this returns size_t).",
               "virtual std::size_t m_hash_value() const { return reinterpret_cast<std::size_t>(this); }",
-              "// m_case_eq (===) defaults to m_eq_q per Ruby semantics.",
-              "virtual BasicObject* m_case_eq(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
-              "  return m_eq_q(args, kwargs, block);",
-              "}",
-              "// nil? defaults to false; NilClass overrides to true.",
-              "virtual BasicObject* m_nil_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
-              "  return false_instance();",
-              "}",
-              "// equal? — identity check (`a.equal?(b)` ↔ `a is b` in",
-              "// other languages). Distinct from `==` which classes",
-              "// often override for value equality. Always pointer cmp.",
+              "// equal? — pointer identity (BasicObject#equal?). Distinct from",
+              "// `==` which subclasses often override for value equality.",
               "virtual BasicObject* m_equal_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
               "  return boxed_bool(this == array_at(args, 0));",
               "}",
-              "// __id__ / object_id — pointer cast as integer. Closed-",
-              "// world: each object has a unique address; that's the id.",
+              "// __id__ — pointer cast as integer. Closed-world: each",
+              "// object has a unique address; that's the id. Note that",
+              "// Ruby's #object_id is on Kernel, not BasicObject.",
               "virtual BasicObject* m___id__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
               "  return int_box(reinterpret_cast<std::int64_t>(this));",
-              "}",
-              "virtual BasicObject* m_object_id(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
-              "  return m___id__(args, kwargs, block);",
               "}",
               "// initialize default — no-op returning self. User classes",
               "// override; eigenclass m_new always invokes this after",
@@ -112,47 +110,65 @@ module Frozone
               "virtual BasicObject* m_initialize(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
               "  return this;",
               "}",
-              "// is_a? / kind_of? — closed-world LUT: precomputed",
-              "// IS_A[N][N] bool table indexed by (receiver class id,",
-              "// target class/module id). Captures inheritance AND",
-              "// module includes/prepends. Per-instance class id comes",
-              "// from __class_id__() virtual; target is read from the",
-              "// Class*/Module* singleton.",
-              "virtual int __class_id__() const { return -1; }  // not a class",
-              "virtual BasicObject* m_is_a_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr);",
-              "virtual BasicObject* m_kind_of_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
-              "  return m_is_a_q(args, kwargs, block);",
-              "}",
-              "virtual BasicObject* m_instance_of_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
-              "  return boxed_bool(m_class(args, kwargs, block) == array_at(args, 0));",
-              "}",
-              "// freeze / frozen? — we don't enforce frozen state, so",
-              "// these are no-ops returning self / false. Lots of core",
-              "// code calls .freeze on initialization; without these,",
-              "// every freeze call hits method_missing.",
-              "virtual BasicObject* m_freeze(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
-              "  return this;",
-              "}",
-              "virtual BasicObject* m_frozen_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {",
-              "  return false_instance();",
-              "}",
+              "// __class_id__ — closed-world class identity. Returns -1",
+              "// for non-class instances (so they hit the false branch in",
+              "// the IS_A LUT walker on Object). Class instances override.",
+              "virtual int __class_id__() const { return -1; }",
             ],
-            # Methods listed here are skipped by the universal-surface
-            # emitter — either hand-declared in members above OR
-            # auto-emitted by class_emitter as an override (m_class).
+            # Genuine BasicObject methods. Other intrinsic-style methods
+            # (m_class, m_send, m_is_a_q, etc.) live on Object and are
+            # listed in OBJECT.hand_coded_method_names.
             hand_coded_method_names: %w[
-              m_eq_q m_hash_value m_case_eq m_nil_q m_initialize
-              m_freeze m_frozen_q m_class m_respond_to_q
-              m_send m___send__
-              m_is_a_q m_kind_of_q m_instance_of_q
-              m_equal_q m___id__ m_object_id
+              m_eq_q m_hash_value m_equal_q m___id__ m_initialize
             ].freeze,
           )
 
           OBJECT = RubyClass.new(
             name: "Object",
             parent: "BasicObject",
-            members: [%(const char* ruby_class_name() const override { return "Object"; })],
+            members: [
+              %(const char* ruby_class_name() const override { return "Object"; }),
+              "// === defaults to ==. Module/Class override for `Class === obj`.",
+              "virtual BasicObject* m_case_eq(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override {",
+              "  return m_eq_q(args, kwargs, block);",
+              "}",
+              "// nil? defaults to false; NilClass overrides to true.",
+              "virtual BasicObject* m_nil_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override {",
+              "  return false_instance();",
+              "}",
+              "// freeze / frozen? — we don't enforce frozen state, so",
+              "// these are no-ops returning self / false. Lots of core",
+              "// code calls .freeze on initialization; this stays cheap.",
+              "virtual BasicObject* m_freeze(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override {",
+              "  return this;",
+              "}",
+              "virtual BasicObject* m_frozen_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override {",
+              "  return false_instance();",
+              "}",
+              "// object_id — Kernel#object_id. Same value as __id__.",
+              "virtual BasicObject* m_object_id(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override {",
+              "  return m___id__(args, kwargs, block);",
+              "}",
+              "// is_a? / kind_of? / instance_of? — closed-world LUT. m_is_a_q",
+              "// body is emitted out-of-line by class_emitter (write_is_a_lut)",
+              "// once all classes are complete.",
+              "virtual BasicObject* m_is_a_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;",
+              "// send / __send__ — METHOD_VT-based dispatch. Out-of-line body",
+              "// emitted by class_emitter (write_send_body) once Array is complete.",
+              "virtual BasicObject* m_send(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;",
+              "virtual BasicObject* m___send__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override;",
+              "virtual BasicObject* m_kind_of_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override {",
+              "  return m_is_a_q(args, kwargs, block);",
+              "}",
+              "virtual BasicObject* m_instance_of_q(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) override {",
+              "  return boxed_bool(m_class(args, kwargs, block) == array_at(args, 0));",
+              "}",
+            ],
+            hand_coded_method_names: %w[
+              m_case_eq m_nil_q m_freeze m_frozen_q m_object_id
+              m_class m_respond_to_q m_send m___send__
+              m_is_a_q m_kind_of_q m_instance_of_q
+            ].freeze,
           )
 
           # Class — the metaclass type. Every emitted class Foo has a

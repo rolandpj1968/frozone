@@ -200,7 +200,7 @@ module Frozone
             end
             emit.line "};"
             emit.blank
-            emit.line "inline BasicObject* BasicObject::m_is_a_q(Array* args, Hash* kwargs, Proc* block) {"
+            emit.line "inline BasicObject* Object::m_is_a_q(Array* args, Hash* kwargs, Proc* block) {"
             emit.indented do
               emit.line "int my_id = this->__class_id__();"
               emit.line "if (my_id < 0) return false_instance();"
@@ -221,6 +221,11 @@ module Frozone
           # bool array by Symbol::method_id_. __class_id__ returns the
           # AOT-assigned class_id used by the IS_A LUT.
           def self.with_auto_overrides(klass, responder_ruby_names, method_ids, class_id)
+            # m_class and m_respond_to_q are Kernel methods in MRI — they
+            # don't exist on BasicObject. Leave BasicObject's stubs as
+            # method_missing so a `class Foo < BasicObject` subclass
+            # genuinely lacks them, matching MRI semantics.
+            return klass if klass.name == "BasicObject"
             target = klass.name.end_with?("_eigenclass") ? "Class_CLASS" : "#{klass.name}_CLASS"
             overrides = (klass.overrides || {}).dup
             overrides["m_class"] ||= { params: [], body: "return (&#{target});" }
@@ -253,22 +258,26 @@ module Frozone
             CPP
           end
 
-          # Compute per-class responder sets — own overrides + parent's
-          # set + BasicObject's hand-coded methods + the auto-emitted
-          # ones (m_class, m_respond_to_q themselves). Walks the
-          # inheritance chain via klass.parent (string), name-indexed.
-          # Returns Ruby names (not cpp_names) for matching against
-          # Symbol#name_ at runtime.
+          # Compute per-class responder sets — own overrides + own
+          # hand_coded_method_names + parent's set + the auto-emitted
+          # m_class/m_respond_to_q (which with_auto_overrides will add
+          # only on Object and below). Walks the inheritance chain via
+          # klass.parent (string), name-indexed. Returns Ruby names
+          # (not cpp_names) for matching against Symbol#name_ at runtime.
           def self.compute_responder_sets(classes)
-            base = (Runtime::BASIC_OBJECT.hand_coded_method_names || []).map { |m| cpp_name_to_ruby(m) }
-            base += %w[class respond_to?]  # auto-emitted on every class
             registry = classes.each_with_object({}) { |k, h| h[k.name] = k }
             memo = {}
             walk = ->(klass) {
               return memo[klass.name] if memo.key?(klass.name)
               own = (klass.overrides || {}).keys.map { |cpp| cpp_name_to_ruby(cpp) }
+              own += (klass.hand_coded_method_names || []).map { |cpp| cpp_name_to_ruby(cpp) }
+              # m_class / m_respond_to_q are auto-added by with_auto_overrides
+              # on every class except BasicObject — pre-include them here so
+              # responder_sets is correct (compute_responder_sets runs BEFORE
+              # with_auto_overrides).
+              own += %w[class respond_to?] unless klass.name == "BasicObject"
               parent_set = klass.parent && registry[klass.parent] ? walk.call(registry[klass.parent]) : []
-              memo[klass.name] = (own + parent_set + base).uniq
+              memo[klass.name] = (own + parent_set).uniq
             }
             classes.each_with_object({}) { |k, h| h[k.name] = walk.call(k) }
           end
@@ -351,18 +360,6 @@ module Frozone
               emit.line %(virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("#{ruby_name}"); })
             end
             emit.blank
-            write_send_dispatch(emit, call_surface)
-          end
-
-          # send(:name, *rest, **kw, &blk) — out-of-line definition (it
-          # calls Array methods that need Array complete). Declared
-          # here, defined after Array is complete.
-          def self.write_send_dispatch(emit, call_surface)
-            emit.line "// send(:name, *rest, **kw, &blk) — switch over every method"
-            emit.line "// name in the call surface; virtual dispatch picks the right"
-            emit.line "// override on the actual receiver. Unknown name → method_missing."
-            emit.line "virtual BasicObject* m_send(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr);"
-            emit.line "virtual BasicObject* m___send__(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr);"
           end
 
           # Out-of-line m_send / m___send__ body. Single indirect call
@@ -371,7 +368,7 @@ module Frozone
           # method_missing.
           def self.write_send_body(emit, _method_ids)
             ["m_send", "m___send__"].each do |fn|
-              emit.line "inline BasicObject* BasicObject::#{fn}(Array* args, Hash* kwargs, Proc* block) {"
+              emit.line "inline BasicObject* Object::#{fn}(Array* args, Hash* kwargs, Proc* block) {"
               emit.indented do
                 emit.line %|if (args->data.empty()) { std::fprintf(stderr, "[box-first] send: no method name\\n"); std::abort(); }|
                 emit.line "Symbol* _name = static_cast<Symbol*>(args->data[0]);"
