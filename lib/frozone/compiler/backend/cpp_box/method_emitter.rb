@@ -27,7 +27,7 @@ module Frozone
               end
               emit.line "return nil_instance();"
             end
-            emit.line "virtual BasicObject* #{cpp_name}(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr) {"
+            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) {"
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
             emit.line "}"
           rescue Cpp::EmissionError => e
