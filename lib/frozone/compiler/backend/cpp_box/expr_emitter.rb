@@ -60,6 +60,8 @@ module Frozone
               write_case_stmt(emit, node, locals)
             when Ast::LocalVariableWrite
               write_local_write_stmt(emit, node, locals)
+            when Ast::MultipleAssignment
+              write_multiple_assignment_stmt(emit, node, locals)
             when Ast::Break
               # Bare `break` and `break value` — value is dropped (the
               # surrounding loop's value isn't observable in
@@ -164,6 +166,79 @@ module Frozone
               end
               locals << node.name.to_s
               emit.line "BasicObject* #{node.name} = #{rhs};"
+            end
+          end
+
+          # `a, b = rhs` / `a, *b, c = rhs` etc. Evaluate RHS once,
+          # cast to Array, distribute elements to targets. Splat
+          # collects the middle slice into a new Array. Targets are
+          # [:local, name, depth] or [:ivar, name]; other shapes
+          # (call/index/const) raise EmissionError.
+          # Statement-position only — value is dropped (the rhs).
+          def self.write_multiple_assignment_stmt(emit, node, locals)
+            targets = node.targets
+            unless targets.all? { |t| %i[local ivar local_splat ivar_splat splat_nil].include?(t[0]) }
+              raise Cpp::EmissionError, "MultipleAssignment with non-local/ivar target (#{(targets.map(&:first) - %i[local ivar local_splat ivar_splat splat_nil]).first}) not yet supported"
+            end
+            splat_idx = targets.index { |t| %i[local_splat ivar_splat splat_nil].include?(t[0]) }
+            pre_count = splat_idx || targets.length
+            post_count = splat_idx ? targets.length - splat_idx - 1 : 0
+            rhs_str = emit.cpp.from_expr(node.value_node, locals)
+            emit.line "{"
+            emit.indented do
+              emit.line "Array* __mass_rhs__ = static_cast<Array*>(#{rhs_str});"
+              emit.line "std::size_t __mass_n__ = __mass_rhs__->data.size();"
+              targets[0...pre_count].each_with_index do |t, i|
+                emit_mass_target_assign(emit, t, "(__mass_n__ > #{i} ? __mass_rhs__->data[#{i}] : nil_instance())", locals)
+              end
+              if splat_idx
+                splat_t = targets[splat_idx]
+                emit.line "Array* __mass_splat__ = new Array();"
+                emit.line "for (std::size_t _i = #{pre_count}; _i + #{post_count} < __mass_n__; _i++) __mass_splat__->data.push_back(__mass_rhs__->data[_i]);"
+                emit_mass_target_assign(emit, splat_t, "static_cast<BasicObject*>(__mass_splat__)", locals)
+                targets[(splat_idx + 1)..].each_with_index do |t, i|
+                  # Post-splat targets read from end of the array.
+                  emit_mass_target_assign(emit, t, "(__mass_n__ > #{post_count - i - 1} ? __mass_rhs__->data[__mass_n__ - #{post_count - i}] : nil_instance())", locals)
+                end
+              end
+            end
+            emit.line "}"
+          end
+
+          # Emit one element-assignment based on target descriptor.
+          def self.emit_mass_target_assign(emit, target, value_expr, locals)
+            kind = target[0]
+            case kind
+            when :local
+              name = target[1].to_s
+              if locals.include?(name)
+                emit.line "#{name} = #{value_expr};"
+              else
+                if MethodEmitter::CPP_KEYWORDS.include?(name)
+                  raise Cpp::EmissionError, "local :#{name} is a C++ reserved word"
+                end
+                if MethodEmitter::UNIVERSAL_PARAM_NAMES.include?(name)
+                  raise Cpp::EmissionError, "local :#{name} collides with universal protocol param"
+                end
+                locals << name
+                emit.line "BasicObject* #{name} = #{value_expr};"
+              end
+            when :local_splat
+              name = target[1].to_s
+              if locals.include?(name)
+                emit.line "#{name} = #{value_expr};"
+              else
+                locals << name
+                emit.line "BasicObject* #{name} = #{value_expr};"
+              end
+            when :ivar, :ivar_splat
+              iv = target[1].to_s.delete_prefix('@')
+              emit.line "this->iv_#{iv} = #{value_expr};"
+            when :splat_nil
+              # Discard — evaluate the value_expr (it might have side effects via array_at) but throw it away.
+              emit.line "(void)(#{value_expr});"
+            else
+              raise Cpp::EmissionError, "MultipleAssignment target kind :#{kind} not supported"
             end
           end
 
