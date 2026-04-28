@@ -103,7 +103,27 @@ module Frozone
               locals << p.to_s
             end
             if method.kw_rest_param
-              raise Cpp::EmissionError, "method with **kw_rest not yet supported"
+              # `**rest` — bind a Hash of all kwargs not consumed by
+              # named kw params. Local is BasicObject* (not Hash*) so
+              # user code that reassigns `opts = ...` from a vtable
+              # call result type-checks. The consumed-set is computed
+              # at AOT time as a symbol-comparison list.
+              name = method.kw_rest_param.to_s
+              name = "_kwrest" if name.empty? || name == "**"
+              cpp_name = local_cpp_name(name)
+              consumed = ((method.optional_kw_params || []).map { |p, _| p.to_s } +
+                          (method.required_kw_params || []).map(&:to_s)).uniq
+              consumed_check = consumed.map { |k|
+                "_k == intern(#{emit.cpp.cpp_string_literal(k)})"
+              }.join(" || ")
+              consumed_check = "false" if consumed_check.empty?
+              emit.line "Hash* __#{cpp_name}_h__ = new Hash();"
+              emit.line "if (kwargs) for (auto& _kv : kwargs->data) {"
+              emit.line "  auto* _k = static_cast<Symbol*>(_kv.first);"
+              emit.line "  if (!(#{consumed_check})) __#{cpp_name}_h__->data[_kv.first] = _kv.second;"
+              emit.line "}"
+              emit.line "BasicObject* #{cpp_name} = static_cast<BasicObject*>(__#{cpp_name}_h__);"
+              locals << name
             end
             if method.rest_param
               name = method.rest_param.to_s
