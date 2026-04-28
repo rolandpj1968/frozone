@@ -107,12 +107,25 @@ module Frozone
               cls = top[klass.name.to_sym]
               next klass unless cls.is_a?(Vm::ClassObject)
               hand_coded = ancestor_hand_coded_names(klass, by_name)
+              # Ivars referenced by overlaid methods need fields on the
+              # struct or `this->iv_X` won't compile. Collect them the
+              # same way build_user_class_def does for user classes,
+              # filtering out anything already in `members:` (some
+              # entries — MatchData — declare iv_X by hand for non-nil
+              # initial values).
+              existing_ivar_names = (klass.members || []).filter_map { |line|
+                line[/\biv_([A-Za-z_][A-Za-z_0-9]*)\b/, 1]
+              }.to_set
+              extra_ivars = collect_ivars(cls)
+                .reject { |iv| existing_ivar_names.include?(iv) }
+                .map { |iv| "BasicObject* iv_#{iv} = nil_instance();" }
               klass.dup.tap do |k|
                 k.overrides = overlay_overrides_chained(klass.name, klass.overrides || {}, class_method_chains(cls), hand_coded)
                 # Eigenclass methods don't take super (no MRO walk for
                 # def-self-X chains in box-first today), so the flat
                 # path is enough.
                 k.eigenclass_overrides = overlay_overrides(klass.eigenclass_overrides || {}, eigenclass_methods(cls), hand_coded)
+                k.members = (k.members || []) + extra_ivars unless extra_ivars.empty?
               end
             end
           end
@@ -482,9 +495,14 @@ module Frozone
 
             ivars = collect_ivars(cls)
             eigen_ivars = collect_eigenclass_ivars(cls)
+            # Pure modules (not classes) flag is_module so their
+            # eigenclass inherits from Module (matching MRI's
+            # `mod.class == Module`).
+            is_module = cls.is_a?(Vm::ModuleObject) && !cls.is_a?(Vm::ClassObject)
             Runtime::RubyClass.new(
               name: name.to_s,
               parent: parent_name_for(cls),
+              is_module: is_module,
               ivars: ivars.map { |iv| "BasicObject* iv_#{iv} = nil_instance();" },
               members: [%(const char* ruby_class_name() const override { return "#{name}"; })],
               # No special ctor — `initialize` becomes a regular

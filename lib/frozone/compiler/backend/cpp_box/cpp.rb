@@ -1239,9 +1239,9 @@ module Frozone
             when Vm::HashObject
               pairs = val.raw.map { |k, v| "{#{emit_vm_value(k)}, #{emit_vm_value(v)}}" }
               "(new Hash({#{pairs.join(", ")}}))"
-            when Vm::ClassObject
+            when Vm::ClassObject, Vm::ModuleObject
               flat = class_object_to_flat(val)
-              raise EmissionError, "emit_vm_value: ClassObject #{val.full_name} not in emitted set" unless flat
+              raise EmissionError, "emit_vm_value: #{val.class.name.split('::').last} #{val.full_name} not in emitted set" unless flat
               "(&#{flat}_CLASS)"
             when Vm::ObjectObject
               # If this object is itself one of our registered user

@@ -47,6 +47,12 @@ module Frozone
             # BasicObject + overrides on every eigenclass that has X.
             @const_surface = const_surface
             @const_surface_set = const_surface.map { |n| "c_#{n}" }.to_set
+            # Inject `c_X → constant_missing` overrides on the Module
+            # entry for every surface name. BasicObject's c_X default
+            # is TypeError; Module's override flips it to NameError so
+            # any module/class receiver gets correct semantics, while
+            # non-module receivers (nil, Integer, …) keep TypeError.
+            classes = inject_module_constant_overrides(classes, const_surface)
             # Class id assignment + IS_A LUT — drives is_a?/kind_of?.
             # Each class gets a unique id; LUT[i][j] = true iff class
             # i has class/module j in its ancestry chain (including
@@ -71,6 +77,7 @@ module Frozone
               write_send_body(emit, method_ids)
               write_is_a_lut(emit, class_ids, is_a_lut)
               write_method_missing_body(emit)
+              write_constant_typeerror_body(emit)
               write_constant_missing_body(emit)
               write_kernel_fn_bodies(emit, kernel_fns)
               write_intrinsic_bodies(emit, intrinsics)
@@ -245,7 +252,15 @@ module Frozone
             # method_missing so a `class Foo < BasicObject` subclass
             # genuinely lacks them, matching MRI semantics.
             return klass if klass.name == "BasicObject"
-            target = klass.name.end_with?("_eigenclass") ? "Class_CLASS" : "#{klass.name}_CLASS"
+            target =
+              if klass.name.end_with?("_eigenclass")
+                # The eigenclass's parent tells us if its instance is a
+                # module or a class — `Module` parent → instance.class
+                # is Module; otherwise Class.
+                klass.parent == "Module" ? "Module_CLASS" : "Class_CLASS"
+              else
+                "#{klass.name}_CLASS"
+              end
             overrides = (klass.overrides || {}).dup
             overrides["m_class"] ||= { params: [], body: "return (&#{target});" }
             overrides["m_respond_to_q"] ||= {
@@ -391,9 +406,12 @@ module Frozone
               emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("#{ruby_name}"); })
             end
             # Constant-lookup surface — c_X() per dynamic-receiver
-            # constant name. Default: constant_missing (raises NameError).
-            # Eigenclasses override these with `return <value>;` for
-            # the constants they own (statically + inherited).
+            # constant name. Default on BasicObject: TypeError (matches
+            # MRI's `nil::FOO` raising "no class/module"). Module
+            # overrides every slot to raise NameError (constant_missing)
+            # — see write_module_constant_surface_overrides. Eigenclasses
+            # then further override with `return <value>;` for the
+            # constants they own.
             return if (@const_surface || []).empty?
             emit.blank
             emit.line "// Universal constant surface — `<expr>::CONST` (dynamic receiver)"
@@ -402,7 +420,7 @@ module Frozone
             @const_surface.each do |name|
               cpp_name = "c_#{name}"
               next if skip.include?(cpp_name)
-              emit.line %(virtual BasicObject* #{cpp_name}() { return constant_missing("#{name}"); })
+              emit.line %(virtual BasicObject* #{cpp_name}() { return constant_typeerror("#{name}"); })
             end
             emit.blank
           end
@@ -435,6 +453,56 @@ module Frozone
           # message string + NoMethodError instance, both of which need
           # the universe to be complete — hence emitted alongside
           # is_a_lut / send_body, not inside BasicObject's struct body.
+          # Mutate the Module entry to override every c_X surface slot
+          # with a constant_missing call. Idempotent — won't clobber a
+          # pre-existing override on Module.
+          def self.inject_module_constant_overrides(classes, const_surface)
+            return classes if const_surface.empty?
+            classes.map do |k|
+              next k unless k.name == "Module"
+              merged = (k.overrides || {}).dup
+              const_surface.each do |name|
+                cpp_name = "c_#{name}"
+                merged[cpp_name] ||= {
+                  params: [],
+                  body: %|return constant_missing("#{name}");|,
+                }
+              end
+              k.dup.tap { |kk| kk.overrides = merged }
+            end
+          end
+
+          # constant_typeerror — raised when `c_X()` is called on a
+          # non-Module receiver (e.g. `nil::X`, `42::FOO`). MRI raises
+          # `TypeError: <Class>: is not a class/module`. Defined on
+          # BasicObject as the default; Module overrides every c_X
+          # slot to constant_missing instead.
+          def self.write_constant_typeerror_body(emit)
+            emit.line "inline BasicObject* BasicObject::constant_typeerror(const char* /*const_name*/) {"
+            emit.indented do
+              emit.line %|if (std::getenv("FROZONE_BOX_TRACE")) {|
+              emit.indented do
+                emit.line %|std::fprintf(stderr, "constant_typeerror on %s — backtrace:\\n", ruby_class_name());|
+                emit.line "void* bt[32];"
+                emit.line "int n = backtrace(bt, 32);"
+                emit.line "backtrace_symbols_fd(bt, n, 2);"
+              end
+              emit.line "}"
+              emit.line "std::size_t clen = std::strlen(ruby_class_name());"
+              emit.line %|static const char prefix[] = "";|
+              emit.line %|static const char suffix[] = " is not a class/module";|
+              emit.line "String* msg = new String();"
+              emit.line "msg->bytes.reserve(clen + sizeof(suffix) - 1);"
+              emit.line "msg->bytes.insert(msg->bytes.end(), ruby_class_name(), ruby_class_name() + clen);"
+              emit.line "msg->bytes.insert(msg->bytes.end(), suffix, suffix + sizeof(suffix) - 1);"
+              emit.line "Array* mm_args = new Array();"
+              emit.line "mm_args->data.push_back(static_cast<BasicObject*>(msg));"
+              emit.line "throw static_cast<Exception*>((&TypeError_CLASS)->m_new(mm_args));"
+            end
+            emit.line "}"
+            emit.blank
+          end
+
           # constant_missing — analogous to method_missing but raises
           # NameError rather than NoMethodError. Hit when a `c_X()`
           # virtual is dispatched on an eigenclass that doesn't have

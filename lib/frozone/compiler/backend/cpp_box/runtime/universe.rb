@@ -31,6 +31,12 @@ module Frozone
           RubyClass = Struct.new(
             :name, :parent, :ivars, :members, :ctor, :overrides, :singleton,
             :hand_coded_method_names, :eigenclass_overrides, :eigenclass_ivars,
+            # When true, this entry's eigenclass will inherit from `Module`
+            # rather than `Class` — matching MRI's `Math.class == Module`
+            # vs `String.class == Class`. Set on pure Vm::ModuleObject
+            # universe entries (Math, …) and on every user-defined module
+            # at build_user_class_def time.
+            :is_module,
             keyword_init: true
           )
 
@@ -86,10 +92,12 @@ module Frozone
               "// types at this point. Defined after all classes via",
               "// METHOD_MISSING_FN below.",
               "virtual BasicObject* method_missing(const char* method_name);",
-              "// constant_missing — same shape as method_missing but raises",
-              "// NameError. Used by `c_X()` virtual stubs when the receiver",
-              "// class doesn't define X.",
+              "// constant_missing — raised by Module's c_X overrides when",
+              "// the receiver is a Module/Class but doesn't define X (NameError).",
               "virtual BasicObject* constant_missing(const char* const_name);",
+              "// constant_typeerror — BasicObject's default for c_X. Raised",
+              "// when the receiver isn't a Module/Class at all (TypeError).",
+              "virtual BasicObject* constant_typeerror(const char* const_name);",
               "// == default — pointer identity (BasicObject#==).",
               "virtual BasicObject* m_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) {",
               "  return boxed_bool(this == array_at(args, 0));",
@@ -181,21 +189,25 @@ module Frozone
           # in user code is a singleton instance of Foo_eigenclass.
           # Class itself is currently empty — class-method defaults
           # (allocate, new, name) will land here when needed.
-          CLASS_TYPE = RubyClass.new(
-            name: "Class",
+          # Module is the parent of Class — matches MRI's
+          # `Class < Module < Object`. Bar_eigenclass for a Vm::ModuleObject
+          # `Bar` has parent: "Module" (instead of "Class"), so
+          # `bar.is_a?(Module)` is true and `bar.is_a?(Class)` is false.
+          # Module also overrides `c_X` to raise NameError (constant_missing)
+          # whereas BasicObject's `c_X` raises TypeError — matches Ruby's
+          # `nil::FOO` (TypeError) vs `Module::UNDEF` (NameError) split.
+          MODULE = RubyClass.new(
+            name: "Module",
             parent: "Object",
             members: [
-              %(const char* ruby_class_name() const override { return "Class"; }),
-              "// Each eigenclass holds the class_id of its instance",
-              "// class. `Foo_CLASS->instance_class_id_` = cid(Foo).",
-              "// Used by m_is_a_q to read the target's id.",
+              %(const char* ruby_class_name() const override { return "Module"; }),
+              "// Class eigenclasses inherit instance_class_id_ from here so",
+              "// IS_A LUT lookups uniformly read &Foo_CLASS->instance_class_id_",
+              "// whether Foo is a class or a pure module.",
               "int instance_class_id_ = -1;",
             ],
             overrides: {
-              # Module#to_s / Class#to_s in MRI return the class name
-              # ("Foo"), not the inspect-style #<Class:0x…>. Without this
-              # override Object#to_s walks self.class.to_s which calls
-              # Class#to_s on the Class_eigenclass — infinite recursion.
+              # Module#to_s returns the module name. Inherited by Class.
               "m_to_s" => {
                 params: [],
                 body: "const char* _n = ruby_class_name(); return new String(_n, std::strlen(_n));",
@@ -206,6 +218,14 @@ module Frozone
               },
             },
             hand_coded_method_names: %w[m_to_s m_inspect].freeze,
+          )
+
+          CLASS_TYPE = RubyClass.new(
+            name: "Class",
+            parent: "Module",
+            members: [
+              %(const char* ruby_class_name() const override { return "Class"; }),
+            ],
           )
 
           NIL_CLASS = RubyClass.new(
@@ -936,6 +956,7 @@ module Frozone
           MATH = RubyClass.new(
             name: "Math",
             parent: "Object",
+            is_module: true,
             members: [
               %(const char* ruby_class_name() const override { return "Math"; }),
             ],
@@ -963,7 +984,7 @@ module Frozone
           # sequence (parent before child, so children's overrides see
           # the parent's vtable layout).
           ALL_CLASSES = [
-            BASIC_OBJECT, OBJECT, CLASS_TYPE,
+            BASIC_OBJECT, OBJECT, MODULE, CLASS_TYPE,
             NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
             INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH, RANGE, PROC,
             REGEXP, MATCH_DATA, MATH, RANDOM
@@ -994,9 +1015,16 @@ module Frozone
                 return obj;
               CPP
             }
+            # A pure Module's eigenclass inherits from `Module` (so
+            # `mod.class == Module`); a Class's eigenclass inherits
+            # from `Class`. The eigenclass-of-Module-itself is a Class
+            # (MRI: `Module.class == Class`) so MODULE.is_module is
+            # false — only the eigenclass entries flagged is_module
+            # represent the value-side modules.
+            eigen_parent = klass.is_module ? "Module" : "Class"
             RubyClass.new(
               name: "#{klass.name}_eigenclass",
-              parent: "Class",
+              parent: eigen_parent,
               ivars: (klass.eigenclass_ivars || []).map { |iv| "BasicObject* iv_#{iv} = nil_instance();" },
               members: [%(const char* ruby_class_name() const override { return "#{klass.name}"; })],
               overrides: overrides,
