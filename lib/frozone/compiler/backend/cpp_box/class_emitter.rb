@@ -64,6 +64,7 @@ module Frozone
               write_method_vt(emit, method_ids)
               write_send_body(emit, method_ids)
               write_is_a_lut(emit, class_ids, is_a_lut)
+              write_method_missing_body(emit)
               write_kernel_fn_bodies(emit, kernel_fns)
               write_intrinsic_bodies(emit, intrinsics)
               yield if block_given?
@@ -399,6 +400,34 @@ module Frozone
               emit.line "}"
               emit.blank
             end
+          end
+
+          # Out-of-line method_missing — throws a Ruby NoMethodError. In
+          # core/4.0/ many `rescue NoMethodError` blocks (e.g. IO#puts
+          # probing for `arg.to_ary`) depend on this being a recoverable
+          # exception rather than a process abort. The body builds a
+          # message string + NoMethodError instance, both of which need
+          # the universe to be complete — hence emitted alongside
+          # is_a_lut / send_body, not inside BasicObject's struct body.
+          def self.write_method_missing_body(emit)
+            emit.line "inline BasicObject* BasicObject::method_missing(const char* method_name) {"
+            emit.indented do
+              emit.line "std::size_t nlen = std::strlen(method_name);"
+              emit.line "std::size_t clen = std::strlen(ruby_class_name());"
+              emit.line %|static const char prefix[] = "undefined method '";|
+              emit.line %|static const char mid[] = "' for an instance of ";|
+              emit.line "String* msg = new String();"
+              emit.line "msg->bytes.reserve(sizeof(prefix) - 1 + nlen + sizeof(mid) - 1 + clen);"
+              emit.line "msg->bytes.insert(msg->bytes.end(), prefix, prefix + sizeof(prefix) - 1);"
+              emit.line "msg->bytes.insert(msg->bytes.end(), method_name, method_name + nlen);"
+              emit.line "msg->bytes.insert(msg->bytes.end(), mid, mid + sizeof(mid) - 1);"
+              emit.line "msg->bytes.insert(msg->bytes.end(), ruby_class_name(), ruby_class_name() + clen);"
+              emit.line "Array* mm_args = new Array();"
+              emit.line "mm_args->data.push_back(static_cast<BasicObject*>(msg));"
+              emit.line "throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(mm_args));"
+            end
+            emit.line "}"
+            emit.blank
           end
 
           # Universal override declaration: just the signature, terminated
