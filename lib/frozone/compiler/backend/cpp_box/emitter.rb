@@ -698,6 +698,9 @@ module Frozone
           def write_static_state_init
             line "void __init_static_state__() {"
             indented do
+              # Onigmo regex engine — must run before any Regexp
+              # construction. Cheap (registers UTF-8 encoding tables).
+              line "init_onigmo();"
               # Eigenclass singleton class-id population — drives
               # is_a?'s LUT lookup. Also goes via static state init
               # (singletons are constructed before main; we're just

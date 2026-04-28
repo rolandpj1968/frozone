@@ -33,6 +33,7 @@
 #include <cmath>
 #include <random>
 #include <gc.h>
+#include <onigmo.h>
 
 #define FROZONE_GC_INIT() GC_INIT()
 

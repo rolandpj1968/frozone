@@ -4,6 +4,8 @@ require_relative '../vm/regexp_object'
 module Frozone
   module Ast
     class RegexpLiteral < Node
+      attr_reader :source, :flags, :encoding_name
+
       def initialize(source, flags, encoding_name = nil)
         @source = source
         @flags = flags

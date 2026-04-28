@@ -844,6 +844,87 @@ module Frozone
             },
           )
 
+          # Regexp — wraps an Onigmo `regex_t*`. Compiled lazily at
+          # construction time (m_initialize) from the source String.
+          # Onigmo internals are libc-malloc'd, NOT GC_MALLOC'd, so they
+          # leak when the Regexp object is collected — acceptable for
+          # AOT programs with a small fixed regex set (the WQ parser
+          # has ~20). A finalizer pass would close the leak when needed.
+          REGEXP = RubyClass.new(
+            name: "Regexp",
+            parent: "Object",
+            members: [
+              "BasicObject* source_ = nullptr;          // String*",
+              "int64_t options_ = 0;",
+              "regex_t* compiled_ = nullptr;            // Onigmo state — libc-malloc",
+              "bool initialized_ = false;",
+              "Regexp() = default;",
+              %(const char* ruby_class_name() const override { return "Regexp"; }),
+            ],
+            hand_coded_method_names: %w[m_initialize].freeze,
+            overrides: {
+              # Compile from args[0] (String pattern) + optional args[1]
+              # (Integer options bitmask). Sets initialized_ on success;
+              # aborts with a stderr message on compile failure (would
+              # be a RegexpError in MRI — TODO when exception infra
+              # composes cleanly with universe-emitted classes).
+              "m_initialize" => {
+                params: [],
+                body: <<~CPP.chomp,
+                  if (args->data.empty()) { return this; }
+                  auto* pat = static_cast<String*>(args->data[0]);
+                  int64_t opts = 0;
+                  if (args->data.size() >= 2) {
+                    if (auto* i = dynamic_cast<Integer*>(args->data[1])) opts = i->raw_;
+                  }
+                  source_ = pat;
+                  options_ = opts;
+                  OnigOptionType onig_opts = ONIG_OPTION_NONE;
+                  if (opts & 1) onig_opts |= ONIG_OPTION_IGNORECASE;
+                  if (opts & 2) onig_opts |= ONIG_OPTION_EXTEND;
+                  if (opts & 4) onig_opts |= ONIG_OPTION_MULTILINE;
+                  OnigErrorInfo einfo;
+                  const UChar* p = pat->bytes.data();
+                  int r = onig_new(&compiled_, p, p + pat->bytes.size(),
+                                   onig_opts, ONIG_ENCODING_UTF8,
+                                   ONIG_SYNTAX_RUBY, &einfo);
+                  if (r != ONIG_NORMAL) {
+                    UChar buf[ONIG_MAX_ERROR_MESSAGE_LEN];
+                    onig_error_code_to_str(buf, r, &einfo);
+                    std::fprintf(stderr, "[box-first] Regexp compile failed: %s (pattern: %.*s)\\n",
+                                 reinterpret_cast<const char*>(buf),
+                                 static_cast<int>(pat->bytes.size()), pat->bytes.data());
+                    std::abort();
+                  }
+                  initialized_ = true;
+                  return this;
+                CPP
+              },
+            },
+          )
+
+          # MatchData — holds a snapshot of an OnigRegion (capture
+          # offsets) plus the source string so #pre_match / #post_match
+          # / #[] can reconstruct substrings. The OnigRegion itself is
+          # freed after copying — the snapshot is GC-managed.
+          MATCH_DATA = RubyClass.new(
+            name: "MatchData",
+            parent: "Object",
+            members: [
+              # iv_ prefix matches the convention auto-emitter uses for
+              # `@string` / `@regexp`. core/4.0/match_data.rb memoises
+              # both via `||=`, so they need to be addressable as
+              # `this->iv_string` / `this->iv_regexp` on the C++ side.
+              "BasicObject* iv_string = nullptr;",
+              "BasicObject* iv_regexp = nullptr;",
+              "// Capture offsets: data[0] = whole match, data[i] = $i.",
+              "// (begin, end) of -1 means \"not matched\" (e.g. an alt branch that didn't fire).",
+              "std::vector<std::pair<int64_t, int64_t>, GcAllocator<std::pair<int64_t, int64_t>>> captures_;",
+              "MatchData() = default;",
+              %(const char* ruby_class_name() const override { return "MatchData"; }),
+            ],
+          )
+
           # Math — module-like class with singleton methods on its
           # eigenclass. No instances ever allocated (Math.new is invalid
           # in MRI too). PI/E live as static const accessors emitted
@@ -881,7 +962,7 @@ module Frozone
             BASIC_OBJECT, OBJECT, CLASS_TYPE,
             NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
             INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH, RANGE, PROC,
-            MATH, RANDOM
+            REGEXP, MATCH_DATA, MATH, RANDOM
           ].freeze
 
           # Per-class eigenclass — generated programmatically from each
@@ -1071,10 +1152,89 @@ module Frozone
             CPP
           )
 
+          # Onigmo bootstrap. Called from __init_static_state__ — must
+          # run before any onig_new / onig_search.
+          INIT_ONIGMO_FN = KernelFn.new(
+            name: "init_onigmo",
+            signature: "void init_onigmo()",
+            body: <<~CPP.chomp,
+              static OnigEncoding encs[] = { ONIG_ENCODING_UTF8 };
+              onig_initialize(encs, 1);
+            CPP
+          )
+
+          # Thread-local-ish $~ (last MatchData). Box-first programs
+          # are single-threaded today, so a plain global is fine.
+          # Defined as a free function so callers don't need to know
+          # the variable's location.
+          MATCH_DATA_GLOBAL = KernelFn.new(
+            name: "g_last_match",
+            signature: "BasicObject*& g_last_match()",
+            body: <<~CPP.chomp,
+              static BasicObject* g = nullptr;
+              return g;
+            CPP
+          )
+
+          # Run a regex against a String at byte offset `pos`. On match,
+          # builds a MatchData snapshot, parks it in g_last_match(), and
+          # returns it; on no-match returns nullptr (caller decides
+          # whether to surface that as nil or false). Centralises the
+          # onig_search + region_copy + capture-snapshot dance so the
+          # =~ / #match / #match? intrinsics stay one-liners.
+          REGEXP_MATCH_FN = KernelFn.new(
+            name: "regexp_match_helper",
+            signature: "MatchData* regexp_match_helper(BasicObject* re_obj, BasicObject* str_obj, int64_t pos)",
+            body: <<~CPP.chomp,
+              auto* re = static_cast<Regexp*>(re_obj);
+              auto* str = static_cast<String*>(str_obj);
+              if (!re->compiled_) return nullptr;
+              const UChar* s = str->bytes.data();
+              const UChar* end = s + str->bytes.size();
+              const UChar* start = s + (pos < 0 ? 0 : (pos > (int64_t)str->bytes.size() ? (int64_t)str->bytes.size() : pos));
+              OnigRegion* region = onig_region_new();
+              int r = onig_search(re->compiled_, s, end, start, end, region, ONIG_OPTION_NONE);
+              if (r < 0) {
+                onig_region_free(region, 1);
+                g_last_match() = nil_instance();
+                return nullptr;
+              }
+              MatchData* md = new MatchData();
+              md->iv_string = str;
+              md->iv_regexp = re;
+              md->captures_.reserve(region->num_regs);
+              for (int i = 0; i < region->num_regs; i++) {
+                md->captures_.emplace_back(region->beg[i], region->end[i]);
+              }
+              onig_region_free(region, 1);
+              g_last_match() = md;
+              return md;
+            CPP
+          )
+
+          # Extract substring for capture index `n` from a MatchData.
+          # n=0 → whole match; n>0 → numbered capture. Returns nil for
+          # an out-of-range index or an unmatched capture (begin == -1).
+          MATCH_DATA_CAP_FN = KernelFn.new(
+            name: "matchdata_cap",
+            signature: "BasicObject* matchdata_cap(BasicObject* md_obj, int64_t n)",
+            body: <<~CPP.chomp,
+              if (!md_obj || md_obj == nil_instance()) return nil_instance();
+              auto* md = static_cast<MatchData*>(md_obj);
+              if (n < 0 || n >= (int64_t)md->captures_.size()) return nil_instance();
+              auto [b, e] = md->captures_[n];
+              if (b < 0) return nil_instance();
+              auto* str = static_cast<String*>(md->iv_string);
+              return new String(reinterpret_cast<const char*>(str->bytes.data() + b),
+                                static_cast<std::size_t>(e - b));
+            CPP
+          )
+
           ALL_KERNEL_FNS = [
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
             BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
-            BUILD_INT_ARRAY_FN, INT_BOX_FN
+            BUILD_INT_ARRAY_FN, INT_BOX_FN,
+            INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN
           ].freeze
 
           # ---- Intrinsics -----------------------------------------
