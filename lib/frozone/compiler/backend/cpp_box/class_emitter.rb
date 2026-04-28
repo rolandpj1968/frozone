@@ -76,9 +76,9 @@ module Frozone
               write_method_vt(emit, method_ids)
               write_send_body(emit, method_ids)
               write_is_a_lut(emit, class_ids, is_a_lut)
-              write_method_missing_body(emit)
+              write_method_missing_default(emit)
               write_constant_typeerror_body(emit)
-              write_constant_missing_body(emit)
+              write_const_missing_default(emit)
               write_kernel_fn_bodies(emit, kernel_fns)
               write_intrinsic_bodies(emit, intrinsics)
               yield if block_given?
@@ -400,10 +400,13 @@ module Frozone
             skip = (Runtime::BASIC_OBJECT.hand_coded_method_names || []).to_set
             (basic_object_klass.overrides || {}).each_key { |cpp| skip << cpp }
             emit.line "// Universal method surface — one slot per name. All Ruby methods take"
-            emit.line "// (Array* args, Hash* kwargs, Proc* block) — bodies unpack from args."
+            emit.line "// (Array* args, Hash* kwargs, Proc* block). Default body redirects to"
+            emit.line "// m_method_missing on the receiver (which is itself a virtual, so user"
+            emit.line "// `def method_missing` overrides participate)."
             call_surface.each do |cpp_name, ruby_name|
               next if skip.include?(cpp_name)
-              emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("#{ruby_name}"); })
+              ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
+              emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
             end
             # Constant-lookup surface — c_X() per dynamic-receiver
             # constant name. Default on BasicObject: TypeError (matches
@@ -420,6 +423,10 @@ module Frozone
             @const_surface.each do |name|
               cpp_name = "c_#{name}"
               next if skip.include?(cpp_name)
+              # BasicObject default raises TypeError directly — `nil::FOO`
+              # is unrecoverable. Module overrides each slot to instead
+              # virtual-dispatch to m_const_missing (NameError, user-
+              # overridable) — see inject_module_constant_overrides.
               emit.line %(virtual BasicObject* #{cpp_name}() { return constant_typeerror("#{name}"); })
             end
             emit.blank
@@ -436,9 +443,11 @@ module Frozone
                 emit.line %|if (args->data.empty()) { std::fprintf(stderr, "[box-first] send: no method name\\n"); std::abort(); }|
                 emit.line "Symbol* _name = static_cast<Symbol*>(args->data[0]);"
                 emit.line "int _id = _name->method_id_;"
-                emit.line "if (_id < 0 || _id >= METHOD_VT_SIZE) return method_missing(_name->name_);"
                 emit.line "Array* _rest = new Array();"
                 emit.line "for (std::size_t _i = 1; _i < args->data.size(); _i++) _rest->data.push_back(args->data[_i]);"
+                # Unknown id → m_method_missing path (mm_dispatch builds the
+                # symbol-prepended args array and virtual-dispatches).
+                emit.line "if (_id < 0 || _id >= METHOD_VT_SIZE) return mm_dispatch(this, _rest, kwargs, block, _name->name_);"
                 emit.line "return (this->*METHOD_VT[_id])(_rest, kwargs, block);"
               end
               emit.line "}"
@@ -465,7 +474,7 @@ module Frozone
                 cpp_name = "c_#{name}"
                 merged[cpp_name] ||= {
                   params: [],
-                  body: %|return constant_missing("#{name}");|,
+                  body: %|return cm_dispatch(this, "#{name}");|,
                 }
               end
               k.dup.tap { |kk| kk.overrides = merged }
@@ -503,16 +512,16 @@ module Frozone
             emit.blank
           end
 
-          # constant_missing — analogous to method_missing but raises
-          # NameError rather than NoMethodError. Hit when a `c_X()`
-          # virtual is dispatched on an eigenclass that doesn't have
-          # X (or on a non-Class receiver).
-          def self.write_constant_missing_body(emit)
-            emit.line "inline BasicObject* BasicObject::constant_missing(const char* const_name) {"
+          # Default m_const_missing — Module#const_missing in MRI raises
+          # NameError. User classes that `def const_missing` override
+          # this via the normal vtable mechanism. args is `[Symbol]`.
+          def self.write_const_missing_default(emit)
+            emit.line "inline BasicObject* BasicObject::m_const_missing(Array* args, Hash* /*kwargs*/, Proc* /*block*/) {"
             emit.indented do
+              emit.line "const char* const_name = args->data.empty() ? \"\" : static_cast<Symbol*>(args->data[0])->name_;"
               emit.line %|if (std::getenv("FROZONE_BOX_TRACE")) {|
               emit.indented do
-                emit.line %|std::fprintf(stderr, "constant_missing: %s on %s — backtrace:\\n", const_name, ruby_class_name());|
+                emit.line %|std::fprintf(stderr, "const_missing: %s on %s — backtrace:\\n", const_name, ruby_class_name());|
                 emit.line "void* bt[32];"
                 emit.line "int n = backtrace(bt, 32);"
                 emit.line "backtrace_symbols_fd(bt, n, 2);"
@@ -536,9 +545,14 @@ module Frozone
             emit.blank
           end
 
-          def self.write_method_missing_body(emit)
-            emit.line "inline BasicObject* BasicObject::method_missing(const char* method_name) {"
+          # Default m_method_missing — BasicObject#method_missing in MRI
+          # raises NoMethodError. User classes that `def method_missing`
+          # override this via the normal vtable mechanism. args is
+          # `[Symbol.method_name, *original_args]` (mm_dispatch builds it).
+          def self.write_method_missing_default(emit)
+            emit.line "inline BasicObject* BasicObject::m_method_missing(Array* args, Hash* /*kwargs*/, Proc* /*block*/) {"
             emit.indented do
+              emit.line "const char* method_name = args->data.empty() ? \"\" : static_cast<Symbol*>(args->data[0])->name_;"
               # FROZONE_BOX_TRACE=1 dumps a libc backtrace at the throw
               # site so we can map back to a source line via addr2line.
               # Off by default — would be noisy on every legitimate

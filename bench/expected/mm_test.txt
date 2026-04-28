@@ -1,0 +1,4 @@
+caught: foo with 0 args
+handled
+caught: bar with 3 args
+handled

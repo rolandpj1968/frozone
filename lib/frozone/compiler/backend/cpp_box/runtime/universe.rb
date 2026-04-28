@@ -87,16 +87,21 @@ module Frozone
               "",
               "virtual ~BasicObject() = default;",
               %(virtual const char* ruby_class_name() const { return "BasicObject"; }),
-              "// method_missing — out-of-line because the body builds a",
-              "// String + Array + NoMethodError instance, all incomplete",
-              "// types at this point. Defined after all classes via",
-              "// METHOD_MISSING_FN below.",
-              "virtual BasicObject* method_missing(const char* method_name);",
-              "// constant_missing — raised by Module's c_X overrides when",
-              "// the receiver is a Module/Class but doesn't define X (NameError).",
-              "virtual BasicObject* constant_missing(const char* const_name);",
+              "// m_method_missing — Ruby-overridable virtual that the",
+              "// universal-surface m_X stubs dispatch into when no class",
+              "// in the receiver's hierarchy overrides m_X. Default body",
+              "// (this declaration's out-of-line definition) throws",
+              "// NoMethodError; user classes that `def method_missing`",
+              "// override it via normal vtable lookup. args is",
+              "// `[Symbol.method_name, *original_args]`.",
+              "virtual BasicObject* m_method_missing(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr);",
+              "// m_const_missing — same shape but for constants (raised",
+              "// from Module's c_X overrides). Default throws NameError.",
+              "virtual BasicObject* m_const_missing(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr);",
               "// constant_typeerror — BasicObject's default for c_X. Raised",
               "// when the receiver isn't a Module/Class at all (TypeError).",
+              "// Distinct from m_const_missing — `nil::FOO` is unrecoverable;",
+              "// user-overridable const_missing only fires for actual modules.",
               "virtual BasicObject* constant_typeerror(const char* const_name);",
               "// == default — pointer identity (BasicObject#==).",
               "virtual BasicObject* m_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) {",
@@ -132,6 +137,7 @@ module Frozone
             # listed in OBJECT.hand_coded_method_names.
             hand_coded_method_names: %w[
               m_eq_q m_hash_value m_equal_q m___id__ m_initialize
+              m_method_missing m_const_missing
             ].freeze,
           )
 
@@ -1184,6 +1190,39 @@ module Frozone
             CPP
           )
 
+          # method-missing dispatch — called by every universal-surface
+          # m_X stub when no class overrides it. Prepends the symbolised
+          # method name to args, then virtual-dispatches to
+          # m_method_missing on the receiver. The default
+          # m_method_missing on BasicObject throws NoMethodError; user
+          # classes that `def method_missing` get an override that
+          # supersedes the default via normal vtable lookup.
+          MM_DISPATCH_FN = KernelFn.new(
+            name: "mm_dispatch",
+            signature: "BasicObject* mm_dispatch(BasicObject* recv, Array* args, Hash* kwargs, Proc* block, const char* method_name)",
+            body: <<~CPP.chomp,
+              Array* mm_args = new Array();
+              mm_args->data.reserve(args->data.size() + 1);
+              mm_args->data.push_back(intern(method_name));
+              for (auto* a : args->data) mm_args->data.push_back(a);
+              return recv->m_method_missing(mm_args, kwargs, block);
+            CPP
+          )
+
+          # const-missing dispatch — same shape as mm_dispatch but for
+          # `c_X` slots. Called from Module's c_X overrides (BasicObject's
+          # default c_X raises TypeError directly without going through
+          # this — `nil::FOO` isn't recoverable via const_missing).
+          CM_DISPATCH_FN = KernelFn.new(
+            name: "cm_dispatch",
+            signature: "BasicObject* cm_dispatch(BasicObject* recv, const char* const_name)",
+            body: <<~CPP.chomp,
+              Array* cm_args = new Array();
+              cm_args->data.push_back(intern(const_name));
+              return recv->m_const_missing(cm_args, nullptr, nullptr);
+            CPP
+          )
+
           # Onigmo bootstrap. Called from __init_static_state__ — must
           # run before any onig_new / onig_search.
           INIT_ONIGMO_FN = KernelFn.new(
@@ -1350,6 +1389,7 @@ module Frozone
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
             BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
+            MM_DISPATCH_FN, CM_DISPATCH_FN,
             INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
             STRING_GSUB_FN, STRING_UNPACK_FN
           ].freeze

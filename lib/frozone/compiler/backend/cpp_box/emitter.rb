@@ -384,6 +384,13 @@ module Frozone
             # surface, even if user code doesn't directly invoke them.
             calls["m_new"] ||= "new"
             calls["m_initialize"] ||= "initialize"
+            # m_method_missing is the fallback target for every unknown-
+            # method dispatch (each universal-surface stub calls it).
+            # m_const_missing is the equivalent for constants on Module.
+            # Both need slots even if user code doesn't reference them
+            # by name.
+            calls["m_method_missing"] ||= "method_missing"
+            calls["m_const_missing"]  ||= "const_missing"
             calls
           end
 
