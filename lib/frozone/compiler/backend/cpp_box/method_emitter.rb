@@ -31,7 +31,7 @@ module Frozone
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
             emit.line "}"
           rescue Cpp::EmissionError => e
-            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1'
+            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && emit.strict_emit
             # Skip — falls through to method_missing at runtime.
             $stderr.puts "[box-first] skip user_method :#{name} @ #{method&.source_location.inspect}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
           end

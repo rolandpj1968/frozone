@@ -26,10 +26,19 @@ module Frozone
       module CppBox
         class Emitter
           attr_reader :cpp, :top_level_scope, :user_classes, :user_constants
+          # When true, emission errors inside method bodies re-raise
+          # under FROZONE_BOX_HARD_FAIL=1 instead of graceful-skipping.
+          # Toggled true while emitting user-class bodies + the
+          # execute_block (program path); left false while overlaying
+          # universe-class methods (a method like `Object#instance_exec`
+          # is reachable-by-definition but typically never called, and
+          # we don't want to abort the build for it).
+          attr_accessor :strict_emit
 
           def initialize
             @out = +""
             @indent = 0
+            @strict_emit = false
           end
 
           def write(*strs) = strs.each { |s| @out << s }
@@ -191,7 +200,16 @@ module Frozone
               (scope.constants_table || {}).each do |name, val|
                 flat = prefix ? :"#{prefix}_#{name}" : name
                 if val.is_a?(Vm::ClassObject) || val.is_a?(Vm::ModuleObject)
-                  classes[flat] = val unless UNIVERSE_NAMES.include?(flat.to_s)
+                  # Filter both by emitted-name collision (universe names
+                  # at top level) AND by Vm-identity (a nested constant
+                  # like BasicObject::BasicObject points back at the
+                  # universe class — including it as a "user class"
+                  # would re-emit its methods, defeating the universe
+                  # overlay). Compare by `full_name` since that's what
+                  # the universe knows about.
+                  vm_full = (val.full_name || val.name).to_s
+                  is_universe = UNIVERSE_NAMES.include?(flat.to_s) || UNIVERSE_NAMES.include?(vm_full)
+                  classes[flat] = val unless is_universe
                   walk.call(val, flat)
                 end
               end
@@ -488,7 +506,47 @@ module Frozone
           # land in `eigenclass_overrides` — Runtime.eigenclass_for picks
           # them up when generating the paired eigenclass.
           def build_user_class_defs
-            @user_classes.map { |name, cls| build_user_class_def(name, cls) }
+            @user_classes.map { |name, cls|
+              # Strict-emit for actually-user user classes (not core/4.0/
+              # or vendor/ classes which are reachable-by-definition but
+              # rarely on any call path). source_location of the first
+              # method tells us where the class is from. A class with no
+              # methods stays non-strict by default.
+              with_maybe_strict(user_source?(class_source_location(cls))) do
+                build_user_class_def(name, cls)
+              end
+            }
+          end
+
+          # Take any method's source_location as a proxy for where the
+          # class was defined. Returns "file:line" or nil.
+          def class_source_location(cls)
+            (cls.methods_table || {}).each_value do |m|
+              loc = m.source_location if m.is_a?(Vm::Method)
+              return loc if loc
+            end
+            nil
+          end
+
+          def with_maybe_strict(strict)
+            return yield unless strict
+            with_strict_emit { yield }
+          end
+
+          # Toggle strict_emit on for the duration of yield; restore.
+
+          # Toggle strict_emit on for the duration of yield; restore.
+          # Only the program path (execute_block + top-level user
+          # methods) compiles under strict — emission gaps in core/4.0/
+          # or vendor classes that aren't on the call path stay graceful
+          # since the right answer for those is reachability pruning,
+          # not preemptive aborts.
+          def with_strict_emit
+            prev = @strict_emit
+            @strict_emit = true
+            yield
+          ensure
+            @strict_emit = prev
           end
 
           def build_user_class_def(name, cls)
@@ -535,7 +593,12 @@ module Frozone
               entries.each_with_index do |(origin, method), idx|
                 cpp_name = idx.zero? ? Cpp.method_name(mname) : Cpp.shadowed_method_name(mname, origin)
                 ctx = { host_name: host_name, method_name: mname, origin_index: idx, chain: entries }
-                spec = build_override(method, super_ctx: ctx)
+                spec =
+                  begin
+                    build_override(method, super_ctx: ctx)
+                  rescue Cpp::EmissionError => e
+                    raise Cpp::EmissionError, "while compiling #{host_name}##{mname} (origin=#{origin}): #{e.message}"
+                  end
                 result[cpp_name] = spec if spec
               end
             end
@@ -698,7 +761,7 @@ module Frozone
               end
             end
           rescue Cpp::EmissionError => e
-            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1'
+            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && @strict_emit
             log_skip("method", method, e)
             nil
           end
@@ -796,17 +859,19 @@ module Frozone
           end
 
           def write_main_object
-            line "struct MainObject : Object {"
-            indented do
-              line %(const char* ruby_class_name() const override { return "MainObject"; })
-              write_user_methods
+            with_strict_emit do
+              line "struct MainObject : Object {"
+              indented do
+                line %(const char* ruby_class_name() const override { return "MainObject"; })
+                write_user_methods
+                blank
+                line "void __top_level__() {"
+                indented { write_top_level_body }
+                line "}"
+              end
+              line "};"
               blank
-              line "void __top_level__() {"
-              indented { write_top_level_body }
-              line "}"
             end
-            line "};"
-            blank
           end
 
           def write_user_methods
@@ -908,7 +973,7 @@ module Frozone
             expr = @cpp.emit_vm_value(val)
             line "#{target_expr}.iv_#{iv} = #{expr};"
           rescue Cpp::EmissionError => e
-            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1'
+            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && @strict_emit
             line "// skipped #{label}.iv_#{iv}: #{e.message.gsub('*/', '* /')}"
             $stderr.puts "[box-first] skip static-init #{label}.iv_#{iv}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
           end

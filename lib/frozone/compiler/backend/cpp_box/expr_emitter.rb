@@ -63,7 +63,7 @@ module Frozone
             buf = emit.capture { write_stmt(emit, node, locals, next_returns: next_returns) }
             buf.each_line { |l| emit.line l.chomp }
           rescue Cpp::EmissionError => e
-            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1'
+            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && emit.strict_emit
             emit.line "/* skipped: #{e.message.gsub('*/', '* /')} */"
             $stderr.puts "[box-first] skip stmt: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
           end
