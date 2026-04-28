@@ -452,12 +452,50 @@ module Frozone
                 body: "return data.empty() ? nil_instance() : data.back();",
               },
               "m_aref" => {
-                params: ["BasicObject* idx"],
+                params: [],
                 body: <<~CPP.chomp,
-                  int64_t i = static_cast<Integer*>(idx)->raw_;
-                  if (i < 0) i += static_cast<int64_t>(data.size());
-                  if (i < 0 || i >= static_cast<int64_t>(data.size())) return nil_instance();
-                  return data[i];
+                  // MRI Array#[] semantics — three forms, decoded into a
+                  // normalised (start, len) pair (with negatives unwound)
+                  // before a single slice block. Single-Integer form
+                  // returns the element directly; the rest return Arrays.
+                  int64_t sz = static_cast<int64_t>(data.size());
+                  if (args->data.empty() || args->data.size() > 2) {
+                    raise_arity(static_cast<int>(args->data.size()), "1..2");
+                  }
+                  int64_t start, len;
+                  bool slice = true;
+                  if (args->data.size() == 2) {
+                    start = coerce_to_int(args->data[0]);
+                    len   = coerce_to_int(args->data[1]);
+                  } else if (args->data[0] && args->data[0]->m_class() == (BasicObject*)(&Range_CLASS)) {
+                    auto* r = static_cast<Range*>(args->data[0]);
+                    // Beginless `(..n)` → start = 0; endless `(n..)` →
+                    // stop = sz. Beginless+endless `(..)` → whole array.
+                    int64_t b = (r->begin_ == nil_instance()) ? 0 : coerce_to_int(r->begin_);
+                    if (b < 0) b += sz;
+                    start = b;
+                    if (r->end_ == nil_instance()) {
+                      len = sz - b;
+                    } else {
+                      int64_t e = coerce_to_int(r->end_);
+                      if (e < 0) e += sz;
+                      len = (r->exclude_end_ ? e : e + 1) - b;
+                    }
+                  } else {
+                    start = coerce_to_int(args->data[0]);
+                    len = 1;
+                    slice = false;
+                  }
+                  if (start < 0) start += sz;
+                  if (!slice) {
+                    return (start < 0 || start >= sz) ? nil_instance() : data[start];
+                  }
+                  if (start < 0 || start > sz || len < 0) return nil_instance();
+                  int64_t stop = std::min(start + len, sz);
+                  Array* out = new Array();
+                  out->data.reserve(stop - start);
+                  for (int64_t i = start; i < stop; i++) out->data.push_back(data[i]);
+                  return out;
                 CPP
               },
               "m_aset" => {
@@ -502,8 +540,19 @@ module Frozone
                 CPP
               },
               "m_push" => {
-                params: ["BasicObject* val"],
-                body: "data.push_back(val); return this;",
+                # Variadic — `a.push(x, y, z)` pushes three; `a.push`
+                # with no args is a valid no-op returning self. Trailing
+                # kwargs absorb as a positional Hash so that the
+                # `arr.push(key: v)` shape (which lowers to a kwargs-
+                # carrying call under our universal protocol) matches
+                # MRI's "no-kwarg method takes the hash positionally"
+                # behaviour.
+                params: [],
+                body: <<~CPP.chomp,
+                  for (auto* v : args->data) data.push_back(v);
+                  if (kwargs && !kwargs->data.empty()) data.push_back(kwargs);
+                  return this;
+                CPP
               },
               "m_lshift" => {
                 params: ["BasicObject* val"],
@@ -1209,6 +1258,53 @@ module Frozone
             CPP
           )
 
+          # Coerce a BasicObject* to int64_t via Ruby's `to_int` protocol.
+          # Integer fast-path is pointer-class compare (avoids dynamic_cast).
+          # Anything else: dispatch m_to_int and accept only an Integer
+          # result. Failure raises TypeError, matching MRI's
+          # `no implicit conversion of <Class> into Integer`.
+          COERCE_TO_INT_FN = KernelFn.new(
+            name: "coerce_to_int",
+            signature: "int64_t coerce_to_int(BasicObject* v)",
+            body: <<~CPP.chomp,
+              if (v && v->m_class() == (BasicObject*)(&Integer_CLASS)) return static_cast<Integer*>(v)->raw_;
+              if (v && v != nil_instance()) {
+                BasicObject* r = v->m_to_int();
+                if (r && r->m_class() == (BasicObject*)(&Integer_CLASS)) return static_cast<Integer*>(r)->raw_;
+              }
+              const char* cn = v ? v->ruby_class_name() : "nil";
+              std::size_t cnlen = std::strlen(cn);
+              static const char prefix[] = "no implicit conversion of ";
+              static const char suffix[] = " into Integer";
+              String* msg = new String();
+              msg->bytes.reserve(sizeof(prefix) - 1 + cnlen + sizeof(suffix) - 1);
+              msg->bytes.insert(msg->bytes.end(), prefix, prefix + sizeof(prefix) - 1);
+              msg->bytes.insert(msg->bytes.end(), cn, cn + cnlen);
+              msg->bytes.insert(msg->bytes.end(), suffix, suffix + sizeof(suffix) - 1);
+              Array* mm_args = new Array();
+              mm_args->data.push_back(static_cast<BasicObject*>(msg));
+              throw static_cast<Exception*>((&TypeError_CLASS)->m_new(mm_args));
+            CPP
+          )
+
+          # Raise ArgumentError with a wrong-number-of-arguments message.
+          # Used by Array#[] (and similar) when the caller passes an
+          # arity outside the supported set.
+          RAISE_ARITY_FN = KernelFn.new(
+            name: "raise_arity",
+            signature: "void raise_arity(int got, const char* expected)",
+            body: <<~CPP.chomp,
+              char buf[128];
+              std::size_t n = std::snprintf(buf, sizeof(buf),
+                "wrong number of arguments (given %d, expected %s)", got, expected);
+              if (n >= sizeof(buf)) n = sizeof(buf) - 1;
+              String* msg = new String(buf, n);
+              Array* mm_args = new Array();
+              mm_args->data.push_back(static_cast<BasicObject*>(msg));
+              throw static_cast<Exception*>((&ArgumentError_CLASS)->m_new(mm_args));
+            CPP
+          )
+
           # method-missing dispatch — called by every universal-surface
           # m_X stub when no class overrides it. Prepends the symbolised
           # method name to args, then virtual-dispatches to
@@ -1408,6 +1504,7 @@ module Frozone
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
             BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
+            COERCE_TO_INT_FN, RAISE_ARITY_FN,
             MM_DISPATCH_FN, CM_DISPATCH_FN,
             INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
             STRING_GSUB_FN, STRING_UNPACK_FN
