@@ -354,6 +354,14 @@ module Frozone
           end
 
           def build_user_class_def(name, cls)
+            # `Struct.new(:foo, :bar)` subclasses store their accessors
+            # as define_method-generated Procs over closure variables —
+            # the bodies aren't compilable as standalone methods. Synth
+            # them mechanically: per-member ivar + getter + setter +
+            # positional-arg initialize. Mirrors what the Crystal /
+            # legacy-cpp backends do via emit_struct_subclass.
+            return build_struct_subclass_def(name, cls) if struct_subclass?(cls)
+
             ivars = collect_ivars(cls)
             eigen_ivars = collect_eigenclass_ivars(cls)
             Runtime::RubyClass.new(
@@ -373,6 +381,57 @@ module Frozone
                 h[Cpp.method_name(mname)] = spec if spec
               },
               eigenclass_ivars: eigen_ivars,
+            )
+          end
+
+          def struct_subclass?(cls)
+            return false unless cls.is_a?(Vm::ClassObject)
+            return false if cls.name == :Struct  # Struct itself isn't a subclass
+            c = cls.superclass
+            while c && c.is_a?(Vm::ClassObject)
+              return true if c.name == :Struct
+              c = c.superclass
+            end
+            false
+          end
+
+          def struct_members(cls)
+            members_obj = cls.get_ivar(:@members)
+            return [] unless members_obj.respond_to?(:raw)
+            members_obj.raw.map { |sym_obj| sym_obj.respond_to?(:raw) ? sym_obj.raw : sym_obj.to_sym }
+          end
+
+          # Build a Struct subclass with synthesized ivars + accessors +
+          # positional-arg initialize. The Ruby-source methods (closure-
+          # based, define_method-generated) are bypassed entirely.
+          def build_struct_subclass_def(name, cls)
+            members = struct_members(cls)
+            overrides = {}
+            members.each do |m|
+              overrides[Cpp.method_name(m)] = {
+                params: [],
+                body: "return this->iv_#{m};",
+              }
+              overrides[Cpp.method_name(:"#{m}=")] = {
+                params: ["BasicObject* v"],
+                body: "this->iv_#{m} = v; return v;",
+              }
+            end
+            init_body = members.each_with_index.map { |m, i|
+              "if (args->data.size() > #{i}) this->iv_#{m} = args->data[#{i}];"
+            }.join(" ")
+            overrides["m_initialize"] = {
+              params: [],
+              body: "#{init_body} return this;",
+            }
+            Runtime::RubyClass.new(
+              name: name.to_s,
+              parent: parent_name_for(cls),
+              ivars: members.map { |m| "BasicObject* iv_#{m} = nil_instance();" },
+              members: [%(const char* ruby_class_name() const override { return "#{name}"; })],
+              overrides: overrides,
+              eigenclass_overrides: {},
+              eigenclass_ivars: collect_eigenclass_ivars(cls),
             )
           end
 
