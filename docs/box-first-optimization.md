@@ -424,6 +424,88 @@ got handled today because m_class is already auto-emitted on every
 class and the cost was a single warm allocation off the hot path —
 arithmetic ops can't accept that, so they wait.
 
+---
+
+## 4. Reachability pruning
+
+Status: design — not implemented. Compile-time + binary-size win;
+also reduces the surface area for "method skipped, hit method_missing
+at runtime" debugging cycles.
+
+### Background
+
+Box-first today emits a method body for **every** entry in
+`methods_table` of every class in the universe — `core/4.0/` + parser
++ user code. Even fib (a 4-line Ruby program) produces 53k lines of
+C++ and a 53MB binary because the entire core stdlib ships in. Of
+~8500 methods emitted for the WQ self-compile stub, ~919 graceful-
+skip via EmissionError; many of those are in code paths that user
+code can't reach.
+
+### Two-stage pruning
+
+**Stage 1 — call-surface filter.** `collect_call_surface` already
+walks every `MethodCall` AST node in the program (transitive through
+`require`d files). The output is the set of method NAMES potentially
+invoked. Inverting the lens: a method `m_foo` only needs a body if
+`:foo` is in the call surface. For fib this drops the surface from
+~2640 names to ~50; ~95% of method bodies become unreachable and
+trimmable. Cheap — no static analysis beyond what we already do.
+
+**Stage 2 — TI-narrowed receiver set.** With per-call-site receiver
+types from TI, narrow further: at each call site `recv.foo`, only
+the (class-of-recv, foo) pair needs to be live. For `recv : Integer`,
+only `Integer#foo` (and any module mixed into Integer's MRO) survives.
+Composes with Stage 1 — Stage 1 culls cold names, Stage 2 culls cold
+(class, name) pairs.
+
+### Dynamic-call escape hatches
+
+Pruning has to be conservative around:
+
+- **`klass.new(...)`** where `klass` is a non-literal — could be any
+  class with `new` reachable. Closed-world we can union the set of
+  classes any constant or local is *known* to hold, often shrinks the
+  universe substantially.
+- **`obj.send(:m, ...)`** with non-literal symbol — receiver narrows
+  by TI, but the method-name set is unknown. WQ parser's
+  `send(:_lex_action_<id>)` is the canonical case; the name set IS
+  computable from the lexer table, but the analyser would need to
+  understand the symbol-construction pattern.
+- **`obj.send(:m, ...)`** with literal symbol — fully prunable, same
+  as a regular call.
+- **`Object.const_get(...)` / `marshal_load` / `eval`** — fully
+  dynamic, can't be pruned. Keep the universe alive on these.
+
+For our typical workload (benchmarks, AOT-compiled apps), the
+dynamic patterns are rare and known. Mark them at AOT analysis time
+and fall back to the full universe only for affected slots.
+
+### Expected impact
+
+- **fib-class programs:** ~10× compile-time + binary-size reduction
+  (~80% of core/4.0/ unreachable).
+- **WQ self-compile:** maybe 2-3×; the parser drags in a lot of
+  genuinely-needed core. But the 919-graceful-skip count would drop
+  significantly because most are in unreachable code.
+- **Debug cycle:** unsupported-AST EmissionErrors only fire on
+  reachable methods, so the "fix one gap, regen, hit next gap" loop
+  shortens.
+
+### Interaction with §1 (universal-surface VT cleavage)
+
+§1 trims the surface horizontally (drop universal slots when a name
+is single-def). Reachability pruning trims vertically (drop method
+bodies when no call site uses them). They compose — a slot might be
+single-def AND unreachable, in which case both can leave.
+
+### When to do this
+
+Once compile-time becomes the bottleneck on iteration cycles. Today
+~2 min for wq2 is uncomfortable but tolerable; if it grows past
+5 min the pruning becomes the obvious next move. Stage 1 is cheap
+and worth doing first; Stage 2 waits for TI integration.
+
 ### Aside: how cheap can per-class identity be?
 
 The "cheap accessor" question is really "how do we get a Class*
