@@ -68,15 +68,17 @@ module Frozone
             @cpp = Cpp.new(user_classes: @user_classes, user_constants: @user_constants)
             @cpp.emit = self
             @call_surface = collect_call_surface
+            @const_surface = collect_dynamic_constant_surface
             print_method_def_analysis if ENV['FROZONE_BOX_ANALYSIS'] == '1'
             all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
             all_eigenclasses = all_classes.map { |k| Runtime.eigenclass_for(k) }.compact
+            decorate_eigenclasses_with_const_overrides(all_classes, all_eigenclasses)
             classes = all_classes + all_eigenclasses
             @class_ids_for_init = classes.each_with_index.to_h { |k, i| [k.name, i] }
             kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
             write_header
             write_namespace_open
-            ClassEmitter.write_runtime(self, classes: classes, call_surface: @call_surface, kernel_fns: kernel_fns) do
+            ClassEmitter.write_runtime(self, classes: classes, call_surface: @call_surface, const_surface: @const_surface, kernel_fns: kernel_fns) do
               write_static_state_init
               write_main_object
             end
@@ -370,6 +372,95 @@ module Frozone
             calls["m_new"] ||= "new"
             calls["m_initialize"] ||= "initialize"
             calls
+          end
+
+          # Walk every emitted body looking for ConstantPath nodes whose
+          # parent is a runtime expression (`self.class::X`, `obj.foo::X`).
+          # Each such `X` needs a `c_X` virtual on BasicObject + an
+          # override on every eigenclass that has X in its constants
+          # table (or inherits one). Statically-resolvable paths
+          # (`Foo::Bar`) keep their cheap `k_Foo_Bar()` accessor.
+          # For each eigenclass, look at its host class's full inherited
+          # constant set (walking ancestors_list); for each constant
+          # whose name is in the dynamic constant surface, append a
+          # c_<NAME>() override that returns the value. Constants not
+          # in the surface stay where they are (the cheap k_<flat>()
+          # accessor handles statically-resolvable Foo::CONST).
+          def decorate_eigenclasses_with_const_overrides(host_classes, eigenclasses)
+            return if @const_surface.empty?
+            top = @top_level_scope.constants_table || {}
+            host_by_eigen = {}
+            eigenclasses.each do |eigen|
+              host_name = eigen.name.sub(/_eigenclass\z/, '')
+              host_by_eigen[eigen] = top[host_name.to_sym] || @user_classes[host_name.to_sym]
+            end
+            eigenclasses.each do |eigen|
+              host = host_by_eigen[eigen]
+              next unless host.is_a?(Vm::ModuleObject)
+              consts = collect_inherited_constants(host)
+              eigen.overrides ||= {}
+              @const_surface.each do |name|
+                next unless consts.key?(name)
+                cpp_name = "c_#{name}"
+                next if eigen.overrides.key?(cpp_name)  # explicit override wins
+                val = consts[name]
+                expr =
+                  begin
+                    @cpp.emit_vm_value(val)
+                  rescue Cpp::EmissionError
+                    nil
+                  end
+                next unless expr  # unrenderable constant — fall through to constant_missing
+                eigen.overrides[cpp_name] = { params: [], body: "return #{expr};" }
+              end
+            end
+          end
+
+          # Walk ancestors_list to compute the full inherited constants
+          # set for a class. Inner constants override outer ones (i.e.
+          # the host's own def wins over an inherited one).
+          def collect_inherited_constants(cls)
+            seen = {}
+            ancestors = cls.ancestors_list rescue [cls]
+            # Walk from outermost inward so inner overrides outer.
+            ancestors.reverse.each do |a|
+              (a.constants_table || {}).each { |name, val| seen[name] = val }
+            end
+            seen
+          end
+
+          def collect_dynamic_constant_surface
+            names = Set.new
+            walk = ->(node) {
+              return unless node.is_a?(Ast::Node)
+              if node.is_a?(Ast::ConstantPath) && node.parent_node && !static_constant_parent?(node.parent_node)
+                names << node.name.to_sym
+              end
+              node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
+            }
+            user_methods.each_value { |m| walk.call(m.body) if m.body }
+            @user_classes.each_value do |cls|
+              class_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+              eigenclass_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+            end
+            top = @top_level_scope.constants_table || {}
+            Runtime::ALL_CLASSES.each do |universe_klass|
+              cls = top[universe_klass.name.to_sym]
+              next unless cls.is_a?(Vm::ClassObject)
+              class_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+              eigenclass_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+            end
+            walk.call(@execute_block) if @execute_block
+            names
+          end
+
+          # Mirror of Cpp.static_constant_parent? — emitter-side; kept
+          # close to collect_dynamic_constant_surface so the surface
+          # collector and the lowering decision can't drift.
+          def static_constant_parent?(parent)
+            parent.is_a?(Ast::ConstantRead) ||
+              parent.is_a?(Ast::ConstantPath) ||
+              parent.is_a?(Ast::RootNamespaceNode)
           end
 
           # Build RubyClass instances from each user Vm::ClassObject.

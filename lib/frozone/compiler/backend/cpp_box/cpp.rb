@@ -1085,12 +1085,39 @@ module Frozone
             (raise EmissionError, "ConstantRead: unresolved constant :#{node.name}"))
 
           def from_constant_path(node)
+            # Dynamic parent receiver (e.g. `self.class::CONST`,
+            # `expr.class::CONST`) — the receiver class isn't known at
+            # compile time, so go through the c_X virtual on the
+            # eigenclass. This is the constant-side analogue of m_X
+            # method dispatch, populated from the dynamic-constant
+            # surface set.
+            unless static_constant_parent?(node.parent_node)
+              # c_X is on BasicObject's universal surface (see
+              # write_universal_surface) — the eigenclass override
+              # returns the constant; everyone else falls through to
+              # constant_missing. So no cast needed; this works when
+              # the receiver is genuinely a class (`self.class::X`),
+              # genuinely a module (`self::X` in a module method), or
+              # even a wrong-typed object (graceful constant_missing
+              # rather than UB).
+              recv = from_expr(node.parent_node, Set.new)
+              return "(#{recv})->c_#{node.name}()"
+            end
             parts = collect_path(node)
             absolute = parts.first == "" ||
                        (node.respond_to?(:parent_node) && node.parent_node.is_a?(Ast::RootNamespaceNode))
             resolved = absolute ? resolve_top_level(parts.reject(&:empty?)) : resolve_constant(parts)
             return format_constant(resolved) if resolved
             raise EmissionError, "ConstantPath: unresolved path #{parts.join('::')}"
+          end
+
+          # True when the parent of a ConstantPath is itself a const-shape
+          # node — only those are statically resolvable. Anything else
+          # (a method call, local var, etc.) needs runtime dispatch.
+          def static_constant_parent?(parent)
+            parent.is_a?(Ast::ConstantRead) ||
+              parent.is_a?(Ast::ConstantPath) ||
+              parent.is_a?(Ast::RootNamespaceNode)
           end
 
           # Walk the method's lexical scope chain (innermost-first),

@@ -27,6 +27,7 @@ module Frozone
           # Ruby methods dispatch into (currently empty; populated when
           # we source from core/4.0/).
           def self.write_runtime(emit, classes:, call_surface:,
+                                const_surface: Set.new,
                                 kernel_fns: Runtime::ALL_KERNEL_FNS,
                                 intrinsics: Runtime::ALL_INTRINSICS)
             # Method-id assignment — every cpp_name in the call surface
@@ -41,6 +42,11 @@ module Frozone
             # no user code calls log2) have no parent stub and must drop
             # `override`.
             @call_surface_set = call_surface.keys.to_set
+            # Constant surface — names referenced via dynamic-receiver
+            # paths (`self.class::X`). Each gets a `c_X` virtual on
+            # BasicObject + overrides on every eigenclass that has X.
+            @const_surface = const_surface
+            @const_surface_set = const_surface.map { |n| "c_#{n}" }.to_set
             # Class id assignment + IS_A LUT — drives is_a?/kind_of?.
             # Each class gets a unique id; LUT[i][j] = true iff class
             # i has class/module j in its ancestry chain (including
@@ -65,6 +71,7 @@ module Frozone
               write_send_body(emit, method_ids)
               write_is_a_lut(emit, class_ids, is_a_lut)
               write_method_missing_body(emit)
+              write_constant_missing_body(emit)
               write_kernel_fn_bodies(emit, kernel_fns)
               write_intrinsic_bodies(emit, intrinsics)
               yield if block_given?
@@ -281,7 +288,12 @@ module Frozone
             memo = {}
             walk = ->(klass) {
               return memo[klass.name] if memo.key?(klass.name)
-              own = (klass.overrides || {}).keys.map { |cpp| cpp_name_to_ruby(cpp) }
+              # Filter out non-method slots — c_X (constant lookup),
+              # sm_X__from_<...> (super shadowing). They share the
+              # overrides hash for emission but aren't user-callable
+              # Ruby methods, so respond_to? must not return true for them.
+              method_overrides = (klass.overrides || {}).keys.reject { |cpp| cpp.start_with?("c_", "sm_") }
+              own = method_overrides.map { |cpp| cpp_name_to_ruby(cpp) }
               own += (klass.hand_coded_method_names || []).map { |cpp| cpp_name_to_ruby(cpp) }
               # m_class / m_respond_to_q are auto-added by with_auto_overrides
               # on every class except BasicObject — pre-include them here so
@@ -378,6 +390,20 @@ module Frozone
               next if skip.include?(cpp_name)
               emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) { return method_missing("#{ruby_name}"); })
             end
+            # Constant-lookup surface — c_X() per dynamic-receiver
+            # constant name. Default: constant_missing (raises NameError).
+            # Eigenclasses override these with `return <value>;` for
+            # the constants they own (statically + inherited).
+            return if (@const_surface || []).empty?
+            emit.blank
+            emit.line "// Universal constant surface — `<expr>::CONST` (dynamic receiver)"
+            emit.line "// dispatches through these slots. Static `Foo::CONST` keeps the"
+            emit.line "// cheap k_<flat>() accessor and doesn't go through here."
+            @const_surface.each do |name|
+              cpp_name = "c_#{name}"
+              next if skip.include?(cpp_name)
+              emit.line %(virtual BasicObject* #{cpp_name}() { return constant_missing("#{name}"); })
+            end
             emit.blank
           end
 
@@ -409,6 +435,39 @@ module Frozone
           # message string + NoMethodError instance, both of which need
           # the universe to be complete — hence emitted alongside
           # is_a_lut / send_body, not inside BasicObject's struct body.
+          # constant_missing — analogous to method_missing but raises
+          # NameError rather than NoMethodError. Hit when a `c_X()`
+          # virtual is dispatched on an eigenclass that doesn't have
+          # X (or on a non-Class receiver).
+          def self.write_constant_missing_body(emit)
+            emit.line "inline BasicObject* BasicObject::constant_missing(const char* const_name) {"
+            emit.indented do
+              emit.line %|if (std::getenv("FROZONE_BOX_TRACE")) {|
+              emit.indented do
+                emit.line %|std::fprintf(stderr, "constant_missing: %s on %s — backtrace:\\n", const_name, ruby_class_name());|
+                emit.line "void* bt[32];"
+                emit.line "int n = backtrace(bt, 32);"
+                emit.line "backtrace_symbols_fd(bt, n, 2);"
+              end
+              emit.line "}"
+              emit.line "std::size_t nlen = std::strlen(const_name);"
+              emit.line "std::size_t clen = std::strlen(ruby_class_name());"
+              emit.line %|static const char prefix[] = "uninitialized constant ";|
+              emit.line %|static const char mid[] = "::";|
+              emit.line "String* msg = new String();"
+              emit.line "msg->bytes.reserve(sizeof(prefix) - 1 + clen + sizeof(mid) - 1 + nlen);"
+              emit.line "msg->bytes.insert(msg->bytes.end(), prefix, prefix + sizeof(prefix) - 1);"
+              emit.line "msg->bytes.insert(msg->bytes.end(), ruby_class_name(), ruby_class_name() + clen);"
+              emit.line "msg->bytes.insert(msg->bytes.end(), mid, mid + sizeof(mid) - 1);"
+              emit.line "msg->bytes.insert(msg->bytes.end(), const_name, const_name + nlen);"
+              emit.line "Array* mm_args = new Array();"
+              emit.line "mm_args->data.push_back(static_cast<BasicObject*>(msg));"
+              emit.line "throw static_cast<Exception*>((&NameError_CLASS)->m_new(mm_args));"
+            end
+            emit.line "}"
+            emit.blank
+          end
+
           def self.write_method_missing_body(emit)
             emit.line "inline BasicObject* BasicObject::method_missing(const char* method_name) {"
             emit.indented do
@@ -449,6 +508,14 @@ module Frozone
           # eigenclass (e.g. Math.log2 when no user code calls log2) lack
           # a parent stub so can't carry `override` either.
           def self.write_override_decl(emit, name, klass)
+            if name.start_with?("c_")
+              # Constant-lookup slot — empty arg list. `override` only
+              # if the slot exists on BasicObject (i.e. is in the
+              # constant surface).
+              override_kw = (klass.name == "BasicObject" || !@const_surface_set&.include?(name)) ? "" : " override"
+              emit.line "virtual BasicObject* #{name}()#{override_kw};"
+              return
+            end
             override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
             emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr)#{override_kw};"
           end
@@ -460,6 +527,17 @@ module Frozone
           # User-class overrides pass empty params (their bodies have
           # their own unpacking via MethodEmitter.unpack_params).
           def self.write_override_def(emit, class_name, name, spec)
+            if name.start_with?("c_")
+              # Constant-lookup slot — empty arg list, body is a `return
+              # <value>;` line.
+              emit.line "inline BasicObject* #{class_name}::#{name}() {"
+              emit.indented do
+                spec[:body].each_line { |l| emit.line l.chomp }
+              end
+              emit.line "}"
+              emit.blank
+              return
+            end
             emit.line "inline BasicObject* #{class_name}::#{name}(Array* args, Hash* kwargs, Proc* block) {"
             emit.indented do
               (spec[:params] || []).each_with_index do |param_decl, i|
