@@ -49,9 +49,15 @@ module Frozone
             return goto switch case break continue if else while do for
           ].to_set.freeze
 
+          # User-named locals/params live in the `l_*` namespace —
+          # `def foo(args, block); args.length; end` lowers to
+          # `BasicObject* l_args = array_at(args, 0); l_args->m_length();`
+          # so it can never collide with the universal-protocol slots
+          # (`args`, `kwargs`, `block`) or with C++ keywords. C++ doesn't
+          # reserve `l_class` / `l_enum` / etc., so the prefix subsumes
+          # the keyword-mangle path.
           def self.local_cpp_name(name)
-            s = name.to_s
-            CPP_KEYWORDS.include?(s) ? "rb__#{s}__" : s
+            "l_#{name}"
           end
 
           # Emit unpack-from-args lines for required positional params,
@@ -72,13 +78,11 @@ module Frozone
             locals = Set.new
             required = method.required_params || []
             required.each_with_index do |p, i|
-              raise Cpp::EmissionError, "param name :#{p} collides with universal protocol param" if UNIVERSAL_PARAM_NAMES.include?(p.to_s)
               emit.line "BasicObject* #{local_cpp_name(p)} = array_at(args, #{i});"
               locals << p.to_s
             end
             optional = method.optional_params || []
             optional.each_with_index do |(p, default_node), i|
-              raise Cpp::EmissionError, "param name :#{p} collides with universal protocol param" if UNIVERSAL_PARAM_NAMES.include?(p.to_s)
               idx = required.length + i
               default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
               emit.line "BasicObject* #{local_cpp_name(p)} = (args->data.size() > #{idx}) ? args->data[#{idx}] : (#{default_str});"
@@ -88,14 +92,12 @@ module Frozone
               raise Cpp::EmissionError, "method with post-required params not yet supported"
             end
             (method.optional_kw_params || []).each do |(p, default_node)|
-              raise Cpp::EmissionError, "kw param :#{p} collides with universal protocol param" if UNIVERSAL_PARAM_NAMES.include?(p.to_s)
               default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
               key_lit = emit.cpp.cpp_string_literal(p.to_s)
               emit.line "BasicObject* #{local_cpp_name(p)} = (kwargs ? [&]() -> BasicObject* { auto _it = kwargs->data.find(intern(#{key_lit})); return _it == kwargs->data.end() ? (#{default_str}) : _it->second; }() : (#{default_str}));"
               locals << p.to_s
             end
             (method.required_kw_params || []).each do |p|
-              raise Cpp::EmissionError, "kw param :#{p} collides with universal protocol param" if UNIVERSAL_PARAM_NAMES.include?(p.to_s)
               key_lit = emit.cpp.cpp_string_literal(p.to_s)
               emit.line %(BasicObject* #{local_cpp_name(p)} = (kwargs && kwargs->data.find(intern(#{key_lit})) != kwargs->data.end()) ? kwargs->data[intern(#{key_lit})] : ([&]() -> BasicObject* { std::fprintf(stderr, "[box-first] missing required kw arg :#{p}\\n"); std::abort(); }());)
               locals << p.to_s
@@ -108,14 +110,7 @@ module Frozone
               name = "_rest" if name.empty? || name == "*"
               cpp_name = local_cpp_name(name)
               start_idx = required.length + optional.length
-              if name == "args"
-                # Collides with the universal `Array* args` parameter.
-                # Only safe when rest is the whole args (no preceding
-                # positional/optional params); the parameter already
-                # IS what the user wants. Otherwise we'd need a slice
-                # but can't bind it to `args` without shadowing.
-                raise Cpp::EmissionError, "*args after positional params collides with universal args param" if start_idx > 0
-              elsif start_idx == 0
+              if start_idx == 0
                 emit.line "BasicObject* #{cpp_name} = args;  // *rest = whole args"
               else
                 emit.line "Array* #{cpp_name} = new Array();"
@@ -125,13 +120,20 @@ module Frozone
               end
               locals << name
             end
+            # _block is the internal alias used by from_yield (it stays
+            # as `_block` rather than `l__block` because it isn't a
+            # user-named local and never appears in user-source code).
             emit.line "Proc* _block = block;"
-            locals << "_block"
             user_block = user_block_name(method)
-            if user_block && user_block != "_block" && user_block != "block"
-              emit.line "Proc* #{user_block} = block;"
+            if user_block
+              # `def foo(&blk)` — bind a user-facing local of type
+              # BasicObject* (not Proc*) so user code can reassign it
+              # from any vtable-call result without C++ type errors.
+              # `truthy(l_blk)`, `l_blk->m_call(...)` (universal surface)
+              # both work without a static_cast.
+              emit.line "BasicObject* #{local_cpp_name(user_block)} = static_cast<BasicObject*>(block);"
+              locals << user_block
             end
-            locals << user_block if user_block
             # Pre-declare every other local in the method's `locals`
             # list. Without this, locals first-written inside an `if`
             # branch are scoped to that branch, and a sibling branch
@@ -141,14 +143,12 @@ module Frozone
             # Also scans the body for LocalVariableWrites so locals
             # whose first write is inside a graceful-degradation-skipped
             # statement still get a declaration (subsequent reads work).
-            # Skips names that collide with universal protocol params
-            # (`args`, `kwargs`, `block`) — those would shadow the
-            # parameter binding.
-            reserved = %w[args kwargs block]
+            # User names get the `l_` prefix from local_cpp_name, so
+            # they can't collide with the universal protocol slots.
             seen_writes = collect_local_writes(method.body)
             ((method.locals || []) + seen_writes.to_a).uniq.each do |name|
               s = name.to_s
-              next if s.empty? || locals.include?(s) || reserved.include?(s)
+              next if s.empty? || locals.include?(s)
               emit.line "BasicObject* #{local_cpp_name(s)} = nil_instance();"
               locals << s
             end

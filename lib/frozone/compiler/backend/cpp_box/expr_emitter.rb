@@ -214,13 +214,6 @@ module Frozone
           end
 
           def self.write_local_write_stmt(emit, node, locals)
-            # Reassigning a universal-protocol param (`block = ...`,
-            # `args = ...`) trips C++ type checking — `block` is `Proc*`,
-            # rhs is `BasicObject*`. Mark the whole method skipped
-            # rather than emit a body that fails to compile.
-            if MethodEmitter::UNIVERSAL_PARAM_NAMES.include?(node.name.to_s)
-              raise Cpp::EmissionError, "local :#{node.name} collides with universal protocol param"
-            end
             rhs = emit.cpp.from_expr(node.value_node, locals)
             cpp_name = MethodEmitter.local_cpp_name(node.name)
             if locals.include?(node.name.to_s)
@@ -282,9 +275,6 @@ module Frozone
               if locals.include?(name)
                 emit.line "#{cpp_name} = #{value_expr};"
               else
-                if MethodEmitter::UNIVERSAL_PARAM_NAMES.include?(name)
-                  raise Cpp::EmissionError, "local :#{name} collides with universal protocol param"
-                end
                 locals << name
                 emit.line "BasicObject* #{cpp_name} = #{value_expr};"
               end

@@ -203,9 +203,6 @@ module Frozone
               rhs = from_expr(node.value_node, locals)
               "(this->iv_#{node.name.to_s.delete_prefix('@')} = #{rhs})"
             when Ast::LocalVariableWrite
-              if MethodEmitter::UNIVERSAL_PARAM_NAMES.include?(node.name.to_s)
-                raise EmissionError, "local :#{node.name} collides with universal protocol param"
-              end
               rhs = from_expr(node.value_node, locals)
               if locals.include?(node.name.to_s)
                 "(#{MethodEmitter.local_cpp_name(node.name)} = #{rhs})"
