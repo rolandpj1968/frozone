@@ -538,6 +538,7 @@ module Frozone
               }
             end
           rescue Cpp::EmissionError => e
+            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1'
             log_skip("method", method, e)
             nil
           end
@@ -556,6 +557,9 @@ module Frozone
           # Emit a one-line debug log when FROZONE_BOX_DEBUG=1 — surfaces
           # which method/ctor/class was dropped and why. Off by default
           # (would otherwise spam ~hundreds of lines per program).
+          # FROZONE_BOX_HARD_FAIL=1 re-raises the EmissionError instead
+          # — useful when chasing self-compile bugs that hide behind
+          # silently-skipped methods.
           def log_skip(kind, method, err)
             return unless ENV['FROZONE_BOX_DEBUG'] == '1'
             loc = method.respond_to?(:source_location) ? method.source_location : nil
@@ -729,6 +733,7 @@ module Frozone
             expr = @cpp.emit_vm_value(val)
             line "#{target_expr}.iv_#{iv} = #{expr};"
           rescue Cpp::EmissionError => e
+            raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1'
             line "// skipped #{label}.iv_#{iv}: #{e.message.gsub('*/', '* /')}"
             $stderr.puts "[box-first] skip static-init #{label}.iv_#{iv}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
           end
