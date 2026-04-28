@@ -560,6 +560,12 @@ module Frozone
             # Object identity / class — needed by core/4.0 dispatch helpers.
             object_is_a: ->(self_, klass) { "boxed_bool(dynamic_cast<Class*>(#{klass}) != nullptr && #{self_}->m_is_a_q(new Array({#{klass}})) == true_instance())" },
             object_class: ->(self_) { "#{self_}->m_class()" },
+            # Kernel#lambda just returns the captured block as a Proc.
+            # The Ruby `def lambda(&_block) = Intrinsics.kernel_lambda(self)`
+            # form passes self to the intrinsic; the actual block lives
+            # in the method's `_block` alias (set up by unpack_params).
+            kernel_lambda: ->(_self_) { "static_cast<BasicObject*>(_block)" },
+            kernel_proc: ->(_self_) { "static_cast<BasicObject*>(_block)" },
             basic_object__equal_equal_: ->(s, o) { "boxed_bool(#{s} == #{o})" },
             basic_object___id__: ->(s) { "(new Integer(reinterpret_cast<int64_t>(#{s})))" },
           }.freeze

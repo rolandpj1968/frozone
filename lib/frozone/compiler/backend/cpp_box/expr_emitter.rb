@@ -71,7 +71,9 @@ module Frozone
           def self.write_stmt(emit, node, locals, next_returns: false)
             case node
             when Ast::Return
-              emit.line "return #{emit.cpp.from_expr(node.value_node, locals)};"
+              # Bare `return` has nil value_node — Ruby's implicit nil.
+              v = node.value_node ? emit.cpp.from_expr(node.value_node, locals) : "nil_instance()"
+              emit.line "return #{v};"
             when Ast::If
               write_if_stmt(emit, node, locals, next_returns: next_returns)
             when Ast::While
