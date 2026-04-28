@@ -412,6 +412,18 @@ module Frozone
           def self.write_method_missing_body(emit)
             emit.line "inline BasicObject* BasicObject::method_missing(const char* method_name) {"
             emit.indented do
+              # FROZONE_BOX_TRACE=1 dumps a libc backtrace at the throw
+              # site so we can map back to a source line via addr2line.
+              # Off by default — would be noisy on every legitimate
+              # rescue NoMethodError.
+              emit.line %|if (std::getenv("FROZONE_BOX_TRACE")) {|
+              emit.indented do
+                emit.line %|std::fprintf(stderr, "method_missing: %s on %s — backtrace:\\n", method_name, ruby_class_name());|
+                emit.line "void* bt[32];"
+                emit.line "int n = backtrace(bt, 32);"
+                emit.line "backtrace_symbols_fd(bt, n, 2);"
+              end
+              emit.line "}"
               emit.line "std::size_t nlen = std::strlen(method_name);"
               emit.line "std::size_t clen = std::strlen(ruby_class_name());"
               emit.line %|static const char prefix[] = "undefined method '";|

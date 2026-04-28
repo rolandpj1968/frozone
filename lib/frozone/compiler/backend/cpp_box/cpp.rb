@@ -661,6 +661,8 @@ module Frozone
             string_match_q: ->(self_, pat, pos) {
               "boxed_bool(regexp_match_helper(#{pat}, #{self_}, ((#{pos}) == nil_instance() ? 0 : static_cast<Integer*>(#{pos})->raw_)) != nullptr)"
             },
+            string_unpack: ->(self_, fmt, _offset) { "string_unpack_helper(#{self_}, #{fmt})" },
+
             string_gsub: ->(self_, pat, repl, block) {
               "string_gsub_helper(#{self_}, #{pat}, #{repl}, dynamic_cast<Proc*>(#{block}))"
             },

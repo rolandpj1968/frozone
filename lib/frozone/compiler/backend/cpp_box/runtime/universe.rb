@@ -1212,6 +1212,49 @@ module Frozone
             CPP
           )
 
+          # String#unpack — minimal impl covering only the formats the
+          # WQ parser uses: 'C*' (raw bytes → Array of Integer) and
+          # 'U*' (UTF-8 → Array of codepoint Integer). Anything else
+          # aborts; full unpack DSL is a follow-up.
+          STRING_UNPACK_FN = KernelFn.new(
+            name: "string_unpack_helper",
+            signature: "BasicObject* string_unpack_helper(BasicObject* self_obj, BasicObject* fmt_obj)",
+            body: <<~CPP.chomp,
+              auto* self = static_cast<String*>(self_obj);
+              auto* fmt  = static_cast<String*>(fmt_obj);
+              Array* out = new Array();
+              const std::uint8_t* b = self->bytes.data();
+              std::size_t n = self->bytes.size();
+              if (fmt->bytes.size() == 2 && fmt->bytes[0] == 'C' && fmt->bytes[1] == '*') {
+                out->data.reserve(n);
+                for (std::size_t i = 0; i < n; i++) out->data.push_back(new Integer(static_cast<int64_t>(b[i])));
+                return out;
+              }
+              if (fmt->bytes.size() == 2 && fmt->bytes[0] == 'U' && fmt->bytes[1] == '*') {
+                std::size_t i = 0;
+                while (i < n) {
+                  std::uint8_t c = b[i];
+                  int64_t cp;
+                  if (c < 0x80) { cp = c; i += 1; }
+                  else if ((c & 0xE0) == 0xC0 && i + 1 < n) {
+                    cp = ((int64_t)(c & 0x1F) << 6) | (b[i+1] & 0x3F); i += 2;
+                  } else if ((c & 0xF0) == 0xE0 && i + 2 < n) {
+                    cp = ((int64_t)(c & 0x0F) << 12) | ((int64_t)(b[i+1] & 0x3F) << 6) | (b[i+2] & 0x3F); i += 3;
+                  } else if ((c & 0xF8) == 0xF0 && i + 3 < n) {
+                    cp = ((int64_t)(c & 0x07) << 18) | ((int64_t)(b[i+1] & 0x3F) << 12) | ((int64_t)(b[i+2] & 0x3F) << 6) | (b[i+3] & 0x3F); i += 4;
+                  } else {
+                    cp = c; i += 1;  // tolerate invalid UTF-8 by passing the raw byte
+                  }
+                  out->data.push_back(new Integer(cp));
+                }
+                return out;
+              }
+              std::fprintf(stderr, "[box-first] String#unpack format %.*s not supported (only C* / U*)\\n",
+                           static_cast<int>(fmt->bytes.size()), fmt->bytes.data());
+              std::abort();
+            CPP
+          )
+
           # String#gsub helper. Phase 1: handles String pattern + String
           # replacement only (plain global replace). Regexp pattern and
           # block-form replacement abort — TODO when needed by callers.
@@ -1276,7 +1319,7 @@ module Frozone
             BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
             INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
-            STRING_GSUB_FN
+            STRING_GSUB_FN, STRING_UNPACK_FN
           ].freeze
 
           # ---- Intrinsics -----------------------------------------
