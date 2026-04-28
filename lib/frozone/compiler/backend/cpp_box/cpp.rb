@@ -549,8 +549,17 @@ module Frozone
             # core/4.0/ code that passes it through (e.g. reverse +
             # force_encoding(encoding)) doesn't blow up. Real encoding
             # tracking can come back when something needs it.
-            string_encoding: ->(_self_) { %((new String("UTF-8", 5))) },
+            # Return the real Encoding::UTF_8 constant (auto-emitted from
+            # core/4.0/encoding.rb) — callers expect an Encoding object,
+            # not a String, so they can call `ascii_compatible?` etc.
+            # Always returning UTF-8 is a Phase 1 stub; real per-string
+            # encoding tracking is parity-gaps §6.
+            string_encoding: ->(_self_) { "k_Encoding_UTF_8()" },
             string_force_encoding: ->(self_, _enc) { "(#{self_})" },
+            # Stub: assume the byte stream is valid UTF-8 (the WQ parser
+            # needs this to gate its source-buffer encoding check).
+            # Real walker would scan bytes for UTF-8 validity.
+            string_valid_encoding: ->(_self_) { "true_instance()" },
 
             string_get_byte: ->(self_, i) {
               "(new Integer(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes[static_cast<Integer*>(#{i})->raw_])))"
@@ -629,6 +638,15 @@ module Frozone
             },
             string_match_q: ->(self_, pat, pos) {
               "boxed_bool(regexp_match_helper(#{pat}, #{self_}, ((#{pos}) == nil_instance() ? 0 : static_cast<Integer*>(#{pos})->raw_)) != nullptr)"
+            },
+            string_gsub: ->(self_, pat, repl, block) {
+              "string_gsub_helper(#{self_}, #{pat}, #{repl}, dynamic_cast<Proc*>(#{block}))"
+            },
+            # `sub` reuses gsub for now — fine when the pattern only
+            # matches once. WQ doesn't call sub yet, so an exact `sub`
+            # impl can wait.
+            string_sub: ->(self_, pat, repl, block) {
+              "string_gsub_helper(#{self_}, #{pat}, #{repl}, dynamic_cast<Proc*>(#{block}))"
             },
 
             # MatchData accessors. md[N] (Integer N) routes here.

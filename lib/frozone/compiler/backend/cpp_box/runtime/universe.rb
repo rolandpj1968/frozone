@@ -1212,6 +1212,47 @@ module Frozone
             CPP
           )
 
+          # String#gsub helper. Phase 1: handles String pattern + String
+          # replacement only (plain global replace). Regexp pattern and
+          # block-form replacement abort — TODO when needed by callers.
+          # WQ's only gsub call is `source.gsub("\r\n", "\n")`.
+          STRING_GSUB_FN = KernelFn.new(
+            name: "string_gsub_helper",
+            signature: "BasicObject* string_gsub_helper(BasicObject* self_obj, BasicObject* pat, BasicObject* repl, Proc* block)",
+            body: <<~CPP.chomp,
+              auto* self = static_cast<String*>(self_obj);
+              if (!pat) return self;
+              if (auto* spat = dynamic_cast<String*>(pat)) {
+                if (!repl || repl == nil_instance() || block != nullptr) {
+                  std::fprintf(stderr, "[box-first] String#gsub block-form not supported yet\\n");
+                  std::abort();
+                }
+                auto* srepl = static_cast<String*>(repl);
+                if (spat->bytes.empty()) return self;
+                String* out = new String();
+                out->bytes.reserve(self->bytes.size());
+                std::size_t i = 0;
+                const std::uint8_t* hay = self->bytes.data();
+                const std::uint8_t* nee = spat->bytes.data();
+                std::size_t hay_n = self->bytes.size();
+                std::size_t nee_n = spat->bytes.size();
+                while (i + nee_n <= hay_n) {
+                  if (std::memcmp(hay + i, nee, nee_n) == 0) {
+                    out->bytes.insert(out->bytes.end(), srepl->bytes.begin(), srepl->bytes.end());
+                    i += nee_n;
+                  } else {
+                    out->bytes.push_back(hay[i]);
+                    i++;
+                  }
+                }
+                out->bytes.insert(out->bytes.end(), hay + i, hay + hay_n);
+                return out;
+              }
+              std::fprintf(stderr, "[box-first] String#gsub Regexp pattern not supported yet\\n");
+              std::abort();
+            CPP
+          )
+
           # Extract substring for capture index `n` from a MatchData.
           # n=0 → whole match; n>0 → numbered capture. Returns nil for
           # an out-of-range index or an unmatched capture (begin == -1).
@@ -1234,7 +1275,8 @@ module Frozone
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
             BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
-            INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN
+            INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
+            STRING_GSUB_FN
           ].freeze
 
           # ---- Intrinsics -----------------------------------------
