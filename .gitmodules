@@ -7,3 +7,6 @@
 [submodule "vendor/dustman"]
 	path = vendor/dustman
 	url = https://github.com/rolandpj1968/dustman.git
+[submodule "vendor/Onigmo"]
+	path = vendor/Onigmo
+	url = https://github.com/k-takata/Onigmo

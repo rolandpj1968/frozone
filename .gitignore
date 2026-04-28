@@ -52,3 +52,6 @@ cpp/gen/legacy/cpp_test*.cpp
 cpp/gen/legacy/test_*.cpp
 cpp/gen/box/*
 !cpp/gen/box/.gitkeep
+
+# Onigmo build outputs (vendored via git submodule; built locally on demand)
+vendor/Onigmo/_install/

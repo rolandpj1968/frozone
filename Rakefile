@@ -274,6 +274,11 @@ DUSTMAN_BUILD   = File.join(DUSTMAN_DIR, 'build')
 DUSTMAN_LIB     = File.join(DUSTMAN_BUILD, 'libdustman.a')
 DUSTMAN_INCLUDE = File.join(DUSTMAN_DIR, 'include')
 
+ONIGMO_DIR     = File.expand_path('vendor/Onigmo', __dir__)
+ONIGMO_PREFIX  = File.join(ONIGMO_DIR, '_install')
+ONIGMO_INCLUDE = File.join(ONIGMO_PREFIX, 'include')
+ONIGMO_LIB     = File.join(ONIGMO_PREFIX, 'lib', 'libonigmo.a')
+
 namespace :dustman do
   desc "Build vendor/dustman (Release) via CMake + Ninja → vendor/dustman/build/libdustman.a"
   task :build do
@@ -286,6 +291,25 @@ namespace :dustman do
   desc "Remove vendor/dustman/build"
   task :clean do
     FileUtils.rm_rf(DUSTMAN_BUILD)
+  end
+end
+
+namespace :onigmo do
+  desc "Build vendor/Onigmo (static lib) → vendor/Onigmo/_install/lib/libonigmo.a"
+  task :build do
+    raise "vendor/Onigmo not checked out — run `git submodule update --init`" unless File.exist?(File.join(ONIGMO_DIR, 'configure.ac'))
+    next if File.exist?(ONIGMO_LIB)
+    Dir.chdir(ONIGMO_DIR) do
+      sh "./autogen.sh" unless File.exist?('configure')
+      sh "./configure --prefix=#{ONIGMO_PREFIX} --disable-shared --enable-static"
+      sh "make -j#{`nproc`.to_i.nonzero? || 4}"
+      sh "make install"
+    end
+  end
+
+  desc "Remove vendor/Onigmo/_install"
+  task :clean do
+    FileUtils.rm_rf(ONIGMO_PREFIX)
   end
 end
 
@@ -303,6 +327,7 @@ def cpp_compile_run(name, gc: :none, expected: nil, backend: 'legacy')
     else
       ""
     end
+  cflags = "#{cflags} -I #{ONIGMO_INCLUDE} #{ONIGMO_LIB}" if backend == 'box' && File.exist?(ONIGMO_LIB)
   return [:compile_fail, nil] unless system("g++ -O2 -std=c++20 #{cpp} -o #{bin} #{cflags} 2>/dev/null")
   t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
   actual = `./#{bin} 2>&1`
