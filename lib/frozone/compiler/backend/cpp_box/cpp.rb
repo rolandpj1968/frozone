@@ -83,6 +83,17 @@ module Frozone
             "m_#{s}"
           end
 
+          # Shadowed-method slot name. Each ancestor method that's
+          # shadowed by a higher-priority def in MRO order gets emitted
+          # under this name on the host class so `super` can dispatch
+          # into it. Origin is a Vm::ModuleObject (or ClassObject) —
+          # never `:self` (the `:self` body lives at `m_X`).
+          def self.shadowed_method_name(ruby_name, origin)
+            base = method_name(ruby_name).sub(/^m_/, '')
+            origin_flat = origin.full_name.to_s.gsub("::", "_")
+            "sm_#{base}__from_#{origin_flat}"
+          end
+
           # Nodes that produce a value usable in expression position.
           # Statement-only nodes don't get wrapped in implicit-return;
           # they handle their own control flow or have void value.
@@ -110,6 +121,15 @@ module Frozone
           # `Parser::Diagnostic::Engine`, then `Diagnostic::Engine`.
           # Empty list for the top-level body.
           attr_accessor :method_scope
+          # Super-call resolution context. Populated by the override
+          # emitter for the duration of one method body. Shape:
+          #   { host_name: "Array",
+          #     method_name: :any?,
+          #     origin_index: 0,            # position in the chain
+          #     chain: [[origin, method], ...] }
+          # Ast::Super walks chain from origin_index+1 onwards to find
+          # its target slot. nil outside an override-body emission.
+          attr_accessor :super_context
           # Interned integer literals — every unique IntegerLiteral
           # value seen during emission becomes one shared static
           # Integer instance, referenced by address. Without interning,
@@ -131,6 +151,7 @@ module Frozone
             @user_classes = user_classes
             @user_constants = user_constants
             @method_scope = []
+            @super_context = nil
             @int_literals = {}
             @raw_int_arrays = []
             @tmp_counter = 0
@@ -231,6 +252,7 @@ module Frozone
               # value is the last subexpression.
               "(#{node.nodes.map { |n| from_expr(n, locals) }.join(", ")})"
             when Ast::GlobalVariableRead then from_global_variable_read(node)
+            when Ast::Super then from_super(node, locals)
             else
               raise EmissionError, "from_expr: unhandled AST node #{node.class.name}"
             end
@@ -981,6 +1003,46 @@ module Frozone
             e = node.end_node   ? from_expr(node.end_node,   locals) : "nil_instance()"
             excl = node.exclusive ? "true" : "false"
             "([&]() -> BasicObject* { Range* _r = new Range(); _r->begin_ = #{b}; _r->end_ = #{e}; _r->exclude_end_ = #{excl}; _r->initialized_ = true; return _r; }())"
+          end
+
+          # `super` / `super(args)` — closed-world dispatch. The chain
+          # of (origin, method) pairs in MRO order has been pre-baked
+          # into super_context; we just walk one step further. Forwarding
+          # super passes the current method's `args`/`kwargs`/`_block`
+          # through; explicit super builds a fresh args array.
+          def from_super(node, locals)
+            ctx = @super_context
+            raise EmissionError, "super used outside a method body" unless ctx
+            chain = ctx[:chain]
+            next_idx = ctx[:origin_index] + 1
+            raise EmissionError, "super: no superclass method '#{ctx[:method_name]}' for #{ctx[:host_name]}" if next_idx >= chain.size
+            next_origin, _ = chain[next_idx]
+            cpp_name =
+              if next_origin == :self
+                Cpp.method_name(ctx[:method_name])
+              else
+                Cpp.shadowed_method_name(ctx[:method_name], next_origin)
+              end
+            args_expr =
+              if node.forwarding
+                "args"
+              elsif node.arg_nodes.empty?
+                "(&EMPTY_ARGS)"
+              else
+                arg_strs = node.arg_nodes.map { |a| from_expr(a, locals) }
+                "(new Array({#{arg_strs.join(', ')}}))"
+              end
+            block_expr =
+              if node.block_node.nil?
+                "_block"
+              elsif node.block_node.is_a?(Ast::BlockArg)
+                from_block_as_proc(node.block_node, locals)
+              else
+                "static_cast<Proc*>(#{from_expr(node.block_node, locals)})"
+              end
+            # Direct C++ method call — bypasses the usual virtual
+            # dispatch since we resolved the target at AOT time.
+            "this->#{ctx[:host_name]}::#{cpp_name}(#{args_expr}, kwargs, #{block_expr})"
           end
 
           # `$~` reads the last MatchData; `$1`..`$9` (NumberedReferenceRead

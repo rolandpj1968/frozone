@@ -106,7 +106,10 @@ module Frozone
               next klass unless cls.is_a?(Vm::ClassObject)
               hand_coded = ancestor_hand_coded_names(klass, by_name)
               klass.dup.tap do |k|
-                k.overrides = overlay_overrides(klass.overrides || {}, class_methods(cls), hand_coded)
+                k.overrides = overlay_overrides_chained(klass.name, klass.overrides || {}, class_method_chains(cls), hand_coded)
+                # Eigenclass methods don't take super (no MRO walk for
+                # def-self-X chains in box-first today), so the flat
+                # path is enough.
                 k.eigenclass_overrides = overlay_overrides(klass.eigenclass_overrides || {}, eigenclass_methods(cls), hand_coded)
               end
             end
@@ -135,6 +138,24 @@ module Frozone
               next if hand_coded.include?(cpp_name)
               spec = build_override(m)
               merged[cpp_name] = spec if spec
+            end
+            merged
+          end
+
+          # Chain-aware overlay: head of each chain → m_X (gated by
+          # hand_coded + existing overrides), tail → sm_X__from_<Origin>
+          # always emitted (no hand-coded equivalents of shadowed slots).
+          def overlay_overrides_chained(host_name, existing_overrides, chains, hand_coded)
+            merged = existing_overrides.dup
+            chains.each do |mname, entries|
+              entries.each_with_index do |(origin, method), idx|
+                cpp_name = idx.zero? ? Cpp.method_name(mname) : Cpp.shadowed_method_name(mname, origin)
+                next if merged.key?(cpp_name)
+                next if idx.zero? && hand_coded.include?(cpp_name)
+                ctx = { host_name: host_name, method_name: mname, origin_index: idx, chain: entries }
+                spec = build_override(method, super_ctx: ctx)
+                merged[cpp_name] = spec if spec
+              end
             end
             merged
           end
@@ -243,22 +264,28 @@ module Frozone
           # excludes methods aliased into the class via Object inheritance
           # remains — those get emitted on MainObject.
           def class_methods(cls)
+            ModuleFlattening.flatten(cls, direct_methods(cls))
+          end
+
+          # MRO-ordered chain map for cls's flattened methods. Head of
+          # each chain is the winning method (matches `class_methods`);
+          # tail entries are the shadowed methods super walks into.
+          # Used by override emission to lay down `sm_X__from_<Origin>`
+          # slots and by Ast::Super lowering to find its target.
+          def class_method_chains(cls)
+            ModuleFlattening.chain(cls, direct_methods(cls))
+          end
+
+          def direct_methods(cls)
             # When cls IS @top_level_scope (i.e. we're overlaying Object
             # itself), every entry would match the top-level filter and
             # the overlay would come back empty — wiping Object#itself,
             # #dup, #to_s, etc. The filter only matters for descendants.
             top_level_methods = cls.equal?(@top_level_scope) ? {} : (@top_level_scope.methods_table || {})
-            direct = (cls.methods_table || {}).select do |name, m|
+            (cls.methods_table || {}).select do |name, m|
               next false unless m.is_a?(Vm::Method)
               top_level_methods[name] != m
             end
-            # Module flattening: every class that includes/prepends a
-            # module gets the module's methods merged into its own
-            # vtable, since C++ has no mixin inheritance. Methods
-            # inherited via the superclass chain are already on the
-            # parent's overlay and reach `cls` through normal C++
-            # inheritance — those don't need re-flattening here.
-            ModuleFlattening.flatten(cls, direct)
           end
 
           # Collects cpp_method_name → ruby_method_name from every
@@ -372,16 +399,31 @@ module Frozone
               # No special ctor — `initialize` becomes a regular
               # `m_initialize` override; eigenclass auto-emits `m_new`
               # that does `new X(); m_initialize(...); return obj;`.
-              overrides: class_methods(cls).each_with_object({}) { |(mname, m), h|
-                spec = build_override(m)
-                h[Cpp.method_name(mname)] = spec if spec
-              },
+              overrides: build_chained_overrides(name.to_s, class_method_chains(cls)),
               eigenclass_overrides: eigenclass_methods(cls).each_with_object({}) { |(mname, m), h|
                 spec = build_override(m)
                 h[Cpp.method_name(mname)] = spec if spec
               },
               eigenclass_ivars: eigen_ivars,
             )
+          end
+
+          # Walk a chain map and emit one override per (origin, method)
+          # pair: head of each chain → `m_X`, rest → `sm_X__from_<Origin>`.
+          # Each gets a super_context so Ast::Super inside the body
+          # resolves to the next slot. EmissionError on any one body
+          # drops just that slot.
+          def build_chained_overrides(host_name, chains)
+            result = {}
+            chains.each do |mname, entries|
+              entries.each_with_index do |(origin, method), idx|
+                cpp_name = idx.zero? ? Cpp.method_name(mname) : Cpp.shadowed_method_name(mname, origin)
+                ctx = { host_name: host_name, method_name: mname, origin_index: idx, chain: entries }
+                spec = build_override(method, super_ctx: ctx)
+                result[cpp_name] = spec if spec
+              end
+            end
+            result
           end
 
           def struct_subclass?(cls)
@@ -526,21 +568,35 @@ module Frozone
           # field means class_emitter doesn't double-emit unpack lines.
           # EmissionError → nil so caller can drop the entry; the slot
           # falls through to BasicObject's method_missing stub at runtime.
-          def build_override(method)
+          def build_override(method, super_ctx: nil)
             with_method_scope(method) do
-              body = capture do
-                locals = MethodEmitter.unpack_params(self, method)
-                ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+              with_super_context(super_ctx) do
+                body = capture do
+                  locals = MethodEmitter.unpack_params(self, method)
+                  ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+                end
+                {
+                  params: [],
+                  body: body + "return nil_instance();\n",
+                }
               end
-              {
-                params: [],
-                body: body + "return nil_instance();\n",
-              }
             end
           rescue Cpp::EmissionError => e
             raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1'
             log_skip("method", method, e)
             nil
+          end
+
+          # Set @cpp.super_context for the duration of yield. Carries
+          # the info needed by Ast::Super lowering: host class, the
+          # current method's chain, and the current origin index.
+          def with_super_context(ctx)
+            return yield if ctx.nil?
+            prev = @cpp.super_context
+            @cpp.super_context = ctx
+            yield
+          ensure
+            @cpp.super_context = prev if ctx
           end
 
           # Run `yield` with @cpp.method_scope set to the method's

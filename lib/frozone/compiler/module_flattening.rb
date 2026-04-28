@@ -56,6 +56,34 @@ module Frozone
         includes.merge(direct_methods).merge(prepends)
       end
 
+      # Compute, for each name, the full MRO chain on `cls` of (origin,
+      # method) pairs in priority order. The head of each chain is the
+      # winning method (same as `flatten` returns); subsequent entries
+      # are the methods shadowed by it, in the order `super` would walk
+      # them. Origin is `:self` for `cls`'s own def, otherwise the
+      # `Vm::ModuleObject` (or ClassObject) that defines the body.
+      #
+      # Returns Hash mapping Symbol method-name → Array of
+      # `[origin, Vm::Method]` pairs, ordered head→tail by lookup
+      # priority. `direct_methods` is the same caller-filtered subset
+      # that `flatten` consumes.
+      def chain(cls, direct_methods)
+        result = Hash.new { |h, k| h[k] = [] }
+        cls.ancestors_list.each do |a|
+          if a.equal?(cls)
+            direct_methods.each { |name, m| result[name] << [:self, m] }
+            next
+          end
+          break if a.is_a?(Vm::ClassObject)
+          next unless a.is_a?(Vm::ModuleObject)
+          (a.methods_table || {}).each do |name, m|
+            next unless m.is_a?(Vm::Method)
+            result[name] << [a, m]
+          end
+        end
+        result
+      end
+
       # Walk cls's MRO and split modules into "prepended directly" vs
       # "included directly". ancestors_list returns
       # `[prepends..., self, includes..., superclass-stuff...]`; we stop
