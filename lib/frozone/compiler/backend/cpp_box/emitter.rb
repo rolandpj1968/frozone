@@ -18,6 +18,7 @@ require_relative 'cpp'
 require_relative 'class_emitter'
 require_relative 'method_emitter'
 require_relative 'expr_emitter'
+require_relative '../../module_flattening'
 
 module Frozone
   module Compiler
@@ -247,10 +248,17 @@ module Frozone
             # the overlay would come back empty — wiping Object#itself,
             # #dup, #to_s, etc. The filter only matters for descendants.
             top_level_methods = cls.equal?(@top_level_scope) ? {} : (@top_level_scope.methods_table || {})
-            (cls.methods_table || {}).select do |name, m|
+            direct = (cls.methods_table || {}).select do |name, m|
               next false unless m.is_a?(Vm::Method)
               top_level_methods[name] != m
             end
+            # Module flattening: every class that includes/prepends a
+            # module gets the module's methods merged into its own
+            # vtable, since C++ has no mixin inheritance. Methods
+            # inherited via the superclass chain are already on the
+            # parent's overlay and reach `cls` through normal C++
+            # inheritance — those don't need re-flattening here.
+            ModuleFlattening.flatten(cls, direct)
           end
 
           # Collects cpp_method_name → ruby_method_name from every
