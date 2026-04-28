@@ -644,11 +644,25 @@ module Frozone
                 CPP
               },
               "m_aref"     => {
-                params: ["BasicObject* idx"],
+                params: [],
                 body: <<~CPP.chomp,
-                  std::int64_t i = static_cast<Integer*>(idx)->raw_;
-                  if (i < 0) i += static_cast<std::int64_t>(bytes.size());
-                  if (i < 0 || i >= static_cast<std::int64_t>(bytes.size())) return nil_instance();
+                  std::int64_t sz = static_cast<std::int64_t>(bytes.size());
+                  // 2-arg form: s[start, len] → substring of `len` bytes
+                  // starting at `start`. core/4.0/ helpers like Buffer#[]
+                  // forward to this (used heavily by blurhash).
+                  if (args->data.size() >= 2) {
+                    std::int64_t start = static_cast<Integer*>(args->data[0])->raw_;
+                    std::int64_t len   = static_cast<Integer*>(args->data[1])->raw_;
+                    if (start < 0) start += sz;
+                    if (start < 0 || start > sz || len < 0) return nil_instance();
+                    std::int64_t end = std::min(start + len, sz);
+                    return new String(reinterpret_cast<const char*>(&bytes[0]) + start,
+                                      static_cast<std::size_t>(end - start), enc);
+                  }
+                  // 1-arg form. Range-as-idx slicing isn't yet supported.
+                  std::int64_t i = static_cast<Integer*>(args->data[0])->raw_;
+                  if (i < 0) i += sz;
+                  if (i < 0 || i >= sz) return nil_instance();
                   return new String(reinterpret_cast<const char*>(&bytes[i]), 1, enc);
                 CPP
               },
