@@ -955,6 +955,25 @@ module Frozone
             ],
           )
 
+          # ThrownTag — payload of `throw tag, value`. Routed through
+          # C++ exceptions so the unwind matches Ruby's catch/throw
+          # semantics (skip everything between throw and the matching
+          # catch). Doesn't derive from Exception — Ruby's `rescue`
+          # must NOT intercept throws (MRI keeps these mechanisms
+          # separate). Tag comparison at catch time uses pointer
+          # identity, which works because Symbols are interned.
+          THROWN_TAG = RubyClass.new(
+            name: "ThrownTag",
+            parent: "Object",
+            members: [
+              "BasicObject* tag_ = nullptr;",
+              "BasicObject* value_ = nullptr;",
+              "ThrownTag() = default;",
+              "ThrownTag(BasicObject* t, BasicObject* v) : tag_(t), value_(v) {}",
+              %(const char* ruby_class_name() const override { return "ThrownTag"; }),
+            ],
+          )
+
           # Math — module-like class with singleton methods on its
           # eigenclass. No instances ever allocated (Math.new is invalid
           # in MRI too). PI/E live as static const accessors emitted
@@ -993,7 +1012,7 @@ module Frozone
             BASIC_OBJECT, OBJECT, MODULE, CLASS_TYPE,
             NIL_CLASS, TRUE_CLASS, FALSE_CLASS,
             INTEGER, FLOAT, ARRAY, SYMBOL, STRING, HASH, RANGE, PROC,
-            REGEXP, MATCH_DATA, MATH, RANDOM
+            REGEXP, MATCH_DATA, MATH, RANDOM, THROWN_TAG
           ].freeze
 
           # Per-class eigenclass — generated programmatically from each

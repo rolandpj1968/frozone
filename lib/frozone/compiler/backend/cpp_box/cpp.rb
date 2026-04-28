@@ -602,6 +602,20 @@ module Frozone
             # in the method's `_block` alias (set up by unpack_params).
             kernel_lambda: ->(_self_) { "static_cast<BasicObject*>(_block)" },
             kernel_proc: ->(_self_) { "static_cast<BasicObject*>(_block)" },
+            # `catch(tag) { |t| ... }` — wraps the block in a C++
+            # try/catch that pattern-matches on ThrownTag's pointer-
+            # identity tag (Symbols intern, so == is correct). Block
+            # receives the tag as its sole argument, matching MRI's
+            # `catch(:foo) { |t| t == :foo }` semantics.
+            kernel_catch: ->(_self_, tag, block) {
+              "([&]() -> BasicObject* { try { return static_cast<Proc*>(#{block})->m_call(new Array({#{tag}})); } catch (ThrownTag* _t) { if (_t->tag_ == (#{tag})) return _t->value_; throw; } }())"
+            },
+            # `throw tag, value` — raises a ThrownTag carrying both.
+            # Caller already nil-defaulted the value at the Ruby level
+            # (`def throw(tag, value = nil)`).
+            kernel_throw: ->(_self_, tag, value) {
+              "([&]() -> BasicObject* { throw new ThrownTag(#{tag}, #{value}); }())"
+            },
             basic_object__equal_equal_: ->(s, o) { "boxed_bool(#{s} == #{o})" },
             basic_object___id__: ->(s) { "(new Integer(reinterpret_cast<int64_t>(#{s})))" },
 
