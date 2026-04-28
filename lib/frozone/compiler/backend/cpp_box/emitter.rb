@@ -652,7 +652,31 @@ module Frozone
               line "FROZONE_GC_INIT();"
               line "Ruby::__init_static_state__();"
               line "Ruby::MainObject mo;"
-              line "mo.__top_level__();"
+              line "try {"
+              indented do
+                line "mo.__top_level__();"
+              end
+              line "} catch (Ruby::BasicObject* e) {"
+              indented do
+                # Print the exception class + iv_message (if any) to
+                # stderr. iv_message is the Exception's `@message`
+                # ivar set by Exception#initialize. Mirrors Ruby's
+                # `(uncaught exception)` shape.
+                line "std::fprintf(stderr, \"%s\", e->ruby_class_name());"
+                line "if (auto* exc = dynamic_cast<Ruby::Exception*>(e)) {"
+                indented do
+                  line "if (auto* msg = dynamic_cast<Ruby::String*>(exc->iv_message)) {"
+                  indented do
+                    line "std::fputs(\": \", stderr);"
+                    line "std::fwrite(msg->bytes.data(), 1, msg->bytes.size(), stderr);"
+                  end
+                  line "}"
+                end
+                line "}"
+                line "std::fputc('\\n', stderr);"
+                line "return 1;"
+              end
+              line "}"
               line "return 0;"
             end
             line "}"
