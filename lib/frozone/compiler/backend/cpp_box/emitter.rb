@@ -644,12 +644,28 @@ module Frozone
           # drops just that slot.
           def build_chained_overrides(host_name, chains)
             result = {}
+            # Hand-coded ancestor methods (m_class, m_send, m_is_a_q, …)
+            # have load-bearing C++ implementations we must NOT shadow
+            # with the Ruby-level def from Kernel/Object. E.g.
+            # Kernel#class lowers to `this->m_class()`; if a user class
+            # picks that up via chain-flattening as its m_class
+            # override, every dispatch infinitely recurses. The fix:
+            # for any hand-coded universe-ancestor name where the
+            # chain's head ISN'T the user's own `def` (origin != :self),
+            # drop the chain entirely — C++ inheritance picks up the
+            # hand-coded ancestor.
+            hand_coded = (Runtime::ALL_CLASSES.flat_map { |k| k.hand_coded_method_names || [] }).to_set
             chains.each do |mname, entries|
+              cpp_name = Cpp.method_name(mname)
               # Method-level reachability gate: skip the whole chain
               # if the method name isn't called from any reachable
               # body. The unused-method bloat (~1200 unused virtual
               # overrides per class pre-pruning) was driving cpp size.
-              next unless @call_surface&.key?(Cpp.method_name(mname))
+              next unless @call_surface&.key?(cpp_name)
+              if hand_coded.include?(cpp_name)
+                head_origin, _ = entries.first
+                next if head_origin != :self
+              end
               entries.each_with_index do |(origin, method), idx|
                 # Class-origin entries don't get sm_X slots on the host
                 # — super lowers them to qualified `this->Parent::m_X`,
