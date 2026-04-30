@@ -19,6 +19,7 @@ require_relative 'class_emitter'
 require_relative 'method_emitter'
 require_relative 'expr_emitter'
 require_relative '../../module_flattening'
+require_relative '../../reachability'
 
 module Frozone
   module Compiler
@@ -72,8 +73,8 @@ module Frozone
             @top_level_scope = top_level_scope
             @globals = globals
             @stub_file = stub_file
-            @user_classes = collect_all_classes
             @user_constants = collect_user_constants
+            @user_classes = collect_all_classes
             @cpp = Cpp.new(user_classes: @user_classes, user_constants: @user_constants)
             @cpp.emit = self
             @call_surface = collect_call_surface
@@ -192,6 +193,30 @@ module Frozone
           # eigenclass exactly like a Class's class methods. Module
           # instances are never allocated; the struct is just a marker.
           def collect_all_classes
+            all = collect_all_classes_unfiltered
+            return all if ENV['FROZONE_BOX_NO_PRUNE'] == '1'
+            reach = Reachability.compute(
+              execute_block:        @execute_block,
+              user_methods:         user_methods,
+              top_level_scope:      @top_level_scope,
+              universe_class_names: UNIVERSE_NAMES,
+              all_classes:          all,
+              # User constants instantiate their class via C++
+              # `new XClass()` in the accessor body — no AST trace,
+              # so we have to root them explicitly.
+              instantiated_classes: @user_constants.values,
+            )
+            kept = all.select { |flat, _| reach.include?(flat) }
+            if ENV['FROZONE_BOX_DEBUG'] == '1'
+              $stderr.puts "[box-first] reachability pruning: #{kept.size}/#{all.size} user classes kept"
+            end
+            kept
+          end
+
+          # Walk top_level_scope.constants_table for every Vm::ClassObject
+          # / Vm::ModuleObject. Not yet filtered by reachability — the
+          # full set is the input to Reachability.compute.
+          def collect_all_classes_unfiltered
             classes = {}
             seen = Set.new
             walk = ->(scope, prefix) {
