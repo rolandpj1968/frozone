@@ -428,9 +428,13 @@ arithmetic ops can't accept that, so they wait.
 
 ## 4. Reachability pruning
 
-Status: design — not implemented. Compile-time + binary-size win;
-also reduces the surface area for "method skipped, hit method_missing
-at runtime" debugging cycles.
+Status: class-level + method-level **landed** as of 2026-04-30 in
+`lib/frozone/compiler/reachability.rb` + `Emitter#collect_call_surface`.
+Concrete: fib drops from ~480k cpp LoC / 64MB binary to ~50k LoC /
+13MB. Constant-level pruning, TI-narrowed surfaces, and other
+follow-ups described in **docs/reachability-pruning.md**. The text
+below is the original pre-implementation design — kept for context,
+but read the new doc for current state.
 
 ### Background
 

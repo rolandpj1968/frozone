@@ -161,6 +161,8 @@ module Frozone
               cpp_name = Cpp.method_name(mname)
               next if merged.key?(cpp_name)
               next if hand_coded.include?(cpp_name)
+              # Method-level reachability — drop unused overrides.
+              next unless @call_surface&.key?(cpp_name)
               spec = build_override(m)
               merged[cpp_name] = spec if spec
             end
@@ -173,6 +175,8 @@ module Frozone
           def overlay_overrides_chained(host_name, existing_overrides, chains, hand_coded)
             merged = existing_overrides.dup
             chains.each do |mname, entries|
+              # Method-level reachability gate — same as build_chained_overrides.
+              next unless @call_surface&.key?(Cpp.method_name(mname))
               entries.each_with_index do |(origin, method), idx|
                 cpp_name = idx.zero? ? Cpp.method_name(mname) : Cpp.shadowed_method_name(mname, origin)
                 next if merged.key?(cpp_name)
@@ -346,95 +350,119 @@ module Frozone
             end
           end
 
-          # Collects cpp_method_name → ruby_method_name from every
-          # MethodCall in the program + every method definition.
-          # Drives BasicObject's universal vtable surface. Universal
-          # call protocol means one slot per name (signature is
-          # always Array*, Hash*, Proc*) — no arity in the key.
-          # Calls without a receiver dispatch via `this->name()`
-          # inside MainObject — still need a slot.
+          # Method-level reachability. cpp_method_name → ruby_method_name
+          # for every method actually invoked from a reachable AST node
+          # — iterated to fixpoint. Seed: execute_block + top-level user
+          # methods. When a new method name enters the surface, all
+          # bodies that implement it (across reachable classes + universe
+          # overlays) are scheduled for AST walking, which can pull in
+          # more method names.
+          #
+          # Pre-aggressive-pruning version also dumped EVERY defined-
+          # method-name into the surface, which kept ~1200 entries even
+          # for trivial scripts. The new version keeps only what's
+          # transitively called, plus a tiny set of auto-included
+          # fallback names (m_new / m_initialize / m_class /
+          # m_respond_to_q / m_method_missing / m_const_missing).
           def collect_call_surface
             calls = {}
-            walk = ->(node) {
-              return unless node.is_a?(Ast::Node)
-              # Receiverless calls (`Complex(x)`, `foo(x)`) emit as
-              # `this->m_X(...)` and need a slot too — same universal
-              # surface, since `this` is some BasicObject*-derived.
-              # `:new` lands here too — it's just a method call on the
-              # eigenclass singleton (`(&Foo_CLASS)->m_new(...)`).
-              if node.is_a?(Ast::MethodCall)
-                cpp_name = Cpp.method_name(node.name)
-                calls[cpp_name] ||= node.name.to_s
-              end
-              # AttributeWrite is `obj.foo = x` (or `arr[i] = x`) —
-              # routes through m_foo_set / m_aset on the receiver. Slot
-              # required just like a regular method call.
-              if node.is_a?(Ast::AttributeWrite)
-                cpp_name = Cpp.method_name(node.name)
-                calls[cpp_name] ||= node.name.to_s
+            reached_bodies = Set.new
+            worklist = []
+
+            schedule_body = lambda do |body|
+              next if body.nil?
+              next unless reached_bodies.add?(body.object_id)
+              worklist << body
+            end
+
+            add_method = lambda do |ruby_name|
+              cpp_name = Cpp.method_name(ruby_name)
+              next if calls.key?(cpp_name)
+              calls[cpp_name] = ruby_name.to_s
+              # Newly-discovered name — schedule every body that
+              # implements it on a reachable class or universe overlay.
+              method_bodies_named(ruby_name).each(&schedule_body)
+            end
+
+            walk = lambda do |node|
+              next unless node.is_a?(Ast::Node)
+              if node.is_a?(Ast::MethodCall) || node.is_a?(Ast::AttributeWrite)
+                add_method.call(node.name)
               end
               node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
-            }
-            user_methods.each_value { |m| walk.call(m.body) if m.body }
-            @user_classes.each_value do |cls|
-              class_methods(cls).each_value { |m| walk.call(m.body) if m.body }
-              eigenclass_methods(cls).each_value { |m| walk.call(m.body) if m.body }
             end
-            # Universe-class overlay method bodies (core/4.0/X.rb)
-            # also contain calls — walk them so transitive method
-            # references seed the universal surface.
-            top = @top_level_scope.constants_table || {}
-            Runtime::ALL_CLASSES.each do |universe_klass|
-              cls = top[universe_klass.name.to_sym]
-              next unless cls.is_a?(Vm::ClassObject)
-              class_methods(cls).each_value { |m| walk.call(m.body) if m.body }
-              eigenclass_methods(cls).each_value { |m| walk.call(m.body) if m.body }
-            end
-            walk.call(@execute_block) if @execute_block
-            # Runtime override slots also exist on BasicObject.
+
+            # Seed pre-walk:
+            #   - Hand-coded universe overrides + hand_coded_method_names
+            #     live directly on the class struct and need slots on
+            #     BasicObject's universal surface for `override` to
+            #     type-check on derived classes.
+            #   - Auto-included fallbacks referenced from generated code
+            #     (m_new, m_initialize, m_class, m_respond_to_q,
+            #     m_method_missing, m_const_missing).
+            # All seeded BEFORE the walk loop so transitive references
+            # from their implementing bodies get picked up.
+            seed_names = Set.new
+            # m_hash_value is a C++-internal hook (returns std::size_t,
+            # used by unordered_map<BasicObject*, ...>) — not a Ruby
+            # method despite the m_ prefix. Excluded from METHOD_VT
+            # since its signature doesn't match the universal protocol.
+            non_ruby_hand_coded = %w[m_hash_value].to_set
             Runtime::ALL_CLASSES.each do |k|
-              k.overrides&.each do |cpp_name, _|
-                calls[cpp_name] ||= cpp_name.sub(/^m_/, '')
+              (k.overrides || {}).each_key { |cpp| seed_names << cpp unless cpp.start_with?("c_", "sm_") || non_ruby_hand_coded.include?(cpp) }
+              (k.hand_coded_method_names || []).each { |cpp| seed_names << cpp unless cpp.start_with?("c_", "sm_") || non_ruby_hand_coded.include?(cpp) }
+            end
+            seed_names.merge(%w[m_new m_initialize m_class m_respond_to_q m_method_missing m_const_missing])
+            seed_names.each { |cpp| add_method.call(cpp_name_to_ruby(cpp).to_sym) }
+
+            schedule_body.call(@execute_block)
+            user_methods.each_value { |m| schedule_body.call(m.body) if m.is_a?(Vm::Method) }
+
+            until worklist.empty?
+              walk.call(worklist.shift)
+            end
+
+            if ENV['FROZONE_BOX_DEBUG'] == '1'
+              $stderr.puts "[box-first] method-level surface: #{calls.size} methods"
+            end
+            calls
+          end
+
+          # Find every Vm::Method body that implements `name` on a
+          # reachable class or universe-overlay class. Includes both
+          # instance-table and eigenclass-table entries. Used by
+          # collect_call_surface to expand the worklist.
+          def method_bodies_named(name)
+            result = []
+            visit = lambda do |cls|
+              next unless cls.is_a?(Vm::ModuleObject)
+              m = (cls.methods_table || {})[name]
+              result << m.body if m.is_a?(Vm::Method) && m.body
+              eig = cls.eigenclass rescue nil
+              if eig
+                m2 = (eig.methods_table || {})[name]
+                result << m2.body if m2.is_a?(Vm::Method) && m2.body
               end
             end
-            # User-class method DEFINITIONS need slots too — both
-            # instance methods AND eigenclass (def self.X) methods.
-            # Eigenclass slots especially: Class only has BasicObject's
-            # universal surface, so without seeding from def-sites the
-            # eigenclass overrides have no parent virtual to override.
-            # `initialize` is included — it becomes the `m_initialize`
-            # override that the auto-generated `m_new` dispatches into.
-            @user_classes.each_value do |cls|
-              (class_methods(cls).keys + eigenclass_methods(cls).keys).uniq.each do |mname|
-                cpp_name = Cpp.method_name(mname)
-                calls[cpp_name] ||= mname.to_s
-              end
-            end
-            # Universe classes get a core/4.0/ method overlay too —
-            # add those names to the surface so subclass `override`
-            # declarations have a base virtual to point at.
+            @user_classes.each_value(&visit)
             top = @top_level_scope.constants_table || {}
             Runtime::ALL_CLASSES.each do |universe_klass|
-              cls = top[universe_klass.name.to_sym]
-              next unless cls.is_a?(Vm::ClassObject)
-              (class_methods(cls).keys + eigenclass_methods(cls).keys).uniq.each do |mname|
-                cpp_name = Cpp.method_name(mname)
-                calls[cpp_name] ||= mname.to_s
-              end
+              visit.call(top[universe_klass.name.to_sym])
             end
-            # Always need m_new (called by every `.new`) and
-            # m_initialize (called by every m_new) on the universal
-            # surface, even if user code doesn't directly invoke them.
-            calls["m_new"] ||= "new"
-            calls["m_initialize"] ||= "initialize"
-            # m_method_missing is the fallback target for every unknown-
-            # method dispatch (each universal-surface stub calls it).
-            # m_const_missing is the equivalent for constants on Module.
-            # Both need slots even if user code doesn't reference them
-            # by name.
-            calls["m_method_missing"] ||= "method_missing"
-            calls["m_const_missing"]  ||= "const_missing"
-            calls
+            # Top-level user methods (defined on Object directly) live
+            # at the top-level scope's methods_table, not on a class.
+            (user_methods[name]&.body && [user_methods[name].body]) || []
+            result
+          end
+
+          # Reverse Cpp.method_name to recover the Ruby form. Mirrors
+          # ClassEmitter.cpp_name_to_ruby — couldn't reuse directly
+          # because of module nesting.
+          def cpp_name_to_ruby(cpp)
+            inv = Cpp::OP_NAMES.invert
+            return inv[cpp].to_s if inv.key?(cpp)
+            s = cpp.to_s.sub(/^m_/, '').sub(/_q$/, '?').sub(/_set$/, '=')
+            s
           end
 
           # Walk every emitted body looking for ConstantPath nodes whose
@@ -600,8 +628,10 @@ module Frozone
               # that does `new X(); m_initialize(...); return obj;`.
               overrides: build_chained_overrides(name.to_s, class_method_chains(cls)),
               eigenclass_overrides: eigenclass_methods(cls).each_with_object({}) { |(mname, m), h|
+                cpp_name = Cpp.method_name(mname)
+                next unless @call_surface.key?(cpp_name)
                 spec = build_override(m)
-                h[Cpp.method_name(mname)] = spec if spec
+                h[cpp_name] = spec if spec
               },
               eigenclass_ivars: eigen_ivars,
             )
@@ -615,6 +645,11 @@ module Frozone
           def build_chained_overrides(host_name, chains)
             result = {}
             chains.each do |mname, entries|
+              # Method-level reachability gate: skip the whole chain
+              # if the method name isn't called from any reachable
+              # body. The unused-method bloat (~1200 unused virtual
+              # overrides per class pre-pruning) was driving cpp size.
+              next unless @call_surface&.key?(Cpp.method_name(mname))
               entries.each_with_index do |(origin, method), idx|
                 # Class-origin entries don't get sm_X slots on the host
                 # — super lowers them to qualified `this->Parent::m_X`,
