@@ -253,6 +253,7 @@ module Frozone
               "(#{node.nodes.map { |n| from_expr(n, locals) }.join(", ")})"
             when Ast::GlobalVariableRead then from_global_variable_read(node)
             when Ast::Super then from_super(node, locals)
+            when Ast::DefinedExpr then from_defined_expr(node, locals)
             else
               raise EmissionError, "from_expr: unhandled AST node #{node.class.name}"
             end
@@ -1033,8 +1034,16 @@ module Frozone
             next_idx = ctx[:origin_index] + 1
             raise EmissionError, "super: no superclass method '#{ctx[:method_name]}' for #{ctx[:host_name]}" if next_idx >= chain.size
             next_origin, _ = chain[next_idx]
+            # Pick the qualifying class for the C++ call:
+            #  - Module origin: slot lives on the host as sm_X__from_<Origin>.
+            #  - Class origin:  use C++ inheritance directly — `this->Parent::m_X(...)`.
+            #  - :self origin can only appear at idx=0 (and we're past it).
+            qualifier_class = ctx[:host_name]
             cpp_name =
-              if next_origin == :self
+              if next_origin.is_a?(Vm::ClassObject)
+                qualifier_class = next_origin.full_name.to_s.gsub("::", "_")
+                Cpp.method_name(ctx[:method_name])
+              elsif next_origin == :self
                 Cpp.method_name(ctx[:method_name])
               else
                 Cpp.shadowed_method_name(ctx[:method_name], next_origin)
@@ -1058,7 +1067,39 @@ module Frozone
               end
             # Direct C++ method call — bypasses the usual virtual
             # dispatch since we resolved the target at AOT time.
-            "this->#{ctx[:host_name]}::#{cpp_name}(#{args_expr}, kwargs, #{block_expr})"
+            "this->#{qualifier_class}::#{cpp_name}(#{args_expr}, kwargs, #{block_expr})"
+          end
+
+          # `defined?(expr)` lowering. The Frozone parser pre-classifies
+          # the expression into a `kind` symbol, so we just dispatch on
+          # that. Most kinds are compile-time decidable in closed world;
+          # the rest hard-fail until they're actually needed.
+          DEFINED_LITERAL_RESULT = {
+            self:        "self",
+            nil:         "nil",
+            true:        "true",
+            false:       "false",
+            literal:     "expression",
+            expression:  "expression",
+            assignment:  "assignment",
+            local_var:   "local-variable",
+            ivar:        "instance-variable",
+          }.freeze
+
+          def from_defined_expr(node, locals)
+            kind = node.kind
+            if (lit = DEFINED_LITERAL_RESULT[kind])
+              # Trivial / closed-world-known cases. `:ivar` is always
+              # truthy here because every ivar that compiles into the
+              # body has a backing field initialised to nil_instance —
+              # which Ruby treats as "assigned" for defined? purposes.
+              return %((new String("#{lit}", #{lit.bytesize})))
+            end
+            if kind == :yield
+              # Block presence is the runtime predicate.
+              return %|(_block != nullptr ? static_cast<BasicObject*>(new String("yield", 5)) : nil_instance())|
+            end
+            raise EmissionError, "defined?(#{kind}) not yet supported in box-first"
           end
 
           # `$~` reads the last MatchData; `$1`..`$9` (NumberedReferenceRead

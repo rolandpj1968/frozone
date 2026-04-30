@@ -591,6 +591,11 @@ module Frozone
             result = {}
             chains.each do |mname, entries|
               entries.each_with_index do |(origin, method), idx|
+                # Class-origin entries don't get sm_X slots on the host
+                # — super lowers them to qualified `this->Parent::m_X`,
+                # using C++ inheritance directly. Module-origin entries
+                # (and the head, idx=0) DO get slots emitted here.
+                next if idx.positive? && origin.is_a?(Vm::ClassObject)
                 cpp_name = idx.zero? ? Cpp.method_name(mname) : Cpp.shadowed_method_name(mname, origin)
                 ctx = { host_name: host_name, method_name: mname, origin_index: idx, chain: entries }
                 spec =

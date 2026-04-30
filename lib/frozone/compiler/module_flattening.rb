@@ -74,7 +74,12 @@ module Frozone
             direct_methods.each { |name, m| result[name] << [:self, m] }
             next
           end
-          break if a.is_a?(Vm::ClassObject)
+          # Include both included/prepended modules AND parent classes
+          # in the chain — super needs to follow the full MRO. The
+          # emitter still treats them differently: module entries get
+          # `sm_X__from_<Origin>` slots on the host (since C++ has no
+          # mixin inheritance); class entries reuse the parent's `m_X`
+          # via C++'s qualified `Parent::m_X` dispatch.
           next unless a.is_a?(Vm::ModuleObject)
           (a.methods_table || {}).each do |name, m|
             next unless m.is_a?(Vm::Method)
