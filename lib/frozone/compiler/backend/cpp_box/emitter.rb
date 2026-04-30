@@ -604,6 +604,17 @@ module Frozone
                   rescue Cpp::EmissionError => e
                     raise Cpp::EmissionError, "while compiling #{host_name}##{mname} (origin=#{origin}): #{e.message}"
                   end
+                # build_override returns nil for graceful-skipped bodies.
+                # For sm_X__from_<...> slots specifically, the slot is
+                # referenced by an enclosing method's `super` call, so
+                # we MUST emit something or the C++ won't link. Stub it
+                # with a method_missing redirect.
+                if spec.nil? && idx.positive?
+                  spec = {
+                    params: [],
+                    body: %|return mm_dispatch(this, args, kwargs, block, "#{mname}");|,
+                  }
+                end
                 result[cpp_name] = spec if spec
               end
             end
