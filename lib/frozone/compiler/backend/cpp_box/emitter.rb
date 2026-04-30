@@ -366,6 +366,7 @@ module Frozone
           # m_respond_to_q / m_method_missing / m_const_missing).
           def collect_call_surface
             calls = {}
+            seen_ruby_names = Set.new
             reached_bodies = Set.new
             worklist = []
 
@@ -375,12 +376,19 @@ module Frozone
               worklist << body
             end
 
+            # Track Ruby names separately from cpp_names because the
+            # encoding can collide: `:=~` → `m_match_op` clashes with
+            # a regular `def match_op` (the parser gem has both). When
+            # we discover a NEW Ruby name we still schedule its
+            # implementing bodies even if its cpp_name was already
+            # added under a different Ruby name — otherwise the
+            # second-named-method's body never gets walked, and its
+            # transitively-called methods (`send_binary_op_map` etc.)
+            # don't make it into the surface.
             add_method = lambda do |ruby_name|
+              next unless seen_ruby_names.add?(ruby_name)
               cpp_name = Cpp.method_name(ruby_name)
-              next if calls.key?(cpp_name)
-              calls[cpp_name] = ruby_name.to_s
-              # Newly-discovered name — schedule every body that
-              # implements it on a reachable class or universe overlay.
+              calls[cpp_name] ||= ruby_name.to_s
               method_bodies_named(ruby_name).each(&schedule_body)
             end
 
@@ -536,20 +544,44 @@ module Frozone
               end
               node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
             }
-            user_methods.each_value { |m| walk.call(m.body) if m.body }
+            walk_method = ->(m) {
+              method_walkable_roots(m).each { |r| walk.call(r) }
+            }
+            user_methods.each_value { |m| walk_method.call(m) }
             @user_classes.each_value do |cls|
-              class_methods(cls).each_value { |m| walk.call(m.body) if m.body }
-              eigenclass_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+              class_methods(cls).each_value { |m| walk_method.call(m) }
+              eigenclass_methods(cls).each_value { |m| walk_method.call(m) }
             end
             top = @top_level_scope.constants_table || {}
             Runtime::ALL_CLASSES.each do |universe_klass|
               cls = top[universe_klass.name.to_sym]
               next unless cls.is_a?(Vm::ClassObject)
-              class_methods(cls).each_value { |m| walk.call(m.body) if m.body }
-              eigenclass_methods(cls).each_value { |m| walk.call(m.body) if m.body }
+              class_methods(cls).each_value { |m| walk_method.call(m) }
+              eigenclass_methods(cls).each_value { |m| walk_method.call(m) }
             end
             walk.call(@execute_block) if @execute_block
             names
+          end
+
+          # All walkable AST roots for a Vm::Method: body + each
+          # optional-param default expression (`def f(x = expr)` —
+          # `expr` is its own AST tree, parked in optional_params,
+          # not the method body) + each optional kw-param default.
+          # Walking only `m.body` misses constant references in
+          # those defaults, which would either prune away the
+          # referenced class (Reachability) or fail to declare a
+          # `c_X` slot (dynamic-constant surface).
+          def method_walkable_roots(m)
+            return [] unless m.is_a?(Vm::Method)
+            roots = []
+            roots << m.body if m.body
+            (m.optional_params || []).each do |(_n, default)|
+              roots << default if default.is_a?(Ast::Node)
+            end
+            (m.optional_kw_params || []).each do |(_n, default)|
+              roots << default if default.is_a?(Ast::Node)
+            end
+            roots
           end
 
           # Mirror of Cpp.static_constant_parent? — emitter-side; kept

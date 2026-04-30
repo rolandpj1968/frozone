@@ -63,6 +63,22 @@ module Frozone
           worklist << [body, scope_prefixes]
         end
 
+        # Schedule body + each optional-param default expression.
+        # `def f(x = Foo::Bar.new)` parks the default expression on
+        # the method (optional_params is `[[:x, default_ast]]`), not
+        # in the body. Walking only m.body would miss its constant
+        # references and prune the referenced classes.
+        schedule_method = lambda do |m, scope_prefixes = []|
+          next unless m.is_a?(Vm::Method)
+          schedule_body.call(m.body, scope_prefixes)
+          (m.optional_params || []).each do |(_n, default)|
+            schedule_body.call(default, scope_prefixes) if default.is_a?(Ast::Node)
+          end
+          (m.optional_kw_params || []).each do |(_n, default)|
+            schedule_body.call(default, scope_prefixes) if default.is_a?(Ast::Node)
+          end
+        end
+
         # Walk lexical scope (innermost first) trying each prefix
         # joined with `parts`. Falls through to the bare top-level
         # lookup last. Mirrors cpp.rb's resolve_constant — without
@@ -103,12 +119,12 @@ module Frozone
           # Walk own + eigenclass bodies — they can transitively
           # reference more classes via constants.
           (cls.methods_table || {}).each_value do |m|
-            schedule_body.call(m.body, scope) if m.is_a?(Vm::Method)
+            schedule_method.call(m, scope)
           end
           eigen = cls.eigenclass rescue nil
           if eigen
             (eigen.methods_table || {}).each_value do |m|
-              schedule_body.call(m.body, scope) if m.is_a?(Vm::Method)
+              schedule_method.call(m, scope)
             end
           end
           # Ancestors (parent class + included/prepended modules) are
@@ -150,7 +166,7 @@ module Frozone
         #    transitively root the user classes).
         schedule_body.call(execute_block, [])
         (user_methods || {}).each_value do |m|
-          schedule_body.call(m.body, []) if m.is_a?(Vm::Method)
+          schedule_method.call(m, [])
         end
         top = top_level_scope.constants_table || {}
         universe_class_names.each do |universe_name|
@@ -158,12 +174,12 @@ module Frozone
           next unless cls.is_a?(Vm::ModuleObject)
           scope = scope_for_class.call(cls)
           (cls.methods_table || {}).each_value do |m|
-            schedule_body.call(m.body, scope) if m.is_a?(Vm::Method)
+            schedule_method.call(m, scope)
           end
           eigen = cls.eigenclass rescue nil
           if eigen
             (eigen.methods_table || {}).each_value do |m|
-              schedule_body.call(m.body, scope) if m.is_a?(Vm::Method)
+              schedule_method.call(m, scope)
             end
           end
         end
