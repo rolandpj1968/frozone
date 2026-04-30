@@ -1,0 +1,11 @@
+Module
+Module
+Class
+Class
+Class
+true
+false
+true
+true
+nil::FOO raised TypeError
+M::UNDEFINED raised NameError
