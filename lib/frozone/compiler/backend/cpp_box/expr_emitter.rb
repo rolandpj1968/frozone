@@ -82,6 +82,20 @@ module Frozone
               write_until_stmt(emit, node, locals)
             when Ast::Case
               write_case_stmt(emit, node, locals)
+            when Ast::Rescue
+              # Pure `begin..end` (no rescue/else/ensure) — emit body
+              # inline as plain statements. Without this, the lambda
+              # wrap from from_rescue blocks `next`/`break` from
+              # reaching the enclosing loop, which is exactly what
+              # ragel-generated lexer actions need (`begin .. begin
+              # @cs = N; _goto_level = _again; next; end .. end`
+              # inside case-when bodies).
+              if (node.rescue_clauses.nil? || node.rescue_clauses.empty?) &&
+                 node.else_node.nil? && node.ensure_node.nil?
+                write_body(emit, node.body, locals: locals, next_returns: next_returns) if node.body
+              else
+                emit.line "#{emit.cpp.from_expr(node, locals)};"
+              end
             when Ast::LocalVariableWrite
               write_local_write_stmt(emit, node, locals)
             when Ast::MultipleAssignment
@@ -248,9 +262,19 @@ module Frozone
             # Monotonic id from emit.cpp avoids collisions between
             # multiple MASS statements in the same method.
             tag = emit.cpp.next_tmp_id
+            raw = "__mass_raw_#{tag}__"
             rhs = "__mass_rhs_#{tag}__"
             n = "__mass_n_#{tag}__"
-            emit.line "Array* #{rhs} = static_cast<Array*>(#{rhs_str});"
+            # MRI multiple-assignment semantics: a single non-Array
+            # RHS wraps to `[RHS]` (nil wraps to `[]`), so the first
+            # target gets the value (or nil) and the rest get nil.
+            # Pure `static_cast<Array*>` was UB on non-Array RHS —
+            # racc's `_slen, _trans, _keys, _inds, _acts, _nacts =
+            # nil` was reading garbage out of nil_instance()->data,
+            # making the lexer state machine never transition.
+            emit.line "BasicObject* #{raw} = #{rhs_str};"
+            emit.line "Array* #{rhs} = dynamic_cast<Array*>(#{raw});"
+            emit.line "if (!#{rhs}) { #{rhs} = new Array(); if (#{raw} != nil_instance()) #{rhs}->data.push_back(#{raw}); }"
             emit.line "std::size_t #{n} = #{rhs}->data.size();"
             targets[0...pre_count].each_with_index do |t, i|
               emit_mass_target_assign(emit, t, "(#{n} > #{i} ? #{rhs}->data[#{i}] : nil_instance())", locals)

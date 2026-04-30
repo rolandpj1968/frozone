@@ -457,7 +457,10 @@ module Frozone
             @user_constants.each_value { |v| collect_symbols_from_constants.call(v) }
 
             schedule_body.call(@execute_block)
-            user_methods.each_value { |m| schedule_body.call(m.body) if m.is_a?(Vm::Method) }
+            user_methods.each_value do |m|
+              next unless m.is_a?(Vm::Method)
+              method_walkable_roots(m).each { |r| schedule_body.call(r) }
+            end
 
             # Send-aware widening: when send-style dispatch is in the
             # surface, treat every literal Symbol that names a method
@@ -496,15 +499,15 @@ module Frozone
           # collect_call_surface to expand the worklist.
           def method_bodies_named(name)
             result = []
+            push_method = lambda do |m|
+              next unless m.is_a?(Vm::Method)
+              result.concat(method_walkable_roots(m))
+            end
             visit = lambda do |cls|
               next unless cls.is_a?(Vm::ModuleObject)
-              m = (cls.methods_table || {})[name]
-              result << m.body if m.is_a?(Vm::Method) && m.body
+              push_method.call((cls.methods_table || {})[name])
               eig = cls.eigenclass rescue nil
-              if eig
-                m2 = (eig.methods_table || {})[name]
-                result << m2.body if m2.is_a?(Vm::Method) && m2.body
-              end
+              push_method.call((eig.methods_table || {})[name]) if eig
             end
             @user_classes.each_value(&visit)
             top = @top_level_scope.constants_table || {}

@@ -581,6 +581,12 @@ module Frozone
             # encoding tracking is parity-gaps §6.
             string_encoding: ->(_self_) { "k_Encoding_UTF_8()" },
             string_force_encoding: ->(self_, _enc) { "(#{self_})" },
+            # Stub: Encoding.compatible?(a, b) — assume both UTF-8.
+            # Real impl checks ASCII-compatible flag, ASCII-only fast
+            # path, etc. The WQ parser's lexer needs this for source
+            # buffer scanning. Always returning UTF-8 is fine while
+            # box-first only sees UTF-8 source files.
+            encoding_compatible: ->(_a, _b) { "k_Encoding_UTF_8()" },
             # Stub: assume the byte stream is valid UTF-8 (the WQ parser
             # needs this to gate its source-buffer encoding check).
             # Real walker would scan bytes for UTF-8 validity.
@@ -594,6 +600,14 @@ module Frozone
             },
             string_bytesize: ->(self_) {
               "(new Integer(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes.size())))"
+            },
+            # `String#to_i(base)` — std::strtoll on the byte buffer
+            # with the given base. Empty / non-numeric prefix returns 0
+            # (matches MRI). Stub: doesn't handle 0x/0b/0o prefixes
+            # for base==0, doesn't trim leading whitespace beyond
+            # what strtoll's first behaviour gives us; widen as needed.
+            string_to_i_base: ->(self_, base) {
+              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); if (_s->bytes.empty()) return new Integer(0); std::string _buf(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size()); int _b = static_cast<int>(static_cast<Integer*>(#{base})->raw_); char* _end = nullptr; long long _v = std::strtoll(_buf.c_str(), &_end, _b); return new Integer(static_cast<int64_t>(_v)); }())"
             },
 
             # Object identity / class — needed by core/4.0 dispatch helpers.
