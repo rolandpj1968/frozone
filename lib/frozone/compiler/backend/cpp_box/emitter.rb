@@ -369,6 +369,7 @@ module Frozone
             seen_ruby_names = Set.new
             reached_bodies = Set.new
             worklist = []
+            symbol_literals = Set.new
 
             schedule_body = lambda do |body|
               next if body.nil?
@@ -396,6 +397,17 @@ module Frozone
               next unless node.is_a?(Ast::Node)
               if node.is_a?(Ast::MethodCall) || node.is_a?(Ast::AttributeWrite)
                 add_method.call(node.name)
+              elsif node.is_a?(Ast::SymbolLiteral)
+                # Collect every symbol literal that names a method.
+                # We can't add to surface eagerly — most literals
+                # aren't method-name references (`{foo: 1}`, hash
+                # keys, etc.). But racc-style code stores
+                # `:_reduce_42` symbols in a static table and
+                # dispatches via `__send__`. After the main walk we
+                # check if any send-like dispatch is in the surface;
+                # if yes, every collected literal that names a
+                # method gets added. See the post-walk loop below.
+                symbol_literals << node.value.to_sym
               end
               node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
             end
@@ -423,11 +435,53 @@ module Frozone
             seed_names.merge(%w[m_new m_initialize m_class m_respond_to_q m_method_missing m_const_missing])
             seed_names.each { |cpp| add_method.call(cpp_name_to_ruby(cpp).to_sym) }
 
+            # Pull literal Symbols out of user_constants too. Class
+            # body initializations (e.g. racc's `Racc_arg = [...,
+            # racc_reduce_table, ...]` containing `:_reduce_NNN`
+            # symbols) run at load time and survive only as the
+            # frozen runtime value. The original AST is gone by the
+            # time the surface walker runs, so we'd miss those
+            # symbols. Recursively scan user_constants for
+            # SymbolObjects to feed the send-aware widening.
+            collect_symbols_from_constants = lambda do |val, depth = 0|
+              return if depth > 10
+              if val.is_a?(Vm::SymbolObject)
+                symbol_literals << val.raw
+              elsif val.is_a?(Vm::ArrayObject)
+                val.raw.each { |e| collect_symbols_from_constants.call(e, depth + 1) }
+              elsif val.is_a?(Vm::HashObject)
+                # Skip — keys/values via Hash internals are awkward
+                # and rarely contain method-name symbols.
+              end
+            end
+            @user_constants.each_value { |v| collect_symbols_from_constants.call(v) }
+
             schedule_body.call(@execute_block)
             user_methods.each_value { |m| schedule_body.call(m.body) if m.is_a?(Vm::Method) }
 
+            # Send-aware widening: when send-style dispatch is in the
+            # surface, treat every literal Symbol that names a method
+            # as if it were a direct method call. Sound for
+            # closed-world AOT as long as the dispatched name appears
+            # literally somewhere in the program (racc tables do; so
+            # do most define_method tables, attr_* expansions, etc.).
+            # Iterate to fixpoint — newly-discovered bodies can
+            # contribute more send-like calls or more literal
+            # symbols, requiring another widening pass.
+            send_names = %w[m_send m___send__ m_public_send].to_set
             until worklist.empty?
-              walk.call(worklist.shift)
+              walk.call(worklist.shift) until worklist.empty?
+              if send_names.any? { |n| calls.key?(n) }
+                added = false
+                symbol_literals.each do |sym|
+                  next if seen_ruby_names.include?(sym)
+                  bodies = method_bodies_named(sym)
+                  next if bodies.empty?
+                  add_method.call(sym)
+                  added = true
+                end
+                break unless added
+              end
             end
 
             if ENV['FROZONE_BOX_DEBUG'] == '1'
