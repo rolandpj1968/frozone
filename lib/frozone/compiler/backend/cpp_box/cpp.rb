@@ -1163,7 +1163,15 @@ module Frozone
                        (node.respond_to?(:parent_node) && node.parent_node.is_a?(Ast::RootNamespaceNode))
             resolved = absolute ? resolve_top_level(parts.reject(&:empty?)) : resolve_constant(parts)
             return format_constant(resolved) if resolved
-            raise EmissionError, "ConstantPath: unresolved path #{parts.join('::')}"
+            # Static resolution failed. If the parent itself resolves,
+            # fall back to runtime c_X dispatch — `M::UNDEFINED`
+            # then reaches const_missing (NameError) at runtime instead
+            # of getting AOT-skipped. Absolute paths (Root) without a
+            # resolution stay an EmissionError — there's no parent
+            # receiver to dispatch through.
+            raise EmissionError, "ConstantPath: unresolved path #{parts.join('::')}" if absolute
+            recv = from_expr(node.parent_node, Set.new)
+            "(#{recv})->c_#{node.name}()"
           end
 
           # True when the parent of a ConstantPath is itself a const-shape

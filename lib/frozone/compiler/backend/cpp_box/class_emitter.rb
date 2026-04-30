@@ -189,17 +189,32 @@ module Frozone
             }
             walk_top.call(top, nil)
             # Walk each class's ancestry (Vm side) and set bits.
+            klass_by_name = classes.each_with_object({}) { |k, h| h[k.name] = k }
             classes.each do |klass|
               i = class_ids[klass.name]
               vm = vm_class[klass.name.to_sym]
               # Universe classes need lookup by their name string too.
               vm ||= vm_class[klass.name.gsub("_eigenclass", "").to_sym]
-              next unless vm
-              # Vm has a precomputed ancestors_list — superclass chain
-              # + included/prepended modules. No recursion needed.
-              (vm.ancestors_list rescue []).each do |a|
-                aid = class_ids[a.full_name.to_s.gsub("::", "_").to_sym]
-                lut[i][aid] = true if aid
+              # Vm side: precomputed ancestors_list (superclass chain
+              # + included/prepended modules).
+              if vm
+                (vm.ancestors_list rescue []).each do |a|
+                  aid = class_ids[a.full_name.to_s.gsub("::", "_").to_sym]
+                  lut[i][aid] = true if aid
+                end
+              end
+              # Universe-class side: Frozone's Vm-level Class/Module
+              # don't carry the full hierarchy on `ancestors_list`
+              # (e.g. Class.ancestors_list is just [Class] there). Walk
+              # the RubyClass.parent string chain to fill in the rest —
+              # Class : Module : Object : BasicObject. Idempotent with
+              # the Vm walk above when both agree.
+              p = klass.parent
+              while p
+                pid = class_ids[p]
+                lut[i][pid] = true if pid
+                p_klass = klass_by_name[p]
+                p = p_klass&.parent
               end
             end
             lut
@@ -364,7 +379,19 @@ module Frozone
               klass.ivars&.each { |iv| emit.line iv }
               # Auto-emit __class_id__ override per class — simple int
               # return, no cross-class refs, safe inline.
-              cid = @class_ids && @class_ids[klass.name]
+              # Eigenclass instances semantically have class Module
+              # (for module eigenclasses, parent: "Module") or Class
+              # (for class eigenclasses) — return that class's id so
+              # `Foo.is_a?(Class)` / `M.is_a?(Module)` resolve via the
+              # IS_A LUT against the right row (Class's ancestors /
+              # Module's ancestors), instead of the eigenclass's own
+              # row whose Vm-side ancestors_list is just `[M]`.
+              cid =
+                if klass.name.end_with?("_eigenclass")
+                  klass.parent == "Module" ? @class_ids&.fetch("Module", nil) : @class_ids&.fetch("Class", nil)
+                else
+                  @class_ids && @class_ids[klass.name]
+                end
               if cid && klass.name != "BasicObject"
                 emit.line "int __class_id__() const override { return #{cid}; }"
               end

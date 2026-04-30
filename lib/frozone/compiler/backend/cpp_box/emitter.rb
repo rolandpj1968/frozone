@@ -524,7 +524,14 @@ module Frozone
             names = Set.new
             walk = ->(node) {
               return unless node.is_a?(Ast::Node)
-              if node.is_a?(Ast::ConstantPath) && node.parent_node && !static_constant_parent?(node.parent_node)
+              if node.is_a?(Ast::ConstantPath) && node.parent_node
+                # Include every ConstantPath last-segment, regardless
+                # of whether the parent is statically resolvable. The
+                # static-resolution path can fall back to dynamic c_X
+                # dispatch when a constant doesn't resolve at AOT
+                # (e.g. `M::UNDEFINED` should reach const_missing at
+                # runtime), so the slot needs to exist on the
+                # eigenclass either way.
                 names << node.name.to_sym
               end
               node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
