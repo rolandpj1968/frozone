@@ -52,13 +52,25 @@ module Frozone
         seen_bodies = Set.new
         worklist = []
 
-        schedule_body = lambda do |body|
+        # Worklist holds [body, scope_prefixes] tuples. scope_prefixes
+        # is an array of part-arrays (innermost first), used for
+        # Ruby-style lexical constant lookup. Empty for top-level
+        # bodies; `[["Blurhash", "Ruby"], ["Blurhash"]]` for a method
+        # body inside `Blurhash::Ruby`.
+        schedule_body = lambda do |body, scope_prefixes = []|
           next if body.nil? || seen_bodies.include?(body.object_id)
           seen_bodies << body.object_id
-          worklist << body
+          worklist << [body, scope_prefixes]
         end
 
-        resolve_const_to_flat = lambda do |node|
+        # Walk lexical scope (innermost first) trying each prefix
+        # joined with `parts`. Falls through to the bare top-level
+        # lookup last. Mirrors cpp.rb's resolve_constant — without
+        # this, `Ruby` inside `Blurhash::Ruby` resolves to top-level
+        # `Ruby` (the VM-bootstrap MRI-compat module) instead of
+        # `Blurhash::Ruby`, dragging the wrong class into the reach
+        # set and pruning the actually-needed one.
+        resolve_const_to_flat = lambda do |node, scope_prefixes|
           parts =
             case node
             when Ast::ConstantRead then [node.name.to_s]
@@ -67,22 +79,36 @@ module Frozone
             end
           parts.reject!(&:empty?)
           return nil if parts.empty?
-          flat = parts.join("_").to_sym
-          all_classes.key?(flat) ? flat : nil
+          (scope_prefixes + [[]]).each do |prefix|
+            flat = (prefix + parts).join("_").to_sym
+            return flat if all_classes.key?(flat)
+          end
+          nil
+        end
+
+        # Class's lexical scope chain (innermost first), as part-arrays.
+        # `Blurhash::Ruby` → [["Blurhash", "Ruby"], ["Blurhash"]].
+        # Skips the top-level (bare) lookup — that's appended in
+        # resolve_const_to_flat.
+        scope_for_class = lambda do |cls|
+          fname = (cls.full_name || cls.name).to_s
+          parts = fname.split("::")
+          (1..parts.size).map { |i| parts.first(i) }.reverse
         end
 
         schedule_class = lambda do |flat|
           next unless flat && all_classes.key?(flat) && reach.add?(flat)
           cls = all_classes[flat]
+          scope = scope_for_class.call(cls)
           # Walk own + eigenclass bodies — they can transitively
           # reference more classes via constants.
           (cls.methods_table || {}).each_value do |m|
-            schedule_body.call(m.body) if m.is_a?(Vm::Method)
+            schedule_body.call(m.body, scope) if m.is_a?(Vm::Method)
           end
           eigen = cls.eigenclass rescue nil
           if eigen
             (eigen.methods_table || {}).each_value do |m|
-              schedule_body.call(m.body) if m.is_a?(Vm::Method)
+              schedule_body.call(m.body, scope) if m.is_a?(Vm::Method)
             end
           end
           # Ancestors (parent class + included/prepended modules) are
@@ -95,13 +121,13 @@ module Frozone
           end
         end
 
-        walk_for_classes = lambda do |node|
+        walk_for_classes = lambda do |node, scope_prefixes|
           next unless node.is_a?(Ast::Node)
           case node
           when Ast::ConstantRead, Ast::ConstantPath
-            schedule_class.call(resolve_const_to_flat.call(node))
+            schedule_class.call(resolve_const_to_flat.call(node, scope_prefixes))
           end
-          node.children.each { |c| walk_for_classes.call(c) } if node.respond_to?(:children)
+          node.children.each { |c| walk_for_classes.call(c, scope_prefixes) } if node.respond_to?(:children)
         end
 
         # Instantiated classes (rooted via user-constant accessors,
@@ -122,27 +148,29 @@ module Frozone
         #    methods on Integer/Array/Hash/etc. CAN reference user
         #    classes via constant lookups — those references should
         #    transitively root the user classes).
-        schedule_body.call(execute_block)
+        schedule_body.call(execute_block, [])
         (user_methods || {}).each_value do |m|
-          schedule_body.call(m.body) if m.is_a?(Vm::Method)
+          schedule_body.call(m.body, []) if m.is_a?(Vm::Method)
         end
         top = top_level_scope.constants_table || {}
         universe_class_names.each do |universe_name|
           cls = top[universe_name.to_sym]
           next unless cls.is_a?(Vm::ModuleObject)
+          scope = scope_for_class.call(cls)
           (cls.methods_table || {}).each_value do |m|
-            schedule_body.call(m.body) if m.is_a?(Vm::Method)
+            schedule_body.call(m.body, scope) if m.is_a?(Vm::Method)
           end
           eigen = cls.eigenclass rescue nil
           if eigen
             (eigen.methods_table || {}).each_value do |m|
-              schedule_body.call(m.body) if m.is_a?(Vm::Method)
+              schedule_body.call(m.body, scope) if m.is_a?(Vm::Method)
             end
           end
         end
 
         until worklist.empty?
-          walk_for_classes.call(worklist.shift)
+          body, scope_prefixes = worklist.shift
+          walk_for_classes.call(body, scope_prefixes)
         end
 
         reach

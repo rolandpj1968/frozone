@@ -240,6 +240,8 @@ module Frozone
             when Ast::MethodCall then from_method_call(node, locals)
             when Ast::AttributeWrite then from_attribute_write(node, locals)
             when Ast::IndexOperatorWrite then from_index_op_write(node, locals)
+            when Ast::IndexOrWrite then from_index_or_write(node, locals)
+            when Ast::IndexAndWrite then from_index_and_write(node, locals)
             when Ast::And then from_and(node, locals)
             when Ast::Or then from_or(node, locals)
             when Ast::If then from_if(node, locals)
@@ -440,7 +442,7 @@ module Frozone
               bind_str = ""
               if clause.var_name
                 bind_locals << clause.var_name.to_s
-                bind_str = "BasicObject* #{clause.var_name} = e_; "
+                bind_str = "BasicObject* #{MethodEmitter.local_cpp_name(clause.var_name)} = e_; "
               end
               arm_call = body_as_lambda_call(clause.body, bind_locals)
               buf << "if (#{cond}) { #{bind_str}return #{arm_call}; } "
@@ -721,6 +723,17 @@ module Frozone
             match_data_named_captures: ->(_self_) { "(new Hash())" },  # stub — empty hash
             match_data_names: ->(_self_) { "(new Array())" },          # stub — empty array
             match_data_values_at_range: ->(_self_, _r, _n) { "(new Array())" },  # stub
+
+            # Fiber storage — `Fiber[:k]` / `Fiber[:k] = v`. Backed by
+            # a single global Hash* (single-threaded today); identity
+            # keys work because Symbols intern. Direct ->data access
+            # avoids the universal m_aref/m_aset Array allocation.
+            fiber_storage_get: ->(_self_, key) {
+              "([&]() -> BasicObject* { auto& _h = g_fiber_storage()->data; auto _it = _h.find(#{key}); return (_it == _h.end()) ? nil_instance() : _it->second; }())"
+            },
+            fiber_storage_set: ->(_self_, key, val) {
+              "(g_fiber_storage()->data[#{key}] = #{val})"
+            },
           }.freeze
 
           # `Ast::Yield` → call into the implicit `_block` Proc* that
@@ -824,6 +837,36 @@ module Frozone
             # `recv->aref(idx) op val` → `recv->aset(idx, that)`. Using a
             # comma operator to bind recv once, then form the aset call.
             "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* _idx = #{idx_array}; return #{recv_t}->m_aset(new Array({#{idx_strs.join(", ")}, #{recv_t}->m_aref(_idx)->#{cpp_op}(new Array({#{val_str}}))})); }())"
+          end
+
+          # `recv[idx] ||= val` — read once, return if truthy, else
+          # `recv[idx] = val` and return val. Index list and receiver
+          # evaluated once. Mirror of from_index_op_write but with
+          # short-circuit truthiness instead of an arithmetic op.
+          def from_index_or_write(node, locals)
+            recv_str = node.receiver_node ? from_expr(node.receiver_node, locals) : "this"
+            idx_strs = (node.index_arg_nodes || []).map { |a| from_arg(a, locals) }
+            val_str = from_expr(node.value_node, locals)
+            tag = next_tmp_id
+            recv_t = "__iorw_recv_#{tag}__"
+            cur_t = "__iorw_cur_#{tag}__"
+            new_t = "__iorw_new_#{tag}__"
+            idx_array = "(new Array({#{idx_strs.join(", ")}}))"
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->m_aref(#{idx_array}); if (truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->m_aset(new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
+          end
+
+          # `recv[idx] &&= val` — read once, return if falsy, else
+          # `recv[idx] = val` and return val.
+          def from_index_and_write(node, locals)
+            recv_str = node.receiver_node ? from_expr(node.receiver_node, locals) : "this"
+            idx_strs = (node.index_arg_nodes || []).map { |a| from_arg(a, locals) }
+            val_str = from_expr(node.value_node, locals)
+            tag = next_tmp_id
+            recv_t = "__iaw_recv_#{tag}__"
+            cur_t = "__iaw_cur_#{tag}__"
+            new_t = "__iaw_new_#{tag}__"
+            idx_array = "(new Array({#{idx_strs.join(", ")}}))"
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->m_aref(#{idx_array}); if (!truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->m_aset(new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
           end
 
           # Ruby's `&&` returns the last truthy value or the first falsy.

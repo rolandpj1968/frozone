@@ -1268,7 +1268,11 @@ module Frozone
             signature: "int64_t coerce_to_int(BasicObject* v)",
             body: <<~CPP.chomp,
               if (v && v->m_class() == (BasicObject*)(&Integer_CLASS)) return static_cast<Integer*>(v)->raw_;
-              if (v && v != nil_instance()) {
+              // Only dispatch m_to_int if the receiver actually responds.
+              // Otherwise the universal-vtable fallthrough raises
+              // NoMethodError, which masks the TypeError MRI expects
+              // (Array#[] with a non-coercible index, etc.).
+              if (v && v != nil_instance() && v->m_respond_to_q(new Array({intern("to_int")})) == true_instance()) {
                 BasicObject* r = v->m_to_int();
                 if (r && r->m_class() == (BasicObject*)(&Integer_CLASS)) return static_cast<Integer*>(r)->raw_;
               }
@@ -1500,6 +1504,21 @@ module Frozone
             CPP
           )
 
+          # Fiber storage — `Fiber[:k]` / `Fiber[:k] = v`. Single-
+          # threaded today, so a plain global Hash* suffices.
+          # Allocated lazily on first access so static-init order
+          # doesn't matter. Symbol identity keys work transparently
+          # because Symbols intern (singleton instances per name).
+          FIBER_STORAGE_GLOBAL = KernelFn.new(
+            name: "g_fiber_storage",
+            signature: "Hash* g_fiber_storage()",
+            body: <<~CPP.chomp,
+              static Hash* g = nullptr;
+              if (!g) g = new Hash();
+              return g;
+            CPP
+          )
+
           ALL_KERNEL_FNS = [
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
             BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
@@ -1507,7 +1526,8 @@ module Frozone
             COERCE_TO_INT_FN, RAISE_ARITY_FN,
             MM_DISPATCH_FN, CM_DISPATCH_FN,
             INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
-            STRING_GSUB_FN, STRING_UNPACK_FN
+            STRING_GSUB_FN, STRING_UNPACK_FN,
+            FIBER_STORAGE_GLOBAL,
           ].freeze
 
           # ---- Intrinsics -----------------------------------------
