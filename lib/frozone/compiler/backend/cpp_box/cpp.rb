@@ -771,6 +771,18 @@ module Frozone
               "(new Integer(static_cast<int64_t>(static_cast<Hash*>(#{self_})->data.size())))"
             },
 
+            # `Kernel#raise(msg, message, backtrace, cause)`. Most
+            # programs use `raise X` (1-arg) or `raise X, msg`
+            # (2-arg); 3+ arg backtrace/cause variants are rare and
+            # treated the same here. Skips the "0-arg re-raise"
+            # path (would need thread-local current-exception
+            # tracking) — a `raise` with no real arg uses the
+            # sentinel `:__raise_no_arg__` set by the Ruby default,
+            # which we just treat as a fresh RuntimeError.
+            kernel_raise: ->(_self_, msg, message, _backtrace, _cause) {
+              "([&]() -> BasicObject* { BasicObject* _m = (#{msg}); BasicObject* _msg = (#{message}); BasicObject* _exc; if (auto* _k = dynamic_cast<Class*>(_m)) { _exc = (_msg == nil_instance()) ? _k->m_new() : _k->m_new(new Array({_msg})); } else if (dynamic_cast<Exception*>(_m)) { _exc = _m; } else { _exc = (&RuntimeError_CLASS)->m_new(new Array({_m})); } throw static_cast<Exception*>(_exc); }())"
+            },
+
             # Fiber storage — `Fiber[:k]` / `Fiber[:k] = v`. Backed by
             # a single global Hash* (single-threaded today); identity
             # keys work because Symbols intern. Direct ->data access
