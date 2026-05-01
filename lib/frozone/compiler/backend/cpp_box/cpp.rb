@@ -357,7 +357,17 @@ module Frozone
               # the value IS an Array, which is the common case.
               "static_cast<Array*>(#{from_expr(arg_nodes[0].value_node, locals)})"
             elsif arg_nodes.any? { |a| a.is_a?(Ast::SplatArg) }
-              raise EmissionError, "mixed positional + splat args not yet supported"
+              # Mixed positional + splat: flatten into a fresh Array
+              # via a lambda that pushes each piece. Splats append
+              # all elements, positionals append singly.
+              push_lines = arg_nodes.map do |a|
+                if a.is_a?(Ast::SplatArg)
+                  "for (auto* _e : static_cast<Array*>(#{from_expr(a.value_node, locals)})->data) _r->data.push_back(_e);"
+                else
+                  "_r->data.push_back(#{from_expr(a, locals)});"
+                end
+              end
+              "([&]() -> Array* { Array* _r = new Array(); #{push_lines.join(' ')} return _r; }())"
             else
               args = arg_nodes.map { |a| from_expr(a, locals) }
               "(new Array({#{args.join(", ")}}))"
