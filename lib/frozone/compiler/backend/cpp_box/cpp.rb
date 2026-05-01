@@ -794,6 +794,21 @@ module Frozone
             # ~100-450 method-body skips. Where we don't have a real
             # implementation yet, return nil/false/empty/self —
             # enough to stop downstream nil.foo cascades.
+            # `BasicObject#__send__(name, *args)` — same dispatch as
+            # `Object#send` (universal protocol doesn't gate by
+            # visibility today). Routes through m_send.
+            basic_object___send__: ->(self_, name, args, kwargs, block) {
+              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{args}); Array* _full = new Array(); _full->data.push_back(#{name}); for (auto* _e : _a->data) _full->data.push_back(_e); return (#{self_})->m_send(_full, dynamic_cast<Hash*>(#{kwargs}), dynamic_cast<Proc*>(#{block})); }())"
+            },
+            # `BasicObject#method_missing(name, *args)` — default
+            # impl raises NoMethodError. mm_dispatch already does
+            # this when the method is unknown; this intrinsic is
+            # for explicit `super` chains in user-defined
+            # method_missing.
+            basic_object_method_missing: ->(_self_, name, _args, _kwargs) {
+              "([&]() -> BasicObject* { Symbol* _n = dynamic_cast<Symbol*>(#{name}); const char* _name = _n ? _n->name_ : \"<?>\"; std::string _msg = std::string(\"undefined method '\") + _name + \"'\"; throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(_msg.data(), _msg.size()))}))); }())"
+            },
+
             object_dup: ->(self_) {
               # Shallow copy. dynamic_cast picks the runtime type
               # so the new instance has the right vtable; ivars
@@ -1174,8 +1189,24 @@ module Frozone
           end
 
           def from_array_literal(node, locals)
-            elems = (node.element_nodes || []).map { |e| from_expr(e, locals) }
-            "(new Array({#{elems.join(", ")}}))"
+            elems = node.element_nodes || []
+            if elems.any? { |e| e.is_a?(Ast::SplatArg) }
+              # `[a, *arr, b]` — flatten splats into a fresh Array
+              # via lambda. Mirrors build_args_array's mixed-splat
+              # handling. Static_cast assumes the splat value IS an
+              # Array (covered case for box-first today; real Ruby
+              # would call to_a).
+              push_lines = elems.map do |e|
+                if e.is_a?(Ast::SplatArg)
+                  "for (auto* _e : static_cast<Array*>(#{from_expr(e.value_node, locals)})->data) _r->data.push_back(_e);"
+                else
+                  "_r->data.push_back(#{from_expr(e, locals)});"
+                end
+              end
+              "([&]() -> Array* { Array* _r = new Array(); #{push_lines.join(' ')} return _r; }())"
+            else
+              "(new Array({#{elems.map { |e| from_expr(e, locals) }.join(", ")}}))"
+            end
           end
 
           # StringLiteral → (new String("...", N)). Bytes-and-length
