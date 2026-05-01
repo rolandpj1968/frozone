@@ -1,5 +1,6 @@
 require_relative '../../../../support/vm_loader'
 require_relative '../../../../../lib/frozone/compiler/backend/cpp_box/cpp'
+require_relative '../../../../../lib/frozone/compiler/backend/cpp_box/emitter'
 
 # Pure-function tests for `Cpp` (the cpp-string-from-AST-node side of
 # the box-first emitter). Cpp is testable in isolation because it
@@ -79,12 +80,16 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   end
 
   describe "#from_expr — literals" do
-    it "IntegerLiteral → boxed Integer with LL suffix" do
-      expect(cpp.from_expr(int(42), locals)).to eq("(new Integer(42LL))")
+    it "IntegerLiteral resolves to interned cache (&_f_i_<N>) singleton" do
+      # Was `(new Integer(42LL))` — emitter now interns small / common
+      # Integer literals at AOT time and references the cached
+      # `_f_i_<N>` singleton instead of allocating a new boxed Integer
+      # at every call site. `n` prefix on the value marks negative.
+      expect(cpp.from_expr(int(42), locals)).to eq("(&_f_i_42)")
     end
 
-    it "IntegerLiteral preserves negative literals" do
-      expect(cpp.from_expr(int(-1), locals)).to eq("(new Integer(-1LL))")
+    it "IntegerLiteral preserves negative literals via _f_i_n<N>" do
+      expect(cpp.from_expr(int(-1), locals)).to eq("(&_f_i_n1)")
     end
 
     it "FloatLiteral → boxed Float" do
@@ -114,13 +119,16 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   end
 
   describe "#from_expr — local variables" do
-    it "LocalVariableRead emits the bare name" do
-      expect(cpp.from_expr(lvr(:total), locals)).to eq("total")
+    it "LocalVariableRead emits the l_<name> mangled identifier" do
+      # Was bare `total` — emitter now prefixes user locals with `l_`
+      # to dodge collisions with universal-protocol params (`args`,
+      # `kwargs`, `block`) and C++ keywords. See MethodEmitter.
+      expect(cpp.from_expr(lvr(:total), locals)).to eq("l_total")
     end
 
     it "LocalVariableWrite reassignment when name already in locals" do
       locals << "total"
-      expect(cpp.from_expr(lvw(:total, int(0)), locals)).to eq("(total = (new Integer(0LL)))")
+      expect(cpp.from_expr(lvw(:total, int(0)), locals)).to eq("(l_total = (&_f_i_0))")
     end
 
     it "LocalVariableWrite expr-position decl raises EmissionError (eager fail)" do
@@ -135,24 +143,29 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     end
 
     it "InstanceVariableWrite emits assignment via this->iv_<name>" do
-      expect(cpp.from_expr(ivw(:@count, int(7)), locals)).to eq("(this->iv_count = (new Integer(7LL)))")
+      expect(cpp.from_expr(ivw(:@count, int(7)), locals)).to eq("(this->iv_count = (&_f_i_7))")
     end
   end
 
   describe "#from_expr — method calls" do
-    it "binary operator dispatches via m_<op> with universal protocol" do
+    # Note: emitter elides `, nullptr, nullptr` for the kwargs+block
+    # default args — the universal vtable signature is
+    # `m_X(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc*
+    # block = nullptr)`, so trailing defaults are taken from the
+    # signature rather than spelled at call sites.
+    it "binary operator dispatches via m_<op> (defaults elided)" do
       expect(cpp.from_expr(call(:<, lvr(:n), [int(2)]), locals))
-        .to eq("n->m_lt((new Array({(new Integer(2LL))})), nullptr, nullptr)")
+        .to eq("l_n->m_lt((new Array({(&_f_i_2)})))")
     end
 
     it "puts (no receiver) emits ruby_puts wrapped to return nil_instance" do
       expect(cpp.from_expr(call(:puts, nil, [int(42)]), locals))
-        .to eq("(ruby_puts((new Integer(42LL))), nil_instance())")
+        .to eq("(ruby_puts((&_f_i_42)), nil_instance())")
     end
 
-    it "bare call (no receiver) dispatches through this->m_<name> with universal protocol" do
+    it "bare call (no receiver) dispatches through this->m_<name>" do
       expect(cpp.from_expr(call(:fib, nil, [int(20)]), locals))
-        .to eq("this->m_fib((new Array({(new Integer(20LL))})), nullptr, nullptr)")
+        .to eq("this->m_fib((new Array({(&_f_i_20)})))")
     end
   end
 
@@ -161,28 +174,35 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     let(:cpp) { described_class.new(user_classes: { Box: user_class }, user_constants: {}) }
 
     it "user-class .new emits direct C++ instantiation" do
-      expect(cpp.from_expr(call(:new, cr(:Box), [int(42)]), locals)).to eq("(&Box_CLASS)->m_new((new Array({(new Integer(42LL))})), nullptr, nullptr)")
+      expect(cpp.from_expr(call(:new, cr(:Box), [int(42)]), locals))
+        .to eq("(&Box_CLASS)->m_new((new Array({(&_f_i_42)})))")
     end
 
-    it "Universe-seeded class .new (Array) also routes through new" do
-      expect(cpp.from_expr(call(:new, cr(:Array), []), locals)).to eq("(&Array_CLASS)->m_new((new Array({})), nullptr, nullptr)")
+    it "Universe-seeded class .new (Array) — empty args fully elided" do
+      expect(cpp.from_expr(call(:new, cr(:Array), []), locals))
+        .to eq("(&Array_CLASS)->m_new()")
     end
   end
 
   describe "#from_expr — ConstantPath (Foo::Bar)" do
-    it "raises EmissionError when unregistered (eager fail)" do
+    it "raises EmissionError when the parent constant is unregistered" do
+      # Resolution attempts the parent's own resolution first
+      # (`from_constant_read(:Foo)`); the unresolved-Foo error
+      # surfaces before the `Foo::Bar` path even gets to its own
+      # check. The error mentions the first-failing leaf rather
+      # than the full path.
       foo = A::ConstantRead.new(:Foo)
       path = A::ConstantPath.new(foo, :Bar)
       expect { cpp.from_expr(path, locals) }
-        .to raise_error(C::EmissionError, /Foo::Bar/)
+        .to raise_error(C::EmissionError, /unresolved constant :Foo/)
     end
 
-    it "deeply nested Foo::Bar::Baz raises with full path in message" do
+    it "deeply nested Foo::Bar::Baz still surfaces parent-resolution failure" do
       foo = A::ConstantRead.new(:Foo)
       foo_bar = A::ConstantPath.new(foo, :Bar)
       foo_bar_baz = A::ConstantPath.new(foo_bar, :Baz)
       expect { cpp.from_expr(foo_bar_baz, locals) }
-        .to raise_error(C::EmissionError, /Foo::Bar::Baz/)
+        .to raise_error(C::EmissionError, /unresolved constant :Foo/)
     end
 
     it "registered ConstantPath resolves to flattened k_<flat>() accessor" do
@@ -193,11 +213,14 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       expect(cpp.from_expr(path, locals)).to eq("k_Foo_Bar()")
     end
 
-    it "RootNamespaceNode parent (`::Foo`) drops the root and uses bare name" do
+    it "RootNamespaceNode parent (`::Foo`) raises with absolute-path message" do
       root = A::RootNamespaceNode::INSTANCE
       path = A::ConstantPath.new(root, :Foo)
+      # Absolute paths can't fall back to runtime c_X dispatch (no
+      # parent receiver to dispatch on), so they hard-fail with
+      # the path in the message.
       expect { cpp.from_expr(path, locals) }
-        .to raise_error(C::EmissionError, /Foo/)
+        .to raise_error(C::EmissionError, /unresolved path Foo/)
     end
 
     it "ConstantPath.new(args) instantiates the flattened class name" do
@@ -206,7 +229,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       foo = A::ConstantRead.new(:Foo)
       path = A::ConstantPath.new(foo, :Bar)
       call = A::MethodCall.new(:new, path, [int(7)], [], nil)
-      expect(cpp.from_expr(call, locals)).to eq("(&Foo_Bar_CLASS)->m_new((new Array({(new Integer(7LL))})), nullptr, nullptr)")
+      expect(cpp.from_expr(call, locals)).to eq("(&Foo_Bar_CLASS)->m_new((new Array({(&_f_i_7)})))")
     end
   end
 
@@ -236,7 +259,8 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
 
   describe "#from_expr — collection literals" do
     it "ArrayLiteral emits initializer-list ctor" do
-      expect(cpp.from_expr(arr([int(1), int(2)]), locals)).to eq("(new Array({(new Integer(1LL)), (new Integer(2LL))}))")
+      expect(cpp.from_expr(arr([int(1), int(2)]), locals))
+        .to eq("(new Array({(&_f_i_1), (&_f_i_2)}))")
     end
 
     it "empty ArrayLiteral" do
@@ -248,7 +272,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       sym_b = A::SymbolLiteral.from(:b)
       node = A::HashLiteral.new([[sym_a, int(1)], [sym_b, int(2)]])
       expect(cpp.from_expr(node, locals)).to eq(
-        '(new Hash({{intern("a"), (new Integer(1LL))}, {intern("b"), (new Integer(2LL))}}))'
+        '(new Hash({{intern("a"), (&_f_i_1)}, {intern("b"), (&_f_i_2)}}))'
       )
     end
 
@@ -259,22 +283,21 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
     it "HashLiteral skips **splat entries (key=nil)" do
       node = A::HashLiteral.new([[A::SymbolLiteral.from(:a), int(1)], [nil, lvr(:other)]])
       expect(cpp.from_expr(node, locals)).to eq(
-        '(new Hash({{intern("a"), (new Integer(1LL))}}))'
+        '(new Hash({{intern("a"), (&_f_i_1)}}))'
       )
     end
   end
 
   describe "#from_expr — Yield" do
-    it "yield with no args wraps in empty Array via universal call protocol" do
+    it "yield with no args dispatches m_call() with the universal-arg defaults" do
       node = A::Yield.new([])
-      expect(cpp.from_expr(node, locals))
-        .to eq("_block->m_call((new Array({})), nullptr, nullptr)")
+      expect(cpp.from_expr(node, locals)).to eq("_block->m_call()")
     end
 
-    it "yield with one arg wraps the arg in Array" do
+    it "yield with one arg wraps in Array (no parens around args, no defaults)" do
       node = A::Yield.new([int(42)])
       expect(cpp.from_expr(node, locals))
-        .to eq("_block->m_call((new Array({(new Integer(42LL))})), nullptr, nullptr)")
+        .to eq("_block->m_call(new Array({(&_f_i_42)}))")
     end
   end
 
@@ -284,7 +307,7 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       splat = A::SplatArg.new(arr)
       node = A::MethodCall.new(:collect, nil, [splat], [], nil)
       expect(cpp.from_expr(node, locals))
-        .to eq("this->m_collect(static_cast<Array*>(arr), nullptr, nullptr)")
+        .to eq("this->m_collect(static_cast<Array*>(l_arr))")
     end
 
     it "mixed positional + splat raises EmissionError (deferred)" do
@@ -297,6 +320,14 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
 
   describe "#from_expr — block-bearing call" do
     it "wraps block as Proc lambda and passes as trailing arg" do
+      # from_block_as_proc renders the block body via emit.capture
+      # and the body's exprs need to call back into emit.cpp, so
+      # the Cpp instance needs an Emit and the Emit needs to know
+      # this Cpp. Production wires this in Emitter.generate; spec
+      # threads it manually here.
+      emitter = Frozone::Compiler::Backend::CppBox::Emitter.new
+      emitter.instance_variable_set(:@cpp, cpp)
+      cpp.emit = emitter
       blk = A::Block.new(
         [:n], [], nil, [],     # required, optional, rest, post
         [], [], nil, nil,      # kw, opt-kw, kw-rest, block
@@ -306,8 +337,13 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       thrice = A::MethodCall.new(:thrice, nil, [], [], blk)
       result = cpp.from_expr(thrice, locals)
       expect(result).to include("this->m_thrice(")
-      expect(result).to include("(new Proc([&](BasicObject* arg) -> BasicObject*")
-      expect(result).to include("BasicObject* n = arg;")
+      # Lambda takes Array* __blkargs__ (universal protocol —
+      # multi-arg yield works since args is an Array). Captures
+      # `this` POINTER by value (`[&, this]`), locals by ref —
+      # so Procs stored on ivars don't dangle. See pitfalls #1.
+      expect(result).to include("(new Proc([&, this](Array* __blkargs__) -> BasicObject*")
+      # Block-param `|n|` binds from data[0] (or nil).
+      expect(result).to include("l_n = (0 < (int)__blkargs__->data.size())")
       expect(result).to include("return")
     end
   end
@@ -353,21 +389,21 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       a = int(1)
       b = int(2)
       node = A::If.new(cond, a, b)
-      expect(cpp.from_expr(node, locals)).to eq("(truthy(c) ? ((new Integer(1LL))) : ((new Integer(2LL))))")
+      expect(cpp.from_expr(node, locals)).to eq("(truthy(l_c) ? ((&_f_i_1)) : ((&_f_i_2)))")
     end
 
     it "if without else defaults else to nil_instance" do
       cond = lvr(:c)
       a = int(1)
       node = A::If.new(cond, a, nil)
-      expect(cpp.from_expr(node, locals)).to eq("(truthy(c) ? ((new Integer(1LL))) : (nil_instance()))")
+      expect(cpp.from_expr(node, locals)).to eq("(truthy(l_c) ? ((&_f_i_1)) : (nil_instance()))")
     end
 
     it "if without then defaults then to nil_instance" do
       cond = lvr(:c)
       b = int(2)
       node = A::If.new(cond, nil, b)
-      expect(cpp.from_expr(node, locals)).to eq("(truthy(c) ? (nil_instance()) : ((new Integer(2LL))))")
+      expect(cpp.from_expr(node, locals)).to eq("(truthy(l_c) ? (nil_instance()) : ((&_f_i_2)))")
     end
   end
 
@@ -377,10 +413,10 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       whens = [A::Case::When.new([int(1)], int(10)), A::Case::When.new([int(2)], int(20))]
       node = A::Case.new(subj, whens, int(0))
       result = cpp.from_expr(node, locals)
-      expect(result).to include("auto* _subj = x")
-      expect(result).to include("(new Integer(1LL))->m_case_eq((new Array({_subj})), nullptr, nullptr)")
-      expect(result).to include("return (new Integer(10LL))")
-      expect(result).to include("return (new Integer(0LL))")
+      expect(result).to include("auto* _subj = l_x")
+      expect(result).to include("(&_f_i_1)->m_case_eq(new Array({_subj}))")
+      expect(result).to include("return (&_f_i_10)")
+      expect(result).to include("return (&_f_i_0)")
     end
 
     it "case-without-subject treats conditions as truthy tests directly" do
@@ -388,8 +424,8 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
       node = A::Case.new(nil, whens, nil)
       result = cpp.from_expr(node, locals)
       expect(result).not_to include("_subj")
-      expect(result).to include("truthy(c1)")
-      expect(result).to include("truthy(c2)")
+      expect(result).to include("truthy(l_c1)")
+      expect(result).to include("truthy(l_c2)")
       expect(result).to include("return nil_instance()")  # default else
     end
 
@@ -406,30 +442,30 @@ RSpec.describe Frozone::Compiler::Backend::CppBox::Cpp do
   describe "#from_expr — short-circuit operators" do
     it "And lambda-wraps to evaluate left once + short-circuit right" do
       result = cpp.from_expr(and_(lvr(:n), lvr(:m)), locals)
-      expect(result).to include("auto* _l = n")
-      expect(result).to include("truthy(_l) ? (m) : _l")
+      expect(result).to include("auto* _l = l_n")
+      expect(result).to include("truthy(_l) ? (l_m) : _l")
     end
 
     it "Or returns first truthy or last" do
       result = cpp.from_expr(or_(lvr(:a), lvr(:b)), locals)
-      expect(result).to include("truthy(_l) ? _l : (b)")
+      expect(result).to include("truthy(_l) ? _l : (l_b)")
     end
   end
 
   describe "#from_expr — Sequence (parenthesized exprs)" do
     it "single-node Sequence renders as parenthesized expr" do
-      expect(cpp.from_expr(seq([int(7)]), locals)).to eq("((new Integer(7LL)))")
+      expect(cpp.from_expr(seq([int(7)]), locals)).to eq("((&_f_i_7))")
     end
 
     it "multi-node Sequence renders as comma-operator" do
-      expect(cpp.from_expr(seq([int(1), int(2)]), locals)).to eq("((new Integer(1LL)), (new Integer(2LL)))")
+      expect(cpp.from_expr(seq([int(1), int(2)]), locals)).to eq("((&_f_i_1), (&_f_i_2))")
     end
   end
 
   describe "#from_expr — AttributeWrite (arr[k] = v)" do
-    it "emits m_aset vtable call with universal protocol" do
+    it "emits m_aset vtable call (defaults elided)" do
       expect(cpp.from_expr(aw(:[]=, lvr(:a), [int(0), int(99)]), locals))
-        .to eq("a->m_aset((new Array({(new Integer(0LL)), (new Integer(99LL))})), nullptr, nullptr)")
+        .to eq("l_a->m_aset((new Array({(&_f_i_0), (&_f_i_99)})))")
     end
   end
 
