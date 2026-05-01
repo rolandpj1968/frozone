@@ -490,12 +490,21 @@ module Frozone
           # — the nested lambda captures all enclosing locals by reference
           # and returns the value of the last expression. Used by
           # from_rescue for body / else / arm bodies.
-          def body_as_lambda_call(body, locals)
-            "#{body_as_lambda(body, locals, last_is_return: true)}()"
+          # next_returns: true makes `next [v]` lower as `return v;`
+          # (block-return semantics). Set when the call site's body
+          # might semantically be inside a block (e.g. case-when
+          # bodies emitted via body_as_lambda_call from from_case —
+          # those bodies can be inside an enclosing Proc lambda
+          # where `next` should target the block, not the case).
+          # Default false matches the rescue-arm case where `next`
+          # should escape to the enclosing loop (and would normally
+          # raise EmissionError if such a next is found).
+          def body_as_lambda_call(body, locals, next_returns: false)
+            "#{body_as_lambda(body, locals, last_is_return: true, next_returns: next_returns)}()"
           end
 
-          def body_as_lambda(body, locals, last_is_return:)
-            "[&]() -> BasicObject* #{body_as_block(body, locals, last_is_return: last_is_return)}"
+          def body_as_lambda(body, locals, last_is_return:, next_returns: false)
+            "[&]() -> BasicObject* #{body_as_block(body, locals, last_is_return: last_is_return, next_returns: next_returns)}"
           end
 
           # Render `{ ... }` for a body — used both as the lambda body
@@ -503,10 +512,10 @@ module Frozone
           # statement type (if/while/case) is supported. Trailing
           # `return nil_instance();` is a safety net for empty bodies
           # and last_is_return=false paths.
-          def body_as_block(body, locals, last_is_return:)
+          def body_as_block(body, locals, last_is_return:, next_returns: false)
             return "{ return nil_instance(); }" unless body
             inner = @emit.capture do
-              ExprEmitter.write_body(@emit, body, locals: locals, last_is_return: last_is_return)
+              ExprEmitter.write_body(@emit, body, locals: locals, last_is_return: last_is_return, next_returns: next_returns)
             end
             "{ #{inner.gsub("\n", " ")} return nil_instance(); }"
           end
@@ -1155,9 +1164,30 @@ module Frozone
               # `def assignable`). Each arm becomes its own
               # lambda; the outer lambda short-circuits on the
               # first truthy condition.
-              buf << "if (#{cond_strs.join(" || ")}) return #{body_as_lambda_call(w.body_node, locals)}; "
+              # ...except when the body contains Next/Break: the
+              # `next`/`break` semantically targets the case's
+              # ENCLOSING loop or block, not the case-arm lambda.
+              # Wrapping in our own lambda would either C++-compile-
+              # fail (`continue` outside a loop) or silently swallow
+              # the next/break. Fall back to from_expr for those —
+              # it'll EmissionError-skip the method body, which is
+              # a known limitation but at least graceful.
+              body_str =
+                if contains_loop_escape?(w.body_node, allow_next: false)
+                  from_expr(w.body_node, locals)
+                else
+                  body_as_lambda_call(w.body_node, locals)
+                end
+              buf << "if (#{cond_strs.join(" || ")}) return #{body_str}; "
             end
-            else_str = node.else_node ? body_as_lambda_call(node.else_node, locals) : "nil_instance()"
+            else_str =
+              if node.else_node.nil?
+                "nil_instance()"
+              elsif contains_loop_escape?(node.else_node, allow_next: false)
+                from_expr(node.else_node, locals)
+              else
+                body_as_lambda_call(node.else_node, locals)
+              end
             buf << "return #{else_str}; }())"
             buf
           end
