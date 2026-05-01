@@ -738,6 +738,22 @@ module Frozone
             match_data_names: ->(_self_) { "(new Array())" },          # stub — empty array
             match_data_values_at_range: ->(_self_, _r, _n) { "(new Array())" },  # stub
 
+            # Hash intrinsics — direct ->data access. Hash class is
+            # universe-defined with map_t data; these intrinsics
+            # bypass the m_aref/m_aset Array allocation.
+            hash_key: ->(self_, k) {
+              "boxed_bool(static_cast<Hash*>(#{self_})->data.find(#{k}) != static_cast<Hash*>(#{self_})->data.end())"
+            },
+            hash_index: ->(self_, k) {
+              "([&]() -> BasicObject* { auto* _h = static_cast<Hash*>(#{self_}); auto _it = _h->data.find(#{k}); return (_it == _h->data.end()) ? nil_instance() : _it->second; }())"
+            },
+            hash_index_write: ->(self_, k, v) {
+              "(static_cast<Hash*>(#{self_})->data[#{k}] = #{v})"
+            },
+            hash_size: ->(self_) {
+              "(new Integer(static_cast<int64_t>(static_cast<Hash*>(#{self_})->data.size())))"
+            },
+
             # Fiber storage — `Fiber[:k]` / `Fiber[:k] = v`. Backed by
             # a single global Hash* (single-threaded today); identity
             # keys work because Symbols intern. Direct ->data access
