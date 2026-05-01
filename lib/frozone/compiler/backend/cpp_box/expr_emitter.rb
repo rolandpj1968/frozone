@@ -300,8 +300,14 @@ module Frozone
               emit.line "for (std::size_t _i = #{pre_count}; _i + #{post_count} < #{n}; _i++) #{splat}->data.push_back(#{rhs}->data[_i]);"
               emit_mass_target_assign(emit, splat_t, "static_cast<BasicObject*>(#{splat})", locals)
               targets[(splat_idx + 1)..].each_with_index do |t, i|
-                # Post-splat targets read from end of the array.
-                emit_mass_target_assign(emit, t, "(#{n} > #{post_count - i - 1} ? #{rhs}->data[#{n} - #{post_count - i}] : nil_instance())", locals)
+                # Post-splat target i reads `data[n - post_count + i]`,
+                # but only if pre hasn't already consumed that slot.
+                # MRI: when n < pre_count + post_count, pre takes the
+                # first pre_count, leaving post slots `nil` (post does
+                # NOT steal from pre). Guard: n >= pre_count + post_count - i.
+                # Example: `a, b, *c, d = 1, 2` → a=1, b=2, c=[], d=nil
+                # (pre=2, post=1, n=2, i=0 → check 2 >= 2+1-0 = 3 → false → nil).
+                emit_mass_target_assign(emit, t, "(#{n} >= #{pre_count + post_count - i} ? #{rhs}->data[#{n} - #{post_count - i}] : nil_instance())", locals)
               end
             end
           end
