@@ -1000,10 +1000,85 @@ class Array
   end
   alias detect find
 
-  def any?(pat = :__none__, &block)  = pat.equal?(:__none__) ? super(&block) : super(pat, &block)
-  def all?(pat = :__none__, &block)  = pat.equal?(:__none__) ? super(&block) : super(pat, &block)
-  def none?(pat = :__none__, &block) = pat.equal?(:__none__) ? super(&block) : super(pat, &block)
-  def one?(pat = :__none__, &block)  = pat.equal?(:__none__) ? super(&block) : super(pat, &block)
+  # Index-based to avoid `return` inside a block — box-first lowers
+  # block-returns as lambda-returns (m_each ignores), so the truthy
+  # found wouldn't propagate up to the method's caller.
+  def any?(pat = :__none__, &block)
+    n = size
+    i = 0
+    if pat.equal?(:__none__)
+      if block
+        while i < n; return true if block.call(self[i]); i += 1; end
+      else
+        while i < n; return true if self[i]; i += 1; end
+      end
+    else
+      warn "warning: given block not used" if block
+      while i < n; return true if pat === self[i]; i += 1; end
+    end
+    false
+  end
+
+  def all?(pat = :__none__, &block)
+    n = size
+    i = 0
+    if pat.equal?(:__none__)
+      if block
+        while i < n; return false unless block.call(self[i]); i += 1; end
+      else
+        while i < n; return false unless self[i]; i += 1; end
+      end
+    else
+      warn "warning: given block not used" if block
+      while i < n; return false unless pat === self[i]; i += 1; end
+    end
+    true
+  end
+
+  def none?(pat = :__none__, &block)
+    n = size
+    i = 0
+    if pat.equal?(:__none__)
+      if block
+        while i < n; return false if block.call(self[i]); i += 1; end
+      else
+        while i < n; return false if self[i]; i += 1; end
+      end
+    else
+      warn "warning: given block not used" if block
+      while i < n; return false if pat === self[i]; i += 1; end
+    end
+    true
+  end
+
+  def one?(pat = :__none__, &block)
+    n = size
+    i = 0
+    count = 0
+    if pat.equal?(:__none__)
+      if block
+        while i < n
+          count += 1 if block.call(self[i])
+          return false if count > 1
+          i += 1
+        end
+      else
+        while i < n
+          count += 1 if self[i]
+          return false if count > 1
+          i += 1
+        end
+      end
+    else
+      warn "warning: given block not used" if block
+      while i < n
+        count += 1 if pat === self[i]
+        return false if count > 1
+        i += 1
+      end
+    end
+    count == 1
+  end
 
   def reduce(*args, &block)
     sym, has_initial, initial, should_warn = __parse_reduce_args__(args, block)

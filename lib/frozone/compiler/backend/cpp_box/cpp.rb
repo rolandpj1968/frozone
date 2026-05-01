@@ -817,7 +817,19 @@ module Frozone
               end
             end
 
-            "(new Proc([&](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
+            # `[&, this]` (not bare `[&]`) — lambdas inside a member
+            # function implicitly capture `this` by reference under
+            # `[&]`. That's safe for short-lived blocks (passed to
+            # each, transient closures) but breaks when the Proc is
+            # stored on an ivar and outlives the parent stack frame:
+            # dereferencing the captured reference reads invalid stack
+            # memory. Racc's `@emit_integer = lambda { |chars, p|
+            # emit(:tINTEGER, chars); p }` set in the lexer's
+            # initialize and called later from advance hit exactly
+            # this — the lambda's `this->m_emit(...)` was UB. `[&,
+            # this]` captures the `this` POINTER by value (copy)
+            # while keeping local-by-reference for everything else.
+            "(new Proc([&, this](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
           end
 
           # `arr[k] = v` parses as AttributeWrite(name=:[]=, receiver,
