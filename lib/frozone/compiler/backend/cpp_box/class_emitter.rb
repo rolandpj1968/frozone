@@ -294,6 +294,23 @@ module Frozone
               params: [],
               body: respond_to_body(klass.name, responder_ruby_names, method_ids),
             }
+            # Auto-generate m_dup for non-eigenclass classes: shallow copy
+            # via the C++ default copy constructor (memberwise copy of
+            # all ivars + state). Force-override (no `||=`) because
+            # module-flattening propagates Object#dup's
+            # `intrinsic_object_dup(this)` body into every class's
+            # overrides — that intrinsic only handles String/Array/Hash
+            # and returns self_ for unknown classes, making
+            # `@context.dup; @context.in_def = true` mutate both copies
+            # and break Parser scope tracking. The typed copy here
+            # always produces a fresh instance.
+            # Eigenclasses don't get this — they're singletons.
+            unless klass.name.end_with?("_eigenclass")
+              overrides["m_dup"] = {
+                params: [],
+                body: "return new #{klass.name}(*this);",
+              }
+            end
             klass.dup.tap { |k| k.overrides = overrides }
           end
 

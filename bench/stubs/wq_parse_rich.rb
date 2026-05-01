@@ -21,9 +21,21 @@ sources.each do |src|
   # the box-first build (some intrinsics in the reset chain may
   # be skipped). Easier diagnostic.
   parser = Parser::Ruby40.new
-  parser.diagnostics.consumer = nil
-  parser.diagnostics.all_errors_are_fatal = false
+  # Fail-hard on diagnostics. At this stage of compiler development
+  # we want every parser-level signal surfaced — silent diagnostics
+  # mask compiler bugs that miscompile the parser into rejecting
+  # well-formed source. SyntaxError#message goes through
+  # Kernel#format / String#% (intrinsic :string_format) which may
+  # not be implemented yet — capture the diagnostic via the consumer
+  # (reason symbol only) and rescue the SyntaxError without rendering.
+  parser.diagnostics.consumer = ->(d) { $stderr.puts "diagnostic reason: #{d.reason.inspect}" }
+  parser.diagnostics.all_errors_are_fatal = true
   buf = Parser::Source::Buffer.new("(test)", source: src)
-  ast = parser.parse(buf)
-  puts ast ? ast.to_sexp.gsub("\n", " ") : "nil"
+  begin
+    ast = parser.parse(buf)
+    puts ast ? ast.to_sexp.gsub("\n", " ") : "nil"
+  rescue Parser::SyntaxError
+    $stderr.puts "(parse failed for: #{src.inspect})"
+    puts "nil"
+  end
 end

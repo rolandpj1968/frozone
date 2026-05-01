@@ -210,6 +210,72 @@ inline BasicObject* intrinsic_string_inspect(BasicObject* self_) {
   return new String(_buf.data(), _buf.size());
 }
 
+// `String#%(args)` / `Kernel#format(self, args)` / `sprintf` — minimal
+// impl covering only the patterns the WQ parser uses today:
+//   %{key}    — Hash-keyed substitution (parser's :error template style)
+//   %s        — to_s of next positional arg (Array)
+//   %d        — to_s of next Integer positional arg
+//   %%        — literal '%'
+// Anything else passes through unchanged + a stderr warning. Widen
+// when a real test case demands more (precision/width/flags etc.).
+inline BasicObject* intrinsic_string_format(BasicObject* self_, BasicObject* args) {
+  auto* _tmpl = static_cast<String*>(self_);
+  auto* _hash = (args->m_class() == reinterpret_cast<BasicObject*>(&Hash_CLASS))
+                    ? static_cast<Hash*>(args) : nullptr;
+  auto* _arr  = (args->m_class() == reinterpret_cast<BasicObject*>(&Array_CLASS))
+                    ? static_cast<Array*>(args) : nullptr;
+  std::string _out;
+  _out.reserve(_tmpl->bytes.size());
+  std::size_t _pos_idx = 0;
+  std::size_t i = 0;
+  auto append_to_s = [&](BasicObject* v) {
+    auto* _s = v->m_to_s();
+    if (_s->m_class() == reinterpret_cast<BasicObject*>(&String_CLASS)) {
+      auto* _ss = static_cast<String*>(_s);
+      _out.append(reinterpret_cast<const char*>(_ss->bytes.data()), _ss->bytes.size());
+    }
+  };
+  while (i < _tmpl->bytes.size()) {
+    if (_tmpl->bytes[i] != '%' || i + 1 >= _tmpl->bytes.size()) {
+      _out.push_back(static_cast<char>(_tmpl->bytes[i]));
+      i++;
+      continue;
+    }
+    auto next = _tmpl->bytes[i + 1];
+    if (next == '{') {
+      std::size_t end = _tmpl->bytes.size();
+      for (std::size_t j = i + 2; j < _tmpl->bytes.size(); j++) {
+        if (_tmpl->bytes[j] == '}') { end = j; break; }
+      }
+      if (end < _tmpl->bytes.size()) {
+        std::string _key(reinterpret_cast<const char*>(&_tmpl->bytes[i + 2]), end - (i + 2));
+        if (_hash) {
+          auto _it = _hash->data.find(intern(_key.c_str()));
+          if (_it != _hash->data.end()) append_to_s(_it->second);
+        }
+        i = end + 1;
+        continue;
+      }
+    }
+    if (next == '%') { _out.push_back('%'); i += 2; continue; }
+    if (next == 's' || next == 'd') {
+      if (_arr && _pos_idx < _arr->data.size()) {
+        append_to_s(_arr->data[_pos_idx++]);
+      } else if (!_arr) {
+        // single non-Array arg → bind to first %s/%d
+        if (_pos_idx == 0) { append_to_s(args); _pos_idx++; }
+      }
+      i += 2;
+      continue;
+    }
+    // Unrecognised — pass through verbatim.
+    _out.push_back('%');
+    _out.push_back(static_cast<char>(next));
+    i += 2;
+  }
+  return new String(_out.data(), _out.size());
+}
+
 // `String#hash` — FNV-1a 64-bit over bytes. Identity-stable for the
 // process lifetime; close enough for Hash key behaviour.
 inline BasicObject* intrinsic_string_hash(BasicObject* self_) {
