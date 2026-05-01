@@ -64,6 +64,8 @@ module Frozone
             match_data_to_a match_data_captures match_data_pre_match
             match_data_post_match match_data_match_length
             hash_each hash_delete
+            hash_compare_by_identity hash_compare_by_identity_q
+            hash_reset_compare_by_identity
             array_to_s
             integer_chr integer_bit_length
             object_dup object_public_send

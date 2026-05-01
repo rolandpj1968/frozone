@@ -275,6 +275,36 @@ inline BasicObject* intrinsic_hash_delete(BasicObject* self_, BasicObject* key) 
   return _v;
 }
 
+// `Hash#compare_by_identity` (setter) — switch to pointer-identity
+// keys + pointer-hash. The Hasher/KeyEq functors hold a pointer to
+// compare_by_identity_; flipping it + rehash(0) redistributes
+// existing entries under the new mode. Per MRI: previously-collapsed
+// duplicate keys (value-equal but distinct pointers) STAY collapsed.
+// Returns self.
+inline BasicObject* intrinsic_hash_compare_by_identity(BasicObject* self_) {
+  auto* _h = static_cast<Hash*>(self_);
+  _h->compare_by_identity_ = true;
+  _h->data.rehash(0);
+  return _h;
+}
+
+// `Hash#compare_by_identity?` — true iff the hash is in identity mode.
+inline BasicObject* intrinsic_hash_compare_by_identity_q(BasicObject* self_) {
+  return boxed_bool(static_cast<Hash*>(self_)->compare_by_identity_);
+}
+
+// Reset compare_by_identity flag (used by Hash#replace before copying
+// the source hash's mode). MRI doesn't expose a public setter that
+// flips the mode back; this is for our Ruby-side replace impl only.
+inline BasicObject* intrinsic_hash_reset_compare_by_identity(BasicObject* self_) {
+  auto* _h = static_cast<Hash*>(self_);
+  if (_h->compare_by_identity_) {
+    _h->compare_by_identity_ = false;
+    _h->data.rehash(0);
+  }
+  return _h;
+}
+
 // ---- Array ---------------------------------------------------------
 
 // `Array#to_s` / `Array#inspect` — `[a, b, c]` form. Calls m_inspect
