@@ -104,7 +104,7 @@ module Frozone
               "// user-overridable const_missing only fires for actual modules.",
               "virtual BasicObject* constant_typeerror(const char* const_name);",
               "// == default — pointer identity (BasicObject#==).",
-              "virtual BasicObject* m_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) {",
+              "virtual BasicObject* op_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) {",
               "  return boxed_bool(this == array_at(args, 0));",
               "}",
               "// m_hash_value — C++-internal hook for std::unordered_map<BasicObject*,…>.",
@@ -136,7 +136,7 @@ module Frozone
             # (m_class, m_send, m_is_a_q, etc.) live on Object and are
             # listed in OBJECT.hand_coded_method_names.
             hand_coded_method_names: %w[
-              m_eq_q m_hash_value m_equal_q m___id__ m_initialize
+              op_eq_q m_hash_value m_equal_q m___id__ m_initialize
               m_method_missing m_const_missing
             ].freeze,
           )
@@ -147,8 +147,8 @@ module Frozone
             members: [
               %(const char* ruby_class_name() const override { return "Object"; }),
               "// === defaults to ==. Module/Class override for `Class === obj`.",
-              "virtual BasicObject* m_case_eq(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) override {",
-              "  return m_eq_q(args, kwargs, block);",
+              "virtual BasicObject* op_case_eq(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) override {",
+              "  return op_eq_q(args, kwargs, block);",
               "}",
               "// nil? defaults to false; NilClass overrides to true.",
               "virtual BasicObject* m_nil_q(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) override {",
@@ -183,7 +183,7 @@ module Frozone
               "}",
             ],
             hand_coded_method_names: %w[
-              m_case_eq m_nil_q m_freeze m_frozen_q m_object_id
+              op_case_eq m_nil_q m_freeze m_frozen_q m_object_id
               m_class m_respond_to_q m_send m___send__
               m_is_a_q m_kind_of_q m_instance_of_q
             ].freeze,
@@ -282,26 +282,26 @@ module Frozone
               # numeric coercion). Without the dynamic_cast, `1 + 1.5`
               # would reinterpret Float's bits as int64 and silently
               # corrupt. Same for ==, <, etc.
-              "m_plus"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) + f->raw_); return new Integer(raw_ + static_cast<Integer*>(other)->raw_);" },
-              "m_minus"    => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) - f->raw_); return new Integer(raw_ - static_cast<Integer*>(other)->raw_);" },
-              "m_mul"      => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) * f->raw_); return new Integer(raw_ * static_cast<Integer*>(other)->raw_);" },
-              "m_div"      => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) / f->raw_); return new Integer(raw_ / static_cast<Integer*>(other)->raw_);" },
-              "m_mod"      => { params: ["BasicObject* other"], body: "return new Integer(raw_ % static_cast<Integer*>(other)->raw_);" },
-              "m_lt"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) <  f->raw_); return boxed_bool(raw_ <  static_cast<Integer*>(other)->raw_);" },
-              "m_gt"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) >  f->raw_); return boxed_bool(raw_ >  static_cast<Integer*>(other)->raw_);" },
-              "m_le"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) <= f->raw_); return boxed_bool(raw_ <= static_cast<Integer*>(other)->raw_);" },
-              "m_ge"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) >= f->raw_); return boxed_bool(raw_ >= static_cast<Integer*>(other)->raw_);" },
-              "m_eq_q"     => { params: ["BasicObject* other"], body: "if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ == i->raw_); if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) == f->raw_); return false_instance();" },
-              "m_ne_q"     => { params: ["BasicObject* other"], body: "if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ != i->raw_); if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) != f->raw_); return true_instance();" },
-              "m_lshift"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ << static_cast<Integer*>(other)->raw_);" },
-              "m_rshift"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ >> static_cast<Integer*>(other)->raw_);" },
-              "m_bit_and"  => { params: ["BasicObject* other"], body: "return new Integer(raw_ &  static_cast<Integer*>(other)->raw_);" },
-              "m_bit_or"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ |  static_cast<Integer*>(other)->raw_);" },
-              "m_bit_xor"  => { params: ["BasicObject* other"], body: "return new Integer(raw_ ^  static_cast<Integer*>(other)->raw_);" },
-              "m_neg"      => { params: [],                     body: "return new Integer(-raw_);" },
+              "op_plus"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) + f->raw_); return new Integer(raw_ + static_cast<Integer*>(other)->raw_);" },
+              "op_minus"    => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) - f->raw_); return new Integer(raw_ - static_cast<Integer*>(other)->raw_);" },
+              "op_mul"      => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) * f->raw_); return new Integer(raw_ * static_cast<Integer*>(other)->raw_);" },
+              "op_div"      => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return new Float(static_cast<double>(raw_) / f->raw_); return new Integer(raw_ / static_cast<Integer*>(other)->raw_);" },
+              "op_mod"      => { params: ["BasicObject* other"], body: "return new Integer(raw_ % static_cast<Integer*>(other)->raw_);" },
+              "op_lt"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) <  f->raw_); return boxed_bool(raw_ <  static_cast<Integer*>(other)->raw_);" },
+              "op_gt"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) >  f->raw_); return boxed_bool(raw_ >  static_cast<Integer*>(other)->raw_);" },
+              "op_le"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) <= f->raw_); return boxed_bool(raw_ <= static_cast<Integer*>(other)->raw_);" },
+              "op_ge"       => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) >= f->raw_); return boxed_bool(raw_ >= static_cast<Integer*>(other)->raw_);" },
+              "op_eq_q"     => { params: ["BasicObject* other"], body: "if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ == i->raw_); if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) == f->raw_); return false_instance();" },
+              "op_ne_q"     => { params: ["BasicObject* other"], body: "if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ != i->raw_); if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(static_cast<double>(raw_) != f->raw_); return true_instance();" },
+              "op_lshift"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ << static_cast<Integer*>(other)->raw_);" },
+              "op_rshift"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ >> static_cast<Integer*>(other)->raw_);" },
+              "op_bit_and"  => { params: ["BasicObject* other"], body: "return new Integer(raw_ &  static_cast<Integer*>(other)->raw_);" },
+              "op_bit_or"   => { params: ["BasicObject* other"], body: "return new Integer(raw_ |  static_cast<Integer*>(other)->raw_);" },
+              "op_bit_xor"  => { params: ["BasicObject* other"], body: "return new Integer(raw_ ^  static_cast<Integer*>(other)->raw_);" },
+              "op_neg"      => { params: [],                     body: "return new Integer(-raw_);" },
               # Integer ** Integer with non-negative exponent stays Integer
               # (small) — anything bigger or Float exponent → Float via std::pow.
-              "m_pow"      => {
+              "op_pow"      => {
                 params: ["BasicObject* other"],
                 body: <<~CPP.chomp,
                   if (auto* i = dynamic_cast<Integer*>(other)) {
@@ -356,18 +356,18 @@ module Frozone
               "}",
             ],
             overrides: {
-              "m_plus"     => { params: ["BasicObject* other"], body: "return new Float(raw_ + as_double(other));" },
-              "m_minus"    => { params: ["BasicObject* other"], body: "return new Float(raw_ - as_double(other));" },
-              "m_mul"      => { params: ["BasicObject* other"], body: "return new Float(raw_ * as_double(other));" },
-              "m_div"      => { params: ["BasicObject* other"], body: "return new Float(raw_ / as_double(other));" },
-              "m_lt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <  as_double(other));" },
-              "m_gt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >  as_double(other));" },
-              "m_le"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <= as_double(other));" },
-              "m_ge"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >= as_double(other));" },
-              "m_eq_q"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(raw_ == f->raw_); if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ == static_cast<double>(i->raw_)); return false_instance();" },
-              "m_ne_q"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(raw_ != f->raw_); if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ != static_cast<double>(i->raw_)); return true_instance();" },
-              "m_neg"      => { params: [],                     body: "return new Float(-raw_);" },
-              "m_pow"       => { params: ["BasicObject* other"], body: "return new Float(std::pow(raw_, as_double(other)));" },
+              "op_plus"     => { params: ["BasicObject* other"], body: "return new Float(raw_ + as_double(other));" },
+              "op_minus"    => { params: ["BasicObject* other"], body: "return new Float(raw_ - as_double(other));" },
+              "op_mul"      => { params: ["BasicObject* other"], body: "return new Float(raw_ * as_double(other));" },
+              "op_div"      => { params: ["BasicObject* other"], body: "return new Float(raw_ / as_double(other));" },
+              "op_lt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <  as_double(other));" },
+              "op_gt"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >  as_double(other));" },
+              "op_le"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ <= as_double(other));" },
+              "op_ge"       => { params: ["BasicObject* other"], body: "return boxed_bool(raw_ >= as_double(other));" },
+              "op_eq_q"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(raw_ == f->raw_); if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ == static_cast<double>(i->raw_)); return false_instance();" },
+              "op_ne_q"     => { params: ["BasicObject* other"], body: "if (auto* f = dynamic_cast<Float*>(other)) return boxed_bool(raw_ != f->raw_); if (auto* i = dynamic_cast<Integer*>(other)) return boxed_bool(raw_ != static_cast<double>(i->raw_)); return true_instance();" },
+              "op_neg"      => { params: [],                     body: "return new Float(-raw_);" },
+              "op_pow"       => { params: ["BasicObject* other"], body: "return new Float(std::pow(raw_, as_double(other)));" },
               "m_floor"    => { params: [], body: "return new Integer(static_cast<int64_t>(std::floor(raw_)));" },
               "m_ceil"     => { params: [], body: "return new Integer(static_cast<int64_t>(std::ceil(raw_)));" },
               "m_round"    => { params: [], body: "return new Integer(static_cast<int64_t>(std::round(raw_)));" },
@@ -451,7 +451,7 @@ module Frozone
                 params: [],
                 body: "return data.empty() ? nil_instance() : data.back();",
               },
-              "m_aref" => {
+              "op_aref" => {
                 params: [],
                 body: <<~CPP.chomp,
                   // MRI Array#[] semantics — three forms, decoded into a
@@ -498,7 +498,7 @@ module Frozone
                   return out;
                 CPP
               },
-              "m_aset" => {
+              "op_aset" => {
                 params: [],
                 body: <<~CPP.chomp,
                   int64_t sz = static_cast<int64_t>(data.size());
@@ -554,7 +554,7 @@ module Frozone
                   return this;
                 CPP
               },
-              "m_lshift" => {
+              "op_lshift" => {
                 params: ["BasicObject* val"],
                 body: "data.push_back(val); return this;",
               },
@@ -599,7 +599,7 @@ module Frozone
 
           # Symbol — wraps an interned string. Identity-based equality
           # (intern() returns the same Symbol* for the same name) means
-          # default m_eq_q (pointer eq) + default m_hash_value (pointer
+          # default op_eq_q (pointer eq) + default m_hash_value (pointer
           # hash) work correctly. Symbol literals emit as `intern("foo")`.
           #
           # The ctor is private — `intern()` is the only friend — so no
@@ -687,19 +687,19 @@ module Frozone
               "m_bytesize" => { params: [], body: "return new Integer(static_cast<std::int64_t>(bytes.size()));" },
               "m_empty_q"  => { params: [], body: "return boxed_bool(bytes.empty());" },
               "m_to_s"     => { params: [], body: "return this;" },
-              "m_eq_q"     => {
+              "op_eq_q"     => {
                 params: ["BasicObject* other"],
                 body: "auto* o = dynamic_cast<String*>(other); return boxed_bool(o && bytes == o->bytes);",
               },
-              "m_ne_q"     => {
+              "op_ne_q"     => {
                 params: ["BasicObject* other"],
                 body: "auto* o = dynamic_cast<String*>(other); return boxed_bool(!o || bytes != o->bytes);",
               },
-              "m_lt"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes <  static_cast<String*>(other)->bytes);" },
-              "m_gt"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes >  static_cast<String*>(other)->bytes);" },
-              "m_le"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes <= static_cast<String*>(other)->bytes);" },
-              "m_ge"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes >= static_cast<String*>(other)->bytes);" },
-              "m_plus"     => {
+              "op_lt"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes <  static_cast<String*>(other)->bytes);" },
+              "op_gt"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes >  static_cast<String*>(other)->bytes);" },
+              "op_le"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes <= static_cast<String*>(other)->bytes);" },
+              "op_ge"       => { params: ["BasicObject* other"], body: "return boxed_bool(bytes >= static_cast<String*>(other)->bytes);" },
+              "op_plus"     => {
                 params: ["BasicObject* other"],
                 body: <<~CPP.chomp,
                   auto* o = static_cast<String*>(other);
@@ -711,7 +711,7 @@ module Frozone
                   return r;
                 CPP
               },
-              "m_lshift"   => {
+              "op_lshift"   => {
                 params: ["BasicObject* other"],
                 body: <<~CPP.chomp,
                   auto* o = static_cast<String*>(other);
@@ -722,7 +722,7 @@ module Frozone
                   return this;
                 CPP
               },
-              "m_aref"     => {
+              "op_aref"     => {
                 params: [],
                 body: <<~CPP.chomp,
                   std::int64_t sz = static_cast<std::int64_t>(bytes.size());
@@ -798,7 +798,7 @@ module Frozone
 
           # Hash — std::unordered_map keyed by BasicObject* with a
           # custom Hasher (calls m_hash_value via vtable) and KeyEq
-          # (calls m_eq_q via vtable). Bucket storage uses GcAllocator
+          # (calls op_eq_q via vtable). Bucket storage uses GcAllocator
           # so Boehm traces the value pointers.
           HASH = RubyClass.new(
             name: "Hash",
@@ -812,7 +812,7 @@ module Frozone
               "  bool operator()(BasicObject* a, BasicObject* b) const {",
               "    Array tmp;",
               "    tmp.data.push_back(b);",
-              "    return a->m_eq_q(&tmp) == true_instance();",
+              "    return a->op_eq_q(&tmp) == true_instance();",
               "  }",
               "};",
               "using map_t = std::unordered_map<",
@@ -829,14 +829,14 @@ module Frozone
               "m_size"   => { params: [], body: "return new Integer(static_cast<int64_t>(data.size()));" },
               "m_length" => { params: [], body: "return new Integer(static_cast<int64_t>(data.size()));" },
               "m_empty_q"=> { params: [], body: "return boxed_bool(data.empty());" },
-              "m_aref"   => {
+              "op_aref"   => {
                 params: ["BasicObject* k"],
                 body: <<~CPP.chomp,
                   auto it = data.find(k);
                   return (it == data.end()) ? nil_instance() : it->second;
                 CPP
               },
-              "m_aset"   => {
+              "op_aset"   => {
                 params: ["BasicObject* k", "BasicObject* v"],
                 body: "data[k] = v; return v;",
               },
@@ -1139,7 +1139,7 @@ module Frozone
               "m_acos" => { params: ["BasicObject* x"], body: "return new Float(std::acos(Float::as_double(x)));" },
               "m_atan" => { params: ["BasicObject* x"], body: "return new Float(std::atan(Float::as_double(x)));" },
               "m_atan2"=> { params: ["BasicObject* y", "BasicObject* x"], body: "return new Float(std::atan2(Float::as_double(y), Float::as_double(x)));" },
-              "m_pow"  => { params: ["BasicObject* x", "BasicObject* y"], body: "return new Float(std::pow(Float::as_double(x), Float::as_double(y)));" },
+              "op_pow"  => { params: ["BasicObject* x", "BasicObject* y"], body: "return new Float(std::pow(Float::as_double(x), Float::as_double(y)));" },
               "m_hypot"=> { params: ["BasicObject* x", "BasicObject* y"], body: "return new Float(std::hypot(Float::as_double(x), Float::as_double(y)));" },
               "m_cbrt" => { params: ["BasicObject* x"], body: "return new Float(std::cbrt(Float::as_double(x)));" },
             },
@@ -1318,7 +1318,7 @@ module Frozone
           )
 
           # Symbol interning. Same name → same Symbol* (identity = equality,
-          # so default m_eq_q + m_hash_value work). Intern table uses
+          # so default op_eq_q + m_hash_value work). Intern table uses
           # GcAllocator so the symbols stay rooted under Boehm.
           # Also assigns the method_id_ at intern time by looking up
           # against METHOD_NAMES (a compile-time array of method

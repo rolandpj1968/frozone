@@ -378,7 +378,7 @@ module Frozone
             end
 
             # Track Ruby names separately from cpp_names because the
-            # encoding can collide: `:=~` → `m_match_op` clashes with
+            # encoding can collide: `:=~` → `op_match_op` clashes with
             # a regular `def match_op` (the parser gem has both). When
             # we discover a NEW Ruby name we still schedule its
             # implementing bodies even if its cpp_name was already

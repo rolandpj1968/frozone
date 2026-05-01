@@ -39,38 +39,40 @@ module Frozone
           # operator overloading because every value is a pointer
           # (`a + b` would mean pointer arithmetic), so we route through
           # named virtuals on BasicObject's derived classes.
+          # Operator → cpp_name. Uses the `op_` prefix (NOT `m_`)
+          # so a Ruby `def plus` → `op_plus` can't collide with `:+
+          # → op_plus`. Identifier methods always encode as
+          # `m_<name>`; operator methods always as `op_<symbolic>`.
+          # Two non-overlapping namespaces.
           OP_NAMES = {
             # Arithmetic
-            :+   => "m_plus",  :-   => "m_minus",
-            :*   => "m_mul",   :**  => "m_pow",
-            :/   => "m_div",   :%   => "m_mod",
+            :+   => "op_plus",  :-   => "op_minus",
+            :*   => "op_mul",   :**  => "op_pow",
+            :/   => "op_div",   :%   => "op_mod",
             # Comparison
-            :<   => "m_lt",    :>   => "m_gt",
-            :<=  => "m_le",    :>=  => "m_ge",
-            :==  => "m_eq_q",  :!=  => "m_ne_q",
-            :"<=>" => "m_spaceship",
-            :=== => "m_case_eq",
-            # `m_match_op` (not `m_match`) avoids colliding with the
-            # plain `match` method name, which has identical cpp-name
-            # under default mangling.
-            :=~  => "m_match_op",
-            :!~  => "m_no_match",
+            :<   => "op_lt",    :>   => "op_gt",
+            :<=  => "op_le",    :>=  => "op_ge",
+            :==  => "op_eq_q",  :!=  => "op_ne_q",
+            :"<=>" => "op_spaceship",
+            :=== => "op_case_eq",
+            :=~  => "op_match_op",
+            :!~  => "op_no_match",
             # Bitwise / shift
-            :&   => "m_bit_and",
-            :|   => "m_bit_or",
-            :^   => "m_bit_xor",
-            :~   => "m_bit_not",
-            :<<  => "m_lshift",
-            :>>  => "m_rshift",
+            :&   => "op_bit_and",
+            :|   => "op_bit_or",
+            :^   => "op_bit_xor",
+            :~   => "op_bit_not",
+            :<<  => "op_lshift",
+            :>>  => "op_rshift",
             # Unary
-            :!   => "m_not",
-            :"-@" => "m_neg",
-            :"+@" => "m_pos",
+            :!   => "op_not",
+            :"-@" => "op_neg",
+            :"+@" => "op_pos",
             # Indexing
-            :[]  => "m_aref",
-            :[]= => "m_aset",
+            :[]  => "op_aref",
+            :[]= => "op_aset",
             # Other Kernel-level methods with non-identifier names
-            :"`" => "m_backtick",
+            :"`" => "op_backtick",
           }.freeze
 
           # Ruby method name → C++ identifier. Operators go through
@@ -776,7 +778,7 @@ module Frozone
 
             # Hash intrinsics — direct ->data access. Hash class is
             # universe-defined with map_t data; these intrinsics
-            # bypass the m_aref/m_aset Array allocation.
+            # bypass the op_aref/op_aset Array allocation.
             hash_key: ->(self_, k) {
               "boxed_bool(static_cast<Hash*>(#{self_})->data.find(#{k}) != static_cast<Hash*>(#{self_})->data.end())"
             },
@@ -894,7 +896,7 @@ module Frozone
             # Fiber storage — `Fiber[:k]` / `Fiber[:k] = v`. Backed by
             # a single global Hash* (single-threaded today); identity
             # keys work because Symbols intern. Direct ->data access
-            # avoids the universal m_aref/m_aset Array allocation.
+            # avoids the universal op_aref/op_aset Array allocation.
             fiber_storage_get: ->(_self_, key) {
               "([&]() -> BasicObject* { auto& _h = g_fiber_storage()->data; auto _it = _h.find(#{key}); return (_it == _h.end()) ? nil_instance() : _it->second; }())"
             },
@@ -1010,7 +1012,7 @@ module Frozone
           end
 
           # `arr[k] = v` parses as AttributeWrite(name=:[]=, receiver,
-          # arg_nodes=[k, v]). Emit as a vtable call to m_aset via
+          # arg_nodes=[k, v]). Emit as a vtable call to op_aset via
           # the universal protocol.
           def from_attribute_write(node, locals)
             # Implicit-receiver AttributeWrite (`self.foo = x` lowered
@@ -1025,8 +1027,8 @@ module Frozone
           # `arr[i] op= val` → `arr[i] = arr[i] op val`. Receiver and
           # indices evaluated once each; for `+=`, `-=`, etc.
           # `||=` / `&&=` not yet supported (need short-circuit).
-          # Multi-index (`arr[i,j] += val`) emits as expected — m_aref/
-          # m_aset with the full index list.
+          # Multi-index (`arr[i,j] += val`) emits as expected — op_aref/
+          # op_aset with the full index list.
           def from_index_op_write(node, locals)
             op = node.operator
             raise EmissionError, "IndexOperatorWrite op :#{op} not yet supported" if %i[|| &&].include?(op)
@@ -1039,7 +1041,7 @@ module Frozone
             cpp_op = Cpp.method_name(op)
             # `recv->aref(idx) op val` → `recv->aset(idx, that)`. Using a
             # comma operator to bind recv once, then form the aset call.
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* _idx = #{idx_array}; return #{recv_t}->m_aset(new Array({#{idx_strs.join(", ")}, #{recv_t}->m_aref(_idx)->#{cpp_op}(new Array({#{val_str}}))})); }())"
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* _idx = #{idx_array}; return #{recv_t}->op_aset(new Array({#{idx_strs.join(", ")}, #{recv_t}->op_aref(_idx)->#{cpp_op}(new Array({#{val_str}}))})); }())"
           end
 
           # `recv[idx] ||= val` — read once, return if truthy, else
@@ -1055,7 +1057,7 @@ module Frozone
             cur_t = "__iorw_cur_#{tag}__"
             new_t = "__iorw_new_#{tag}__"
             idx_array = "(new Array({#{idx_strs.join(", ")}}))"
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->m_aref(#{idx_array}); if (truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->m_aset(new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(#{idx_array}); if (truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
           end
 
           # `recv[idx] &&= val` — read once, return if falsy, else
@@ -1069,7 +1071,7 @@ module Frozone
             cur_t = "__iaw_cur_#{tag}__"
             new_t = "__iaw_new_#{tag}__"
             idx_array = "(new Array({#{idx_strs.join(", ")}}))"
-            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->m_aref(#{idx_array}); if (!truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->m_aset(new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
+            "([&]() -> BasicObject* { auto* #{recv_t} = #{recv_str}; auto* #{cur_t} = #{recv_t}->op_aref(#{idx_array}); if (!truthy(#{cur_t})) return #{cur_t}; auto* #{new_t} = #{val_str}; #{recv_t}->op_aset(new Array({#{idx_strs.join(", ")}, #{new_t}})); return #{new_t}; }())"
           end
 
           # Ruby's `&&` returns the last truthy value or the first falsy.
@@ -1154,7 +1156,7 @@ module Frozone
             node.whens.each do |w|
               cond_strs = w.condition_nodes.map { |c|
                 c_s = from_expr(c, locals)
-                node.subject_node ? "truthy(#{c_s}->m_case_eq(new Array({_subj})))" : "truthy(#{c_s})"
+                node.subject_node ? "truthy(#{c_s}->op_case_eq(new Array({_subj})))" : "truthy(#{c_s})"
               }
               # body_as_lambda_call (vs from_expr) handles bodies
               # with statement-position constructs the from_expr
@@ -1258,7 +1260,7 @@ module Frozone
                          else
                            "#{from_expr(part, locals)}->m_to_s()"
                          end
-              chain << "->m_plus(new Array({#{part_str}}))"
+              chain << "->op_plus(new Array({#{part_str}}))"
             end
             "(#{chain})"
           end

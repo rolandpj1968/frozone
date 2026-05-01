@@ -154,7 +154,7 @@ module Frozone
           #   case x; when A; ... when B, C; ... else; ... end
           #   case;   when cond1; ... when cond2; ... else; ... end
           # When subject_node is present each condition is `cond === subject`
-          # via m_case_eq. Without a subject conditions are truthy-tested
+          # via op_case_eq. Without a subject conditions are truthy-tested
           # directly (the truthy/falsy if-elsif form).
           # SplatArg in conditions (when *arr) — deferred.
           def self.write_case_stmt(emit, node, locals, next_returns: false)
@@ -180,7 +180,7 @@ module Frozone
           def self.case_when_cond(emit, condition_nodes, subj, locals)
             condition_nodes.map { |c|
               c_str = emit.cpp.from_expr(c, locals)
-              subj ? "truthy(#{c_str}->m_case_eq(new Array({#{subj}})))" : "truthy(#{c_str})"
+              subj ? "truthy(#{c_str}->op_case_eq(new Array({#{subj}})))" : "truthy(#{c_str})"
             }.join(" || ")
           end
 
@@ -318,14 +318,14 @@ module Frozone
               iv = target[1].to_s.delete_prefix('@')
               emit.line "this->iv_#{iv} = #{value_expr};"
             when :index
-              # `q[i] = v` → q->m_aset(new Array({i, v}), nullptr, nullptr).
+              # `q[i] = v` → q->op_aset(new Array({i, v}), nullptr, nullptr).
               # Index args are kept as exprs (re-evaluated per target); for
               # the typical `arr[lit_or_local]` case this is free. Targets
               # with side-effecting receivers/indices would need pre-eval
               # caching, but no benchmark hits that yet.
               recv_str  = emit.cpp.from_expr(target[1], locals)
               idx_strs  = (target[2] || []).map { |a| emit.cpp.from_arg(a, locals) }
-              emit.line "(void)(#{recv_str})->m_aset(new Array({#{idx_strs.join(", ")}, #{value_expr}}));"
+              emit.line "(void)(#{recv_str})->op_aset(new Array({#{idx_strs.join(", ")}, #{value_expr}}));"
             when :splat_nil
               # Discard — evaluate the value_expr (it might have side effects via array_at) but throw it away.
               emit.line "(void)(#{value_expr});"
