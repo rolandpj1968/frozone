@@ -159,6 +159,12 @@ module Frozone
           # bottleneck). Emitted as raw `int64_t[]` arrays + a runtime
           # build call; cc1plus parses them as cheap static data.
           attr_reader :raw_int_arrays
+          # Block-lambda context flag. Set true while emitting the body
+          # of a Proc lambda from from_block_as_proc, so deeply-nested
+          # expression-position emitters (from_if_as_lambda, from_case,
+          # from_rescue) know to emit Break/Return as throws rather than
+          # C++ break/return. Push/pop via with_in_block.
+          attr_accessor :in_block
 
           def initialize(user_classes:, user_constants:)
             @user_classes = user_classes
@@ -168,9 +174,18 @@ module Frozone
             @int_literals = {}
             @raw_int_arrays = []
             @tmp_counter = 0
+            @in_block = false
           end
 
           def next_tmp_id = (@tmp_counter += 1)
+
+          def with_in_block
+            saved = @in_block
+            @in_block = true
+            yield
+          ensure
+            @in_block = saved
+          end
 
           # Top-level dispatch — turns an AST node into a cpp expression
           # string. Pure: no side effects. Recursive into sub-expressions.
@@ -264,26 +279,35 @@ module Frozone
             # Block-bearing call site (other than the .times for-loop
             # special-case which write_stmt handles): wrap the block as
             # a Proc and pass as the third call-protocol arg.
-            block_arg = if node.block_node && !(name == :times && recv)
-                          from_block_as_proc(node.block_node, locals)
-                        else
-                          "nullptr"
-                        end
+            has_block = node.block_node && !(name == :times && recv)
+            block_arg = has_block ? from_block_as_proc(node.block_node, locals) : "nullptr"
             args_array = build_args_array(arg_nodes, locals)
             kwargs_arg = build_kwargs_hash(node.kw_arg_nodes || [], locals)
 
-            if recv
-              "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
-            elsif name == :puts
-              # ruby_puts returns void; Ruby's puts returns nil — comma
-              # operator gives the right type for expression contexts.
-              # ruby_puts is a runtime free function (NOT a vtable
-              # method) so it bypasses the universal call protocol.
-              args = arg_nodes.map { |a| from_arg(a, locals) }
-              "(ruby_puts(#{args.join(", ")}), nil_instance())"
-            else
-              "this->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
-            end
+            call_expr =
+              if recv
+                "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
+              elsif name == :puts
+                # ruby_puts returns void; Ruby's puts returns nil — comma
+                # operator gives the right type for expression contexts.
+                # ruby_puts is a runtime free function (NOT a vtable
+                # method) so it bypasses the universal call protocol.
+                args = arg_nodes.map { |a| from_arg(a, locals) }
+                "(ruby_puts(#{args.join(", ")}), nil_instance())"
+              else
+                "this->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
+              end
+
+            # `break v` inside the block becomes `throw BreakException{v}`
+            # — caught here so the iterator's call expression evaluates
+            # to v. Wrap only when a block was actually passed; non-block
+            # calls can't break-out (no Proc → no BreakException).
+            return wrap_break_catch(call_expr) if has_block
+            call_expr
+          end
+
+          def wrap_break_catch(call_expr)
+            "([&]() -> BasicObject* { try { return #{call_expr}; } catch (BreakException& e_) { return e_.value; } }())"
           end
 
           # Build the kwargs Hash for a call. Empty kw list → nullptr
@@ -321,18 +345,17 @@ module Frozone
           def build_args_array(arg_nodes, locals)
             return "(&EMPTY_ARGS)" if arg_nodes.empty?
             if arg_nodes.length == 1 && arg_nodes[0].is_a?(Ast::SplatArg)
-              # The splat's value is statically a BasicObject* (locals
-              # are all BasicObject*); cast to Array* for the call.
-              # Real Ruby would call to_a on it; static_cast assumes
-              # the value IS an Array, which is the common case.
-              "static_cast<Array*>(#{from_expr(arg_nodes[0].value_node, locals)})"
+              # `f(*x)` — pass x's elements as the call's args. Goes
+              # through splat_to_array which handles non-Array x via
+              # MRI's to_a protocol (e.g. AST::Node aliases to_a children).
+              "splat_to_array(#{from_expr(arg_nodes[0].value_node, locals)})"
             elsif arg_nodes.any? { |a| a.is_a?(Ast::SplatArg) }
               # Mixed positional + splat: flatten into a fresh Array
               # via a lambda that pushes each piece. Splats append
               # all elements, positionals append singly.
               push_lines = arg_nodes.map do |a|
                 if a.is_a?(Ast::SplatArg)
-                  "for (auto* _e : static_cast<Array*>(#{from_expr(a.value_node, locals)})->data) _r->data.push_back(_e);"
+                  "for (auto* _e : splat_to_array(#{from_expr(a.value_node, locals)})->data) _r->data.push_back(_e);"
                 else
                   "_r->data.push_back(#{from_expr(a, locals)});"
                 end
@@ -464,10 +487,15 @@ module Frozone
           # which from_expr emits as comma-operator.
           # Missing else_node → nil (Ruby semantics).
           def from_if(node, locals)
-            # Branches that contain a Return statement can't be expressed
-            # as a ternary. Fall back to a lambda + early-return form so
-            # the Return propagates correctly. Same trick from_case uses.
-            if contains_return?(node.then_node) || contains_return?(node.else_node)
+            # Branches that contain a Return / Break / Next can't be
+            # expressed as a ternary — those are statement-only AST
+            # nodes (from_expr has no case for them). Fall back to a
+            # lambda + write_body form so they emit correctly (write_body
+            # handles them; in a block context they throw, otherwise they
+            # use C++ break/continue/return).
+            if contains_return?(node.then_node) || contains_return?(node.else_node) ||
+               contains_loop_escape?(node.then_node, allow_next: true) ||
+               contains_loop_escape?(node.else_node, allow_next: true)
               return from_if_as_lambda(node, locals)
             end
             cond = from_expr(node.pred_node, locals)
@@ -480,13 +508,12 @@ module Frozone
             elems = node.element_nodes || []
             if elems.any? { |e| e.is_a?(Ast::SplatArg) }
               # `[a, *arr, b]` — flatten splats into a fresh Array
-              # via lambda. Mirrors build_args_array's mixed-splat
-              # handling. Static_cast assumes the splat value IS an
-              # Array (covered case for box-first today; real Ruby
-              # would call to_a).
+              # via lambda. splat_to_array enforces MRI semantics on
+              # the splat value (Array fast-path, m_to_a coercion,
+              # wrap-as-single fallback for non-Array non-respondable).
               push_lines = elems.map do |e|
                 if e.is_a?(Ast::SplatArg)
-                  "for (auto* _e : static_cast<Array*>(#{from_expr(e.value_node, locals)})->data) _r->data.push_back(_e);"
+                  "for (auto* _e : splat_to_array(#{from_expr(e.value_node, locals)})->data) _r->data.push_back(_e);"
                 else
                   "_r->data.push_back(#{from_expr(e, locals)});"
                 end

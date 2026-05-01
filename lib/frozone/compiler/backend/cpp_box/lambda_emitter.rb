@@ -149,10 +149,14 @@ module Frozone
           # statement type (if/while/case) is supported. Trailing
           # `return nil_instance();` is a safety net for empty bodies
           # and last_is_return=false paths.
+          # in_block: propagated from cpp.in_block — when this body is
+          # nested inside a block lambda, explicit Break/Return inside it
+          # must throw to escape the block (not just the inner lambda).
           def body_as_block(body, locals, last_is_return:, next_returns: false)
             return "{ return nil_instance(); }" unless body
+            in_block = emit.cpp.in_block
             inner = @emit.capture do
-              ExprEmitter.write_body(@emit, body, locals: locals, last_is_return: last_is_return, next_returns: next_returns)
+              ExprEmitter.write_body(@emit, body, locals: locals, last_is_return: last_is_return, next_returns: next_returns, in_block: in_block)
             end
             "{ #{inner.gsub("\n", " ")} return nil_instance(); }"
           end
@@ -189,13 +193,12 @@ module Frozone
                 raise Cpp::EmissionError, "block param destructuring (#{p.class.name}) not yet supported"
               end
             end
-            # `break` can't survive lambda boundary; `next` *can* — it
-            # returns from the lambda, semantically equivalent to "skip
-            # to the next block invocation". write_body with
-            # next_returns: true handles that.
-            if contains_loop_escape?(block_node.body, allow_next: true)
-              raise Cpp::EmissionError, "break inside block — lambda boundary blocks loop scope, not yet supported"
-            end
+            # `break v` and `return v` inside a block lambda can't use
+            # C++ break/return (they'd only escape the lambda). They
+            # throw BreakException/ReturnException via the in_block:
+            # flag — caught at the iterator call site and method body
+            # respectively. `next [v]` becomes a lambda return via
+            # next_returns: true (the lambda IS one block invocation).
             block_locals = locals.dup
             (params + (rest_param ? [rest_param] : []) + post_params).each do |p|
               block_locals << p.to_s
@@ -231,7 +234,9 @@ module Frozone
                 emit.line "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{back_idx} <= (int)__blkargs__->data.size()) ? __blkargs__->data[__blkargs__->data.size() - #{back_idx}] : nil_instance();"
               end
               if body
-                ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true)
+                emit.cpp.with_in_block do
+                  ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true, in_block: true)
+                end
               else
                 emit.line "return nil_instance();"
               end
@@ -252,14 +257,18 @@ module Frozone
             "(new Proc([&, this](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
           end
 
-          # If-as-expression where one or both branches contain Return
-          # — wrap in a lambda and emit each branch via write_body.
+          # If-as-expression where one or both branches contain Return /
+          # Break / Next — wrap in a lambda and emit each branch via
+          # write_body. in_block: propagated from the surrounding context
+          # (cpp.in_block) so explicit Break/Return inside the branches
+          # throw rather than fall through.
           def from_if_as_lambda(node, locals)
+            in_block = emit.cpp.in_block
             buf = emit.capture do
               emit.line "if (truthy(#{from_expr(node.pred_node, locals)})) {"
               emit.indented do
                 if node.then_node
-                  ExprEmitter.write_body(emit, node.then_node, locals: locals, last_is_return: true)
+                  ExprEmitter.write_body(emit, node.then_node, locals: locals, last_is_return: true, in_block: in_block, next_returns: in_block)
                 else
                   emit.line "return nil_instance();"
                 end
@@ -267,7 +276,7 @@ module Frozone
               emit.line "} else {"
               emit.indented do
                 if node.else_node
-                  ExprEmitter.write_body(emit, node.else_node, locals: locals, last_is_return: true)
+                  ExprEmitter.write_body(emit, node.else_node, locals: locals, last_is_return: true, in_block: in_block, next_returns: in_block)
                 else
                   emit.line "return nil_instance();"
                 end

@@ -574,14 +574,24 @@ module Frozone
                 params: ["BasicObject* other"],
                 body: "auto* o = static_cast<Array*>(other); data.insert(data.end(), o->data.begin(), o->data.end()); return this;",
               },
-              # Array.new(size) / Array.new(size, fill) / Array.new(size) { |i| ... }
-              # The block form calls the block n times with each index
-              # to populate elements; common in matrix construction.
+              # Array.new — three call shapes:
+              #   Array.new(arr)             — copy elements from arr
+              #   Array.new(size [, fill])   — n-element array, default nil
+              #   Array.new(size) { |i| ... } — n-element, block-populated
+              # The Array-arg case used to UB: the body cast args[0] to
+              # Integer* unconditionally, reading vtable+vector bits as
+              # int64 → huge garbage size → Boehm OOM. m_class() exact-
+              # class compare gates the static_cast.
               "m_initialize" => {
                 params: [],
                 body: <<~CPP.chomp,
                   if (args->data.empty()) return this;
-                  int64_t n = static_cast<Integer*>(args->data[0])->raw_;
+                  BasicObject* arg0 = args->data[0];
+                  if (arg0->m_class() == (BasicObject*)(&Array_CLASS)) {
+                    data = static_cast<Array*>(arg0)->data;
+                    return this;
+                  }
+                  int64_t n = static_cast<Integer*>(arg0)->raw_;
                   if (block) {
                     data.reserve(n);
                     for (int64_t i = 0; i < n; i++) {
@@ -1317,6 +1327,39 @@ module Frozone
             body: "return a->data[i];",
           )
 
+          # MRI splat semantics for `*x`: Array → splat as-is; nil → [];
+          # Array subclass → splat (memory layout matches); else call
+          # x.to_a — if it returns an Array, splat that; otherwise wrap
+          # as [x]. No dynamic_cast: m_class() exact-class compare for
+          # the hot path, m_is_a_q (closed-world LUT) for the subclass
+          # path, m_to_a vtable dispatch for the coercion path. Two
+          # static_casts remain but each is gated by a preceding class
+          # proof.
+          # Used by all splat lowerings (build_args_array sole-splat,
+          # build_args_array mixed-splat, from_array_literal mixed
+          # splat). Fixes the wq_parse_rich crash where `name, = *node`
+          # in Parser::Builders::Default#assignable was static_cast'ing
+          # an AST::Node as Array — UB → SIGSEGV. AST::Node aliases
+          # to_a children, so m_to_a returns the children Array.
+          SPLAT_TO_ARRAY_FN = KernelFn.new(
+            name: "splat_to_array",
+            signature: "Array* splat_to_array(BasicObject* x)",
+            body: <<~CPP.chomp,
+              if (x->m_class() == (BasicObject*)(&Array_CLASS)) return static_cast<Array*>(x);
+              if (x == nil_instance()) return new Array();
+              if (truthy(x->m_is_a_q(new Array({(BasicObject*)(&Array_CLASS)})))) {
+                return static_cast<Array*>(x);
+              }
+              BasicObject* coerced = x->m_to_a();
+              if (coerced && coerced->m_class() == (BasicObject*)(&Array_CLASS)) {
+                return static_cast<Array*>(coerced);
+              }
+              Array* r = new Array();
+              r->data.push_back(x);
+              return r;
+            CPP
+          )
+
           # Symbol interning. Same name → same Symbol* (identity = equality,
           # so default op_eq_q + m_hash_value work). Intern table uses
           # GcAllocator so the symbols stay rooted under Boehm.
@@ -1622,6 +1665,7 @@ module Frozone
           ALL_KERNEL_FNS = [
             NIL_INSTANCE_FN, TRUE_INSTANCE_FN, FALSE_INSTANCE_FN,
             BOXED_BOOL, TRUTHY, RUBY_PUTS, INTERN_FN, ARRAY_AT_FN,
+            SPLAT_TO_ARRAY_FN,
             BUILD_INT_ARRAY_FN, INT_BOX_FN,
             COERCE_TO_INT_FN, RAISE_ARITY_FN,
             MM_DISPATCH_FN, CM_DISPATCH_FN,

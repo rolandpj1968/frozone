@@ -73,4 +73,23 @@ struct EnsureGuard {
 // CTAD deduction guide so callers can write `EnsureGuard g([&]() {...});`.
 template<typename F> EnsureGuard(F) -> EnsureGuard<F>;
 
+namespace Ruby { struct BasicObject; }
+
+// Non-local control flow out of block bodies. Both are NEVER subclasses
+// of Ruby::Exception — user `rescue` clauses must not catch them, only
+// our compiler-emitted catches do.
+//
+// BreakException — `break v` inside a block escapes the iterator. Caught
+// at the call site of the iterator method (where the block was passed);
+// the iterator's call expression evaluates to e.value.
+//
+// ReturnException — `return v` inside a block escapes the enclosing
+// METHOD (Ruby's return-from-block semantics). Caught at the method
+// body's outer try; the method returns e.value.
+//
+// Lightweight POD types thrown by value, caught by reference. C++ can
+// throw any complete type — these don't need a base, no RTTI cost.
+struct BreakException  { Ruby::BasicObject* value; };
+struct ReturnException { Ruby::BasicObject* value; };
+
 #endif  // FROZONE_BOX_FIRST_HPP

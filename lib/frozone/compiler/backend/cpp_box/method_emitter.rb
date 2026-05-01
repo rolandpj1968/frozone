@@ -22,10 +22,22 @@ module Frozone
             cpp_name = Cpp.method_name(name)
             body_buf = emit.capture do
               locals = unpack_params(emit, method)
-              if method.body
-                ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true)
+              # Wrap in try/catch ReturnException so `return v` inside a
+              # block (which throws rather than C++-returns) lands here
+              # and yields the method's return value. Zero overhead on
+              # the success path; the throw cost (~microseconds) is
+              # only paid when a block actually return-from-method's,
+              # which is rare. Conditional-wrap (only when the body
+              # contains a block whose body contains return) is a
+              # follow-up optimisation.
+              emit.line "try {"
+              emit.indented do
+                if method.body
+                  ExprEmitter.write_body(emit, method.body, locals: locals, last_is_return: true)
+                end
+                emit.line "return nil_instance();"
               end
-              emit.line "return nil_instance();"
+              emit.line "} catch (ReturnException& e_) { return e_.value; }"
             end
             emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) {"
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }

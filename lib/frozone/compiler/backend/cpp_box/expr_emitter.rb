@@ -29,7 +29,7 @@ module Frozone
           # — used when emitting a Proc body, where each block invocation
           # is one lambda call and `next [v]` semantically returns v from
           # that invocation.
-          def self.write_body(emit, body, locals:, last_is_return: false, next_returns: false)
+          def self.write_body(emit, body, locals:, last_is_return: false, next_returns: false, in_block: false)
             stmts = body.is_a?(Ast::Sequence) ? body.nodes : [body]
             stmts.each_with_index do |n, i|
               last = i == stmts.length - 1
@@ -37,14 +37,14 @@ module Frozone
                 # times/loop blocks at last-expression position need
                 # the statement form (lambda-wrap doesn't allow
                 # break/next). Emit as statement + return nil.
-                write_stmt(emit, n, locals, next_returns: next_returns)
+                write_stmt(emit, n, locals, next_returns: next_returns, in_block: in_block)
                 emit.line "return nil_instance();"
               elsif last && last_is_return && Cpp.expression_node?(n)
                 emit.line "return #{emit.cpp.from_expr(n, locals)};"
               elsif last && last_is_return
-                write_stmt(emit, n, locals, next_returns: next_returns)
+                write_stmt(emit, n, locals, next_returns: next_returns, in_block: in_block)
               else
-                write_stmt_with_rescue(emit, n, locals, next_returns: next_returns)
+                write_stmt_with_rescue(emit, n, locals, next_returns: next_returns, in_block: in_block)
               end
             end
           end
@@ -59,8 +59,8 @@ module Frozone
             false
           end
 
-          def self.write_stmt_with_rescue(emit, node, locals, next_returns: false)
-            buf = emit.capture { write_stmt(emit, node, locals, next_returns: next_returns) }
+          def self.write_stmt_with_rescue(emit, node, locals, next_returns: false, in_block: false)
+            buf = emit.capture { write_stmt(emit, node, locals, next_returns: next_returns, in_block: in_block) }
             buf.each_line { |l| emit.line l.chomp }
           rescue Cpp::EmissionError => e
             raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && emit.strict_emit
@@ -68,20 +68,29 @@ module Frozone
             $stderr.puts "[box-first] skip stmt: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
           end
 
-          def self.write_stmt(emit, node, locals, next_returns: false)
+          # `in_block:` is set when emitting the body of a block-Proc
+          # lambda. Inside such a lambda, `return v` and `break v` cannot
+          # use C++ return/break (would only escape the lambda); they
+          # throw ReturnException/BreakException to be caught at the
+          # method body / iterator call site respectively.
+          def self.write_stmt(emit, node, locals, next_returns: false, in_block: false)
             case node
             when Ast::Return
               # Bare `return` has nil value_node — Ruby's implicit nil.
               v = node.value_node ? emit.cpp.from_expr(node.value_node, locals) : "nil_instance()"
-              emit.line "return #{v};"
+              if in_block
+                emit.line "throw ReturnException{#{v}};"
+              else
+                emit.line "return #{v};"
+              end
             when Ast::If
-              write_if_stmt(emit, node, locals, next_returns: next_returns)
+              write_if_stmt(emit, node, locals, next_returns: next_returns, in_block: in_block)
             when Ast::While
               write_while_stmt(emit, node, locals)
             when Ast::Until
               write_until_stmt(emit, node, locals)
             when Ast::Case
-              write_case_stmt(emit, node, locals, next_returns: next_returns)
+              write_case_stmt(emit, node, locals, next_returns: next_returns, in_block: in_block)
             when Ast::Rescue
               # Pure `begin..end` (no rescue/else/ensure) — emit body
               # inline as plain statements. Without this, the lambda
@@ -92,7 +101,7 @@ module Frozone
               # inside case-when bodies).
               if (node.rescue_clauses.nil? || node.rescue_clauses.empty?) &&
                  node.else_node.nil? && node.ensure_node.nil?
-                write_body(emit, node.body, locals: locals, next_returns: next_returns) if node.body
+                write_body(emit, node.body, locals: locals, next_returns: next_returns, in_block: in_block) if node.body
               else
                 emit.line "#{emit.cpp.from_expr(node, locals)};"
               end
@@ -103,11 +112,16 @@ module Frozone
             when Ast::ForLoop
               write_for_loop_stmt(emit, node, locals)
             when Ast::Break
-              # Bare `break` and `break value` — value is dropped (the
-              # surrounding loop's value isn't observable in
-              # statement-position emission). C++ has no value-bearing
-              # break.
-              emit.line "break;"
+              # `break v` — outside a block, escape the surrounding C++
+              # loop (value dropped, C++ has no value-bearing break).
+              # Inside a block lambda, throw BreakException so the
+              # iterator's call site catches it and returns v.
+              if in_block
+                v = node.value_node ? emit.cpp.from_expr(node.value_node, locals) : "nil_instance()"
+                emit.line "throw BreakException{#{v}};"
+              else
+                emit.line "break;"
+              end
             when Ast::Next
               # In a Proc lambda (block body), `next [v]` returns v from
               # the lambda — semantically equivalent to "skip to the
@@ -131,21 +145,21 @@ module Frozone
                 emit.line "#{emit.cpp.from_expr(node, locals)};"
               end
             when Ast::Sequence
-              node.nodes.each { |n| write_stmt(emit, n, locals) }
+              node.nodes.each { |n| write_stmt(emit, n, locals, next_returns: next_returns, in_block: in_block) }
             else
               emit.line "#{emit.cpp.from_expr(node, locals)};"
             end
           end
 
-          def self.write_if_stmt(emit, node, locals, next_returns: false)
+          def self.write_if_stmt(emit, node, locals, next_returns: false, in_block: false)
             cond = emit.cpp.from_expr(node.pred_node, locals)
             emit.line "if (truthy(#{cond})) {"
             emit.indented do
-              write_body(emit, node.then_node, locals: locals, next_returns: next_returns) if node.then_node
+              write_body(emit, node.then_node, locals: locals, next_returns: next_returns, in_block: in_block) if node.then_node
             end
             if node.else_node
               emit.line "} else {"
-              emit.indented { write_body(emit, node.else_node, locals: locals, next_returns: next_returns) }
+              emit.indented { write_body(emit, node.else_node, locals: locals, next_returns: next_returns, in_block: in_block) }
             end
             emit.line "}"
           end
@@ -157,7 +171,7 @@ module Frozone
           # via op_case_eq. Without a subject conditions are truthy-tested
           # directly (the truthy/falsy if-elsif form).
           # SplatArg in conditions (when *arr) — deferred.
-          def self.write_case_stmt(emit, node, locals, next_returns: false)
+          def self.write_case_stmt(emit, node, locals, next_returns: false, in_block: false)
             subj = node.subject_node ? "_subj" : nil
             if subj
               emit.line "BasicObject* #{subj} = #{emit.cpp.from_expr(node.subject_node, locals)};"
@@ -166,11 +180,11 @@ module Frozone
               cond = case_when_cond(emit, w.condition_nodes, subj, locals)
               keyword = i == 0 ? "if" : "} else if"
               emit.line "#{keyword} (#{cond}) {"
-              emit.indented { write_body(emit, w.body_node, locals: locals, next_returns: next_returns) if w.body_node }
+              emit.indented { write_body(emit, w.body_node, locals: locals, next_returns: next_returns, in_block: in_block) if w.body_node }
             end
             if node.else_node
               emit.line "} else {"
-              emit.indented { write_body(emit, node.else_node, locals: locals, next_returns: next_returns) }
+              emit.indented { write_body(emit, node.else_node, locals: locals, next_returns: next_returns, in_block: in_block) }
             end
             emit.line "}"
           end
