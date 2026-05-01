@@ -1206,6 +1206,15 @@ module Frozone
                 return obj;
               CPP
             }
+            # Auto-generate m_allocate: same as m_new minus the
+            # m_initialize dispatch. MRI Class#allocate creates an
+            # uninitialized instance; Ruby idioms (Hash#dup, etc.) call
+            # `self.class.allocate` then populate fields manually.
+            # User-overridable.
+            overrides["m_allocate"] ||= {
+              params: [],
+              body: "return new #{klass.name}();",
+            }
             # A pure Module's eigenclass inherits from `Module` (so
             # `mod.class == Module`); a Class's eigenclass inherits
             # from `Class`. The eigenclass-of-Module-itself is a Class
