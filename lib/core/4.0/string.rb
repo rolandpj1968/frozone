@@ -89,14 +89,14 @@ class String
   def delete!(*__native_args__) = __bang__ { delete(*__native_args__) }
   def swapcase!(*args) = __bang__ { swapcase(*args) }
   def tr!(from, to) = __bang__ { tr(from, to) }
-  def slice!(idx, len = :__unset__) = len.equal?(:__unset__) ? Intrinsics.string_slice_bang(self, idx) : Intrinsics.string_slice_bang(self, idx, len)
+  def slice!(idx, len = :__unset__) = Intrinsics.string_slice_bang(self, idx, len)
   def -@ = Intrinsics.string_dedup(self)
   def tr_s!(from, to) = __bang__ { tr_s(from, to) }
   def delete_prefix!(prefix) = __bang__ { delete_prefix(prefix) }
   def delete_suffix!(suffix) = __bang__ { delete_suffix(suffix) }
   def to_i(base = 10) = Intrinsics.string_to_i_base(self, __coerce_to_int__(base))
   def reverse = chars.reverse.join("").tap { |r| r.force_encoding(encoding) }
-  def [](idx, len = :__unset__) = len.equal?(:__unset__) ? Intrinsics.string_slice(self, idx) : Intrinsics.string_slice(self, idx, len)
+  def [](idx, len = :__unset__) = Intrinsics.string_slice(self, idx, len)
   alias slice []
   def b = dup.tap { |r| r.force_encoding(Encoding::BINARY) }
   def unpack(fmt, offset: nil) = Intrinsics.string_unpack(self, __coerce_to_str__(fmt), offset)
@@ -771,7 +771,7 @@ class String
       raise TypeError, "wrong argument type Range (expected Integer)" if idx.is_a?(Range)
       raise TypeError, "no implicit conversion of nil into Integer" if idx.nil? || len.nil?
     end
-    len.equal?(:__unset__) ? Intrinsics.string_byteslice(self, idx) : Intrinsics.string_byteslice(self, idx, len)
+    Intrinsics.string_byteslice(self, idx, len)
   end
 
   def byteindex(sub, offset = :__unset__)
