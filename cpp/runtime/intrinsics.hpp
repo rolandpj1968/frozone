@@ -439,4 +439,214 @@ inline BasicObject* intrinsic_match_data_match_length(BasicObject* self_, BasicO
   return new Integer(_e - _b);
 }
 
+// ---- Symbol --------------------------------------------------------
+
+// `Symbol#to_s` — Symbol::name_ is a const char* set by intern();
+// wrap into a fresh String.
+inline BasicObject* intrinsic_symbol_to_s(BasicObject* self_) {
+  const char* _n = static_cast<Symbol*>(self_)->name_;
+  return new String(_n, std::strlen(_n));
+}
+
+// `Symbol#inspect` — `:foo`. Prepends a colon, builds a String.
+// Doesn't quote names with special characters yet (`:"foo bar"`);
+// good enough for normal identifiers.
+inline BasicObject* intrinsic_symbol_inspect(BasicObject* self_) {
+  const char* _n = static_cast<Symbol*>(self_)->name_;
+  std::size_t _len = std::strlen(_n);
+  auto* _r = new String();
+  _r->bytes.reserve(_len + 1);
+  _r->bytes.push_back(':');
+  for (std::size_t _i = 0; _i < _len; ++_i) {
+    _r->bytes.push_back(static_cast<std::uint8_t>(_n[_i]));
+  }
+  return _r;
+}
+
+// ---- String (cont.) ------------------------------------------------
+
+// `String#to_sym` — interns the byte-buffer as a Symbol. intern()
+// requires NUL-terminated; copy into a std::string for the lookup.
+inline BasicObject* intrinsic_string_to_sym(BasicObject* self_) {
+  auto* _s = static_cast<String*>(self_);
+  std::string _buf(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size());
+  return intern(_buf.c_str());
+}
+
+// `String#to_i(base)` — std::strtoll on the byte buffer. Empty /
+// non-numeric prefix returns 0 (matches MRI). Stub: doesn't handle
+// 0x/0b/0o prefixes for base==0; widen as needed.
+inline BasicObject* intrinsic_string_to_i_base(BasicObject* self_, BasicObject* base) {
+  auto* _s = static_cast<String*>(self_);
+  if (_s->bytes.empty()) return new Integer(0);
+  std::string _buf(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size());
+  int _b = static_cast<int>(static_cast<Integer*>(base)->raw_);
+  char* _end = nullptr;
+  long long _v = std::strtoll(_buf.c_str(), &_end, _b);
+  return new Integer(static_cast<std::int64_t>(_v));
+}
+
+// ---- Object / BasicObject ------------------------------------------
+
+// `Object#dup` — shallow copy. Picks the runtime type by dynamic_cast
+// so the new instance has the right vtable; ivars not copied (rare to
+// depend on for non-Ruby-defined classes). Real impl would call
+// m_initialize_copy.
+inline BasicObject* intrinsic_object_dup(BasicObject* self_) {
+  if (auto* _s = dynamic_cast<String*>(self_)) {
+    auto* _r = new String();
+    _r->bytes = _s->bytes;
+    return _r;
+  }
+  if (auto* _a = dynamic_cast<Array*>(self_)) {
+    auto* _r = new Array();
+    _r->data = _a->data;
+    return _r;
+  }
+  if (auto* _h = dynamic_cast<Hash*>(self_)) {
+    auto* _r = new Hash();
+    _r->data = _h->data;
+    return _r;
+  }
+  return self_;
+}
+
+// `Object#public_send(name, *args, **kwargs, &block)` — reuses m_send
+// (public/private distinction not enforced in box-first today).
+inline BasicObject* intrinsic_object_public_send(BasicObject* self_, BasicObject* name,
+                                                 BasicObject* args, BasicObject* kwargs,
+                                                 BasicObject* block) {
+  auto* _a = splat_to_array(args);
+  auto* _full = new Array();
+  _full->data.push_back(name);
+  for (auto* _e : _a->data) _full->data.push_back(_e);
+  return self_->m_send(_full, dynamic_cast<Hash*>(kwargs), dynamic_cast<Proc*>(block));
+}
+
+// `BasicObject#__send__(name, *args, **kwargs, &block)` — same as
+// Object#send (universal protocol doesn't gate by visibility today).
+inline BasicObject* intrinsic_basic_object___send__(BasicObject* self_, BasicObject* name,
+                                                    BasicObject* args, BasicObject* kwargs,
+                                                    BasicObject* block) {
+  auto* _a = splat_to_array(args);
+  auto* _full = new Array();
+  _full->data.push_back(name);
+  for (auto* _e : _a->data) _full->data.push_back(_e);
+  return self_->m_send(_full, dynamic_cast<Hash*>(kwargs), dynamic_cast<Proc*>(block));
+}
+
+// `BasicObject#method_missing(name, *args)` — default impl raises
+// NoMethodError. mm_dispatch already does this when the method is
+// unknown; this intrinsic is for explicit `super` chains in user-
+// defined method_missing.
+[[noreturn]] inline BasicObject* intrinsic_basic_object_method_missing(BasicObject* /*self_*/, BasicObject* name,
+                                                                       BasicObject* /*args*/, BasicObject* /*kwargs*/) {
+  auto* _n = dynamic_cast<Symbol*>(name);
+  const char* _name = _n ? _n->name_ : "<?>";
+  std::string _msg = std::string("undefined method '") + _name + "'";
+  throw static_cast<Exception*>(
+      (&NoMethodError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(_msg.data(), _msg.size()))})));
+}
+
+// ---- Kernel --------------------------------------------------------
+
+// `catch(tag) { |t| ... }` — wraps the block in try/catch matching on
+// ThrownTag's identity tag (Symbols intern, so == is correct). Block
+// receives the tag as its sole argument.
+inline BasicObject* intrinsic_kernel_catch(BasicObject* /*self_*/, BasicObject* tag, BasicObject* block) {
+  try {
+    return static_cast<Proc*>(block)->m_call(new Array({tag}));
+  } catch (ThrownTag* _t) {
+    if (_t->tag_ == tag) return _t->value_;
+    throw;
+  }
+}
+
+// `throw tag, value` — raises a ThrownTag carrying both. Caller
+// nil-defaults the value at the Ruby level.
+[[noreturn]] inline BasicObject* intrinsic_kernel_throw(BasicObject* /*self_*/, BasicObject* tag, BasicObject* value) {
+  throw new ThrownTag(tag, value);
+}
+
+// `Kernel#puts(*args)` via send/dynamic dispatch (direct `puts` already
+// routes through ruby_puts at the call-site).
+inline BasicObject* intrinsic_kernel_puts(BasicObject* /*self_*/, BasicObject* args_arr) {
+  auto* _a = splat_to_array(args_arr);
+  if (_a->data.empty()) {
+    ruby_puts(static_cast<BasicObject*>(nullptr));
+  } else {
+    for (auto* _e : _a->data) ruby_puts(_e);
+  }
+  return nil_instance();
+}
+
+// `Kernel#print(*args)` — puts without trailing newline. Stub: route
+// through ruby_puts (mismatch, but rarely visible).
+inline BasicObject* intrinsic_kernel_print(BasicObject* /*self_*/, BasicObject* args_arr) {
+  auto* _a = splat_to_array(args_arr);
+  for (auto* _e : _a->data) ruby_puts(_e);
+  return nil_instance();
+}
+
+// `Kernel#rand(n)` — global PRNG. Stub: route through a process-wide
+// Random instance (deterministically seeded with 0). Real impl would
+// seed with /dev/urandom.
+inline BasicObject* intrinsic_kernel_rand(BasicObject* /*self_*/, BasicObject* n) {
+  static Random* _g = nullptr;
+  if (!_g) {
+    _g = new Random();
+    Integer _zero(0);
+    _g->m_initialize(new Array({static_cast<BasicObject*>(&_zero)}));
+  }
+  return _g->m_rand(n == nil_instance() ? &EMPTY_ARGS : new Array({n}));
+}
+
+// `Kernel#Integer(val, base = nil, exception: true)` — coerce to
+// Integer via existing helper.
+inline BasicObject* intrinsic_kernel_integer(BasicObject* /*self_*/, BasicObject* val,
+                                             BasicObject* /*base*/, BasicObject* /*exception*/) {
+  return new Integer(coerce_to_int(val));
+}
+
+// `Kernel#Float(val)` — coerce to Float. Fast path for Integer/Float;
+// else dispatches to_f.
+inline BasicObject* intrinsic_kernel_float(BasicObject* /*self_*/, BasicObject* val) {
+  if (auto* _i = dynamic_cast<Integer*>(val)) return new Float(static_cast<double>(_i->raw_));
+  if (dynamic_cast<Float*>(val)) return val;
+  return val->m_to_f();
+}
+
+// `Kernel#raise(msg, message, backtrace, cause)`. Common forms: 1-arg
+// (`raise X` or `raise "msg"`) and 2-arg (`raise X, "msg"`); 3+ arg
+// backtrace/cause variants are rare and treated the same here.
+[[noreturn]] inline BasicObject* intrinsic_kernel_raise(BasicObject* /*self_*/, BasicObject* msg, BasicObject* message,
+                                                       BasicObject* /*backtrace*/, BasicObject* /*cause*/) {
+  BasicObject* _exc;
+  if (auto* _k = dynamic_cast<Class*>(msg)) {
+    _exc = (message == nil_instance()) ? _k->m_new() : _k->m_new(new Array({message}));
+  } else if (dynamic_cast<Exception*>(msg)) {
+    _exc = msg;
+  } else {
+    _exc = (&RuntimeError_CLASS)->m_new(new Array({msg}));
+  }
+  throw static_cast<Exception*>(_exc);
+}
+
+// ---- Fiber storage -------------------------------------------------
+
+// `Fiber[:k]` — read from process-global storage Hash. Symbols intern
+// so identity-keyed access is correct. Direct ->data avoids the
+// universal op_aref/op_aset Array allocation.
+inline BasicObject* intrinsic_fiber_storage_get(BasicObject* /*self_*/, BasicObject* key) {
+  auto& _h = g_fiber_storage()->data;
+  auto _it = _h.find(key);
+  return (_it == _h.end()) ? nil_instance() : _it->second;
+}
+
+// `Fiber[:k] = v` — write to process-global storage Hash.
+inline BasicObject* intrinsic_fiber_storage_set(BasicObject* /*self_*/, BasicObject* key, BasicObject* val) {
+  g_fiber_storage()->data[key] = val;
+  return val;
+}
+
 #endif

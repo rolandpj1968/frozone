@@ -124,28 +124,10 @@ module Frozone
             # `String#to_sym` — interns the string. intern() takes a
             # const char*, so the string must be NUL-terminated. Copy
             # bytes into a std::string for the lookup.
-            string_to_sym: ->(self_) {
-              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); std::string _buf(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size()); return intern(_buf.c_str()); }())"
-            },
-            # `Symbol#to_s` — Symbol::name_ is a const char* set by
-            # intern(). Wrap into a fresh String.
-            symbol_to_s: ->(self_) {
-              "([&]() -> BasicObject* { const char* _n = static_cast<Symbol*>(#{self_})->name_; return new String(_n, std::strlen(_n)); }())"
-            },
-            # `Symbol#inspect` — `:foo`. Prepends a colon, builds a
-            # String. Doesn't quote names with special characters yet
-            # (`:\"foo bar\"`); good enough for normal identifiers.
-            symbol_inspect: ->(self_) {
-              "([&]() -> BasicObject* { const char* _n = static_cast<Symbol*>(#{self_})->name_; std::size_t _len = std::strlen(_n); String* _r = new String(); _r->bytes.reserve(_len + 1); _r->bytes.push_back(':'); for (std::size_t _i = 0; _i < _len; ++_i) _r->bytes.push_back(static_cast<std::uint8_t>(_n[_i])); return _r; }())"
-            },
-            # `String#to_i(base)` — std::strtoll on the byte buffer
-            # with the given base. Empty / non-numeric prefix returns 0
-            # (matches MRI). Stub: doesn't handle 0x/0b/0o prefixes
-            # for base==0, doesn't trim leading whitespace beyond
-            # what strtoll's first behaviour gives us; widen as needed.
-            string_to_i_base: ->(self_, base) {
-              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); if (_s->bytes.empty()) return new Integer(0); std::string _buf(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size()); int _b = static_cast<int>(static_cast<Integer*>(#{base})->raw_); char* _end = nullptr; long long _v = std::strtoll(_buf.c_str(), &_end, _b); return new Integer(static_cast<int64_t>(_v)); }())"
-            },
+            string_to_sym:    ->(self_) { "intrinsic_string_to_sym(#{self_})" },
+            symbol_to_s:      ->(self_) { "intrinsic_symbol_to_s(#{self_})" },
+            symbol_inspect:   ->(self_) { "intrinsic_symbol_inspect(#{self_})" },
+            string_to_i_base: ->(self_, base) { "intrinsic_string_to_i_base(#{self_}, #{base})" },
 
             # Object identity / class — needed by core/4.0 dispatch helpers.
             object_is_a: ->(self_, klass) { "boxed_bool(dynamic_cast<Class*>(#{klass}) != nullptr && #{self_}->m_is_a_q(new Array({#{klass}})) == true_instance())" },
@@ -156,20 +138,8 @@ module Frozone
             # in the method's `_block` alias (set up by unpack_params).
             kernel_lambda: ->(_self_) { "static_cast<BasicObject*>(_block)" },
             kernel_proc: ->(_self_) { "static_cast<BasicObject*>(_block)" },
-            # `catch(tag) { |t| ... }` — wraps the block in a C++
-            # try/catch that pattern-matches on ThrownTag's pointer-
-            # identity tag (Symbols intern, so == is correct). Block
-            # receives the tag as its sole argument, matching MRI's
-            # `catch(:foo) { |t| t == :foo }` semantics.
-            kernel_catch: ->(_self_, tag, block) {
-              "([&]() -> BasicObject* { try { return static_cast<Proc*>(#{block})->m_call(new Array({#{tag}})); } catch (ThrownTag* _t) { if (_t->tag_ == (#{tag})) return _t->value_; throw; } }())"
-            },
-            # `throw tag, value` — raises a ThrownTag carrying both.
-            # Caller already nil-defaulted the value at the Ruby level
-            # (`def throw(tag, value = nil)`).
-            kernel_throw: ->(_self_, tag, value) {
-              "([&]() -> BasicObject* { throw new ThrownTag(#{tag}, #{value}); }())"
-            },
+            kernel_catch: ->(self_, tag, block) { "intrinsic_kernel_catch(#{self_}, #{tag}, #{block})" },
+            kernel_throw: ->(self_, tag, value) { "intrinsic_kernel_throw(#{self_}, #{tag}, #{value})" },
             basic_object__equal_equal_: ->(s, o) { "boxed_bool(#{s} == #{o})" },
             basic_object___id__: ->(s) { "(new Integer(reinterpret_cast<int64_t>(#{s})))" },
 
@@ -251,32 +221,14 @@ module Frozone
               "(new Integer(static_cast<int64_t>(static_cast<Hash*>(#{self_})->data.size())))"
             },
 
-            # `BasicObject#__send__(name, *args)` — same dispatch as
-            # `Object#send` (universal protocol doesn't gate by
-            # visibility today). Routes through m_send.
-            basic_object___send__: ->(self_, name, args, kwargs, block) {
-              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{args}); Array* _full = new Array(); _full->data.push_back(#{name}); for (auto* _e : _a->data) _full->data.push_back(_e); return (#{self_})->m_send(_full, dynamic_cast<Hash*>(#{kwargs}), dynamic_cast<Proc*>(#{block})); }())"
-            },
-            # `BasicObject#method_missing(name, *args)` — default
-            # impl raises NoMethodError. mm_dispatch already does
-            # this when the method is unknown; this intrinsic is
-            # for explicit `super` chains in user-defined
-            # method_missing.
-            basic_object_method_missing: ->(_self_, name, _args, _kwargs) {
-              "([&]() -> BasicObject* { Symbol* _n = dynamic_cast<Symbol*>(#{name}); const char* _name = _n ? _n->name_ : \"<?>\"; std::string _msg = std::string(\"undefined method '\") + _name + \"'\"; throw static_cast<Exception*>((&NoMethodError_CLASS)->m_new(new Array({static_cast<BasicObject*>(new String(_msg.data(), _msg.size()))}))); }())"
-            },
+            basic_object___send__:       ->(self_, name, args, kwargs, block) { "intrinsic_basic_object___send__(#{self_}, #{name}, #{args}, #{kwargs}, #{block})" },
+            basic_object_method_missing: ->(self_, name, args, kwargs) { "intrinsic_basic_object_method_missing(#{self_}, #{name}, #{args}, #{kwargs})" },
 
             # Object protocol stubs — most return nil/false/empty/self
             # to stop downstream nil.foo cascades. Real impls would
             # need per-class metadata or runtime reflection that
             # box-first doesn't track.
-            object_dup: ->(self_) {
-              # Shallow copy. dynamic_cast picks the runtime type
-              # so the new instance has the right vtable; ivars
-              # not copied (rare to depend on for non-Ruby-defined
-              # classes). Real impl would call m_initialize_copy.
-              "([&]() -> BasicObject* { auto* _o = #{self_}; if (auto* _s = dynamic_cast<String*>(_o)) { auto* _r = new String(); _r->bytes = _s->bytes; return _r; } if (auto* _a = dynamic_cast<Array*>(_o)) { auto* _r = new Array(); _r->data = _a->data; return _r; } if (auto* _h = dynamic_cast<Hash*>(_o)) { auto* _r = new Hash(); _r->data = _h->data; return _r; } return _o; }())"
-            },
+            object_dup: ->(self_) { "intrinsic_object_dup(#{self_})" },
             object_freeze:    ->(self_) { "(#{self_})" },             # stub: no-op (we don't track frozen state)
             object_frozen:    ->(_self_) { "false_instance()" },        # stub: nothing is frozen
             object_methods:   ->(_self_, _all) { "(new Array())" },     # stub: empty list
@@ -286,11 +238,7 @@ module Frozone
             object_ivar_defined: ->(_self_, _name) { "false_instance()" },
             object_ivar_remove:  ->(_self_, _name) { "nil_instance()" },
             object_ivar_names:   ->(_self_) { "(new Array())" },        # stub: empty (would need per-class metadata)
-            object_public_send:  ->(self_, name, args, kwargs, block) {
-              # Reuse m_send dispatch — public/private distinction
-              # not enforced in box-first today.
-              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{args}); Array* _full = new Array(); _full->data.push_back(#{name}); for (auto* _e : _a->data) _full->data.push_back(_e); return (#{self_})->m_send(_full, dynamic_cast<Hash*>(#{kwargs}), dynamic_cast<Proc*>(#{block})); }())"
-            },
+            object_public_send: ->(self_, name, args, kwargs, block) { "intrinsic_object_public_send(#{self_}, #{name}, #{args}, #{kwargs}, #{block})" },
             object_respond_to: ->(self_, name, _include_all) {
               # Forward to the universal m_respond_to_q — drop
               # include_all (private methods always visible in
@@ -302,65 +250,19 @@ module Frozone
               "boxed_bool(#{self_}->m_class() == (#{klass}))"
             },
 
-            # Kernel#puts/print(*args) dispatched as intrinsic — direct
-            # `puts` (call-site) routes through ruby_puts already.
-            # This path fires when puts is called via send/dynamic
-            # dispatch.
-            kernel_puts: ->(_self_, args_arr) {
-              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{args_arr}); if (_a->data.empty()) { ruby_puts(static_cast<BasicObject*>(nullptr)); } else { for (auto* _e : _a->data) ruby_puts(_e); } return nil_instance(); }())"
-            },
-            kernel_print: ->(_self_, args_arr) {
-              # `print` is `puts` without trailing newline — stub
-              # via ruby_puts for now (mismatch, but rarely visible).
-              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{args_arr}); for (auto* _e : _a->data) ruby_puts(_e); return nil_instance(); }())"
-            },
-            kernel_rand: ->(_self_, n) {
-              # `Kernel#rand` is the global PRNG. Stub: route through
-              # a process-wide Random instance (lazily seeded with 0
-              # — deterministic, surface-level OK for tests). Real
-              # impl would seed with /dev/urandom.
-              "([&]() -> BasicObject* { static Random* _g = nullptr; if (!_g) { _g = new Random(); _g->m_initialize(new Array({(&_f_i_0)})); } return _g->m_rand((#{n}) == nil_instance() ? &EMPTY_ARGS : new Array({(#{n})})); }())"
-            },
-            kernel_block_given: ->(_self_) {
-              # Stub: false. We don't propagate _block to here. A
-              # real impl would need the calling-method's _block
-              # context, which is awkward via the intrinsic boundary.
-              "false_instance()"
-            },
-            kernel_caller: ->(_self_, _start, _length) { "(new Array())" },           # stub: empty backtrace
-            kernel_caller_locations: ->(_self_, _start, _length) { "(new Array())" }, # same
-            kernel_integer: ->(_self_, val, _base, _exception) {
-              # Coerce to Integer via existing helper.
-              "(new Integer(coerce_to_int(#{val})))"
-            },
-            kernel_float: ->(_self_, val) {
-              # Coerce to Float — fast path for Integer/Float, else
-              # call to_f.
-              "([&]() -> BasicObject* { auto* _v = #{val}; if (auto* _i = dynamic_cast<Integer*>(_v)) return new Float(static_cast<double>(_i->raw_)); if (dynamic_cast<Float*>(_v)) return _v; return _v->m_to_f(); }())"
-            },
+            kernel_puts:      ->(self_, args_arr) { "intrinsic_kernel_puts(#{self_}, #{args_arr})" },
+            kernel_print:     ->(self_, args_arr) { "intrinsic_kernel_print(#{self_}, #{args_arr})" },
+            kernel_rand:      ->(self_, n) { "intrinsic_kernel_rand(#{self_}, #{n})" },
+            # kernel_block_given stays inline — needs surrounding-scope _block (stub: false)
+            kernel_block_given: ->(_self_) { "false_instance()" },
+            kernel_caller:           ->(_self_, _start, _length) { "(new Array())" },
+            kernel_caller_locations: ->(_self_, _start, _length) { "(new Array())" },
+            kernel_integer:   ->(self_, val, base, exc) { "intrinsic_kernel_integer(#{self_}, #{val}, #{base}, #{exc})" },
+            kernel_float:     ->(self_, val) { "intrinsic_kernel_float(#{self_}, #{val})" },
+            kernel_raise:     ->(self_, msg, message, bt, cause) { "intrinsic_kernel_raise(#{self_}, #{msg}, #{message}, #{bt}, #{cause})" },
 
-            # `Kernel#raise(msg, message, backtrace, cause)`. Most
-            # programs use `raise X` (1-arg) or `raise X, msg`
-            # (2-arg); 3+ arg backtrace/cause variants are rare and
-            # treated the same here. Skips the "0-arg re-raise"
-            # path (would need thread-local current-exception
-            # tracking) — a `raise` with no real arg uses the
-            # sentinel `:__raise_no_arg__` set by the Ruby default,
-            # which we just treat as a fresh RuntimeError.
-            kernel_raise: ->(_self_, msg, message, _backtrace, _cause) {
-              "([&]() -> BasicObject* { BasicObject* _m = (#{msg}); BasicObject* _msg = (#{message}); BasicObject* _exc; if (auto* _k = dynamic_cast<Class*>(_m)) { _exc = (_msg == nil_instance()) ? _k->m_new() : _k->m_new(new Array({_msg})); } else if (dynamic_cast<Exception*>(_m)) { _exc = _m; } else { _exc = (&RuntimeError_CLASS)->m_new(new Array({_m})); } throw static_cast<Exception*>(_exc); }())"
-            },
-
-            # Fiber storage — `Fiber[:k]` / `Fiber[:k] = v`. Backed by
-            # a single global Hash* (single-threaded today); identity
-            # keys work because Symbols intern. Direct ->data access
-            # avoids the universal op_aref/op_aset Array allocation.
-            fiber_storage_get: ->(_self_, key) {
-              "([&]() -> BasicObject* { auto& _h = g_fiber_storage()->data; auto _it = _h.find(#{key}); return (_it == _h.end()) ? nil_instance() : _it->second; }())"
-            },
-            fiber_storage_set: ->(_self_, key, val) {
-              "(g_fiber_storage()->data[#{key}] = #{val})"
-            },
+            fiber_storage_get: ->(self_, key) { "intrinsic_fiber_storage_get(#{self_}, #{key})" },
+            fiber_storage_set: ->(self_, key, val) { "intrinsic_fiber_storage_set(#{self_}, #{key}, #{val})" },
 
             # ---- String --------------------------------------------
             # Bodies live in cpp/runtime/intrinsics.hpp; these emit
