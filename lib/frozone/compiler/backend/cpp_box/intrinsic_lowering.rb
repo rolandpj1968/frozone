@@ -182,50 +182,20 @@ module Frozone
             regexp_options: ->(self_) { "(new Integer(static_cast<Regexp*>(#{self_})->options_))" },
             regexp_newly_created_q: ->(self_) { "boxed_bool(!static_cast<Regexp*>(#{self_})->initialized_)" },
             regexp_encoding: ->(_self_) { %((new String("UTF-8", 5))) },
-            regexp_inspect: ->(self_) {
-              # `/source/`. Options stripped for now — adequate for debug
-              # output; full MRI form (with /i/m/x flags) is a follow-up.
-              "([&]() -> BasicObject* { auto* _r = static_cast<Regexp*>(#{self_}); auto* _s = static_cast<String*>(_r->source_); std::string _buf; _buf.reserve(_s->bytes.size() + 2); _buf.push_back('/'); _buf.append(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size()); _buf.push_back('/'); return new String(_buf.data(), _buf.size()); }())"
-            },
-            regexp_to_s: ->(self_) {
-              # Delegate to inspect for now (MRI's #to_s emits `(?-mix:...)`
-              # which we don't reproduce yet).
-              "([&]() -> BasicObject* { auto* _r = static_cast<Regexp*>(#{self_}); auto* _s = static_cast<String*>(_r->source_); std::string _buf; _buf.reserve(_s->bytes.size() + 2); _buf.push_back('/'); _buf.append(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size()); _buf.push_back('/'); return new String(_buf.data(), _buf.size()); }())"
-            },
-            # Regexp.new(class, pattern, options, kw_opts) — class is
-            # &Regexp_CLASS, pattern is String, options is Integer or
-            # nil, kw_opts is Hash (currently ignored).
-            regexp_new: ->(_klass, pat, opts, _kw) {
-              "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({#{pat}, ((#{opts}) == nil_instance() ? static_cast<BasicObject*>(new Integer(0)) : (#{opts}))}); _re->m_initialize(_a, nullptr, nullptr); return _re; }())"
-            },
-            # `re =~ str` — returns Integer of byte-offset, or nil. Sets $~.
-            regexp_match_index: ->(self_, str) {
-              "([&]() -> BasicObject* { auto* _md = regexp_match_helper(#{self_}, #{str}, 0); return _md ? static_cast<BasicObject*>(new Integer(_md->captures_[0].first)) : nil_instance(); }())"
-            },
-            # `re.match?(str, pos)` — true/false; doesn't set $~ in MRI,
-            # but we set it anyway (cheap, simpler code).
-            regexp_match_bool: ->(self_, str, pos) {
+            regexp_inspect:     ->(self_) { "intrinsic_regexp_inspect(#{self_})" },
+            regexp_to_s:        ->(self_) { "intrinsic_regexp_to_s(#{self_})" },
+            regexp_new:         ->(klass, pat, opts, kw) { "intrinsic_regexp_new(#{klass}, #{pat}, #{opts}, #{kw})" },
+            regexp_match_index: ->(self_, str) { "intrinsic_regexp_match_index(#{self_}, #{str})" },
+            # `re.match?(str, pos)` — short enough to keep inline; doesn't
+            # set $~ in MRI but we set it anyway (cheap, simpler code).
+            regexp_match_bool:  ->(self_, str, pos) {
               "boxed_bool(regexp_match_helper(#{self_}, #{str}, static_cast<Integer*>(#{pos})->raw_) != nullptr)"
             },
-            # `re.match(str, pos)` — returns MatchData or nil. Sets $~.
-            regexp_match: ->(self_, str, pos) {
-              "([&]() -> BasicObject* { auto* _md = regexp_match_helper(#{self_}, #{str}, static_cast<Integer*>(#{pos})->raw_); return _md ? static_cast<BasicObject*>(_md) : nil_instance(); }())"
-            },
-            # `Regexp.last_match` / `Regexp.last_match(n)` — read $~ or
-            # capture n from $~. Single overload: nil → return $~ itself.
-            regexp_last_match: ->(n) {
-              "([&]() -> BasicObject* { BasicObject* _md = g_last_match(); if ((#{n}) == nil_instance() || (#{n}) == nullptr) return _md; if (_md == nullptr || _md == nil_instance()) return nil_instance(); return matchdata_cap(_md, static_cast<Integer*>(#{n})->raw_); }())"
-            },
+            regexp_match:       ->(self_, str, pos) { "intrinsic_regexp_match(#{self_}, #{str}, #{pos})" },
+            regexp_last_match:  ->(n) { "intrinsic_regexp_last_match(#{n})" },
 
-            # `String#=~ Regexp` already lowers via regexp_match_index.
-            # `String#match` calls `Intrinsics.string_match(str, pattern)`
-            # — same operation, mirrored arg order.
-            string_match: ->(self_, pat) {
-              "([&]() -> BasicObject* { auto* _md = regexp_match_helper(#{pat}, #{self_}, 0); return _md ? static_cast<BasicObject*>(_md) : nil_instance(); }())"
-            },
-            string_match_pos: ->(self_, pat, pos) {
-              "([&]() -> BasicObject* { auto* _md = regexp_match_helper(#{pat}, #{self_}, static_cast<Integer*>(#{pos})->raw_); return _md ? static_cast<BasicObject*>(_md) : nil_instance(); }())"
-            },
+            string_match:       ->(self_, pat) { "intrinsic_string_match(#{self_}, #{pat})" },
+            string_match_pos:   ->(self_, pat, pos) { "intrinsic_string_match_pos(#{self_}, #{pat}, #{pos})" },
             string_match_q: ->(self_, pat, pos) {
               "boxed_bool(regexp_match_helper(#{pat}, #{self_}, ((#{pos}) == nil_instance() ? 0 : static_cast<Integer*>(#{pos})->raw_)) != nullptr)"
             },
@@ -246,18 +216,10 @@ module Frozone
             match_data_size:  ->(self_) { "(new Integer(static_cast<int64_t>(static_cast<MatchData*>(#{self_})->captures_.size())))" },
             match_data_string: ->(self_) { "(static_cast<MatchData*>(#{self_})->iv_string)" },
             match_data_regexp: ->(self_) { "(static_cast<MatchData*>(#{self_})->iv_regexp)" },
-            match_data_to_a: ->(self_) {
-              "([&]() -> BasicObject* { auto* _md = static_cast<MatchData*>(#{self_}); Array* _a = new Array(); _a->data.reserve(_md->captures_.size()); for (size_t i = 0; i < _md->captures_.size(); i++) _a->data.push_back(matchdata_cap(_md, static_cast<int64_t>(i))); return _a; }())"
-            },
-            match_data_captures: ->(self_) {
-              "([&]() -> BasicObject* { auto* _md = static_cast<MatchData*>(#{self_}); Array* _a = new Array(); if (_md->captures_.size() > 1) { _a->data.reserve(_md->captures_.size() - 1); for (size_t i = 1; i < _md->captures_.size(); i++) _a->data.push_back(matchdata_cap(_md, static_cast<int64_t>(i))); } return _a; }())"
-            },
-            match_data_pre_match: ->(self_) {
-              "([&]() -> BasicObject* { auto* _md = static_cast<MatchData*>(#{self_}); auto* _s = static_cast<String*>(_md->iv_string); int64_t _b = _md->captures_[0].first; if (_b < 0) _b = 0; return new String(reinterpret_cast<const char*>(_s->bytes.data()), static_cast<size_t>(_b)); }())"
-            },
-            match_data_post_match: ->(self_) {
-              "([&]() -> BasicObject* { auto* _md = static_cast<MatchData*>(#{self_}); auto* _s = static_cast<String*>(_md->iv_string); int64_t _e = _md->captures_[0].second; if (_e < 0) _e = static_cast<int64_t>(_s->bytes.size()); return new String(reinterpret_cast<const char*>(_s->bytes.data() + _e), _s->bytes.size() - static_cast<size_t>(_e)); }())"
-            },
+            match_data_to_a:        ->(self_) { "intrinsic_match_data_to_a(#{self_})" },
+            match_data_captures:    ->(self_) { "intrinsic_match_data_captures(#{self_})" },
+            match_data_pre_match:   ->(self_) { "intrinsic_match_data_pre_match(#{self_})" },
+            match_data_post_match:  ->(self_) { "intrinsic_match_data_post_match(#{self_})" },
             match_data_begin: ->(self_, n) { "(new Integer(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].first))" },
             match_data_end:   ->(self_, n) { "(new Integer(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].second))" },
             match_data_bytebegin: ->(self_, n) { "(new Integer(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].first))" },
@@ -268,9 +230,7 @@ module Frozone
             # Real impl is a follow-up.
             match_data_slice: ->(self_, _i, _len) { "matchdata_cap(#{self_}, 0)" },
             match_data_slice_range: ->(self_, _r) { "matchdata_cap(#{self_}, 0)" },
-            match_data_match_length: ->(self_, n) {
-              "([&]() -> BasicObject* { auto* _md = static_cast<MatchData*>(#{self_}); int64_t _i = static_cast<Integer*>(#{n})->raw_; auto [_b, _e] = _md->captures_[_i]; return new Integer(_e - _b); }())"
-            },
+            match_data_match_length: ->(self_, n) { "intrinsic_match_data_match_length(#{self_}, #{n})" },
             match_data_named_captures: ->(_self_) { "(new Hash())" },  # stub — empty hash
             match_data_names: ->(_self_) { "(new Array())" },          # stub — empty array
             match_data_values_at_range: ->(_self_, _r, _n) { "(new Array())" },  # stub

@@ -321,4 +321,122 @@ inline BasicObject* intrinsic_integer_bit_length(BasicObject* self_) {
   return new Integer(64 - __builtin_clzll(_u));
 }
 
+// ---- Regexp / MatchData --------------------------------------------
+
+// `re.inspect` — `/source/`. Options stripped for now (full MRI form
+// `(?-mix:...)` is a follow-up).
+inline BasicObject* intrinsic_regexp_inspect(BasicObject* self_) {
+  auto* _r = static_cast<Regexp*>(self_);
+  auto* _s = static_cast<String*>(_r->source_);
+  std::string _buf;
+  _buf.reserve(_s->bytes.size() + 2);
+  _buf.push_back('/');
+  _buf.append(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size());
+  _buf.push_back('/');
+  return new String(_buf.data(), _buf.size());
+}
+
+// `re.to_s` — same as inspect for now.
+inline BasicObject* intrinsic_regexp_to_s(BasicObject* self_) {
+  return intrinsic_regexp_inspect(self_);
+}
+
+// `Regexp.new(pattern, options, kw_opts)` — class arg comes first
+// (eigenclass-side intrinsic), pattern is String, options is Integer
+// or nil, kw_opts ignored.
+inline BasicObject* intrinsic_regexp_new(BasicObject* /*klass*/, BasicObject* pat, BasicObject* opts, BasicObject* /*kw*/) {
+  auto* _re = new Regexp();
+  auto* _a = new Array({
+      pat,
+      (opts == nil_instance() ? static_cast<BasicObject*>(new Integer(0)) : opts),
+  });
+  _re->m_initialize(_a, nullptr, nullptr);
+  return _re;
+}
+
+// `re =~ str` — Integer byte-offset of first match, or nil. Sets $~.
+inline BasicObject* intrinsic_regexp_match_index(BasicObject* self_, BasicObject* str) {
+  auto* _md = regexp_match_helper(self_, str, 0);
+  return _md ? static_cast<BasicObject*>(new Integer(_md->captures_[0].first)) : nil_instance();
+}
+
+// `re.match(str, pos)` — MatchData or nil. Sets $~.
+inline BasicObject* intrinsic_regexp_match(BasicObject* self_, BasicObject* str, BasicObject* pos) {
+  auto* _md = regexp_match_helper(self_, str, static_cast<Integer*>(pos)->raw_);
+  return _md ? static_cast<BasicObject*>(_md) : nil_instance();
+}
+
+// `Regexp.last_match` / `Regexp.last_match(n)` — read $~ or capture n.
+// nil arg → return $~ itself; Integer arg → return capture n.
+inline BasicObject* intrinsic_regexp_last_match(BasicObject* n) {
+  BasicObject* _md = g_last_match();
+  if (n == nil_instance() || n == nullptr) return _md;
+  if (_md == nullptr || _md == nil_instance()) return nil_instance();
+  return matchdata_cap(_md, static_cast<Integer*>(n)->raw_);
+}
+
+// `String#match(pattern)` — same as Regexp#match with self/str swapped.
+inline BasicObject* intrinsic_string_match(BasicObject* self_, BasicObject* pat) {
+  auto* _md = regexp_match_helper(pat, self_, 0);
+  return _md ? static_cast<BasicObject*>(_md) : nil_instance();
+}
+
+// `String#match(pattern, pos)`.
+inline BasicObject* intrinsic_string_match_pos(BasicObject* self_, BasicObject* pat, BasicObject* pos) {
+  auto* _md = regexp_match_helper(pat, self_, static_cast<Integer*>(pos)->raw_);
+  return _md ? static_cast<BasicObject*>(_md) : nil_instance();
+}
+
+// `MatchData#to_a` — Array of all captures (including capture 0 = full
+// match). Each capture is a String (or nil if unmatched optional group).
+inline BasicObject* intrinsic_match_data_to_a(BasicObject* self_) {
+  auto* _md = static_cast<MatchData*>(self_);
+  auto* _a = new Array();
+  _a->data.reserve(_md->captures_.size());
+  for (std::size_t i = 0; i < _md->captures_.size(); i++) {
+    _a->data.push_back(matchdata_cap(_md, static_cast<std::int64_t>(i)));
+  }
+  return _a;
+}
+
+// `MatchData#captures` — Array of captures EXCLUDING capture 0.
+inline BasicObject* intrinsic_match_data_captures(BasicObject* self_) {
+  auto* _md = static_cast<MatchData*>(self_);
+  auto* _a = new Array();
+  if (_md->captures_.size() > 1) {
+    _a->data.reserve(_md->captures_.size() - 1);
+    for (std::size_t i = 1; i < _md->captures_.size(); i++) {
+      _a->data.push_back(matchdata_cap(_md, static_cast<std::int64_t>(i)));
+    }
+  }
+  return _a;
+}
+
+// `MatchData#pre_match` — substring of original string before match.
+inline BasicObject* intrinsic_match_data_pre_match(BasicObject* self_) {
+  auto* _md = static_cast<MatchData*>(self_);
+  auto* _s = static_cast<String*>(_md->iv_string);
+  std::int64_t _b = _md->captures_[0].first;
+  if (_b < 0) _b = 0;
+  return new String(reinterpret_cast<const char*>(_s->bytes.data()), static_cast<std::size_t>(_b));
+}
+
+// `MatchData#post_match` — substring of original string after match.
+inline BasicObject* intrinsic_match_data_post_match(BasicObject* self_) {
+  auto* _md = static_cast<MatchData*>(self_);
+  auto* _s = static_cast<String*>(_md->iv_string);
+  std::int64_t _e = _md->captures_[0].second;
+  if (_e < 0) _e = static_cast<std::int64_t>(_s->bytes.size());
+  return new String(reinterpret_cast<const char*>(_s->bytes.data() + _e),
+                    _s->bytes.size() - static_cast<std::size_t>(_e));
+}
+
+// `MatchData#match_length(n)` — byte length of capture n.
+inline BasicObject* intrinsic_match_data_match_length(BasicObject* self_, BasicObject* n) {
+  auto* _md = static_cast<MatchData*>(self_);
+  std::int64_t _i = static_cast<Integer*>(n)->raw_;
+  auto [_b, _e] = _md->captures_[_i];
+  return new Integer(_e - _b);
+}
+
 #endif
