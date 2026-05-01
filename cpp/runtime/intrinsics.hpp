@@ -305,6 +305,34 @@ inline BasicObject* intrinsic_hash_reset_compare_by_identity(BasicObject* self_)
   return _h;
 }
 
+// Hash default value / default proc — MRI exclusivity: setting one
+// clears the other. Setters handle that; getters are direct reads.
+
+inline BasicObject* intrinsic_hash_get_default(BasicObject* self_, BasicObject* /*key*/) {
+  // MRI Hash#default(key) ignores key when no default_proc; returns
+  // the default value. Used by core/4.0/hash.rb's `[]` lookup miss
+  // path (already nil-default unless setter ran).
+  return static_cast<Hash*>(self_)->default_value_;
+}
+
+inline BasicObject* intrinsic_hash_set_default(BasicObject* self_, BasicObject* val) {
+  auto* _h = static_cast<Hash*>(self_);
+  _h->default_value_ = val;
+  _h->default_proc_ = nil_instance();
+  return val;
+}
+
+inline BasicObject* intrinsic_hash_get_default_proc(BasicObject* self_) {
+  return static_cast<Hash*>(self_)->default_proc_;
+}
+
+inline BasicObject* intrinsic_hash_set_default_proc(BasicObject* self_, BasicObject* prc) {
+  auto* _h = static_cast<Hash*>(self_);
+  _h->default_proc_ = prc;
+  _h->default_value_ = nil_instance();
+  return prc;
+}
+
 // ---- Array ---------------------------------------------------------
 
 // `Array#to_s` / `Array#inspect` — `[a, b, c]` form. Calls m_inspect

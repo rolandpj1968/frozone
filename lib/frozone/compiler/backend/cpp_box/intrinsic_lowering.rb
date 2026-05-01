@@ -66,6 +66,8 @@ module Frozone
             hash_each hash_delete
             hash_compare_by_identity hash_compare_by_identity_q
             hash_reset_compare_by_identity
+            hash_get_default hash_set_default
+            hash_get_default_proc hash_set_default_proc
             array_to_s
             integer_chr integer_bit_length
             object_dup object_public_send
