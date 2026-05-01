@@ -601,6 +601,12 @@ module Frozone
             string_bytesize: ->(self_) {
               "(new Integer(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes.size())))"
             },
+            # `String#to_sym` — interns the string. intern() takes a
+            # const char*, so the string must be NUL-terminated. Copy
+            # bytes into a std::string for the lookup.
+            string_to_sym: ->(self_) {
+              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); std::string _buf(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size()); return intern(_buf.c_str()); }())"
+            },
             # `String#to_i(base)` — std::strtoll on the byte buffer
             # with the given base. Empty / non-numeric prefix returns 0
             # (matches MRI). Stub: doesn't handle 0x/0b/0o prefixes

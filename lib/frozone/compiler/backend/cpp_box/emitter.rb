@@ -708,6 +708,19 @@ module Frozone
             return build_struct_subclass_def(name, cls) if struct_subclass?(cls)
 
             ivars = collect_ivars(cls)
+            # Drop ivars already declared in the C++ parent chain.
+            # collect_ivars walks `class_methods(cls)` which uses
+            # ModuleFlattening — that includes parent methods, so a
+            # derived class would re-collect every parent ivar
+            # referenced by inherited methods. Re-declaring shadows
+            # the base-class field: writes from the parent's m_X
+            # body land in the base field; reads from a method
+            # emitted on the derived class read the (uninitialised
+            # nil) derived field. Concretely, Map sets iv_expression
+            # in m_initialize; Map::Operator's m_expression returned
+            # its own (nil) iv_expression. Drop those duplicates.
+            parent_ivars = collect_parent_ivars(cls)
+            ivars = ivars.reject { |iv| parent_ivars.include?(iv) }
             eigen_ivars = collect_eigenclass_ivars(cls)
             # Pure modules (not classes) flag is_module so their
             # eigenclass inherits from Module (matching MRI's
@@ -887,6 +900,25 @@ module Frozone
               next false unless m.is_a?(Vm::Method)
               top_level_methods[name] != m
             end
+          end
+
+          # Collect ivars from the cls's parent chain (cls's
+          # superclass, its superclass, ...). Used to filter out
+          # already-declared ivars when emitting a derived struct,
+          # avoiding C++ field shadowing.
+          def collect_parent_ivars(cls)
+            seen = Set.new
+            sc = cls.respond_to?(:superclass) ? cls.superclass : nil
+            while sc && sc.respond_to?(:full_name) && sc.full_name &&
+                  sc.full_name != :Object
+              flat = sc.full_name.to_s.gsub("::", "_").to_sym
+              parent_cls = @user_classes[flat]
+              if parent_cls
+                collect_ivars(parent_cls).each { |iv| seen << iv }
+              end
+              sc = sc.respond_to?(:superclass) ? sc.superclass : nil
+            end
+            seen
           end
 
           # Walk user-source methods for InstanceVariableWrite/Read —
