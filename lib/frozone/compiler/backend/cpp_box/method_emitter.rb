@@ -44,8 +44,23 @@ module Frozone
             emit.line "}"
           rescue Cpp::EmissionError => e
             raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && emit.strict_emit
-            # Skip — falls through to method_missing at runtime.
-            $stderr.puts "[box-first] skip user_method :#{name} @ #{method&.source_location.inspect}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
+            loc = method&.source_location || "(unknown)"
+            $stderr.puts "[box-first] skip user_method :#{name} @ #{loc}: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
+            # Emit an abort-stub body so the runtime fails loudly with
+            # a "compiler limitation" message if the method is actually
+            # called. The previous silent-skip routed calls through
+            # mm_dispatch → method_missing → NoMethodError, which user
+            # code could rescue (silently swallowing a compiler gap),
+            # and which is indistinguishable from a real Ruby
+            # NoMethodError. Aborting can't be caught and points
+            # straight at the missing-feature site.
+            msg = "[frozone-box-first] unimplemented method :#{name} (def @ #{loc}): #{e.message}"
+            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) {"
+            emit.indented do
+              emit.line %|std::fprintf(stderr, "%s\\n", #{emit.cpp.cpp_string_literal(msg)});|
+              emit.line "std::abort();"
+            end
+            emit.line "}"
           end
 
           # C++ reserved words / contextual keywords that surface as

@@ -983,7 +983,19 @@ module Frozone
           rescue Cpp::EmissionError => e
             raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && @strict_emit
             log_skip("method", method, e)
-            nil
+            # Emit an abort-stub body so calls into this skipped method
+            # at runtime fail loudly with a "compiler limitation"
+            # message, rather than the previous silent-skip (return nil
+            # from missing override) which produced confusing downstream
+            # NoMethodErrors / wrong values. Caller may rescue
+            # NoMethodError and silently swallow our gap; abort can't.
+            loc = method&.source_location || "(unknown)"
+            mname = method.respond_to?(:name) ? method.name : "?"
+            msg = "[frozone-box-first] unimplemented method :#{mname} (def @ #{loc}): #{e.message}"
+            {
+              params: [],
+              body: %|std::fprintf(stderr, "%s\\n", #{@cpp.cpp_string_literal(msg)});\nstd::abort();\n|,
+            }
           end
 
           # Set @cpp.super_context for the duration of yield. Carries
