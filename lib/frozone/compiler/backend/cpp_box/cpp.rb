@@ -779,6 +779,80 @@ module Frozone
             # tracking) — a `raise` with no real arg uses the
             # sentinel `:__raise_no_arg__` set by the Ruby default,
             # which we just treat as a fresh RuntimeError.
+            # Stubs for the most-called missing intrinsics revealed
+            # by FROZONE_BOX_DEBUG=1 on wq_parse_rich. Each saves
+            # ~100-450 method-body skips. Where we don't have a real
+            # implementation yet, return nil/false/empty/self —
+            # enough to stop downstream nil.foo cascades.
+            object_dup: ->(self_) {
+              # Shallow copy. dynamic_cast picks the runtime type
+              # so the new instance has the right vtable; ivars
+              # not copied (rare to depend on for non-Ruby-defined
+              # classes). Real impl would call m_initialize_copy.
+              "([&]() -> BasicObject* { auto* _o = #{self_}; if (auto* _s = dynamic_cast<String*>(_o)) { auto* _r = new String(); _r->bytes = _s->bytes; return _r; } if (auto* _a = dynamic_cast<Array*>(_o)) { auto* _r = new Array(); _r->data = _a->data; return _r; } if (auto* _h = dynamic_cast<Hash*>(_o)) { auto* _r = new Hash(); _r->data = _h->data; return _r; } return _o; }())"
+            },
+            object_freeze:    ->(self_) { "(#{self_})" },             # stub: no-op (we don't track frozen state)
+            object_frozen:    ->(_self_) { "false_instance()" },        # stub: nothing is frozen
+            object_methods:   ->(_self_, _all) { "(new Array())" },     # stub: empty list
+            object_method:    ->(_self_, _name) { "nil_instance()" },   # stub: no Method object
+            object_ivar_get:  ->(_self_, _name) { "nil_instance()" },   # stub: ivars are static fields, not accessible by name
+            object_ivar_set:  ->(_self_, _name, val) { "(#{val})" },    # stub: returns the value, doesn't actually set
+            object_ivar_defined: ->(_self_, _name) { "false_instance()" },
+            object_ivar_remove:  ->(_self_, _name) { "nil_instance()" },
+            object_ivar_names:   ->(_self_) { "(new Array())" },        # stub: empty (would need per-class metadata)
+            object_public_send:  ->(self_, name, args, kwargs, block) {
+              # Reuse m_send dispatch — public/private distinction
+              # not enforced in box-first today.
+              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{args}); Array* _full = new Array(); _full->data.push_back(#{name}); for (auto* _e : _a->data) _full->data.push_back(_e); return (#{self_})->m_send(_full, dynamic_cast<Hash*>(#{kwargs}), dynamic_cast<Proc*>(#{block})); }())"
+            },
+            object_respond_to: ->(self_, name, _include_all) {
+              # Forward to the universal m_respond_to_q — drop
+              # include_all (private methods always visible in
+              # box-first today; respond_to_q doesn't gate by
+              # visibility either).
+              "(#{self_})->m_respond_to_q(new Array({#{name}}))"
+            },
+            object_instance_of: ->(self_, klass) {
+              "boxed_bool(#{self_}->m_class() == (#{klass}))"
+            },
+
+            # Kernel#puts/print(*args) dispatched as intrinsic — direct
+            # `puts` (call-site) routes through ruby_puts already.
+            # This path fires when puts is called via send/dynamic
+            # dispatch.
+            kernel_puts: ->(_self_, args_arr) {
+              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{args_arr}); if (_a->data.empty()) { ruby_puts(static_cast<BasicObject*>(nullptr)); } else { for (auto* _e : _a->data) ruby_puts(_e); } return nil_instance(); }())"
+            },
+            kernel_print: ->(_self_, args_arr) {
+              # `print` is `puts` without trailing newline — stub
+              # via ruby_puts for now (mismatch, but rarely visible).
+              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{args_arr}); for (auto* _e : _a->data) ruby_puts(_e); return nil_instance(); }())"
+            },
+            kernel_rand: ->(_self_, n) {
+              # `Kernel#rand` is the global PRNG. Stub: route through
+              # a process-wide Random instance (lazily seeded with 0
+              # — deterministic, surface-level OK for tests). Real
+              # impl would seed with /dev/urandom.
+              "([&]() -> BasicObject* { static Random* _g = nullptr; if (!_g) { _g = new Random(); _g->m_initialize(new Array({(&_f_i_0)})); } return _g->m_rand((#{n}) == nil_instance() ? &EMPTY_ARGS : new Array({(#{n})})); }())"
+            },
+            kernel_block_given: ->(_self_) {
+              # Stub: false. We don't propagate _block to here. A
+              # real impl would need the calling-method's _block
+              # context, which is awkward via the intrinsic boundary.
+              "false_instance()"
+            },
+            kernel_caller: ->(_self_, _start, _length) { "(new Array())" },           # stub: empty backtrace
+            kernel_caller_locations: ->(_self_, _start, _length) { "(new Array())" }, # same
+            kernel_integer: ->(_self_, val, _base, _exception) {
+              # Coerce to Integer via existing helper.
+              "(new Integer(coerce_to_int(#{val})))"
+            },
+            kernel_float: ->(_self_, val) {
+              # Coerce to Float — fast path for Integer/Float, else
+              # call to_f.
+              "([&]() -> BasicObject* { auto* _v = #{val}; if (auto* _i = dynamic_cast<Integer*>(_v)) return new Float(static_cast<double>(_i->raw_)); if (dynamic_cast<Float*>(_v)) return _v; return _v->m_to_f(); }())"
+            },
+
             kernel_raise: ->(_self_, msg, message, _backtrace, _cause) {
               "([&]() -> BasicObject* { BasicObject* _m = (#{msg}); BasicObject* _msg = (#{message}); BasicObject* _exc; if (auto* _k = dynamic_cast<Class*>(_m)) { _exc = (_msg == nil_instance()) ? _k->m_new() : _k->m_new(new Array({_msg})); } else if (dynamic_cast<Exception*>(_m)) { _exc = _m; } else { _exc = (&RuntimeError_CLASS)->m_new(new Array({_m})); } throw static_cast<Exception*>(_exc); }())"
             },
