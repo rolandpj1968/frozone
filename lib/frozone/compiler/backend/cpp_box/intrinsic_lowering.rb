@@ -401,6 +401,144 @@ module Frozone
             fiber_storage_set: ->(_self_, key, val) {
               "(g_fiber_storage()->data[#{key}] = #{val})"
             },
+
+            # ---- String --------------------------------------------
+            # `String#index(sub, offset = :__unset__)` — find first byte-
+            # position of sub in self, optionally starting from offset.
+            # String sub only for now (Regexp sub aborts). Negative offset
+            # counts from end; offset > size returns nil. Empty needle
+            # matches at offset.
+            string_index: ->(self_, sub, offset) {
+              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); auto* _o = (#{offset}); int64_t _off = 0; if (_o != intern(\"__unset__\") && _o != nil_instance()) _off = static_cast<Integer*>(_o)->raw_; int64_t _hsize = static_cast<int64_t>(_s->bytes.size()); if (_off < 0) _off = std::max<int64_t>(0, _hsize + _off); if (_off > _hsize) return nil_instance(); auto* _su = (#{sub}); if (_su->m_class() == (BasicObject*)(&Regexp_CLASS)) { auto* _md = regexp_match_helper(_su, _s, _off); if (!_md) return nil_instance(); return new Integer(_md->captures_[0].first); } if (_su->m_class() != (BasicObject*)(&String_CLASS)) { std::fprintf(stderr, \"[frozone-box-first] string_index: non-String/Regexp sub not yet supported\\n\"); std::abort(); } auto* _sub = static_cast<String*>(_su); int64_t _nsize = static_cast<int64_t>(_sub->bytes.size()); if (_nsize == 0) return new Integer(_off); if (_off + _nsize > _hsize) return nil_instance(); for (int64_t _i = _off; _i + _nsize <= _hsize; _i++) { if (std::memcmp(&_s->bytes[_i], _sub->bytes.data(), _nsize) == 0) return new Integer(_i); } return nil_instance(); }())"
+            },
+            # `String#[](idx, len = :__unset__)` — substring extraction.
+            # Integer idx only for now (Range/Regexp idx unsupported).
+            # Negative idx counts from end. Without len, single byte (as
+            # 1-char String). With len, len bytes from idx (clamped to
+            # remaining). Returns nil if idx out of range.
+            string_slice: ->(self_, idx, len) {
+              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); int64_t _size = static_cast<int64_t>(_s->bytes.size()); auto* _i = (#{idx}); if (_i->m_class() != (BasicObject*)(&Integer_CLASS)) { std::fprintf(stderr, \"[frozone-box-first] string_slice: non-Integer idx not yet supported\\n\"); std::abort(); } int64_t _ix = static_cast<Integer*>(_i)->raw_; if (_ix < 0) _ix += _size; if (_ix < 0 || _ix > _size) return nil_instance(); auto* _l = (#{len}); if (_l == intern(\"__unset__\")) { if (_ix == _size) return nil_instance(); String* _r = new String(); _r->bytes.push_back(_s->bytes[_ix]); return _r; } int64_t _ln = static_cast<Integer*>(_l)->raw_; if (_ln < 0) return nil_instance(); int64_t _avail = std::min(_ln, _size - _ix); String* _r = new String(); _r->bytes.reserve(_avail); for (int64_t _k = 0; _k < _avail; _k++) _r->bytes.push_back(_s->bytes[_ix + _k]); return _r; }())"
+            },
+            # `String#split(sep, limit)` — separator: nil (whitespace),
+            # String, or Regexp. limit: :__unset__ → all, Integer → at
+            # most that many parts. String separator: byte-find loop.
+            # nil separator: whitespace-split (collapses consecutive
+            # whitespace, trims). Regexp aborts for now.
+            string_split: ->(self_, sep, limit) {
+              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); int64_t _hsize = static_cast<int64_t>(_s->bytes.size()); auto* _se = (#{sep}); auto* _li = (#{limit}); int64_t _max = (_li == intern(\"__unset__\") || _li == nil_instance()) ? -1 : static_cast<Integer*>(_li)->raw_; Array* _r = new Array(); if (_se == nil_instance()) { int64_t _i = 0; while (_i < _hsize) { while (_i < _hsize && std::isspace(_s->bytes[_i])) _i++; if (_i >= _hsize) break; int64_t _start = _i; while (_i < _hsize && !std::isspace(_s->bytes[_i])) _i++; String* _p = new String(); _p->bytes.assign(_s->bytes.begin() + _start, _s->bytes.begin() + _i); _r->data.push_back(_p); if (_max > 0 && static_cast<int64_t>(_r->data.size()) >= _max - 1) { String* _rest = new String(); _rest->bytes.assign(_s->bytes.begin() + _i, _s->bytes.end()); _r->data.push_back(_rest); return _r; } } return _r; } if (_se->m_class() != (BasicObject*)(&String_CLASS)) { std::fprintf(stderr, \"[frozone-box-first] string_split: non-String/nil sep not yet supported\\n\"); std::abort(); } auto* _sep = static_cast<String*>(_se); int64_t _slen = static_cast<int64_t>(_sep->bytes.size()); if (_slen == 0) { for (int64_t _i = 0; _i < _hsize; _i++) { String* _p = new String(); _p->bytes.push_back(_s->bytes[_i]); _r->data.push_back(_p); } return _r; } int64_t _start = 0; int64_t _i = 0; while (_i + _slen <= _hsize) { if (std::memcmp(&_s->bytes[_i], _sep->bytes.data(), _slen) == 0) { String* _p = new String(); _p->bytes.assign(_s->bytes.begin() + _start, _s->bytes.begin() + _i); _r->data.push_back(_p); _i += _slen; _start = _i; if (_max > 0 && static_cast<int64_t>(_r->data.size()) >= _max - 1) break; } else { _i++; } } String* _last = new String(); _last->bytes.assign(_s->bytes.begin() + _start, _s->bytes.end()); _r->data.push_back(_last); return _r; }())"
+            },
+            # `String#chars` — array of 1-byte Strings. ASCII-safe;
+            # UTF-8 multibyte chars come back as separate bytes (good
+            # enough for most parsing; full UTF-8 char-grouping can come
+            # later).
+            string_chars: ->(self_) {
+              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); Array* _r = new Array(); _r->data.reserve(_s->bytes.size()); for (auto _b : _s->bytes) { String* _c = new String(); _c->bytes.push_back(_b); _r->data.push_back(_c); } return _r; }())"
+            },
+            # `String#inspect` — quoted with C-style escapes for
+            # non-printable bytes. Uses cpp_string_literal-style escapes
+            # (\\n, \\r, \\t, \\\\, \\\", \\NNN). Result wrapped in `\"...\"`.
+            string_inspect: ->(self_) {
+              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); std::string _buf; _buf.reserve(_s->bytes.size() + 2); _buf.push_back('\\\"'); for (auto _b : _s->bytes) { switch (_b) { case 0x22: _buf += \"\\\\\\\"\"; break; case 0x5C: _buf += \"\\\\\\\\\"; break; case 0x0A: _buf += \"\\\\n\"; break; case 0x0D: _buf += \"\\\\r\"; break; case 0x09: _buf += \"\\\\t\"; break; case 0x00: _buf += \"\\\\0\"; break; default: if (_b >= 0x20 && _b <= 0x7E) _buf.push_back(static_cast<char>(_b)); else { char _tmp[5]; std::snprintf(_tmp, sizeof(_tmp), \"\\\\%03o\", _b); _buf += _tmp; } } } _buf.push_back('\\\"'); return new String(_buf.data(), _buf.size()); }())"
+            },
+            # `String#hash` — FNV-1a 64-bit over bytes. Identity-stable
+            # for the lifetime of a process (no rehashing across runs
+            # like MRI; close enough for Hash key behaviour).
+            string_hash: ->(self_) {
+              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); uint64_t _h = 0xcbf29ce484222325ULL; for (auto _b : _s->bytes) { _h ^= _b; _h *= 0x100000001b3ULL; } return new Integer(static_cast<int64_t>(_h)); }())"
+            },
+            # `Symbol#hash` — Symbols are interned so identity (pointer)
+            # equality is the canonical equality; pointer-as-int gives
+            # a stable hash. Equivalent to BasicObject#__id__.
+            symbol_hash: ->(self_) {
+              "(new Integer(reinterpret_cast<int64_t>(#{self_})))"
+            },
+
+            # ---- Regexp ---------------------------------------------
+            # `Regexp.escape(str)` — backslash-escape regex metacharacters
+            # so the result matches the input as a literal pattern.
+            # Covers MRI's escape set: \\.+*?()[]{}|^$ and whitespace
+            # (\\n, \\r, \\t, \\f, \\v, space). Other bytes pass through.
+            regexp_escape: ->(str) {
+              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{str}); std::string _buf; _buf.reserve(_s->bytes.size()); for (auto _b : _s->bytes) { switch (_b) { case '\\\\': case '.': case '+': case '*': case '?': case '(': case ')': case '[': case ']': case '{': case '}': case '|': case '^': case '$': case '#': _buf.push_back('\\\\'); _buf.push_back(static_cast<char>(_b)); break; case ' ': _buf += \"\\\\ \"; break; case 0x0A: _buf += \"\\\\n\"; break; case 0x0D: _buf += \"\\\\r\"; break; case 0x09: _buf += \"\\\\t\"; break; case 0x0C: _buf += \"\\\\f\"; break; case 0x0B: _buf += \"\\\\v\"; break; default: _buf.push_back(static_cast<char>(_b)); } } return new String(_buf.data(), _buf.size()); }())"
+            },
+            # Stubs — Onigmo can enumerate named groups via onig_foreach_name,
+            # but we don't yet expose that. Empty {} / [] are correct for
+            # most regexes (no named captures used).
+            regexp_named_captures: ->(_self_) { "(new Hash())" },
+            regexp_names: ->(_self_) { "(new Array())" },
+
+            # ---- Hash -----------------------------------------------
+            # `Hash#each { |k, v| ... }` — iterate, calling block with
+            # [k, v] Array. Returns self. Block-aware: passes a 2-element
+            # Array so `|k, v|` destructuring works (block params unpack
+            # the rest_param into k, v slots via __blkargs__).
+            hash_each: ->(self_, block) {
+              "([&]() -> BasicObject* { auto* _h = static_cast<Hash*>(#{self_}); auto* _b = static_cast<Proc*>(#{block}); for (auto& _kv : _h->data) { _b->m_call(new Array({_kv.first, _kv.second})); } return _h; }())"
+            },
+            # `Hash#delete(key)` — remove and return value. Returns nil
+            # if key absent (and does NOT call the default proc — matches
+            # MRI's Hash#delete).
+            hash_delete: ->(self_, key) {
+              "([&]() -> BasicObject* { auto* _h = static_cast<Hash*>(#{self_}); auto _it = _h->data.find(#{key}); if (_it == _h->data.end()) return nil_instance(); BasicObject* _v = _it->second; _h->data.erase(_it); return _v; }())"
+            },
+
+            # ---- Array ----------------------------------------------
+            # `Array#to_s` / `Array#inspect` — `[a, b, c]` form. Calls
+            # m_inspect on each element. `[]` for empty.
+            array_to_s: ->(self_) {
+              "([&]() -> BasicObject* { auto* _a = static_cast<Array*>(#{self_}); std::string _buf; _buf.push_back('['); for (std::size_t _i = 0; _i < _a->data.size(); _i++) { if (_i) _buf += \", \"; auto* _e = _a->data[_i]; auto* _ins = _e->m_inspect(); if (_ins && _ins->m_class() == (BasicObject*)(&String_CLASS)) { auto* _str = static_cast<String*>(_ins); _buf.append(reinterpret_cast<const char*>(_str->bytes.data()), _str->bytes.size()); } } _buf.push_back(']'); return new String(_buf.data(), _buf.size()); }())"
+            },
+
+            # ---- Integer --------------------------------------------
+            # `Integer#chr(enc = nil)` — single-byte String of the byte.
+            # 0..255 only. Encoding ignored (we treat as raw bytes).
+            integer_chr: ->(self_, _enc) {
+              "([&]() -> BasicObject* { int64_t _v = static_cast<Integer*>(#{self_})->raw_; if (_v < 0 || _v > 255) { std::fprintf(stderr, \"[frozone-box-first] integer_chr: value %lld out of byte range\\n\", static_cast<long long>(_v)); std::abort(); } String* _r = new String(); _r->bytes.push_back(static_cast<uint8_t>(_v)); return _r; }())"
+            },
+            # `Integer#bit_length` — number of bits needed to represent
+            # value (excl. sign). Negative numbers: bits in ~n. Builtin
+            # __builtin_clzll gives leading zeros; bit_length = 64 - clz.
+            integer_bit_length: ->(self_) {
+              "([&]() -> BasicObject* { int64_t _v = static_cast<Integer*>(#{self_})->raw_; uint64_t _u = (_v < 0) ? static_cast<uint64_t>(~_v) : static_cast<uint64_t>(_v); if (_u == 0) return new Integer(0); return new Integer(64 - __builtin_clzll(_u)); }())"
+            },
+            # `Integer#hash` — MRI uses a salted hash; we just return
+            # the integer itself. Good enough for Hash-key purposes
+            # (hashing equal ints to equal hashes is the only invariant).
+            integer_hash: ->(self_) {
+              "(new Integer(static_cast<Integer*>(#{self_})->raw_))"
+            },
+
+            # ---- Module / Class -------------------------------------
+            # `Module#name` — class.name returns the qualified Ruby name
+            # as a String. ruby_class_name() is auto-emitted on every
+            # class struct via with_auto_overrides.
+            module_name: ->(self_) {
+              "([&]() -> BasicObject* { const char* _n = (#{self_})->ruby_class_name(); return new String(_n, std::strlen(_n)); }())"
+            },
+
+            # ---- Proc -----------------------------------------------
+            # `Proc#call(*args, **kwargs)` — invoke the lambda. Routes
+            # through the universal m_call slot (Proc subclass overrides
+            # m_call to invoke its stored function pointer). args is
+            # the *args rest_param which MethodEmitter.unpack_params
+            # types BasicObject* even though it's always Array at
+            # runtime — splat_to_array's m_class() fast-path is the
+            # safe coercion (no static_cast). dynamic_cast<Hash*> on
+            # kwargs is the safe nil-tolerant form (returns nullptr if
+            # somehow not a Hash; m_call accepts nullptr kwargs).
+            proc_call: ->(self_, args, kwargs) {
+              "((#{self_})->m_call(splat_to_array(#{args}), dynamic_cast<Hash*>(#{kwargs}), nullptr))"
+            },
+            # `Proc#arity` — stub returning -1 (variable-arity). We don't
+            # track block arity at AOT time; -1 is MRI's default for
+            # &-blocks with rest args, and harmless for callers that
+            # check arity for warning purposes.
+            proc_arity: ->(_self_) { "(new Integer(-1))" },
+            # `Proc#lambda?` — stub. We don't distinguish Procs from
+            # lambdas (every block becomes a Proc with default-Proc
+            # semantics). Returning false matches the more permissive
+            # arity behaviour user code typically expects.
+            proc_lambda_p: ->(_self_) { "false_instance()" },
           }.freeze
         end
       end
