@@ -1012,9 +1012,18 @@ module Frozone
                 c_s = from_expr(c, locals)
                 node.subject_node ? "truthy(#{c_s}->m_case_eq(new Array({_subj})))" : "truthy(#{c_s})"
               }
-              buf << "if (#{cond_strs.join(" || ")}) return #{from_expr(w.body_node, locals)}; "
+              # body_as_lambda_call (vs from_expr) handles bodies
+              # with statement-position constructs the from_expr
+              # lowering can't represent — MultipleAssignment is
+              # the common one (e.g. `name, = *node` inside a
+              # case arm in parser/builders/default.rb's
+              # `def assignable`). Each arm becomes its own
+              # lambda; the outer lambda short-circuits on the
+              # first truthy condition.
+              buf << "if (#{cond_strs.join(" || ")}) return #{body_as_lambda_call(w.body_node, locals)}; "
             end
-            buf << "return #{node.else_node ? from_expr(node.else_node, locals) : "nil_instance()"}; }())"
+            else_str = node.else_node ? body_as_lambda_call(node.else_node, locals) : "nil_instance()"
+            buf << "return #{else_str}; }())"
             buf
           end
 

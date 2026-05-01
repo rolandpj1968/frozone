@@ -1,0 +1,28 @@
+$LOADED_FEATURES << File.expand_path('../harness/loader.rb', __dir__)
+def run_benchmark(*, &); end
+require_relative '../../lib/frozone/vm/wq_parser'
+
+# Cover the common Ruby constructs the parser must handle for
+# wq_parse_smoke to be a meaningful smoke test (vs lucky on "1+2"):
+# def, class, hash, conditionals, blocks.
+sources = [
+  "1 + 2",
+  "x = 1; x * 2",
+  "if a > 0 then b else c end",
+  "[1, 2, 3].map { |n| n * n }",
+  'def foo(x); x + 1; end',
+  'class Foo; def bar; end; end',
+  '{a: 1, b: 2}',
+  'case x; when 1; :one; when 2; :two; else :other; end',
+]
+
+parser = Parser::Ruby40.new
+parser.diagnostics.consumer = nil
+parser.diagnostics.all_errors_are_fatal = false
+
+sources.each do |src|
+  parser.reset
+  buf = Parser::Source::Buffer.new("(test)", source: src)
+  ast = parser.parse(buf)
+  puts ast ? ast.to_sexp.gsub("\n", " ") : "nil"
+end

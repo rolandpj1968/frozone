@@ -1,0 +1,8 @@
+(send   (int 1) :+   (int 2))
+(begin   (lvasgn :x     (int 1))   (send     (lvar :x) :*     (int 2)))
+(if   (send     (send nil :a) :>     (int 0))   (send nil :b)   (send nil :c))
+(block   (send     (array       (int 1)       (int 2)       (int 3)) :map)   (args     (arg :n))   (send     (lvar :n) :*     (lvar :n)))
+(def :foo   (args     (arg :x))   (send     (lvar :x) :+     (int 1)))
+(class   (const nil :Foo) nil   (def :bar     (args) nil))
+(hash   (pair     (sym :a)     (int 1))   (pair     (sym :b)     (int 2)))
+(case   (send nil :x)   (when     (int 1)     (sym :one))   (when     (int 2)     (sym :two))   (sym :other))
