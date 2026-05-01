@@ -40,11 +40,38 @@ module Frozone
           # the template's lambda rejects the arg arity.
           def lower(name, *arg_strs)
             template = TEMPLATES[name]
-            raise Cpp::EmissionError, "intrinsic :#{name} not yet supported" unless template
-            template.call(*arg_strs)
+            return template.call(*arg_strs) if template
+            return "intrinsic_#{name}(#{arg_strs.join(', ')})" if HPP_INTRINSICS.include?(name)
+            raise Cpp::EmissionError, "intrinsic :#{name} not yet supported"
           rescue ArgumentError => e
             raise Cpp::EmissionError, "intrinsic :#{name}: #{e.message}"
           end
+
+          # Names with `intrinsic_<name>(...)` definitions in
+          # cpp/runtime/intrinsics.hpp. Anything in this set lowers to
+          # a direct function call with the args identity-passed. Edit
+          # in lockstep with intrinsics.hpp; if you add a function
+          # there, add the name here. (TEMPLATES below is for special
+          # cases — one-liner inline expressions, closure-using
+          # intrinsics that reference _block, helper-renames.)
+          HPP_INTRINSICS = Set.new(%i[
+            string_index string_slice string_split string_chars
+            string_inspect string_hash string_to_sym string_to_i_base
+            string_match string_match_pos
+            symbol_to_s symbol_inspect
+            regexp_escape regexp_inspect regexp_to_s regexp_new
+            regexp_match_index regexp_match regexp_last_match
+            match_data_to_a match_data_captures match_data_pre_match
+            match_data_post_match match_data_match_length
+            hash_each hash_delete
+            array_to_s
+            integer_chr integer_bit_length
+            object_dup object_public_send
+            basic_object___send__ basic_object_method_missing
+            kernel_catch kernel_throw kernel_puts kernel_print
+            kernel_rand kernel_integer kernel_float kernel_raise
+            fiber_storage_get fiber_storage_set
+          ]).freeze
 
           TEMPLATES = {
             # Array
@@ -124,10 +151,6 @@ module Frozone
             # `String#to_sym` — interns the string. intern() takes a
             # const char*, so the string must be NUL-terminated. Copy
             # bytes into a std::string for the lookup.
-            string_to_sym:    ->(self_) { "intrinsic_string_to_sym(#{self_})" },
-            symbol_to_s:      ->(self_) { "intrinsic_symbol_to_s(#{self_})" },
-            symbol_inspect:   ->(self_) { "intrinsic_symbol_inspect(#{self_})" },
-            string_to_i_base: ->(self_, base) { "intrinsic_string_to_i_base(#{self_}, #{base})" },
 
             # Object identity / class — needed by core/4.0 dispatch helpers.
             object_is_a: ->(self_, klass) { "boxed_bool(dynamic_cast<Class*>(#{klass}) != nullptr && #{self_}->m_is_a_q(new Array({#{klass}})) == true_instance())" },
@@ -138,8 +161,6 @@ module Frozone
             # in the method's `_block` alias (set up by unpack_params).
             kernel_lambda: ->(_self_) { "static_cast<BasicObject*>(_block)" },
             kernel_proc: ->(_self_) { "static_cast<BasicObject*>(_block)" },
-            kernel_catch: ->(self_, tag, block) { "intrinsic_kernel_catch(#{self_}, #{tag}, #{block})" },
-            kernel_throw: ->(self_, tag, value) { "intrinsic_kernel_throw(#{self_}, #{tag}, #{value})" },
             basic_object__equal_equal_: ->(s, o) { "boxed_bool(#{s} == #{o})" },
             basic_object___id__: ->(s) { "(new Integer(reinterpret_cast<int64_t>(#{s})))" },
 
@@ -152,20 +173,11 @@ module Frozone
             regexp_options: ->(self_) { "(new Integer(static_cast<Regexp*>(#{self_})->options_))" },
             regexp_newly_created_q: ->(self_) { "boxed_bool(!static_cast<Regexp*>(#{self_})->initialized_)" },
             regexp_encoding: ->(_self_) { %((new String("UTF-8", 5))) },
-            regexp_inspect:     ->(self_) { "intrinsic_regexp_inspect(#{self_})" },
-            regexp_to_s:        ->(self_) { "intrinsic_regexp_to_s(#{self_})" },
-            regexp_new:         ->(klass, pat, opts, kw) { "intrinsic_regexp_new(#{klass}, #{pat}, #{opts}, #{kw})" },
-            regexp_match_index: ->(self_, str) { "intrinsic_regexp_match_index(#{self_}, #{str})" },
             # `re.match?(str, pos)` — short enough to keep inline; doesn't
             # set $~ in MRI but we set it anyway (cheap, simpler code).
-            regexp_match_bool:  ->(self_, str, pos) {
+            regexp_match_bool: ->(self_, str, pos) {
               "boxed_bool(regexp_match_helper(#{self_}, #{str}, static_cast<Integer*>(#{pos})->raw_) != nullptr)"
             },
-            regexp_match:       ->(self_, str, pos) { "intrinsic_regexp_match(#{self_}, #{str}, #{pos})" },
-            regexp_last_match:  ->(n) { "intrinsic_regexp_last_match(#{n})" },
-
-            string_match:       ->(self_, pat) { "intrinsic_string_match(#{self_}, #{pat})" },
-            string_match_pos:   ->(self_, pat, pos) { "intrinsic_string_match_pos(#{self_}, #{pat}, #{pos})" },
             string_match_q: ->(self_, pat, pos) {
               "boxed_bool(regexp_match_helper(#{pat}, #{self_}, ((#{pos}) == nil_instance() ? 0 : static_cast<Integer*>(#{pos})->raw_)) != nullptr)"
             },
@@ -186,10 +198,6 @@ module Frozone
             match_data_size:  ->(self_) { "(new Integer(static_cast<int64_t>(static_cast<MatchData*>(#{self_})->captures_.size())))" },
             match_data_string: ->(self_) { "(static_cast<MatchData*>(#{self_})->iv_string)" },
             match_data_regexp: ->(self_) { "(static_cast<MatchData*>(#{self_})->iv_regexp)" },
-            match_data_to_a:        ->(self_) { "intrinsic_match_data_to_a(#{self_})" },
-            match_data_captures:    ->(self_) { "intrinsic_match_data_captures(#{self_})" },
-            match_data_pre_match:   ->(self_) { "intrinsic_match_data_pre_match(#{self_})" },
-            match_data_post_match:  ->(self_) { "intrinsic_match_data_post_match(#{self_})" },
             match_data_begin: ->(self_, n) { "(new Integer(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].first))" },
             match_data_end:   ->(self_, n) { "(new Integer(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].second))" },
             match_data_bytebegin: ->(self_, n) { "(new Integer(static_cast<MatchData*>(#{self_})->captures_[static_cast<Integer*>(#{n})->raw_].first))" },
@@ -200,7 +208,6 @@ module Frozone
             # Real impl is a follow-up.
             match_data_slice: ->(self_, _i, _len) { "matchdata_cap(#{self_}, 0)" },
             match_data_slice_range: ->(self_, _r) { "matchdata_cap(#{self_}, 0)" },
-            match_data_match_length: ->(self_, n) { "intrinsic_match_data_match_length(#{self_}, #{n})" },
             match_data_named_captures: ->(_self_) { "(new Hash())" },  # stub — empty hash
             match_data_names: ->(_self_) { "(new Array())" },          # stub — empty array
             match_data_values_at_range: ->(_self_, _r, _n) { "(new Array())" },  # stub
@@ -221,14 +228,11 @@ module Frozone
               "(new Integer(static_cast<int64_t>(static_cast<Hash*>(#{self_})->data.size())))"
             },
 
-            basic_object___send__:       ->(self_, name, args, kwargs, block) { "intrinsic_basic_object___send__(#{self_}, #{name}, #{args}, #{kwargs}, #{block})" },
-            basic_object_method_missing: ->(self_, name, args, kwargs) { "intrinsic_basic_object_method_missing(#{self_}, #{name}, #{args}, #{kwargs})" },
 
             # Object protocol stubs — most return nil/false/empty/self
             # to stop downstream nil.foo cascades. Real impls would
             # need per-class metadata or runtime reflection that
             # box-first doesn't track.
-            object_dup: ->(self_) { "intrinsic_object_dup(#{self_})" },
             object_freeze:    ->(self_) { "(#{self_})" },             # stub: no-op (we don't track frozen state)
             object_frozen:    ->(_self_) { "false_instance()" },        # stub: nothing is frozen
             object_methods:   ->(_self_, _all) { "(new Array())" },     # stub: empty list
@@ -238,7 +242,6 @@ module Frozone
             object_ivar_defined: ->(_self_, _name) { "false_instance()" },
             object_ivar_remove:  ->(_self_, _name) { "nil_instance()" },
             object_ivar_names:   ->(_self_) { "(new Array())" },        # stub: empty (would need per-class metadata)
-            object_public_send: ->(self_, name, args, kwargs, block) { "intrinsic_object_public_send(#{self_}, #{name}, #{args}, #{kwargs}, #{block})" },
             object_respond_to: ->(self_, name, _include_all) {
               # Forward to the universal m_respond_to_q — drop
               # include_all (private methods always visible in
@@ -250,29 +253,15 @@ module Frozone
               "boxed_bool(#{self_}->m_class() == (#{klass}))"
             },
 
-            kernel_puts:      ->(self_, args_arr) { "intrinsic_kernel_puts(#{self_}, #{args_arr})" },
-            kernel_print:     ->(self_, args_arr) { "intrinsic_kernel_print(#{self_}, #{args_arr})" },
-            kernel_rand:      ->(self_, n) { "intrinsic_kernel_rand(#{self_}, #{n})" },
-            # kernel_block_given stays inline — needs surrounding-scope _block (stub: false)
+            # kernel_block_given stays inline — would need surrounding-
+            # scope _block to be a non-stub. Stub: false.
             kernel_block_given: ->(_self_) { "false_instance()" },
             kernel_caller:           ->(_self_, _start, _length) { "(new Array())" },
             kernel_caller_locations: ->(_self_, _start, _length) { "(new Array())" },
-            kernel_integer:   ->(self_, val, base, exc) { "intrinsic_kernel_integer(#{self_}, #{val}, #{base}, #{exc})" },
-            kernel_float:     ->(self_, val) { "intrinsic_kernel_float(#{self_}, #{val})" },
-            kernel_raise:     ->(self_, msg, message, bt, cause) { "intrinsic_kernel_raise(#{self_}, #{msg}, #{message}, #{bt}, #{cause})" },
-
-            fiber_storage_get: ->(self_, key) { "intrinsic_fiber_storage_get(#{self_}, #{key})" },
-            fiber_storage_set: ->(self_, key, val) { "intrinsic_fiber_storage_set(#{self_}, #{key}, #{val})" },
 
             # ---- String --------------------------------------------
-            # Bodies live in cpp/runtime/intrinsics.hpp; these emit
-            # name-mangled calls into Ruby::intrinsic_string_*.
-            string_index:   ->(self_, sub, offset) { "intrinsic_string_index(#{self_}, #{sub}, #{offset})" },
-            string_slice:   ->(self_, idx, len) { "intrinsic_string_slice(#{self_}, #{idx}, #{len})" },
-            string_split:   ->(self_, sep, limit) { "intrinsic_string_split(#{self_}, #{sep}, #{limit})" },
-            string_chars:   ->(self_) { "intrinsic_string_chars(#{self_})" },
-            string_inspect: ->(self_) { "intrinsic_string_inspect(#{self_})" },
-            string_hash:    ->(self_) { "intrinsic_string_hash(#{self_})" },
+            # Multi-line bodies live in cpp/runtime/intrinsics.hpp;
+            # see HPP_INTRINSICS above for the auto-call list.
             # `Symbol#hash` — Symbols are interned so identity (pointer)
             # equality is the canonical equality; pointer-as-int gives
             # a stable hash. Equivalent to BasicObject#__id__.
@@ -281,23 +270,11 @@ module Frozone
             },
 
             # ---- Regexp ---------------------------------------------
-            regexp_escape: ->(str) { "intrinsic_regexp_escape(#{str})" },
             # Stubs — Onigmo can enumerate named groups via onig_foreach_name,
             # but we don't yet expose that. Empty {} / [] are correct for
             # most regexes (no named captures used).
             regexp_named_captures: ->(_self_) { "(new Hash())" },
             regexp_names: ->(_self_) { "(new Array())" },
-
-            # ---- Hash -----------------------------------------------
-            hash_each:   ->(self_, block) { "intrinsic_hash_each(#{self_}, #{block})" },
-            hash_delete: ->(self_, key) { "intrinsic_hash_delete(#{self_}, #{key})" },
-
-            # ---- Array ----------------------------------------------
-            array_to_s: ->(self_) { "intrinsic_array_to_s(#{self_})" },
-
-            # ---- Integer --------------------------------------------
-            integer_chr: ->(self_, enc) { "intrinsic_integer_chr(#{self_}, #{enc})" },
-            integer_bit_length: ->(self_) { "intrinsic_integer_bit_length(#{self_})" },
             # `Integer#hash` — MRI uses a salted hash; we just return
             # the integer itself. Good enough for Hash-key purposes
             # (hashing equal ints to equal hashes is the only invariant).
