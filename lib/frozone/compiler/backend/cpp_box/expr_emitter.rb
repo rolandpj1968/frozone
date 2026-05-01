@@ -258,23 +258,29 @@ module Frozone
           # `a, b = rhs` / `a, *b, c = rhs` etc. Evaluate RHS once,
           # cast to Array, distribute elements to targets. Splat
           # collects the middle slice into a new Array. Targets are
-          # [:local, name, depth] or [:ivar, name]; other shapes
-          # (call/index/const) raise EmissionError.
+          # [:local, name, depth], [:ivar, name], [:nested, sub_targets],
+          # or splat variants of those; other shapes (call/index/const)
+          # raise EmissionError.
           # Statement-position only — value is dropped (the rhs).
           def self.write_multiple_assignment_stmt(emit, node, locals)
-            targets = node.targets
-            unless targets.all? { |t| %i[local ivar local_splat ivar_splat splat_nil index].include?(t[0]) }
-              raise Cpp::EmissionError, "MultipleAssignment with non-local/ivar target (#{(targets.map(&:first) - %i[local ivar local_splat ivar_splat splat_nil index]).first}) not yet supported"
+            rhs_str = emit.cpp.from_expr(node.value_node, locals)
+            emit_mass_destructure(emit, node.targets, rhs_str, locals)
+          end
+
+          ALLOWED_MASS_TARGETS = %i[local ivar local_splat ivar_splat splat_nil index nested].to_set.freeze
+
+          # Destructure rhs_expr (a C++ expression string) across the
+          # given targets, handling pre / splat / post and recursive
+          # :nested targets via the same routine. Used both for top-level
+          # MASS and for nested-target destructuring inside MASS.
+          def self.emit_mass_destructure(emit, targets, rhs_expr, locals)
+            unless targets.all? { |t| ALLOWED_MASS_TARGETS.include?(t[0]) }
+              bad = (targets.map(&:first) - ALLOWED_MASS_TARGETS.to_a).first
+              raise Cpp::EmissionError, "MultipleAssignment with non-local/ivar target (#{bad}) not yet supported"
             end
             splat_idx = targets.index { |t| %i[local_splat ivar_splat splat_nil].include?(t[0]) }
             pre_count = splat_idx || targets.length
             post_count = splat_idx ? targets.length - splat_idx - 1 : 0
-            rhs_str = emit.cpp.from_expr(node.value_node, locals)
-            # Unique-named temps at the current scope (no `{}` wrap),
-            # so target locals are declared at the same scope as
-            # everything else and remain visible to subsequent code.
-            # Monotonic id from emit.cpp avoids collisions between
-            # multiple MASS statements in the same method.
             tag = emit.cpp.next_tmp_id
             raw = "__mass_raw_#{tag}__"
             rhs = "__mass_rhs_#{tag}__"
@@ -286,7 +292,7 @@ module Frozone
             # racc's `_slen, _trans, _keys, _inds, _acts, _nacts =
             # nil` was reading garbage out of nil_instance()->data,
             # making the lexer state machine never transition.
-            emit.line "BasicObject* #{raw} = #{rhs_str};"
+            emit.line "BasicObject* #{raw} = #{rhs_expr};"
             emit.line "Array* #{rhs} = dynamic_cast<Array*>(#{raw});"
             emit.line "if (!#{rhs}) { #{rhs} = new Array(); if (#{raw} != nil_instance()) #{rhs}->data.push_back(#{raw}); }"
             emit.line "std::size_t #{n} = #{rhs}->data.size();"
@@ -349,6 +355,12 @@ module Frozone
             when :splat_nil
               # Discard — evaluate the value_expr (it might have side effects via array_at) but throw it away.
               emit.line "(void)(#{value_expr});"
+            when :nested
+              # `def_t, (name_t, ctx) = val[0]` — the parenthesised
+              # group destructures val[0]'s second element into
+              # [name_t, ctx]. Recursive call into emit_mass_destructure
+              # with the sub-targets and the value_expr as the new RHS.
+              emit_mass_destructure(emit, target[1], value_expr, locals)
             else
               raise Cpp::EmissionError, "MultipleAssignment target kind :#{kind} not supported"
             end
