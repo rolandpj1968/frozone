@@ -78,6 +78,24 @@ module Frozone
           def self.unpack_params(emit, method)
             locals = Set.new
             required = method.required_params || []
+            # Ruby-2-style trailing hash: if the method declares no kw
+            # params (no required_kw_params, optional_kw_params, or
+            # kw_rest_param), and a caller passes `f(a, b, x: 1, y:
+            # 2)`, MRI binds `{x: 1, y: 2}` to the trailing positional
+            # parameter (not as a separate kwargs Hash). The Frozone
+            # interpreter follows this; box-first call sites pass
+            # kwargs as a separate Hash* arg, so the callee never sees
+            # it. Fix: at param-bind time, if the method has no kw
+            # params and kwargs is non-empty, append it as the last
+            # positional arg before binding. This unblocks the parser
+            # gem (`AST::Node.new(type, children, location: map)` ↦
+            # `def initialize(type, children=[], properties={})`).
+            has_kw = !(method.required_kw_params || []).empty? ||
+                     !(method.optional_kw_params || []).empty? ||
+                     !!method.kw_rest_param
+            unless has_kw
+              emit.line "if (kwargs && !kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
+            end
             required.each_with_index do |p, i|
               emit.line "BasicObject* #{local_cpp_name(p)} = array_at(args, #{i});"
               locals << p.to_s
