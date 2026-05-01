@@ -16,12 +16,13 @@ sources = [
   'case x; when 1; :one; when 2; :two; else :other; end',
 ]
 
-parser = Parser::Ruby40.new
-parser.diagnostics.consumer = nil
-parser.diagnostics.all_errors_are_fatal = false
-
 sources.each do |src|
-  parser.reset
+  # Fresh parser per source — `parser.reset` may leak state in
+  # the box-first build (some intrinsics in the reset chain may
+  # be skipped). Easier diagnostic.
+  parser = Parser::Ruby40.new
+  parser.diagnostics.consumer = nil
+  parser.diagnostics.all_errors_are_fatal = false
   buf = Parser::Source::Buffer.new("(test)", source: src)
   ast = parser.parse(buf)
   puts ast ? ast.to_sexp.gsub("\n", " ") : "nil"
