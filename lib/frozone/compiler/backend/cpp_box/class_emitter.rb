@@ -97,6 +97,12 @@ module Frozone
             emit.blank
             emit.cpp.write_int_literals(emit)
             emit.cpp.write_raw_int_arrays(emit)
+            # Inline intrinsic implementations — included AFTER class
+            # structs (so String*, Array* etc. are complete) and BEFORE
+            # method bodies (so they can call the intrinsic_X helpers).
+            # See cpp/runtime/intrinsics.hpp.
+            emit.line %|#include "../../runtime/intrinsics.hpp"|
+            emit.blank
             body_buf.each_line { |l| emit.line l.chomp }
           end
 
