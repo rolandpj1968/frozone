@@ -16,6 +16,9 @@ require 'open3'
 
 PROJECT_ROOT = File.expand_path('../../../../..', __dir__)
 GEN_DIR      = File.join(PROJECT_ROOT, 'cpp', 'gen', 'box')
+ONIGMO_DIR   = File.join(PROJECT_ROOT, 'vendor', 'Onigmo', '_install')
+ONIGMO_INC   = File.join(ONIGMO_DIR, 'include')
+ONIGMO_LIB   = File.join(ONIGMO_DIR, 'lib', 'libonigmo.a')
 
 def run_box_first(stub_name)
   stub_path = "bench/stubs/#{stub_name}.rb"
@@ -30,9 +33,15 @@ def run_box_first(stub_name)
     bin = Tempfile.new(["box_#{stub_name}_", ''])
     bin.close
     begin
-      compile_out, compile_status = Open3.capture2e(
-        'g++', '-std=c++17', '-O2', cpp_path, '-lgc', '-o', bin.path
-      )
+      # Onigmo is required by box_first.hpp (Regexp support); -std=c++20
+      # for designated-init in the array_at helper. Was -std=c++17
+      # without Onigmo flags — both broke after Regexp landed.
+      # -O0: integration spec asserts on stdout, not runtime perf.
+      # 3.2× faster compile than -O2 (2 min vs 7 min on the heaviest
+      # stub) — full integration_spec drops from ~40 min to ~12 min.
+      compile_args = ['g++', '-std=c++20', '-O0', cpp_path,
+                      '-I', ONIGMO_INC, ONIGMO_LIB, '-lgc', '-o', bin.path]
+      compile_out, compile_status = Open3.capture2e(*compile_args)
       raise "g++ compile failed for #{stub_name}:\n#{compile_out}" unless compile_status.success?
 
       run_out, run_status = Open3.capture2e(bin.path)
