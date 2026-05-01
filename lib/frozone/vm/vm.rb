@@ -410,6 +410,25 @@ module Frozone
       # after the symlink is removed (matching MRI semantics: real path stored at load time).
       FILE_REALPATH_CACHE = {}
 
+      # Set of canonical realpaths for every Ruby source file loaded
+      # successfully during the run. For box-first AOT, this is the
+      # closed-world's source-file universe — execute-phase requires
+      # check candidate paths against this set. See
+      # docs/box-first-load-execute-split.md for the design.
+      # Populated alongside FILE_REALPATH_CACHE; snapshot
+      # `build_files_at_load_phase_end` is captured by split_and_load
+      # after the load AST evaluates, so that any subsequent loads
+      # (e.g. lazy requires during execute) don't pollute the
+      # closed-world set.
+      BUILD_FILES = Set.new
+
+      # Closed-world source-file universe captured at the load/execute
+      # boundary in split_and_load. Returns nil before split_and_load
+      # has run (e.g. straight `--flatten` without AOT split). Frozen.
+      def self.build_files_at_load_phase_end
+        @build_files_at_load_phase_end
+      end
+
       # Split a Ruby file into load phase and execute phase, evaluate the
       # load phase, optionally flatten modules, then return the context
       # and execute nodes for the caller to handle.
@@ -443,7 +462,9 @@ module Frozone
         $stderr.puts "frozone: #{load_nodes.size} load nodes, #{execute_nodes.size} execute nodes"
 
         (Fiber[:file_stack] ||= []) << full_path
-        FILE_REALPATH_CACHE[full_path] = begin; File.realpath(full_path); rescue; full_path; end
+        real_entry_path = begin; File.realpath(full_path); rescue; full_path; end
+        FILE_REALPATH_CACHE[full_path] = real_entry_path
+        BUILD_FILES << real_entry_path
         load_ast = Ast::Sequence.new(load_nodes)
         top_level_scope = Core::OBJECT_CLASS
         top_level_object = Fiber[:main_object] || ObjectObject.new(Core::OBJECT_CLASS)
@@ -462,6 +483,18 @@ module Frozone
         context.push_scope(top_level_scope)
 
         load_ast.evaluate(context)
+
+        # Snapshot the closed-world source-file universe at the
+        # load/execute boundary. Anything subsequently loaded (e.g.
+        # via runtime require during the interpreter execute path)
+        # populates BUILD_FILES too but doesn't change this snapshot.
+        # Box-first AOT execute-phase emission consults this set to
+        # validate that runtime requires only target files in the
+        # build. See docs/box-first-load-execute-split.md.
+        Vm.instance_variable_set(:@build_files_at_load_phase_end, BUILD_FILES.dup.freeze)
+        if ENV['FROZONE_AOT_DEBUG'] == '1'
+          $stderr.puts "frozone: BUILD_FILES at load-phase-end: #{BUILD_FILES.size} files"
+        end
 
         # Module erasure: flatten ancestor methods/constants into each
         # concrete class. For --aot this is before TI (codegen mode
@@ -615,6 +648,7 @@ module Frozone
           full_path
         end
         FILE_REALPATH_CACHE[full_path] = real_path
+        BUILD_FILES << real_path
         (Fiber[:file_stack] ||= []) << full_path
         begin
           evaluate(File.read(full_path), false, filepath: full_path, raise_syntax_errors: raise_syntax_errors)
