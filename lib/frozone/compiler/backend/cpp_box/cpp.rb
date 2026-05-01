@@ -487,21 +487,40 @@ module Frozone
           # which from_expr emits as comma-operator.
           # Missing else_node → nil (Ruby semantics).
           def from_if(node, locals)
-            # Branches that contain a Return / Break / Next can't be
-            # expressed as a ternary — those are statement-only AST
-            # nodes (from_expr has no case for them). Fall back to a
-            # lambda + write_body form so they emit correctly (write_body
-            # handles them; in a block context they throw, otherwise they
-            # use C++ break/continue/return).
+            # Branches that contain Return / Break / Next / MASS / ForLoop
+            # / While / Until can't be expressed as a ternary — from_expr
+            # has no case for them (they're statement-only). Fall back
+            # to a lambda + write_body form so they emit correctly
+            # (write_body handles them; in a block context they throw,
+            # otherwise they use C++ break/continue/return).
             if contains_return?(node.then_node) || contains_return?(node.else_node) ||
                contains_loop_escape?(node.then_node, allow_next: true) ||
-               contains_loop_escape?(node.else_node, allow_next: true)
+               contains_loop_escape?(node.else_node, allow_next: true) ||
+               contains_statement_only?(node.then_node) ||
+               contains_statement_only?(node.else_node)
               return from_if_as_lambda(node, locals)
             end
             cond = from_expr(node.pred_node, locals)
             t = node.then_node ? from_expr(node.then_node, locals) : "nil_instance()"
             e = node.else_node ? from_expr(node.else_node, locals) : "nil_instance()"
             "(truthy(#{cond}) ? (#{t}) : (#{e}))"
+          end
+
+          # When one of these AST node kinds appears in expression
+          # position (e.g. an if-as-expression's branch), from_expr has
+          # no case for it — fall back to lambda + write_body form.
+          # write_stmt handles them in statement position.
+          def contains_statement_only?(node)
+            return false unless node.is_a?(Ast::Node)
+            return true if node.is_a?(Ast::MultipleAssignment) ||
+                           node.is_a?(Ast::ForLoop) ||
+                           node.is_a?(Ast::While) ||
+                           node.is_a?(Ast::Until)
+            # Stop at things that introduce their own scope.
+            return false if node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda) ||
+                            node.is_a?(Ast::MethodDef) || node.is_a?(Ast::ClassDef) ||
+                            node.is_a?(Ast::ModuleDef) || node.is_a?(Ast::SingletonClassDef)
+            (node.respond_to?(:children) ? node.children : []).any? { |c| contains_statement_only?(c) }
           end
 
           def from_array_literal(node, locals)
