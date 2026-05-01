@@ -813,12 +813,15 @@ module Frozone
               return "static_cast<Proc*>(#{from_expr(block_node.value_node, locals)})"
             end
             params = block_node.required_params || []
-            if (block_node.respond_to?(:optional_params) && (block_node.optional_params || []).any?) ||
-               (block_node.respond_to?(:rest_param) && block_node.rest_param) ||
-               (block_node.respond_to?(:post_params) && (block_node.post_params || []).any?)
-              raise EmissionError, "block with optional/rest/post params not yet supported"
+            optional_params = (block_node.respond_to?(:optional_params) ? block_node.optional_params : nil) || []
+            rest_param = block_node.respond_to?(:rest_param) ? block_node.rest_param : nil
+            post_params = (block_node.respond_to?(:post_params) ? block_node.post_params : nil) || []
+            # Optional params in blocks remain unsupported — uncommon
+            # in practice (`each { |a = 1| ... }`).
+            if optional_params.any?
+              raise EmissionError, "block with optional params not yet supported"
             end
-            params.each do |p|
+            (params + post_params).each do |p|
               unless p.is_a?(Symbol) || p.is_a?(String)
                 raise EmissionError, "block param destructuring (#{p.class.name}) not yet supported"
               end
@@ -831,7 +834,9 @@ module Frozone
               raise EmissionError, "break inside block — lambda boundary blocks loop scope, not yet supported"
             end
             block_locals = locals.dup
-            params.each { |p| block_locals << p.to_s }
+            (params + (rest_param ? [rest_param] : []) + post_params).each do |p|
+              block_locals << p.to_s
+            end
 
             body = block_node.body
 
@@ -842,6 +847,25 @@ module Frozone
             body_buf = emit.capture do
               params.each_with_index do |p, i|
                 emit.line "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance();"
+              end
+              if rest_param
+                # `|a, b, *rest, x, y|` — rest binds to the slice
+                # between required and post-required params. Build
+                # a fresh Array from data[required..size-post-1].
+                # Empty (zero-length) when size <= required+post.
+                rest_cpp = MethodEmitter.local_cpp_name(rest_param)
+                pre = params.length
+                post = post_params.length
+                emit.line "Array* __blk_rest__ = new Array();"
+                emit.line "for (std::size_t _i = #{pre}; _i + #{post} < __blkargs__->data.size(); _i++) __blk_rest__->data.push_back(__blkargs__->data[_i]);"
+                emit.line "BasicObject* #{rest_cpp} = static_cast<BasicObject*>(__blk_rest__);"
+              end
+              post_params.each_with_index do |p, j|
+                # post param j (0-based from start of post-list)
+                # binds to data[size - post_count + j], or nil if
+                # data is too short.
+                back_idx = post_params.length - j
+                emit.line "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{back_idx} <= (int)__blkargs__->data.size()) ? __blkargs__->data[__blkargs__->data.size() - #{back_idx}] : nil_instance();"
               end
               if body
                 ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true)
