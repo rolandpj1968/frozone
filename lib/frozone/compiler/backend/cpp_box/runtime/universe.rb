@@ -875,14 +875,89 @@ module Frozone
           # without args, or Integer < n when called with an Integer.
           # Real Ruby supports Float ranges and so on; we'll deal with
           # that when something needs it.
+          # Random — MT19937-32 (32-bit Mersenne Twister) with MRI-
+          # compatible seeding (init_by_array) and Float construction
+          # (53-bit precision via two 32-bit draws). Hand-port of MRI's
+          # random.c so `Random.new(seed).rand` produces sequences
+          # byte-for-byte identical to MRI. std::mt19937 has the right
+          # algorithm but its single-Integer seed path uses init_genrand
+          # (no key mixing) where MRI uses init_by_array even for one-
+          # element keys, so the post-seed state diverges; rolling our
+          # own state is also necessary for next_float's specific bit
+          # pack which std::uniform_real_distribution doesn't reproduce.
           RANDOM = RubyClass.new(
             name: "Random",
             parent: "Object",
             members: [
-              "std::mt19937_64 rng_;",
+              "uint32_t mt_[624];",
+              "int mti_ = 625;       // 625 sentinel = needs refill on first use",
               "uint64_t seed_ = 0;",
-              "Random() : rng_(0), seed_(0) {}",
               %(const char* ruby_class_name() const override { return "Random"; }),
+              # MRI's init_genrand — straight Knuth seed expansion.
+              "void mri_init_genrand(uint32_t s) {",
+              "  mt_[0] = s;",
+              "  for (int j = 1; j < 624; j++) {",
+              "    mt_[j] = 1812433253UL * (mt_[j-1] ^ (mt_[j-1] >> 30)) + static_cast<uint32_t>(j);",
+              "  }",
+              "  mti_ = 624;",
+              "}",
+              # MRI's init_by_array — what Random.new(seed) actually
+              # uses, even for single-Integer seeds. Two mixing passes
+              # over the state with key+index folded in.
+              "void mri_init_by_array(const uint32_t* key, int key_len) {",
+              "  mri_init_genrand(19650218UL);",
+              "  int i = 1, j = 0;",
+              "  int k = (624 > key_len ? 624 : key_len);",
+              "  for (; k; k--) {",
+              "    mt_[i] = (mt_[i] ^ ((mt_[i-1] ^ (mt_[i-1] >> 30)) * 1664525UL)) + key[j] + static_cast<uint32_t>(j);",
+              "    i++; j++;",
+              "    if (i >= 624) { mt_[0] = mt_[623]; i = 1; }",
+              "    if (j >= key_len) j = 0;",
+              "  }",
+              "  for (k = 623; k; k--) {",
+              "    mt_[i] = (mt_[i] ^ ((mt_[i-1] ^ (mt_[i-1] >> 30)) * 1566083941UL)) - static_cast<uint32_t>(i);",
+              "    i++;",
+              "    if (i >= 624) { mt_[0] = mt_[623]; i = 1; }",
+              "  }",
+              "  mt_[0] = 0x80000000UL;",
+              "}",
+              # MT19937 next-int32. Refills the 624-element state in
+              # batches via the standard recurrence + tempers the
+              # output. MATRIX_A=0x9908b0dfUL, UPPER_MASK=0x80000000UL,
+              # LOWER_MASK=0x7fffffffUL.
+              "uint32_t mri_genrand_int32() {",
+              "  static const uint32_t mag01[2] = { 0UL, 0x9908b0dfUL };",
+              "  uint32_t y;",
+              "  if (mti_ >= 624) {",
+              "    int kk;",
+              "    for (kk = 0; kk < 624 - 397; kk++) {",
+              "      y = (mt_[kk] & 0x80000000UL) | (mt_[kk+1] & 0x7fffffffUL);",
+              "      mt_[kk] = mt_[kk + 397] ^ (y >> 1) ^ mag01[y & 0x1UL];",
+              "    }",
+              "    for (; kk < 624 - 1; kk++) {",
+              "      y = (mt_[kk] & 0x80000000UL) | (mt_[kk+1] & 0x7fffffffUL);",
+              "      mt_[kk] = mt_[kk + (397 - 624)] ^ (y >> 1) ^ mag01[y & 0x1UL];",
+              "    }",
+              "    y = (mt_[623] & 0x80000000UL) | (mt_[0] & 0x7fffffffUL);",
+              "    mt_[623] = mt_[396] ^ (y >> 1) ^ mag01[y & 0x1UL];",
+              "    mti_ = 0;",
+              "  }",
+              "  y = mt_[mti_++];",
+              "  y ^= (y >> 11);",
+              "  y ^= (y << 7) & 0x9d2c5680UL;",
+              "  y ^= (y << 15) & 0xefc60000UL;",
+              "  y ^= (y >> 18);",
+              "  return y;",
+              "}",
+              # MRI Float-in-[0,1): two 32-bit draws give 27+26 = 53
+              # bits of precision (full Float mantissa). Specific bit
+              # pack — std::uniform_real_distribution uses different
+              # shifts and consumes different bits.
+              "double mri_next_float() {",
+              "  uint32_t a = mri_genrand_int32() >> 5;  // 27 bits",
+              "  uint32_t b = mri_genrand_int32() >> 6;  // 26 bits",
+              "  return (a * 67108864.0 + b) * (1.0 / 9007199254740992.0);",
+              "}",
             ],
             overrides: {
               "m_initialize" => {
@@ -893,7 +968,14 @@ module Frozone
                   } else {
                     seed_ = static_cast<uint64_t>(std::random_device{}());
                   }
-                  rng_.seed(seed_);
+                  // MRI calls init_genrand DIRECTLY for single-Integer
+                  // seeds (NOT init_by_array, despite what the random.c
+                  // FIXNUM-pack-then-init_by_array codepath suggests —
+                  // empirically `Random.new(42).bytes(4).unpack1("V")`
+                  // matches `init_genrand(42)`'s first int32 (1608637542),
+                  // not init_by_array's). Verified across Ruby 3.2.3 and
+                  // 4.0.1. Bigint seeds would need init_by_array; deferred.
+                  mri_init_genrand(static_cast<uint32_t>(seed_ & 0xffffffffUL));
                   return this;
                 CPP
               },
@@ -901,17 +983,27 @@ module Frozone
                 params: [],
                 body: <<~CPP.chomp,
                   if (args->data.empty()) {
-                    // Float in [0, 1) — uniform 53-bit precision.
-                    uint64_t v = rng_();
-                    return new Float(static_cast<double>(v >> 11) * (1.0 / (1ULL << 53)));
+                    return new Float(mri_next_float());
                   }
                   BasicObject* n = args->data[0];
                   if (auto* i = dynamic_cast<Integer*>(n)) {
-                    if (i->raw_ <= 0) return new Float(static_cast<double>(rng_() >> 11) * (1.0 / (1ULL << 53)));
-                    return new Integer(static_cast<int64_t>(rng_() % static_cast<uint64_t>(i->raw_)));
+                    if (i->raw_ <= 0) return new Float(mri_next_float());
+                    // MRI's rand(n): rejection-sample with the
+                    // smallest mask that covers (n-1), avoiding the
+                    // bias of plain modulo for ranges that don't
+                    // divide 2^32. For n that fits in uint32_t.
+                    uint32_t lim = static_cast<uint32_t>(i->raw_) - 1;
+                    uint32_t mask = lim;
+                    mask |= mask >> 1; mask |= mask >> 2;
+                    mask |= mask >> 4; mask |= mask >> 8;
+                    mask |= mask >> 16;
+                    while (true) {
+                      uint32_t v = mri_genrand_int32() & mask;
+                      if (v <= lim) return new Integer(static_cast<int64_t>(v));
+                    }
                   }
                   if (auto* f = dynamic_cast<Float*>(n)) {
-                    return new Float((static_cast<double>(rng_() >> 11) * (1.0 / (1ULL << 53))) * f->raw_);
+                    return new Float(mri_next_float() * f->raw_);
                   }
                   return nil_instance();
                 CPP
