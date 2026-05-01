@@ -81,7 +81,7 @@ module Frozone
             when Ast::Until
               write_until_stmt(emit, node, locals)
             when Ast::Case
-              write_case_stmt(emit, node, locals)
+              write_case_stmt(emit, node, locals, next_returns: next_returns)
             when Ast::Rescue
               # Pure `begin..end` (no rescue/else/ensure) — emit body
               # inline as plain statements. Without this, the lambda
@@ -157,7 +157,7 @@ module Frozone
           # via m_case_eq. Without a subject conditions are truthy-tested
           # directly (the truthy/falsy if-elsif form).
           # SplatArg in conditions (when *arr) — deferred.
-          def self.write_case_stmt(emit, node, locals)
+          def self.write_case_stmt(emit, node, locals, next_returns: false)
             subj = node.subject_node ? "_subj" : nil
             if subj
               emit.line "BasicObject* #{subj} = #{emit.cpp.from_expr(node.subject_node, locals)};"
@@ -166,11 +166,11 @@ module Frozone
               cond = case_when_cond(emit, w.condition_nodes, subj, locals)
               keyword = i == 0 ? "if" : "} else if"
               emit.line "#{keyword} (#{cond}) {"
-              emit.indented { write_body(emit, w.body_node, locals: locals) if w.body_node }
+              emit.indented { write_body(emit, w.body_node, locals: locals, next_returns: next_returns) if w.body_node }
             end
             if node.else_node
               emit.line "} else {"
-              emit.indented { write_body(emit, node.else_node, locals: locals) }
+              emit.indented { write_body(emit, node.else_node, locals: locals, next_returns: next_returns) }
             end
             emit.line "}"
           end
