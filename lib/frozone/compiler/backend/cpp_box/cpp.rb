@@ -607,6 +607,17 @@ module Frozone
             string_to_sym: ->(self_) {
               "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); std::string _buf(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size()); return intern(_buf.c_str()); }())"
             },
+            # `Symbol#to_s` — Symbol::name_ is a const char* set by
+            # intern(). Wrap into a fresh String.
+            symbol_to_s: ->(self_) {
+              "([&]() -> BasicObject* { const char* _n = static_cast<Symbol*>(#{self_})->name_; return new String(_n, std::strlen(_n)); }())"
+            },
+            # `Symbol#inspect` — `:foo`. Prepends a colon, builds a
+            # String. Doesn't quote names with special characters yet
+            # (`:\"foo bar\"`); good enough for normal identifiers.
+            symbol_inspect: ->(self_) {
+              "([&]() -> BasicObject* { const char* _n = static_cast<Symbol*>(#{self_})->name_; std::size_t _len = std::strlen(_n); String* _r = new String(); _r->bytes.reserve(_len + 1); _r->bytes.push_back(':'); for (std::size_t _i = 0; _i < _len; ++_i) _r->bytes.push_back(static_cast<std::uint8_t>(_n[_i])); return _r; }())"
+            },
             # `String#to_i(base)` — std::strtoll on the byte buffer
             # with the given base. Empty / non-numeric prefix returns 0
             # (matches MRI). Stub: doesn't handle 0x/0b/0o prefixes

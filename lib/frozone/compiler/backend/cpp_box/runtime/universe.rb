@@ -1250,10 +1250,18 @@ module Frozone
               }();
               auto it = table.find(name);
               if (it != table.end()) return it->second;
-              Symbol* s = new Symbol(name);
-              auto mit = id_map.find(name);
+              // Insert FIRST, then take name_ from the table key
+              // (which the unordered_map owns and keeps stable).
+              // The caller's `name` pointer may be stack-local (e.g.
+              // string_to_sym builds intern() args from a temporary
+              // std::string); storing it directly in Symbol::name_
+              // leaves a dangling pointer once the caller returns.
+              std::string key(name);
+              auto [ins_it, _inserted] = table.emplace(std::move(key), nullptr);
+              Symbol* s = new Symbol(ins_it->first.c_str());
+              auto mit = id_map.find(ins_it->first);
               s->method_id_ = (mit != id_map.end()) ? mit->second : -1;
-              table[std::string(name)] = s;
+              ins_it->second = s;
               return s;
             CPP
           )
