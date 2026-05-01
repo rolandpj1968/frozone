@@ -523,6 +523,21 @@ module Frozone
       def aot_compile(path)
         context, execute_nodes, full_path, load_count = split_and_load(path, flatten: :codegen)
 
+        # Closed-world enforcement (box-first AOT only): walk the
+        # execute-phase AST and fail hard on violations — class /
+        # module / method / const defs in execute phase, or requires
+        # for files outside BUILD_FILES. See
+        # docs/box-first-load-execute-split.md.
+        if ENV['FROZONE_BOX_FIRST'] == '1'
+          require_relative '../compiler/closed_world_validator'
+          build_files = Vm.build_files_at_load_phase_end || Set.new
+          Frozone::Compiler::ClosedWorldValidator.validate!(
+            execute_nodes,
+            build_files: build_files,
+            file_stack: (Fiber[:file_stack] || []),
+          )
+        end
+
         # Compile execute phase: wrap in a Block and pass to FrozoneCompile.
         execute_ast = Ast::Sequence.new(execute_nodes)
         inner = execute_nodes.size == 1 && execute_nodes[0].is_a?(Ast::FrozoneCompile) ?
