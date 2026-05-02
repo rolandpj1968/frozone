@@ -436,6 +436,20 @@ module Frozone
       # Used by both --aot (compile execute phase) and --flatten
       # (interpret execute phase with flattened class tables).
       def split_and_load(path, flatten: false)
+        # Seed BUILD_FILES from MRI's $LOADED_FEATURES — the interpreter
+        # is started by MRI which has already require'd all of
+        # `frozone.rb`'s top-level requires (vm.rb, wq_parser.rb,
+        # optparse.rb, etc.) BEFORE we got here. Those files are in
+        # MRI's $LOADED_FEATURES; if Frozone's interpreter then sees a
+        # require_relative for one of them, its dedup check skips
+        # re-loading and BUILD_FILES doesn't get updated. Seeding from
+        # $LOADED_FEATURES makes the closed world include everything
+        # already loaded.
+        $LOADED_FEATURES.each do |loaded|
+          real = (File.realpath(loaded) rescue loaded)
+          BUILD_FILES << real
+        end
+
         full_path = File.expand_path(path)
         source = File.read(full_path)
         parse_result = parse(source, false, filepath: full_path)
@@ -494,6 +508,9 @@ module Frozone
         Vm.instance_variable_set(:@build_files_at_load_phase_end, BUILD_FILES.dup.freeze)
         if ENV['FROZONE_AOT_DEBUG'] == '1'
           $stderr.puts "frozone: BUILD_FILES at load-phase-end: #{BUILD_FILES.size} files"
+          if ENV['FROZONE_AOT_DEBUG_FILES'] == '1'
+            BUILD_FILES.sort.each { |f| $stderr.puts "  #{f}" }
+          end
         end
 
         # Module erasure: flatten ancestor methods/constants into each

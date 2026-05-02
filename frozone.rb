@@ -1,6 +1,12 @@
 require 'optparse'
 
 require_relative 'lib/frozone/vm/vm'
+# Load both parser frontends unconditionally so closed-world AOT has
+# both available; runtime --parser=X selects. Without this, the
+# conditional `require_relative` for wq_parser inside the
+# execute-phase `if options[:parser] == :wq` block would be a
+# closed-world violation (BUILD_FILES is captured at load-phase end).
+require_relative 'lib/frozone/vm/wq_parser'
 
 options = {
   verbose:        false,
