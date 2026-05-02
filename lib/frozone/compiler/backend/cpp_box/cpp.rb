@@ -503,7 +503,14 @@ module Frozone
             cond = from_expr(node.pred_node, locals)
             t = node.then_node ? from_expr(node.then_node, locals) : "nil_instance()"
             e = node.else_node ? from_expr(node.else_node, locals) : "nil_instance()"
-            "(truthy(#{cond}) ? (#{t}) : (#{e}))"
+            # Cast both arms to BasicObject*. C++ ternary requires the
+            # two arms to share a common type, which doesn't always
+            # follow from Ruby semantics — e.g. `cond ? FooClass :
+            # BarClass` produces &Foo_eigenclass* and &Bar_eigenclass*,
+            # distinct C++ types with no implicit conversion. Both ARE
+            # BasicObject*-convertible (every emitted class derives from
+            # BasicObject), so the explicit cast unifies them. Cheap.
+            "(truthy(#{cond}) ? static_cast<BasicObject*>(#{t}) : static_cast<BasicObject*>(#{e}))"
           end
 
           # When one of these AST node kinds appears in expression
