@@ -7,6 +7,28 @@ module Frozone
       STRING_DEDUP_TABLE = {}
 
       class << self
+        # `:__unset__` is the sentinel used as a default value for
+        # optional positional params in core/4.0/ Ruby code (e.g.
+        # `def slice(idx, len = :__unset__)`). When that default kicks
+        # in for a Frozone-Ruby method call and is then forwarded to an
+        # Intrinsics.* call, the value arriving here is a SymbolObject
+        # wrapping `:__unset__`, NOT a raw Ruby Symbol. SymbolObject
+        # doesn't override `==`, so `len == :__unset__` is identity-
+        # compare and false. Compare via the raw value instead.
+        # (Pre-arity-unification of slice/byteslice in
+        # `lib/core/4.0/string.rb`, the ternary `len.equal?(:__unset__)
+        # ? Intrinsics.string_slice(self, idx) : ...` worked around
+        # this by NOT passing len in the unset case — the intrinsic's
+        # own `:__unset__` default kicked in (raw Ruby Symbol), and
+        # the comparison stayed within raw Symbols. After unification
+        # the intrinsic always receives the SymbolObject form, so the
+        # check has to handle it.)
+        def unset_marker?(v)
+          return true if v.equal?(:__unset__)
+          return true if v.is_a?(SymbolObject) && v.raw == :__unset__
+          false
+        end
+
         # String
         def string_bytesize(_, v) = n2f_int(v.raw.bytesize)
         def string_get_byte(_, v, i) = (b = v.raw.getbyte(fint?(i) ? i.raw : i.to_i); b ? n2f_int(b) : FNIL)
@@ -255,7 +277,7 @@ module Frozone
             raise FrozoneException.make(:TypeError, "no implicit conversion of nil into Integer") if len != :__unset__ && fnil?(len)
             m = idx.raw.match(v.raw)
             update_match_globals(m)
-            unless len == :__unset__ || fnil?(len)
+            unless unset_marker?(len) || fnil?(len)
               # len can be Integer (capture index), String/Symbol (named capture), or to_int-able
               cap_idx = if fint?(len)
                           len.raw
@@ -275,13 +297,13 @@ module Frozone
           end
           # String index: substring search
           if fstr?(idx)
-            raise FrozoneException.make(:TypeError, "no implicit conversion of Integer into String") unless len == :__unset__
+            raise FrozoneException.make(:TypeError, "no implicit conversion of Integer into String") unless unset_marker?(len)
             result = v.raw[idx.raw]
             return result.nil? ? FNIL : n2f_str(result)
           end
           # Range index
           if idx.is_a?(RangeObject)
-            raise FrozoneException.make(:TypeError, "no implicit conversion of Integer into Range") unless len == :__unset__
+            raise FrozoneException.make(:TypeError, "no implicit conversion of Integer into Range") unless unset_marker?(len)
             # Coerce range bounds if needed
             b = idx.begin_val
             e = idx.end_val
@@ -298,7 +320,7 @@ module Frozone
                     str_vm_coerce_to_int(context, idx)
                   end
           # Coerce len to Integer if provided
-          if len == :__unset__
+          if unset_marker?(len)
             result = reraise(TypeError, RangeError) { v.raw[idx_i] }
           else
             raise FrozoneException.make(:TypeError, "no implicit conversion of nil into Integer") if fnil?(len)
