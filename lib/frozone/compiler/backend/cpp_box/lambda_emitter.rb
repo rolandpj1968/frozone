@@ -206,55 +206,76 @@ module Frozone
 
             body = block_node.body
 
+            # Snapshot OUTER captured locals BEFORE entering this block's
+            # scope — these are the cell pointers we need to capture by
+            # value in the lambda's capture clause so they outlive the
+            # outer stack frame (heap-allocated closure-env approach).
+            outer_captured_at_creation = emit.cpp.captured_locals.dup
+
+            # Compute THIS block's own captured locals (its own params
+            # and body decls referenced by its own inner blocks).
+            block_param_names = (params + (rest_param ? [rest_param] : []) + post_params).map(&:to_s)
+            inner_own = Set.new(block_param_names) | Set.new((block_node.respond_to?(:locals) ? (block_node.locals || []) : []).map(&:to_s))
+            inner_captured = LambdaEmitter.collect_captured_locals(body, inner_own)
+
             # Body emission via write_body so statement-only forms
             # (if-as-stmt, case-as-stmt, MultipleAssignment, ...) work.
             # next_returns: true rewrites `next [v]` as `return v;` —
             # the lambda contract for one block invocation.
             body_buf = emit.capture do
-              params.each_with_index do |p, i|
-                emit.line "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance();"
-              end
-              if rest_param
-                # `|a, b, *rest, x, y|` — rest binds to the slice
-                # between required and post-required params. Build
-                # a fresh Array from data[required..size-post-1].
-                # Empty (zero-length) when size <= required+post.
-                rest_cpp = MethodEmitter.local_cpp_name(rest_param)
-                pre = params.length
-                post = post_params.length
-                emit.line "Array* __blk_rest__ = new Array();"
-                emit.line "for (std::size_t _i = #{pre}; _i + #{post} < __blkargs__->data.size(); _i++) __blk_rest__->data.push_back(__blkargs__->data[_i]);"
-                emit.line "BasicObject* #{rest_cpp} = static_cast<BasicObject*>(__blk_rest__);"
-              end
-              post_params.each_with_index do |p, j|
-                # post param j (0-based from start of post-list)
-                # binds to data[size - post_count + j], or nil if
-                # data is too short.
-                back_idx = post_params.length - j
-                emit.line "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{back_idx} <= (int)__blkargs__->data.size()) ? __blkargs__->data[__blkargs__->data.size() - #{back_idx}] : nil_instance();"
-              end
-              if body
-                emit.cpp.with_in_block do
-                  ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true, in_block: true)
+              emit.cpp.with_captured_locals(inner_captured) do
+                params.each_with_index do |p, i|
+                  cpp = MethodEmitter.local_cpp_name(p)
+                  init = "(#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance()"
+                  if emit.cpp.captured?(p)
+                    emit.line "BasicObject** #{cpp} = new BasicObject*(#{init});"
+                  else
+                    emit.line "BasicObject* #{cpp} = #{init};"
+                  end
                 end
-              else
-                emit.line "return nil_instance();"
+                if rest_param
+                  # `|a, b, *rest, x, y|` — rest binds to the slice
+                  # between required and post-required params.
+                  rest_cpp = MethodEmitter.local_cpp_name(rest_param)
+                  pre = params.length
+                  post = post_params.length
+                  emit.line "Array* __blk_rest__ = new Array();"
+                  emit.line "for (std::size_t _i = #{pre}; _i + #{post} < __blkargs__->data.size(); _i++) __blk_rest__->data.push_back(__blkargs__->data[_i]);"
+                  if emit.cpp.captured?(rest_param)
+                    emit.line "BasicObject** #{rest_cpp} = new BasicObject*(static_cast<BasicObject*>(__blk_rest__));"
+                  else
+                    emit.line "BasicObject* #{rest_cpp} = static_cast<BasicObject*>(__blk_rest__);"
+                  end
+                end
+                post_params.each_with_index do |p, j|
+                  back_idx = post_params.length - j
+                  cpp = MethodEmitter.local_cpp_name(p)
+                  init = "(#{back_idx} <= (int)__blkargs__->data.size()) ? __blkargs__->data[__blkargs__->data.size() - #{back_idx}] : nil_instance()"
+                  if emit.cpp.captured?(p)
+                    emit.line "BasicObject** #{cpp} = new BasicObject*(#{init});"
+                  else
+                    emit.line "BasicObject* #{cpp} = #{init};"
+                  end
+                end
+                if body
+                  emit.cpp.with_in_block do
+                    ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true, in_block: true)
+                  end
+                else
+                  emit.line "return nil_instance();"
+                end
               end
             end
 
-            # `[&, this]` (not bare `[&]`) — lambdas inside a member
-            # function implicitly capture `this` by reference under
-            # `[&]`. That's safe for short-lived blocks (passed to
-            # each, transient closures) but breaks when the Proc is
-            # stored on an ivar and outlives the parent stack frame:
-            # dereferencing the captured reference reads invalid stack
-            # memory. Racc's `@emit_integer = lambda { |chars, p|
-            # emit(:tINTEGER, chars); p }` set in the lexer's
-            # initialize and called later from advance hit exactly
-            # this — the lambda's `this->m_emit(...)` was UB. `[&,
-            # this]` captures the `this` POINTER by value (copy)
-            # while keeping local-by-reference for everything else.
-            "(new Proc([&, this](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
+            # Capture clause: default `[&]` keeps the existing semantics
+            # (transient access to enclosing locals), `this` by value
+            # (member-function `this` pointer), plus every OUTER
+            # captured local (cell pointer) by value so the lambda
+            # safely reads them through `*deref` even after the outer
+            # stack frame returns.
+            cap_extras = outer_captured_at_creation.to_a.map { |n| MethodEmitter.local_cpp_name(n) }
+            cap_str = (["&", "this"] + cap_extras).join(", ")
+            "(new Proc([#{cap_str}](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
           end
 
           # Lambda literal — `-> { ... }`, `lambda { ... }`, `Proc.new { ... }`.
@@ -289,37 +310,64 @@ module Frozone
             block_locals = locals.dup
             (params + (rest_param ? [rest_param] : []) + post_params).each { |p| block_locals << p.to_s }
             body = node.body
+
+            # Closure-capture machinery (mirrors from_block_as_proc).
+            outer_captured_at_creation = emit.cpp.captured_locals.dup
+            param_names = (params + (rest_param ? [rest_param] : []) + post_params).map(&:to_s)
+            inner_own = Set.new(param_names) | Set.new((node.respond_to?(:locals) ? (node.locals || []) : []).map(&:to_s))
+            inner_captured = LambdaEmitter.collect_captured_locals(body, inner_own)
+
             body_buf = emit.capture do
-              params.each_with_index do |p, i|
-                emit.line "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance();"
-              end
-              if rest_param
-                rest_cpp = MethodEmitter.local_cpp_name(rest_param)
-                pre = params.length
-                post = post_params.length
-                emit.line "Array* __blk_rest__ = new Array();"
-                emit.line "for (std::size_t _i = #{pre}; _i + #{post} < __blkargs__->data.size(); _i++) __blk_rest__->data.push_back(__blkargs__->data[_i]);"
-                emit.line "BasicObject* #{rest_cpp} = static_cast<BasicObject*>(__blk_rest__);"
-              end
-              post_params.each_with_index do |p, j|
-                back_idx = post_params.length - j
-                emit.line "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{back_idx} <= (int)__blkargs__->data.size()) ? __blkargs__->data[__blkargs__->data.size() - #{back_idx}] : nil_instance();"
-              end
-              # Lambda has its own __frame_id__ — `return` inside the
-              # body shadows the enclosing method's frame and targets
-              # the lambda itself.
-              emit.line "std::uint64_t __frame_id__ = next_frame_id();"
-              emit.line "try {"
-              if body
-                emit.cpp.with_in_block do
-                  ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true, in_block: true)
+              emit.cpp.with_captured_locals(inner_captured) do
+                params.each_with_index do |p, i|
+                  cpp = MethodEmitter.local_cpp_name(p)
+                  init = "(#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance()"
+                  if emit.cpp.captured?(p)
+                    emit.line "BasicObject** #{cpp} = new BasicObject*(#{init});"
+                  else
+                    emit.line "BasicObject* #{cpp} = #{init};"
+                  end
                 end
-              else
-                emit.line "return nil_instance();"
+                if rest_param
+                  rest_cpp = MethodEmitter.local_cpp_name(rest_param)
+                  pre = params.length
+                  post = post_params.length
+                  emit.line "Array* __blk_rest__ = new Array();"
+                  emit.line "for (std::size_t _i = #{pre}; _i + #{post} < __blkargs__->data.size(); _i++) __blk_rest__->data.push_back(__blkargs__->data[_i]);"
+                  if emit.cpp.captured?(rest_param)
+                    emit.line "BasicObject** #{rest_cpp} = new BasicObject*(static_cast<BasicObject*>(__blk_rest__));"
+                  else
+                    emit.line "BasicObject* #{rest_cpp} = static_cast<BasicObject*>(__blk_rest__);"
+                  end
+                end
+                post_params.each_with_index do |p, j|
+                  back_idx = post_params.length - j
+                  cpp = MethodEmitter.local_cpp_name(p)
+                  init = "(#{back_idx} <= (int)__blkargs__->data.size()) ? __blkargs__->data[__blkargs__->data.size() - #{back_idx}] : nil_instance()"
+                  if emit.cpp.captured?(p)
+                    emit.line "BasicObject** #{cpp} = new BasicObject*(#{init});"
+                  else
+                    emit.line "BasicObject* #{cpp} = #{init};"
+                  end
+                end
+                # Lambda has its own __frame_id__ — `return` inside the
+                # body shadows the enclosing method's frame and targets
+                # the lambda itself.
+                emit.line "std::uint64_t __frame_id__ = next_frame_id();"
+                emit.line "try {"
+                if body
+                  emit.cpp.with_in_block do
+                    ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true, in_block: true)
+                  end
+                else
+                  emit.line "return nil_instance();"
+                end
+                emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
               end
-              emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
             end
-            "(new Proc([&, this](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
+            cap_extras = outer_captured_at_creation.to_a.map { |n| MethodEmitter.local_cpp_name(n) }
+            cap_str = (["&", "this"] + cap_extras).join(", ")
+            "(new Proc([#{cap_str}](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
           end
 
           # If-as-expression where one or both branches contain Return /
@@ -349,6 +397,29 @@ module Frozone
               emit.line "}"
             end
             "([&]() -> BasicObject* { #{buf.gsub(/\s+/, ' ').strip} }())"
+          end
+
+          # Pre-walk: among `own_local_names`, return the subset that
+          # is referenced (read or written) inside ANY nested
+          # Block/Lambda within `body`. Those locals must be heap-
+          # allocated (`BasicObject** l_x = new BasicObject*(initial);`)
+          # so an inner lambda can capture the cell pointer by value
+          # and still access the live cell after our scope returns.
+          # Walks across nested blocks (inner-inner captures of our
+          # locals also count).
+          def self.collect_captured_locals(body, own_local_names)
+            own = own_local_names.is_a?(Set) ? own_local_names : Set.new(own_local_names.map(&:to_s))
+            captured = Set.new
+            visit = lambda do |node, in_block|
+              return unless node.is_a?(Ast::Node)
+              if in_block && (node.is_a?(Ast::LocalVariableRead) || node.is_a?(Ast::LocalVariableWrite))
+                captured << node.name.to_s if own.include?(node.name.to_s)
+              end
+              next_in_block = in_block || node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda)
+              (node.respond_to?(:children) ? node.children : []).each { |c| visit.call(c, next_in_block) }
+            end
+            visit.call(body, false)
+            captured
           end
 
           def contains_return?(node)

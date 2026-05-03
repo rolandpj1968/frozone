@@ -20,7 +20,18 @@ module Frozone
           # which calls method_missing).
           def self.write_user_method(emit, name, method)
             cpp_name = Cpp.method_name(name)
-            body_buf = emit.capture do
+            # Pre-walk for captured locals so unpack_params + the body
+            # emission both know which locals need heap-cell storage.
+            param_names = (method.required_params || []) +
+                          (method.optional_params || []).map(&:first) +
+                          (method.post_params || []) +
+                          (method.required_kw_params || []) +
+                          (method.optional_kw_params || []).map(&:first) +
+                          [method.kw_rest_param, method.rest_param, method.block_param].compact
+            own = Set.new(param_names.map(&:to_s) + ((method.locals || []).map(&:to_s)))
+            captured = method.body ? LambdaEmitter.collect_captured_locals(method.body, own) : Set.new
+            body_buf = emit.cpp.with_captured_locals(captured) do
+            emit.capture do
               locals = unpack_params(emit, method)
               # Wrap in try/catch ReturnException so `return v` inside a
               # block (which throws rather than C++-returns) lands here
@@ -43,6 +54,7 @@ module Frozone
                 emit.line "return nil_instance();"
               end
               emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
+            end
             end
             emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) {"
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
@@ -107,6 +119,20 @@ module Frozone
           # initialiser refers to itself).
           UNIVERSAL_PARAM_NAMES = %w[args kwargs block].to_set.freeze
 
+          # Emit a local decl line: BasicObject* form for stack locals,
+          # BasicObject** (heap cell) form for locals captured by inner
+          # blocks. The cell-pointer form is what lets a Proc capture
+          # the address of the cell by value and outlive the enclosing
+          # stack frame; reads/writes go through `*l_x` (see Cpp.captured?).
+          def self.decl_local_line(emit, name, init_expr)
+            cpp = local_cpp_name(name)
+            if emit.cpp.captured?(name)
+              "BasicObject** #{cpp} = new BasicObject*(#{init_expr});"
+            else
+              "BasicObject* #{cpp} = #{init_expr};"
+            end
+          end
+
           def self.unpack_params(emit, method)
             locals = Set.new
             required = method.required_params || []
@@ -129,14 +155,14 @@ module Frozone
               emit.line "if (kwargs && !kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
             end
             required.each_with_index do |p, i|
-              emit.line "BasicObject* #{local_cpp_name(p)} = array_at(args, #{i});"
+              emit.line decl_local_line(emit, p, "array_at(args, #{i})")
               locals << p.to_s
             end
             optional = method.optional_params || []
             optional.each_with_index do |(p, default_node), i|
               idx = required.length + i
               default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
-              emit.line "BasicObject* #{local_cpp_name(p)} = (args->data.size() > #{idx}) ? args->data[#{idx}] : (#{default_str});"
+              emit.line decl_local_line(emit, p, "(args->data.size() > #{idx}) ? args->data[#{idx}] : (#{default_str})")
               locals << p.to_s
             end
             if method.post_params && !method.post_params.empty?
@@ -145,12 +171,12 @@ module Frozone
             (method.optional_kw_params || []).each do |(p, default_node)|
               default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
               key_lit = emit.cpp.cpp_string_literal(p.to_s)
-              emit.line "BasicObject* #{local_cpp_name(p)} = (kwargs ? [&]() -> BasicObject* { auto _it = kwargs->data.find(intern(#{key_lit})); return _it == kwargs->data.end() ? (#{default_str}) : _it->second; }() : (#{default_str}));"
+              emit.line decl_local_line(emit, p, "(kwargs ? [&]() -> BasicObject* { auto _it = kwargs->data.find(intern(#{key_lit})); return _it == kwargs->data.end() ? (#{default_str}) : _it->second; }() : (#{default_str}))")
               locals << p.to_s
             end
             (method.required_kw_params || []).each do |p|
               key_lit = emit.cpp.cpp_string_literal(p.to_s)
-              emit.line %(BasicObject* #{local_cpp_name(p)} = (kwargs && kwargs->data.find(intern(#{key_lit})) != kwargs->data.end()) ? kwargs->data[intern(#{key_lit})] : ([&]() -> BasicObject* { std::fprintf(stderr, "[box-first] missing required kw arg :#{p}\\n"); std::abort(); }());)
+              emit.line decl_local_line(emit, p, %|(kwargs && kwargs->data.find(intern(#{key_lit})) != kwargs->data.end()) ? kwargs->data[intern(#{key_lit})] : ([&]() -> BasicObject* { std::fprintf(stderr, "[box-first] missing required kw arg :#{p}\\n"); std::abort(); }())|)
               locals << p.to_s
             end
             if method.kw_rest_param
@@ -173,7 +199,7 @@ module Frozone
               emit.line "  auto* _k = static_cast<Symbol*>(_kv.first);"
               emit.line "  if (!(#{consumed_check})) __#{cpp_name}_h__->data[_kv.first] = _kv.second;"
               emit.line "}"
-              emit.line "BasicObject* #{cpp_name} = static_cast<BasicObject*>(__#{cpp_name}_h__);"
+              emit.line decl_local_line(emit, name, "static_cast<BasicObject*>(__#{cpp_name}_h__)")
               locals << name
             end
             if method.rest_param
@@ -182,12 +208,13 @@ module Frozone
               cpp_name = local_cpp_name(name)
               start_idx = required.length + optional.length
               if start_idx == 0
-                emit.line "BasicObject* #{cpp_name} = args;  // *rest = whole args"
+                emit.line decl_local_line(emit, name, "static_cast<BasicObject*>(args)") + "  // *rest = whole args"
               else
-                emit.line "Array* #{cpp_name} = new Array();"
+                emit.line "Array* __#{cpp_name}_rest__ = new Array();"
                 emit.line "for (std::size_t _i = #{start_idx}; _i < args->data.size(); _i++) {"
-                emit.line "  #{cpp_name}->data.push_back(args->data[_i]);"
+                emit.line "  __#{cpp_name}_rest__->data.push_back(args->data[_i]);"
                 emit.line "}"
+                emit.line decl_local_line(emit, name, "static_cast<BasicObject*>(__#{cpp_name}_rest__)")
               end
               locals << name
             end
@@ -202,7 +229,7 @@ module Frozone
               # from any vtable-call result without C++ type errors.
               # `truthy(l_blk)`, `l_blk->m_call(...)` (universal surface)
               # both work without a static_cast.
-              emit.line "BasicObject* #{local_cpp_name(user_block)} = static_cast<BasicObject*>(block);"
+              emit.line decl_local_line(emit, user_block, "static_cast<BasicObject*>(block)")
               locals << user_block
             end
             # Pre-declare every other local in the method's `locals`
@@ -220,7 +247,7 @@ module Frozone
             ((method.locals || []) + seen_writes.to_a).uniq.each do |name|
               s = name.to_s
               next if s.empty? || locals.include?(s)
-              emit.line "BasicObject* #{local_cpp_name(s)} = nil_instance();"
+              emit.line decl_local_line(emit, s, "nil_instance()")
               locals << s
             end
             locals

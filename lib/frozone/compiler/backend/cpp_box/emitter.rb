@@ -982,9 +982,21 @@ module Frozone
           def build_override(method, super_ctx: nil)
             with_method_scope(method) do
               with_super_context(super_ctx) do
-                body = capture do
-                  locals = MethodEmitter.unpack_params(self, method)
-                  ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+                # Pre-walk for captured locals (inner-block-referenced
+                # locals get heap-cell storage; see CppBox::Cpp.captured_locals).
+                param_names = (method.required_params || []) +
+                              (method.optional_params || []).map(&:first) +
+                              (method.post_params || []) +
+                              (method.required_kw_params || []) +
+                              (method.optional_kw_params || []).map(&:first) +
+                              [method.kw_rest_param, method.rest_param, method.block_param].compact
+                own = Set.new(param_names.map(&:to_s) + ((method.locals || []).map(&:to_s)))
+                captured = method.body ? LambdaEmitter.collect_captured_locals(method.body, own) : Set.new
+                body = @cpp.with_captured_locals(captured) do
+                  capture do
+                    locals = MethodEmitter.unpack_params(self, method)
+                    ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
+                  end
                 end
                 # Wrap in try/catch ReturnException so `return v` inside
                 # a Proc body escapes via throw and lands at the

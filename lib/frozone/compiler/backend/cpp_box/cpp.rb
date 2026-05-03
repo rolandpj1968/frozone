@@ -143,6 +143,16 @@ module Frozone
           # Ast::Super walks chain from origin_index+1 onwards to find
           # its target slot. nil outside an override-body emission.
           attr_accessor :super_context
+          # Set of local-variable NAMES (as Strings) that are captured
+          # by an inner Block/Lambda within the currently-emitting
+          # scope. Captured locals are emitted as heap-allocated cells
+          # (`BasicObject** l_x = new BasicObject*(initial);`) and
+          # accessed via `*deref` so that an inner lambda can capture
+          # the cell pointer by value and outlive the enclosing stack
+          # frame — fixes the dangling-by-reference closure bug.
+          # Pushed/restored at each method/block/lambda body emission
+          # via with_captured_locals.
+          attr_accessor :captured_locals
           # Interned integer literals — every unique IntegerLiteral
           # value seen during emission becomes one shared static
           # Integer instance, referenced by address. Without interning,
@@ -175,6 +185,35 @@ module Frozone
             @raw_int_arrays = []
             @tmp_counter = 0
             @in_block = false
+            @captured_locals = Set.new
+          end
+
+          # Run yield with @captured_locals = previous ∪ new_captures,
+          # then restore. Each method/block/lambda body emission wraps
+          # itself in this so its own captured locals (locals referenced
+          # by inner blocks) are accessed via `*deref` while the body
+          # is being emitted.
+          def with_captured_locals(new_captures)
+            prev = @captured_locals
+            @captured_locals = prev | new_captures
+            yield
+          ensure
+            @captured_locals = prev
+          end
+
+          def captured?(name) = @captured_locals.include?(name.to_s)
+
+          # Run yield with `names` removed from @captured_locals (shadowing).
+          # Used when an inner construct (for-loop expansion, block param)
+          # introduces a fresh local that shadows an outer captured one
+          # of the same name — the new local should be a bare stack
+          # variable, not a heap cell.
+          def with_shadowed_locals(names)
+            prev = @captured_locals
+            @captured_locals = prev - Set.new(names.map(&:to_s))
+            yield
+          ensure
+            @captured_locals = prev
           end
 
           def next_tmp_id = (@tmp_counter += 1)
@@ -205,7 +244,7 @@ module Frozone
             when Ast::HashLiteral    then from_hash_literal(node, locals)
             when Ast::RangeLiteral   then from_range_literal(node, locals)
             when Ast::RegexpLiteral  then from_regexp_literal(node)
-            when Ast::LocalVariableRead then MethodEmitter.local_cpp_name(node.name)
+            when Ast::LocalVariableRead then from_local_variable_read(node)
             when Ast::ConstantRead then from_constant_read(node)
             when Ast::ConstantPath then from_constant_path(node)
             when Ast::InstanceVariableRead then "this->iv_#{node.name.to_s.delete_prefix('@')}"
@@ -215,7 +254,11 @@ module Frozone
             when Ast::LocalVariableWrite
               rhs = from_expr(node.value_node, locals)
               if locals.include?(node.name.to_s)
-                "(#{MethodEmitter.local_cpp_name(node.name)} = #{rhs})"
+                cpp = MethodEmitter.local_cpp_name(node.name)
+                # Captured locals are heap cells (BasicObject**) — write
+                # via *deref so inner lambdas that captured the cell
+                # pointer see the same heap memory.
+                captured?(node.name) ? "(*#{cpp} = #{rhs})" : "(#{cpp} = #{rhs})"
               else
                 # Local-decl in expr position needs scope hoisting
                 # (declare in outer scope, assign here). Not implemented.
@@ -389,6 +432,15 @@ module Frozone
           # Templates are explicit per-intrinsic (no name-based
           # heuristic — too many edge cases). Unknown intrinsic →
           # EmissionError → method skipped (graceful degradation).
+          # Captured locals are stored as heap cells (`BasicObject**`)
+          # so a Proc that captures the cell pointer outlives the
+          # enclosing stack frame. Reads dereference; non-captured
+          # locals stay on the stack as bare `BasicObject*`.
+          def from_local_variable_read(node)
+            cpp = MethodEmitter.local_cpp_name(node.name)
+            captured?(node.name) ? "(*#{cpp})" : cpp
+          end
+
           def from_intrinsic_call(node, locals)
             args = node.param_nodes.map { |p| from_expr(p, locals) }
             IntrinsicLowering.lower(node.method.name, *args)

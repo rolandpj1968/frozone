@@ -220,7 +220,12 @@ module Frozone
             return if node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda)
             if node.is_a?(Ast::LocalVariableWrite) && !locals.include?(node.name.to_s)
               locals << node.name.to_s
-              emit.line "BasicObject* #{MethodEmitter.local_cpp_name(node.name)} = nil_instance();"
+              cpp = MethodEmitter.local_cpp_name(node.name)
+              if emit.cpp.captured?(node.name)
+                emit.line "BasicObject** #{cpp} = new BasicObject*(nil_instance());"
+              else
+                emit.line "BasicObject* #{cpp} = nil_instance();"
+              end
             end
             node.children.each { |c| pre_hoist_local_writes!(emit, c, locals) }
           end
@@ -363,11 +368,12 @@ module Frozone
           def self.write_local_write_stmt(emit, node, locals)
             rhs = emit.cpp.from_expr(node.value_node, locals)
             cpp_name = MethodEmitter.local_cpp_name(node.name)
+            captured = emit.cpp.captured?(node.name)
             if locals.include?(node.name.to_s)
-              emit.line "#{cpp_name} = #{rhs};"
+              emit.line(captured ? "*#{cpp_name} = #{rhs};" : "#{cpp_name} = #{rhs};")
             else
               locals << node.name.to_s
-              emit.line "BasicObject* #{cpp_name} = #{rhs};"
+              emit.line(captured ? "BasicObject** #{cpp_name} = new BasicObject*(#{rhs});" : "BasicObject* #{cpp_name} = #{rhs};")
             end
           end
 
@@ -441,20 +447,22 @@ module Frozone
             when :local
               name = target[1].to_s
               cpp_name = MethodEmitter.local_cpp_name(name)
+              captured = emit.cpp.captured?(name)
               if locals.include?(name)
-                emit.line "#{cpp_name} = #{value_expr};"
+                emit.line(captured ? "*#{cpp_name} = #{value_expr};" : "#{cpp_name} = #{value_expr};")
               else
                 locals << name
-                emit.line "BasicObject* #{cpp_name} = #{value_expr};"
+                emit.line(captured ? "BasicObject** #{cpp_name} = new BasicObject*(#{value_expr});" : "BasicObject* #{cpp_name} = #{value_expr};")
               end
             when :local_splat
               name = target[1].to_s
               cpp_name = MethodEmitter.local_cpp_name(name)
+              captured = emit.cpp.captured?(name)
               if locals.include?(name)
-                emit.line "#{cpp_name} = #{value_expr};"
+                emit.line(captured ? "*#{cpp_name} = #{value_expr};" : "#{cpp_name} = #{value_expr};")
               else
                 locals << name
-                emit.line "BasicObject* #{cpp_name} = #{value_expr};"
+                emit.line(captured ? "BasicObject** #{cpp_name} = new BasicObject*(#{value_expr});" : "BasicObject* #{cpp_name} = #{value_expr};")
               end
             when :ivar, :ivar_splat
               iv = target[1].to_s.delete_prefix('@')
@@ -518,14 +526,18 @@ module Frozone
             cpp_var = MethodEmitter.local_cpp_name(var)
             emit.line "for (int64_t #{raw_var} = 0; #{raw_var} < #{count}; #{raw_var}++) {"
             emit.indented do
-              emit.line "BasicObject* #{cpp_var} = new Integer(#{raw_var});"
-              # Snapshot+restore: locals declared inside the block body
-              # are scoped to the block (mirrors Ruby's block-local
-              # semantics); without this, subsequent blocks' first
-              # writes would see stale "already declared" state and
-              # emit `name = ...` instead of `BasicObject* name = ...`.
-              block_locals = locals.dup << var.to_s
-              write_body(emit, blk.body, locals: block_locals)
+              # Block param `var` is a fresh bare local in the for-body
+              # scope, shadowing any outer captured-by-name local.
+              emit.cpp.with_shadowed_locals([var]) do
+                emit.line "BasicObject* #{cpp_var} = new Integer(#{raw_var});"
+                # Snapshot+restore: locals declared inside the block body
+                # are scoped to the block (mirrors Ruby's block-local
+                # semantics); without this, subsequent blocks' first
+                # writes would see stale "already declared" state and
+                # emit `name = ...` instead of `BasicObject* name = ...`.
+                block_locals = locals.dup << var.to_s
+                write_body(emit, blk.body, locals: block_locals)
+              end
             end
             emit.line "}"
           end
