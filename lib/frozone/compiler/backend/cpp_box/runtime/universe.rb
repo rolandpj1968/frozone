@@ -1246,13 +1246,20 @@ module Frozone
               params: [],
               body: "return new #{klass.name}();",
             }
-            # A pure Module's eigenclass inherits from `Module` (so
-            # `mod.class == Module`); a Class's eigenclass inherits
-            # from `Class`. The eigenclass-of-Module-itself is a Class
-            # (MRI: `Module.class == Class`) so MODULE.is_module is
-            # false — only the eigenclass entries flagged is_module
-            # represent the value-side modules.
-            eigen_parent = klass.is_module ? "Module" : "Class"
+            # Eigenclass MRO mirrors the host class hierarchy:
+            #   NoArgument.singleton_class.superclass == Switch.singleton_class
+            # Without this chain, `NoArgument.guess` (defined as
+            # `def self.guess` on Switch) is invisible to the
+            # subclass — every dispatch falls through to NoMethodError.
+            # Top-of-tree classes (klass.parent nil) bottom out on
+            # `Class` (or `Module` for pure modules) so the C++ vtable
+            # still resolves m_new / m_class.
+            eigen_parent =
+              if klass.parent && !klass.parent.empty?
+                "#{klass.parent}_eigenclass"
+              else
+                klass.is_module ? "Module" : "Class"
+              end
             RubyClass.new(
               name: "#{klass.name}_eigenclass",
               parent: eigen_parent,
