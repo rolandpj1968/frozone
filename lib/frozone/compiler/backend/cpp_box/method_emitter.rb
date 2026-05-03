@@ -279,6 +279,16 @@ module Frozone
             walk = ->(node) {
               return unless node.is_a?(Ast::Node)
               names << node.name.to_s if node.is_a?(Ast::LocalVariableWrite)
+              # MultipleAssignment targets: descriptors `[:local, name]`
+              # or `[:local_splat, name]` — these declare locals too,
+              # and unpack_params hoists them to method scope, so they
+              # belong in the captured-set walk's own_locals.
+              if node.is_a?(Ast::MultipleAssignment) && node.respond_to?(:targets)
+                node.targets.each do |t|
+                  next unless t.is_a?(Array)
+                  names << t[1].to_s if t[1].is_a?(Symbol) && %i[local local_splat].include?(t[0])
+                end
+              end
               node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
             }
             walk.call(body) if body

@@ -410,16 +410,46 @@ module Frozone
           def self.collect_captured_locals(body, own_local_names)
             own = own_local_names.is_a?(Set) ? own_local_names : Set.new(own_local_names.map(&:to_s))
             captured = Set.new
-            visit = lambda do |node, in_block|
+            visit = lambda do |node, in_block, shadowed|
               return unless node.is_a?(Ast::Node)
               if in_block && (node.is_a?(Ast::LocalVariableRead) || node.is_a?(Ast::LocalVariableWrite))
-                captured << node.name.to_s if own.include?(node.name.to_s)
+                name = node.name.to_s
+                # Shadowed: an inner block re-declared this name (as
+                # its own param or local), so the reference is to the
+                # inner local, not OUR own local.
+                captured << name if own.include?(name) && !shadowed.include?(name)
               end
-              next_in_block = in_block || node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda)
-              (node.respond_to?(:children) ? node.children : []).each { |c| visit.call(c, next_in_block) }
+              if node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda)
+                block_own = block_own_locals(node)
+                next_shadowed = shadowed | block_own
+                (node.respond_to?(:children) ? node.children : []).each { |c| visit.call(c, true, next_shadowed) }
+              else
+                (node.respond_to?(:children) ? node.children : []).each { |c| visit.call(c, in_block, shadowed) }
+              end
             end
-            visit.call(body, false)
+            visit.call(body, false, Set.new)
             captured
+          end
+
+          # Names introduced in a Block/Lambda's own scope that ACTUALLY
+          # shadow outer names at the C++ level. Block PARAMS are
+          # truly block-local in the gen (declared inside the lambda
+          # body). Block-body decls (parser-tracked locals minus
+          # params) are NOT — collect_local_writes hoists them to
+          # the enclosing method's scope, so a Ruby-level
+          # `inner { remaining = ... }` becomes a method-scope
+          # `BasicObject* l_remaining` shared with the method body.
+          # For captured-set computation, only params shadow.
+          def self.block_own_locals(node)
+            params = (node.respond_to?(:required_params) ? (node.required_params || []) : []) +
+                     (node.respond_to?(:optional_params) ? (node.optional_params || []).map(&:first) : []) +
+                     (node.respond_to?(:post_params) ? (node.post_params || []) : []) +
+                     (node.respond_to?(:rest_param) && node.rest_param ? [node.rest_param] : []) +
+                     (node.respond_to?(:block_param) && node.block_param ? [node.block_param] : []) +
+                     (node.respond_to?(:required_kw_params) ? (node.required_kw_params || []) : []) +
+                     (node.respond_to?(:optional_kw_params) ? (node.optional_kw_params || []).map(&:first) : []) +
+                     (node.respond_to?(:kw_rest_param) && node.kw_rest_param ? [node.kw_rest_param] : [])
+            Set.new(params.compact.flat_map { |p| p.is_a?(Hash) ? [] : [p.to_s] })
           end
 
           def contains_return?(node)
