@@ -22,14 +22,13 @@ module Frozone
             cpp_name = Cpp.method_name(name)
             # Pre-walk for captured locals so unpack_params + the body
             # emission both know which locals need heap-cell storage.
-            param_names = (method.required_params || []) +
-                          (method.optional_params || []).map(&:first) +
-                          (method.post_params || []) +
-                          (method.required_kw_params || []) +
-                          (method.optional_kw_params || []).map(&:first) +
-                          [method.kw_rest_param, method.rest_param, method.block_param].compact
-            own = Set.new(param_names.map(&:to_s) + ((method.locals || []).map(&:to_s)))
-            captured = method.body ? LambdaEmitter.collect_captured_locals(method.body, own) : Set.new
+            # Include collect_local_writes — unpack_params hoists ALL
+            # body-decl LocalVariableWrites to method scope (block
+            # locals included), so they share method's `captured?`
+            # check; without this, a block-local declared at method
+            # level via the hoist gets a bare decl while inner blocks
+            # access it via *deref (mismatch).
+            captured = method.body ? collect_method_captured(method) : Set.new
             body_buf = emit.cpp.with_captured_locals(captured) do
             emit.capture do
               locals = unpack_params(emit, method)
@@ -257,6 +256,24 @@ module Frozone
           # name (including ones inside blocks — Ruby leaks block-locals
           # to the enclosing scope when first-written, our model treats
           # them all as method-scope to keep them visible across blocks).
+          # Compute the set of locals that should be heap-cells for a
+          # METHOD body. own_locals = parser-tracked locals + every
+          # name written anywhere in the body (since unpack_params
+          # hoists block-locals to method scope) + params. captured =
+          # subset of own_locals referenced inside any nested block.
+          def self.collect_method_captured(method)
+            param_names = (method.required_params || []) +
+                          (method.optional_params || []).map(&:first) +
+                          (method.post_params || []) +
+                          (method.required_kw_params || []) +
+                          (method.optional_kw_params || []).map(&:first) +
+                          [method.kw_rest_param, method.rest_param, method.block_param].compact
+            own = Set.new(param_names.map(&:to_s)) |
+                  Set.new((method.locals || []).map(&:to_s)) |
+                  collect_local_writes(method.body)
+            LambdaEmitter.collect_captured_locals(method.body, own)
+          end
+
           def self.collect_local_writes(body)
             names = Set.new
             walk = ->(node) {

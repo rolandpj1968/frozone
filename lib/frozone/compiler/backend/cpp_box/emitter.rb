@@ -984,14 +984,10 @@ module Frozone
               with_super_context(super_ctx) do
                 # Pre-walk for captured locals (inner-block-referenced
                 # locals get heap-cell storage; see CppBox::Cpp.captured_locals).
-                param_names = (method.required_params || []) +
-                              (method.optional_params || []).map(&:first) +
-                              (method.post_params || []) +
-                              (method.required_kw_params || []) +
-                              (method.optional_kw_params || []).map(&:first) +
-                              [method.kw_rest_param, method.rest_param, method.block_param].compact
-                own = Set.new(param_names.map(&:to_s) + ((method.locals || []).map(&:to_s)))
-                captured = method.body ? LambdaEmitter.collect_captured_locals(method.body, own) : Set.new
+                # Includes block-locals hoisted by collect_local_writes
+                # so they share the same captured? check as the bare
+                # method-level decl unpack_params emits for them.
+                captured = method.body ? MethodEmitter.collect_method_captured(method) : Set.new
                 body = @cpp.with_captured_locals(captured) do
                   capture do
                     locals = MethodEmitter.unpack_params(self, method)
