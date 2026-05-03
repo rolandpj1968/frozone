@@ -58,9 +58,29 @@ module Frozone
           # form. Used at last-statement-of-body position so we emit
           # the statement and synthesise `return nil_instance();`
           # rather than wrap the unsupported expression form.
+          # Case/If at the tail of a block body where the branches
+          # contain break/next can't be lambda-wrapped — break/next
+          # would land in the lambda scope, not the enclosing loop.
+          # Statement form lets in_block routing throw the right
+          # exceptions instead.
           def self.stmt_only_node?(node)
             return true if node.is_a?(Ast::MultipleAssignment)
+            return true if (node.is_a?(Ast::Case) || node.is_a?(Ast::If)) && contains_loop_escape?(node)
             stmt_only_method_call?(node)
+          end
+
+          # True if the AST contains a Break or Next that would escape
+          # the enclosing loop (stops walking into Block/Lambda/While/Until
+          # since those introduce their own scope). Mirrors
+          # LambdaEmitter#contains_loop_escape? — kept here so the
+          # ExprEmitter dispatch path doesn't depend on the lambda
+          # emitter for the predicate.
+          def self.contains_loop_escape?(node)
+            return false unless node.is_a?(Ast::Node)
+            return true if node.is_a?(Ast::Break) || node.is_a?(Ast::Next)
+            return false if node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda) ||
+                            node.is_a?(Ast::While) || node.is_a?(Ast::Until)
+            (node.respond_to?(:children) ? node.children : []).any? { |c| contains_loop_escape?(c) }
           end
 
           # Method calls that have a write_stmt special case and are
@@ -274,11 +294,23 @@ module Frozone
           end
 
           # Build the C++ condition for one when's condition list. Multiple
-          # conditions (when A, B, C) join with `||`.
+          # conditions (when A, B, C) join with `||`. SplatArg in a when
+          # clause (`when *ArgumentStyle.keys`) iterates the splatted
+          # array at runtime and tests each element as `elem === subj`
+          # (or just truthy(elem) without subject).
           def self.case_when_cond(emit, condition_nodes, subj, locals)
             condition_nodes.map { |c|
-              c_str = emit.cpp.from_expr(c, locals)
-              subj ? "truthy(#{c_str}->op_case_eq(new Array({#{subj}})))" : "truthy(#{c_str})"
+              if c.is_a?(Ast::SplatArg)
+                arr_str = emit.cpp.from_expr(c.value_node, locals)
+                if subj
+                  "([&]() -> bool { Array* _spl = dynamic_cast<Array*>(#{arr_str}); if (!_spl) return false; for (auto* _e : _spl->data) { if (truthy(_e->op_case_eq(new Array({#{subj}})))) return true; } return false; }())"
+                else
+                  "([&]() -> bool { Array* _spl = dynamic_cast<Array*>(#{arr_str}); if (!_spl) return false; for (auto* _e : _spl->data) { if (truthy(_e)) return true; } return false; }())"
+                end
+              else
+                c_str = emit.cpp.from_expr(c, locals)
+                subj ? "truthy(#{c_str}->op_case_eq(new Array({#{subj}})))" : "truthy(#{c_str})"
+              end
             }.join(" || ")
           end
 
