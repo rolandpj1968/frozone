@@ -93,7 +93,10 @@ module Frozone
               # Bare `return` has nil value_node — Ruby's implicit nil.
               v = node.value_node ? emit.cpp.from_expr(node.value_node, locals) : "nil_instance()"
               if in_block
-                emit.line "throw ReturnException{#{v}};"
+                # Frame-targeted: __frame_id__ resolves via C++ scope
+                # to the closest enclosing method/lambda frame, which
+                # is the right return target per Ruby semantics.
+                emit.line "throw ReturnException{#{v}, __frame_id__};"
               else
                 emit.line "return #{v};"
               end

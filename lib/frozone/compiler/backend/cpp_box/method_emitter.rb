@@ -30,6 +30,11 @@ module Frozone
               # which is rare. Conditional-wrap (only when the body
               # contains a block whose body contains return) is a
               # follow-up optimisation.
+              # Frame-targeted: __frame_id__ is unique per invocation;
+              # mismatched throws re-raise so they propagate to the
+              # method that owns the block (Ruby's return-from-block
+              # semantics). See ReturnException doc in box_first.hpp.
+              emit.line "std::uint64_t __frame_id__ = next_frame_id();"
               emit.line "try {"
               emit.indented do
                 if method.body
@@ -37,7 +42,7 @@ module Frozone
                 end
                 emit.line "return nil_instance();"
               end
-              emit.line "} catch (ReturnException& e_) { return e_.value; }"
+              emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
             end
             emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) {"
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }

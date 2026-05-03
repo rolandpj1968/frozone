@@ -988,14 +988,19 @@ module Frozone
                 end
                 # Wrap in try/catch ReturnException so `return v` inside
                 # a Proc body escapes via throw and lands at the
-                # ENCLOSING METHOD'S frame (this one). Without the
-                # wrap, the throw escapes per-class overrides entirely
-                # and bubbles to the top-level catch — i.e. every block
-                # `return` silently exits the binary. (Mirrors the
-                # wrap in MethodEmitter.write_user_method.)
+                # ENCLOSING METHOD'S frame (this one). The frame ID
+                # is unique per invocation (next_frame_id() is atomic-
+                # incremented). Inner method catches re-raise on
+                # frame-ID mismatch — a `return` inside a block created
+                # by method A and called by method B targets A's
+                # frame, so B's catch must propagate it through.
+                # Without frame-targeting, B catches it and search-
+                # like patterns (list.fetch(k) {return nil}) silently
+                # break — fetch's catch swallows the throw meant for
+                # search.
                 {
                   params: [],
-                  body: "try {\n#{body}return nil_instance();\n} catch (ReturnException& e_) { return e_.value; }\n",
+                  body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{body}return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
                 }
               end
             end
@@ -1140,6 +1145,10 @@ module Frozone
             # (matches the wrap in MethodEmitter#write_user_method).
             # Without it, a stray throw escapes main() as
             # "terminate called after throwing 'ReturnException'".
+            # Top-level has its own __frame_id__; mismatched throws
+            # are stray returns from procs whose enclosing method
+            # already returned (would be LocalJumpError in MRI).
+            line "std::uint64_t __frame_id__ = next_frame_id();"
             line "try {"
             indented do
               if trace?
@@ -1164,7 +1173,7 @@ module Frozone
             end
             if trace?
               line "} catch (ReturnException& e_) {"
-              indented { line %|std::fprintf(stderr, "[trace] __top_level__ caught ReturnException\\n");| }
+              indented { line %|std::fprintf(stderr, "[trace] __top_level__ caught ReturnException (target=%llu, frame=%llu)\\n", (unsigned long long)e_.target_frame, (unsigned long long)__frame_id__);| }
               line "} catch (BasicObject* e_) {"
               indented do
                 line %|std::fprintf(stderr, "[trace] __top_level__ caught Ruby exception: %s\\n", e_->ruby_class_name());|
@@ -1172,7 +1181,7 @@ module Frozone
               end
               line "}"
             else
-              line "} catch (ReturnException& e_) { /* top-level return */ }"
+              line "} catch (ReturnException& e_) { /* top-level return — stray (target=#{0} mismatch ignored) */ }"
             end
           end
 

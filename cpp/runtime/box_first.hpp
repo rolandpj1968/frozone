@@ -28,6 +28,7 @@
 #include <string>
 #include <functional>
 #include <initializer_list>
+#include <atomic>
 #include <type_traits>
 #include <limits>
 #include <cmath>
@@ -84,12 +85,23 @@ namespace Ruby { struct BasicObject; }
 // the iterator's call expression evaluates to e.value.
 //
 // ReturnException — `return v` inside a block escapes the enclosing
-// METHOD (Ruby's return-from-block semantics). Caught at the method
-// body's outer try; the method returns e.value.
+// METHOD (Ruby's return-from-block semantics). Carries a target frame
+// ID; each method body has a unique `__frame_id__` declared at entry,
+// and its catch re-raises if `e.target_frame != __frame_id__`. This
+// lets `list.fetch(k) {return nil}` propagate past fetch's own catch
+// (whose frame doesn't match) and land at search's catch (whose
+// frame does — search created the block).
 //
 // Lightweight POD types thrown by value, caught by reference. C++ can
 // throw any complete type — these don't need a base, no RTTI cost.
 struct BreakException  { Ruby::BasicObject* value; };
-struct ReturnException { Ruby::BasicObject* value; };
+struct ReturnException { Ruby::BasicObject* value; std::uint64_t target_frame; };
+
+// Per-invocation frame ID. Atomic so concurrent threads don't collide.
+// Address-of-stack-local would also work but a counter is portable.
+inline std::uint64_t next_frame_id() {
+  static std::atomic<std::uint64_t> counter{0};
+  return ++counter;
+}
 
 #endif  // FROZONE_BOX_FIRST_HPP

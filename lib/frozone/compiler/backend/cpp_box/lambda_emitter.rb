@@ -305,6 +305,10 @@ module Frozone
                 back_idx = post_params.length - j
                 emit.line "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{back_idx} <= (int)__blkargs__->data.size()) ? __blkargs__->data[__blkargs__->data.size() - #{back_idx}] : nil_instance();"
               end
+              # Lambda has its own __frame_id__ — `return` inside the
+              # body shadows the enclosing method's frame and targets
+              # the lambda itself.
+              emit.line "std::uint64_t __frame_id__ = next_frame_id();"
               emit.line "try {"
               if body
                 emit.cpp.with_in_block do
@@ -313,7 +317,7 @@ module Frozone
               else
                 emit.line "return nil_instance();"
               end
-              emit.line "} catch (ReturnException& e_) { return e_.value; }"
+              emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
             end
             "(new Proc([&, this](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
           end
