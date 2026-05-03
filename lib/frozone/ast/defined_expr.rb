@@ -4,7 +4,7 @@ module Frozone
   module Ast
     # defined?(expr) — returns a String describing what expr is, or nil
     class DefinedExpr < Node
-      attr_reader :kind
+      attr_reader :kind, :extra
 
       def initialize(kind, extra = nil)
         @kind = kind   # Symbol: :self, :nil, :true, :false, :literal, :constant,

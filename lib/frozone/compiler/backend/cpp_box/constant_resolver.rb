@@ -35,7 +35,7 @@ module Frozone
             ivar:        "instance-variable",
           }.freeze
 
-          def from_defined_expr(node, _locals)
+          def from_defined_expr(node, locals)
             kind = node.kind
             if (lit = DEFINED_LITERAL_RESULT[kind])
               # Trivial / closed-world-known cases. `:ivar` is always
@@ -47,6 +47,17 @@ module Frozone
             if kind == :yield
               # Block presence is the runtime predicate.
               return %|(_block != nullptr ? static_cast<BasicObject*>(new String("yield", 5)) : nil_instance())|
+            end
+            if kind == :method
+              # `defined?(receiver.method_name)` → "method" if respond_to?,
+              # else nil. Implicit receiver uses `this`, which for our
+              # purposes is the current self. Wrap in a try because
+              # receiver evaluation itself can raise (e.g. nil receiver).
+              receiver_node, method_name, _receiver_check = node.extra
+              recv = receiver_node ? from_expr(receiver_node, locals) : "this"
+              # Use the boolean form of respond_to? — m_respond_to_q
+              # returns true_instance/false_instance.
+              return %|([&]() -> BasicObject* { try { return truthy(#{recv}->m_respond_to_q(new Array({intern(#{cpp_string_literal(method_name.to_s)})}))) ? static_cast<BasicObject*>(new String("method", 6)) : nil_instance(); } catch (...) { return nil_instance(); } }())|
             end
             raise Cpp::EmissionError, "defined?(#{kind}) not yet supported in box-first"
           end
