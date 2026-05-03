@@ -133,7 +133,22 @@ module Frozone
               else
                 emit.line "continue;"
               end
-            when Ast::ClassDef, Ast::ModuleDef, Ast::MethodDef, Ast::SingletonClassDef
+            when Ast::ClassDef, Ast::ModuleDef
+              # Synthetic re-openings produced by AOT class-const
+              # hoisting carry data-init lines that need execute-phase
+              # emission inside the class's lexical scope (so bare
+              # ConstantRead inside hoisted Procs resolves to siblings
+              # of the original class, not top-level Object). Emit the
+              # body with @method_scope pushed so constant resolution
+              # walks the right chain. Real class/module defs in the
+              # compiled body are still a closed-world violation.
+              if node.respond_to?(:synthetic_hoist) && node.synthetic_hoist
+                write_synthetic_hoist_class_body(emit, node, locals, next_returns: next_returns, in_block: in_block)
+              else
+                raise Cpp::EmissionError,
+                  "closed-world violation: runtime #{node.class.name.split('::').last} not supported in compiled body"
+              end
+            when Ast::MethodDef, Ast::SingletonClassDef
               raise Cpp::EmissionError,
                 "closed-world violation: runtime #{node.class.name.split('::').last} not supported in compiled body"
             when Ast::MethodCall
@@ -148,6 +163,36 @@ module Frozone
               node.nodes.each { |n| write_stmt(emit, n, locals, next_returns: next_returns, in_block: in_block) }
             else
               emit.line "#{emit.cpp.from_expr(node, locals)};"
+            end
+          end
+
+          # Emit the body of a hoist-synthesised class re-opening with
+          # @method_scope pushed so bare ConstantRead inside the body
+          # (and inside any Procs nested in it) resolves through the
+          # class's lexical scope, exactly as in the original source.
+          # The scope object only needs to expose `full_name` —
+          # ConstantResolver#scope_prefixes is the only consumer.
+          def self.write_synthetic_hoist_class_body(emit, node, locals, next_returns:, in_block:)
+            scope_obj = Struct.new(:full_name).new(synthetic_class_full_name(node))
+            prev = emit.cpp.method_scope
+            emit.cpp.method_scope = (prev || []) + [scope_obj]
+            begin
+              write_body(emit, node.body, locals: locals, next_returns: next_returns, in_block: in_block) if node.body
+            ensure
+              emit.cpp.method_scope = prev
+            end
+          end
+
+          def self.synthetic_class_full_name(node)
+            (collect_namespace(node.namespace_node) + [node.name.to_s]).join("::")
+          end
+
+          def self.collect_namespace(node)
+            case node
+            when nil then []
+            when Ast::ConstantPath then collect_namespace(node.parent_node) + [node.name.to_s]
+            when Ast::ConstantRead then [node.name.to_s]
+            else [node.to_s]
             end
           end
 

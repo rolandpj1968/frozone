@@ -43,27 +43,42 @@ module Frozone
       # require check (e.g. while migrating).
       def self.validate!(execute_nodes, build_files:, strict_requires: true, file_stack: [])
         execute_nodes.each do |node|
-          walk(node, build_files: build_files, strict_requires: strict_requires, file_stack: file_stack)
+          walk(node, build_files: build_files, strict_requires: strict_requires, file_stack: file_stack, in_synthetic_class_body: false)
         end
       end
 
-      def self.walk(node, build_files:, strict_requires:, file_stack:)
+      def self.walk(node, build_files:, strict_requires:, file_stack:, in_synthetic_class_body:)
         return unless node.is_a?(Ast::Node)
+        child_in_class_body = in_synthetic_class_body
         case node
         when Ast::ClassDef
-          raise Violation.new(node, "class definition in execute phase (closed-world requires class defs at load time)")
+          # Synthetic re-openings produced by --hoist-class-consts are
+          # allowed: their body contains only data-init lines lifted
+          # from the original class body so they can run at execute
+          # phase. Recurse to validate the contents.
+          if node.respond_to?(:synthetic_hoist) && node.synthetic_hoist
+            child_in_class_body = true
+          else
+            raise Violation.new(node, "class definition in execute phase (closed-world requires class defs at load time)")
+          end
         when Ast::ModuleDef
-          raise Violation.new(node, "module definition in execute phase (closed-world requires module defs at load time)")
+          if node.respond_to?(:synthetic_hoist) && node.synthetic_hoist
+            child_in_class_body = true
+          else
+            raise Violation.new(node, "module definition in execute phase (closed-world requires module defs at load time)")
+          end
         when Ast::MethodDef
           raise Violation.new(node, "method definition in execute phase (closed-world requires method defs at load time)")
         when Ast::SingletonClassDef
           raise Violation.new(node, "`class << expr` body in execute phase (closed-world requires it at load time)")
         when Ast::ConstantWrite
-          # Constant assignment in execute phase grows the closed world.
-          # Tolerate inside class/module bodies that ARE in load phase
-          # (they shouldn't reach here per the splitter), but anywhere
-          # else, fail.
-          raise Violation.new(node, "top-level constant write in execute phase (closed-world requires constants at load time)")
+          # Constant assignment in execute phase grows the closed world,
+          # except inside a synthetic class re-opening where the
+          # constant slot was already declared (sentinel) at load time
+          # — the execute write fills it in.
+          unless in_synthetic_class_body
+            raise Violation.new(node, "top-level constant write in execute phase (closed-world requires constants at load time)")
+          end
         when Ast::MethodCall
           if !node.receiver_node && %i[require require_relative load].include?(node.name)
             check_require!(node, build_files: build_files, strict_requires: strict_requires, file_stack: file_stack)
@@ -73,7 +88,7 @@ module Frozone
         # bodies, blocks, conditionals etc. all surface.
         return unless node.respond_to?(:children)
         node.children.each do |c|
-          walk(c, build_files: build_files, strict_requires: strict_requires, file_stack: file_stack)
+          walk(c, build_files: build_files, strict_requires: strict_requires, file_stack: file_stack, in_synthetic_class_body: child_in_class_body)
         end
       end
 

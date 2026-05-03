@@ -6,7 +6,9 @@ require_relative '../vm/nil_object'
 module Frozone
   module Ast
     class ModuleDef < Node
-      attr_reader :name, :body
+      attr_reader :name, :body, :namespace_node, :source_location
+      attr_accessor :synthetic_hoist
+
       def initialize(name, locals, body, namespace_node: nil, source_location: nil)
         @name = name
 
@@ -15,6 +17,7 @@ module Frozone
         @namespace_node = namespace_node
         @body = body
         @source_location = source_location
+        @synthetic_hoist = false
       end
 
       def children = [@namespace_node, @body].compact

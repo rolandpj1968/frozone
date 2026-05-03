@@ -594,44 +594,107 @@ module Frozone
         node.children.any? { |c| contains_block_call?(c) }
       end
 
-      # Recursively walk a (possibly-nested) class/module body, find
-      # ConstantWrite nodes whose RHS is expensive (block-bearing),
-      # and hoist them as `Outer::Inner::CONST = expr` synthetic
-      # `Ast::ConstantPathWrite` nodes appended to the `hoisted` list.
-      # The original `Ast::ConstantWrite` is replaced in-place inside
-      # the class body's Sequence with an `Ast::NilLiteral` placeholder
-      # so the body still parses and executes cleanly.
+      # Recursively walk a (possibly-nested) class/module body and
+      # hoist data-init statements that can't run at AOT load time.
       #
-      # Only handles cases where the constant initialiser is
-      # self-contained (doesn't reference siblings via bare name).
-      # Conservative — bails out for nodes whose body shape isn't a
-      # Sequence we can mutate.
+      # Two kinds of statement are hoisted:
+      #
+      # 1. `ConstantWrite` whose RHS is "expensive" (cheap_constant_initializer?
+      #    is false — block-bearing iteration, e.g. optcarrot's
+      #    `TILE_LUT = (0...0x10000).map { ... }`) OR contains a Proc/Lambda
+      #    literal (must_hoist_value?) — Procs can't be statically captured by
+      #    emit_vm_value, so they must run at execute phase.
+      # 2. `AttributeWrite` whose receiver is a bare ConstantRead (the same
+      #    class body is mutating one of its constants) AND whose value side
+      #    contains a Proc/Lambda — e.g. OptionParser's
+      #    `Officious['help'] = proc { ... }`.
+      #
+      # Hoisted statements stay grouped per enclosing class. They're wrapped
+      # in a synthetic `class Outer::Inner; <hoisted lines>; end` re-opening
+      # appended to `hoisted`. This preserves lexical scope so bare constant
+      # references inside Proc bodies (e.g. `Switch::NoArgument` inside
+      # OptionParser's Officious procs) still resolve to the right class.
+      #
+      # In place of each hoisted line, the original body slot is replaced
+      # with either a sentinel-bearing ConstantWrite (for hoisted ConstantWrites,
+      # so load-time reads/rewrites fault loudly via the load-phase guard) or
+      # `nil` (for hoisted AttributeWrites — the receiver constant is still
+      # visible at load time with its initial value, mutations land at execute).
       def hoist_expensive_class_constants!(node, hoisted, namespace_path = [])
         return unless node.is_a?(Ast::ClassDef) || node.is_a?(Ast::ModuleDef)
         path = namespace_path + [node.name]
         body = node.body
         return unless body.is_a?(Ast::Sequence)
+        to_reopen = []
         body.nodes.each_with_index do |child, idx|
-          if child.is_a?(Ast::ConstantWrite) && !cheap_constant_initializer?(child.value_node)
-            hoisted << build_path_write(path, child.name, child.value_node, child.source_location)
-            qualified = (path + [child.name]).join('::')
-            sentinel = Ast::HoistedSentinelLiteral.new(qualified, child.source_location)
-            body.nodes[idx] = Ast::ConstantWrite.new(child.name, sentinel, source_location: child.source_location)
+          case child
+          when Ast::ConstantWrite
+            if !cheap_constant_initializer?(child.value_node) || must_hoist_value?(child.value_node)
+              to_reopen << child
+              qualified = (path + [child.name]).join('::')
+              sentinel = Ast::HoistedSentinelLiteral.new(qualified, child.source_location)
+              body.nodes[idx] = Ast::ConstantWrite.new(child.name, sentinel, source_location: child.source_location)
+            else
+              hoist_expensive_class_constants!(child, hoisted, path)
+            end
+          when Ast::AttributeWrite
+            if attribute_write_on_local_const?(child) && (child.arg_nodes || []).any? { |a| must_hoist_value?(a) }
+              to_reopen << child
+              body.nodes[idx] = Ast::NilLiteral::NIL
+            else
+              hoist_expensive_class_constants!(child, hoisted, path)
+            end
           else
             hoist_expensive_class_constants!(child, hoisted, path)
           end
         end
+        hoisted << build_class_reopening(node, namespace_path, to_reopen) unless to_reopen.empty?
       end
 
-      # Build a `Outer::Inner::CONST = value` AST: chain ConstantRead /
-      # ConstantPath nodes for the namespace, then wrap in
-      # ConstantPathWrite for the leaf assignment.
-      def build_path_write(namespace_path, const_name, value_node, source_location)
-        parent = Ast::ConstantRead.new(namespace_path.first)
-        namespace_path[1..].each do |seg|
-          parent = Ast::ConstantPath.new(parent, seg)
-        end
-        Ast::ConstantPathWrite.new(parent, const_name, value_node, source_location: source_location)
+      # Build `class Outer::Inner; <body>; end` AST as a synthetic
+      # re-opening so hoisted lines retain the original lexical scope.
+      # The new ClassDef carries `synthetic_hoist = true` so the
+      # closed-world validator skips its "no class def in execute phase"
+      # rule for this node (still recursing into its body to validate
+      # contained statements).
+      def build_class_reopening(orig_node, namespace_path, body_nodes)
+        namespace_node =
+          if namespace_path.empty?
+            nil
+          else
+            chain = Ast::ConstantRead.new(namespace_path.first)
+            namespace_path[1..].each { |seg| chain = Ast::ConstantPath.new(chain, seg) }
+            chain
+          end
+        body = Ast::Sequence.new(body_nodes)
+        klass = (orig_node.is_a?(Ast::ModuleDef) ? Ast::ModuleDef : Ast::ClassDef)
+        cd =
+          if klass == Ast::ClassDef
+            Ast::ClassDef.new(orig_node.name, [], nil, body, namespace_node: namespace_node, source_location: orig_node.source_location)
+          else
+            Ast::ModuleDef.new(orig_node.name, [], body, namespace_node: namespace_node, source_location: orig_node.source_location)
+          end
+        cd.synthetic_hoist = true if cd.respond_to?(:synthetic_hoist=)
+        cd
+      end
+
+      # True when the value node contains a Proc/Lambda literal, which
+      # emit_vm_value can't statically capture. Currently flags Block
+      # (proc do ... end / { ... }) and Lambda (-> { ... }). Conservative
+      # — anything else is left to the cheap_constant_initializer? heuristic.
+      def must_hoist_value?(node)
+        return false unless node.is_a?(Ast::Node)
+        return true if node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda)
+        node.children.any? { |c| must_hoist_value?(c) }
+      end
+
+      # `Foo[...] = ...` or `Foo.bar = ...` where Foo is a bare
+      # ConstantRead — i.e. mutation of a constant local to the
+      # enclosing class body's lexical scope. The hoisted re-opening
+      # restores that lexical scope so the bare ConstantRead resolves
+      # correctly at execute phase.
+      def attribute_write_on_local_const?(node)
+        node.receiver_node.is_a?(Ast::ConstantRead)
       end
 
       def aot_load_phase_node?(node, hoist_consts: false)

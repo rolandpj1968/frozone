@@ -6,7 +6,14 @@ require_relative '../vm/nil_object'
 module Frozone
   module Ast
     class ClassDef < Node
-      attr_reader :name, :superclass_node, :namespace_node, :body
+      attr_reader :name, :superclass_node, :namespace_node, :body, :source_location
+      # Marks a synthetic class re-opening produced by AOT hoisting.
+      # The body contains only data-init statements lifted from the
+      # original class body so they can run at execute phase. Set by
+      # vm.rb#hoist_expensive_class_constants! and read by the
+      # closed-world validator (which otherwise forbids ClassDef in
+      # execute phase).
+      attr_accessor :synthetic_hoist
 
       def initialize(name, locals, superclass_node, body, namespace_node: nil, source_location: nil)
         @name = name
@@ -17,6 +24,7 @@ module Frozone
         @namespace_node = namespace_node
         @body = body
         @source_location = source_location
+        @synthetic_hoist = false
       end
 
       def children = [@namespace_node, @superclass_node, @body].compact
