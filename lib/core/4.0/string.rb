@@ -983,7 +983,7 @@ class String
   # Map each character's first byte through a block, rebuild the string.
   def __map_ascii_bytes__
     enc = encoding
-    each_char.map { |c| yield(c.getbyte(0)).chr(enc) }.join("").force_encoding(enc)
+    chars.map { |c| yield(c.getbyte(0)).chr(enc) }.join("").force_encoding(enc)
   end
 
   # Return compatible Encoding for self and other, or raise Encoding::CompatibilityError.

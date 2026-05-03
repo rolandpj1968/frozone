@@ -724,8 +724,33 @@ module Frozone
               "op_lshift"   => {
                 params: ["BasicObject* other"],
                 body: <<~CPP.chomp,
+                  // MRI String#<<: Integer arg appends the codepoint;
+                  // String arg appends bytes (with encoding promotion).
+                  if (auto* i = dynamic_cast<Integer*>(other)) {
+                    std::int64_t cp = i->raw_;
+                    if (cp < 0) {
+                      std::fprintf(stderr, "[box-first] String#<<: invalid codepoint %ld\\n", static_cast<long>(cp));
+                      std::abort();
+                    }
+                    if (cp < 0x80 || enc == BINARY) {
+                      bytes.push_back(static_cast<std::uint8_t>(cp & 0xFF));
+                    } else if (cp < 0x800) {
+                      bytes.push_back(static_cast<std::uint8_t>(0xC0 | (cp >> 6)));
+                      bytes.push_back(static_cast<std::uint8_t>(0x80 | (cp & 0x3F)));
+                    } else if (cp < 0x10000) {
+                      bytes.push_back(static_cast<std::uint8_t>(0xE0 | (cp >> 12)));
+                      bytes.push_back(static_cast<std::uint8_t>(0x80 | ((cp >> 6) & 0x3F)));
+                      bytes.push_back(static_cast<std::uint8_t>(0x80 | (cp & 0x3F)));
+                    } else {
+                      bytes.push_back(static_cast<std::uint8_t>(0xF0 | (cp >> 18)));
+                      bytes.push_back(static_cast<std::uint8_t>(0x80 | ((cp >> 12) & 0x3F)));
+                      bytes.push_back(static_cast<std::uint8_t>(0x80 | ((cp >> 6) & 0x3F)));
+                      bytes.push_back(static_cast<std::uint8_t>(0x80 | (cp & 0x3F)));
+                    }
+                    length_cache_ = -1;
+                    return this;
+                  }
                   auto* o = static_cast<String*>(other);
-                  // MRI encoding promotion: BINARY + UTF-8 non-ASCII → UTF-8.
                   if (enc == BINARY && o->enc == UTF8 && o->has_non_ascii()) enc = UTF8;
                   bytes.insert(bytes.end(), o->bytes.begin(), o->bytes.end());
                   length_cache_ = -1;

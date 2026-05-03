@@ -169,6 +169,19 @@ inline BasicObject* intrinsic_string_split(BasicObject* self_, BasicObject* sep,
 // `String#chars` — Array of 1-byte Strings. ASCII-safe; UTF-8
 // multibyte chars come back as separate bytes (good enough for most
 // parsing; full UTF-8 char-grouping can come later).
+// `String#replace(other)` — overwrite self's bytes/encoding with
+// other's, return self. Mutates self in place; both String#replace
+// (lib/core/4.0/string.rb:58) and the __bang__ wrapper used by tr! /
+// upcase! / downcase! lower to this single intrinsic.
+inline BasicObject* intrinsic_string_replace(BasicObject* self_, BasicObject* other_) {
+  auto* _s = static_cast<String*>(self_);
+  auto* _o = static_cast<String*>(other_);
+  _s->bytes = _o->bytes;
+  _s->enc = _o->enc;
+  _s->length_cache_ = -1;
+  return _s;
+}
+
 inline BasicObject* intrinsic_string_chars(BasicObject* self_) {
   auto* _s = static_cast<String*>(self_);
   auto* _r = new Array();
