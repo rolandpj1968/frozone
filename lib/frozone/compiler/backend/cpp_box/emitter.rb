@@ -1128,7 +1128,14 @@ module Frozone
           def write_top_level_body
             return unless @execute_block
             body = @execute_block.respond_to?(:body) ? @execute_block.body : @execute_block
-            ExprEmitter.write_body(self, body, locals: Set.new)
+            # Wrap in try/catch ReturnException so a `return` thrown
+            # from a Proc body called from top-level code lands here
+            # (matches the wrap in MethodEmitter#write_user_method).
+            # Without it, a stray throw escapes main() as
+            # "terminate called after throwing 'ReturnException'".
+            line "try {"
+            indented { ExprEmitter.write_body(self, body, locals: Set.new) }
+            line "} catch (ReturnException& e_) { /* top-level return */ }"
           end
 
           def write_main
