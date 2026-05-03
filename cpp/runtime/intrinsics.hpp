@@ -169,6 +169,70 @@ inline BasicObject* intrinsic_string_split(BasicObject* self_, BasicObject* sep,
 // `String#chars` — Array of 1-byte Strings. ASCII-safe; UTF-8
 // multibyte chars come back as separate bytes (good enough for most
 // parsing; full UTF-8 char-grouping can come later).
+// `String#tr(from, to)` — byte-level translation table (ASCII only,
+// no Unicode codepoint awareness). MRI semantics:
+//  - "a-z" expands to abcdefghijklmnopqrstuvwxyz
+//  - leading "^" negates (translate everything NOT in from_str)
+//  - to shorter than from: extra from-chars map to to's last char
+//  - to empty: delete those bytes
+// Optparse uses the simplest form ("_" -> "-"); fuller MRI conformance
+// (Unicode chars, multi-byte ranges) is a follow-up.
+inline BasicObject* intrinsic_string_tr_raw(BasicObject* self_, BasicObject* from_, BasicObject* to_) {
+  auto* _s = static_cast<String*>(self_);
+  auto* _f = static_cast<String*>(from_);
+  auto* _t = static_cast<String*>(to_);
+  // Expand from-pattern (handle leading ^ and a-z ranges) to a byte set.
+  bool negate = false;
+  std::size_t fi = 0;
+  if (!_f->bytes.empty() && _f->bytes[0] == '^') { negate = true; fi = 1; }
+  std::vector<std::uint8_t> from_set;
+  while (fi < _f->bytes.size()) {
+    std::uint8_t b = _f->bytes[fi];
+    if (fi + 2 < _f->bytes.size() && _f->bytes[fi + 1] == '-') {
+      std::uint8_t hi = _f->bytes[fi + 2];
+      if (b <= hi) { for (int c = b; c <= hi; ++c) from_set.push_back(static_cast<std::uint8_t>(c)); }
+      fi += 3;
+    } else { from_set.push_back(b); fi += 1; }
+  }
+  // Expand to-pattern (no negation, but ranges allowed) to a byte vector.
+  std::vector<std::uint8_t> to_seq;
+  std::size_t ti = 0;
+  while (ti < _t->bytes.size()) {
+    std::uint8_t b = _t->bytes[ti];
+    if (ti + 2 < _t->bytes.size() && _t->bytes[ti + 1] == '-') {
+      std::uint8_t hi = _t->bytes[ti + 2];
+      if (b <= hi) { for (int c = b; c <= hi; ++c) to_seq.push_back(static_cast<std::uint8_t>(c)); }
+      ti += 3;
+    } else { to_seq.push_back(b); ti += 1; }
+  }
+  auto* _r = new String();
+  _r->enc = _s->enc;
+  _r->bytes.reserve(_s->bytes.size());
+  for (auto b : _s->bytes) {
+    bool match;
+    std::int64_t idx = -1;
+    if (negate) {
+      match = true;
+      for (auto fb : from_set) if (b == fb) { match = false; break; }
+    } else {
+      match = false;
+      for (std::size_t i = 0; i < from_set.size(); ++i) {
+        if (from_set[i] == b) { match = true; idx = static_cast<std::int64_t>(i); break; }
+      }
+    }
+    if (!match) { _r->bytes.push_back(b); continue; }
+    if (to_seq.empty()) continue;  // delete
+    std::uint8_t mapped;
+    if (negate || idx < 0 || idx >= static_cast<std::int64_t>(to_seq.size())) {
+      mapped = to_seq.back();
+    } else {
+      mapped = to_seq[idx];
+    }
+    _r->bytes.push_back(mapped);
+  }
+  return _r;
+}
+
 // `String#replace(other)` — overwrite self's bytes/encoding with
 // other's, return self. Mutates self in place; both String#replace
 // (lib/core/4.0/string.rb:58) and the __bang__ wrapper used by tr! /

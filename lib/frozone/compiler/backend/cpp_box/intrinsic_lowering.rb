@@ -57,7 +57,7 @@ module Frozone
           HPP_INTRINSICS = Set.new(%i[
             string_index string_slice string_split string_chars
             string_inspect string_hash string_to_sym string_to_i_base
-            string_format string_replace
+            string_format string_replace string_tr_raw
             string_match string_match_pos
             symbol_to_s symbol_inspect
             regexp_escape regexp_inspect regexp_to_s regexp_new
