@@ -1,6 +1,7 @@
 require_relative 'core'
 require_relative 'globals'
 require_relative 'proc_object'
+require_relative 'hoisted_constant_sentinel'
 
 require_relative 'parser'
 
@@ -613,7 +614,9 @@ module Frozone
         body.nodes.each_with_index do |child, idx|
           if child.is_a?(Ast::ConstantWrite) && !cheap_constant_initializer?(child.value_node)
             hoisted << build_path_write(path, child.name, child.value_node, child.source_location)
-            body.nodes[idx] = Ast::NilLiteral::NIL
+            qualified = (path + [child.name]).join('::')
+            sentinel = Ast::HoistedSentinelLiteral.new(qualified, child.source_location)
+            body.nodes[idx] = Ast::ConstantWrite.new(child.name, sentinel, source_location: child.source_location)
           else
             hoist_expensive_class_constants!(child, hoisted, path)
           end

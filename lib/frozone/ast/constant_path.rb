@@ -2,6 +2,7 @@ require_relative 'node'
 require_relative 'constant_write'
 require_relative '../vm/frozone_exception'
 require_relative '../vm/globals'
+require_relative '../vm/hoisted_constant_sentinel'
 
 module Frozone
   module Ast
@@ -87,6 +88,8 @@ module Frozone
             raise
           end
         end
+        Vm::HoistedConstantSentinel === c and raise Vm::FrozoneException.make(:LoadError,
+          "AOT load-phase: constant #{c.qualified_name} was hoisted to execute phase (#{c.source_location&.join(':')}); cannot read at load time")
         Vm::Intrinsics.maybe_warn_deprecated_constant(context, owner, @name)
         c
       end
@@ -108,7 +111,10 @@ module Frozone
         parent = @parent_node.evaluate(context)
         value = @value_node.evaluate(context)
         raise Vm::FrozoneException.make(:TypeError, "#{@parent_node}::#{@name}: parent is not a module") unless parent.is_a?(Vm::ModuleObject)
-        Vm::emit_warning(context, "already initialized constant #{parent.name}::#{@name}") if parent.get_constant(@name)
+        existing = parent.get_constant(@name)
+        Vm::HoistedConstantSentinel === existing and raise Vm::FrozoneException.make(:LoadError,
+          "AOT load-phase: constant #{existing.qualified_name} was hoisted to execute phase (#{existing.source_location&.join(':')}); cannot rewrite at load time")
+        Vm::emit_warning(context, "already initialized constant #{parent.name}::#{@name}") if existing
         parent.set_constant(@name, value, source_location: @source_location)
         ConstantWrite.maybe_set_name(value, @name, parent)
         Vm.trigger_const_added(context, parent, @name)

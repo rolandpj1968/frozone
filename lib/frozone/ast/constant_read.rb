@@ -1,6 +1,7 @@
 require_relative 'node'
 require_relative '../vm/module_object'
 require_relative '../vm/frozone_exception'
+require_relative '../vm/hoisted_constant_sentinel'
 
 module Frozone
   module Ast
@@ -71,6 +72,8 @@ module Frozone
         # No autoload: standard constant lookup across all scopes
         val = Vm::ModuleObject.lookup_constant(@name, scopes)
         unless val.nil?
+          Vm::HoistedConstantSentinel === val and raise Vm::FrozoneException.make(:LoadError,
+            "AOT load-phase: constant #{val.qualified_name} was hoisted to execute phase (#{val.source_location&.join(':')}); cannot read at load time")
           # Single atomic ivar write — readers see either the new
           # tuple in full or the old one in full.
           @cache = [gen, scopes, val]

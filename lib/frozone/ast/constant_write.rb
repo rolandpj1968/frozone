@@ -1,6 +1,8 @@
 require_relative 'node'
 require_relative '../vm/module_object'
 require_relative '../vm/globals'
+require_relative '../vm/frozone_exception'
+require_relative '../vm/hoisted_constant_sentinel'
 
 module Frozone
   module Ast
@@ -22,7 +24,10 @@ module Frozone
 
       def store(context, value, source_location: @source_location)
         scope = context.frame.scopes.last
-        if scope.get_constant(@name)
+        existing = scope.get_constant(@name)
+        Vm::HoistedConstantSentinel === existing and raise Vm::FrozoneException.make(:LoadError,
+          "AOT load-phase: constant #{existing.qualified_name} was hoisted to execute phase (#{existing.source_location&.join(':')}); cannot rewrite at load time")
+        if existing
           scope_name = scope.is_a?(Vm::ModuleObject) ? (scope.name || scope.to_s) : nil
           const_full = scope_name ? "#{scope_name}::#{@name}" : @name.to_s
           Vm::emit_warning(context, "already initialized constant #{const_full}")
