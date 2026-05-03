@@ -7,11 +7,18 @@ Box-first AOT compiles a closed-world snapshot. Without pruning every
 every emitted program, plus every method on every such class, plus
 every constant. For a 4-line user script that's:
 
-| stage             | cpp LoC | binary  | g++ -O2  |
-|-------------------|---------|---------|----------|
-| no pruning        | ~480k   | ~64MB   | ~10 min  |
-| class-level       | ~140k   | ~25MB   | ~3 min   |
-| + method-level    | ~50k    | ~13MB   | ~1 min   |
+| stage                      | cpp LoC | size  | g++ -O2  |
+|----------------------------|---------|-------|----------|
+| no pruning                 | ~480k   | ~64MB | ~10 min  |
+| class-level                | ~140k   | ~25MB | ~3 min   |
+| + method-name surface      | ~50k    | ~13MB | ~1 min   |
+| + chain-tail super-stubs   | ~30k    |  ~8MB | ~30 s    |
+| + self-receiver narrowing  | ~20k    |  ~5MB | ~20 s    |
+
+(Numbers above are for `bench/stubs/fib.rb`; ratios are similar for
+larger programs. The original frozone-as-frozone build went 75MB →
+47MB → ??? as each pruning stage was added — the last stage hadn't
+been profiled at the time of writing.)
 
 The remaining ~50k LoC / 13MB are still mostly dead weight — most
 of it is the residual surface of "any class with a kept method"
@@ -78,6 +85,112 @@ For chains: the head's `cpp_X` membership decides whether the
 whole chain emits — including its `sm_X__from_<Origin>` shadow
 slots that `super` walks into. This is sound because a chain is
 only used when its head is dispatched.
+
+### Chain-tail super-stub pruning (`build_chained_overrides`,
+`overlay_overrides_chained`)
+
+For each method on each class, the chain map walks the MRO head→tail
+and emits `m_X` for the head plus `sm_X__from_<Origin>` slots for
+every shadowed ancestor body that `super` could land on. Most
+methods don't `super`, so the tail slots are dead weight.
+
+Tail-pruning rule: starting from the head, only emit the next
+`sm_X__from_<Origin>` when the previous body actually contains an
+`Ast::Super` node. Stop the moment a body returns without super-ing.
+A head that doesn't `super` collapses the whole chain to a single
+override.
+
+Implementation: `body_has_super?` walks an AST stopping at nested
+`MethodDef` boundaries (each def has its own chain context). Both
+`build_chained_overrides` and `overlay_overrides_chained` thread a
+`prev_needs_super` flag through their `entries.each_with_index` loop
+and `break` once it goes false. Class-origin entries (which lower
+super to qualified `this->Parent::m_X` and don't need a host slot)
+still update `prev_needs_super` so the chain-tail rule extends past
+them.
+
+Net win on the frozone-as-frozone build: 75MB → 47MB (−38%).
+Baseline (delegating-stub Vm, hello.rb target): 20MB → 12MB (−42%).
+Sound: a body that doesn't `super` can never reach the next slot.
+
+### Stage 3: self-receiver narrowing (experimental)
+
+Method-name surface answers "is this name called *anywhere*?", but
+not "is it called on *this class*?". A bare `to_s` inside `Vm#run`
+dispatches through Vm's MRO, never through (e.g.) `MatchData`'s. So
+for every method with a self-receiver-only call surface, the
+override only needs to live on the host class and its descendants —
+not on every class that happens to define a method by that name.
+
+Today's surface tracks per-(cpp-name) two pieces:
+
+- `wide`: any explicit-receiver / `__send__` call site exists for
+  this name (receiver type is unknown — keep on every class that
+  defines it),
+- `selfs`: set of host classes whose self-receiver bodies dispatch
+  this name (receiver type is the host's instance — keep only on
+  classes reachable from a host's MRO).
+
+Stage 3 keep predicate (`method_keepable_for_class?`): the override
+on `klass` survives if the surface entry is `wide`, OR some `host`
+in `selfs` has `klass` in its `ancestors_list`. The chain emitters
+gate on this in addition to the existing surface-membership check.
+
+Self-call attribution comes from the AST walk: `MethodCall` /
+`AttributeWrite` with `receiver_node` nil or `Ast::SelfLiteral`
+counts as self; everything else widens. The walker carries a `host`
+context per body — top-level execute body's host is `@top_level_scope`
+(Object), each user method's host is `m.scopes.last`. Block / Proc /
+Lambda bodies inherit `host` from their enclosing method (correct:
+inline blocks share self with their enclosing scope).
+
+#### `__send__` widening interaction
+
+Self-receiver narrowing collides with the existing `__send__`
+widening pass: that pass force-walks every literal Symbol that names
+a real method whenever any of `m_send` / `m___send__` /
+`m_public_send` is in the surface. Without modification, a name like
+`:search` could be attributed only as a self-call (because the only
+direct call is via `el.__send__(:search, ...)`) and get pruned away
+from the actual dispatch target.
+
+Fix: in the widening loop, mark every send-target symbol as `wide`
+unconditionally — even if previously seen as a self-call. The
+fixpoint loop terminates when no filter transitions and no newly-
+seen symbols remain. Sound for closed-world AOT: the dispatched
+name appears literally somewhere; we just don't know on which
+receiver, so wide is correct.
+
+#### Known gaps (unsound today)
+
+The cheap inference covers the common case but not these:
+
+- **`define_method(:foo) { ... }`** — the block becomes
+  `Foo#foo`. We see `:foo` as a SymbolLiteral but don't classify
+  the surrounding `define_method` as a self-defining-call against
+  the host class. If the only call to `foo` is through `define_method`
+  bodies dispatched at runtime, narrowing may drop the override.
+  Workaround: avoid `define_method` for methods on classes that
+  also use the box-first AOT pipeline, or fall back to the
+  send-widening route by also calling the method as a literal
+  `:foo` somewhere.
+- **`instance_eval { ... }`** / **`instance_exec { ... }`** — the
+  block runs with a different self. Walking the block with the
+  enclosing host attributes its self-calls to the wrong MRO.
+  Currently treated as if self were unchanged, so calls inside
+  the block may pin the wrong narrow set on their receivers.
+- **`obj.method(:foo)`** + later `m.call` / `m.bind(other).call` —
+  a Method handle decouples the receiver type from the literal
+  symbol. The current `object_method` shim returns a Proc-shim
+  that re-dispatches via `m_send`, so the run-time dispatch IS
+  through `m_send` (which triggers wide widening), but only if
+  `m_send` is itself in the surface — a program that uses Method
+  handles but never directly calls send-style would miss it.
+
+Net win on baseline (delegating-stub Vm, hello.rb target):
+12MB → 6.6MB on top of chain-tail pruning (−45%). Combined
+class + method-name + chain-tail + self-receiver pruning takes
+the original 20MB baseline down to 6.6MB (−67% total).
 
 ### Hand-coded oddballs
 

@@ -131,7 +131,7 @@ module Frozone
                 .map { |iv| "BasicObject* iv_#{iv} = nil_instance();" }
               own_hand_coded = (klass.hand_coded_method_names || []).to_set
               klass.dup.tap do |k|
-                k.overrides = overlay_overrides_chained(klass.name, klass.overrides || {}, class_method_chains(cls), hand_coded, own_hand_coded)
+                k.overrides = overlay_overrides_chained(klass.name, klass.overrides || {}, class_method_chains(cls), hand_coded, own_hand_coded, host_class: cls)
                 # Eigenclass methods don't take super (no MRO walk for
                 # def-self-X chains in box-first today), so the flat
                 # path is enough.
@@ -192,12 +192,15 @@ module Frozone
             body_has_super?(method.body)
           end
 
-          def overlay_overrides_chained(host_name, existing_overrides, chains, hand_coded, own_hand_coded = Set.new)
+          def overlay_overrides_chained(host_name, existing_overrides, chains, hand_coded, own_hand_coded = Set.new, host_class: nil)
             merged = existing_overrides.dup
             chains.each do |mname, entries|
               # Method-level reachability gate — same as build_chained_overrides.
               cpp_head = Cpp.method_name(mname)
               next unless @call_surface&.key?(cpp_head)
+              # Stage 3 refine: drop the chain when no self-receiver call
+              # site can dispatch through this host (and surface isn't wide).
+              next unless method_keepable_for_class?(cpp_head, host_class)
               # Two-level hand-coded check:
               # - if the host class itself hand-codes this name (e.g.
               #   Object's m_class / op_case_eq are load-bearing), the
@@ -430,11 +433,23 @@ module Frozone
             reached_bodies = Set.new
             worklist = []
             symbol_literals = Set.new
+            # Stage 3: per-(class, method) pruning via cheap self-receiver
+            # inference. @call_surface_filter[cpp_name] is either:
+            #   nil   → wide; some unknown-receiver call site exists,
+            #           keep this method on every class that defines it.
+            #   Set   → narrow; only call sites we saw were self-receiver
+            #           inside the listed host classes. Class C's
+            #           override survives only if some D in the set has
+            #           C in its MRO (C is reachable from a D-instance
+            #           dispatch). See method_keepable_for_class?.
+            # Default unset is treated as wide too — safety first.
+            call_surface_filter = {}
 
-            schedule_body = lambda do |body|
+            schedule_body = lambda do |body, host|
               next if body.nil?
-              next unless reached_bodies.add?(body.object_id)
-              worklist << body
+              key = [body.object_id, host&.object_id]
+              next unless reached_bodies.add?(key)
+              worklist << [body, host]
             end
 
             # Track Ruby names separately from cpp_names because the
@@ -446,17 +461,40 @@ module Frozone
             # second-named-method's body never gets walked, and its
             # transitively-called methods (`send_binary_op_map` etc.)
             # don't make it into the surface.
-            add_method = lambda do |ruby_name|
-              next unless seen_ruby_names.add?(ruby_name)
+            register_method = lambda do |ruby_name|
               cpp_name = Cpp.method_name(ruby_name)
               calls[cpp_name] ||= ruby_name.to_s
-              method_bodies_named(ruby_name).each(&schedule_body)
+              if seen_ruby_names.add?(ruby_name)
+                method_bodies_named_with_host(ruby_name).each { |b, h| schedule_body.call(b, h) }
+              end
+              cpp_name
             end
 
-            walk = lambda do |node|
+            mark_wide = lambda do |ruby_name|
+              cpp_name = register_method.call(ruby_name)
+              call_surface_filter[cpp_name] = nil  # wide → keep on every class
+            end
+
+            mark_self = lambda do |ruby_name, host|
+              cpp_name = register_method.call(ruby_name)
+              # Once wide, stays wide.
+              return if call_surface_filter.key?(cpp_name) && call_surface_filter[cpp_name].nil?
+              set = (call_surface_filter[cpp_name] ||= Set.new)
+              set << host if host
+            end
+
+            walk = lambda do |node, host|
               next unless node.is_a?(Ast::Node)
+              # Don't recurse into nested method defs — their bodies are
+              # walked separately via user_methods/method_bodies_named
+              # with their own host class.
+              return if node.is_a?(Ast::MethodDef)
               if node.is_a?(Ast::MethodCall) || node.is_a?(Ast::AttributeWrite)
-                add_method.call(node.name)
+                if implicit_self_receiver?(node)
+                  mark_self.call(node.name, host)
+                else
+                  mark_wide.call(node.name)
+                end
               elsif node.is_a?(Ast::SymbolLiteral)
                 # Collect every symbol literal that names a method.
                 # We can't add to surface eagerly — most literals
@@ -469,7 +507,7 @@ module Frozone
                 # method gets added. See the post-walk loop below.
                 symbol_literals << node.value.to_sym
               end
-              node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
+              node.children.each { |c| walk.call(c, host) } if node.respond_to?(:children)
             end
 
             # Seed pre-walk:
@@ -493,7 +531,10 @@ module Frozone
               (k.hand_coded_method_names || []).each { |cpp| seed_names << cpp unless cpp.start_with?("c_", "sm_") || non_ruby_hand_coded.include?(cpp) }
             end
             seed_names.merge(%w[m_new m_initialize m_class m_respond_to_q m_method_missing m_const_missing])
-            seed_names.each { |cpp| add_method.call(cpp_name_to_ruby(cpp).to_sym) }
+            # Seeded names are universally reachable — runtime dispatches
+            # them generically (m_class on any object, m_send via __send__),
+            # so widen the surface filter.
+            seed_names.each { |cpp| mark_wide.call(cpp_name_to_ruby(cpp).to_sym) }
 
             # Pull literal Symbols out of user_constants too. Class
             # body initializations (e.g. racc's `Racc_arg = [...,
@@ -516,10 +557,14 @@ module Frozone
             end
             @user_constants.each_value { |v| collect_symbols_from_constants.call(v) }
 
-            schedule_body.call(@execute_block)
+            # Top-level execute body runs on `main` (an Object instance) —
+            # bare calls in it dispatch through Object's MRO. Treat the
+            # host as @top_level_scope (Object) for self-call attribution.
+            schedule_body.call(@execute_block, @top_level_scope)
             user_methods.each_value do |m|
               next unless m.is_a?(Vm::Method)
-              method_walkable_roots(m).each { |r| schedule_body.call(r) }
+              host = m.scopes.last
+              method_walkable_roots(m).each { |r| schedule_body.call(r, host) }
             end
 
             # Send-aware widening: when send-style dispatch is in the
@@ -533,24 +578,97 @@ module Frozone
             # symbols, requiring another widening pass.
             send_names = %w[m_send m___send__ m_public_send].to_set
             until worklist.empty?
-              walk.call(worklist.shift) until worklist.empty?
+              while (item = worklist.shift)
+                body, host = item
+                walk.call(body, host)
+              end
               if send_names.any? { |n| calls.key?(n) }
-                added = false
+                progressed = false
                 symbol_literals.each do |sym|
-                  next if seen_ruby_names.include?(sym)
-                  bodies = method_bodies_named(sym)
+                  bodies = method_bodies_named_with_host(sym)
                   next if bodies.empty?
-                  add_method.call(sym)
-                  added = true
+                  # __send__ dispatch is unknown-receiver by definition —
+                  # widen the surface for every literal Symbol that names
+                  # a real method, EVEN IF it was previously seen as a
+                  # self-call. Otherwise classes whose only call path is
+                  # via __send__(:foo) (e.g. OptionParser_List#search,
+                  # reached only through visit's `el.__send__(:search)`)
+                  # get their override pruned. Track progress on filter
+                  # transitions and on newly-scheduled bodies.
+                  prev_filter = call_surface_filter[Cpp.method_name(sym)]
+                  prev_seen = seen_ruby_names.include?(sym)
+                  mark_wide.call(sym)
+                  progressed ||= prev_filter != nil || !prev_seen
                 end
-                break unless added
+                break unless progressed
               end
             end
 
             if ENV['FROZONE_BOX_DEBUG'] == '1'
-              $stderr.puts "[box-first] method-level surface: #{calls.size} methods"
+              wide_count = call_surface_filter.count { |_, v| v.nil? }
+              narrow_count = call_surface_filter.count { |_, v| !v.nil? }
+              $stderr.puts "[box-first] method-level surface: #{calls.size} methods (#{wide_count} wide, #{narrow_count} self-narrow)"
             end
+            @call_surface_filter = call_surface_filter
             calls
+          end
+
+          # True if a MethodCall / AttributeWrite has an implicit `self`
+          # receiver (no explicit receiver, or an explicit `self` literal).
+          # The dispatch then walks the surrounding host class's MRO.
+          def implicit_self_receiver?(node)
+            r = node.receiver_node
+            r.nil? || r.is_a?(Ast::SelfLiteral)
+          end
+
+          # Like method_bodies_named but tags each body with the host
+          # class it was defined on, so the worklist can attribute
+          # self-receiver call sites inside the body to the right MRO.
+          def method_bodies_named_with_host(name)
+            pairs = []
+            push = lambda do |m|
+              next unless m.is_a?(Vm::Method)
+              host = m.scopes.last
+              method_walkable_roots(m).each { |r| pairs << [r, host] }
+            end
+            visit = lambda do |cls|
+              next unless cls.is_a?(Vm::ModuleObject)
+              push.call((cls.methods_table || {})[name])
+              eig = cls.eigenclass rescue nil
+              push.call((eig.methods_table || {})[name]) if eig
+            end
+            @user_classes.each_value(&visit)
+            top = @top_level_scope.constants_table || {}
+            Runtime::ALL_CLASSES.each do |universe_klass|
+              visit.call(top[universe_klass.name.to_sym])
+            end
+            top_m = user_methods[name]
+            push.call(top_m) if top_m
+            pairs
+          end
+
+          # Stage-3 keep predicate: should `cpp_name` be emitted as an
+          # override on `klass` (a Vm::ClassObject / Vm::ModuleObject)?
+          # Returns true when the call surface filter is wide (any
+          # unknown-receiver site exists) or when at least one
+          # self-call-site host class can dispatch through klass via
+          # its MRO.
+          def method_keepable_for_class?(cpp_name, klass)
+            return true unless @call_surface_filter
+            return true unless @call_surface_filter.key?(cpp_name)
+            filter = @call_surface_filter[cpp_name]
+            return true if filter.nil?  # wide
+            return false if klass.nil?
+            filter.any? { |host| dispatch_can_land_on?(host, klass) }
+          end
+
+          # True iff a host-instance dispatch could land on klass — i.e.
+          # klass is in host's ancestor chain (host inherits from klass
+          # or includes a module that is klass).
+          def dispatch_can_land_on?(host, klass)
+            return true if host.equal?(klass)
+            return false unless host.is_a?(Vm::ModuleObject)
+            (host.ancestors_list rescue []).any? { |a| a.equal?(klass) }
           end
 
           # Find every Vm::Method body that implements `name` on a
@@ -795,7 +913,7 @@ module Frozone
               # No special ctor — `initialize` becomes a regular
               # `m_initialize` override; eigenclass auto-emits `m_new`
               # that does `new X(); m_initialize(...); return obj;`.
-              overrides: build_chained_overrides(name.to_s, class_method_chains(cls)),
+              overrides: build_chained_overrides(name.to_s, class_method_chains(cls), host_class: cls),
               eigenclass_overrides: eigenclass_methods(cls).each_with_object({}) { |(mname, m), h|
                 cpp_name = Cpp.method_name(mname)
                 next unless @call_surface.key?(cpp_name)
@@ -811,7 +929,7 @@ module Frozone
           # Each gets a super_context so Ast::Super inside the body
           # resolves to the next slot. EmissionError on any one body
           # drops just that slot.
-          def build_chained_overrides(host_name, chains)
+          def build_chained_overrides(host_name, chains, host_class: nil)
             result = {}
             # Hand-coded ancestor methods (m_class, m_send, m_is_a_q, …)
             # have load-bearing C++ implementations we must NOT shadow
@@ -831,6 +949,9 @@ module Frozone
               # body. The unused-method bloat (~1200 unused virtual
               # overrides per class pre-pruning) was driving cpp size.
               next unless @call_surface&.key?(cpp_name)
+              # Stage 3: drop the chain when no self-receiver call site
+              # can dispatch through this host (and surface isn't wide).
+              next unless method_keepable_for_class?(cpp_name, host_class)
               if hand_coded.include?(cpp_name)
                 head_origin, _ = entries.first
                 next if head_origin != :self
