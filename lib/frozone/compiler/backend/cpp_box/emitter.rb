@@ -173,6 +173,25 @@ module Frozone
           # Chain-aware overlay: head of each chain → m_X (gated by
           # hand_coded + existing overrides), tail → sm_X__from_<Origin>
           # always emitted (no hand-coded equivalents of shadowed slots).
+          # Walk a method body looking for any Ast::Super node. A method
+          # whose body never `super`s doesn't need a sm_X__from_Y slot
+          # for the next chain entry — pruning these tail slots is the
+          # single biggest gen-size win when compiling Frozone-as-frozone.
+          # Stops at nested method defs (their bodies have their own
+          # chain context).
+          def body_has_super?(node)
+            return false if node.nil?
+            return false if node.is_a?(Ast::MethodDef)
+            return true if node.is_a?(Ast::Super)
+            return false unless node.respond_to?(:children)
+            node.children.any? { |c| body_has_super?(c) }
+          end
+
+          def method_calls_super?(method)
+            return false unless method.respond_to?(:body)
+            body_has_super?(method.body)
+          end
+
           def overlay_overrides_chained(host_name, existing_overrides, chains, hand_coded, own_hand_coded = Set.new)
             merged = existing_overrides.dup
             chains.each do |mname, entries|
@@ -196,7 +215,12 @@ module Frozone
                 next if head_origin != :self
                 has_hand_coded_ancestor = true
               end
+              # Tail-pruning: only emit the next sm_X__from_Y slot when
+              # the previous body actually calls `super`. Stops emission
+              # the moment a body returns without super-ing — common case.
+              prev_needs_super = true
               entries.each_with_index do |(origin, method), idx|
+                break if idx.positive? && !prev_needs_super
                 cpp_name = idx.zero? ? cpp_head : Cpp.shadowed_method_name(mname, origin)
                 next if merged.key?(cpp_name)
                 ctx = { host_name: host_name, method_name: mname, origin_index: idx, chain: entries }
@@ -207,6 +231,7 @@ module Frozone
                 fall_through = has_hand_coded_ancestor && idx.zero?
                 spec = build_override(method, super_ctx: ctx, fall_through_on_error: fall_through)
                 merged[cpp_name] = spec if spec
+                prev_needs_super = method_calls_super?(method)
               end
             end
             merged
@@ -810,12 +835,22 @@ module Frozone
                 head_origin, _ = entries.first
                 next if head_origin != :self
               end
+              # Tail-pruning: only emit the next sm_X__from_Y slot when
+              # the previous body actually calls `super`. Stops emission
+              # the moment a body returns without super-ing — the head
+              # not calling super at all (the common case) collapses the
+              # whole chain to a single override.
+              prev_needs_super = true
               entries.each_with_index do |(origin, method), idx|
+                break if idx.positive? && !prev_needs_super
                 # Class-origin entries don't get sm_X slots on the host
                 # — super lowers them to qualified `this->Parent::m_X`,
                 # using C++ inheritance directly. Module-origin entries
                 # (and the head, idx=0) DO get slots emitted here.
-                next if idx.positive? && origin.is_a?(Vm::ClassObject)
+                if idx.positive? && origin.is_a?(Vm::ClassObject)
+                  prev_needs_super = method_calls_super?(method)
+                  next
+                end
                 cpp_name = idx.zero? ? Cpp.method_name(mname) : Cpp.shadowed_method_name(mname, origin)
                 ctx = { host_name: host_name, method_name: mname, origin_index: idx, chain: entries }
                 spec =
@@ -836,6 +871,7 @@ module Frozone
                   }
                 end
                 result[cpp_name] = spec if spec
+                prev_needs_super = method_calls_super?(method)
               end
             end
             result

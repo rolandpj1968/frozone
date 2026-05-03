@@ -587,6 +587,32 @@ module Frozone
         true
       end
 
+      # True if the enclosing class/module body reads the named constant
+      # at load time (i.e. as a top-level statement of any class body in
+      # the file, NOT inside a method def). The hoist sentinel raises if
+      # such a read fires before the execute phase has run, so we have
+      # to leave any constant a sibling line consumes at load time.
+      # Walks: top-level statements directly, and recurses into nested
+      # ClassDef/ModuleDef bodies (the read may sit one nesting level
+      # deeper, e.g. fileutils.rb LowMethods inside FileUtils).
+      def constant_read_at_load_time?(body, const_name)
+        return false unless body.is_a?(Ast::Sequence)
+        body.nodes.any? { |stmt| node_reads_constant_at_load_time?(stmt, const_name) }
+      end
+
+      def node_reads_constant_at_load_time?(node, const_name)
+        return false unless node.is_a?(Ast::Node)
+        # Method bodies execute at call time, not load — stop descending.
+        return false if node.is_a?(Ast::MethodDef)
+        if node.is_a?(Ast::ConstantRead) && node.name == const_name
+          return true
+        end
+        if node.is_a?(Ast::ConstantPath) && node.name == const_name
+          return true
+        end
+        node.children.any? { |c| node_reads_constant_at_load_time?(c, const_name) }
+      end
+
       def contains_block_call?(node)
         return false unless node.is_a?(Ast::Node)
         return true if node.is_a?(Ast::MethodCall) && node.block_node
@@ -630,6 +656,16 @@ module Frozone
           case child
           when Ast::ConstantWrite
             if !cheap_constant_initializer?(child.value_node) || must_hoist_value?(child.value_node)
+              # Don't hoist if anywhere in the same enclosing body the
+              # constant is *read* at load time — e.g. fileutils.rb's
+              # `LOW_METHODS = ... .map(&:intern)` (matches the expensive
+              # heuristic via &:intern) is consumed by the LowMethods
+              # module body's `::FileUtils::LOW_METHODS.map { |name| ... }`.
+              # Hoisting it makes the read fault on the load-phase sentinel.
+              if constant_read_at_load_time?(body, child.name)
+                hoist_expensive_class_constants!(child, hoisted, path)
+                next
+              end
               to_reopen << child
               qualified = (path + [child.name]).join('::')
               sentinel = Ast::HoistedSentinelLiteral.new(qualified, child.source_location)
