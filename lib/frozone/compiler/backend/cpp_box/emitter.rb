@@ -129,8 +129,9 @@ module Frozone
               extra_ivars = collect_ivars(cls)
                 .reject { |iv| existing_ivar_names.include?(iv) }
                 .map { |iv| "BasicObject* iv_#{iv} = nil_instance();" }
+              own_hand_coded = (klass.hand_coded_method_names || []).to_set
               klass.dup.tap do |k|
-                k.overrides = overlay_overrides_chained(klass.name, klass.overrides || {}, class_method_chains(cls), hand_coded)
+                k.overrides = overlay_overrides_chained(klass.name, klass.overrides || {}, class_method_chains(cls), hand_coded, own_hand_coded)
                 # Eigenclass methods don't take super (no MRO walk for
                 # def-self-X chains in box-first today), so the flat
                 # path is enough.
@@ -172,17 +173,39 @@ module Frozone
           # Chain-aware overlay: head of each chain → m_X (gated by
           # hand_coded + existing overrides), tail → sm_X__from_<Origin>
           # always emitted (no hand-coded equivalents of shadowed slots).
-          def overlay_overrides_chained(host_name, existing_overrides, chains, hand_coded)
+          def overlay_overrides_chained(host_name, existing_overrides, chains, hand_coded, own_hand_coded = Set.new)
             merged = existing_overrides.dup
             chains.each do |mname, entries|
               # Method-level reachability gate — same as build_chained_overrides.
-              next unless @call_surface&.key?(Cpp.method_name(mname))
+              cpp_head = Cpp.method_name(mname)
+              next unless @call_surface&.key?(cpp_head)
+              # Two-level hand-coded check:
+              # - if the host class itself hand-codes this name (e.g.
+              #   Object's m_class / op_case_eq are load-bearing), the
+              #   hand-coded virtual must win — never overlay it.
+              # - otherwise, if an ANCESTOR hand-codes it, only emit
+              #   when the user explicitly defined it on this class
+              #   (origin == :self); inherited Ruby defs from
+              #   Object/Kernel must NOT shadow the hand-coded ancestor
+              #   via virtual dispatch (would infinitely recurse).
+              has_hand_coded_ancestor = false
+              if own_hand_coded.include?(cpp_head)
+                next
+              elsif hand_coded.include?(cpp_head)
+                head_origin, _ = entries.first
+                next if head_origin != :self
+                has_hand_coded_ancestor = true
+              end
               entries.each_with_index do |(origin, method), idx|
-                cpp_name = idx.zero? ? Cpp.method_name(mname) : Cpp.shadowed_method_name(mname, origin)
+                cpp_name = idx.zero? ? cpp_head : Cpp.shadowed_method_name(mname, origin)
                 next if merged.key?(cpp_name)
-                next if idx.zero? && hand_coded.include?(cpp_name)
                 ctx = { host_name: host_name, method_name: mname, origin_index: idx, chain: entries }
-                spec = build_override(method, super_ctx: ctx)
+                # Head override on top of hand-coded ancestor: if the
+                # user's body fails to emit (unsupported intrinsic etc.),
+                # drop the override so C++ inheritance reuses the
+                # hand-coded parent rather than abort-stubbing the slot.
+                fall_through = has_hand_coded_ancestor && idx.zero?
+                spec = build_override(method, super_ctx: ctx, fall_through_on_error: fall_through)
                 merged[cpp_name] = spec if spec
               end
             end
@@ -979,7 +1002,7 @@ module Frozone
           # field means class_emitter doesn't double-emit unpack lines.
           # EmissionError → nil so caller can drop the entry; the slot
           # falls through to BasicObject's method_missing stub at runtime.
-          def build_override(method, super_ctx: nil)
+          def build_override(method, super_ctx: nil, fall_through_on_error: false)
             with_method_scope(method) do
               with_super_context(super_ctx) do
                 # Pre-walk for captured locals (inner-block-referenced
@@ -1015,12 +1038,19 @@ module Frozone
           rescue Cpp::EmissionError => e
             raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && @strict_emit
             log_skip("method", method, e)
-            # Emit an abort-stub body so calls into this skipped method
-            # at runtime fail loudly with a "compiler limitation"
-            # message, rather than the previous silent-skip (return nil
-            # from missing override) which produced confusing downstream
-            # NoMethodErrors / wrong values. Caller may rescue
-            # NoMethodError and silently swallow our gap; abort can't.
+            # When the override sits on top of a hand-coded ancestor
+            # implementation (Object#=== etc.), returning nil here lets
+            # the parent's hand-coded virtual stay in effect via C++
+            # inheritance — a working fallback that's better than
+            # abort-stubbing the slot.
+            return nil if fall_through_on_error
+            # Otherwise emit an abort-stub body so calls into this
+            # skipped method at runtime fail loudly with a "compiler
+            # limitation" message, rather than the previous silent-skip
+            # (return nil from missing override) which produced
+            # confusing downstream NoMethodErrors / wrong values. Caller
+            # may rescue NoMethodError and silently swallow our gap;
+            # abort can't.
             loc = method&.source_location || "(unknown)"
             mname = method.respond_to?(:name) ? method.name : "?"
             msg = "[frozone-box-first] unimplemented method :#{mname} (def @ #{loc}): #{e.message}"
