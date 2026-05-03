@@ -232,6 +232,7 @@ module Frozone
             when Ast::If then from_if(node, locals)
             when Ast::Case then from_case(node, locals)
             when Ast::Yield then from_yield(node, locals)
+            when Ast::Lambda then from_lambda(node, locals)
             when Ast::IntrinsicCall then from_intrinsic_call(node, locals)
             when Ast::Rescue then from_rescue(node, locals)
             when Ast::Sequence

@@ -257,6 +257,67 @@ module Frozone
             "(new Proc([&, this](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
           end
 
+          # Lambda literal — `-> { ... }`, `lambda { ... }`, `Proc.new { ... }`.
+          # Same param-unpacking as from_block_as_proc, but `return v`
+          # inside the body returns from the lambda itself (not from
+          # the enclosing method). We emit the body with in_block: true
+          # so Return throws ReturnException, then catch it at the
+          # lambda boundary and convert to a C++ return — mirrors the
+          # method-frame catch in MethodEmitter.write_user_method /
+          # build_override.
+          # Strict arg checking (lambda?) is not yet enforced; arity
+          # mismatches behave like procs.
+          def from_lambda(node, locals)
+            params = node.required_params || []
+            optional_params = node.optional_params || []
+            rest_param = node.rest_param
+            post_params = node.post_params || []
+            if optional_params.any?
+              raise Cpp::EmissionError, "lambda with optional params not yet supported"
+            end
+            if (node.respond_to?(:required_kw_params) && node.required_kw_params&.any?) ||
+               (node.respond_to?(:optional_kw_params) && node.optional_kw_params&.any?) ||
+               (node.respond_to?(:kw_rest_param) && node.kw_rest_param) ||
+               (node.respond_to?(:block_param) && node.block_param)
+              raise Cpp::EmissionError, "lambda with kw/block params not yet supported"
+            end
+            (params + post_params).each do |p|
+              unless p.is_a?(Symbol) || p.is_a?(String)
+                raise Cpp::EmissionError, "lambda param destructuring (#{p.class.name}) not yet supported"
+              end
+            end
+            block_locals = locals.dup
+            (params + (rest_param ? [rest_param] : []) + post_params).each { |p| block_locals << p.to_s }
+            body = node.body
+            body_buf = emit.capture do
+              params.each_with_index do |p, i|
+                emit.line "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance();"
+              end
+              if rest_param
+                rest_cpp = MethodEmitter.local_cpp_name(rest_param)
+                pre = params.length
+                post = post_params.length
+                emit.line "Array* __blk_rest__ = new Array();"
+                emit.line "for (std::size_t _i = #{pre}; _i + #{post} < __blkargs__->data.size(); _i++) __blk_rest__->data.push_back(__blkargs__->data[_i]);"
+                emit.line "BasicObject* #{rest_cpp} = static_cast<BasicObject*>(__blk_rest__);"
+              end
+              post_params.each_with_index do |p, j|
+                back_idx = post_params.length - j
+                emit.line "BasicObject* #{MethodEmitter.local_cpp_name(p)} = (#{back_idx} <= (int)__blkargs__->data.size()) ? __blkargs__->data[__blkargs__->data.size() - #{back_idx}] : nil_instance();"
+              end
+              emit.line "try {"
+              if body
+                emit.cpp.with_in_block do
+                  ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true, in_block: true)
+                end
+              else
+                emit.line "return nil_instance();"
+              end
+              emit.line "} catch (ReturnException& e_) { return e_.value; }"
+            end
+            "(new Proc([&, this](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
+          end
+
           # If-as-expression where one or both branches contain Return /
           # Break / Next — wrap in a lambda and emit each branch via
           # write_body. in_block: propagated from the surrounding context
