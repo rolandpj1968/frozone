@@ -298,7 +298,19 @@ module Frozone
                 # Primitive — emit_vm_value gives the literal expr.
                 # Cached in a static for identity stability + skip
                 # re-evaluation cost on subsequent calls.
-                expr = (@cpp.emit_vm_value(val) rescue "nil_instance() /* failed: #{$!&.message} */")
+                # Fail-hard on capture failure: silent fallback to
+                # nil_instance produced confusing downstream NoMethodError
+                # cascades (e.g. Officious's Procs failed → Hash captured
+                # as nil → Officious.each at runtime → NoMethodError on
+                # nil). Per the project fail-early stance, surface the
+                # gap at compile time with file:line so it's obvious
+                # what to fix next.
+                expr =
+                  begin
+                    @cpp.emit_vm_value(val)
+                  rescue Cpp::EmissionError => e
+                    raise Cpp::EmissionError, "constant #{name}: #{e.message} (silent-fallback removed; implement proper static-init or hoist to runtime — see docs/box-first-load-execute-split.md)"
+                  end
                 Runtime::KernelFn.new(
                   name: "k_#{name}",
                   signature: "BasicObject* k_#{name}()",
