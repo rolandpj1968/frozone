@@ -43,13 +43,14 @@ module Frozone
       # require check (e.g. while migrating).
       def self.validate!(execute_nodes, build_files:, strict_requires: true, file_stack: [])
         execute_nodes.each do |node|
-          walk(node, build_files: build_files, strict_requires: strict_requires, file_stack: file_stack, in_synthetic_class_body: false)
+          walk(node, build_files: build_files, strict_requires: strict_requires, file_stack: file_stack, in_synthetic_class_body: false, in_proc_body: false)
         end
       end
 
-      def self.walk(node, build_files:, strict_requires:, file_stack:, in_synthetic_class_body:)
+      def self.walk(node, build_files:, strict_requires:, file_stack:, in_synthetic_class_body:, in_proc_body:)
         return unless node.is_a?(Ast::Node)
         child_in_class_body = in_synthetic_class_body
+        child_in_proc_body = in_proc_body || node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda)
         case node
         when Ast::ClassDef
           # Synthetic re-openings produced by --hoist-class-consts are
@@ -81,14 +82,21 @@ module Frozone
           end
         when Ast::MethodCall
           if !node.receiver_node && %i[require require_relative load].include?(node.name)
-            check_require!(node, build_files: build_files, strict_requires: strict_requires, file_stack: file_stack)
+            # Requires inside Proc/Block bodies run at the time the
+            # block is invoked (not at execute-phase init), and may
+            # be wrapped in rescue LoadError as a best-effort load
+            # idiom (e.g. optparse's Officious version proc tries
+            # require_relative 'optparse/version' and rescues if
+            # missing). Defer those to runtime — the binary will
+            # raise LoadError at call time, matching MRI semantics.
+            check_require!(node, build_files: build_files, strict_requires: strict_requires, file_stack: file_stack) unless in_proc_body
           end
         end
         # Recurse into children so violations nested inside method
         # bodies, blocks, conditionals etc. all surface.
         return unless node.respond_to?(:children)
         node.children.each do |c|
-          walk(c, build_files: build_files, strict_requires: strict_requires, file_stack: file_stack, in_synthetic_class_body: child_in_class_body)
+          walk(c, build_files: build_files, strict_requires: strict_requires, file_stack: file_stack, in_synthetic_class_body: child_in_class_body, in_proc_body: child_in_proc_body)
         end
       end
 
