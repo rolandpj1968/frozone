@@ -157,13 +157,35 @@ module Frozone
               elsif node.name == :loop && !node.receiver_node && node.block_node
                 write_loop_block(emit, node, locals)
               else
+                pre_hoist_local_writes!(emit, node, locals)
                 emit.line "#{emit.cpp.from_expr(node, locals)};"
               end
             when Ast::Sequence
               node.nodes.each { |n| write_stmt(emit, n, locals, next_returns: next_returns, in_block: in_block) }
             else
+              pre_hoist_local_writes!(emit, node, locals)
               emit.line "#{emit.cpp.from_expr(node, locals)};"
             end
+          end
+
+          # Walk a statement-level expression tree and pre-declare any
+          # `LocalVariableWrite` locals at outer scope. Without this,
+          # a write nested inside an expression (e.g. `v = x or abort`,
+          # which parses as `Or(LocalVariableWrite(v, x), abort)`)
+          # raises EmissionError from cpp.rb because the C++ form
+          # `(l_v = ...)` requires l_v to already be declared.
+          # Pre-declaring as nil_instance() matches Ruby semantics:
+          # the local is `nil` until the assignment executes.
+          # Stops at Block/Lambda boundaries — those introduce their
+          # own local scope.
+          def self.pre_hoist_local_writes!(emit, node, locals)
+            return unless node.is_a?(Ast::Node)
+            return if node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda)
+            if node.is_a?(Ast::LocalVariableWrite) && !locals.include?(node.name.to_s)
+              locals << node.name.to_s
+              emit.line "BasicObject* #{MethodEmitter.local_cpp_name(node.name)} = nil_instance();"
+            end
+            node.children.each { |c| pre_hoist_local_writes!(emit, c, locals) }
           end
 
           # Emit the body of a hoist-synthesised class re-opening with
