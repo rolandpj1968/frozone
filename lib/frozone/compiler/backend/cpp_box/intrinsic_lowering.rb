@@ -241,7 +241,14 @@ module Frozone
             object_freeze:    ->(self_) { "(#{self_})" },             # stub: no-op (we don't track frozen state)
             object_frozen:    ->(_self_) { "false_instance()" },        # stub: nothing is frozen
             object_methods:   ->(_self_, _all) { "(new Array())" },     # stub: empty list
-            object_method:    ->(_self_, _name) { "nil_instance()" },   # stub: no Method object
+            # `obj.method(:name)` — box-first has no Method class, but
+            # the only thing optparse / most call sites do with the
+            # result is `.to_proc`, so return a Proc that re-dispatches
+            # via send. Proc#to_proc returns self, so the chain works.
+            # Args coming in are the proc's call args (already an Array).
+            object_method: ->(self_, name) {
+              "(new Proc([__obj_=#{self_}, __name_=#{name}](Array* __args_) -> BasicObject* { Array* _full = new Array(); _full->data.push_back(__name_); for (auto* _e : __args_->data) _full->data.push_back(_e); return __obj_->m_send(_full, nullptr, nullptr); }))"
+            },
             object_ivar_get:  ->(_self_, _name) { "nil_instance()" },   # stub: ivars are static fields, not accessible by name
             object_ivar_set:  ->(_self_, _name, val) { "(#{val})" },    # stub: returns the value, doesn't actually set
             object_ivar_defined: ->(_self_, _name) { "false_instance()" },
