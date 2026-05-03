@@ -270,6 +270,19 @@ module Frozone
             kernel_block_given: ->(_self_) { "false_instance()" },
             kernel_caller:           ->(_self_, _start, _length) { "(new Array())" },
             kernel_caller_locations: ->(_self_, _start, _length) { "(new Array())" },
+            # `Frozone::Vm::Vm#initialize(options)` — synthetic stub set
+            # up by setup_frozone_land for self-hosting. In box-first AOT
+            # the only thing kernel_run_vm does is print "no impl"+exit,
+            # so saving @options is wasted work. No-op until the box-first
+            # Vm is real (would need parser+evaluator compiled in).
+            kernel_vm_initialize: ->(_self_, _options) { "nil_instance()" },
+            # `Frozone::Vm::Vm#run` — interpreter entry point, no
+            # box-first equivalent yet (would need parser + evaluator
+            # compiled in). Print a clear no-impl message and exit so
+            # the caller doesn't think the run silently succeeded.
+            kernel_run_vm: ->(_self_) {
+              %|(std::fprintf(stderr, "[box-first] Frozone::Vm::Vm#run not implemented in box-first AOT (would need parser+evaluator compiled in)\\n"), std::exit(1), nil_instance())|
+            },
 
             # ---- String --------------------------------------------
             # Multi-line bodies live in cpp/runtime/intrinsics.hpp;
