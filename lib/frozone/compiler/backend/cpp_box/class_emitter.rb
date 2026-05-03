@@ -72,6 +72,15 @@ module Frozone
             # and may discover new literals — those would be missed by
             # this pass; collect them via a second sweep.
             body_buf = emit.capture do
+              # Forward-declare the IS_A LUT + CLASS_BY_ID array so
+              # inline class-body methods (e.g. Module#ancestors) can
+              # reference them — the actual definitions come further
+              # down in write_is_a_lut.
+              n_classes = class_ids.size
+              emit.line "static constexpr int N_CLASSES = #{n_classes};"
+              emit.line "extern const bool IS_A[N_CLASSES][N_CLASSES];"
+              emit.line "extern BasicObject* const CLASS_BY_ID[N_CLASSES];"
+              emit.blank
               classes.each { |k| write_class_definitions(emit, k) }
               write_method_vt(emit, method_ids)
               write_send_body(emit, method_ids)
@@ -237,14 +246,35 @@ module Frozone
             emit.line "// Closed-world is_a? LUT — IS_A[receiver_class_id][target_class_id]"
             emit.line "// captures inheritance + module includes/prepends. Indexed by"
             emit.line "// the class_id assigned at AOT (see __class_id__()/instance_class_id_)."
-            emit.line "static constexpr int N_CLASSES = #{n};"
-            emit.line "static const bool IS_A[N_CLASSES][N_CLASSES] = {"
+            # N_CLASSES forward-declared earlier in body_buf; just define IS_A.
+            emit.line "const bool IS_A[N_CLASSES][N_CLASSES] = {"
             emit.indented do
               # Inverse: id → name for comments
               id_to_name = class_ids.invert
               lut.each_with_index do |row, i|
                 bits = row.map { |b| b ? "1" : "0" }.join(",")
                 emit.line "{#{bits}},  // #{i}: #{id_to_name[i]}"
+              end
+            end
+            emit.line "};"
+            emit.blank
+            # CLASS_BY_ID[i] returns the Class singleton with instance_class_id_ == i,
+            # or nullptr if no class has that id. Used by Module#ancestors,
+            # Module#descendants, and any other reflection that needs to
+            # walk class IDs back to value objects.
+            id_to_name = class_ids.invert
+            emit.line "BasicObject* const CLASS_BY_ID[N_CLASSES] = {"
+            emit.indented do
+              (0...n).each do |i|
+                name = id_to_name[i]
+                # Only the host classes (not eigenclasses) have a singleton
+                # named "<Name>_CLASS" — for an eigenclass we'd want
+                # &Class_CLASS, but Class is itself entry 3.
+                if name && !name.to_s.end_with?("_eigenclass")
+                  emit.line "&#{name}_CLASS,  // #{i}: #{name}"
+                else
+                  emit.line "nullptr,        // #{i}: #{name} (no singleton; use Class_CLASS)"
+                end
               end
             end
             emit.line "};"

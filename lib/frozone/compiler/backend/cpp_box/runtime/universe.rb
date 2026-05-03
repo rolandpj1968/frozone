@@ -222,8 +222,27 @@ module Frozone
                 params: [],
                 body: "const char* _n = ruby_class_name(); return new String(_n, std::strlen(_n));",
               },
+              # Module#ancestors — closed-world: walk the IS_A LUT row
+              # for our class id, return matching CLASS_BY_ID entries.
+              # Fwd-decl'd by class_emitter so this inline body can see
+              # N_CLASSES / IS_A / CLASS_BY_ID before they're defined.
+              # Order from the LUT bit-set is class-id order, NOT MRO —
+              # callers that only need #include? (Class#>=, etc.) don't
+              # care; strict MRO callers need a different path.
+              "m_ancestors" => {
+                params: [],
+                body: <<~CPP.chomp,
+                  int my_id = instance_class_id_;
+                  Array* r = new Array();
+                  if (my_id < 0 || my_id >= N_CLASSES) return r;
+                  for (int i = 0; i < N_CLASSES; ++i) {
+                    if (IS_A[my_id][i] && CLASS_BY_ID[i]) r->data.push_back(CLASS_BY_ID[i]);
+                  }
+                  return r;
+                CPP
+              },
             },
-            hand_coded_method_names: %w[m_to_s m_inspect].freeze,
+            hand_coded_method_names: %w[m_to_s m_inspect m_ancestors].freeze,
           )
 
           CLASS_TYPE = RubyClass.new(
