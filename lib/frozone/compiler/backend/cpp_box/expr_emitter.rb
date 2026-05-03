@@ -33,10 +33,15 @@ module Frozone
             stmts = body.is_a?(Ast::Sequence) ? body.nodes : [body]
             stmts.each_with_index do |n, i|
               last = i == stmts.length - 1
-              if last && last_is_return && stmt_only_method_call?(n)
-                # times/loop blocks at last-expression position need
-                # the statement form (lambda-wrap doesn't allow
-                # break/next). Emit as statement + return nil.
+              if last && last_is_return && stmt_only_node?(n)
+                # Some nodes have a write_stmt special case but no
+                # safe expression form: times/loop blocks (break/next
+                # don't survive lambda wrap), MultipleAssignment
+                # (no from_expr handler). Emit as statement + return nil
+                # — matches Ruby's "last expression is the return value"
+                # well enough for the common cases (initializers,
+                # destructuring assignment in tail position; the [v1,v2]
+                # array return value is rarely consumed).
                 write_stmt(emit, n, locals, next_returns: next_returns, in_block: in_block)
                 emit.line "return nil_instance();"
               elsif last && last_is_return && Cpp.expression_node?(n)
@@ -47,6 +52,15 @@ module Frozone
                 write_stmt_with_rescue(emit, n, locals, next_returns: next_returns, in_block: in_block)
               end
             end
+          end
+
+          # Node has a statement-form emission but no safe expression
+          # form. Used at last-statement-of-body position so we emit
+          # the statement and synthesise `return nil_instance();`
+          # rather than wrap the unsupported expression form.
+          def self.stmt_only_node?(node)
+            return true if node.is_a?(Ast::MultipleAssignment)
+            stmt_only_method_call?(node)
           end
 
           # Method calls that have a write_stmt special case and are
