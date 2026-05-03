@@ -1134,9 +1134,37 @@ module Frozone
             # Without it, a stray throw escapes main() as
             # "terminate called after throwing 'ReturnException'".
             line "try {"
-            indented { ExprEmitter.write_body(self, body, locals: Set.new) }
+            indented do
+              if trace?
+                stmts = body.is_a?(Ast::Sequence) ? body.nodes : [body]
+                line %|std::fprintf(stderr, "[trace] __top_level__ start (%d stmts)\\n", #{stmts.size});|
+                stmts.each_with_index do |n, i|
+                  loc = n.respond_to?(:source_location) && n.source_location ? n.source_location.compact.join(":") : "(unknown)"
+                  label = "[trace] top-level stmt #{i}/#{stmts.size - 1} @ #{loc}"
+                  line %|std::fprintf(stderr, "%s — entering\\n", #{cpp.cpp_string_literal(label)});|
+                  last = i == stmts.length - 1
+                  if last
+                    ExprEmitter.write_body(self, Ast::Sequence.new([n]), locals: Set.new)
+                  else
+                    ExprEmitter.write_body(self, Ast::Sequence.new([n]), locals: Set.new)
+                  end
+                  line %|std::fprintf(stderr, "%s — done\\n", #{cpp.cpp_string_literal(label)});|
+                end
+                line %|std::fprintf(stderr, "[trace] __top_level__ end\\n");|
+              else
+                ExprEmitter.write_body(self, body, locals: Set.new)
+              end
+            end
             line "} catch (ReturnException& e_) { /* top-level return */ }"
           end
+
+          # Trace points are emitted in the gen when FROZONE_BOX_TRACE
+          # is set at AOT time. They're stderr fprintfs at the
+          # boundaries we use for "where did the silent exit happen?"
+          # debugging — currently __init_static_state__ start/end and
+          # each top-level statement's begin/end with source location.
+          # Method-entry tracing is a follow-up (much higher volume).
+          def trace? = ENV['FROZONE_BOX_TRACE'] == '1'
 
           def write_main
             line "int main() {"
@@ -1186,6 +1214,7 @@ module Frozone
           def write_static_state_init
             line "void __init_static_state__() {"
             indented do
+              line %|std::fprintf(stderr, "[trace] __init_static_state__ start\\n");| if trace?
               # Onigmo regex engine — must run before any Regexp
               # construction. Cheap (registers UTF-8 encoding tables).
               line "init_onigmo();"
@@ -1214,6 +1243,7 @@ module Frozone
                   emit_static_iv_assign(target, flat, name, val)
                 end
               end
+              line %|std::fprintf(stderr, "[trace] __init_static_state__ end\\n");| if trace?
             end
             line "}"
             blank
