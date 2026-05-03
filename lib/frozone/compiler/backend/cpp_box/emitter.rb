@@ -1145,9 +1145,40 @@ module Frozone
             end
           end
 
+          # Walk the top-level body for every name that gets a
+          # LocalVariableWrite or MultipleAssignment-target AT
+          # __top_level__'s OWN scope. Stops at Block/Lambda boundaries
+          # — names declared inside an inner block are block-local
+          # (not hoisted to top-level), so they don't belong here.
+          def collect_top_level_own_locals(body)
+            names = Set.new
+            walk = ->(node) {
+              return unless node.is_a?(Ast::Node)
+              return if node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda)
+              names << node.name.to_s if node.is_a?(Ast::LocalVariableWrite)
+              if node.is_a?(Ast::MultipleAssignment) && node.respond_to?(:targets)
+                node.targets.each do |t|
+                  next unless t.is_a?(Array)
+                  names << t[1].to_s if t[1].is_a?(Symbol) && %i[local local_splat].include?(t[0])
+                end
+              end
+              node.children.each { |c| walk.call(c) } if node.respond_to?(:children)
+            }
+            walk.call(body) if body
+            names
+          end
+
           def write_top_level_body
             return unless @execute_block
             body = @execute_block.respond_to?(:body) ? @execute_block.body : @execute_block
+            # Pre-walk for captured locals at top-level scope. Inner
+            # procs (like the .on(...) blocks of an OptionParser.new
+            # do |opts| ... end) capture top-level locals like
+            # `l_options`; those need heap-cell storage so the procs
+            # see the updated value when invoked, not a stale one.
+            top_own = collect_top_level_own_locals(body)
+            top_captured = LambdaEmitter.collect_captured_locals(body, top_own)
+            @cpp.captured_locals = top_captured
             # Wrap in try/catch ReturnException so a `return` thrown
             # from a Proc body called from top-level code lands here
             # (matches the wrap in MethodEmitter#write_user_method).

@@ -273,9 +273,41 @@ module Frozone
             # captured local (cell pointer) by value so the lambda
             # safely reads them through `*deref` even after the outer
             # stack frame returns.
-            cap_extras = outer_captured_at_creation.to_a.map { |n| MethodEmitter.local_cpp_name(n) }
+            # Only capture-by-value those outer captured names that
+            # this lambda body actually references — else C++ may
+            # complain about names not yet in scope at the lambda's
+            # creation site (e.g. an Officious proc emitted in stmt 0
+            # of __top_level__ shouldn't try to capture an `l_options`
+            # that's only declared in stmt 1).
+            referenced = LambdaEmitter.referenced_outer_locals(body, inner_own)
+            cap_extras = (outer_captured_at_creation & referenced).to_a.map { |n| MethodEmitter.local_cpp_name(n) }
             cap_str = (["&", "this"] + cap_extras).join(", ")
             "(new Proc([#{cap_str}](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
+          end
+
+          # Names referenced (read or written) inside `body`, recursing
+          # into nested blocks and treating their params/locals as
+          # shadowing. Used to filter the capture clause to only
+          # names this lambda actually uses (so we don't capture
+          # not-yet-declared outer names by mistake).
+          def self.referenced_outer_locals(body, own_locals)
+            own = own_locals.is_a?(Set) ? own_locals : Set.new(own_locals.map(&:to_s))
+            refs = Set.new
+            visit = lambda do |node, shadowed|
+              return unless node.is_a?(Ast::Node)
+              if node.is_a?(Ast::LocalVariableRead) || node.is_a?(Ast::LocalVariableWrite)
+                name = node.name.to_s
+                refs << name if !own.include?(name) && !shadowed.include?(name)
+              end
+              if node.is_a?(Ast::Block) || node.is_a?(Ast::Lambda)
+                next_shadowed = shadowed | block_own_locals(node)
+                (node.respond_to?(:children) ? node.children : []).each { |c| visit.call(c, next_shadowed) }
+              else
+                (node.respond_to?(:children) ? node.children : []).each { |c| visit.call(c, shadowed) }
+              end
+            end
+            visit.call(body, Set.new) if body
+            refs
           end
 
           # Lambda literal — `-> { ... }`, `lambda { ... }`, `Proc.new { ... }`.
@@ -365,7 +397,8 @@ module Frozone
                 emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
               end
             end
-            cap_extras = outer_captured_at_creation.to_a.map { |n| MethodEmitter.local_cpp_name(n) }
+            referenced = LambdaEmitter.referenced_outer_locals(body, inner_own)
+            cap_extras = (outer_captured_at_creation & referenced).to_a.map { |n| MethodEmitter.local_cpp_name(n) }
             cap_str = (["&", "this"] + cap_extras).join(", ")
             "(new Proc([#{cap_str}](Array* __blkargs__) -> BasicObject* { #{body_buf.gsub(/\s+/, ' ').strip} }))"
           end
