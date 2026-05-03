@@ -986,9 +986,16 @@ module Frozone
                   locals = MethodEmitter.unpack_params(self, method)
                   ExprEmitter.write_body(self, method.body, locals: locals, last_is_return: true) if method.body
                 end
+                # Wrap in try/catch ReturnException so `return v` inside
+                # a Proc body escapes via throw and lands at the
+                # ENCLOSING METHOD'S frame (this one). Without the
+                # wrap, the throw escapes per-class overrides entirely
+                # and bubbles to the top-level catch — i.e. every block
+                # `return` silently exits the binary. (Mirrors the
+                # wrap in MethodEmitter.write_user_method.)
                 {
                   params: [],
-                  body: body + "return nil_instance();\n",
+                  body: "try {\n#{body}return nil_instance();\n} catch (ReturnException& e_) { return e_.value; }\n",
                 }
               end
             end
@@ -1138,16 +1145,16 @@ module Frozone
               if trace?
                 stmts = body.is_a?(Ast::Sequence) ? body.nodes : [body]
                 line %|std::fprintf(stderr, "[trace] __top_level__ start (%d stmts)\\n", #{stmts.size});|
+                # Don't wrap each stmt in try{}: top-level locals
+                # (l_options etc.) need to cross stmt boundaries.
+                # Throws bypass the "done" line; only the outer catch
+                # logs them.
+                locals = Set.new
                 stmts.each_with_index do |n, i|
                   loc = n.respond_to?(:source_location) && n.source_location ? n.source_location.compact.join(":") : "(unknown)"
                   label = "[trace] top-level stmt #{i}/#{stmts.size - 1} @ #{loc}"
                   line %|std::fprintf(stderr, "%s — entering\\n", #{cpp.cpp_string_literal(label)});|
-                  last = i == stmts.length - 1
-                  if last
-                    ExprEmitter.write_body(self, Ast::Sequence.new([n]), locals: Set.new)
-                  else
-                    ExprEmitter.write_body(self, Ast::Sequence.new([n]), locals: Set.new)
-                  end
+                  ExprEmitter.write_body(self, Ast::Sequence.new([n]), locals: locals)
                   line %|std::fprintf(stderr, "%s — done\\n", #{cpp.cpp_string_literal(label)});|
                 end
                 line %|std::fprintf(stderr, "[trace] __top_level__ end\\n");|
@@ -1155,7 +1162,18 @@ module Frozone
                 ExprEmitter.write_body(self, body, locals: Set.new)
               end
             end
-            line "} catch (ReturnException& e_) { /* top-level return */ }"
+            if trace?
+              line "} catch (ReturnException& e_) {"
+              indented { line %|std::fprintf(stderr, "[trace] __top_level__ caught ReturnException\\n");| }
+              line "} catch (BasicObject* e_) {"
+              indented do
+                line %|std::fprintf(stderr, "[trace] __top_level__ caught Ruby exception: %s\\n", e_->ruby_class_name());|
+                line "throw;  // re-raise so main()'s handler still sees it"
+              end
+              line "}"
+            else
+              line "} catch (ReturnException& e_) { /* top-level return */ }"
+            end
           end
 
           # Trace points are emitted in the gen when FROZONE_BOX_TRACE
