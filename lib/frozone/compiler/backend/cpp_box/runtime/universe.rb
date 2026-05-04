@@ -658,13 +658,18 @@ module Frozone
               "m_to_s"  => { params: [], body: "return new String(name_);" },
               "m_to_sym" => { params: [], body: "return this;" },
             },
-            # Symbol's ctor is private — `Symbol.new` is meaningless in
-            # Ruby anyway. Override the eigenclass auto-m_new with an
-            # explicit abort.
+            # Symbol's ctor is private — `Symbol.new` / `Symbol.allocate`
+            # are meaningless in Ruby anyway. Override both eigenclass
+            # auto-emits with an explicit abort. (The default auto-emit
+            # would `new Symbol()`, but Symbol has no default ctor.)
             eigenclass_overrides: {
               "m_new" => {
                 params: [],
                 body: %(std::fprintf(stderr, "[box-first] Symbol.new not supported — use literals\\n"); std::abort();),
+              },
+              "m_allocate" => {
+                params: [],
+                body: %(std::fprintf(stderr, "[box-first] Symbol.allocate not supported — use literals\\n"); std::abort();),
               },
             },
           )
