@@ -543,6 +543,21 @@ module Frozone
               (k.hand_coded_method_names || []).each { |cpp| seed_names << cpp unless cpp.start_with?("c_", "sm_") || non_ruby_hand_coded.include?(cpp) }
             end
             seed_names.merge(%w[m_new m_initialize m_class m_respond_to_q m_method_missing m_const_missing])
+            # Frozone::Vm::Intrinsics is special: its eigenclass methods
+            # are dispatched purely by Ast::IntrinsicCall#evaluate at
+            # runtime via `Vm::Intrinsics.send(@name, ...)`. The @name is
+            # a Symbol stored in the AST node — never a literal in any
+            # statically-walkable source — so neither the main walk nor
+            # the send-aware widening can root these methods. Without an
+            # explicit seed they get pruned, then runtime IntrinsicCall
+            # invocations fail with method_missing on Frozone_Vm_Intrinsics.
+            # Seed every Intrinsics eigenclass method directly.
+            intrinsics_cls = @user_classes[:Frozone_Vm_Intrinsics] rescue nil
+            if intrinsics_cls && (intrinsics_cls.eigenclass rescue nil)
+              (intrinsics_cls.eigenclass.methods_table || {}).each_key do |mname|
+                seed_names << Cpp.method_name(mname)
+              end
+            end
             # Seeded names are universally reachable — runtime dispatches
             # them generically (m_class on any object, m_send via __send__),
             # so widen the surface filter.

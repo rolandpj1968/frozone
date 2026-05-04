@@ -168,6 +168,17 @@ module Frozone
             # a literal just returns self, matching the mutable case.
             string_chilled_q: ->(_self_) { "false_instance()" },
 
+            # Module method-visibility intrinsics. In closed-world AOT,
+            # method visibility is baked into the snapshot — runtime
+            # `private :foo` etc. would re-mutate Vm state we've
+            # already captured. Stub to nil so core/4.0/'s `private` /
+            # `public` / `protected` methods can be evaluated without
+            # aborting; the visibility settings they would have made
+            # are already in the snapshot from the pre-AOT load phase.
+            module_set_private:    ->(_self_, _recv, _names) { "nil_instance()" },
+            module_set_public:     ->(_self_, _recv, _names) { "nil_instance()" },
+            module_set_protected:  ->(_self_, _recv, _names) { "nil_instance()" },
+
             string_get_byte: ->(self_, i) {
               "(new Integer(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes[static_cast<Integer*>(#{i})->raw_])))"
             },
