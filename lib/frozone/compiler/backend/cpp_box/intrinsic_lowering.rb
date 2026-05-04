@@ -168,6 +168,14 @@ module Frozone
             # a literal just returns self, matching the mutable case.
             string_chilled_q: ->(_self_) { "false_instance()" },
 
+            # Box-first doesn't model encoding transcoding — strings are
+            # treated as UTF-8 (or BINARY for raw bytes). Stub encode to
+            # return self; encode! is a no-op returning self. This is
+            # incorrect for cross-encoding work but covers the common
+            # "same encoding" case core/4.0/ exercises during boot.
+            string_encode:      ->(self_, _enc, _src_enc, _opts) { "(#{self_})" },
+            string_encode_bang: ->(self_, _enc, _src_enc, _opts) { "(#{self_})" },
+
             # Module method-visibility intrinsics. In closed-world AOT,
             # method visibility is baked into the snapshot — runtime
             # `private :foo` etc. would re-mutate Vm state we've

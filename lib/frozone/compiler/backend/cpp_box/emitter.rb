@@ -548,14 +548,39 @@ module Frozone
             # runtime via `Vm::Intrinsics.send(@name, ...)`. The @name is
             # a Symbol stored in the AST node — never a literal in any
             # statically-walkable source — so neither the main walk nor
-            # the send-aware widening can root these methods. Without an
-            # explicit seed they get pruned, then runtime IntrinsicCall
-            # invocations fail with method_missing on Frozone_Vm_Intrinsics.
-            # Seed every Intrinsics eigenclass method directly.
+            # the send-aware widening can root these methods.
+            #
+            # Ideal: seed every Intrinsics eigenclass method. In practice
+            # some method bodies hit emission bugs (kwarg block: param,
+            # references to hand-coded methods that don't exist, etc.)
+            # that crash the C++ build when emitted. For now seed an
+            # explicit allow-list of methods we know we need for
+            # /tmp/hello.rb's load_core path. Grow as we hit gaps.
             intrinsics_cls = @user_classes[:Frozone_Vm_Intrinsics] rescue nil
             if intrinsics_cls && (intrinsics_cls.eigenclass rescue nil)
-              (intrinsics_cls.eigenclass.methods_table || {}).each_key do |mname|
-                seed_names << Cpp.method_name(mname)
+              # Allow-list: Intrinsics methods we've verified compile
+              # cleanly under box-first AND that core/4.0/ dispatches
+              # to via Intrinsics.X at runtime. Grow as we hit gaps in
+              # the load_core path. Pattern-based seeding (e.g. all
+              # `module_*`) tends to drag in helper methods with
+              # emission bugs.
+              wanted = %i[
+                module_set_public
+                module_set_private
+                module_set_protected
+                module_undef_method
+                module_undef_methods
+                module_undef_method_dispatch
+                module_remove_method
+                module_remove_methods
+                module_alias_method
+                module_define_method
+                module_ruby2_keywords
+                module_singleton_class_q
+              ]
+              mt = intrinsics_cls.eigenclass.methods_table || {}
+              wanted.each do |mname|
+                seed_names << Cpp.method_name(mname) if mt.key?(mname)
               end
             end
             # Seeded names are universally reachable — runtime dispatches
