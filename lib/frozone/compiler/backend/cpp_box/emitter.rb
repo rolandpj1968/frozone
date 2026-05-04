@@ -1540,6 +1540,23 @@ module Frozone
                   emit_static_iv_assign(target, flat, name, val)
                 end
               end
+              # Class variables: snapshot each class's @class_variables
+              # captured during load phase. Only emit assignments for
+              # cvars that have been referenced during emission (i.e.
+              # appear in @cpp.class_vars), since unused cvars don't
+              # have storage to set.
+              @cpp.class_vars.each do |host, names|
+                cls = @user_classes[host.to_sym]
+                next unless cls.respond_to?(:class_variables)
+                cvars = cls.class_variables || {}
+                names.each do |n|
+                  key = :"@@#{n}"
+                  next unless cvars.key?(key)
+                  expr = @cpp.emit_vm_value(cvars[key]) rescue nil
+                  next unless expr
+                  line "cv_#{host}__#{n} = #{expr};"
+                end
+              end
               line %|std::fprintf(stderr, "[trace] __init_static_state__ end\\n");| if trace?
             end
             line "}"

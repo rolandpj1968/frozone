@@ -175,6 +175,12 @@ module Frozone
           # from_rescue) know to emit Break/Return as throws rather than
           # C++ break/return. Push/pop via with_in_block.
           attr_accessor :in_block
+          # Class variables seen during emission. Mapped: host-class flat
+          # name (e.g. `:Frozone_Vm_ObjectObject`) → set of cvar names
+          # (without the `@@` prefix). Each entry becomes a top-level
+          # `static BasicObject* cv_<flat>__<name> = nil_instance();`
+          # in the post-class out-of-line section.
+          attr_reader :class_vars
 
           def initialize(user_classes:, user_constants:)
             @user_classes = user_classes
@@ -186,6 +192,7 @@ module Frozone
             @tmp_counter = 0
             @in_block = false
             @captured_locals = Set.new
+            @class_vars = Hash.new { |h, k| h[k] = Set.new }
           end
 
           # Run yield with @captured_locals = previous ∪ new_captures,
@@ -202,6 +209,37 @@ module Frozone
           end
 
           def captured?(name) = @captured_locals.include?(name.to_s)
+
+          # Class-variable reference: `@@foo` becomes a top-level static
+          # `cv_<HostFlat>__<foo>`. HostFlat is the innermost real
+          # (non-eigen, non-Object) class lexically containing the
+          # def-site. Lexical scoping covers the common case (@@x
+          # written in `class Foo` body, read in `Foo` instance methods);
+          # subclass walks aren't modelled — Ruby would inherit storage
+          # via the ancestor chain, but Frozone's own usage is single-
+          # class, so we don't need that yet.
+          def class_var_ref(name)
+            host = host_class_for_class_var
+            raise EmissionError, "@@#{name}: no enclosing class for class variable" unless host
+            cvar = name.to_s.delete_prefix('@@').delete_prefix('@')
+            @class_vars[host] << cvar
+            "cv_#{host}__#{cvar}"
+          end
+
+          # Innermost class scope that owns class-variable storage —
+          # walks @method_scope from inner→outer, skipping eigenclasses
+          # and Object (top-level), and returns the flat C++ name of
+          # the first concrete class.
+          def host_class_for_class_var
+            (@method_scope || []).reverse.each do |s|
+              next unless s.is_a?(Vm::ModuleObject)
+              next if s.respond_to?(:is_singleton_class) && s.is_singleton_class
+              fname = s.full_name.to_s rescue nil
+              next if fname.nil? || fname.empty? || fname == "Object"
+              return fname.gsub("::", "_")
+            end
+            nil
+          end
 
           # Run yield with `names` removed from @captured_locals (shadowing).
           # Used when an inner construct (for-loop expansion, block param)
@@ -252,6 +290,8 @@ module Frozone
             when Ast::InstanceVariableWrite
               rhs = from_expr(node.value_node, locals)
               "(this->iv_#{node.name.to_s.delete_prefix('@')} = #{rhs})"
+            when Ast::ClassVariableRead  then class_var_ref(node.name)
+            when Ast::ClassVariableWrite then "(#{class_var_ref(node.name)} = #{from_expr(node.value_node, locals)})"
             when Ast::LocalVariableWrite
               rhs = from_expr(node.value_node, locals)
               if locals.include?(node.name.to_s)

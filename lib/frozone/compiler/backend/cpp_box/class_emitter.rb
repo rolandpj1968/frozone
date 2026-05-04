@@ -112,7 +112,25 @@ module Frozone
             # See cpp/runtime/intrinsics.hpp.
             emit.line %|#include "../../runtime/intrinsics.hpp"|
             emit.blank
+            write_class_var_storage(emit)
             body_buf.each_line { |l| emit.line l.chomp }
+          end
+
+          # Emit one inline-global per `@@var` referenced during body
+          # emission. Every cvar lives at namespace scope as
+          # `cv_<HostFlat>__<name> = nil_instance()`; method bodies
+          # reference the symbol directly. Inline storage means each
+          # TU sees the same instance — single global per cvar.
+          def self.write_class_var_storage(emit)
+            cvars = emit.cpp.class_vars
+            return if cvars.empty?
+            emit.line "// Class variables (@@foo) — one inline global per (host, name)."
+            cvars.each do |host, names|
+              names.each do |n|
+                emit.line "inline BasicObject* cv_#{host}__#{n} = nil_instance();"
+              end
+            end
+            emit.blank
           end
 
           # Compile-time name → method_id table — emitted as a flat
