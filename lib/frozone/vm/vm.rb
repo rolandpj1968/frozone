@@ -42,7 +42,15 @@ module Frozone
       end
 
       def run
-        load_core
+        # AOT-runtime guard: post-AOT, __init_static_state__ has already
+        # populated every Vm-level class's methods table from the
+        # pre-AOT snapshot. Re-running load_core would re-parse every
+        # core/4.0/ file with the compiled WqParser and re-define every
+        # method, exercising trigger_method_added's permissive rescue
+        # block on hundreds of redundant defs. Use Module's :undef_method
+        # as a load sentinel — it's defined in the first file load_core
+        # would otherwise process. See docs/aot-runtime-redundant-setup.md.
+        load_core unless Core::MODULE_CLASS.lookup_method(:undef_method)
 
         ruby_version = StringObject.new('4.0.1')
         ruby_platform = StringObject.new(RUBY_PLATFORM)
@@ -409,7 +417,9 @@ module Frozone
         # before parse() is ever called, so unconditional reference
         # is safe — no defined?() guard needed (box-first doesn't
         # lower defined?(const) yet).
-        parser_class = (@options && @options[:parser] == :wq) ? WqParser : Parser
+        # TEMPORARY for box-first AOT: hardcoded WqParser; --parser=wq
+        # symbol-comparison silently picks Prism (separate optparse bug).
+        parser_class = WqParser
         parser = parser_class.new(script, dump_ast, filepath: filepath)
         ast = parser.ast(raise_syntax_errors: raise_syntax_errors)
         ParseResult.new(
