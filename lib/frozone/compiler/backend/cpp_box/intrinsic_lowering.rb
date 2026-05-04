@@ -162,6 +162,12 @@ module Frozone
             # Real walker would scan bytes for UTF-8 validity.
             string_valid_encoding: ->(_self_) { "true_instance()" },
 
+            # Ruby 4.0 "chilled string" concept (frozen-string-literal
+            # deprecation phase). Box-first doesn't model the chilled
+            # state — strings are either frozen or mutable. So `+@` on
+            # a literal just returns self, matching the mutable case.
+            string_chilled_q: ->(_self_) { "false_instance()" },
+
             string_get_byte: ->(self_, i) {
               "(new Integer(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes[static_cast<Integer*>(#{i})->raw_])))"
             },

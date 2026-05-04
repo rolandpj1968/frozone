@@ -1464,10 +1464,20 @@ module Frozone
           def trace? = ENV['FROZONE_BOX_TRACE'] == '1'
 
           def write_main
-            line "int main() {"
+            line "int main(int argc, char** argv) {"
             indented do
               line "FROZONE_GC_INIT();"
               line "Ruby::__init_static_state__();"
+              # Populate ARGV from C++ argc/argv. Pre-AOT k_ARGV() is a
+              # static empty Array snapshot; without this the runtime
+              # binary ignores its command-line args entirely. argv[0]
+              # is the program name (matches Ruby's $PROGRAM_NAME, not
+              # ARGV), so start from argv[1].
+              line "if (auto* arr = dynamic_cast<Ruby::Array*>(Ruby::k_ARGV())) {"
+              indented do
+                line "for (int i = 1; i < argc; i++) arr->data.push_back(new Ruby::String(argv[i]));"
+              end
+              line "}"
               line "Ruby::MainObject mo;"
               line "try {"
               indented do
