@@ -330,7 +330,12 @@ module Frozone
         GLOBALS[:"$<"] = GLOBALS[:"$stdin"]
         GLOBALS[:"$0"] = StringObject.new($PROGRAM_NAME.to_s)
         GLOBALS[:"$PROGRAM_NAME"] = GLOBALS[:"$0"]
-        setup_frozone_land
+        # AOT box-first compiles frozone-as-frozone — let the inner
+        # require_relative chain actually load the real Vm + WQ parser
+        # so they're captured in the snapshot and emitted to C++.
+        # setup_frozone_land's delegating stubs are the interpreter
+        # path (Frozone-on-Frozone for self-hosting).
+        setup_frozone_land unless @options[:aot]
       end
 
       # Set up the minimal Frozone-land infrastructure needed for self-hosting (Frozone²).

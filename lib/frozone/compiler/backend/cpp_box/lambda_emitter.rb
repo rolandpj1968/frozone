@@ -111,9 +111,16 @@ module Frozone
           end
 
           def exception_class_name(node)
+            # Walk the lexical scope chain for both bare constants and
+            # qualified paths — `rescue FrozoneException` inside
+            # `Frozone::Vm` resolves to `Frozone_Vm_FrozoneException`,
+            # and `rescue Vm::FrozoneException` inside `Frozone::Ast`
+            # resolves through Frozone:: prefix to the same flat name.
             name = case node
-                   when Ast::ConstantRead then node.name.to_s
-                   when Ast::ConstantPath then path_to_cpp_name(node)
+                   when Ast::ConstantRead
+                     resolve_constant([node.name.to_s]) || node.name.to_s
+                   when Ast::ConstantPath
+                     resolve_constant(collect_path(node)) || path_to_cpp_name(node)
                    else
                      raise Cpp::EmissionError, "rescue: non-constant exception spec (#{node.class.name})"
                    end
