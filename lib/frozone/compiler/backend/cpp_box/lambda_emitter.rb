@@ -240,6 +240,26 @@ module Frozone
             # the lambda contract for one block invocation.
             body_buf = emit.capture do
               emit.cpp.with_captured_locals(inner_captured) do
+                # procarg0 (block auto-splat). When a proc-style block
+                # has 2+ named params and the caller passed a single
+                # Array, MRI destructures it as if `*` had been splatted
+                # at the call site. That's how `Hash#each { |k, v| ... }`
+                # works — Hash#each yields `[k, v]`. Without this,
+                # `each_with_index.filter_map { |ch, i| ... }` ends up
+                # with `i = nil` because Enumerable#filter_map calls
+                # `block.call(v)` with `v = [ch, i]` and the block sees
+                # `ch = [ch, i]; i = nil`. Lambdas (from_lambda) never
+                # auto-splat — only proc-style blocks do, so this rebind
+                # is scoped to from_block_as_proc.
+                arity = params.length + post_params.length
+                if arity >= 2 || (params.length >= 1 && rest_param)
+                  emit.line "if (__blkargs__->data.size() == 1) {"
+                  emit.indented do
+                    emit.line "Array* _arr0 = dynamic_cast<Array*>(__blkargs__->data[0]);"
+                    emit.line "if (_arr0) __blkargs__ = _arr0;"
+                  end
+                  emit.line "}"
+                end
                 params.each_with_index do |p, i|
                   cpp = MethodEmitter.local_cpp_name(p)
                   init = "(#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance()"

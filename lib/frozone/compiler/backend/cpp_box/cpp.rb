@@ -320,9 +320,18 @@ module Frozone
             when Ast::IntrinsicCall then from_intrinsic_call(node, locals)
             when Ast::Rescue then from_rescue(node, locals)
             when Ast::Sequence
-              # `(a)` and `(a, b, c)` both work as comma-operator —
-              # value is the last subexpression.
-              "(#{node.nodes.map { |n| from_expr(n, locals) }.join(", ")})"
+              # `(a)` and `(a, b, c)` lower to a comma-operator —
+              # value is the last subexpression. But Sequence also
+              # carries `begin..end` statement bodies whose elements
+              # may include non-expression forms (`while`, `case`-as-
+              # statement, …). In that case the comma-operator path
+              # explodes because from_expr can't render them. Wrap in
+              # an IIFE that runs the statements via write_body.
+              if node.nodes.all? { |n| Cpp.expression_node?(n) }
+                "(#{node.nodes.map { |n| from_expr(n, locals) }.join(", ")})"
+              else
+                "#{body_as_lambda(node, locals, last_is_return: true)}()"
+              end
             when Ast::GlobalVariableRead then from_global_variable_read(node)
             when Ast::Super then from_super(node, locals)
             when Ast::DefinedExpr then from_defined_expr(node, locals)
