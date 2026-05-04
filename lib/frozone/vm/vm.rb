@@ -401,7 +401,16 @@ module Frozone
       private
 
       def parse(script, dump_ast = false, filepath: nil, raise_syntax_errors: false)
-        parser = Parser.new(script, dump_ast, filepath: filepath)
+        # frozone.rb's `--parser=wq` swap (`Vm.send(:remove_const,
+        # :Parser); Vm::Parser = WqParser`) is runtime metaprog that
+        # closed-world AOT can't honor. Pick the class here based on
+        # @options[:parser] instead. Both Parser (Prism wrapper) and
+        # WqParser are loaded by frozone.rb's require_relative chain
+        # before parse() is ever called, so unconditional reference
+        # is safe — no defined?() guard needed (box-first doesn't
+        # lower defined?(const) yet).
+        parser_class = (@options && @options[:parser] == :wq) ? WqParser : Parser
+        parser = parser_class.new(script, dump_ast, filepath: filepath)
         ast = parser.ast(raise_syntax_errors: raise_syntax_errors)
         ParseResult.new(
           ast,

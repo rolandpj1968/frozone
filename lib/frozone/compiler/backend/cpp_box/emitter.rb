@@ -409,6 +409,18 @@ module Frozone
             top_level_methods = cls.equal?(@top_level_scope) ? {} : (@top_level_scope.methods_table || {})
             (cls.methods_table || {}).select do |name, m|
               next false unless m.is_a?(Vm::Method)
+              # Frozone's Vm copies included-module methods into each
+              # including class's methods_table (so dispatch is a single
+              # hash lookup). For chain attribution we need the original
+              # defining class — check method.scopes.last. If it ISN'T
+              # cls, the method was inherited via include, not defined
+              # here. Skip it from direct_methods so `chain` doesn't
+              # misclassify it as a :self entry (which would defeat the
+              # hand-coded-ancestor gate for m_is_a_q / m_respond_to_q
+              # and produce self-recursive Kernel#is_a? bodies on every
+              # subclass).
+              defining_scope = m.respond_to?(:scopes) ? m.scopes&.last : nil
+              next false if defining_scope && !defining_scope.equal?(cls)
               top_level_methods[name] != m
             end
           end

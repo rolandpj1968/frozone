@@ -176,7 +176,7 @@ module Frozone
             # bytes into a std::string for the lookup.
 
             # Object identity / class — needed by core/4.0 dispatch helpers.
-            object_is_a: ->(self_, klass) { "boxed_bool(dynamic_cast<Class*>(#{klass}) != nullptr && #{self_}->m_is_a_q(new Array({#{klass}})) == true_instance())" },
+            object_is_a: ->(self_, klass) { "(#{self_})->m_is_a_q(new Array({#{klass}}))" },
             object_class: ->(self_) { "#{self_}->m_class()" },
             # Kernel#lambda just returns the captured block as a Proc.
             # The Ruby `def lambda(&_block) = Intrinsics.kernel_lambda(self)`
