@@ -15,10 +15,14 @@ every constant. For a 4-line user script that's:
 | + chain-tail super-stubs   | ~30k    |  ~8MB | ~30 s    |
 | + self-receiver narrowing  | ~20k    |  ~5MB | ~20 s    |
 
-(Numbers above are for `bench/stubs/fib.rb`; ratios are similar for
-larger programs. The original frozone-as-frozone build went 75MB →
-47MB → ??? as each pruning stage was added — the last stage hadn't
-been profiled at the time of writing.)
+(Numbers above are for `bench/stubs/fib.rb`; ratios are similar
+for shallow-hierarchy targets. Frozone-as-frozone (deep
+hierarchies — Racc::Parser → Parser::Base → Parser::RubyN, plus
+the AST node tree) lands at ~41MB after the descendant-walk
+correction in §Stage-3, vs ~75MB unpruned and ~34MB for
+ancestors-only self-receiver. Deep hierarchies pay more for the
+descendant walk because there are more potential dispatch
+targets per self-call.)
 
 The remaining ~50k LoC / 13MB are still mostly dead weight — most
 of it is the residual surface of "any class with a kept method"
@@ -133,8 +137,31 @@ Today's surface tracks per-(cpp-name) two pieces:
 
 Stage 3 keep predicate (`method_keepable_for_class?`): the override
 on `klass` survives if the surface entry is `wide`, OR some `host`
-in `selfs` has `klass` in its `ancestors_list`. The chain emitters
-gate on this in addition to the existing surface-membership check.
+in `selfs` has `klass` reachable via dispatch from a `host` instance.
+"Reachable" walks **both directions** of the class hierarchy
+(`dispatch_can_land_on?`):
+
+- **Upward** — `klass` is in `host.ancestors_list` (host inherits
+  from klass / includes module klass): a `host`-instance dispatches
+  through klass on the way up the MRO.
+- **Downward** — `host` is in `klass.ancestors_list` (klass is a
+  *descendant* of host): a bare `foo` inside host's body has runtime
+  receiver = some `E.is_a?(host)`, so dispatch on `E`'s vtable can
+  land on `E` or any class between `E` and `host`. Closed-world AOT
+  knows the full descendant set, so the walk is finite.
+
+Originally the predicate was upward-only. The downward case was
+caught by `Parser::Base#next_token`: `Racc::Parser#_racc_do_parse_rb`
+has a bare `next_token` self-call, host = `Racc::Parser`, and
+`Parser::Base` (a descendant) overrides `next_token`. With
+upward-only keep, `Parser::Base#m_next_token` got pruned, vtable
+dispatch fell through to `Racc::Parser`'s `raise NotImplementedError`
+placeholder. Cost of the downward fix on the frozone-as-frozone
+build: gen 34MB → 41MB (+22% / +84k lines), still well below the
+unpruned ~75MB.
+
+The chain emitters gate on this predicate in addition to the
+existing surface-membership check.
 
 Self-call attribution comes from the AST walk: `MethodCall` /
 `AttributeWrite` with `receiver_node` nil or `Ast::SelfLiteral`
@@ -190,7 +217,10 @@ The cheap inference covers the common case but not these:
 Net win on baseline (delegating-stub Vm, hello.rb target):
 12MB → 6.6MB on top of chain-tail pruning (−45%). Combined
 class + method-name + chain-tail + self-receiver pruning takes
-the original 20MB baseline down to 6.6MB (−67% total).
+the original 20MB baseline down to 6.6MB (−67% total). The
+descendant-walk correction added back ~22% on the larger
+frozone-as-frozone build but keeps the baseline shrink intact —
+hello.rb-style targets have shallow descendant graphs.
 
 ### Hand-coded oddballs
 
