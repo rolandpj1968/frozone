@@ -677,13 +677,24 @@ module Frozone
             filter.any? { |host| dispatch_can_land_on?(host, klass) }
           end
 
-          # True iff a host-instance dispatch could land on klass — i.e.
-          # klass is in host's ancestor chain (host inherits from klass
-          # or includes a module that is klass).
+          # True iff a host-instance dispatch could land on klass.
+          # Two cases:
+          # - klass is in host's ancestor chain (host inherits from
+          #   klass or includes module klass) — usual upward case
+          # - klass is a descendant of host — bare `foo` inside host's
+          #   body has runtime receiver = some E.is_a?(host), so
+          #   dispatch on E's vtable can land on E or any class
+          #   between E and host. Without the downward walk we'd
+          #   prune `Parser::Base#m_next_token` (defined in a
+          #   subclass of Racc::Parser, which has the bare self-call
+          #   in its driver) and dispatch would fall through to
+          #   Racc's NotImplementedError stub.
           def dispatch_can_land_on?(host, klass)
             return true if host.equal?(klass)
             return false unless host.is_a?(Vm::ModuleObject)
-            (host.ancestors_list rescue []).any? { |a| a.equal?(klass) }
+            return false unless klass.is_a?(Vm::ModuleObject)
+            return true if (host.ancestors_list rescue []).any? { |a| a.equal?(klass) }
+            (klass.ancestors_list rescue []).any? { |a| a.equal?(host) }
           end
 
           # Find every Vm::Method body that implements `name` on a
