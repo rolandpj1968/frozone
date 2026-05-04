@@ -336,8 +336,14 @@ module Frozone
                 # operator gives the right type for expression contexts.
                 # ruby_puts is a runtime free function (NOT a vtable
                 # method) so it bypasses the universal call protocol.
+                # Bare `puts` (no args) prints a newline — match
+                # intrinsic_kernel_puts's empty-array branch.
                 args = arg_nodes.map { |a| from_arg(a, locals) }
-                "(ruby_puts(#{args.join(", ")}), nil_instance())"
+                if args.empty?
+                  "(ruby_puts(static_cast<BasicObject*>(nullptr)), nil_instance())"
+                else
+                  "(#{args.map { |a| "ruby_puts(#{a})" }.join(", ")}, nil_instance())"
+                end
               else
                 "this->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
               end
