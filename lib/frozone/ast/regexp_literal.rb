@@ -17,6 +17,8 @@ module Frozone
     end
 
     class InterpolatedRegexpLiteral < Node
+      attr_reader :parts, :flags
+
       def initialize(parts, flags)
         @parts = parts
         @flags = flags

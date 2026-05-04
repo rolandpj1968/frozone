@@ -244,6 +244,7 @@ module Frozone
             when Ast::HashLiteral    then from_hash_literal(node, locals)
             when Ast::RangeLiteral   then from_range_literal(node, locals)
             when Ast::RegexpLiteral  then from_regexp_literal(node)
+            when Ast::InterpolatedRegexpLiteral then from_interpolated_regexp_literal(node, locals)
             when Ast::LocalVariableRead then from_local_variable_read(node)
             when Ast::ConstantRead then from_constant_read(node)
             when Ast::ConstantPath then from_constant_path(node)
@@ -752,6 +753,25 @@ module Frozone
             src_bytes = node.source.to_s.bytes
             literal = "(new String(#{cpp_string_literal(node.source.to_s)}, #{src_bytes.size}))"
             "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>(#{literal}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))}); _re->m_initialize(_a, nullptr, nullptr); return _re; }())"
+          end
+
+          # `/foo#{bar}baz/` — build the source String at runtime by
+          # concatenating literal chunks + interpolated expressions
+          # (each .to_s'd), then construct the Regexp from source +
+          # flags. Same shape as from_interpolated_string for the
+          # source build, then wraps in onig_new via Regexp::m_initialize.
+          def from_interpolated_regexp_literal(node, locals)
+            parts = node.parts || []
+            chain = +%((new String("", 0)))
+            parts.each do |part|
+              part_str = if part.is_a?(Ast::StringLiteral)
+                           from_string_literal(part)
+                         else
+                           "#{from_expr(part, locals)}->m_to_s()"
+                         end
+              chain << "->op_plus(new Array({#{part_str}}))"
+            end
+            "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>(#{chain}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))}); _re->m_initialize(_a, nullptr, nullptr); return _re; }())"
           end
 
           # Float literal — Ruby's Float::INFINITY / Float::NAN
