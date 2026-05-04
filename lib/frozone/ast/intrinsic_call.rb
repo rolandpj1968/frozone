@@ -4,42 +4,47 @@ require_relative '../vm/intrinsics'
 
 module Frozone
   module Ast
+    # `Intrinsics.foo(...)` is recognised by both parsers and lowered to an
+    # IntrinsicCall (rather than a regular MethodCall). The original design
+    # cached a resolved Method object at AST-construction time as a perf
+    # optimisation — name is a literal Symbol in source, known at parse
+    # time, never variable. Under MRI that worked great: `Module#method`
+    # returns a real bound Method, `.call` invokes it directly, no per-call
+    # dispatch.
+    #
+    # Under box-first compiled, `Module#method` returns a Proc-shim that
+    # redispatches via send — so we lose the optimisation, AND the shim
+    # depends on the underlying method existing in the methods table
+    # (vulnerable to the call-surface pruner).
+    #
+    # The fix: skip the Method roundtrip and just `send` directly. Under
+    # MRI this is essentially as fast (Ruby's inline method cache makes
+    # send ~free for repeated calls). Under box-first, send is an O(1)
+    # method-id vtable dispatch — the optimisation lands "for free" via
+    # the existing send machinery.
     class IntrinsicCall < Node
-      attr_reader :method, :param_nodes
+      attr_reader :name, :param_nodes
 
       def initialize(name, param_nodes)
-        @method = self.class.method_for(name)
+        @name = name
         @param_nodes = param_nodes
       end
 
       def children = @param_nodes
 
-      def to_s
-        # @method.owner is class's eigenclass??? - not sure how to get the Class name
-        "intrinsic[#{@method.name}](#{@param_nodes.map(&:to_s).join(', ')})"
-      end
+      def to_s = "intrinsic[#{@name}](#{@param_nodes.map(&:to_s).join(', ')})"
 
       def evaluate(context)
         args = @param_nodes.flat_map do |p|
           p.is_a?(SplatArg) ? p.evaluate(context).raw : p.evaluate(context)
         end
-
-        @method.call(context, *args)
+        Vm::Intrinsics.send(@name, context, *args)
       end
 
-      def marshal_dump = [@method.name, @param_nodes]
+      def marshal_dump = [@name, @param_nodes]
 
       def marshal_load(data)
-        name, param_nodes = data
-        @method = self.class.method_for(name)
-        @param_nodes = param_nodes
-      end
-
-      # TODO - thread safety
-      Methods = {}
-
-      def self.method_for(name)
-        Methods[name] ||= Vm::Intrinsics.method(name)
+        @name, @param_nodes = data
       end
     end
   end

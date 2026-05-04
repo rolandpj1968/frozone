@@ -509,7 +509,7 @@ module Frozone
 
           def from_intrinsic_call(node, locals)
             args = node.param_nodes.map { |p| from_expr(p, locals) }
-            IntrinsicLowering.lower(node.method.name, *args)
+            IntrinsicLowering.lower(node.name, *args)
           end
 
           # `Ast::Yield` → call into the implicit `_block` Proc* that
