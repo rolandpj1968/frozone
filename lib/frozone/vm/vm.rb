@@ -43,14 +43,16 @@ module Frozone
 
       def run
         # AOT-runtime guard: post-AOT, __init_static_state__ has already
-        # populated every Vm-level class's methods table from the
-        # pre-AOT snapshot. Re-running load_core would re-parse every
-        # core/4.0/ file with the compiled WqParser and re-define every
-        # method, exercising trigger_method_added's permissive rescue
-        # block on hundreds of redundant defs. Use Module's :undef_method
-        # as a load sentinel — it's defined in the first file load_core
-        # would otherwise process. See docs/aot-runtime-redundant-setup.md.
-        load_core unless Core::MODULE_CLASS.lookup_method(:undef_method)
+        # restored Vm-level class state from the pre-AOT snapshot. Re-
+        # running load_core would re-parse every core/4.0/ file with the
+        # compiled WqParser and re-define every method, exercising
+        # trigger_method_added's permissive rescue block on hundreds of
+        # redundant defs. Sentinel: a constant that the AOT path sets on
+        # Object right before the snapshot is captured. Box-first lowers
+        # `defined?(constant)` statically against `user_constants`, so
+        # the post-AOT `if (truthy("constant")) {} else { load_core }`
+        # collapses at compile time. See docs/aot-runtime-redundant-setup.md.
+        load_core unless defined?(FROZONE_AOT_RUNTIME)
 
         ruby_version = StringObject.new('4.0.1')
         ruby_platform = StringObject.new(RUBY_PLATFORM)
@@ -522,6 +524,14 @@ module Frozone
         context.push_scope(top_level_scope)
 
         load_ast.evaluate(context)
+
+        # AOT-runtime sentinel: planted now (after load phase, before
+        # snapshot capture) so the snapshot's constants_table picks it
+        # up. Vm#run uses `defined?(FROZONE_AOT_RUNTIME)` to detect
+        # post-AOT and skip its own load_core. Pre-AOT this constant is
+        # absent until this line runs, so MRI-host Vm#run still goes
+        # through load_core normally.
+        top_level_scope.set_constant(:FROZONE_AOT_RUNTIME, TrueObject::TRUE)
 
         # Snapshot the closed-world source-file universe at the
         # load/execute boundary. Anything subsequently loaded (e.g.
