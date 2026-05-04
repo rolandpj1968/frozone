@@ -797,8 +797,16 @@ module Frozone
                     return new String(reinterpret_cast<const char*>(&bytes[0]) + start,
                                       static_cast<std::size_t>(end - start), enc);
                   }
-                  // 1-arg form. Range-as-idx slicing isn't yet supported.
-                  std::int64_t i = static_cast<Integer*>(args->data[0])->raw_;
+                  // 1-arg form. Delegate non-Integer idx (Range, Regexp,
+                  // String) to the generic intrinsic_string_slice — this
+                  // override only fast-paths the Integer case. Without
+                  // this, `"abc"[0..-1]` static_casts Range to Integer
+                  // and returns garbage / nil.
+                  BasicObject* idx = args->data[0];
+                  if (!dynamic_cast<Integer*>(idx)) {
+                    return intrinsic_string_slice(this, idx, intern("__unset__"));
+                  }
+                  std::int64_t i = static_cast<Integer*>(idx)->raw_;
                   if (i < 0) i += sz;
                   if (i < 0 || i >= sz) return nil_instance();
                   return new String(reinterpret_cast<const char*>(&bytes[i]), 1, enc);
