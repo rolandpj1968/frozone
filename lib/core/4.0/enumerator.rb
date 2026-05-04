@@ -37,21 +37,21 @@ class Enumerator
   def count = (s = size).nil? ? to_a.length : s
 
   def self._from_method(receiver, method_name, method_args, size_block = nil, method_kwargs = {})
-    e = allocate
-    e.instance_variable_set(:@receiver, receiver)
-    e.instance_variable_set(:@method_name, method_name)
-    e.instance_variable_set(:@method_args, method_args || [])
-    e.instance_variable_set(:@method_kwargs, method_kwargs || {})
-    e.instance_variable_set(:@size_block, size_block)
-    e.instance_variable_set(:@block, nil)
-    e.instance_variable_set(:@size, nil)
-    e.instance_variable_set(:@fiber, nil)
-    e.instance_variable_set(:@peeked, false)
-    e.instance_variable_set(:@peeked_vals, nil)
-    e.instance_variable_set(:@feed, nil)
-    e.instance_variable_set(:@_feed_pending, false)
-    e.instance_variable_set(:@_fiber_started, false)
-    e
+    new.tap { |e| e.__init_method_mode__(receiver, method_name, method_args, size_block, method_kwargs) }
+  end
+
+  # Used by _from_method to populate method-mode state via direct ivar
+  # writes (which box-first lowers correctly). The previous `allocate +
+  # instance_variable_set` pattern silently no-ops in box-first because
+  # `Intrinsics.object_ivar_set` is stubbed — leaves @receiver nil and
+  # forces every `enum.each` into the Fiber-backed block-mode path.
+  def __init_method_mode__(receiver, method_name, method_args, size_block, method_kwargs)
+    @receiver = receiver
+    @method_name = method_name
+    @method_args = method_args || []
+    @method_kwargs = method_kwargs || {}
+    @size_block = size_block
+    self
   end
 
   def each(*extra_args, **extra_kwargs, &block)
