@@ -78,8 +78,64 @@ inline BasicObject* intrinsic_string_index(BasicObject* self_, BasicObject* sub,
 inline BasicObject* intrinsic_string_slice(BasicObject* self_, BasicObject* idx, BasicObject* len) {
   auto* _s = static_cast<String*>(self_);
   std::int64_t _size = static_cast<std::int64_t>(_s->bytes.size());
+  // Regexp idx: return the matched substring (or capture group via len).
+  if (auto* _re = dynamic_cast<Regexp*>(idx)) {
+    OnigRegion* _region = onig_region_new();
+    const UChar* _p = _s->bytes.data();
+    int _r = onig_search(_re->compiled_, _p, _p + _s->bytes.size(),
+                         _p, _p + _s->bytes.size(),
+                         _region, ONIG_OPTION_NONE);
+    if (_r < 0) { onig_region_free(_region, 1); return nil_instance(); }
+    int _grp = 0;
+    if (len && len != intern("__unset__") && len != nil_instance()) {
+      if (auto* _g = dynamic_cast<Integer*>(len)) _grp = static_cast<int>(_g->raw_);
+    }
+    if (_grp < 0 || _grp >= _region->num_regs ||
+        _region->beg[_grp] < 0 || _region->end[_grp] < 0) {
+      onig_region_free(_region, 1);
+      return nil_instance();
+    }
+    auto* _out = new String();
+    _out->bytes.assign(_p + _region->beg[_grp], _p + _region->end[_grp]);
+    _out->enc = _s->enc;
+    onig_region_free(_region, 1);
+    return _out;
+  }
+  // Range idx: byte slice [begin, end) (or [begin, end] depending on
+  // exclude_end_). Negative bounds count from end. Out-of-range begin
+  // returns nil; out-of-range end clamps.
+  if (auto* _rng = dynamic_cast<Range*>(idx)) {
+    auto to_int = [](BasicObject* v, std::int64_t dflt) -> std::int64_t {
+      if (!v || v == nil_instance()) return dflt;
+      auto* _i = dynamic_cast<Integer*>(v);
+      return _i ? _i->raw_ : dflt;
+    };
+    std::int64_t _b = to_int(_rng->begin_, 0);
+    std::int64_t _e = to_int(_rng->end_, _size);
+    if (_b < 0) _b += _size;
+    if (_e < 0) _e += _size;
+    if (_b < 0 || _b > _size) return nil_instance();
+    if (!_rng->exclude_end_) _e += 1;
+    if (_e > _size) _e = _size;
+    if (_e < _b) _e = _b;
+    auto* _r2 = new String();
+    _r2->bytes.assign(_s->bytes.begin() + _b, _s->bytes.begin() + _e);
+    _r2->enc = _s->enc;
+    return _r2;
+  }
+  // String idx: return idx if it's a substring of self, else nil.
+  if (auto* _ss = dynamic_cast<String*>(idx)) {
+    auto _it = std::search(_s->bytes.begin(), _s->bytes.end(),
+                           _ss->bytes.begin(), _ss->bytes.end());
+    if (_it == _s->bytes.end() && !_ss->bytes.empty()) return nil_instance();
+    auto* _out = new String();
+    _out->bytes = _ss->bytes;
+    _out->enc = _ss->enc;
+    return _out;
+  }
   if (idx->m_class() != reinterpret_cast<BasicObject*>(&Integer_CLASS)) {
-    std::fprintf(stderr, "[frozone-box-first] string_slice: non-Integer idx not yet supported\n");
+    std::fprintf(stderr, "[frozone-box-first] string_slice: non-Integer/Range/Regexp/String idx not yet supported (got %s)\n",
+                 idx->ruby_class_name());
     std::abort();
   }
   std::int64_t _ix = static_cast<Integer*>(idx)->raw_;
