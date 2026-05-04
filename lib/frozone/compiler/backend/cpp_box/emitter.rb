@@ -110,6 +110,7 @@ module Frozone
           # gaps are fixed. Each entry is a Ruby method name.
           WIDENING_BLACKLIST = %i[
             proc_curry
+            chunk
           ].to_set.freeze
 
           # For each Universe class, find its corresponding
@@ -171,7 +172,8 @@ module Frozone
               next if merged.key?(cpp_name)
               next if hand_coded.include?(cpp_name)
               # Method-level reachability — drop unused overrides.
-              next unless @call_surface&.key?(cpp_name)
+              next if ENV['FROZONE_BOX_NO_PRUNE'] == '1' && WIDENING_BLACKLIST.include?(mname)
+              next unless ENV['FROZONE_BOX_NO_PRUNE'] == '1' || @call_surface&.key?(cpp_name)
               spec = build_override(m)
               merged[cpp_name] = spec if spec
             end
@@ -205,10 +207,11 @@ module Frozone
             chains.each do |mname, entries|
               # Method-level reachability gate — same as build_chained_overrides.
               cpp_head = Cpp.method_name(mname)
-              next unless @call_surface&.key?(cpp_head)
+              next if ENV['FROZONE_BOX_NO_PRUNE'] == '1' && WIDENING_BLACKLIST.include?(mname)
+              next unless ENV['FROZONE_BOX_NO_PRUNE'] == '1' || @call_surface&.key?(cpp_head)
               # Stage 3 refine: drop the chain when no self-receiver call
               # site can dispatch through this host (and surface isn't wide).
-              next unless method_keepable_for_class?(cpp_head, host_class)
+              next unless ENV['FROZONE_BOX_NO_PRUNE'] == '1' || method_keepable_for_class?(cpp_head, host_class)
               # Two-level hand-coded check:
               # - if the host class itself hand-codes this name (e.g.
               #   Object's m_class / op_case_eq are load-bearing), the
@@ -601,6 +604,34 @@ module Frozone
             # All seeded BEFORE the walk loop so transitive references
             # from their implementing bodies get picked up.
             seed_names = Set.new
+            # FROZONE_BOX_NO_PRUNE: seed every method on every class so
+            # the universal surface declares them all, and method bodies
+            # that call any name of these methods compile without
+            # missing-member errors. This is the "give up on pruning,
+            # accept ~2× gen growth" path used to debug runtime
+            # divergences from MRI without conflating with pruning gaps.
+            if ENV['FROZONE_BOX_NO_PRUNE'] == '1'
+              all_method_names = Set.new
+              # Walk every Vm-level class reachable from the top-level
+              # scope (covers universe classes like String/Array AND
+              # @user_classes), plus their eigenclasses.
+              seen = Set.new
+              walk_methods = lambda do |scope|
+                return if seen.include?(scope.object_id)
+                seen << scope.object_id
+                (scope.methods_table || {}).each_key { |n| all_method_names << n }
+                eig = scope.eigenclass rescue nil
+                (eig&.methods_table || {}).each_key { |n| all_method_names << n } if eig
+                (scope.constants_table || {}).each_value do |val|
+                  walk_methods.call(val) if val.is_a?(Vm::ModuleObject)
+                end
+              end
+              walk_methods.call(@top_level_scope)
+              # Skip method names whose emitted bodies break the C++
+              # build (kwarg-name-as-local-var emission bugs etc.).
+              # See WIDENING_BLACKLIST.
+              all_method_names.each { |n| mark_wide.call(n) unless WIDENING_BLACKLIST.include?(n) }
+            end
             # m_hash_value is a C++-internal hook (returns std::size_t,
             # used by unordered_map<BasicObject*, ...>) — not a Ruby
             # method despite the m_ prefix. Excluded from METHOD_VT
@@ -1066,7 +1097,8 @@ module Frozone
               overrides: build_chained_overrides(name.to_s, class_method_chains(cls), host_class: cls),
               eigenclass_overrides: eigenclass_methods(cls).each_with_object({}) { |(mname, m), h|
                 cpp_name = Cpp.method_name(mname)
-                next unless @call_surface.key?(cpp_name)
+                next if ENV['FROZONE_BOX_NO_PRUNE'] == '1' && WIDENING_BLACKLIST.include?(mname)
+                next unless ENV['FROZONE_BOX_NO_PRUNE'] == '1' || @call_surface.key?(cpp_name)
                 spec = build_override(m)
                 h[cpp_name] = spec if spec
               },
@@ -1098,10 +1130,11 @@ module Frozone
               # if the method name isn't called from any reachable
               # body. The unused-method bloat (~1200 unused virtual
               # overrides per class pre-pruning) was driving cpp size.
-              next unless @call_surface&.key?(cpp_name)
+              next if ENV['FROZONE_BOX_NO_PRUNE'] == '1' && WIDENING_BLACKLIST.include?(mname)
+              next unless ENV['FROZONE_BOX_NO_PRUNE'] == '1' || @call_surface&.key?(cpp_name)
               # Stage 3: drop the chain when no self-receiver call site
               # can dispatch through this host (and surface isn't wide).
-              next unless method_keepable_for_class?(cpp_name, host_class)
+              next unless ENV['FROZONE_BOX_NO_PRUNE'] == '1' || method_keepable_for_class?(cpp_name, host_class)
               if hand_coded.include?(cpp_name)
                 head_origin, _ = entries.first
                 next if head_origin != :self
