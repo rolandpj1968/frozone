@@ -36,6 +36,11 @@
 #include <gc.h>
 #include <onigmo.h>
 #include <execinfo.h>
+#include <filesystem>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fstream>
+#include <sstream>
 
 #define FROZONE_GC_INIT() GC_INIT()
 

@@ -89,7 +89,16 @@ module Frozone
               bind_str = ""
               if clause.var_name
                 bind_locals << clause.var_name.to_s
-                bind_str = "BasicObject* #{MethodEmitter.local_cpp_name(clause.var_name)} = e_; "
+                cpp_name = MethodEmitter.local_cpp_name(clause.var_name)
+                # If captured by an inner block / lambda, the closure-env
+                # convention reads/writes via `(*l_e)`; the binding has
+                # to be a heap cell. Otherwise a bare local is fine.
+                bind_str =
+                  if captured?(clause.var_name)
+                    "BasicObject** #{cpp_name} = new BasicObject*(e_); "
+                  else
+                    "BasicObject* #{cpp_name} = e_; "
+                  end
               end
               arm_call = body_as_lambda_call(clause.body, bind_locals)
               buf << "if (#{cond}) { #{bind_str}return #{arm_call}; } "

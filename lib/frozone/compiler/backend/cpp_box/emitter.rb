@@ -608,6 +608,9 @@ module Frozone
               wide_count = call_surface_filter.count { |_, v| v.nil? }
               narrow_count = call_surface_filter.count { |_, v| !v.nil? }
               $stderr.puts "[box-first] method-level surface: #{calls.size} methods (#{wide_count} wide, #{narrow_count} self-narrow)"
+              if (target = ENV['FROZONE_BOX_DEBUG_SURFACE'])
+                $stderr.puts "[box-first] surface[#{target}] = #{call_surface_filter[target].inspect}"
+              end
             end
             @call_surface_filter = call_surface_filter
             calls

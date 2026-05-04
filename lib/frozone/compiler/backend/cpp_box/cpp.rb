@@ -330,7 +330,17 @@ module Frozone
 
             call_expr =
               if recv
-                "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
+                if node.safe_nav
+                  # `recv&.foo(args)` — short-circuit to nil when recv
+                  # is nil_instance(); MRI semantics short-circuit on
+                  # nil only (NOT on false). Compute the receiver once
+                  # via IIFE to avoid double-evaluation of side effects.
+                  recv_str = from_expr(recv, locals)
+                  call_tail_str = "->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
+                  "([&]() -> BasicObject* { auto* _r = #{recv_str}; return (_r == nil_instance()) ? nil_instance() : _r#{call_tail_str}; }())"
+                else
+                  "#{from_expr(recv, locals)}->#{Cpp.method_name(name)}#{call_tail(args_array, kwargs_arg, block_arg)}"
+                end
               elsif name == :puts
                 # ruby_puts returns void; Ruby's puts returns nil — comma
                 # operator gives the right type for expression contexts.

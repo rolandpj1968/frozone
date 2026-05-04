@@ -76,6 +76,14 @@ module Frozone
             kernel_catch kernel_throw kernel_puts kernel_print
             kernel_rand kernel_integer kernel_float kernel_raise
             fiber_storage_get fiber_storage_set
+            file_expand_path file_dirname file_basename file_split
+            file_exist file_directory file_file file_size file_size_exact
+            file_realpath file_realdirpath file_read
+            file_readable file_readable_real file_writable file_writable_real
+            file_executable file_executable_real
+            file_owned file_grpowned file_zero
+            file_chardev file_blockdev file_pipe file_socket file_symlink
+            file_setuid file_setgid file_sticky file_identical
           ]).freeze
 
           TEMPLATES = {
@@ -110,6 +118,16 @@ module Frozone
             integer__gt_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ >  static_cast<Integer*>(#{o})->raw_)" },
             integer__le_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ <= static_cast<Integer*>(#{o})->raw_)" },
             integer__ge_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ >= static_cast<Integer*>(#{o})->raw_)" },
+            integer__eq_:    ->(s, o) { "boxed_bool(static_cast<Integer*>(#{s})->raw_ == static_cast<Integer*>(#{o})->raw_)" },
+            integer_bitnot:  ->(s) { "(new Integer(~static_cast<Integer*>(#{s})->raw_))" },
+            float__mod_:     ->(s, o) { "(new Float(std::fmod(static_cast<Float*>(#{s})->raw_, static_cast<Float*>(#{o})->raw_)))" },
+            float_divmod:    ->(s, o) {
+              "([&]() -> BasicObject* { double _a = static_cast<Float*>(#{s})->raw_; double _b = static_cast<Float*>(#{o})->raw_; double _q = std::floor(_a / _b); double _r = _a - _q * _b; return (new Array({static_cast<BasicObject*>(new Float(_q)), static_cast<BasicObject*>(new Float(_r))})); }())"
+            },
+            float_hash:      ->(s) { "(new Integer(static_cast<int64_t>(std::hash<double>{}(static_cast<Float*>(#{s})->raw_))))" },
+            float_to_s:      ->(s) {
+              "([&]() -> BasicObject* { char _buf[32]; double _v = static_cast<Float*>(#{s})->raw_; if (std::isnan(_v)) return new String(\"NaN\", 3); if (std::isinf(_v)) return new String(_v > 0 ? \"Infinity\" : \"-Infinity\", _v > 0 ? 8 : 9); int _n = std::snprintf(_buf, sizeof(_buf), \"%.17g\", _v); return new String(_buf, _n); }())"
+            },
 
             # Range — direct field access on the C++ struct (begin_,
             # end_, exclude_end_, initialized_).
@@ -270,6 +288,15 @@ module Frozone
             kernel_block_given: ->(_self_) { "false_instance()" },
             kernel_caller:           ->(_self_, _start, _length) { "(new Array())" },
             kernel_caller_locations: ->(_self_, _start, _length) { "(new Array())" },
+            # Closed-world AOT: every BUILD_FILES file is already
+            # compiled in. require / require_relative / load are no-ops
+            # at runtime — return false ("already loaded"). A program
+            # that requires something NOT in the AOT snapshot would
+            # silently get "already loaded"; that's a closed-world
+            # gap to flag with diagnostics later, not crash.
+            kernel_require:          ->(_self_, _path) { "false_instance()" },
+            kernel_require_relative: ->(_self_, _path) { "false_instance()" },
+            kernel_load:             ->(_self_, _path, _wrap) { "false_instance()" },
             # `Frozone::Vm::Vm#initialize(options)` — synthetic stub set
             # up by setup_frozone_land for self-hosting. In box-first AOT
             # the only thing kernel_run_vm does is print "no impl"+exit,

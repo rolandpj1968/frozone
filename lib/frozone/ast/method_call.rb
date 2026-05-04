@@ -3,7 +3,7 @@ require_relative 'node'
 module Frozone
   module Ast
     class MethodCall < Node
-      attr_reader :name, :receiver_node, :arg_nodes, :kw_arg_nodes, :block_node, :kw_splat_nodes
+      attr_reader :name, :receiver_node, :arg_nodes, :kw_arg_nodes, :block_node, :kw_splat_nodes, :safe_nav
 
       def initialize(name, receiver_node, arg_nodes, kw_arg_nodes, block_node = nil, kw_splat_nodes: [], safe_nav: false, ambiguous: false, source_location: nil)
         @name = name
