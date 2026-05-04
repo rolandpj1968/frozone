@@ -104,6 +104,14 @@ module Frozone
           # etc.) — they have hand-coded backing already.
           UNIVERSE_NAMES = Set.new(Runtime::ALL_CLASSES.map(&:name)).freeze
 
+          # Methods that the receiver-aware send widening would normally
+          # pull into the surface but whose compiled bodies break the
+          # C++ build. Blacklist them until the underlying emission
+          # gaps are fixed. Each entry is a Ruby method name.
+          WIDENING_BLACKLIST = %i[
+            proc_curry
+          ].to_set.freeze
+
           # For each Universe class, find its corresponding
           # Vm::ClassObject in constants_table and compile any methods
           # whose cpp_name isn't already in Universe's hand-coded
@@ -495,6 +503,37 @@ module Frozone
               set << host if host
             end
 
+            send_method_names = %i[send __send__ public_send].freeze
+            # Resolve an Ast::ConstantRead / Ast::ConstantPath chain to
+            # a Vm::ClassObject by matching the dotted path against
+            # @user_classes flat-name keys. Returns nil for runtime-
+            # variable receivers, deeply-qualified shapes we don't
+            # recognise, or constants pointing at non-class values.
+            const_path_to_class = lambda do |recv|
+              parts = []
+              cur = recv
+              loop do
+                case cur
+                when Ast::ConstantRead
+                  parts.unshift(cur.name)
+                  break
+                when Ast::ConstantPath
+                  parts.unshift(cur.name)
+                  cur = cur.parent_node
+                else
+                  return nil
+                end
+              end
+              tail = parts.join('_').to_sym
+              # Direct match (full path matches a top-level user_class)
+              return @user_classes[tail] if @user_classes.key?(tail)
+              # Suffix match (e.g. Vm::Intrinsics → Frozone_Vm_Intrinsics)
+              suffix = "_#{tail}"
+              @user_classes.each do |flat, cls|
+                return cls if flat.to_s.end_with?(suffix)
+              end
+              nil
+            end
             walk = lambda do |node, host|
               next unless node.is_a?(Ast::Node)
               # Don't recurse into nested method defs — their bodies are
@@ -506,6 +545,35 @@ module Frozone
                   mark_self.call(node.name, host)
                 else
                   mark_wide.call(node.name)
+                end
+                # Receiver-aware send widening. When we see
+                # `Const.send(name_expr)` and `Const` resolves to a
+                # known class, mark every eigenclass method of that
+                # class as wide. This is the principled fix for
+                # `Vm::Intrinsics.send(@name, ...)` in IntrinsicCall:
+                # the dispatched name is a runtime ivar, not a literal,
+                # so the literal-Symbol widening can't see it — but
+                # the receiver is statically resolvable, so we know
+                # which class's methods are reachable.
+                if node.is_a?(Ast::MethodCall) &&
+                   send_method_names.include?(node.name) &&
+                   node.receiver_node
+                  cls = const_path_to_class.call(node.receiver_node)
+                  if cls && (eig = (cls.eigenclass rescue nil))
+                    (eig.methods_table || {}).each_key do |m|
+                      # Methods known to break the C++ build when emitted
+                      # under box-first today — kwarg `block:` parameter,
+                      # references to hand-coded methods that don't exist
+                      # on the receiver (m_absolute_path_q, m_linear_time_q,
+                      # m_newly_created_for_subclass), Hash literal init
+                      # shape mismatches. Drop until those emission gaps
+                      # close. Hits if `_curry`-style helpers ever flow
+                      # through this widening; right now `proc_curry` is
+                      # the main offender during frozone-as-frozone build.
+                      next if WIDENING_BLACKLIST.include?(m)
+                      mark_wide.call(m)
+                    end
+                  end
                 end
               elsif node.is_a?(Ast::SymbolLiteral)
                 # Collect every symbol literal that names a method.
@@ -577,6 +645,22 @@ module Frozone
                 module_define_method
                 module_ruby2_keywords
                 module_singleton_class_q
+                module_name
+                module_constants
+                module_const_defined
+                module_const_get
+                module_class_variable_defined
+                module_class_variable_get
+                module_class_variable_set
+                module_class_variables
+                module_remove_class_variable
+                module_using
+                module_used_refinements
+                module_set_temporary_name
+                module_const_source_location
+                module_private_constant
+                module_public_constant
+                module_remove_const
               ]
               mt = intrinsics_cls.eigenclass.methods_table || {}
               wanted.each do |mname|

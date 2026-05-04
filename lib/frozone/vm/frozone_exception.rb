@@ -16,7 +16,7 @@ module Frozone
 
       def self.make(class_name, message, name: nil, receiver: nil)
         # Support "Errno__ENOENT" style names as namespace separators (Errno::ENOENT)
-        parts = class_name.to_s.split('__').map(&:to_sym)
+        parts = class_name.to_s.split('__').map { |s| s.to_sym }
         exc_class = parts.reduce(Core::OBJECT_CLASS) { |scope, const| scope&.get_constant(const) }
         # NOTE: tap would be awkward here — exc_obj is used as an argument to new(), not returned,
         # and the conditional set_ivar guards make the block body non-trivial.
@@ -34,7 +34,7 @@ module Frozone
       def self.wrap_mri(e)
         return e.vm_object if e.is_a?(FrozoneException)
         # Try to find the VM class by traversing the qualified MRI class name (e.g. Encoding::CompatibilityError)
-        parts = e.class.name&.split('::')&.map(&:to_sym) || [:RuntimeError]
+        parts = e.class.name&.split('::')&.map { |s| s.to_sym } || [:RuntimeError]
         exc_class = parts.reduce(Core::OBJECT_CLASS) { |scope, const| scope&.get_constant(const) }
         exc_class ||= Core::OBJECT_CLASS.get_constant(:RuntimeError)
         return NilObject::NIL unless exc_class
