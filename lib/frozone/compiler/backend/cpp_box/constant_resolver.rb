@@ -44,6 +44,14 @@ module Frozone
               # which Ruby treats as "assigned" for defined? purposes.
               return %((new String("#{lit}", #{lit.bytesize})))
             end
+            if kind == :constant
+              # Closed-world: resolve the constant statically. If it's
+              # known to the AOT registry, the answer is "constant";
+              # otherwise nil. (Runtime constant_missing is not a
+              # consideration here — every reachable constant is in
+              # user_constants / user_classes by emission time.)
+              return defined_constant_result(node.extra)
+            end
             if kind == :yield
               # Block presence is the runtime predicate.
               return %|(_block != nullptr ? static_cast<BasicObject*>(new String("yield", 5)) : nil_instance())|
@@ -60,6 +68,28 @@ module Frozone
               return %|([&]() -> BasicObject* { try { return truthy(#{recv}->m_respond_to_q(new Array({intern(#{cpp_string_literal(method_name.to_s)})}))) ? static_cast<BasicObject*>(new String("method", 6)) : nil_instance(); } catch (...) { return nil_instance(); } }())|
             end
             raise Cpp::EmissionError, "defined?(#{kind}) not yet supported in box-first"
+          end
+
+          # Closed-world `defined?(Const)` answer. ConstantRead /
+          # ConstantPath get statically resolved through the same
+          # walker the value-side uses; any other shape (e.g. a
+          # transformed expression) falls back to nil — consistent
+          # with "not statically known means not present in this
+          # build".
+          def defined_constant_result(extra)
+            resolved = case extra
+                       when Ast::ConstantRead then resolve_constant([extra.name.to_s])
+                       when Ast::ConstantPath then defined_constant_path_resolved(extra)
+                       end
+            resolved ? %((new String("constant", 8))) : "nil_instance()"
+          end
+
+          def defined_constant_path_resolved(node)
+            return nil unless static_constant_parent?(node.parent_node)
+            parts = collect_path(node)
+            absolute = parts.first == "" ||
+                       node.parent_node.is_a?(Ast::RootNamespaceNode)
+            absolute ? resolve_top_level(parts.reject(&:empty?)) : resolve_constant(parts)
           end
 
           # ConstantRead / ConstantPath — Ruby-style lookup walks the
