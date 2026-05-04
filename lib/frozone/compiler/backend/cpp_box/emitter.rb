@@ -1125,9 +1125,16 @@ module Frozone
             (eigen.methods_table || {}).select do |name, m|
               next false unless m.is_a?(Vm::Method)
               next false if top_level_methods[name] == m
+              # `def self.foo` adds to eigen.methods_table but its
+              # lexical scopes.last is the host class (`Fiber`), not
+              # the eigenclass. `class << self; def foo; end; end`
+              # gives scopes.last == eigen. Both are genuine
+              # singleton-method definitions; accept either. Methods
+              # copied in by Frozone Vm from parent classes (Class#new,
+              # Module#name, …) have scopes.last that's neither.
               defining_scope = m.scopes.last rescue nil
-              next false if defining_scope && !defining_scope.equal?(eigen)
-              true
+              next true if defining_scope.nil?
+              defining_scope.equal?(cls) || defining_scope.equal?(eigen)
             end
           end
 
