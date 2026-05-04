@@ -1110,13 +1110,24 @@ module Frozone
           # Walk class.eigenclass.methods_table for `def self.X` entries.
           # Same closed-world policy as class_methods — emit all, let
           # graceful degradation drop the ones we can't compile.
+          # Filter to methods *defined* on this eigenclass: Frozone Vm
+          # copies inherited module methods (Class#new, Class#allocate,
+          # …) into every eigenclass's methods_table, which would
+          # shadow the auto-emit `m_new`/`m_allocate` with the
+          # abort-stub for `:class_new` / `:class_allocate`. The
+          # auto-emit (`overrides["m_new"] ||= …`) only kicks in when
+          # the slot is empty, so we must not overlay the inherited
+          # copies. Same fix as direct_methods.
           def eigenclass_methods(cls)
             eigen = cls.eigenclass rescue nil
             return {} unless eigen
             top_level_methods = (@top_level_scope.methods_table || {})
             (eigen.methods_table || {}).select do |name, m|
               next false unless m.is_a?(Vm::Method)
-              top_level_methods[name] != m
+              next false if top_level_methods[name] == m
+              defining_scope = m.scopes.last rescue nil
+              next false if defining_scope && !defining_scope.equal?(eigen)
+              true
             end
           end
 
