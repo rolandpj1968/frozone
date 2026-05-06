@@ -434,6 +434,11 @@ module Frozone
             # at every call site. extern here, definition lands in
             # write_singletons after Array's struct body is complete.
             emit.line "extern Array EMPTY_ARGS;"
+            # Same pattern for kwargs: `Hash* kwargs = &EMPTY_KWARGS`
+            # as the default keeps every BasicObject*-bearing slot in
+            # the universal protocol filled with a real object instead
+            # of nullptr. Lets us drop nullptr branches throughout.
+            emit.line "extern Hash EMPTY_KWARGS;"
             emit.blank
             kernel_fns.each { |fn| emit.line "inline #{fn.signature};" }
             intrinsics.each { |fn| emit.line "inline #{fn.signature};" }
@@ -498,7 +503,7 @@ module Frozone
             call_surface.each do |cpp_name, ruby_name|
               next if skip.include?(cpp_name)
               ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
-              emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
+              emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
             end
             # Constant-lookup surface — c_X() per dynamic-receiver
             # constant name. Default on BasicObject: TypeError (matches
@@ -691,7 +696,7 @@ module Frozone
               return
             end
             override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
-            emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr)#{override_kw};"
+            emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr)#{override_kw};"
           end
 
           # Out-of-line override definition. spec[:params] is a list of
@@ -733,6 +738,7 @@ module Frozone
             # Array struct is complete by this point; the singleton
             # backs every default `Array* args = &EMPTY_ARGS` parameter.
             emit.line "inline Array EMPTY_ARGS;"
+            emit.line "inline Hash EMPTY_KWARGS;"
           end
 
           def self.write_kernel_fn_bodies(emit, kernel_fns)

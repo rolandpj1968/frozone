@@ -2,7 +2,7 @@
 # returns.
 #
 # Universal call protocol: every Ruby method takes
-#   m_X(Array* args, Hash* kwargs = nullptr, Proc* block = nullptr).
+#   m_X(Array* args, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr).
 # Bodies unpack required positional params from `args` via
 # array_at(args, i). Block is always available as `_block` (or
 # user-named &blk). Specialisation slots like `m_X_<arity>(arg)`
@@ -55,7 +55,7 @@ module Frozone
               emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
             end
             end
-            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) {"
+            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) {"
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
             emit.line "}"
           rescue Cpp::EmissionError => e
@@ -71,7 +71,7 @@ module Frozone
             # NoMethodError. Aborting can't be caught and points
             # straight at the missing-feature site.
             msg = "[frozone-box-first] unimplemented method :#{name} (def @ #{loc}): #{e.message}"
-            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = nullptr, Proc* block = nullptr) {"
+            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) {"
             emit.indented do
               emit.line %|std::fprintf(stderr, "%s\\n", #{emit.cpp.cpp_string_literal(msg)});|
               emit.line "std::abort();"
@@ -151,7 +151,7 @@ module Frozone
                      !(method.optional_kw_params || []).empty? ||
                      !!method.kw_rest_param
             unless has_kw
-              emit.line "if (kwargs && !kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
+              emit.line "if (!kwargs->data.empty()) { Array* _ext = new Array(); _ext->data = args->data; Hash* _h = new Hash(); _h->data = kwargs->data; _ext->data.push_back(static_cast<BasicObject*>(_h)); args = _ext; }"
             end
             required.each_with_index do |p, i|
               emit.line decl_local_line(emit, p, "array_at(args, #{i})")
@@ -170,12 +170,12 @@ module Frozone
             (method.optional_kw_params || []).each do |(p, default_node)|
               default_str = default_node ? emit.cpp.from_expr(default_node, locals) : "nil_instance()"
               key_lit = emit.cpp.cpp_string_literal(p.to_s)
-              emit.line decl_local_line(emit, p, "(kwargs ? [&]() -> BasicObject* { auto _it = kwargs->data.find(intern(#{key_lit})); return _it == kwargs->data.end() ? (#{default_str}) : _it->second; }() : (#{default_str}))")
+              emit.line decl_local_line(emit, p, "[&]() -> BasicObject* { auto _it = kwargs->data.find(intern(#{key_lit})); return _it == kwargs->data.end() ? (#{default_str}) : _it->second; }()")
               locals << p.to_s
             end
             (method.required_kw_params || []).each do |p|
               key_lit = emit.cpp.cpp_string_literal(p.to_s)
-              emit.line decl_local_line(emit, p, %|(kwargs && kwargs->data.find(intern(#{key_lit})) != kwargs->data.end()) ? kwargs->data[intern(#{key_lit})] : ([&]() -> BasicObject* { std::fprintf(stderr, "[box-first] missing required kw arg :#{p}\\n"); std::abort(); }())|)
+              emit.line decl_local_line(emit, p, %|(kwargs->data.find(intern(#{key_lit})) != kwargs->data.end()) ? kwargs->data[intern(#{key_lit})] : ([&]() -> BasicObject* { std::fprintf(stderr, "[box-first] missing required kw arg :#{p}\\n"); std::abort(); }())|)
               locals << p.to_s
             end
             if method.kw_rest_param
@@ -194,7 +194,7 @@ module Frozone
               }.join(" || ")
               consumed_check = "false" if consumed_check.empty?
               emit.line "Hash* __#{cpp_name}_h__ = new Hash();"
-              emit.line "if (kwargs) for (auto& _kv : kwargs->data) {"
+              emit.line "for (auto& _kv : kwargs->data) {"
               emit.line "  auto* _k = static_cast<Symbol*>(_kv.first);"
               emit.line "  if (!(#{consumed_check})) __#{cpp_name}_h__->data[_kv.first] = _kv.second;"
               emit.line "}"
