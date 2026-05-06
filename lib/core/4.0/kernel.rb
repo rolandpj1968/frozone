@@ -205,7 +205,7 @@ module Kernel
           raise TypeError, "can't convert #{val.class} into Integer (#{val.class}#to_i gives #{result.class})"
         end
       end
-      # to_int returned non-Integer and no to_i — raise TypeError about to_int
+      # to_int returned non-Integer and no to_i -- raise TypeError about to_int
       if !to_int_result.nil? && val.respond_to?(:to_int)
         return nil unless exception
         raise TypeError, "can't convert #{val.class} into Integer (#{val.class}#to_int gives #{to_int_result.class})"
@@ -506,7 +506,7 @@ module Kernel
   end
 
   # Soft: return nil if object doesn't respond to the coercion method
-  # (MRI rb_check_convert_type — used where "try" semantics are needed)
+  # (MRI rb_check_convert_type -- used where "try" semantics are needed)
 
   def __try_coerce_to_str__(val)
     return val if val.is_a?(String)
@@ -540,7 +540,7 @@ module Kernel
     result
   end
 
-  # Path coercion: to_path → to_str chain (File/IO path arguments)
+  # Path coercion: to_path -> to_str chain (File/IO path arguments)
   def __coerce_to_path__(val)
     return val if val.is_a?(String)
     if val.respond_to?(:to_path)
@@ -586,7 +586,7 @@ module Kernel
     else
       raise TypeError, "#{name.class} is not a symbol nor a string"
     end
-    unless s.match?(/\A@[a-zA-Z_\u{0080}-\u{10FFFF}][a-zA-Z0-9_\u{0080}-\u{10FFFF}]*\z/)
+    unless s.match?(/\A@[a-zA-Z_][a-zA-Z0-9_]*\z/)
       raise NameError.new("'#{s}' is not allowed as an instance variable name", s, receiver: receiver)
     end
     s.to_sym
