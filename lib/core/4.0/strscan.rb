@@ -185,9 +185,9 @@ class StringScanner
         if m[2] # 0x prefix form
           hex_part = m[3] || ''
           matched_str = m[1] + '0x' + m[2] + hex_part
-          # If 0x prefix with nothing or non-hex after → match just "0"
+          # If 0x prefix with nothing or non-hex after -> match just "0"
           if hex_part.empty? && m[2].empty?
-            # "0x" with nothing following → match "0"
+            # "0x" with nothing following -> match "0"
             matched_str = m[1] + '0'
             val = 0
           else

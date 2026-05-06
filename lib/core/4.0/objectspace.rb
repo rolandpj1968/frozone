@@ -16,7 +16,7 @@ module ObjectSpace
 
   # WeakMap: identity-keyed map (keys compared by object_id, not equality).
   # In a single-process interpreter without real GC pressure, we don't
-  # implement actual weak references — entries persist until explicitly removed.
+  # implement actual weak references -- entries persist until explicitly removed.
   class WeakMap
     include Enumerable
 

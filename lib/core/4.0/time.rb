@@ -171,7 +171,7 @@ class Time
           _coerce_tz_arg(raw_tz)
         end
       if year.equal?(NEW_NO_YEAR)
-        # Time.new() or Time.new(in: tz_obj) — use now
+        # Time.new() or Time.new(in: tz_obj) -- use now
         if effective_tz.respond_to?(:utc_to_local)
           utc_t   = Intrinsics.time_new(nil, nil, nil, nil, nil, nil, nil).utc
           local_t = effective_tz.utc_to_local(utc_t)

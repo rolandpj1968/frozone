@@ -46,13 +46,13 @@ class StringIO
     str = str.to_str if str.respond_to?(:to_str)
     str = str.to_s unless str.is_a?(String)
 
-    # Parse mode — convert via to_str if object
+    # Parse mode -- convert via to_str if object
     int_trunc_only = false  # for frozen-string error type
     if mode.nil?
       # Default mode: read-write for mutable strings, read-only for frozen
       mode_str = str.frozen? ? "r" : "r+"
     elsif mode.is_a?(Integer)
-      # IO::TRUNC alone (no WRONLY/RDWR) → FrozenError on frozen strings
+      # IO::TRUNC alone (no WRONLY/RDWR) -> FrozenError on frozen strings
       has_int_wronly = (mode & File::WRONLY) != 0 rescue false
       has_int_rdwr   = (mode & File::RDWR)   != 0 rescue false
       has_int_trunc  = (mode & File::TRUNC)  != 0 rescue false
@@ -141,7 +141,7 @@ class StringIO
       @external_encoding = Encoding::ASCII_8BIT rescue Encoding::BINARY rescue nil
       @string.force_encoding(@external_encoding) if @external_encoding && @string.respond_to?(:force_encoding) && !@string.frozen?
     else
-      # Encoding derived dynamically from @string — don't set @external_encoding
+      # Encoding derived dynamically from @string -- don't set @external_encoding
       # For no-arg case, apply default_external to the string
       @external_encoding = nil
       if !str_given

@@ -60,7 +60,7 @@ class Range
     end
     if discrete
       # Single-char String/Symbol: iterate by character code (MRI semantics).
-      # succ-based iteration is wrong here — "Z".succ == "AA" which is still
+      # succ-based iteration is wrong here -- "Z".succ == "AA" which is still
       # < "z" lexicographically, causing an infinite loop.
       if !e.nil? && (i.is_a?(String) || i.is_a?(Symbol)) && i.to_s.length == 1 && e.to_s.length == 1
         sym  = i.is_a?(Symbol)
@@ -125,7 +125,7 @@ class Range
         cmp = ve <=> e
         return false if cmp.nil?
         if exclude_end?
-          # Both exclusive: val [vb,ve) ⊆ self [b,e) iff ve <= e
+          # Both exclusive: val [vb,ve) <= self [b,e) iff ve <= e
           return cmp <= 0
         else
           # Self inclusive, val exclusive: need effective last of val (ve-1 for integers) <= e
@@ -587,7 +587,7 @@ class Range
     end
   end
 
-  # Float step: endless or infinite-boundary — simple loop with no count pre-computation.
+  # Float step: endless or infinite-boundary -- simple loop with no count pre-computation.
   def __step_float_unbounded__(b_f, e_f, step_f, excl, &block)
     k = 0
     loop do

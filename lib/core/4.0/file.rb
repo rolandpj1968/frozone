@@ -321,7 +321,7 @@ class File < IO
       base = File.basename(p)
       # Hidden files (starting with a dot) with no other dot have no extension.
       # All-dot names like '.', '..', '...' have no extension.
-      # Edge cases: 'file' → '', '.hidden' → '', 'file.' → '.', 'file.rb' → '.rb'
+      # Edge cases: 'file' -> '', '.hidden' -> '', 'file.' -> '.', 'file.rb' -> '.rb'
       dot = base.rindex('.')
       return '' if dot.nil? || dot == 0
       return '' if base.chars.all? { |c| c == '.' }
@@ -359,7 +359,7 @@ class File < IO
 
     private
 
-    # Recursive helper for File.join — populates segs with string segments.
+    # Recursive helper for File.join -- populates segs with string segments.
     # seen is an array used for cycle detection (identity comparison).
     def _join_parts(parts, segs, seen)
       parts.each do |p|
@@ -425,7 +425,7 @@ class File < IO
       return mode_str if mode.is_a?(Integer)
       # Apply binmode: true by inserting 'b' after the access character if not already present
       if opts[:binmode] && !mode_str.include?('b')
-        # Insert 'b' after the first mode char (e.g. 'w' → 'wb', 'r+' → 'rb+')
+        # Insert 'b' after the first mode char (e.g. 'w' -> 'wb', 'r+' -> 'rb+')
         # Handle both 'rw+' form and encoding suffix: insert before ':' if present
         colon_idx = mode_str.index(':')
         base = colon_idx ? mode_str[0, colon_idx] : mode_str

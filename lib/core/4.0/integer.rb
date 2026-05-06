@@ -93,7 +93,7 @@ class Integer
       return Intrinsics.integer__pow_(self, v)
     end
     if v.is_a?(Float)
-      # Negative base with fractional exponent → Complex
+      # Negative base with fractional exponent -> Complex
       if self < 0 && v != v.floor
         r     = (-self).to_f ** v
         theta = Math::PI * v

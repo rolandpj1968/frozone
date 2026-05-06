@@ -1,5 +1,5 @@
 # Pure-Ruby Monitor implementation for Frozone.
-# Monitor is a reentrant mutex — the same thread may enter multiple times.
+# Monitor is a reentrant mutex -- the same thread may enter multiple times.
 # MonitorMixin is copied from Ruby stdlib monitor.rb (already pure Ruby there).
 
 class Monitor

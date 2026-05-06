@@ -29,7 +29,7 @@ module Signal
   # Sentinel for "never set" (distinct from nil which is a valid handler meaning IGNORE)
   UNSET = Object.new.freeze
 
-  # Handler registry: canonical signal name → handler (proc, "IGNORE", "DEFAULT", nil, etc.)
+  # Handler registry: canonical signal name -> handler (proc, "IGNORE", "DEFAULT", nil, etc.)
   @handlers = {}
 
   class << self
@@ -50,7 +50,7 @@ module Signal
       end
       name = str.start_with?("SIG") ? str[3..] : str
       raise ArgumentError, "unsupported signal `SIG#{name}'" unless LIST.key?(name)
-      # Return the canonical name for aliases (CLD → CHLD via CANONICAL_BY_NUM)
+      # Return the canonical name for aliases (CLD -> CHLD via CANONICAL_BY_NUM)
       CANONICAL_BY_NUM[LIST[name]]
     end
 

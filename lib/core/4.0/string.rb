@@ -521,7 +521,7 @@ class String
       while i < bs
         b = getbyte(i)
         if b < 128
-          # ASCII byte — always 1 char
+          # ASCII byte -- always 1 char
           s = String.new(''.force_encoding(Encoding::BINARY))
           s << b
           s.force_encoding(enc)
@@ -581,7 +581,7 @@ class String
           arr << s
           i += clen
         else
-          # Invalid byte (continuation byte or 0xC0/0xC1) — treat as single char
+          # Invalid byte (continuation byte or 0xC0/0xC1) -- treat as single char
           s = String.new(''.force_encoding(Encoding::BINARY))
           s << b
           s.force_encoding(enc)
@@ -961,7 +961,7 @@ class String
   private
 
   # Pure byte check: all bytes <= 127. Does NOT check encoding compatibility
-  # (avoids recursion through Encoding#ascii_compatible? → Set#include? → String#==).
+  # (avoids recursion through Encoding#ascii_compatible? -> Set#include? -> String#==).
   def __bytes_ascii__?
     bs = bytesize
     i = 0

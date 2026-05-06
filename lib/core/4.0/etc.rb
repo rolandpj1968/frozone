@@ -1,4 +1,4 @@
-# Stub for the etc C extension — provides minimal Etc module for Frozone VM.
+# Stub for the etc C extension -- provides minimal Etc module for Frozone VM.
 module Etc
   def self.getlogin = ENV['USER'] || ENV['LOGNAME'] || Intrinsics.process_uid.to_s
   def self.getpwuid(uid = Process.uid) = nil

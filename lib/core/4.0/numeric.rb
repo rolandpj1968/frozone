@@ -157,7 +157,7 @@ class Numeric
           # Positional call: store as positional args (omit default step=1 if not given)
           as_args = pos_to_given ? [limit] : []
           as_args << step_v if pos_by_given
-          # Mixed: keyword by: was given alongside positional to — store in kwargs
+          # Mixed: keyword by: was given alongside positional to -- store in kwargs
           as_kwargs = {}
           as_kwargs[:by] = step_v if kw_by_given && !pos_by_given
           as_kwargs[:to] = limit  if kw_to_given && !pos_to_given
@@ -207,9 +207,9 @@ class Numeric
     end
 
     diff = (lim - origin).to_f
-    # NaN: inf - inf or -inf - (-inf) = indeterminate → 0 steps
+    # NaN: inf - inf or -inf - (-inf) = indeterminate -> 0 steps
     return 0 if diff.respond_to?(:nan?) && diff.nan?
-    # Infinite diff with finite step: going the right direction → infinite sequence
+    # Infinite diff with finite step: going the right direction -> infinite sequence
     if diff.respond_to?(:infinite?) && diff.infinite?
       return Float::INFINITY if (sv > 0 && diff > 0) || (sv < 0 && diff < 0)
       return 0

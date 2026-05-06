@@ -58,7 +58,7 @@ class Thread
   def self.list    = [Thread.main] + @@pending + @@all.select(&:alive?)
 
   # Kill all non-main pending/running threads and reset scheduler state.
-  # Used between spec files to prevent thread leaks causing O(n²) slowdown.
+  # Used between spec files to prevent thread leaks causing O(n^2) slowdown.
   def self.__kill_all_non_main!
     @@pending.each { |t| t.instance_variable_set(:@done, true) rescue nil }
     @@pending.clear
@@ -130,7 +130,7 @@ class Thread
   # seen in current replay run) to replay past the stopped positions:
   # if @stop_seen < @wakeup_count, increment @stop_seen and return (skip this stop).
   # Otherwise raise Blocked so the thread is re-queued.
-  # Does NOT set @@last_blocked_as_yield — so status stays 'sleep' (not 'run').
+  # Does NOT set @@last_blocked_as_yield -- so status stays 'sleep' (not 'run').
   def self.stop
     current = Thread.current
     # If a raise has been queued for this thread, inject it now (mirrors Thread.pass behaviour)
@@ -182,14 +182,14 @@ class Thread
   def abort_on_exception = @abort_on_exception.nil? ? Thread.abort_on_exception : @abort_on_exception
 
   # Status reflects execution state:
-  #   'run'      — currently executing OR blocked via Thread.pass (cooperative yield)
-  #   'sleep'    — new/unstarted, waiting for a resource, or Thread.stop'd
-  #   'aborting' — kill called on self while actively executing (in ensure block)
-  #   false      — completed normally or killed (no exception)
-  #   nil        — completed with uncaught exception
+  #   'run'      -- currently executing OR blocked via Thread.pass (cooperative yield)
+  #   'sleep'    -- new/unstarted, waiting for a resource, or Thread.stop'd
+  #   'aborting' -- kill called on self while actively executing (in ensure block)
+  #   false      -- completed normally or killed (no exception)
+  #   nil        -- completed with uncaught exception
   def status
     return nil        if @done && @exception
-    # 'aborting' takes priority over 'done' — self-kill sets both @done and @aborting,
+    # 'aborting' takes priority over 'done' -- self-kill sets both @done and @aborting,
     # and ensure blocks must see 'aborting' while the thread is still executing.
     return 'aborting' if @aborting && (@executing || @run_yielded)
     return false      if @done
@@ -772,7 +772,7 @@ class Thread
 
       def base_label
         lbl = (@label || "<main>").sub(/\Ablock( \(\d+\))? in /, "")
-        # Strip module/class qualifier — MRI base_label returns just the method name
+        # Strip module/class qualifier -- MRI base_label returns just the method name
         lbl.sub(/\A.*[#.]/, "")
       end
 

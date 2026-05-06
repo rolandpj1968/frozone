@@ -334,7 +334,7 @@ module Kernel
     rescue TypeError, RangeError
       raise
     rescue NoMethodError
-      # BasicObject or similar: doesn't have is_a?/respond_to?/class — try to_r directly
+      # BasicObject or similar: doesn't have is_a?/respond_to?/class -- try to_r directly
       val_cls_name = Intrinsics.object_class(val).name
       begin
         r = val.to_r

@@ -41,8 +41,8 @@ module Marshal
     def initialize(limit)
       @limit   = limit   # recursion depth limit (-1 = unlimited)
       @depth   = 0       # current recursion depth
-      @symbols = {}      # symbol → index
-      @objects = {}      # object_id → index; index 0 = first object after symbols
+      @symbols = {}      # symbol -> index
+      @objects = {}      # object_id -> index; index 0 = first object after symbols
       @out     = ''.b
     end
 
@@ -73,7 +73,7 @@ module Marshal
     end
 
     def write_object_inner(obj)
-      # Nil / true / false — not tracked in object table
+      # Nil / true / false -- not tracked in object table
       # Use .equal?(nil) to support BasicObject subclasses that don't define nil?
       if obj.equal?(nil)
         @out << TYPE_NIL
@@ -88,14 +88,14 @@ module Marshal
         return
       end
 
-      # Integer (fixnum) — not tracked
+      # Integer (fixnum) -- not tracked
       is_int = begin; obj.is_a?(Integer); rescue NoMethodError; false; end
       if is_int && !(obj > 0x3fffffff || obj < -0x40000000)
         write_integer(obj)
         return
       end
 
-      # Symbol — use symbol link table, not object table
+      # Symbol -- use symbol link table, not object table
       is_sym = begin; obj.is_a?(Symbol); rescue NoMethodError; false; end
       if is_sym
         write_symbol(obj)
@@ -277,8 +277,8 @@ module Marshal
         '-inf'
       else
         # MRI Marshal uses Ruby's to_s format but with adjustments:
-        # 1. Remove trailing ".0" (1.0 → "1", 0.0 → "0")
-        # 2. Normalize exponent: e-09 → e-9, e+09 → e+9
+        # 1. Remove trailing ".0" (1.0 -> "1", 0.0 -> "0")
+        # 2. Normalize exponent: e-09 -> e-9, e+09 -> e+9
         s = f.to_s
         # Remove trailing .0 for integer-valued floats (not in scientific notation)
         s = s.sub(/\.0$/, '') unless s.include?('e') || s.include?('E')
@@ -388,7 +388,7 @@ module Marshal
     end
 
     # Write an encoding ivar key+value pair.
-    # The value is written as a raw binary string (no IVAR wrapper) — MRI behavior.
+    # The value is written as a raw binary string (no IVAR wrapper) -- MRI behavior.
     def write_enc_ivar(enc_ivar)
       key, val = enc_ivar
       write_symbol(key)
@@ -895,13 +895,13 @@ module Marshal
         @data = data.b rescue data.dup.force_encoding('BINARY')
       end
       @pos      = 0
-      @symbols  = []   # index → symbol
-      @objects  = []   # index → object
+      @symbols  = []   # index -> symbol
+      @objects  = []   # index -> object
       @proc     = proc_arg
       @freeze   = freeze
       @no_link_proc = {}  # set of object indices for which link proc should NOT be called
       @completed = {}  # set of object indices that have been fully loaded (proc already called)
-      @string_dedup = {} if freeze  # content → canonical frozen string for deduplication
+      @string_dedup = {} if freeze  # content -> canonical frozen string for deduplication
     end
 
     def load
@@ -956,10 +956,10 @@ module Marshal
         a = read_byte; bb = read_byte; c = read_byte; d = read_byte
         a | (bb << 8) | (c << 16) | (d << 24)
       elsif b < 128
-        # small positive: b = n + 5, so n = b - 5 (range 5..127 → n 0..122)
+        # small positive: b = n + 5, so n = b - 5 (range 5..127 -> n 0..122)
         b - 5
       elsif b < 252
-        # small negative: b = 256 + n - 5, so n = b - 251 (range 128..251 → n -123..-5)
+        # small negative: b = 256 + n - 5, so n = b - 251 (range 128..251 -> n -123..-5)
         b - 251
       elsif b == 252
         # 4-byte negative: stored as n + 2^32 (little-endian unsigned), decode by subtracting
@@ -1110,7 +1110,7 @@ module Marshal
       call_proc(sym)
     end
 
-    # Read a symbol used as an ivar/struct member name — does not call proc.
+    # Read a symbol used as an ivar/struct member name -- does not call proc.
     def read_ivar_name
       type = read_byte.chr
       case type
@@ -1346,12 +1346,12 @@ module Marshal
     end
 
     def read_class_by_symbol
-      # Class name symbols are structural, not data — don't call proc.
+      # Class name symbols are structural, not data -- don't call proc.
       sym = read_ivar_name
       const_from_name(sym.to_s)
     end
 
-    # Read an object that has ivar wrapper — special handling to set ivars
+    # Read an object that has ivar wrapper -- special handling to set ivars
     def read_object_for_ivar
       type = read_byte.chr
 
@@ -1375,7 +1375,7 @@ module Marshal
               obj_track_idx = track(s)
               s
             when TYPE_SYMBOL
-              # Encoded symbol — read raw bytes, defer encoding until ivars processed
+              # Encoded symbol -- read raw bytes, defer encoding until ivars processed
               len = read_long
               str = read_bytes(len)
               sym_idx = @symbols.size
@@ -1510,7 +1510,7 @@ module Marshal
             ivar_name = userdefined_extra_ivars[i]
             ivar_val  = userdefined_extra_ivars[i + 1]
             i += 2
-            # Convert bare name to @-prefixed ivar (nano_num → @nano_num)
+            # Convert bare name to @-prefixed ivar (nano_num -> @nano_num)
             prefixed = ivar_name.to_s.start_with?('@') ? ivar_name : :"@#{ivar_name}"
             data.instance_variable_set(prefixed, ivar_val) rescue nil
           end
@@ -1633,7 +1633,7 @@ module Marshal
     end
 
     def read_uclass
-      # C: subclass wrapper — the next object should be of this class.
+      # C: subclass wrapper -- the next object should be of this class.
       # When klass == Hash exactly, this signals compare_by_identity.
       klass = read_class_by_symbol
       compare_by_id = (klass == Hash)
@@ -1715,7 +1715,7 @@ module Marshal
         track(obj)
         obj
       when TYPE_UCLASS
-        # Nested C: — read inner class, combine with outer.
+        # Nested C: -- read inner class, combine with outer.
         # When the inner class is exactly Hash, it signals compare_by_identity.
         # In that case use the outer klass to allocate (it's the real subclass).
         inner_klass = read_class_by_symbol

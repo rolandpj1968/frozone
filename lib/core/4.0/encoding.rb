@@ -237,7 +237,7 @@ class Encoding
     "stateless-ISO-2022-JP" => "stateless-ISO-2022-JP",
   }.freeze
 
-  # Reverse alias table: canonical name → list of aliases (for #names method)
+  # Reverse alias table: canonical name -> list of aliases (for #names method)
   ALL_ALIASES = ALIASES.freeze
 
   @default_external = UTF_8
@@ -306,7 +306,7 @@ class Encoding
 
     private
 
-    # Fast O(1) lookup table: downcased name/alias → Encoding object (built lazily)
+    # Fast O(1) lookup table: downcased name/alias -> Encoding object (built lazily)
     def __build_find_map__
       m = {}
       i = 0

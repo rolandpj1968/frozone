@@ -43,7 +43,7 @@ class Enumerator
   # Used by _from_method to populate method-mode state via direct ivar
   # writes (which box-first lowers correctly). The previous `allocate +
   # instance_variable_set` pattern silently no-ops in box-first because
-  # `Intrinsics.object_ivar_set` is stubbed — leaves @receiver nil and
+  # `Intrinsics.object_ivar_set` is stubbed -- leaves @receiver nil and
   # forces every `enum.each` into the Fiber-backed block-mode path.
   def __init_method_mode__(receiver, method_name, method_args, size_block, method_kwargs)
     @receiver = receiver
@@ -604,7 +604,7 @@ class Enumerator::Lazy < Enumerator
       lazy.instance_variable_set(:@_lazy_size, nil)
       lazy.define_singleton_method(:each) do |*args, &pred|
         return self unless pred
-        # pred is the chunk key function — return the resulting chunked lazy
+        # pred is the chunk key function -- return the resulting chunked lazy
         source.chunk(&pred)
       end
       return lazy
@@ -828,7 +828,7 @@ class Enumerator::Lazy < Enumerator
     end
   end
 
-  # Internal evaluation — does NOT rescue StopIteration (callers do).
+  # Internal evaluation -- does NOT rescue StopIteration (callers do).
   # Calls output block with *vals for each element in the lazy chain.
 
   private

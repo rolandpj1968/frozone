@@ -65,7 +65,7 @@ class Float
 
   def **(other)
     if other.is_a?(Float)
-      # Negative base with fractional exponent → Complex
+      # Negative base with fractional exponent -> Complex
       if self < 0 && other != other.floor
         r = abs ** other
         theta = Math::PI * other

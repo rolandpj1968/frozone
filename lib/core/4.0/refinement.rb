@@ -5,8 +5,8 @@ class Refinement < Module
 
   # import_methods copies instance methods from the given modules into this refinement.
   # Only methods defined in Ruby code can be imported (not C-level/intrinsic methods).
-  # Raises TypeError if any argument is not a Module (or is a Class) — checked before any import.
-  # Raises ArgumentError if a method is not defined in Ruby code — modules before it are still imported.
+  # Raises TypeError if any argument is not a Module (or is a Class) -- checked before any import.
+  # Raises ArgumentError if a method is not defined in Ruby code -- modules before it are still imported.
   def import_methods(*modules)
     # Type validation first: raise TypeError before importing anything if any arg is wrong type.
     modules.each do |mod|

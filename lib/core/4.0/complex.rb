@@ -93,7 +93,7 @@ class Complex
 
   def /(other)
     if other.is_a?(Complex)
-      # Standard complex division: (a+bi)/(c+di) = ((ac+bd) + (bc-ad)i) / (c²+d²)
+      # Standard complex division: (a+bi)/(c+di) = ((ac+bd) + (bc-ad)i) / (c^2+d^2)
       denom = other.real * other.real + other.imaginary * other.imaginary
       Complex((@real * other.real + @imaginary * other.imaginary).quo(denom),
               (@imaginary * other.real - @real * other.imaginary).quo(denom))

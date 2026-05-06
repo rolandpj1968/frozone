@@ -5,7 +5,7 @@ class Struct
     def new(*members, keyword_init: nil, &block)
       # Determine optional constant name from first argument
       const_name = if members.first.nil?
-        members.shift  # nil → anonymous struct
+        members.shift  # nil -> anonymous struct
         nil
       elsif members.first.is_a?(String)
         members.shift
@@ -86,7 +86,7 @@ class Struct
       mems.each { |m| @struct_values[m] = kwargs[m] }
     else
       if args.empty? && !kwargs.empty?
-        # Ruby 3.2+: all-kwargs call → treat as member assignments
+        # Ruby 3.2+: all-kwargs call -> treat as member assignments
         mems.each { |m| @struct_values[m] = kwargs[m] }
       else
         # Mixed or all-positional: kwargs appended as a positional hash
@@ -117,7 +117,7 @@ class Struct
     raise TypeError, "expected Array or nil" unless keys.nil? || keys.is_a?(Array)
     return to_h if keys.nil?
     mems = members
-    # More keys requested than attributes → no match possible
+    # More keys requested than attributes -> no match possible
     return {} if keys.size > mems.size
     h = {}
     keys.each do |k|
@@ -264,10 +264,10 @@ class Struct
     tag = is_outer ? (Fiber[:_struct_hash_tag] = Object.new) : Fiber[:_struct_hash_tag]
     begin
       values = if is_outer
-        # Outer: catch each member's hash (recursive members throw here → 0)
+        # Outer: catch each member's hash (recursive members throw here -> 0)
         to_a.map { |m| catch(tag) { m.hash } || 0 }
       else
-        # Inner: no catch — recursive throws propagate to the outermost catch
+        # Inner: no catch -- recursive throws propagate to the outermost catch
         to_a.map { |m| m.hash }
       end
       [self.class, values].hash

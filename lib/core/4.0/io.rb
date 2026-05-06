@@ -150,10 +150,10 @@ class IO
   end
 
   def gets(*args, chomp: false)
-    # Disambiguate: gets() → sep=$/, lim=nil
-    #               gets(Integer) → sep=$/, lim=n
-    #               gets(String/nil) → sep=arg, lim=nil
-    #               gets(String/nil, Integer) → sep=arg, lim=n
+    # Disambiguate: gets() -> sep=$/, lim=nil
+    #               gets(Integer) -> sep=$/, lim=n
+    #               gets(String/nil) -> sep=arg, lim=nil
+    #               gets(String/nil, Integer) -> sep=arg, lim=n
     case args.length
     when 0
       sep = $/
@@ -165,7 +165,7 @@ class IO
       elsif arg.nil?
         sep = nil; lim = nil  # nil sep = read to EOF
       elsif arg.respond_to?(:to_int) && !arg.respond_to?(:to_str)
-        sep = $/; lim = arg.to_int  # responds to to_int but not to_str → treat as limit
+        sep = $/; lim = arg.to_int  # responds to to_int but not to_str -> treat as limit
       else
         sep = arg.respond_to?(:to_str) ? arg.to_str : arg; lim = nil
       end

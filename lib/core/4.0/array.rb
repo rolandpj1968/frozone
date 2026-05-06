@@ -1000,7 +1000,7 @@ class Array
   end
   alias detect find
 
-  # Index-based to avoid `return` inside a block — box-first lowers
+  # Index-based to avoid `return` inside a block -- box-first lowers
   # block-returns as lambda-returns (m_each ignores), so the truthy
   # found wouldn't propagate up to the method's caller.
   def any?(pat = :__none__, &block)
@@ -1404,7 +1404,7 @@ class Array
     others.each { |other| result = result & other }
     result
   end
-  # $LOAD_PATH.resolve_feature_path(feature) — return [:rb, path] or [:so, path] or nil
+  # $LOAD_PATH.resolve_feature_path(feature) -- return [:rb, path] or [:so, path] or nil
   def resolve_feature_path(feature)
     each do |dir|
       rb = File.join(dir.to_s, "#{feature}.rb")
@@ -1450,7 +1450,7 @@ class Array
         # MRI (rb_check_funcall): checks respond_to?(:to_ary, true) ONLY when the object's
         # singleton class explicitly defines respond_to? or respond_to_missing?. Otherwise,
         # calls to_ary directly (which may succeed via method_missing). This matches the
-        # behavior where explicit respond_to?→false gates the call, but inherited respond_to?
+        # behavior where explicit respond_to?->false gates the call, but inherited respond_to?
         # returning false does not prevent method_missing from handling to_ary.
         if Intrinsics.object_eigenclass_has_respond_to_guard(elem)
           has_to_ary = begin
