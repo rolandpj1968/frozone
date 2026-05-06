@@ -926,8 +926,15 @@ class Enumerator
   class ArithmeticSequence < Enumerator
     @_internal_allocate = false
 
+    # MRI semantics: external `Enumerator::ArithmeticSequence.new` must
+    # raise NoMethodError. But Enumerator's `_from_method` (which we
+    # super-call into) constructs via `new`, so internal callers need a
+    # bypass. The @_internal_allocate flag (set by _from_method below)
+    # gates both `new` and `allocate` — internal goes through, external
+    # raises. The flag clears in `allocate` so a stale `true` can't leak.
     def self.new(...)
-      raise NoMethodError, "undefined method 'new' for Enumerator::ArithmeticSequence:Class"
+      raise NoMethodError, "undefined method 'new' for Enumerator::ArithmeticSequence:Class" unless @_internal_allocate
+      super
     end
 
     def self.allocate
