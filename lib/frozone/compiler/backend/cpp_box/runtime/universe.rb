@@ -1339,20 +1339,16 @@ module Frozone
           TRUTHY = KernelFn.new(
             name: "truthy",
             signature: "bool truthy(BasicObject* o)",
-            # Calling-convention invariant (post Phase 1 cleanup): every
-            # BasicObject* slot in the universal protocol holds a real
-            # Ruby object — never C++ nullptr. Positional args default
-            # to &EMPTY_ARGS, kwargs to &EMPTY_KWARGS, block to
-            # nil_instance(). truthy() therefore needs only the four
-            # singleton compares.
+            # Calling-convention invariant (Phase 1): every BasicObject*
+            # slot in the universal protocol holds a real Ruby object —
+            # never C++ nullptr. Positional args default to &EMPTY_ARGS,
+            # kwargs to &EMPTY_KWARGS, block to nil_instance().
             #
-            # Frozone-VM defines its own NilObject::NIL and
-            # FalseObject::FALSE singletons (used by inner-Vm code)
-            # which are distinct from the box-first runtime's
-            # nil_instance() / false_instance(). Self-hosting box-first
-            # exposes both, so truthy() must reject both pairs until
-            # Phase 2 (singleton fusion) collapses them.
-            body: "return o != nil_instance() && o != false_instance() && o != k_Frozone_Vm_NilObject_NIL() && o != k_Frozone_Vm_FalseObject_FALSE();",
+            # Singleton invariant (Phase 2): Frozone::Vm::NilObject /
+            # FalseObject / TrueObject fuse with the runtime nil/false/
+            # true classes, so there's exactly one of each. truthy() is
+            # back to its original two-pointer-compare form.
+            body: "return o != nil_instance() && o != false_instance();",
           )
 
           RUBY_PUTS = KernelFn.new(

@@ -162,10 +162,34 @@ module Frozone
             (@user_constants.key?(flat) || instantiable_class?(flat)) ? flat : nil
           end
 
+          # Phase 2 fusion: Frozone::Vm::{Nil,False,True}Object are the
+          # interpreter's host-Ruby class declarations for nil/false/true.
+          # In compiled mode they collapse into the runtime's nil/false/
+          # true classes — so a reference to NilObject is just NilClass,
+          # NilObject::NIL is just nil_instance(), etc. Same for
+          # FalseObject/TrueObject. Maps are scoped here to keep
+          # format_constant the single point of resolution.
+          FUSED_CLASS_TARGETS = {
+            Frozone_Vm_NilObject:   "NilClass",
+            Frozone_Vm_FalseObject: "FalseClass",
+            Frozone_Vm_TrueObject:  "TrueClass",
+          }.freeze
+          FUSED_CONSTANT_TARGETS = {
+            Frozone_Vm_NilObject_NIL:    "nil_instance()",
+            Frozone_Vm_FalseObject_FALSE: "false_instance()",
+            Frozone_Vm_TrueObject_TRUE:  "true_instance()",
+          }.freeze
+
           # Format a resolved Symbol as the right C++ expression:
           # accessor call for value constants, address-of-singleton for
           # classes.
           def format_constant(name)
+            if (runtime_inst = FUSED_CONSTANT_TARGETS[name])
+              return "static_cast<BasicObject*>(#{runtime_inst})"
+            end
+            if (runtime_class = FUSED_CLASS_TARGETS[name])
+              return "(&#{runtime_class}_CLASS)"
+            end
             return "k_#{name}()" if @user_constants.key?(name)
             "(&#{name}_CLASS)"
           end

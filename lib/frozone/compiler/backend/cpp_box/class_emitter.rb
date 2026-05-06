@@ -176,7 +176,7 @@ module Frozone
           def self.write_method_vt(emit, method_ids)
             emit.line "// Member-function-pointer vtable indexed by method_id."
             emit.line "// `(this->*METHOD_VT[id])(args, kw, blk)` does virtual dispatch."
-            emit.line "using __MethodFn__ = BasicObject* (BasicObject::*)(Array*, Hash*, Proc*);"
+            emit.line "using __MethodFn__ = BasicObject* (BasicObject::*)(Array*, Hash*, BasicObject*);"
             emit.line "static const __MethodFn__ METHOD_VT[] = {"
             emit.indented do
               method_ids.each do |cpp, id|
@@ -613,7 +613,7 @@ module Frozone
           # NameError. User classes that `def const_missing` override
           # this via the normal vtable mechanism. args is `[Symbol]`.
           def self.write_const_missing_default(emit)
-            emit.line "inline BasicObject* BasicObject::m_const_missing(Array* args, Hash* /*kwargs*/, Proc* /*block*/) {"
+            emit.line "inline BasicObject* BasicObject::m_const_missing(Array* args, Hash* /*kwargs*/, BasicObject* /*block*/) {"
             emit.indented do
               emit.line "const char* const_name = args->data.empty() ? \"\" : static_cast<Symbol*>(args->data[0])->name_;"
               emit.line %|if (std::getenv("FROZONE_BOX_TRACE")) {|
@@ -647,7 +647,7 @@ module Frozone
           # override this via the normal vtable mechanism. args is
           # `[Symbol.method_name, *original_args]` (mm_dispatch builds it).
           def self.write_method_missing_default(emit)
-            emit.line "inline BasicObject* BasicObject::m_method_missing(Array* args, Hash* /*kwargs*/, Proc* /*block*/) {"
+            emit.line "inline BasicObject* BasicObject::m_method_missing(Array* args, Hash* /*kwargs*/, BasicObject* /*block*/) {"
             emit.indented do
               emit.line "const char* method_name = args->data.empty() ? \"\" : static_cast<Symbol*>(args->data[0])->name_;"
               # FROZONE_BOX_TRACE=1 dumps a libc backtrace at the throw
