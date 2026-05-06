@@ -48,7 +48,7 @@ module Frozone
       end
 
       # Returns a Hash with the original VM-object keys (unwrapped).
-      def raw = @elements.transform_keys(&:unwrap)
+      def raw = @elements.transform_keys { |k| k.unwrap }
 
       # VM-correct key lookup via KeyWrapper dispatch (requires Fiber[:context]).
       def [](key) = @elements[wrap(key)]

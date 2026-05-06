@@ -157,7 +157,7 @@ module Frozone
             # Record the innermost block's enclosing frame (first re-raise only).
             # This lets callers distinguish a live-context block (alive enclosing frame)
             # from an escaped proc (dead enclosing frame → method already returned).
-            e.break_enclosing_frame ||= @enclosing_frame
+            e.break_enclosing_frame = @enclosing_frame if e.break_enclosing_frame.nil?
             e.from_block = true
             raise
           end

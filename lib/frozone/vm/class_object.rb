@@ -66,8 +66,8 @@ module Frozone
       end
 
       def ancestors_list
-        (@prepends&.flat_map(&:ancestors_list) || []) + [self] +
-          (@modules&.flat_map(&:ancestors_list) || []) +
+        (@prepends&.flat_map { |m| m.ancestors_list } || []) + [self] +
+          (@modules&.flat_map { |m| m.ancestors_list } || []) +
           (@superclass&.ancestors_list || [])
       end
 

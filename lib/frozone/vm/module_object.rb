@@ -107,7 +107,7 @@ module Frozone
         @modules.unshift(mod)
       end
 
-      def ancestors_list = (@prepends&.flat_map(&:ancestors_list) || []) + [self] + (@modules&.flat_map(&:ancestors_list) || [])
+      def ancestors_list = (@prepends&.flat_map { |m| m.ancestors_list } || []) + [self] + (@modules&.flat_map { |m| m.ancestors_list } || [])
 
       def lookup_method(name)
         raise "name must be a Symbol" unless name.is_a?(Symbol)
