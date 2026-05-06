@@ -152,14 +152,16 @@ module Frozone
           def resolve_constant(parts)
             (scope_prefixes + [[]]).each do |prefix|
               flat = (prefix + parts).join("_").to_sym
-              return flat if @user_constants.key?(flat) || instantiable_class?(flat)
+              return flat if @user_constants.key?(flat) || instantiable_class?(flat) ||
+                             FUSED_CONSTANT_TARGETS.key?(flat)
             end
             nil
           end
 
           def resolve_top_level(parts)
             flat = parts.join("_").to_sym
-            (@user_constants.key?(flat) || instantiable_class?(flat)) ? flat : nil
+            (@user_constants.key?(flat) || instantiable_class?(flat) ||
+              FUSED_CONSTANT_TARGETS.key?(flat)) ? flat : nil
           end
 
           # Phase 2 fusion: Frozone::Vm::{Nil,False,True}Object are the
@@ -232,7 +234,9 @@ module Frozone
           # — either from the user_classes registry or as a Universe-seeded
           # class.
           def instantiable_class?(name)
-            @user_classes.key?(name) || Runtime::ALL_CLASSES.any? { |k| k.name == name.to_s }
+            @user_classes.key?(name) ||
+              FUSED_CLASS_TARGETS.key?(name) ||
+              Runtime::ALL_CLASSES.any? { |k| k.name == name.to_s }
           end
 
           # Resolve a Vm::ClassObject to its emitted flat name (the

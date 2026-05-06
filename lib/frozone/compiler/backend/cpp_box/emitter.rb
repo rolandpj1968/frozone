@@ -165,15 +165,26 @@ module Frozone
                 .map { |iv| "BasicObject* iv_#{iv} = nil_instance();" }
               own_hand_coded = (klass.hand_coded_method_names || []).to_set
               chains = class_method_chains(cls)
-              # Phase 2 fusion: merge methods from the matching
-              # Frozone::Vm::*Object class into the runtime overlay.
+              # Phase 2 fusion: merge methods defined directly on the
+              # matching Frozone::Vm::*Object class into the runtime
+              # overlay. Only :self-origin entries — inherited methods
+              # from Frozone::Vm::ObjectObject etc. would reference
+              # ivars (iv_class_object, iv_eigenclass) that don't
+              # exist on the runtime class struct (NilClass extends
+              # Object, not Frozone_Vm_ObjectObject). Inherited methods
+              # are still reachable on the original Frozone::Vm::*Object
+              # path via normal dispatch when called on instances of
+              # those user classes.
               # User-level class (e.g. NilClass) wins on name conflict
               # — the merge block keeps `chains`'s entry over the
-              # fused VM source's, so the MRI-correct definitions
+              # fused VM source's, so MRI-correct definitions
               # (NilClass#to_s = "") aren't shadowed by interpreter-
               # internal helpers (NilObject#to_s = "nil").
               if (fused_cls = fused_vm_for[klass.name])
-                chains = class_method_chains(fused_cls).merge(chains) { |_k, _from_fused, from_user| from_user }
+                fused_chains = class_method_chains(fused_cls)
+                  .transform_values { |entries| entries.select { |origin, _| origin == :self } }
+                  .reject { |_, entries| entries.empty? }
+                chains = fused_chains.merge(chains) { |_k, _from_fused, from_user| from_user }
               end
               klass.dup.tap do |k|
                 k.overrides = overlay_overrides_chained(klass.name, klass.overrides || {}, chains, hand_coded, own_hand_coded, host_class: cls)
@@ -405,6 +416,23 @@ module Frozone
             Frozone_Vm_TrueObject_TRUE
           ].to_set.freeze
 
+          # True if `val` is the Frozone::Vm::*Object singleton instance
+          # (NIL / FALSE / TRUE) of any of the fused VM classes. The
+          # filter has to be by class-name (not object identity) because
+          # the constant might be reached via an alias path
+          # (Frozone::Vm::Intrinsics::FNIL aliases NilObject::NIL); the
+          # Vm::ObjectObject value itself is the same singleton in all
+          # cases. constant_resolver redirects fused-singleton refs to
+          # nil_instance()/false_instance()/true_instance() at emission;
+          # no per-constant accessor is needed (and any accessor would
+          # try to construct a filtered-out class).
+          def fused_vm_singleton?(val)
+            return false unless val.is_a?(Vm::ObjectObject)
+            return false unless val.respond_to?(:class_object) && val.class_object
+            full = (val.class_object.full_name || val.class_object.name).to_s
+            FUSED_VM_CLASS_FULL_NAMES.include?(full)
+          end
+
           def collect_user_constants
             consts = {}
             seen = Set.new
@@ -424,8 +452,37 @@ module Frozone
             consts
           end
 
+          # Map runtime-singleton-name → C++ accessor expression. Used by
+          # build_user_constant_accessors when a user_constant value is
+          # a fused VM singleton (NilObject::NIL aliased as e.g.
+          # Frozone::Vm::Intrinsics::FNIL).
+          FUSED_SINGLETON_ACCESSOR = {
+            "Frozone::Vm::NilObject"   => "nil_instance()",
+            "Frozone::Vm::TrueObject"  => "true_instance()",
+            "Frozone::Vm::FalseObject" => "false_instance()",
+          }.freeze
+
+          def fused_singleton_accessor_for(val)
+            return nil unless val.is_a?(Vm::ObjectObject)
+            return nil unless val.respond_to?(:class_object) && val.class_object
+            full = (val.class_object.full_name || val.class_object.name).to_s
+            FUSED_SINGLETON_ACCESSOR[full]
+          end
+
           def build_user_constant_accessors
             @user_constants.map do |name, val|
+              # Constants whose value is a fused VM singleton (e.g.
+              # `Frozone::Vm::Intrinsics::FNIL = NilObject::NIL`) get
+              # an accessor that returns the runtime singleton directly,
+              # skipping the `new <ClassName>()` path that'd otherwise
+              # try to construct a class filtered out by Phase 2 fusion.
+              if (rt_accessor = fused_singleton_accessor_for(val))
+                next Runtime::KernelFn.new(
+                  name: "k_#{name}",
+                  signature: "BasicObject* k_#{name}()",
+                  body: "return static_cast<BasicObject*>(#{rt_accessor});",
+                )
+              end
               if primitive_vm_value?(val)
                 # Primitive — emit_vm_value gives the literal expr.
                 # Cached in a static for identity stability + skip
@@ -1771,6 +1828,15 @@ module Frozone
               end
               @user_constants.each do |flat, obj|
                 next if primitive_vm_value?(obj)  # literals have no ivars
+                # Phase 2 fusion: fused-singleton user constants (e.g.
+                # `Frozone::Vm::Intrinsics::FNIL = NilObject::NIL`)
+                # alias the runtime nil/false/true singletons. Their
+                # ivars don't apply to the runtime class (NilClass has
+                # no iv_class_object slot) and the snapshot would emit
+                # `static_cast<Frozone_Vm_NilObject*>(...)` referencing
+                # a filtered-out type. Skip — the runtime singleton
+                # carries its state through nil_instance() etc.
+                next if fused_singleton_accessor_for(obj)
                 klass = obj.class_object.full_name.to_s.gsub("::", "_")
                 target = "(*static_cast<#{klass}*>(k_#{flat}()))"
                 (obj.instance_variables_hash || {}).each do |name, val|
