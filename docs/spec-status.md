@@ -6,10 +6,18 @@ Compiler spec coverage is tracked separately via `--aot` compiled test files (se
 ## Language Specs
 
 Run with `bundle exec rake language` (or `rake language:NAME` for a single spec).
+`PARSER=wq` switches to the WqParser frontend; default is Prism.
 
-**Prism parser: 2615 / 2630 passing** — as of 2026-03-29 (v4.0.4)
+| Parser | Examples | Passing | Failures | Errors | Pass rate |
+|---|---:|---:|---:|---:|---:|
+| Prism  | 2630 | 2612 | 15 | 3 | 99.32% |
+| WQ     | 2168 | 2152 | 15 | 1 | 99.27% (of those that loaded) |
 
-Specs with 100% pass rate:
+— as of 2026-05-06.
+
+WqParser rejects 462 spec files at load (file-level LOAD_ERROR) due to stricter encoding handling — most are constant-name and symbol literals with non-ASCII characters. Files that load run on roughly the same code paths.
+
+Specs with 100% pass rate (Prism):
 `alias`, `and`, `array`, `assignments`, `BEGIN`, `block`, `break`, `case`, `class`,
 `comment`, `constants`, `defined`, `def`, `delegation`, `encoding`, `END`, `ensure`,
 `file`, `for`, `hash`, `heredoc`, `if`, `it_parameter`, `keyword_arguments`,
@@ -20,7 +28,7 @@ Specs with 100% pass rate:
 `singleton_class`, `source_encoding`, `string`, `super`, `symbol`, `throw`,
 `undef`, `unless`, `until`, `variables`, `while`, `yield`
 
-Remaining failures:
+Remaining failures (both parsers):
 
 | Spec | Result | Notes |
 |------|--------|-------|
@@ -28,46 +36,49 @@ Remaining failures:
 | class_variable | 1 failure | class variable overtaken in ancestor edge case |
 | execution | 1 failure | `$LOAD_PATH` sitelibdir `@gem_prelude_index` |
 | predefined | 1 failure | `$LOAD_PATH.resolve_feature_path` for `.so` files |
-| pattern_matching | 3 errors | refinements + deconstruct edge cases |
-
-### WqParser
-
-Similar pass rate (2 additional errors for non-ASCII constant lexing).
-Switch with `PARSER=wq bundle exec rake language` or `--parser=wq`.
-
-| Spec | Prism | WqParser | Notes |
-|------|-------|----------|-------|
-| constants | 100/100 | 99/100 | `mod::ἍBB` — non-ASCII uppercase not lexed as constant |
+| pattern_matching | 3 errors (Prism) / 1 (WQ) | refinements + deconstruct edge cases |
 
 ## Core Specs
 
 Run with `bundle exec rake core` (or `rake core:NAME` for a single module).
 Core specs run in parallel (`JOBS=N`, default: nprocessors).
 
-**Overall: 22708 / 22913 passing (99.1%)** — as of 2026-03-29
+| Parser | Examples | Passing | Failures | Errors | Pass rate |
+|---|---:|---:|---:|---:|---:|
+| Prism  | 22960 | 22627 | 77  | 256 | 98.55% |
+| WQ     | 22468 | 22081 | 116 | 271 | 98.27% |
 
-`tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation).
-Hanging specs (blocking IO, threading primitives, GC-dependent) excluded via `SKIP_SPEC_FILES` in `Rakefile`.
+— as of 2026-05-06.
 
-Modules with 100% pass rate:
-`array`, `basicobject`, `binding`, `builtin_constants`, `class`, `comparable`, `complex`, `conditionvariable`, `data`, `dir`,
-`encoding`, `enumerable`, `enumerator`, `env`, `exception`, `false`, `fiber`, `filetest`, `float`, `gc`,
-`hash`, `integer`, `main`, `marshal`, `matchdata`, `math`, `method`, `mutex`, `nil`, `numeric`,
-`objectspace`, `proc`, `queue`, `random`, `range`, `rational`, `regexp`, `set`,
-`signal`, `string`, `struct`, `symbol`, `systemexit`, `threadgroup`, `time`, `true`, `unboundmethod`, `warning`
+`tracepoint` intentionally unimplemented (deep VM introspection; moot before compilation). `argf` specs require a `argf` helper method we don't ship — those 126 errors are structural, not interpreter bugs. Hanging specs (blocking IO, threading primitives, GC-dependent) excluded via `SKIP_SPEC_FILES` in `Rakefile`.
 
-| Module | Examples | Passing | Failures | Errors | Notes |
-|---|---:|---:|---:|---:|---|
-| argf | 148 | 12 | 10 | 126 | ARGF not fully implemented |
-| file | 940 | 935 | 0 | 5 | OS-level file ops; socket specs need io/wait C ext |
-| io | 1048 | 1036 | 3 | 9 | blocking/pipe/buffer specs skipped; OS-level gaps |
-| kernel | 2741 | 2718 | 17 | 6 | spawn, format edge cases |
-| module | 1058 | 1051 | 7 | 0 | |
-| process | 86 | 44 | 0 | 42 | OS-level process ops |
-| refinement | 25 | 24 | 0 | 1 | |
-| sizedqueue | 21 | 20 | 1 | 0 | blocking specs excluded (cooperative scheduling) |
-| thread | 227 | 220 | 7 | 0 | cooperative threading; remaining edge cases |
-| tracepoint | 75 | — | 5 | 71 | intentionally unimplemented |
+Modules with 100% pass rate (Prism):
+`array`, `basicobject`, `binding`, `builtin_constants`, `class`, `comparable`, `data`, `dir`,
+`encoding`, `env`, `false`, `fiber`, `filetest`, `float`, `gc`, `hash`, `integer`, `main`,
+`matchdata`, `math`, `method`, `mutex`, `nil`, `numeric`, `objectspace`, `proc`, `queue`,
+`random`, `range`, `regexp`, `set`, `signal`, `struct`, `symbol`, `systemexit`,
+`threadgroup`, `time`, `true`, `unboundmethod`, `warning`
+
+Modules with non-trivial residual issues (Prism / WQ):
+
+| Module | Prism (E/F) | WQ (E/F) | Notes |
+|---|---:|---:|---|
+| argf | 126 / 10 | 126 / 10 | `argf` helper method missing from our snapshot of ruby-spec |
+| complex | 9 / 7 | 9 / 7 | Complex coercion edges |
+| enumerable | 0 / 2 | 0 / 2 | inject + grouping edges |
+| enumerator | 1 / 1 | 1 / 1 | |
+| exception | 1 / 0 | 2 / 1 | |
+| file | 5 / 0 | 5 / 0 | OS-level file ops; socket specs need io/wait C ext |
+| io | 9 / 3 | 9 / 2 | blocking/pipe/buffer specs skipped; OS-level gaps |
+| kernel | 7 / 17 | 13 / 23 | spawn, format edge cases |
+| marshal | 1 / 2 | 1 / 2 | |
+| module | 0 / 11 | 1 / 37 | WQ: extra method-visibility edges |
+| rational | 0 / 3 | 0 / 3 | |
+| refinement | 1 / 0 | 1 / 0 | |
+| sizedqueue | 0 / 1 | 0 / 1 | blocking specs excluded (cooperative scheduling) |
+| string | 24 / 2 | 27 / 7 | encoding edges; WQ skips 414 examples at load |
+| thread | 1 / 9 | 1 / 9 | cooperative threading edge cases |
+| tracepoint | 71 / 5 | 71 / 5 | intentionally unimplemented |
 
 ## Library Specs
 
