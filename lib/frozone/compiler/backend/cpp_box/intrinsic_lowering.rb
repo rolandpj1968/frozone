@@ -196,6 +196,13 @@ module Frozone
             string_bytesize: ->(self_) {
               "(new Integer(static_cast<int64_t>(static_cast<String*>(#{self_})->bytes.size())))"
             },
+            # Stubs for box-first; implement properly later. See aotcompile note.
+            string_to_f: ->(self_) {
+              "([&]() -> BasicObject* { auto* _s = static_cast<String*>(#{self_}); std::string _str(reinterpret_cast<const char*>(_s->bytes.data()), _s->bytes.size()); double _d = 0.0; try { _d = std::stod(_str); } catch (...) {} return new Float(_d); }())"
+            },
+            string_to_r: ->(_self_) {
+              "(&Rational_CLASS)->m_new(new Array({static_cast<BasicObject*>(new Integer(0)), static_cast<BasicObject*>(new Integer(1))}))"
+            },
             # `String#to_sym` — interns the string. intern() takes a
             # const char*, so the string must be NUL-terminated. Copy
             # bytes into a std::string for the lookup.
