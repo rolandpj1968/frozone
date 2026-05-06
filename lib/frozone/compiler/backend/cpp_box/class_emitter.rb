@@ -297,7 +297,7 @@ module Frozone
             end
             emit.line "};"
             emit.blank
-            emit.line "inline BasicObject* Object::m_is_a_q(Array* args, Hash* kwargs, Proc* block) {"
+            emit.line "inline BasicObject* Object::m_is_a_q(Array* args, Hash* kwargs, BasicObject* block) {"
             emit.indented do
               emit.line "int my_id = this->__class_id__();"
               emit.line "if (my_id < 0) return false_instance();"
@@ -497,13 +497,13 @@ module Frozone
             skip = (Runtime::BASIC_OBJECT.hand_coded_method_names || []).to_set
             (basic_object_klass.overrides || {}).each_key { |cpp| skip << cpp }
             emit.line "// Universal method surface — one slot per name. All Ruby methods take"
-            emit.line "// (Array* args, Hash* kwargs, Proc* block). Default body redirects to"
+            emit.line "// (Array* args, Hash* kwargs, BasicObject* block). Default body redirects to"
             emit.line "// m_method_missing on the receiver (which is itself a virtual, so user"
             emit.line "// `def method_missing` overrides participate)."
             call_surface.each do |cpp_name, ruby_name|
               next if skip.include?(cpp_name)
               ruby_lit = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
-              emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
+              emit.line %(virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) { return mm_dispatch(this, args, kwargs, block, "#{ruby_lit}"); })
             end
             # Constant-lookup surface — c_X() per dynamic-receiver
             # constant name. Default on BasicObject: TypeError (matches
@@ -535,7 +535,7 @@ module Frozone
           # method_missing.
           def self.write_send_body(emit, _method_ids)
             ["m_send", "m___send__"].each do |fn|
-              emit.line "inline BasicObject* Object::#{fn}(Array* args, Hash* kwargs, Proc* block) {"
+              emit.line "inline BasicObject* Object::#{fn}(Array* args, Hash* kwargs, BasicObject* block) {"
               emit.indented do
                 emit.line %|if (args->data.empty()) { std::fprintf(stderr, "[box-first] send: no method name\\n"); std::abort(); }|
                 emit.line "Symbol* _name = static_cast<Symbol*>(args->data[0]);"
@@ -696,7 +696,7 @@ module Frozone
               return
             end
             override_kw = (klass.name == "BasicObject" || !@call_surface_set&.include?(name)) ? "" : " override"
-            emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr)#{override_kw};"
+            emit.line "virtual BasicObject* #{name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance())#{override_kw};"
           end
 
           # Out-of-line override definition. spec[:params] is a list of
@@ -717,7 +717,7 @@ module Frozone
               emit.blank
               return
             end
-            emit.line "inline BasicObject* #{class_name}::#{name}(Array* args, Hash* kwargs, Proc* block) {"
+            emit.line "inline BasicObject* #{class_name}::#{name}(Array* args, Hash* kwargs, BasicObject* block) {"
             emit.indented do
               (spec[:params] || []).each_with_index do |param_decl, i|
                 param_name = param_decl.split(/\s+/).last.delete_prefix('*')

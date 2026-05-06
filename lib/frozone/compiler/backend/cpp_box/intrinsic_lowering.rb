@@ -297,7 +297,7 @@ module Frozone
             # via send. Proc#to_proc returns self, so the chain works.
             # Args coming in are the proc's call args (already an Array).
             object_method: ->(self_, name) {
-              "(new Proc([__obj_=#{self_}, __name_=#{name}](Array* __args_) -> BasicObject* { Array* _full = new Array(); _full->data.push_back(__name_); for (auto* _e : __args_->data) _full->data.push_back(_e); return __obj_->m_send(_full, nullptr, nullptr); }))"
+              "(new Proc([__obj_=#{self_}, __name_=#{name}](Array* __args_) -> BasicObject* { Array* _full = new Array(); _full->data.push_back(__name_); for (auto* _e : __args_->data) _full->data.push_back(_e); return __obj_->m_send(_full); }))"
             },
             object_ivar_get:  ->(_self_, _name) { "nil_instance()" },   # stub: ivars are static fields, not accessible by name
             object_ivar_set:  ->(_self_, _name, val) { "(#{val})" },    # stub: returns the value, doesn't actually set
@@ -382,10 +382,10 @@ module Frozone
             # types BasicObject* even though it's always Array at
             # runtime — splat_to_array's m_class() fast-path is the
             # safe coercion (no static_cast). dynamic_cast<Hash*> on
-            # kwargs is the safe nil-tolerant form (returns nullptr if
-            # somehow not a Hash; m_call accepts nullptr kwargs).
+            # kwargs is dynamic_cast'd; if cast fails (somehow not a Hash)
+            # fall back to &EMPTY_KWARGS so we never pass nullptr.
             proc_call: ->(self_, args, kwargs) {
-              "((#{self_})->m_call(splat_to_array(#{args}), dynamic_cast<Hash*>(#{kwargs}), nullptr))"
+              "((#{self_})->m_call(splat_to_array(#{args}), [&]() -> Hash* { auto* _h = dynamic_cast<Hash*>(#{kwargs}); return _h ? _h : &EMPTY_KWARGS; }()))"
             },
             # `Proc#arity` — stub returning -1 (variable-arity). We don't
             # track block arity at AOT time; -1 is MRI's default for

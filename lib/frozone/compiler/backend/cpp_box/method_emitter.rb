@@ -2,7 +2,7 @@
 # returns.
 #
 # Universal call protocol: every Ruby method takes
-#   m_X(Array* args, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr).
+#   m_X(Array* args, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()).
 # Bodies unpack required positional params from `args` via
 # array_at(args, i). Block is always available as `_block` (or
 # user-named &blk). Specialisation slots like `m_X_<arity>(arg)`
@@ -55,7 +55,7 @@ module Frozone
               emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
             end
             end
-            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) {"
+            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
             emit.indented { body_buf.each_line { |l| emit.line l.chomp } }
             emit.line "}"
           rescue Cpp::EmissionError => e
@@ -71,7 +71,7 @@ module Frozone
             # NoMethodError. Aborting can't be caught and points
             # straight at the missing-feature site.
             msg = "[frozone-box-first] unimplemented method :#{name} (def @ #{loc}): #{e.message}"
-            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) {"
+            emit.line "virtual BasicObject* #{cpp_name}(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {"
             emit.indented do
               emit.line %|std::fprintf(stderr, "%s\\n", #{emit.cpp.cpp_string_literal(msg)});|
               emit.line "std::abort();"
@@ -220,7 +220,11 @@ module Frozone
             # _block is the internal alias used by from_yield (it stays
             # as `_block` rather than `l__block` because it isn't a
             # user-named local and never appears in user-source code).
-            emit.line "Proc* _block = block;"
+            # Type stays Proc* — yield sites do `_block->m_call(...)` and
+            # need the narrowed type. Absent-block is `nil_instance()` at
+            # the call surface; yield-without-block is invalid Ruby
+            # (LocalJumpError) so the cast is safe by precondition.
+            emit.line "Proc* _block = static_cast<Proc*>(block);"
             user_block = user_block_name(method)
             if user_block
               # `def foo(&blk)` — bind a user-facing local of type
@@ -228,7 +232,7 @@ module Frozone
               # from any vtable-call result without C++ type errors.
               # `truthy(l_blk)`, `l_blk->m_call(...)` (universal surface)
               # both work without a static_cast.
-              emit.line decl_local_line(emit, user_block, "static_cast<BasicObject*>(block)")
+              emit.line decl_local_line(emit, user_block, "block")
               locals << user_block
             end
             # Pre-declare every other local in the method's `locals`

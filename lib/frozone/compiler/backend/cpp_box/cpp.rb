@@ -374,7 +374,7 @@ module Frozone
             # special-case which write_stmt handles): wrap the block as
             # a Proc and pass as the third call-protocol arg.
             has_block = node.block_node && !(name == :times && recv)
-            block_arg = has_block ? from_block_as_proc(node.block_node, locals) : "nullptr"
+            block_arg = has_block ? from_block_as_proc(node.block_node, locals) : "nil_instance()"
             args_array = build_args_array(arg_nodes, locals)
             kwargs_arg = build_kwargs_hash(node.kw_arg_nodes || [], locals)
 
@@ -425,7 +425,7 @@ module Frozone
           # is `{intern("key"), <value_expr>}` — Symbol keys.
           # **splat handling deferred — kw_splat_nodes raise EmissionError.
           def build_kwargs_hash(kw_arg_nodes, locals)
-            return "nullptr" if kw_arg_nodes.empty?
+            return "(&EMPTY_KWARGS)" if kw_arg_nodes.empty?
             entries = kw_arg_nodes.map do |key_node, value_node|
               key_name = key_node.is_a?(Ast::SymbolLiteral) ? key_node.value.to_s : nil
               raise EmissionError, "non-symbol kw key not supported" unless key_name
@@ -435,14 +435,14 @@ module Frozone
           end
 
           # Compose the trailing `(args, kwargs, block)` of a method
-          # call. Drops trailing defaults: kwargs=nullptr and block=nullptr
-          # default at the declaration, args defaults to &EMPTY_ARGS. So
-          # `(EMPTY, nullptr, nullptr)` collapses to `()`, `(args, nullptr,
-          # nullptr)` to `(args)`, etc. Saves source size and avoids the
-          # per-call empty-Array allocation when the args list is empty.
+          # call. Drops trailing defaults: args=&EMPTY_ARGS,
+          # kwargs=&EMPTY_KWARGS, block=nil_instance(). So
+          # `(EMPTY_ARGS, EMPTY_KWARGS, nil)` collapses to `()`,
+          # `(args, EMPTY_KWARGS, nil)` to `(args)`, etc.
+          DEFAULT_TRAILING_PARTS = ["(&EMPTY_ARGS)", "(&EMPTY_KWARGS)", "nil_instance()"].freeze
           def call_tail(args_str, kwargs_str, block_str)
             parts = [args_str, kwargs_str, block_str]
-            parts.pop while parts.size > 0 && (parts.last == "nullptr" || parts.last == "(&EMPTY_ARGS)")
+            parts.pop while parts.size > 0 && DEFAULT_TRAILING_PARTS.include?(parts.last)
             "(#{parts.join(", ")})"
           end
 
@@ -801,7 +801,7 @@ module Frozone
           def from_regexp_literal(node)
             src_bytes = node.source.to_s.bytes
             literal = "(new String(#{cpp_string_literal(node.source.to_s)}, #{src_bytes.size}))"
-            "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>(#{literal}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))}); _re->m_initialize(_a, nullptr, nullptr); return _re; }())"
+            "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>(#{literal}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))}); _re->m_initialize(_a); return _re; }())"
           end
 
           # `/foo#{bar}baz/` — build the source String at runtime by
@@ -820,7 +820,7 @@ module Frozone
                          end
               chain << "->op_plus(new Array({#{part_str}}))"
             end
-            "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>(#{chain}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))}); _re->m_initialize(_a, nullptr, nullptr); return _re; }())"
+            "([&]() -> BasicObject* { Regexp* _re = new Regexp(); Array* _a = new Array({static_cast<BasicObject*>(#{chain}), static_cast<BasicObject*>(new Integer(#{node.flags.to_i}))}); _re->m_initialize(_a); return _re; }())"
           end
 
           # Float literal — Ruby's Float::INFINITY / Float::NAN

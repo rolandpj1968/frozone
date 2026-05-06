@@ -94,17 +94,17 @@ module Frozone
               "// NoMethodError; user classes that `def method_missing`",
               "// override it via normal vtable lookup. args is",
               "// `[Symbol.method_name, *original_args]`.",
-              "virtual BasicObject* m_method_missing(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr);",
+              "virtual BasicObject* m_method_missing(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());",
               "// m_const_missing — same shape but for constants (raised",
               "// from Module's c_X overrides). Default throws NameError.",
-              "virtual BasicObject* m_const_missing(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr);",
+              "virtual BasicObject* m_const_missing(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance());",
               "// constant_typeerror — BasicObject's default for c_X. Raised",
               "// when the receiver isn't a Module/Class at all (TypeError).",
               "// Distinct from m_const_missing — `nil::FOO` is unrecoverable;",
               "// user-overridable const_missing only fires for actual modules.",
               "virtual BasicObject* constant_typeerror(const char* const_name);",
               "// == default — pointer identity (BasicObject#==).",
-              "virtual BasicObject* op_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) {",
+              "virtual BasicObject* op_eq_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
               "  return boxed_bool(this == array_at(args, 0));",
               "}",
               "// m_hash_value — C++-internal hook for std::unordered_map<BasicObject*,…>.",
@@ -112,19 +112,19 @@ module Frozone
               "virtual std::size_t m_hash_value() const { return reinterpret_cast<std::size_t>(this); }",
               "// equal? — pointer identity (BasicObject#equal?). Distinct from",
               "// `==` which subclasses often override for value equality.",
-              "virtual BasicObject* m_equal_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) {",
+              "virtual BasicObject* m_equal_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
               "  return boxed_bool(this == array_at(args, 0));",
               "}",
               "// __id__ — pointer cast as integer. Closed-world: each",
               "// object has a unique address; that's the id. Note that",
               "// Ruby's #object_id is on Kernel, not BasicObject.",
-              "virtual BasicObject* m___id__(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) {",
+              "virtual BasicObject* m___id__(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
               "  return int_box(reinterpret_cast<std::int64_t>(this));",
               "}",
               "// initialize default — no-op returning self. User classes",
               "// override; eigenclass m_new always invokes this after",
               "// allocating the new instance.",
-              "virtual BasicObject* m_initialize(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) {",
+              "virtual BasicObject* m_initialize(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
               "  return this;",
               "}",
               "// __class_id__ — closed-world class identity. Returns -1",
@@ -147,38 +147,38 @@ module Frozone
             members: [
               %(const char* ruby_class_name() const override { return "Object"; }),
               "// === defaults to ==. Module/Class override for `Class === obj`.",
-              "virtual BasicObject* op_case_eq(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) override {",
+              "virtual BasicObject* op_case_eq(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return op_eq_q(args, kwargs, block);",
               "}",
               "// nil? defaults to false; NilClass overrides to true.",
-              "virtual BasicObject* m_nil_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) override {",
+              "virtual BasicObject* m_nil_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return false_instance();",
               "}",
               "// freeze / frozen? — we don't enforce frozen state, so",
               "// these are no-ops returning self / false. Lots of core",
               "// code calls .freeze on initialization; this stays cheap.",
-              "virtual BasicObject* m_freeze(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) override {",
+              "virtual BasicObject* m_freeze(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return this;",
               "}",
-              "virtual BasicObject* m_frozen_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) override {",
+              "virtual BasicObject* m_frozen_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return false_instance();",
               "}",
               "// object_id — Kernel#object_id. Same value as __id__.",
-              "virtual BasicObject* m_object_id(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) override {",
+              "virtual BasicObject* m_object_id(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return m___id__(args, kwargs, block);",
               "}",
               "// is_a? / kind_of? / instance_of? — closed-world LUT. m_is_a_q",
               "// body is emitted out-of-line by class_emitter (write_is_a_lut)",
               "// once all classes are complete.",
-              "virtual BasicObject* m_is_a_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) override;",
+              "virtual BasicObject* m_is_a_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
               "// send / __send__ — METHOD_VT-based dispatch. Out-of-line body",
               "// emitted by class_emitter (write_send_body) once Array is complete.",
-              "virtual BasicObject* m_send(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) override;",
-              "virtual BasicObject* m___send__(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) override;",
-              "virtual BasicObject* m_kind_of_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) override {",
+              "virtual BasicObject* m_send(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
+              "virtual BasicObject* m___send__(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
+              "virtual BasicObject* m_kind_of_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return m_is_a_q(args, kwargs, block);",
               "}",
-              "virtual BasicObject* m_instance_of_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, Proc* block = nullptr) override {",
+              "virtual BasicObject* m_instance_of_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return boxed_bool(m_class(args, kwargs, block) == array_at(args, 0));",
               "}",
             ],
@@ -611,10 +611,11 @@ module Frozone
                     return this;
                   }
                   int64_t n = static_cast<Integer*>(arg0)->raw_;
-                  if (block) {
+                  if (truthy(block)) {
+                    auto* _b = static_cast<Proc*>(block);
                     data.reserve(n);
                     for (int64_t i = 0; i < n; i++) {
-                      data.push_back(block->m_call((new Array({(new Integer(i))}))));
+                      data.push_back(_b->m_call((new Array({(new Integer(i))}))));
                     }
                   } else {
                     BasicObject* fill = args->data.size() >= 2 ? args->data[1] : nil_instance();
@@ -1338,19 +1339,20 @@ module Frozone
           TRUTHY = KernelFn.new(
             name: "truthy",
             signature: "bool truthy(BasicObject* o)",
-            # nullptr is the C++ representation of "no value here" for
-            # the kwargs / block parameters of the universal protocol.
-            # Without the nullptr check, `if block` evaluates true when
-            # no block was passed (block == nullptr) — every method body
-            # that does `if block; block.call ... end` then enters the
-            # block-using path and segfaults dereferencing nullptr.
+            # Calling-convention invariant (post Phase 1 cleanup): every
+            # BasicObject* slot in the universal protocol holds a real
+            # Ruby object — never C++ nullptr. Positional args default
+            # to &EMPTY_ARGS, kwargs to &EMPTY_KWARGS, block to
+            # nil_instance(). truthy() therefore needs only the four
+            # singleton compares.
             #
             # Frozone-VM defines its own NilObject::NIL and
             # FalseObject::FALSE singletons (used by inner-Vm code)
             # which are distinct from the box-first runtime's
             # nil_instance() / false_instance(). Self-hosting box-first
-            # exposes both, so truthy() must reject both pairs.
-            body: "return o != nullptr && o != nil_instance() && o != false_instance() && o != k_Frozone_Vm_NilObject_NIL() && o != k_Frozone_Vm_FalseObject_FALSE();",
+            # exposes both, so truthy() must reject both pairs until
+            # Phase 2 (singleton fusion) collapses them.
+            body: "return o != nil_instance() && o != false_instance() && o != k_Frozone_Vm_NilObject_NIL() && o != k_Frozone_Vm_FalseObject_FALSE();",
           )
 
           RUBY_PUTS = KernelFn.new(
@@ -1561,7 +1563,7 @@ module Frozone
           # supersedes the default via normal vtable lookup.
           MM_DISPATCH_FN = KernelFn.new(
             name: "mm_dispatch",
-            signature: "BasicObject* mm_dispatch(BasicObject* recv, Array* args, Hash* kwargs, Proc* block, const char* method_name)",
+            signature: "BasicObject* mm_dispatch(BasicObject* recv, Array* args, Hash* kwargs, BasicObject* block, const char* method_name)",
             body: <<~CPP.chomp,
               Array* mm_args = new Array();
               mm_args->data.reserve(args->data.size() + 1);
@@ -1581,7 +1583,7 @@ module Frozone
             body: <<~CPP.chomp,
               Array* cm_args = new Array();
               cm_args->data.push_back(intern(const_name));
-              return recv->m_const_missing(cm_args, nullptr, nullptr);
+              return recv->m_const_missing(cm_args);
             CPP
           )
 
@@ -1694,7 +1696,7 @@ module Frozone
           # WQ's only gsub call is `source.gsub("\r\n", "\n")`.
           STRING_GSUB_FN = KernelFn.new(
             name: "string_gsub_helper",
-            signature: "BasicObject* string_gsub_helper(BasicObject* self_obj, BasicObject* pat, BasicObject* repl, Proc* block)",
+            signature: "BasicObject* string_gsub_helper(BasicObject* self_obj, BasicObject* pat, BasicObject* repl, BasicObject* block)",
             body: <<~CPP.chomp,
               auto* self = static_cast<String*>(self_obj);
               if (!pat) return self;

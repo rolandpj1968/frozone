@@ -621,7 +621,7 @@ inline BasicObject* intrinsic_regexp_new(BasicObject* /*klass*/, BasicObject* pa
       pat,
       (opts == nil_instance() ? static_cast<BasicObject*>(new Integer(0)) : opts),
   });
-  _re->m_initialize(_a, nullptr, nullptr);
+  _re->m_initialize(_a);
   return _re;
 }
 
