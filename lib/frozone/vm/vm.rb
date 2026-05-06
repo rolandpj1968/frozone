@@ -417,9 +417,13 @@ module Frozone
         # before parse() is ever called, so unconditional reference
         # is safe — no defined?() guard needed (box-first doesn't
         # lower defined?(const) yet).
-        # TEMPORARY for box-first AOT: hardcoded WqParser; --parser=wq
-        # symbol-comparison silently picks Prism (separate optparse bug).
-        parser_class = WqParser
+        # NOTE: a previous "TEMPORARY for box-first AOT" hardcoded
+        # WqParser unconditionally. That broke the interpreter side —
+        # `rake language` / `rake core` were silently using WqParser
+        # regardless of the --parser flag. Restore the conditional;
+        # box-first compile-time still picks WqParser via the same
+        # mechanism (since @options[:parser] survives the AOT split).
+        parser_class = (@options && @options[:parser] == :wq) ? WqParser : Parser
         parser = parser_class.new(script, dump_ast, filepath: filepath)
         ast = parser.ast(raise_syntax_errors: raise_syntax_errors)
         ParseResult.new(
