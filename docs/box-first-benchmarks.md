@@ -23,34 +23,44 @@ No primitive-type specialisation in box-first yet (Integer/Float/etc. are unifor
 
 ## Results
 
-Snapshot 2026-05-06 (post Phase 1 + Phase 2 calling-convention/singleton cleanup):
+Snapshot 2026-05-06 (post Phase 1 + Phase 2 calling-convention/singleton cleanup).
 
-| Benchmark | Stub workload         | MRI       | Box-first | Box/MRI       | Interp (bench, N=1) |
-|-----------|-----------------------|-----------|-----------|---------------|---------------------|
-| fib       | `fib(35) × 3`         |   2.46s   |  13.85s   | 5.6× slower   |   2.74s (`fib(20)`) |
-| blurhash  | `encode_rb × 10`      |   2.48s   |   1.11s   | **2.2× faster** | n/a (no bench file) |
-| sudoku    | `HARD20 × 20`         |   7.20s   |   3.28s   | **2.2× faster** | TIMEOUT             |
-| nqueens   | `nq_solve(12) × 500`  | 197.31s   | 1400.12s  | 7.1× slower   |   5.81s (`nq_solve(8)`) |
+The table is split into two halves so each comparison stays apples-to-apples:
 
-Run via `rake bench_compare`. Expand `BENCH_SMOKE` in the Rakefile to add benchmarks.
+### Stub workload — MRI vs box-first (large compiled-friendly inputs)
+
+| Benchmark | Stub workload          | MRI      | Box-first | Box/MRI             |
+|-----------|------------------------|----------|-----------|---------------------|
+| fib       | `fib(35) × 3`          |   2.52s  |   14.12s  | 5.6× slower         |
+| blurhash  | `encode_rb × 10`       |   2.48s  |    1.10s  | **2.5× faster**     |
+| sudoku    | `HARD20 × 20`          |   7.22s  |    1.10s  | **6.6× faster**     |
+| nqueens   | `nq_solve(12) × 500`   | 196.20s  | 1444.49s  | 7.4× slower         |
+
+### Bench workload — interp vs MRI (smaller interp-friendly inputs, BENCH_N=1)
+
+| Benchmark | Bench workload                              | MRI    | Interp  | Interp/MRI    |
+|-----------|---------------------------------------------|--------|---------|---------------|
+| fib       | `fib(20) × 3`                               | 0.11s  |  2.77s  | 25× slower    |
+| blurhash  | `encode_rb × 1` (full 204×204 image)        | 0.35s  | TIMEOUT | —             |
+| sudoku    | `HARD20.each × 1` (20 hard puzzles)         | 0.48s  | TIMEOUT | —             |
+| nqueens   | `nq_solve(8) × 3`                           | 0.11s  |  5.73s  | 50× slower    |
+
+Run via `rake bench_compare`. Override iteration count and per-row timeout with `INTERP_BENCH_N=` and `INTERP_TIMEOUT=` (default 1 and 300s). Expand `BENCH_SMOKE` in the Rakefile to add benchmarks.
 
 ### Reading the numbers
 
-**Box-first vs MRI**
+**Box-first vs MRI** — the two integer-arithmetic-heavy workloads (`fib`, `nqueens`) are 5–7× slower than MRI — exactly the territory we expect uniform boxing to hurt. Every `+`, `<`, `==` allocates an arg-Array, dispatches via vtable, returns a freshly-allocated Integer. After TI + Integer specialisation lands these should close substantially.
 
-The two integer-arithmetic-heavy workloads (`fib`, `nqueens`) are 5–7× slower in box-first than MRI — exactly the territory we expect uniform boxing to hurt. Every `+`, `<`, `==` allocates an arg-Array, dispatches via vtable, returns a freshly-allocated Integer. After TI + Integer specialisation lands these should close substantially.
+The two compute-heavy mixed-method workloads (`blurhash`, `sudoku`) already **beat** MRI by 2.5–6.6×. Both have rich method-dispatch surfaces where MRI's per-call overhead exceeds the cost of boxed C++ vtable dispatch. Worth a closer look later — could surface patterns to lean into.
 
-The two compute-heavy non-trivial workloads (`blurhash`, `sudoku`) **beat** MRI by ~2.2×. Both have rich method-dispatch surfaces (Float arithmetic, hash lookups, array operations) where MRI's per-call dispatch overhead is significant. Box-first's method-id-indexed vtable dispatch + AOT-time class-body precomputation evidently cover the boxing cost on these workloads. Worth investigating *why* in detail — could be a useful pattern to lean into.
-
-**Interpreter (bench-file, smaller workload)**
-
-Direct numbers don't compare cell-to-cell with the box-first column (different N and per-iter sizes). What's clear: `sudoku` interpreted (1 iter = 20 hard-puzzle backtracking searches) doesn't fit in 5 minutes — even with the smaller `BENCH_N=1`, the tree-walking overhead is prohibitive. `fib(20)×3` and `nq_solve(8)×3` are tractable (sub-10s).
+**Interp vs MRI** — same workload, so the ratio is a clean slowdown factor. Tree-walking 25× slower than MRI on `fib`, 50× on `nqueens`. Anything heavier (real `blurhash`, `sudoku`'s 20 hard puzzles) doesn't fit in 5 minutes even at `BENCH_N=1`. The factor varies a lot with the workload's mix (more block dispatch / closures = more overhead).
 
 ### Caveats
 
-- No primitive-type specialisation in box-first yet. All Integer/Float operations go through boxed virtual dispatch. **Read the numbers as a pre-specialisation baseline.**
-- Wall-clock totals only — no per-iteration normalisation, no warmup, no medians. Run-to-run variance can be 10%+. Use as a directional indicator, not a precision measurement.
+- No primitive-type specialisation in box-first yet. All Integer/Float operations go through boxed virtual dispatch. **Read the box-first column as a pre-specialisation baseline.**
+- Wall-clock totals only — no per-iteration normalisation, no warmup, no medians. Run-to-run variance can be 2–3× on shorter rows (sudoku box-first measured at 3.28s and 1.10s on consecutive runs). Use as a directional indicator, not a precision measurement.
 - Box-first compile time is **not** included (regenerating + g++ on a 5MB cpp adds 1–2 minutes per benchmark). The `Box-first` column is binary execution time only.
+- The same wall-clock is *not* directly comparable across the two halves of the table — different workloads. Keep MRI(stub) and MRI(bench) as separate baselines.
 
 ## Reading the numbers
 

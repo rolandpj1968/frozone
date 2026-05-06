@@ -306,20 +306,32 @@ def box_compile(stub_name)
   [:ok, bin]
 end
 
+# Resolve the bench-file path. Some benchmarks ship as
+# `bench/benchmarks/<name>.rb` (single file), others as
+# `bench/benchmarks/<name>/benchmark.rb` (subdirectory holding
+# benchmark + data fixtures, e.g. blurhash/test.bin).
+def bench_file_path(name)
+  flat = "bench/benchmarks/#{name}.rb"
+  return flat if File.exist?(flat)
+  nested = "bench/benchmarks/#{name}/benchmark.rb"
+  return nested if File.exist?(nested)
+  nil
+end
+
 desc "Three-way perf comparison: MRI / box-first / Frozone interp on BENCH_SMOKE"
 task :bench_compare do
   rows = BENCH_SMOKE.map do |name|
     stub_path = "bench/stubs/#{name}.rb"
-    bench_path = "bench/benchmarks/#{name}.rb"
+    bench_path = bench_file_path(name)
     row = { name: name }
 
-    # MRI on stub (large workload)
+    # MRI on stub (large compiled-friendly workload)
     if File.exist?(stub_path)
       _ok, mri_t = time_command("ruby #{stub_path}")
       row[:mri_stub] = mri_t
     end
 
-    # Box-first on stub (large workload)
+    # Box-first on stub (same workload as MRI(stub))
     if File.exist?(stub_path)
       status, bin = box_compile(name)
       if status == :ok
@@ -330,22 +342,26 @@ task :bench_compare do
       end
     end
 
-    # Frozone interp on bench. The harness reads BENCH_N to override
-    # the bench's hardcoded iteration count — set to 1 because the
-    # tree-walking interpreter is ~100-1000× slower than MRI and
-    # default counts (e.g. sudoku: 20 iters of HARD20.each) blow up
-    # to many minutes per benchmark. INTERP_BENCH_N env var lets the
-    # caller override (e.g. =3 to amortise startup noise).
-    if File.exist?(bench_path)
-      n = ENV.fetch('INTERP_BENCH_N', '1')
-      timeout_s = ENV.fetch('INTERP_TIMEOUT', '300').to_i
+    # MRI on bench file with BENCH_N override — gives a direct
+    # denominator for the interpreter row so "interp / mri_bench"
+    # is a meaningful slowdown ratio on identical workload.
+    n = ENV.fetch('INTERP_BENCH_N', '1')
+    timeout_s = ENV.fetch('INTERP_TIMEOUT', '300').to_i
+    if bench_path
+      _ok, mri_bench_t = time_command(
+        "ruby bench/run_bench.rb #{bench_path}",
+        env: { "BENCH_N" => n }
+      )
+      row[:mri_bench] = mri_bench_t
+
+      # Frozone interp on bench file (same N, with timeout — sudoku
+      # at HARD20.each is too heavy even at N=1).
       result, interp_t = time_command(
         "bundle exec ruby frozone.rb bench/run_bench.rb #{bench_path}",
         env: { "BENCH_N" => n },
         timeout: timeout_s
       )
       row[:interp_bench] = result == :timeout ? :timeout : interp_t
-      row[:interp_n] = n
     end
 
     row
@@ -359,19 +375,34 @@ task :bench_compare do
     else format("%6.2fs", v)
     end
   }
+  ratio = ->(num, den) {
+    return "-" unless num.is_a?(Numeric) && den.is_a?(Numeric) && den > 0
+    format("%.1f×", num / den)
+  }
+
   puts ""
-  puts "Benchmark    | MRI (stub)  | Box-first (stub) | Interp (bench)"
-  puts "-------------|-------------|------------------|---------------"
+  puts "Stub workload (MRI/Box-first comparison):"
+  puts "Benchmark    | MRI (stub)  | Box-first (stub) | Box/MRI"
+  puts "-------------|-------------|------------------|--------"
   rows.each do |r|
-    puts format("%-12s | %11s | %16s | %14s",
+    puts format("%-12s | %11s | %16s | %7s",
                 r[:name],
                 fmt.call(r[:mri_stub]),
                 fmt.call(r[:box_stub]),
-                fmt.call(r[:interp_bench]))
+                ratio.call(r[:box_stub], r[:mri_stub]))
   end
   puts ""
-  puts "Stub workload (MRI/Box-first):  bench/stubs/<name>.rb (sized for compiled perf)"
-  puts "Bench workload (Interp):        bench/benchmarks/<name>.rb (sized for tree-walking interp)"
+  puts "Bench workload (Interp/MRI comparison, BENCH_N=#{ENV.fetch('INTERP_BENCH_N', '1')}):"
+  puts "Benchmark    | MRI (bench) | Interp (bench)   | Interp/MRI"
+  puts "-------------|-------------|------------------|----------"
+  rows.each do |r|
+    puts format("%-12s | %11s | %16s | %9s",
+                r[:name],
+                fmt.call(r[:mri_bench]),
+                fmt.call(r[:interp_bench]),
+                ratio.call(r[:interp_bench], r[:mri_bench]))
+  end
+  puts ""
 end
 
 DUSTMAN_DIR     = File.expand_path('vendor/dustman', __dir__)
