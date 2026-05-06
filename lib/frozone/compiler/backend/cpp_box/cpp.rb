@@ -867,7 +867,11 @@ module Frozone
             when Vm::ClassObject, Vm::ModuleObject
               flat = class_object_to_flat(val)
               raise EmissionError, "emit_vm_value: #{val.class.name.split('::').last} #{val.full_name} not in emitted set" unless flat
-              "(&#{flat}_CLASS)"
+              # Route through format_constant so Phase 2 fused classes
+              # (Frozone_Vm_NilObject etc.) redirect to the runtime
+              # singleton (&NilClass_CLASS) — the flat name is filtered
+              # from emission, but the runtime equivalent exists.
+              format_constant(flat)
             when Vm::ObjectObject
               # If this object is itself one of our registered user
               # constants, emit a reference to its accessor (its ivars
