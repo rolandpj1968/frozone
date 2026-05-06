@@ -1344,7 +1344,13 @@ module Frozone
             # no block was passed (block == nullptr) — every method body
             # that does `if block; block.call ... end` then enters the
             # block-using path and segfaults dereferencing nullptr.
-            body: "return o != nullptr && o != nil_instance() && o != false_instance();",
+            #
+            # Frozone-VM defines its own NilObject::NIL and
+            # FalseObject::FALSE singletons (used by inner-Vm code)
+            # which are distinct from the box-first runtime's
+            # nil_instance() / false_instance(). Self-hosting box-first
+            # exposes both, so truthy() must reject both pairs.
+            body: "return o != nullptr && o != nil_instance() && o != false_instance() && o != k_Frozone_Vm_NilObject_NIL() && o != k_Frozone_Vm_FalseObject_FALSE();",
           )
 
           RUBY_PUTS = KernelFn.new(

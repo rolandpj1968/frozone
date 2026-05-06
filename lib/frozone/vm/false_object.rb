@@ -15,6 +15,7 @@ module Frozone
       def raw = false
       def to_s = "false"
       def inspect_for_error = "false"
+      def truthy? = false
 
       FALSE = new
     end
