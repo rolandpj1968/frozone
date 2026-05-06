@@ -12,7 +12,10 @@ options = {
   verbose:        false,
   scripts:        [],
   requires:       [],
-  parser:         :prism,
+  # nil default routes to WqParser via vm.rb. Box-first compiled mode
+  # has no Prism (C extension); interpreter mode users who want Prism
+  # pass `--parser=prism`. The rake spec tasks pass it explicitly.
+  parser:         nil,
   aot:            false,
   hoist_consts:   false,
 }
@@ -55,7 +58,10 @@ OptionParser.new do |opts|
   end
 end.order!
 
-if options[:parser] == :wq
+# String comparison sidesteps box-first's Symbol== bug (the compiled
+# code path silently picks the false branch on Symbol-to-Symbol equality).
+# Interpreter-mode also works fine with `.to_s == "wq"`.
+if options[:parser]&.to_s == "wq"
   require_relative 'lib/frozone/vm/wq_parser'
   Frozone::Vm.send(:remove_const, :Parser)
   Frozone::Vm::Parser = Frozone::Vm::WqParser

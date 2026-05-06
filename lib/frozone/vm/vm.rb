@@ -417,13 +417,28 @@ module Frozone
         # before parse() is ever called, so unconditional reference
         # is safe — no defined?() guard needed (box-first doesn't
         # lower defined?(const) yet).
-        # NOTE: a previous "TEMPORARY for box-first AOT" hardcoded
-        # WqParser unconditionally. That broke the interpreter side —
-        # `rake language` / `rake core` were silently using WqParser
-        # regardless of the --parser flag. Restore the conditional;
-        # box-first compile-time still picks WqParser via the same
-        # mechanism (since @options[:parser] survives the AOT split).
-        parser_class = (@options && @options[:parser] == :wq) ? WqParser : Parser
+        # Parser selection. Tricky because we have THREE failure modes:
+        # 1. Interpreter mode (MRI host): user picks via --parser flag.
+        #    Default :prism. Both work.
+        # 2. Box-first compiled: Prism is a C extension and doesn't
+        #    compile. WqParser must be used regardless of flag.
+        # 3. Runtime detection of "are we compiled?" requires a sentinel.
+        #    Use ENV: box-first compile pipeline sets FROZONE_BOX_FIRST=1,
+        #    but the compiled binary doesn't preserve that. Cleaner:
+        #    detect by trying Prism and falling back. Even cleaner:
+        #    check whether Vm::Parser's Prism dependency is reachable —
+        #    but that's hard to query.
+        # For now: respect @options[:parser] if set (string-compare to
+        # sidestep box-first's Symbol== bug). When unset, default to
+        # WqParser — that's the only one viable in compiled mode, and
+        # interpreted mode users who want Prism can still pass --parser=prism.
+        parser_str = @options && @options[:parser]&.to_s
+        parser_class =
+          case parser_str
+          when "prism" then Parser
+          when "wq", nil, "" then WqParser
+          else WqParser  # unknown flag: prefer the universally-working one
+          end
         parser = parser_class.new(script, dump_ast, filepath: filepath)
         ast = parser.ast(raise_syntax_errors: raise_syntax_errors)
         ParseResult.new(
