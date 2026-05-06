@@ -68,16 +68,14 @@ module Frozone
         end
 
         # MRI raises RangeError for shift widths >= 2**67 (ruby-spec: integer/left_shift_spec.rb).
-        # Below that, arbitrary-precision bignums handle any shift safely without hanging.
-        SHIFT_RANGE_ERROR_LIMIT = 2**67
-
+        # Closed-world Frozone uses Int64; (1 << 62) is plenty as a sentinel and is representable.
         def integer_lshift(context, v1, v2)
           n = v1.raw
           m = coerce_to_int(context, v2)
           if m < 0
             # Negative left shift is a right shift; delegate (no RangeError for right shifts of this magnitude).
             n2f_int(n >> m.abs)
-          elsif m >= SHIFT_RANGE_ERROR_LIMIT && n != 0
+          elsif m >= (1 << 62) && n != 0
             raise FrozoneException.make(:RangeError, 'shift width too big')
           else
             n2f_int(n << m)
@@ -89,7 +87,7 @@ module Frozone
           m = coerce_to_int(context, v2)
           if m < 0
             # Negative right shift is a left shift.
-            raise FrozoneException.make(:RangeError, 'shift width too big') if m.abs >= SHIFT_RANGE_ERROR_LIMIT && n != 0
+            raise FrozoneException.make(:RangeError, 'shift width too big') if m.abs >= (1 << 62) && n != 0
             n2f_int(n << m.abs)
           else
             n2f_int(n >> m)
