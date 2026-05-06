@@ -361,7 +361,14 @@ module Frozone
           end
           maybe_warn_deprecated_constant(context, receiver, name)
           receiver.constants_table.delete(name)
-          Vm::ModuleObject.bump_constant_generation
+          # Bare ModuleObject (not Vm::ModuleObject) — inside
+          # `Frozone::Vm::Intrinsics`, MRI's lexical-scope walker
+          # finds `Vm` first as `Frozone::Vm::Vm` (the inner class
+          # that shadows the outer module), giving the spurious
+          # `Frozone::Vm::Vm::ModuleObject` NameError. The bare ref
+          # walks past Frozone::Vm::Intrinsics → Frozone::Vm and
+          # resolves correctly.
+          ModuleObject.bump_constant_generation
           val
         end
 
