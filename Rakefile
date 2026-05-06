@@ -269,6 +269,111 @@ end
 # and structaset (pre-existing Struct subclass codegen bug).
 BENCH_SMOKE = %w[fib blurhash sudoku nqueens]
 
+# Three-way perf comparison: MRI vs box-first vs Frozone interpreter.
+#
+# Stub workload (large, for MRI + box-first): bench/stubs/X.rb. The
+# stub stubs out run_benchmark, requires the bench file for its method
+# defs, then explicitly iterates with a workload sized for compiled
+# performance (e.g. fib(35)×3).
+#
+# Bench workload (smaller, for interpreter): bench/benchmarks/X.rb.
+# Uses the run_benchmark harness with workloads sized for the
+# tree-walking interpreter (e.g. fib(20)×3 ≈ 2s/iter on Frozone).
+#
+# Wall-clock totals are reported per cell (not normalised to ms/iter
+# since stub vs bench workloads differ). Doc/perf table lives at
+# docs/box-first-benchmarks.md.
+def time_command(cmd, env: {}, timeout: nil)
+  # `timeout(SEC) cmd` returns 124 if it killed the child. We treat
+  # that as :timeout sentinel so the table can render TIMEOUT instead
+  # of a misleading wall-clock number for runs that never completed.
+  full_cmd = timeout ? "timeout #{timeout} #{cmd}" : cmd
+  t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  ok = system(env, full_cmd, out: File::NULL, err: File::NULL)
+  elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0
+  return [:timeout, elapsed] if !ok && $?&.exitstatus == 124
+  [ok, elapsed]
+end
+
+def box_compile(stub_name)
+  cpp = "cpp/gen/box/#{stub_name}.cpp"
+  bin = "cpp/gen/box/#{stub_name}_box"
+  return [:gen_fail, nil] unless system({"FROZONE_CPP" => "1", "FROZONE_BOX_FIRST" => "1"},
+    "bundle exec ruby frozone.rb --aot bench/stubs/#{stub_name}.rb",
+    out: File::NULL, err: File::NULL)
+  cflags = "-I #{ONIGMO_INCLUDE} #{ONIGMO_LIB} -lgc"
+  return [:compile_fail, nil] unless system("g++ -O2 -std=c++20 #{cpp} -o #{bin} #{cflags} 2>/dev/null")
+  [:ok, bin]
+end
+
+desc "Three-way perf comparison: MRI / box-first / Frozone interp on BENCH_SMOKE"
+task :bench_compare do
+  rows = BENCH_SMOKE.map do |name|
+    stub_path = "bench/stubs/#{name}.rb"
+    bench_path = "bench/benchmarks/#{name}.rb"
+    row = { name: name }
+
+    # MRI on stub (large workload)
+    if File.exist?(stub_path)
+      _ok, mri_t = time_command("ruby #{stub_path}")
+      row[:mri_stub] = mri_t
+    end
+
+    # Box-first on stub (large workload)
+    if File.exist?(stub_path)
+      status, bin = box_compile(name)
+      if status == :ok
+        _ok, box_t = time_command("./#{bin}")
+        row[:box_stub] = box_t
+      else
+        row[:box_stub] = status
+      end
+    end
+
+    # Frozone interp on bench. The harness reads BENCH_N to override
+    # the bench's hardcoded iteration count — set to 1 because the
+    # tree-walking interpreter is ~100-1000× slower than MRI and
+    # default counts (e.g. sudoku: 20 iters of HARD20.each) blow up
+    # to many minutes per benchmark. INTERP_BENCH_N env var lets the
+    # caller override (e.g. =3 to amortise startup noise).
+    if File.exist?(bench_path)
+      n = ENV.fetch('INTERP_BENCH_N', '1')
+      timeout_s = ENV.fetch('INTERP_TIMEOUT', '300').to_i
+      result, interp_t = time_command(
+        "bundle exec ruby frozone.rb bench/run_bench.rb #{bench_path}",
+        env: { "BENCH_N" => n },
+        timeout: timeout_s
+      )
+      row[:interp_bench] = result == :timeout ? :timeout : interp_t
+      row[:interp_n] = n
+    end
+
+    row
+  end
+
+  fmt = ->(v) {
+    case v
+    when nil then "-"
+    when :timeout then "TIMEOUT"
+    when Symbol then v.to_s.upcase
+    else format("%6.2fs", v)
+    end
+  }
+  puts ""
+  puts "Benchmark    | MRI (stub)  | Box-first (stub) | Interp (bench)"
+  puts "-------------|-------------|------------------|---------------"
+  rows.each do |r|
+    puts format("%-12s | %11s | %16s | %14s",
+                r[:name],
+                fmt.call(r[:mri_stub]),
+                fmt.call(r[:box_stub]),
+                fmt.call(r[:interp_bench]))
+  end
+  puts ""
+  puts "Stub workload (MRI/Box-first):  bench/stubs/<name>.rb (sized for compiled perf)"
+  puts "Bench workload (Interp):        bench/benchmarks/<name>.rb (sized for tree-walking interp)"
+end
+
 DUSTMAN_DIR     = File.expand_path('vendor/dustman', __dir__)
 DUSTMAN_BUILD   = File.join(DUSTMAN_DIR, 'build')
 DUSTMAN_LIB     = File.join(DUSTMAN_BUILD, 'libdustman.a')
