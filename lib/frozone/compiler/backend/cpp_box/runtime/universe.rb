@@ -1355,8 +1355,6 @@ module Frozone
             name: "ruby_puts",
             signature: "void ruby_puts(BasicObject* o)",
             body: <<~CPP.chomp,
-              // `puts` with no args calls ruby_puts(nullptr); MRI prints just a newline.
-              if (!o)                                       { std::putchar('\\n'); return; }
               if (auto* i = dynamic_cast<Integer*>(o))      { std::printf("%lld\\n", static_cast<long long>(i->raw_)); return; }
               if (auto* f = dynamic_cast<Float*>(o))        {
                 if (std::isnan(f->raw_))      { std::printf("NaN\\n");      return; }
