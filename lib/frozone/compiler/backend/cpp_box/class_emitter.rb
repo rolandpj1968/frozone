@@ -94,7 +94,14 @@ module Frozone
             end
 
             write_method_id_table(emit, method_ids)
-            write_forward_decls(emit, classes, kernel_fns, intrinsics)
+            # Forward decls go into the shared layouts header
+            # (frozone_layouts.hpp) so future TUs see the program's
+            # types and free function signatures. Emitter wraps
+            # the :layouts stream with `namespace Ruby { ... }` —
+            # write_forward_decls itself emits no namespace wrapper.
+            emit.with_stream(:layouts) do
+              write_forward_decls(emit, classes, kernel_fns, intrinsics)
+            end
             emit.blank
             # Class structs first — declarations only, no method bodies.
             # Bodies go out-of-line below so they see all classes /

@@ -116,13 +116,16 @@ module Frozone
             classes = all_classes + all_eigenclasses
             @class_ids_for_init = classes.each_with_index.to_h { |k, i| [k.name, i] }
             kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
-            with_stream(:layouts) { write_layouts_header }
+            with_stream(:layouts) { write_layouts_open }
             write_header
             write_namespace_open
             ClassEmitter.write_runtime(self, classes: classes, call_surface: @call_surface, const_surface: @const_surface, kernel_fns: kernel_fns) do
               write_static_state_init
               write_main_object
             end
+            # Close the :layouts namespace now that ClassEmitter has
+            # populated it (forward decls in step 3; more in later steps).
+            with_stream(:layouts) { write_layouts_close }
             # `frozone_main_impl` (was `int main()`) lives in the default
             # stream so it has direct visibility into the namespace's
             # types. Step 1 of the TU split: `int main()` itself is
@@ -1667,21 +1670,23 @@ module Frozone
             blank
           end
 
-          # frozone_layouts.hpp top — the shared header all future TUs
-          # will include. Currently minimal (#pragma once + box_first.hpp
-          # + namespace Ruby wrapper). Steps 3-5 of the TU split will
-          # move the contents that today live inline in frozone.cpp
-          # (forward decls, struct definitions, extern globals, inline
-          # fn signatures) into this header.
-          def write_layouts_header
+          # frozone_layouts.hpp top — the shared header all TUs include.
+          # Builds up incrementally through TU split steps:
+          #   step 2: just #pragma once + includes + empty namespace
+          #   step 3 (current): + forward decls of structs and free fns
+          #   step 4: + full struct definitions
+          #   step 5: + extern declarations of singletons / globals
+          # Open/close split so other writers can target the :layouts
+          # stream and have their content appear inside namespace Ruby.
+          def write_layouts_open
             line "#pragma once"
             line %(#include "../../runtime/box_first.hpp")
             blank
             line "namespace Ruby {"
             blank
-            line "// (Layouts header is currently minimal — Step 2 of the TU"
-            line "// split. Steps 3-5 will populate this with forward decls,"
-            line "// struct definitions, and extern global declarations.)"
+          end
+
+          def write_layouts_close
             blank
             line "}  // namespace Ruby"
             blank
