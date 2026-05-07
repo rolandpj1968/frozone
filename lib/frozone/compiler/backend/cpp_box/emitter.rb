@@ -37,14 +37,36 @@ module Frozone
           attr_accessor :strict_emit
 
           def initialize
-            @out = +""
+            # Multi-stream output. Each stream becomes one .cpp file
+            # in the output directory. `:default` is the bulk of the
+            # gen (forward decls, class defs, method bodies, statics).
+            # `:main` is a small trampoline that wraps the
+            # `frozone_main_impl` defined in :default.
+            #
+            # Step 1 of the TU split. Future steps:
+            #   - extract __init_static_state__ to its own stream
+            #   - extract universe helpers to its own stream
+            #   - per-class method-body streams (the big payoff)
+            # Each step adds a stream + a write_X that targets it.
+            @outs = { default: +"", main: +"" }
+            @stream = :default
             @indent = 0
             @strict_emit = false
           end
 
-          def write(*strs) = strs.each { |s| @out << s }
-          def line(str) = @out << ("  " * @indent) << str << "\n"
-          def blank = @out << "\n"
+          # Switch active output stream for the duration of the block.
+          # Restores prior stream on exit (including via exception).
+          def with_stream(name)
+            saved = @stream
+            @stream = name
+            yield
+          ensure
+            @stream = saved
+          end
+
+          def write(*strs) = strs.each { |s| @outs[@stream] << s }
+          def line(str) = @outs[@stream] << ("  " * @indent) << str << "\n"
+          def blank = @outs[@stream] << "\n"
 
           def indented
             @indent += 1
@@ -56,16 +78,21 @@ module Frozone
           # reset). Used for rendering method bodies into RubyClass.overrides
           # body strings — writers commit via line/indented as usual,
           # but the result accumulates into a returned string instead of
-          # the main output. ensure-restore so a yield that raises
-          # (e.g. graceful-degradation EmissionError) doesn't leak the
-          # inner buffer into subsequent writes.
+          # the active stream's buffer. ensure-restore so a yield that
+          # raises (e.g. graceful-degradation EmissionError) doesn't leak
+          # the inner buffer into subsequent writes.
+          # Note: routes through @stream selector so writes during capture
+          # land in the captured buffer regardless of caller stream.
           def capture
-            saved_out, saved_indent = @out, @indent
-            @out, @indent = +"", 0
+            saved_buf = @outs[@stream]
+            saved_indent = @indent
+            @outs[@stream] = +""
+            @indent = 0
             yield
-            @out
+            @outs[@stream]
           ensure
-            @out, @indent = saved_out, saved_indent
+            @outs[@stream] = saved_buf
+            @indent = saved_indent
           end
 
           def generate(execute_block:, top_level_scope:, globals:, stub_file: nil)
@@ -92,9 +119,15 @@ module Frozone
               write_static_state_init
               write_main_object
             end
+            # `frozone_main_impl` (was `int main()`) lives in the default
+            # stream so it has direct visibility into the namespace's
+            # types. Step 1 of the TU split: `int main()` itself is
+            # extracted into its own stream — frozone_main.cpp — as a
+            # tiny trampoline that calls frozone_main_impl.
+            write_main_impl
             write_namespace_close
-            write_main
-            @out
+            with_stream(:main) { write_main_trampoline }
+            @outs
           end
 
           private
@@ -1747,11 +1780,16 @@ module Frozone
           # Method-entry tracing is a follow-up (much higher volume).
           def trace? = ENV['FROZONE_BOX_TRACE'] == '1'
 
-          def write_main
-            line "int main(int argc, char** argv) {"
+          # Body of the program entry. Lives inside `namespace Ruby` in
+          # the default stream so it has direct access to the runtime
+          # types. The actual `int main()` is a tiny trampoline emitted
+          # in :main stream (write_main_trampoline) that calls this.
+          # Step 1 of the TU split.
+          def write_main_impl
+            line "int frozone_main_impl(int argc, char** argv) {"
             indented do
               line "FROZONE_GC_INIT();"
-              line "Ruby::__init_static_state__();"
+              line "__init_static_state__();"
               # Populate ARGV from C++ argc/argv. Pre-AOT k_ARGV() is a
               # static empty Array snapshot; without this the runtime
               # binary ignores its command-line args entirely. argv[0]
@@ -1790,6 +1828,24 @@ module Frozone
               line "}"
               line "return 0;"
             end
+            line "}"
+          end
+
+          # Tiny `int main()` wrapper that lives in its own translation
+          # unit (frozone_main.cpp). All it does is forward-declare and
+          # call frozone_main_impl in namespace Ruby. Step 1 of the TU
+          # split — proves the multi-stream / multi-file machinery
+          # without touching layouts or class definitions yet. Future
+          # steps move __init_static_state__, universe helpers, then
+          # per-class method bodies into their own streams.
+          def write_main_trampoline
+            line "// Generated trampoline. Forwards to frozone_main_impl"
+            line "// defined in frozone.cpp's namespace Ruby."
+            blank
+            line "namespace Ruby { int frozone_main_impl(int argc, char** argv); }"
+            blank
+            line "int main(int argc, char** argv) {"
+            indented { line "return Ruby::frozone_main_impl(argc, argv);" }
             line "}"
           end
 

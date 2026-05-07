@@ -62,9 +62,26 @@ module Frozone
           FileUtils.mkdir_p(cpp_dir)
           src = @block_node&.source_location&.first || $PROGRAM_NAME
           base = File.basename(src.to_s, '.rb')
-          output = @output_path || File.join(cpp_dir, "#{base}.cpp")
-          File.write(output, source)
-          $stderr.puts "Frozone.compile! (C++): wrote #{output}"
+          # Box-first emitter returns a Hash {stream_name => content}
+          # for the TU split (Step 1: :default + :main). Legacy cpp
+          # emitter still returns a single String. Handle both.
+          if source.is_a?(Hash)
+            stream_to_filename = { default: "#{base}.cpp", main: "#{base}_main.cpp" }
+            outputs = source.map do |stream, content|
+              filename = stream_to_filename[stream] || raise("unknown emit stream: #{stream}")
+              path = File.join(cpp_dir, filename)
+              # Atomic write-if-different so unchanged streams keep
+              # their mtime → make's incremental rebuild works.
+              prev = File.read(path) rescue nil
+              File.write(path, content) unless prev == content
+              [stream, path]
+            end.to_h
+            $stderr.puts "Frozone.compile! (C++): wrote #{outputs.values.join(', ')}"
+          else
+            output = @output_path || File.join(cpp_dir, "#{base}.cpp")
+            File.write(output, source)
+            $stderr.puts "Frozone.compile! (C++): wrote #{output}"
+          end
           return Vm::NilObject::NIL
         end
 
