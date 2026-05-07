@@ -41,6 +41,7 @@
 #include <unistd.h>
 #include <fstream>
 #include <sstream>
+#include <chrono>
 
 #define FROZONE_GC_INIT() GC_INIT()
 

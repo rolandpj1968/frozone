@@ -851,6 +851,23 @@ inline BasicObject* intrinsic_kernel_puts(BasicObject* /*self_*/, BasicObject* a
   return nil_instance();
 }
 
+// `Process.clock_gettime(clock_id, unit = :float_second)` — minimal
+// monotonic-clock impl. Ignores `clock_id` (treats every clock as
+// MONOTONIC) and supports unit ∈ {:float_second (default), :second,
+// :millisecond, :microsecond, :nanosecond}. Returns Float for
+// :float_second, Integer otherwise. Sufficient for benchmark probes.
+inline BasicObject* intrinsic_process_clock_gettime(BasicObject* /*clock_id*/, BasicObject* unit) {
+  auto _now = std::chrono::steady_clock::now().time_since_epoch();
+  if (auto* _s = dynamic_cast<Symbol*>(unit)) {
+    const char* n = _s->name_;
+    if (std::strcmp(n, "second")      == 0) return new Integer(std::chrono::duration_cast<std::chrono::seconds>(_now).count());
+    if (std::strcmp(n, "millisecond") == 0) return new Integer(std::chrono::duration_cast<std::chrono::milliseconds>(_now).count());
+    if (std::strcmp(n, "microsecond") == 0) return new Integer(std::chrono::duration_cast<std::chrono::microseconds>(_now).count());
+    if (std::strcmp(n, "nanosecond")  == 0) return new Integer(std::chrono::duration_cast<std::chrono::nanoseconds>(_now).count());
+  }
+  return new Float(std::chrono::duration<double>(_now).count());
+}
+
 // `Kernel#print(*args)` — puts without trailing newline. Stub: route
 // through ruby_puts (mismatch, but rarely visible).
 inline BasicObject* intrinsic_kernel_print(BasicObject* /*self_*/, BasicObject* args_arr) {
