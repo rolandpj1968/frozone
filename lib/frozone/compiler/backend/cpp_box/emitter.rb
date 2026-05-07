@@ -37,18 +37,21 @@ module Frozone
           attr_accessor :strict_emit
 
           def initialize
-            # Multi-stream output. Each stream becomes one .cpp file
-            # in the output directory. `:default` is the bulk of the
-            # gen (forward decls, class defs, method bodies, statics).
-            # `:main` is a small trampoline that wraps the
-            # `frozone_main_impl` defined in :default.
-            #
-            # Step 1 of the TU split. Future steps:
-            #   - extract __init_static_state__ to its own stream
-            #   - extract universe helpers to its own stream
-            #   - per-class method-body streams (the big payoff)
-            # Each step adds a stream + a write_X that targets it.
-            @outs = { default: +"", main: +"" }
+            # Multi-stream output. Each stream becomes one .cpp/.hpp file
+            # in the output directory.
+            # - `:layouts` is the shared header (frozone_layouts.hpp) —
+            #   gradually accumulates struct decls, extern globals,
+            #   inline function signatures. Built in steps; for now it
+            #   has just `#pragma once` + box_first.hpp + an empty
+            #   namespace Ruby. Future steps move forward decls, then
+            #   struct definitions, then extern globals into it.
+            # - `:default` is frozone.cpp — the bulk of the gen (forward
+            #   decls still here for now, class defs, method bodies,
+            #   static state init). #includes frozone_layouts.hpp so it
+            #   sees whatever the header has.
+            # - `:main` is a small trampoline that wraps the
+            #   `frozone_main_impl` defined in :default.
+            @outs = { layouts: +"", default: +"", main: +"" }
             @stream = :default
             @indent = 0
             @strict_emit = false
@@ -113,6 +116,7 @@ module Frozone
             classes = all_classes + all_eigenclasses
             @class_ids_for_init = classes.each_with_index.to_h { |k, i| [k.name, i] }
             kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
+            with_stream(:layouts) { write_layouts_header }
             write_header
             write_namespace_open
             ClassEmitter.write_runtime(self, classes: classes, call_surface: @call_surface, const_surface: @const_surface, kernel_fns: kernel_fns) do
@@ -1656,7 +1660,30 @@ module Frozone
           end
 
           def write_header
+            # frozone.cpp top: just #include the shared layouts header.
+            # box_first.hpp comes in transitively. Future steps will
+            # move struct decls, extern globals etc. into the header.
+            line %(#include "frozone_layouts.hpp")
+            blank
+          end
+
+          # frozone_layouts.hpp top — the shared header all future TUs
+          # will include. Currently minimal (#pragma once + box_first.hpp
+          # + namespace Ruby wrapper). Steps 3-5 of the TU split will
+          # move the contents that today live inline in frozone.cpp
+          # (forward decls, struct definitions, extern globals, inline
+          # fn signatures) into this header.
+          def write_layouts_header
+            line "#pragma once"
             line %(#include "../../runtime/box_first.hpp")
+            blank
+            line "namespace Ruby {"
+            blank
+            line "// (Layouts header is currently minimal — Step 2 of the TU"
+            line "// split. Steps 3-5 will populate this with forward decls,"
+            line "// struct definitions, and extern global declarations.)"
+            blank
+            line "}  // namespace Ruby"
             blank
           end
 

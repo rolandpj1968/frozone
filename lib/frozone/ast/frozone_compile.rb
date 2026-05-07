@@ -66,7 +66,11 @@ module Frozone
           # for the TU split (Step 1: :default + :main). Legacy cpp
           # emitter still returns a single String. Handle both.
           if source.is_a?(Hash)
-            stream_to_filename = { default: "#{base}.cpp", main: "#{base}_main.cpp" }
+            stream_to_filename = {
+              layouts: "#{base}_layouts.hpp",
+              default: "#{base}.cpp",
+              main:    "#{base}_main.cpp",
+            }
             outputs = source.map do |stream, content|
               filename = stream_to_filename[stream] || raise("unknown emit stream: #{stream}")
               path = File.join(cpp_dir, filename)
