@@ -1664,6 +1664,18 @@ module Frozone
                 return out;
               }
               if (fmt->bytes.size() == 2 && fmt->bytes[0] == 'U' && fmt->bytes[1] == '*') {
+                // Pre-reserve worst case (1 codepoint per byte = ASCII).
+                // Without this, push_back grows the vector 0→1→2→4→…→N
+                // through ~log2(N) reallocations. Each grow allocates a
+                // fresh GcAllocator buffer; the OLD buffer's `_M_start`
+                // pointer lingers in registers/stack after grow returns,
+                // so Boehm's conservative scan keeps every intermediate
+                // buffer alive forever. For Parser_Lexer::source_buffer_set
+                // unpacking multi-MB source files via 'U*', sum of
+                // intermediate buffers ≈ 2× peak buffer → massive leak
+                // (~12 MB/s baseline observed). Reserve eliminates ALL
+                // intermediate buffers.
+                out->data.reserve(n);
                 std::size_t i = 0;
                 while (i < n) {
                   std::uint8_t c = b[i];
