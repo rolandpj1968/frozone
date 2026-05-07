@@ -75,7 +75,6 @@ module Frozone
             basic_object___send__ basic_object_method_missing
             kernel_catch kernel_throw kernel_puts kernel_print
             kernel_rand kernel_integer kernel_float kernel_raise
-            process_clock_gettime
             fiber_storage_get fiber_storage_set
             file_expand_path file_dirname file_basename file_split
             file_exist file_directory file_file file_size file_size_exact
