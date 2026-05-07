@@ -45,6 +45,45 @@
 
 #define FROZONE_GC_INIT() GC_INIT()
 
+// Global operator new/delete override — route ALL C++ heap allocations
+// through Boehm so they're GC-tracked and reclaimable.
+//
+// Why: every interpreted block creation (`(new Proc(...))`) wraps a
+// C++ lambda inside `std::function<BasicObject*(Array*)>`. When the
+// lambda's captures exceed std::function's small-buffer-optimisation
+// threshold (which our `[&, this](Array*)` lambdas easily do), the
+// std::function constructor heap-allocates a "_Base_manager" via the
+// global `operator new` (= libc malloc) to hold the captures. When
+// Boehm later reclaims the Proc, the std::function destructor doesn't
+// run (Boehm doesn't run C++ dtors), so those libc-allocated capture
+// buffers leak forever — observed as ~25 MB/s linear heap growth in
+// load_core, ~40% of peak heap in massif.
+//
+// Same pattern applies to std::string heap nodes (Symbol intern table
+// keys), std::unordered_map bucket nodes, and any other STL component
+// that hits its allocator path. Overriding global new makes them all
+// Boehm-managed → reclaimable.
+//
+// `operator delete` is a no-op: Boehm will sweep when nothing
+// references the allocation. STL destructors that "free" via delete
+// are still called on scope exit; they just don't actually free —
+// they hand control back to Boehm. Double-delete is also safe (no-op).
+//
+// Caveats:
+// - Onigmo (C library) uses libc malloc directly — not affected; needs
+//   a finalizer-based fix on RegexpObject.
+// - Some Boehm internals must NOT route through this override (or you
+//   get infinite recursion). libgc's own allocator calls don't go
+//   through C++ operator new, so we're safe.
+// - dustman compatibility: dustman vendor submodule may have its own
+//   allocation strategy; check before vendoring.
+inline void* operator new(std::size_t s)             { return GC_MALLOC(s); }
+inline void* operator new[](std::size_t s)           { return GC_MALLOC(s); }
+inline void  operator delete(void*) noexcept         {}
+inline void  operator delete[](void*) noexcept       {}
+inline void  operator delete(void*, std::size_t) noexcept {}
+inline void  operator delete[](void*, std::size_t) noexcept {}
+
 // Boehm-aware allocator for STL containers. Boehm's conservative
 // scanner doesn't trace libc-malloc'd memory by default, so pointers
 // stored inside a default-allocated std::vector<BasicObject*> become
