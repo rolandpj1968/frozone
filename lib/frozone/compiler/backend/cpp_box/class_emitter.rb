@@ -103,12 +103,16 @@ module Frozone
               write_forward_decls(emit, classes, kernel_fns, intrinsics)
             end
             emit.blank
-            # Class structs first — declarations only, no method bodies.
-            # Bodies go out-of-line below so they see all classes /
-            # singletons as complete (handles cross-references like
-            # `dynamic_cast<TypeError*>` and `&Module_CLASS` from any
-            # method, regardless of class definition order).
-            classes.each { |k| write_class(emit, k, call_surface) }
+            # Class structs go into the shared layouts header.
+            # write_class emits the struct with method DECLARATIONS
+            # only (no bodies — those come via write_class_definitions
+            # below in the captured body buf, qualified out-of-line).
+            # Layouts header now contains: forward decls + full struct
+            # definitions, so any future TU can see all program types
+            # by #include "frozone_layouts.hpp".
+            emit.with_stream(:layouts) do
+              classes.each { |k| write_class(emit, k, call_surface) }
+            end
             write_singletons(emit, classes)
             emit.blank
             emit.cpp.write_int_literals(emit)
