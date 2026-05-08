@@ -59,9 +59,13 @@ module Frozone
 
           # Switch active output stream for the duration of the block.
           # Restores prior stream on exit (including via exception).
+          # Auto-creates the stream if it doesn't exist (per-class
+          # streams in step 7 are created on demand: :class_Object,
+          # :class_Integer, ... rather than pre-declared in initialize).
           def with_stream(name)
             saved = @stream
             @stream = name
+            @outs[name] ||= +""
             yield
           ensure
             @stream = saved

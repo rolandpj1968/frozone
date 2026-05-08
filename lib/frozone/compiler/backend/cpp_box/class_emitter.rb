@@ -76,12 +76,40 @@ module Frozone
               # inline class-body methods (e.g. Module#ancestors) can
               # reference them — the actual definitions come further
               # down in write_is_a_lut.
+              # Routed to layouts header so per-class TUs (Step 7)
+              # see the decls. N_CLASSES is `inline constexpr` for
+              # single-definition-across-TUs (C++17).
               n_classes = class_ids.size
-              emit.line "static constexpr int N_CLASSES = #{n_classes};"
-              emit.line "extern const bool IS_A[N_CLASSES][N_CLASSES];"
-              emit.line "extern BasicObject* const CLASS_BY_ID[N_CLASSES];"
-              emit.blank
-              classes.each { |k| write_class_definitions(emit, k) }
+              emit.with_stream(:layouts) do
+                emit.line "inline constexpr int N_CLASSES = #{n_classes};"
+                emit.line "extern const bool IS_A[N_CLASSES][N_CLASSES];"
+                emit.line "extern BasicObject* const CLASS_BY_ID[N_CLASSES];"
+                emit.blank
+              end
+              # Per-class TU split (Step 7). Each class's out-of-line
+              # method definitions go to its own .cpp file —
+              # frozone_<ClassName>.cpp. Each per-class TU includes
+              # the layouts header, opens namespace Ruby, emits the
+              # method bodies, closes namespace.
+              #
+              # Pay-off: Makefile's `g++ -j N -c *.cpp` parallelises;
+              # editing one class touches one file (atomic write-if-
+              # different is in FrozoneCompile.evaluate already);
+              # incremental rebuilds become ~10-30 sec instead of
+              # ~7 min (full rebuild today).
+              classes.each do |k|
+                stream_name = :"class_#{k.name}"
+                emit.with_stream(stream_name) do
+                  emit.line %(#include "frozone_layouts.hpp")
+                  emit.blank
+                  emit.line "namespace Ruby {"
+                  emit.blank
+                  write_class_definitions(emit, k)
+                  emit.blank
+                  emit.line "}  // namespace Ruby"
+                  emit.blank
+                end
+              end
               write_method_vt(emit, method_ids)
               write_send_body(emit, method_ids)
               write_is_a_lut(emit, class_ids, is_a_lut)

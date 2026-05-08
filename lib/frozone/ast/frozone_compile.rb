@@ -66,23 +66,40 @@ module Frozone
           # for the TU split (Step 1: :default + :main). Legacy cpp
           # emitter still returns a single String. Handle both.
           if source.is_a?(Hash)
-            stream_to_filename = {
+            fixed = {
               layouts:  "#{base}_layouts.hpp",
               default:  "#{base}.cpp",
               universe: "#{base}_universe.cpp",
               static:   "#{base}_static.cpp",
               main:     "#{base}_main.cpp",
             }
+            # Per-class streams (`:class_<ClassName>` from Step 7) map
+            # to `frozone_class_<ClassName>.cpp`. Pattern-resolved so
+            # we don't have to enumerate the ~650 classes here.
+            stream_to_filename = lambda do |stream|
+              return fixed[stream] if fixed.key?(stream)
+              return "#{base}_#{stream}.cpp" if stream.to_s.start_with?("class_")
+              raise "unknown emit stream: #{stream}"
+            end
+            written_count = 0
+            unchanged_count = 0
             outputs = source.map do |stream, content|
-              filename = stream_to_filename[stream] || raise("unknown emit stream: #{stream}")
-              path = File.join(cpp_dir, filename)
+              # Skip empty streams (auto-created via with_stream's
+              # ||= but never written to — shouldn't happen but defensive).
+              next if content.empty?
+              path = File.join(cpp_dir, stream_to_filename.call(stream))
               # Atomic write-if-different so unchanged streams keep
               # their mtime → make's incremental rebuild works.
               prev = File.read(path) rescue nil
-              File.write(path, content) unless prev == content
+              if prev == content
+                unchanged_count += 1
+              else
+                File.write(path, content)
+                written_count += 1
+              end
               [stream, path]
-            end.to_h
-            $stderr.puts "Frozone.compile! (C++): wrote #{outputs.values.join(', ')}"
+            end.compact.to_h
+            $stderr.puts "Frozone.compile! (C++): #{written_count} written, #{unchanged_count} unchanged across #{outputs.size} files"
           else
             output = @output_path || File.join(cpp_dir, "#{base}.cpp")
             File.write(output, source)
