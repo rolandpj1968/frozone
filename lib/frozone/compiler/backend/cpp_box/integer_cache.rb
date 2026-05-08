@@ -48,7 +48,10 @@ module Frozone
             emit.line "// time. Cuts source size and cc1plus parse time vs emitting"
             emit.line "// each element as `(&_f_i_X), `."
             @raw_int_arrays.each_with_index do |values, idx|
-              emit.line "static const int64_t __TBL_INT_#{idx}__[#{values.size}] = {#{values.join(",")}};"
+              # `inline` instead of `static const` so the layouts header
+              # can host these arrays — single definition across TUs that
+              # need to take addresses of (&__TBL_INT_X__[N]) etc.
+              emit.line "inline const int64_t __TBL_INT_#{idx}__[#{values.size}] = {#{values.join(",")}};"
             end
             emit.blank
           end
@@ -58,14 +61,19 @@ module Frozone
           # Each is its own variable — cc1plus parses each
           # independently, much cheaper than one big array initializer
           # for the wq parser scale (~thousands of unique literals).
+          # `inline` (C++17 inline variable) so the layouts header can
+          # include them without ODR clashes — multiple TUs see the
+          # same single definition. Required so per-class TUs and the
+          # universe TU can reference (&_f_i_N) when emitting accessor
+          # bodies that use Integer literals.
           def write_int_literals(emit)
             return if @int_literals.empty?
             emit.line "// Interned Integer literals — every unique IntegerLiteral and"
-            emit.line "// IntegerObject in the program graph maps to one shared static"
-            emit.line "// instance. Direct named statics (rather than an array) so"
+            emit.line "// IntegerObject in the program graph maps to one shared inline"
+            emit.line "// instance. Direct named inlines (rather than an array) so"
             emit.line "// cc1plus parses each as an independent declaration."
             @int_literals.each_key do |value|
-              emit.line "Integer #{int_literal_name(value)}(#{value}LL);"
+              emit.line "inline Integer #{int_literal_name(value)}(#{value}LL);"
             end
             emit.blank
           end

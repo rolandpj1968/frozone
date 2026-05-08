@@ -88,12 +88,23 @@ module Frozone
               write_method_missing_default(emit)
               write_constant_typeerror_body(emit)
               write_const_missing_default(emit)
-              write_kernel_fn_bodies(emit, kernel_fns)
-              write_intrinsic_bodies(emit, intrinsics)
+              # Kernel fn + intrinsic bodies route to the :universe stream
+              # → frozone_universe.cpp. They were inline in frozone.cpp;
+              # now they're non-inline definitions in their own TU,
+              # decls in layouts.hpp. Step 5 of TU split.
+              emit.with_stream(:universe) do
+                write_kernel_fn_bodies(emit, kernel_fns)
+                write_intrinsic_bodies(emit, intrinsics)
+              end
               yield if block_given?
             end
 
-            write_method_id_table(emit, method_ids)
+            # Method id table moved to layouts header so the universe
+            # TU's intern() can read it. Uses C++17 inline variables so
+            # it's defined exactly once across all including TUs.
+            emit.with_stream(:layouts) do
+              write_method_id_table(emit, method_ids)
+            end
             # Forward decls go into the shared layouts header
             # (frozone_layouts.hpp) so future TUs see the program's
             # types and free function signatures. Emitter wraps
@@ -115,14 +126,28 @@ module Frozone
             end
             write_singletons(emit, classes)
             emit.blank
-            emit.cpp.write_int_literals(emit)
-            emit.cpp.write_raw_int_arrays(emit)
-            # Inline intrinsic implementations — included AFTER class
-            # structs (so String*, Array* etc. are complete) and BEFORE
-            # method bodies (so they can call the intrinsic_X helpers).
-            # See cpp/runtime/intrinsics.hpp.
-            emit.line %|#include "../../runtime/intrinsics.hpp"|
-            emit.blank
+            # Int literals (`inline Integer _f_i_N(NLL);`) and raw int
+            # arrays go into the layouts header so any TU including it
+            # can reference (&_f_i_N) in compiled method bodies and
+            # accessor bodies. C++17 inline variables → single
+            # definition across TUs.
+            emit.with_stream(:layouts) do
+              emit.cpp.write_int_literals(emit)
+              emit.cpp.write_raw_int_arrays(emit)
+            end
+            # Inline intrinsic implementations — must be included AFTER
+            # class structs (so String*, Array* etc. are complete) and
+            # BEFORE method bodies (so callers can call the intrinsic_X
+            # helpers). See cpp/runtime/intrinsics.hpp.
+            #
+            # Routed to the :layouts stream (inside namespace Ruby in
+            # the header) so any TU that #includes frozone_layouts.hpp
+            # gets the intrinsic_X functions visible. Required for the
+            # universe TU (Step 5) and per-class TUs (Step 7).
+            emit.with_stream(:layouts) do
+              emit.line %|#include "../../runtime/intrinsics.hpp"|
+              emit.blank
+            end
             write_class_var_storage(emit)
             body_buf.each_line { |l| emit.line l.chomp }
           end
@@ -155,7 +180,11 @@ module Frozone
             emit.line "// call surface gets a stable integer index. intern() builds an"
             emit.line "// unordered_map from this array on first call."
             emit.line "struct __NameId__ { const char* name; int id; };"
-            emit.line "static const __NameId__ METHOD_NAMES[] = {"
+            # `inline` (C++17 inline variable) — single definition across
+            # all TUs that include the layouts header. Required so that
+            # the universe TU's intern() can read this table without
+            # introducing ODR violations.
+            emit.line "inline const __NameId__ METHOD_NAMES[] = {"
             emit.indented do
               method_ids.each do |cpp_name, id|
                 ruby_name = cpp_name_to_ruby(cpp_name)
@@ -164,7 +193,10 @@ module Frozone
               end
             end
             emit.line "};"
-            emit.line "static constexpr int METHOD_NAMES_COUNT = #{method_ids.size};"
+            # `inline constexpr` (C++17 implicit-inline-on-constexpr is
+            # ambiguous; explicit inline keeps the intent clear). Single
+            # definition across all TUs that include the layouts header.
+            emit.line "inline constexpr int METHOD_NAMES_COUNT = #{method_ids.size};"
             emit.blank
           end
 
@@ -451,13 +483,20 @@ module Frozone
             # of nullptr. Lets us drop nullptr branches throughout.
             emit.line "extern Hash EMPTY_KWARGS;"
             emit.blank
-            kernel_fns.each { |fn| emit.line "inline #{fn.signature};" }
-            intrinsics.each { |fn| emit.line "inline #{fn.signature};" }
+            # Non-inline declarations — bodies live in frozone_universe.cpp
+            # (Step 5 of TU split). `inline` would force every TU including
+            # this header to also see the body, but bodies stay in one TU.
+            # Without -flto we lose cross-TU inlining; with -flto it's
+            # recovered. For one-TU calls (today, frozone.cpp + universe.cpp)
+            # this is moot; matters when per-class TUs land (Step 7).
+            kernel_fns.each { |fn| emit.line "#{fn.signature};" }
+            intrinsics.each { |fn| emit.line "#{fn.signature};" }
           end
 
           def self.write_intrinsic_bodies(emit, intrinsics)
             intrinsics.each do |fn|
-              emit.line "inline #{fn.signature} {"
+              # Non-inline definition — declaration in layouts.hpp.
+              emit.line "#{fn.signature} {"
               emit.indented { fn.body.each_line { |l| emit.line l.chomp } }
               emit.line "}"
               emit.blank
@@ -754,7 +793,8 @@ module Frozone
 
           def self.write_kernel_fn_bodies(emit, kernel_fns)
             kernel_fns.each do |fn|
-              emit.line "inline #{fn.signature} {"
+              # Non-inline definition — declaration in layouts.hpp.
+              emit.line "#{fn.signature} {"
               emit.indented { fn.body.each_line { |l| emit.line l.chomp } }
               emit.line "}"
               emit.blank

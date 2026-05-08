@@ -67,9 +67,10 @@ module Frozone
           # emitter still returns a single String. Handle both.
           if source.is_a?(Hash)
             stream_to_filename = {
-              layouts: "#{base}_layouts.hpp",
-              default: "#{base}.cpp",
-              main:    "#{base}_main.cpp",
+              layouts:  "#{base}_layouts.hpp",
+              default:  "#{base}.cpp",
+              universe: "#{base}_universe.cpp",
+              main:     "#{base}_main.cpp",
             }
             outputs = source.map do |stream, content|
               filename = stream_to_filename[stream] || raise("unknown emit stream: #{stream}")

@@ -51,7 +51,7 @@ module Frozone
             #   sees whatever the header has.
             # - `:main` is a small trampoline that wraps the
             #   `frozone_main_impl` defined in :default.
-            @outs = { layouts: +"", default: +"", main: +"" }
+            @outs = { layouts: +"", default: +"", universe: +"", main: +"" }
             @stream = :default
             @indent = 0
             @strict_emit = false
@@ -117,6 +117,7 @@ module Frozone
             @class_ids_for_init = classes.each_with_index.to_h { |k, i| [k.name, i] }
             kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
             with_stream(:layouts) { write_layouts_open }
+            with_stream(:universe) { write_universe_open }
             write_header
             write_namespace_open
             ClassEmitter.write_runtime(self, classes: classes, call_surface: @call_surface, const_surface: @const_surface, kernel_fns: kernel_fns) do
@@ -126,6 +127,9 @@ module Frozone
             # Close the :layouts namespace now that ClassEmitter has
             # populated it (forward decls in step 3; more in later steps).
             with_stream(:layouts) { write_layouts_close }
+            # Close the :universe namespace too (kernel_fn / intrinsic
+            # bodies now in it via Step 5).
+            with_stream(:universe) { write_universe_close }
             # `frozone_main_impl` (was `int main()`) lives in the default
             # stream so it has direct visibility into the namespace's
             # types. Step 1 of the TU split: `int main()` itself is
@@ -1687,6 +1691,24 @@ module Frozone
           end
 
           def write_layouts_close
+            blank
+            line "}  // namespace Ruby"
+            blank
+          end
+
+          # frozone_universe.cpp — definitions of all kernel_fns and
+          # intrinsic helpers. layouts.hpp has their (non-inline)
+          # forward decls; universe.cpp has the unique definitions.
+          # Lets per-class TUs and the static-state TU call them
+          # without ODR violations or inline-ism.
+          def write_universe_open
+            line %(#include "frozone_layouts.hpp")
+            blank
+            line "namespace Ruby {"
+            blank
+          end
+
+          def write_universe_close
             blank
             line "}  // namespace Ruby"
             blank
