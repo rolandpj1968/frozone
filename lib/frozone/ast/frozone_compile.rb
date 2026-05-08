@@ -70,6 +70,7 @@ module Frozone
               layouts:  "#{base}_layouts.hpp",
               default:  "#{base}.cpp",
               universe: "#{base}_universe.cpp",
+              static:   "#{base}_static.cpp",
               main:     "#{base}_main.cpp",
             }
             outputs = source.map do |stream, content|

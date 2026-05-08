@@ -51,7 +51,7 @@ module Frozone
             #   sees whatever the header has.
             # - `:main` is a small trampoline that wraps the
             #   `frozone_main_impl` defined in :default.
-            @outs = { layouts: +"", default: +"", universe: +"", main: +"" }
+            @outs = { layouts: +"", default: +"", universe: +"", static: +"", main: +"" }
             @stream = :default
             @indent = 0
             @strict_emit = false
@@ -118,10 +118,14 @@ module Frozone
             kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
             with_stream(:layouts) { write_layouts_open }
             with_stream(:universe) { write_universe_open }
+            with_stream(:static) { write_static_open }
             write_header
             write_namespace_open
             ClassEmitter.write_runtime(self, classes: classes, call_surface: @call_surface, const_surface: @const_surface, kernel_fns: kernel_fns) do
-              write_static_state_init
+              # __init_static_state__ goes to its own TU
+              # (frozone_static.cpp) — huge AOT-captured constant
+              # initializers live there. Step 6 of TU split.
+              with_stream(:static) { write_static_state_init }
               write_main_object
             end
             # Close the :layouts namespace now that ClassEmitter has
@@ -130,6 +134,8 @@ module Frozone
             # Close the :universe namespace too (kernel_fn / intrinsic
             # bodies now in it via Step 5).
             with_stream(:universe) { write_universe_close }
+            # Close the :static namespace (Step 6).
+            with_stream(:static) { write_static_close }
             # `frozone_main_impl` (was `int main()`) lives in the default
             # stream so it has direct visibility into the namespace's
             # types. Step 1 of the TU split: `int main()` itself is
@@ -1688,6 +1694,13 @@ module Frozone
             blank
             line "namespace Ruby {"
             blank
+            # Forward declarations for free functions whose definitions
+            # live in dedicated TUs (universe, static, …). Lets the
+            # other TUs' callers (frozone.cpp's frozone_main_impl etc.)
+            # find them at link time.
+            line "void __init_static_state__();  // defined in frozone_static.cpp"
+            line "int frozone_main_impl(int argc, char** argv);  // defined in frozone.cpp"
+            blank
           end
 
           def write_layouts_close
@@ -1709,6 +1722,24 @@ module Frozone
           end
 
           def write_universe_close
+            blank
+            line "}  // namespace Ruby"
+            blank
+          end
+
+          # frozone_static.cpp — `__init_static_state__()` definition.
+          # The huge AOT-time-captured constant initializers (lexer
+          # tables, class instance ivars) live here. Extracting it from
+          # frozone.cpp shrinks the main TU and (with PCH) lets it
+          # compile in parallel with class TUs.
+          def write_static_open
+            line %(#include "frozone_layouts.hpp")
+            blank
+            line "namespace Ruby {"
+            blank
+          end
+
+          def write_static_close
             blank
             line "}  // namespace Ruby"
             blank

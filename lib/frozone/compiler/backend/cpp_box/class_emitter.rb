@@ -148,7 +148,13 @@ module Frozone
               emit.line %|#include "../../runtime/intrinsics.hpp"|
               emit.blank
             end
-            write_class_var_storage(emit)
+            # Class vars are already `inline BasicObject* cv_X = ...`
+            # globals — route to layouts header so the static-state TU
+            # (Step 6) and any per-class TU can reference them. Inline
+            # variables → single definition across all including TUs.
+            emit.with_stream(:layouts) do
+              write_class_var_storage(emit)
+            end
             body_buf.each_line { |l| emit.line l.chomp }
           end
 
