@@ -374,7 +374,7 @@ module Frozone
             end
             emit.line "};"
             emit.blank
-            emit.line "inline BasicObject* Object::m_is_a_q(Array* args, Hash* kwargs, BasicObject* block) {"
+            emit.line "BasicObject* Object::m_is_a_q(Array* args, Hash* kwargs, BasicObject* block) {"
             emit.indented do
               emit.line "int my_id = this->__class_id__();"
               emit.line "if (my_id < 0) return false_instance();"
@@ -619,7 +619,7 @@ module Frozone
           # method_missing.
           def self.write_send_body(emit, _method_ids)
             ["m_send", "m___send__"].each do |fn|
-              emit.line "inline BasicObject* Object::#{fn}(Array* args, Hash* kwargs, BasicObject* block) {"
+              emit.line "BasicObject* Object::#{fn}(Array* args, Hash* kwargs, BasicObject* block) {"
               emit.indented do
                 emit.line %|if (args->data.empty()) { std::fprintf(stderr, "[box-first] send: no method name\\n"); std::abort(); }|
                 emit.line "Symbol* _name = static_cast<Symbol*>(args->data[0]);"
@@ -668,7 +668,7 @@ module Frozone
           # BasicObject as the default; Module overrides every c_X
           # slot to constant_missing instead.
           def self.write_constant_typeerror_body(emit)
-            emit.line "inline BasicObject* BasicObject::constant_typeerror(const char* /*const_name*/) {"
+            emit.line "BasicObject* BasicObject::constant_typeerror(const char* /*const_name*/) {"
             emit.indented do
               emit.line %|if (std::getenv("FROZONE_BOX_TRACE")) {|
               emit.indented do
@@ -697,7 +697,7 @@ module Frozone
           # NameError. User classes that `def const_missing` override
           # this via the normal vtable mechanism. args is `[Symbol]`.
           def self.write_const_missing_default(emit)
-            emit.line "inline BasicObject* BasicObject::m_const_missing(Array* args, Hash* /*kwargs*/, BasicObject* /*block*/) {"
+            emit.line "BasicObject* BasicObject::m_const_missing(Array* args, Hash* /*kwargs*/, BasicObject* /*block*/) {"
             emit.indented do
               emit.line "const char* const_name = args->data.empty() ? \"\" : static_cast<Symbol*>(args->data[0])->name_;"
               emit.line %|if (std::getenv("FROZONE_BOX_TRACE")) {|
@@ -731,7 +731,7 @@ module Frozone
           # override this via the normal vtable mechanism. args is
           # `[Symbol.method_name, *original_args]` (mm_dispatch builds it).
           def self.write_method_missing_default(emit)
-            emit.line "inline BasicObject* BasicObject::m_method_missing(Array* args, Hash* /*kwargs*/, BasicObject* /*block*/) {"
+            emit.line "BasicObject* BasicObject::m_method_missing(Array* args, Hash* /*kwargs*/, BasicObject* /*block*/) {"
             emit.indented do
               emit.line "const char* method_name = args->data.empty() ? \"\" : static_cast<Symbol*>(args->data[0])->name_;"
               # FROZONE_BOX_TRACE=1 dumps a libc backtrace at the throw
@@ -792,8 +792,11 @@ module Frozone
           def self.write_override_def(emit, class_name, name, spec)
             if name.start_with?("c_")
               # Constant-lookup slot — empty arg list, body is a `return
-              # <value>;` line.
-              emit.line "inline BasicObject* #{class_name}::#{name}() {"
+              # <value>;` line. Non-inline now (per-class TU split,
+              # Step 7) — bodies are unique defs in their TU, not
+              # duplicated inline definitions in every TU's vtable
+              # reference.
+              emit.line "BasicObject* #{class_name}::#{name}() {"
               emit.indented do
                 spec[:body].each_line { |l| emit.line l.chomp }
               end
@@ -801,7 +804,7 @@ module Frozone
               emit.blank
               return
             end
-            emit.line "inline BasicObject* #{class_name}::#{name}(Array* args, Hash* kwargs, BasicObject* block) {"
+            emit.line "BasicObject* #{class_name}::#{name}(Array* args, Hash* kwargs, BasicObject* block) {"
             emit.indented do
               (spec[:params] || []).each_with_index do |param_decl, i|
                 param_name = param_decl.split(/\s+/).last.delete_prefix('*')
