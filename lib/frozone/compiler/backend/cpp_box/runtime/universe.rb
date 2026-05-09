@@ -1884,6 +1884,52 @@ module Frozone
             CPP
           )
 
+          # Global variable accessors — back GlobalVariableRead /
+          # GlobalVariableWrite by the GLOBALS hash that the
+          # interpreter's init_globals also writes through. Match-data
+          # globals stay special-cased (g_last_match()); everything
+          # else routes through these helpers.
+          GLOBAL_OR_NIL_FN = KernelFn.new(
+            name: "g_global_or_nil",
+            signature: "BasicObject* g_global_or_nil(const char* name)",
+            body: <<~CPP.chomp,
+              Hash* g = static_cast<Hash*>(k_Frozone_Vm_GLOBALS());
+              auto it = g->data.find(intern(name));
+              return it == g->data.end() ? nil_instance() : it->second;
+            CPP
+          )
+
+          # Auto-init array-valued globals so `[a] + $LOAD_PATH + b`
+          # and `$LOAD_PATH.map { … }` work even before init_globals
+          # has populated GLOBALS[$LOAD_PATH]. Mirrors MRI's "$LOAD_PATH
+          # is always an Array" guarantee. The fresh ArrayObject is
+          # also stored back so subsequent reads see the same instance.
+          GLOBAL_ARRAY_FN = KernelFn.new(
+            name: "g_global_array",
+            signature: "BasicObject* g_global_array(const char* name)",
+            body: <<~CPP.chomp,
+              Hash* g = static_cast<Hash*>(k_Frozone_Vm_GLOBALS());
+              Symbol* key = intern(name);
+              auto it = g->data.find(key);
+              if (it != g->data.end() && it->second != nil_instance()) return it->second;
+              Array* raw = new Array();
+              BasicObject* vm_arr = (&Frozone_Vm_ArrayObject_CLASS)->m_new(
+                new Array({static_cast<BasicObject*>(raw)}));
+              g->data[key] = vm_arr;
+              return vm_arr;
+            CPP
+          )
+
+          GLOBAL_SET_FN = KernelFn.new(
+            name: "g_global_set",
+            signature: "BasicObject* g_global_set(const char* name, BasicObject* val)",
+            body: <<~CPP.chomp,
+              Hash* g = static_cast<Hash*>(k_Frozone_Vm_GLOBALS());
+              g->data[intern(name)] = val;
+              return val;
+            CPP
+          )
+
           # Fiber storage — `Fiber[:k]` / `Fiber[:k] = v`. Single-
           # threaded today, so a plain global Hash* suffices.
           # Allocated lazily on first access so static-init order
@@ -1908,6 +1954,7 @@ module Frozone
             MM_DISPATCH_FN, CM_DISPATCH_FN,
             INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
             STRING_GSUB_FN, STRING_SCAN_FN, STRING_UNPACK_FN,
+            GLOBAL_OR_NIL_FN, GLOBAL_ARRAY_FN, GLOBAL_SET_FN,
             FIBER_STORAGE_GLOBAL,
           ].freeze
 

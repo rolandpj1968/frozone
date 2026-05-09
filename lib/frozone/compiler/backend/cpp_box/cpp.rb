@@ -348,6 +348,7 @@ module Frozone
                 "#{body_as_lambda(node, locals, last_is_return: true)}()"
               end
             when Ast::GlobalVariableRead then from_global_variable_read(node)
+            when Ast::GlobalVariableWrite then from_global_variable_write(node, locals)
             when Ast::Super then from_super(node, locals)
             when Ast::DefinedExpr then from_defined_expr(node, locals)
             else
@@ -790,20 +791,47 @@ module Frozone
             "this->#{qualifier_class}::#{cpp_name}(#{args_expr}, kwargs, #{block_expr})"
           end
 
-          # `$~` reads the last MatchData; `$1`..`$9` (NumberedReferenceRead
-          # in Prism, lowered to GlobalVariableRead `:$N`) extract the
-          # Nth capture from $~. Other globals fall through to
-          # EmissionError so the caller method graceful-skips.
+          # Box-first global variable reads. Match-data globals stay
+          # special-cased (no GLOBALS hash entry — they thread through
+          # g_last_match()). Everything else lowers to a GLOBALS hash
+          # lookup. $LOAD_PATH-family and $LOADED_FEATURES-family auto-
+          # init to a fresh empty Vm::ArrayObject if absent — matches
+          # MRI's "always an Array" guarantee that callers like
+          # `[core_path] + $LOAD_PATH` rely on.
+          GLOBAL_NAME_ALIAS = {
+            :"$:"  => "$LOAD_PATH",
+            :"$-I" => "$LOAD_PATH",
+            :"$\"" => "$LOADED_FEATURES",
+          }.freeze
+          GLOBAL_ARRAY_NAMES = %w[$LOAD_PATH $LOADED_FEATURES].to_set.freeze
+
           def from_global_variable_read(node)
             case node.name
             when :"$~"
-              "g_last_match()"
+              return "g_last_match()"
             when /\A\$(\d+)\z/
               n = ::Regexp.last_match(1).to_i
-              "matchdata_cap(g_last_match(), #{n})"
-            else
-              raise EmissionError, "global variable #{node.name} not supported in box-first"
+              return "matchdata_cap(g_last_match(), #{n})"
             end
+            canonical = GLOBAL_NAME_ALIAS[node.name] || node.name.to_s
+            name_lit = cpp_string_literal(canonical)
+            if GLOBAL_ARRAY_NAMES.include?(canonical)
+              # Auto-init helper: returns existing entry, or a fresh
+              # empty Vm::ArrayObject (also stored back into GLOBALS).
+              "g_global_array(#{name_lit})"
+            else
+              # Plain hash lookup — nil for missing.
+              "g_global_or_nil(#{name_lit})"
+            end
+          end
+
+          # GLOBALS hash store. For Symbol-keyed globals like $LOAD_PATH
+          # the key matches the AST evaluator's canonical name (after
+          # alias normalisation).
+          def from_global_variable_write(node, locals)
+            canonical = GLOBAL_NAME_ALIAS[node.name] || node.name.to_s
+            name_lit = cpp_string_literal(canonical)
+            "g_global_set(#{name_lit}, #{from_expr(node.value_node, locals)})"
           end
 
           # `/pattern/flags` — direct construction of a Regexp at the
