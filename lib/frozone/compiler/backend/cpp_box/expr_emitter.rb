@@ -497,12 +497,29 @@ module Frozone
           # in a lambda (which can't break/continue out).
           def self.write_loop_block(emit, node, locals)
             blk = node.block_node
-            emit.line "while (true) {"
+            # `loop do ... end` semantically: an iterator that yields
+            # repeatedly until the block raises StopIteration / break.
+            # We inline it as `while (true) { body }` for tight loops,
+            # but the body IS still a block — Ruby `return X` inside
+            # must escape the ENCLOSING METHOD (throw ReturnException),
+            # not the C++ enclosing function. Pass `in_block: true` so
+            # write_stmt emits Return as a throw, and wrap the while
+            # in `try { } catch (BreakException& _be) { … }` so
+            # `break v` inside the block (also now a throw under
+            # in_block=true) exits the inlined loop with the right
+            # semantics.
+            emit.line "try {"
             emit.indented do
-              block_locals = locals.dup
-              write_body(emit, blk.body, locals: block_locals)
+              emit.line "while (true) {"
+              emit.indented do
+                block_locals = locals.dup
+                emit.cpp.with_in_block do
+                  write_body(emit, blk.body, locals: block_locals, in_block: true)
+                end
+              end
+              emit.line "}"
             end
-            emit.line "}"
+            emit.line "} catch (BreakException& __be_loop__) { /* break exits loop */ }"
           end
 
           # `recv.times { |i| body }` → C++ for-loop. Mirrors mainline's
