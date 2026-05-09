@@ -223,7 +223,7 @@ module Frozone
               method_ids.each do |cpp_name, id|
                 # Prefer the actual Ruby name captured in call_surface
                 # (cpp_name → ruby_name_string) over reverse-mangling the
-                # cpp_name. The forward mapping `name= → m_name_set`
+                # cpp_name. The forward mapping `name= → mm_name_eq`
                 # collides with literal `_set` endings (e.g. Ruby's
                 # `module_const_set`), and reverse-mangling the cpp name
                 # is ambiguous — call_surface remembers the original.
@@ -241,14 +241,34 @@ module Frozone
           end
 
           # Reverse Cpp.method_name to recover the Ruby name we'd see
-          # at runtime as Symbol#name_. `m_X_q` → `X?`, `m_X_set` →
-          # `X=`, operator-mangled → operator. Falls back to `m_X` → `X`.
+          # at runtime as Symbol#name_.
+          #
+          #   `mm_X_q`    → `X?`   (predicate)
+          #   `mm_X_bang` → `X!`   (bang)
+          #   `mm_X_eq`   → `X=`   (setter)
+          #   `m_X`       → `X`    (plain)
+          #
+          # The doubled-`mm_` prefix distinguishes special-suffix
+          # methods from plain ones whose name happens to end in
+          # `_q`/`_bang`/`_eq`. Operators (op_*) come from the
+          # OP_NAMES inverse table. See Cpp.method_name for the
+          # forward mapping and method_name_spec.rb for round-trip
+          # tests.
           def self.cpp_name_to_ruby(cpp)
             inv = Cpp::OP_NAMES.invert
             return inv[cpp].to_s if inv.key?(cpp)
-            s = cpp.to_s.sub(/^m_/, '')
-            s = s.sub(/_q$/, '?')
-            s = s.sub(/_set$/, '=')
+            s = cpp.to_s
+            if s.start_with?('mm_')
+              body = s[3..]
+              return "#{body[0..-3]}?" if body.end_with?('_q')
+              return "#{body[0..-6]}!" if body.end_with?('_bang')
+              return "#{body[0..-4]}=" if body.end_with?('_eq')
+              # `mm_` without recognised suffix — shouldn't happen
+              # for any name produced by method_name. Return body
+              # unchanged so callers can spot the anomaly.
+              return body
+            end
+            return s[2..] if s.start_with?('m_')
             s
           end
 
@@ -380,7 +400,7 @@ module Frozone
             end
             emit.line "};"
             emit.blank
-            emit.line "BasicObject* Object::m_is_a_q(Array* args, Hash* kwargs, BasicObject* block) {"
+            emit.line "BasicObject* Object::mm_is_a_q(Array* args, Hash* kwargs, BasicObject* block) {"
             emit.indented do
               emit.line "int my_id = this->__class_id__();"
               emit.line "if (my_id < 0) return false_instance();"
@@ -399,13 +419,13 @@ module Frozone
             emit.blank
           end
 
-          # Add m_class + m_respond_to_q + __class_id__ to every
+          # Add m_class + mm_respond_to_q + __class_id__ to every
           # class's overrides. m_class returns the eigenclass singleton
-          # (`&Foo_CLASS`). m_respond_to_q indexes a per-class static
+          # (`&Foo_CLASS`). mm_respond_to_q indexes a per-class static
           # bool array by Symbol::method_id_. __class_id__ returns the
           # AOT-assigned class_id used by the IS_A LUT.
           def self.with_auto_overrides(klass, responder_ruby_names, method_ids, class_id)
-            # m_class and m_respond_to_q are Kernel methods in MRI — they
+            # m_class and mm_respond_to_q are Kernel methods in MRI — they
             # don't exist on BasicObject. Leave BasicObject's stubs as
             # method_missing so a `class Foo < BasicObject` subclass
             # genuinely lacks them, matching MRI semantics.
@@ -421,7 +441,7 @@ module Frozone
               end
             overrides = (klass.overrides || {}).dup
             overrides["m_class"] ||= { params: [], body: "return (&#{target});" }
-            overrides["m_respond_to_q"] ||= {
+            overrides["mm_respond_to_q"] ||= {
               params: [],
               body: respond_to_body(klass.name, responder_ruby_names, method_ids),
             }
@@ -469,7 +489,7 @@ module Frozone
 
           # Compute per-class responder sets — own overrides + own
           # hand_coded_method_names + parent's set + the auto-emitted
-          # m_class/m_respond_to_q (which with_auto_overrides will add
+          # m_class/mm_respond_to_q (which with_auto_overrides will add
           # only on Object and below). Walks the inheritance chain via
           # klass.parent (string), name-indexed. Returns Ruby names
           # (not cpp_names) for matching against Symbol#name_ at runtime.
@@ -485,7 +505,7 @@ module Frozone
               method_overrides = (klass.overrides || {}).keys.reject { |cpp| cpp.start_with?("c_", "sm_") }
               own = method_overrides.map { |cpp| cpp_name_to_ruby(cpp) }
               own += (klass.hand_coded_method_names || []).map { |cpp| cpp_name_to_ruby(cpp) }
-              # m_class / m_respond_to_q are auto-added by with_auto_overrides
+              # m_class / mm_respond_to_q are auto-added by with_auto_overrides
               # on every class except BasicObject — pre-include them here so
               # responder_sets is correct (compute_responder_sets runs BEFORE
               # with_auto_overrides).

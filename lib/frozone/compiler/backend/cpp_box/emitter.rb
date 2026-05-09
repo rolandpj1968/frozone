@@ -269,7 +269,7 @@ module Frozone
           end
 
           # Union of hand_coded_method_names across the runtime ancestor
-          # chain. The hand-coded methods on BasicObject (m_is_a_q with
+          # chain. The hand-coded methods on BasicObject (mm_is_a_q with
           # the IS_A LUT, m_freeze, m_class, …) are the load-bearing
           # implementations — overlaying their core/4.0/ Ruby twins via
           # virtual dispatch would shadow them and recurse.
@@ -608,7 +608,7 @@ module Frozone
               # cls, the method was inherited via include, not defined
               # here. Skip it from direct_methods so `chain` doesn't
               # misclassify it as a :self entry (which would defeat the
-              # hand-coded-ancestor gate for m_is_a_q / m_respond_to_q
+              # hand-coded-ancestor gate for mm_is_a_q / mm_respond_to_q
               # and produce self-recursive Kernel#is_a? bodies on every
               # subclass).
               defining_scope = m.respond_to?(:scopes) ? m.scopes&.last : nil
@@ -630,7 +630,7 @@ module Frozone
           # for trivial scripts. The new version keeps only what's
           # transitively called, plus a tiny set of auto-included
           # fallback names (m_new / m_initialize / m_class /
-          # m_respond_to_q / m_method_missing / m_const_missing).
+          # mm_respond_to_q / m_method_missing / m_const_missing).
           def collect_call_surface
             calls = {}
             seen_ruby_names = Set.new
@@ -748,7 +748,7 @@ module Frozone
                       # Methods known to break the C++ build when emitted
                       # under box-first today — kwarg `block:` parameter,
                       # references to hand-coded methods that don't exist
-                      # on the receiver (m_absolute_path_q, m_linear_time_q,
+                      # on the receiver (mm_absolute_path_q, mm_linear_time_q,
                       # m_newly_created_for_subclass), Hash literal init
                       # shape mismatches. Drop until those emission gaps
                       # close. Hits if `_curry`-style helpers ever flow
@@ -780,7 +780,7 @@ module Frozone
             #     BasicObject's universal surface for `override` to
             #     type-check on derived classes.
             #   - Auto-included fallbacks referenced from generated code
-            #     (m_new, m_initialize, m_class, m_respond_to_q,
+            #     (m_new, m_initialize, m_class, mm_respond_to_q,
             #     m_method_missing, m_const_missing).
             # All seeded BEFORE the walk loop so transitive references
             # from their implementing bodies get picked up.
@@ -822,7 +822,7 @@ module Frozone
               (k.overrides || {}).each_key { |cpp| seed_names << cpp unless cpp.start_with?("c_", "sm_") || non_ruby_hand_coded.include?(cpp) }
               (k.hand_coded_method_names || []).each { |cpp| seed_names << cpp unless cpp.start_with?("c_", "sm_") || non_ruby_hand_coded.include?(cpp) }
             end
-            seed_names.merge(%w[m_new m_initialize m_class m_respond_to_q m_method_missing m_const_missing])
+            seed_names.merge(%w[m_new m_initialize m_class mm_respond_to_q m_method_missing m_const_missing])
             # Frozone::Vm::Intrinsics is special: its eigenclass methods
             # are dispatched purely by Ast::IntrinsicCall#evaluate at
             # runtime via `Vm::Intrinsics.send(@name, ...)`. The @name is
@@ -1061,12 +1061,21 @@ module Frozone
           end
 
           # Reverse Cpp.method_name to recover the Ruby form. Mirrors
-          # ClassEmitter.cpp_name_to_ruby — couldn't reuse directly
-          # because of module nesting.
+          # ClassEmitter.cpp_name_to_ruby — kept here as a convenience
+          # for emitter.rb's internal callers (couldn't reuse directly
+          # because of module-nesting reach). Keep the two in sync.
           def cpp_name_to_ruby(cpp)
             inv = Cpp::OP_NAMES.invert
             return inv[cpp].to_s if inv.key?(cpp)
-            s = cpp.to_s.sub(/^m_/, '').sub(/_q$/, '?').sub(/_set$/, '=')
+            s = cpp.to_s
+            if s.start_with?('mm_')
+              body = s[3..]
+              return "#{body[0..-3]}?" if body.end_with?('_q')
+              return "#{body[0..-6]}!" if body.end_with?('_bang')
+              return "#{body[0..-4]}=" if body.end_with?('_eq')
+              return body
+            end
+            return s[2..] if s.start_with?('m_')
             s
           end
 
@@ -1294,7 +1303,7 @@ module Frozone
           # drops just that slot.
           def build_chained_overrides(host_name, chains, host_class: nil)
             result = {}
-            # Hand-coded ancestor methods (m_class, m_send, m_is_a_q, …)
+            # Hand-coded ancestor methods (m_class, m_send, mm_is_a_q, …)
             # have load-bearing C++ implementations we must NOT shadow
             # with the Ruby-level def from Kernel/Object. E.g.
             # Kernel#class lowers to `this->m_class()`; if a user class

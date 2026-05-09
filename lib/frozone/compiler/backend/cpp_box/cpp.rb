@@ -87,12 +87,27 @@ module Frozone
           }.freeze
 
           # Ruby method name → C++ identifier. Operators go through
-          # OP_NAMES; non-identifier suffixes (`?`, `!`, `=`) get
-          # mangled to `_q`, `_b`, `_set` respectively.
+          # OP_NAMES; non-identifier suffixes (`?`, `!`, `=`) get a
+          # distinct PREFIX (`mm_`) plus a kind SUFFIX (`_q`, `_bang`,
+          # `_eq`). The dual marker — different prefix AND different
+          # suffix from plain methods — keeps the encoding fully
+          # injective: a Ruby method literally named `foo_q` encodes
+          # to `m_foo_q` (singular `m_`), distinct from the predicate
+          # `foo?` → `mm_foo_q` (doubled `mm_`).
+          #
+          #   Ruby `foo`    → `m_foo`         (plain)
+          #   Ruby `foo?`   → `mm_foo_q`      (predicate)
+          #   Ruby `foo!`   → `mm_foo_bang`   (bang)
+          #   Ruby `foo=`   → `mm_foo_eq`     (setter)
+          #
+          # See spec/frozone/compiler/backend/cpp_box/method_name_spec.rb
+          # for the exhaustive round-trip + collision tests.
           def self.method_name(ruby_name)
             return OP_NAMES[ruby_name] if OP_NAMES.key?(ruby_name)
             s = ruby_name.to_s
-            s = s.sub(/\?$/, '_q').sub(/!$/, '_b').sub(/=$/, '_set')
+            return "mm_#{s.chomp('?')}_q"    if s.end_with?('?')
+            return "mm_#{s.chomp('!')}_bang" if s.end_with?('!')
+            return "mm_#{s.chomp('=')}_eq"   if s.end_with?('=')
             "m_#{s}"
           end
 

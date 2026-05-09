@@ -209,7 +209,7 @@ module Frozone
             # bytes into a std::string for the lookup.
 
             # Object identity / class — needed by core/4.0 dispatch helpers.
-            object_is_a: ->(self_, klass) { "(#{self_})->m_is_a_q(new Array({#{klass}}))" },
+            object_is_a: ->(self_, klass) { "(#{self_})->mm_is_a_q(new Array({#{klass}}))" },
             object_class: ->(self_) { "#{self_}->m_class()" },
             # Kernel#lambda just returns the captured block as a Proc.
             # The Ruby `def lambda(&_block) = Intrinsics.kernel_lambda(self)`
@@ -306,11 +306,11 @@ module Frozone
             object_ivar_remove:  ->(_self_, _name) { "nil_instance()" },
             object_ivar_names:   ->(_self_) { "(new Array())" },        # stub: empty (would need per-class metadata)
             object_respond_to: ->(self_, name, _include_all) {
-              # Forward to the universal m_respond_to_q — drop
+              # Forward to the universal mm_respond_to_q — drop
               # include_all (private methods always visible in
               # box-first today; respond_to_q doesn't gate by
               # visibility either).
-              "(#{self_})->m_respond_to_q(new Array({#{name}}))"
+              "(#{self_})->mm_respond_to_q(new Array({#{name}}))"
             },
             object_instance_of: ->(self_, klass) {
               "boxed_bool(#{self_}->m_class() == (#{klass}))"

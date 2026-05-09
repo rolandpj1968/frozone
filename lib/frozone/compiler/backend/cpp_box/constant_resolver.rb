@@ -63,9 +63,9 @@ module Frozone
               # receiver evaluation itself can raise (e.g. nil receiver).
               receiver_node, method_name, _receiver_check = node.extra
               recv = receiver_node ? from_expr(receiver_node, locals) : "this"
-              # Use the boolean form of respond_to? — m_respond_to_q
+              # Use the boolean form of respond_to? — mm_respond_to_q
               # returns true_instance/false_instance.
-              return %|([&]() -> BasicObject* { try { return truthy(#{recv}->m_respond_to_q(new Array({intern(#{cpp_string_literal(method_name.to_s)})}))) ? static_cast<BasicObject*>(new String("method", 6)) : nil_instance(); } catch (...) { return nil_instance(); } }())|
+              return %|([&]() -> BasicObject* { try { return truthy(#{recv}->mm_respond_to_q(new Array({intern(#{cpp_string_literal(method_name.to_s)})}))) ? static_cast<BasicObject*>(new String("method", 6)) : nil_instance(); } catch (...) { return nil_instance(); } }())|
             end
             raise Cpp::EmissionError, "defined?(#{kind}) not yet supported in box-first"
           end

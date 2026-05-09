@@ -112,7 +112,7 @@ module Frozone
               "virtual std::size_t m_hash_value() const { return reinterpret_cast<std::size_t>(this); }",
               "// equal? — pointer identity (BasicObject#equal?). Distinct from",
               "// `==` which subclasses often override for value equality.",
-              "virtual BasicObject* m_equal_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
+              "virtual BasicObject* mm_equal_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) {",
               "  return boxed_bool(this == array_at(args, 0));",
               "}",
               "// __id__ — pointer cast as integer. Closed-world: each",
@@ -133,10 +133,10 @@ module Frozone
               "virtual int __class_id__() const { return -1; }",
             ],
             # Genuine BasicObject methods. Other intrinsic-style methods
-            # (m_class, m_send, m_is_a_q, etc.) live on Object and are
+            # (m_class, m_send, mm_is_a_q, etc.) live on Object and are
             # listed in OBJECT.hand_coded_method_names.
             hand_coded_method_names: %w[
-              op_eq_q m_hash_value m_equal_q m___id__ m_initialize
+              op_eq_q m_hash_value mm_equal_q m___id__ m_initialize
               m_method_missing m_const_missing
             ].freeze,
           )
@@ -151,7 +151,7 @@ module Frozone
               "  return op_eq_q(args, kwargs, block);",
               "}",
               "// nil? defaults to false; NilClass overrides to true.",
-              "virtual BasicObject* m_nil_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BasicObject* mm_nil_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return false_instance();",
               "}",
               "// freeze / frozen? — we don't enforce frozen state, so",
@@ -160,32 +160,32 @@ module Frozone
               "virtual BasicObject* m_freeze(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return this;",
               "}",
-              "virtual BasicObject* m_frozen_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BasicObject* mm_frozen_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return false_instance();",
               "}",
               "// object_id — Kernel#object_id. Same value as __id__.",
               "virtual BasicObject* m_object_id(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return m___id__(args, kwargs, block);",
               "}",
-              "// is_a? / kind_of? / instance_of? — closed-world LUT. m_is_a_q",
+              "// is_a? / kind_of? / instance_of? — closed-world LUT. mm_is_a_q",
               "// body is emitted out-of-line by class_emitter (write_is_a_lut)",
               "// once all classes are complete.",
-              "virtual BasicObject* m_is_a_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
+              "virtual BasicObject* mm_is_a_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
               "// send / __send__ — METHOD_VT-based dispatch. Out-of-line body",
               "// emitted by class_emitter (write_send_body) once Array is complete.",
               "virtual BasicObject* m_send(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
               "virtual BasicObject* m___send__(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override;",
-              "virtual BasicObject* m_kind_of_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
-              "  return m_is_a_q(args, kwargs, block);",
+              "virtual BasicObject* mm_kind_of_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "  return mm_is_a_q(args, kwargs, block);",
               "}",
-              "virtual BasicObject* m_instance_of_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
+              "virtual BasicObject* mm_instance_of_q(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return boxed_bool(m_class(args, kwargs, block) == array_at(args, 0));",
               "}",
             ],
             hand_coded_method_names: %w[
-              op_case_eq m_nil_q m_freeze m_frozen_q m_object_id
-              m_class m_respond_to_q m_send m___send__
-              m_is_a_q m_kind_of_q m_instance_of_q
+              op_case_eq mm_nil_q m_freeze mm_frozen_q m_object_id
+              m_class mm_respond_to_q m_send m___send__
+              mm_is_a_q mm_kind_of_q mm_instance_of_q
             ].freeze,
           )
 
@@ -260,7 +260,7 @@ module Frozone
             singleton: "NIL_INSTANCE",
             overrides: {
               "m_to_s"  => { params: [], body: %(return new String("", 0);) },
-              "m_nil_q" => { params: [], body: "return true_instance();" },
+              "mm_nil_q" => { params: [], body: "return true_instance();" },
             },
           )
 
@@ -393,12 +393,12 @@ module Frozone
               "m_truncate" => { params: [], body: "return new Integer(static_cast<int64_t>(std::trunc(raw_)));" },
               "m_abs"      => { params: [], body: "return new Float(std::fabs(raw_));" },
               "m_to_int"   => { params: [], body: "return new Integer(static_cast<int64_t>(std::trunc(raw_)));" },
-              "m_finite_q" => { params: [], body: "return boxed_bool(std::isfinite(raw_));" },
-              "m_infinite_q" => { params: [], body: "if (!std::isinf(raw_)) return nil_instance(); return new Integer(raw_ < 0 ? -1 : 1);" },
-              "m_nan_q"    => { params: [], body: "return boxed_bool(std::isnan(raw_));" },
-              "m_zero_q"   => { params: [], body: "return boxed_bool(raw_ == 0.0);" },
-              "m_negative_q" => { params: [], body: "return boxed_bool(raw_ < 0.0);" },
-              "m_positive_q" => { params: [], body: "return boxed_bool(raw_ > 0.0);" },
+              "mm_finite_q" => { params: [], body: "return boxed_bool(std::isfinite(raw_));" },
+              "mm_infinite_q" => { params: [], body: "if (!std::isinf(raw_)) return nil_instance(); return new Integer(raw_ < 0 ? -1 : 1);" },
+              "mm_nan_q"    => { params: [], body: "return boxed_bool(std::isnan(raw_));" },
+              "mm_zero_q"   => { params: [], body: "return boxed_bool(raw_ == 0.0);" },
+              "mm_negative_q" => { params: [], body: "return boxed_bool(raw_ < 0.0);" },
+              "mm_positive_q" => { params: [], body: "return boxed_bool(raw_ > 0.0);" },
               "m_to_s"     => {
                 params: [],
                 body: <<~CPP.chomp,
@@ -458,7 +458,7 @@ module Frozone
                 params: [],
                 body: "return new Integer(static_cast<int64_t>(data.size()));",
               },
-              "m_empty_q" => {
+              "mm_empty_q" => {
                 params: [],
                 body: "return boxed_bool(data.empty());",
               },
@@ -646,7 +646,7 @@ module Frozone
               "// to any known method). Populated by intern() against a",
               "// static name→id table built from the call surface.",
               "// Drives m_send (indexes a member-function-pointer",
-              "// vtable) and m_respond_to_q (indexes a per-class bool",
+              "// vtable) and mm_respond_to_q (indexes a per-class bool",
               "// array) — both O(1), no string compare.",
               "int method_id_ = -1;",
               "private:",
@@ -720,7 +720,7 @@ module Frozone
               "m_size"     => { params: [], body: "return new Integer(length());" },
               "m_length"   => { params: [], body: "return new Integer(length());" },
               "m_bytesize" => { params: [], body: "return new Integer(static_cast<std::int64_t>(bytes.size()));" },
-              "m_empty_q"  => { params: [], body: "return boxed_bool(bytes.empty());" },
+              "mm_empty_q"  => { params: [], body: "return boxed_bool(bytes.empty());" },
               "m_to_s"     => { params: [], body: "return this;" },
               "op_eq_q"     => {
                 params: ["BasicObject* other"],
@@ -922,7 +922,7 @@ module Frozone
             overrides: {
               "m_size"   => { params: [], body: "return new Integer(static_cast<int64_t>(data.size()));" },
               "m_length" => { params: [], body: "return new Integer(static_cast<int64_t>(data.size()));" },
-              "m_empty_q"=> { params: [], body: "return boxed_bool(data.empty());" },
+              "mm_empty_q"=> { params: [], body: "return boxed_bool(data.empty());" },
               "op_aref"   => {
                 params: ["BasicObject* k"],
                 body: <<~CPP.chomp,
@@ -934,11 +934,11 @@ module Frozone
                 params: ["BasicObject* k", "BasicObject* v"],
                 body: "data[k] = v; return v;",
               },
-              "m_include_q" => {
+              "mm_include_q" => {
                 params: ["BasicObject* k"],
                 body: "return boxed_bool(data.find(k) != data.end());",
               },
-              "m_has_key_q" => {
+              "mm_has_key_q" => {
                 params: ["BasicObject* k"],
                 body: "return boxed_bool(data.find(k) != data.end());",
               },
@@ -1436,7 +1436,7 @@ module Frozone
           # Array subclass → splat (memory layout matches); else call
           # x.to_a — if it returns an Array, splat that; otherwise wrap
           # as [x]. No dynamic_cast: m_class() exact-class compare for
-          # the hot path, m_is_a_q (closed-world LUT) for the subclass
+          # the hot path, mm_is_a_q (closed-world LUT) for the subclass
           # path, m_to_a vtable dispatch for the coercion path. Two
           # static_casts remain but each is gated by a preceding class
           # proof.
@@ -1452,7 +1452,7 @@ module Frozone
             body: <<~CPP.chomp,
               if (x->m_class() == (BasicObject*)(&Array_CLASS)) return static_cast<Array*>(x);
               if (x == nil_instance()) return new Array();
-              if (truthy(x->m_is_a_q(new Array({(BasicObject*)(&Array_CLASS)})))) {
+              if (truthy(x->mm_is_a_q(new Array({(BasicObject*)(&Array_CLASS)})))) {
                 return static_cast<Array*>(x);
               }
               BasicObject* coerced = x->m_to_a();
@@ -1520,7 +1520,7 @@ module Frozone
               // Otherwise the universal-vtable fallthrough raises
               // NoMethodError, which masks the TypeError MRI expects
               // (Array#[] with a non-coercible index, etc.).
-              if (v && v != nil_instance() && v->m_respond_to_q(new Array({intern("to_int")})) == true_instance()) {
+              if (v && v != nil_instance() && v->mm_respond_to_q(new Array({intern("to_int")})) == true_instance()) {
                 BasicObject* r = v->m_to_int();
                 if (r && r->m_class() == (BasicObject*)(&Integer_CLASS)) return static_cast<Integer*>(r)->raw_;
               }
