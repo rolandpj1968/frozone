@@ -303,11 +303,18 @@ module Frozone
             object_method: ->(self_, name) {
               "(new Proc([__obj_=#{self_}, __name_=#{name}](Array* __args_) -> BasicObject* { Array* _full = new Array(); _full->data.push_back(__name_); for (auto* _e : __args_->data) _full->data.push_back(_e); return __obj_->m_send(_full); }))"
             },
-            object_ivar_get:  ->(_self_, _name) { "nil_instance()" },   # stub: ivars are static fields, not accessible by name
-            object_ivar_set:  ->(_self_, _name, val) { "(#{val})" },    # stub: returns the value, doesn't actually set
-            object_ivar_defined: ->(_self_, _name) { "false_instance()" },
-            object_ivar_remove:  ->(_self_, _name) { "nil_instance()" },
-            object_ivar_names:   ->(_self_) { "(new Array())" },        # stub: empty (would need per-class metadata)
+            # Dynamic ivar access has no implementation in box-first —
+            # every `@foo` is a dedicated C++ struct field (`this->iv_foo`),
+            # not an entry in a name→value hash. There's nothing to index
+            # by Symbol. Silent stubs returning nil/false/empty mask
+            # genuine dynamic-ivar usage in user code as benign no-ops;
+            # abort makes the gap visible. (Closing this gap properly is
+            # a real design question — see in-flight discussion.)
+            object_ivar_get:     ->(_self_, _name)      { %|([](){ std::fprintf(stderr, "[box-first] unimplemented Object#instance_variable_get — dynamic ivar access not supported\\n"); std::abort(); return nil_instance(); }())| },
+            object_ivar_set:     ->(_self_, _name, _v)  { %|([](){ std::fprintf(stderr, "[box-first] unimplemented Object#instance_variable_set — dynamic ivar access not supported\\n"); std::abort(); return nil_instance(); }())| },
+            object_ivar_defined: ->(_self_, _name)      { %|([](){ std::fprintf(stderr, "[box-first] unimplemented Object#instance_variable_defined? — dynamic ivar access not supported\\n"); std::abort(); return nil_instance(); }())| },
+            object_ivar_remove:  ->(_self_, _name)      { %|([](){ std::fprintf(stderr, "[box-first] unimplemented Object#remove_instance_variable — dynamic ivar access not supported\\n"); std::abort(); return nil_instance(); }())| },
+            object_ivar_names:   ->(_self_)             { %|([](){ std::fprintf(stderr, "[box-first] unimplemented Object#instance_variables — dynamic ivar enumeration not supported\\n"); std::abort(); return nil_instance(); }())| },
             object_respond_to: ->(self_, name, _include_all) {
               # Forward to the universal mm_respond_to_q — drop
               # include_all (private methods always visible in
