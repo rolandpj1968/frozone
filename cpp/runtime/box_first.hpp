@@ -45,41 +45,36 @@
 
 #define FROZONE_GC_INIT() GC_INIT()
 
-// Global operator new/delete override — route ALL C++ heap
-// allocations through Boehm so they're GC-tracked and reclaimable.
+// We do NOT override the global `operator new`/`operator delete`.
 //
-// Why: the gen has many `new T*` style allocations (block-local
-// pointer slots, captured locals, etc.) that are NOT BasicObject
-// subclasses, so they don't pick up the class-scoped Boehm
-// allocator on BasicObject. Without the global override they'd
-// leak forever — observed at ~17 MB/sec on hello.rb.
+// Boehm coverage instead comes from three targeted entry points:
+//   1. BasicObject defines a class-scoped `operator new` that
+//      routes through GC_MALLOC. Every Ruby box subclass uses it.
+//   2. STL containers that hold BasicObject* pointers (Array data,
+//      Hash buckets, Symbol intern table, MatchData captures, …)
+//      are parameterised with `GcAllocator<T>`, so their internal
+//      buffers are GC_MALLOC-backed.
+//   3. `gc_box<T>` (below) and `ProcFn` allocate via explicit
+//      GC_MALLOC + placement-new, covering the captured-local
+//      cells the codegen emits and the closure storage backing
+//      Proc respectively.
 //
-// `operator delete` is a no-op: Boehm sweeps when nothing
-// references the allocation. STL destructors that "free" via
-// delete still run on scope exit; they just hand control back to
-// Boehm.
+// Anything else (libstdc++ internals: std::string buffers,
+// std::filesystem::path tokenisation, std::stringstream rdbuf,
+// parser-internal std::vector<int>) allocates via libc malloc
+// inside libstdc++.so and frees via libc free — consistent
+// allocator path, no abort risk, no Boehm-tracking concern
+// (these buffers don't hold BasicObject* pointers we care about
+// reclaiming).
 //
-// Caveat (the dustman issue): libstdc++.so's *internal* calls to
-// `operator new`/`operator delete` (e.g. `std::string::reserve`
-// freeing its old buffer) are bound at link time to versioned
-// symbols (`_Znwm@GLIBCXX_3.4`, `_ZdlPv@GLIBCXX_3.4`) which the
-// dynamic linker resolves to libstdc++.so's own libc-backed
-// definitions — NOT to our weak unversioned override. So
-// libstdc++.so's own buffer allocations end up in libc malloc,
-// and freeing them via libstdc++.so's own `free()` is fine
-// (consistent allocator). Trouble arises only when a buffer
-// allocated via OUR override (Boehm) reaches libstdc++.so's
-// internal `free()` path — observed in `std::filesystem::path::
-// operator/=`, which prompted us to sidestep `std::filesystem`
-// in `fs_detail` (see intrinsics.hpp). As long as the gen and
-// runtime avoid feeding Boehm pointers into libstdc++ internals,
-// the override is safe.
-inline void* operator new(std::size_t s)             { return GC_MALLOC(s); }
-inline void* operator new[](std::size_t s)           { return GC_MALLOC(s); }
-inline void  operator delete(void*) noexcept         {}
-inline void  operator delete[](void*) noexcept       {}
-inline void  operator delete(void*, std::size_t) noexcept {}
-inline void  operator delete[](void*, std::size_t) noexcept {}
+// The previous global override caused aborts because libstdc++.so's
+// internal calls to `operator new` / `operator delete` are bound at
+// link time to versioned symbols (`_Znwm@GLIBCXX_3.4` etc.) which
+// the dynamic linker resolves to libstdc++.so's own libc-backed
+// definitions — NOT to our weak unversioned override. A buffer
+// allocated via our override (Boehm) freed via libstdc++.so's
+// internal `free()` path → `free(): invalid pointer` abort
+// (originally observed in `std::filesystem::path::operator/=`).
 
 // gc_box<T> — Boehm-allocated single-value cell. Used by the gen
 // to box mutable locals that are shared across closure captures
