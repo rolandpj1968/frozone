@@ -98,7 +98,14 @@ module Frozone
             buf.each_line { |l| emit.line l.chomp }
           rescue Cpp::EmissionError => e
             raise if ENV['FROZONE_BOX_HARD_FAIL'] == '1' && emit.strict_emit
+            # Compile-time skip → runtime abort. Silent stubs let
+            # nil-deref propagate downstream as opaque errors; the
+            # abort fires only when the skipped statement is actually
+            # reached and points at the unsupported feature directly.
+            # Comment retained alongside for grep-ability.
+            msg = "[box-first] skipped statement reached at runtime: #{e.message}"
             emit.line "/* skipped: #{e.message.gsub('*/', '* /')} */"
+            emit.line %|([](){ std::fprintf(stderr, "%s\\n", #{emit.cpp.cpp_string_literal(msg)}); std::abort(); }());|
             $stderr.puts "[box-first] skip stmt: #{e.message}" if ENV['FROZONE_BOX_DEBUG'] == '1'
           end
 
