@@ -21,6 +21,14 @@ CXXFLAGS ?= -O0 -g0 -DFROZONE_USE_BOEHM_GC -std=c++20
 INCLUDES := -I ../../../vendor/Onigmo/_install/include
 LIBS     := ../../../vendor/Onigmo/_install/lib/libonigmo.a -lgc
 
+# Default to parallel build using all cores. Override with `make -j N`
+# to limit (or `make JOBS=4` to set the auto-default). This appends
+# `-j N` to MAKEFLAGS for the current invocation; a user-supplied
+# `-j` on the command line takes precedence (make merges -j flags;
+# the explicit one wins for the actual job-server).
+JOBS ?= $(shell nproc 2>/dev/null || echo 4)
+MAKEFLAGS += -j$(JOBS)
+
 # Glob frozone-generated sources only (cpp/gen/box/ has test artifacts
 # from older work too; the prefix filter excludes them).
 CPPS := $(wildcard frozone.cpp frozone_*.cpp)
