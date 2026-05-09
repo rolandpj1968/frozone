@@ -131,7 +131,7 @@ module Frozone
             # TU's intern() can read it. Uses C++17 inline variables so
             # it's defined exactly once across all including TUs.
             emit.with_stream(:layouts) do
-              write_method_id_table(emit, method_ids)
+              write_method_id_table(emit, method_ids, call_surface)
             end
             # Forward decls go into the shared layouts header
             # (frozone_layouts.hpp) so future TUs see the program's
@@ -209,7 +209,7 @@ module Frozone
           # initialised `unordered_map<std::string, int>` with thousands
           # of entries blows up cc1plus into 16GB+ memory; the flat
           # array compiles in seconds because it's just static data.)
-          def self.write_method_id_table(emit, method_ids)
+          def self.write_method_id_table(emit, method_ids, call_surface = {})
             emit.line "// AOT-assigned method ids — every method name in the program's"
             emit.line "// call surface gets a stable integer index. intern() builds an"
             emit.line "// unordered_map from this array on first call."
@@ -221,7 +221,13 @@ module Frozone
             emit.line "inline const __NameId__ METHOD_NAMES[] = {"
             emit.indented do
               method_ids.each do |cpp_name, id|
-                ruby_name = cpp_name_to_ruby(cpp_name)
+                # Prefer the actual Ruby name captured in call_surface
+                # (cpp_name → ruby_name_string) over reverse-mangling the
+                # cpp_name. The forward mapping `name= → m_name_set`
+                # collides with literal `_set` endings (e.g. Ruby's
+                # `module_const_set`), and reverse-mangling the cpp name
+                # is ambiguous — call_surface remembers the original.
+                ruby_name = (call_surface[cpp_name] || cpp_name_to_ruby(cpp_name)).to_s
                 c = ruby_name.gsub('\\', '\\\\\\\\').gsub('"', '\\"')
                 emit.line %({"#{c}", #{id}},  // id #{id}: #{cpp_name})
               end
