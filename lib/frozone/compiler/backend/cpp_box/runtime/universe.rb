@@ -854,9 +854,16 @@ module Frozone
               # with 0, 1, or many params. The lambda body unpacks
               # `args->data[i]` as needed; expr_emitter generates the
               # binding code at the top of each lambda body.
-              "std::function<BasicObject*(Array*)> fn_;",
+              # ProcFn replaces std::function — same shape (type-erased
+              # BasicObject*(Array*)) but the closure storage is
+              # allocated via explicit GC_MALLOC, so captured object
+              # pointers are traced by Boehm. See cpp/runtime/box_first.hpp.
+              "ProcFn fn_;",
               "Proc() = default;",
-              "explicit Proc(std::function<BasicObject*(Array*)> f) : fn_(std::move(f)) {}",
+              "Proc(const Proc&) = default;",
+              "Proc(Proc&&) = default;",
+              "template<typename F, typename = std::enable_if_t<!std::is_same_v<std::decay_t<F>, Proc>>>",
+              "explicit Proc(F&& f) : fn_(std::forward<F>(f)) {}",
               %(const char* ruby_class_name() const override { return "Proc"; }),
             ],
             overrides: {

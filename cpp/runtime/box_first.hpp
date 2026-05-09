@@ -45,38 +45,35 @@
 
 #define FROZONE_GC_INIT() GC_INIT()
 
-// Global operator new/delete override — route ALL C++ heap allocations
-// through Boehm so they're GC-tracked and reclaimable.
+// Global operator new/delete override — route ALL C++ heap
+// allocations through Boehm so they're GC-tracked and reclaimable.
 //
-// Why: every interpreted block creation (`(new Proc(...))`) wraps a
-// C++ lambda inside `std::function<BasicObject*(Array*)>`. When the
-// lambda's captures exceed std::function's small-buffer-optimisation
-// threshold (which our `[&, this](Array*)` lambdas easily do), the
-// std::function constructor heap-allocates a "_Base_manager" via the
-// global `operator new` (= libc malloc) to hold the captures. When
-// Boehm later reclaims the Proc, the std::function destructor doesn't
-// run (Boehm doesn't run C++ dtors), so those libc-allocated capture
-// buffers leak forever — observed as ~25 MB/s linear heap growth in
-// load_core, ~40% of peak heap in massif.
+// Why: the gen has many `new T*` style allocations (block-local
+// pointer slots, captured locals, etc.) that are NOT BasicObject
+// subclasses, so they don't pick up the class-scoped Boehm
+// allocator on BasicObject. Without the global override they'd
+// leak forever — observed at ~17 MB/sec on hello.rb.
 //
-// Same pattern applies to std::string heap nodes (Symbol intern table
-// keys), std::unordered_map bucket nodes, and any other STL component
-// that hits its allocator path. Overriding global new makes them all
-// Boehm-managed → reclaimable.
+// `operator delete` is a no-op: Boehm sweeps when nothing
+// references the allocation. STL destructors that "free" via
+// delete still run on scope exit; they just hand control back to
+// Boehm.
 //
-// `operator delete` is a no-op: Boehm will sweep when nothing
-// references the allocation. STL destructors that "free" via delete
-// are still called on scope exit; they just don't actually free —
-// they hand control back to Boehm. Double-delete is also safe (no-op).
-//
-// Caveats:
-// - Onigmo (C library) uses libc malloc directly — not affected; needs
-//   a finalizer-based fix on RegexpObject.
-// - Some Boehm internals must NOT route through this override (or you
-//   get infinite recursion). libgc's own allocator calls don't go
-//   through C++ operator new, so we're safe.
-// - dustman compatibility: dustman vendor submodule may have its own
-//   allocation strategy; check before vendoring.
+// Caveat (the dustman issue): libstdc++.so's *internal* calls to
+// `operator new`/`operator delete` (e.g. `std::string::reserve`
+// freeing its old buffer) are bound at link time to versioned
+// symbols (`_Znwm@GLIBCXX_3.4`, `_ZdlPv@GLIBCXX_3.4`) which the
+// dynamic linker resolves to libstdc++.so's own libc-backed
+// definitions — NOT to our weak unversioned override. So
+// libstdc++.so's own buffer allocations end up in libc malloc,
+// and freeing them via libstdc++.so's own `free()` is fine
+// (consistent allocator). Trouble arises only when a buffer
+// allocated via OUR override (Boehm) reaches libstdc++.so's
+// internal `free()` path — observed in `std::filesystem::path::
+// operator/=`, which prompted us to sidestep `std::filesystem`
+// in `fs_detail` (see intrinsics.hpp). As long as the gen and
+// runtime avoid feeding Boehm pointers into libstdc++ internals,
+// the override is safe.
 inline void* operator new(std::size_t s)             { return GC_MALLOC(s); }
 inline void* operator new[](std::size_t s)           { return GC_MALLOC(s); }
 inline void  operator delete(void*) noexcept         {}
@@ -119,7 +116,47 @@ struct EnsureGuard {
 // CTAD deduction guide so callers can write `EnsureGuard g([&]() {...});`.
 template<typename F> EnsureGuard(F) -> EnsureGuard<F>;
 
-namespace Ruby { struct BasicObject; }
+namespace Ruby { struct BasicObject; struct Array; }
+
+// ProcFn — type-erased `BasicObject*(Array*)` callable, replacing
+// `std::function`. The closure storage is allocated via explicit
+// `GC_MALLOC` + placement-new so captured `BasicObject*` pointers
+// stay traced by Boehm.
+//
+// Why not std::function: std::function's internal _Base_manager
+// allocates capture buffers via global `operator new`. Even with a
+// global override, libstdc++.so's calls bind to the versioned symbol
+// `_Znwm@GLIBCXX_3.4` which the dynamic linker resolves to
+// libstdc++.so's libc-backed definition — the override is bypassed.
+//
+// We never delete the closure storage explicitly: Boehm reclaims it
+// when the owning Proc becomes unreachable. The captured Fn object
+// is destroyed implicitly (no destructor call); for our use case
+// this is fine — captures are pointers/values, no resources.
+struct ProcFn {
+  using Invoker = Ruby::BasicObject* (*)(void* buf, Ruby::Array*);
+  Invoker invoke_ = nullptr;
+  void* buf_ = nullptr;
+
+  ProcFn() = default;
+
+  template<typename F,
+           typename = std::enable_if_t<!std::is_same_v<std::decay_t<F>, ProcFn>>>
+  ProcFn(F&& f) {
+    using Fn = std::decay_t<F>;
+    static_assert(std::is_invocable_r_v<Ruby::BasicObject*, Fn, Ruby::Array*>,
+                  "ProcFn callable must have signature BasicObject*(Array*)");
+    void* mem = GC_MALLOC(sizeof(Fn));
+    new (mem) Fn(std::forward<F>(f));
+    buf_ = mem;
+    invoke_ = +[](void* b, Ruby::Array* a) -> Ruby::BasicObject* {
+      return (*static_cast<Fn*>(b))(a);
+    };
+  }
+
+  Ruby::BasicObject* operator()(Ruby::Array* a) const { return invoke_(buf_, a); }
+  explicit operator bool() const { return invoke_ != nullptr; }
+};
 
 // Non-local control flow out of block bodies. Both are NEVER subclasses
 // of Ruby::Exception — user `rescue` clauses must not catch them, only
