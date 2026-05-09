@@ -827,6 +827,11 @@ module Frozone
         FILE_REALPATH_CACHE[full_path] = real_path
         BUILD_FILES << real_path
         (Fiber[:file_stack] ||= []) << full_path
+        trace = ENV['FROZONE_TRACE_LOAD']
+        # CLOCK_MONOTONIC is just 0; the intrinsic ignores clock_id
+        # anyway, so pass 0 to avoid a constant lookup that may not
+        # resolve in some early-boot edge cases.
+        t0 = Process.clock_gettime(0, :microsecond) if trace
         begin
           evaluate(File.read(full_path), false, filepath: full_path, raise_syntax_errors: raise_syntax_errors)
         rescue FrozoneException => e
@@ -837,6 +842,11 @@ module Frozone
           end
           raise
         ensure
+          if trace
+            t1 = Process.clock_gettime(0, :microsecond)
+            short = full_path.sub(%r{.*/lib/}, 'lib/')
+            puts "[load] #{((t1 - t0) / 1000.0).round(1).to_s.rjust(8)} ms  #{short}"
+          end
           Fiber[:file_stack].pop
         end
       end

@@ -90,11 +90,17 @@
 // (`_Znwm@GLIBCXX_3.4`) that bypass our weak unversioned
 // override. By going direct to GC_MALLOC at every site that
 // matters for tracing, we don't need the global override at all.
-template<typename T>
-inline T* gc_box(T value) {
-  T* p = static_cast<T*>(GC_MALLOC(sizeof(T)));
-  new (p) T(std::move(value));
-  return p;
+//
+// Defined inside `namespace Ruby` so the gen TUs (which all wrap
+// their bodies in `namespace Ruby { ... }`) find it via unqualified
+// lookup.
+namespace Ruby {
+  template<typename T>
+  inline T* gc_box(T value) {
+    T* p = static_cast<T*>(GC_MALLOC(sizeof(T)));
+    new (p) T(std::move(value));
+    return p;
+  }
 }
 
 // Boehm-aware allocator for STL containers. Boehm's conservative
