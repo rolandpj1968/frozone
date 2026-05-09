@@ -49,14 +49,28 @@ all: $(BIN)
 $(BIN): $(OBJS)
 	$(CXX) $(CXXFLAGS) $(OBJS) $(LIBS) -o $@
 
-# PCH compile — runs once unless layouts header changes.
+# PCH compile — runs once unless layouts header (or anything it
+# transitively includes — box_first.hpp, intrinsics.hpp,
+# frozone.hpp, …) changes. -MMD generates a .d file alongside
+# the PCH listing every header it pulled in; -include picks it
+# up on the next make invocation so subsequent edits to those
+# headers correctly trigger a PCH rebuild → full recompile.
 $(PCH): $(PCH_INPUT)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -x c++-header -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -MF $@.d -x c++-header -c $< -o $@
 
 # Per-TU compile. Depends on the PCH so a layouts change rebuilds
 # everything; otherwise edits to one .cpp recompile only that .o.
+# -MMD on each .o records its own header deps (mostly redundant
+# with the PCH dep but covers cases where a TU includes something
+# the PCH doesn't).
 %.o: %.cpp $(PCH)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -c $< -o $@
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -MMD -MP -MF $@.d -c $< -o $@
+
+# Pull in generated dep files so transitive header edits invalidate
+# the right targets. `-` swallows the "no such file" warning on
+# clean trees.
+-include $(PCH).d
+-include $(OBJS:.o=.o.d)
 
 clean:
-	rm -f $(OBJS) $(PCH) $(BIN)
+	rm -f $(OBJS) $(OBJS:.o=.o.d) $(PCH) $(PCH).d $(BIN)
