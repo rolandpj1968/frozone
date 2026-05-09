@@ -872,6 +872,23 @@ module Frozone
               # singleton (&NilClass_CLASS) — the flat name is filtered
               # from emission, but the runtime equivalent exists.
               format_constant(flat)
+            when Vm::ProcObject
+              # Snapshot Proc captured from a user_constant (typically
+              # a Hash like OptionParser::Officious that holds
+              # callbacks). Emitting the captured body as a real C++
+              # lambda would need scope-walking + free-variable
+              # resolution that we don't yet do at static-init time,
+              # so for now emit a placeholder Proc whose body returns
+              # nil. The enclosing Hash structure / iteration still
+              # works; calls go through but are no-ops. We can't
+              # abort here because some callbacks (e.g.
+              # OptionParser::Officious['version']) get invoked
+              # during normal startup paths the user may not exercise
+              # — aborting on the placeholder breaks unrelated
+              # programs. Source location is captured in the lambda
+              # comment for debuggability.
+              loc = val.block_object&.source_location || ["unknown", 0]
+              %{(new Proc([](Array*) -> BasicObject* { /* snapshot Proc placeholder, defined at #{loc[0]}:#{loc[1]} */ return nil_instance(); }))}
             when Vm::ObjectObject
               # If this object is itself one of our registered user
               # constants, emit a reference to its accessor (its ivars
