@@ -45,36 +45,41 @@
 
 #define FROZONE_GC_INIT() GC_INIT()
 
-// We do NOT override the global `operator new`/`operator delete`.
+// Global operator new/delete override — route C++ heap allocations
+// through Boehm so std::function's captured-state heap (the
+// _Base_manager that holds lambda captures when they exceed SBO)
+// is GC-tracked. Without the override, captures of BasicObject*
+// pointers stored inside libc-malloc'd _Base_manager are invisible
+// to Boehm → premature collection of referenced Ruby objects →
+// use-after-free.
 //
-// Boehm coverage instead comes from three targeted entry points:
-//   1. BasicObject defines a class-scoped `operator new` that
-//      routes through GC_MALLOC. Every Ruby box subclass uses it.
-//   2. STL containers that hold BasicObject* pointers (Array data,
-//      Hash buckets, Symbol intern table, MatchData captures, …)
-//      are parameterised with `GcAllocator<T>`, so their internal
-//      buffers are GC_MALLOC-backed.
-//   3. `gc_box<T>` (below) and `ProcFn` allocate via explicit
-//      GC_MALLOC + placement-new, covering the captured-local
-//      cells the codegen emits and the closure storage backing
-//      Proc respectively.
+// We considered routing all such non-BasicObject allocations
+// through dedicated helpers (`gc_box`, a hand-rolled `ProcFn`
+// type-erased callable) to avoid the override entirely, but for
+// std::function specifically there's no allocator hook (allocator-
+// aware ctors were removed in C++17). Keeping the override + plain
+// std::function is the simpler architecture.
 //
-// Anything else (libstdc++ internals: std::string buffers,
-// std::filesystem::path tokenisation, std::stringstream rdbuf,
-// parser-internal std::vector<int>) allocates via libc malloc
-// inside libstdc++.so and frees via libc free — consistent
-// allocator path, no abort risk, no Boehm-tracking concern
-// (these buffers don't hold BasicObject* pointers we care about
-// reclaiming).
-//
-// The previous global override caused aborts because libstdc++.so's
-// internal calls to `operator new` / `operator delete` are bound at
-// link time to versioned symbols (`_Znwm@GLIBCXX_3.4` etc.) which
-// the dynamic linker resolves to libstdc++.so's own libc-backed
-// definitions — NOT to our weak unversioned override. A buffer
-// allocated via our override (Boehm) freed via libstdc++.so's
-// internal `free()` path → `free(): invalid pointer` abort
-// (originally observed in `std::filesystem::path::operator/=`).
+// Caveat (the dustman issue): libstdc++.so's *internal* calls to
+// `operator new`/`operator delete` (e.g. `std::string::reserve`
+// freeing its old buffer) bind to versioned symbols
+// (`_Znwm@GLIBCXX_3.4`, `_ZdlPv@GLIBCXX_3.4`) which the dynamic
+// linker resolves to libstdc++.so's own libc-backed definitions —
+// NOT to our weak unversioned override. So libstdc++.so's own
+// buffer allocations end up in libc malloc, and freeing them via
+// libstdc++.so's own `free()` is fine (consistent allocator).
+// Trouble arises only when a buffer allocated via OUR override
+// (Boehm) reaches libstdc++.so's internal `free()` path —
+// observed in `std::filesystem::path::operator/=`, which is why
+// fs_detail avoids std::filesystem internally. As long as the
+// gen and runtime avoid feeding Boehm pointers into libstdc++
+// internals, the override is safe.
+inline void* operator new(std::size_t s)             { return GC_MALLOC(s); }
+inline void* operator new[](std::size_t s)           { return GC_MALLOC(s); }
+inline void  operator delete(void*) noexcept         {}
+inline void  operator delete[](void*) noexcept       {}
+inline void  operator delete(void*, std::size_t) noexcept {}
+inline void  operator delete[](void*, std::size_t) noexcept {}
 
 // gc_box<T> — Boehm-allocated single-value cell. Used by the gen
 // to box mutable locals that are shared across closure captures
@@ -83,13 +88,10 @@
 // `new BasicObject*(initial)` previously; the gen now emits
 // `gc_box<BasicObject*>(initial)`.
 //
-// Why not plain `new`: explicit GC_MALLOC + placement-new keeps
-// these allocations Boehm-tracked without depending on the
-// global operator-new override, which is fragile because
-// libstdc++.so's internal `new` calls bind to versioned symbols
-// (`_Znwm@GLIBCXX_3.4`) that bypass our weak unversioned
-// override. By going direct to GC_MALLOC at every site that
-// matters for tracing, we don't need the global override at all.
+// With the global new override above, plain `new BasicObject*(initial)`
+// would also go through Boehm — gc_box is functionally redundant but
+// kept for clarity at emit sites and to make the Boehm intent
+// self-evident.
 //
 // Defined inside `namespace Ruby` so the gen TUs (which all wrap
 // their bodies in `namespace Ruby { ... }`) find it via unqualified
