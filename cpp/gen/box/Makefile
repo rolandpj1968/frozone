@@ -17,7 +17,7 @@
 # Incremental cycle: ~5-15 sec instead of ~7 min full rebuild.
 
 CXX      ?= g++
-CXXFLAGS ?= -O0 -g0 -DFROZONE_USE_BOEHM_GC -std=c++20
+CXXFLAGS ?= -O0 -g -DFROZONE_USE_BOEHM_GC -std=c++20
 INCLUDES := -I ../../../vendor/Onigmo/_install/include
 LIBS     := ../../../vendor/Onigmo/_install/lib/libonigmo.a -lgc
 
