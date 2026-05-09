@@ -126,7 +126,7 @@ module Frozone
           def self.decl_local_line(emit, name, init_expr)
             cpp = local_cpp_name(name)
             if emit.cpp.captured?(name)
-              "BasicObject** #{cpp} = new BasicObject*(#{init_expr});"
+              "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init_expr});"
             else
               "BasicObject* #{cpp} = #{init_expr};"
             end

@@ -95,7 +95,7 @@ module Frozone
                 # to be a heap cell. Otherwise a bare local is fine.
                 bind_str =
                   if captured?(clause.var_name)
-                    "BasicObject** #{cpp_name} = new BasicObject*(e_); "
+                    "BasicObject** #{cpp_name} = gc_box<BasicObject*>(e_); "
                   else
                     "BasicObject* #{cpp_name} = e_; "
                   end
@@ -264,7 +264,7 @@ module Frozone
                   cpp = MethodEmitter.local_cpp_name(p)
                   init = "(#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance()"
                   if emit.cpp.captured?(p)
-                    emit.line "BasicObject** #{cpp} = new BasicObject*(#{init});"
+                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
                   else
                     emit.line "BasicObject* #{cpp} = #{init};"
                   end
@@ -278,7 +278,7 @@ module Frozone
                   emit.line "Array* __blk_rest__ = new Array();"
                   emit.line "for (std::size_t _i = #{pre}; _i + #{post} < __blkargs__->data.size(); _i++) __blk_rest__->data.push_back(__blkargs__->data[_i]);"
                   if emit.cpp.captured?(rest_param)
-                    emit.line "BasicObject** #{rest_cpp} = new BasicObject*(static_cast<BasicObject*>(__blk_rest__));"
+                    emit.line "BasicObject** #{rest_cpp} = gc_box<BasicObject*>(static_cast<BasicObject*>(__blk_rest__));"
                   else
                     emit.line "BasicObject* #{rest_cpp} = static_cast<BasicObject*>(__blk_rest__);"
                   end
@@ -288,7 +288,7 @@ module Frozone
                   cpp = MethodEmitter.local_cpp_name(p)
                   init = "(#{back_idx} <= (int)__blkargs__->data.size()) ? __blkargs__->data[__blkargs__->data.size() - #{back_idx}] : nil_instance()"
                   if emit.cpp.captured?(p)
-                    emit.line "BasicObject** #{cpp} = new BasicObject*(#{init});"
+                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
                   else
                     emit.line "BasicObject* #{cpp} = #{init};"
                   end
@@ -396,7 +396,7 @@ module Frozone
                   cpp = MethodEmitter.local_cpp_name(p)
                   init = "(#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance()"
                   if emit.cpp.captured?(p)
-                    emit.line "BasicObject** #{cpp} = new BasicObject*(#{init});"
+                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
                   else
                     emit.line "BasicObject* #{cpp} = #{init};"
                   end
@@ -408,7 +408,7 @@ module Frozone
                   emit.line "Array* __blk_rest__ = new Array();"
                   emit.line "for (std::size_t _i = #{pre}; _i + #{post} < __blkargs__->data.size(); _i++) __blk_rest__->data.push_back(__blkargs__->data[_i]);"
                   if emit.cpp.captured?(rest_param)
-                    emit.line "BasicObject** #{rest_cpp} = new BasicObject*(static_cast<BasicObject*>(__blk_rest__));"
+                    emit.line "BasicObject** #{rest_cpp} = gc_box<BasicObject*>(static_cast<BasicObject*>(__blk_rest__));"
                   else
                     emit.line "BasicObject* #{rest_cpp} = static_cast<BasicObject*>(__blk_rest__);"
                   end
@@ -418,7 +418,7 @@ module Frozone
                   cpp = MethodEmitter.local_cpp_name(p)
                   init = "(#{back_idx} <= (int)__blkargs__->data.size()) ? __blkargs__->data[__blkargs__->data.size() - #{back_idx}] : nil_instance()"
                   if emit.cpp.captured?(p)
-                    emit.line "BasicObject** #{cpp} = new BasicObject*(#{init});"
+                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
                   else
                     emit.line "BasicObject* #{cpp} = #{init};"
                   end
@@ -481,7 +481,7 @@ module Frozone
           # Pre-walk: among `own_local_names`, return the subset that
           # is referenced (read or written) inside ANY nested
           # Block/Lambda within `body`. Those locals must be heap-
-          # allocated (`BasicObject** l_x = new BasicObject*(initial);`)
+          # allocated (`BasicObject** l_x = gc_box<BasicObject*>(initial);`)
           # so an inner lambda can capture the cell pointer by value
           # and still access the live cell after our scope returns.
           # Walks across nested blocks (inner-inner captures of our

@@ -222,7 +222,7 @@ module Frozone
               locals << node.name.to_s
               cpp = MethodEmitter.local_cpp_name(node.name)
               if emit.cpp.captured?(node.name)
-                emit.line "BasicObject** #{cpp} = new BasicObject*(nil_instance());"
+                emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(nil_instance());"
               else
                 emit.line "BasicObject* #{cpp} = nil_instance();"
               end
@@ -373,7 +373,7 @@ module Frozone
               emit.line(captured ? "*#{cpp_name} = #{rhs};" : "#{cpp_name} = #{rhs};")
             else
               locals << node.name.to_s
-              emit.line(captured ? "BasicObject** #{cpp_name} = new BasicObject*(#{rhs});" : "BasicObject* #{cpp_name} = #{rhs};")
+              emit.line(captured ? "BasicObject** #{cpp_name} = gc_box<BasicObject*>(#{rhs});" : "BasicObject* #{cpp_name} = #{rhs};")
             end
           end
 
@@ -452,7 +452,7 @@ module Frozone
                 emit.line(captured ? "*#{cpp_name} = #{value_expr};" : "#{cpp_name} = #{value_expr};")
               else
                 locals << name
-                emit.line(captured ? "BasicObject** #{cpp_name} = new BasicObject*(#{value_expr});" : "BasicObject* #{cpp_name} = #{value_expr};")
+                emit.line(captured ? "BasicObject** #{cpp_name} = gc_box<BasicObject*>(#{value_expr});" : "BasicObject* #{cpp_name} = #{value_expr};")
               end
             when :local_splat
               name = target[1].to_s
@@ -462,7 +462,7 @@ module Frozone
                 emit.line(captured ? "*#{cpp_name} = #{value_expr};" : "#{cpp_name} = #{value_expr};")
               else
                 locals << name
-                emit.line(captured ? "BasicObject** #{cpp_name} = new BasicObject*(#{value_expr});" : "BasicObject* #{cpp_name} = #{value_expr};")
+                emit.line(captured ? "BasicObject** #{cpp_name} = gc_box<BasicObject*>(#{value_expr});" : "BasicObject* #{cpp_name} = #{value_expr};")
               end
             when :ivar, :ivar_splat
               iv = target[1].to_s.delete_prefix('@')

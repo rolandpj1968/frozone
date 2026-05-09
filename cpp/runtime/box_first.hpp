@@ -81,6 +81,27 @@ inline void  operator delete[](void*) noexcept       {}
 inline void  operator delete(void*, std::size_t) noexcept {}
 inline void  operator delete[](void*, std::size_t) noexcept {}
 
+// gc_box<T> — Boehm-allocated single-value cell. Used by the gen
+// to box mutable locals that are shared across closure captures
+// (so an inner lambda can hold the cell pointer by value and
+// outlive the enclosing stack frame). Each emit site looked like
+// `new BasicObject*(initial)` previously; the gen now emits
+// `gc_box<BasicObject*>(initial)`.
+//
+// Why not plain `new`: explicit GC_MALLOC + placement-new keeps
+// these allocations Boehm-tracked without depending on the
+// global operator-new override, which is fragile because
+// libstdc++.so's internal `new` calls bind to versioned symbols
+// (`_Znwm@GLIBCXX_3.4`) that bypass our weak unversioned
+// override. By going direct to GC_MALLOC at every site that
+// matters for tracing, we don't need the global override at all.
+template<typename T>
+inline T* gc_box(T value) {
+  T* p = static_cast<T*>(GC_MALLOC(sizeof(T)));
+  new (p) T(std::move(value));
+  return p;
+}
+
 // Boehm-aware allocator for STL containers. Boehm's conservative
 // scanner doesn't trace libc-malloc'd memory by default, so pointers
 // stored inside a default-allocated std::vector<BasicObject*> become

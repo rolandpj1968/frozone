@@ -146,7 +146,7 @@ module Frozone
           # Set of local-variable NAMES (as Strings) that are captured
           # by an inner Block/Lambda within the currently-emitting
           # scope. Captured locals are emitted as heap-allocated cells
-          # (`BasicObject** l_x = new BasicObject*(initial);`) and
+          # (`BasicObject** l_x = gc_box<BasicObject*>(initial);`) and
           # accessed via `*deref` so that an inner lambda can capture
           # the cell pointer by value and outlive the enclosing stack
           # frame — fixes the dangling-by-reference closure bug.
