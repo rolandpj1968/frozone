@@ -242,6 +242,9 @@ module Frozone
             string_gsub: ->(self_, pat, repl, block) {
               "string_gsub_helper(#{self_}, #{pat}, #{repl}, dynamic_cast<Proc*>(#{block}))"
             },
+            string_scan: ->(self_, pat, block) {
+              "string_scan_helper(#{self_}, #{pat}, #{block})"
+            },
             # `sub` reuses gsub for now — fine when the pattern only
             # matches once. WQ doesn't call sub yet, so an exact `sub`
             # impl can wait.

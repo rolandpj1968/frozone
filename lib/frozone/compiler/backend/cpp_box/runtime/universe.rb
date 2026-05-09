@@ -1760,6 +1760,112 @@ module Frozone
             CPP
           )
 
+          # String#scan helper. Handles both String pattern (literal,
+          # non-overlapping search) and Regexp pattern (Onigmo loop).
+          # If the regex has no captures, each result is the matched
+          # substring; with captures, each result is an Array of capture
+          # strings (nil for unmatched captures), excluding the whole
+          # match. With a block, yields each result and returns self.
+          # Without a block, returns the Array of results. Zero-length
+          # matches advance position by 1 to avoid an infinite loop.
+          STRING_SCAN_FN = KernelFn.new(
+            name: "string_scan_helper",
+            signature: "BasicObject* string_scan_helper(BasicObject* self_obj, BasicObject* pat_obj, BasicObject* block_obj)",
+            body: <<~CPP.chomp,
+              auto* self = static_cast<String*>(self_obj);
+              bool has_block = (block_obj && block_obj != nil_instance());
+              Proc* block_proc = has_block ? dynamic_cast<Proc*>(block_obj) : nullptr;
+              if (has_block && !block_proc) has_block = false;  // defensive
+              Array* results = new Array();
+
+              // String pattern: literal non-overlapping search.
+              if (auto* spat = dynamic_cast<String*>(pat_obj)) {
+                if (spat->bytes.empty()) return has_block ? self_obj : static_cast<BasicObject*>(results);
+                const std::uint8_t* hay = self->bytes.data();
+                const std::uint8_t* nee = spat->bytes.data();
+                std::size_t hay_n = self->bytes.size();
+                std::size_t nee_n = spat->bytes.size();
+                std::size_t i = 0;
+                while (i + nee_n <= hay_n) {
+                  if (std::memcmp(hay + i, nee, nee_n) == 0) {
+                    BasicObject* match_str = new String(reinterpret_cast<const char*>(nee), nee_n);
+                    if (has_block) {
+                      block_proc->m_call((new Array({match_str})));
+                    } else {
+                      results->data.push_back(match_str);
+                    }
+                    i += nee_n;
+                  } else {
+                    i++;
+                  }
+                }
+                return has_block ? self_obj : static_cast<BasicObject*>(results);
+              }
+
+              // Regexp pattern: onig_search loop.
+              if (auto* re = dynamic_cast<Regexp*>(pat_obj)) {
+                if (!re->compiled_) return has_block ? self_obj : static_cast<BasicObject*>(results);
+                const UChar* s = self->bytes.data();
+                std::size_t n = self->bytes.size();
+                const UChar* end = s + n;
+                OnigRegion* region = onig_region_new();
+                MatchData* last_match = nullptr;
+                int64_t pos = 0;
+                while (pos <= (int64_t)n) {
+                  const UChar* start = s + pos;
+                  int r = onig_search(re->compiled_, s, end, start, end, region, ONIG_OPTION_NONE);
+                  if (r < 0) break;
+                  // Snapshot MatchData so $~ tracks the last match.
+                  auto* md = new MatchData();
+                  md->iv_string = self;
+                  md->iv_regexp = re;
+                  md->captures_.reserve(region->num_regs);
+                  for (int j = 0; j < region->num_regs; j++) {
+                    md->captures_.emplace_back(region->beg[j], region->end[j]);
+                  }
+                  last_match = md;
+
+                  int64_t whole_b = region->beg[0];
+                  int64_t whole_e = region->end[0];
+                  BasicObject* this_result;
+                  if (region->num_regs <= 1) {
+                    this_result = new String(reinterpret_cast<const char*>(s + whole_b),
+                                             static_cast<std::size_t>(whole_e - whole_b));
+                  } else {
+                    Array* caps = new Array();
+                    caps->data.reserve(region->num_regs - 1);
+                    for (int j = 1; j < region->num_regs; j++) {
+                      int64_t cb = region->beg[j], ce = region->end[j];
+                      if (cb < 0) {
+                        caps->data.push_back(nil_instance());
+                      } else {
+                        caps->data.push_back(new String(reinterpret_cast<const char*>(s + cb),
+                                                       static_cast<std::size_t>(ce - cb)));
+                      }
+                    }
+                    this_result = caps;
+                  }
+
+                  if (has_block) {
+                    block_proc->m_call((new Array({this_result})));
+                  } else {
+                    results->data.push_back(this_result);
+                  }
+
+                  // Zero-length match: step 1 byte to avoid infinite loop.
+                  pos = (whole_e == whole_b) ? whole_e + 1 : whole_e;
+                }
+                onig_region_free(region, 1);
+                if (last_match) g_last_match() = last_match;
+                return has_block ? self_obj : static_cast<BasicObject*>(results);
+              }
+
+              std::fprintf(stderr, "[box-first] String#scan unsupported pattern type: %s\\n",
+                           pat_obj ? pat_obj->ruby_class_name() : "(null)");
+              std::abort();
+            CPP
+          )
+
           # Extract substring for capture index `n` from a MatchData.
           # n=0 → whole match; n>0 → numbered capture. Returns nil for
           # an out-of-range index or an unmatched capture (begin == -1).
@@ -1801,7 +1907,7 @@ module Frozone
             COERCE_TO_INT_FN, RAISE_ARITY_FN,
             MM_DISPATCH_FN, CM_DISPATCH_FN,
             INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
-            STRING_GSUB_FN, STRING_UNPACK_FN,
+            STRING_GSUB_FN, STRING_SCAN_FN, STRING_UNPACK_FN,
             FIBER_STORAGE_GLOBAL,
           ].freeze
 
