@@ -289,6 +289,20 @@ inline BasicObject* intrinsic_string_tr_raw(BasicObject* self_, BasicObject* fro
   return _r;
 }
 
+// `String#initialize(str, encoding)` — copy bytes from `str` into
+// self. The third arg (encoding) is handled by a separate
+// `force_encoding` call right after in lib/core/4.0/string.rb#L26,
+// so we ignore it here. Returns nil (intrinsic contract; the Ruby
+// wrapper returns self).
+inline BasicObject* intrinsic_string_initialize(BasicObject* self_, BasicObject* str_, BasicObject* /*encoding_*/) {
+  auto* _s = static_cast<String*>(self_);
+  auto* _o = static_cast<String*>(str_);
+  _s->bytes = _o->bytes;
+  _s->enc = _o->enc;
+  _s->length_cache_ = -1;
+  return nil_instance();
+}
+
 // `String#replace(other)` — overwrite self's bytes/encoding with
 // other's, return self. Mutates self in place; both String#replace
 // (lib/core/4.0/string.rb:58) and the __bang__ wrapper used by tr! /
