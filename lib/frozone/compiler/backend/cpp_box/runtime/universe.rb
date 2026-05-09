@@ -202,9 +202,16 @@ module Frozone
           # Module also overrides `c_X` to raise NameError (constant_missing)
           # whereas BasicObject's `c_X` raises TypeError — matches Ruby's
           # `nil::FOO` (TypeError) vs `Module::UNDEF` (NameError) split.
+          # Phase 2 fusion (C-form, Module/Class layer): inherit from
+          # Frozone_Vm_ModuleObject in C++ so every _CLASS singleton
+          # (whose eigenclass chain ultimately passes through Class : Module)
+          # picks up `lookup_method` / `get_method` / `instance_methods`
+          # via the vtable. Same trick as NilClass : Frozone_Vm_ObjectObject.
+          # `Class : Module` (below) is unchanged, so Class instances
+          # transitively reach Frozone_Vm_ModuleObject too.
           MODULE = RubyClass.new(
             name: "Module",
-            parent: "Object",
+            parent: "Frozone_Vm_ModuleObject",
             members: [
               %(const char* ruby_class_name() const override { return "Module"; }),
               "// Class eigenclasses inherit instance_class_id_ from here so",
@@ -253,9 +260,16 @@ module Frozone
             ],
           )
 
+          # Phase 2 fusion (C-form): inherit from Frozone_Vm_ObjectObject
+          # in C++ so the fused singletons pick up dispatch/set_ivar/
+          # lookup_instance_method via the vtable. Ruby class hierarchy
+          # (NilClass.superclass == Object) is unaffected — that's
+          # driven by &NilClass_CLASS->superclass, not the C++ struct
+          # chain. Frozone_Vm_ObjectObject : Object, so the Object
+          # ancestry is preserved transitively.
           NIL_CLASS = RubyClass.new(
             name: "NilClass",
-            parent: "Object",
+            parent: "Frozone_Vm_ObjectObject",
             members: [%(const char* ruby_class_name() const override { return "NilClass"; })],
             singleton: "NIL_INSTANCE",
             overrides: {
@@ -266,7 +280,7 @@ module Frozone
 
           TRUE_CLASS = RubyClass.new(
             name: "TrueClass",
-            parent: "Object",
+            parent: "Frozone_Vm_ObjectObject",
             members: [%(const char* ruby_class_name() const override { return "TrueClass"; })],
             singleton: "TRUE_INSTANCE",
             overrides: {
@@ -276,7 +290,7 @@ module Frozone
 
           FALSE_CLASS = RubyClass.new(
             name: "FalseClass",
-            parent: "Object",
+            parent: "Frozone_Vm_ObjectObject",
             members: [%(const char* ruby_class_name() const override { return "FalseClass"; })],
             singleton: "FALSE_INSTANCE",
             overrides: {

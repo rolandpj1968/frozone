@@ -117,7 +117,11 @@ module Frozone
             all_classes = overlay_universe_methods(Runtime::ALL_CLASSES) + build_user_class_defs
             all_eigenclasses = all_classes.map { |k| Runtime.eigenclass_for(k) }.compact
             decorate_eigenclasses_with_const_overrides(all_classes, all_eigenclasses)
-            classes = all_classes + all_eigenclasses
+            # Topo-sort by parent so each class's parent struct is fully
+            # defined before the child in layouts.hpp. Required since
+            # Phase 2 fusion (C-form) makes NilClass : Frozone_Vm_ObjectObject —
+            # the parent now lives among user classes, not before them.
+            classes = topo_sort_by_parent(all_classes + all_eigenclasses)
             @class_ids_for_init = classes.each_with_index.to_h { |k, i| [k.name, i] }
             kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
             with_stream(:layouts) { write_layouts_open }
@@ -152,6 +156,29 @@ module Frozone
           end
 
           private
+
+          # Sort classes so each class's `parent` (by name) appears
+          # earlier than the class itself. Stable for siblings — a
+          # class's relative position to non-ancestors is preserved.
+          # Required since Phase 2 fusion (C-form) makes NilClass etc.
+          # depend on Frozone_Vm_ObjectObject (a user class) as their
+          # struct base, breaking the prior assumption that runtime
+          # classes always come before user classes.
+          def topo_sort_by_parent(classes)
+            by_name = classes.each_with_object({}) { |c, h| h[c.name] = c }
+            visited = Set.new
+            result = []
+            visit = ->(c) {
+              return if visited.include?(c.name)
+              visited << c.name
+              if c.parent && (parent_cls = by_name[c.parent])
+                visit.call(parent_cls)
+              end
+              result << c
+            }
+            classes.each { |c| visit.call(c) }
+            result
+          end
 
           # Walk top_level_scope.constants_table for every Vm::ClassObject.
           # Skip Universe-seeded names (BasicObject, Object, Integer, Array,
@@ -210,10 +237,12 @@ module Frozone
               # same way build_user_class_def does for user classes,
               # filtering out anything already in `members:` (some
               # entries — MatchData — declare iv_X by hand for non-nil
-              # initial values).
+              # initial values), AND anything inherited from the C++
+              # parent struct — re-declaring an inherited member would
+              # shadow it.
               existing_ivar_names = (klass.members || []).filter_map { |line|
                 line[/\biv_([A-Za-z_][A-Za-z_0-9]*)\b/, 1]
-              }.to_set
+              }.to_set | inherited_ivar_names(klass)
               extra_ivars = collect_ivars(cls)
                 .reject { |iv| existing_ivar_names.include?(iv) }
                 .map { |iv| "BasicObject* iv_#{iv} = nil_instance();" }
@@ -273,12 +302,27 @@ module Frozone
           # the IS_A LUT, m_freeze, m_class, …) are the load-bearing
           # implementations — overlaying their core/4.0/ Ruby twins via
           # virtual dispatch would shadow them and recurse.
+          # Phase 2 fusion (C-form): the chain may now pass through a
+          # user class (Frozone_Vm_ObjectObject) en route to Object/
+          # BasicObject. User classes don't carry hand_coded_method_names
+          # but they do have a parent, so just walk past them — the
+          # hand-coded entries live further up the chain on Object etc.
           def ancestor_hand_coded_names(klass, by_name)
             names = Set.new
             current = klass
             while current
-              (current.hand_coded_method_names || []).each { |n| names << n }
-              current = current.parent && by_name[current.parent]
+              if current.respond_to?(:hand_coded_method_names)
+                (current.hand_coded_method_names || []).each { |n| names << n }
+              end
+              # Resolve parent: RubyClass uses .parent (a String name);
+              # Vm::ClassObject uses .superclass (another Vm::ClassObject).
+              parent_name = if current.respond_to?(:parent) && current.parent.is_a?(String)
+                              current.parent
+                            elsif current.respond_to?(:superclass) && current.superclass.respond_to?(:full_name)
+                              current.superclass.full_name.to_s.gsub("::", "_")
+                            end
+              break unless parent_name
+              current = by_name[parent_name] || @user_classes[parent_name.to_sym]
             end
             names
           end
@@ -1485,6 +1529,29 @@ module Frozone
             end
           end
 
+          # Walk the C++ struct parent chain of a runtime RubyClass and
+          # return the set of ivar names declared on any ancestor —
+          # used by overlay_universe_methods to suppress
+          # extra_ivars that would shadow an inherited member. Only
+          # parents within the user-class set contribute (Object /
+          # BasicObject / hand-coded universe ivars are already in
+          # `members:` and caught by the existing ivar regex).
+          def inherited_ivar_names(klass)
+            seen = Set.new
+            parent_name = klass.parent
+            while parent_name
+              user_parent = @user_classes[parent_name.to_sym]
+              break unless user_parent
+              collect_ivars(user_parent).each { |iv| seen << iv }
+              parent_name = user_parent.respond_to?(:superclass) &&
+                            user_parent.superclass &&
+                            user_parent.superclass.respond_to?(:full_name) ?
+                              user_parent.superclass.full_name.to_s.gsub("::", "_") :
+                              nil
+            end
+            seen
+          end
+
           # Collect ivars from the cls's parent chain (cls's
           # superclass, its superclass, ...). Used to filter out
           # already-declared ivars when emitting a derived struct,
@@ -1963,6 +2030,35 @@ module Frozone
               # Onigmo regex engine — must run before any Regexp
               # construction. Cheap (registers UTF-8 encoding tables).
               line "init_onigmo();"
+              # Phase 2 fusion (C-form): NilClass / TrueClass / FalseClass
+              # now inherit from Frozone_Vm_ObjectObject, so they carry
+              # iv_class_object / iv_eigenclass / iv_frozen_object /
+              # iv_instance_variables_hash. Initialise them so the
+              # interpreter's compiled `dispatch` / `set_ivar` / etc.
+              # bodies (now reachable via the vtable) see meaningful
+              # values rather than the default nil_instance(). Mirrors
+              # what Vm::*Object#initialize does in Ruby.
+              # Each fused singleton (NIL_INSTANCE etc.) needs its
+              # iv_class_object to point at a real Vm::ClassObject so
+              # the inherited dispatch / lookup_method bodies see a
+              # populated methods_table / constants_table / prepends /
+              # modules. The bootstrap-side accessor
+              # `k_Frozone_Vm_Core_<X>_CLASS()` returns the
+              # Frozone_Vm_ClassObject* whose ivars are written further
+              # down in this same init function.
+              runtime_by_name = Runtime::ALL_CLASSES.each_with_object({}) { |c, h| h[c.name] = c }
+              FUSED_VM_CLASSES.each_value do |entry|
+                runtime_cls = runtime_by_name[entry[:runtime]] or next
+                singleton = runtime_cls.singleton or next
+                # "NilClass" → "NIL_CLASS"; bootstrap accessor is
+                # `k_Frozone_Vm_Core_NIL_CLASS_CLASS()`.
+                snake_upper = entry[:runtime].gsub(/([A-Z]+)([A-Z][a-z])/, '\\1_\\2')
+                                             .gsub(/([a-z\\d])([A-Z])/, '\\1_\\2').upcase
+                vm_class_accessor = "k_Frozone_Vm_Core_#{snake_upper}_CLASS()"
+                line "#{singleton}.iv_class_object = #{vm_class_accessor};"
+                line "#{singleton}.iv_instance_variables_hash = new Hash();"
+                line "#{singleton}.iv_frozen_object = true_instance();"
+              end
               # Eigenclass singleton class-id population — drives
               # is_a?'s LUT lookup. Also goes via static state init
               # (singletons are constructed before main; we're just
