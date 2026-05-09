@@ -954,61 +954,24 @@ namespace fs_detail {
   // Ruby File.expand_path: ~ expansion + abs join + lexical normalisation.
   // We don't go through realpath (so non-existent components are fine)
   // and we don't follow symlinks — that's File.realpath's job.
-  //
-  // Manual implementation rather than std::filesystem::path: with our
-  // global Boehm operator new override, libstdc++.so's internal
-  // string buffer manipulation inside path::operator/= ends up
-  // calling libc free() on a Boehm-allocated buffer (versioned-
-  // symbol resolution issue documented in box_first.hpp). Doing the
-  // normalisation by hand on a single std::string avoids triggering
-  // those internal paths.
   inline std::string expand(const std::string& path, const std::string& dir) {
     std::string p = path;
     if (!p.empty() && p[0] == '~') {
       const char* home = std::getenv("HOME");
-      if (home && (p.size() == 1 || p[1] == '/')) {
-        p = std::string(home) + p.substr(1);
+      if (home) {
+        if (p.size() == 1 || p[1] == '/') p = std::string(home) + p.substr(1);
       }
     }
-    if (p.empty() || p[0] != '/') {
-      std::string base = dir;
-      if (base.empty() || base[0] != '/') {
-        char buf[4096];
-        const char* cwd = ::getcwd(buf, sizeof(buf));
-        std::string cw = cwd ? std::string(cwd) : std::string();
-        if (!base.empty()) {
-          if (cw.empty() || cw.back() != '/') cw.push_back('/');
-          cw += base;
-        }
-        base = cw;
-      }
-      if (!base.empty() && base.back() != '/') base.push_back('/');
-      p = base + p;
+    std::filesystem::path fp(p);
+    if (!fp.is_absolute()) {
+      std::filesystem::path base = dir.empty() ? std::filesystem::current_path() : std::filesystem::path(dir);
+      if (!base.is_absolute()) base = std::filesystem::current_path() / base;
+      fp = base / fp;
     }
-    // Lexical normalisation: split on '/', resolve "." (skip) and ".."
-    // (pop). Reassemble with single leading '/'. No std::filesystem.
-    std::vector<std::string> parts;
-    std::size_t i = 0, n = p.size();
-    while (i < n) {
-      while (i < n && p[i] == '/') ++i;
-      if (i >= n) break;
-      std::size_t j = i;
-      while (j < n && p[j] != '/') ++j;
-      std::string seg = p.substr(i, j - i);
-      if (seg == ".") {
-        // skip
-      } else if (seg == "..") {
-        if (!parts.empty()) parts.pop_back();
-      } else {
-        parts.push_back(std::move(seg));
-      }
-      i = j;
-    }
-    std::string out = "/";
-    for (std::size_t k = 0; k < parts.size(); ++k) {
-      if (k > 0) out.push_back('/');
-      out += parts[k];
-    }
+    fp = fp.lexically_normal();
+    // lexically_normal preserves a trailing slash; Ruby strips it.
+    std::string out = fp.string();
+    if (out.size() > 1 && out.back() == '/') out.pop_back();
     return out;
   }
 }
