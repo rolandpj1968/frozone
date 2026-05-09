@@ -13,13 +13,14 @@ module Frozone
       def evaluate(context)
         klass = current_class(context)
         raise Vm::FrozoneException.make(:RuntimeError, "class variable access from toplevel") if klass.nil?
-        val = klass.get_class_var(@name)
-        if val.nil?
+        # Check definedness first — a cvar explicitly assigned nil is
+        # defined and reads as nil; only truly absent cvars raise.
+        unless klass.class_var_defined?(@name)
           raise Vm::FrozoneException.make(:NameError, "uninitialized class variable #{@name} in #{klass.name}", name: @name).tap { |exc|
             exc.vm_object.set_ivar(:@receiver, klass)
           }
         end
-        val
+        klass.get_class_var(@name)
       end
 
       private

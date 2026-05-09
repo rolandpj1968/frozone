@@ -249,6 +249,19 @@ module Frozone
         found_value
       end
 
+      # Checks for cvar presence anywhere on the lookup chain. Distinct
+      # from `get_class_var`, which can't tell "absent" from "explicitly
+      # nil-valued" — the AST evaluator and `defined?` need this split
+      # so `@@x = nil; @@x` doesn't spuriously raise NameError.
+      def class_var_defined?(name)
+        c = self
+        while c
+          return true if c.class_variables.key?(name)
+          c = c.is_a?(ClassObject) ? c.superclass : nil
+        end
+        false
+      end
+
       def set_class_var(name, value)
         # write to the class that owns it, or this class if new
         c = self

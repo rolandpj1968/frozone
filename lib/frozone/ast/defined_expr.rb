@@ -43,12 +43,13 @@ module Frozone
                  when :ivar
                    context.frame.the_self.ivar_defined?(@extra) ? "instance-variable" : nil
                  when :cvar
-                   # @extra is class var name
+                   # @extra is class var name. `defined?(@@x)` cares whether
+                   # the cvar exists, not its value — explicit-nil cvars
+                   # must report defined.
                    begin
                      s = context.frame.the_self
                      klass = s.is_a?(Vm::ModuleObject) ? s : s.class_object
-                     val = klass.get_class_var(@extra)
-                     val ? "class variable" : nil
+                     klass.class_var_defined?(@extra) ? "class variable" : nil
                    rescue
                      nil
                    end
