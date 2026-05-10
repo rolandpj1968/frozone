@@ -61,7 +61,17 @@ module Frozone
             @stream = :default
             @indent = 0
             @strict_emit = false
+            # Per-host-class set of other classes referenced in its method
+            # bodies — populated by collect_call_surface's AST walk via
+            # const_path_to_class. Used by ClassEmitter to emit precise
+            # per-.cpp `#include "class/<Name>.hpp"` lines (Stage 3 Path 1
+            # of the layouts.hpp split; project_layouts_split.md).
+            # Key: host class name (Symbol/String — same as the class's
+            # `.name` attribute on the Vm::ClassObject).
+            @host_class_refs = Hash.new { |h, k| h[k] = Set.new }
           end
+
+          attr_reader :host_class_refs
 
           # Switch active output stream for the duration of the block.
           # Restores prior stream on exit (including via exception).
@@ -745,6 +755,12 @@ module Frozone
             # @user_classes flat-name keys. Returns nil for runtime-
             # variable receivers, deeply-qualified shapes we don't
             # recognise, or constants pointing at non-class values.
+            # Resolves an Ast::ConstantRead / ConstantPath chain to the
+            # known user class it refers to. Returns [cls, flat_name] —
+            # cls is the Vm::ClassObject (with `.eigenclass` etc.) and
+            # flat_name is the underscore-joined symbol that doubles as
+            # the C++ struct name + per-class hpp filename. nil if the
+            # path doesn't resolve to any known class.
             const_path_to_class = lambda do |recv|
               parts = []
               cur = recv
@@ -762,11 +778,11 @@ module Frozone
               end
               tail = parts.join('_').to_sym
               # Direct match (full path matches a top-level user_class)
-              return @user_classes[tail] if @user_classes.key?(tail)
+              return [@user_classes[tail], tail] if @user_classes.key?(tail)
               # Suffix match (e.g. Vm::Intrinsics → Frozone_Vm_Intrinsics)
               suffix = "_#{tail}"
               @user_classes.each do |flat, cls|
-                return cls if flat.to_s.end_with?(suffix)
+                return [cls, flat] if flat.to_s.end_with?(suffix)
               end
               nil
             end
@@ -794,7 +810,7 @@ module Frozone
                 if node.is_a?(Ast::MethodCall) &&
                    send_method_names.include?(node.name) &&
                    node.receiver_node
-                  cls = const_path_to_class.call(node.receiver_node)
+                  cls, _flat = const_path_to_class.call(node.receiver_node)
                   if cls && (eig = (cls.eigenclass rescue nil))
                     (eig.methods_table || {}).each_key do |m|
                       # Methods known to break the C++ build when emitted
@@ -829,6 +845,28 @@ module Frozone
                 # exist on BasicObject's universal surface, so widen
                 # eagerly (don't wait for the conditional post-walk).
                 mark_wide.call(node.value_node.value.to_sym)
+              elsif (node.is_a?(Ast::ConstantRead) || node.is_a?(Ast::ConstantPath)) && host
+                # Stage 3 Path 1: any AST node that resolves to a
+                # known class via const_path_to_class becomes an
+                # entry in host_class_refs[<host_flat_name>]. Per-class
+                # .cpp emission then uses this set to emit precise
+                # `#include "class/<flat>.hpp"` lines. Reuses the
+                # existing const_path_to_class so the resolution logic
+                # stays single-source. host is a Vm::ClassObject; its
+                # full_name (e.g. "Frozone::Vm::Foo") flattens to the
+                # underscore form that matches RubyClass.name on the
+                # consumption side in ClassEmitter.
+                # See project_layouts_split.md / docs/box-first-layouts-split.md.
+                resolved = const_path_to_class.call(node)
+                if resolved
+                  host_flat = (host.respond_to?(:full_name) && host.full_name ?
+                                 host.full_name.to_s.gsub("::", "_") :
+                                 host.name.to_s).to_sym
+                  @host_class_refs[host_flat] << resolved[1]
+                  if ENV['FROZONE_BOX_REFS_DEBUG'] == '1'
+                    $stderr.puts "[refs] #{host_flat} -> #{resolved[1]}"
+                  end
+                end
               end
               node.children.each { |c| walk.call(c, host) } if node.respond_to?(:children)
             end

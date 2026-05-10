@@ -105,6 +105,23 @@ module Frozone
               classes.each do |k|
                 stream_name = :"class_#{k.name}"
                 emit.with_stream(stream_name) do
+                  # Stage 3 Path 1 of the layouts.hpp split
+                  # (project_layouts_split.md): precise per-class
+                  # hpps are emitted BEFORE the layouts.hpp meta-
+                  # include. Since each class hpp is #pragma once,
+                  # the meta-include's transitive inclusion of the
+                  # same hpps is a no-op; the precise list is what
+                  # Stage 4 will use after layouts.hpp is dropped.
+                  # Right now this just exercises the collection so
+                  # we can audit the emitted include sets.
+                  emit.line %(#include "class/#{k.name}.hpp")
+                  # host_class_refs is keyed by flat-name Symbol;
+                  # k.name from RubyClass may be String or Symbol —
+                  # try both lookups.
+                  refs = (emit.host_class_refs[k.name.to_sym] ||
+                          emit.host_class_refs[k.name.to_s]   ||
+                          Set.new) - [k.name.to_sym, k.name.to_s]
+                  refs.to_a.sort.each { |r| emit.line %(#include "class/#{r}.hpp") }
                   emit.line %(#include "frozone_layouts.hpp")
                   emit.blank
                   emit.line "namespace Ruby {"
