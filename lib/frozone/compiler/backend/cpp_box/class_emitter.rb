@@ -80,7 +80,12 @@ module Frozone
               # see the decls. N_CLASSES is `inline constexpr` for
               # single-definition-across-TUs (C++17).
               n_classes = class_ids.size
-              emit.with_stream(:layouts) do
+              # Route foundation declarations to :base (Stage 1 of the
+              # layouts.hpp split; project_layouts_split.md). Per-class
+              # TUs that #include "frozone_layouts.hpp" still see these
+              # transitively because layouts.hpp opens with #include
+              # "frozone_base.hpp".
+              emit.with_stream(:base) do
                 emit.line "inline constexpr int N_CLASSES = #{n_classes};"
                 emit.line "extern const bool IS_A[N_CLASSES][N_CLASSES];"
                 emit.line "extern BasicObject* const CLASS_BY_ID[N_CLASSES];"
@@ -127,18 +132,19 @@ module Frozone
               yield if block_given?
             end
 
-            # Method id table moved to layouts header so the universe
-            # TU's intern() can read it. Uses C++17 inline variables so
-            # it's defined exactly once across all including TUs.
-            emit.with_stream(:layouts) do
+            # Method id table moved to base header (Stage 1 split).
+            # The universe TU's intern() can read it via the layouts→base
+            # include chain. C++17 inline variables → single definition
+            # across all including TUs.
+            emit.with_stream(:base) do
               write_method_id_table(emit, method_ids, call_surface)
             end
-            # Forward decls go into the shared layouts header
-            # (frozone_layouts.hpp) so future TUs see the program's
-            # types and free function signatures. Emitter wraps
-            # the :layouts stream with `namespace Ruby { ... }` —
+            # Forward decls go into frozone_base.hpp so any TU that
+            # includes base (directly or via layouts.hpp) sees the
+            # program's types and free function signatures. Emitter
+            # wraps the :base stream with `namespace Ruby { ... }` —
             # write_forward_decls itself emits no namespace wrapper.
-            emit.with_stream(:layouts) do
+            emit.with_stream(:base) do
               write_forward_decls(emit, classes, kernel_fns, intrinsics)
             end
             emit.blank

@@ -67,6 +67,7 @@ module Frozone
           # emitter still returns a single String. Handle both.
           if source.is_a?(Hash)
             fixed = {
+              base:     "#{base}_base.hpp",
               layouts:  "#{base}_layouts.hpp",
               default:  "#{base}.cpp",
               universe: "#{base}_universe.cpp",

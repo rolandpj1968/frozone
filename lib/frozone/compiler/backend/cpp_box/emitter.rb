@@ -51,7 +51,13 @@ module Frozone
             #   sees whatever the header has.
             # - `:main` is a small trampoline that wraps the
             #   `frozone_main_impl` defined in :default.
-            @outs = { layouts: +"", default: +"", universe: +"", static: +"", main: +"" }
+            # Stage 1 of the layouts.hpp split (project_layouts_split.md):
+            # `:base` carries the universal scaffolding (forward decls,
+            # METHOD_NAMES, IS_A LUT decls, free-function decls, class var
+            # storage) that every per-class TU needs to see before per-class
+            # struct definitions. layouts.hpp opens with #include
+            # "frozone_base.hpp" then defines the class structs.
+            @outs = { base: +"", layouts: +"", default: +"", universe: +"", static: +"", main: +"" }
             @stream = :default
             @indent = 0
             @strict_emit = false
@@ -124,6 +130,7 @@ module Frozone
             classes = topo_sort_by_parent(all_classes + all_eigenclasses)
             @class_ids_for_init = classes.each_with_index.to_h { |k, i| [k.name, i] }
             kernel_fns = Runtime::ALL_KERNEL_FNS + build_user_constant_accessors
+            with_stream(:base) { write_base_open }
             with_stream(:layouts) { write_layouts_open }
             with_stream(:universe) { write_universe_open }
             with_stream(:static) { write_static_open }
@@ -136,6 +143,7 @@ module Frozone
               with_stream(:static) { write_static_state_init }
               write_main_object
             end
+            with_stream(:base) { write_base_close }
             # Close the :layouts namespace now that ClassEmitter has
             # populated it (forward decls in step 3; more in later steps).
             with_stream(:layouts) { write_layouts_close }
@@ -1775,7 +1783,12 @@ module Frozone
           #   step 5: + extern declarations of singletons / globals
           # Open/close split so other writers can target the :layouts
           # stream and have their content appear inside namespace Ruby.
-          def write_layouts_open
+          # frozone_base.hpp — universal scaffolding that every per-class
+          # TU needs before any class struct is visible. Stage 1 of the
+          # layouts.hpp split (project_layouts_split.md). Carries:
+          # forward decls, METHOD_NAMES table, IS_A/CLASS_BY_ID externs,
+          # kernel-fn decls, class-var storage.
+          def write_base_open
             line "#pragma once"
             line %(#include "../../runtime/box_first.hpp")
             blank
@@ -1787,6 +1800,24 @@ module Frozone
             # find them at link time.
             line "void __init_static_state__();  // defined in frozone_static.cpp"
             line "int frozone_main_impl(int argc, char** argv);  // defined in frozone.cpp"
+            blank
+          end
+
+          def write_base_close
+            blank
+            line "}  // namespace Ruby"
+            blank
+          end
+
+          # frozone_layouts.hpp — class struct definitions.
+          # Opens by including frozone_base.hpp (forward decls, tables,
+          # universal-protocol types). Per-class TUs that include
+          # frozone_layouts.hpp transitively pick up base.hpp.
+          def write_layouts_open
+            line "#pragma once"
+            line %(#include "frozone_base.hpp")
+            blank
+            line "namespace Ruby {"
             blank
           end
 
