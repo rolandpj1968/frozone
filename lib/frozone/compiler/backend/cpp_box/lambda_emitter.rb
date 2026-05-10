@@ -221,10 +221,14 @@ module Frozone
             if optional_params.any?
               raise Cpp::EmissionError, "block with optional params not yet supported"
             end
+            # Hash-shaped params are destructure patterns:
+            #   `do |(a, b, *r, c)| ... end` →
+            #   { names: [:a, :b], rest: :r, rights: [:c] }
+            # Recursively nestable. Other non-symbol shapes still error.
             (params + post_params).each do |p|
-              unless p.is_a?(Symbol) || p.is_a?(String)
-                raise Cpp::EmissionError, "block param destructuring (#{p.class.name}) not yet supported"
-              end
+              next if p.is_a?(Symbol) || p.is_a?(String)
+              next if p.is_a?(Hash) && p.key?(:names)
+              raise Cpp::EmissionError, "block param destructuring (#{p.class.name}) not yet supported"
             end
             # `break v` and `return v` inside a block lambda can't use
             # C++ break/return (they'd only escape the lambda). They
@@ -234,7 +238,10 @@ module Frozone
             # next_returns: true (the lambda IS one block invocation).
             block_locals = locals.dup
             (params + (rest_param ? [rest_param] : []) + post_params).each do |p|
-              block_locals << p.to_s
+              # Hash-shaped params get their inner names declared by
+              # emit_mass_destructure (which appends to block_locals
+              # itself). Only flat params register here.
+              block_locals << p.to_s if p.is_a?(Symbol) || p.is_a?(String)
             end
 
             body = block_node.body
@@ -278,12 +285,16 @@ module Frozone
                   emit.line "}"
                 end
                 params.each_with_index do |p, i|
-                  cpp = MethodEmitter.local_cpp_name(p)
                   init = "(#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance()"
-                  if emit.cpp.captured?(p)
-                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                  if p.is_a?(Hash) && p.key?(:names)
+                    LambdaEmitter.emit_destructured_block_param(emit, p, init, block_locals)
                   else
-                    emit.line "BasicObject* #{cpp} = #{init};"
+                    cpp = MethodEmitter.local_cpp_name(p)
+                    if emit.cpp.captured?(p)
+                      emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                    else
+                      emit.line "BasicObject* #{cpp} = #{init};"
+                    end
                   end
                 end
                 if rest_param
@@ -348,6 +359,50 @@ module Frozone
           # shadowing. Used to filter the capture clause to only
           # names this lambda actually uses (so we don't capture
           # not-yet-declared outer names by mistake).
+          # Hash-shaped block param `{ names: [...], rest: name, rights: [...] }`
+          # destructures the corresponding `__blkargs__` slot via the
+          # same MASS machinery used for `a, b = rhs`. Recursive on
+          # nested patterns (`do |((a, b), c)|`).
+          def self.emit_destructured_block_param(emit, hash_param, init_expr, block_locals)
+            tag = emit.cpp.next_tmp_id
+            tmp = "__blk_destr_#{tag}__"
+            emit.line "BasicObject* #{tmp} = #{init_expr};"
+            ExprEmitter.emit_mass_destructure(emit, mass_targets_from_hash(hash_param), tmp, block_locals)
+          end
+
+          # Convert a destructure-hash param to MASS target descriptors.
+          # `:names` and `:rights` are the pre/post slots; `:rest` is the
+          # splat. Inner names that are themselves Hash patterns nest
+          # via [:nested, sub_targets] — emit_mass_destructure handles
+          # the recursion.
+          def self.mass_targets_from_hash(h)
+            targets = []
+            (h[:names] || []).each do |n|
+              targets << (n.is_a?(Hash) && n.key?(:names) ? [:nested, mass_targets_from_hash(n)] : [:local, n])
+            end
+            targets << [:local_splat, h[:rest]] if h[:rest]
+            (h[:rights] || []).each do |n|
+              targets << (n.is_a?(Hash) && n.key?(:names) ? [:nested, mass_targets_from_hash(n)] : [:local, n])
+            end
+            targets
+          end
+
+          # Flat list of leaf names a block param contributes - used to
+          # pre-populate block_locals so the body emission sees them.
+          def self.flat_param_names(p)
+            return [p.to_s] if p.is_a?(Symbol) || p.is_a?(String)
+            return mass_targets_from_hash(p).flat_map { |t| flat_target_names(t) } if p.is_a?(Hash) && p.key?(:names)
+            []
+          end
+
+          def self.flat_target_names(t)
+            case t[0]
+            when :local, :local_splat then [t[1].to_s]
+            when :nested then t[1].flat_map { |sub| flat_target_names(sub) }
+            else []
+            end
+          end
+
           def self.referenced_outer_locals(body, own_locals)
             own = own_locals.is_a?(Set) ? own_locals : Set.new(own_locals.map(&:to_s))
             refs = Set.new
@@ -393,12 +448,17 @@ module Frozone
               raise Cpp::EmissionError, "lambda with kw/block params not yet supported"
             end
             (params + post_params).each do |p|
-              unless p.is_a?(Symbol) || p.is_a?(String)
-                raise Cpp::EmissionError, "lambda param destructuring (#{p.class.name}) not yet supported"
-              end
+              next if p.is_a?(Symbol) || p.is_a?(String)
+              next if p.is_a?(Hash) && p.key?(:names)
+              raise Cpp::EmissionError, "lambda param destructuring (#{p.class.name}) not yet supported"
             end
             block_locals = locals.dup
-            (params + (rest_param ? [rest_param] : []) + post_params).each { |p| block_locals << p.to_s }
+            (params + (rest_param ? [rest_param] : []) + post_params).each do |p|
+              # Hash-shaped params get their inner names declared by
+              # emit_mass_destructure (which appends to block_locals
+              # itself). Only flat params register here.
+              block_locals << p.to_s if p.is_a?(Symbol) || p.is_a?(String)
+            end
             body = node.body
 
             # Closure-capture machinery (mirrors from_block_as_proc).
@@ -410,12 +470,16 @@ module Frozone
             body_buf = emit.capture do
               emit.cpp.with_captured_locals(inner_captured) do
                 params.each_with_index do |p, i|
-                  cpp = MethodEmitter.local_cpp_name(p)
                   init = "(#{i} < (int)__blkargs__->data.size()) ? __blkargs__->data[#{i}] : nil_instance()"
-                  if emit.cpp.captured?(p)
-                    emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                  if p.is_a?(Hash) && p.key?(:names)
+                    LambdaEmitter.emit_destructured_block_param(emit, p, init, block_locals)
                   else
-                    emit.line "BasicObject* #{cpp} = #{init};"
+                    cpp = MethodEmitter.local_cpp_name(p)
+                    if emit.cpp.captured?(p)
+                      emit.line "BasicObject** #{cpp} = gc_box<BasicObject*>(#{init});"
+                    else
+                      emit.line "BasicObject* #{cpp} = #{init};"
+                    end
                   end
                 end
                 if rest_param
