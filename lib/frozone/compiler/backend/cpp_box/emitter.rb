@@ -1697,6 +1697,17 @@ module Frozone
             seen = Set.new
             parent_name = klass.parent
             while parent_name
+              # Universe parent (Object/BasicObject/Module/...) — slots
+              # declared via `members:` show up as `iv_X` lines we can
+              # scan. Required since de-fusion put iv_class_object etc.
+              # on Object, and any subclass would otherwise re-declare
+              # and shadow them.
+              ru_parent = UNIVERSE_BY_NAME[parent_name.to_s]
+              if ru_parent
+                runtime_member_ivar_names(ru_parent).each { |iv| seen << iv }
+                parent_name = ru_parent.parent
+                next
+              end
               user_parent = @user_classes[parent_name.to_sym]
               break unless user_parent
               collect_ivars(user_parent).each { |iv| seen << iv }
@@ -1709,12 +1720,28 @@ module Frozone
             seen
           end
 
+          UNIVERSE_BY_NAME = Runtime::ALL_CLASSES.each_with_object({}) { |c, h| h[c.name.to_s] = c }.freeze
+
+          def runtime_member_ivar_names(ru_class)
+            (ru_class.members || []).filter_map { |line| line[/\biv_([A-Za-z_][A-Za-z_0-9]*)\b/, 1] }
+          end
+
+          # Slots placed on Object's struct by de-fusion (#79). Cached
+          # so collect_parent_ivars / inherited_ivar_names can dedup
+          # without re-scanning Object.members each call.
+          OBJECT_UNIVERSAL_IVARS = (UNIVERSE_BY_NAME["Object"].members || [])
+            .filter_map { |line| line[/\biv_([A-Za-z_][A-Za-z_0-9]*)\b/, 1] }
+            .freeze
+
           # Collect ivars from the cls's parent chain (cls's
           # superclass, its superclass, ...). Used to filter out
           # already-declared ivars when emitting a derived struct,
           # avoiding C++ field shadowing.
           def collect_parent_ivars(cls)
-            seen = Set.new
+            # Universal Object slots (de-fusion #79): every Ruby object
+            # gets these via Object's struct in the gen, so any subclass
+            # that mentions them via collect_ivars must NOT redeclare.
+            seen = Set.new(OBJECT_UNIVERSAL_IVARS)
             sc = cls.respond_to?(:superclass) ? cls.superclass : nil
             while sc && sc.respond_to?(:full_name) && sc.full_name &&
                   sc.full_name != :Object
@@ -2328,19 +2355,14 @@ module Frozone
               # Onigmo regex engine — must run before any Regexp
               # construction. Cheap (registers UTF-8 encoding tables).
               line "init_onigmo();"
-              # Phase 2 fusion (C-form): NilClass / TrueClass / FalseClass
-              # now inherit from Frozone_Vm_ObjectObject, so they carry
-              # iv_class_object / iv_eigenclass / iv_frozen_object /
-              # iv_instance_variables_hash. Initialise them so the
-              # interpreter's compiled `dispatch` / `set_ivar` / etc.
-              # bodies (now reachable via the vtable) see meaningful
-              # values rather than the default nil_instance(). Mirrors
-              # what Vm::*Object#initialize does in Ruby.
-              # Each fused singleton (NIL_INSTANCE etc.) needs its
-              # iv_class_object to point at a real Vm::ClassObject so
-              # the inherited dispatch / lookup_method bodies see a
-              # populated methods_table / constants_table / prepends /
-              # modules. The bootstrap-side accessor
+              # Singleton ivar init for fused VM singletons.
+              # Post-de-fusion (#79): NilClass / TrueClass / FalseClass
+              # inherit from Object, which carries the iv_class_object /
+              # iv_eigenclass / iv_frozen_object / iv_instance_variables_hash
+              # slots. The fused singletons (NIL_INSTANCE etc.) still need
+              # iv_class_object populated so any code that reads it (frozen-
+              # AOT's compiled dispatch/lookup_method etc.) sees a real
+              # Vm::ClassObject. The bootstrap-side accessor
               # `k_Frozone_Vm_Core_<X>_CLASS()` returns the
               # Frozone_Vm_ClassObject* whose ivars are written further
               # down in this same init function.

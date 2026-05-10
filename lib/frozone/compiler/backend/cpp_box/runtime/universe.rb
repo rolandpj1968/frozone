@@ -146,6 +146,17 @@ module Frozone
             parent: "BasicObject",
             members: [
               %(const char* ruby_class_name() const override { return "Object"; }),
+              "// Universal per-object metadata. Lives on Object (NOT BasicObject —",
+              "// BasicObject stays slot-free for user code that wants the lightweight",
+              "// no-metadata semantics). Pre-de-fusion these slots lived on",
+              "// Frozone_Vm_ObjectObject and were pulled into NilClass et al. via",
+              "// C-form fusion (#63/#64); that made every gen depend on Frozone-",
+              "// internal types only present when frozone-AOT was the build root.",
+              "// Now Frozone_Vm_ObjectObject : Object inherits these naturally.",
+              "BasicObject* iv_class_object = nil_instance();",
+              "BasicObject* iv_eigenclass = nil_instance();",
+              "BasicObject* iv_instance_variables_hash = nil_instance();",
+              "BasicObject* iv_frozen_object = nil_instance();",
               "// === defaults to ==. Module/Class override for `Class === obj`.",
               "virtual BasicObject* op_case_eq(Array* args = &EMPTY_ARGS, Hash* kwargs = &EMPTY_KWARGS, BasicObject* block = nil_instance()) override {",
               "  return op_eq_q(args, kwargs, block);",
@@ -202,16 +213,20 @@ module Frozone
           # Module also overrides `c_X` to raise NameError (constant_missing)
           # whereas BasicObject's `c_X` raises TypeError — matches Ruby's
           # `nil::FOO` (TypeError) vs `Module::UNDEF` (NameError) split.
-          # Phase 2 fusion (C-form, Module/Class layer): inherit from
-          # Frozone_Vm_ModuleObject in C++ so every _CLASS singleton
-          # (whose eigenclass chain ultimately passes through Class : Module)
-          # picks up `lookup_method` / `get_method` / `instance_methods`
-          # via the vtable. Same trick as NilClass : Frozone_Vm_ObjectObject.
-          # `Class : Module` (below) is unchanged, so Class instances
-          # transitively reach Frozone_Vm_ModuleObject too.
+          # Module : Object — matches MRI's `Class < Module < Object`.
+          # Pre-de-fusion this was `Module : Frozone_Vm_ModuleObject` so
+          # _CLASS singletons could pick up Frozone-Ruby-implemented
+          # lookup_method / get_method / instance_methods via the vtable.
+          # That bound the gen to a Frozone-internal type only present in
+          # frozone-AOT builds. Sub-stubs (fib.rb etc.) failed at
+          # `struct Module : Frozone_Vm_ModuleObject` with "expected
+          # class-name". Reverted: when frozone is the AOT root,
+          # Frozone_Vm_ModuleObject : Module still gets emitted and its
+          # methods remain reachable through normal Ruby send; sub-stubs
+          # don't dynamically introspect Module so they don't need them.
           MODULE = RubyClass.new(
             name: "Module",
-            parent: "Frozone_Vm_ModuleObject",
+            parent: "Object",
             members: [
               %(const char* ruby_class_name() const override { return "Module"; }),
               "// Class eigenclasses inherit instance_class_id_ from here so",
@@ -260,16 +275,17 @@ module Frozone
             ],
           )
 
-          # Phase 2 fusion (C-form): inherit from Frozone_Vm_ObjectObject
-          # in C++ so the fused singletons pick up dispatch/set_ivar/
-          # lookup_instance_method via the vtable. Ruby class hierarchy
-          # (NilClass.superclass == Object) is unaffected — that's
-          # driven by &NilClass_CLASS->superclass, not the C++ struct
-          # chain. Frozone_Vm_ObjectObject : Object, so the Object
-          # ancestry is preserved transitively.
+          # NilClass / TrueClass / FalseClass inherit from Object directly.
+          # Pre-de-fusion they were `: Frozone_Vm_ObjectObject` (#63/#64) to
+          # pick up dispatch/set_ivar/lookup_instance_method via the vtable.
+          # That dependency only exists in frozone-AOT builds; sub-stubs
+          # don't have Frozone_Vm_ObjectObject in the gen and the inherit
+          # was unsatisfiable. The iv_* slots that fusion was carrying are
+          # now on Object directly so the fused singletons (NIL_INSTANCE
+          # etc.) still have a place to store iv_class_object.
           NIL_CLASS = RubyClass.new(
             name: "NilClass",
-            parent: "Frozone_Vm_ObjectObject",
+            parent: "Object",
             members: [%(const char* ruby_class_name() const override { return "NilClass"; })],
             singleton: "NIL_INSTANCE",
             overrides: {
@@ -280,7 +296,7 @@ module Frozone
 
           TRUE_CLASS = RubyClass.new(
             name: "TrueClass",
-            parent: "Frozone_Vm_ObjectObject",
+            parent: "Object",
             members: [%(const char* ruby_class_name() const override { return "TrueClass"; })],
             singleton: "TRUE_INSTANCE",
             overrides: {
@@ -290,7 +306,7 @@ module Frozone
 
           FALSE_CLASS = RubyClass.new(
             name: "FalseClass",
-            parent: "Frozone_Vm_ObjectObject",
+            parent: "Object",
             members: [%(const char* ruby_class_name() const override { return "FalseClass"; })],
             singleton: "FALSE_INSTANCE",
             overrides: {
