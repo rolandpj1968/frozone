@@ -396,7 +396,7 @@ module Frozone
             emit_mass_destructure(emit, node.targets, rhs_str, locals)
           end
 
-          ALLOWED_MASS_TARGETS = %i[local ivar local_splat ivar_splat splat_nil index nested].to_set.freeze
+          ALLOWED_MASS_TARGETS = %i[local ivar gvar local_splat ivar_splat gvar_splat splat_nil index nested].to_set.freeze
 
           # Destructure rhs_expr (a C++ expression string) across the
           # given targets, handling pre / splat / post and recursive
@@ -474,6 +474,15 @@ module Frozone
             when :ivar, :ivar_splat
               iv = target[1].to_s.delete_prefix('@')
               emit.line "this->iv_#{iv} = #{value_expr};"
+            when :gvar, :gvar_splat
+              # `$x, $y = …` and `$gvar, *$rest = …` — route through
+              # the same g_global_set kernel-fn used by GlobalVariableWrite.
+              # Name canonicalisation ($:, $-I, $") goes through the
+              # same alias map as the bare assignment path.
+              name = target[1].to_s
+              canonical = Cpp::GLOBAL_NAME_ALIAS[name.to_sym] || name
+              name_lit = emit.cpp.cpp_string_literal(canonical)
+              emit.line "g_global_set(#{name_lit}, #{value_expr});"
             when :index
               # `q[i] = v` → q->op_aset(new Array({i, v}), nullptr, nullptr).
               # Index args are kept as exprs (re-evaluated per target); for
