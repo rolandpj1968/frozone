@@ -1659,9 +1659,14 @@ module Frozone
                 # like patterns (list.fetch(k) {return nil}) silently
                 # break — fetch's catch swallows the throw meant for
                 # search.
+                # Indent body lines so they sit visually inside the
+                # try { } block. Cosmetic — C++ ignores it — but the
+                # resulting code is much easier to read in gdb / when
+                # diagnosing.
+                indented_body = body.each_line.map { |l| "  #{l}" }.join
                 {
                   params: [],
-                  body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{body}return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
+                  body: "std::uint64_t __frame_id__ = next_frame_id();\ntry {\n#{indented_body}  return nil_instance();\n} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }\n",
                 }
               end
             end

@@ -509,18 +509,20 @@ module Frozone
                 # the lambda itself.
                 emit.line "std::uint64_t __frame_id__ = next_frame_id();"
                 emit.line "try {"
-                if body
-                  emit.cpp.with_in_block do
-                    ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true, in_block: true)
+                emit.indented do
+                  if body
+                    emit.cpp.with_in_block do
+                      ExprEmitter.write_body(emit, body, locals: block_locals, last_is_return: true, next_returns: true, in_block: true)
+                    end
                   end
+                  # Fallthrough — Ruby blocks return nil when control falls
+                  # off the end (trailing while/until/case-without-else, or
+                  # an if-as-statement where neither branch returns).
+                  # last_is_return:true above handles the common case;
+                  # this safety net catches the rest. Skipped after a real
+                  # return is unreachable code, which C++ optimises away.
+                  emit.line "return nil_instance();"
                 end
-                # Fallthrough — Ruby blocks return nil when control falls
-                # off the end (trailing while/until/case-without-else, or
-                # an if-as-statement where neither branch returns).
-                # last_is_return:true above handles the common case;
-                # this safety net catches the rest. Skipped after a real
-                # return is unreachable code, which C++ optimises away.
-                emit.line "return nil_instance();"
                 emit.line "} catch (ReturnException& e_) { if (e_.target_frame != __frame_id__) throw; return e_.value; }"
               end
             end
