@@ -148,15 +148,40 @@ module Frozone
               write_forward_decls(emit, classes, kernel_fns, intrinsics)
             end
             emit.blank
-            # Class structs go into the shared layouts header.
-            # write_class emits the struct with method DECLARATIONS
-            # only (no bodies — those come via write_class_definitions
-            # below in the captured body buf, qualified out-of-line).
-            # Layouts header now contains: forward decls + full struct
-            # definitions, so any future TU can see all program types
-            # by #include "frozone_layouts.hpp".
+            # Stage 2: each class struct goes to its own
+            # `class/<Name>.hpp` (stream `:class_hpp_<Name>`). The
+            # per-class hpp opens with `#include "../frozone_base.hpp"`
+            # + `#include "<Parent>.hpp"` (transitive parent chain) +
+            # its own `namespace Ruby { ... }` wrap. layouts.hpp then
+            # `#include`s every class/<Name>.hpp in topo order, so any
+            # TU that includes layouts.hpp gets the same world as before.
+            # Per-class TUs continue to #include "frozone_layouts.hpp"
+            # for backward compat (Stage 3 will narrow this).
+            classes.each do |k|
+              hpp_stream = :"class_hpp_#{k.name}"
+              emit.with_stream(hpp_stream) do
+                emit.line "#pragma once"
+                emit.line %|#include "../frozone_base.hpp"|
+                emit.line %|#include "#{k.parent}.hpp"| if k.parent
+                emit.blank
+                emit.line "namespace Ruby {"
+                emit.blank
+                write_class(emit, k, call_surface)
+                emit.line "}  // namespace Ruby"
+                emit.blank
+              end
+              emit.with_stream(:layouts) do
+                emit.line %|#include "class/#{k.name}.hpp"|
+              end
+            end
+            # Post-class content (singletons, int literals, intrinsics
+            # include, class var storage) needs its own namespace Ruby
+            # wrap because the per-class includes above each closed
+            # their own namespace block.
             emit.with_stream(:layouts) do
-              classes.each { |k| write_class(emit, k, call_surface) }
+              emit.blank
+              emit.line "namespace Ruby {"
+              emit.blank
             end
             write_singletons(emit, classes)
             emit.blank

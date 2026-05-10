@@ -74,12 +74,17 @@ module Frozone
               static:   "#{base}_static.cpp",
               main:     "#{base}_main.cpp",
             }
-            # Per-class streams (`:class_<ClassName>` from Step 7) map
-            # to `frozone_class_<ClassName>.cpp`. Pattern-resolved so
-            # we don't have to enumerate the ~650 classes here.
+            # Per-class streams. Two patterns:
+            #   `:class_<ClassName>`     → `frozone_class_<ClassName>.cpp`
+            #     (TU split, Step 7 from earlier work)
+            #   `:class_hpp_<ClassName>` → `class/<ClassName>.hpp`
+            #     (layouts.hpp split Stage 2 — project_layouts_split.md;
+            #     each class struct lives in its own header)
             stream_to_filename = lambda do |stream|
               return fixed[stream] if fixed.key?(stream)
-              return "#{base}_#{stream}.cpp" if stream.to_s.start_with?("class_")
+              s = stream.to_s
+              return "class/#{s.sub('class_hpp_', '')}.hpp" if s.start_with?("class_hpp_")
+              return "#{base}_#{stream}.cpp" if s.start_with?("class_")
               raise "unknown emit stream: #{stream}"
             end
             written_count = 0
@@ -89,6 +94,9 @@ module Frozone
               # ||= but never written to — shouldn't happen but defensive).
               next if content.empty?
               path = File.join(cpp_dir, stream_to_filename.call(stream))
+              # Per-class hpps land in cpp/gen/box/class/; ensure
+              # the subdir exists before write.
+              FileUtils.mkdir_p(File.dirname(path))
               # Atomic write-if-different so unchanged streams keep
               # their mtime → make's incremental rebuild works.
               prev = File.read(path) rescue nil

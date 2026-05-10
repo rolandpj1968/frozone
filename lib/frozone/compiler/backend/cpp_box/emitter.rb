@@ -1809,15 +1809,17 @@ module Frozone
             blank
           end
 
-          # frozone_layouts.hpp — class struct definitions.
-          # Opens by including frozone_base.hpp (forward decls, tables,
-          # universal-protocol types). Per-class TUs that include
-          # frozone_layouts.hpp transitively pick up base.hpp.
+          # frozone_layouts.hpp — meta-header (Stage 2 of the layouts.hpp
+          # split). Opens with #include "frozone_base.hpp", then includes
+          # every per-class class/<Name>.hpp in topo order (each per-class
+          # hpp opens its own `namespace Ruby { ... }` block), then opens
+          # a final `namespace Ruby { }` for the post-class content
+          # (int literals, intrinsics impls, class-var storage). Per-class
+          # TUs continue to #include "frozone_layouts.hpp" for transparent
+          # backward-compat (Stage 3 will narrow that further).
           def write_layouts_open
             line "#pragma once"
             line %(#include "frozone_base.hpp")
-            blank
-            line "namespace Ruby {"
             blank
           end
 
