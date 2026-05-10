@@ -1,5 +1,6 @@
 require 'tempfile'
 require 'etc'
+require 'fileutils'
 
 RUBY_SPEC_DIR = ENV.fetch('RUBY_SPEC_DIR', File.expand_path('spec/ruby-spec', __dir__))
 MSPEC_RUNNER  = File.expand_path('spec/mspec_runner.rb', __dir__)
@@ -296,13 +297,37 @@ def time_command(cmd, env: {}, timeout: nil)
 end
 
 def box_compile(stub_name)
-  cpp = "cpp/gen/box/#{stub_name}.cpp"
   bin = "cpp/gen/box/#{stub_name}_box"
+  # Wipe prior per-stub artefacts so a previous run's leftover .cpp files
+  # don't sneak into this stub's compile glob (mirrors integration_spec).
+  FileUtils.rm_rf(Dir.glob("cpp/gen/box/#{stub_name}*"))
+  FileUtils.rm_rf("cpp/gen/box/class")
   return [:gen_fail, nil] unless system({"FROZONE_CPP" => "1", "FROZONE_BOX_FIRST" => "1"},
     "bundle exec ruby frozone.rb --aot bench/stubs/#{stub_name}.rb",
     out: File::NULL, err: File::NULL)
-  cflags = "-I #{ONIGMO_INCLUDE} #{ONIGMO_LIB} -lgc"
-  return [:compile_fail, nil] unless system("g++ -O2 -std=c++20 #{cpp} -o #{bin} #{cflags} 2>/dev/null")
+  cpp_files = Dir.glob("cpp/gen/box/#{stub_name}*.cpp").sort
+  return [:gen_fail, nil] if cpp_files.empty?
+  # Parallel compile each .cpp → .o, then link.
+  parallel = ENV.fetch('JOBS', Etc.nprocessors.to_s).to_i
+  queue = Queue.new
+  cpp_files.each { |f| queue << f }
+  o_files = []
+  errors = []
+  mutex = Mutex.new
+  Array.new(parallel) do
+    Thread.new do
+      loop do
+        cpp = queue.pop(true) rescue break
+        o = cpp.sub(/\.cpp\z/, '.o')
+        ok = system("g++ -O2 -std=c++20 -I #{ONIGMO_INCLUDE} -c #{cpp} -o #{o} 2>/dev/null")
+        mutex.synchronize { ok ? o_files << o : errors << cpp }
+      end
+    end
+  end.each(&:join)
+  return [:compile_fail, nil] unless errors.empty?
+  return [:compile_fail, nil] unless system(
+    "g++ -O2 -std=c++20 #{o_files.sort.join(' ')} #{ONIGMO_LIB} -lgc -o #{bin} 2>/dev/null"
+  )
   [:ok, bin]
 end
 

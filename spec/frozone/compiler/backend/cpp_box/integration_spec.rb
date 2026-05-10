@@ -1,6 +1,7 @@
 require 'tempfile'
 require 'open3'
 require 'fileutils'
+require 'etc'
 
 # Integration tests for box-first: end-to-end pipeline check.
 # For each test stub:
@@ -52,12 +53,43 @@ def run_box_first(stub_name)
       # for designated-init in the array_at helper. Was -std=c++17
       # without Onigmo flags — both broke after Regexp landed.
       # -O0: integration spec asserts on stdout, not runtime perf.
-      # 3.2× faster compile than -O2 (2 min vs 7 min on the heaviest
-      # stub) — full integration_spec drops from ~40 min to ~12 min.
-      compile_args = ['g++', '-std=c++20', '-O0', *cpp_files,
-                      '-I', ONIGMO_INC, ONIGMO_LIB, '-lgc', '-o', bin.path]
-      compile_out, compile_status = Open3.capture2e(*compile_args)
-      raise "g++ compile failed for #{stub_name}:\n#{compile_out}" unless compile_status.success?
+      # Parallel compile: each .cpp → .o in its own g++ process via a
+      # thread pool, then a single link step. g++ itself is single-
+      # threaded per TU, so the win comes from fan-out across stubs that
+      # emit many per-class .cpp files.
+      parallel = ENV.fetch('JOBS', Etc.nprocessors.to_s).to_i
+      queue = Queue.new
+      cpp_files.each { |f| queue << f }
+      errors = []
+      mutex = Mutex.new
+      o_files = []
+
+      Array.new(parallel) do
+        Thread.new do
+          loop do
+            cpp = queue.pop(true) rescue break
+            o_path = cpp.sub(/\.cpp\z/, '.o')
+            out, status = Open3.capture2e(
+              'g++', '-std=c++20', '-O0', '-c', cpp,
+              '-I', ONIGMO_INC, '-o', o_path
+            )
+            mutex.synchronize do
+              if status.success?
+                o_files << o_path
+              else
+                errors << "g++ -c failed for #{cpp}:\n#{out}"
+              end
+            end
+          end
+        end
+      end.each(&:join)
+
+      raise errors.first unless errors.empty?
+
+      link_args = ['g++', '-std=c++20', '-O0', *o_files.sort,
+                   ONIGMO_LIB, '-lgc', '-o', bin.path]
+      link_out, link_status = Open3.capture2e(*link_args)
+      raise "g++ link failed for #{stub_name}:\n#{link_out}" unless link_status.success?
 
       run_out, run_status = Open3.capture2e(bin.path)
       raise "run of #{stub_name} exited non-zero (#{run_status.exitstatus}):\n#{run_out}" unless run_status.success?
