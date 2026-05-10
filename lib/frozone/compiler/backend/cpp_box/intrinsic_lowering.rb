@@ -89,6 +89,18 @@ module Frozone
             file_owned file_grpowned file_zero
             file_chardev file_blockdev file_pipe file_socket file_symlink
             file_setuid file_setgid file_sticky file_identical
+            env_get env_set env_delete env_key_q env_value_q env_key
+            env_keys env_values env_size env_pairs env_to_hash env_clear
+            random_new random_new_seed random_seed random_state
+            random_rand random_bytes random_urandom random_marshal_load
+            process_pid process_uid process_euid process_gid process_egid
+            process_groups process_kill process_clock_getres
+            process_wait process_wait2 process_waitall
+            process_status_exitstatus process_status_pid process_status_termsig
+            dir_pwd dir_chdir dir_home dir_entries dir_glob
+            dir_mkdir dir_rmdir dir_exist dir_empty
+            dir_open dir_close dir_read dir_seek dir_rewind
+            dir_fileno dir_for_fd dir_fchdir dir_chroot dir_mktmpdir
           ]).freeze
 
           TEMPLATES = {

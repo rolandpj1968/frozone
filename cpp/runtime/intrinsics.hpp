@@ -34,6 +34,10 @@
 #ifndef FROZONE_INTRINSICS_HPP
 #define FROZONE_INTRINSICS_HPP
 
+// (Includes for stdlib/POSIX headers used here live in box_first.hpp,
+// since this file is `#include`d inside `namespace Ruby { ... }` and
+// nesting <csignal>/<unistd.h> there breaks symbol resolution.)
+
 // ---- String --------------------------------------------------------
 
 // `String#index(sub, offset = :__unset__)` — find first byte-position
@@ -1136,6 +1140,565 @@ inline BasicObject* intrinsic_file_identical(BasicObject* a, BasicObject* b) {
   if (::stat(fs_detail::str_of(a).c_str(), &sa) != 0) return false_instance();
   if (::stat(fs_detail::str_of(b).c_str(), &sb) != 0) return false_instance();
   return boxed_bool(sa.st_dev == sb.st_dev && sa.st_ino == sb.st_ino);
+}
+
+// ---- ENV -----------------------------------------------------------
+//
+// Thin wrappers over getenv/setenv/unsetenv + walks of POSIX
+// `environ`. lib/core/4.0/env.rb does all the encoding wrapping,
+// validation, and Hash-like sugar; we just supply raw String values
+// (or nil for absent keys) and bool predicates.
+
+extern "C" char **environ;
+
+namespace env_detail {
+  inline BasicObject* string_of(const char* s, std::size_t n) {
+    return new String(s, n);
+  }
+  inline BasicObject* string_of(const char* s) { return string_of(s, std::strlen(s)); }
+}
+
+inline BasicObject* intrinsic_env_get(BasicObject* key) {
+  const char* v = std::getenv(fs_detail::str_of(key).c_str());
+  return v ? env_detail::string_of(v) : nil_instance();
+}
+
+inline BasicObject* intrinsic_env_set(BasicObject* key, BasicObject* value) {
+  std::string k = fs_detail::str_of(key);
+  if (value == nil_instance()) {
+    ::unsetenv(k.c_str());
+    return nil_instance();
+  }
+  ::setenv(k.c_str(), fs_detail::str_of(value).c_str(), 1);
+  return value;
+}
+
+inline BasicObject* intrinsic_env_delete(BasicObject* key) {
+  std::string k = fs_detail::str_of(key);
+  const char* v = std::getenv(k.c_str());
+  if (!v) return nil_instance();
+  BasicObject* old = env_detail::string_of(v);
+  ::unsetenv(k.c_str());
+  return old;
+}
+
+inline BasicObject* intrinsic_env_key_q(BasicObject* key) {
+  return boxed_bool(std::getenv(fs_detail::str_of(key).c_str()) != nullptr);
+}
+
+inline BasicObject* intrinsic_env_value_q(BasicObject* value) {
+  std::string v = fs_detail::str_of(value);
+  for (char** e = environ; *e; ++e) {
+    const char* eq = std::strchr(*e, '=');
+    if (!eq) continue;
+    if (v.size() == std::strlen(eq + 1) && std::memcmp(eq + 1, v.data(), v.size()) == 0) {
+      return true_instance();
+    }
+  }
+  return false_instance();
+}
+
+inline BasicObject* intrinsic_env_key(BasicObject* value) {
+  std::string v = fs_detail::str_of(value);
+  for (char** e = environ; *e; ++e) {
+    const char* eq = std::strchr(*e, '=');
+    if (!eq) continue;
+    if (v.size() == std::strlen(eq + 1) && std::memcmp(eq + 1, v.data(), v.size()) == 0) {
+      return env_detail::string_of(*e, static_cast<std::size_t>(eq - *e));
+    }
+  }
+  return nil_instance();
+}
+
+inline BasicObject* intrinsic_env_keys() {
+  Array* arr = new Array();
+  for (char** e = environ; *e; ++e) {
+    const char* eq = std::strchr(*e, '=');
+    if (!eq) continue;
+    arr->data.push_back(env_detail::string_of(*e, static_cast<std::size_t>(eq - *e)));
+  }
+  return arr;
+}
+
+inline BasicObject* intrinsic_env_values() {
+  Array* arr = new Array();
+  for (char** e = environ; *e; ++e) {
+    const char* eq = std::strchr(*e, '=');
+    if (!eq) continue;
+    arr->data.push_back(env_detail::string_of(eq + 1));
+  }
+  return arr;
+}
+
+inline BasicObject* intrinsic_env_size() {
+  std::int64_t n = 0;
+  for (char** e = environ; *e; ++e) ++n;
+  return new Integer(n);
+}
+
+inline BasicObject* intrinsic_env_pairs() {
+  Array* arr = new Array();
+  for (char** e = environ; *e; ++e) {
+    const char* eq = std::strchr(*e, '=');
+    if (!eq) continue;
+    Array* pair = new Array();
+    pair->data.push_back(env_detail::string_of(*e, static_cast<std::size_t>(eq - *e)));
+    pair->data.push_back(env_detail::string_of(eq + 1));
+    arr->data.push_back(pair);
+  }
+  return arr;
+}
+
+inline BasicObject* intrinsic_env_to_hash() {
+  Hash* h = new Hash();
+  for (char** e = environ; *e; ++e) {
+    const char* eq = std::strchr(*e, '=');
+    if (!eq) continue;
+    BasicObject* k = env_detail::string_of(*e, static_cast<std::size_t>(eq - *e));
+    BasicObject* v = env_detail::string_of(eq + 1);
+    h->data[k] = v;
+  }
+  return h;
+}
+
+inline BasicObject* intrinsic_env_clear() {
+  // unsetenv invalidates environ entries while iterating, so snapshot
+  // keys first.
+  std::vector<std::string> keys;
+  for (char** e = environ; *e; ++e) {
+    const char* eq = std::strchr(*e, '=');
+    if (!eq) continue;
+    keys.emplace_back(*e, static_cast<std::size_t>(eq - *e));
+  }
+  for (auto& k : keys) ::unsetenv(k.c_str());
+  return nil_instance();
+}
+
+// ---- Random --------------------------------------------------------
+//
+// The legacy Ruby intrinsic (lib/frozone/vm/intrinsics/random_intrinsics.rb,
+// used by the interpreted backend) does extensive coercion theatre —
+// Rational/Complex/to_int — that's now performed in Ruby-land before
+// the call. Box-first's wrappers in lib/core/4.0/random.rb already
+// pass concrete Integer/Float/nil/Range, so we keep these narrow.
+// Anything weird aborts with a loud message.
+//
+// `v` (the receiver) is the Random instance for instance methods, or
+// nil for the class-method (`Random.rand`, `Random.bytes`) path. The
+// generated `Random` struct has no ivars, so per-instance state lives
+// in a side-map keyed on the BasicObject* identity. The default
+// (nil-receiver) PRNG uses a separate global engine.
+
+namespace random_detail {
+  inline std::mt19937_64& default_rng() {
+    static std::mt19937_64 rng{std::random_device{}()};
+    return rng;
+  }
+  inline std::uint64_t fresh_seed() {
+    static std::random_device rd;
+    return (static_cast<std::uint64_t>(rd()) << 32) | static_cast<std::uint64_t>(rd());
+  }
+  // (engine, original_seed) keyed by Random*. Original seed is what
+  // Random#seed returns — mt19937_64 doesn't expose recoverable seed,
+  // so we remember what we initialised with.
+  struct Slot { std::mt19937_64 engine; std::uint64_t seed; };
+  inline std::unordered_map<BasicObject*, Slot>& per_obj() {
+    static std::unordered_map<BasicObject*, Slot> m;
+    return m;
+  }
+  inline Slot& slot_for(BasicObject* v, std::uint64_t default_seed) {
+    auto& m = per_obj();
+    auto it = m.find(v);
+    if (it != m.end()) return it->second;
+    return m.emplace(v, Slot{std::mt19937_64{default_seed}, default_seed}).first->second;
+  }
+  inline std::mt19937_64& rng_for(BasicObject* v) {
+    if (v == nil_instance()) return default_rng();
+    return slot_for(v, fresh_seed()).engine;
+  }
+}
+
+inline BasicObject* intrinsic_random_new_seed(BasicObject* /*receiver*/) {
+  // Ruby returns a 128-bit seed; box-first stays 64-bit until users
+  // notice (de-intrinsification flagged this is a soundness gap).
+  return new Integer(static_cast<int64_t>(random_detail::fresh_seed()));
+}
+
+inline BasicObject* intrinsic_random_new(BasicObject* /*receiver*/, BasicObject* seed) {
+  // Default seed comes from the keyword default in random.rb
+  // (`seed = Intrinsics.random_new_seed(nil)`), so seed is always an
+  // Integer here. Allocate a fresh Random instance and seed its slot.
+  // static_cast<Integer*>: Ruby wrapper guarantees seed is Integer or
+  // nil; the protocol is one-step removed from user code.
+  std::uint64_t s = (seed == nil_instance())
+      ? random_detail::fresh_seed()
+      : static_cast<std::uint64_t>(static_cast<Integer*>(seed)->raw_);
+  // Direct allocation — going through Random_CLASS->m_new would loop
+  // because Random.new is itself defined as Intrinsics.random_new
+  // in lib/core/4.0/random.rb. The struct has no required init.
+  Random* obj = new Random();
+  random_detail::per_obj().emplace(obj, random_detail::Slot{std::mt19937_64{s}, s});
+  return obj;
+}
+
+inline BasicObject* intrinsic_random_seed(BasicObject* v) {
+  if (v == nil_instance()) return new Integer(0);  // default rng has no recoverable seed
+  auto& m = random_detail::per_obj();
+  auto it = m.find(v);
+  return new Integer(it == m.end() ? 0 : static_cast<int64_t>(it->second.seed));
+}
+
+inline BasicObject* intrinsic_random_state(BasicObject* v) {
+  return intrinsic_random_seed(v);  // box-first conflates state ≅ seed
+}
+
+inline BasicObject* intrinsic_random_rand(BasicObject* v, BasicObject* n) {
+  auto& rng = random_detail::rng_for(v);
+  if (n == nil_instance()) {
+    std::uniform_real_distribution<double> dist(0.0, 1.0);
+    return new Float(dist(rng));
+  }
+  // m_class() identity check before static_cast — the Ruby wrapper
+  // Random#rand passes n through directly, so n could be Integer,
+  // Float, Range, or anything else. Branch on the actual class
+  // rather than guessing.
+  if (n->m_class() == reinterpret_cast<BasicObject*>(&Integer_CLASS)) {
+    int64_t bound = static_cast<Integer*>(n)->raw_;
+    if (bound <= 0) {
+      std::fprintf(stderr, "[box-first] random_rand: bound must be positive\n");
+      std::abort();
+    }
+    std::uniform_int_distribution<int64_t> dist(0, bound - 1);
+    return new Integer(dist(rng));
+  }
+  if (n->m_class() == reinterpret_cast<BasicObject*>(&Float_CLASS)) {
+    double bound = static_cast<Float*>(n)->raw_;
+    std::uniform_real_distribution<double> dist(0.0, bound);
+    return new Float(dist(rng));
+  }
+  std::fprintf(stderr, "[box-first] random_rand: non-Integer/Float arg not yet supported (got %s)\n",
+               n->ruby_class_name());
+  std::abort();
+}
+
+inline BasicObject* intrinsic_random_bytes(BasicObject* v, BasicObject* n_obj) {
+  // static_cast<Integer*>: random.rb wrapper passes Intrinsics arg
+  // through unchanged; the user signed up for the protocol when they
+  // called bytes(n) on Random, so n_obj is Integer.
+  int64_t n = static_cast<Integer*>(n_obj)->raw_;
+  auto& rng = random_detail::rng_for(v);
+  String* s = new String();
+  s->bytes.resize(n);
+  std::uniform_int_distribution<int> dist(0, 255);
+  for (int64_t i = 0; i < n; ++i) s->bytes[i] = static_cast<unsigned char>(dist(rng));
+  return s;
+}
+
+inline BasicObject* intrinsic_random_urandom(BasicObject* /*receiver*/, BasicObject* n_obj) {
+  // static_cast<Integer*>: same protocol as random_bytes — the Ruby
+  // wrapper takes an Integer count.
+  int64_t n = static_cast<Integer*>(n_obj)->raw_;
+  String* s = new String();
+  s->bytes.resize(n);
+  std::ifstream urandom("/dev/urandom", std::ios::binary);
+  if (!urandom) {
+    std::fprintf(stderr, "[box-first] random_urandom: /dev/urandom unavailable\n");
+    std::abort();
+  }
+  urandom.read(reinterpret_cast<char*>(s->bytes.data()), n);
+  return s;
+}
+
+inline BasicObject* intrinsic_random_marshal_load(BasicObject* /*v*/, BasicObject* /*data*/) {
+  // marshal-roundtrip of Random state is exotic and unused by hello.rb
+  // / frozone.rb itself. Loud abort until something asks for it.
+  std::fprintf(stderr, "[box-first] random_marshal_load not yet supported\n");
+  std::abort();
+}
+
+// ---- Process -------------------------------------------------------
+//
+// Pure libc passthroughs for the read-only id queries (pid/uid/gid).
+// process_kill takes (sig, pid) — sig may be Integer (12) or String
+// ("INT"); we cover both. process_clock_getres mirrors the existing
+// process_clock_gettime in being clock_id-blind (steady_clock res).
+// process_wait* and process_status_* are deferred — they need a
+// ProcessStatusObject + GLOBALS["$?"] update path that no current
+// caller exercises.
+
+inline BasicObject* intrinsic_process_pid()  { return new Integer(static_cast<int64_t>(::getpid()));  }
+inline BasicObject* intrinsic_process_uid()  { return new Integer(static_cast<int64_t>(::getuid()));  }
+inline BasicObject* intrinsic_process_euid() { return new Integer(static_cast<int64_t>(::geteuid())); }
+inline BasicObject* intrinsic_process_gid()  { return new Integer(static_cast<int64_t>(::getgid()));  }
+inline BasicObject* intrinsic_process_egid() { return new Integer(static_cast<int64_t>(::getegid())); }
+
+inline BasicObject* intrinsic_process_groups() {
+  int n = ::getgroups(0, nullptr);
+  if (n < 0) n = 0;
+  std::vector<gid_t> buf(static_cast<std::size_t>(n));
+  if (n > 0) ::getgroups(n, buf.data());
+  Array* arr = new Array();
+  for (gid_t g : buf) arr->data.push_back(new Integer(static_cast<int64_t>(g)));
+  return arr;
+}
+
+inline BasicObject* intrinsic_process_kill(BasicObject* sig, BasicObject* pid) {
+  // Signal: Integer (12) or String/Symbol ("INT", :KILL). Strip
+  // optional leading "SIG". A handful of common names are enough for
+  // anything self-host frozone runs into; rare names → loud abort.
+  int sig_num = 0;
+  if (sig->m_class() == reinterpret_cast<BasicObject*>(&Integer_CLASS)) {
+    sig_num = static_cast<int>(static_cast<Integer*>(sig)->raw_);
+  } else {
+    // Accept either String or Symbol — both go to a const char*.
+    std::string name;
+    if (sig->m_class() == reinterpret_cast<BasicObject*>(&String_CLASS)) {
+      name = fs_detail::str_of(sig);
+    } else if (auto* sym = dynamic_cast<Symbol*>(sig)) {
+      name = sym->name_;
+    } else {
+      std::fprintf(stderr, "[box-first] process_kill: unsupported sig type %s\n", sig->ruby_class_name());
+      std::abort();
+    }
+    if (name.rfind("SIG", 0) == 0) name.erase(0, 3);
+    if      (name == "HUP")  sig_num = SIGHUP;
+    else if (name == "INT")  sig_num = SIGINT;
+    else if (name == "QUIT") sig_num = SIGQUIT;
+    else if (name == "KILL") sig_num = SIGKILL;
+    else if (name == "TERM") sig_num = SIGTERM;
+    else if (name == "USR1") sig_num = SIGUSR1;
+    else if (name == "USR2") sig_num = SIGUSR2;
+    else if (name == "STOP") sig_num = SIGSTOP;
+    else if (name == "CONT") sig_num = SIGCONT;
+    else if (name == "CHLD") sig_num = SIGCHLD;
+    else {
+      std::fprintf(stderr, "[box-first] process_kill: signal '%s' not yet mapped\n", name.c_str());
+      std::abort();
+    }
+  }
+  // static_cast<Integer*>: pid is a syscall arg, by Ruby convention
+  // always Integer; no coercion at this layer.
+  ::kill(static_cast<pid_t>(static_cast<Integer*>(pid)->raw_), sig_num);
+  return nil_instance();
+}
+
+inline BasicObject* intrinsic_process_clock_getres(BasicObject* /*clock_id*/, BasicObject* unit) {
+  // steady_clock granularity in nanoseconds; same unit handling as
+  // process_clock_gettime above so callers see consistent behaviour.
+  using period = std::chrono::steady_clock::period;
+  double res_seconds = static_cast<double>(period::num) / static_cast<double>(period::den);
+  if (auto* _s = dynamic_cast<Symbol*>(unit)) {
+    const char* n = _s->name_;
+    if (std::strcmp(n, "second")      == 0) return new Integer(static_cast<int64_t>(res_seconds));
+    if (std::strcmp(n, "millisecond") == 0) return new Integer(static_cast<int64_t>(res_seconds * 1e3));
+    if (std::strcmp(n, "microsecond") == 0) return new Integer(static_cast<int64_t>(res_seconds * 1e6));
+    if (std::strcmp(n, "nanosecond")  == 0) return new Integer(static_cast<int64_t>(res_seconds * 1e9));
+  }
+  return new Float(res_seconds);
+}
+
+inline BasicObject* intrinsic_process_wait(BasicObject* /*receiver*/, BasicObject* /*pid*/, BasicObject* /*flags*/) {
+  std::fprintf(stderr, "[box-first] process_wait not yet supported (needs ProcessStatusObject + $? update)\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_process_wait2(BasicObject* /*receiver*/, BasicObject* /*pid*/, BasicObject* /*flags*/) {
+  std::fprintf(stderr, "[box-first] process_wait2 not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_process_waitall(BasicObject* /*receiver*/) {
+  std::fprintf(stderr, "[box-first] process_waitall not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_process_status_exitstatus(BasicObject* /*obj*/) {
+  std::fprintf(stderr, "[box-first] process_status_exitstatus not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_process_status_pid(BasicObject* /*obj*/) {
+  std::fprintf(stderr, "[box-first] process_status_pid not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_process_status_termsig(BasicObject* /*obj*/) {
+  std::fprintf(stderr, "[box-first] process_status_termsig not yet supported\n");
+  std::abort();
+}
+
+// ---- Dir -----------------------------------------------------------
+//
+// Most of these are <filesystem> one-liners. dir_open/read/close/seek
+// hold a per-instance DIR* — the Ruby wrapper guarantees the receiver
+// is a Dir, but we don't yet have a place to hang the DIR* off the
+// generated `Dir` struct (no @dir_handle ivar). For now those abort
+// loudly. dir_glob, dir_chdir, dir_pwd, dir_home, dir_entries,
+// dir_mkdir/rmdir, dir_exist/empty cover the path-based queries that
+// frozone itself uses.
+
+inline BasicObject* intrinsic_dir_pwd() {
+  return fs_detail::string_of(std::filesystem::current_path().string());
+}
+
+inline BasicObject* intrinsic_dir_chdir(BasicObject* path, BasicObject* block) {
+  std::error_code ec;
+  // path == nil → Dir.chdir restores HOME; block form chdirs in,
+  // yields, then restores. We only support path-only no-block here.
+  if (block != nil_instance()) {
+    std::fprintf(stderr, "[box-first] dir_chdir with block not yet supported\n");
+    std::abort();
+  }
+  if (path == nil_instance()) {
+    const char* h = std::getenv("HOME");
+    if (h) std::filesystem::current_path(h, ec);
+  } else {
+    std::filesystem::current_path(fs_detail::str_of(path), ec);
+  }
+  return new Integer(0);
+}
+
+inline BasicObject* intrinsic_dir_home(BasicObject* user) {
+  if (user == nil_instance()) {
+    const char* h = std::getenv("HOME");
+    return h ? fs_detail::string_of(h) : nil_instance();
+  }
+  // Per-user lookup needs <pwd.h> — defer until needed.
+  std::fprintf(stderr, "[box-first] dir_home(user) not yet supported (per-user pwd lookup)\n");
+  std::abort();
+}
+
+inline BasicObject* intrinsic_dir_entries(BasicObject* path) {
+  Array* arr = new Array();
+  std::error_code ec;
+  // "." and ".." come first to match MRI ordering.
+  arr->data.push_back(fs_detail::string_of("."));
+  arr->data.push_back(fs_detail::string_of(".."));
+  for (auto& e : std::filesystem::directory_iterator(fs_detail::str_of(path), ec)) {
+    arr->data.push_back(fs_detail::string_of(e.path().filename().string()));
+  }
+  return arr;
+}
+
+inline BasicObject* intrinsic_dir_glob(BasicObject* pattern, BasicObject* /*flags*/, BasicObject* /*base*/, BasicObject* /*sort*/) {
+  // Minimal glob — supports simple `*` and literal paths only.
+  // MRI's glob has many flags (FNM_DOTMATCH, FNM_CASEFOLD, etc.) that
+  // we ignore for now; real bash-style glob expansion is its own
+  // project. Sufficient for `Dir["*.rb"]` and `Dir["lib/**/*.rb"]`
+  // when the pattern is a single literal-or-star segment. More
+  // complex patterns abort with a flag asking the user to file an issue.
+  std::string pat = fs_detail::str_of(pattern);
+  Array* arr = new Array();
+  // Catch the "**" recursive glob upfront.
+  if (pat.find("**") != std::string::npos) {
+    // Split pattern at **/* into prefix + suffix-extension.
+    std::size_t star = pat.find("**");
+    std::string prefix = pat.substr(0, star);
+    if (!prefix.empty() && prefix.back() == '/') prefix.pop_back();
+    if (prefix.empty()) prefix = ".";
+    std::string suffix = pat.substr(star + 2);  // skip "**"
+    if (!suffix.empty() && suffix.front() == '/') suffix.erase(0, 1);
+    // Build an extension matcher: last dot-segment.
+    std::string ext;
+    if (auto dot = suffix.rfind('.'); dot != std::string::npos) ext = suffix.substr(dot);
+    std::error_code ec;
+    for (auto it = std::filesystem::recursive_directory_iterator(prefix, ec);
+         it != std::filesystem::recursive_directory_iterator(); it.increment(ec)) {
+      if (ec) break;
+      if (!it->is_regular_file()) continue;
+      std::string s = it->path().string();
+      if (ext.empty() || (s.size() >= ext.size() && s.compare(s.size() - ext.size(), ext.size(), ext) == 0)) {
+        arr->data.push_back(fs_detail::string_of(s));
+      }
+    }
+    return arr;
+  }
+  // Single-segment * glob.
+  std::size_t slash = pat.rfind('/');
+  std::string dir = (slash == std::string::npos) ? "." : pat.substr(0, slash);
+  std::string base = (slash == std::string::npos) ? pat : pat.substr(slash + 1);
+  std::size_t star = base.find('*');
+  if (star == std::string::npos) {
+    // Literal — exists check.
+    if (std::filesystem::exists(pat)) arr->data.push_back(fs_detail::string_of(pat));
+    return arr;
+  }
+  std::string prefix = base.substr(0, star);
+  std::string suffix = base.substr(star + 1);
+  std::error_code ec;
+  for (auto& e : std::filesystem::directory_iterator(dir, ec)) {
+    std::string n = e.path().filename().string();
+    if (n.size() < prefix.size() + suffix.size()) continue;
+    if (n.compare(0, prefix.size(), prefix) != 0) continue;
+    if (n.compare(n.size() - suffix.size(), suffix.size(), suffix) != 0) continue;
+    arr->data.push_back(fs_detail::string_of((dir == "." ? n : dir + "/" + n)));
+  }
+  return arr;
+}
+
+inline BasicObject* intrinsic_dir_mkdir(BasicObject* path, BasicObject* /*perm*/) {
+  std::error_code ec;
+  std::filesystem::create_directory(fs_detail::str_of(path), ec);
+  if (ec) {
+    std::fprintf(stderr, "[box-first] dir_mkdir failed: %s\n", ec.message().c_str());
+    std::abort();
+  }
+  return new Integer(0);
+}
+
+inline BasicObject* intrinsic_dir_rmdir(BasicObject* path) {
+  std::error_code ec;
+  std::filesystem::remove(fs_detail::str_of(path), ec);
+  return new Integer(0);
+}
+
+inline BasicObject* intrinsic_dir_exist(BasicObject* path) {
+  std::error_code ec;
+  return boxed_bool(std::filesystem::is_directory(fs_detail::str_of(path), ec));
+}
+
+inline BasicObject* intrinsic_dir_empty(BasicObject* path) {
+  std::error_code ec;
+  return boxed_bool(std::filesystem::is_empty(fs_detail::str_of(path), ec));
+}
+
+// Per-instance DIR* state — the generated Dir struct has no slot
+// for it, so attempting to use these from Ruby aborts. Listed for
+// completeness of HPP_INTRINSICS coverage.
+inline BasicObject* intrinsic_dir_open(BasicObject* /*path*/) {
+  std::fprintf(stderr, "[box-first] dir_open not yet supported (no DIR* slot on Dir)\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_dir_close(BasicObject* /*obj*/) {
+  std::fprintf(stderr, "[box-first] dir_close not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_dir_read(BasicObject* /*obj*/) {
+  std::fprintf(stderr, "[box-first] dir_read not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_dir_seek(BasicObject* /*obj*/, BasicObject* /*pos*/) {
+  std::fprintf(stderr, "[box-first] dir_seek not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_dir_rewind(BasicObject* /*obj*/) {
+  std::fprintf(stderr, "[box-first] dir_rewind not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_dir_fileno(BasicObject* /*obj*/) {
+  std::fprintf(stderr, "[box-first] dir_fileno not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_dir_for_fd(BasicObject* /*fd*/) {
+  std::fprintf(stderr, "[box-first] dir_for_fd not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_dir_fchdir(BasicObject* /*fd*/, BasicObject* /*block*/) {
+  std::fprintf(stderr, "[box-first] dir_fchdir not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_dir_chroot(BasicObject* /*path*/) {
+  std::fprintf(stderr, "[box-first] dir_chroot not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_dir_mktmpdir(BasicObject* /*prefix*/, BasicObject* /*block*/) {
+  std::fprintf(stderr, "[box-first] dir_mktmpdir not yet supported\n");
+  std::abort();
 }
 
 #endif
