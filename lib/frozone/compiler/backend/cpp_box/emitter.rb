@@ -814,6 +814,13 @@ module Frozone
                 # if yes, every collected literal that names a
                 # method gets added. See the post-walk loop below.
                 symbol_literals << node.value.to_sym
+              elsif node.is_a?(Ast::BlockArg) && node.value_node.is_a?(Ast::SymbolLiteral)
+                # `&:upcase` synthesises a SymbolProc that calls the
+                # named method on its first arg — see lambda_emitter's
+                # from_block_as_proc. Emission requires the slot to
+                # exist on BasicObject's universal surface, so widen
+                # eagerly (don't wait for the conditional post-walk).
+                mark_wide.call(node.value_node.value.to_sym)
               end
               node.children.each { |c| walk.call(c, host) } if node.respond_to?(:children)
             end

@@ -188,10 +188,27 @@ module Frozone
           # `this` by reference, dangling for ivar-stored Procs.
           def from_block_as_proc(block_node, locals)
             if block_node.is_a?(Ast::BlockArg)
-              # &:sym would need SymbolProc-style coercion (synthesise a
-              # block that calls the named method on the arg). Defer.
+              # &:sym → synthesise a single-arg Proc that forwards to the
+              # named method on its first arg. The Symbol literal is
+              # known at emit time, so we pick the canonical C++ method
+              # name via Cpp.method_name and emit a virtual call. The
+              # closed-world emitter ensures the slot exists on
+              # BasicObject (else this fails to compile, which is the
+              # right outcome — pruner gap, not a runtime issue).
               if block_node.value_node.is_a?(Ast::SymbolLiteral)
-                raise Cpp::EmissionError, "&:sym block-arg coercion not yet supported"
+                sym = block_node.value_node.value
+                m = Cpp.method_name(sym)
+                body = +""
+                body << "if (__blkargs__->data.empty()) { "
+                body << "std::fprintf(stderr, \"[box-first] &:#{sym} Proc invoked with no args\\n\"); "
+                body << "std::abort(); } "
+                body << "BasicObject* __recv__ = __blkargs__->data[0]; "
+                body << "Array* __rest__ = &EMPTY_ARGS; "
+                body << "if (__blkargs__->data.size() > 1) { __rest__ = new Array(); "
+                body << "for (std::size_t _i = 1; _i < __blkargs__->data.size(); ++_i) "
+                body << "__rest__->data.push_back(__blkargs__->data[_i]); } "
+                body << "return __recv__->#{m}(__rest__);"
+                return "(new Proc([](Array* __blkargs__) -> BasicObject* { #{body} }))"
               end
               return "static_cast<Proc*>(#{from_expr(block_node.value_node, locals)})"
             end
