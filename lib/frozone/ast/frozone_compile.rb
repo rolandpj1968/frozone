@@ -44,9 +44,11 @@ module Frozone
         end
 
         if ENV['FROZONE_CPP']
+          src = @block_node&.source_location&.first || $PROGRAM_NAME
+          base = File.basename(src.to_s, '.rb')
           if ENV['FROZONE_BOX_FIRST']
             require_relative '../compiler/backend/cpp_box/emitter'
-            emitter = Frozone::Compiler::Backend::CppBox::Emitter.new
+            emitter = Frozone::Compiler::Backend::CppBox::Emitter.new(base_name: base)
           else
             require_relative '../compiler/cpp_emitter'
             emitter = Frozone::Compiler::CppEmitter.new
@@ -60,8 +62,6 @@ module Frozone
           backend_subdir = ENV['FROZONE_BOX_FIRST'] ? 'box' : 'legacy'
           cpp_dir = File.expand_path("../../../cpp/gen/#{backend_subdir}", __dir__)
           FileUtils.mkdir_p(cpp_dir)
-          src = @block_node&.source_location&.first || $PROGRAM_NAME
-          base = File.basename(src.to_s, '.rb')
           # Box-first emitter returns a Hash {stream_name => content}
           # for the TU split (Step 1: :default + :main). Legacy cpp
           # emitter still returns a single String. Handle both.

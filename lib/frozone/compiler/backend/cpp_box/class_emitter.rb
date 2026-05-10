@@ -123,7 +123,7 @@ module Frozone
                   # (pragma once); they document Path 2's precise
                   # per-class dependency set so a future Stage can
                   # narrow the PCH scope without re-deriving.
-                  emit.line %(#include "frozone_all.hpp")
+                  emit.line %(#include "#{emit.base_name}_all.hpp")
                   emit.line %(#include "class/#{k.name}.hpp")
                   # Pair with the partner header in the non-self direction:
                   #  - Foo.cpp also includes Foo_eigenclass.hpp (for
@@ -226,7 +226,7 @@ module Frozone
               hpp_stream = :"class_hpp_#{k.name}"
               emit.with_stream(hpp_stream) do
                 emit.line "#pragma once"
-                emit.line %|#include "../frozone_base.hpp"|
+                emit.line %|#include "../#{emit.base_name}_base.hpp"|
                 emit.line %|#include "#{k.parent}.hpp"| if k.parent
                 emit.blank
                 emit.line "namespace Ruby {"

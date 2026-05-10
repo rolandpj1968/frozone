@@ -36,7 +36,16 @@ module Frozone
           # we don't want to abort the build for it).
           attr_accessor :strict_emit
 
-          def initialize
+          attr_reader :base_name
+
+          def initialize(base_name: "frozone")
+            # `base_name` is the per-binary file prefix. e.g. fib.rb gens
+            # `fib_all.hpp`, `fib_base.hpp`, `fib.cpp`. Defaults to
+            # "frozone" so frozone_box's gen layout is unchanged.
+            # Threaded into every `#include "frozone_*.hpp"` literal so
+            # the include strings track the actual filenames the writer
+            # emits to disk.
+            @base_name = base_name
             # Multi-stream output. Each stream becomes one .cpp/.hpp file
             # in the output directory.
             # - `:layouts` is the shared header (frozone_layouts.hpp) —
@@ -1911,8 +1920,8 @@ module Frozone
             # this TU references Type, Errno_, all-classes via the
             # MainObject body and singleton initializers, so it
             # genuinely needs the full meta-include.
-            line %(#include "frozone_all.hpp")
-            line %(#include "frozone_layouts.hpp")
+            line %(#include "#{@base_name}_all.hpp")
+            line %(#include "#{@base_name}_layouts.hpp")
             blank
           end
 
@@ -1961,13 +1970,13 @@ module Frozone
           # directly + their precise per-class refs.
           def write_layouts_open
             line "#pragma once"
-            line %(#include "frozone_base.hpp")
+            line %(#include "#{@base_name}_base.hpp")
             blank
           end
 
           def write_layouts_close
             blank
-            line %(#include "frozone_post.hpp")
+            line %(#include "#{@base_name}_post.hpp")
             blank
           end
 
@@ -2000,7 +2009,7 @@ module Frozone
           # TUs include this in place of layouts.hpp.
           def write_post_open
             line "#pragma once"
-            line %(#include "frozone_base.hpp")
+            line %(#include "#{@base_name}_base.hpp")
             POST_HPP_VALUE_TYPES.each do |t|
               line %(#include "class/#{t}.hpp")
               line %(#include "class/#{t}_eigenclass.hpp")
@@ -2026,9 +2035,9 @@ module Frozone
           # first-include doesn't change.
           def write_all_hpp_open
             line "#pragma once"
-            line %(#include "frozone_base.hpp")
-            line %(#include "frozone_post.hpp")
-            line %(#include "frozone_int_literals.hpp")
+            line %(#include "#{@base_name}_base.hpp")
+            line %(#include "#{@base_name}_post.hpp")
+            line %(#include "#{@base_name}_int_literals.hpp")
             # Stage 4: layouts.hpp dropped from the PCH cache root.
             # Per-class .cpps now rely on host_class_refs (lexical-
             # scope-aware via Reachability.resolve_const_to_flat)
@@ -2048,7 +2057,7 @@ module Frozone
           # decl of Integer.
           def write_int_literals_hpp_open
             line "#pragma once"
-            line %(#include "frozone_base.hpp")
+            line %(#include "#{@base_name}_base.hpp")
             blank
             line "namespace Ruby {"
             blank
@@ -2063,9 +2072,9 @@ module Frozone
           # `Integer _f_i_N(NLL);` storage. Needs Integer struct
           # complete (for the constructor), so includes class/Integer.hpp.
           def write_int_literals_cpp_open
-            line %(#include "frozone_base.hpp")
+            line %(#include "#{@base_name}_base.hpp")
             line %(#include "class/Integer.hpp")
-            line %(#include "frozone_int_literals.hpp")
+            line %(#include "#{@base_name}_int_literals.hpp")
             blank
             line "namespace Ruby {"
             blank
@@ -2082,8 +2091,8 @@ module Frozone
           # Lets per-class TUs and the static-state TU call them
           # without ODR violations or inline-ism.
           def write_universe_open
-            line %(#include "frozone_all.hpp")
-            line %(#include "frozone_layouts.hpp")
+            line %(#include "#{@base_name}_all.hpp")
+            line %(#include "#{@base_name}_layouts.hpp")
             blank
             line "namespace Ruby {"
             blank
@@ -2101,8 +2110,8 @@ module Frozone
           # frozone.cpp shrinks the main TU and (with PCH) lets it
           # compile in parallel with class TUs.
           def write_static_open
-            line %(#include "frozone_all.hpp")
-            line %(#include "frozone_layouts.hpp")
+            line %(#include "#{@base_name}_all.hpp")
+            line %(#include "#{@base_name}_layouts.hpp")
             blank
             line "namespace Ruby {"
             blank

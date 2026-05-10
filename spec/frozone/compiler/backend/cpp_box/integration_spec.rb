@@ -1,5 +1,6 @@
 require 'tempfile'
 require 'open3'
+require 'fileutils'
 
 # Integration tests for box-first: end-to-end pipeline check.
 # For each test stub:
@@ -25,10 +26,24 @@ def run_box_first(stub_name)
   cpp_path  = File.join(GEN_DIR, "#{stub_name}.cpp")
 
   Dir.chdir(PROJECT_ROOT) do
+    # Wipe prior per-stub artefacts so a previous run's leftover .cpp
+    # files don't sneak into this stub's compile glob. Per-class hpps
+    # in class/ are also rewritten so we drop the whole subdir.
+    FileUtils.rm_rf(Dir.glob(File.join(GEN_DIR, "#{stub_name}*")))
+    FileUtils.rm_rf(File.join(GEN_DIR, 'class'))
+
     env = { 'FROZONE_CPP' => '1', 'FROZONE_BOX_FIRST' => '1' }
     out, status = Open3.capture2e(env, 'bundle', 'exec', 'ruby', 'frozone.rb', '--aot', stub_path)
     raise "frozone --aot failed for #{stub_name}:\n#{out}" unless status.success?
     raise "expected #{cpp_path} to exist after generation" unless File.exist?(cpp_path)
+
+    # Layouts split (project_layouts_split.md) emits per-stub
+    # multi-file gen: <stub>.cpp + <stub>_main.cpp + <stub>_static.cpp +
+    # <stub>_universe.cpp + <stub>_int_literals.cpp + <stub>_class_*.cpp
+    # plus <stub>_*.hpp + class/*.hpp. All .cpp files must be compiled
+    # together; headers come along via #include.
+    cpp_files = Dir.glob(File.join(GEN_DIR, "#{stub_name}*.cpp")).sort
+    raise "no .cpp files for #{stub_name}" if cpp_files.empty?
 
     bin = Tempfile.new(["box_#{stub_name}_", ''])
     bin.close
@@ -39,7 +54,7 @@ def run_box_first(stub_name)
       # -O0: integration spec asserts on stdout, not runtime perf.
       # 3.2× faster compile than -O2 (2 min vs 7 min on the heaviest
       # stub) — full integration_spec drops from ~40 min to ~12 min.
-      compile_args = ['g++', '-std=c++20', '-O0', cpp_path,
+      compile_args = ['g++', '-std=c++20', '-O0', *cpp_files,
                       '-I', ONIGMO_INC, ONIGMO_LIB, '-lgc', '-o', bin.path]
       compile_out, compile_status = Open3.capture2e(*compile_args)
       raise "g++ compile failed for #{stub_name}:\n#{compile_out}" unless compile_status.success?
