@@ -604,6 +604,14 @@ module Frozone
                   walk.call(val, flat)
                 elsif val.is_a?(Vm::ObjectObject)
                   consts[flat] = val unless FUSED_VM_BOOTSTRAP_CONSTANTS.include?(flat)
+                elsif val.is_a?(Vm::HoistedConstantSentinel)
+                  # --hoist-class-consts moved this constant's initialiser
+                  # to the execute phase. The slot is occupied by a sentinel
+                  # at load time. Register it here so ConstantWrite at
+                  # execute time can resolve the flat name and rebind the
+                  # storage; build_user_constant_accessors detects the
+                  # sentinel and emits a writable nil_instance() storage cell.
+                  consts[flat] = val
                 end
               end
             }
@@ -642,6 +650,17 @@ module Frozone
                   body: "return static_cast<BasicObject*>(#{rt_accessor});",
                 )
               end
+              if val.is_a?(Vm::HoistedConstantSentinel)
+                # --hoist-class-consts moved this constant's init to the
+                # execute phase. The slot starts as nil_instance() and gets
+                # rebound by the hoisted ConstantWrite at runtime via the
+                # reference-returning accessor.
+                next Runtime::KernelFn.new(
+                  name: "k_#{name}",
+                  signature: "BasicObject*& k_#{name}()",
+                  body: "static BasicObject* val = nil_instance(); return val;",
+                )
+              end
               if primitive_vm_value?(val)
                 # Primitive — emit_vm_value gives the literal expr.
                 # Cached in a static for identity stability + skip
@@ -659,9 +678,13 @@ module Frozone
                   rescue Cpp::EmissionError => e
                     raise Cpp::EmissionError, "constant #{name}: #{e.message} (silent-fallback removed; implement proper static-init or hoist to runtime — see docs/box-first-load-execute-split.md)"
                   end
+                # Return-by-reference so ConstantWrite can rebind the
+                # storage via `(k_FOO() = newval)`. Read sites still
+                # compile unchanged — `BasicObject*&` auto-converts to
+                # `BasicObject*` everywhere a pointer is expected.
                 Runtime::KernelFn.new(
                   name: "k_#{name}",
-                  signature: "BasicObject* k_#{name}()",
+                  signature: "BasicObject*& k_#{name}()",
                   body: "static BasicObject* val = #{expr}; return val;",
                 )
               else
@@ -671,7 +694,7 @@ module Frozone
                 klass_name = val.class_object.full_name.to_s.gsub("::", "_")
                 Runtime::KernelFn.new(
                   name: "k_#{name}",
-                  signature: "BasicObject* k_#{name}()",
+                  signature: "BasicObject*& k_#{name}()",
                   body: "static BasicObject* val = new #{klass_name}(); return val;",
                 )
               end
@@ -2405,6 +2428,10 @@ module Frozone
               end
               @user_constants.each do |flat, obj|
                 next if primitive_vm_value?(obj)  # literals have no ivars
+                # Hoisted constants start as nil_instance() and get bound
+                # by the runtime ConstantWrite — no static ivar snapshot
+                # to emit (they're not a Vm::ObjectObject yet).
+                next if obj.is_a?(Vm::HoistedConstantSentinel)
                 # Phase 2 fusion: fused-singleton user constants (e.g.
                 # `Frozone::Vm::Intrinsics::FNIL = NilObject::NIL`)
                 # alias the runtime nil/false/true singletons. Their

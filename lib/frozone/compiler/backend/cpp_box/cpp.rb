@@ -301,6 +301,8 @@ module Frozone
             when Ast::LocalVariableRead then from_local_variable_read(node)
             when Ast::ConstantRead then from_constant_read(node)
             when Ast::ConstantPath then from_constant_path(node)
+            when Ast::ConstantWrite then from_constant_write(node, locals)
+            when Ast::ConstantPathWrite then from_constant_path_write(node, locals)
             when Ast::InstanceVariableRead then "this->iv_#{node.name.to_s.delete_prefix('@')}"
             when Ast::InstanceVariableWrite
               rhs = from_expr(node.value_node, locals)

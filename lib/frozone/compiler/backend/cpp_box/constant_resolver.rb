@@ -100,6 +100,51 @@ module Frozone
           def from_constant_read(node) = format_constant(resolve_constant([node.name.to_s]) ||
             (raise Cpp::EmissionError, "ConstantRead: unresolved constant :#{node.name}"))
 
+          # `FOO = expr` — rebind a user_constant's storage cell.
+          # build_user_constant_accessors emits non-fused accessors as
+          # `BasicObject*& k_FOO()` returning a reference into the
+          # static cell, so `(k_FOO() = value)` rebinds it. Fused
+          # singletons (NIL/TRUE/FALSE) and class-CLASS singletons aren't
+          # writable storage — raise so callers see the gap.
+          def from_constant_write(node, locals)
+            flat = resolve_constant([node.name.to_s]) ||
+              (raise Cpp::EmissionError, "ConstantWrite: unresolved constant :#{node.name}")
+            ensure_writable_constant!(flat, "ConstantWrite")
+            "(k_#{flat}() = #{from_expr(node.value_node, locals)})"
+          end
+
+          # `Foo::Bar = expr` — same as ConstantWrite but the target is
+          # path-resolved. Only static-parent paths (parent is a constant
+          # shape) are supported; dynamic-parent writes (e.g. `expr::X = …`)
+          # would need a runtime constant-set surface that doesn't yet
+          # exist.
+          def from_constant_path_write(node, locals)
+            parent = node.parent_node
+            unless static_constant_parent?(parent)
+              raise Cpp::EmissionError, "ConstantPathWrite: dynamic parent (#{parent.class.name}) not supported"
+            end
+            parts = collect_path(parent) + [node.name.to_s]
+            absolute = parts.first == "" || parent.is_a?(Ast::RootNamespaceNode)
+            flat = absolute ? resolve_top_level(parts.reject(&:empty?)) : resolve_constant(parts)
+            unless flat
+              raise Cpp::EmissionError, "ConstantPathWrite: unresolved path #{parts.join('::')}"
+            end
+            ensure_writable_constant!(flat, "ConstantPathWrite")
+            "(k_#{flat}() = #{from_expr(node.value_node, locals)})"
+          end
+
+          # Fused singletons + class-CLASS singletons are not writable
+          # storage — they're returned by-value or as address-of-static.
+          # Raising here keeps the runtime abort message specific.
+          def ensure_writable_constant!(flat, kind)
+            if FUSED_CONSTANT_TARGETS.key?(flat) || FUSED_CLASS_TARGETS.key?(flat)
+              raise Cpp::EmissionError, "#{kind}: target #{flat} is a fused singleton — not writable"
+            end
+            unless @user_constants.key?(flat)
+              raise Cpp::EmissionError, "#{kind}: target #{flat} is not a user_constant — not writable (class CLASS singleton or runtime-only)"
+            end
+          end
+
           def from_constant_path(node)
             # Dynamic parent receiver (e.g. `self.class::CONST`,
             # `expr.class::CONST`) — the receiver class isn't known at
