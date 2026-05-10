@@ -2371,11 +2371,18 @@ module Frozone
                 runtime_cls = runtime_by_name[entry[:runtime]] or next
                 singleton = runtime_cls.singleton or next
                 # "NilClass" → "NIL_CLASS"; bootstrap accessor is
-                # `k_Frozone_Vm_Core_NIL_CLASS_CLASS()`.
+                # `k_Frozone_Vm_Core_NIL_CLASS_CLASS()` — only emitted
+                # when frozen-AOT is the build root (Frozone::Vm::Core::
+                # NIL_CLASS is in @user_constants then). Sub-stubs (fib.rb
+                # etc.) skip the iv_class_object init; the singleton's
+                # default nil_instance() is fine since static dispatch
+                # never reads it.
                 snake_upper = entry[:runtime].gsub(/([A-Z]+)([A-Z][a-z])/, '\\1_\\2')
                                              .gsub(/([a-z\\d])([A-Z])/, '\\1_\\2').upcase
-                vm_class_accessor = "k_Frozone_Vm_Core_#{snake_upper}_CLASS()"
-                line "#{singleton}.iv_class_object = #{vm_class_accessor};"
+                vm_const_flat = :"Frozone_Vm_Core_#{snake_upper}_CLASS"
+                if @user_constants.key?(vm_const_flat)
+                  line "#{singleton}.iv_class_object = k_#{vm_const_flat}();"
+                end
                 line "#{singleton}.iv_instance_variables_hash = new Hash();"
                 line "#{singleton}.iv_frozen_object = true_instance();"
               end

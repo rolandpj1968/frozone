@@ -1901,15 +1901,31 @@ module Frozone
           )
 
           # Global variable accessors — back GlobalVariableRead /
-          # GlobalVariableWrite by the GLOBALS hash that the
-          # interpreter's init_globals also writes through. Match-data
-          # globals stay special-cased (g_last_match()); everything
-          # else routes through these helpers.
+          # GlobalVariableWrite. Storage is a static Hash* local to the
+          # universe TU, lazily allocated on first access so static-init
+          # order doesn't matter. Pre-de-fusion this routed through
+          # k_Frozone_Vm_GLOBALS() (a Frozone-Ruby Hash constant
+          # accessor), but that only existed when frozone-AOT was the
+          # build root. Sub-stubs (fib.rb etc.) compiled to a TU that
+          # referenced the missing accessor. Same architectural smell
+          # as the C-form fusion (#79): gen depending on Frozone-
+          # internal types. Match-data globals stay special-cased
+          # (g_last_match()); everything else routes through these.
+          G_GLOBALS_STORAGE_FN = KernelFn.new(
+            name: "g_globals_storage",
+            signature: "Hash* g_globals_storage()",
+            body: <<~CPP.chomp,
+              static Hash* g = nullptr;
+              if (!g) g = new Hash();
+              return g;
+            CPP
+          )
+
           GLOBAL_OR_NIL_FN = KernelFn.new(
             name: "g_global_or_nil",
             signature: "BasicObject* g_global_or_nil(const char* name)",
             body: <<~CPP.chomp,
-              Hash* g = static_cast<Hash*>(k_Frozone_Vm_GLOBALS());
+              Hash* g = g_globals_storage();
               auto it = g->data.find(intern(name));
               return it == g->data.end() ? nil_instance() : it->second;
             CPP
@@ -1918,21 +1934,27 @@ module Frozone
           # Auto-init array-valued globals so `[a] + $LOAD_PATH + b`
           # and `$LOAD_PATH.map { … }` work even before init_globals
           # has populated GLOBALS[$LOAD_PATH]. Mirrors MRI's "$LOAD_PATH
-          # is always an Array" guarantee. The fresh ArrayObject is
-          # also stored back so subsequent reads see the same instance.
+          # is always an Array" guarantee. Pre-de-fusion this wrapped
+          # the raw Array in a Frozone_Vm_ArrayObject (the Frozone-Ruby
+          # array wrapper class) so frozen-AOT user code that called
+          # `$LOAD_PATH.is_a?(Frozone::Vm::ArrayObject)` got true. That
+          # wrapper only existed when frozen-AOT was the build root;
+          # sub-stubs failed at `Frozone_Vm_ArrayObject_CLASS not
+          # declared`. Now we always use a plain Array (the C++
+          # universal Array struct) — frozen-AOT introspection that
+          # specifically checks the wrapper type loses, but no other
+          # caller cares: `.map`, `<<`, `+`, etc. all work on Array.
           GLOBAL_ARRAY_FN = KernelFn.new(
             name: "g_global_array",
             signature: "BasicObject* g_global_array(const char* name)",
             body: <<~CPP.chomp,
-              Hash* g = static_cast<Hash*>(k_Frozone_Vm_GLOBALS());
+              Hash* g = g_globals_storage();
               Symbol* key = intern(name);
               auto it = g->data.find(key);
               if (it != g->data.end() && it->second != nil_instance()) return it->second;
-              Array* raw = new Array();
-              BasicObject* vm_arr = (&Frozone_Vm_ArrayObject_CLASS)->m_new(
-                new Array({static_cast<BasicObject*>(raw)}));
-              g->data[key] = vm_arr;
-              return vm_arr;
+              Array* arr = new Array();
+              g->data[key] = arr;
+              return arr;
             CPP
           )
 
@@ -1940,7 +1962,7 @@ module Frozone
             name: "g_global_set",
             signature: "BasicObject* g_global_set(const char* name, BasicObject* val)",
             body: <<~CPP.chomp,
-              Hash* g = static_cast<Hash*>(k_Frozone_Vm_GLOBALS());
+              Hash* g = g_globals_storage();
               g->data[intern(name)] = val;
               return val;
             CPP
@@ -1970,7 +1992,7 @@ module Frozone
             MM_DISPATCH_FN, CM_DISPATCH_FN,
             INIT_ONIGMO_FN, MATCH_DATA_GLOBAL, REGEXP_MATCH_FN, MATCH_DATA_CAP_FN,
             STRING_GSUB_FN, STRING_SCAN_FN, STRING_UNPACK_FN,
-            GLOBAL_OR_NIL_FN, GLOBAL_ARRAY_FN, GLOBAL_SET_FN,
+            G_GLOBALS_STORAGE_FN, GLOBAL_OR_NIL_FN, GLOBAL_ARRAY_FN, GLOBAL_SET_FN,
             FIBER_STORAGE_GLOBAL,
           ].freeze
 
