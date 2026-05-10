@@ -41,7 +41,11 @@ module Frozone
           def lower(name, *arg_strs)
             template = TEMPLATES[name]
             return template.call(*arg_strs) if template
-            return "intrinsic_#{name}(#{arg_strs.join(', ')})" if HPP_INTRINSICS.include?(name)
+            # Map Ruby's `?` predicate suffix to C++ `_q` so callers can
+            # write `Intrinsics.foo?(...)` naturally and the C++ side
+            # uses the canonical `intrinsic_foo_q` name.
+            cpp_name = name.to_s.end_with?('?') ? "#{name.to_s.chomp('?')}_q" : name.to_s
+            return "intrinsic_#{cpp_name}(#{arg_strs.join(', ')})" if HPP_INTRINSICS.include?(cpp_name.to_sym)
             raise Cpp::EmissionError, "intrinsic :#{name} not yet supported"
           rescue ArgumentError => e
             raise Cpp::EmissionError, "intrinsic :#{name}: #{e.message}"

@@ -42,6 +42,7 @@
 #include <fstream>
 #include <sstream>
 #include <chrono>
+#include <csignal>
 
 #define FROZONE_GC_INIT() GC_INIT()
 
