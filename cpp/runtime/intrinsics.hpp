@@ -1701,4 +1701,496 @@ inline BasicObject* intrinsic_dir_mktmpdir(BasicObject* /*prefix*/, BasicObject*
   std::abort();
 }
 
+// ---- Integer -------------------------------------------------------
+//
+// Most integer ops are already in TEMPLATES (cpp_box/intrinsic_lowering.rb)
+// — __plus_/__minus_/__star_, comparisons, spaceship, bitnot.
+// These cover the remaining 13 that lib/core/4.0/integer.rb dispatches
+// through Intrinsics.
+//
+// Box-first stays Int64 throughout. Overflow is undefined behaviour
+// today; project_int_soundness.md / project_box_first_overflow_soundness.md
+// track the bignum-promotion gap. Where Ruby semantics differ from
+// C++ (notably `/` and `%` rounding direction), we apply the Ruby
+// adjustment.
+
+namespace integer_detail {
+  // Ruby `/` rounds toward negative infinity; C++ truncates toward
+  // zero. Adjust quotient when signs differ and there's a remainder.
+  inline int64_t ruby_div(int64_t a, int64_t b) {
+    int64_t q = a / b;
+    if ((a % b != 0) && ((a < 0) != (b < 0))) q -= 1;
+    return q;
+  }
+  // Ruby `%` returns a result with the divisor's sign. C++'s `%`
+  // returns a result with the dividend's sign. Adjust by adding
+  // divisor when signs differ.
+  inline int64_t ruby_mod(int64_t a, int64_t b) {
+    int64_t r = a % b;
+    if (r != 0 && ((r < 0) != (b < 0))) r += b;
+    return r;
+  }
+}
+
+// static_cast<Integer*>: integer.rb dispatches `Intrinsics.integer_X(self, n)`
+// only when `n.is_a?(Integer)` is already true (see e.g. `def +(v) = v.is_a?(Integer) ? Intrinsics.integer__plus_(...)` patterns).
+// So both args are guaranteed Integer at the intrinsic boundary.
+inline BasicObject* intrinsic_integer_bitand(BasicObject* s, BasicObject* o) {
+  return new Integer(static_cast<Integer*>(s)->raw_ & static_cast<Integer*>(o)->raw_);
+}
+inline BasicObject* intrinsic_integer_bitor(BasicObject* s, BasicObject* o) {
+  return new Integer(static_cast<Integer*>(s)->raw_ | static_cast<Integer*>(o)->raw_);
+}
+inline BasicObject* intrinsic_integer_bitxor(BasicObject* s, BasicObject* o) {
+  return new Integer(static_cast<Integer*>(s)->raw_ ^ static_cast<Integer*>(o)->raw_);
+}
+
+inline BasicObject* intrinsic_integer__div_(BasicObject* s, BasicObject* o) {
+  int64_t b = static_cast<Integer*>(o)->raw_;
+  if (b == 0) {
+    std::fprintf(stderr, "[box-first] divided by 0\n");
+    std::abort();  // ZeroDivisionError - integer.rb's __raise_zero_division__ is supposed to fire upstream
+  }
+  return new Integer(integer_detail::ruby_div(static_cast<Integer*>(s)->raw_, b));
+}
+
+inline BasicObject* intrinsic_integer__mod_(BasicObject* s, BasicObject* o) {
+  int64_t b = static_cast<Integer*>(o)->raw_;
+  if (b == 0) {
+    std::fprintf(stderr, "[box-first] divided by 0\n");
+    std::abort();
+  }
+  return new Integer(integer_detail::ruby_mod(static_cast<Integer*>(s)->raw_, b));
+}
+
+inline BasicObject* intrinsic_integer_fdiv(BasicObject* s, BasicObject* o) {
+  // o may be Integer or Float - integer.rb's `def fdiv(n) = Intrinsics.integer_fdiv(self, n)`
+  // is the only caller and accepts both. Branch on actual class.
+  double a = static_cast<double>(static_cast<Integer*>(s)->raw_);
+  if (o->m_class() == reinterpret_cast<BasicObject*>(&Float_CLASS)) {
+    return new Float(a / static_cast<Float*>(o)->raw_);
+  }
+  return new Float(a / static_cast<double>(static_cast<Integer*>(o)->raw_));
+}
+
+// Shifts: Ruby promotes to Bignum on overflow. Box-first stays Int64.
+// For shifts that exceed 63 bits, the C++ behaviour is UB. We mask the
+// shift amount to [0, 63] and accept loss of precision as a known
+// soundness gap (tracked in project_int_soundness.md). Negative shift
+// is the opposite-direction operator (Ruby semantics: `1 << -1` == `1 >> 1`).
+inline BasicObject* intrinsic_integer_lshift(BasicObject* s, BasicObject* n) {
+  int64_t a = static_cast<Integer*>(s)->raw_;
+  int64_t k = static_cast<Integer*>(n)->raw_;
+  if (k >= 64) return new Integer(0);
+  if (k <= -64) return new Integer(a < 0 ? -1 : 0);
+  if (k < 0) return new Integer(a >> (-k));
+  return new Integer(static_cast<int64_t>(static_cast<uint64_t>(a) << k));
+}
+inline BasicObject* intrinsic_integer_rshift(BasicObject* s, BasicObject* n) {
+  int64_t a = static_cast<Integer*>(s)->raw_;
+  int64_t k = static_cast<Integer*>(n)->raw_;
+  if (k >= 64) return new Integer(a < 0 ? -1 : 0);
+  if (k <= -64) return new Integer(0);
+  if (k < 0) return new Integer(static_cast<int64_t>(static_cast<uint64_t>(a) << (-k)));
+  return new Integer(a >> k);
+}
+
+inline BasicObject* intrinsic_integer__pow_(BasicObject* s, BasicObject* v) {
+  // integer.rb's `**` already handles negative exponents and Float
+  // exponents — by the time we're here, v is a non-negative Integer.
+  int64_t base = static_cast<Integer*>(s)->raw_;
+  int64_t exp = static_cast<Integer*>(v)->raw_;
+  if (exp < 0) {
+    // Defensive: should be unreachable per the Ruby wrapper.
+    std::fprintf(stderr, "[box-first] integer__pow_: negative exponent reached intrinsic\n");
+    std::abort();
+  }
+  // Iterative exponentiation by squaring. Overflow on the multiply is
+  // UB today (bignum promotion would catch it); abort on detected
+  // overflow rather than silently wrapping.
+  int64_t result = 1;
+  while (exp > 0) {
+    if (exp & 1) {
+      int64_t prod;
+      if (__builtin_mul_overflow(result, base, &prod)) {
+        std::fprintf(stderr, "[box-first] integer__pow_: overflow (Bignum promotion not yet supported)\n");
+        std::abort();
+      }
+      result = prod;
+    }
+    exp >>= 1;
+    if (exp > 0) {
+      int64_t sq;
+      if (__builtin_mul_overflow(base, base, &sq)) {
+        std::fprintf(stderr, "[box-first] integer__pow_: overflow during squaring (Bignum promotion not yet supported)\n");
+        std::abort();
+      }
+      base = sq;
+    }
+  }
+  return new Integer(result);
+}
+
+inline BasicObject* intrinsic_integer_to_f(BasicObject* s) {
+  return new Float(static_cast<double>(static_cast<Integer*>(s)->raw_));
+}
+
+inline BasicObject* intrinsic_integer_to_s(BasicObject* s, BasicObject* base) {
+  int64_t v = static_cast<Integer*>(s)->raw_;
+  int b = (base == nil_instance()) ? 10 : static_cast<int>(static_cast<Integer*>(base)->raw_);
+  if (b < 2 || b > 36) {
+    std::fprintf(stderr, "[box-first] integer_to_s: invalid radix %d\n", b);
+    std::abort();
+  }
+  // Base 10 → snprintf is fast and handles INT64_MIN correctly.
+  if (b == 10) {
+    char buf[32];
+    int n = std::snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(v));
+    return new String(buf, n);
+  }
+  // Other bases: build digits in reverse, then flip. Handle the
+  // INT64_MIN edge case (negation overflows) by working in unsigned.
+  bool neg = v < 0;
+  uint64_t u = neg ? (static_cast<uint64_t>(-(v + 1)) + 1) : static_cast<uint64_t>(v);
+  char buf[66];
+  int i = 0;
+  if (u == 0) buf[i++] = '0';
+  while (u != 0) {
+    int d = static_cast<int>(u % static_cast<uint64_t>(b));
+    buf[i++] = (d < 10) ? ('0' + d) : ('a' + d - 10);
+    u /= static_cast<uint64_t>(b);
+  }
+  if (neg) buf[i++] = '-';
+  // Reverse in place.
+  for (int j = 0, k = i - 1; j < k; ++j, --k) std::swap(buf[j], buf[k]);
+  return new String(buf, i);
+}
+
+inline BasicObject* intrinsic_integer_to_c(BasicObject* /*s*/) {
+  // Complex requires the Complex class machinery; integer.rb callers
+  // are rare. Loud abort until a real caller arrives.
+  std::fprintf(stderr, "[box-first] integer_to_c not yet supported\n");
+  std::abort();
+}
+inline BasicObject* intrinsic_integer_to_r(BasicObject* /*s*/) {
+  std::fprintf(stderr, "[box-first] integer_to_r not yet supported\n");
+  std::abort();
+}
+
+// ---- String (Tier-B continuation) ----------------------------------
+//
+// Box-first carries no `frozen_` bit on String yet, so freeze/frozen
+// preserve method-chaining shape but don't actually track freezing —
+// matches the behaviour of `chilled?` (always false). Real freeze
+// tracking is a follow-up; the gap is captured in
+// project_string_encoding_specialization.md / object_id_parity.md
+// neighbourhood as another mutability nuance.
+//
+// All intrinsics here cast via static_cast<String*> on String args
+// — the Ruby wrappers in lib/core/4.0/string.rb run __coerce_to_str__
+// upstream (or the call site is `v.is_a?(String) ? Intrinsics.X(self, v)`
+// guarded), so by the intrinsic boundary the args are guaranteed
+// String. Where Integer args are accepted (offsets, codepoints), the
+// same guarantee holds via __coerce_to_int__.
+
+inline BasicObject* intrinsic_string_freeze(BasicObject* self_) {
+  // No frozen_ bit yet; preserve `s.freeze.length` chain shape.
+  return self_;
+}
+inline BasicObject* intrinsic_string_frozen(BasicObject* /*self_*/) {
+  return false_instance();
+}
+
+inline BasicObject* intrinsic_string_dup(BasicObject* self_) {
+  auto* s = static_cast<String*>(self_);
+  auto* r = new String();
+  r->bytes = s->bytes;
+  r->enc = s->enc;
+  return r;
+}
+inline BasicObject* intrinsic_string_clone(BasicObject* self_, BasicObject* /*freeze*/) {
+  // freeze: nil/true/false — we don't track frozen state, so just dup.
+  return intrinsic_string_dup(self_);
+}
+
+inline BasicObject* intrinsic_string_eql(BasicObject* self_, BasicObject* other) {
+  auto* a = static_cast<String*>(self_);
+  auto* b = static_cast<String*>(other);
+  if (a->bytes.size() != b->bytes.size()) return false_instance();
+  return boxed_bool(a->enc == b->enc &&
+                    std::memcmp(a->bytes.data(), b->bytes.data(), a->bytes.size()) == 0);
+}
+
+inline BasicObject* intrinsic_string_concat(BasicObject* self_, BasicObject* other) {
+  auto* s = static_cast<String*>(self_);
+  auto* o = static_cast<String*>(other);
+  s->bytes.insert(s->bytes.end(), o->bytes.begin(), o->bytes.end());
+  s->length_cache_ = -1;
+  return s;
+}
+
+inline BasicObject* intrinsic_string_concat_codepoint(BasicObject* self_, BasicObject* cp) {
+  // cp is an Integer codepoint — encode as UTF-8 onto self.
+  auto* s = static_cast<String*>(self_);
+  int64_t c = static_cast<Integer*>(cp)->raw_;
+  if (c < 0x80) {
+    s->bytes.push_back(static_cast<uint8_t>(c));
+  } else if (c < 0x800) {
+    s->bytes.push_back(static_cast<uint8_t>(0xC0 | (c >> 6)));
+    s->bytes.push_back(static_cast<uint8_t>(0x80 | (c & 0x3F)));
+  } else if (c < 0x10000) {
+    s->bytes.push_back(static_cast<uint8_t>(0xE0 | (c >> 12)));
+    s->bytes.push_back(static_cast<uint8_t>(0x80 | ((c >> 6) & 0x3F)));
+    s->bytes.push_back(static_cast<uint8_t>(0x80 | (c & 0x3F)));
+  } else if (c < 0x110000) {
+    s->bytes.push_back(static_cast<uint8_t>(0xF0 | (c >> 18)));
+    s->bytes.push_back(static_cast<uint8_t>(0x80 | ((c >> 12) & 0x3F)));
+    s->bytes.push_back(static_cast<uint8_t>(0x80 | ((c >> 6) & 0x3F)));
+    s->bytes.push_back(static_cast<uint8_t>(0x80 | (c & 0x3F)));
+  } else {
+    std::fprintf(stderr, "[box-first] string_concat_codepoint: U+%llX out of range\n",
+                 static_cast<long long>(c));
+    std::abort();
+  }
+  s->length_cache_ = -1;
+  return s;
+}
+
+inline BasicObject* intrinsic_string_dedup(BasicObject* self_) {
+  // No string interning yet — `-"foo"` returns self. MRI dedups
+  // frozen string literals; box-first can layer this on later.
+  return self_;
+}
+
+inline BasicObject* intrinsic_string_byteindex(BasicObject* self_, BasicObject* sub, BasicObject* offset = nullptr) {
+  auto* s = static_cast<String*>(self_);
+  auto* p = static_cast<String*>(sub);
+  int64_t off = 0;
+  if (offset && offset != nil_instance() && offset != intern("__unset__")) {
+    off = static_cast<Integer*>(offset)->raw_;
+  }
+  int64_t hsize = static_cast<int64_t>(s->bytes.size());
+  if (off < 0) off = std::max<int64_t>(0, hsize + off);
+  if (off > hsize) return nil_instance();
+  if (p->bytes.empty()) return new Integer(off);
+  for (int64_t i = off; i + static_cast<int64_t>(p->bytes.size()) <= hsize; ++i) {
+    if (std::memcmp(s->bytes.data() + i, p->bytes.data(), p->bytes.size()) == 0) {
+      return new Integer(i);
+    }
+  }
+  return nil_instance();
+}
+
+inline BasicObject* intrinsic_string_byterindex(BasicObject* self_, BasicObject* sub, BasicObject* offset = nullptr) {
+  auto* s = static_cast<String*>(self_);
+  auto* p = static_cast<String*>(sub);
+  int64_t hsize = static_cast<int64_t>(s->bytes.size());
+  int64_t psize = static_cast<int64_t>(p->bytes.size());
+  int64_t end_pos = hsize;
+  if (offset && offset != nil_instance() && offset != intern("__unset__")) {
+    end_pos = static_cast<Integer*>(offset)->raw_;
+    if (end_pos < 0) end_pos += hsize;
+  }
+  if (end_pos > hsize - psize) end_pos = hsize - psize;
+  if (psize == 0) return new Integer(end_pos < 0 ? 0 : end_pos);
+  for (int64_t i = end_pos; i >= 0; --i) {
+    if (std::memcmp(s->bytes.data() + i, p->bytes.data(), psize) == 0) {
+      return new Integer(i);
+    }
+  }
+  return nil_instance();
+}
+
+inline BasicObject* intrinsic_string_byteslice(BasicObject* self_, BasicObject* idx, BasicObject* len) {
+  auto* s = static_cast<String*>(self_);
+  int64_t hsize = static_cast<int64_t>(s->bytes.size());
+  int64_t i = static_cast<Integer*>(idx)->raw_;
+  if (i < 0) i += hsize;
+  if (i < 0 || i > hsize) return nil_instance();
+  int64_t n = (len == nil_instance()) ? 1 : static_cast<Integer*>(len)->raw_;
+  if (n < 0) return nil_instance();
+  if (i + n > hsize) n = hsize - i;
+  return new String(reinterpret_cast<const char*>(s->bytes.data() + i), static_cast<std::size_t>(n));
+}
+
+inline BasicObject* intrinsic_string_ord(BasicObject* self_) {
+  auto* s = static_cast<String*>(self_);
+  if (s->bytes.empty()) {
+    std::fprintf(stderr, "[box-first] String#ord: empty string\n");
+    std::abort();
+  }
+  // Decode first UTF-8 codepoint (BINARY → first byte).
+  uint8_t b = s->bytes[0];
+  if (s->enc == String::BINARY || b < 0x80) return new Integer(b);
+  int n = (b < 0xC0) ? 1 : (b < 0xE0) ? 2 : (b < 0xF0) ? 3 : 4;
+  int64_t cp = b & ((1 << (7 - n)) - 1);
+  for (int j = 1; j < n && j < static_cast<int>(s->bytes.size()); ++j) {
+    cp = (cp << 6) | (s->bytes[j] & 0x3F);
+  }
+  return new Integer(cp);
+}
+
+inline BasicObject* intrinsic_string_oct(BasicObject* self_) {
+  // Ruby `oct` parses octal by default but also recognises 0x/0b/0o
+  // prefixes — actually returns 0 if the prefix doesn't match the
+  // implied base. Use strtoll with base=0 (auto-detect) but default
+  // to octal when no prefix.
+  auto* s = static_cast<String*>(self_);
+  std::string str(reinterpret_cast<const char*>(s->bytes.data()), s->bytes.size());
+  // Skip leading whitespace.
+  std::size_t i = 0;
+  while (i < str.size() && std::isspace(static_cast<unsigned char>(str[i]))) ++i;
+  if (i >= str.size()) return new Integer(0);
+  std::string sub = str.substr(i);
+  // Default to octal — prefix the digits with 0 if no prefix present.
+  bool has_prefix = sub.size() >= 2 &&
+                    (sub[0] == '0' && (sub[1] == 'x' || sub[1] == 'X' ||
+                                       sub[1] == 'b' || sub[1] == 'B' ||
+                                       sub[1] == 'o' || sub[1] == 'O' ||
+                                       sub[1] == 'd' || sub[1] == 'D'));
+  int base = has_prefix ? 0 : 8;
+  if (!has_prefix && (sub[0] == '+' || sub[0] == '-')) {
+    if (sub.size() >= 3 &&
+        (sub[1] == 'x' || sub[1] == 'X' || sub[1] == 'b' || sub[1] == 'B' || sub[1] == 'o' || sub[1] == 'O')) {
+      base = 0;
+      // Need to handle e.g. "+0x10" — but strtoll accepts "+0x10" with base=0.
+    }
+  }
+  char* endp = nullptr;
+  long long v = std::strtoll(sub.c_str(), &endp, base);
+  return new Integer(v);
+}
+
+inline BasicObject* intrinsic_string_rindex(BasicObject* self_, BasicObject* sub, BasicObject* offset) {
+  // Reuse byterindex semantics; rindex is essentially the same for
+  // ASCII and BINARY, and "good enough" for UTF-8 in practice
+  // (codepoint vs byte position divergence is the soundness gap).
+  return intrinsic_string_byterindex(self_, sub, offset);
+}
+
+inline BasicObject* intrinsic_string_each_line(BasicObject* self_, BasicObject* sep, BasicObject* /*limit*/) {
+  // Returns Array<String>. The Ruby wrapper does the block.call iteration;
+  // the intrinsic just produces the line array.
+  auto* s = static_cast<String*>(self_);
+  std::string sep_str = (sep == nil_instance()) ? std::string("\n") : fs_detail::str_of(sep);
+  Array* arr = new Array();
+  if (sep_str.empty()) {
+    // Paragraph mode (sep="") splits on \n\n+; defer to simple newline
+    // for now — uncommon in self-host frozone code.
+    sep_str = "\n";
+  }
+  std::string buf(reinterpret_cast<const char*>(s->bytes.data()), s->bytes.size());
+  std::size_t pos = 0;
+  while (pos < buf.size()) {
+    std::size_t hit = buf.find(sep_str, pos);
+    if (hit == std::string::npos) {
+      arr->data.push_back(fs_detail::string_of(buf.substr(pos)));
+      break;
+    }
+    std::size_t end = hit + sep_str.size();
+    arr->data.push_back(fs_detail::string_of(buf.substr(pos, end - pos)));
+    pos = end;
+  }
+  return arr;
+}
+
+inline BasicObject* intrinsic_string_dump(BasicObject* self_) {
+  // Dump format mirrors inspect but escapes ALL non-ASCII as \xNN
+  // (no UTF-8 passthrough) and ensures the output is round-trippable
+  // via undump. We share the inspect helper's escaping with the
+  // tighter "non-ASCII → \xNN" rule here.
+  auto* s = static_cast<String*>(self_);
+  std::string out;
+  out.reserve(s->bytes.size() + 2);
+  out.push_back('"');
+  for (auto b : s->bytes) {
+    switch (b) {
+      case '"':  out.append("\\\""); break;
+      case '\\': out.append("\\\\"); break;
+      case '\n': out.append("\\n");  break;
+      case '\r': out.append("\\r");  break;
+      case '\t': out.append("\\t");  break;
+      case '\0': out.append("\\0");  break;
+      default:
+        if (b >= 0x20 && b < 0x7F) {
+          out.push_back(static_cast<char>(b));
+        } else {
+          char buf[5];
+          std::snprintf(buf, sizeof(buf), "\\x%02X", b);
+          out.append(buf);
+        }
+    }
+  }
+  out.push_back('"');
+  return new String(out.data(), out.size());
+}
+
+inline BasicObject* intrinsic_string_grapheme_clusters(BasicObject* self_) {
+  // True grapheme cluster boundaries need a Unicode database (UAX #29).
+  // Approximate as codepoints — correct for ASCII and most common
+  // text; wrong for combining marks, emoji ZWJ sequences, etc. Track
+  // as soundness gap in MRI parity index when self-host hits a real
+  // grapheme-aware case.
+  auto* s = static_cast<String*>(self_);
+  Array* arr = new Array();
+  std::size_t i = 0;
+  while (i < s->bytes.size()) {
+    uint8_t b = s->bytes[i];
+    int n = (b < 0x80) ? 1 : (b < 0xC0) ? 1 : (b < 0xE0) ? 2 : (b < 0xF0) ? 3 : 4;
+    if (i + n > s->bytes.size()) n = static_cast<int>(s->bytes.size() - i);
+    arr->data.push_back(new String(reinterpret_cast<const char*>(s->bytes.data() + i), static_cast<std::size_t>(n)));
+    i += n;
+  }
+  return arr;
+}
+
+inline BasicObject* intrinsic_string_slice_bang(BasicObject* self_, BasicObject* idx, BasicObject* len) {
+  // Destructive slice — extract substring and remove it from self.
+  auto* s = static_cast<String*>(self_);
+  int64_t hsize = static_cast<int64_t>(s->bytes.size());
+  int64_t i = static_cast<Integer*>(idx)->raw_;
+  if (i < 0) i += hsize;
+  if (i < 0 || i > hsize) return nil_instance();
+  int64_t n = (len == nil_instance() || len == intern("__unset__"))
+                 ? 1 : static_cast<Integer*>(len)->raw_;
+  if (n < 0) return nil_instance();
+  if (i + n > hsize) n = hsize - i;
+  String* out = new String(reinterpret_cast<const char*>(s->bytes.data() + i), static_cast<std::size_t>(n));
+  s->bytes.erase(s->bytes.begin() + i, s->bytes.begin() + i + n);
+  s->length_cache_ = -1;
+  return out;
+}
+
+// Aborts for genuinely complex Tier-B cases — these have non-trivial
+// semantics (Unicode tables, Complex parser, format-string parser)
+// that nothing in self-host frozone exercises. Each gets a loud
+// message naming the unsupported intrinsic.
+inline BasicObject* intrinsic_string_tr_s(BasicObject* /*s*/, BasicObject* /*from*/, BasicObject* /*to*/) {
+  std::fprintf(stderr, "[box-first] string_tr_s not yet supported\n"); std::abort();
+}
+inline BasicObject* intrinsic_string_unpack1(BasicObject* /*s*/, BasicObject* /*fmt*/, BasicObject* /*offset*/) {
+  std::fprintf(stderr, "[box-first] string_unpack1 not yet supported\n"); std::abort();
+}
+inline BasicObject* intrinsic_string_undump(BasicObject* /*s*/) {
+  std::fprintf(stderr, "[box-first] string_undump not yet supported\n"); std::abort();
+}
+inline BasicObject* intrinsic_string_crypt(BasicObject* /*s*/, BasicObject* /*salt*/) {
+  std::fprintf(stderr, "[box-first] string_crypt not yet supported\n"); std::abort();
+}
+inline BasicObject* intrinsic_string_scrub(BasicObject* /*s*/, BasicObject* /*replacement*/, BasicObject* /*block*/) {
+  std::fprintf(stderr, "[box-first] string_scrub not yet supported\n"); std::abort();
+}
+inline BasicObject* intrinsic_string_unicode_normalize(BasicObject* /*s*/, BasicObject* /*form*/) {
+  std::fprintf(stderr, "[box-first] string_unicode_normalize not yet supported\n"); std::abort();
+}
+inline BasicObject* intrinsic_string_unicode_normalized_q(BasicObject* /*s*/, BasicObject* /*form*/) {
+  std::fprintf(stderr, "[box-first] string_unicode_normalized? not yet supported\n"); std::abort();
+}
+inline BasicObject* intrinsic_string_to_c(BasicObject* /*s*/) {
+  std::fprintf(stderr, "[box-first] string_to_c not yet supported\n"); std::abort();
+}
+inline BasicObject* intrinsic_string_upto(BasicObject* /*s*/, BasicObject* /*end*/, BasicObject* /*excl*/, BasicObject* /*block*/) {
+  std::fprintf(stderr, "[box-first] string_upto not yet supported\n"); std::abort();
+}
+
 #endif

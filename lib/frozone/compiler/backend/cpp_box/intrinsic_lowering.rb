@@ -101,6 +101,18 @@ module Frozone
             dir_mkdir dir_rmdir dir_exist dir_empty
             dir_open dir_close dir_read dir_seek dir_rewind
             dir_fileno dir_for_fd dir_fchdir dir_chroot dir_mktmpdir
+            integer_bitand integer_bitor integer_bitxor
+            integer__div_ integer__mod_ integer_fdiv
+            integer_lshift integer_rshift integer__pow_
+            integer_to_f integer_to_s integer_to_c integer_to_r
+            string_freeze string_frozen string_dup string_clone
+            string_eql string_concat string_concat_codepoint string_dedup
+            string_byteindex string_byterindex string_byteslice
+            string_ord string_oct string_rindex string_each_line
+            string_dump string_grapheme_clusters string_slice_bang
+            string_tr_s string_unpack1 string_undump string_crypt
+            string_scrub string_unicode_normalize
+            string_unicode_normalized_q string_to_c string_upto
           ]).freeze
 
           TEMPLATES = {
